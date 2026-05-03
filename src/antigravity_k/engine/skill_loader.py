@@ -15,18 +15,36 @@ class SkillLoader:
     def __init__(self, project_root: Optional[str] = None):
         self.project_root = Path(project_root) if project_root else Path(os.getcwd())
         self.skills_dir = self.project_root / ".agent" / "skills"
+        
+        # 글로벌 스킬 디렉토리 추가 (사용자 요청: mr.k/program/coding/.agents/skills)
+        # 추가로 기본 홈 디렉토리의 .agents/skills 도 지원
+        home_dir = Path.home()
+        self.global_skills_dirs = [
+            Path("/Users/mr.k/program/coding/.agents/skills"),
+            home_dir / ".agents" / "skills"
+        ]
+        
         self._skills: Dict[str, Dict[str, Any]] = {}
         self.active_skills: List[str] = []
         
         self.refresh()
         
     def refresh(self):
-        """디렉토리를 스캔하여 스킬 목록을 캐시합니다."""
+        """디렉토리를 스캔하여 스킬 목록을 캐시합니다. (전역 -> 로컬 순서로 오버라이드)"""
         self._skills.clear()
-        if not self.skills_dir.exists():
-            return
-            
-        for root, dirs, files in os.walk(self.skills_dir):
+        
+        # 1. 글로벌 스킬 로드
+        for global_dir in self.global_skills_dirs:
+            if global_dir.exists():
+                self._load_from_dir(global_dir, is_global=True)
+                
+        # 2. 로컬 프로젝트 스킬 로드 (글로벌을 덮어씀)
+        if self.skills_dir.exists():
+            self._load_from_dir(self.skills_dir, is_global=False)
+
+    def _load_from_dir(self, directory: Path, is_global: bool = False):
+        """지정된 디렉토리에서 스킬을 로드합니다."""
+        for root, dirs, files in os.walk(directory):
             for file in files:
                 if file.endswith(".md"):
                     file_path = Path(root) / file
@@ -37,8 +55,9 @@ class SkillLoader:
                         
                     parsed = self._parse_markdown(file_path)
                     if parsed:
+                        parsed["is_global"] = is_global
                         self._skills[skill_id] = parsed
-                        logger.debug(f"Loaded skill: {skill_id}")
+                        logger.debug(f"Loaded {'global' if is_global else 'local'} skill: {skill_id}")
 
     def _parse_markdown(self, path: Path) -> Optional[Dict[str, Any]]:
         """마크다운 파일에서 YAML Frontmatter와 Body를 추출합니다."""
