@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Antigravity-K — 로컬 AI 엔지니어링 에이전트 대시보드">
+    <title>Antigravity-K</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/styles/index.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <!-- Diff2Html -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+    
+    <!-- Split.js for resizable panes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.5/split.min.js"></script>
+    
+    <!-- xterm.js for Terminal -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+
+    <!-- Monaco Editor Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 사이드바 -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header" style="flex-direction: column; align-items: flex-start; gap: 6px;">
+                <div style="display: flex; justify-content: flex-start; gap: 8px; width: 100%; align-items: center;">
+                    <span class="logo-icon" style="font-size: 18px;">🚀</span>
+                    <span class="version-badge">v0.2.0</span>
+                </div>
+                <div class="logo" id="antigravity-trigger" style="cursor: pointer; width: 100%;">
+                    <span class="logo-text" style="margin-left: 0;">Antigravity-K</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="chat">
+                    <span class="nav-icon">💬</span>
+                    <span class="nav-label">AI 채팅</span>
+                </a>
+                <a href="#" class="nav-item" data-page="wiki">
+                    <span class="nav-icon">📚</span>
+                    <span class="nav-label">LLM Wiki</span>
+                </a>
+                <a href="#" class="nav-item" data-page="agent">
+                    <span class="nav-icon">🤖</span>
+                    <span class="nav-label">에이전트</span>
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">설정</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 10px;">
+                <div id="system-status" class="status-indicator">
+                    <span class="status-dot offline"></span>
+                    <span class="status-text">연결 확인 중...</span>
+                </div>
+                <div id="system-metrics" style="font-size: 11px; color: var(--text-secondary); display: none;">
+                    RAM: <span id="sys-mem">--</span>MB | CPU: <span id="sys-cpu">--</span>%
+                </div>
+                <button id="toggle-terminal-btn" class="icon-btn" style="text-align: left; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                    💻 터미널 토글
+                </button>
+                <button id="restart-server-btn" class="icon-btn" style="text-align: left; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                    🔄 서버 재시작
+                </button>
+            </div>
+        </aside>
+
+        <!-- 우측 컨테이너 (메인 + 터미널) -->
+        <div id="right-container" style="flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden;">
+            <!-- 메인 콘텐츠 -->
+            <main id="main-content" class="main-content" style="flex: 1; height: 100%; overflow: auto;">
+                <!-- 각 페이지는 JS로 동적 렌더링 -->
+            </main>
+            
+            <!-- 터미널 패널 -->
+            <div id="terminal-container" style="display: none; height: 30%; background: #000; border-top: 1px solid var(--glass-border); padding: 4px;">
+                <div id="terminal" style="width: 100%; height: 100%;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 커맨드 팔레트 (Omnibox) -->
+    <div id="command-palette-overlay" class="command-palette-overlay" style="display: none;">
+        <div class="command-palette">
+            <div class="cmd-header">
+                <span class="cmd-icon">🔍</span>
+                <input type="text" id="cmd-input" placeholder="Search notes or run commands... (Use ↑↓ to navigate)" autocomplete="off" spellcheck="false">
+                <span class="cmd-shortcut">ESC</span>
+            </div>
+            <div class="cmd-results" id="cmd-results">
+                <!-- Results will be injected here via JS -->
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+    <script type="module" src="/src/command_palette.js"></script>
+</body>
+</html>

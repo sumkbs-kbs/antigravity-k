@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antigravity-k"
+version = "0.1.0"
+description = "Antigravity-K: Local Autonomous Engineering Agent for Apple Silicon"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "pyyaml>=6.0.2",
+    "rich>=13.9.0",
+    "typer>=0.13.0",
+    "psutil>=6.1.0",
+    "aiofiles>=24.1.0",
+    "watchfiles>=0.24.0",
+    "mcp>=1.1.2",
+    "networkx>=3.0",
+    "rank-bm25>=0.2.2",
+    "nest-asyncio>=1.6.0",
+]
+
+[project.optional-dependencies]
+# Apple Silicon MLX 추론 (Mac 전용)
+mlx = [
+    "mlx>=0.22.0",
+    "mlx-lm>=0.31.0",
+    "mlx-vlm>=0.2.0",
+]
+# RAG / 문서 파싱
+rag = [
+    "chromadb>=0.5.0",
+    "sentence-transformers>=2.7.0",
+    "python-docx>=1.1.0",
+    "pymupdf>=1.24.0",
+    "openpyxl>=3.1.0",
+    "markdown>=3.7",
+]
+# 개발 & 테스트
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+    "playwright>=1.40.0",
+]
+
+[project.scripts]
+agk = "antigravity_k.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100

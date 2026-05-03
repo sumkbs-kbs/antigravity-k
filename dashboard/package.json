@@ -1,0 +1,16 @@
+{
+  "name": "antigravity-k-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Antigravity-K 로컬 AI 에이전트 대시보드",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

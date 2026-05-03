@@ -1,0 +1,22 @@
+# Antigravity-K Declarative Security Policy
+
+network:
+  allowed_domains:
+    # If this list is empty, default is allow-all. If populated, it enforces default-deny.
+    # - "api.github.com"
+    # - "docs.python.org"
+  blocked_domains:
+    - "malicious-site.com"
+
+filesystem:
+  allowed_paths:
+    # Strict mode. If empty, rely on WorktreeManager default behaviors.
+  read_only_paths:
+    - "/etc"
+    - "/var/log"
+
+process:
+  blocked_commands:
+    - "rm -rf /"
+    - "mkfs"
+    - "nc -e"

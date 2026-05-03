@@ -1,0 +1,167 @@
+integrations:
+  slack:
+    enabled: false
+    bot_token: xoxb-your-slack-bot-token
+    app_token: xapp-your-slack-app-token
+  discord:
+    enabled: false
+    token: your-discord-bot-token
+models:
+  reasoning:
+  - name: deepseek-r1:70b
+    repo: deepseek-r1:70b
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 38
+    context_length: 65536
+    description: DeepSeek R1 — 고급 추론
+  - name: llama4:latest
+    repo: mlx-community/Llama-4-Scout-17B-4bit
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 10
+    context_length: 131072
+    description: Llama 4 Scout — 경량, 빠른 테스트용
+  - name: qwen3.6:latest
+    repo: qwen3.6:latest
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 23
+    context_length: 32768
+    description: Qwen 3.6 — 로컬 최적화 추론
+  - name: nemotron-3-super:latest
+    repo: nemotron-3-super:latest
+    role: reasoning
+    quantization: 8bit
+    estimated_memory_gb: 86
+    context_length: 4096
+    description: Nemotron 3 Super — 대형 파라미터 모델
+  - name: gemma4:31b
+    repo: gemma4:31b
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 19
+    context_length: 8192
+    description: Gemma 4 31B — 구글 오픈 모델
+  - name: claude-3-5-sonnet-20241022
+    repo: anthropic
+    role: reasoning
+    quantization: api
+    estimated_memory_gb: 0.0
+    context_length: 200000
+    description: Claude 3.5 Sonnet API (Cloud)
+  coding:
+  - name: qwen2.5-coder:32b
+    repo: qwen2.5-coder:32b
+    role: coding
+    quantization: 4bit
+    estimated_memory_gb: 18
+    context_length: 32768
+    description: Qwen 코더 — 코드 생성 특화
+  embedding:
+  - name: bge-m3:latest
+    repo: bge-m3:latest
+    role: embedding
+    estimated_memory_gb: 1.0
+    dimensions: 1024
+    description: BGE-M3 — 다국어 임베딩, 한국어 지원
+  - name: nomic-embed-text:latest
+    repo: nomic-embed-text:latest
+    role: embedding
+    estimated_memory_gb: 0.5
+    dimensions: 768
+    description: Nomic Embed — 경량 임베딩
+  vision:
+  - name: llava:13b
+    repo: llava:13b
+    role: vision
+    quantization: 4bit
+    estimated_memory_gb: 8
+    description: LLaVA 13B — 멀티모달 비전
+defaults:
+  reasoning: llama4:latest
+  coding: null
+  embedding: bge-m3:latest
+  vision: null
+memory:
+  total_system_gb: 128
+  max_loaded_gb: 100
+  system_reserve_gb: 16
+  auto_unload: true
+  unload_cooldown_sec: 30
+server:
+  host: 127.0.0.1
+  port: 8000
+  workers: 1
+  log_level: info
+paths:
+  model_cache: ~/.cache/antigravity-k/models
+  logs: ./logs
+workflow:
+  autopilot: true
+  auto_commit: true
+  auto_artifacts: true
+agent_models:
+  CEO: deepseek-r1:70b
+  ENG_MANAGER: deepseek-r1:70b
+  ARCHITECT: deepseek-r1:70b
+  WORKER: qwen2.5-coder:32b
+  QA: qwen3.6:latest
+  CRITIC: qwen3.6:latest
+  DESIGNER: qwen3.6:latest
+  PROPOSER: qwen3.6:latest
+  ARBITER: deepseek-r1:70b
+  default: qwen3.6:latest
+combos:
+  coding-stack:
+    models:
+    - qwen2.5-coder:32b
+    - deepseek-r1:70b
+    - qwen3.6:latest
+    strategy: fallback
+    description: 코딩 작업용 3단계 폴백 체인
+  fast-response:
+    models:
+    - qwen3.6:latest
+    - llama4:latest
+    strategy: round-robin
+    description: 빠른 응답이 필요할 때 경량 모델 순환
+  reasoning-balanced:
+    models:
+    - deepseek-r1:70b
+    - qwen3.6:latest
+    - llama4:latest
+    strategy: load-balance
+    description: 추론 작업 시 메모리 부하 기반 최적 선택
+router:
+  default_strategy: fallback
+  cooldown_base_sec: 60
+  max_cooldown_sec: 3600
+  max_retries: 3
+  usage_tracking: true
+  usage_db_path: ./data/usage.json
+api_keys:
+  anthropic: sk-ant-your-key-here
+  openai: sk-proj-your-key-here
+
+# ─── NemoClaw-ported Security Settings ───
+secret_scanner:
+  enabled: true
+  block_on_memory_write: true    # 메모리에 시크릿 감지 시 차단
+  redact_agent_output: true      # 에이전트 출력에서 시크릿 자동 마스킹
+  redact_mode: partial           # partial | full
+  custom_patterns: []            # 추가 regex 패턴 (선택)
+
+shields:
+  default_timeout_seconds: 300   # 기본 5분
+  max_timeout_seconds: 3600      # 최대 1시간
+  default_mode: safe             # 기본 toolset (shields UP 시)
+  auto_restore_on_crash: true    # 비정상 종료 시 자동 UP 복원
+
+guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: false
+  max_consecutive_failures: 5    # 연속 실패 시 경고
+  max_tool_loop_count: 10        # 비진행성 루프 탐지 임계값
+  stall_detection: true          # 비진행성 루프 자동 탐지
+

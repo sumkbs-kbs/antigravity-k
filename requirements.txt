@@ -1,0 +1,50 @@
+# Antigravity-K: Python Dependencies (Apple Silicon)
+# pip install -r requirements.txt
+
+# MLX Framework (Apple Silicon Native)
+mlx>=0.22.0
+mlx-lm>=0.31.0
+mlx-vlm>=0.2.0
+
+# Vector Database
+chromadb>=0.5.0
+sentence-transformers>=2.7.0
+
+# API Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+httpx>=0.27.0
+
+# Data Validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+pyyaml>=6.0.2
+
+# CLI & UI
+rich>=13.9.0
+typer>=0.13.0
+
+# Document Parsing (RAG)
+python-docx>=1.1.0
+pymupdf>=1.24.0
+openpyxl>=3.1.0
+markdown>=3.7
+
+# Utilities
+watchfiles>=0.24.0
+psutil>=6.1.0
+aiofiles>=24.1.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+
+# MCP (Model Context Protocol) Client
+mcp>=1.1.2
+playwright>=1.40.0
+beautifulsoup4
+markdownify
+discord.py
+slack_sdk
+alembic
+slack_bolt
