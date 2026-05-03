@@ -154,9 +154,11 @@ class ToolExecutor:
             from antigravity_k.tools.binary_tools import HexDumpTool
             from antigravity_k.tools.terminal_tools import InteractivePTYTool
             from antigravity_k.tools.computer_use import ComputerUseTool
+            from antigravity_k.tools.system_control import SystemControlTool
 
             self.tool_registry.install_many(
                 ComputerUseTool(),
+                SystemControlTool(),
                 InteractivePTYTool(),
                 HexDumpTool(),
                 DockerBashCommandTool(),

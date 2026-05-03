@@ -34,6 +34,7 @@ from antigravity_k.engine.error_classifier import classify_api_error
 from antigravity_k.engine.knowledge import KIEngine
 from antigravity_k.engine.tool_executor import ToolExecutor
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
+from antigravity_k.engine.autonomous_learner import AutonomousLearner
 
 logger = logging.getLogger("antigravity_k.orchestrator")
 
@@ -138,6 +139,13 @@ class OrchestratorAgent:
         
         # Knowledge Item Engine 추가
         self.ki_engine = KIEngine(project_root=self.project_root)
+        
+        # ─── 자율 학습 엔진 (Autonomous Learner) ───
+        self.autonomous_learner = AutonomousLearner(
+            model_manager=model_manager,
+            ki_engine=self.ki_engine,
+            project_root=self.project_root,
+        )
         
         # AmbientWatchdog 초기화
         self.watchdog = None
@@ -610,7 +618,28 @@ class OrchestratorAgent:
                 new_content += f"\n\n<EPHEMERAL_MESSAGE>\n{ephemeral_message}\n</EPHEMERAL_MESSAGE>\n"
             custom_messages[-1] = {"role": "user", "content": new_content}
 
-        # ─── 1.5. 자동 스킬 매칭 (Smart Skill Activation) ───
+        # ─── 1.5. 자율 학습 파이프라인 (Autonomous Learning) ───
+        try:
+            if self.autonomous_learner.should_learn(user_message):
+                yield "🔬 **[자율 학습]** 필요한 지식을 인터넷에서 수집 중...\n"
+                gaps = self.autonomous_learner.analyze_knowledge_gap(user_message)
+                if gaps:
+                    yield f"📚 {len(gaps)}개 지식 갭 감지: {', '.join(g.topic[:30] for g in gaps)}\n"
+                    learned = self.autonomous_learner.auto_learn(gaps)
+                    if learned:
+                        learn_context = self.autonomous_learner.format_context(learned)
+                        # 학습 결과를 메시지 컨텍스트에 주입
+                        custom_messages[-1] = {
+                            "role": "user",
+                            "content": custom_messages[-1]["content"] + learn_context
+                        }
+                        yield f"✅ **[자율 학습 완료]** {len(learned)}건 학습 → KI 저장 완료\n\n"
+                    else:
+                        yield "ℹ️ *학습 대상 없음 — 기존 지식으로 진행*\n\n"
+        except Exception as e:
+            logger.warning(f"Autonomous learning pipeline error: {e}")
+
+        # ─── 1.6. 자동 스킬 매칭 (Smart Skill Activation) ───
         if hasattr(self, 'skill_loader') and self.skill_loader:
             try:
                 auto_activated = self.skill_loader.auto_match(user_message, max_skills=2)
