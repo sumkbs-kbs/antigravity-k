@@ -35,6 +35,11 @@ from antigravity_k.engine.knowledge import KIEngine
 from antigravity_k.engine.tool_executor import ToolExecutor
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
 from antigravity_k.engine.autonomous_learner import AutonomousLearner
+from antigravity_k.engine.cognitive_loop import CognitiveLoop
+from antigravity_k.engine.quality_gate import QualityGate
+from antigravity_k.engine.failure_memory import FailureMemory
+from antigravity_k.engine.uncertainty import UncertaintyEstimator
+from antigravity_k.engine.user_model import UserIntentModeler
 
 logger = logging.getLogger("antigravity_k.orchestrator")
 
@@ -47,41 +52,50 @@ ROLE_PROMPTS = {
         "[simple_chat, coding, reasoning, review, design, complex, debate]. "
         "Based on the task_type, return ONLY a JSON object (no markdown, no explanation) with these fields:\n\n"
         "1) For single-step tasks (simple_chat, coding, reasoning, review, design):\n"
-        '{"task_type": "<type>", "delegate_to": "<ROLE>", "reasoning": "...", "refined_prompt": "..."}\n'
+        '{"task_type": "<type>", "delegate_to": "<ROLE>", "confidence": "high|medium|low", "reasoning": "...", "refined_prompt": "..."}\n'
         "Roles: WORKER(coding), ENG_MANAGER(reasoning), QA(review), DESIGNER(design), SELF(simple_chat).\n\n"
         "2) For multi-step tasks (complex):\n"
-        '{"task_type": "complex", "pipeline": [{"step": 1, "agent": "ARCHITECT", "task": "..."}, {"step": 2, "agent": "WORKER", "task": "..."}, {"step": 3, "agent": "QA", "task": "..."}], "reasoning": "..."}\n\n'
+        '{"task_type": "complex", "confidence": "high|medium|low", "pipeline": [{"step": 1, "agent": "ARCHITECT", "task": "..."}, {"step": 2, "agent": "WORKER", "task": "..."}, {"step": 3, "agent": "QA", "task": "..."}], "reasoning": "..."}\n\n'
         "3) For controversial or deep discussion tasks (debate):\n"
-        '{"task_type": "debate", "reasoning": "...", "debate_topic": "..."}\n\n'
+        '{"task_type": "debate", "confidence": "high|medium|low", "reasoning": "...", "debate_topic": "..."}\n\n'
         "4) For AGI Core requests (scout new models, train, fine-tune):\n"
         '{"task_type": "agi_core", "sub_type": "scout or train", "reasoning": "..."}\n\n'
         "5) For hardware upgrade reports or system capability analysis:\n"
         '{"task_type": "hardware_report", "reasoning": "..."}\n\n'
-        "IMPORTANT: Output raw JSON only. /no_think"
+        "IMPORTANT: Output raw JSON only. Include 'confidence' field. /no_think"
     ),
     "WORKER": (
-        "You are a Senior Software Engineer. Write clean, modular, well-documented code. "
-        "Use available tools to interact with files and terminal. "
+        "You are a Senior Software Engineer and a trusted partner to the user.\n"
+        "Core Principles:\n"
+        "1. VERIFY before delivering — always test/validate your output\n"
+        "2. Be HONEST about uncertainty — say 'I\'m not sure' when appropriate\n"
+        "3. EXPLAIN your reasoning — the user should understand WHY\n"
+        "4. LEARN from mistakes — never repeat the same error twice\n"
+        "5. PROACTIVELY suggest improvements the user didn't ask for\n"
+        "Write clean, modular, well-documented code. Use available tools. "
         "Always respond in Korean. /no_think"
     ),
     "ENG_MANAGER": (
-        "You are the Engineering Manager. You excel at deep technical reasoning, "
-        "system architecture, and creating detailed implementation plans. "
-        "Always respond in Korean. /no_think"
+        "You are the Engineering Manager and the user's strategic thinking partner.\n"
+        "You excel at deep technical reasoning, system architecture, and implementation plans.\n"
+        "Always verify your analysis against reality before presenting conclusions.\n"
+        "If uncertain, state your assumptions explicitly. Always respond in Korean. /no_think"
     ),
     "QA": (
-        "You are a strict QA Engineer. Review code for logic errors, security issues, "
-        "and performance bottlenecks. Provide actionable feedback. "
+        "You are a strict but fair QA Engineer who protects the user's codebase quality.\n"
+        "Review for logic errors, security issues, and performance bottlenecks.\n"
+        "Provide actionable feedback with specific fix suggestions, not just problem descriptions.\n"
         "Always respond in Korean. /no_think"
     ),
     "DESIGNER": (
-        "You are an expert UI/UX Designer. You specialize in creating premium, modern interfaces. "
-        "Provide feedback on visual elements, color palettes, spacing, typography, and micro-animations. "
-        "Always respond in Korean. /no_think"
+        "You are an expert UI/UX Designer who creates premium, modern interfaces.\n"
+        "Provide feedback on visual elements, color palettes, spacing, typography, and micro-animations.\n"
+        "Always explain the WHY behind design decisions. Always respond in Korean. /no_think"
     ),
     "ARCHITECT": (
-        "You are the Chief System Architect. You design the foundation, abstractions, and the big picture of the project. "
-        "Focus on scalability, maintainability, cross-platform compatibility, and clean architecture. "
+        "You are the Chief System Architect and the user's long-term technical advisor.\n"
+        "Design the foundation, abstractions, and big picture with scalability and maintainability.\n"
+        "Always consider edge cases and failure modes. Present trade-offs honestly.\n"
         "Always respond in Korean. /no_think"
     ),
     "PROPOSER": (
@@ -99,9 +113,11 @@ ROLE_PROMPTS = {
         "Always respond in Korean. /no_think"
     ),
     "DEFAULT": (
-        "You are Antigravity-K, a helpful AI assistant. "
-        "Answer the user's question directly and concisely. "
-        "Always respond in Korean. /no_think"
+        "You are Antigravity-K, the user's trusted AI partner.\n"
+        "You grow together with the user, learning from every interaction.\n"
+        "Be honest about what you know and don't know.\n"
+        "Proactively suggest improvements and anticipate the user's needs.\n"
+        "Answer directly, concisely, and always in Korean. /no_think"
     ),
 }
 
@@ -146,6 +162,16 @@ class OrchestratorAgent:
             ki_engine=self.ki_engine,
             project_root=self.project_root,
         )
+        
+        # ─── 인지 모듈 (E-1~E-5) ───
+        self.failure_memory = FailureMemory(project_root=self.project_root)
+        self.cognitive_loop = CognitiveLoop(
+            project_root=self.project_root,
+            failure_memory=self.failure_memory,
+        )
+        self.quality_gate = QualityGate()
+        self.uncertainty_estimator = UncertaintyEstimator()
+        self.user_model = UserIntentModeler(project_root=self.project_root)
         
         # AmbientWatchdog 초기화
         self.watchdog = None
@@ -315,6 +341,13 @@ class OrchestratorAgent:
         # 턴 시작 시 에러 카운터 리셋 (이전 턴의 에러가 이월되지 않도록)
         self._consecutive_errors = 0
         
+        # ─── E-1: 인지 루프 초기화 ───
+        self.cognitive_loop.reset()
+        self.quality_gate.reset()
+        
+        # ─── E-3: 실패 학습 컨텍스트 주입 ───
+        failure_context = self.failure_memory.build_prompt(messages[-1].get('content', '') if messages else '')
+        
         # Skill injection
         skill_prompts = self.skill_loader.get_active_prompts() if hasattr(self, 'skill_loader') else ""
         
@@ -324,6 +357,8 @@ class OrchestratorAgent:
             skill_prompts += "\n" + ide_prompt
         
         prompt = f"System: {system_prompt}\n{skill_prompts}\n"
+        if failure_context:
+            prompt += f"\n{failure_context}\n"
         if tool_prompt:
             prompt += f"\n{tool_prompt}\n"
         prompt += "\n"
@@ -418,6 +453,21 @@ class OrchestratorAgent:
                             
                             tool_result = self._execute_tool(tool_name, tool_args)
                             
+                            
+                            # ── E-1: 인지 루프 검증 (CognitiveLoop Verify) ──
+                            try:
+                                verification = self.cognitive_loop.verify_tool_result(
+                                    tool_name, tool_args, str(tool_result)
+                                )
+                                if not verification["passed"]:
+                                    # E-3: 실패 기록
+                                    self.failure_memory.record(
+                                        tool=tool_name,
+                                        error_text=str(tool_result)[:500],
+                                        args_summary=str(tool_args)[:200],
+                                    )
+                            except Exception as ve:
+                                logger.debug(f"Cognitive verification error: {ve}")
                             
                             # ── After-call 가드레일 ──
                             is_failed = isinstance(tool_result, str) and tool_result.strip().startswith("Error")
@@ -523,6 +573,27 @@ class OrchestratorAgent:
         
         # 반환값은 Generator지만, 파이프라인에서 이전 결과를 받기 위해 내부적으로 저장
         self._last_agent_output = full_output
+        
+        # ─── E-1: 인지 루프 성찰 (Reflect) ───
+        try:
+            user_task = messages[-1].get("content", "") if messages else ""
+            reflection = self.cognitive_loop.reflect(user_task, full_output)
+            anti_patterns = self.cognitive_loop.get_anti_patterns()
+            if anti_patterns:
+                logger.info(f"[CognitiveLoop] Anti-patterns detected: {len(anti_patterns)}")
+        except Exception as e:
+            logger.debug(f"Reflection error: {e}")
+        
+        # ─── E-5: 품질 검증 게이트 ───
+        try:
+            quality = self.quality_gate.evaluate(task_type, 
+                messages[-1].get("content", "") if messages else "", full_output)
+            if quality.user_message:
+                yield f"\n{quality.user_message}\n"
+            if quality.grade.value in ("retry", "fail"):
+                logger.warning(f"[QualityGate] Grade={quality.grade.value}, score={quality.score}")
+        except Exception as e:
+            logger.debug(f"QualityGate error: {e}")
 
     def _run_pipeline(self, messages: List[Dict[str, str]], pipeline: List[Dict[str, Any]], max_steps: int) -> Generator[str, None, None]:
         yield "\n\n🚀 **멀티 스텝 파이프라인 시작**\n"
@@ -695,11 +766,39 @@ class OrchestratorAgent:
             delegate_to = "ENG_MANAGER"
 
         role_emoji = {
-            "WORKER": "👨‍💻", "ENG_MANAGER": "🏗️", "QA": "🔍",
+            "WORKER": "📨‍💻", "ENG_MANAGER": "🏗️", "QA": "🔍",
             "DESIGNER": "🎨", "SELF": "💬", "ARCHITECT": "🏗️", 
             "PROPOSER": "💡", "CRITIC": "⚖️", "ARBITER": "🔨"
         }
         emoji = role_emoji.get(delegate_to, "🤖")
+        
+        # ─── E-2: 불확실성 인식 (Uncertainty Awareness) ───
+        try:
+            ki_count = len(self.ki_engine.load_kis()) if self.ki_engine else 0
+            uncertainty = self.uncertainty_estimator.estimate(user_message, analysis, ki_count)
+            if uncertainty.should_ask_user:
+                yield f"\n❓ **[불확실성 감지]** {uncertainty.clarification}\n"
+            elif uncertainty.confidence.value != "high":
+                unc_context = self.uncertainty_estimator.format_prompt_injection(uncertainty)
+                if unc_context:
+                    custom_messages[-1] = {
+                        "role": "user",
+                        "content": custom_messages[-1]["content"] + unc_context
+                    }
+        except Exception as e:
+            logger.debug(f"Uncertainty estimation error: {e}")
+        
+        # ─── E-4: 사용자 모델 학습 ───
+        try:
+            self.user_model.observe(user_message, task_type)
+            user_context = self.user_model.build_context()
+            if user_context:
+                custom_messages[-1] = {
+                    "role": "user",
+                    "content": custom_messages[-1]["content"] + user_context
+                }
+        except Exception as e:
+            logger.debug(f"User model error: {e}")
         
         # ─── 2. 에이전트 파이프라인 실행 ───
         if task_type == "agi_core":
