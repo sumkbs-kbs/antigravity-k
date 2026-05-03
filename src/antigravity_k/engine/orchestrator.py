@@ -32,6 +32,8 @@ from antigravity_k.engine.tool_guardrails import (
 )
 from antigravity_k.engine.error_classifier import classify_api_error
 from antigravity_k.engine.knowledge import KIEngine
+from antigravity_k.engine.tool_executor import ToolExecutor
+from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
 
 logger = logging.getLogger("antigravity_k.orchestrator")
 
@@ -170,6 +172,15 @@ class OrchestratorAgent:
         guardrail_cfg = self._load_guardrail_config()
         self.tool_guardrail = ToolCallGuardrailController(config=guardrail_cfg)
 
+        # ─── Tool Executor (I-1 리팩터링) ───
+        self._tool_executor = ToolExecutor(
+            tool_registry=self.tool_registry,
+            permission_gate=self.permission_gate,
+            model_manager=model_manager,
+            vault_engine=vault_engine,
+            project_root=self.project_root,
+        )
+
         # 세션 자동 시작 (프로젝트별 대화 영속성)
         try:
             self.session_manager.start_session(project_path=self.project_root)
@@ -243,275 +254,31 @@ class OrchestratorAgent:
         return tool_section
 
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> str:
-        """ToolRegistry를 통해 도구를 실행합니다. (사전 검증 및 구조화된 에러 반환 포함)"""
-        try:
-            if name not in self.tool_registry:
-                self._consecutive_errors += 1
-                return f"There was an error when executing the function: {name}\nHere's the error traceback: Unknown tool '{name}'\nPlease call this function again with a valid tool name within XML tags <tool_call></tool_call>"
-                
-            # ─── Pre-Execution Validation (스키마 사전 검증) ───
-            tool_obj = self.tool_registry.get(name)
-            if tool_obj:
-                try:
-                    schema = tool_obj.parameters_schema
-                    required_args = schema.get("required", [])
-                    missing = [arg for arg in required_args if arg not in args]
-                    if missing:
-                        self._consecutive_errors += 1
-                        return f"There was an error when executing the function: {name}\nHere's the error traceback: Missing required arguments: {', '.join(missing)}\nPlease call this function again with correct arguments within XML tags <tool_call></tool_call>"
-                except Exception as ve:
-                    logger.warning(f"Validation check failed for {name}: {ve}")
-            
-            perm, result = self.tool_registry.execute_with_permission(name, args)
-            
-            if perm == Permission.DENY:
-                self._consecutive_errors += 1
-                return f"There was an error when executing the function: {name}\nHere's the error traceback: [DENIED] Tool execution blocked by permission rules.\nPlease reconsider your approach."
-            elif perm == Permission.PROMPT:
-                return f"[APPROVAL REQUIRED] This tool ({name}) requires user approval to execute. Please stop executing tools immediately and ask the user for permission. Wait for their 'Yes' before retrying."
-                
-            if isinstance(result, str) and result.strip().startswith("Error"):
-                self._consecutive_errors += 1
-            else:
-                self._consecutive_errors = 0  # Reset on success
-                
-            # Auto-Rollback & Self-Healing logic
-            if self._consecutive_errors >= 3:
-                self._consecutive_errors = 0
-                
-                # 1. Trigger Immune System (Self-Healing)
-                try:
-                    from .immune_system import ImmuneSystem
-                    immune = ImmuneSystem(self.project_root, self.manager, self.vault_engine)
-                    
-                    # Capture trace snippet (last error text)
-                    error_trace = str(result)
-                    args_context = json.dumps(args, ensure_ascii=False) if args else "None"
-                    
-                    heal_msg = immune.heal(error_trace, name, args_context)
-                    return heal_msg
-                except Exception as ie:
-                    logger.error(f"Immune System initialization failed: {ie}")
+        """ToolExecutor에 위임합니다. (I-1 리팩터링)"""
+        return self._tool_executor.execute(name, args)
 
-                # 2. Fallback to Vault Rollback if Immune System fails
-                rollback_msg = "\n\n🚨 **[SANDBOX RECOVERY]** Consecutive tool errors detected! "
-                if self.vault_engine:
-                    try:
-                        snapshot = self.vault_engine.create_snapshot("Auto-rollback checkpoint before recovery")
-                        if snapshot:
-                            success = self.vault_engine.restore_snapshot(snapshot)
-                            if success:
-                                rollback_msg += f"Workspace has been safely rolled back to checkpoint ({snapshot[:7]}). Please analyze why the error occurred and formulate a completely different plan."
-                            else:
-                                rollback_msg += "Restore attempted but failed."
-                        else:
-                            rollback_msg += "No recent snapshot found to rollback to."
-                    except Exception as ge:
-                        rollback_msg += f"Vault rollback failed: {ge}."
-                else:
-                    rollback_msg += "VaultEngine is not available, so automatic rollback could not be performed."
-                return str(result) + rollback_msg
-                
-            return result
-        except Exception as e:
-            self._consecutive_errors += 1
-            return f"There was an error when executing the function: {name}\nHere's the error traceback: {str(e)}\nPlease call this function again with correct arguments within XML tags <tool_call></tool_call>"
+    @property
+    def _consecutive_errors(self):
+        return self._tool_executor._consecutive_errors
+
+    @_consecutive_errors.setter
+    def _consecutive_errors(self, value):
+        self._tool_executor._consecutive_errors = value
 
     def _register_claw_tools(self):
-        """모든 도구를 ToolRegistry에 등록합니다."""
-        try:
-            from antigravity_k.tools.file_tools import WriteFileTool, EditFileTool, GlobSearchTool, GrepSearchTool
-            from antigravity_k.tools.git_tools import GitStatusTool, GitDiffTool, GitCommitTool, GitLogTool
-            from antigravity_k.tools.system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool, ListDirectoryTool
-            from antigravity_k.tools.hashline_tools import ReadHashFileTool, HashlineEditTool, MultiReplaceFileContentTool
-            from antigravity_k.tools.agent_spawn import AgentSpawnTool
-            from antigravity_k.tools.browser_tools import BrowserDOMTool
-            from antigravity_k.tools.web_search import WebSearchTool
-            from antigravity_k.tools.test_runner_tool import TestRunnerTool, AutoLintTool, PRCreationTool
-            from antigravity_k.tools.impact_analyzer import ImpactAnalyzerTool
-            from antigravity_k.tools.artifact_tools import WriteArtifactTool
-            from antigravity_k.tools.cowork_delegate import CoworkDelegateTool
-            from antigravity_k.tools.self_evolution_tool import SelfEvolutionTool
-            from antigravity_k.tools.config_editor_tool import ConfigEditorTool
-
-            from antigravity_k.tools.docker_tools import DockerBashCommandTool
-            from antigravity_k.tools.binary_tools import HexDumpTool
-            from antigravity_k.tools.terminal_tools import InteractivePTYTool
-            from antigravity_k.tools.computer_use import ComputerUseTool
-            self.tool_registry.install_many(
-                ComputerUseTool(),
-                InteractivePTYTool(),
-                HexDumpTool(),
-                DockerBashCommandTool(),
-
-                # 파일 도구 (줄 범위 지원 ReadFile 포함)
-                ReadFileTool(), ReplaceFileContentTool(), MultiReplaceFileContentTool(), RunBashCommandTool(),
-                WriteFileTool(), EditFileTool(), GlobSearchTool(), GrepSearchTool(),
-                ListDirectoryTool(), ReadHashFileTool(), HashlineEditTool(),
-
-                # Git 도구
-                GitStatusTool(), GitDiffTool(), GitCommitTool(), GitLogTool(),
-
-                # 자동화 도구 (에이전틱 고도화)
-                TestRunnerTool(),   # 프레임워크 자동 감지 테스트
-                AutoLintTool(),     # 자동 린트/포맷팅
-                PRCreationTool(),   # 자동 PR 생성
-                ImpactAnalyzerTool(), # 변경 영향도 분석 (P1-8)
-                ConfigEditorTool(), # AGI Core 인사관리
-
-                # 에이전트 / 브라우저 / 검색 / 아티팩트
-                AgentSpawnTool(model_manager=self.manager, tool_registry=self.tool_registry),
-                CoworkDelegateTool(model_manager=self.manager),
-                SelfEvolutionTool(),
-                WriteArtifactTool(),
-                BrowserDOMTool(),
-                WebSearchTool()
-            )
-            logger.info(f"Registered {len(self.tool_registry)} tools via ToolRegistry")
-            
-            # Auto-Skill 동적 로딩 (ECA)
-            tools_dir = os.path.join(self.project_root, "src", "antigravity_k", "tools")
-            if os.path.exists(tools_dir):
-                import importlib.util
-                import inspect
-                from antigravity_k.tools.base_tool import BaseTool
-                
-                auto_skills = [f for f in os.listdir(tools_dir) if f.startswith("auto_skill_") and f.endswith(".py")]
-                for skill_file in auto_skills:
-                    try:
-                        module_name = skill_file[:-3]
-                        spec = importlib.util.spec_from_file_location(module_name, os.path.join(tools_dir, skill_file))
-                        module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        
-                        for name, obj in inspect.getmembers(module, inspect.isclass):
-                            if issubclass(obj, BaseTool) and obj is not BaseTool:
-                                self.tool_registry.install(obj())
-                                logger.info(f"Dynamically loaded auto-skill: {name} from {skill_file}")
-                    except Exception as e:
-                        logger.warning(f"Failed to load auto-skill {skill_file}: {e}")
-                        
-        except Exception as e:
-            logger.warning(f"Failed to register tools: {e}")
+        """ToolExecutor에 위임합니다. (I-1 리팩터링)"""
+        self._tool_executor.register_default_tools()
 
     # ─── CEO 분석 단계 ─────────────────────────────────────────────────
 
     def _ceo_analyze(self, user_message: str, target_model: str) -> Generator[Union[str, dict], None, None]:
-        """
-        CEO가 사용자 메시지를 분석하여 태스크 유형과 위임 대상을 결정합니다.
-        스트리밍으로 분석 과정을 출력하며, 마지막에 결과를 dict로 반환합니다.
-        """
-        if target_model and target_model != "default":
-            ceo_model = target_model
-        else:
-            ceo_model = self._get_model_for_role("default")
-            if not ceo_model:
-                ceo_model = "qwen3.6:latest"
-        ceo_prompt = f"{ROLE_PROMPTS['CEO']}\n\nUser request: {user_message}"
-
-        try:
-            import urllib.request
-            base_url = "http://localhost:11434"
-            url = f"{base_url}/api/generate"
-            
-            data = {
-                "model": ceo_model,
-                "prompt": ceo_prompt,
-                "stream": True,
-                "keep_alive": "30m",
-                "options": {"num_predict": 512}
-            }
-            
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            )
-            
-            response_text = ""
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                for line in resp:
-                    line = line.decode("utf-8").strip()
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                        if "response" in chunk:
-                            delta = chunk["response"]
-                            response_text += delta
-                            yield delta
-                        elif "message" in chunk and "content" in chunk["message"]:
-                            delta = chunk["message"]["content"]
-                            response_text += delta
-                            yield delta
-                    except json.JSONDecodeError:
-                        continue
-            
-            raw_text = response_text
-            logger.info(f"CEO analysis: response({len(response_text)}), combined({len(raw_text)})")
-            
-            # JSON 추출 전략:
-            # 1) 전체 raw 텍스트에서 task_type이 포함된 JSON 블록 찾기
-            # 2) <think> 안이든 밖이든 상관없이 추출
-            # 1차: JSONDecoder.raw_decode — 중첩 {} 처리 가능
-            decoder = json.JSONDecoder()
-            parsed = None
-            # raw_text에서 첫 번째 유효한 JSON 객체 추출
-            for i, ch in enumerate(raw_text):
-                if ch == '{':
-                    try:
-                        obj, end_idx = decoder.raw_decode(raw_text, i)
-                        if isinstance(obj, dict) and 'task_type' in obj:
-                            logger.info(f"CEO Analysis (raw_decode): type={obj.get('task_type')}, delegate={obj.get('delegate_to')}")
-                            parsed = obj
-                            break
-                    except json.JSONDecodeError:
-                        continue
-            
-            # 2차: 정규식 폴백
-            if not parsed:
-                json_match = re.search(r'\{[^{}]*"task_type"\s*:\s*"[^"]*"[^{}]*\}', raw_text, re.DOTALL)
-                if json_match:
-                    try:
-                        parsed = json.loads(json_match.group())
-                    except json.JSONDecodeError as je:
-                        logger.warning(f"CEO JSON decode error: {je}")
-            
-            # JSON 파싱 성공 시 즉시 반환 (C-3 수정: 키워드 폴백으로 낙하 방지)
-            if parsed:
-                yield parsed
-                return
-
-            # 3차: 키워드 기반 폴백 (JSON 파싱 실패 시에만 도달)
-            lower = raw_text.lower()
-            keyword_map = [
-                (['coding', 'code', 'function', '함수', '코드', '작성', '파일', '구현'], 'coding', 'WORKER'),
-                (['review', '리뷰', '검토', '점검'], 'review', 'QA'),
-                (['design', '디자인', 'ui', 'ux', '레이아웃'], 'design', 'DESIGNER'),
-                (['분석', 'analyze', '추론', 'reason', '설명', 'explain'], 'reasoning', 'ENG_MANAGER'),
-            ]
-            for keywords, task_type, delegate in keyword_map:
-                if any(kw in lower for kw in keywords):
-                    logger.info(f"CEO fallback: detected {task_type} from keywords")
-                    yield {
-                        "task_type": task_type,
-                        "delegate_to": delegate,
-                        "reasoning": "keyword-based detection",
-                        "refined_prompt": user_message
-                    }
-                    return
-            
-            logger.warning("CEO analysis: no JSON found in response")
-        except Exception as e:
-            logger.error(f"CEO analysis failed: {e}", exc_info=True)
-
-        # 폴백: 단순 대화로 처리
-        yield {
-            "task_type": "simple_chat",
-            "delegate_to": "SELF",
-            "reasoning": "CEO analysis failed, fallback to direct response",
-            "refined_prompt": user_message
-        }
+        """CEO 분석을 ceo_analyzer 모듈에 위임합니다. (I-1 리팩터링)"""
+        yield from _ceo_analyze_fn(
+            user_message=user_message,
+            target_model=target_model,
+            ceo_prompt_template=ROLE_PROMPTS['CEO'],
+            get_model_for_role_fn=self._get_model_for_role,
+        )
 
     def _rebuild_prompt(
         self,
