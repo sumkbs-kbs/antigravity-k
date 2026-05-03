@@ -1,0 +1,149 @@
+"""
+Antigravity-K: 브라우저 자가 테스트 도구 (Self-Test Tool)
+=========================================================
+에이전트가 "시스템 자가 테스트 해줘"라고 요청하면,
+Playwright로 대시보드 전체를 자동 순회하며 건강 검진합니다.
+
+하네스 엔지니어링의 'Agent-Initiated Testing' 패턴 구현.
+"""
+import asyncio
+import json
+import logging
+import time
+from typing import Any, Dict, List, Optional
+
+from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+
+logger = logging.getLogger("antigravity_k.tools.self_test")
+
+
+class SelfTestTool(BaseTool):
+    """
+    시스템 자가 테스트 도구.
+    
+    에이전트가 브라우저를 열어 Antigravity-K 대시보드의 
+    모든 기능(채팅, 탐색기, 터미널, API)을 자동으로 테스트합니다.
+    """
+    
+    category = ToolCategory.SYSTEM
+    render_in = RenderIn.CONTEXTUAL
+    risk_level = RiskLevel.LOW
+    icon = "🧪"
+    tags = ["self-test", "harness", "qa", "browser"]
+
+    @property
+    def name(self) -> str:
+        return "self_test"
+
+    @property
+    def description(self) -> str:
+        return (
+            "시스템 자가 테스트를 실행합니다. "
+            "브라우저를 열어 대시보드의 모든 기능(채팅, 파일 탐색기, 터미널, API)을 "
+            "자동으로 검증하고 마크다운 리포트를 생성합니다. "
+            "Playwright 기반 하네스 엔지니어링 프레임워크를 사용합니다."
+        )
+
+    @property
+    def parameters_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["full", "api_only", "ui_only"],
+                    "description": "테스트 범위. full=전체, api_only=API만, ui_only=UI만",
+                    "default": "full"
+                },
+                "verbose": {
+                    "type": "boolean",
+                    "description": "상세 결과 포함 여부",
+                    "default": True
+                }
+            },
+            "required": []
+        }
+
+    def execute(self, **kwargs) -> str:
+        scope = kwargs.get("scope", "full")
+        verbose = kwargs.get("verbose", True)
+        
+        # 동기 컨텍스트에서 비동기 하네스 실행
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 이미 이벤트 루프가 돌고 있으면 새 스레드에서 실행
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(self._run_sync, scope)
+                    report_dict = future.result(timeout=120)
+            else:
+                report_dict = loop.run_until_complete(self._run_async(scope))
+        except RuntimeError:
+            report_dict = asyncio.run(self._run_async(scope))
+        
+        if verbose:
+            return self._format_markdown(report_dict)
+        else:
+            return json.dumps(report_dict, ensure_ascii=False, indent=2)
+
+    def _run_sync(self, scope: str) -> dict:
+        """새 이벤트 루프에서 비동기 테스트 실행"""
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(self._run_async(scope))
+        finally:
+            loop.close()
+
+    async def _run_async(self, scope: str) -> dict:
+        """비동기 테스트 실행"""
+        from ..engine.test_harness import TestHarness
+        
+        harness = TestHarness()
+        use_browser = scope != "api_only"
+        
+        if scope == "api_only":
+            # API 테스트만 실행 (브라우저 불필요)
+            harness.intents = [i for i in harness.intents if i.category == "api"]
+        elif scope == "ui_only":
+            # UI 테스트만 실행
+            harness.intents = [i for i in harness.intents if i.category in ("ui", "integration")]
+        
+        report = await harness.run_all(use_browser=use_browser)
+        return report.to_dict()
+
+    def _format_markdown(self, report: dict) -> str:
+        """리포트를 마크다운으로 포맷"""
+        total = report.get("total", 0)
+        passed = report.get("passed", 0)
+        healed = report.get("healed", 0)
+        failed = report.get("failed", 0)
+        skipped = report.get("skipped", 0)
+        pass_rate = report.get("pass_rate", "0%")
+        duration = report.get("duration_ms", 0)
+        
+        lines = [
+            "# 🧪 Antigravity-K Self-Test Report",
+            "",
+            "| 항목 | 결과 |",
+            "|------|------|",
+            f"| 총 테스트 | {total} |",
+            f"| ✅ 통과 | {passed} |",
+            f"| 🔧 자가치유 | {healed} |",
+            f"| ❌ 실패 | {failed} |",
+            f"| ⏭ 스킵 | {skipped} |",
+            f"| 합격률 | {pass_rate} |",
+            f"| 소요시간 | {duration:.0f}ms |",
+            "",
+            "## 상세 결과",
+            "",
+        ]
+        
+        for r in report.get("results", []):
+            status = r.get("status", "unknown")
+            icon = {"passed": "✅", "failed": "❌", "healed": "🔧", "skipped": "⏭"}.get(status, "❓")
+            lines.append(f"- {icon} **{r.get('intent_id')}**: {r.get('message')} ({r.get('duration_ms', 0):.0f}ms)")
+            if r.get("healed") and r.get("heal_details"):
+                lines.append(f"  - 🩹 치유: {r.get('heal_details')}")
+        
+        return "\n".join(lines)

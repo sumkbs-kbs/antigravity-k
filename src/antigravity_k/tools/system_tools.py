@@ -345,53 +345,36 @@ class NaturalLanguageBashTool(BaseTool):
             return "Error: No intent provided."
 
         try:
+            from ..engine.orchestrator import OrchestratorAgent
             from ..engine.model_manager import ModelManager
-            from ..engine.provider_manager import get_provider_manager
-            from ..engine.model_registry import ModelRegistry
-            
-            # TODO: We might not have easy access to the global ModelManager instance here,
-            # so we'll use a fast local query via orchestrator or similar, OR just use the default openai/anthropic key directly.
-            # But the best way is to fetch the config.
-            from ..config import config
-            import urllib.request
-            import json
-            import os
             
             prompt = f"Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
             
-            # Simple direct API call for quick translation (fallback to RunBashCommandTool approach if needed)
-            api_key = config.model.api_key
-            base_url = config.model.api_base.rstrip('/')
-            url = f"{base_url}/chat/completions"
-            
-            data = {
-                "model": config.model.name,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": 200
-            }
-            
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(data).encode("utf-8"), 
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}"
-                }
-            )
-            
             try:
-                with urllib.request.urlopen(req) as response:
-                    result = json.loads(response.read().decode("utf-8"))
-                    command = result["choices"][0]["message"]["content"].strip()
-                    # Remove markdown code blocks if any
-                    if command.startswith("```"):
-                        lines = command.split("\n")
-                        command = "\n".join(lines[1:-1]) if len(lines) > 2 else command.replace("```bash", "").replace("```sh", "").replace("```", "")
+                # Use default ModelManager and Orchestrator
+                model_manager = ModelManager()
+                orchestrator = OrchestratorAgent(model_manager=model_manager)
+                
+                info = model_manager.get_model_info()
+                target_model = info.get("active_model", "default") if isinstance(info, dict) else getattr(info, "active_model", "default")
+                if target_model == "default" or not target_model:
+                    models = model_manager.list_models()
+                    target_model = models[0].get("id") if models else "local-model"
+
+                messages = [{"role": "user", "content": prompt}]
+                command = orchestrator.run_sync(messages, target_model=target_model).strip()
+                
+                # Remove markdown code blocks if any
+                if command.startswith("```"):
+                    lines = command.split("\n")
+                    command = "\n".join(lines[1:-1]) if len(lines) > 2 else command.replace("```bash", "").replace("```sh", "").replace("```", "")
             except Exception as e:
-                return f"Error translating intent to bash: {e}"
+                return f"Error translating intent to bash via ModelManager: {e}"
 
             logger.info(f"AiShell translated '{intent}' -> `{command}`")
+            
+            import os
+            from ..engine.provider_manager import get_provider_manager
             
             # Now execute it
             pm = get_provider_manager()

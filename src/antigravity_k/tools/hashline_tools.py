@@ -114,3 +114,69 @@ class HashlineEditTool(BaseTool):
             return f"Successfully updated line {line_number} in {file_path}."
         except Exception as e:
             return f"Error modifying file: {e}"
+
+class MultiReplaceFileContentTool(BaseTool):
+    category = ToolCategory.FILE_IO
+    render_in = RenderIn.CONTEXTUAL
+    risk_level = RiskLevel.LOW
+    icon = "⚡"
+    tags = ["file", "write", "edit", "multi_replace"]
+
+    def __init__(self):
+        super().__init__()
+        self._name = "multi_replace_file_content"
+        self._description = "Replaces multiple non-contiguous blocks of text in a single file pass."
+        self._schema = {
+            "type": "object",
+            "properties": {
+                "TargetFile": {"type": "string", "description": "Absolute path to the file to modify."},
+                "ReplacementChunks": {
+                    "type": "array",
+                    "description": "List of chunks to replace.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "StartLine": {"type": "integer"},
+                            "EndLine": {"type": "integer"},
+                            "TargetContent": {"type": "string"},
+                            "ReplacementContent": {"type": "string"}
+                        },
+                        "required": ["StartLine", "EndLine", "TargetContent", "ReplacementContent"]
+                    }
+                }
+            },
+            "required": ["TargetFile", "ReplacementChunks"]
+        }
+
+    @property
+    def name(self) -> str: return self._name
+    @property
+    def description(self) -> str: return self._description
+    @property
+    def parameters_schema(self) -> Dict[str, Any]: return self._schema
+
+    def execute(self, **kwargs) -> Any:
+        target_file = kwargs.get("TargetFile")
+        chunks = kwargs.get("ReplacementChunks", [])
+
+        if not os.path.exists(target_file):
+            return f"Error: File not found at {target_file}"
+
+        try:
+            with open(target_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            for chunk in chunks:
+                target = chunk.get("TargetContent", "")
+                repl = chunk.get("ReplacementContent", "")
+                if target not in content:
+                    return f"Error: TargetContent not found in file: {target[:50]}..."
+                
+                content = content.replace(target, repl)
+
+            with open(target_file, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            return f"Successfully applied {len(chunks)} replacement chunk(s) to {target_file}."
+        except Exception as e:
+            return f"Error modifying file: {e}"

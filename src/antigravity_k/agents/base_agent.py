@@ -80,19 +80,29 @@ class BaseAgent:
             messages = self.get_messages()
             
             try:
-                from mlx_lm import generate
-                
-                prompt = loaded_model.tokenizer.apply_chat_template(
-                    messages, tokenize=False, add_generation_prompt=True
-                )
-                
-                response = generate(
-                    loaded_model.model,
-                    loaded_model.tokenizer,
-                    prompt=prompt,
-                    max_tokens=2048,
-                    verbose=False
-                )
+                # Use model_manager's standard routing and generation instead of direct mlx_lm
+                # Since prompt format might differ per model, we rely on model_manager (or just pass messages)
+                if hasattr(model_manager, 'generate'):
+                    response = model_manager.generate(
+                        prompt=messages[-1]["content"] if messages else "",
+                        target=self.model_id,
+                        raw_messages=messages,
+                        max_tokens=2048,
+                        temperature=0.7
+                    )
+                else:
+                    # Fallback if generate not fully compatible with raw_messages
+                    from mlx_lm import generate
+                    prompt = loaded_model.tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                    response = generate(
+                        loaded_model.model,
+                        loaded_model.tokenizer,
+                        prompt=prompt,
+                        max_tokens=2048,
+                        verbose=False
+                    )
                 
                 self.add_message("assistant", response)
                 

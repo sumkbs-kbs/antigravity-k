@@ -224,8 +224,8 @@ class ContextShaper:
             content = msg.get("content", "")
             
             if msg.get("role") == "tool" and len(content) > self.collapse_threshold:
-                # 참조 ID 생성
-                ref_id = hashlib.md5(content.encode()).hexdigest()[:12]
+                # 참조 ID 생성 (P0 보안 일관성: MD5 → SHA256)
+                ref_id = hashlib.sha256(content.encode()).hexdigest()[:12]
                 
                 # 디스크 저장
                 ref_path = os.path.join(self.storage_dir, f"{ref_id}.json")

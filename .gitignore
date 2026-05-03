@@ -57,3 +57,4 @@ demo_artifacts/
 .pytest_cache/
 .mypy_cache/
 .tox/
+node_modules/

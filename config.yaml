@@ -102,8 +102,8 @@ workflow:
   auto_commit: true
   auto_artifacts: true
 agent_models:
-  CEO: deepseek-r1:70b
-  ENG_MANAGER: deepseek-r1:70b
+  CEO: qwen3.6:latest
+  ENG_MANAGER: qwen3.6:latest
   ARCHITECT: deepseek-r1:70b
   WORKER: qwen2.5-coder:32b
   QA: qwen3.6:latest
@@ -165,3 +165,5 @@ guardrails:
   max_tool_loop_count: 10        # 비진행성 루프 탐지 임계값
   stall_detection: true          # 비진행성 루프 자동 탐지
 
+ambient_partner:
+  watchdog_enabled: true         # Phase 3: Proactive Watchdog 백그라운드 활성화

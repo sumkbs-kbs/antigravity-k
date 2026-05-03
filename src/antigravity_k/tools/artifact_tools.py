@@ -17,13 +17,32 @@ class WriteArtifactTool(BaseTool):
     def __init__(self, project_root: str = None):
         super().__init__()
         self._name = "write_artifact"
-        self._description = "Write a structured markdown artifact (like an implementation plan, review report, or task list). This will save the artifact directly into the 'artifacts/' directory of the current project, so the frontend UI can display it."
+        self._description = "Write a structured markdown artifact (like an implementation plan, review report, or task list). This will save the artifact directly into the 'artifacts/' directory of the current project. When in Planning Mode, set RequestFeedback to true to pause and ask for user approval."
         self._schema = {
             "type": "object",
             "properties": {
                 "artifact_name": {"type": "string", "description": "Name of the artifact file (e.g., 'implementation_plan.md', 'review_report.md')."},
                 "content": {"type": "string", "description": "The markdown content of the artifact."},
-                "artifact_type": {"type": "string", "description": "Type of artifact (md, html, react, generic). Use 'html' or 'react' for UI previews.", "default": "generic"}
+                "ArtifactMetadata": {
+                    "type": "object",
+                    "description": "Metadata for the artifact, used for Planning Mode and task tracking.",
+                    "properties": {
+                        "ArtifactType": {
+                            "type": "string",
+                            "enum": ["implementation_plan", "walkthrough", "task", "other"],
+                            "description": "Type of artifact."
+                        },
+                        "RequestFeedback": {
+                            "type": "boolean",
+                            "description": "Set to true to request user feedback/approval on this artifact."
+                        },
+                        "Summary": {
+                            "type": "string",
+                            "description": "Detailed multi-line summary of the artifact file."
+                        }
+                    },
+                    "required": ["ArtifactType", "Summary"]
+                }
             },
             "required": ["artifact_name", "content"]
         }
@@ -61,7 +80,14 @@ class WriteArtifactTool(BaseTool):
                 f.write(content)
             
             # This special format will be parsed by the frontend to render the artifact UI
-            # Include the file content path or raw content depending on how the frontend handles it
-            return f"[ARTIFACT GENERATED: {artifact_name} (Type: {artifact_type})]\nSuccessfully saved to {file_path}. The user can now view this in the Artifacts Panel."
+            metadata = kwargs.get("ArtifactMetadata", {})
+            req_feedback = metadata.get("RequestFeedback", False)
+            art_type = metadata.get("ArtifactType", "generic")
+            
+            result_str = f"[ARTIFACT GENERATED: {artifact_name} (Type: {art_type})]\nSuccessfully saved to {file_path}. "
+            if req_feedback:
+                result_str += "\n[PLANNING_MODE: WAITING_FOR_USER_APPROVAL]"
+                
+            return result_str
         except Exception as e:
             return f"Error generating artifact: {e}"

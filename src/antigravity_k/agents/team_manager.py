@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 import subprocess
 from typing import Dict, List, Optional
@@ -132,9 +133,37 @@ class TeamManager:
         """새로운 작업을 Kanban TODO 리스트에 추가합니다."""
         return self.kanban_board.create_task(task_description)
 
-    def move_task(self, task_id: str, new_status: str):
-        """작업의 상태를 변경합니다 (예: TODO -> IN_PROGRESS)."""
-        self.kanban_board.move_task(task_id, new_status)
+    def move_task(self, task_id: str, new_status: str, verification_note: Optional[str] = None):
+        """작업의 상태를 변경합니다 (예: TODO -> IN_PROGRESS). DONE으로 이동 시 Auto-Reflection 트리거."""
+        self.kanban_board.move_task(task_id, new_status, verification_note)
+        
+        if new_status == "DONE":
+            # Auto-Reflection (ECA Pipeline) 트리거
+            try:
+                from ..engine.reflection import ReflectionAgent
+                import threading
+                
+                # Fetch task info
+                with self.kanban_board._get_connection() as conn:
+                    cur = conn.execute("SELECT description, worktree_branch FROM tasks WHERE id = ?", (task_id,))
+                    row = cur.fetchone()
+                    if row and row["worktree_branch"]:
+                        # Extract branch path mapping using WorktreeManager
+                        from ..engine.worktree_manager import WorktreeManager
+                        wt_manager = WorktreeManager()
+                        wt_path = wt_manager.get_worktree_path(task_id)
+                        
+                        reflector = ReflectionAgent(project_root=os.getcwd(), model_manager=self.model_manager)
+                        
+                        # 백그라운드 스레드에서 회고 실행 (사용자 블로킹 방지)
+                        t = threading.Thread(
+                            target=reflector.reflect_on_task,
+                            args=(task_id, wt_path, row["description"]),
+                            daemon=True
+                        )
+                        t.start()
+            except Exception as e:
+                logger.warning(f"Failed to trigger Reflection Agent for task {task_id}: {e}")
 
     def delegate_task(self, task_id: str, agent_name: str):
         """특정 에이전트에게 작업을 할당합니다."""
@@ -144,6 +173,18 @@ class TeamManager:
 
         self.kanban_board.assign_task(task_id, agent_name)
         agent = self.agents[agent_name]
+        
+        try:
+            from ..engine.worktree_manager import WorktreeManager
+            wt_manager = WorktreeManager()
+            wt_path = wt_manager.create_worktree(task_id)
+            logger.info(f"Worktree sandboxed for task {task_id} at {wt_path}")
+            
+            # DB에 worktree_branch 업데이트 (Task 3 마이그레이션 이후 지원)
+            if hasattr(self.kanban_board, 'update_task_worktree'):
+                self.kanban_board.update_task_worktree(task_id, f"ag-task-{task_id}")
+        except Exception as e:
+            logger.warning(f"Failed to create worktree sandbox for task {task_id}: {e}")
         
         logger.info(f"Task {task_id} delegated to {agent_name}")
 

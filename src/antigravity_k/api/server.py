@@ -52,6 +52,7 @@ from antigravity_k.engine.session_manager import SessionManager
 _tool_registry: Optional[ToolRegistry] = None
 _context_shaper: Optional[ContextShaper] = None
 _session_manager: Optional[SessionManager] = None
+_orchestrator: Optional[OrchestratorAgent] = None
 
 def _get_session_manager() -> SessionManager:
     global _session_manager
@@ -59,7 +60,7 @@ def _get_session_manager() -> SessionManager:
         _session_manager = SessionManager()
     return _session_manager
 
-def _get_tool_registry() -> ToolRegistry:
+def __get_tool_registry() -> ToolRegistry:
     global _tool_registry
     if _tool_registry is None:
         _tool_registry = ToolRegistry()
@@ -78,6 +79,17 @@ def get_model_manager() -> ModelManager:
         registry = ModelRegistry("config.yaml") # Assumes config.yaml is in current directory
         model_manager = ModelManager(registry)
     return model_manager
+
+def get_orchestrator() -> OrchestratorAgent:
+    """Orchestrator 싱글톤 — 매 요청마다 재생성하지 않음 (C-4 수정)"""
+    global _orchestrator
+    if _orchestrator is None:
+        logger.info("Lazy initializing OrchestratorAgent (singleton)...")
+        _orchestrator = OrchestratorAgent(
+            model_manager=get_model_manager(),
+            vault_engine=get_vault_engine(),
+        )
+    return _orchestrator
 
 def get_translator() -> ProtocolTranslator:
     global protocol_translator
@@ -131,7 +143,7 @@ async def chat_completions(
     audit.log_event("chat_request", {"model": target_model, "stream": is_stream, "agent": is_agent_mode})
     
     if is_stream and is_agent_mode:
-        orchestrator = OrchestratorAgent(model_manager=manager, vault_engine=vault)
+        orchestrator = get_orchestrator()
         
         def event_generator():
             try:
@@ -219,7 +231,7 @@ class WakeRequest(BaseModel):
 async def wake_agent(
     req: WakeRequest,
     manager: ModelManager = Depends(get_model_manager),
-    registry: Any = Depends(get_tool_registry),
+    registry: Any = Depends(__get_tool_registry),
     vault: Any = Depends(get_vault_engine)
 ):
     """
@@ -230,7 +242,7 @@ async def wake_agent(
     from antigravity_k.engine.orchestrator import OrchestratorAgent
     
     runner = get_task_runner()
-    orchestrator = OrchestratorAgent(model_manager=manager, vault_engine=vault)
+    orchestrator = get_orchestrator()
     
     prompt = f"System Wake Event Triggered:\n- Type: {req.event_type}\n- Details: {json.dumps(req.payload, ensure_ascii=False)}\n\nPlease analyze this event and take any necessary actions."
     
@@ -492,7 +504,7 @@ async def submit_background_task(request: Request, manager: ModelManager = Depen
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
     
-    orchestrator = OrchestratorAgent(model_manager=manager, vault_engine=vault)
+    orchestrator = get_orchestrator()
     runner = get_task_runner()
     task_id = runner.submit_task(prompt=prompt, context=context, orchestrator=orchestrator, target_model=model)
     
@@ -525,7 +537,7 @@ async def get_task_output(task_id: str):
 @app.post("/api/tasks/{task_id}/resume")
 async def resume_task(task_id: str, manager: ModelManager = Depends(get_model_manager), vault: Optional[VaultEngine] = Depends(get_vault_engine)):
     """중단된 태스크를 마지막 체크포인트에서 재개"""
-    orchestrator = OrchestratorAgent(model_manager=manager, vault_engine=vault)
+    orchestrator = get_orchestrator()
     runner = get_task_runner()
     success = runner.resume_task(task_id=task_id, orchestrator=orchestrator)
     if not success:
@@ -768,7 +780,7 @@ def _get_slash_registry():
     if _slash_registry is None:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
         _slash_registry = SlashCommandRegistry(
-            tool_registry=_get_tool_registry(),
+            tool_registry=__get_tool_registry(),
             session_manager=_get_session_manager(),
             context_shaper=_get_context_shaper(),
             model_manager=get_model_manager(),
@@ -1221,6 +1233,48 @@ async def get_system_status_extended():
         "shields": shields.status(),
     }
 
+
+# ─── Harness Engineering API (Self-Test & Intent-Based Testing) ──────────────
+
+_harness_instance = None
+
+def get_harness():
+    global _harness_instance
+    if _harness_instance is None:
+        from antigravity_k.engine.test_harness import TestHarness
+        _harness_instance = TestHarness()
+    return _harness_instance
+
+@app.post("/api/harness/self-test")
+async def harness_self_test(request: Request):
+    """에이전트가 대시보드 전체를 자동 테스트합니다."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    
+    scope = body.get("scope", "api_only")  # 기본: API만 (브라우저 없이 빠르게)
+    
+    harness = get_harness()
+    report = await harness.run_all(use_browser=(scope != "api_only"))
+    
+    return {"ok": True, "report": report.to_dict()}
+
+@app.get("/api/harness/results")
+async def harness_results():
+    """최근 테스트 결과를 조회합니다."""
+    harness = get_harness()
+    report = harness.get_latest_report()
+    if report:
+        return {"ok": True, "report": report.to_dict()}
+    return {"ok": True, "report": None, "message": "아직 테스트가 실행되지 않았습니다."}
+
+@app.get("/api/harness/trend")
+async def harness_trend():
+    """테스트 추세를 조회합니다."""
+    harness = get_harness()
+    trend = harness.feedback.get_trend()
+    return {"ok": True, "trend": trend}
 
 # ─── Shields & Security APIs (NemoClaw ported) ──────────────────────────────
 

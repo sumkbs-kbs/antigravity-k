@@ -445,7 +445,7 @@ class ModelManager:
             }
         )
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=300) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 content = result["choices"][0]["message"]["content"]
                 logger.debug(f"Ollama response content ({len(content)} chars): {content[:200]}")
@@ -454,6 +454,42 @@ class ModelManager:
             logger.error(f"Local API generation failed: {e}")
             return f"[API Error for {loaded.profile.name}] {e}"
 
+
+    def _apply_dynamic_inference_config(self, loaded_profile, prompt_or_messages, kwargs):
+        import hashlib
+        model_name = loaded_profile.name
+        thinking_config = None
+        temperature = kwargs.get("temperature", 0.7)
+        max_tokens = kwargs.get("max_tokens", 8192)
+        
+        if ":" in model_name:
+            base_model, spec = model_name.split(":", 1)
+            model_name = base_model
+            
+            if spec.isdigit():
+                budget = max(int(spec), 1024)
+            else:
+                ratios = {"high": 0.8, "medium": 0.5, "low": 0.2}
+                ratio = ratios.get(spec.lower())
+                if ratio:
+                    budget = max(int(max_tokens * ratio), 1024)
+                else:
+                    budget = None
+                    
+            if budget:
+                thinking_config = {"type": "enabled", "budget_tokens": budget}
+                temperature = 1.0  # Required for thinking mode
+
+        if isinstance(prompt_or_messages, list) and len(prompt_or_messages) > 0:
+            first_user_text = str(prompt_or_messages[0].get("content", ""))
+        else:
+            first_user_text = str(prompt_or_messages)
+            
+        fingerprint_input = f"antigravity_k_59cf53e54c78_{first_user_text[:30]}"
+        fingerprint = hashlib.sha256(fingerprint_input.encode('utf-8')).hexdigest()[:6]
+        attribution = f"\nx-antigravity-k-agent: id={fingerprint}; cch=00000;"
+        
+        return model_name, temperature, thinking_config, attribution
 
     def _do_anthropic_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
         import anthropic
@@ -469,29 +505,10 @@ class ModelManager:
         system_prompt = kwargs.get("system_prompt", "")
         raw_messages = kwargs.get("raw_messages", [{"role": "user", "content": prompt}])
         
-        # 1. Dynamic "Thinking Mode" Injector
-        model_name = loaded.profile.name
-        thinking_config = None
-        temperature = kwargs.get("temperature", 0.7)
-        
-        if ":" in model_name:
-            base_model, spec = model_name.split(":", 1)
-            model_name = base_model
-            max_tokens = kwargs.get("max_tokens", 8192)
-            
-            if spec.isdigit():
-                budget = max(int(spec), 1024)
-            else:
-                ratios = {"high": 0.8, "medium": 0.5, "low": 0.2}
-                ratio = ratios.get(spec.lower())
-                if ratio:
-                    budget = max(int(max_tokens * ratio), 1024)
-                else:
-                    budget = None
-                    
-            if budget:
-                thinking_config = {"type": "enabled", "budget_tokens": budget}
-                temperature = 1.0  # Required for thinking mode
+        # 1. Apply Dynamic Inference Config (Not-Claude-Code-Emulator Pattern)
+        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
+            loaded.profile, raw_messages, kwargs
+        )
                 
         # Format messages for anthropic
         anthropic_msgs = []
@@ -528,12 +545,6 @@ class ModelManager:
                     del block["cache_control"]
                     
         # 3. Agent Footprint & Fingerprinting
-        # Inject attribution header logic
-        first_user_text = anthropic_msgs[0]["content"] if anthropic_msgs and isinstance(anthropic_msgs[0]["content"], str) else prompt
-        fingerprint_input = f"antigravity_k_59cf53e54c78_{first_user_text[:30]}"
-        fingerprint = hashlib.sha256(fingerprint_input.encode('utf-8')).hexdigest()[:6]
-        
-        attribution = f"\nx-antigravity-k-agent: id={fingerprint}; cch=00000;"
         if system_blocks:
             system_blocks[0]["text"] += attribution
         else:
@@ -568,22 +579,32 @@ class ModelManager:
         url = f"{base_url}/chat/completions"
         api_key = config.model.api_key
         
-        data = {
-            "model": loaded.profile.name,
-            "stream": True,
-            "temperature": kwargs.get("temperature", 0.7),
-            "max_tokens": kwargs.get("max_tokens", 8192)
-        }
-        
         if "raw_messages" in kwargs:
             sys_msg = kwargs.get("system_prompt", "")
             if sys_msg:
                 api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
             else:
                 api_msgs = kwargs["raw_messages"]
-            data["messages"] = api_msgs
         else:
-            data["messages"] = [{"role": "user", "content": prompt}]
+            api_msgs = [{"role": "user", "content": prompt}]
+            
+        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
+            loaded.profile, api_msgs, kwargs
+        )
+        
+        # W-7 수정: 원본 메시지 오염 방지를 위해 복사 후 attribution 추가
+        if api_msgs and isinstance(api_msgs[0].get("content"), str):
+            api_msgs = list(api_msgs)  # shallow copy of list
+            api_msgs[0] = {**api_msgs[0], "content": api_msgs[0]["content"] + f"\n{attribution}"}
+            
+        data = {
+            "model": model_name,
+            "stream": True,
+            "keep_alive": "30m",
+            "temperature": temperature,
+            "max_tokens": kwargs.get("max_tokens", 8192),
+            "messages": api_msgs
+        }
         
         req = urllib.request.Request(
             url, 
@@ -594,7 +615,7 @@ class ModelManager:
             }
         )
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=300) as response:
                 for line in response:
                     line = line.decode("utf-8").strip()
                     if not line or line == "data: [DONE]":
@@ -641,7 +662,25 @@ class ModelManager:
         return list(self._loaded.keys())
 
     def is_loaded(self, name: str) -> bool:
-        return name in self._loaded
+        if name in self._loaded:
+            return True
+        # Check Ollama active models dynamically
+        profile = self._registry.get_model(name)
+        if profile and getattr(profile, "backend", "ollama") == "ollama":
+            try:
+                import urllib.request
+                import json
+                req = urllib.request.Request("http://localhost:11434/api/ps")
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    for m in data.get("models", []):
+                        m_name = m.get("name", "")
+                        # e.g. "deepseek-r1:70b" or "deepseek-r1" match
+                        if m_name == name or m_name.startswith(name + ":"):
+                            return True
+            except Exception:
+                pass
+        return False
 
     # ─── 내부 메서드 ─────────────────────────────────────────────────
 

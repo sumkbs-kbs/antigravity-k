@@ -47,16 +47,16 @@ class PersistentTerminalManager:
                 line = process.stdout.readline()
                 if not line: break
                 output += line
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to read stdout for term_id {term_id}: {e}")
             
         try:
             while True:
                 line = process.stderr.readline()
                 if not line: break
                 output += line
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to read stderr for term_id {term_id}: {e}")
             
         if process.poll() is not None:
             output += f"\n[Process exited with code {process.returncode}]"
@@ -293,7 +293,8 @@ class InteractivePTYTool(BaseTool):
                 data = os.read(InteractivePTYTool._active_fd, 4096)
                 if not data: break
                 output += data
-            except OSError:
+            except OSError as e:
+                logger.debug(f"PTY read interrupted or finished: {e}")
                 break
             if time.time() - start_time > 5.0: break
                 
@@ -309,9 +310,9 @@ class InteractivePTYTool(BaseTool):
         import os
         if InteractivePTYTool._active_pid:
             try: os.kill(InteractivePTYTool._active_pid, 9)
-            except OSError: pass
+            except OSError as e: logger.debug(f"Failed to kill pid: {e}")
             InteractivePTYTool._active_pid = None
         if InteractivePTYTool._active_fd:
             try: os.close(InteractivePTYTool._active_fd)
-            except OSError: pass
+            except OSError as e: logger.debug(f"Failed to close fd: {e}")
             InteractivePTYTool._active_fd = None

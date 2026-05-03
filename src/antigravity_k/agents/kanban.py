@@ -44,10 +44,16 @@ class KanbanBoard:
                         status TEXT,
                         assignee TEXT,
                         tokens_used INTEGER DEFAULT 0,
+                        worktree_branch TEXT,
                         created_at TEXT,
                         updated_at TEXT
                     )
                 """)
+                # 마이그레이션: 기존 테이블에 worktree_branch 컬럼 추가 시도
+                try:
+                    conn.execute("ALTER TABLE tasks ADD COLUMN worktree_branch TEXT")
+                except sqlite3.OperationalError:
+                    pass  # 이미 컬럼이 존재함
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS task_history (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +96,17 @@ class KanbanBoard:
             
             logger.info(f"Task created: {task_id}")
             return task_id
+
+    def update_task_worktree(self, task_id: str, branch_name: str):
+        """태스크에 할당된 워크트리 브랜치를 업데이트합니다."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE tasks SET worktree_branch = ?, updated_at = ? WHERE id = ?",
+                    (branch_name, datetime.now().isoformat(), task_id)
+                )
+                conn.commit()
+            logger.info(f"Task {task_id} worktree updated to {branch_name}")
 
     def move_task(self, task_id: str, new_status: str, verification_note: Optional[str] = None):
         """태스크 상태를 업데이트하고 히스토리를 남깁니다."""

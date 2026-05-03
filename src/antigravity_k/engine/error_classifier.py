@@ -390,14 +390,14 @@ def _extract_error_body(error: Exception) -> Optional[Dict]:
     try:
         if hasattr(response, "json"):
             return response.json()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to read json from response: {e}")
 
     text = getattr(response, "text", None)
     if text:
         try:
             return json.loads(text)
-        except (json.JSONDecodeError, TypeError):
-            pass
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.debug(f"Failed to parse error body JSON: {e}")
 
     return None

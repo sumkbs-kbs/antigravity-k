@@ -1,0 +1,79 @@
+import os
+import json
+import logging
+import platform
+import psutil
+import uuid
+
+from ..engine.model_manager import ModelManager
+
+logger = logging.getLogger(__name__)
+
+class HardwareAnalystAgent:
+    """
+    AGI Core: Hardware Analyst Agent (인프라 진단 및 장비 기안 에이전트)
+    시스템의 현재 하드웨어 자원을 분석하고, 필요한 초거대 모델을 실행하기 위한
+    물리적 한계를 계산하여 사용자에게 정식 '하드웨어 업그레이드 기안서'를 작성합니다.
+    """
+    def __init__(self, model_manager: ModelManager):
+        self.model_manager = model_manager
+        
+    def _get_system_specs(self) -> dict:
+        """현재 시스템의 물리적 스펙을 수집합니다."""
+        specs = {
+            "os": platform.system(),
+            "os_release": platform.release(),
+            "architecture": platform.machine(),
+            "cpu_cores": psutil.cpu_count(logical=False),
+            "logical_cores": psutil.cpu_count(logical=True),
+            "total_ram_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+            "available_ram_gb": round(psutil.virtual_memory().available / (1024**3), 2)
+        }
+        return specs
+
+    def propose_upgrade(self, target_model_name: str, required_memory_gb: float) -> str:
+        """
+        특정 모델을 영입하기 위해 필요한 하드웨어 업그레이드 기안서를 작성합니다.
+        """
+        logger.info(f"HardwareAnalystAgent generating upgrade proposal for {target_model_name} ({required_memory_gb}GB needed)")
+        
+        sys_specs = self._get_system_specs()
+        
+        prompt = f"""You are the Hardware Analyst Agent of Antigravity-K.
+The ScoutAgent found a highly advanced AI model ('{target_model_name}') that requires {required_memory_gb}GB of memory to run efficiently.
+However, our current hardware specifications are:
+- OS: {sys_specs['os']} {sys_specs['architecture']}
+- CPU Cores: {sys_specs['cpu_cores']}
+- Total RAM: {sys_specs['total_ram_gb']} GB
+- Available RAM: {sys_specs['available_ram_gb']} GB
+
+Write a formal, persuasive Hardware Upgrade Proposal for the human user.
+Format as ONLY a JSON object:
+{{
+    "title": "Hardware Upgrade Proposal for ...",
+    "current_bottleneck": "Explanation of why current hardware cannot handle it",
+    "target_capabilities": "What the new model will allow us to do (ROI)",
+    "recommended_hardware": "Specific hardware recommendation (e.g., Mac Studio M4 Ultra 192GB RAM)",
+    "roi_justification": "Why this investment is worth it in terms of developer hours saved"
+}}
+"""
+        try:
+            response = self.model_manager.generate(prompt, model_id="default")
+            
+            clean = response.strip()
+            if clean.startswith("```json"): clean = clean[7:]
+            if clean.endswith("```"): clean = clean[:-3]
+            data = json.loads(clean.strip())
+            
+            artifact_content = f"# 인프라 업그레이드 기안서 (Hardware Evolution Proposal)\n\n"
+            artifact_content += f"## 🖥 현재 신체 진단 (Current Bottleneck)\n{data.get('current_bottleneck')}\n\n"
+            artifact_content += f"## 🎯 목표 지능 (Target Capabilities)\n{data.get('target_capabilities')}\n\n"
+            artifact_content += f"## 💡 장비 업그레이드 제안 (Recommendation)\n**{data.get('recommended_hardware')}**\n\n"
+            artifact_content += f"## 📈 투자 대비 효과 (ROI Analysis)\n{data.get('roi_justification')}\n\n"
+            
+            artifact_content += "\n> [!TIP]\n> 이 제안서는 시스템 스스로 자신의 물리적 한계를 인지하고 돌파하기 위해 작성한 메타-인지(Meta-Cognitive) 보고서입니다. 장비 업그레이드가 완료되면 `config.yaml`의 메모리 제한을 해제해 주십시오.\n"
+            
+            return f"HardwareAnalystAgent가 시스템의 한계를 분석하여 인프라 투자 기안서를 작성했습니다. 보고서 내용:\n\n{artifact_content}\n\n사용자님, 시스템의 지능을 더 확장하시려면 이 제안을 고려해 주십시오."
+            
+        except Exception as e:
+            return f"HardwareAnalystAgent failed to generate proposal: {e}"

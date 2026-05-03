@@ -37,13 +37,17 @@ class IDEContextManager:
         if not state.get("active_file"):
             return ""
             
-        prompt = "\n\n=== IDE CONTEXT ===\n"
-        prompt += f"Active File: {state['active_file']}\n"
+        prompt = "\n\n<ADDITIONAL_METADATA>\n"
+        prompt += "The user's current state is as follows:\n"
+        prompt += f"Active Document: {state['active_file']}\n"
         if state.get("cursor_line"):
-            prompt += f"Cursor Line: {state['cursor_line']}\n"
+            prompt += f"Cursor is on line: {state['cursor_line']}\n"
         if state.get("open_files"):
-            prompt += f"Open Files: {', '.join(state['open_files'])}\n"
-        prompt += "===================\n"
+            prompt += "Other open documents:\n"
+            for f in state['open_files']:
+                if f != state['active_file']:
+                    prompt += f"- {f}\n"
+        prompt += "</ADDITIONAL_METADATA>\n"
         return prompt
 
 
@@ -62,8 +66,8 @@ class IDESyncHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(b'{"status": "ok"}')
                     return
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to decode IDE Sync JSON payload: {e}")
                     
         self.send_response(400)
         self.end_headers()

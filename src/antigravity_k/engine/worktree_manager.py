@@ -76,6 +76,10 @@ class WorktreeManager:
         logger.info(f"Created worktree at {worktree_path} on branch {branch_name}")
         return worktree_path
 
+    def get_worktree_path(self, task_id: str) -> str:
+        """Returns the absolute path to the worktree for the given task_id."""
+        return os.path.join(self.worktree_base_dir, task_id)
+
     def remove_worktree(self, task_id: str) -> bool:
         """
         태스크 완료 후 워크트리 및 관련 브랜치를 삭제합니다.

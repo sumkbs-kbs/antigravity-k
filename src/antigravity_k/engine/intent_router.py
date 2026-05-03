@@ -1,12 +1,29 @@
+"""
+[DEPRECATED] IntentRouter — 키워드 기반 의도 라우팅 (레거시)
+==========================================================
+이 모듈은 현재 시스템에서 사용되지 않습니다 (데드 코드).
+동일한 기능이 orchestrator.py의 _ceo_analyze() CEO 분석 파이프라인에서
+LLM 기반 + 키워드 폴백 방식으로 대체되었습니다.
+
+향후 통합 또는 제거 예정 (W-1).
+"""
 import logging
 import re
+import warnings
 from typing import Dict, Any
 
 logger = logging.getLogger("antigravity_k.engine.intent_router")
 
+warnings.warn(
+    "IntentRouter is deprecated. Use OrchestratorAgent._ceo_analyze() instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+
 class IntentRouter:
     """
-    IntentGate: Analyzes the user's task description and routes it to the optimal agent profile.
+    [DEPRECATED] IntentGate: Analyzes the user's task description and routes it to the optimal agent profile.
     Inspired by oh-my-openagent's discipline agents (Sisyphus, Hephaestus, Prometheus).
     """
     

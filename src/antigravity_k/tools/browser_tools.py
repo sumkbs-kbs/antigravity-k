@@ -41,15 +41,15 @@ def close_browser():
     global _playwright, _browser, _page
     if _page:
         try: _page.close()
-        except: pass
+        except Exception as e: logger.warning(f"Failed to close page: {e}")
         _page = None
     if _browser:
         try: _browser.close()
-        except: pass
+        except Exception as e: logger.warning(f"Failed to close browser: {e}")
         _browser = None
     if _playwright:
         try: _playwright.stop()
-        except: pass
+        except Exception as e: logger.warning(f"Failed to stop playwright: {e}")
         _playwright = None
 
 

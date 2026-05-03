@@ -83,13 +83,14 @@ class BackgroundTaskRunner:
     - 중단 시 마지막 체크포인트에서 재개 가능
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, vault_engine=None):
         if db_path is None:
             base_dir = Path(__file__).resolve().parent.parent / "data"
             base_dir.mkdir(parents=True, exist_ok=True)
             db_path = str(base_dir / "tasks.db")
         
         self.db_path = db_path
+        self.vault_engine = vault_engine  # W-6: DI 패턴으로 순환참조 제거
         self._tasks: Dict[str, BackgroundTask] = {}
         self._lock = threading.Lock()
         self.worktree_manager = WorktreeManager()
@@ -207,8 +208,8 @@ class BackgroundTaskRunner:
                 raise ValueError("Orchestrator is required for task execution")
 
             # ─── Snapshot (Filesystem Checkpoint) 생성 ───
-            from antigravity_k.api.server import get_vault_engine
-            vault_engine = getattr(self, "vault_engine", None) or get_vault_engine()
+            # W-6: 순환참조 제거 — api.server 역방향 import 대신 DI된 vault_engine 사용
+            vault_engine = self.vault_engine or getattr(orchestrator, 'vault_engine', None)
             
             if vault_engine:
                 try:
@@ -362,9 +363,8 @@ class BackgroundTaskRunner:
         Orchestrator가 주어지면 LLM을 통해 기억을 정제(Consolidation)합니다.
         """
         try:
-            # VaultEngine을 동적으로 가져옵니다 (순환 참조 방지)
-            from antigravity_k.api.server import get_vault_engine
-            vault_engine = get_vault_engine()
+            # W-6: 순환참조 제거 — DI된 vault_engine 또는 orchestrator에서 추출
+            vault_engine = self.vault_engine or getattr(orchestrator, 'vault_engine', None)
             
             if not vault_engine:
                 logger.warning("VaultEngine is not available. Skipping vault record.")

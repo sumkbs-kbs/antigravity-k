@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import yaml
-from typing import List, Dict, Any, Generator, Optional
+from typing import List, Dict, Any, Generator, Optional, Union
 
 from antigravity_k.tools.tool_registry import ToolRegistry
 from antigravity_k.tools.permission_gate import Permission, PermissionGate
@@ -31,6 +31,7 @@ from antigravity_k.engine.tool_guardrails import (
     guardrail_synthetic_result,
 )
 from antigravity_k.engine.error_classifier import classify_api_error
+from antigravity_k.engine.knowledge import KIEngine
 
 logger = logging.getLogger("antigravity_k.orchestrator")
 
@@ -49,6 +50,10 @@ ROLE_PROMPTS = {
         '{"task_type": "complex", "pipeline": [{"step": 1, "agent": "ARCHITECT", "task": "..."}, {"step": 2, "agent": "WORKER", "task": "..."}, {"step": 3, "agent": "QA", "task": "..."}], "reasoning": "..."}\n\n'
         "3) For controversial or deep discussion tasks (debate):\n"
         '{"task_type": "debate", "reasoning": "...", "debate_topic": "..."}\n\n'
+        "4) For AGI Core requests (scout new models, train, fine-tune):\n"
+        '{"task_type": "agi_core", "sub_type": "scout or train", "reasoning": "..."}\n\n'
+        "5) For hardware upgrade reports or system capability analysis:\n"
+        '{"task_type": "hardware_report", "reasoning": "..."}\n\n'
         "IMPORTANT: Output raw JSON only. /no_think"
     ),
     "WORKER": (
@@ -98,18 +103,9 @@ ROLE_PROMPTS = {
 }
 
 
-def _load_agent_models() -> Dict[str, str]:
-    """config.yaml에서 역할별 모델 매핑을 로드합니다."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config.yaml")
-        config_path = os.path.normpath(config_path)
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                cfg = yaml.safe_load(f)
-            return cfg.get("agent_models", {})
-    except Exception as e:
-        logger.warning(f"Failed to load agent_models from config: {e}")
-    return {}
+def _load_agent_models(config: dict) -> Dict[str, str]:
+    """config dict에서 역할별 모델 매핑을 추출합니다."""
+    return config.get("agent_models", {})
 
 
 class OrchestratorAgent:
@@ -128,8 +124,28 @@ class OrchestratorAgent:
         self.vault_engine = vault_engine
         self.project_root = project_root or os.getcwd()
 
-        # 역할-모델 매핑 로드
-        self.agent_models = _load_agent_models()
+        # 설정 로드
+        self.config = {}
+        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config.yaml")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                self.config = yaml.safe_load(f) or {}
+
+        # 역할-모델 매핑 로드 (W-3: self.config 재사용)
+        self.agent_models = _load_agent_models(self.config)
+        
+        # Knowledge Item Engine 추가
+        self.ki_engine = KIEngine(project_root=self.project_root)
+        
+        # AmbientWatchdog 초기화
+        self.watchdog = None
+        if self.config.get("ambient_partner", {}).get("watchdog_enabled", False):
+            try:
+                from antigravity_k.engine.ambient_watchdog import AmbientWatchdog
+                self.watchdog = AmbientWatchdog(self.project_root, self.manager, self.vault_engine)
+                self.watchdog.start()
+            except Exception as e:
+                logger.error(f"Failed to start AmbientWatchdog: {e}")
         
         # 연속 에러 카운터 (자동 롤백 트리거용)
         self._consecutive_errors = 0
@@ -164,17 +180,11 @@ class OrchestratorAgent:
         if not self._shared_tool_registry:
             self._register_claw_tools()
 
-    @staticmethod
-    def _load_guardrail_config() -> ToolCallGuardrailConfig:
-        """config.yaml에서 tool_loop_guardrails 설정을 로드합니다."""
+    def _load_guardrail_config(self) -> ToolCallGuardrailConfig:
+        """self.config에서 tool_loop_guardrails 설정을 추출합니다. (W-3: 파일 재로드 제거)"""
         try:
-            config_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config.yaml")
-            config_path = os.path.normpath(config_path)
-            if os.path.exists(config_path):
-                with open(config_path) as f:
-                    cfg = yaml.safe_load(f)
-                section = cfg.get("tool_loop_guardrails", {})
-                return ToolCallGuardrailConfig.from_config(section)
+            section = self.config.get("tool_loop_guardrails", {})
+            return ToolCallGuardrailConfig.from_config(section)
         except Exception as e:
             logger.warning(f"Failed to load guardrail config: {e}")
         return ToolCallGuardrailConfig()
@@ -220,11 +230,16 @@ class OrchestratorAgent:
         )
         for schema in self.tool_registry.to_llm_schemas():
             params = schema.get('input_schema', {})
-            required = params.get('required', [])
+            required = params.get('required') or []
             tool_section += f"- **{schema['name']}**: {schema['description']}\n"
-            props = params.get('properties', {})
+            props = params.get('properties') or {}
             if props:
-                tool_section += f"  Parameters: {', '.join(f'{k} ({v.get("type","any")}, {"required" if k in required else "optional"})' for k, v in props.items())}\n"
+                param_strs = []
+                for k, v in props.items():
+                    p_type = v.get("type", "any")
+                    p_req = "required" if k in required else "optional"
+                    param_strs.append(f"{k} ({p_type}, {p_req})")
+                tool_section += f"  Parameters: {', '.join(param_strs)}\n"
         return tool_section
 
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> str:
@@ -260,13 +275,28 @@ class OrchestratorAgent:
             else:
                 self._consecutive_errors = 0  # Reset on success
                 
-            # Auto-Rollback logic
+            # Auto-Rollback & Self-Healing logic
             if self._consecutive_errors >= 3:
                 self._consecutive_errors = 0
+                
+                # 1. Trigger Immune System (Self-Healing)
+                try:
+                    from .immune_system import ImmuneSystem
+                    immune = ImmuneSystem(self.project_root, self.manager, self.vault_engine)
+                    
+                    # Capture trace snippet (last error text)
+                    error_trace = str(result)
+                    args_context = json.dumps(args, ensure_ascii=False) if args else "None"
+                    
+                    heal_msg = immune.heal(error_trace, name, args_context)
+                    return heal_msg
+                except Exception as ie:
+                    logger.error(f"Immune System initialization failed: {ie}")
+
+                # 2. Fallback to Vault Rollback if Immune System fails
                 rollback_msg = "\n\n🚨 **[SANDBOX RECOVERY]** Consecutive tool errors detected! "
                 if self.vault_engine:
                     try:
-                        # VaultEngine의 snapshot API를 직접 사용 (subprocess 우회 금지)
                         snapshot = self.vault_engine.create_snapshot("Auto-rollback checkpoint before recovery")
                         if snapshot:
                             success = self.vault_engine.restore_snapshot(snapshot)
@@ -293,6 +323,7 @@ class OrchestratorAgent:
             from antigravity_k.tools.file_tools import WriteFileTool, EditFileTool, GlobSearchTool, GrepSearchTool
             from antigravity_k.tools.git_tools import GitStatusTool, GitDiffTool, GitCommitTool, GitLogTool
             from antigravity_k.tools.system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool, ListDirectoryTool
+            from antigravity_k.tools.hashline_tools import ReadHashFileTool, HashlineEditTool, MultiReplaceFileContentTool
             from antigravity_k.tools.agent_spawn import AgentSpawnTool
             from antigravity_k.tools.browser_tools import BrowserDOMTool
             from antigravity_k.tools.web_search import WebSearchTool
@@ -300,6 +331,8 @@ class OrchestratorAgent:
             from antigravity_k.tools.impact_analyzer import ImpactAnalyzerTool
             from antigravity_k.tools.artifact_tools import WriteArtifactTool
             from antigravity_k.tools.cowork_delegate import CoworkDelegateTool
+            from antigravity_k.tools.self_evolution_tool import SelfEvolutionTool
+            from antigravity_k.tools.config_editor_tool import ConfigEditorTool
 
             from antigravity_k.tools.docker_tools import DockerBashCommandTool
             from antigravity_k.tools.binary_tools import HexDumpTool
@@ -312,9 +345,9 @@ class OrchestratorAgent:
                 DockerBashCommandTool(),
 
                 # 파일 도구 (줄 범위 지원 ReadFile 포함)
-                ReadFileTool(), ReplaceFileContentTool(), RunBashCommandTool(),
+                ReadFileTool(), ReplaceFileContentTool(), MultiReplaceFileContentTool(), RunBashCommandTool(),
                 WriteFileTool(), EditFileTool(), GlobSearchTool(), GrepSearchTool(),
-                ListDirectoryTool(),
+                ListDirectoryTool(), ReadHashFileTool(), HashlineEditTool(),
 
                 # Git 도구
                 GitStatusTool(), GitDiffTool(), GitCommitTool(), GitLogTool(),
@@ -324,42 +357,69 @@ class OrchestratorAgent:
                 AutoLintTool(),     # 자동 린트/포맷팅
                 PRCreationTool(),   # 자동 PR 생성
                 ImpactAnalyzerTool(), # 변경 영향도 분석 (P1-8)
+                ConfigEditorTool(), # AGI Core 인사관리
 
                 # 에이전트 / 브라우저 / 검색 / 아티팩트
                 AgentSpawnTool(model_manager=self.manager, tool_registry=self.tool_registry),
                 CoworkDelegateTool(model_manager=self.manager),
+                SelfEvolutionTool(),
                 WriteArtifactTool(),
                 BrowserDOMTool(),
                 WebSearchTool()
             )
             logger.info(f"Registered {len(self.tool_registry)} tools via ToolRegistry")
+            
+            # Auto-Skill 동적 로딩 (ECA)
+            tools_dir = os.path.join(self.project_root, "src", "antigravity_k", "tools")
+            if os.path.exists(tools_dir):
+                import importlib.util
+                import inspect
+                from antigravity_k.tools.base_tool import BaseTool
+                
+                auto_skills = [f for f in os.listdir(tools_dir) if f.startswith("auto_skill_") and f.endswith(".py")]
+                for skill_file in auto_skills:
+                    try:
+                        module_name = skill_file[:-3]
+                        spec = importlib.util.spec_from_file_location(module_name, os.path.join(tools_dir, skill_file))
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        
+                        for name, obj in inspect.getmembers(module, inspect.isclass):
+                            if issubclass(obj, BaseTool) and obj is not BaseTool:
+                                self.tool_registry.install(obj())
+                                logger.info(f"Dynamically loaded auto-skill: {name} from {skill_file}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load auto-skill {skill_file}: {e}")
+                        
         except Exception as e:
             logger.warning(f"Failed to register tools: {e}")
 
     # ─── CEO 분석 단계 ─────────────────────────────────────────────────
 
-    def _ceo_analyze(self, user_message: str, target_model: str) -> Dict[str, str]:
+    def _ceo_analyze(self, user_message: str, target_model: str) -> Generator[Union[str, dict], None, None]:
         """
         CEO가 사용자 메시지를 분석하여 태스크 유형과 위임 대상을 결정합니다.
-        빠른 응답을 위해 경량 모델(default)을 사용합니다.
+        스트리밍으로 분석 과정을 출력하며, 마지막에 결과를 dict로 반환합니다.
         """
-        ceo_model = self._get_model_for_role("default")
-        
+        if target_model and target_model != "default":
+            ceo_model = target_model
+        else:
+            ceo_model = self._get_model_for_role("default")
+            if not ceo_model:
+                ceo_model = "qwen3.6:latest"
         ceo_prompt = f"{ROLE_PROMPTS['CEO']}\n\nUser request: {user_message}"
 
         try:
-            # Ollama의 /api/generate를 직접 호출 (chat/completions 대신)
-            # 이유: Qwen3의 chat/completions에서 thinking이 모든 토큰을 소모하여 content가 비어버리는 문제 방지
             import urllib.request
-            
             base_url = "http://localhost:11434"
             url = f"{base_url}/api/generate"
             
             data = {
                 "model": ceo_model,
                 "prompt": ceo_prompt,
-                "stream": False,
-                "options": {"num_predict": 2048}  # thinking + response 모두 생성할 수 있도록 충분히
+                "stream": True,
+                "keep_alive": "30m",
+                "options": {"num_predict": 512}
             }
             
             req = urllib.request.Request(
@@ -368,20 +428,34 @@ class OrchestratorAgent:
                 headers={"Content-Type": "application/json"}
             )
             
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                response = result.get("response", "")
-                thinking = result.get("thinking", "")
+            response_text = ""
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                for line in resp:
+                    line = line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                        if "response" in chunk:
+                            delta = chunk["response"]
+                            response_text += delta
+                            yield delta
+                        elif "message" in chunk and "content" in chunk["message"]:
+                            delta = chunk["message"]["content"]
+                            response_text += delta
+                            yield delta
+                    except json.JSONDecodeError:
+                        continue
             
-            # Qwen3: response와 thinking을 합쳐서 JSON 추출
-            raw_text = response + " " + thinking
-            logger.info(f"CEO analysis: response({len(response)}), thinking({len(thinking)}), combined({len(raw_text)})")
+            raw_text = response_text
+            logger.info(f"CEO analysis: response({len(response_text)}), combined({len(raw_text)})")
             
             # JSON 추출 전략:
             # 1) 전체 raw 텍스트에서 task_type이 포함된 JSON 블록 찾기
             # 2) <think> 안이든 밖이든 상관없이 추출
             # 1차: JSONDecoder.raw_decode — 중첩 {} 처리 가능
             decoder = json.JSONDecoder()
+            parsed = None
             # raw_text에서 첫 번째 유효한 JSON 객체 추출
             for i, ch in enumerate(raw_text):
                 if ch == '{':
@@ -389,21 +463,26 @@ class OrchestratorAgent:
                         obj, end_idx = decoder.raw_decode(raw_text, i)
                         if isinstance(obj, dict) and 'task_type' in obj:
                             logger.info(f"CEO Analysis (raw_decode): type={obj.get('task_type')}, delegate={obj.get('delegate_to')}")
-                            return obj
+                            parsed = obj
+                            break
                     except json.JSONDecodeError:
                         continue
             
             # 2차: 정규식 폴백
-            json_match = re.search(r'\{[^{}]*"task_type"\s*:\s*"[^"]*"[^{}]*\}', raw_text, re.DOTALL)
-            if json_match:
-                try:
-                    analysis = json.loads(json_match.group())
-                    logger.info(f"CEO Analysis (regex): type={analysis.get('task_type')}, delegate={analysis.get('delegate_to')}")
-                    return analysis
-                except json.JSONDecodeError as je:
-                    logger.warning(f"CEO JSON decode error: {je}")
+            if not parsed:
+                json_match = re.search(r'\{[^{}]*"task_type"\s*:\s*"[^"]*"[^{}]*\}', raw_text, re.DOTALL)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group())
+                    except json.JSONDecodeError as je:
+                        logger.warning(f"CEO JSON decode error: {je}")
             
-            # 3차: 키워드 기반 폴백
+            # JSON 파싱 성공 시 즉시 반환 (C-3 수정: 키워드 폴백으로 낙하 방지)
+            if parsed:
+                yield parsed
+                return
+
+            # 3차: 키워드 기반 폴백 (JSON 파싱 실패 시에만 도달)
             lower = raw_text.lower()
             keyword_map = [
                 (['coding', 'code', 'function', '함수', '코드', '작성', '파일', '구현'], 'coding', 'WORKER'),
@@ -414,19 +493,20 @@ class OrchestratorAgent:
             for keywords, task_type, delegate in keyword_map:
                 if any(kw in lower for kw in keywords):
                     logger.info(f"CEO fallback: detected {task_type} from keywords")
-                    return {
+                    yield {
                         "task_type": task_type,
                         "delegate_to": delegate,
                         "reasoning": "keyword-based detection",
                         "refined_prompt": user_message
                     }
+                    return
             
             logger.warning("CEO analysis: no JSON found in response")
         except Exception as e:
             logger.error(f"CEO analysis failed: {e}", exc_info=True)
 
         # 폴백: 단순 대화로 처리
-        return {
+        yield {
             "task_type": "simple_chat",
             "delegate_to": "SELF",
             "reasoning": "CEO analysis failed, fallback to direct response",
@@ -452,6 +532,8 @@ class OrchestratorAgent:
 
     def _run_single_agent(self, messages: List[Dict[str, str]], delegate_to: str, task_type: str, max_steps: int = 15) -> Generator[str, None, None]:
         delegate_model = self._get_model_for_role(delegate_to)
+        if hasattr(self, 'manager') and not self.manager.is_loaded(delegate_model):
+            yield f"\n\n*(🚀 `{delegate_model}` 모델을 VRAM에 로드 중입니다. 모델 크기에 따라 1~3분이 소요될 수 있습니다...)*\n\n"
         system_prompt = ROLE_PROMPTS.get(delegate_to, ROLE_PROMPTS["DEFAULT"])
         tool_prompt = self._build_tool_prompt() if delegate_to != "CEO" else ""
         
@@ -518,20 +600,22 @@ class OrchestratorAgent:
                                 if in_think_block:
                                     end_idx = text.find('</think>', i)
                                     if end_idx != -1:
+                                        output += text[i:end_idx] + "\n\n--- *End of Thinking* ---\n\n"
                                         i = end_idx + len('</think>')
                                         in_think_block = False
                                     else:
+                                        output += text[i:]
                                         break
                                 else:
                                     start_idx = text.find('<think>', i)
                                     if start_idx != -1:
-                                        output += text[i:start_idx]
+                                        output += text[i:start_idx] + "\n\n--- *Thinking Process* ---\n\n"
                                         i = start_idx + len('<think>')
                                         in_think_block = True
                                     else:
                                         output += text[i:]
                                         break
-                            if output.strip():
+                            if output:
                                 yield output
                                 full_output += output
 
@@ -656,6 +740,12 @@ class OrchestratorAgent:
                 # API 전송용 raw_messages에도 반영
                 shaped_messages.append({"role": "assistant", "content": full_response})
                 shaped_messages.append({"role": "user", "content": all_tool_responses})
+                
+                # Planning Mode 지원: 아티팩트 피드백 요청 시 루프를 일시 중지
+                if "WAITING_FOR_USER_APPROVAL" in all_tool_responses:
+                    yield "\n\n✋ **[PLANNING MODE]** 사용자의 승인을 대기합니다. (계획안 검토 후 승인/거절을 결정해 주세요.)\n"
+                    break
+                
                 continue
             break
         else:
@@ -710,7 +800,7 @@ class OrchestratorAgent:
         for chunk in self._run_single_agent(current_messages, "ARBITER", "debate_arbiter", max_steps):
             yield chunk
 
-    def run_stream(self, messages: List[Dict[str, str]], target_model: str, max_steps: int = 15) -> Generator[str, None, None]:
+    def run_stream(self, messages: List[Dict[str, str]], target_model: str, max_steps: int = 15, ephemeral_message: Optional[str] = None) -> Generator[str, None, None]:
         """
         CEO 기반 멀티 에이전트 스트리밍 실행.
         """
@@ -720,12 +810,24 @@ class OrchestratorAgent:
                 user_message = msg.get("content", "")
                 break
 
-        if not user_message:
+        if not user_message.strip():
             yield "메시지를 입력해주세요."
             return
 
-        # ─── 1. LLM Wiki (RAG) 컨텍스트 검색 ───
+        # ─── 0. Ambient Watchdog 프로액티브 알림 확인 ───
+        if hasattr(self, 'watchdog') and self.watchdog:
+            notifs = self.watchdog.pop_notifications()
+            for notif in notifs:
+                yield f"{notif}\n\n"
+
+        # ─── 1. LLM Wiki (RAG) 및 KIs (Knowledge Items) 컨텍스트 검색 ───
         rag_context = ""
+        
+        # KIs 주입
+        ki_context = self.ki_engine.build_ki_prompt()
+        if ki_context:
+            rag_context += ki_context
+
         if self.vault_engine and self.vault_engine.sync_rag:
             try:
                 results = self.vault_engine.vector_store.search(user_message, n_results=5)
@@ -739,8 +841,13 @@ class OrchestratorAgent:
                 logger.warning(f"RAG search failed: {e}")
 
         custom_messages = list(messages)
-        if rag_context:
-            custom_messages[-1] = {"role": "user", "content": user_message + rag_context}
+        if rag_context or ephemeral_message:
+            new_content = user_message
+            if rag_context:
+                new_content += rag_context
+            if ephemeral_message:
+                new_content += f"\n\n<EPHEMERAL_MESSAGE>\n{ephemeral_message}\n</EPHEMERAL_MESSAGE>\n"
+            custom_messages[-1] = {"role": "user", "content": new_content}
 
         # ─── 1.5. 자동 스킬 매칭 (Smart Skill Activation) ───
         if hasattr(self, 'skill_loader') and self.skill_loader:
@@ -754,8 +861,40 @@ class OrchestratorAgent:
                 logger.debug(f"Auto skill matching failed: {e}")
 
         yield "🏢 "  # CEO 분석 시작 시각 표시
-        analysis = self._ceo_analyze(user_message, target_model)
         
+        # CEO 분석 결과를 스트리밍 처리
+        analysis = {}
+        in_ceo_think = False
+        buffer = ""
+        for chunk in self._ceo_analyze(user_message, target_model):
+            if isinstance(chunk, dict):
+                analysis = chunk
+                break
+            elif isinstance(chunk, str):
+                buffer += chunk
+                
+                # <think> 감지
+                if not in_ceo_think and "<think>" in buffer:
+                    in_ceo_think = True
+                    idx = buffer.find("<think>")
+                    yield buffer[:idx] + "\n\n--- *CEO Analyzing...* ---\n\n"
+                    buffer = buffer[idx + 7:]
+                    
+                # </think> 감지
+                if in_ceo_think and "</think>" in buffer:
+                    in_ceo_think = False
+                    idx = buffer.find("</think>")
+                    yield buffer[:idx] + "\n\n--- *End of CEO Analysis* ---\n\n"
+                    buffer = buffer[idx + 8:]
+                    continue
+                    
+                # 스트리밍 출력
+                if in_ceo_think:
+                    if len(buffer) > 8:
+                        safe_chunk = buffer[:-8]
+                        yield safe_chunk
+                        buffer = buffer[-8:]
+
         task_type = analysis.get("task_type", "simple_chat")
         delegate_to = analysis.get("delegate_to", "SELF")
         refined_prompt = analysis.get("refined_prompt", user_message)
@@ -773,6 +912,27 @@ class OrchestratorAgent:
         emoji = role_emoji.get(delegate_to, "🤖")
         
         # ─── 2. 에이전트 파이프라인 실행 ───
+        if task_type == "agi_core":
+            sub_type = analysis.get("sub_type", "scout")
+            yield f"**[CEO]** 태스크 분석 완료 → 🧬 **AGI Core ({sub_type})** 파이프라인 시작\n\n"
+            if "scout" in sub_type.lower():
+                from antigravity_k.agents.scout_agent import ScoutAgent
+                scout = ScoutAgent(self.manager, self.tool_registry)
+                yield scout.propose_model_scout(user_message)
+            else:
+                from antigravity_k.agents.trainer_agent import TrainerAgent
+                trainer = TrainerAgent(self.manager, self.tool_registry)
+                yield trainer.propose_training(user_message)
+            return
+
+        if task_type == "hardware_report":
+            yield f"**[CEO]** 태스크 분석 완료 → 🖥️ **하드웨어 컨설턴트** 호출\n\n"
+            from antigravity_k.agents.hardware_analyst import HardwareAnalystAgent
+            analyst = HardwareAnalystAgent(self.manager)
+            # Default to requesting a 200GB model report to demonstrate
+            yield analyst.propose_upgrade("AGI-Target-400B", 200.0)
+            return
+            
         if task_type == "complex":
             yield f"**[CEO]** 태스크 분석 완료 → 🚀 **멀티 스텝 파이프라인** 시작\n\n"
             yield from self._run_pipeline(custom_messages, analysis.get("pipeline", []), max_steps)
