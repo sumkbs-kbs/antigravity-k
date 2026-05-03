@@ -5,7 +5,11 @@ from typing import Dict, Any, List
 
 class SecurityPolicyEngine:
     def __init__(self, policy_file: str = "policy.yaml"):
-        self.policy_file = Path(policy_file)
+        # W-5: 상대 경로 시 프로젝트 루트 기준 절대 경로로 변환
+        _policy_path = Path(policy_file)
+        if not _policy_path.is_absolute():
+            _policy_path = Path(__file__).resolve().parent.parent.parent.parent / policy_file
+        self.policy_file = _policy_path
         self.policy: Dict[str, Any] = {
             "network": {"allowed_domains": [], "blocked_domains": []},
             "filesystem": {"allowed_paths": [], "read_only_paths": []},

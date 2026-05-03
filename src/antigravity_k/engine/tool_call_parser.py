@@ -60,6 +60,7 @@ class ToolCallParser:
         self._buffer = ""
         self._in_tool_call = False
         self._tool_buffer = ""
+        self.tool_responses: List[str] = []  # I-10: 명시적 초기화 (hasattr 패턴 제거)
 
     def feed(self, chunk: str) -> List[ParseEvent]:
         """청크를 받아 이벤트 리스트를 반환합니다."""

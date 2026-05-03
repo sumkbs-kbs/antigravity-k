@@ -90,6 +90,13 @@ class VaultEngine:
 
     def restore_snapshot(self, commit_hash: str) -> bool:
         """Restore the filesystem to a specific snapshot (commit hash)."""
+        # I-9: 안전 검증 — 위험한 경로에서의 git reset --hard 방지
+        real_path = os.path.realpath(self.vault_path)
+        dangerous_paths = ['/', os.path.expanduser('~'), os.path.expanduser('~/Desktop')]
+        if real_path in dangerous_paths or len(real_path) < 5:
+            logger.error(f"[SAFETY] Refusing git reset --hard in dangerous path: {real_path}")
+            return False
+        
         try:
             # 1. Reset hard to the specific commit
             subprocess.run(

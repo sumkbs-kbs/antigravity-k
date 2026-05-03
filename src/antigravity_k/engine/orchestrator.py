@@ -633,8 +633,6 @@ class OrchestratorAgent:
                                 logger.warning(f"🛡️ Guardrail blocked: {pre_decision.code} ({tool_name})")
                                 yield f"\n\n🛡️ **[Tool Loop Guard]** {pre_decision.message}\n"
                                 synthetic = guardrail_synthetic_result(pre_decision)
-                                if not hasattr(parser, "tool_responses"):
-                                    parser.tool_responses = []
                                 parser.tool_responses.append(f"<tool_response>\n{synthetic}\n</tool_response>")
                                 if pre_decision.should_halt:
                                     tool_executed = False
@@ -671,8 +669,6 @@ class OrchestratorAgent:
                             yield "</div>\n</details>\n\n"
                             
                             # 응답 블록을 저장 (스트림 종료 후 한번에 추가하기 위함)
-                            if not hasattr(parser, "tool_responses"):
-                                parser.tool_responses = []
                             parser.tool_responses.append(f"<tool_response>\n{tool_result}\n</tool_response>")
                             
                             if post_decision.should_halt:
@@ -685,8 +681,6 @@ class OrchestratorAgent:
                             error_msg = f"[TOOL CALL PARSE ERROR] Please check your JSON syntax. Details: {event.data}"
                             yield f"\n\n⚠️ **{error_msg}**\n"
                             
-                            if not hasattr(parser, "tool_responses"):
-                                parser.tool_responses = []
                             parser.tool_responses.append(f"<tool_response>\n{error_msg}\n</tool_response>")
                             tool_executed = True
 

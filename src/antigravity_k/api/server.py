@@ -701,10 +701,21 @@ async def websocket_terminal(websocket: WebSocket):
     except WebSocketDisconnect:
         loop.remove_reader(master)
         os.close(master)
-        # Terminate shell
-        import signal
+        # I-7: Graceful shutdown — SIGTERM 우선, SIGKILL 폴백
+        import signal, time
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, signal.SIGTERM)
+            # 최대 2초 대기 후 강제 종료
+            for _ in range(20):
+                try:
+                    result = os.waitpid(pid, os.WNOHANG)
+                    if result[0] != 0:
+                        break
+                except ChildProcessError:
+                    break
+                time.sleep(0.1)
+            else:
+                os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
 
