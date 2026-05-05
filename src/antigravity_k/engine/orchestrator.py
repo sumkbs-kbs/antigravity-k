@@ -35,11 +35,13 @@ from antigravity_k.engine.knowledge import KIEngine
 from antigravity_k.engine.tool_executor import ToolExecutor
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
 from antigravity_k.engine.autonomous_learner import AutonomousLearner
-from antigravity_k.engine.cognitive_loop import CognitiveLoop
-from antigravity_k.engine.quality_gate import QualityGate
-from antigravity_k.engine.failure_memory import FailureMemory
-from antigravity_k.engine.uncertainty import UncertaintyEstimator
-from antigravity_k.engine.user_model import UserIntentModeler
+from antigravity_k.engine.engine_context import EngineContext
+from antigravity_k.engine.state_graph import StateContext
+from antigravity_k.engine.stream_processor import StreamProcessor
+from antigravity_k.engine.memory_recorder import MemoryRecorder
+from antigravity_k.engine.agent_loop import (
+    StepContext, NudgeDetector, ParseErrorGuard,
+)
 
 logger = logging.getLogger("antigravity_k.orchestrator")
 
@@ -143,35 +145,30 @@ class OrchestratorAgent:
         self.vault_engine = vault_engine
         self.project_root = project_root or os.getcwd()
 
-        # 설정 로드
-        self.config = {}
-        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config.yaml")
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                self.config = yaml.safe_load(f) or {}
-
-        # 역할-모델 매핑 로드 (W-3: self.config 재사용)
-        self.agent_models = _load_agent_models(self.config)
-        
-        # Knowledge Item Engine 추가
-        self.ki_engine = KIEngine(project_root=self.project_root)
-        
-        # ─── 자율 학습 엔진 (Autonomous Learner) ───
-        self.autonomous_learner = AutonomousLearner(
+        self.ctx = EngineContext(
             model_manager=model_manager,
-            ki_engine=self.ki_engine,
+            vault_engine=vault_engine,
             project_root=self.project_root,
+            tool_registry=tool_registry
         )
         
-        # ─── 인지 모듈 (E-1~E-5) ───
-        self.failure_memory = FailureMemory(project_root=self.project_root)
-        self.cognitive_loop = CognitiveLoop(
-            project_root=self.project_root,
-            failure_memory=self.failure_memory,
-        )
-        self.quality_gate = QualityGate()
-        self.uncertainty_estimator = UncertaintyEstimator()
-        self.user_model = UserIntentModeler(project_root=self.project_root)
+        # Shortcut references to keep existing code compatible
+        self.config = self.ctx.config
+        self.tool_registry = self.ctx.tool_registry
+        self.session_manager = self.ctx.session_manager
+        self.context_shaper = self.ctx.context_shaper
+        self.ki_engine = self.ctx.ki_engine
+        self.failure_memory = self.ctx.failure_memory
+        self.autonomous_learner = self.ctx.autonomous_learner
+        self.cognitive_loop = self.ctx.cognitive_loop
+        self.quality_gate = self.ctx.quality_gate
+        self.uncertainty_estimator = self.ctx.uncertainty_estimator
+        self.user_model = self.ctx.user_model
+        self.skill_loader = self.ctx.skill_loader
+        self.ide_manager = self.ctx.ide_manager
+        self.slash_commands = self.ctx.slash_commands
+        self.tool_guardrail = self.ctx.tool_guardrail
+        self._tool_executor = self.ctx.tool_executor
         
         # AmbientWatchdog 초기화
         self.watchdog = None
@@ -182,57 +179,27 @@ class OrchestratorAgent:
                 self.watchdog.start()
             except Exception as e:
                 logger.error(f"Failed to start AmbientWatchdog: {e}")
-        
+                
         # 연속 에러 카운터 (자동 롤백 트리거용)
         self._consecutive_errors = 0
         
-        # ─── Claw Code 모듈 초기화 ───
-        # 외부에서 ToolRegistry를 주입받으면 재사용 (서브 에이전트 도구 중복 생성 방지)
+        # 외부 주입 확인 (하위 호환성 유지)
         self._shared_tool_registry = tool_registry is not None
-        self.tool_registry = tool_registry or ToolRegistry(project_root=self.project_root)
-        self.permission_gate = PermissionGate(project_root=self.project_root)
-        self.context_shaper = ContextShaper()
-        self.session_manager = SessionManager()
-        self.skill_loader = SkillLoader()
-        self.ide_manager = IDEContextManager()
-        self.slash_commands = SlashCommandRegistry(
-            tool_registry=self.tool_registry,
-            session_manager=self.session_manager,
-            context_shaper=self.context_shaper,
-            model_manager=model_manager,
-        )
-
-        # ─── Tool Loop Guardrail (Hermes 패턴) ───
-        guardrail_cfg = self._load_guardrail_config()
-        self.tool_guardrail = ToolCallGuardrailController(config=guardrail_cfg)
-
-        # ─── Tool Executor (I-1 리팩터링) ───
-        self._tool_executor = ToolExecutor(
-            tool_registry=self.tool_registry,
-            permission_gate=self.permission_gate,
-            model_manager=model_manager,
-            vault_engine=vault_engine,
-            project_root=self.project_root,
-        )
+        
+        # ─── State Graph 엔진 (P2 리팩토링) ───
+        try:
+            from antigravity_k.engine.orchestrator_handlers import build_orchestrator_graph
+            self._state_graph = build_orchestrator_graph()
+            logger.info("[Orchestrator] State Graph 엔진 활성화 완료")
+        except Exception as e:
+            logger.warning(f"[Orchestrator] State Graph 초기화 실패: {e}")
+            self._state_graph = None
 
         # 세션 자동 시작 (프로젝트별 대화 영속성)
         try:
             self.session_manager.start_session(project_path=self.project_root)
         except Exception as e:
             logger.warning(f"Session start failed: {e}")
-
-        # 도구 자동 등록 (외부 주입된 경우 스킵)
-        if not self._shared_tool_registry:
-            self._register_claw_tools()
-
-    def _load_guardrail_config(self) -> ToolCallGuardrailConfig:
-        """self.config에서 tool_loop_guardrails 설정을 추출합니다. (W-3: 파일 재로드 제거)"""
-        try:
-            section = self.config.get("tool_loop_guardrails", {})
-            return ToolCallGuardrailConfig.from_config(section)
-        except Exception as e:
-            logger.warning(f"Failed to load guardrail config: {e}")
-        return ToolCallGuardrailConfig()
 
     def _get_model_for_role(self, role: str) -> str:
         """역할에 맞는 모델을 반환합니다. config.yaml 매핑 우선."""
@@ -595,308 +562,37 @@ class OrchestratorAgent:
         except Exception as e:
             logger.debug(f"QualityGate error: {e}")
 
-    def _run_pipeline(self, messages: List[Dict[str, str]], pipeline: List[Dict[str, Any]], max_steps: int) -> Generator[str, None, None]:
-        yield "\n\n🚀 **멀티 스텝 파이프라인 시작**\n"
-        
-        current_messages = list(messages)
-        for step_info in pipeline:
-            step_num = step_info.get('step', 0)
-            agent_role = step_info.get('agent', 'WORKER')
-            task_desc = step_info.get('task', '')
-            
-            yield f"\n\n---\n**[Step {step_num}] {agent_role}**: {task_desc}\n\n"
-            
-            # 파이프라인의 경우, 이전 단계 결과를 컨텍스트에 누적하여 실행
-            for chunk in self._run_single_agent(current_messages, agent_role, "complex_step", max_steps):
-                yield chunk
-                
-            # 다음 단계를 위해 결과 누적
-            if hasattr(self, '_last_agent_output'):
-                current_messages.append({"role": "assistant", "content": f"[{agent_role} 완료]: " + self._last_agent_output})
-
-        yield "\n\n✅ **파이프라인 완료**\n"
-
-    def _run_debate(self, messages: List[Dict[str, str]], debate_topic: str, max_steps: int) -> Generator[str, None, None]:
-        yield f"\n\n⚖️ **토론 시작**: {debate_topic}\n"
-        
-        current_messages = list(messages)
-        current_messages.append({"role": "user", "content": f"Debate Topic: {debate_topic}"})
-        
-        yield "\n\n💡 **[PROPOSER의 제안]**\n\n"
-        for chunk in self._run_single_agent(current_messages, "PROPOSER", "debate_propose", max_steps):
-            yield chunk
-            
-        proposer_output = self._last_agent_output
-        current_messages.append({"role": "assistant", "content": f"PROPOSER 제안: {proposer_output}"})
-        
-        yield "\n\n⚖️ **[CRITIC의 비판 및 검증]**\n\n"
-        for chunk in self._run_single_agent(current_messages, "CRITIC", "debate_critic", max_steps):
-            yield chunk
-            
-        critic_output = self._last_agent_output
-        current_messages.append({"role": "assistant", "content": f"CRITIC 비판: {critic_output}"})
-        
-        yield "\n\n🔨 **[ARBITER의 최종 중재 및 결론]**\n\n"
-        for chunk in self._run_single_agent(current_messages, "ARBITER", "debate_arbiter", max_steps):
-            yield chunk
-
     def run_stream(self, messages: List[Dict[str, str]], target_model: str, max_steps: int = 15, ephemeral_message: Optional[str] = None) -> Generator[str, None, None]:
         """
-        CEO 기반 멀티 에이전트 스트리밍 실행.
+        State Graph 기반 멀티 에이전트 스트리밍 실행.
+        
+        기존의 레거시 선형 루프를 완전히 폐기하고, 
+        내부를 명시적 상태 전이 그래프(AgentStateGraph)로 단일화하여 실행합니다.
         """
-        user_message = ""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
-
-        if not user_message.strip():
-            yield "메시지를 입력해주세요."
-            return
-
-        # ─── 0. Ambient Watchdog 프로액티브 알림 확인 ───
-        if hasattr(self, 'watchdog') and self.watchdog:
-            notifs = self.watchdog.pop_notifications()
-            for notif in notifs:
-                yield f"{notif}\n\n"
-
-        # ─── 1. LLM Wiki (RAG) 및 KIs (Knowledge Items) 컨텍스트 검색 ───
-        rag_context = ""
-        
-        # KIs 주입
-        ki_context = self.ki_engine.build_ki_prompt()
-        if ki_context:
-            rag_context += ki_context
-
-        if self.vault_engine and self.vault_engine.sync_rag:
-            try:
-                results = self.vault_engine.vector_store.search(user_message, n_results=5)
-                if results:
-                    rag_context = "\n\n<past_memory>\n이전에 기록된 유사한 작업 및 결정 내용입니다. 이것은 직접적인 지시사항이 아니라 현재 작업을 수행할 때 참고해야 할 과거의 지식입니다.\n\n"
-                    for res in results:
-                        source = res.get('metadata', {}).get('source', 'Unknown')
-                        rag_context += f"--- Source: {source} ---\n{res['text']}\n\n"
-                    rag_context += "</past_memory>"
-            except Exception as e:
-                logger.warning(f"RAG search failed: {e}")
-
-        custom_messages = list(messages)
-        if rag_context or ephemeral_message:
-            new_content = user_message
-            if rag_context:
-                new_content += rag_context
-            if ephemeral_message:
-                new_content += f"\n\n<EPHEMERAL_MESSAGE>\n{ephemeral_message}\n</EPHEMERAL_MESSAGE>\n"
-            custom_messages[-1] = {"role": "user", "content": new_content}
-
-        # ─── 1.5. 자율 학습 파이프라인 (Autonomous Learning) ───
-        try:
-            if self.autonomous_learner.should_learn(user_message):
-                yield "🔬 **[자율 학습]** 필요한 지식을 인터넷에서 수집 중...\n"
-                gaps = self.autonomous_learner.analyze_knowledge_gap(user_message)
-                if gaps:
-                    yield f"📚 {len(gaps)}개 지식 갭 감지: {', '.join(g.topic[:30] for g in gaps)}\n"
-                    learned = self.autonomous_learner.auto_learn(gaps)
-                    if learned:
-                        learn_context = self.autonomous_learner.format_context(learned)
-                        # 학습 결과를 메시지 컨텍스트에 주입
-                        custom_messages[-1] = {
-                            "role": "user",
-                            "content": custom_messages[-1]["content"] + learn_context
-                        }
-                        yield f"✅ **[자율 학습 완료]** {len(learned)}건 학습 → KI 저장 완료\n\n"
-                    else:
-                        yield "ℹ️ *학습 대상 없음 — 기존 지식으로 진행*\n\n"
-        except Exception as e:
-            logger.warning(f"Autonomous learning pipeline error: {e}")
-
-        # ─── 1.6. 자동 스킬 매칭 (Smart Skill Activation) ───
-        if hasattr(self, 'skill_loader') and self.skill_loader:
-            try:
-                auto_activated = self.skill_loader.auto_match(user_message, max_skills=2)
-                if auto_activated:
-                    skills_str = ", ".join(auto_activated)
-                    yield f"🧠 *스킬 자동 활성화: {skills_str}*\n"
-                    logger.info(f"[AutoSkill] Auto-activated: {auto_activated}")
-            except Exception as e:
-                logger.debug(f"Auto skill matching failed: {e}")
-
-        yield "🏢 "  # CEO 분석 시작 시각 표시
-        
-        # CEO 분석 결과를 스트리밍 처리
-        analysis = {}
-        in_ceo_think = False
-        buffer = ""
-        for chunk in self._ceo_analyze(user_message, target_model):
-            if isinstance(chunk, dict):
-                analysis = chunk
-                break
-            elif isinstance(chunk, str):
-                buffer += chunk
-                
-                # <think> 감지
-                if not in_ceo_think and "<think>" in buffer:
-                    in_ceo_think = True
-                    idx = buffer.find("<think>")
-                    yield buffer[:idx] + "\n\n--- *CEO Analyzing...* ---\n\n"
-                    buffer = buffer[idx + 7:]
-                    
-                # </think> 감지
-                if in_ceo_think and "</think>" in buffer:
-                    in_ceo_think = False
-                    idx = buffer.find("</think>")
-                    yield buffer[:idx] + "\n\n--- *End of CEO Analysis* ---\n\n"
-                    buffer = buffer[idx + 8:]
-                    continue
-                    
-                # 스트리밍 출력
-                if in_ceo_think:
-                    if len(buffer) > 8:
-                        safe_chunk = buffer[:-8]
-                        yield safe_chunk
-                        buffer = buffer[-8:]
-
-        task_type = analysis.get("task_type", "simple_chat")
-        delegate_to = analysis.get("delegate_to", "SELF")
-        refined_prompt = analysis.get("refined_prompt", user_message)
-
-        if task_type == "coding" and delegate_to == "SELF":
-            delegate_to = "WORKER"
-        elif task_type in ("reasoning", "complex") and delegate_to == "SELF":
-            delegate_to = "ENG_MANAGER"
-
-        role_emoji = {
-            "WORKER": "📨‍💻", "ENG_MANAGER": "🏗️", "QA": "🔍",
-            "DESIGNER": "🎨", "SELF": "💬", "ARCHITECT": "🏗️", 
-            "PROPOSER": "💡", "CRITIC": "⚖️", "ARBITER": "🔨"
-        }
-        emoji = role_emoji.get(delegate_to, "🤖")
-        
-        # ─── E-2: 불확실성 인식 (Uncertainty Awareness) ───
-        try:
-            ki_count = len(self.ki_engine.load_kis()) if self.ki_engine else 0
-            uncertainty = self.uncertainty_estimator.estimate(user_message, analysis, ki_count)
-            if uncertainty.should_ask_user:
-                yield f"\n❓ **[불확실성 감지]** {uncertainty.clarification}\n"
-            elif uncertainty.confidence.value != "high":
-                unc_context = self.uncertainty_estimator.format_prompt_injection(uncertainty)
-                if unc_context:
-                    custom_messages[-1] = {
-                        "role": "user",
-                        "content": custom_messages[-1]["content"] + unc_context
-                    }
-        except Exception as e:
-            logger.debug(f"Uncertainty estimation error: {e}")
-        
-        # ─── E-4: 사용자 모델 학습 ───
-        try:
-            self.user_model.observe(user_message, task_type)
-            user_context = self.user_model.build_context()
-            if user_context:
-                custom_messages[-1] = {
-                    "role": "user",
-                    "content": custom_messages[-1]["content"] + user_context
-                }
-        except Exception as e:
-            logger.debug(f"User model error: {e}")
-        
-        # ─── 2. 에이전트 파이프라인 실행 ───
-        if task_type == "agi_core":
-            sub_type = analysis.get("sub_type", "scout")
-            yield f"**[CEO]** 태스크 분석 완료 → 🧬 **AGI Core ({sub_type})** 파이프라인 시작\n\n"
-            if "scout" in sub_type.lower():
-                from antigravity_k.agents.scout_agent import ScoutAgent
-                scout = ScoutAgent(self.manager, self.tool_registry)
-                yield scout.propose_model_scout(user_message)
-            else:
-                from antigravity_k.agents.trainer_agent import TrainerAgent
-                trainer = TrainerAgent(self.manager, self.tool_registry)
-                yield trainer.propose_training(user_message)
-            return
-
-        if task_type == "hardware_report":
-            yield f"**[CEO]** 태스크 분석 완료 → 🖥️ **하드웨어 컨설턴트** 호출\n\n"
-            from antigravity_k.agents.hardware_analyst import HardwareAnalystAgent
-            analyst = HardwareAnalystAgent(self.manager)
-            # Default to requesting a 200GB model report to demonstrate
-            yield analyst.propose_upgrade("AGI-Target-400B", 200.0)
-            return
+        if not self._state_graph:
+            # Fallback to building the graph if not initialized
+            from antigravity_k.engine.orchestrator_handlers import build_orchestrator_graph
+            self._state_graph = build_orchestrator_graph()
             
-        if task_type == "complex":
-            yield f"**[CEO]** 태스크 분석 완료 → 🚀 **멀티 스텝 파이프라인** 시작\n\n"
-            yield from self._run_pipeline(custom_messages, analysis.get("pipeline", []), max_steps)
-        elif task_type == "debate":
-            yield f"**[CEO]** 태스크 분석 완료 → ⚖️ **토론(Debate) 파이프라인** 시작\n\n"
-            yield from self._run_debate(custom_messages, analysis.get("debate_topic", user_message), max_steps)
-        else:
-            if delegate_to != "SELF":
-                delegate_model_name = self._get_model_for_role(delegate_to)
-                yield f"**[CEO]** 태스크 분석 완료 → {emoji} **{delegate_to}** 에이전트에게 위임 (모델: `{delegate_model_name}`)\n\n"
-            
-            # 메시지 업데이트 (refined_prompt 주입)
-            if refined_prompt and refined_prompt != user_message:
-                custom_messages[-1] = {"role": "user", "content": refined_prompt + rag_context}
-                
-            yield from self._run_single_agent(custom_messages, delegate_to, task_type, max_steps)
-
-        # ─── 3. 에이전트 자가 기억(Memory) 저장 ───
-        # 코드 생성, 추론, 복합 토론 등 의미있는 작업의 결과를 Vault에 자동 기록합니다.
-        if self.vault_engine and self.vault_engine.sync_rag and task_type in ("complex", "debate", "reasoning", "coding"):
-            try:
-                yield f"\n\n⏳ **[Agent Memory]** 이번 논의의 핵심을 세컨드 브레인(Wiki)에 기록하기 위해 정제 중입니다...\n"
-                
-                # Memory Consolidation
-                import datetime
-                import re
-                
-                summary_prompt = (
-                    "당신은 에이전트의 작업 로그를 분석하여 세컨드 브레인(Wiki)에 저장할 핵심 기억(Memory)을 추출하는 전문가입니다.\n"
-                    f"아래는 사용자의 요청과 에이전트의 결정(Decision)입니다.\n\n"
-                    f"<user_request>\n{user_message}\n</user_request>\n\n"
-                    f"<agent_decision>\n{self._last_agent_output[-6000:]}\n</agent_decision>\n\n"
-                    "다음 항목을 마크다운 포맷으로 작성해주세요:\n"
-                    "1. **핵심 요약 (Lessons Learned)**: 이 작업에서 성공적으로 해결한 문제와 배운 점을 3~4줄로 요약.\n"
-                    "2. **도구 및 에러 이력 (Tool Trajectory)**: 사용한 주요 도구들과 직면했던 에러, 극복 방법 요약."
-                )
-                
-                summarizer_model = self._get_model_for_role("default")
-                response_gen = self.manager.stream_generate(
-                    prompt=summary_prompt,
-                    target=summarizer_model,
-                    raw_messages=[{"role": "user", "content": summary_prompt}],
-                    system_prompt="출력은 오직 마크다운으로 작성된 분석 결과여야 합니다. /no_think"
-                )
-                
-                extracted_text = ""
-                for chunk in response_gen:
-                    extracted_text += chunk
-                extracted_text = re.sub(r'<think>.*?</think>', '', extracted_text, flags=re.DOTALL).strip()
-                
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f".agent/memory/decision_{timestamp}.md"
-                
-                memory_content = f"# User Request\n{user_message}\n\n"
-                memory_content += f"## 🧠 Memory Consolidation (자가 학습)\n\n{extracted_text}\n\n"
-                memory_content += f"## Raw Decision\n\n<details>\n<summary>자세히 보기</summary>\n\n{self._last_agent_output}\n\n</details>"
-                
-                self.vault_engine.write_note(
-                    relative_path=filename,
-                    metadata={"type": "agent_memory", "task": task_type, "date": timestamp, "tags": ["memory", "decision"]},
-                    content=memory_content,
-                    commit_message=f"Agent memory recorded and consolidated for {task_type}"
-                )
-                yield f"💾 **[Agent Memory]** 정제 완료! LLM Wiki(`{filename}`)에 영구 기록되었습니다.\n"
-            except Exception as e:
-                logger.error(f"Failed to record agent memory: {e}")
-                yield f"⚠️ **[Agent Memory]** 기록 중 오류가 발생했습니다: {e}\n"
-
-        # ─── 4. 토큰 사용량 (P2-10 비용 추적) ───
-        try:
-            tokens_in = (len(user_message) + len(rag_context)) // 4
-            tokens_out = len(getattr(self, "_last_agent_output", "")) // 4
-            yield f"\n\n📊 **[Token Usage]** In: {tokens_in} tokens | Out: {tokens_out} tokens\n"
-        except Exception:
-            pass
+        ctx = StateContext(
+            messages=messages,
+            target_model=target_model,
+            max_steps=max_steps,
+            ephemeral_message=ephemeral_message,
+        )
+        
+        logger.info(f"[Orchestrator] State Graph 실행 시작 (trace_id={ctx.trace_id})")
+        
+        yield from self._state_graph.execute(ctx, orchestrator=self)
+        
+        # 에이전트 출력 동기화
+        if ctx.agent_output:
+            self._last_agent_output = ctx.agent_output
+        
+        logger.info(
+            f"[Orchestrator] State Graph 완료: {ctx.current_state.value}, "
+            f"{len(ctx.state_history)}개 전이, {ctx.get_duration_ms():.0f}ms"
+        )
 
     def run_sync(self, messages: List[Dict[str, str]], target_model: str, max_steps: int = 15) -> str:
         """동기식 실행 (커맨드 팔레트 등에서 사용)."""
