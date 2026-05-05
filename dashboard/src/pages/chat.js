@@ -158,6 +158,22 @@ export const ChatPage = {
     const previewImg = document.getElementById('chat-image-preview');
     const clearImgBtn = document.getElementById('chat-image-clear-btn');
     
+    // --- Modal Manager ---
+    function hideAllModals() {
+      if (historyModal) historyModal.style.display = 'none';
+      const folderModal = document.getElementById('folder-modal');
+      if (folderModal) folderModal.style.display = 'none';
+      const newFolderModal = document.getElementById('new-folder-modal');
+      if (newFolderModal) newFolderModal.style.display = 'none';
+    }
+    
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        hideAllModals();
+      }
+    });
+    // ----------------------
+    
     let currentAttachedFile = null;
 
     // Handle File Selection
@@ -371,6 +387,7 @@ export const ChatPage = {
     
     if (historyBtn) {
       historyBtn.addEventListener('click', () => {
+        hideAllModals();
         renderHistoryModal();
         historyModal.style.display = 'flex';
       });
@@ -381,6 +398,108 @@ export const ChatPage = {
         historyModal.style.display = 'none';
       });
     }
+
+    // ─── 1.5. Event Bus WebSocket 연동 (Real-time Observability) ───
+    let eventWs = null;
+    let activeToolContainer = null;
+
+    function connectEventStream() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      // Fallback to localhost:8000 if not served by FastAPI
+      const host = window.location.port === "5173" || window.location.port === "3000" ? "localhost:8000" : window.location.host;
+      const wsUrl = `${protocol}//${host}/v1/ws/events`;
+      
+      eventWs = new WebSocket(wsUrl);
+      
+      eventWs.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          handleAgentEvent(payload.event, payload.data);
+        } catch(err) {
+          console.error("WS Parse error", err);
+        }
+      };
+      
+      eventWs.onclose = () => {
+        setTimeout(connectEventStream, 3000); // Auto-reconnect
+      };
+    }
+    
+    function handleAgentEvent(event, data) {
+      if (!history) return;
+      const lastMessage = history.lastElementChild;
+      if (!lastMessage || !lastMessage.classList.contains('assistant')) return;
+      
+      const bubble = lastMessage.querySelector('.bubble');
+      if (!bubble) return;
+      
+      if (event === "ToolExecutionStarted") {
+        const toolName = data.name || data.tool_name || "unknown_tool";
+        // Remove existing active container if any
+        if (activeToolContainer && activeToolContainer.parentNode) {
+          activeToolContainer.remove();
+        }
+        activeToolContainer = document.createElement('div');
+        activeToolContainer.className = 'tool-timeline-badge start';
+        activeToolContainer.style.marginTop = '8px';
+        activeToolContainer.innerHTML = `<span class="icon">⚙️</span> <span class="text">Running Tool <b style="color:var(--accent-color);">${toolName}</b>... <span class="typing-indicator" style="height:12px;margin-left:4px;"><span></span><span></span><span></span></span></span>`;
+        bubble.appendChild(activeToolContainer);
+        history.scrollTop = history.scrollHeight;
+      } 
+      else if (event === "ToolExecutionFinished") {
+        if (activeToolContainer && activeToolContainer.parentNode) {
+          const toolName = data.name || data.tool_name || "unknown_tool";
+          activeToolContainer.className = 'tool-timeline-badge artifact';
+          activeToolContainer.style.borderLeft = '3px solid #10b981';
+          activeToolContainer.style.background = 'rgba(16, 185, 129, 0.1)';
+          activeToolContainer.innerHTML = `<span class="icon">✅</span> <span class="text">Finished Tool <b>${toolName}</b></span>`;
+          activeToolContainer = null;
+        }
+      }
+      else if (event === "FailureDetected") {
+        const errDiv = document.createElement('div');
+        errDiv.className = 'tool-timeline-badge error';
+        errDiv.style.marginTop = '8px';
+        errDiv.innerHTML = `<span class="icon">⚠️</span> <span class="text"><b>Failure Detected:</b> Agent is attempting to recover...</span>`;
+        bubble.appendChild(errDiv);
+        history.scrollTop = history.scrollHeight;
+        if (activeToolContainer && activeToolContainer.parentNode) activeToolContainer.remove();
+      }
+      else if (event === "CognitiveAdaptation") {
+        const adaptDiv = document.createElement('div');
+        adaptDiv.style.marginTop = '8px';
+        adaptDiv.innerHTML = `<span class="agent-badge adapting">ADAPTING</span> <span style="font-size: 13px; color: var(--warning);">동적 전략 수정 중...</span>`;
+        bubble.appendChild(adaptDiv);
+        history.scrollTop = history.scrollHeight;
+      }
+      else if (event === "PlanningModeStarted") {
+        const planDiv = document.createElement('div');
+        planDiv.style.marginTop = '8px';
+        planDiv.innerHTML = `<span class="agent-badge planning">PLANNING</span> <span style="font-size: 13px; color: var(--accent-color);">실행 계획 수립 중...</span>`;
+        bubble.appendChild(planDiv);
+        history.scrollTop = history.scrollHeight;
+      }
+      else if (event === "FileOpened" || event === "FileModified") {
+        if (typeof monacoLoaded !== 'undefined' && monacoLoaded && monacoEditor) {
+          const fileName = data.filepath ? data.filepath.split(/[/\\]/).pop() : "unknown";
+          const lang = typeof getLanguageFromExt === 'function' ? getLanguageFromExt(fileName) : 'plaintext';
+          const titleEl = document.getElementById('editor-title');
+          if (titleEl) titleEl.textContent = fileName;
+          const ph = document.getElementById('editor-placeholder');
+          if (ph) ph.style.display = 'none';
+          monaco.editor.setModelLanguage(monacoEditor.getModel(), lang);
+          monacoEditor.setValue(data.content || "");
+          
+          // Show preview panel automatically if HTML or React component is modified (optional UX enhancement)
+          if (data.filepath && (data.filepath.endsWith('.html'))) {
+            // Uncomment if auto-preview is desired
+            // window.previewArtifact(data.filepath, fileName);
+          }
+        }
+      }
+    }
+    
+    connectEventStream();
 
     fetch('/v1/models')
       .then(res => res.json())
@@ -411,14 +530,26 @@ export const ChatPage = {
     input.addEventListener('compositionstart', () => { isComposing = true; });
     input.addEventListener('compositionend', () => { isComposing = false; });
 
+    let currentAbortController = null;
+    const sendIconHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>';
+    const stopIconHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg>';
+
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !isComposing && !e.isComposing) {
         e.preventDefault();
-        sendMessage();
+        if (!currentAbortController) {
+          sendMessage();
+        }
       }
     });
 
-    sendBtn.addEventListener('click', sendMessage);
+    sendBtn.addEventListener('click', () => {
+      if (currentAbortController) {
+        currentAbortController.abort();
+      } else {
+        sendMessage();
+      }
+    });
 
     async function sendMessage() {
       const text = input.value.trim();
@@ -433,7 +564,16 @@ export const ChatPage = {
       sendBtn.classList.remove('active');
       
       const model = document.getElementById('model-select').value;
-      const assistantMsgDiv = appendMessage('assistant', '<span class="typing-indicator"><span></span><span></span><span></span></span>', false);
+      const thinkingBadgeHTML = '<div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); padding:6px 12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid var(--glass-border);">🧠 Thinking <span class="typing-indicator" style="margin:0; height:12px;"><span></span><span></span><span></span></span></div>';
+      const generatingBadgeHTML = '<span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--accent-color); margin-left:8px; padding:2px 8px; border-radius:12px; background:rgba(0,122,204,0.1); border:1px solid rgba(0,122,204,0.3); font-weight:500;">✍️ Generating<span class="blinking-cursor" style="margin:0; height:12px; background-color:var(--accent-color);"></span></span>';
+      
+      const assistantMsgDiv = appendMessage('assistant', thinkingBadgeHTML, false);
+      let assistantContent = '';
+      
+      currentAbortController = new AbortController();
+      sendBtn.innerHTML = stopIconHTML;
+      sendBtn.classList.add('active');
+      sendBtn.style.color = '#ff4444'; // Stop btn color
       
       try {
         const payload = {
@@ -446,48 +586,102 @@ export const ChatPage = {
         const response = await fetch('/v1/chat/completions', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: currentAbortController.signal
         });
         
         if (!response.ok) throw new Error('Network response was not ok');
         
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
-        let assistantContent = '';
         const contentSpan = assistantMsgDiv.querySelector('.bubble');
-        contentSpan.innerHTML = ''; 
+        
+        let buffer = '';
+        let isFirstChunk = true;
+        let lastSaveTime = Date.now();
+        
+        // 빈 어시스턴트 메시지를 미리 저장하여, 새로고침 시에도 마지막 메시지가 assistant가 되게 보장
+        chatMessages.push({role: "assistant", content: ""});
+        const assistantMsgIndex = chatMessages.length - 1;
+        saveChatHistory();
         
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            chatMessages.push({role: "assistant", content: assistantContent});
+            chatMessages[assistantMsgIndex].content = assistantContent;
             saveChatHistory();
             
+            // 스트리밍이 끝나면 커서를 제거하고 최종 렌더링
+            contentSpan.innerHTML = formatContent(assistantContent);
+            
             // 채팅 완료 시 파일 트리 자동 새로고침 및 디프 렌더링
-            loadDirectory(".");
+            if (ChatPage.refreshFileTree) ChatPage.refreshFileTree();
             renderDiffs(assistantMsgDiv);
             break;
           }
           
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          let eolIndex;
           
-          for (const line of lines) {
+          while ((eolIndex = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, eolIndex).trim();
+            buffer = buffer.slice(eolIndex + 1);
+            
             if (line.startsWith('data: ') && line !== 'data: [DONE]') {
               try {
                 const data = JSON.parse(line.slice(6));
                 if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-                  assistantContent += data.choices[0].delta.content;
-                  contentSpan.innerHTML = formatContent(assistantContent);
+                  if (isFirstChunk) {
+                    contentSpan.innerHTML = '';
+                    isFirstChunk = false;
+                  }
+                  const chunkText = data.choices[0].delta.content;
+                  assistantContent += chunkText;
+                  
+                  // Trigger toast for specific agent actions
+                  if (chunkText.includes('File created:') || chunkText.includes('Created file') || chunkText.includes('Successfully wrote')) {
+                    if (window.showToast) window.showToast('File Generated', 'success');
+                  } else if (chunkText.includes('Directory created:') || chunkText.includes('Created folder')) {
+                    if (window.showToast) window.showToast('Folder Generated', 'success');
+                  }
+                  
+                  contentSpan.innerHTML = formatContent(assistantContent) + generatingBadgeHTML;
                   history.scrollTop = history.scrollHeight;
+                  
+                  // 주기적으로 로컬스토리지에 저장 (1초 간격)
+                  if (Date.now() - lastSaveTime > 1000) {
+                    chatMessages[assistantMsgIndex].content = assistantContent;
+                    saveChatHistory();
+                    lastSaveTime = Date.now();
+                  }
                 }
               } catch (e) {}
             }
           }
         }
       } catch (err) {
-        console.error(err);
-        assistantMsgDiv.querySelector('.bubble').innerHTML = '<span class="error-text">API 요청 중 오류가 발생했습니다: ' + err.message + '</span>';
+        if (err.name === 'AbortError') {
+          console.log('Generation stopped by user');
+          if (assistantContent) {
+            chatMessages[assistantMsgIndex].content = assistantContent + '\n\n*(중단됨)*';
+            saveChatHistory();
+            assistantMsgDiv.querySelector('.bubble').innerHTML = formatContent(assistantContent) + '<br><span style="color:var(--text-muted); font-size:12px;">*(중단됨)*</span>';
+          } else {
+            chatMessages.pop(); // Remove the empty message
+            saveChatHistory();
+            assistantMsgDiv.remove();
+          }
+        } else {
+          console.error(err);
+          assistantMsgDiv.querySelector('.bubble').innerHTML = '<span class="error-text">API 요청 중 오류가 발생했습니다: ' + err.message + '</span>';
+        }
+      } finally {
+        currentAbortController = null;
+        sendBtn.innerHTML = sendIconHTML;
+        sendBtn.style.color = '';
+        if (input.value.trim() === '') {
+          sendBtn.classList.remove('active');
+        }
       }
     }
     
@@ -530,8 +724,25 @@ export const ChatPage = {
         return `%%INLINE_${idx}%%`;
       });
 
+      // ── 2.5단계: 백엔드 HTML & <think> 태그 보호 ──
+      text = text.replace(/<think>/g, '%%THINK_START%%');
+      text = text.replace(/<\/think>/g, '%%THINK_END%%');
+      
+      // 오케스트레이터가 주입하는 HTML 보호
+      const htmlBlocks = [];
+      text = text.replace(/<details[^>]*>|<\/details>|<summary[^>]*>|<\/summary>|<div[^>]*>|<\/div>|<section[^>]*>|<\/section>/g, (match) => {
+        const idx = htmlBlocks.length;
+        htmlBlocks.push(match);
+        return `%%HTML_${idx}%%`;
+      });
+
       // ── 3단계: HTML 이스케이프 ──
       text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      
+      // 보호한 HTML 복원
+      text = text.replace(/%%HTML_(\d+)%%/g, (match, idx) => {
+        return htmlBlocks[parseInt(idx)];
+      });
 
       // ── 4단계: 에이전트 배지 (마크다운 변환 전에 처리) ──
       const agentBadges = {
@@ -564,8 +775,13 @@ export const ChatPage = {
         '<div class="tool-timeline-badge error"><span class="icon">⚠️</span> <span class="text"><b>Parse Error:</b>$1</span></div>'
       );
       // 📊 **[Token Usage]** ...
-      text = text.replace(/📊 \*\*\[Token Usage\]\*\* In: (\d+) tokens \| Out: (\d+) tokens/g,
+      text = text.replace(/📊 (?:Tokens Used|\*\*\[Token Usage\]\*\*):?\s*In:\s*(\d+)(?:\s*tokens)?\s*\|\s*Out:\s*(\d+)(?:\s*tokens)?/gi,
         '<div class="tool-timeline-badge token"><span class="icon">📊</span> <span class="text"><b>Tokens Used:</b> <span class="token-val">In: $1</span> | <span class="token-val">Out: $2</span></span></div>'
+      );
+      
+      // 🔄 **[Quality Retry]** ...
+      text = text.replace(/🔄 \*\*품질 미달 \(([\d]+)%\)\*\* — 자동 개선 중\.\.\./g,
+        '<div class="tool-timeline-badge warning"><span class="icon">🔄</span> <span class="text"><b>Quality Retry:</b> Score $1% - Auto improving...</span></div>'
       );
       // 🎨 **[ARTIFACT GENERATED]** ...
       // format: [ARTIFACT GENERATED: filename.html (Type: html)]\nSuccessfully saved to /path/to/file
@@ -791,6 +1007,17 @@ export const ChatPage = {
         '<div class="tool-result-box"><div class="tool-header">✅ Result</div><pre>$1</pre></div>'
       );
 
+      // ── 9단계: <think> 블록 변환 ──
+      // 완전히 닫힌 생각 블록 (생성 완료)
+      text = text.replace(/%%THINK_START%%([\s\S]*?)%%THINK_END%%/g, 
+        '<details class="think-block"><summary>🧠 Thinking Process</summary><div class="think-content">$1</div></details>'
+      );
+      
+      // 아직 닫히지 않은 생각 블록 (스트리밍 중 또는 중단됨)
+      text = text.replace(/%%THINK_START%%([\s\S]*?)(?=%%THINK_START%%|$)/g,
+        '<details class="think-block generating" open><summary>🧠 Thinking<span class="typing-indicator" style="margin-left: 8px; height: 12px;"><span></span><span></span><span></span></span></summary><div class="think-content">$1</div></details>'
+      );
+
       return text;
     }
 
@@ -840,20 +1067,46 @@ export const ChatPage = {
       require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
       require(['vs/editor/editor.main'], function() {
         monacoLoaded = true;
+        
+        // Define Antigravity Premium Theme
+        monaco.editor.defineTheme('antigravity-dark', {
+          base: 'vs-dark',
+          inherit: true,
+          rules: [
+            { background: '12141c' }
+          ],
+          colors: {
+            'editor.background': '#12141c',
+            'editor.lineHighlightBackground': '#181b25',
+            'editorLineNumber.foreground': '#5f6378',
+            'editorIndentGuide.background': '#181b25',
+            'editorSuggestWidget.background': '#0a0b10',
+            'editorSuggestWidget.border': '#ffffff10'
+          }
+        });
+        
         monacoEditor = monaco.editor.create(document.getElementById('monaco-editor-container'), {
           value: "",
           language: "plaintext",
-          theme: "vs-dark",
+          theme: "antigravity-dark",
           automaticLayout: true,
-          minimap: { enabled: true },
+          minimap: { enabled: true, renderCharacters: false, scale: 0.75 },
           fontSize: 13,
-          fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
-          readOnly: true
+          fontFamily: '"JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace',
+          readOnly: true,
+          wordWrap: 'bounded',
+          wordWrapColumn: 120,
+          wrappingIndent: 'same',
+          scrollBeyondLastLine: false,
+          smoothScrolling: true,
+          cursorBlinking: 'smooth',
+          padding: { top: 16 }
         });
       });
     }
 
     refreshBtn.addEventListener('click', () => loadDirectory('.'));
+    ChatPage.refreshFileTree = () => loadDirectory('.');
 
     async function loadDirectory(path, containerEl = treeContainer) {
       if (containerEl === treeContainer) {
@@ -1085,6 +1338,7 @@ export const ChatPage = {
       const data = await res.json();
       const startPath = data.ok ? data.workspace : '/';
       
+      hideAllModals();
       folderModal.style.display = 'flex';
       loadBrowseDirectory(startPath);
     });
@@ -1095,6 +1349,7 @@ export const ChatPage = {
     
     if (newFolderBtn && newFolderModal && newFolderInput) {
       newFolderBtn.addEventListener('click', () => {
+        hideAllModals();
         newFolderInput.value = '새 폴더';
         newFolderModal.style.display = 'flex';
         setTimeout(() => newFolderInput.focus(), 100);
@@ -1280,8 +1535,75 @@ export const ChatPage = {
       } finally {
         loadDirectory('.');
         loadChatHistory();
+        checkActiveAgent();
       }
     };
+    
+    async function checkActiveAgent() {
+      try {
+        const res = await fetch('/api/agent/active');
+        const data = await res.json();
+        if (data.active) {
+          console.log("Found active agent session, reconnecting...");
+          // Render the history provided
+          if (data.history && data.history.length > 0) {
+            const historyContent = data.history.join('');
+            chatMessages.push({role: "assistant", content: historyContent});
+            renderChatMessages();
+            
+            // Reconnect to SSE for remaining stream
+            const historyDiv = document.getElementById('chat-history');
+            const msgs = historyDiv.querySelectorAll('.message.assistant');
+            const lastMsgDiv = msgs[msgs.length - 1];
+            if (lastMsgDiv) {
+              const contentSpan = lastMsgDiv.querySelector('.bubble');
+              const generatingBadgeHTML = '<span class="generating-badge">Generating<span class="dots"><span>.</span><span>.</span><span>.</span></span></span>';
+              contentSpan.innerHTML += generatingBadgeHTML;
+              
+              const reconnectRes = await fetch('/v1/chat/completions/reconnect');
+              const reader = reconnectRes.body.getReader();
+              const decoder = new TextDecoder("utf-8");
+              
+              let buffer = '';
+              let assistantContent = historyContent;
+              const assistantMsgIndex = chatMessages.length - 1;
+              
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                  chatMessages[assistantMsgIndex].content = assistantContent;
+                  saveChatHistory();
+                  contentSpan.innerHTML = formatContent(assistantContent);
+                  if (ChatPage.refreshFileTree) ChatPage.refreshFileTree();
+                  renderDiffs(lastMsgDiv);
+                  break;
+                }
+                
+                buffer += decoder.decode(value, { stream: true });
+                let eolIndex;
+                while ((eolIndex = buffer.indexOf('\n')) >= 0) {
+                  const line = buffer.slice(0, eolIndex).trim();
+                  buffer = buffer.slice(eolIndex + 1);
+                  
+                  if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                    try {
+                      const d = JSON.parse(line.slice(6));
+                      if (d.choices && d.choices[0].delta && d.choices[0].delta.content) {
+                        assistantContent += d.choices[0].delta.content;
+                        contentSpan.innerHTML = formatContent(assistantContent) + generatingBadgeHTML;
+                        history.scrollTop = history.scrollHeight;
+                      }
+                    } catch (e) {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to check active agent:", e);
+      }
+    }
     
     initWorkspace();
   }

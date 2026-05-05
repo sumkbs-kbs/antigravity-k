@@ -39,6 +39,17 @@ export async function apiRequest(endpoint, options = {}) {
   }
 }
 
+// ─── Global UI Utils ───────────────────────────────────────────────
+window.showToast = function(message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+  toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+};
 // ─── 네비게이션 ────────────────────────────────────────────────────
 function setupNavigation() {
   const navItems = document.querySelectorAll('.nav-item');
@@ -63,30 +74,55 @@ function navigateTo(page) {
   renderPage(page);
 }
 
+const pageContainers = {};
+
 function renderPage(page) {
   const main = document.getElementById('main-content');
 
-  switch (page) {
-    case 'chat':
-      main.innerHTML = ChatPage.render();
-      ChatPage.init();
-      break;
-    case 'rag':
-    case 'wiki':
-      main.innerHTML = '';
-      main.appendChild(WikiPage());
-      break;
-    case 'agent':
-      main.innerHTML = AgentPage.render();
-      AgentPage.init();
-      break;
-    case 'settings':
-      main.innerHTML = SettingsPage.render();
-      SettingsPage.init();
-      break;
-    default:
-      main.innerHTML = renderPlaceholder('404', '🔍', '페이지를 찾을 수 없습니다.');
+  // 모든 컨테이너 숨기기
+  Object.values(pageContainers).forEach(container => {
+    container.style.display = 'none';
+  });
+
+  // 컨테이너가 없으면 생성 및 렌더링
+  if (!pageContainers[page]) {
+    const container = document.createElement('div');
+    container.id = `page-${page}`;
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    
+    switch (page) {
+      case 'chat':
+        container.innerHTML = ChatPage.render();
+        main.appendChild(container);
+        ChatPage.init();
+        break;
+      case 'rag':
+      case 'wiki':
+        container.appendChild(WikiPage());
+        main.appendChild(container);
+        break;
+      case 'agent':
+        container.innerHTML = AgentPage.render();
+        main.appendChild(container);
+        AgentPage.init();
+        break;
+      case 'settings':
+        container.innerHTML = SettingsPage.render();
+        main.appendChild(container);
+        SettingsPage.init();
+        break;
+      default:
+        container.innerHTML = renderPlaceholder('404', '🔍', '페이지를 찾을 수 없습니다.');
+        main.appendChild(container);
+    }
+    pageContainers[page] = container;
   }
+  
+  // 현재 페이지 컨테이너만 보이기
+  pageContainers[page].style.display = 'flex';
 }
 
 function renderPlaceholder(title, icon, description) {
@@ -115,8 +151,8 @@ async function checkSystemStatus() {
 
     if (data.status === 'ok') {
       statusDot.className = 'status-dot online';
-      if (data.backends) {
-        const activeCount = Object.values(data.backends).filter(b => b.healthy).length;
+      if (data.backends && Object.keys(data.backends).length > 0) {
+        const activeCount = Object.keys(data.backends).length;
         statusText.textContent = `${activeCount}개 엔진 활성`;
       } else {
         statusText.textContent = `엔진 활성`;

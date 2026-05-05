@@ -452,6 +452,24 @@ body {
   border: 1px solid var(--glass-border);
 }
 
+.agent-badge.planning {
+  background: linear-gradient(135deg, #f6d365, #fda085);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(246, 211, 101, 0.4);
+}
+
+.agent-badge.adapting {
+  background: linear-gradient(135deg, #ff0844, #ffb199);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(255, 8, 68, 0.4);
+  animation: badgeAlertPulse 0.8s infinite alternate;
+}
+
+@keyframes badgeAlertPulse {
+  0% { transform: scale(1); box-shadow: 0 2px 8px rgba(255, 8, 68, 0.4); }
+  100% { transform: scale(1.05); box-shadow: 0 4px 12px rgba(255, 8, 68, 0.7); }
+}
+
 @keyframes badgePulse {
   0% { transform: scale(0.8); opacity: 0; }
   50% { transform: scale(1.05); }
@@ -581,6 +599,39 @@ body {
 .md-table td {
   color: #d1d5db;
 }
+
+/* ─── Global Toast Notifications ─── */
+#toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10000;
+}
+.toast {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--success);
+  color: var(--text-primary);
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  font-size: var(--text-md);
+  animation: slideInRight 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeOut {
+  to { opacity: 0; transform: translateY(10px); }
+}
 .md-table tr:hover td {
   background: rgba(255,255,255,0.02);
 }
@@ -625,6 +676,73 @@ body {
 .md-alert-important { background: rgba(168,85,247,0.08); border-color: #a855f7; color: #c084fc; }
 .md-alert-warning { background: rgba(251,191,36,0.08); border-color: #fbbf24; color: #fcd34d; }
 .md-alert-caution { background: rgba(239,68,68,0.08); border-color: #ef4444; color: #fca5a5; }
+
+/* ─── Think Block ─── */
+.think-block {
+  margin: 12px 0;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.5); /* Slate 800 with opacity */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+.think-block.generating {
+  border-color: rgba(168, 85, 247, 0.4);
+  animation: think-glow 2s infinite ease-in-out;
+}
+@keyframes think-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.3); }
+  50% { box-shadow: 0 0 16px rgba(168, 85, 247, 0.3); border-color: rgba(168, 85, 247, 0.6); }
+}
+.think-block summary {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8; /* Slate 400 */
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.2);
+  user-select: none;
+  transition: background 0.2s, color 0.2s;
+}
+.think-block summary:hover {
+  background: rgba(0, 0, 0, 0.3);
+  color: #e2e8f0; /* Slate 200 */
+}
+.think-block .typing-indicator span {
+  background-color: #c084fc; /* Purple 400 */
+}
+.think-block[open] summary {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #cbd5e1; /* Slate 300 */
+}
+.think-content {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #94a3b8;
+  font-style: italic;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+@keyframes pulse-opacity {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-anim {
+  animation: pulse-opacity 1.5s infinite ease-in-out;
+}
+.blinking-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  background-color: #818cf8;
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
 
 /* ─── Horizontal Rule ─── */
 .md-hr {
@@ -1093,6 +1211,15 @@ body {
   color: var(--text-secondary);
   font-size: 14px;
   transition: all 0.2s;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 }
 
 .tree-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
@@ -1271,6 +1398,7 @@ body {
 .file-tree {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px 0;
 }
 
@@ -1285,6 +1413,8 @@ body {
 
 .tree-item {
   margin: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .tree-children {
@@ -1386,11 +1516,17 @@ body {
   align-items: center;
 }
 
+@keyframes modalScaleIn {
+  0% { transform: scale(0.95); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 .modal-content {
   border: 1px solid var(--glass-border);
   border-radius: 8px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
   background: var(--bg-secondary);
+  animation: modalScaleIn 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .modal-content .tree-item:hover {
