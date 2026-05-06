@@ -8,6 +8,20 @@ integrations:
     token: your-discord-bot-token
 models:
   reasoning:
+  - name: deepseek-r1:32b
+    repo: deepseek-r1:32b
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 20
+    context_length: 32768
+    description: DeepSeek R1 32B — 미들급 아키텍트 모델
+  - name: qwen3.6:latest
+    repo: qwen3.6:latest
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 23
+    context_length: 32768
+    description: Qwen 3.6 — 고성능 미들급 (CEO, 라우팅용)
   - name: deepseek-r1:70b
     repo: deepseek-r1:70b
     role: reasoning
@@ -22,27 +36,6 @@ models:
     estimated_memory_gb: 10
     context_length: 131072
     description: Llama 4 Scout — 경량, 빠른 테스트용
-  - name: qwen3.6:latest
-    repo: qwen3.6:latest
-    role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 23
-    context_length: 32768
-    description: Qwen 3.6 — 로컬 최적화 추론
-  - name: nemotron-3-super:latest
-    repo: nemotron-3-super:latest
-    role: reasoning
-    quantization: 8bit
-    estimated_memory_gb: 86
-    context_length: 4096
-    description: Nemotron 3 Super — 대형 파라미터 모델
-  - name: gemma4:31b
-    repo: gemma4:31b
-    role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 19
-    context_length: 8192
-    description: Gemma 4 31B — 구글 오픈 모델
   - name: claude-3-5-sonnet-20241022
     repo: anthropic
     role: reasoning
@@ -50,6 +43,13 @@ models:
     estimated_memory_gb: 0.0
     context_length: 200000
     description: Claude 3.5 Sonnet API (Cloud)
+  - name: hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    repo: hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF
+    role: reasoning
+    quantization: gguf
+    estimated_memory_gb: 20
+    context_length: 32768
+    description: SuperGemma4 31B Abliterated (HuggingFace GGUF)
   coding:
   - name: qwen2.5-coder:32b
     repo: qwen2.5-coder:32b
@@ -57,7 +57,8 @@ models:
     quantization: 4bit
     estimated_memory_gb: 18
     context_length: 32768
-    description: Qwen 코더 — 코드 생성 특화
+    description: Qwen 코더 32B — 메인 워커용 미들급 코더
+
   embedding:
   - name: bge-m3:latest
     repo: bge-m3:latest
@@ -72,17 +73,24 @@ models:
     dimensions: 768
     description: Nomic Embed — 경량 임베딩
   vision:
+  - name: qwen2.5vl:32b
+    repo: qwen2.5vl:32b
+    role: vision
+    quantization: 4bit
+    estimated_memory_gb: 19
+    context_length: 32768
+    description: Qwen2.5-VL 32B — 최강 시각 추론 (UI/차트/레이아웃 분석)
   - name: llava:13b
     repo: llava:13b
     role: vision
     quantization: 4bit
     estimated_memory_gb: 8
-    description: LLaVA 13B — 멀티모달 비전
+    description: LLaVA 13B — 경량 멀티모달 비전 (폴백)
 defaults:
-  reasoning: llama4:latest
-  coding: null
+  reasoning: hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+  coding: qwen2.5-coder:32b
   embedding: bge-m3:latest
-  vision: null
+  vision: qwen2.5vl:32b
 memory:
   total_system_gb: 128
   max_loaded_gb: 100
@@ -97,42 +105,92 @@ server:
 paths:
   model_cache: ~/.cache/antigravity-k/models
   logs: ./logs
+  wiki_dir: /Users/mr.k/wiki/AI_Learnings
 workflow:
   autopilot: true
   auto_commit: true
   auto_artifacts: true
 agent_models:
-  CEO: qwen3.6:latest
-  ENG_MANAGER: qwen3.6:latest
-  ARCHITECT: deepseek-r1:70b
-  WORKER: qwen2.5-coder:32b
-  QA: qwen3.6:latest
-  CRITIC: qwen3.6:latest
-  DESIGNER: qwen3.6:latest
-  PROPOSER: qwen3.6:latest
-  ARBITER: deepseek-r1:70b
-  default: qwen3.6:latest
+  CEO: orchestrator-swarm
+  ENG_MANAGER: manager-swarm
+  ARCHITECT: architect-swarm
+  WORKER: coding-swarm
+  QA: qa-swarm
+  CRITIC: critic-swarm
+  DESIGNER: creative-swarm
+  PROPOSER: ideation-swarm
+  ARBITER: supreme-court
+  default: fast-response
 combos:
-  coding-stack:
+  orchestrator-swarm:
     models:
-    - qwen2.5-coder:32b
-    - deepseek-r1:70b
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
     - qwen3.6:latest
-    strategy: fallback
-    description: 코딩 작업용 3단계 폴백 체인
-  fast-response:
+    strategy: round-robin
+    description: CEO/관리자 역할 집단 (Google + Alibaba 순환 의사결정)
+  manager-swarm:
     models:
     - qwen3.6:latest
     - llama4:latest
     strategy: round-robin
-    description: 빠른 응답이 필요할 때 경량 모델 순환
-  reasoning-balanced:
+    description: 실무 매니징 집단
+  architect-swarm:
+    models:
+    - deepseek-r1:32b
+    - nemotron-3-super:latest
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    strategy: round-robin
+    description: 구조 설계 특화 집단 (DeepSeek 논리 + Nvidia 비평 + Google 균형)
+  coding-swarm:
+    models:
+    - qwen2.5-coder:32b
+    - llama4:latest
+    - deepseek-r1:32b
+    strategy: round-robin
+    description: 코딩 워커 집단 (각기 다른 모델이 번갈아가며 코드 작성 및 리뷰)
+  qa-swarm:
+    models:
+    - llama4:latest
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    strategy: round-robin
+    description: 엣지 케이스 테스트 집단
+  critic-swarm:
+    models:
+    - nemotron-3-super:latest
+    - deepseek-r1:32b
+    strategy: round-robin
+    description: 코드 및 논리 비판 전담 집단
+  creative-swarm:
+    models:
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    - qwen3.6:latest
+    strategy: round-robin
+    description: 디자인/기획 집단
+  ideation-swarm:
+    models:
+    - qwen3.6:latest
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    strategy: round-robin
+    description: 아이디어 제안 집단
+  supreme-court:
     models:
     - deepseek-r1:70b
+    - nemotron-3-super:latest
+    strategy: fallback
+    description: 최종 판결 집단 (초거대 모델 폴백 체인)
+  fast-response:
+    models:
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
     - qwen3.6:latest
-    - llama4:latest
     strategy: load-balance
-    description: 추론 작업 시 메모리 부하 기반 최적 선택
+    description: 일반 응답용 로드밸런싱 집단
+  reasoning-balanced:
+    models:
+    - deepseek-r1:32b
+    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    - qwen3.6:latest
+    strategy: round-robin
+    description: 균형 잡힌 추론 집단 (Reflection, Watchdog, Trainer 용)
 router:
   default_strategy: fallback
   cooldown_base_sec: 60
@@ -167,3 +225,24 @@ guardrails:
 
 ambient_partner:
   watchdog_enabled: true         # Phase 3: Proactive Watchdog 백그라운드 활성화
+
+# ─── External Brain (외부 AI 두뇌 간접 연동) ───
+external_brains:
+  enabled: true
+  strategy: fallback              # fallback | round-robin | compare
+  adapters:
+    gemini_app:
+      enabled: true
+      type: applescript            # macOS 네이티브 앱 제어
+      app_name: Gemini
+      timeout_sec: 120
+    chatgpt_web:
+      enabled: true
+      type: playwright             # 웹 브라우저 제어
+      url: https://chatgpt.com
+      timeout_sec: 120
+    gemini_web:
+      enabled: true
+      type: playwright
+      url: https://gemini.google.com
+      timeout_sec: 120

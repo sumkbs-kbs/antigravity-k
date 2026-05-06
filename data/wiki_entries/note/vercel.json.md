@@ -1,0 +1,31 @@
+---
+id: 228
+category: note
+tags: []
+created: 2026-05-04T09:42:52.767686
+---
+
+# vercel.json
+
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "mcp-server/api/index.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["src/**", "mcp-server/src/**", "mcp-server/dist/**", "README.md"]
+      }
+    }
+  ],
+  "routes": [
+    { "src": "/health", "dest": "mcp-server/api/index.ts" },
+    { "src": "/mcp", "dest": "mcp-server/api/index.ts" },
+    { "src": "/sse", "dest": "mcp-server/api/index.ts" },
+    { "src": "/messages", "dest": "mcp-server/api/index.ts" },
+    { "src": "/api", "dest": "mcp-server/api/index.ts" },
+    { "src": "/(.*)", "dest": "mcp-server/api/index.ts" }
+  ]
+}
+```

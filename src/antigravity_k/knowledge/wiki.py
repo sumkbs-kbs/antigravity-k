@@ -34,7 +34,6 @@ import json
 import logging
 import re
 import sqlite3
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -42,10 +41,12 @@ from typing import Optional
 
 logger = logging.getLogger("llm_wiki")
 
+from antigravity_k.config import config
+
 # ─── 데이터 디렉토리 ──────────────────────────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data"
 WIKI_DB_PATH = DATA_DIR / "wiki.db"
-WIKI_DIR = DATA_DIR / "wiki_entries"
+WIKI_DIR = config.paths.wiki_dir
 
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────
@@ -58,9 +59,9 @@ class WikiEntry:
     id: Optional[int] = None
     title: str = ""
     content: str = ""
-    category: str = "general"      # general, code, domain, web, note
+    category: str = "general"  # general, code, domain, web, note
     tags: list[str] = field(default_factory=list)
-    source: str = ""               # manual, web_search, obsidian, chat
+    source: str = ""  # manual, web_search, obsidian, chat
     source_url: str = ""
     created_at: str = ""
     updated_at: str = ""
@@ -79,7 +80,7 @@ class SearchHit:
 
     entry: WikiEntry
     score: float = 0.0
-    matched_field: str = ""       # title, content, tags
+    matched_field: str = ""  # title, content, tags
 
 
 # ─── LLM Wiki 코어 ───────────────────────────────────────────────
@@ -106,7 +107,8 @@ class LLMWiki:
     def _init_db(self):
         """DB 스키마 초기화."""
         conn = self._connect()
-        conn.executescript("""
+        conn.executescript(
+            """
             -- 메인 위키 테이블
             CREATE TABLE IF NOT EXISTS wiki_entries (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,7 +170,8 @@ class LLMWiki:
                 accessed_at TEXT NOT NULL,
                 context    TEXT DEFAULT ''
             );
-        """)
+        """
+        )
         conn.close()
         logger.info(f"Wiki DB 초기화 완료: {self.db_path}")
 
@@ -328,11 +331,13 @@ class LLMWiki:
         results = []
         for row in rows:
             entry = self._row_to_entry(row)
-            results.append(SearchHit(
-                entry=entry,
-                score=abs(row["score"]),
-                matched_field="fts",
-            ))
+            results.append(
+                SearchHit(
+                    entry=entry,
+                    score=abs(row["score"]),
+                    matched_field="fts",
+                )
+            )
 
         # 접근 이력 기록
         for hit in results:
@@ -407,7 +412,7 @@ class LLMWiki:
                     end = content.find("---", 3)
                     if end > 0:
                         frontmatter = content[3:end]
-                        content = content[end + 3:].strip()
+                        content = content[end + 3 :].strip()
 
                         # 태그 추출
                         tag_match = re.search(r"tags:\s*\[(.+?)\]", frontmatter)
@@ -463,7 +468,10 @@ class LLMWiki:
             저장된 항목 ID
         """
         # 검색 결과를 하나의 위키 항목으로 통합
-        content_parts = [f"## 웹 검색: {query}\n", f"_검색 일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}_\n"]
+        content_parts = [
+            f"## 웹 검색: {query}\n",
+            f"_검색 일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}_\n",
+        ]
 
         for i, r in enumerate(results[:8], 1):
             content_parts.append(
@@ -507,13 +515,21 @@ class LLMWiki:
         for row in conn.execute(
             "SELECT id, title, updated_at FROM wiki_entries ORDER BY updated_at DESC LIMIT 5"
         ):
-            recent.append({"id": row["id"], "title": row["title"], "updated_at": row["updated_at"]})
+            recent.append(
+                {
+                    "id": row["id"],
+                    "title": row["title"],
+                    "updated_at": row["updated_at"],
+                }
+            )
 
         most_accessed = []
         for row in conn.execute(
             "SELECT id, title, access_count FROM wiki_entries ORDER BY access_count DESC LIMIT 5"
         ):
-            most_accessed.append({"id": row["id"], "title": row["title"], "count": row["access_count"]})
+            most_accessed.append(
+                {"id": row["id"], "title": row["title"], "count": row["access_count"]}
+            )
 
         conn.close()
 

@@ -9,7 +9,8 @@ Antigravity-K는 Apple Silicon M5 Max (128GB Unified Memory) 위에서 동작하
 
 **핵심 역량:**
 - 🧠 **추론 (Reasoning)**: MLX 기반 70B+ 모델 로컬 추론
-- 🤖 **행동 (Agent)**: ReAct 패턴 기반 자율 도구 호출
+- 🌐 **집단지성 (MoE Swarm)**: 다국적 다중 모델이 교대로 토론하며 교차 검증하는 Swarm 라우팅 체계
+- 🤖 **행동 (Agent)**: ReAct 패턴 기반 자율 도구 호출 및 자가 진화(Self-Evolution)
 - 🔒 **보안 (Privacy)**: 완전 에어갭 운영, Docker 샌드박스
 - 👁 **시각 (Vision)**: mlx-vlm 기반 이미지/문서 분석
 

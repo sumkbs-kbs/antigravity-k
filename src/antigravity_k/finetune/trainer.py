@@ -28,25 +28,34 @@ logger = logging.getLogger("agk.finetune")
 @dataclass
 class LoRAConfig:
     """LoRA 어댑터 하이퍼파라미터."""
-    rank: int = 16                  # LoRA rank (8, 16, 32, 64)
-    alpha: float = 32.0             # LoRA alpha (보통 rank * 2)
-    dropout: float = 0.05           # 드롭아웃 확률
-    target_modules: list = field(default_factory=lambda: [
-        "q_proj", "v_proj", "k_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj",
-    ])
+
+    rank: int = 16  # LoRA rank (8, 16, 32, 64)
+    alpha: float = 32.0  # LoRA alpha (보통 rank * 2)
+    dropout: float = 0.05  # 드롭아웃 확률
+    target_modules: list = field(
+        default_factory=lambda: [
+            "q_proj",
+            "v_proj",
+            "k_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
+    )
 
 
 @dataclass
 class TrainingConfig:
     """학습 설정."""
+
     # 모델
-    base_model: str = ""            # 베이스 모델 경로 (models/glm 등)
-    output_dir: str = ""            # 어댑터 저장 경로
+    base_model: str = ""  # 베이스 모델 경로 (models/glm 등)
+    output_dir: str = ""  # 어댑터 저장 경로
 
     # 데이터
-    train_data: str = ""            # 학습 데이터 (JSONL 경로)
-    valid_data: str = ""            # 검증 데이터 (JSONL 경로, 선택)
+    train_data: str = ""  # 학습 데이터 (JSONL 경로)
+    valid_data: str = ""  # 검증 데이터 (JSONL 경로, 선택)
 
     # 학습 하이퍼파라미터
     num_epochs: int = 3
@@ -55,14 +64,14 @@ class TrainingConfig:
     warmup_steps: int = 100
     max_seq_length: int = 2048
     gradient_accumulation_steps: int = 4
-    save_every: int = 100           # N 스텝마다 체크포인트 저장
-    eval_every: int = 200           # N 스텝마다 검증
+    save_every: int = 100  # N 스텝마다 체크포인트 저장
+    eval_every: int = 200  # N 스텝마다 검증
 
     # LoRA
     lora: LoRAConfig = field(default_factory=LoRAConfig)
 
     # 리소스
-    use_quantized_training: bool = True   # QLoRA (4-bit base + LoRA)
+    use_quantized_training: bool = True  # QLoRA (4-bit base + LoRA)
     seed: int = 42
 
 
@@ -70,7 +79,7 @@ class TrainingConfig:
 class DatasetPreparer:
     """
     다양한 소스 데이터를 MLX 파인튜닝용 JSONL로 변환.
-    
+
     지원 포맷:
         1. ChatML: {"messages": [{"role": "system", ...}, {"role": "user", ...}, {"role": "assistant", ...}]}
         2. Instruction: {"instruction": "...", "input": "...", "output": "..."}
@@ -94,8 +103,10 @@ class DatasetPreparer:
         system = system_prompt or DatasetPreparer.SYSTEM_PROMPT
         count = 0
 
-        with open(input_path, "r", encoding="utf-8") as fin, \
-             open(output_path, "w", encoding="utf-8") as fout:
+        with (
+            open(input_path, "r", encoding="utf-8") as fin,
+            open(output_path, "w", encoding="utf-8") as fout,
+        ):
 
             for line in fin:
                 line = line.strip()
@@ -128,7 +139,9 @@ class DatasetPreparer:
 
                 # Raw text
                 elif "text" in item:
-                    fout.write(json.dumps({"text": item["text"]}, ensure_ascii=False) + "\n")
+                    fout.write(
+                        json.dumps({"text": item["text"]}, ensure_ascii=False) + "\n"
+                    )
                     count += 1
                     continue
 
@@ -181,9 +194,18 @@ class DatasetPreparer:
 
                     chatml = {
                         "messages": [
-                            {"role": "system", "content": "당신은 코드 분석 전문가입니다."},
-                            {"role": "user", "content": f"다음 {ext} 파일을 분석하고 핵심 기능을 설명해주세요:\n\n파일: {rel_path}\n```{ext[1:]}\n{code[:3000]}\n```"},
-                            {"role": "assistant", "content": f"## {rel_path} 분석\n\n이 파일은 {len(lines)}줄의 {ext} 코드입니다."},
+                            {
+                                "role": "system",
+                                "content": "당신은 코드 분석 전문가입니다.",
+                            },
+                            {
+                                "role": "user",
+                                "content": f"다음 {ext} 파일을 분석하고 핵심 기능을 설명해주세요:\n\n파일: {rel_path}\n```{ext[1:]}\n{code[:3000]}\n```",
+                            },
+                            {
+                                "role": "assistant",
+                                "content": f"## {rel_path} 분석\n\n이 파일은 {len(lines)}줄의 {ext} 코드입니다.",
+                            },
                         ]
                     }
                     fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
@@ -200,10 +222,11 @@ class DatasetPreparer:
     ) -> tuple:
         """데이터셋을 train/valid로 분할."""
         import random
+
         random.seed(seed)
 
         with open(input_path, "r", encoding="utf-8") as f:
-            lines = [l for l in f if l.strip()]
+            lines = [line for line in f if line.strip()]
 
         random.shuffle(lines)
         split_idx = int(len(lines) * train_ratio)
@@ -256,17 +279,28 @@ class FineTuneEngine:
 
         # mlx_lm.lora CLI 호출
         cmd = [
-            sys.executable, "-m", "mlx_lm.lora",
-            "--model", self.config.base_model,
-            "--data", str(Path(self.config.train_data).parent),
+            sys.executable,
+            "-m",
+            "mlx_lm.lora",
+            "--model",
+            self.config.base_model,
+            "--data",
+            str(Path(self.config.train_data).parent),
             "--train",
-            "--adapter-path", str(self.output_dir / "adapters"),
-            "--iters", str(self._calculate_total_iters()),
-            "--batch-size", str(self.config.batch_size),
-            "--learning-rate", str(self.config.learning_rate),
-            "--lora-layers", str(self.config.lora.rank),
-            "--save-every", str(self.config.save_every),
-            "--seed", str(self.config.seed),
+            "--adapter-path",
+            str(self.output_dir / "adapters"),
+            "--iters",
+            str(self._calculate_total_iters()),
+            "--batch-size",
+            str(self.config.batch_size),
+            "--learning-rate",
+            str(self.config.learning_rate),
+            "--lora-layers",
+            str(self.config.lora.rank),
+            "--save-every",
+            str(self.config.save_every),
+            "--seed",
+            str(self.config.seed),
         ]
 
         if self.config.valid_data:
@@ -303,7 +337,9 @@ class FineTuneEngine:
                 "elapsed_seconds": round(elapsed, 1),
                 "adapter_path": str(self.output_dir / "adapters"),
                 "total_steps": self.current_step,
-                "best_val_loss": self.best_val_loss if self.best_val_loss < float("inf") else None,
+                "best_val_loss": (
+                    self.best_val_loss if self.best_val_loss < float("inf") else None
+                ),
             }
 
             if process.returncode == 0:
@@ -330,10 +366,15 @@ class FineTuneEngine:
         logger.info(f"모델 병합: {adapter_path} → {export_path}")
 
         cmd = [
-            sys.executable, "-m", "mlx_lm.fuse",
-            "--model", self.config.base_model,
-            "--adapter-path", str(adapter_path),
-            "--save-path", str(export_path),
+            sys.executable,
+            "-m",
+            "mlx_lm.fuse",
+            "--model",
+            self.config.base_model,
+            "--adapter-path",
+            str(adapter_path),
+            "--save-path",
+            str(export_path),
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -367,7 +408,11 @@ class FineTuneEngine:
         except Exception:
             num_samples = 1000  # 기본값
 
-        steps_per_epoch = max(1, num_samples // (self.config.batch_size * self.config.gradient_accumulation_steps))
+        steps_per_epoch = max(
+            1,
+            num_samples
+            // (self.config.batch_size * self.config.gradient_accumulation_steps),
+        )
         return steps_per_epoch * self.config.num_epochs
 
     def _parse_training_line(self, line: str):
@@ -427,7 +472,9 @@ def main():
     prep_p = sub.add_parser("prepare", help="데이터 준비")
     prep_p.add_argument("--input", required=True, help="입력 데이터 경로")
     prep_p.add_argument("--output", required=True, help="출력 JSONL 경로")
-    prep_p.add_argument("--format", choices=["instruction", "code"], default="instruction")
+    prep_p.add_argument(
+        "--format", choices=["instruction", "code"], default="instruction"
+    )
     prep_p.add_argument("--split", type=float, default=0.9, help="train/valid 비율")
 
     # merge
@@ -465,11 +512,15 @@ def main():
         print(f"✓ {count}개 샘플 변환 완료: {args.output}")
 
         if args.split < 1.0:
-            train_path, valid_path = DatasetPreparer.split_dataset(args.output, args.split)
+            train_path, valid_path = DatasetPreparer.split_dataset(
+                args.output, args.split
+            )
             print(f"✓ 분할 완료: {train_path}, {valid_path}")
 
     elif args.command == "merge":
-        config = TrainingConfig(base_model=args.model, output_dir=os.path.dirname(args.adapter))
+        config = TrainingConfig(
+            base_model=args.model, output_dir=os.path.dirname(args.adapter)
+        )
         engine = FineTuneEngine(config)
         export_path = engine.merge_and_export(args.name)
         print(f"✓ 병합 완료: {export_path}")

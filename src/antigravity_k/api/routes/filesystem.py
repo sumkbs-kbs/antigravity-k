@@ -3,12 +3,13 @@ Antigravity-K API: 파일시스템 라우터
 ====================================
 I-6 리팩터링: server.py에서 분리된 /api/fs/* 및 /api/workspace/* 라우트.
 """
+
 import os
 import shutil
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
 
 from antigravity_k.engine.vault import VaultEngine
@@ -65,8 +66,10 @@ def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine):
 async def ingest_workspace(
     background_tasks: BackgroundTasks,
     path: Optional[str] = Query(None, description="Target path to index"),
-    vault: Optional[VaultEngine] = None,
 ):
+    from antigravity_k.api.server import get_vault_engine
+
+    vault = get_vault_engine()
     if not vault:
         raise HTTPException(status_code=500, detail="VaultEngine not initialized")
 
@@ -90,14 +93,12 @@ async def fs_browse(dir: str = "/"):
         items = []
         try:
             for entry in os.scandir(target_dir):
-                if entry.name.startswith('.'):
+                if entry.name.startswith("."):
                     continue
                 if entry.is_dir():
-                    items.append({
-                        "name": entry.name,
-                        "path": entry.path,
-                        "is_dir": True
-                    })
+                    items.append(
+                        {"name": entry.name, "path": entry.path, "is_dir": True}
+                    )
         except PermissionError:
             pass
 
@@ -119,12 +120,16 @@ async def fs_mkdir(req: MkdirRequest):
     try:
         clean_path = req.path.lstrip("/\\")
         if clean_path == "." or clean_path == "":
-            raise HTTPException(status_code=400, detail="Invalid path for folder creation")
+            raise HTTPException(
+                status_code=400, detail="Invalid path for folder creation"
+            )
 
         target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
 
         if not target_dir.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+            raise HTTPException(
+                status_code=403, detail="Access denied outside of workspace root."
+            )
 
         if os.path.exists(target_dir):
             return {"ok": False, "detail": "Folder already exists"}
@@ -149,7 +154,9 @@ async def fs_delete(req: DeleteRequest):
         target_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
 
         if not target_path.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+            raise HTTPException(
+                status_code=403, detail="Access denied outside of workspace root."
+            )
 
         if not os.path.exists(target_path):
             return {"ok": False, "detail": "Path does not exist"}
@@ -177,20 +184,24 @@ async def fs_list(dir: str = "."):
             target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, dir))
 
         if not target_dir.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+            raise HTTPException(
+                status_code=403, detail="Access denied outside of workspace root."
+            )
 
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
             return {"ok": False, "items": []}
 
         items = []
         for entry in os.scandir(target_dir):
-            if entry.name.startswith('.'):
+            if entry.name.startswith("."):
                 continue
-            items.append({
-                "name": entry.name,
-                "path": os.path.relpath(entry.path, WORKSPACE_ROOT),
-                "is_dir": entry.is_dir()
-            })
+            items.append(
+                {
+                    "name": entry.name,
+                    "path": os.path.relpath(entry.path, WORKSPACE_ROOT),
+                    "is_dir": entry.is_dir(),
+                }
+            )
 
         items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
         return {"ok": True, "items": items}
@@ -207,7 +218,9 @@ async def fs_read(file: str):
     try:
         target_file = os.path.abspath(os.path.join(WORKSPACE_ROOT, file))
         if not target_file.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+            raise HTTPException(
+                status_code=403, detail="Access denied outside of workspace root."
+            )
 
         if not os.path.exists(target_file) or not os.path.isfile(target_file):
             raise HTTPException(status_code=404, detail="File not found.")

@@ -23,17 +23,19 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger("antigravity_k.engine.runtime_recovery")
 
 
 # ── 상태 분류 열거형 ──
 
+
 class AgentState(str, Enum):
     """에이전트 런타임 상태."""
+
     PRESENT = "present"
     MISSING = "missing"
     UNAVAILABLE = "unavailable"
@@ -42,6 +44,7 @@ class AgentState(str, Enum):
 
 class FailureKind(str, Enum):
     """인퍼런스 실패 유형."""
+
     TRANSPORT = "transport"
     CREDENTIAL = "credential"
     MODEL = "model"
@@ -51,6 +54,7 @@ class FailureKind(str, Enum):
 
 class RecoveryAction(str, Enum):
     """복구 행동."""
+
     RETRY = "retry"
     CREDENTIAL_RESET = "credential_reset"
     MODEL_SWITCH = "model_switch"
@@ -61,6 +65,7 @@ class RecoveryAction(str, Enum):
 
 class HealthStatus(str, Enum):
     """Health Check 상태."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -68,9 +73,11 @@ class HealthStatus(str, Enum):
 
 # ── 데이터 클래스 ──
 
+
 @dataclass
 class StateClassification:
     """에이전트 상태 분류 결과."""
+
     state: AgentState
     reason: str
     details: Optional[str] = None
@@ -79,6 +86,7 @@ class StateClassification:
 @dataclass
 class InferenceClassification:
     """인퍼런스 실패 분류 결과."""
+
     kind: FailureKind
     retry_action: RecoveryAction
     message: str = ""
@@ -87,6 +95,7 @@ class InferenceClassification:
 @dataclass
 class RecoveryDecision:
     """복구 결정."""
+
     action: RecoveryAction
     message: str
     auto_executable: bool = True
@@ -96,6 +105,7 @@ class RecoveryDecision:
 @dataclass
 class ComponentHealth:
     """개별 컴포넌트 Health."""
+
     name: str
     status: HealthStatus
     detail: str
@@ -105,6 +115,7 @@ class ComponentHealth:
 @dataclass
 class SystemHealth:
     """전체 시스템 Health."""
+
     status: HealthStatus
     components: List[ComponentHealth]
     diagnosis: str = ""
@@ -112,6 +123,7 @@ class SystemHealth:
 
 
 # ── 에이전트 상태 분류 ──
+
 
 def classify_agent_state(
     orchestrator=None,
@@ -174,6 +186,7 @@ def classify_agent_state(
 
 # ── 인퍼런스 실패 분류 ──
 
+
 def classify_inference_failure(
     *,
     http_status: int = 0,
@@ -213,9 +226,14 @@ def classify_inference_failure(
 
     # 메시지 기반 인증 에러 (HTTP 400 반환하는 프로바이더 포함)
     credential_patterns = [
-        "api key expired", "api key not valid", "api_key_invalid",
-        "unauthorized", "forbidden", "invalid api key",
-        "invalid_auth", "permission denied",
+        "api key expired",
+        "api key not valid",
+        "api_key_invalid",
+        "unauthorized",
+        "forbidden",
+        "invalid api key",
+        "invalid_auth",
+        "permission denied",
     ]
     if any(pat in normalized for pat in credential_patterns):
         return InferenceClassification(
@@ -234,10 +252,13 @@ def classify_inference_failure(
 
     # 모델 관련 메시지
     model_patterns = [
-        "model.*not found", "unknown model",
-        "unsupported model", "bad model",
+        "model.*not found",
+        "unknown model",
+        "unsupported model",
+        "bad model",
     ]
     import re
+
     if any(re.search(pat, normalized) for pat in model_patterns):
         return InferenceClassification(
             kind=FailureKind.MODEL,
@@ -261,6 +282,7 @@ def classify_inference_failure(
 
 
 # ── 복구 결정 ──
+
 
 def determine_recovery(
     agent_state: StateClassification,
@@ -310,6 +332,7 @@ def determine_recovery(
 
 # ── Deep Health Check ──
 
+
 def deep_health_check(
     *,
     model_manager=None,
@@ -324,45 +347,62 @@ def deep_health_check(
     각 컴포넌트를 독립적으로 확인하고 종합 상태를 반환합니다.
     """
     import datetime
+
     components: List[ComponentHealth] = []
 
     # 1. Model Manager
-    components.append(_check_component(
-        "model_manager", model_manager,
-        check_fn=lambda mm: bool(mm.list_models()),
-    ))
+    components.append(
+        _check_component(
+            "model_manager",
+            model_manager,
+            check_fn=lambda mm: bool(mm.list_models()),
+        )
+    )
 
     # 2. Session Manager
-    components.append(_check_component(
-        "session_manager", session_manager,
-        check_fn=lambda sm: sm.get_session_info() is not None,
-    ))
+    components.append(
+        _check_component(
+            "session_manager",
+            session_manager,
+            check_fn=lambda sm: sm.get_session_info() is not None,
+        )
+    )
 
     # 3. Memory Manager
-    components.append(_check_component(
-        "memory_manager", memory_manager,
-        check_fn=lambda mm: mm.get_stats() is not None,
-    ))
+    components.append(
+        _check_component(
+            "memory_manager",
+            memory_manager,
+            check_fn=lambda mm: mm.get_stats() is not None,
+        )
+    )
 
     # 4. Toolset Manager
-    components.append(_check_component(
-        "toolset_manager", toolset_manager,
-        check_fn=lambda ts: len(ts.get_active_tools()) > 0,
-    ))
+    components.append(
+        _check_component(
+            "toolset_manager",
+            toolset_manager,
+            check_fn=lambda ts: len(ts.get_active_tools()) > 0,
+        )
+    )
 
     # 5. Shields
     if shields_manager:
-        components.append(ComponentHealth(
-            name="shields",
-            status=HealthStatus.HEALTHY,
-            detail=f"{'UP' if shields_manager.is_up else 'DOWN'}",
-        ))
+        components.append(
+            ComponentHealth(
+                name="shields",
+                status=HealthStatus.HEALTHY,
+                detail=f"{'UP' if shields_manager.is_up else 'DOWN'}",
+            )
+        )
     else:
-        components.append(ComponentHealth(
-            name="shields",
-            status=HealthStatus.HEALTHY,
-            detail="not configured",
-        ))
+        components.append(
+            ComponentHealth(
+                name="shields",
+                status=HealthStatus.HEALTHY,
+                detail="not configured",
+            )
+        )
 
     # 종합 상태 결정
     unhealthy = [c for c in components if c.status == HealthStatus.UNHEALTHY]
@@ -387,6 +427,7 @@ def deep_health_check(
 
 
 # ── 내부 헬퍼 ──
+
 
 def _check_component(
     name: str,
@@ -437,7 +478,12 @@ def _transport_message(curl_status: int, text: str) -> str:
         return "서버에 연결할 수 없습니다. URL과 서비스 상태를 확인하세요."
     if curl_status == 28 or "timed out" in text or "timeout" in text:
         return "요청 시간이 초과되었습니다. 네트워크 상태를 확인하세요."
-    if curl_status in (35, 60) or "ssl" in text or "tls" in text or "certificate" in text:
+    if (
+        curl_status in (35, 60)
+        or "ssl" in text
+        or "tls" in text
+        or "certificate" in text
+    ):
         return "TLS/인증서 에러입니다. HTTPS 연결을 확인하세요."
     if "proxy" in text:
         return "프록시 에러입니다. 프록시 설정을 확인하세요."

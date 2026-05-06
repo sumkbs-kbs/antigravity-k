@@ -9,12 +9,10 @@ google/skills 저장소(https://github.com/google/skills)의 핵심 패턴을 �
 5. to_metadata / to_metadata_list API
 6. get_reference / list_references API
 """
+
 import pytest
-from pathlib import Path
 from antigravity_k.agents.skills_registry import (
     SkillsRegistry,
-    SkillProfile,
-    _parse_yaml_frontmatter,
 )
 
 

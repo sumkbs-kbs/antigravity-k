@@ -1,0 +1,40 @@
+---
+id: 148
+category: note
+tags: []
+created: 2026-05-04T09:42:52.468362
+---
+
+# runtime.lock.json
+
+```json
+{
+  "version": "0.0.2",
+  "sourceRef": "v0.0.2",
+  "sourceRepository": "777genius/agent_teams_orchestrator",
+  "releaseRepository": "777genius/claude_agent_teams_ui",
+  "releaseTag": "v1.2.0",
+  "assets": {
+    "darwin-arm64": {
+      "file": "agent-teams-runtime-darwin-arm64-v0.0.2.tar.gz",
+      "archiveKind": "tar.gz",
+      "binaryName": "claude-multimodel"
+    },
+    "darwin-x64": {
+      "file": "agent-teams-runtime-darwin-x64-v0.0.2.tar.gz",
+      "archiveKind": "tar.gz",
+      "binaryName": "claude-multimodel"
+    },
+    "linux-x64": {
+      "file": "agent-teams-runtime-linux-x64-v0.0.2.tar.gz",
+      "archiveKind": "tar.gz",
+      "binaryName": "claude-multimodel"
+    },
+    "win32-x64": {
+      "file": "agent-teams-runtime-win32-x64-v0.0.2.zip",
+      "archiveKind": "zip",
+      "binaryName": "claude-multimodel.exe"
+    }
+  }
+}
+```

@@ -181,7 +181,7 @@ export const WikiPage = () => {
   // ─── 0. Vault 경로 초기화 (localStorage에서 복원 or 서버 기본값) ──
   async function initVaultPath() {
     const savedPath = localStorage.getItem(VAULT_PATH_KEY);
-    
+
     if (savedPath) {
       // 저장된 경로가 있으면 서버에 설정
       try {
@@ -198,7 +198,7 @@ export const WikiPage = () => {
         console.warn('Saved vault path restore failed:', err);
       }
     }
-    
+
     // 서버에서 현재 경로 확인
     if (!currentVaultPath) {
       try {
@@ -212,11 +212,11 @@ export const WikiPage = () => {
         console.error('Vault config load failed:', err);
       }
     }
-    
+
     updateVaultPathDisplay();
     await loadTree();
   }
-  
+
   function updateVaultPathDisplay() {
     if (currentVaultPath) {
       const shortPath = currentVaultPath.length > 40
@@ -430,21 +430,21 @@ export const WikiPage = () => {
     folderModal.style.display = 'flex';
     input.focus();
   };
-  
+
   folderBtn.addEventListener('click', openFolderModal);
   vaultPathEl.addEventListener('click', openFolderModal);
   container.querySelector('#wiki-folder-close').addEventListener('click', () => { folderModal.style.display = 'none'; });
   container.querySelector('#wiki-folder-cancel').addEventListener('click', () => { folderModal.style.display = 'none'; });
-  
+
   container.querySelector('#wiki-folder-confirm').addEventListener('click', async () => {
     const input = container.querySelector('#wiki-folder-input');
     const newPath = input.value.trim();
     if (!newPath) { alert('경로를 입력하세요.'); return; }
-    
+
     const confirmBtn = container.querySelector('#wiki-folder-confirm');
     confirmBtn.textContent = '⏳ 적용 중...';
     confirmBtn.disabled = true;
-    
+
     try {
       const resp = await fetch('/api/vault/config', {
         method: 'POST',
@@ -513,6 +513,19 @@ export const WikiPage = () => {
     } catch (err) {
       alert('문서 생성 실패: ' + err.message);
     }
+  });
+
+  // ─── External Commands ──────────────────────────────────────
+  window.addEventListener('open-wiki-note', (e) => {
+    const path = e.detail;
+    if (path) {
+      loadNote(path);
+    }
+  });
+
+  window.addEventListener('open-wiki-new', () => {
+    newModal.style.display = 'flex';
+    setTimeout(() => container.querySelector('#wiki-new-path').focus(), 100);
   });
 
   // ─── Init ────────────────────────────────────────────────────

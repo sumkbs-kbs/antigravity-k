@@ -9,6 +9,7 @@ Antigravity-K: 시스템 전체 제어 + 환경 자동 최적화 도구
   - 파괴적 행위(프로세스 종료, 설정 변경)는 반드시 확인 가드를 거칩니다.
   - 환경 최적화는 현재 하드웨어를 감지하고 최적 설정을 자동 적용합니다.
 """
+
 import json
 import logging
 import os
@@ -25,10 +26,11 @@ logger = logging.getLogger(__name__)
 class SystemControlTool(BaseTool):
     """
     macOS/Linux/Windows 시스템 전체 제어 도구.
-    
+
     에이전트가 사용자를 위해 시스템을 자율적으로 관리합니다.
     모든 행위는 사용자 이익 우선 원칙에 따라 판단됩니다.
     """
+
     category = ToolCategory.COMPUTER_USE
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.HIGH
@@ -50,18 +52,18 @@ class SystemControlTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": [
-                        "get_system_info",      # CPU/메모리/디스크/GPU 정보
-                        "get_running_apps",      # 실행 중인 앱 목록
-                        "launch_app",            # 앱 실행
-                        "kill_app",              # 앱 종료
-                        "open_url",              # URL 열기
-                        "get_clipboard",          # 클립보드 읽기
-                        "set_clipboard",          # 클립보드 쓰기
-                        "set_volume",             # 볼륨 조절
-                        "toggle_wifi",            # WiFi on/off
-                        "manage_notifications",   # 방해금지 모드
-                        "auto_optimize",          # 환경 자동 최적화
-                        "get_env_status",         # 현재 환경 상태 조회
+                        "get_system_info",  # CPU/메모리/디스크/GPU 정보
+                        "get_running_apps",  # 실행 중인 앱 목록
+                        "launch_app",  # 앱 실행
+                        "kill_app",  # 앱 종료
+                        "open_url",  # URL 열기
+                        "get_clipboard",  # 클립보드 읽기
+                        "set_clipboard",  # 클립보드 쓰기
+                        "set_volume",  # 볼륨 조절
+                        "toggle_wifi",  # WiFi on/off
+                        "manage_notifications",  # 방해금지 모드
+                        "auto_optimize",  # 환경 자동 최적화
+                        "get_env_status",  # 현재 환경 상태 조회
                     ],
                     "description": "The system action to perform.",
                 },
@@ -78,11 +80,16 @@ class SystemControlTool(BaseTool):
         }
 
     @property
-    def name(self) -> str: return self._name
+    def name(self) -> str:
+        return self._name
+
     @property
-    def description(self) -> str: return self._description
+    def description(self) -> str:
+        return self._description
+
     @property
-    def parameters_schema(self) -> Dict[str, Any]: return self._schema
+    def parameters_schema(self) -> Dict[str, Any]:
+        return self._schema
 
     def execute(self, **kwargs) -> Any:
         action = kwargs.get("action")
@@ -124,6 +131,7 @@ class SystemControlTool(BaseTool):
         # 메모리 정보
         try:
             import psutil
+
             mem = psutil.virtual_memory()
             info["memory"] = {
                 "total_gb": round(mem.total / (1024**3), 1),
@@ -142,7 +150,9 @@ class SystemControlTool(BaseTool):
             try:
                 result = subprocess.run(
                     ["sysctl", "-n", "hw.memsize"],
-                    capture_output=True, text=True, timeout=5
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if result.returncode == 0:
                     total_bytes = int(result.stdout.strip())
@@ -155,7 +165,9 @@ class SystemControlTool(BaseTool):
             try:
                 result = subprocess.run(
                     ["system_profiler", "SPDisplaysDataType", "-json"],
-                    capture_output=True, text=True, timeout=10
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 if result.returncode == 0:
                     gpu_data = json.loads(result.stdout)
@@ -173,11 +185,15 @@ class SystemControlTool(BaseTool):
         # Ollama 모델 상태
         try:
             import urllib.request
+
             req = urllib.request.Request("http://localhost:11434/api/tags")
             with urllib.request.urlopen(req, timeout=5) as resp:
                 models = json.loads(resp.read().decode("utf-8"))
                 info["ollama_models"] = [
-                    {"name": m["name"], "size_gb": round(m.get("size", 0) / (1024**3), 1)}
+                    {
+                        "name": m["name"],
+                        "size_gb": round(m.get("size", 0) / (1024**3), 1),
+                    }
                     for m in models.get("models", [])
                 ]
         except Exception:
@@ -192,6 +208,7 @@ class SystemControlTool(BaseTool):
 
         if config_path and os.path.exists(config_path):
             import yaml
+
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f) or {}
@@ -209,9 +226,14 @@ class SystemControlTool(BaseTool):
         if platform.system() == "Darwin":
             try:
                 result = subprocess.run(
-                    ["osascript", "-e",
-                     'tell application "System Events" to get name of every process whose background only is false'],
-                    capture_output=True, text=True, timeout=10
+                    [
+                        "osascript",
+                        "-e",
+                        'tell application "System Events" to get name of every process whose background only is false',
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 if result.returncode == 0:
                     apps = [a.strip() for a in result.stdout.strip().split(",")]
@@ -220,8 +242,9 @@ class SystemControlTool(BaseTool):
         else:
             try:
                 import psutil
-                for proc in psutil.process_iter(['pid', 'name']):
-                    apps.append(proc.info['name'])
+
+                for proc in psutil.process_iter(["pid", "name"]):
+                    apps.append(proc.info["name"])
                 apps = list(set(apps))[:50]
             except ImportError:
                 pass
@@ -248,16 +271,25 @@ class SystemControlTool(BaseTool):
             return {"error": "No app name specified."}
 
         # 사용자 이익 보호: 핵심 프로세스 종료 차단
-        protected = {"finder", "dock", "systemuiserver", "loginwindow",
-                     "kernel_task", "launchd", "windowserver"}
+        protected = {
+            "finder",
+            "dock",
+            "systemuiserver",
+            "loginwindow",
+            "kernel_task",
+            "launchd",
+            "windowserver",
+        }
         if target.lower() in protected:
-            return {"error": f"'{target}' is a protected system process. Killing it would harm the user experience."}
+            return {
+                "error": f"'{target}' is a protected system process. Killing it would harm the user experience."
+            }
 
         if platform.system() == "Darwin":
             try:
                 subprocess.run(
                     ["osascript", "-e", f'tell application "{target}" to quit'],
-                    timeout=10
+                    timeout=10,
                 )
                 return {"status": "ok", "action": "kill_app", "app": target}
             except Exception as e:
@@ -270,8 +302,11 @@ class SystemControlTool(BaseTool):
         if not target:
             return {"error": "No URL specified."}
         try:
-            subprocess.Popen(["open", target] if platform.system() == "Darwin"
-                             else ["xdg-open", target])
+            subprocess.Popen(
+                ["open", target]
+                if platform.system() == "Darwin"
+                else ["xdg-open", target]
+            )
             return {"status": "ok", "action": "open_url", "url": target}
         except Exception as e:
             return {"error": f"Failed to open URL: {e}"}
@@ -282,7 +317,9 @@ class SystemControlTool(BaseTool):
         """클립보드 내용을 읽습니다."""
         try:
             if platform.system() == "Darwin":
-                result = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=5)
+                result = subprocess.run(
+                    ["pbpaste"], capture_output=True, text=True, timeout=5
+                )
                 return {"status": "ok", "clipboard": result.stdout}
             else:
                 return {"error": f"Clipboard not supported on {platform.system()}"}
@@ -297,7 +334,11 @@ class SystemControlTool(BaseTool):
             if platform.system() == "Darwin":
                 process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
                 process.communicate(target.encode("utf-8"))
-                return {"status": "ok", "action": "set_clipboard", "length": len(target)}
+                return {
+                    "status": "ok",
+                    "action": "set_clipboard",
+                    "length": len(target),
+                }
             else:
                 return {"error": f"Clipboard not supported on {platform.system()}"}
         except Exception as e:
@@ -310,11 +351,9 @@ class SystemControlTool(BaseTool):
         try:
             level = int(value) if value else 50
             level = max(0, min(100, level))
-            mac_vol = int(level * 7 / 100)  # macOS는 0-7 스케일
             if platform.system() == "Darwin":
                 subprocess.run(
-                    ["osascript", "-e", f"set volume output volume {level}"],
-                    timeout=5
+                    ["osascript", "-e", f"set volume output volume {level}"], timeout=5
                 )
                 return {"status": "ok", "action": "set_volume", "level": level}
             return {"error": f"Volume control not supported on {platform.system()}"}
@@ -328,8 +367,7 @@ class SystemControlTool(BaseTool):
         try:
             state = "on" if value.lower() in ("on", "true", "1", "") else "off"
             subprocess.run(
-                ["networksetup", "-setairportpower", "en0", state],
-                timeout=10
+                ["networksetup", "-setairportpower", "en0", state], timeout=10
             )
             return {"status": "ok", "action": "toggle_wifi", "state": state}
         except Exception as e:
@@ -338,19 +376,23 @@ class SystemControlTool(BaseTool):
     def _action_manage_notifications(self, value: str = "", **kwargs) -> Dict[str, Any]:
         """방해금지 모드를 토글합니다."""
         if platform.system() != "Darwin":
-            return {"error": f"Notification control not supported on {platform.system()}"}
+            return {
+                "error": f"Notification control not supported on {platform.system()}"
+            }
         try:
             # macOS Focus 모드 토글 (Ventura+)
             if value.lower() in ("on", "dnd", "focus"):
                 subprocess.run(
                     ["shortcuts", "run", "Turn On Do Not Disturb"],
-                    timeout=10, capture_output=True
+                    timeout=10,
+                    capture_output=True,
                 )
                 return {"status": "ok", "action": "dnd_on"}
             else:
                 subprocess.run(
                     ["shortcuts", "run", "Turn Off Do Not Disturb"],
-                    timeout=10, capture_output=True
+                    timeout=10,
+                    capture_output=True,
                 )
                 return {"status": "ok", "action": "dnd_off"}
         except Exception as e:
@@ -361,7 +403,7 @@ class SystemControlTool(BaseTool):
     def _action_auto_optimize(self, **kwargs) -> Dict[str, Any]:
         """
         시스템 리소스를 감지하고 Antigravity-K config.yaml을 자동 최적화합니다.
-        
+
         사용자 이익 원칙:
           - 현재 하드웨어에 맞는 최적 모델/컨텍스트 설정 자동 선택
           - VRAM에 맞는 모델 크기 추천
@@ -372,7 +414,7 @@ class SystemControlTool(BaseTool):
 
         # 1. 시스템 정보 수집
         sys_info = self._action_get_system_info()["system_info"]
-        
+
         # 2. 최적 설정 계산
         optimizations = []
         recommended = {}
@@ -382,11 +424,15 @@ class SystemControlTool(BaseTool):
         if total_mem >= 128:
             recommended["context_window"] = 32768
             recommended["max_model_size"] = "70B"
-            optimizations.append(f"✅ 충분한 메모리 ({total_mem}GB) → 컨텍스트 32K, 70B 모델 지원")
+            optimizations.append(
+                f"✅ 충분한 메모리 ({total_mem}GB) → 컨텍스트 32K, 70B 모델 지원"
+            )
         elif total_mem >= 64:
             recommended["context_window"] = 16384
             recommended["max_model_size"] = "32B"
-            optimizations.append(f"✅ 메모리 {total_mem}GB → 컨텍스트 16K, 32B 모델 권장")
+            optimizations.append(
+                f"✅ 메모리 {total_mem}GB → 컨텍스트 16K, 32B 모델 권장"
+            )
         elif total_mem >= 32:
             recommended["context_window"] = 8192
             recommended["max_model_size"] = "14B"
@@ -394,15 +440,26 @@ class SystemControlTool(BaseTool):
         else:
             recommended["context_window"] = 4096
             recommended["max_model_size"] = "7B"
-            optimizations.append(f"⚠️ 메모리 {total_mem}GB → 컨텍스트 4K, 7B 이하 모델 권장")
+            optimizations.append(
+                f"⚠️ 메모리 {total_mem}GB → 컨텍스트 4K, 7B 이하 모델 권장"
+            )
 
         # GPU 감지
         gpu_info = sys_info.get("gpu", {})
         gpu_name = gpu_info.get("name", "").lower()
-        if "apple" in gpu_name or "m1" in gpu_name or "m2" in gpu_name or "m3" in gpu_name or "m4" in gpu_name or "m5" in gpu_name:
+        if (
+            "apple" in gpu_name
+            or "m1" in gpu_name
+            or "m2" in gpu_name
+            or "m3" in gpu_name
+            or "m4" in gpu_name
+            or "m5" in gpu_name
+        ):
             recommended["gpu_acceleration"] = "mps"
             recommended["keep_alive"] = "30m"
-            optimizations.append(f"✅ Apple Silicon GPU 감지 ({gpu_info.get('name', '')}) → MPS 가속 활성화")
+            optimizations.append(
+                f"✅ Apple Silicon GPU 감지 ({gpu_info.get('name', '')}) → MPS 가속 활성화"
+            )
         elif gpu_info:
             recommended["gpu_acceleration"] = "cuda"
             optimizations.append("✅ NVIDIA GPU 감지 → CUDA 가속 활성화")
@@ -410,24 +467,28 @@ class SystemControlTool(BaseTool):
         # CPU 코어 기반 병렬 처리
         cpu_cores = sys_info.get("cpu_cores", 4)
         recommended["num_parallel"] = min(cpu_cores, 8)
-        optimizations.append(f"✅ CPU {cpu_cores}코어 → 병렬 처리 {recommended['num_parallel']}개")
+        optimizations.append(
+            f"✅ CPU {cpu_cores}코어 → 병렬 처리 {recommended['num_parallel']}개"
+        )
 
         # Ollama 모델 현황 기반 추천
         ollama_models = sys_info.get("ollama_models", [])
         if isinstance(ollama_models, list) and ollama_models:
             model_names = [m["name"] for m in ollama_models]
             recommended["available_models"] = model_names
-            optimizations.append(f"✅ Ollama 모델 {len(model_names)}개 감지: {', '.join(model_names[:5])}")
+            optimizations.append(
+                f"✅ Ollama 모델 {len(model_names)}개 감지: {', '.join(model_names[:5])}"
+            )
 
         # 3. config.yaml 업데이트
         config_path = self._find_config_path()
         config_updated = False
-        
+
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f) or {}
-                
+
                 # 기존 설정 백업
                 backup_path = config_path + ".backup"
                 if not os.path.exists(backup_path):
@@ -437,20 +498,28 @@ class SystemControlTool(BaseTool):
                 # 최적 설정 적용
                 if "ollama" not in config:
                     config["ollama"] = {}
-                config["ollama"]["context_window"] = recommended.get("context_window", 8192)
+                config["ollama"]["context_window"] = recommended.get(
+                    "context_window", 8192
+                )
                 config["ollama"]["keep_alive"] = recommended.get("keep_alive", "15m")
-                
+
                 if "performance" not in config:
                     config["performance"] = {}
-                config["performance"]["num_parallel"] = recommended.get("num_parallel", 4)
-                config["performance"]["max_model_size"] = recommended.get("max_model_size", "14B")
-                
+                config["performance"]["num_parallel"] = recommended.get(
+                    "num_parallel", 4
+                )
+                config["performance"]["max_model_size"] = recommended.get(
+                    "max_model_size", "14B"
+                )
+
                 if recommended.get("gpu_acceleration"):
-                    config["performance"]["gpu_acceleration"] = recommended["gpu_acceleration"]
+                    config["performance"]["gpu_acceleration"] = recommended[
+                        "gpu_acceleration"
+                    ]
 
                 with open(config_path, "w", encoding="utf-8") as f:
                     yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-                
+
                 config_updated = True
                 optimizations.append("✅ config.yaml 자동 업데이트 완료")
             except Exception as e:
@@ -463,10 +532,10 @@ class SystemControlTool(BaseTool):
             "recommended": recommended,
             "config_updated": config_updated,
             "message": (
-                "🚀 **환경 최적화 완료**\n\n" +
-                "\n".join(optimizations) +
-                "\n\n모든 설정은 사용자 이익을 최우선으로 최적화되었습니다."
-            )
+                "🚀 **환경 최적화 완료**\n\n"
+                + "\n".join(optimizations)
+                + "\n\n모든 설정은 사용자 이익을 최우선으로 최적화되었습니다."
+            ),
         }
 
     # ────────────── 유틸리티 ──────────────

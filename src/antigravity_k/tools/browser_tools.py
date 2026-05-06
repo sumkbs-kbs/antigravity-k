@@ -7,7 +7,6 @@ SPA(React, Vue 등)의 동적 렌더링 요소를 에이전트가 직접 파싱�
 - FetchDOMTool: Playwright를 사용하여 URL에 접속하고 렌더링된 후의 DOM 텍스트를 반환합니다.
 """
 
-import asyncio
 import logging
 from typing import Any, Dict
 
@@ -20,12 +19,14 @@ _playwright = None
 _browser = None
 _page = None
 
+
 def get_browser_page():
     """싱글톤 패턴으로 브라우저 페이지를 유지합니다."""
     global _playwright, _browser, _page
     if _page is None or _page.is_closed():
         try:
             from playwright.sync_api import sync_playwright
+
             if _playwright is None:
                 _playwright = sync_playwright().start()
             if _browser is None or not _browser.is_connected():
@@ -33,23 +34,32 @@ def get_browser_page():
                 _browser = _playwright.chromium.launch(headless=False)
             _page = _browser.new_page()
         except ImportError:
-            raise ImportError("Playwright is not installed. Run: pip install playwright && playwright install chromium")
+            raise ImportError(
+                "Playwright is not installed. Run: pip install playwright && playwright install chromium"
+            )
     return _page
+
 
 def close_browser():
     """브라우저 세션을 명시적으로 닫습니다."""
     global _playwright, _browser, _page
     if _page:
-        try: _page.close()
-        except Exception as e: logger.warning(f"Failed to close page: {e}")
+        try:
+            _page.close()
+        except Exception as e:
+            logger.warning(f"Failed to close page: {e}")
         _page = None
     if _browser:
-        try: _browser.close()
-        except Exception as e: logger.warning(f"Failed to close browser: {e}")
+        try:
+            _browser.close()
+        except Exception as e:
+            logger.warning(f"Failed to close browser: {e}")
         _browser = None
     if _playwright:
-        try: _playwright.stop()
-        except Exception as e: logger.warning(f"Failed to stop playwright: {e}")
+        try:
+            _playwright.stop()
+        except Exception as e:
+            logger.warning(f"Failed to stop playwright: {e}")
         _playwright = None
 
 
@@ -57,6 +67,7 @@ class BrowserDOMTool(BaseTool):
     """
     Stateful 브라우저 세션을 관리하며 자바스크립트 기반 웹 페이지와 상호작용합니다.
     """
+
     category = ToolCategory.SEARCH
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.SAFE
@@ -77,23 +88,44 @@ class BrowserDOMTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": ["goto", "click", "fill", "extract", "screenshot", "close"],
-                    "description": "The browser action to perform."
+                    "description": "The browser action to perform.",
                 },
-                "url": {"type": "string", "description": "URL to visit (required for 'goto')."},
-                "selector": {"type": "string", "description": "CSS selector to click or fill, or wait for before extraction."},
-                "text": {"type": "string", "description": "Text to type (required for 'fill')."},
-                "extract_html": {"type": "boolean", "description": "If true during 'extract', returns raw HTML instead of text.", "default": False},
-                "path": {"type": "string", "description": "File path to save the screenshot (required for 'screenshot')."}
+                "url": {
+                    "type": "string",
+                    "description": "URL to visit (required for 'goto').",
+                },
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector to click or fill, or wait for before extraction.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text to type (required for 'fill').",
+                },
+                "extract_html": {
+                    "type": "boolean",
+                    "description": "If true during 'extract', returns raw HTML instead of text.",
+                    "default": False,
+                },
+                "path": {
+                    "type": "string",
+                    "description": "File path to save the screenshot (required for 'screenshot').",
+                },
             },
-            "required": ["action"]
+            "required": ["action"],
         }
 
     @property
-    def name(self) -> str: return self._name
+    def name(self) -> str:
+        return self._name
+
     @property
-    def description(self) -> str: return self._description
+    def description(self) -> str:
+        return self._description
+
     @property
-    def parameters_schema(self) -> Dict[str, Any]: return self._schema
+    def parameters_schema(self) -> Dict[str, Any]:
+        return self._schema
 
     def execute(self, **kwargs) -> Any:
         action = kwargs.get("action")
@@ -118,7 +150,7 @@ class BrowserDOMTool(BaseTool):
                     return "Error: 'url' required for goto action."
                 page.goto(url, wait_until="networkidle")
                 return f"Successfully navigated to {url}."
-                
+
             elif action == "click":
                 selector = kwargs.get("selector")
                 if not selector:
@@ -126,7 +158,7 @@ class BrowserDOMTool(BaseTool):
                 page.click(selector)
                 page.wait_for_timeout(500)
                 return f"Clicked element: {selector}"
-                
+
             elif action == "fill":
                 selector = kwargs.get("selector")
                 text = kwargs.get("text", "")
@@ -134,7 +166,7 @@ class BrowserDOMTool(BaseTool):
                     return "Error: 'selector' required for fill action."
                 page.fill(selector, text)
                 return f"Filled '{text}' into {selector}"
-                
+
             elif action == "extract":
                 selector = kwargs.get("selector")
                 extract_html = kwargs.get("extract_html", False)
@@ -142,21 +174,22 @@ class BrowserDOMTool(BaseTool):
                     try:
                         page.wait_for_selector(selector, timeout=5000)
                     except Exception as e:
-                        logger.warning(f"Timeout waiting for selector '{selector}': {e}")
-                
+                        logger.warning(
+                            f"Timeout waiting for selector '{selector}': {e}"
+                        )
+
                 if extract_html:
                     return page.content()
                 else:
                     return page.locator("body").inner_text()
-                    
+
             elif action == "screenshot":
                 path = kwargs.get("path", "browser_screenshot.png")
                 page.screenshot(path=path)
                 return f"Screenshot successfully saved to {path}."
-                    
+
             else:
                 return f"Error: Unknown action '{action}'"
-                
+
         except Exception as e:
             return f"Browser error during '{action}': {str(e)}"
-

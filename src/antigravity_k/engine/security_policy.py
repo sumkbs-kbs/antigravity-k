@@ -1,19 +1,21 @@
 import yaml
-import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
+
 
 class SecurityPolicyEngine:
     def __init__(self, policy_file: str = "policy.yaml"):
         # W-5: 상대 경로 시 프로젝트 루트 기준 절대 경로로 변환
         _policy_path = Path(policy_file)
         if not _policy_path.is_absolute():
-            _policy_path = Path(__file__).resolve().parent.parent.parent.parent / policy_file
+            _policy_path = (
+                Path(__file__).resolve().parent.parent.parent.parent / policy_file
+            )
         self.policy_file = _policy_path
         self.policy: Dict[str, Any] = {
             "network": {"allowed_domains": [], "blocked_domains": []},
             "filesystem": {"allowed_paths": [], "read_only_paths": []},
-            "process": {"blocked_commands": []}
+            "process": {"blocked_commands": []},
         }
         self.load_policy()
 
@@ -35,21 +37,23 @@ class SecurityPolicyEngine:
         network = self.policy.get("network", {})
         allowed = network.get("allowed_domains", [])
         blocked = network.get("blocked_domains", [])
-        
+
         for b in blocked:
             if b in domain:
                 return False
-        
+
         # If allowed list is empty, default is allow-all. If not empty, it's default-deny.
         if allowed:
             for a in allowed:
                 if a in domain:
                     return True
             return False
-            
+
         return True
 
+
 policy_engine = SecurityPolicyEngine()
+
 
 def get_policy_engine() -> SecurityPolicyEngine:
     return policy_engine

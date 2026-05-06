@@ -8,22 +8,24 @@ Antigravity-K: 프로토콜 변환기
 - translate_response(): 내부 포맷 → 외부 API 포맷 변환
 - detect_format(): 요청 포맷 자동 감지
 """
+
 from __future__ import annotations
 
 import logging
 import time
 import uuid
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 logger = logging.getLogger("antigravity_k.protocol_translator")
 
 
 class APIFormat(Enum):
     """지원하는 API 포맷"""
-    OPENAI = "openai"           # OpenAI Chat Completion API
-    ANTHROPIC = "anthropic"     # Anthropic Messages API
-    INTERNAL = "internal"       # Antigravity-K 내부 포맷
+
+    OPENAI = "openai"  # OpenAI Chat Completion API
+    ANTHROPIC = "anthropic"  # Anthropic Messages API
+    INTERNAL = "internal"  # Antigravity-K 내부 포맷
 
 
 class ProtocolTranslator:
@@ -224,9 +226,7 @@ class ProtocolTranslator:
             "usage": {
                 "prompt_tokens": body.get("tokens_in", 0),
                 "completion_tokens": body.get("tokens_out", 0),
-                "total_tokens": (
-                    body.get("tokens_in", 0) + body.get("tokens_out", 0)
-                ),
+                "total_tokens": (body.get("tokens_in", 0) + body.get("tokens_out", 0)),
             },
         }
 
@@ -379,12 +379,12 @@ class ProtocolTranslator:
         elif isinstance(content, list):
             # Check if there are any non-text items (e.g. image_url)
             has_multimodal = any(
-                isinstance(item, dict) and item.get("type") != "text" 
+                isinstance(item, dict) and item.get("type") != "text"
                 for item in content
             )
             if has_multimodal:
                 return content  # Preserve the entire list for VLM processing
-                
+
             # If it's just text blocks, combine them
             parts = []
             for item in content:

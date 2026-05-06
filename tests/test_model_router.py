@@ -3,9 +3,10 @@
 ========================
 9Router 패턴의 폴백/라운드로빈/로드밸런싱 전략 테스트.
 """
+
 import time
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from antigravity_k.engine.model_router import (
     AllModelsUnavailableError,
@@ -14,12 +15,12 @@ from antigravity_k.engine.model_router import (
     ModelRouter,
     RouteStrategy,
     UnavailabilityTracker,
-    UnavailableEntry,
 )
 from antigravity_k.engine.model_registry import ModelProfile
 
 
 # ─── 픽스처 ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def mock_registry():
@@ -29,16 +30,25 @@ def mock_registry():
 
     profiles = {
         "qwen3-72b": ModelProfile(
-            name="qwen3-72b", repo="test/qwen3", role="reasoning",
-            estimated_memory_gb=40, context_length=32768,
+            name="qwen3-72b",
+            repo="test/qwen3",
+            role="reasoning",
+            estimated_memory_gb=40,
+            context_length=32768,
         ),
         "qwen-coder-32b": ModelProfile(
-            name="qwen-coder-32b", repo="test/coder", role="coding",
-            estimated_memory_gb=18, context_length=32768,
+            name="qwen-coder-32b",
+            repo="test/coder",
+            role="coding",
+            estimated_memory_gb=18,
+            context_length=32768,
         ),
         "llama4-scout": ModelProfile(
-            name="llama4-scout", repo="test/llama", role="reasoning",
-            estimated_memory_gb=10, context_length=131072,
+            name="llama4-scout",
+            repo="test/llama",
+            role="reasoning",
+            estimated_memory_gb=10,
+            context_length=131072,
         ),
     }
     registry.get_model = lambda name: profiles.get(name)
@@ -84,6 +94,7 @@ def router(mock_registry, combo_fallback, combo_roundrobin, combo_loadbalance):
 
 # ─── UnavailabilityTracker 테스트 ────────────────────────────────────
 
+
 class TestUnavailabilityTracker:
     """비가용 추적기 테스트"""
 
@@ -104,7 +115,8 @@ class TestUnavailabilityTracker:
 
     def test_exponential_backoff(self):
         tracker = UnavailabilityTracker(
-            base_cooldown_sec=10, backoff_multiplier=2.0,
+            base_cooldown_sec=10,
+            backoff_multiplier=2.0,
         )
         tracker.mark_unavailable("model-a")
         entry1 = tracker.get_entry("model-a")
@@ -142,36 +154,47 @@ class TestUnavailabilityTracker:
 
 # ─── ModelCombo 테스트 ────────────────────────────────────────────────
 
+
 class TestModelCombo:
     """모델 콤보 데이터 클래스 테스트"""
 
     def test_from_dict(self):
-        combo = ModelCombo.from_dict("test", {
-            "models": ["a", "b", "c"],
-            "strategy": "fallback",
-            "description": "테스트 콤보",
-        })
+        combo = ModelCombo.from_dict(
+            "test",
+            {
+                "models": ["a", "b", "c"],
+                "strategy": "fallback",
+                "description": "테스트 콤보",
+            },
+        )
         assert combo.name == "test"
         assert len(combo.models) == 3
         assert combo.strategy == RouteStrategy.FALLBACK
         assert combo.description == "테스트 콤보"
 
     def test_invalid_strategy_fallback(self):
-        combo = ModelCombo.from_dict("test", {
-            "models": ["a"],
-            "strategy": "unknown",
-        })
+        combo = ModelCombo.from_dict(
+            "test",
+            {
+                "models": ["a"],
+                "strategy": "unknown",
+            },
+        )
         assert combo.strategy == RouteStrategy.FALLBACK  # 기본값
 
     def test_round_robin_strategy(self):
-        combo = ModelCombo.from_dict("test", {
-            "models": ["a", "b"],
-            "strategy": "round-robin",
-        })
+        combo = ModelCombo.from_dict(
+            "test",
+            {
+                "models": ["a", "b"],
+                "strategy": "round-robin",
+            },
+        )
         assert combo.strategy == RouteStrategy.ROUND_ROBIN
 
 
 # ─── ModelRouter: 폴백 전략 테스트 ───────────────────────────────────
+
 
 class TestFallbackRouting:
     """폴백 전략 테스트"""
@@ -202,6 +225,7 @@ class TestFallbackRouting:
 
 # ─── ModelRouter: 라운드로빈 전략 테스트 ─────────────────────────────
 
+
 class TestRoundRobinRouting:
     """라운드로빈 전략 테스트"""
 
@@ -221,6 +245,7 @@ class TestRoundRobinRouting:
 
 # ─── ModelRouter: 로드밸런싱 전략 테스트 ─────────────────────────────
 
+
 class TestLoadBalanceRouting:
     """로드밸런싱 전략 테스트"""
 
@@ -237,6 +262,7 @@ class TestLoadBalanceRouting:
 
 
 # ─── ModelRouter: 관리 API 테스트 ────────────────────────────────────
+
 
 class TestRouterManagement:
     """라우터 관리 API 테스트"""
@@ -281,6 +307,7 @@ class TestRouterManagement:
 
 # ─── config.yaml 콤보 로드 테스트 ───────────────────────────────────
 
+
 class TestComboAutoLoad:
     """config.yaml에서 콤보 자동 로드 테스트"""
 
@@ -295,7 +322,9 @@ class TestComboAutoLoad:
             }
         }
         registry.get_model = lambda name: ModelProfile(
-            name=name, repo="test", role="reasoning",
+            name=name,
+            repo="test",
+            role="reasoning",
         )
 
         router = ModelRouter(registry)

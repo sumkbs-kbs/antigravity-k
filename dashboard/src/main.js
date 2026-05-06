@@ -10,6 +10,7 @@ import { AgentPage } from './pages/agent.js';
 import { SettingsPage } from './pages/settings.js';
 
 import { initTerminal } from './terminal.js';
+import './command_palette.js';
 
 // ─── 상태 관리 ─────────────────────────────────────────────────────
 const state = {
@@ -92,7 +93,7 @@ function renderPage(page) {
     container.style.height = '100%';
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
-    
+
     switch (page) {
       case 'chat':
         container.innerHTML = ChatPage.render();
@@ -120,7 +121,7 @@ function renderPage(page) {
     }
     pageContainers[page] = container;
   }
-  
+
   // 현재 페이지 컨테이너만 보이기
   pageContainers[page].style.display = 'flex';
 }
@@ -139,7 +140,7 @@ function renderPlaceholder(title, icon, description) {
 async function checkSystemStatus() {
   const statusDot = document.querySelector('.status-dot');
   const statusText = document.querySelector('.status-text');
-  
+
   const metricsDiv = document.getElementById('system-metrics');
   const memSpan = document.getElementById('sys-mem');
   const cpuSpan = document.getElementById('sys-cpu');
@@ -181,27 +182,27 @@ async function checkSystemStatus() {
 function initServerRestart() {
   const restartBtn = document.getElementById('restart-server-btn');
   if (!restartBtn) return;
-  
+
   restartBtn.addEventListener('click', async () => {
     const confirmRestart = confirm("정말로 서버를 재시작하시겠습니까?");
     if (!confirmRestart) return;
-    
+
     try {
       restartBtn.disabled = true;
       restartBtn.innerHTML = '⏳ 재시작 중...';
       await fetch('/api/system/restart', { method: 'POST' });
-      
+
       // 모달 표시 (또는 alert)
       const overlay = document.createElement('div');
       overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:10000;display:flex;align-items:center;justify-content:center;flex-direction:column;color:white;';
       overlay.innerHTML = `<h2>🚀 서버 재시작 중...</h2><p>잠시 후 페이지가 새로고침됩니다.</p>`;
       document.body.appendChild(overlay);
-      
+
       // 3초 후 페이지 새로고침
       setTimeout(() => {
         window.location.reload();
       }, 3000);
-      
+
     } catch(err) {
       alert("재시작 실패: " + err.message);
       restartBtn.disabled = false;
@@ -220,7 +221,7 @@ function initAntigravity() {
   trigger.addEventListener('click', () => {
     if (isGravityOn) return; // 한 번만 실행
     isGravityOn = true;
-    
+
     // Matter.js 엔진 설정
     const Engine = Matter.Engine,
           Render = Matter.Render,
@@ -242,7 +243,7 @@ function initAntigravity() {
         background: 'transparent'
       }
     });
-    
+
     render.canvas.style.position = 'fixed';
     render.canvas.style.top = '0';
     render.canvas.style.left = '0';
@@ -260,7 +261,7 @@ function initAntigravity() {
 
     // DOM 요소들을 물리 객체로 변환
     const elements = document.querySelectorAll('.nav-item, .stat-card, .model-card, .btn-primary, .search-input-group, .wiki-card, .message-bubble, .page-header');
-    
+
     elements.forEach(el => {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
@@ -287,10 +288,10 @@ function initAntigravity() {
         el.style.margin = '0';
         requestAnimationFrame(updateDOM);
       };
-      
+
       Composite.add(engine.world, body);
       requestAnimationFrame(updateDOM);
-      
+
       // 약간의 랜덤 힘을 가해서 흩어지게 만듦
       Matter.Body.setVelocity(body, {
         x: (Math.random() - 0.5) * 10,
@@ -301,7 +302,7 @@ function initAntigravity() {
     Render.run(render);
     const runner = Runner.create();
     Runner.run(runner, engine);
-    
+
     // 마우스 상호작용 추가
     const mouse = Matter.Mouse.create(document.body);
     const mouseConstraint = Matter.MouseConstraint.create(engine, {
@@ -312,7 +313,7 @@ function initAntigravity() {
       }
     });
     Composite.add(engine.world, mouseConstraint);
-    
+
     // 캔버스가 마우스 이벤트를 받도록 허용
     render.canvas.style.pointerEvents = 'auto';
   });
@@ -328,8 +329,10 @@ function init() {
   initTerminal();
 
   // 창 비율 조절 (Split.js)
+  let sidebarSplit;
+  let sidebarSizes = [8, 92];
+
   if (typeof Split !== 'undefined') {
-    let sidebarSizes = [8, 92];
     try {
       const stored = localStorage.getItem('ide_sidebar_sizes_v2');
       if (stored) {
@@ -337,9 +340,9 @@ function init() {
       }
     } catch(e) {}
 
-    const sidebarSplit = Split(['#sidebar', '#right-container'], {
+    sidebarSplit = Split(['#sidebar', '#right-container'], {
       sizes: sidebarSizes,
-      minSize: [120, 400],
+      minSize: [0, 400],
       gutterSize: 6,
       cursor: 'col-resize',
       onDragEnd: () => {
@@ -347,6 +350,37 @@ function init() {
       }
     });
   }
+
+  // Cmd+B / Ctrl+B: 전체 사이드바 토글
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      const sidebar = document.getElementById('sidebar');
+      // Split.js가 추가한 gutter는 sidebar 바로 다음 형제 요소
+      const gutter = sidebar.nextElementSibling;
+      const rightContainer = document.getElementById('right-container');
+
+      if (sidebar.style.display === 'none') {
+        sidebar.style.display = 'flex';
+        if (gutter && gutter.classList.contains('gutter')) gutter.style.display = 'block';
+        if (sidebarSplit) sidebarSplit.setSizes(sidebarSizes);
+      } else {
+        if (sidebarSplit) sidebarSizes = sidebarSplit.getSizes();
+        sidebar.style.display = 'none';
+        if (gutter && gutter.classList.contains('gutter')) gutter.style.display = 'none';
+        // 오른쪽 컨테이너를 100%로 강제 확장
+        rightContainer.style.width = '100%';
+      }
+
+      // Monaco 에디터가 있으면 리사이즈 유도
+      if (window.monaco && window.monaco.editor) {
+        setTimeout(() => {
+          const editors = window.monaco.editor.getEditors();
+          editors.forEach(ed => ed.layout());
+        }, 10);
+      }
+    }
+  });
 
   // 10초마다 시스템 상태 갱신 (더 빈번하게)
   setInterval(checkSystemStatus, 10000);

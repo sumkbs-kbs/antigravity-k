@@ -14,14 +14,13 @@ import os
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from antigravity_k.tools.base_tool import (
-    BaseTool, ToolCategory, RenderIn, RiskLevel
-)
+from antigravity_k.tools.base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
 from antigravity_k.tools.tool_registry import ToolRegistry
-from antigravity_k.i18n import I18n, t, get_i18n, set_locale
+from antigravity_k.i18n import I18n, t, set_locale
 
 
 # ─────────────────── Mock Tools ───────────────────
+
 
 class MockReadTool(BaseTool):
     category = ToolCategory.FILE_IO
@@ -117,6 +116,7 @@ class MockSecurityTool(BaseTool):
 
 # ═══════════════ A) BaseTool 메타데이터 테스트 ═══════════════
 
+
 class TestBaseToolMetadata:
     """tiptap-vuetify AbstractExtension 패턴 적용 테스트."""
 
@@ -133,7 +133,7 @@ class TestBaseToolMetadata:
         """to_metadata()가 메타데이터를 올바르게 반환하는지 확인."""
         tool = MockExecTool()
         meta = tool.to_metadata()
-        
+
         assert meta["name"] == "mock_exec"
         assert meta["category"] == "code_exec"
         assert meta["render_in"] == "contextual"
@@ -145,7 +145,7 @@ class TestBaseToolMetadata:
         """LLM 스키마가 여전히 올바르게 동작하는지 확인."""
         tool = MockReadTool()
         schema = tool.to_tool_call_schema()
-        
+
         assert schema["name"] == "mock_read"
         assert schema["description"] == "Mock read tool"
         assert "input_schema" in schema
@@ -164,6 +164,7 @@ class TestBaseToolMetadata:
 
 
 # ═══════════════ B) ToolRegistry 테스트 ═══════════════
+
 
 class TestToolRegistry:
     """tiptap-vuetify Plugin.install() 패턴 테스트."""
@@ -216,10 +217,10 @@ class TestToolRegistry:
         """카테고리별 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
-        
+
         file_tools = reg.filter_by_category(ToolCategory.FILE_IO)
         assert len(file_tools) == 2
-        
+
         exec_tools = reg.filter_by_category(ToolCategory.CODE_EXEC)
         assert len(exec_tools) == 1
 
@@ -227,10 +228,10 @@ class TestToolRegistry:
         """위험도별 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
-        
+
         safe_tools = reg.filter_by_risk(RiskLevel.SAFE)
         assert len(safe_tools) == 2  # MockRead + MockSecurity
-        
+
         low_tools = reg.filter_by_risk(RiskLevel.LOW)
         assert len(low_tools) == 3  # SAFE + LOW
 
@@ -238,11 +239,11 @@ class TestToolRegistry:
         """렌더 위치별 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockWriteTool, MockExecTool, MockSecurityTool)
-        
+
         toolbar_tools = reg.get_toolbar_tools()
         assert len(toolbar_tools) == 1
         assert toolbar_tools[0].name == "mock_read"
-        
+
         bg_tools = reg.filter_by_render(RenderIn.BACKGROUND)
         assert len(bg_tools) == 1
         assert bg_tools[0].name == "mock_security"
@@ -251,7 +252,7 @@ class TestToolRegistry:
         """LLM 스키마 목록 생성이 동작하는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockWriteTool)
-        
+
         schemas = reg.to_llm_schemas()
         assert len(schemas) == 2
         assert all("name" in s and "input_schema" in s for s in schemas)
@@ -260,7 +261,7 @@ class TestToolRegistry:
         """이름 기반 LLM 스키마 필터링이 동작하는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockWriteTool, MockExecTool)
-        
+
         schemas = reg.to_llm_schemas(names=["mock_read"])
         assert len(schemas) == 1
 
@@ -268,7 +269,7 @@ class TestToolRegistry:
         """메타데이터 목록이 올바르게 생성되는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockExecTool)
-        
+
         metas = reg.to_metadata_list()
         assert len(metas) == 2
         assert all("category" in m and "risk_level" in m for m in metas)
@@ -277,7 +278,7 @@ class TestToolRegistry:
         """레지스트리 요약이 생성되는지 확인."""
         reg = ToolRegistry()
         reg.install_many(MockReadTool, MockExecTool)
-        
+
         summary = reg.summary()
         assert "2 tools installed" in summary
 
@@ -290,6 +291,7 @@ class TestToolRegistry:
 
 
 # ═══════════════ C) I18n 테스트 ═══════════════
+
 
 class TestI18n:
     """tiptap-vuetify i18n 자동 언어 감지 패턴 테스트."""
@@ -350,7 +352,7 @@ class TestI18n:
         """로케일 변경이 동작하는지 확인."""
         i18n = I18n(locale_code="ko")
         assert i18n.locale == "ko"
-        
+
         i18n.locale = "en"
         assert i18n.locale == "en"
         assert i18n.t("agent.task_complete") == "Task completed successfully."
@@ -360,7 +362,7 @@ class TestI18n:
         set_locale("en")
         msg = t("agent.task_complete")
         assert msg == "Task completed successfully."
-        
+
         # 원복
         set_locale("ko")
 

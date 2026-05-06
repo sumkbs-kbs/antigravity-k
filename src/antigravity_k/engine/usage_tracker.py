@@ -8,14 +8,15 @@ Antigravity-K: 사용량 추적기
 - get_stats(): 기간별 통계 조회
 - to_dashboard_data(): 대시보드 UI용 데이터 반환
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -24,18 +25,20 @@ logger = logging.getLogger("antigravity_k.usage_tracker")
 
 # ─── 데이터 클래스 ───────────────────────────────────────────────────
 
+
 @dataclass
 class UsageRecord:
     """요청 1건의 사용량 기록"""
+
     model_name: str
-    timestamp: float             # unix timestamp
-    tokens_in: int = 0           # 입력 토큰 수
-    tokens_out: int = 0          # 출력 토큰 수
-    latency_ms: float = 0.0      # 응답 시간 (ms)
-    success: bool = True         # 성공 여부
-    error: str = ""              # 실패 시 오류 메시지
-    combo_name: str = ""         # 콤보 경유 시 콤보 이름
-    fallback_depth: int = 0      # 폴백 깊이 (0=첫 번째 모델)
+    timestamp: float  # unix timestamp
+    tokens_in: int = 0  # 입력 토큰 수
+    tokens_out: int = 0  # 출력 토큰 수
+    latency_ms: float = 0.0  # 응답 시간 (ms)
+    success: bool = True  # 성공 여부
+    error: str = ""  # 실패 시 오류 메시지
+    combo_name: str = ""  # 콤보 경유 시 콤보 이름
+    fallback_depth: int = 0  # 폴백 깊이 (0=첫 번째 모델)
 
     @property
     def total_tokens(self) -> int:
@@ -45,8 +48,9 @@ class UsageRecord:
 @dataclass
 class UsageStats:
     """기간별 통합 통계"""
+
     model_name: str
-    period: str                  # hourly / daily / weekly / total
+    period: str  # hourly / daily / weekly / total
     total_requests: int = 0
     success_count: int = 0
     failure_count: int = 0
@@ -55,7 +59,7 @@ class UsageStats:
     avg_latency_ms: float = 0.0
     max_latency_ms: float = 0.0
     min_latency_ms: float = 0.0
-    fallback_count: int = 0      # 폴백으로 사용된 횟수
+    fallback_count: int = 0  # 폴백으로 사용된 횟수
 
     @property
     def success_rate(self) -> float:
@@ -75,6 +79,7 @@ class UsageStats:
 
 
 # ─── 메인 추적기 ─────────────────────────────────────────────────────
+
 
 class UsageTracker:
     """
@@ -141,10 +146,7 @@ class UsageTracker:
             self._records = self._records[overflow:]
 
         # 자동 저장
-        if (
-            self._db_path
-            and self._unsaved_count >= self._auto_save_interval
-        ):
+        if self._db_path and self._unsaved_count >= self._auto_save_interval:
             self._save()
 
         logger.debug(
@@ -171,7 +173,8 @@ class UsageTracker:
         """
         cutoff = self._get_cutoff(period)
         filtered = [
-            r for r in self._records
+            r
+            for r in self._records
             if r.timestamp >= cutoff
             and (model_name is None or r.model_name == model_name)
         ]
@@ -253,12 +256,8 @@ class UsageTracker:
                 data = json.load(f)
 
             raw_records = data.get("records", [])
-            self._records = [
-                UsageRecord(**r) for r in raw_records
-            ]
-            logger.info(
-                f"사용량 DB 로드: {self._db_path} ({len(self._records)}건)"
-            )
+            self._records = [UsageRecord(**r) for r in raw_records]
+            logger.info(f"사용량 DB 로드: {self._db_path} ({len(self._records)}건)")
         except Exception as e:
             logger.warning(f"사용량 DB 로드 실패: {e}")
             self._records = []

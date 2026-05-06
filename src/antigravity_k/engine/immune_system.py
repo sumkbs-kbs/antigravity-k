@@ -2,9 +2,8 @@ import ast
 import os
 import json
 import logging
-import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from .model_manager import ModelManager
 from .vault import VaultEngine
@@ -18,7 +17,7 @@ _MAX_HEAL_ATTEMPTS_PER_SESSION = 3
 class ImmuneSystem:
     """
     Antigravity-K 자가 수복/자가 발전 엔진 (ECA Phase 2)
-    에이전트가 동작 중 치명적 오류나 무한루프에 빠졌을 때, 
+    에이전트가 동작 중 치명적 오류나 무한루프에 빠졌을 때,
     자신의 엔진 코드를 스스로 분석하고 패치하는 면역 체계입니다.
 
     안전장치:
@@ -30,7 +29,12 @@ class ImmuneSystem:
 
     _session_heal_count: int = 0  # 클래스 레벨 세션 카운터
 
-    def __init__(self, project_root: str, model_manager: ModelManager, vault_engine: Optional[VaultEngine]):
+    def __init__(
+        self,
+        project_root: str,
+        model_manager: ModelManager,
+        vault_engine: Optional[VaultEngine],
+    ):
         self.project_root = project_root
         self.model_manager = model_manager
         self.vault_engine = vault_engine
@@ -44,13 +48,17 @@ class ImmuneSystem:
         # 안전장치 0: 세션당 시도 횟수 제한
         ImmuneSystem._session_heal_count += 1
         if ImmuneSystem._session_heal_count > _MAX_HEAL_ATTEMPTS_PER_SESSION:
-            logger.warning(f"[IMMUNE SYSTEM] Heal attempt limit reached ({_MAX_HEAL_ATTEMPTS_PER_SESSION})")
+            logger.warning(
+                f"[IMMUNE SYSTEM] Heal attempt limit reached ({_MAX_HEAL_ATTEMPTS_PER_SESSION})"
+            )
             return (
                 f"🚨 **[IMMUNE SYSTEM]** 세션 내 자가 수복 시도 횟수 제한"
                 f"({_MAX_HEAL_ATTEMPTS_PER_SESSION}회)에 도달했습니다. 수동 개입이 필요합니다."
             )
 
-        logger.error(f"[IMMUNE SYSTEM TRIGGERED] Self-healing started for tool {tool_name}")
+        logger.error(
+            f"[IMMUNE SYSTEM TRIGGERED] Self-healing started for tool {tool_name}"
+        )
 
         # 안전장치 1: 백업 스냅샷 생성
         snapshot_msg = ""
@@ -90,15 +98,18 @@ If the error is a hallucination or impossible to fix, set target_file to empty s
             target_name = default_model.name if default_model else "qwen3.6:latest"
             response = self.model_manager.generate(prompt, target=target_name)
 
-            # Clean JSON
-            clean = response.strip()
-            if clean.startswith("```json"):
-                clean = clean[7:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
+            import re
 
-            data = json.loads(clean)
+            clean = response.strip()
+            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean, re.DOTALL)
+            if json_match:
+                clean = json_match.group(1)
+            else:
+                start = clean.find("{")
+                end = clean.rfind("}")
+                if start != -1 and end != -1:
+                    clean = clean[start : end + 1]
+            data = json.loads(clean.strip())
 
             target_file = data.get("target_file", "")
             if not target_file:
@@ -138,7 +149,9 @@ If the error is a hallucination or impossible to fix, set target_file to empty s
             # 안전장치 3: _drafts/ 에 패치 초안 저장 (HITL 패턴)
             draft_dir = Path(self.project_root) / "_drafts" / "immune_patches"
             draft_dir.mkdir(parents=True, exist_ok=True)
-            draft_path = draft_dir / f"patch_{tool_name}_{ImmuneSystem._session_heal_count}.json"
+            draft_path = (
+                draft_dir / f"patch_{tool_name}_{ImmuneSystem._session_heal_count}.json"
+            )
             with open(draft_path, "w", encoding="utf-8") as f:
                 json.dump(
                     {
@@ -165,7 +178,9 @@ If the error is a hallucination or impossible to fix, set target_file to empty s
 
         except Exception as e:
             logger.error(f"Immune system crashed during healing: {e}")
-            return f"🔥 [IMMUNE SYSTEM FATAL] MetaAgent crashed during self-healing: {e}"
+            return (
+                f"🔥 [IMMUNE SYSTEM FATAL] MetaAgent crashed during self-healing: {e}"
+            )
 
     @staticmethod
     def _validate_syntax(source: str, filename: str) -> bool:
@@ -174,7 +189,9 @@ If the error is a hallucination or impossible to fix, set target_file to empty s
             ast.parse(source, filename=filename)
             return True
         except SyntaxError as e:
-            logger.warning(f"[IMMUNE SYSTEM] Syntax validation failed for {filename}: {e}")
+            logger.warning(
+                f"[IMMUNE SYSTEM] Syntax validation failed for {filename}: {e}"
+            )
             return False
 
     @classmethod

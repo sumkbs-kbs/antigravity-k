@@ -29,16 +29,18 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, List, Optional, Set
 
 logger = logging.getLogger("antigravity_k.engine.secret_scanner")
 
 
 # ── 시크릿 패턴 정의 ──
 
+
 @dataclass(frozen=True)
 class SecretPattern:
     """시크릿 감지 패턴."""
+
     name: str
     regex: re.Pattern
 
@@ -46,6 +48,7 @@ class SecretPattern:
 @dataclass
 class SecretMatch:
     """감지된 시크릿."""
+
     pattern: str
     redacted: str
     original_length: int = 0
@@ -73,7 +76,9 @@ TOKEN_PREFIX_PATTERNS: List[SecretPattern] = [
     # Groq
     SecretPattern("Groq API key", re.compile(r"\bgsk_[A-Za-z0-9]{10,}\b")),
     # Slack
-    SecretPattern("Slack token", re.compile(r"\b(?:xox[bpas]|xapp)-[A-Za-z0-9-]{10,}\b")),
+    SecretPattern(
+        "Slack token", re.compile(r"\b(?:xox[bpas]|xapp)-[A-Za-z0-9-]{10,}\b")
+    ),
     # Google
     SecretPattern("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     # npm
@@ -84,25 +89,32 @@ TOKEN_PREFIX_PATTERNS: List[SecretPattern] = [
     SecretPattern("Telegram bot token", re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b")),
     # Discord bot token — 컨텍스트 패턴으로 이동 (lookbehind 제약)
     # Private keys (PEM)
-    SecretPattern("Private key", re.compile(
-        r"-----BEGIN\s+(?:RSA\s+|EC\s+|DSA\s+|OPENSSH\s+)?PRIVATE KEY-----"
-    )),
+    SecretPattern(
+        "Private key",
+        re.compile(r"-----BEGIN\s+(?:RSA\s+|EC\s+|DSA\s+|OPENSSH\s+)?PRIVATE KEY-----"),
+    ),
 ]
 
 # 컨텍스트 기반 패턴 (KEY=, Bearer 등 접두어 필요)
 # Python re는 가변 폭 lookbehind를 지원하지 않으므로, 전체 매치 후 그룹 추출 방식 사용
 CONTEXT_PATTERNS: List[SecretPattern] = [
-    SecretPattern("Bearer token", re.compile(
-        r"Bearer\s+([A-Za-z0-9_.+/=-]{10,})", re.IGNORECASE
-    )),
-    SecretPattern("Environment credential", re.compile(
-        r'(?:_KEY|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)[=: ][\'"]?([A-Za-z0-9_.+/=-]{10,})',
-        re.IGNORECASE
-    )),
-    SecretPattern("Discord bot token", re.compile(
-        r"(?:discord|bot|DISCORD_TOKEN|BOT_TOKEN|token)\s*[=:]\s*[\"']?"
-        r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,})"
-    )),
+    SecretPattern(
+        "Bearer token", re.compile(r"Bearer\s+([A-Za-z0-9_.+/=-]{10,})", re.IGNORECASE)
+    ),
+    SecretPattern(
+        "Environment credential",
+        re.compile(
+            r'(?:_KEY|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)[=: ][\'"]?([A-Za-z0-9_.+/=-]{10,})',
+            re.IGNORECASE,
+        ),
+    ),
+    SecretPattern(
+        "Discord bot token",
+        re.compile(
+            r"(?:discord|bot|DISCORD_TOKEN|BOT_TOKEN|token)\s*[=:]\s*[\"']?"
+            r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,})"
+        ),
+    ),
 ]
 
 ALL_PATTERNS: List[SecretPattern] = TOKEN_PREFIX_PATTERNS + CONTEXT_PATTERNS
@@ -111,9 +123,17 @@ ALL_PATTERNS: List[SecretPattern] = TOKEN_PREFIX_PATTERNS + CONTEXT_PATTERNS
 # ── 설정 필드 기반 민감 감지 ──
 
 CREDENTIAL_FIELDS: Set[str] = {
-    "apiKey", "api_key", "token", "secret", "password",
-    "resolvedKey", "access_token", "refresh_token",
-    "client_secret", "private_key", "signing_key",
+    "apiKey",
+    "api_key",
+    "token",
+    "secret",
+    "password",
+    "resolvedKey",
+    "access_token",
+    "refresh_token",
+    "client_secret",
+    "private_key",
+    "signing_key",
 }
 
 CREDENTIAL_FIELD_PATTERN = re.compile(
@@ -146,6 +166,7 @@ MEMORY_PATH_SEGMENTS = [
 
 # ── 핵심 API ──
 
+
 def scan_for_secrets(content: str) -> List[SecretMatch]:
     """텍스트에서 시크릿 패턴을 스캔합니다.
 
@@ -161,7 +182,11 @@ def scan_for_secrets(content: str) -> List[SecretMatch]:
     for pattern in ALL_PATTERNS:
         for match in pattern.regex.finditer(content):
             # 컨텍스트 패턴은 그룹(1)이 실제 시크릿
-            value = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
+            value = (
+                match.group(1)
+                if match.lastindex and match.lastindex >= 1
+                else match.group(0)
+            )
             key = f"{pattern.name}:{value}"
             if key in seen:
                 continue
@@ -172,11 +197,13 @@ def scan_for_secrets(content: str) -> List[SecretMatch]:
             else:
                 redacted = "****"
 
-            matches.append(SecretMatch(
-                pattern=pattern.name,
-                redacted=redacted,
-                original_length=len(value),
-            ))
+            matches.append(
+                SecretMatch(
+                    pattern=pattern.name,
+                    redacted=redacted,
+                    original_length=len(value),
+                )
+            )
 
     return matches
 
@@ -210,7 +237,9 @@ def redact_full(text: str) -> str:
     # 환경변수 형식: KEY=value
     result = re.sub(
         r"((?:NVIDIA_API_KEY|API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|_KEY)=)\S+",
-        r"\1<REDACTED>", result, flags=re.IGNORECASE,
+        r"\1<REDACTED>",
+        result,
+        flags=re.IGNORECASE,
     )
     # Bearer 토큰
     result = re.sub(r"(Bearer\s)\S+", r"\1<REDACTED>", result, flags=re.IGNORECASE)
@@ -238,17 +267,30 @@ def redact_url(url: str) -> Optional[str]:
 
         # 민감 쿼리 파라미터 마스킹
         params = parse_qs(parsed.query, keep_blank_values=True)
-        sensitive_keys = {"signature", "sig", "token", "auth", "access_token", "api_key"}
+        sensitive_keys = {
+            "signature",
+            "sig",
+            "token",
+            "auth",
+            "access_token",
+            "api_key",
+        }
         for key in list(params.keys()):
             if key.lower() in sensitive_keys:
                 params[key] = ["<REDACTED>"]
 
         clean_query = urlencode(params, doseq=True)
 
-        return urlunparse((
-            parsed.scheme, netloc, parsed.path,
-            parsed.params, clean_query, "",  # fragment 제거
-        ))
+        return urlunparse(
+            (
+                parsed.scheme,
+                netloc,
+                parsed.path,
+                parsed.params,
+                clean_query,
+                "",  # fragment 제거
+            )
+        )
     except Exception:
         return redact(url)[:240] if url else None
 
@@ -291,6 +333,7 @@ def is_memory_path(file_path: str) -> bool:
 
 # ── 내부 헬퍼 ──
 
+
 def _redact_match_partial(match: re.Match) -> str:
     """매치된 시크릿을 부분 마스킹합니다."""
     value = match.group(0)
@@ -310,10 +353,16 @@ def _redact_url_partial(match: re.Match) -> str:
             netloc = "****:****@" + (parsed.hostname or "")
             if parsed.port:
                 netloc += f":{parsed.port}"
-            return urlunparse((
-                parsed.scheme, netloc, parsed.path,
-                parsed.params, parsed.query, parsed.fragment,
-            ))
+            return urlunparse(
+                (
+                    parsed.scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
+            )
     except Exception:
         pass
     return url

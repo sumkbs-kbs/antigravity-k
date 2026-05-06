@@ -1,35 +1,47 @@
-import sys
-import logging
-import asyncio
 import json
-logging.basicConfig(level=logging.DEBUG)
-sys.path.insert(0, "./src")
 
-from antigravity_k.engine.model_manager import ModelManager, ModelRegistry
 from antigravity_k.engine.orchestrator import OrchestratorAgent
 
-async def test_stream():
-    registry = ModelRegistry()
-    manager = ModelManager(registry)
-    orchestrator = OrchestratorAgent(model_manager=manager)
 
-    messages = [{"role": "user", "content": "내가 진행하는 여러 프로젝트들을 공유 할수 있는 인터넷 웹사이트를 만들고 싶어 Ssak AI Lab 이름으로 전체적인 구상을 먼저 해줄래?"}]
+class FakeManager:
+    def is_loaded(self, name):
+        return True
 
-    print("Starting generator...")
-    try:
-        # Simulate what event_generator does in server.py
-        for chunk in orchestrator.run_stream(messages, target_model="deepseek-r1:70b"):
-            data = {
-                "id": "chatcmpl-stream",
-                "object": "chat.completion.chunk",
-                "model": "deepseek-r1:70b",
-                "choices": [{"delta": {"content": chunk}, "index": 0, "finish_reason": None}]
-            }
-            sse = f"data: {json.dumps(data)}\n\n"
-            # Just print a summary of the chunk
-            print(f"YIELD SSE chunk with content length: {len(chunk)}")
-    except Exception as e:
-        print(f"EXCEPTION: {e}")
+    def stream_generate(self, *args, **kwargs):
+        yield "stream chunk"
 
-asyncio.run(test_stream())
-print("Done")
+
+def test_orchestrator_stream_chunks_can_be_serialized(monkeypatch):
+    def fake_ceo_analyze(self, user_message, target_model):
+        yield {
+            "task_type": "simple_chat",
+            "delegate_to": "SELF",
+            "reasoning": "test",
+            "refined_prompt": user_message,
+        }
+
+    monkeypatch.setattr(OrchestratorAgent, "_ceo_analyze", fake_ceo_analyze)
+
+    orchestrator = OrchestratorAgent(model_manager=FakeManager(), vault_engine=None)
+    messages = [{"role": "user", "content": "간단히 응답해줘"}]
+
+    chunks = list(
+        orchestrator.run_stream(messages, target_model="test-model", max_steps=1)
+    )
+
+    assert chunks
+    sse_payloads = [
+        {
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "model": "test-model",
+            "choices": [
+                {"delta": {"content": chunk}, "index": 0, "finish_reason": None}
+            ],
+        }
+        for chunk in chunks
+    ]
+
+    for payload in sse_payloads:
+        encoded = f"data: {json.dumps(payload)}\n\n"
+        assert encoded.startswith("data: ")

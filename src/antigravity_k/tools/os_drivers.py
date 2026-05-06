@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # ───────────────────────── 추상 인터페이스 ──────────────────────────
 
+
 class MouseDriver(ABC):
     """마우스 조작 추상 인터페이스."""
 
@@ -34,7 +35,9 @@ class MouseDriver(ABC):
         """더블 클릭합니다."""
 
     @abstractmethod
-    def drag(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5) -> None:
+    def drag(
+        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+    ) -> None:
         """드래그합니다."""
 
     @abstractmethod
@@ -77,7 +80,9 @@ class ScreenDriver(ABC):
 class DriverSet:
     """OS별 드라이버 묶음."""
 
-    def __init__(self, mouse: MouseDriver, keyboard: KeyboardDriver, screen: ScreenDriver):
+    def __init__(
+        self, mouse: MouseDriver, keyboard: KeyboardDriver, screen: ScreenDriver
+    ):
         self.mouse = mouse
         self.keyboard = keyboard
         self.screen = screen
@@ -85,11 +90,13 @@ class DriverSet:
 
 # ───────────────────── Windows 구현 (PyAutoGUI) ─────────────────────
 
+
 class WindowsMouseDriver(MouseDriver):
     """Windows PyAutoGUI 기반 마우스 드라이버."""
 
     def __init__(self):
         import pyautogui
+
         pyautogui.FAILSAFE = True  # 좌상단 이동 시 비상 중지
         pyautogui.PAUSE = 0.05
         self._pag = pyautogui
@@ -103,7 +110,9 @@ class WindowsMouseDriver(MouseDriver):
     def double_click(self, x: int, y: int) -> None:
         self._pag.doubleClick(x, y)
 
-    def drag(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5) -> None:
+    def drag(
+        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+    ) -> None:
         self._pag.moveTo(start_x, start_y)
         self._pag.drag(end_x - start_x, end_y - start_y, duration=duration)
 
@@ -121,6 +130,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
 
     def __init__(self):
         import pyautogui
+
         self._pag = pyautogui
 
     def type_text(self, text: str, interval: float = 0.02) -> None:
@@ -134,6 +144,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
 
     def hold_key(self, key: str, duration: float = 1.0) -> None:
         import time
+
         self._pag.keyDown(key)
         time.sleep(duration)
         self._pag.keyUp(key)
@@ -144,6 +155,7 @@ class WindowsScreenDriver(ScreenDriver):
 
     def __init__(self):
         import pyautogui
+
         self._pag = pyautogui
 
     def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
@@ -158,6 +170,7 @@ class WindowsScreenDriver(ScreenDriver):
 
 
 # ─────────────────────── Stub 구현 (테스트/비대화 환경용) ────────────
+
 
 class StubMouseDriver(MouseDriver):
     """테스트용 마우스 드라이버 (실제 조작 없음)."""
@@ -174,7 +187,9 @@ class StubMouseDriver(MouseDriver):
     def double_click(self, x: int, y: int) -> None:
         self.last_action = ("double_click", x, y)
 
-    def drag(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5) -> None:
+    def drag(
+        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+    ) -> None:
         self.last_action = ("drag", start_x, start_y, end_x, end_y)
 
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
@@ -217,32 +232,53 @@ class StubScreenDriver(ScreenDriver):
 
 # ───────────────────── macOS 구현 (Quartz / CoreGraphics) ──────────
 
+
 class MacOSMouseDriver(MouseDriver):
     """macOS Quartz 기반 마우스 드라이버."""
 
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
         import Quartz
+
         event = Quartz.CGEventCreateMouseEvent(
-            None, Quartz.kCGEventMouseMoved,
-            Quartz.CGPointMake(x, y), Quartz.kCGMouseButtonLeft
+            None,
+            Quartz.kCGEventMouseMoved,
+            Quartz.CGPointMake(x, y),
+            Quartz.kCGMouseButtonLeft,
         )
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
     def click(self, x: int, y: int, button: str = "left") -> None:
         import Quartz
-        btn = Quartz.kCGMouseButtonLeft if button == "left" else Quartz.kCGMouseButtonRight
-        down_type = Quartz.kCGEventLeftMouseDown if button == "left" else Quartz.kCGEventRightMouseDown
-        up_type = Quartz.kCGEventLeftMouseUp if button == "left" else Quartz.kCGEventRightMouseUp
+
+        btn = (
+            Quartz.kCGMouseButtonLeft
+            if button == "left"
+            else Quartz.kCGMouseButtonRight
+        )
+        down_type = (
+            Quartz.kCGEventLeftMouseDown
+            if button == "left"
+            else Quartz.kCGEventRightMouseDown
+        )
+        up_type = (
+            Quartz.kCGEventLeftMouseUp
+            if button == "left"
+            else Quartz.kCGEventRightMouseUp
+        )
         point = Quartz.CGPointMake(x, y)
 
         down = Quartz.CGEventCreateMouseEvent(None, down_type, point, btn)
         up = Quartz.CGEventCreateMouseEvent(None, up_type, point, btn)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
-        import time; time.sleep(0.05)
+        import time
+
+        time.sleep(0.05)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def double_click(self, x: int, y: int) -> None:
-        import Quartz, time
+        import Quartz
+        import time
+
         point = Quartz.CGPointMake(x, y)
         btn = Quartz.kCGMouseButtonLeft
         for click_count in (1, 2):
@@ -252,20 +288,30 @@ class MacOSMouseDriver(MouseDriver):
             up = Quartz.CGEventCreateMouseEvent(
                 None, Quartz.kCGEventLeftMouseUp, point, btn
             )
-            Quartz.CGEventSetIntegerValueField(down, Quartz.kCGMouseEventClickState, click_count)
-            Quartz.CGEventSetIntegerValueField(up, Quartz.kCGMouseEventClickState, click_count)
+            Quartz.CGEventSetIntegerValueField(
+                down, Quartz.kCGMouseEventClickState, click_count
+            )
+            Quartz.CGEventSetIntegerValueField(
+                up, Quartz.kCGMouseEventClickState, click_count
+            )
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
             time.sleep(0.02)
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
             time.sleep(0.05)
 
-    def drag(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5) -> None:
-        import Quartz, time
+    def drag(
+        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+    ) -> None:
+        import Quartz
+        import time
+
         btn = Quartz.kCGMouseButtonLeft
         start = Quartz.CGPointMake(start_x, start_y)
         end = Quartz.CGPointMake(end_x, end_y)
 
-        down = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, start, btn)
+        down = Quartz.CGEventCreateMouseEvent(
+            None, Quartz.kCGEventLeftMouseDown, start, btn
+        )
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
 
         steps = max(10, int(duration * 60))
@@ -274,8 +320,7 @@ class MacOSMouseDriver(MouseDriver):
             cx = start_x + (end_x - start_x) * t
             cy = start_y + (end_y - start_y) * t
             drag_ev = Quartz.CGEventCreateMouseEvent(
-                None, Quartz.kCGEventLeftMouseDragged,
-                Quartz.CGPointMake(cx, cy), btn
+                None, Quartz.kCGEventLeftMouseDragged, Quartz.CGPointMake(cx, cy), btn
             )
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, drag_ev)
             time.sleep(duration / steps)
@@ -285,10 +330,13 @@ class MacOSMouseDriver(MouseDriver):
 
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
         import Quartz
+
         self.move(x, y, duration=0)
         dy = -amount if direction == "down" else amount if direction == "up" else 0
         dx = amount if direction == "right" else -amount if direction == "left" else 0
-        event = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 2, dy, dx)
+        event = Quartz.CGEventCreateScrollWheelEvent(
+            None, Quartz.kCGScrollEventUnitLine, 2, dy, dx
+        )
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
@@ -297,22 +345,49 @@ class MacOSKeyboardDriver(KeyboardDriver):
 
     # macOS 가상 키코드 매핑 (주요 키만)
     _KEY_MAP = {
-        "return": 0x24, "enter": 0x24, "tab": 0x30, "space": 0x31,
-        "delete": 0x33, "backspace": 0x33, "escape": 0x35, "esc": 0x35,
-        "command": 0x37, "cmd": 0x37, "shift": 0x38, "capslock": 0x39,
-        "option": 0x3A, "alt": 0x3A, "control": 0x3B, "ctrl": 0x3B,
-        "up": 0x7E, "down": 0x7D, "left": 0x7B, "right": 0x7C,
-        "f1": 0x7A, "f2": 0x78, "f3": 0x63, "f4": 0x76,
-        "f5": 0x60, "f6": 0x61, "f7": 0x62, "f8": 0x64,
-        "home": 0x73, "end": 0x77, "pageup": 0x74, "pagedown": 0x79,
+        "return": 0x24,
+        "enter": 0x24,
+        "tab": 0x30,
+        "space": 0x31,
+        "delete": 0x33,
+        "backspace": 0x33,
+        "escape": 0x35,
+        "esc": 0x35,
+        "command": 0x37,
+        "cmd": 0x37,
+        "shift": 0x38,
+        "capslock": 0x39,
+        "option": 0x3A,
+        "alt": 0x3A,
+        "control": 0x3B,
+        "ctrl": 0x3B,
+        "up": 0x7E,
+        "down": 0x7D,
+        "left": 0x7B,
+        "right": 0x7C,
+        "f1": 0x7A,
+        "f2": 0x78,
+        "f3": 0x63,
+        "f4": 0x76,
+        "f5": 0x60,
+        "f6": 0x61,
+        "f7": 0x62,
+        "f8": 0x64,
+        "home": 0x73,
+        "end": 0x77,
+        "pageup": 0x74,
+        "pagedown": 0x79,
     }
 
     # 수정 키(modifier) 플래그 매핑
     _MOD_FLAGS = {
-        "command": 0x100000, "cmd": 0x100000,
+        "command": 0x100000,
+        "cmd": 0x100000,
         "shift": 0x20000,
-        "option": 0x80000, "alt": 0x80000,
-        "control": 0x40000, "ctrl": 0x40000,
+        "option": 0x80000,
+        "alt": 0x80000,
+        "control": 0x40000,
+        "ctrl": 0x40000,
     }
 
     def _get_keycode(self, key: str) -> int:
@@ -325,7 +400,9 @@ class MacOSKeyboardDriver(KeyboardDriver):
         return 0
 
     def type_text(self, text: str, interval: float = 0.02) -> None:
-        import Quartz, time
+        import Quartz
+        import time
+
         for char in text:
             event_down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
             event_up = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
@@ -338,6 +415,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
 
     def press_key(self, key: str) -> None:
         import Quartz
+
         keycode = self._get_keycode(key)
         down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
         up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
@@ -345,7 +423,9 @@ class MacOSKeyboardDriver(KeyboardDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def hotkey(self, *keys: str) -> None:
-        import Quartz, time
+        import Quartz
+        import time
+
         # 수정 키와 일반 키 분리
         mod_flags = 0
         normal_keys = []
@@ -368,7 +448,9 @@ class MacOSKeyboardDriver(KeyboardDriver):
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def hold_key(self, key: str, duration: float = 1.0) -> None:
-        import Quartz, time
+        import Quartz
+        import time
+
         keycode = self._get_keycode(key)
         down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
         up = Quartz.CGEventCreateKeyboardEvent(None, keycode, False)
@@ -383,7 +465,6 @@ class MacOSScreenDriver(ScreenDriver):
     def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
         """CGWindowListCreateImage로 화면을 캡처하고 base64 PNG로 반환합니다."""
         import Quartz
-        import CoreFoundation
 
         if region:
             rect = Quartz.CGRectMake(*region)
@@ -394,7 +475,7 @@ class MacOSScreenDriver(ScreenDriver):
             rect,
             Quartz.kCGWindowListOptionOnScreenOnly,
             Quartz.kCGNullWindowID,
-            Quartz.kCGWindowImageDefault
+            Quartz.kCGWindowImageDefault,
         )
 
         if image is None:
@@ -404,11 +485,13 @@ class MacOSScreenDriver(ScreenDriver):
         # CGImage → PNG data → base64
         bitmap = Quartz.NSBitmapImageRep.alloc().initWithCGImage_(image)
         png_data = bitmap.representationUsingType_properties_(
-            Quartz.NSPNGFileType if hasattr(Quartz, 'NSPNGFileType') else 4, None
+            Quartz.NSPNGFileType if hasattr(Quartz, "NSPNGFileType") else 4, None
         )
         return base64.b64encode(bytes(png_data)).decode("utf-8")
 
-    def _screenshot_subprocess(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
+    def _screenshot_subprocess(
+        self, region: Optional[Tuple[int, int, int, int]] = None
+    ) -> str:
         """screencapture CLI 폴백."""
         import subprocess
         import tempfile
@@ -428,11 +511,13 @@ class MacOSScreenDriver(ScreenDriver):
                 return base64.b64encode(f.read()).decode("utf-8")
         finally:
             import os as _os
+
             _os.unlink(tmp_path)
 
     def get_screen_size(self) -> Tuple[int, int]:
         try:
             import Quartz
+
             main_display = Quartz.CGMainDisplayID()
             w = Quartz.CGDisplayPixelsWide(main_display)
             h = Quartz.CGDisplayPixelsHigh(main_display)
@@ -440,13 +525,17 @@ class MacOSScreenDriver(ScreenDriver):
         except Exception:
             # subprocess 폴백
             import subprocess
+
             try:
                 result = subprocess.run(
                     ["system_profiler", "SPDisplaysDataType"],
-                    capture_output=True, text=True, timeout=5
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 import re as _re
-                match = _re.search(r'Resolution:\s+(\d+)\s*x\s*(\d+)', result.stdout)
+
+                match = _re.search(r"Resolution:\s+(\d+)\s*x\s*(\d+)", result.stdout)
                 if match:
                     return (int(match.group(1)), int(match.group(2)))
             except Exception:
@@ -455,6 +544,7 @@ class MacOSScreenDriver(ScreenDriver):
 
 
 # ─────────────────── 팩토리 함수 ───────────────────
+
 
 def get_driver_set(force_stub: bool = False) -> DriverSet:
     """
@@ -476,6 +566,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
         # macOS: Quartz 네이티브 드라이버 시도
         try:
             import Quartz  # noqa: F401
+
             logger.info("Using macOS Quartz native drivers")
             return DriverSet(
                 mouse=MacOSMouseDriver(),
@@ -483,7 +574,9 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
                 screen=MacOSScreenDriver(),
             )
         except ImportError:
-            logger.warning("Quartz (pyobjc-framework-Quartz) not available. Trying PyAutoGUI...")
+            logger.warning(
+                "Quartz (pyobjc-framework-Quartz) not available. Trying PyAutoGUI..."
+            )
             # PyAutoGUI 폴백
             try:
                 return DriverSet(
@@ -507,6 +600,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
             return get_driver_set(force_stub=True)
 
     # Linux 등 — Stub 반환
-    logger.warning(f"No native driver for platform '{sys.platform}'. Using Stub drivers.")
+    logger.warning(
+        f"No native driver for platform '{sys.platform}'. Using Stub drivers."
+    )
     return get_driver_set(force_stub=True)
-

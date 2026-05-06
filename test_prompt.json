@@ -1,0 +1,14 @@
+{
+  "model": "qwen2.5-coder:32b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an expert Python engineer. Provide only the raw Python code. Do not wrap the code in markdown formatting (like ```python). Do not provide explanations. Output exactly the raw, parseable python script and nothing else."
+    },
+    {
+      "role": "user",
+      "content": "Implement a lock-free, thread-safe asynchronous LRU cache with generic types in Python using asyncio. It should support a TTL (Time-To-Live) per item, a max size, and an asynchronous `get_or_compute` method that accepts an async factory function. The factory function must only be called once per key even if multiple coroutines request the same key concurrently before the factory returns (Thundering Herd prevention). Provide comprehensive type hinting and inline documentation. Only output raw python code."
+    }
+  ],
+  "temperature": 0.1
+}

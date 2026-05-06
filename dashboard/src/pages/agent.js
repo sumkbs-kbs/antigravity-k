@@ -12,7 +12,7 @@ export const AgentPage = {
           </div>
         </div>
       </div>
-      
+
       <div class="kanban-board" id="agent-kanban-board">
         <div style="color:var(--text-secondary); text-align:center; width:100%; margin-top:50px;">
           <span class="spinner-mini"></span> 에이전트 작업 현황 로딩 중...
@@ -55,7 +55,7 @@ export const AgentPage = {
           const inprog = tasks.filter(t => t.status === 'in_progress');
           const done = tasks.filter(t => t.status === 'completed');
 
-          board.innerHTML = `
+          const newHtml = `
             <div class="kanban-column">
               <div class="kanban-header"><h3>할 일 (To Do)</h3><span class="count-badge">${todo.length}</span></div>
               <div class="kanban-cards">${todo.map(renderCard).join('')}</div>
@@ -70,40 +70,53 @@ export const AgentPage = {
             </div>
           `;
 
-          // 강제 중단/취소 버튼 이벤트 바인딩
-          board.querySelectorAll('.cancel-task-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-              const taskId = e.target.getAttribute('data-id');
-              const originalText = e.target.textContent;
-              e.target.disabled = true;
-              e.target.textContent = '처리 중...';
-              
-              try {
-                // 백엔드 중단/취소 API 호출
-                const res = await fetch(`/api/kanban/tasks/${taskId}/cancel`, { method: 'POST' });
-                if (!res.ok) throw new Error('Task cancellation failed');
-                // 강제 새로고침으로 칸반 보드 상태 갱신
-                fetchTasks();
-              } catch (err) {
-                alert('처리 실패: ' + err.message);
-                e.target.disabled = false;
-                e.target.textContent = originalText;
-              }
+          if (board.innerHTML !== newHtml) {
+            board.innerHTML = newHtml;
+            // 강제 중단/취소 버튼 이벤트 바인딩
+            board.querySelectorAll('.cancel-task-btn').forEach(btn => {
+              btn.addEventListener('click', async (e) => {
+                const taskId = e.target.getAttribute('data-id');
+                const originalText = e.target.textContent;
+                e.target.disabled = true;
+                e.target.textContent = '처리 중...';
+
+                try {
+                  const res = await fetch(`/api/kanban/tasks/${taskId}/cancel`, { method: 'POST' });
+                  if (!res.ok) throw new Error('Task cancellation failed');
+                  fetchTasks();
+                } catch (err) {
+                  alert('처리 실패: ' + err.message);
+                  e.target.disabled = false;
+                  e.target.textContent = originalText;
+                }
+              });
             });
-          });
+          }
         })
         .catch(err => {
-          board.innerHTML = `<div class="error-state">작업 현황을 불러올 수 없습니다: ${err.message}</div>`;
+          if (!board.innerHTML.includes('error-state')) {
+            board.innerHTML = `<div class="error-state">작업 현황을 불러올 수 없습니다: ${err.message}</div>`;
+          }
         });
     };
 
     fetchTasks();
     refreshBtn.addEventListener('click', fetchTasks);
+
+    // 실시간 폴링 (DOM 트리에 보드가 존재할 때만 실행)
+    if (window.__agentFetchInterval) clearInterval(window.__agentFetchInterval);
+    window.__agentFetchInterval = setInterval(() => {
+      if (document.getElementById('agent-kanban-board')) {
+        fetchTasks();
+      } else {
+        clearInterval(window.__agentFetchInterval);
+      }
+    }, 2000);
   }
 };
 
 function escapeHTML(str) {
-  return String(str).replace(/[&<>'"]/g, 
+  return String(str).replace(/[&<>'"]/g,
     tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag] || tag)
   );
 }

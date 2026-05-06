@@ -34,6 +34,7 @@ logger = logging.getLogger("antigravity_k.engine.memory_provider")
 
 # ── 메모리 제공자 인터페이스 ──
 
+
 class MemoryProvider(ABC):
     """메모리 제공자 추상 인터페이스.
 
@@ -90,6 +91,7 @@ class MemoryProvider(ABC):
 
 # ── 내장 메모리 제공자 (SessionManager 래핑) ──
 
+
 class BuiltinMemoryProvider(MemoryProvider):
     """SessionManager의 Working Memory를 MemoryProvider 인터페이스로 래핑.
 
@@ -115,10 +117,7 @@ class BuiltinMemoryProvider(MemoryProvider):
             query_lower = query.lower()
             relevant = []
             for key, value in memories.items():
-                if (
-                    query_lower in str(key).lower()
-                    or query_lower in str(value).lower()
-                ):
+                if query_lower in str(key).lower() or query_lower in str(value).lower():
                     relevant.append(f"- {key}: {value}")
 
             if not relevant:
@@ -142,12 +141,8 @@ class BuiltinMemoryProvider(MemoryProvider):
     ) -> None:
         """턴 정보를 SessionManager에 동기화합니다."""
         try:
-            self._session_manager.add_turn(
-                role="user", content=user_message
-            )
-            self._session_manager.add_turn(
-                role="assistant", content=assistant_response
-            )
+            self._session_manager.add_turn(role="user", content=user_message)
+            self._session_manager.add_turn(role="assistant", content=assistant_response)
         except Exception as e:
             logger.debug(f"BuiltinMemoryProvider.sync_turn error: {e}")
 
@@ -160,6 +155,7 @@ class BuiltinMemoryProvider(MemoryProvider):
 
 
 # ── 메모리 매니저 (오케스트레이터) ──
+
 
 class MemoryManager:
     """여러 메모리 제공자를 통합 관리하는 오케스트레이터.
@@ -198,7 +194,9 @@ class MemoryManager:
             self._external_count += 1
 
         self._providers.append(provider)
-        logger.info(f"Memory provider registered: {provider.name} (external={provider.is_external})")
+        logger.info(
+            f"Memory provider registered: {provider.name} (external={provider.is_external})"
+        )
 
     def remove_provider(self, name: str) -> bool:
         """이름으로 메모리 제공자를 제거합니다."""
@@ -227,7 +225,9 @@ class MemoryManager:
                 elapsed = time.time() - start
                 if result and result.strip():
                     parts.append(result.strip())
-                    logger.debug(f"Memory prefetch [{provider.name}]: {len(result)} chars in {elapsed:.2f}s")
+                    logger.debug(
+                        f"Memory prefetch [{provider.name}]: {len(result)} chars in {elapsed:.2f}s"
+                    )
             except Exception as e:
                 logger.warning(f"Memory prefetch error [{provider.name}]: {e}")
 
@@ -243,9 +243,7 @@ class MemoryManager:
         """모든 제공자에 턴 데이터를 동기화합니다."""
         for provider in self._providers:
             try:
-                provider.sync_turn(
-                    user_message, assistant_response, metadata=metadata
-                )
+                provider.sync_turn(user_message, assistant_response, metadata=metadata)
             except Exception as e:
                 logger.warning(f"Memory sync error [{provider.name}]: {e}")
 
@@ -274,3 +272,228 @@ class MemoryManager:
             "external_providers": self._external_count,
             "provider_names": [p.name for p in self._providers],
         }
+
+
+# ── 에피소딕 메모리 제공자 (4-Tier Cognitive Memory Layer 2) ──
+
+
+class EpisodicMemoryProvider(MemoryProvider):
+    """과거 이벤트/대화를 시간순으로 저장하고 회상하는 에피소딕 메모리.
+
+    인간의 일화적 기억(Episodic Memory)을 모델링합니다.
+    - 시간순 이벤트 시퀀스 저장
+    - 키워드 기반 관련 에피소드 회상
+    - 오래된 기억 자동 감쇠(decay) + 요약 통합(consolidation)
+
+    사용법:
+        episodic = EpisodicMemoryProvider(max_episodes=200)
+        manager.add_provider(episodic)
+    """
+
+    def __init__(self, max_episodes: int = 200, decay_threshold: float = 0.3):
+        self._episodes: List[Dict[str, Any]] = []
+        self._max_episodes = max_episodes
+        self._decay_threshold = decay_threshold
+        self._access_counts: Dict[int, int] = {}  # episode_id → access count
+
+    @property
+    def name(self) -> str:
+        return "episodic"
+
+    def prefetch(self, query: str, session_id: Optional[str] = None) -> str:
+        """쿼리와 관련된 과거 에피소드를 회상합니다."""
+        if not self._episodes:
+            return ""
+
+        query_lower = query.lower()
+        scored = []
+
+        for i, ep in enumerate(self._episodes):
+            score = 0.0
+            content = (ep.get("user", "") + " " + ep.get("assistant", "")).lower()
+
+            # 키워드 매칭 점수
+            query_words = query_lower.split()
+            for word in query_words:
+                if len(word) > 1 and word in content:
+                    score += 1.0
+
+            # 시간 감쇠 (최근 에피소드일수록 높은 점수)
+            recency = (i + 1) / len(self._episodes)  # 0~1, 최근이 1에 가까움
+            score *= 0.5 + 0.5 * recency
+
+            # 접근 빈도 부스트 (자주 회상된 기억은 강화)
+            access = self._access_counts.get(i, 0)
+            score *= 1.0 + 0.1 * min(access, 5)
+
+            if score > 0:
+                scored.append((score, i, ep))
+
+        if not scored:
+            return ""
+
+        # 상위 5개 에피소드 반환
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = scored[:5]
+
+        # 접근 카운트 증가
+        for _, idx, _ in top:
+            self._access_counts[idx] = self._access_counts.get(idx, 0) + 1
+
+        lines = ["[Episodic Memory — 관련 과거 경험]"]
+        for score, _, ep in top:
+            ts = ep.get("timestamp", "")[:16]
+            user_summary = (
+                ep["user"][:80] + "..."
+                if len(ep.get("user", "")) > 80
+                else ep.get("user", "")
+            )
+            asst_summary = (
+                ep["assistant"][:120] + "..."
+                if len(ep.get("assistant", "")) > 120
+                else ep.get("assistant", "")
+            )
+            lines.append(f"  [{ts}] Q: {user_summary}")
+            lines.append(f"           A: {asst_summary}")
+
+        return "\n".join(lines)
+
+    def sync_turn(
+        self,
+        user_message: str,
+        assistant_response: str,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """대화 턴을 에피소드로 저장합니다."""
+        from datetime import datetime as _dt
+
+        episode = {
+            "user": user_message,
+            "assistant": assistant_response,
+            "timestamp": _dt.now().isoformat(),
+            "metadata": metadata or {},
+        }
+        self._episodes.append(episode)
+
+        # 용량 초과 시 오래된 저관련 에피소드 감쇠
+        if len(self._episodes) > self._max_episodes:
+            self._consolidate()
+
+    def _consolidate(self):
+        """메모리 통합: 오래되고 접근 빈도 낮은 에피소드 제거."""
+        if len(self._episodes) <= self._max_episodes:
+            return
+
+        # 접근 빈도가 낮은 오래된 에피소드부터 제거
+        scored_indices = []
+        for i in range(len(self._episodes)):
+            access = self._access_counts.get(i, 0)
+            recency = (i + 1) / len(self._episodes)
+            importance = access * 0.5 + recency * 0.5
+            scored_indices.append((importance, i))
+
+        scored_indices.sort(key=lambda x: x[0])
+
+        # 하위 20% 제거
+        remove_count = (
+            len(self._episodes) - self._max_episodes + int(self._max_episodes * 0.1)
+        )
+        remove_indices = set(idx for _, idx in scored_indices[:remove_count])
+
+        self._episodes = [
+            ep for i, ep in enumerate(self._episodes) if i not in remove_indices
+        ]
+        # 접근 카운트 재인덱싱
+        new_counts = {}
+        new_idx = 0
+        for i in range(len(self._episodes) + remove_count):
+            if i not in remove_indices:
+                if i in self._access_counts:
+                    new_counts[new_idx] = self._access_counts[i]
+                new_idx += 1
+        self._access_counts = new_counts
+
+        logger.info(
+            f"[EpisodicMemory] Consolidation: {remove_count}개 에피소드 감쇠, 남은: {len(self._episodes)}"
+        )
+
+    def get_stats(self) -> Dict[str, Any]:
+        return {
+            "total_episodes": len(self._episodes),
+            "max_episodes": self._max_episodes,
+            "most_accessed": sorted(
+                self._access_counts.items(), key=lambda x: x[1], reverse=True
+            )[:5],
+        }
+
+
+# ── 워킹 메모리 버퍼 (4-Tier Cognitive Memory Layer 1) ──
+
+
+class WorkingMemoryBuffer(MemoryProvider):
+    """슬라이딩 윈도우 기반 워킹 메모리.
+
+    현재 세션의 최근 대화를 제한된 크기로 유지합니다.
+    컨텍스트 윈도우 관리를 지능적으로 수행합니다.
+
+    - 최근 N턴 유지 (FIFO)
+    - 중요 턴은 고정(pin) 가능
+    - 세션별 독립 관리
+    """
+
+    def __init__(self, max_turns: int = 20):
+        self._turns: List[Dict[str, str]] = []
+        self._pinned: set = set()  # 고정된 턴 인덱스
+        self._max_turns = max_turns
+
+    @property
+    def name(self) -> str:
+        return "working_memory"
+
+    def prefetch(self, query: str, session_id: Optional[str] = None) -> str:
+        """워킹 메모리에서 최근 컨텍스트를 반환합니다."""
+        if not self._turns:
+            return ""
+
+        lines = ["[Working Memory — 최근 대화 컨텍스트]"]
+        for i, turn in enumerate(self._turns[-10:]):  # 최근 10턴만
+            prefix = "📌 " if i in self._pinned else ""
+            lines.append(f"  {prefix}{turn['role']}: {turn['content'][:100]}")
+
+        return "\n".join(lines)
+
+    def sync_turn(
+        self,
+        user_message: str,
+        assistant_response: str,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """턴을 워킹 메모리에 추가합니다."""
+        self._turns.append({"role": "user", "content": user_message})
+        self._turns.append({"role": "assistant", "content": assistant_response})
+
+        # 윈도우 초과 시 오래된 비고정 턴 제거
+        while len(self._turns) > self._max_turns * 2:
+            # 고정되지 않은 가장 오래된 턴 제거
+            for i in range(len(self._turns)):
+                if i not in self._pinned:
+                    self._turns.pop(i)
+                    break
+            else:
+                # 모두 고정이면 가장 오래된 것 강제 제거
+                self._turns.pop(0)
+
+    def pin_turn(self, turn_index: int):
+        """특정 턴을 고정하여 감쇠되지 않도록 합니다."""
+        self._pinned.add(turn_index)
+
+    def get_recent(self, n: int = 5) -> List[Dict[str, str]]:
+        """최근 N개 턴을 반환합니다."""
+        return self._turns[-n * 2 :]
+
+    def clear(self):
+        """워킹 메모리를 초기화합니다."""
+        self._turns.clear()
+        self._pinned.clear()

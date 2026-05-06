@@ -14,8 +14,7 @@ import shutil
 import json
 import time
 import hashlib
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +24,12 @@ class WorktreeManager:
     다중 에이전트 병렬 실행 시 파일 충돌을 방지하기 위해 Git Worktree를 관리합니다.
     NemoClaw의 sandbox-state.ts 보안 패턴 적용.
     """
+
     def __init__(self, repo_path: str = None):
         self.repo_path = repo_path or os.getcwd()
-        self.worktree_base_dir = os.path.join(self.repo_path, ".antigravity", "worktrees")
+        self.worktree_base_dir = os.path.join(
+            self.repo_path, ".antigravity", "worktrees"
+        )
         self._state_dir = os.path.join(self.repo_path, ".antigravity", "state")
         self._backup_dir = os.path.join(self.repo_path, ".antigravity", "backups")
         os.makedirs(self.worktree_base_dir, exist_ok=True)
@@ -36,12 +38,12 @@ class WorktreeManager:
 
     def _run_git(self, *args) -> bool:
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["git", *args],
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             return True
         except subprocess.CalledProcessError as e:
@@ -63,7 +65,11 @@ class WorktreeManager:
 
         # 브랜치 강제 생성 및 워크트리 추가 (기존 브랜치가 있으면 덮어쓰거나 실패할 수 있음)
         # 1. 브랜치 삭제 시도 (만약 잔여 브랜치가 있다면)
-        subprocess.run(["git", "branch", "-D", branch_name], cwd=self.repo_path, capture_output=True)
+        subprocess.run(
+            ["git", "branch", "-D", branch_name],
+            cwd=self.repo_path,
+            capture_output=True,
+        )
 
         # 2. 워크트리 추가 (-b 로 새 브랜치 생성)
         success = self._run_git("worktree", "add", "-b", branch_name, worktree_path)
@@ -93,7 +99,7 @@ class WorktreeManager:
 
         # 워크트리 제거
         success_remove = self._run_git("worktree", "remove", "--force", worktree_path)
-        
+
         # 브랜치 삭제
         success_branch = self._run_git("branch", "-D", branch_name)
 
@@ -163,11 +169,13 @@ class WorktreeManager:
                     os.makedirs(os.path.dirname(dst), exist_ok=True)
                     shutil.copy2(src, dst)
 
-                    file_manifest.append({
-                        "path": rel_path,
-                        "size": os.path.getsize(dst),
-                        "checksum": self._file_checksum(dst),
-                    })
+                    file_manifest.append(
+                        {
+                            "path": rel_path,
+                            "size": os.path.getsize(dst),
+                            "checksum": self._file_checksum(dst),
+                        }
+                    )
 
             # 매니페스트 저장
             manifest = {
@@ -313,8 +321,14 @@ class WorktreeManager:
 
     def _is_credential_file(self, filename: str) -> bool:
         """파일이 credential 파일인지 확인합니다."""
-        sensitive_names = {".env", ".env.local", ".env.production", "credentials.json",
-                          "auth-profiles.json", "service-account.json"}
+        sensitive_names = {
+            ".env",
+            ".env.local",
+            ".env.production",
+            "credentials.json",
+            "auth-profiles.json",
+            "service-account.json",
+        }
         sensitive_exts = {".pem", ".key", ".p12", ".pfx"}
         base = filename.lower()
         return base in sensitive_names or os.path.splitext(base)[1] in sensitive_exts
@@ -363,4 +377,3 @@ class WorktreeManager:
                 os.remove(manifest_path)
         except Exception as e:
             logger.debug(f"Failed to remove manifest: {e}")
-

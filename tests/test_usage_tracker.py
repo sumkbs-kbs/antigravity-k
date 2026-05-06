@@ -3,21 +3,20 @@
 ====================
 UsageTracker의 기록/조회/통계/영속화 테스트.
 """
-import json
+
 import time
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from antigravity_k.engine.usage_tracker import (
-    UsageRecord,
     UsageStats,
     UsageTracker,
 )
 
 
 # ─── 픽스처 ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def tracker():
@@ -34,13 +33,17 @@ def tracker_with_db(tmp_path):
 
 # ─── 기록 테스트 ─────────────────────────────────────────────────────
 
+
 class TestRecord:
     """기록 API 테스트"""
 
     def test_basic_record(self, tracker):
         entry = tracker.record(
-            "qwen3-72b", tokens_in=100, tokens_out=500,
-            latency_ms=1200, success=True,
+            "qwen3-72b",
+            tokens_in=100,
+            tokens_out=500,
+            latency_ms=1200,
+            success=True,
         )
         assert entry.model_name == "qwen3-72b"
         assert entry.tokens_in == 100
@@ -50,14 +53,18 @@ class TestRecord:
 
     def test_failure_record(self, tracker):
         entry = tracker.record(
-            "model-a", success=False, error="OOM",
+            "model-a",
+            success=False,
+            error="OOM",
         )
         assert entry.success is False
         assert entry.error == "OOM"
 
     def test_combo_record(self, tracker):
         entry = tracker.record(
-            "model-b", combo_name="coding-stack", fallback_depth=2,
+            "model-b",
+            combo_name="coding-stack",
+            fallback_depth=2,
         )
         assert entry.combo_name == "coding-stack"
         assert entry.fallback_depth == 2
@@ -77,6 +84,7 @@ class TestRecord:
 
 # ─── 통계 테스트 ─────────────────────────────────────────────────────
 
+
 class TestStats:
     """통계 조회 테스트"""
 
@@ -86,8 +94,9 @@ class TestStats:
 
     def test_daily_stats(self, tracker):
         for _ in range(5):
-            tracker.record("qwen3-72b", tokens_in=10, tokens_out=50,
-                           latency_ms=100, success=True)
+            tracker.record(
+                "qwen3-72b", tokens_in=10, tokens_out=50, latency_ms=100, success=True
+            )
         tracker.record("qwen3-72b", success=False, error="fail")
 
         stats = tracker.get_stats("qwen3-72b", period="daily")
@@ -133,6 +142,7 @@ class TestStats:
 
 # ─── 최근 기록 / 모델 목록 ──────────────────────────────────────────
 
+
 class TestRecent:
     def test_get_recent(self, tracker):
         for i in range(10):
@@ -151,6 +161,7 @@ class TestRecent:
 
 # ─── 대시보드 데이터 ─────────────────────────────────────────────────
 
+
 class TestDashboard:
     def test_dashboard_data_structure(self, tracker):
         tracker.record("model-a", tokens_in=10, tokens_out=50)
@@ -163,6 +174,7 @@ class TestDashboard:
 
 
 # ─── 영속화 테스트 ───────────────────────────────────────────────────
+
 
 class TestPersistence:
     def test_save_and_load(self, tmp_path):
@@ -197,11 +209,15 @@ class TestPersistence:
 
 # ─── UsageStats 테스트 ───────────────────────────────────────────────
 
+
 class TestUsageStats:
     def test_success_rate(self):
         s = UsageStats(
-            model_name="test", period="daily",
-            total_requests=10, success_count=8, failure_count=2,
+            model_name="test",
+            period="daily",
+            total_requests=10,
+            success_count=8,
+            failure_count=2,
         )
         assert s.success_rate == 80.0
 
@@ -211,8 +227,11 @@ class TestUsageStats:
 
     def test_to_dict(self):
         s = UsageStats(
-            model_name="test", period="daily",
-            total_requests=5, total_tokens_in=100, total_tokens_out=200,
+            model_name="test",
+            period="daily",
+            total_requests=5,
+            total_tokens_in=100,
+            total_tokens_out=200,
         )
         d = s.to_dict()
         assert d["total_tokens"] == 300

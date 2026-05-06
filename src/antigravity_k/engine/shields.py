@@ -27,8 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -37,15 +36,17 @@ logger = logging.getLogger("antigravity_k.engine.shields")
 
 # ── 상수 ──
 
-DEFAULT_TIMEOUT_SECONDS = 300     # 5분
-MAX_TIMEOUT_SECONDS = 3600        # 1시간
+DEFAULT_TIMEOUT_SECONDS = 300  # 5분
+MAX_TIMEOUT_SECONDS = 3600  # 1시간
 
 
 # ── 데이터 타입 ──
 
+
 @dataclass
 class ShieldsState:
     """현재 Shields 상태."""
+
     shields_down: bool = False
     shields_down_at: Optional[str] = None
     shields_down_timeout: Optional[int] = None
@@ -68,8 +69,11 @@ class ShieldsState:
         if not self.shields_down_at or not self.shields_down_timeout:
             return None
         import datetime
+
         down_at = datetime.datetime.fromisoformat(self.shields_down_at)
-        elapsed = (datetime.datetime.now(datetime.timezone.utc) - down_at).total_seconds()
+        elapsed = (
+            datetime.datetime.now(datetime.timezone.utc) - down_at
+        ).total_seconds()
         return max(0, int(self.shields_down_timeout - elapsed))
 
     @property
@@ -82,6 +86,7 @@ class ShieldsState:
 @dataclass
 class AuditEntry:
     """감사 로그 항목."""
+
     action: str
     timestamp: str
     reason: Optional[str] = None
@@ -93,6 +98,7 @@ class AuditEntry:
 
 
 # ── Shields Manager ──
+
 
 class ShieldsManager:
     """에이전트 보호 레벨 관리자.
@@ -169,6 +175,7 @@ class ShieldsManager:
         )
 
         import datetime
+
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         # 현재 toolset 저장
@@ -194,14 +201,16 @@ class ShieldsManager:
             logger.info(f"Toolset switched to '{target_toolset}' (shields down)")
 
         # 감사 로그
-        self._append_audit(AuditEntry(
-            action="shields_down",
-            timestamp=now,
-            reason=reason,
-            timeout_seconds=timeout,
-            previous_toolset=previous_toolset,
-            target_toolset=target_toolset,
-        ))
+        self._append_audit(
+            AuditEntry(
+                action="shields_down",
+                timestamp=now,
+                reason=reason,
+                timeout_seconds=timeout,
+                previous_toolset=previous_toolset,
+                target_toolset=target_toolset,
+            )
+        )
 
         self._save_state()
         logger.info(f"Shields DOWN: timeout={timeout}s, reason={reason}")
@@ -221,6 +230,7 @@ class ShieldsManager:
             return self._state
 
         import datetime
+
         now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         # 지속 시간 계산
@@ -238,13 +248,15 @@ class ShieldsManager:
             logger.info(f"Toolset restored to '{previous_toolset}' (shields up)")
 
         # 감사 로그
-        self._append_audit(AuditEntry(
-            action="shields_up",
-            timestamp=now,
-            restored_by=restored_by,
-            duration_seconds=duration_seconds,
-            reason=self._state.shields_down_reason,
-        ))
+        self._append_audit(
+            AuditEntry(
+                action="shields_up",
+                timestamp=now,
+                restored_by=restored_by,
+                duration_seconds=duration_seconds,
+                reason=self._state.shields_down_reason,
+            )
+        )
 
         # 상태 초기화
         self._state = ShieldsState(
@@ -259,7 +271,9 @@ class ShieldsManager:
         )
 
         self._save_state()
-        logger.info(f"Shields UP: restored_by={restored_by}, duration={duration_seconds}s")
+        logger.info(
+            f"Shields UP: restored_by={restored_by}, duration={duration_seconds}s"
+        )
         return self._state
 
     def check_timeout(self) -> bool:
@@ -289,8 +303,7 @@ class ShieldsManager:
             "reason": self._state.shields_down_reason,
             "permanent": self._state.permanent,
             "active_toolset": (
-                self._toolset_manager.active_toolset
-                if self._toolset_manager else None
+                self._toolset_manager.active_toolset if self._toolset_manager else None
             ),
             "updated_at": self._state.updated_at,
         }
@@ -303,13 +316,17 @@ class ShieldsManager:
     # ── config.yaml 연동 ──
 
     @classmethod
-    def from_config(cls, config: Optional[Dict[str, Any]] = None, **kwargs) -> "ShieldsManager":
+    def from_config(
+        cls, config: Optional[Dict[str, Any]] = None, **kwargs
+    ) -> "ShieldsManager":
         """config.yaml의 `shields` 섹션에서 인스턴스를 생성합니다."""
         if not isinstance(config, dict):
             return cls(**kwargs)
 
         return cls(
-            default_timeout=config.get("default_timeout_seconds", DEFAULT_TIMEOUT_SECONDS),
+            default_timeout=config.get(
+                "default_timeout_seconds", DEFAULT_TIMEOUT_SECONDS
+            ),
             max_timeout=config.get("max_timeout_seconds", MAX_TIMEOUT_SECONDS),
             default_safe_toolset=config.get("default_mode", "safe"),
             **kwargs,
@@ -322,10 +339,13 @@ class ShieldsManager:
         if self._state_file.exists():
             try:
                 data = json.loads(self._state_file.read_text())
-                self._state = ShieldsState(**{
-                    k: v for k, v in data.items()
-                    if k in ShieldsState.__dataclass_fields__
-                })
+                self._state = ShieldsState(
+                    **{
+                        k: v
+                        for k, v in data.items()
+                        if k in ShieldsState.__dataclass_fields__
+                    }
+                )
                 # 로드 직후 타임아웃 확인
                 self.check_timeout()
             except Exception as e:

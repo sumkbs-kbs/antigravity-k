@@ -16,7 +16,7 @@ export const ChatPage = {
           <div class="tree-loading">Loading workspace...</div>
         </div>
       </div>
-      
+
       <!-- 폴더 선택 모달 -->
       <div id="folder-modal" class="modal-overlay" style="display:none;">
         <div class="modal-content glass-panel" style="width: 500px; max-height: 80vh; display: flex; flex-direction: column;">
@@ -101,12 +101,13 @@ export const ChatPage = {
             <div class="model-selector-wrap" style="display:flex; gap:8px; align-items:center;">
               <button id="new-chat-btn" class="icon-btn" title="New Chat" style="font-size: 14px;">➕</button>
               <button id="history-btn" class="icon-btn" title="Chat History" style="font-size: 14px;">📜</button>
+              <button id="open-agent-mgr-btn" class="icon-btn" title="Open Agent Manager" style="font-size: 14px;">🤖</button>
               <select id="model-select" class="glass-select">
                 <option value="default">Default Local Model</option>
               </select>
             </div>
           </div>
-          
+
           <div id="chat-history" class="chat-history">
             <div class="message system">
               <div class="avatar">✨</div>
@@ -115,7 +116,7 @@ export const ChatPage = {
               </div>
             </div>
           </div>
-          
+
           <div class="chat-input-wrapper" style="position: relative; display: flex; flex-direction: column; width: 100%;">
             <!-- Image preview container -->
             <div id="chat-image-preview-container" style="display: none; padding: 8px 12px; background: rgba(0,0,0,0.2); border-top-left-radius: 8px; border-top-right-radius: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">
@@ -124,7 +125,7 @@ export const ChatPage = {
                 <button id="chat-image-clear-btn" style="position: absolute; top: -6px; right: -6px; background: #ff4444; color: white; border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✕</button>
               </div>
             </div>
-            
+
             <div class="chat-input-area glass-panel" style="display: flex; align-items: flex-end; gap: 8px; border-top-left-radius: 0; border-top-right-radius: 0;">
               <button id="chat-attach-btn" class="icon-btn" title="이미지 첨부 (Vision)" style="padding: 8px; font-size: 18px; opacity: 0.7; cursor: pointer; background: transparent; border: none; transition: opacity 0.2s;">📎</button>
               <input type="file" id="chat-file-input" accept="image/*" style="display: none;">
@@ -134,11 +135,50 @@ export const ChatPage = {
               </button>
             </div>
           </div>
+
+          <!-- Plan Toggle Bar -->
+          <div class="plan-toggle-bar">
+            <div class="plan-model-info">
+              <span>⚡</span>
+              <span id="plan-bar-model-name">Default Local Model</span>
+            </div>
+            <div class="plan-controls">
+              <div id="auto-toggle" class="plan-toggle" title="Autonomous Mode: AI가 툴을 자율적으로 실행합니다">
+                <span class="toggle-dot" style="background: var(--accent-color);"></span>
+                <span>🤖 Auto</span>
+              </div>
+              <div id="plan-toggle" class="plan-toggle" title="Plan Mode: AI가 먼저 구현 계획을 수립합니다">
+                <span class="toggle-dot"></span>
+                <span>📋 Plan</span>
+              </div>
+              <div id="tdd-toggle" class="plan-toggle" title="TDD Mode: 다중 모델 경쟁 기반으로 테스트 주도 코딩을 수행합니다">
+                <span class="toggle-dot" style="background: var(--success-color);"></span>
+                <span>🧪 TDD Mode</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Manager Overlay -->
+    <div id="agent-manager-overlay" class="agent-manager-overlay"></div>
+
+    <!-- Agent Manager Slide Panel -->
+    <div id="agent-manager-panel" class="agent-manager-panel">
+      <div class="agent-manager-header">
+        <span>🤖 Agent Manager</span>
+        <button id="close-agent-mgr-btn" class="close-agent-mgr" title="Close">✕</button>
+      </div>
+      <div id="agent-manager-body" class="agent-manager-body">
+        <div class="agent-manager-empty">
+          <span class="empty-icon">🤖</span>
+          <span>실행 중인 에이전트가 없습니다</span>
         </div>
       </div>
     </div>
   `,
-  
+
   init: () => {
     // ─── 1. 모델 목록 및 채팅 초기화 ───
     const input = document.getElementById('chat-input');
@@ -157,7 +197,7 @@ export const ChatPage = {
     const previewContainer = document.getElementById('chat-image-preview-container');
     const previewImg = document.getElementById('chat-image-preview');
     const clearImgBtn = document.getElementById('chat-image-clear-btn');
-    
+
     // --- Modal Manager ---
     function hideAllModals() {
       if (historyModal) historyModal.style.display = 'none';
@@ -166,14 +206,30 @@ export const ChatPage = {
       const newFolderModal = document.getElementById('new-folder-modal');
       if (newFolderModal) newFolderModal.style.display = 'none';
     }
-    
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         hideAllModals();
       }
+      // Cmd+Backspace or Ctrl+Backspace to clear chat
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Backspace') {
+        if (newChatBtn) newChatBtn.click();
+      }
+    });
+
+    // --- Input Auto-resize ---
+    input.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = (this.scrollHeight) + 'px';
+      if (this.scrollHeight > 200) {
+        this.style.overflowY = 'auto';
+        this.style.height = '200px';
+      } else {
+        this.style.overflowY = 'hidden';
+      }
     });
     // ----------------------
-    
+
     let currentAttachedFile = null;
 
     // Handle File Selection
@@ -219,14 +275,14 @@ export const ChatPage = {
         handleFile(e.dataTransfer.files[0]);
       }
     });
-    
+
     // Preview Pane
     const previewPanel = document.getElementById('ide-preview-panel');
     const closePreviewBtn = document.getElementById('close-preview-btn');
     const previewIframe = document.getElementById('preview-iframe');
     const previewTitle = document.getElementById('preview-title');
     const ideEditor = document.querySelector('.ide-editor');
-    
+
     closePreviewBtn.addEventListener('click', () => {
       previewPanel.style.display = 'none';
       ideEditor.style.display = 'flex'; // Restore editor
@@ -236,9 +292,9 @@ export const ChatPage = {
     window.previewArtifact = function(filePath, fileName) {
       previewPanel.style.display = 'flex';
       // 에디터를 좁히거나 숨김 (간단히 숨기거나 flex 비율 조정)
-      ideEditor.style.display = 'none'; 
+      ideEditor.style.display = 'none';
       previewTitle.textContent = "Preview: " + fileName;
-      
+
       // /api/read endpoint를 통해 파일 내용을 가져와서 iframe srcdoc에 주입
       fetch('/api/read?path=' + encodeURIComponent(filePath))
         .then(res => res.json())
@@ -343,7 +399,7 @@ export const ChatPage = {
         // 배열의 맨 앞으로 이동 (최신)
         chatSessions = [session, ...chatSessions.filter(s => s.id !== activeSessionId)];
       }
-      
+
       const payload = {
         activeSessionId,
         sessions: chatSessions
@@ -357,18 +413,18 @@ export const ChatPage = {
         chatHistoryList.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary);">No chat history found.</div>';
         return;
       }
-      
+
       chatSessions.forEach(session => {
         const div = document.createElement('div');
         div.className = 'history-item' + (session.id === activeSessionId ? ' active' : '');
-        
+
         const dateStr = new Date(session.updatedAt).toLocaleString();
-        
+
         div.innerHTML = `
           <div class="history-title">${escapeHTML(session.title)}</div>
           <div class="history-date">${dateStr}</div>
         `;
-        
+
         div.addEventListener('click', () => {
           activeSessionId = session.id;
           chatMessages = session.messages;
@@ -376,7 +432,7 @@ export const ChatPage = {
           renderChatMessages();
           historyModal.style.display = 'none';
         });
-        
+
         chatHistoryList.appendChild(div);
       });
     }
@@ -384,7 +440,7 @@ export const ChatPage = {
     if (newChatBtn) {
       newChatBtn.addEventListener('click', createNewSession);
     }
-    
+
     if (historyBtn) {
       historyBtn.addEventListener('click', () => {
         hideAllModals();
@@ -392,7 +448,7 @@ export const ChatPage = {
         historyModal.style.display = 'flex';
       });
     }
-    
+
     if (closeHistoryModalBtn) {
       closeHistoryModalBtn.addEventListener('click', () => {
         historyModal.style.display = 'none';
@@ -408,9 +464,9 @@ export const ChatPage = {
       // Fallback to localhost:8000 if not served by FastAPI
       const host = window.location.port === "5173" || window.location.port === "3000" ? "localhost:8000" : window.location.host;
       const wsUrl = `${protocol}//${host}/v1/ws/events`;
-      
+
       eventWs = new WebSocket(wsUrl);
-      
+
       eventWs.onmessage = (e) => {
         try {
           const payload = JSON.parse(e.data);
@@ -419,20 +475,20 @@ export const ChatPage = {
           console.error("WS Parse error", err);
         }
       };
-      
+
       eventWs.onclose = () => {
         setTimeout(connectEventStream, 3000); // Auto-reconnect
       };
     }
-    
+
     function handleAgentEvent(event, data) {
       if (!history) return;
       const lastMessage = history.lastElementChild;
       if (!lastMessage || !lastMessage.classList.contains('assistant')) return;
-      
+
       const bubble = lastMessage.querySelector('.bubble');
       if (!bubble) return;
-      
+
       if (event === "ToolExecutionStarted") {
         const toolName = data.name || data.tool_name || "unknown_tool";
         // Remove existing active container if any
@@ -445,14 +501,10 @@ export const ChatPage = {
         activeToolContainer.innerHTML = `<span class="icon">⚙️</span> <span class="text">Running Tool <b style="color:var(--accent-color);">${toolName}</b>... <span class="typing-indicator" style="height:12px;margin-left:4px;"><span></span><span></span><span></span></span></span>`;
         bubble.appendChild(activeToolContainer);
         history.scrollTop = history.scrollHeight;
-      } 
+      }
       else if (event === "ToolExecutionFinished") {
         if (activeToolContainer && activeToolContainer.parentNode) {
-          const toolName = data.name || data.tool_name || "unknown_tool";
-          activeToolContainer.className = 'tool-timeline-badge artifact';
-          activeToolContainer.style.borderLeft = '3px solid #10b981';
-          activeToolContainer.style.background = 'rgba(16, 185, 129, 0.1)';
-          activeToolContainer.innerHTML = `<span class="icon">✅</span> <span class="text">Finished Tool <b>${toolName}</b></span>`;
+          activeToolContainer.remove();
           activeToolContainer = null;
         }
       }
@@ -489,7 +541,7 @@ export const ChatPage = {
           if (ph) ph.style.display = 'none';
           monaco.editor.setModelLanguage(monacoEditor.getModel(), lang);
           monacoEditor.setValue(data.content || "");
-          
+
           // Show preview panel automatically if HTML or React component is modified (optional UX enhancement)
           if (data.filepath && (data.filepath.endsWith('.html'))) {
             // Uncomment if auto-preview is desired
@@ -498,7 +550,7 @@ export const ChatPage = {
         }
       }
     }
-    
+
     connectEventStream();
 
     fetch('/v1/models')
@@ -515,7 +567,7 @@ export const ChatPage = {
         }
       })
       .catch(err => console.error("Failed to load models:", err));
-    
+
     input.addEventListener('input', function() {
       this.style.height = 'auto';
       this.style.height = (this.scrollHeight) + 'px';
@@ -553,80 +605,100 @@ export const ChatPage = {
 
     async function sendMessage() {
       const text = input.value.trim();
-      if (!text) return;
-      
-      appendMessage('user', text, false);
-      chatMessages.push({role: "user", content: text});
+      if (!text && !currentAttachedFile) return;
+
+      // Build multimodal content if image is attached
+      let userContent = text;
+      let displayText = text;
+      if (currentAttachedFile && previewImg.src) {
+        const imageDataUrl = previewImg.src;
+        userContent = [
+          { type: "text", text: text || "이 이미지를 분석해주세요." },
+          { type: "image_url", image_url: { url: imageDataUrl } }
+        ];
+        displayText = text + ' 📎🖼️';
+        // Clear attachment after send
+        currentAttachedFile = null;
+        fileInput.value = '';
+        previewContainer.style.display = 'none';
+        document.querySelector('.chat-input-area').style.borderTopLeftRadius = '';
+        document.querySelector('.chat-input-area').style.borderTopRightRadius = '';
+      }
+
+      appendMessage('user', displayText, false);
+      chatMessages.push({role: "user", content: userContent});
       saveChatHistory();
 
       input.value = '';
       input.style.height = 'auto';
       sendBtn.classList.remove('active');
-      
+
       const model = document.getElementById('model-select').value;
       const thinkingBadgeHTML = '<div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); padding:6px 12px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid var(--glass-border);">🧠 Thinking <span class="typing-indicator" style="margin:0; height:12px;"><span></span><span></span><span></span></span></div>';
       const generatingBadgeHTML = '<span style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--accent-color); margin-left:8px; padding:2px 8px; border-radius:12px; background:rgba(0,122,204,0.1); border:1px solid rgba(0,122,204,0.3); font-weight:500;">✍️ Generating<span class="blinking-cursor" style="margin:0; height:12px; background-color:var(--accent-color);"></span></span>';
-      
+
       const assistantMsgDiv = appendMessage('assistant', thinkingBadgeHTML, false);
       let assistantContent = '';
-      
+
       currentAbortController = new AbortController();
       sendBtn.innerHTML = stopIconHTML;
       sendBtn.classList.add('active');
       sendBtn.style.color = '#ff4444'; // Stop btn color
-      
+
       try {
         const payload = {
           model: model,
           messages: chatMessages,
           stream: true,
-          agent_mode: true
+          agent_mode: true,
+          plan_mode: !!document.getElementById('plan-toggle')?.classList.contains('active'),
+          tdd_mode: !!document.getElementById('tdd-toggle')?.classList.contains('active')
         };
-        
+
         const response = await fetch('/v1/chat/completions', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(payload),
           signal: currentAbortController.signal
         });
-        
+
         if (!response.ok) throw new Error('Network response was not ok');
-        
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         const contentSpan = assistantMsgDiv.querySelector('.bubble');
-        
+
         let buffer = '';
         let isFirstChunk = true;
         let lastSaveTime = Date.now();
-        
+
         // 빈 어시스턴트 메시지를 미리 저장하여, 새로고침 시에도 마지막 메시지가 assistant가 되게 보장
-        chatMessages.push({role: "assistant", content: ""});
-        const assistantMsgIndex = chatMessages.length - 1;
+        const assistantMsgObj = {role: "assistant", content: ""};
+        chatMessages.push(assistantMsgObj);
         saveChatHistory();
-        
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            chatMessages[assistantMsgIndex].content = assistantContent;
+            assistantMsgObj.content = assistantContent;
             saveChatHistory();
-            
+
             // 스트리밍이 끝나면 커서를 제거하고 최종 렌더링
             contentSpan.innerHTML = formatContent(assistantContent);
-            
+
             // 채팅 완료 시 파일 트리 자동 새로고침 및 디프 렌더링
             if (ChatPage.refreshFileTree) ChatPage.refreshFileTree();
             renderDiffs(assistantMsgDiv);
             break;
           }
-          
+
           buffer += decoder.decode(value, { stream: true });
           let eolIndex;
-          
+
           while ((eolIndex = buffer.indexOf('\n')) >= 0) {
             const line = buffer.slice(0, eolIndex).trim();
             buffer = buffer.slice(eolIndex + 1);
-            
+
             if (line.startsWith('data: ') && line !== 'data: [DONE]') {
               try {
                 const data = JSON.parse(line.slice(6));
@@ -637,20 +709,20 @@ export const ChatPage = {
                   }
                   const chunkText = data.choices[0].delta.content;
                   assistantContent += chunkText;
-                  
+
                   // Trigger toast for specific agent actions
                   if (chunkText.includes('File created:') || chunkText.includes('Created file') || chunkText.includes('Successfully wrote')) {
                     if (window.showToast) window.showToast('File Generated', 'success');
                   } else if (chunkText.includes('Directory created:') || chunkText.includes('Created folder')) {
                     if (window.showToast) window.showToast('Folder Generated', 'success');
                   }
-                  
+
                   contentSpan.innerHTML = formatContent(assistantContent) + generatingBadgeHTML;
                   history.scrollTop = history.scrollHeight;
-                  
+
                   // 주기적으로 로컬스토리지에 저장 (1초 간격)
                   if (Date.now() - lastSaveTime > 1000) {
-                    chatMessages[assistantMsgIndex].content = assistantContent;
+                    assistantMsgObj.content = assistantContent;
                     saveChatHistory();
                     lastSaveTime = Date.now();
                   }
@@ -684,7 +756,7 @@ export const ChatPage = {
         }
       }
     }
-    
+
     function appendMessage(role, content) {
       const msgDiv = document.createElement('div');
       msgDiv.className = 'message ' + role;
@@ -696,13 +768,13 @@ export const ChatPage = {
       setTimeout(() => msgDiv.classList.add('visible'), 10);
       return msgDiv;
     }
-    
+
     function escapeHTML(str) {
-      return str.replace(/[&<>'"]/g, 
+      return str.replace(/[&<>'"]/g,
         tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag])
       ).replace(/\n/g, '<br>');
     }
-    
+
     function formatContent(str) {
       // ── 1단계: HTML 이스케이프 (raw text 보호) ──
       let text = str;
@@ -727,7 +799,7 @@ export const ChatPage = {
       // ── 2.5단계: 백엔드 HTML & <think> 태그 보호 ──
       text = text.replace(/<think>/g, '%%THINK_START%%');
       text = text.replace(/<\/think>/g, '%%THINK_END%%');
-      
+
       // 오케스트레이터가 주입하는 HTML 보호
       const htmlBlocks = [];
       text = text.replace(/<details[^>]*>|<\/details>|<summary[^>]*>|<\/summary>|<div[^>]*>|<\/div>|<section[^>]*>|<\/section>/g, (match) => {
@@ -738,7 +810,7 @@ export const ChatPage = {
 
       // ── 3단계: HTML 이스케이프 ──
       text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      
+
       // 보호한 HTML 복원
       text = text.replace(/%%HTML_(\d+)%%/g, (match, idx) => {
         return htmlBlocks[parseInt(idx)];
@@ -759,7 +831,7 @@ export const ChatPage = {
 
       // ── 4.5단계: 에이전트 타임라인 / 도구 시각화 (P1-9) ──
       // **도구 실행** (step X/Y): %%INLINE_Z%%
-      text = text.replace(/\*\*도구 실행\*\*\s*\(step\s*(\d+)\/(\d+)\):\s*(%%INLINE_\d+%%)/g, 
+      text = text.replace(/\*\*도구 실행\*\*\s*\(step\s*(\d+)\/(\d+)\):\s*(%%INLINE_\d+%%)/g,
         '<div class="tool-timeline-badge start"><span class="icon">🛠️</span> <span class="text">Executing Tool <b>$3</b> <span class="step-info">(Step $1/$2)</span></span></div>'
       );
       // 🐍 **[Ouroboros Guard]** ...
@@ -778,7 +850,7 @@ export const ChatPage = {
       text = text.replace(/📊 (?:Tokens Used|\*\*\[Token Usage\]\*\*):?\s*In:\s*(\d+)(?:\s*tokens)?\s*\|\s*Out:\s*(\d+)(?:\s*tokens)?/gi,
         '<div class="tool-timeline-badge token"><span class="icon">📊</span> <span class="text"><b>Tokens Used:</b> <span class="token-val">In: $1</span> | <span class="token-val">Out: $2</span></span></div>'
       );
-      
+
       // 🔄 **[Quality Retry]** ...
       text = text.replace(/🔄 \*\*품질 미달 \(([\d]+)%\)\*\* — 자동 개선 중\.\.\./g,
         '<div class="tool-timeline-badge warning"><span class="icon">🔄</span> <span class="text"><b>Quality Retry:</b> Score $1% - Auto improving...</span></div>'
@@ -1009,10 +1081,10 @@ export const ChatPage = {
 
       // ── 9단계: <think> 블록 변환 ──
       // 완전히 닫힌 생각 블록 (생성 완료)
-      text = text.replace(/%%THINK_START%%([\s\S]*?)%%THINK_END%%/g, 
+      text = text.replace(/%%THINK_START%%([\s\S]*?)%%THINK_END%%/g,
         '<details class="think-block"><summary>🧠 Thinking Process</summary><div class="think-content">$1</div></details>'
       );
-      
+
       // 아직 닫히지 않은 생각 블록 (스트리밍 중 또는 중단됨)
       text = text.replace(/%%THINK_START%%([\s\S]*?)(?=%%THINK_START%%|$)/g,
         '<details class="think-block generating" open><summary>🧠 Thinking<span class="typing-indicator" style="margin-left: 8px; height: 12px;"><span></span><span></span><span></span></span></summary><div class="think-content">$1</div></details>'
@@ -1057,7 +1129,7 @@ export const ChatPage = {
     const editorTitle = document.getElementById('editor-title');
     const editorPlaceholder = document.getElementById('editor-placeholder');
     const refreshBtn = document.getElementById('refresh-tree-btn');
-    
+
     // Monaco 에디터 인스턴스
     let monacoEditor = null;
     let monacoLoaded = false;
@@ -1067,7 +1139,7 @@ export const ChatPage = {
       require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
       require(['vs/editor/editor.main'], function() {
         monacoLoaded = true;
-        
+
         // Define Antigravity Premium Theme
         monaco.editor.defineTheme('antigravity-dark', {
           base: 'vs-dark',
@@ -1084,7 +1156,7 @@ export const ChatPage = {
             'editorSuggestWidget.border': '#ffffff10'
           }
         });
-        
+
         monacoEditor = monaco.editor.create(document.getElementById('monaco-editor-container'), {
           value: "",
           language: "plaintext",
@@ -1112,16 +1184,16 @@ export const ChatPage = {
       if (containerEl === treeContainer) {
         containerEl.innerHTML = '<div class="tree-loading">Loading...</div>';
       }
-      
+
       try {
         const res = await fetch('/api/fs/list?dir=' + encodeURIComponent(path));
         const data = await res.json();
-        
+
         if (data.ok) {
           containerEl.innerHTML = '';
           const ul = document.createElement('ul');
           ul.className = 'tree-list';
-          
+
           // VS Code 스타일 SVG 아이콘
           const chevronSVG = `<svg class="chevron-icon" viewBox="0 0 16 16" fill="currentColor" style="width:16px;height:16px;opacity:0.6;transition:transform 0.1s;"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.072 8.024L5.715 3.667l.618-.62L11 7.716v.618L6.333 13l-.618-.619 4.357-4.357z"/></svg>`;
           const fileSVG = `<svg viewBox="0 0 16 16" fill="#519aba" style="width:16px;height:16px;margin-right:6px;"><path d="M13.71 4.29l-3-3L10 1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5l-.29-.71zM10 2.41L12.59 5H10V2.41zM13 14H4V2h5v4h4v8z"/></svg>`;
@@ -1130,17 +1202,17 @@ export const ChatPage = {
           data.items.forEach(item => {
             const li = document.createElement('li');
             li.className = 'tree-item';
-            
+
             const textSpan = document.createElement('span');
             textSpan.className = 'tree-label';
-            
+
             textSpan.addEventListener('contextmenu', (e) => {
               e.preventDefault();
-              
+
               // 기존 메뉴가 있다면 제거
               let oldMenu = document.getElementById('custom-context-menu');
               if (oldMenu) oldMenu.remove();
-              
+
               // 새 메뉴 생성
               const menu = document.createElement('div');
               menu.id = 'custom-context-menu';
@@ -1153,17 +1225,17 @@ export const ChatPage = {
               menu.style.borderRadius = '4px';
               menu.style.boxShadow = '0 4px 6px rgba(0,0,0,0.3)';
               menu.style.zIndex = '9999';
-              
+
               const deleteItem = document.createElement('div');
               deleteItem.textContent = '🗑️ Delete';
               deleteItem.style.padding = '8px 16px';
               deleteItem.style.cursor = 'pointer';
               deleteItem.style.color = '#ff6b6b';
               deleteItem.style.fontSize = '13px';
-              
+
               deleteItem.addEventListener('mouseenter', () => deleteItem.style.background = '#37373d');
               deleteItem.addEventListener('mouseleave', () => deleteItem.style.background = 'transparent');
-              
+
               deleteItem.addEventListener('click', async () => {
                 menu.remove();
                 try {
@@ -1182,31 +1254,31 @@ export const ChatPage = {
                   alert('서버 오류: ' + err.message);
                 }
               });
-              
+
               menu.appendChild(deleteItem);
               document.body.appendChild(menu);
-              
+
               // 다른 곳 클릭 시 메뉴 닫기
               const closeMenu = () => {
                 menu.remove();
                 document.removeEventListener('click', closeMenu);
                 document.removeEventListener('contextmenu', closeMenu);
               };
-              
+
               // 약간의 지연을 주어 현재 클릭 이벤트가 닫기 이벤트를 발생시키지 않도록 함
               setTimeout(() => {
                 document.addEventListener('click', closeMenu);
                 document.addEventListener('contextmenu', closeMenu);
               }, 10);
             });
-            
+
             if (item.is_dir) {
               textSpan.innerHTML = `${chevronSVG}${folderSVG} ${item.name}`;
               li.classList.add('tree-folder');
               const childrenContainer = document.createElement('div');
               childrenContainer.className = 'tree-children';
               childrenContainer.style.display = 'none';
-              
+
               textSpan.addEventListener('click', async () => {
                 const isExpanded = childrenContainer.style.display === 'block';
                 const chevron = textSpan.querySelector('.chevron-icon');
@@ -1224,7 +1296,7 @@ export const ChatPage = {
               li.appendChild(textSpan);
               li.appendChild(childrenContainer);
             } else {
-              textSpan.innerHTML = `<span style="width:16px;display:inline-block"></span>${fileSVG} ${item.name}`;
+              textSpan.innerHTML = `${fileSVG} <span style="margin-left:2px;">${item.name}</span>`;
               li.classList.add('tree-file');
               textSpan.addEventListener('click', () => {
                 document.querySelectorAll('.tree-label.active').forEach(el => el.classList.remove('active'));
@@ -1260,11 +1332,11 @@ export const ChatPage = {
     async function loadFileContent(filePath, fileName) {
       editorTitle.textContent = fileName;
       if(editorPlaceholder) editorPlaceholder.style.display = 'none';
-      
+
       try {
         const res = await fetch('/api/fs/read?file=' + encodeURIComponent(filePath));
         const data = await res.json();
-        
+
         if (data.ok) {
           if (monacoLoaded && monacoEditor) {
             const lang = getLanguageFromExt(fileName);
@@ -1287,7 +1359,7 @@ export const ChatPage = {
     const selectFolderBtn = document.getElementById('select-folder-btn');
     const browseList = document.getElementById('browse-list');
     const currentBrowsePath = document.getElementById('current-browse-path');
-    
+
     let selectedFolderPath = '/';
 
     async function loadBrowseDirectory(path) {
@@ -1298,11 +1370,11 @@ export const ChatPage = {
           selectedFolderPath = data.current;
           currentBrowsePath.textContent = data.current;
           browseList.innerHTML = '';
-          
+
           const ul = document.createElement('ul');
           ul.className = 'tree-list';
           ul.style.paddingLeft = '16px';
-          
+
           // 상위 폴더로 가기
           if (data.parent) {
             const li = document.createElement('li');
@@ -1319,7 +1391,7 @@ export const ChatPage = {
             li.addEventListener('click', () => loadBrowseDirectory(item.path));
             ul.appendChild(li);
           });
-          
+
           browseList.appendChild(ul);
         }
       } catch (e) {
@@ -1333,11 +1405,11 @@ export const ChatPage = {
       folderModalMode = 'workspace';
       document.querySelector('#folder-modal h3').textContent = 'Open Workspace Folder';
       document.getElementById('select-folder-btn').textContent = 'Select This Folder';
-      
+
       const res = await fetch('/api/fs/workspace');
       const data = await res.json();
       const startPath = data.ok ? data.workspace : '/';
-      
+
       hideAllModals();
       folderModal.style.display = 'flex';
       loadBrowseDirectory(startPath);
@@ -1346,7 +1418,7 @@ export const ChatPage = {
     const newFolderBtn = document.getElementById('new-folder-btn');
     const newFolderModal = document.getElementById('new-folder-modal');
     const newFolderInput = document.getElementById('new-folder-input');
-    
+
     if (newFolderBtn && newFolderModal && newFolderInput) {
       newFolderBtn.addEventListener('click', () => {
         hideAllModals();
@@ -1354,14 +1426,14 @@ export const ChatPage = {
         newFolderModal.style.display = 'flex';
         setTimeout(() => newFolderInput.focus(), 100);
       });
-      
+
       const hideNewFolderModal = () => {
         newFolderModal.style.display = 'none';
       };
-      
+
       document.getElementById('close-new-folder-btn').addEventListener('click', hideNewFolderModal);
       document.getElementById('cancel-new-folder-btn').addEventListener('click', hideNewFolderModal);
-      
+
       const doCreateFolder = async () => {
         const folderName = newFolderInput.value.trim();
         if (folderName) {
@@ -1392,7 +1464,7 @@ export const ChatPage = {
           }
         }
       };
-      
+
       document.getElementById('confirm-new-folder-btn').addEventListener('click', doCreateFolder);
       newFolderInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') doCreateFolder();
@@ -1406,11 +1478,11 @@ export const ChatPage = {
         folderModalMode = 'index';
         document.querySelector('#folder-modal h3').textContent = 'Select Folder to Index (LLM Wiki)';
         document.getElementById('select-folder-btn').textContent = 'Index This Folder';
-        
+
         const res = await fetch('/api/fs/workspace');
         const data = await res.json();
         const startPath = data.ok ? data.workspace : '/';
-        
+
         folderModal.style.display = 'flex';
         loadBrowseDirectory(startPath);
       });
@@ -1455,8 +1527,8 @@ export const ChatPage = {
         try {
           selectFolderBtn.disabled = true;
           selectFolderBtn.textContent = 'Starting...';
-          
-          const res = await fetch('/api/workspace/ingest?path=' + encodeURIComponent(selectedFolderPath), { 
+
+          const res = await fetch('/api/workspace/ingest?path=' + encodeURIComponent(selectedFolderPath), {
             method: 'POST'
           });
           const data = await res.json();
@@ -1504,7 +1576,7 @@ export const ChatPage = {
 
     // 초기화 로직: 로컬 스토리지에 저장된 마지막 워크스페이스 복구 시도
     const lastWorkspace = localStorage.getItem('antigravity_last_workspace');
-    
+
     const initWorkspace = async () => {
       try {
         if (lastWorkspace) {
@@ -1538,7 +1610,7 @@ export const ChatPage = {
         checkActiveAgent();
       }
     };
-    
+
     async function checkActiveAgent() {
       try {
         const res = await fetch('/api/agent/active');
@@ -1550,7 +1622,7 @@ export const ChatPage = {
             const historyContent = data.history.join('');
             chatMessages.push({role: "assistant", content: historyContent});
             renderChatMessages();
-            
+
             // Reconnect to SSE for remaining stream
             const historyDiv = document.getElementById('chat-history');
             const msgs = historyDiv.querySelectorAll('.message.assistant');
@@ -1559,15 +1631,15 @@ export const ChatPage = {
               const contentSpan = lastMsgDiv.querySelector('.bubble');
               const generatingBadgeHTML = '<span class="generating-badge">Generating<span class="dots"><span>.</span><span>.</span><span>.</span></span></span>';
               contentSpan.innerHTML += generatingBadgeHTML;
-              
+
               const reconnectRes = await fetch('/v1/chat/completions/reconnect');
               const reader = reconnectRes.body.getReader();
               const decoder = new TextDecoder("utf-8");
-              
+
               let buffer = '';
               let assistantContent = historyContent;
               const assistantMsgIndex = chatMessages.length - 1;
-              
+
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
@@ -1578,13 +1650,13 @@ export const ChatPage = {
                   renderDiffs(lastMsgDiv);
                   break;
                 }
-                
+
                 buffer += decoder.decode(value, { stream: true });
                 let eolIndex;
                 while ((eolIndex = buffer.indexOf('\n')) >= 0) {
                   const line = buffer.slice(0, eolIndex).trim();
                   buffer = buffer.slice(eolIndex + 1);
-                  
+
                   if (line.startsWith('data: ') && line !== 'data: [DONE]') {
                     try {
                       const d = JSON.parse(line.slice(6));
@@ -1604,7 +1676,243 @@ export const ChatPage = {
         console.error("Failed to check active agent:", e);
       }
     }
-    
+
     initWorkspace();
+
+    // ─── 3. Plan Mode Toggle ───
+    const planToggle = document.getElementById('plan-toggle');
+    const planModelName = document.getElementById('plan-bar-model-name');
+
+    // localStorage에서 저장된 상태 복원
+    if (localStorage.getItem('antigravity_plan_mode') === 'true') {
+      planToggle.classList.add('active');
+    }
+
+    // ─── 4. Auto Mode Toggle ───
+    const autoToggle = document.getElementById('auto-toggle');
+    if (localStorage.getItem('antigravity_auto_mode') === 'true') {
+      autoToggle.classList.add('active');
+    }
+
+    // ─── 5. TDD Mode Toggle ───
+    const tddToggle = document.getElementById('tdd-toggle');
+    if (localStorage.getItem('antigravity_tdd_mode') === 'true') {
+      tddToggle.classList.add('active');
+    }
+
+    tddToggle.addEventListener('click', () => {
+      tddToggle.classList.toggle('active');
+      const isActive = tddToggle.classList.contains('active');
+      localStorage.setItem('antigravity_tdd_mode', isActive);
+
+      if (isActive && window.showToast) {
+        window.showToast('🧪 TDD Mode Enabled', 'success');
+      }
+    });
+
+    planToggle.addEventListener('click', () => {
+      planToggle.classList.toggle('active');
+      const isActive = planToggle.classList.contains('active');
+      localStorage.setItem('antigravity_plan_mode', isActive);
+      if (isActive) {
+        window.showToast?.('📋 Plan Mode 활성화: AI가 먼저 구현 계획을 수립합니다', 'info');
+      } else {
+        window.showToast?.('⚡ Direct Mode: AI가 즉시 실행합니다', 'info');
+      }
+    });
+
+    autoToggle.addEventListener('click', () => {
+      autoToggle.classList.toggle('active');
+      const isActive = autoToggle.classList.contains('active');
+      localStorage.setItem('antigravity_auto_mode', isActive);
+      if (isActive) {
+        window.showToast?.('🤖 자율 모드 활성화: AI가 툴을 자율적으로 실행합니다', 'success');
+      } else {
+        window.showToast?.('🤖 자율 모드 해제: 수동 승인 모드', 'info');
+      }
+    });
+
+    // Self-Test trigger (Cmd+Shift+T)
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 't') {
+        e.preventDefault();
+        runSelfTest();
+      }
+    });
+
+    async function runSelfTest() {
+      window.showToast?.('🧪 Self-Test 시작: 시스템을 자가 진단합니다...', 'info');
+      try {
+        const res = await fetch('/api/agent/tools/browser/self-test', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          const r = data.report;
+          const passRate = r.pass_rate || '0%';
+          if (r.failed === 0) {
+            window.showToast?.(`✅ Self-Test 완료: ${r.total}개 전체 통과 (${passRate})`, 'success');
+          } else {
+            window.showToast?.(`⚠️ Self-Test 완료: ${r.passed}/${r.total} 통과, ${r.failed} 실패`, 'error');
+          }
+          // 마크다운 리포트를 채팅창에 표시
+          if (data.markdown) {
+            appendMessage('assistant', formatContent(data.markdown), true);
+            history.scrollTop = history.scrollHeight;
+          }
+        } else {
+          window.showToast?.('❌ Self-Test 실패', 'error');
+        }
+      } catch (e) {
+        window.showToast?.('❌ Self-Test 오류: ' + e.message, 'error');
+      }
+    }
+    // Expose globally for command palette
+    window.runSelfTest = runSelfTest;
+
+    // Autonomous QA Full Loop (Cmd+Shift+Q)
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'q') {
+        e.preventDefault();
+        runAutonomousQA();
+      }
+    });
+
+    async function runAutonomousQA() {
+      window.showToast?.('🤖 Autonomous QA 시작: 비전 분석 → 자동 수정 → 검증 루프...', 'info');
+      appendMessage('assistant', formatContent('## 🤖 Autonomous QA 루프 시작\n비전 분석 → 코드 수정 → 재테스트 → 검증 루프를 실행합니다...\n\n*이 작업은 수 분이 소요될 수 있습니다.*'), true);
+      history.scrollTop = history.scrollHeight;
+
+      try {
+        const res = await fetch('/api/agent/tools/browser/autonomous-qa', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ url: window.location.origin, max_iterations: 3 })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const r = data.report;
+          const statusIcon = r.status === 'fixed' || r.status === 'no_issues' ? '✅' : '⚠️';
+          window.showToast?.(`${statusIcon} Autonomous QA 완료: ${r.total_defects_found}개 결함 발견, ${r.total_resolved}개 해결`,
+            r.status === 'fixed' || r.status === 'no_issues' ? 'success' : 'error');
+          if (data.markdown) {
+            appendMessage('assistant', formatContent(data.markdown), true);
+            history.scrollTop = history.scrollHeight;
+          }
+        } else {
+          window.showToast?.('❌ Autonomous QA 실패', 'error');
+        }
+      } catch (e) {
+        window.showToast?.('❌ Autonomous QA 오류: ' + e.message, 'error');
+      }
+    }
+    window.runAutonomousQA = runAutonomousQA;
+
+    // 모델 선택 변경 시 Plan bar 모델명 업데이트
+    modelSelect.addEventListener('change', () => {
+      const selectedText = modelSelect.options[modelSelect.selectedIndex].text;
+      planModelName.textContent = selectedText;
+    });
+
+    // ─── 4. Agent Manager Panel ───
+    const agentMgrBtn = document.getElementById('open-agent-mgr-btn');
+    const agentMgrPanel = document.getElementById('agent-manager-panel');
+    const agentMgrOverlay = document.getElementById('agent-manager-overlay');
+    const closeAgentMgrBtn = document.getElementById('close-agent-mgr-btn');
+    const agentMgrBody = document.getElementById('agent-manager-body');
+
+    function openAgentManager() {
+      agentMgrPanel.classList.add('open');
+      agentMgrOverlay.classList.add('open');
+      fetchAgentTasks();
+    }
+
+    function closeAgentManager() {
+      agentMgrPanel.classList.remove('open');
+      agentMgrOverlay.classList.remove('open');
+    }
+
+    agentMgrBtn.addEventListener('click', openAgentManager);
+    closeAgentMgrBtn.addEventListener('click', closeAgentManager);
+    agentMgrOverlay.addEventListener('click', closeAgentManager);
+
+    function renderAgentTasks(tasks) {
+      if (!tasks || tasks.length === 0) {
+        agentMgrBody.innerHTML = `
+          <div class="agent-manager-empty">
+            <span class="empty-icon">🤖</span>
+            <span>실행 중인 에이전트가 없습니다</span>
+          </div>
+        `;
+        return;
+      }
+
+      agentMgrBody.innerHTML = tasks.map(task => {
+        const statusMap = {
+          'in_progress': { cls: 'running', icon: '🟢', label: '실행 중' },
+          'todo': { cls: 'pending', icon: '⏳', label: '대기 중' },
+          'completed': { cls: 'completed', icon: '✅', label: '완료' },
+          'cancelled': { cls: 'cancelled', icon: '🛑', label: '취소됨' }
+        };
+        const st = statusMap[task.status] || { cls: 'pending', icon: '❓', label: task.status };
+        const cancelBtn = (task.status === 'in_progress' || task.status === 'todo')
+          ? `<button class="task-cancel-btn" data-task-id="${task.id}">🛑 중단</button>`
+          : '';
+
+        return `
+          <div class="agent-task-item">
+            <div class="task-title">
+              <span>${st.icon}</span>
+              <span>${escapeHTML(task.title || 'Untitled Task')}</span>
+            </div>
+            <div class="task-meta">
+              <span class="task-status ${st.cls}">${st.label}</span>
+              ${cancelBtn}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // 취소 버튼 이벤트 바인딩
+      agentMgrBody.querySelectorAll('.task-cancel-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const taskId = btn.getAttribute('data-task-id');
+          btn.disabled = true;
+          btn.textContent = '처리 중...';
+          try {
+            await fetch(`/api/kanban/tasks/${taskId}/cancel`, { method: 'POST' });
+            fetchAgentTasks();
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = '🛑 중단';
+          }
+        });
+      });
+    }
+
+    async function fetchAgentTasks() {
+      try {
+        const res = await fetch('/api/kanban/tasks');
+        const data = await res.json();
+        renderAgentTasks(data.data || []);
+      } catch (err) {
+        agentMgrBody.innerHTML = '<div class="agent-manager-empty"><span>❗ 태스크 목록을 불러올 수 없습니다</span></div>';
+      }
+    }
+
+    // WebSocket 실시간 업데이트
+    try {
+      const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const agentWs = new WebSocket(`${wsProtocol}//${location.host}/ws/kanban`);
+      agentWs.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.tasks && agentMgrPanel.classList.contains('open')) {
+            renderAgentTasks(data.tasks);
+          }
+        } catch (e) {}
+      };
+      agentWs.onerror = () => console.warn('Agent Manager WebSocket error');
+    } catch (e) {
+      console.warn('WebSocket not available for Agent Manager');
+    }
   }
 };

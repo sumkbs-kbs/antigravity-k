@@ -4,11 +4,12 @@ Antigravity-K: CEO 분석 엔진 (CEOAnalyzer)
 I-1 리팩터링: Orchestrator에서 분리된 CEO 태스크 분류 로직.
 LLM 스트리밍으로 사용자 의도를 분석하고, JSON/키워드 폴백으로 task_type/delegate_to를 결정합니다.
 """
+
 import json
 import re
 import logging
 import urllib.request
-from typing import Dict, Generator, List, Union
+from typing import Generator, Union
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def ceo_analyze(
         target_model: 지정된 모델 (없으면 기본 모델 사용)
         ceo_prompt_template: CEO 역할 프롬프트 템플릿
         get_model_for_role_fn: 역할명 → 모델명 매핑 함수
-    
+
     Yields:
         str: 스트리밍 텍스트 청크
         dict: 최종 분석 결과 (마지막 yield)
@@ -51,13 +52,13 @@ def ceo_analyze(
             "prompt": ceo_prompt,
             "stream": True,
             "keep_alive": "30m",
-            "options": {"num_predict": 512}
+            "options": {"num_predict": 512, "num_ctx": 4096},
         }
 
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode("utf-8"),
-            headers={"Content-Type": "application/json"}
+            headers={"Content-Type": "application/json"},
         )
 
         response_text = ""
@@ -80,7 +81,9 @@ def ceo_analyze(
                     continue
 
         raw_text = response_text
-        logger.info(f"CEO analysis: response({len(response_text)}), combined({len(raw_text)})")
+        logger.info(
+            f"CEO analysis: response({len(response_text)}), combined({len(raw_text)})"
+        )
 
         # JSON 추출 — 3단계 전략
         parsed = _extract_task_json(raw_text)
@@ -104,7 +107,7 @@ def ceo_analyze(
         "task_type": "simple_chat",
         "delegate_to": "SELF",
         "reasoning": "CEO analysis failed, fallback to direct response",
-        "refined_prompt": user_message
+        "refined_prompt": user_message,
     }
 
 
@@ -113,17 +116,21 @@ def _extract_task_json(raw_text: str) -> dict | None:
     # 1차: JSONDecoder.raw_decode — 중첩 {} 처리 가능
     decoder = json.JSONDecoder()
     for i, ch in enumerate(raw_text):
-        if ch == '{':
+        if ch == "{":
             try:
                 obj, end_idx = decoder.raw_decode(raw_text, i)
-                if isinstance(obj, dict) and 'task_type' in obj:
-                    logger.info(f"CEO Analysis (raw_decode): type={obj.get('task_type')}, delegate={obj.get('delegate_to')}")
+                if isinstance(obj, dict) and "task_type" in obj:
+                    logger.info(
+                        f"CEO Analysis (raw_decode): type={obj.get('task_type')}, delegate={obj.get('delegate_to')}"
+                    )
                     return obj
             except json.JSONDecodeError:
                 continue
 
     # 2차: 정규식 폴백
-    json_match = re.search(r'\{[^{}]*"task_type"\s*:\s*"[^"]*"[^{}]*\}', raw_text, re.DOTALL)
+    json_match = re.search(
+        r'\{[^{}]*"task_type"\s*:\s*"[^"]*"[^{}]*\}', raw_text, re.DOTALL
+    )
     if json_match:
         try:
             return json.loads(json_match.group())
@@ -134,10 +141,18 @@ def _extract_task_json(raw_text: str) -> dict | None:
 
 
 _KEYWORD_MAP = [
-    (['coding', 'code', 'function', '함수', '코드', '작성', '파일', '구현'], 'coding', 'WORKER'),
-    (['review', '리뷰', '검토', '점검'], 'review', 'QA'),
-    (['design', '디자인', 'ui', 'ux', '레이아웃'], 'design', 'DESIGNER'),
-    (['분석', 'analyze', '추론', 'reason', '설명', 'explain'], 'reasoning', 'ENG_MANAGER'),
+    (
+        ["coding", "code", "function", "함수", "코드", "작성", "파일", "구현"],
+        "coding",
+        "WORKER",
+    ),
+    (["review", "리뷰", "검토", "점검"], "review", "QA"),
+    (["design", "디자인", "ui", "ux", "레이아웃"], "design", "DESIGNER"),
+    (
+        ["분석", "analyze", "추론", "reason", "설명", "explain"],
+        "reasoning",
+        "ENG_MANAGER",
+    ),
 ]
 
 
@@ -151,6 +166,6 @@ def _keyword_fallback(raw_text: str, user_message: str) -> dict | None:
                 "task_type": task_type,
                 "delegate_to": delegate,
                 "reasoning": "keyword-based detection",
-                "refined_prompt": user_message
+                "refined_prompt": user_message,
             }
     return None

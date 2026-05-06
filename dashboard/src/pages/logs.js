@@ -59,16 +59,19 @@ export const LogsPage = {
     fetchLogs();
     refreshBtn.addEventListener('click', fetchLogs);
 
-    // 5초마다 자동 새로고침
-    const interval = setInterval(fetchLogs, 5000);
-
-    // 화면 떠날 때 타이머 클리어 (라우터 훅이 없으므로 일단 둠)
-    // TODO: 라우터 unmount 훅 연동
+    // 5초마다 자동 새로고침 (라우팅 변경 시 클리어)
+    const interval = setInterval(() => {
+      if (!document.getElementById('logs-container')) {
+        clearInterval(interval);
+        return;
+      }
+      fetchLogs();
+    }, 5000);
   }
 };
 
 function escapeHTML(str) {
-  return str.replace(/[&<>'"]/g, 
+  return str.replace(/[&<>'"]/g,
     tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag])
   );
 }

@@ -8,7 +8,6 @@ Computer Use 보안 Guardrail
 """
 
 import logging
-import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -19,41 +18,59 @@ logger = logging.getLogger(__name__)
 class ActionGuard:
     """
     Computer Use 액션에 대한 보안 게이트키퍼.
-    
+
     모든 액션 실행 전에 이 클래스를 통해 검증해야 합니다.
     허용된 액션만 통과시키며, 위험 액션은 차단 또는 HITL 요구합니다.
     """
 
     # 기본 허용 액션 목록
-    SAFE_ACTIONS = frozenset({
-        "screenshot",
-        "mouse_move",
-        "left_click",
-        "right_click",
-        "double_click",
-        "type",
-        "key",
-        "scroll",
-    })
+    SAFE_ACTIONS = frozenset(
+        {
+            "screenshot",
+            "mouse_move",
+            "left_click",
+            "right_click",
+            "double_click",
+            "type",
+            "key",
+            "scroll",
+        }
+    )
 
     # HITL (사용자 승인) 필요 액션
-    HITL_REQUIRED_ACTIONS = frozenset({
-        "left_click_drag",
-        "hold_key",
-    })
+    HITL_REQUIRED_ACTIONS = frozenset(
+        {
+            "left_click_drag",
+            "hold_key",
+        }
+    )
 
     # 절대 허용 불가 액션
-    BLOCKED_ACTIONS = frozenset({
-        "run_as_admin",
-        "format_disk",
-        "delete_system_file",
-    })
+    BLOCKED_ACTIONS = frozenset(
+        {
+            "run_as_admin",
+            "format_disk",
+            "delete_system_file",
+        }
+    )
 
     # P1 수정: 비율 기반 위험 영역 — 해상도 독립적 (런타임 계산)
     # 각 값은 0.0 ~ 1.0 비율로, 실제 해상도에 곱하여 사용
     DANGER_ZONE_RATIOS = [
-        {"name": "taskbar", "y_min_ratio": 0.963, "y_max_ratio": 1.0, "x_min_ratio": 0.0, "x_max_ratio": 1.0},
-        {"name": "system_tray", "y_min_ratio": 0.963, "y_max_ratio": 1.0, "x_min_ratio": 0.885, "x_max_ratio": 1.0},
+        {
+            "name": "taskbar",
+            "y_min_ratio": 0.963,
+            "y_max_ratio": 1.0,
+            "x_min_ratio": 0.0,
+            "x_max_ratio": 1.0,
+        },
+        {
+            "name": "system_tray",
+            "y_min_ratio": 0.963,
+            "y_max_ratio": 1.0,
+            "x_min_ratio": 0.885,
+            "x_max_ratio": 1.0,
+        },
     ]
 
     @classmethod
@@ -61,13 +78,15 @@ class ActionGuard:
         """화면 해상도에 맞게 위험 영역 좌표를 계산합니다."""
         zones = []
         for zone in cls.DANGER_ZONE_RATIOS:
-            zones.append({
-                "name": zone["name"],
-                "y_min": int(zone["y_min_ratio"] * screen_height),
-                "y_max": int(zone["y_max_ratio"] * screen_height),
-                "x_min": int(zone["x_min_ratio"] * screen_width),
-                "x_max": int(zone["x_max_ratio"] * screen_width),
-            })
+            zones.append(
+                {
+                    "name": zone["name"],
+                    "y_min": int(zone["y_min_ratio"] * screen_height),
+                    "y_max": int(zone["y_max_ratio"] * screen_height),
+                    "x_min": int(zone["x_min_ratio"] * screen_width),
+                    "x_max": int(zone["x_max_ratio"] * screen_width),
+                }
+            )
         return zones
 
     def __init__(
@@ -80,7 +99,7 @@ class ActionGuard:
         self.enabled = enabled
         self.hitl_required = hitl_required
         self._audit_log: List[Dict[str, Any]] = []
-        
+
         if audit_log_path:
             self._audit_file = Path(audit_log_path)
             self._audit_file.parent.mkdir(parents=True, exist_ok=True)
@@ -88,12 +107,14 @@ class ActionGuard:
             self._audit_file = None
 
         if custom_blocked_actions:
-            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions)
+            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(
+                custom_blocked_actions
+            )
 
     def validate_action(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         액션을 검증합니다.
-        
+
         Returns:
             {
                 "allowed": bool,
@@ -130,9 +151,16 @@ class ActionGuard:
             screen_w = params.get("screen_width", 1920)
             screen_h = params.get("screen_height", 1080)
             for zone in self.get_danger_zones(screen_w, screen_h):
-                if (zone["x_min"] <= x <= zone["x_max"] and
-                        zone["y_min"] <= y <= zone["y_max"]):
-                    self._log_audit(action, params, allowed=False, reason=f"danger_zone:{zone['name']}")
+                if (
+                    zone["x_min"] <= x <= zone["x_max"]
+                    and zone["y_min"] <= y <= zone["y_max"]
+                ):
+                    self._log_audit(
+                        action,
+                        params,
+                        allowed=False,
+                        reason=f"danger_zone:{zone['name']}",
+                    )
                     return {
                         "allowed": False,
                         "reason": f"Click at ({x}, {y}) is in DANGER ZONE: {zone['name']}.",
@@ -142,7 +170,9 @@ class ActionGuard:
         # 4. HITL 필요 여부 확인
         requires_hitl = (action in self.HITL_REQUIRED_ACTIONS) and self.hitl_required
 
-        self._log_audit(action, params, allowed=True, reason="passed", requires_hitl=requires_hitl)
+        self._log_audit(
+            action, params, allowed=True, reason="passed", requires_hitl=requires_hitl
+        )
         return {
             "allowed": True,
             "reason": "passed",
@@ -182,6 +212,7 @@ class ActionGuard:
         if self._audit_file:
             try:
                 import json
+
                 with open(self._audit_file, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             except Exception as e:

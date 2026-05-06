@@ -7,7 +7,7 @@ Apple Silicon M5 Max (128GB) 기준 기본값이 설정되어 있습니다.
 
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, ConfigDict
 import os
 
 
@@ -50,11 +50,11 @@ class ModelConfig(BaseSettings):
 
     # 로컬/외부 OpenAI 호환 API 주소 (LM Studio, Ollama, vLLM 등)
     api_base: str = Field(
-        default="", # 엔진에 따라 자동 설정됨
+        default="",  # 엔진에 따라 자동 설정됨
         description="로컬/원격 호환 API 베이스 주소 (예: http://localhost:11434/v1)",
     )
     api_key: str = Field(
-        default="", # 엔진에 따라 자동 설정됨
+        default="",  # 엔진에 따라 자동 설정됨
         description="API 키",
     )
     force_api: bool = Field(
@@ -62,7 +62,7 @@ class ModelConfig(BaseSettings):
         description="MLX 대신 무조건 로컬 API(LM Studio 등)를 사용할지 여부",
     )
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def set_defaults_by_engine(self):
         engine = self.api_engine.lower()
         if not self.api_base:
@@ -71,7 +71,7 @@ class ModelConfig(BaseSettings):
             elif engine == "lm_studio":
                 self.api_base = "http://localhost:1234/v1"
             else:
-                self.api_base = "http://localhost:11434/v1" # fallback
+                self.api_base = "http://localhost:11434/v1"  # fallback
         if not self.api_key:
             if engine == "ollama":
                 self.api_key = "ollama"
@@ -90,8 +90,7 @@ class ModelConfig(BaseSettings):
     temperature: float = Field(default=0.7, description="생성 온도")
     top_p: float = Field(default=0.9, description="top-p 샘플링")
 
-    class Config:
-        env_prefix = "AGK_MODEL_"
+    model_config = ConfigDict(env_prefix="AGK_MODEL_")
 
 
 class ServerConfig(BaseSettings):
@@ -101,8 +100,7 @@ class ServerConfig(BaseSettings):
     port: int = Field(default=8400, description="API 서버 포트")
     inference_port: int = Field(default=8401, description="추론 엔진 포트")
 
-    class Config:
-        env_prefix = "AGK_SERVER_"
+    model_config = ConfigDict(env_prefix="AGK_SERVER_")
 
 
 class PathConfig(BaseSettings):
@@ -114,9 +112,12 @@ class PathConfig(BaseSettings):
     documents_dir: Path = Field(default=PROJECT_ROOT / "data" / "documents")
     vectors_dir: Path = Field(default=PROJECT_ROOT / "data" / "vectors")
     logs_dir: Path = Field(default=PROJECT_ROOT / "logs")
+    wiki_dir: Path = Field(
+        default=PROJECT_ROOT / "data" / "wiki_entries",
+        description="마크다운 위키 저장 경로",
+    )
 
-    class Config:
-        env_prefix = "AGK_PATH_"
+    model_config = ConfigDict(env_prefix="AGK_PATH_")
 
 
 class SecurityConfig(BaseSettings):
@@ -128,7 +129,11 @@ class SecurityConfig(BaseSettings):
     audit_log_enabled: bool = Field(default=True, description="감사 로그 활성화")
     max_tool_risk: str = Field(
         # P2 수정: 환경 프로파일 분리 — production에서는 medium이 기본
-        default="medium" if os.environ.get("AGK_ENV", "development") == "production" else "high",
+        default=(
+            "medium"
+            if os.environ.get("AGK_ENV", "development") == "production"
+            else "high"
+        ),
         description="자동 승인 없이 사용 가능한 최대 도구 위험도 (safe/low/medium/high/critical)",
     )
     # 추가: LintAI strict 모드 플래그
@@ -137,8 +142,7 @@ class SecurityConfig(BaseSettings):
         description="프로덕션 환경에서 LintAI 미설치 시 Fail-Closed 적용",
     )
 
-    class Config:
-        env_prefix = "AGK_SEC_"
+    model_config = ConfigDict(env_prefix="AGK_SEC_")
 
 
 class WorkflowConfig(BaseSettings):
@@ -148,8 +152,7 @@ class WorkflowConfig(BaseSettings):
     auto_commit: bool = Field(default=False, description="자동 Git 커밋 활성화")
     auto_artifacts: bool = Field(default=False, description="산출물 자동 생성")
 
-    class Config:
-        env_prefix = "AGK_WORKFLOW_"
+    model_config = ConfigDict(env_prefix="AGK_WORKFLOW_")
 
 
 class I18nConfig(BaseSettings):
@@ -158,8 +161,7 @@ class I18nConfig(BaseSettings):
     locale: str = Field(default="auto", description="언어 설정 (auto/ko/en/ja)")
     fallback_locale: str = Field(default="en", description="폴백 언어")
 
-    class Config:
-        env_prefix = "AGK_I18N_"
+    model_config = ConfigDict(env_prefix="AGK_I18N_")
 
 
 class RouterConfig(BaseSettings):
@@ -169,30 +171,27 @@ class RouterConfig(BaseSettings):
         default="fallback",
         description="기본 라우팅 전략 (fallback/round-robin/load-balance)",
     )
-    cooldown_base_sec: int = Field(
-        default=60, description="폴백 쿨다운 기본값(초)"
-    )
-    max_cooldown_sec: int = Field(
-        default=3600, description="최대 쿨다운(초)"
-    )
+    cooldown_base_sec: int = Field(default=60, description="폴백 쿨다운 기본값(초)")
+    max_cooldown_sec: int = Field(default=3600, description="최대 쿨다운(초)")
     max_retries: int = Field(default=3, description="최대 재시도 횟수")
-    usage_tracking: bool = Field(
-        default=True, description="사용량 추적 활성화"
-    )
+    usage_tracking: bool = Field(default=True, description="사용량 추적 활성화")
     usage_db_path: str = Field(
         default="", description="사용량 DB 경로 (빈 문자열=자동)"
     )
 
-    class Config:
-        env_prefix = "AGK_ROUTER_"
+    model_config = ConfigDict(env_prefix="AGK_ROUTER_")
 
 
 class ComputerUseConfig(BaseSettings):
     """데스크탑 자동화 (Computer Use) 설정."""
 
     enabled: bool = Field(default=True, description="Computer Use 기능 활성화")
-    hitl_required: bool = Field(default=True, description="위험 액션 시 사용자 승인 필요")
-    force_stub: bool = Field(default=False, description="테스트용 Stub 드라이버 강제 사용")
+    hitl_required: bool = Field(
+        default=True, description="위험 액션 시 사용자 승인 필요"
+    )
+    force_stub: bool = Field(
+        default=False, description="테스트용 Stub 드라이버 강제 사용"
+    )
     screenshot_dir: Path = Field(
         default=PROJECT_ROOT / "data" / "screenshots",
         description="스크린샷 저장 디렉토리",
@@ -202,8 +201,7 @@ class ComputerUseConfig(BaseSettings):
         description="액션 감사 로그 파일 경로",
     )
 
-    class Config:
-        env_prefix = "AGK_CU_"
+    model_config = ConfigDict(env_prefix="AGK_CU_")
 
 
 class AppConfig:

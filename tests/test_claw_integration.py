@@ -8,6 +8,7 @@ Claw Code 아키텍처 통합 테스트 — Phase 1~3 전체 검증
   4. SlashCommandRegistry: 커맨드 등록/실행/자동완성
   5. ToolRegistry 연동  : 권한 게이트 통과 후 도구 실행
 """
+
 import os
 import sys
 import json
@@ -30,23 +31,27 @@ class TestPermissionGate(unittest.TestCase):
 
     def setUp(self):
         from antigravity_k.tools.permission_gate import PermissionGate
+
         self.gate = PermissionGate(project_root=tempfile.mkdtemp(), mode="balanced")
 
     def test_allow_safe_tool(self):
         """안전한 도구(safe)는 ALLOW."""
         from antigravity_k.tools.permission_gate import Permission
+
         result = self.gate.check("read_file", {"path": "test.py"}, risk_level="safe")
         self.assertEqual(result, Permission.ALLOW)
 
     def test_prompt_medium_risk(self):
         """medium 위험도는 PROMPT."""
         from antigravity_k.tools.permission_gate import Permission
+
         result = self.gate.check("write_file", {"path": "test.py"}, risk_level="medium")
         self.assertEqual(result, Permission.PROMPT)
 
     def test_deny_dangerous_command(self):
         """rm -rf / 같은 위험 명령은 DENY."""
         from antigravity_k.tools.permission_gate import Permission
+
         result = self.gate.check(
             "run_bash_command",
             {"command": "rm -rf /"},
@@ -57,6 +62,7 @@ class TestPermissionGate(unittest.TestCase):
     def test_deny_protected_path(self):
         """보호 경로(C:\\Windows 등) 접근은 DENY."""
         from antigravity_k.tools.permission_gate import Permission
+
         result = self.gate.check(
             "write_file",
             {"path": "C:\\Windows\\system32\\test.exe"},
@@ -67,6 +73,7 @@ class TestPermissionGate(unittest.TestCase):
     def test_override(self):
         """명시적 오버라이드가 risk_level보다 우선."""
         from antigravity_k.tools.permission_gate import Permission
+
         self.gate.set_override("write_file", Permission.ALLOW)
         result = self.gate.check("write_file", {"path": "x.py"}, risk_level="high")
         self.assertEqual(result, Permission.ALLOW)
@@ -74,6 +81,7 @@ class TestPermissionGate(unittest.TestCase):
     def test_approval_cache(self):
         """승인 캐시: PROMPT → 승인 기록 → 다음 요청 ALLOW."""
         from antigravity_k.tools.permission_gate import Permission
+
         result = self.gate.check("write_file", {}, risk_level="medium")
         self.assertEqual(result, Permission.PROMPT)
         self.gate.record_approval("write_file", "medium")
@@ -89,9 +97,10 @@ class TestContextShaper(unittest.TestCase):
 
     def setUp(self):
         from antigravity_k.engine.context_shaper import ContextShaper
+
         self.tmp_dir = tempfile.mkdtemp()
         self.shaper = ContextShaper(
-            max_tokens=500,        # 작은 예산으로 테스트
+            max_tokens=500,  # 작은 예산으로 테스트
             reserve_tokens=50,
             collapse_threshold=100,
             storage_dir=self.tmp_dir,
@@ -135,6 +144,7 @@ class TestContextShaper(unittest.TestCase):
     def test_restore_collapsed(self):
         """참조 ID로 원본 복원 가능."""
         import hashlib
+
         content = "important data " * 50
         ref_id = hashlib.md5(content.encode()).hexdigest()[:12]
         ref_path = os.path.join(self.tmp_dir, f"{ref_id}.json")
@@ -186,6 +196,7 @@ class TestSessionManager(unittest.TestCase):
 
     def setUp(self):
         from antigravity_k.engine.session_manager import SessionManager
+
         self.tmp_dir = tempfile.mkdtemp()
         self.sm = SessionManager(base_dir=self.tmp_dir)
         self.project_dir = tempfile.mkdtemp()
@@ -203,10 +214,12 @@ class TestSessionManager(unittest.TestCase):
     def test_add_turn_and_get_messages(self):
         """턴 추가 후 메시지 조회 가능."""
         self.sm.start_session(project_path=self.project_dir)
-        self.sm.add_turn([
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi!"},
-        ])
+        self.sm.add_turn(
+            [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi!"},
+            ]
+        )
         msgs = self.sm.get_messages()
         self.assertEqual(len(msgs), 2)
 
@@ -228,6 +241,7 @@ class TestSessionManager(unittest.TestCase):
 
         # 새 SessionManager로 같은 프로젝트 열기
         from antigravity_k.engine.session_manager import SessionManager
+
         sm2 = SessionManager(base_dir=self.tmp_dir)
         sid2 = sm2.start_session(project_path=self.project_dir, resume=True)
         self.assertEqual(sid1, sid2)
@@ -270,6 +284,7 @@ class TestSlashCommands(unittest.TestCase):
 
     def setUp(self):
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
+
         self.registry = SlashCommandRegistry()
 
     def test_is_command(self):
@@ -284,6 +299,7 @@ class TestSlashCommands(unittest.TestCase):
         result = self.registry.execute("/help")
         self.assertIn("슬래시 커맨드", result)
         self.assertIn("/tools", result)
+        self.assertIn("/goal", result)
 
     def test_status_command(self):
         """/status 실행."""
@@ -300,6 +316,9 @@ class TestSlashCommands(unittest.TestCase):
         completions = self.registry.get_completions("/he")
         self.assertIn("/help", completions)
 
+        goal_completions = self.registry.get_completions("/go")
+        self.assertIn("/goal", goal_completions)
+
     def test_completions_empty(self):
         """매칭 없으면 빈 리스트."""
         completions = self.registry.get_completions("/zzz")
@@ -308,12 +327,26 @@ class TestSlashCommands(unittest.TestCase):
     def test_memory_without_session(self):
         """/memory — 세션 없을 때 안전하게 동작."""
         result = self.registry.execute("/memory")
-        self.assertIn("not connected", result.lower() if isinstance(result, str) else "")
+        self.assertIn(
+            "not connected", result.lower() if isinstance(result, str) else ""
+        )
 
     def test_context_without_shaper(self):
         """/context — 셰이퍼 없을 때 안전하게 동작."""
         result = self.registry.execute("/context")
-        self.assertIn("not connected", result.lower() if isinstance(result, str) else "")
+        self.assertIn(
+            "not connected", result.lower() if isinstance(result, str) else ""
+        )
+
+    def test_goal_command(self):
+        """/goal — 목표를 자율 실행 계약으로 변환."""
+        result = self.registry.execute(
+            "/goal 테스트 리포트를 만들고 DOM 기능을 검증해줘"
+        )
+        self.assertIn("/goal Autonomous Goal Contract", result)
+        self.assertIn("Success Criteria", result)
+        self.assertIn("Autonomous Judgment Policy", result)
+        self.assertIn("Capability Transfer Matrix", result)
 
 
 # ─────────── 5. 통합 E2E 흐름 테스트 ───────────
@@ -345,10 +378,12 @@ class TestE2EWorkflow(unittest.TestCase):
 
         # 2. 대화 추가
         for i in range(10):
-            sm.add_turn([
-                {"role": "user", "content": f"question {i}"},
-                {"role": "assistant", "content": f"answer {i}" * 10},
-            ])
+            sm.add_turn(
+                [
+                    {"role": "user", "content": f"question {i}"},
+                    {"role": "assistant", "content": f"answer {i}" * 10},
+                ]
+            )
 
         # 3. 컨텍스트 셰이퍼
         shaper = ContextShaper(
