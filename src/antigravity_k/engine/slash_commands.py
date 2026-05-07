@@ -267,6 +267,16 @@ class SlashCommandRegistry:
 
         self.register(
             SlashCommand(
+                name="dialectic",
+                description="Hegelion 변증법적 추론 (Thesis→Antithesis→Synthesis) 으로 문제를 심층 분석합니다.",
+                handler=self._cmd_dialectic,
+                usage="/dialectic <질문 또는 문제>",
+                category="autonomy",
+            )
+        )
+
+        self.register(
+            SlashCommand(
                 name="aishell",
                 description="자연어 지시를 파싱하여 터미널(Bash) 커맨드로 즉시 변환 후 실행합니다.",
                 handler=self._cmd_aishell,
@@ -1000,3 +1010,55 @@ class SlashCommandRegistry:
 
         else:
             return f"❓ 알 수 없는 하위 명령: `{sub}`. `/benchmark` 로 도움말을 확인하세요."
+
+    def _cmd_dialectic(self, args: list) -> str:
+        """변증법적 추론 실행 — Hegelion 패턴."""
+        query = " ".join(args).strip()
+        if not query:
+            return (
+                "⚖️ **변증법적 추론 엔진 (Hegelion)**\n\n"
+                "Usage: `/dialectic <질문 또는 문제>`\n\n"
+                "3단계 추론 (Thesis→Antithesis→Synthesis)으로\n"
+                "문제를 다각도로 심층 분석합니다.\n\n"
+                "Council 모드: `/dialectic council: <질문>` — "
+                "Logician·Empiricist·Ethicist 3인 위원회 비판\n"
+            )
+
+        from antigravity_k.engine.dialectic_engine import DialecticEngine
+
+        engine = DialecticEngine()
+
+        # Council 모드 감지
+        use_council = query.lower().startswith("council:")
+        if use_council:
+            query = query[len("council:") :].strip()
+
+        prompt = engine.create_single_shot_prompt(query, use_council=use_council)
+
+        # 모델이 있으면 실제 추론 실행
+        if self._model_manager:
+            try:
+                from antigravity_k.engine.orchestrator import OrchestratorAgent
+
+                orchestrator = OrchestratorAgent(model_manager=self._model_manager)
+                messages = [{"role": "user", "content": prompt}]
+                info = self._model_manager.get_model_info()
+                target = (
+                    info.get("active_model", "default")
+                    if isinstance(info, dict)
+                    else getattr(info, "active_model", "default")
+                )
+                raw_result = orchestrator.run_sync(messages, target_model=target)
+                result = engine.parse_structured_response(raw_result, query)
+                return engine.render_markdown(result)
+            except Exception as e:
+                logger.error(f"Dialectic execution error: {e}", exc_info=True)
+                return f"⚠️ 변증법 추론 실행 오류: {e}\n\n아래 프롬프트를 직접 사용할 수 있습니다:\n\n```\n{prompt[:500]}...\n```"
+
+        # 모델 없으면 프롬프트만 반환
+        return (
+            "⚖️ **변증법적 추론 프롬프트 생성 완료**\n\n"
+            "로컬 모델이 연결되지 않아 프롬프트만 생성합니다.\n"
+            "아래 프롬프트를 LLM에 직접 전달하세요:\n\n"
+            f"```\n{prompt}\n```"
+        )

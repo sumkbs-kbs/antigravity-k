@@ -26,6 +26,7 @@ from antigravity_k.engine.engine_context import EngineContext
 from antigravity_k.engine.state_graph import StateContext
 from antigravity_k.engine.stream_processor import StreamProcessor
 from antigravity_k.engine.memory_recorder import MemoryRecorder
+from antigravity_k.engine.capacity_flow import CapacityCheckpoint, CapacityAction
 from antigravity_k.agents.personas import get_orchestrator_prompt
 
 logger = logging.getLogger("antigravity_k.orchestrator")
@@ -89,6 +90,9 @@ class OrchestratorAgent:
         self.tool_guardrail = self.ctx.tool_guardrail
         self._tool_executor = self.ctx.tool_executor
         self.memory_manager = self.ctx.memory_manager
+
+        # Capacity Flow 가드레일 (DeepSeek-TUI 패턴 이식)
+        self._capacity_checkpoint = CapacityCheckpoint()
 
         # AmbientWatchdog 초기화
         self.watchdog = None
@@ -387,9 +391,8 @@ class OrchestratorAgent:
             f"Delegate: role={delegate_to}, model={delegate_model}, task_type={task_type}"
         )
 
-        # ─── Tool Loop Guardrail (Hermes 패턴) ───
+        # ─── Tool Loop Guardrail (Hermes 패턴 + Capacity Flow) ───
         self.tool_guardrail.reset_for_turn()
-        _WARN_STEP = max(max_steps - 3, max_steps // 2)  # 경고 시작 스텝
 
         full_output = ""
         stream_proc = StreamProcessor()
@@ -401,10 +404,19 @@ class OrchestratorAgent:
             stream_proc.reset()
             pending_tool_calls = []
 
-            # 스텝 경고: 남은 스텝이 적으면 에이전트에게 알림
-            if step >= _WARN_STEP:
-                remaining = max_steps - step
-                prompt += f"\n[SYSTEM WARNING] You have only {remaining} tool call steps remaining. Wrap up your work and provide your final answer.\n"
+            # Capacity Flow: 스텝 예산 체크 (DeepSeek-TUI 패턴)
+            capacity = self._capacity_checkpoint.check_step_budget(step, max_steps)
+            if capacity.action == CapacityAction.WARN:
+                prompt += f"\n[SYSTEM WARNING] {capacity.message}\n"
+            elif capacity.action == CapacityAction.COMPRESS:
+                prompt += f"\n[CAPACITY COMPRESS] {capacity.message}\n"
+                if self.context_shaper:
+                    shaped_messages = self.context_shaper.shape(
+                        shaped_messages, force_compact=True
+                    )
+            elif capacity.action == CapacityAction.HALT:
+                yield f"\n\n⚠️ **[Capacity Guard]** {capacity.message}\n"
+                break
 
             # /no_think 플래그가 포함되어 있으면 특정 모델(Qwen)이 즉시 종료하는 버그 방지
             clean_sys_prompt = (

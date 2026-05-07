@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -69,6 +69,7 @@ class GoalReport:
     judgment: GoalJudgment
     capability_matrix: list[tuple[str, str, str]]
     next_actions: list[str]
+    kanban_board: Optional[Any] = None  # KanbanBoard (Agent-Teams 패턴 이식)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -222,15 +223,28 @@ class GoalRunner:
     ) -> GoalReport:
         normalized = self._normalize(objective)
         assessment = self._assess(normalized, context or {})
+        steps = self._steps(assessment)
+
+        # Kanban 보드 자동 생성 (Agent-Teams 패턴 이식)
+        kanban = None
+        try:
+            from antigravity_k.engine.kanban_engine import KanbanBoard
+
+            kanban = KanbanBoard(name=f"Goal: {normalized[:50]}")
+            kanban.decompose_from_steps(steps)
+        except Exception:
+            pass  # kanban 없이도 정상 동작
+
         return GoalReport(
             objective=objective,
             normalized_objective=normalized,
             assessment=assessment,
             success_criteria=self._success_criteria(normalized, assessment),
-            steps=self._steps(assessment),
+            steps=steps,
             judgment=self._judge(normalized, assessment, context or {}),
             capability_matrix=self._capability_matrix(),
             next_actions=self._next_actions(assessment),
+            kanban_board=kanban,
         )
 
     def render_markdown(self, report: GoalReport) -> str:
@@ -284,6 +298,12 @@ class GoalRunner:
 
         lines.extend(["", "## Next Actions"])
         lines.extend(f"- {item}" for item in report.next_actions)
+
+        # Kanban 보드 출력 (Agent-Teams 패턴)
+        if report.kanban_board is not None:
+            lines.extend(["", "---", ""])
+            lines.append(report.kanban_board.to_markdown())
+
         return "\n".join(lines)
 
     def _normalize(self, objective: str) -> str:

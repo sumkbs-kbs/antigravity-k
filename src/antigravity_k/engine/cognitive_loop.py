@@ -79,6 +79,7 @@ class CognitiveLoop:
         self._step_history: List[Dict[str, Any]] = []
         self._retry_count = 0
         self._max_retries = 2
+        self._dialectic_enabled = True  # 변증법적 자기 비판 활성화 (Hegelion 패턴)
 
     # ─── Phase 1: PLAN ─────────────────────────────────────
 
@@ -212,6 +213,7 @@ class CognitiveLoop:
             "grade": grade,
             "issues": issues,
             "suggestion": suggestion,
+            "dialectic_applied": not passed and self._dialectic_enabled,
         }
 
     def _suggest_fix(
