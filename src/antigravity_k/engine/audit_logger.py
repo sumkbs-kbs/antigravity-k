@@ -144,12 +144,29 @@ class AuditLogger:
         self.emit(event)
 
     def emit(self, event_dict: Dict[str, Any]):
-        """Emit an OCSF structured event dictionary."""
+        """Emit an OCSF structured event dictionary.
+
+        JSONL 파일 + SQLite 듀얼 싱크 (Sidabari audit_log.rs 패턴).
+        SQLite 실패 시 JSONL만으로 폴백 — 데이터 손실 방지.
+        """
         try:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(event_dict, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.error(f"Failed to write audit log: {e}")
+
+        # SQLite 듀얼 싱크
+        try:
+            from antigravity_k.engine.audit_db import get_audit_db
+
+            db = get_audit_db()
+            if db._initialized:
+                db.insert_from_dict(event_dict)
+        except ImportError:
+            pass
+        except Exception as e:
+            # SQLite 실패는 JSONL 적재를 막지 않음
+            logger.debug(f"SQLite dual-sync failed (non-blocking): {e}")
 
 
 # Singleton Instance

@@ -1,0 +1,287 @@
+"""
+AuditDb — SQLite 기반 감사 이벤트 영구 적재
+=============================================
+Sidabari의 audit_log.rs 패턴을 Python SQLite로 이식.
+
+기존 OCSF JSONL 감사 로그(audit_logger.py)와 듀얼 싱크하여
+데이터 손실을 방지하면서 쿼리 가능한 영구 저장소를 제공합니다.
+
+위치: vault_data/audit.sqlite3
+
+보안 (Sidabari CLAUDE.md §1.2.7):
+  - DB 파일 권한 0600 (Unix)
+  - tool_input/tool_result에 사용자 명령·로그 본문이 포함될 수 있어 외부 노출 금지
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import platform
+import sqlite3
+import stat
+import threading
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("antigravity_k.engine.audit_db")
+
+SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS hook_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts_ms           INTEGER NOT NULL,
+    panel_id        TEXT,
+    kind            TEXT NOT NULL,
+    hook_event_name TEXT,
+    tool_name       TEXT,
+    payload_json    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hook_events_ts ON hook_events(ts_ms);
+CREATE INDEX IF NOT EXISTS idx_hook_events_panel ON hook_events(panel_id);
+CREATE INDEX IF NOT EXISTS idx_hook_events_kind ON hook_events(kind);
+CREATE INDEX IF NOT EXISTS idx_hook_events_tool ON hook_events(tool_name);
+"""
+
+
+class AuditDb:
+    """SQLite 기반 감사 이벤트 영구 적재.
+
+    Sidabari audit_log.rs의 Python 이식.
+    """
+
+    def __init__(self, db_path: Optional[str] = None):
+        self._db_path: Optional[Path] = Path(db_path) if db_path else None
+        self._conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.Lock()
+        self._initialized = False
+
+    def init(self, vault_data_dir: Optional[str] = None) -> "AuditDb":
+        """DB를 초기화합니다."""
+        if self._initialized:
+            return self
+
+        if vault_data_dir:
+            db_dir = Path(vault_data_dir)
+        elif self._db_path:
+            db_dir = self._db_path.parent
+        else:
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            db_dir = project_root / "vault_data"
+
+        db_dir.mkdir(parents=True, exist_ok=True)
+        self._db_path = db_dir / "audit.sqlite3"
+
+        try:
+            self._conn = sqlite3.connect(
+                str(self._db_path),
+                check_same_thread=False,
+                timeout=10.0,
+            )
+            self._conn.executescript(SCHEMA_SQL)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+        except Exception as e:
+            logger.error(f"[AuditDb] DB 초기화 실패: {e}")
+            raise
+
+        # Unix 파일 권한 0600
+        if platform.system() != "Windows":
+            try:
+                os.chmod(self._db_path, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError as e:
+                logger.warning(f"[AuditDb] 파일 권한 설정 실패: {e}")
+
+        self._initialized = True
+        logger.info(f"[AuditDb] Initialized at {self._db_path}")
+        return self
+
+    def close(self):
+        """DB 연결을 닫습니다."""
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+        self._initialized = False
+
+    def insert(
+        self,
+        panel_id: Optional[str],
+        kind: str,
+        hook_event_name: Optional[str],
+        tool_name: Optional[str],
+        payload_json: str,
+    ) -> None:
+        """이벤트를 DB에 삽입합니다.
+
+        실패해도 흐름 차단 X — stderr 로그만 남깁니다.
+        (Sidabari audit_log.rs insert 패턴)
+        """
+        if not self._conn:
+            return
+
+        ts_ms = int(time.time() * 1000)
+
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT INTO hook_events "
+                    "(ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json),
+                )
+                self._conn.commit()
+        except Exception as e:
+            logger.error(f"[AuditDb] insert 실패: {e}")
+
+    def insert_from_dict(self, event_dict: Dict[str, Any]) -> None:
+        """딕셔너리 형태의 이벤트를 삽입합니다."""
+        meta = event_dict.get("_antigravity", {})
+        panel_id = meta.get("panel_id") if isinstance(meta, dict) else None
+        kind = event_dict.get("event", event_dict.get("hook_event_name", "unknown"))
+        hook_event_name = event_dict.get("hook_event_name")
+        tool_name = event_dict.get("tool_name")
+
+        payload_json = json.dumps(event_dict, ensure_ascii=False, default=str)
+        self.insert(panel_id, kind, hook_event_name, tool_name, payload_json)
+
+    # ── 조회 API ──
+
+    def query_recent(
+        self,
+        limit: int = 100,
+        kind: Optional[str] = None,
+        panel_id: Optional[str] = None,
+        since_ms: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """최근 이벤트를 조회합니다."""
+        if not self._conn:
+            return []
+
+        conditions = []
+        params: List[Any] = []
+
+        if kind:
+            conditions.append("kind = ?")
+            params.append(kind)
+        if panel_id:
+            conditions.append("panel_id = ?")
+            params.append(panel_id)
+        if since_ms:
+            conditions.append("ts_ms >= ?")
+            params.append(since_ms)
+
+        where = ""
+        if conditions:
+            where = " WHERE " + " AND ".join(conditions)
+
+        query = (
+            f"SELECT id, ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json "
+            f"FROM hook_events{where} ORDER BY ts_ms DESC LIMIT ?"
+        )
+        params.append(limit)
+
+        try:
+            with self._lock:
+                cursor = self._conn.execute(query, params)
+                rows = cursor.fetchall()
+        except Exception as e:
+            logger.error(f"[AuditDb] query 실패: {e}")
+            return []
+
+        return [
+            {
+                "id": row[0],
+                "ts_ms": row[1],
+                "panel_id": row[2],
+                "kind": row[3],
+                "hook_event_name": row[4],
+                "tool_name": row[5],
+                "payload": json.loads(row[6]) if row[6] else {},
+            }
+            for row in rows
+        ]
+
+    def query_tool_stats(
+        self, since_ms: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """도구별 호출 통계를 조회합니다."""
+        if not self._conn:
+            return []
+
+        where = ""
+        params: List[Any] = []
+        if since_ms:
+            where = " WHERE ts_ms >= ? AND tool_name IS NOT NULL"
+            params.append(since_ms)
+        else:
+            where = " WHERE tool_name IS NOT NULL"
+
+        query = (
+            f"SELECT tool_name, COUNT(*) as cnt, MIN(ts_ms) as first_ts, MAX(ts_ms) as last_ts "
+            f"FROM hook_events{where} "
+            f"GROUP BY tool_name ORDER BY cnt DESC"
+        )
+
+        try:
+            with self._lock:
+                cursor = self._conn.execute(query, params)
+                rows = cursor.fetchall()
+        except Exception as e:
+            logger.error(f"[AuditDb] tool_stats query 실패: {e}")
+            return []
+
+        return [
+            {
+                "tool_name": row[0],
+                "count": row[1],
+                "first_ts": row[2],
+                "last_ts": row[3],
+            }
+            for row in rows
+        ]
+
+    def count_events(self, since_ms: Optional[int] = None) -> int:
+        """총 이벤트 수를 반환합니다."""
+        if not self._conn:
+            return 0
+
+        try:
+            with self._lock:
+                if since_ms:
+                    cursor = self._conn.execute(
+                        "SELECT COUNT(*) FROM hook_events WHERE ts_ms >= ?",
+                        (since_ms,),
+                    )
+                else:
+                    cursor = self._conn.execute("SELECT COUNT(*) FROM hook_events")
+                return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"[AuditDb] count 실패: {e}")
+            return 0
+
+
+# ── 글로벌 싱글톤 ──
+
+_global_audit_db: Optional[AuditDb] = None
+_global_lock = threading.Lock()
+
+
+def get_audit_db() -> AuditDb:
+    """글로벌 AuditDb 인스턴스를 반환합니다."""
+    global _global_audit_db
+    if _global_audit_db is None:
+        with _global_lock:
+            if _global_audit_db is None:
+                _global_audit_db = AuditDb()
+    return _global_audit_db
+
+
+def init_audit_db(vault_data_dir: Optional[str] = None) -> AuditDb:
+    """글로벌 AuditDb를 초기화합니다."""
+    db = get_audit_db()
+    db.init(vault_data_dir)
+    return db

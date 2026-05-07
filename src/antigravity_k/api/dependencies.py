@@ -61,6 +61,7 @@ def get_model_manager() -> ModelManager:
     if model_manager is None:
         logger.info("Lazy initializing ModelManager...")
         from antigravity_k.engine.usage_tracker import UsageTracker
+
         registry = ModelRegistry("config.yaml")
         tracker = UsageTracker(db_path="data/token_usage.json")
         model_manager = ModelManager(registry, tracker=tracker)

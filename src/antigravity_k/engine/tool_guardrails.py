@@ -280,6 +280,22 @@ class ToolCallGuardrailController:
                     tool_name=tool_name,
                     signature=signature
                 )
+            # Claude Deny Patterns (Sidabari claude_safety.rs 이식)
+            try:
+                from .claude_deny_patterns import is_command_blocked_by_deny
+                if is_command_blocked_by_deny(cmd):
+                    return ToolGuardrailDecision(
+                        action="block",
+                        code="claude_deny_pattern",
+                        message=(
+                            f"Command blocked by safety deny pattern. "
+                            "This is a protective rule from claude_deny_patterns."
+                        ),
+                        tool_name=tool_name,
+                        signature=signature
+                    )
+            except ImportError:
+                pass
 
         if tool_name in ["web_search", "web_scrape", "fetch_dom"] and args:
             url = args.get("url", "") or args.get("query", "")

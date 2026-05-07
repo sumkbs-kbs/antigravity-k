@@ -17,13 +17,53 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup — RAG 자동 인덱싱
+    # Startup — Sidabari 패턴 기반 서브시스템 초기화
+    project_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    )
+    vault_data_dir = os.path.join(project_root, "vault_data")
+
+    # 1) HookEventBus 초기화 (파일 기반 실시간 이벤트 IPC)
+    try:
+        from antigravity_k.engine.hook_event_bus import init_hook_event_bus
+
+        init_hook_event_bus(vault_data_dir)
+        logger.info("[Startup] HookEventBus initialized")
+    except Exception as e:
+        logger.warning(f"[Startup] HookEventBus init skipped: {e}")
+
+    # 2) AuditDb 초기화 (SQLite 감사 로그)
+    try:
+        from antigravity_k.engine.audit_db import init_audit_db
+
+        init_audit_db(vault_data_dir)
+        logger.info("[Startup] AuditDb initialized")
+    except Exception as e:
+        logger.warning(f"[Startup] AuditDb init skipped: {e}")
+
+    # 3) PanelActivityTracker 초기화 (에이전트 활동 추적)
+    try:
+        from antigravity_k.engine.panel_activity_tracker import (
+            init_panel_activity_tracker,
+        )
+
+        init_panel_activity_tracker()
+        logger.info("[Startup] PanelActivityTracker initialized")
+    except Exception as e:
+        logger.warning(f"[Startup] PanelActivityTracker init skipped: {e}")
+
+    # 4) EventBus ↔ HookEventBus 듀얼 싱크 브릿지
+    try:
+        from antigravity_k.engine.event_bus import bridge_to_hook_event_bus
+
+        bridge_to_hook_event_bus()
+        logger.info("[Startup] EventBus dual-sync bridge established")
+    except Exception as e:
+        logger.warning(f"[Startup] EventBus bridge skipped: {e}")
+
+    # 5) RAG 자동 인덱싱 (기존)
     try:
         from antigravity_k.engine.rag_indexer import RAGIndexer
-
-        project_root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        )
 
         async def _bg_index():
             try:
@@ -56,6 +96,20 @@ async def lifespan(app: FastAPI):
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Sidabari 서브시스템 정리
+    try:
+        from antigravity_k.engine.hook_event_bus import get_hook_event_bus
+        get_hook_event_bus().shutdown()
+    except Exception:
+        pass
+
+    try:
+        from antigravity_k.engine.audit_db import get_audit_db
+        get_audit_db().close()
+    except Exception:
+        pass
+
     logger.info(f"Shutdown complete: {len(tasks)} tasks cancelled.")
 
 

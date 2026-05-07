@@ -611,7 +611,10 @@ async def create_kanban_task(request: Request):
 @router.get("/api/kanban/tasks")
 async def get_kanban_tasks(workspace: Optional[str] = Query(None)):
     tasks = [t for t in kanban_tasks if _task_matches_workspace(t, workspace)]
-    return {"data": tasks, "workspace": _normalize_project_path(workspace) if workspace else None}
+    return {
+        "data": tasks,
+        "workspace": _normalize_project_path(workspace) if workspace else None,
+    }
 
 
 @router.post("/api/kanban/tasks/{task_id}/cancel")
@@ -945,7 +948,7 @@ async def system_status():
         return {
             "ok": True,
             "status": "online",
-            "memory_mb": mem_info.percent, # Returns percentage despite the legacy key name
+            "memory_mb": mem_info.percent,  # Returns percentage despite the legacy key name
             "cpu_percent": psutil.cpu_percent(interval=0.1),
             "total_tokens": total_tokens,
             "uptime_seconds": uptime_seconds,

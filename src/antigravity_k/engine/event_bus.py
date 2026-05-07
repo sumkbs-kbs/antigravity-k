@@ -87,3 +87,40 @@ class EventBus:
 
 # 전역 싱글톤 인스턴스
 global_event_bus = EventBus()
+
+
+def bridge_to_hook_event_bus():
+    """HookEventBus와 글로벌 EventBus를 양방향 브릿지합니다.
+
+    - EventBus.publish() → HookEventBus JSONL 파일에도 기록 (듀얼 싱크)
+    - HookEventBus 이벤트 → EventBus 구독자에게도 전달
+    """
+    try:
+        from antigravity_k.engine.hook_event_bus import get_hook_event_bus
+
+        hook_bus = get_hook_event_bus()
+
+        # EventBus → HookEventBus 듀얼 싱크
+        original_publish = global_event_bus.publish
+
+        def dual_publish(event_name: str, **kwargs):
+            original_publish(event_name, **kwargs)
+            # 파일 기반 영구 기록 (초기화된 경우에만)
+            if hook_bus._initialized:
+                hook_bus.emit_event(event_name, kwargs)
+
+        global_event_bus.publish = dual_publish
+
+        # HookEventBus → EventBus 브릿지
+        def on_hook_event(event):
+            kind = event.kind
+            payload = event.payload
+            original_publish(f"Hook:{kind}", **payload)
+
+        hook_bus.subscribe_all(on_hook_event)
+
+        logger.info("[EventBus] HookEventBus 듀얼 싱크 브릿지 설정 완료")
+    except ImportError:
+        logger.debug("[EventBus] HookEventBus 미설치 — 듀얼 싱크 비활성")
+    except Exception as e:
+        logger.warning(f"[EventBus] HookEventBus 브릿지 설정 실패: {e}")
