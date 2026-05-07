@@ -7,6 +7,7 @@ export const ChatPage = {
         <span class="mobile-app-title">Antigravity-K</span>
         <div class="mobile-actions">
           <button id="mobile-command-palette-btn" class="icon-btn" title="Command Palette" style="font-size:18px;">🔎</button>
+          <button id="mobile-agent-mgr-btn" class="icon-btn" title="Agent Manager" style="font-size:18px;">🤖</button>
           <button id="mobile-new-chat-btn" class="icon-btn" title="New Chat" style="font-size:18px;">➕</button>
         </div>
       </div>
@@ -178,7 +179,10 @@ export const ChatPage = {
     <!-- Agent Manager Slide Panel -->
     <div id="agent-manager-panel" class="agent-manager-panel">
       <div class="agent-manager-header">
-        <span>🤖 Agent Manager</span>
+        <div>
+          <span>🤖 Agent Manager</span>
+          <div id="agent-manager-project" class="agent-manager-project">현재 프로젝트 기준</div>
+        </div>
         <button id="close-agent-mgr-btn" class="close-agent-mgr" title="Close">✕</button>
       </div>
       <div id="agent-manager-body" class="agent-manager-body">
@@ -1992,10 +1996,39 @@ export const ChatPage = {
     const agentMgrOverlay = document.getElementById('agent-manager-overlay');
     const closeAgentMgrBtn = document.getElementById('close-agent-mgr-btn');
     const agentMgrBody = document.getElementById('agent-manager-body');
+    const agentMgrProject = document.getElementById('agent-manager-project');
+
+    function getAgentWorkspaceQuery() {
+      if (!currentWorkspacePath || currentWorkspacePath === '/') return '';
+      return '?workspace=' + encodeURIComponent(currentWorkspacePath);
+    }
+
+    function normalizeAgentPath(path) {
+      return String(path || '').replace(/\/+$/, '');
+    }
+
+    function filterAgentTasksForWorkspace(tasks) {
+      if (!currentWorkspacePath || currentWorkspacePath === '/') return tasks;
+      const workspace = normalizeAgentPath(currentWorkspacePath);
+      return tasks.filter(task => normalizeAgentPath(task.project_path) === workspace);
+    }
+
+    function updateAgentManagerProjectLabel() {
+      if (!agentMgrProject) return;
+      if (!currentWorkspacePath || currentWorkspacePath === '/') {
+        agentMgrProject.textContent = '전체 프로젝트';
+        return;
+      }
+      const parts = currentWorkspacePath.split(/[\\/]/).filter(Boolean);
+      const name = parts[parts.length - 1] || currentWorkspacePath;
+      agentMgrProject.textContent = `${name} · ${currentWorkspacePath}`;
+      agentMgrProject.title = currentWorkspacePath;
+    }
 
     function openAgentManager() {
       agentMgrPanel.classList.add('open');
       agentMgrOverlay.classList.add('open');
+      updateAgentManagerProjectLabel();
       fetchAgentTasks();
     }
 
@@ -2007,6 +2040,11 @@ export const ChatPage = {
     agentMgrBtn.addEventListener('click', openAgentManager);
     closeAgentMgrBtn.addEventListener('click', closeAgentManager);
     agentMgrOverlay.addEventListener('click', closeAgentManager);
+
+    const mobileAgentMgrBtn = document.getElementById('mobile-agent-mgr-btn');
+    if (mobileAgentMgrBtn) {
+      mobileAgentMgrBtn.addEventListener('click', openAgentManager);
+    }
 
     function renderAgentTasks(tasks) {
       if (!tasks || tasks.length === 0) {
@@ -2030,6 +2068,9 @@ export const ChatPage = {
         const cancelBtn = (task.status === 'in_progress' || task.status === 'todo')
           ? `<button class="task-cancel-btn" data-task-id="${task.id}">🛑 중단</button>`
           : '';
+        const removeBtn = (task.status === 'completed' || task.status === 'cancelled')
+          ? `<button class="task-remove-btn" data-task-id="${task.id}">정리</button>`
+          : '';
 
         return `
           <div class="agent-task-item">
@@ -2039,7 +2080,9 @@ export const ChatPage = {
             </div>
             <div class="task-meta">
               <span class="task-status ${st.cls}">${st.label}</span>
+              ${task.project_name ? `<span class="task-project">${escapeHTML(task.project_name)}</span>` : ''}
               ${cancelBtn}
+              ${removeBtn}
             </div>
           </div>
         `;
@@ -2060,11 +2103,26 @@ export const ChatPage = {
           }
         });
       });
+
+      agentMgrBody.querySelectorAll('.task-remove-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const taskId = btn.getAttribute('data-task-id');
+          btn.disabled = true;
+          btn.textContent = '정리 중...';
+          try {
+            await fetch(`/api/kanban/tasks/${taskId}`, { method: 'DELETE' });
+            fetchAgentTasks();
+          } catch (err) {
+            btn.disabled = false;
+            btn.textContent = '정리';
+          }
+        });
+      });
     }
 
     async function fetchAgentTasks() {
       try {
-        const res = await fetch('/api/kanban/tasks');
+        const res = await fetch('/api/kanban/tasks' + getAgentWorkspaceQuery());
         const data = await res.json();
         renderAgentTasks(data.data || []);
       } catch (err) {
@@ -2079,8 +2137,9 @@ export const ChatPage = {
       agentWs.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.tasks && agentMgrPanel.classList.contains('open')) {
-            renderAgentTasks(data.tasks);
+          const tasks = Array.isArray(data.tasks) ? data.tasks : null;
+          if (tasks && agentMgrPanel.classList.contains('open')) {
+            renderAgentTasks(filterAgentTasksForWorkspace(tasks));
           }
         } catch (e) {}
       };

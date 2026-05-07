@@ -29,6 +29,12 @@ from antigravity_k.engine.uncertainty import UncertaintyEstimator
 from antigravity_k.engine.user_model import UserIntentModeler
 from antigravity_k.engine.prompt_builder import PromptBuilder
 from antigravity_k.engine.tool_executor import ToolExecutor
+from antigravity_k.engine.memory_provider import (
+    MemoryManager,
+    BuiltinMemoryProvider,
+    EpisodicMemoryProvider,
+    WorkingMemoryBuffer,
+)
 
 logger = logging.getLogger("antigravity_k.engine_context")
 
@@ -84,6 +90,13 @@ class EngineContext:
         self.user_model = UserIntentModeler(project_root=self.project_root)
         self.context_shaper = ContextShaper()
         self.session_manager = SessionManager()
+
+        # 4-Tier Cognitive Memory System
+        self.memory_manager = MemoryManager()
+        self.memory_manager.add_provider(BuiltinMemoryProvider(self.session_manager))
+        self.memory_manager.add_provider(EpisodicMemoryProvider(max_episodes=200))
+        self.memory_manager.add_provider(WorkingMemoryBuffer(max_turns=20))
+
         self.skill_loader = SkillLoader(
             project_root=self.project_root,
             capability_policy_config=capability_policy_config,

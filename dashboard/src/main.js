@@ -271,7 +271,6 @@ async function checkSystemStatus() {
   }
 
   try {
-    // 2. 서버 메트릭 상태 (/api/system/status). PIN-protected 401 is an expected state.
     const sysResp = await fetch('/api/system/status', { skipPinModal: true });
     if (sysResp.status === 401) {
       metricsDiv.style.display = 'none';
@@ -284,8 +283,12 @@ async function checkSystemStatus() {
     const sysData = await sysResp.json();
     if (sysData.ok) {
       metricsDiv.style.display = 'block';
-      memSpan.textContent = sysData.memory_mb;
+      memSpan.textContent = sysData.memory_mb; // Now actually represents percentage
       cpuSpan.textContent = sysData.cpu_percent;
+      const tokensSpan = document.getElementById('sys-tokens');
+      if (tokensSpan && sysData.total_tokens !== undefined) {
+          tokensSpan.textContent = sysData.total_tokens.toLocaleString();
+      }
     } else {
       metricsDiv.style.display = 'none';
     }

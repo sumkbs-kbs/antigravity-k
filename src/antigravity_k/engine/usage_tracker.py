@@ -201,6 +201,13 @@ class UsageTracker:
         """기록에 등장한 모든 모델 이름"""
         return list({r.model_name for r in self._records})
 
+    def get_total_tokens(self) -> int:
+        """현재까지 기록된 모든 토큰 수(입력+출력) 합계 반환"""
+        total = 0
+        for r in self._records:
+            total += r.tokens_in + r.tokens_out
+        return total
+
     # ─── 대시보드 데이터 ─────────────────────────────────────────────
 
     def to_dashboard_data(self) -> dict:

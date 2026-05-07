@@ -45,6 +45,10 @@ class BenchmarkResult:
     output_preview: str  # 첫 500자
     timestamp: float
     issues: list[str] = field(default_factory=list)
+    benchmark_score: float = 0.0  # QualityGate + expected keyword coverage composite
+    keyword_coverage: float = 0.0  # 0.0 ~ 1.0
+    passed_keywords: list[str] = field(default_factory=list)
+    missing_keywords: list[str] = field(default_factory=list)
     error: str = ""
 
     def to_dict(self) -> dict:
@@ -189,21 +193,33 @@ class BenchmarkHarness:
         # ── 요약 테이블 ──
         lines = [
             "## 📊 Benchmark 비교표\n",
-            "| 타겟 | 실행 수 | 평균 품질 | A/B 비율 | 평균 레이턴시 | 평균 토큰(out) |",
-            "|------|---------|----------|---------|-------------|---------------|",
+            "| 타겟 | 실행 수 | 평균 종합점수 | 평균 품질 | 키워드 커버리지 | A/B 비율 | 평균 레이턴시 | 평균 토큰(out) |",
+            "|------|---------|---------------|----------|----------------|---------|-------------|---------------|",
         ]
 
+        target_summaries = []
         for target, results in sorted(targets.items()):
             n = len(results)
+            avg_b = sum(r.benchmark_score for r in results) / n
             avg_q = sum(r.quality_score for r in results) / n
+            avg_k = sum(r.keyword_coverage for r in results) / n
             ab_count = sum(
                 1 for r in results if r.quality_grade in ("excellent", "good")
             )
             ab_ratio = ab_count / n * 100
             avg_lat = sum(r.latency_ms for r in results) / n / 1000
             avg_tok = sum(r.tokens_out for r in results) / n
+            target_summaries.append((target, avg_b, avg_q, avg_k, avg_lat))
             lines.append(
-                f"| `{target}` | {n} | {avg_q:.0%} | {ab_ratio:.0f}% | {avg_lat:.1f}s | {avg_tok:.0f} |"
+                f"| `{target}` | {n} | {avg_b:.0%} | {avg_q:.0%} | {avg_k:.0%} | {ab_ratio:.0f}% | {avg_lat:.1f}s | {avg_tok:.0f} |"
+            )
+
+        if target_summaries:
+            leader = max(target_summaries, key=lambda item: item[1])
+            lines.insert(
+                1,
+                f"> 현재 우세 타겟: `{leader[0]}` "
+                f"(종합 {leader[1]:.0%}, 품질 {leader[2]:.0%}, 키워드 {leader[3]:.0%}, 평균 {leader[4]:.1f}s)\n",
             )
 
         # ── 과제별 상세 ──
@@ -231,7 +247,7 @@ class BenchmarkHarness:
                         "retry": "🟡C",
                         "fail": "🔴F",
                     }.get(latest.quality_grade, latest.quality_grade)
-                    row += f" {grade_emoji} ({latest.quality_score:.0%}, {latest.latency_ms / 1000:.1f}s) |"
+                    row += f" {grade_emoji} (종합 {latest.benchmark_score:.0%}, {latest.latency_ms / 1000:.1f}s) |"
                 else:
                     row += " — |"
             lines.append(row)
@@ -277,20 +293,63 @@ class BenchmarkHarness:
         # 토큰 추정
         tokens_in = len(case.prompt) // 4
         tokens_out = len(output) // 4
+        keyword_coverage, passed_keywords, missing_keywords = self._score_keywords(
+            case, output
+        )
+        benchmark_score = self._compose_benchmark_score(
+            quality_score=quality_score,
+            keyword_coverage=keyword_coverage,
+            error=error,
+        )
+        if missing_keywords:
+            issues = list(issues)
+            issues.append("missing_keywords:" + ",".join(missing_keywords))
 
         return BenchmarkResult(
             case_id=case.id,
             target=target,
+            benchmark_score=benchmark_score,
             quality_score=round(quality_score, 3),
             quality_grade=quality_grade,
+            keyword_coverage=keyword_coverage,
             latency_ms=round(elapsed_ms, 1),
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             output_preview=output[:500] if output else "",
             timestamp=time.time(),
             issues=issues,
+            passed_keywords=passed_keywords,
+            missing_keywords=missing_keywords,
             error=error,
         )
+
+    @staticmethod
+    def _score_keywords(
+        case: BenchmarkCase,
+        output: str,
+    ) -> tuple[float, list[str], list[str]]:
+        """과제별 기대 키워드 충족률을 계산합니다."""
+        expected = list(case.expected_keywords or ())
+        if not expected:
+            return 1.0, [], []
+
+        output_lower = (output or "").lower()
+        passed = [kw for kw in expected if kw.lower() in output_lower]
+        missing = [kw for kw in expected if kw.lower() not in output_lower]
+        coverage = len(passed) / len(expected)
+        return round(coverage, 3), passed, missing
+
+    @staticmethod
+    def _compose_benchmark_score(
+        *,
+        quality_score: float,
+        keyword_coverage: float,
+        error: str,
+    ) -> float:
+        """품질 점수와 과제 충족률을 결합한 종합 점수."""
+        if error:
+            return 0.0
+        return round((quality_score * 0.7) + (keyword_coverage * 0.3), 3)
 
     def _default_targets(self) -> list[str]:
         """config.yaml에서 벤치마크 비교 대상을 결정합니다."""
@@ -311,7 +370,16 @@ class BenchmarkHarness:
         try:
             with open(self._db_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._history = [BenchmarkResult(**r) for r in data.get("results", [])]
+            self._history = []
+            for raw_result in data.get("results", []):
+                result = BenchmarkResult(**raw_result)
+                if "benchmark_score" not in raw_result:
+                    result.benchmark_score = result.quality_score
+                if "keyword_coverage" not in raw_result:
+                    result.keyword_coverage = (
+                        1.0 if result.output_preview and not result.error else 0.0
+                    )
+                self._history.append(result)
             logger.info("[Benchmark] %d개 기존 결과 로드", len(self._history))
         except Exception as exc:
             logger.warning("[Benchmark] 기존 결과 로드 실패: %s", exc)

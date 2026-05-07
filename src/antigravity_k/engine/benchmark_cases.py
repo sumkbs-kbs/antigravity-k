@@ -13,7 +13,7 @@ collective-council vs 단일 모델 비교를 위한 내장 코딩 과제 정의
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

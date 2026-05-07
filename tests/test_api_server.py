@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
@@ -69,6 +71,93 @@ def test_api_routes_require_access_pin_without_auth_header():
 
     assert response.status_code == 401
     assert response.json()["ok"] is False
+
+
+def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
+    from antigravity_k.api.routes import legacy
+
+    original_tasks = list(legacy.kanban_tasks)
+    original_counter = legacy.task_counter
+    legacy.kanban_tasks.clear()
+    legacy.task_counter = 9100
+
+    try:
+        alpha = client.post(
+            "/api/kanban/tasks",
+            json={
+                "description": "Alpha project task",
+                "assignee": "QA",
+                "workspace": "/tmp/antigravity-alpha",
+            },
+        )
+        beta = client.post(
+            "/api/kanban/tasks",
+            json={
+                "description": "Beta project task",
+                "assignee": "WORKER",
+                "workspace": "/tmp/antigravity-beta",
+            },
+        )
+
+        assert alpha.status_code == 200
+        assert beta.status_code == 200
+        assert alpha.json()["project_name"] == "antigravity-alpha"
+        assert beta.json()["project_name"] == "antigravity-beta"
+
+        scoped = client.get(
+            "/api/kanban/tasks", params={"workspace": "/tmp/antigravity-alpha"}
+        )
+        assert scoped.status_code == 200
+        scoped_tasks = scoped.json()["data"]
+        assert [task["title"] for task in scoped_tasks] == ["Alpha project task"]
+
+        cancel = client.post(f"/api/kanban/tasks/{alpha.json()['id']}/cancel")
+        assert cancel.status_code == 200
+        assert cancel.json()["task"]["status"] == "cancelled"
+
+        remove = client.delete(f"/api/kanban/tasks/{alpha.json()['id']}")
+        assert remove.status_code == 200
+        assert remove.json()["ok"] is True
+
+        scoped_after_remove = client.get(
+            "/api/kanban/tasks", params={"workspace": "/tmp/antigravity-alpha"}
+        )
+        assert scoped_after_remove.status_code == 200
+        assert scoped_after_remove.json()["data"] == []
+    finally:
+        legacy.kanban_tasks.clear()
+        legacy.kanban_tasks.extend(original_tasks)
+        legacy.task_counter = original_counter
+
+
+def test_kanban_websocket_sends_flat_tasks_payload(client):
+    from antigravity_k.api.routes import legacy
+
+    original_tasks = list(legacy.kanban_tasks)
+    legacy.kanban_tasks.clear()
+    legacy.kanban_tasks.append(
+        {
+            "id": "T-WS",
+            "title": "WebSocket payload task",
+            "description": "WebSocket payload task",
+            "role": "QA",
+            "status": "todo",
+            "project_path": "/tmp/antigravity-ws",
+            "project_name": "antigravity-ws",
+        }
+    )
+
+    try:
+        with client.websocket_connect("/ws/kanban") as websocket:
+            payload = json.loads(websocket.receive_text())
+
+        assert "tasks" in payload
+        assert payload["tasks"][0]["id"] == "T-WS"
+        assert payload["todo"][0]["id"] == "T-WS"
+        assert payload["BACKLOG"][0]["id"] == "T-WS"
+    finally:
+        legacy.kanban_tasks.clear()
+        legacy.kanban_tasks.extend(original_tasks)
 
 
 def test_chat_completions_openai_format(client, mock_manager):
@@ -221,6 +310,21 @@ def test_slash_api_empty_command_returns_structured_error(client, mock_manager):
     assert response.status_code == 200
     data = response.json()
     assert data == {"ok": True, "result": "Error: Empty command."}
+    mock_manager.generate.assert_not_called()
+
+
+def test_slash_api_benchmark_help_returns_plain_text(client, mock_manager):
+    from antigravity_k.api.routes import legacy
+
+    legacy._slash_registry = None
+
+    response = client.post("/api/slash", json={"input": "/benchmark"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert isinstance(data["result"], str)
+    assert "Benchmark 명령어" in data["result"]
     mock_manager.generate.assert_not_called()
 
 

@@ -6,18 +6,18 @@ mock ModelManager로 BenchmarkHarness 실행 플로우를 검증합니다.
 
 import json
 import time
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from antigravity_k.engine.benchmark_cases import BenchmarkCase, get_suite, BUILTIN_CASES
+from antigravity_k.engine.benchmark_cases import get_suite, BUILTIN_CASES
 from antigravity_k.engine.benchmark_harness import (
     BenchmarkHarness,
     BenchmarkReport,
-    BenchmarkResult,
 )
-from antigravity_k.engine.quality_gate import QualityGate
+from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────
@@ -113,6 +113,9 @@ class TestBenchmarkHarness:
         assert results[0].case_id == "sim-001"
         assert results[0].target == "test-model"
         assert results[0].quality_score > 0
+        assert results[0].benchmark_score > 0
+        assert results[0].keyword_coverage > 0
+        assert "def fibonacci" in results[0].passed_keywords
         assert results[0].latency_ms >= 0  # mock은 즉시 반환하므로 0.0 가능
         mock_model_manager.generate.assert_called_once()
 
@@ -143,6 +146,8 @@ class TestBenchmarkHarness:
         table = harness.comparison_table("simple")
 
         assert "Benchmark 비교표" in table
+        assert "평균 종합점수" in table
+        assert "현재 우세 타겟" in table
         assert "test-model" in table
         assert "sim-001" in table
 
@@ -160,6 +165,58 @@ class TestBenchmarkHarness:
         targets = harness._default_targets()
         assert "collective-council" in targets
         assert len(targets) >= 2  # collective + at least 1 individual
+
+
+# ─── Slash command integration ─────────────────────────────────────
+
+
+class TestBenchmarkSlashCommand:
+    def test_help_returns_string_not_generator(self, mock_model_manager):
+        registry = SlashCommandRegistry(model_manager=mock_model_manager)
+
+        result = registry.execute("/benchmark")
+
+        assert isinstance(result, str)
+        assert "Benchmark 명령어" in result
+
+    def test_report_returns_string_not_generator(self, mock_model_manager):
+        registry = SlashCommandRegistry(model_manager=mock_model_manager)
+
+        result = registry.execute("/benchmark report")
+
+        assert isinstance(result, str)
+        assert "Benchmark 비교표" in result or "벤치마크 결과가 없습니다" in result
+
+    def test_run_returns_streaming_generator(self, mock_model_manager):
+        registry = SlashCommandRegistry(model_manager=mock_model_manager)
+        fake_report = BenchmarkReport(
+            suite_name="simple",
+            targets=["test-model"],
+            results=[],
+            started_at=time.time(),
+            finished_at=time.time(),
+        )
+
+        with patch(
+            "antigravity_k.engine.benchmark_harness.BenchmarkHarness"
+        ) as harness_cls:
+            harness = harness_cls.return_value
+            harness.run_suite.return_value = fake_report
+            harness.comparison_table.return_value = "## mock table"
+
+            result = registry.execute("/benchmark run simple")
+
+        assert isinstance(result, types.GeneratorType)
+        rendered = "".join(result)
+        assert "벤치마크 실행 시작" in rendered
+        assert "벤치마크 완료" in rendered
+        assert "## mock table" in rendered
+
+    def test_command_palette_exposes_benchmark_report(self):
+        js = Path("dashboard/src/command_palette.js").read_text(encoding="utf-8")
+
+        assert "Collective Benchmark Report (/benchmark)" in js
+        assert "chatInput.value = '/benchmark report'" in js
 
 
 # ─── 영속화 테스트 ────────────────────────────────────────────────
@@ -209,4 +266,37 @@ class TestPersistence:
             assert "target" in result
             assert "quality_score" in result
             assert "quality_grade" in result
+            assert "benchmark_score" in result
+            assert "keyword_coverage" in result
             assert "latency_ms" in result
+
+    def test_loads_legacy_results_without_composite_fields(
+        self, mock_model_manager, tmp_db_path
+    ):
+        legacy = {
+            "version": 1,
+            "results": [
+                {
+                    "case_id": "sim-001",
+                    "target": "legacy-model",
+                    "quality_score": 0.72,
+                    "quality_grade": "good",
+                    "latency_ms": 1200,
+                    "tokens_in": 10,
+                    "tokens_out": 50,
+                    "output_preview": "def fibonacci(n): return n",
+                    "timestamp": time.time(),
+                    "issues": [],
+                    "error": "",
+                }
+            ],
+        }
+        tmp_db_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        harness = BenchmarkHarness(
+            model_manager=mock_model_manager,
+            db_path=tmp_db_path,
+        )
+
+        assert harness._history[0].benchmark_score == 0.72
+        assert harness._history[0].keyword_coverage == 1.0

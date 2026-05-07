@@ -22,6 +22,9 @@
   /* ─── Typography Scale (Antigravity-matched) ─── */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  --chat-content-width: 780px;
+  --chat-font-size: 14.5px;
+  --chat-line-height: 1.68;
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 13.5px;
@@ -50,7 +53,7 @@ body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.5;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   display: flex;
@@ -112,7 +115,7 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .version-badge {
@@ -210,7 +213,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-width: 1000px;
+  max-width: 1040px;
   margin: 0 auto;
   width: 100%;
   padding: 0 20px;
@@ -232,7 +235,7 @@ body {
   font-weight: 600;
   font-size: var(--text-xl);
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .chat-header h2 span {
@@ -258,10 +261,10 @@ body {
 .chat-history {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 0 100px 0;
+  padding: 28px 0 112px 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 26px;
   scrollbar-width: thin;
   scrollbar-color: var(--glass-border) transparent;
 }
@@ -276,7 +279,7 @@ body {
 
 .message {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   max-width: 100%;
   opacity: 0;
   transform: translateY(10px);
@@ -293,6 +296,12 @@ body {
   align-self: flex-end;
   flex-direction: row-reverse;
   max-width: 80%;
+}
+
+.message.assistant,
+.message.system {
+  max-width: var(--chat-content-width);
+  width: 100%;
 }
 
 .avatar {
@@ -322,8 +331,8 @@ body {
 .bubble {
   padding: 2px 0;
   border-radius: 0;
-  line-height: 1.7;
-  font-size: var(--text-md);
+  line-height: var(--chat-line-height);
+  font-size: var(--chat-font-size);
   word-break: break-word;
   background: transparent !important;
   backdrop-filter: none !important;
@@ -337,12 +346,34 @@ body {
   background: var(--bubble-user) !important;
   border-radius: 18px 18px 4px 18px;
   padding: 10px 16px;
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .message.assistant .bubble, .message.system .bubble {
   background: transparent !important;
   padding-left: 0;
   border-left: none;
+  color: #e6e8ee;
+  font-feature-settings: "kern" 1;
+  max-width: var(--chat-content-width);
+}
+
+.message.assistant .bubble > :first-child,
+.message.system .bubble > :first-child {
+  margin-top: 0;
+}
+
+.message.assistant .bubble > :last-child,
+.message.system .bubble > :last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant .bubble strong,
+.message.system .bubble strong {
+  color: #f3f4f8;
+  font-weight: 650;
 }
 
 .chat-input-area {
@@ -495,8 +526,8 @@ body {
 
 /* Code Blocks in Chat — Enhanced */
 .code-block-wrap {
-  margin: 12px 0;
-  border-radius: 10px;
+  margin: 14px 0;
+  border-radius: 8px;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.08);
   background: #1a1b26;
@@ -508,7 +539,7 @@ body {
   padding: 6px 14px;
   background: rgba(255,255,255,0.04);
   border-bottom: 1px solid rgba(255,255,255,0.06);
-  min-height: 32px;
+  min-height: 30px;
 }
 .code-lang {
   font-size: 11px;
@@ -533,13 +564,13 @@ body {
 }
 .code-block {
   background: #1a1b26;
-  padding: 14px 16px;
+  padding: 13px 15px;
   margin: 0;
-  font-size: 13px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-size: 12.5px;
+  font-family: var(--font-mono);
   overflow-x: auto;
   color: #c0caf5;
-  line-height: 1.6;
+  line-height: 1.58;
   border-radius: 0;
   border: none;
   white-space: pre;
@@ -550,71 +581,76 @@ body {
 
 /* ─── Markdown Headings ─── */
 .md-heading {
-  font-weight: 700;
-  line-height: 1.3;
-  margin: 16px 0 8px 0;
-  color: #e1e7ef;
-  letter-spacing: -0.02em;
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 18px 0 8px 0;
+  color: #f3f4f8;
+  letter-spacing: 0;
 }
-.md-h1 { font-size: 1.6em; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; }
-.md-h2 { font-size: 1.35em; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 6px; }
-.md-h3 { font-size: 1.15em; color: #a5b4fc; }
-.md-h4 { font-size: 1.05em; color: #94a3b8; }
+.md-h1 { font-size: 1.18em; }
+.md-h2 { font-size: 1.12em; }
+.md-h3 { font-size: 1.04em; }
+.md-h4 { font-size: 1em; color: #c8ccd6; }
 
 /* ─── Markdown Paragraphs ─── */
 .md-p {
-  margin: 4px 0;
-  line-height: 1.7;
-  color: #d1d5db;
+  margin: 8px 0;
+  line-height: var(--chat-line-height);
+  color: #e0e3ea;
 }
-.md-spacer { height: 8px; }
+.md-spacer { height: 6px; }
 
 /* ─── Markdown Lists ─── */
 .md-list {
-  margin: 6px 0;
-  padding-left: 20px;
+  margin: 8px 0 10px;
+  padding-left: 21px;
 }
 .md-list li {
-  margin: 4px 0;
-  line-height: 1.6;
-  color: #d1d5db;
+  margin: 5px 0;
+  line-height: var(--chat-line-height);
+  color: #e0e3ea;
+  padding-left: 2px;
 }
 .md-list li::marker {
-  color: #6366f1;
+  color: #8ea2ff;
 }
 .md-ol li::marker {
-  color: #a5b4fc;
-  font-weight: 600;
+  color: #8ea2ff;
+  font-weight: 650;
 }
 .md-checkbox { margin-right: 4px; }
 
 /* ─── Markdown Tables ─── */
 .md-table-wrap {
-  margin: 12px 0;
+  margin: 14px 0;
   overflow-x: auto;
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.08);
 }
 .md-table {
   width: 100%;
+  min-width: 680px;
   border-collapse: collapse;
   font-size: 13px;
 }
 .md-table th, .md-table td {
-  padding: 10px 14px;
+  padding: 9px 12px;
   text-align: left;
   border-bottom: 1px solid rgba(255,255,255,0.06);
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 .md-table th {
-  background: rgba(99,102,241,0.12);
-  color: #a5b4fc;
-  font-weight: 600;
+  background: rgba(255,255,255,0.04);
+  color: #f0f2f7;
+  font-weight: 650;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .md-table td {
-  color: #d1d5db;
+  color: #dfe3ea;
 }
 
 /* ─── Global Toast Notifications ─── */
@@ -655,13 +691,13 @@ body {
 
 /* ─── Blockquotes ─── */
 .md-blockquote {
-  border-left: 3px solid #6366f1;
-  padding: 8px 16px;
-  margin: 10px 0;
-  background: rgba(99,102,241,0.06);
+  border-left: 3px solid rgba(142, 162, 255, 0.72);
+  padding: 8px 14px;
+  margin: 12px 0;
+  background: rgba(255,255,255,0.035);
   border-radius: 0 6px 6px 0;
-  color: #a5b4fc;
-  font-style: italic;
+  color: #c8d0e2;
+  font-style: normal;
 }
 
 /* ─── GitHub-style Alerts ─── */
@@ -696,7 +732,7 @@ body {
 
 /* ─── Think Block ─── */
 .think-block {
-  margin: 8px 0;
+  margin: 10px 0;
   border-radius: 8px;
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -713,7 +749,7 @@ body {
 }
 .think-block summary {
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: #8b8fa3;
   cursor: pointer;
@@ -747,7 +783,7 @@ body {
 }
 .think-content {
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 12.5px;
   color: #8b8fa3;
   font-style: normal;
   line-height: 1.6;
@@ -799,13 +835,13 @@ body {
 
 /* ─── Enhanced Inline Code ─── */
 .inline-code {
-  background: rgba(99,102,241,0.15);
-  padding: 2px 7px;
+  background: rgba(255,255,255,0.07);
+  padding: 2px 6px;
   border-radius: 5px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.88em;
-  color: #c4b5fd;
-  border: 1px solid rgba(99,102,241,0.15);
+  font-family: var(--font-mono);
+  font-size: 0.87em;
+  color: #f1f3f8;
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 /* Typing Indicator */
@@ -933,7 +969,7 @@ body {
   font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .page-header h2 span {
@@ -974,7 +1010,7 @@ body {
   font-size: var(--text-md);
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .card-body {
@@ -1789,6 +1825,17 @@ body {
   font-size: 14px;
 }
 
+.agent-manager-project {
+  max-width: 280px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-manager-header .close-agent-mgr {
   background: none;
   border: none;
@@ -1839,6 +1886,7 @@ body {
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-secondary);
+  gap: 8px;
 }
 
 .agent-task-item .task-status {
@@ -1875,7 +1923,16 @@ body {
   border: 1px solid rgba(239, 68, 68, 0.25);
 }
 
-.agent-task-item .task-cancel-btn {
+.task-project {
+  margin-right: auto;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-task-item .task-cancel-btn,
+.agent-task-item .task-remove-btn {
   background: none;
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: #f87171;
@@ -1886,9 +1943,21 @@ body {
   transition: all 0.2s;
 }
 
-.agent-task-item .task-cancel-btn:hover {
+.agent-task-item .task-cancel-btn:hover,
+.agent-task-item .task-remove-btn:hover {
   background: rgba(239, 68, 68, 0.15);
   border-color: rgba(239, 68, 68, 0.5);
+}
+
+.agent-task-item .task-remove-btn {
+  border-color: rgba(148, 163, 184, 0.25);
+  color: var(--text-secondary);
+}
+
+.agent-task-item .task-remove-btn:hover {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.45);
+  color: var(--text-primary);
 }
 
 .agent-manager-empty {
@@ -2023,7 +2092,7 @@ body {
     display: none !important;
   }
 
-  /* 채팅 히스토리 뷰 최적화 (제미나이 룩) */
+  /* 채팅 히스토리 뷰 최적화 */
   .chat-history {
     flex: 1;
     padding: 12px;
@@ -2037,6 +2106,10 @@ body {
     margin-bottom: 20px;
     gap: 8px;
   }
+  .message.assistant,
+  .message.system {
+    max-width: 100%;
+  }
   .message .avatar {
     width: 28px;
     height: 28px;
@@ -2045,8 +2118,8 @@ body {
   }
   .message .bubble {
     max-width: 100%;
-    font-size: 15px; /* iOS 모바일 가독성 증대 */
-    line-height: 1.6;
+    font-size: 14.5px;
+    line-height: 1.64;
   }
   .message.user .bubble {
     max-width: 85%;
@@ -2057,10 +2130,14 @@ body {
     background: transparent !important;
     padding: 2px 0;
     border-radius: 0;
+    max-width: 100%;
   }
   .code-block {
     font-size: 12px;
     border-radius: 8px;
+  }
+  .md-table {
+    min-width: 620px;
   }
 
   /* Gemini 스타일 하단 플로팅 입력바 */

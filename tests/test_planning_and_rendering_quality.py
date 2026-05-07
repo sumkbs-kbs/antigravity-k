@@ -113,6 +113,36 @@ def test_dashboard_markdown_links_are_sanitized():
     assert 'rel="noopener noreferrer"' in source
 
 
+def test_dashboard_chat_output_uses_codex_like_reading_style():
+    source = Path("dashboard/src/styles/index.css").read_text(encoding="utf-8")
+
+    assert "--chat-content-width: 780px;" in source
+    assert "--chat-font-size: 14.5px;" in source
+    assert "--chat-line-height: 1.68;" in source
+    assert ".message.assistant," in source
+    assert "max-width: var(--chat-content-width);" in source
+    assert "font-size: var(--chat-font-size);" in source
+    assert ".message.assistant .bubble strong" in source
+    assert ".md-h1 { font-size: 1.18em; }" in source
+    assert "min-width: 680px;" in source
+    assert "white-space: nowrap;" in source
+    assert "letter-spacing: -0." not in source
+
+
+def test_agent_manager_is_mobile_accessible_and_project_scoped():
+    source = Path("dashboard/src/pages/chat.js").read_text(encoding="utf-8")
+
+    assert 'id="mobile-agent-mgr-btn"' in source
+    assert "getAgentWorkspaceQuery" in source
+    assert "filterAgentTasksForWorkspace" in source
+    assert "currentWorkspacePath" in source
+    assert "'/api/kanban/tasks' + getAgentWorkspaceQuery()" in source
+    assert "const tasks = Array.isArray(data.tasks) ? data.tasks : null;" in source
+    assert "renderAgentTasks(filterAgentTasksForWorkspace(tasks));" in source
+    assert "agent-manager-project" in source
+    assert "task-remove-btn" in source
+
+
 def test_orchestrator_runs_quality_retry_for_code_only_answer(tmp_path, monkeypatch):
     manager = _QualityRetryManager()
 

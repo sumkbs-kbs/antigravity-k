@@ -99,6 +99,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }, 120);
         }},
+        { id: 'benchmark', title: 'Collective Benchmark Report (/benchmark)', icon: '📊', action: () => {
+            navigateTo('chat');
+            setTimeout(() => {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput) {
+                    chatInput.value = '/benchmark report';
+                    chatInput.focus();
+                    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 120);
+        }},
         { id: 'settings', title: 'Preferences', icon: '⚙️', action: () => navigateTo('settings') },
         { id: 'sync', title: 'Sync Vault (Git)', icon: '🔄', action: () => syncVault() },
         { id: 'selftest', title: 'Run Self-Test (Cmd+Shift+T)', icon: '🧪', action: () => {

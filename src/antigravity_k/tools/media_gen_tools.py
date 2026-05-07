@@ -72,7 +72,7 @@ class GenerateImageTool(BaseTool):
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
             return f"Image successfully generated at: {output_path}"
         except subprocess.CalledProcessError as e:
             return f"Failed to generate image. Error: {e.stderr}"

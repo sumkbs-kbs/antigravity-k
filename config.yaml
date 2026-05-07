@@ -81,6 +81,13 @@ models:
     estimated_memory_gb: 42
     context_length: 131072
     description: Llama 3.3 70B Instruct Q4_K_M — Meta Llama 계열, 고난도 비평/최종 판정용 후보
+  - name: hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    repo: hf.co/unsloth/gemma-4-31B-it-GGUF
+    role: reasoning
+    quantization: gguf-q5_k_m
+    estimated_memory_gb: 22
+    context_length: 32768
+    description: Gemma 4 31B IT (unsloth Q5_K_M) — Google Gemma 계열, 에이전틱 코딩/추론 최강 후보, 집단지성 핵심 참여자
   coding:
 
   - name: qwen2.5-coder:32b

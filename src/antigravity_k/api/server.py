@@ -17,7 +17,33 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup — RAG 자동 인덱싱
+    try:
+        from antigravity_k.engine.rag_indexer import RAGIndexer
+
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        )
+
+        async def _bg_index():
+            try:
+                indexer = RAGIndexer(project_root=project_root)
+                count = indexer.build_index()
+                logger.info(
+                    f"[RAG] Background indexing complete: {count} files indexed"
+                )
+            except Exception as e:
+                logger.warning(f"[RAG] Background indexing failed: {e}")
+
+        task = asyncio.create_task(_bg_index())
+        if not hasattr(app.state, "background_tasks"):
+            app.state.background_tasks = set()
+        app.state.background_tasks.add(task)
+        task.add_done_callback(app.state.background_tasks.discard)
+        logger.info("[RAG] Background indexing started")
+    except Exception as e:
+        logger.warning(f"[RAG] Auto-index startup skipped: {e}")
+
     yield
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")

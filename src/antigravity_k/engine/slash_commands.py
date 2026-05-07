@@ -975,16 +975,20 @@ class SlashCommandRegistry:
 
         if sub == "run":
             suite_name = args[1] if len(args) > 1 else "all"
-            yield "🚀 **벤치마크 실행 시작**\n\n"
-            yield f"스위트: `{suite_name}`\n\n"
-            yield "⏳ 과제를 순차 실행 중입니다. VRAM 경합 방지를 위해 하나씩 처리합니다...\n\n"
 
-            try:
-                report = harness.run_suite(suite_name)
-                yield f"✅ **벤치마크 완료** ({report.duration_s:.1f}s, {len(report.results)}건)\n\n"
-                yield harness.comparison_table(suite_name)
-            except Exception as e:
-                yield f"❌ 벤치마크 실행 실패: {e}"
+            def _run_stream():
+                yield "🚀 **벤치마크 실행 시작**\n\n"
+                yield f"스위트: `{suite_name}`\n\n"
+                yield "⏳ 과제를 순차 실행 중입니다. VRAM 경합 방지를 위해 하나씩 처리합니다...\n\n"
+
+                try:
+                    report = harness.run_suite(suite_name)
+                    yield f"✅ **벤치마크 완료** ({report.duration_s:.1f}s, {len(report.results)}건)\n\n"
+                    yield harness.comparison_table(suite_name)
+                except Exception as e:
+                    yield f"❌ 벤치마크 실행 실패: {e}"
+
+            return _run_stream()
 
         elif sub == "report":
             suite_name = args[1] if len(args) > 1 else "all"

@@ -24,8 +24,12 @@ export const AgentPage = {
     const board = document.getElementById('agent-kanban-board');
     const refreshBtn = document.getElementById('refresh-kanban-btn');
 
-    const renderCard = (task) => `
-      <div class="kanban-card glass-panel ${task.status === 'completed' ? 'completed' : (task.status === 'in_progress' ? 'active' : '')}">
+    const renderCard = (task) => {
+      const isDone = task.status === 'completed' || task.status === 'cancelled';
+      const statusLabel = task.status === 'cancelled' ? '취소됨' : (task.status === 'completed' ? '완료' : (task.status === 'in_progress' ? '실행 중...' : '대기 중'));
+      const statusIcon = task.status === 'cancelled' ? '🛑' : (task.status === 'completed' ? '✅' : (task.status === 'in_progress' ? '<span class="spinner-mini"></span>' : '🤖'));
+      return `
+      <div class="kanban-card glass-panel ${isDone ? 'completed' : (task.status === 'in_progress' ? 'active' : '')}">
         <div class="card-labels">
           <span class="label ${task.priority === 'high' ? 'bug' : 'feature'}">${task.type || 'Task'}</span>
         </div>
@@ -33,8 +37,8 @@ export const AgentPage = {
         <p>${escapeHTML(task.description || '')}</p>
         <div class="card-meta" style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            ${task.status === 'in_progress' ? '<span class="spinner-mini"></span>' : (task.status === 'completed' ? '✅' : '🤖')}
-            <span>${task.status === 'completed' ? '완료' : (task.status === 'in_progress' ? '실행 중...' : '대기 중')}</span>
+            ${statusIcon}
+            <span>${statusLabel}</span>
           </div>
           ${(task.status === 'in_progress' || task.status === 'todo') ? `<button class="glass-btn small cancel-task-btn" data-id="${task.id}" style="color: #ff4444; border-color: rgba(255,68,68,0.3); padding: 2px 8px; font-size: 11px;">${task.status === 'todo' ? '🛑 취소' : '🛑 중단'}</button>` : ''}
         </div>
@@ -44,6 +48,7 @@ export const AgentPage = {
         </div>` : ''}
       </div>
     `;
+    };
 
     const fetchTasks = () => {
       fetch('/api/kanban/tasks')
@@ -53,7 +58,7 @@ export const AgentPage = {
 
           const todo = tasks.filter(t => t.status === 'todo');
           const inprog = tasks.filter(t => t.status === 'in_progress');
-          const done = tasks.filter(t => t.status === 'completed');
+          const done = tasks.filter(t => t.status === 'completed' || t.status === 'cancelled');
 
           const newHtml = `
             <div class="kanban-column">

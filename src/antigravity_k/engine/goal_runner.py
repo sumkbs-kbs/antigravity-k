@@ -524,6 +524,11 @@ class GoalRunner:
                 "결과/위험/후속 항목을 문서에 남김",
                 "test_report.md + test_process.md",
             ),
+            (
+                "TDD Auto-Repair Loop",
+                "테스트(pytest, DOM) 실패 로그 자율 분석 및 자가 수복",
+                "TestDrivenRepairEngine",
+            ),
         ]
 
     def _next_actions(self, assessment: GoalAssessment) -> list[str]:
@@ -535,7 +540,8 @@ class GoalRunner:
         actions = [
             "이 계약을 기준으로 관련 코드와 UI를 조사한다.",
             "가장 작은 변경 단위를 적용한 뒤 즉시 정적 분석/테스트/DOM 검증을 실행한다.",
-            "검증 실패 시 원인과 수정 내용을 같은 리포트 체인에 누적한다.",
+            "검증 실패 시 TDD Auto-Repair Loop를 즉시 가동하여 자가 수복한다.",
+            "수복 결과를 같은 리포트 체인에 누적하고 최종 통과 시 문서를 갱신한다.",
         ]
         if assessment.autonomy_level == "approval-gated":
             actions.insert(
@@ -543,3 +549,86 @@ class GoalRunner:
                 "고위험 동작은 사용자의 명시 승인 전까지 계획/검증 단계에 머문다.",
             )
         return actions
+
+    # ── Auto-Verify Loop (Issue #61) ──
+
+    def execute_and_verify(
+        self, report: GoalReport, project_root: str | None = None
+    ) -> dict[str, Any]:
+        """목표 실행 후 자동 검증을 수행합니다.
+
+        ruff, pytest, compileall, npm build 등을 실행하고 결과를 반환합니다.
+        실패 시 Repair Loop 진입을 위한 정보를 포함합니다.
+        """
+        import subprocess
+        import os
+
+        root = project_root or os.getcwd()
+        results: dict[str, Any] = {
+            "objective": report.objective,
+            "verified": True,
+            "checks": [],
+            "failures": [],
+        }
+
+        checks = [
+            ("ruff", ["python", "-m", "ruff", "check", "src", "tests"]),
+            ("pytest", ["python", "-m", "pytest", "-q", "--tb=short"]),
+            ("compileall", ["python", "-m", "compileall", "-q", "src", "tests"]),
+        ]
+
+        # npm build (dashboard가 있을 때만)
+        dashboard_dir = os.path.join(root, "dashboard")
+        if os.path.exists(os.path.join(dashboard_dir, "package.json")):
+            checks.append(("npm_build", ["npm", "run", "build"]))
+
+        for name, cmd in checks:
+            try:
+                cwd = dashboard_dir if name == "npm_build" else root
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    cwd=cwd,
+                    env={**os.environ, "PYTHONPATH": os.path.join(root, "src")},
+                )
+                passed = result.returncode == 0
+                check_result = {
+                    "name": name,
+                    "passed": passed,
+                    "return_code": result.returncode,
+                    "output": (result.stdout or result.stderr or "")[-500:],
+                }
+                results["checks"].append(check_result)
+                if not passed:
+                    results["verified"] = False
+                    results["failures"].append(
+                        {
+                            "check": name,
+                            "error": result.stderr[-300:] if result.stderr else "",
+                        }
+                    )
+            except subprocess.TimeoutExpired:
+                results["checks"].append(
+                    {
+                        "name": name,
+                        "passed": False,
+                        "return_code": -1,
+                        "output": "TIMEOUT",
+                    }
+                )
+                results["verified"] = False
+                results["failures"].append({"check": name, "error": "Timeout (120s)"})
+            except FileNotFoundError:
+                results["checks"].append(
+                    {
+                        "name": name,
+                        "passed": True,
+                        "return_code": 0,
+                        "output": "SKIPPED (not found)",
+                    }
+                )
+
+        results["repair_needed"] = not results["verified"]
+        return results

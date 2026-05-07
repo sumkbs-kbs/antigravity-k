@@ -88,6 +88,7 @@ class OrchestratorAgent:
         self.slash_commands = self.ctx.slash_commands
         self.tool_guardrail = self.ctx.tool_guardrail
         self._tool_executor = self.ctx.tool_executor
+        self.memory_manager = self.ctx.memory_manager
 
         # AmbientWatchdog 초기화
         self.watchdog = None
@@ -119,6 +120,19 @@ class OrchestratorAgent:
         except Exception as e:
             logger.warning(f"[Orchestrator] State Graph 초기화 실패: {e}")
             self._state_graph = None
+
+        # Artifact Engine 초기화 및 도구 등록
+        try:
+            from antigravity_k.engine.artifact_engine import register_artifact_tool
+
+            self.artifact_engine = register_artifact_tool(
+                self.tool_registry, self.project_root
+            )
+            logger.info(
+                "[Orchestrator] Artifact Engine 활성화 및 write_artifact 도구 등록 완료"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize ArtifactEngine: {e}")
 
         # 세션 자동 시작 (프로젝트별 대화 영속성)
         try:
@@ -311,14 +325,19 @@ class OrchestratorAgent:
 
         # [Phase 17] 복합/대규모 태스크인 경우 Planning Mode 워크플로우 강제 주입
         if self._requires_planning_mode(task_type, messages) and delegate_to != "CEO":
-            planning_mode_enforcement = (
-                "\n\n[CRITICAL ALGORITHM OVERRIDE]\n"
-                "You are executing a COMPLEX task. You MUST enter PLANNING MODE.\n"
-                "1. DO NOT write any functional code or implementation details in your initial response.\n"
-                "2. You MUST use the `write_file` tool to create `artifacts/implementation_plan.md` outlining your technical plan.\n"
-                "3. End your response EXACTLY with the string `[APPROVAL REQUIRED]` on a new line to pause execution and ask the user for permission to proceed.\n"
-                "Failure to do this will result in a Quality Gate failure and retry loop.\n"
-            )
+            if hasattr(self, "artifact_engine"):
+                planning_mode_enforcement = (
+                    self.artifact_engine.inject_planning_prompt()
+                )
+            else:
+                planning_mode_enforcement = (
+                    "\n\n[CRITICAL ALGORITHM OVERRIDE]\n"
+                    "You are executing a COMPLEX task. You MUST enter PLANNING MODE.\n"
+                    "1. DO NOT write any functional code or implementation details in your initial response.\n"
+                    "2. You MUST use the `write_file` tool to create `artifacts/implementation_plan.md` outlining your technical plan.\n"
+                    "3. End your response EXACTLY with the string `[APPROVAL REQUIRED]` on a new line to pause execution and ask the user for permission to proceed.\n"
+                    "Failure to do this will result in a Quality Gate failure and retry loop.\n"
+                )
             system_prompt += planning_mode_enforcement
 
         tool_prompt = self._build_tool_prompt() if delegate_to != "CEO" else ""
@@ -727,91 +746,135 @@ class OrchestratorAgent:
                     return tc, pre_decision, post_decision, tool_result, False
 
                 results_collected = []
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = {
-                        executor.submit(_run_tool_task, tc): tc
-                        for tc in pending_tool_calls
-                    }
-                    for future in concurrent.futures.as_completed(futures):
-                        try:
-                            res = future.result()
-                            results_collected.append(res)
-                        except Exception as e:
-                            tc = futures[future]
-                            results_collected.append(
-                                (tc, None, None, f"Exception: {e}", True)
+
+                # DAG 기반 도구 실행 그룹화 (waitForPreviousTools 처리)
+                execution_batches = []
+                current_batch = []
+                for tc in pending_tool_calls:
+                    wait_for_previous = False
+                    if isinstance(tc.arguments, dict):
+                        wait_for_previous = tc.arguments.get(
+                            "waitForPreviousTools", False
+                        )
+
+                    if wait_for_previous and current_batch:
+                        execution_batches.append(current_batch)
+                        current_batch = []
+                    current_batch.append(tc)
+                if current_batch:
+                    execution_batches.append(current_batch)
+
+                for batch in execution_batches:
+                    batch_results = []
+                    with concurrent.futures.ThreadPoolExecutor(
+                        max_workers=5
+                    ) as executor:
+                        futures = {
+                            executor.submit(_run_tool_task, tc): tc for tc in batch
+                        }
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                res = future.result()
+                                batch_results.append(res)
+                            except Exception as e:
+                                tc = futures[future]
+                                batch_results.append(
+                                    (tc, None, None, f"Exception: {e}", True)
+                                )
+
+                    # 원래 배치 순서대로 정렬하여 UI 출력
+                    batch_results.sort(key=lambda x: batch.index(x[0]))
+
+                    for (
+                        tc,
+                        pre_decision,
+                        post_decision,
+                        tool_result,
+                        blocked,
+                    ) in batch_results:
+                        results_collected.append(
+                            (tc, pre_decision, post_decision, tool_result, blocked)
+                        )
+
+                        tool_name = tc.name
+                        if blocked:
+                            yield f"\n\n🛡️ **[Tool Loop Guard]** {pre_decision.message if pre_decision else tool_result}\n"
+                            parser.tool_responses.append(
+                                f"<tool_response>\n{tool_result}\n</tool_response>"
                             )
+                            continue
 
-                # 정렬하여 UI 출력
-                results_collected.sort(key=lambda x: pending_tool_calls.index(x[0]))
+                        is_failed = isinstance(
+                            tool_result, str
+                        ) and tool_result.strip().startswith("Error")
+                        is_approval_required = (
+                            isinstance(tool_result, str)
+                            and (
+                                "[APPROVAL REQUIRED]" in tool_result
+                                or "WAITING_FOR_USER_APPROVAL" in tool_result
+                            )
+                            and tool_name
+                            in ["run_command", "ask_question", "plan", "write_artifact"]
+                        )
+                        if is_approval_required:
+                            requires_approval_break = True
 
-                for (
-                    tc,
-                    pre_decision,
-                    post_decision,
-                    tool_result,
-                    blocked,
-                ) in results_collected:
-                    tool_name = tc.name
-                    if blocked:
-                        yield f"\n\n🛡️ **[Tool Loop Guard]** {pre_decision.message if pre_decision else tool_result}\n"
+                        if is_approval_required:
+                            status_icon = "✋"
+                        elif is_failed or (
+                            post_decision
+                            and (
+                                post_decision.action == "warn"
+                                or post_decision.should_halt
+                            )
+                        ):
+                            status_icon = "❌"
+                        else:
+                            status_icon = "✅"
+
+                        # Gemini Antigravity 도구 메타데이터 출력 지원
+                        tool_summary = (
+                            tc.arguments.get("toolSummary", "")
+                            if isinstance(tc.arguments, dict)
+                            else ""
+                        )
+                        tool_action = (
+                            tc.arguments.get("toolAction", "")
+                            if isinstance(tc.arguments, dict)
+                            else ""
+                        )
+                        display_name = (
+                            f"{tool_action} - {tool_summary}"
+                            if tool_action and tool_summary
+                            else f"Executing <b>{tool_name}</b>"
+                        )
+
+                        yield '<details class="tool-card" style="margin: 10px 0; border: 1px solid #333; border-radius: 8px; background: rgba(0,0,0,0.2);">\n'
+                        yield f'<summary style="padding: 8px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #333;"><span class="icon">🛠️</span> {display_name} <span style="opacity:0.7; font-weight:normal; font-size:0.9em;">(Step {step+1}/{max_steps})</span> {status_icon}</summary>\n'
+                        yield '<div style="padding: 10px;">\n'
+
+                        if post_decision and post_decision.action == "warn":
+                            tool_result = append_guardrail_guidance(
+                                tool_result, post_decision
+                            )
+                            yield f"\n⚠️ {post_decision.message}\n"
+                        elif post_decision and post_decision.should_halt:
+                            tool_result = append_guardrail_guidance(
+                                tool_result, post_decision
+                            )
+                            yield f"\n\n🛡️ **[Tool Loop Guard]** {post_decision.message}\n"
+
+                        result_preview = (
+                            tool_result[:1500]
+                            if isinstance(tool_result, str) and len(tool_result) > 1500
+                            else tool_result
+                        )
+                        yield f"\n```\n{result_preview}\n```\n"
+                        yield "</div>\n</details>\n\n"
+
                         parser.tool_responses.append(
                             f"<tool_response>\n{tool_result}\n</tool_response>"
                         )
-                        continue
-
-                    is_failed = isinstance(
-                        tool_result, str
-                    ) and tool_result.strip().startswith("Error")
-                    is_approval_required = (
-                        isinstance(tool_result, str)
-                        and (
-                            "[APPROVAL REQUIRED]" in tool_result
-                            or "WAITING_FOR_USER_APPROVAL" in tool_result
-                        )
-                        and tool_name in ["run_command", "ask_question", "plan"]
-                    )
-                    if is_approval_required:
-                        requires_approval_break = True
-
-                    if is_approval_required:
-                        status_icon = "✋"
-                    elif is_failed or (
-                        post_decision
-                        and (
-                            post_decision.action == "warn" or post_decision.should_halt
-                        )
-                    ):
-                        status_icon = "❌"
-                    else:
-                        status_icon = "✅"
-
-                    yield '<details class="tool-card" style="margin: 10px 0; border: 1px solid #333; border-radius: 8px; background: rgba(0,0,0,0.2);">\n'
-                    yield f'<summary style="padding: 8px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #333;"><span class="icon">🛠️</span> Executing <b>{tool_name}</b> <span style="opacity:0.7; font-weight:normal; font-size:0.9em;">(Step {step+1}/{max_steps})</span> {status_icon}</summary>\n'
-                    yield '<div style="padding: 10px;">\n'
-
-                    if post_decision and post_decision.action == "warn":
-                        tool_result = append_guardrail_guidance(
-                            tool_result, post_decision
-                        )
-                        yield f"\n⚠️ {post_decision.message}\n"
-                    elif post_decision and post_decision.should_halt:
-                        tool_result = append_guardrail_guidance(
-                            tool_result, post_decision
-                        )
-                        yield f"\n\n🛡️ **[Tool Loop Guard]** {post_decision.message}\n"
-
-                    result_preview = (
-                        tool_result[:1500]
-                        if isinstance(tool_result, str) and len(tool_result) > 1500
-                        else tool_result
-                    )
-                    yield f"\n```\n{result_preview}\n```\n"
-                    yield "</div>\n</details>\n\n"
-
-                    parser.tool_responses.append(
-                        f"<tool_response>\n{tool_result}\n</tool_response>"
-                    )
 
             if tool_executed:
                 # 스트림이 모두 종료된 후, 컨텍스트(prompt 및 shaped_messages)를 갱신
@@ -934,6 +997,19 @@ class OrchestratorAgent:
 
             self._state_graph = build_orchestrator_graph()
 
+        # Memory Prefetch: 대화 시작 전 관련 기억 주입
+        try:
+            user_text = self._latest_user_text(messages)
+            recalled = self.memory_manager.prefetch_all(user_text)
+            if recalled:
+                messages = list(messages)  # 원본 불변
+                messages.insert(
+                    1 if len(messages) > 1 else 0,
+                    {"role": "system", "content": f"[Recalled Memory]\n{recalled}"},
+                )
+        except Exception as e:
+            logger.debug(f"Memory prefetch error: {e}")
+
         ctx = StateContext(
             messages=messages,
             target_model=target_model,
@@ -948,6 +1024,14 @@ class OrchestratorAgent:
         # 에이전트 출력 동기화
         if ctx.agent_output:
             self._last_agent_output = ctx.agent_output
+            # Memory Sync: 턴 완료 후 모든 메모리 제공자에 동기화
+            try:
+                self.memory_manager.sync_all(
+                    self._latest_user_text(messages),
+                    ctx.agent_output,
+                )
+            except Exception as e:
+                logger.debug(f"Memory sync error: {e}")
 
         logger.info(
             f"[Orchestrator] State Graph 완료: {ctx.current_state.value}, "

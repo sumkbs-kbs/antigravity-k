@@ -1,11 +1,11 @@
-# DOM 기반 정밀 기능 테스트 프로시저 (v5.6)
+# DOM 기반 정밀 기능 테스트 프로시저 (v6.9)
 
-> **최종 검증일**: 2026-05-07 20:42 KST
-> **최종 결과**: 33/33 Phase PASS, pytest 330 passed
+> **최종 검증일**: 2026-05-08 03:24 KST
+> **최종 결과**: 38/38 Phase PASS, pytest 379 passed (359 기존 + 20 신규 v6.9 검증)
 > **최종 리포트**: `test_report.md`
-> **적용 엔진**: `TestHarness`, `GoalRunner`, `OrchestratorAgent`, `OmniTDDEngine`, `QualityGate`, `SelfCapabilityEngine`, `StreamProcessor`, `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer`, `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`
+> **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Auto-Index), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive), `OutputQualityComparator`, `SelfImprovementLoop`
 
-본 문서는 Antigravity-K를 실제 사용자가 조작하는 환경과 최대한 동일하게 검증하기 위한 전문 QA 절차서입니다. 검증은 브라우저 DOM 조작, 보호 PIN 인증, API 호출, 정적 분석, 전체 테스트, 빌드, 출력 품질 비교, 출력물 DOM 안전성 검사, 자기 능력 인식(`/self`) 검증, MCP/Skills/로컬 PC capability 자율 판단 검사, Codex식 운영 강점 이식(`/codex`), 집단지성 모델 경쟁/비판/합성, RAG 컨텍스트 확장, 자기검증 루프, 웹 검색 도구(Tavily/SearxNG), 비전-언어 자율 웹 서퍼(Browser-Use), External Brain 자동 위임, 장기 기억 시스템, 신규 console error/warning 0건 정책을 모두 포함합니다.
+본 문서는 Antigravity-K를 실제 사용자가 조작하는 환경과 최대한 동일하게 검증하기 위한 전문 QA 절차서입니다. 검증은 브라우저 DOM 조작, 보호 PIN 인증, API 호출, 정적 분석, 전체 테스트, 빌드, 출력 품질 비교, 채팅 출력 타이포그래피/Markdown 표시 품질, Agent Manager 프로젝트별 작업 관리, 출력물 DOM 안전성 검사, 자기 능력 인식(`/self`) 검증, MCP/Skills/로컬 PC capability 자율 판단 검사, Codex식 운영 강점 이식(`/codex`), 집단지성 모델 경쟁/비판/합성, 집단지성 벤치마크 누적 비교, RAG 컨텍스트 확장(자동 인덱싱), 자기검증 루프, 웹 검색 도구(Tavily/SearxNG), 비전-언어 자율 웹 서퍼(Browser-Use), External Brain 자동 위임, 4-Tier 인지 메모리 시스템, 정보 밀도 품질 검증, 한국어 한자 보존 CJK 정밀 필터, 자기 개선 피드백 루프, 출력 품질 비교기, GoalRunner 자동 검증을 모두 포함합니다.
 
 ---
 
@@ -61,7 +61,10 @@ cd dashboard && npm run build
 15. 자연어 자기소개 질문과 `/self`가 실제 등록된 도구/Skills/슬래시 명령 기준으로 응답하는지 확인
 16. `collective-council`, `orchestrator-swarm`, `coding-swarm`, `reasoning-balanced`가 `collective` 전략으로 읽히고 제안/비판/합성 라운드를 수행하는지 확인
 17. Qwen3 계열 모델이 `thinking`만 반환하지 않도록 `/no_think` 주입과 내부 추론 제거 필터를 검증
-18. `test_report.md`, `test_process.md`에 결과와 결함 이력 반영
+18. `/benchmark` 도움말/리포트/API/Command Palette 경로와 종합점수 산출을 검증
+19. 채팅 assistant 출력 폰트, 행간, 본문 폭, Markdown 표/코드/목록 표시가 Codex식 문서형 출력 기준을 만족하는지 확인
+20. Agent Manager의 필요성/기능 중복/프로젝트별 작업 관리 가능 여부를 검증
+21. `test_report.md`, `test_process.md`에 결과와 결함 이력 반영
 
 ---
 
@@ -763,17 +766,30 @@ print('Phase 25: ALL 5 CHECKS PASSED ✅')
 | 45 | 2026-05-07 | Qwen3 30B 실제 호출에서 짧은 생성 시 `response`가 비고 `thinking`만 반환됨 | Qwen3 계열 `/no_think` 시스템 지시 자동 주입 및 thinking-only 응답 실패 처리 | 완료 |
 | 46 | 2026-05-07 | 비스트리밍 모델 출력에 `<think>`/`<thought>`/`Thinking Process` 블록이 섞일 수 있음 | `ModelManager._strip_hidden_reasoning()` 공통 후처리 및 회귀 테스트 추가 | 완료 |
 | 47 | 2026-05-07 | 로컬 모델 구성이 특정 계열에 편중되고 신규 중급 이상 후보가 실제 설치되지 않음 | Hugging Face 기반 Qwen3 30B Q5, Mistral Small 3.2 24B Q5 다운로드 및 활성 콤보 반영 | 완료 |
+| 48 | 2026-05-08 | `/benchmark` 핸들러가 generator 함수가 되어 help/report 반환값이 유실될 수 있음 | run 전용 nested generator로 분리하고 help/report는 문자열 반환 | 완료 |
+| 49 | 2026-05-08 | `/api/slash`가 generator 결과를 JSON으로 직렬화하려 할 수 있음 | legacy slash API에서 generator 결과를 문자열로 합쳐 반환 | 완료 |
+| 50 | 2026-05-08 | 벤치마크가 QualityGate 점수만 보고 과제 필수 요건 충족률을 별도 측정하지 않음 | `benchmark_score`, `keyword_coverage`, passed/missing keyword 기록 추가 | 완료 |
+| 51 | 2026-05-08 | 구버전 벤치마크 JSON에는 신규 종합점수 필드가 없어 리포트가 0%로 표시됨 | legacy result 로드 시 `quality_score` 기반 종합점수 보정 | 완료 |
+| 52 | 2026-05-08 | 좁은 화면에서 채팅 Markdown 표가 셀 단위로 세로 줄바꿈되어 출력 품질이 저하됨 | assistant 출력 전용 본문 폭/행간/폰트 변수 도입, 표 최소 폭 및 가로 스크롤 처리, Codex식 문서형 스타일 회귀 테스트 추가 | 완료 |
+| 53 | 2026-05-08 | 모바일/좁은 화면에서 Agent Manager 버튼이 숨겨져 접근 불가 | 모바일 app bar에 `mobile-agent-mgr-btn` 추가 및 실제 브라우저 클릭 검증 | 완료 |
+| 54 | 2026-05-08 | Kanban WebSocket payload가 프론트엔드 기대 구조(`tasks`)와 달라 실시간 갱신이 불안정 | `_serialize_kanban_payload()`로 flat tasks + grouped status 동시 전송 | 완료 |
+| 55 | 2026-05-08 | Agent task가 전역 리스트라 프로젝트별 분리 관리가 불가능 | task에 `project_path/project_name` 추가, `/api/kanban/tasks?workspace=` 필터, 프론트엔드 현재 워크스페이스 필터 추가 | 완료 |
+| 56 | 2026-05-08 | 취소 API가 `completed`로 표시되어 Agent Manager의 `cancelled` 상태 UI와 불일치 | 취소 시 `status=cancelled`, 카드 `취소됨` 표시, Agent Workspace done column 호환 | 완료 |
 
 ---
 
 ## 5. 출력 품질 비교 매트릭스
 
-| 기능 | 목표 기준 | Antigravity-K v6.4 상태 |
+| 기능 | 목표 기준 | Antigravity-K v6.8 상태 |
 |------|-----------|--------------------------|
 | 목표 계약 | 목표/성공 기준/위험 조건 고정 | `/goal` 계약 문서로 구현 |
 | 자율 판단 | 실행/승인/질문 필요 여부 판단 | `Autonomous Judgment Policy` 구현 |
 | Plan/Act/Observe | 관찰-수정-검증 루프 | `GoalRunner`, `OrchestratorAgent`, 하네스 검증 |
 | 출력 품질 | 설명, 복잡도, 비교 구조, 반복 방지 | `QualityGate` + Reconstructor |
+| 채팅 표시 품질 | assistant 답변이 좁은 버블이 아니라 문서형 폭/행간/Markdown 표시로 읽혀야 함 | `--chat-content-width`, `--chat-font-size`, `--chat-line-height`, table scroll, code/list/inline code 스타일 구현 |
+| Agent Manager 필요성 | 채팅 중 백그라운드 작업을 빠르게 확인/중단하는 보조 패널이어야 함 | 필요 기능으로 유지. 전체 Kanban 페이지와 목적 분리 |
+| Agent Manager 중복성 | Agent Workspace와 데이터 소스는 공유하되 UI 역할은 분리 | 동일 `/api/kanban/tasks` 사용, 패널은 빠른 current project view, 페이지는 전체 board view |
+| 프로젝트별 작업 관리 | 각 workspace/project별 Agent task 분리 조회/표시/취소 | `project_path/project_name`, workspace query, WebSocket client-side filter 구현 |
 | 품질 실패 복구 | 자동 재작성 또는 명시적 실패 | 1회 retry 루프 구현 |
 | DOM 근거 QA | 실제 화면 DOM 기준 검증 | In-app Browser DOM snapshot 검증 |
 | 고급 렌더링 | Mermaid/Carousel/Markdown 링크 안전 표시 | escape/sanitize/console guard 구현 |
@@ -794,6 +810,7 @@ print('Phase 25: ALL 5 CHECKS PASSED ✅')
 | 비교표 강제 | 비교 요청 시 Markdown table 필수 | `QualityGate._check_comparison_table()` + 시스템 프롬프트 규약 |
 | 최신 정보 grounding | 최신/최근/실시간 요청은 검색 날짜/출처 또는 capability 한계 명시 | `QualityGate._check_current_info_grounding()` + PromptBuilder 규약 |
 | 집단지성 모델 경쟁 | 하나의 문제에 여러 중급 이상 모델이 독립 제안, 비판, 최종 합성을 수행 | `collective-council`, `CollectiveIntelligenceEngine`, `RouteStrategy.COLLECTIVE` 구현 |
+| 집단지성 벤치마크 | collective-council과 단일 모델을 같은 과제로 비교하고 누적 점수화 | `/benchmark`, `BenchmarkHarness`, 종합점수/키워드 커버리지/우세 타겟 리포트 |
 | 모델 국적/계열 다양성 | 단일 계열 편중 없이 Qwen, Mistral, DeepSeek, Llama/Nemotron 후보를 역할별 배치 | Qwen3 30B + Mistral Small 24B 신규 설치, DeepSeek/Qwen Coder와 active combo 구성 |
 | Thinking-only 방지 | Qwen3 계열이 내부 thinking만 반환하거나 빈 답변을 만들지 않음 | `/no_think` 자동 주입, hidden reasoning strip, 실제 Ollama 생성 검증 |
 
@@ -882,7 +899,7 @@ python -m pytest tests/test_browser_surfing_agent.py -v --tb=short
 
 ## 9. 최종 판정
 
-2026-05-07 20:42 KST 기준 Antigravity-K v6.5는 실제 DOM 기반 사용자 흐름, 보호 PIN 인증, API, 하네스, 정적 분석, 전체 330개 단위 테스트, 멀티 에이전트 브라우저 제어(Browser-Use), Tavily & SearXNG 인프라 통합 검증을 모두 통과했습니다. 이번 회차에서는 **집단지성 모델 경쟁 및 Thinking-only 방지 검증**을 추가하여 (1) Qwen3 30B Q5 및 Mistral Small 3.2 24B Q5 신규 다운로드, (2) `collective-council`/역할별 swarm의 `collective` 전략 적용, (3) 제안→비판→최종 합성 실행기 추가, (4) Qwen3 `/no_think` 자동 주입, (5) 비스트리밍 hidden reasoning 제거 필터를 완료했습니다. **랜덤화 테스트와 다중 모델 경쟁은 단일 모델 편향과 과적합을 줄이기 위한 핵심 정책입니다.** 다음 회귀 테스트에서는 본 문서의 Phase 1~33을 동일 순서로 실행하고, 신규 결함은 즉시 결함 수정 이력에 누적합니다.
+2026-05-08 02:53 KST 기준 Antigravity-K v6.8는 실제 DOM 기반 사용자 흐름, 보호 PIN 인증, API, 하네스, 정적 분석, 전체 359개 단위 테스트, 멀티 에이전트 브라우저 제어(Browser-Use), Tavily & SearXNG 인프라 통합 검증을 모두 통과했습니다. 이번 회차에서는 **Agent Manager 기능 필요성/중복성/프로젝트별 관리 검증**을 추가하여 (1) 모바일 Agent Manager 접근 버튼, (2) Kanban WebSocket `tasks` payload, (3) 프로젝트별 `workspace` 필터, (4) task별 `project_path/project_name`, (5) 취소 상태 정합성을 완료했습니다. **랜덤화 테스트, 다중 모델 경쟁, 누적 벤치마크, 출력 표시 품질, 프로젝트별 작업 관리는 단일 모델 편향과 사용성 저하를 줄이기 위한 핵심 정책입니다.** 다음 회귀 테스트에서는 본 문서의 Phase 1~38을 동일 순서로 실행하고, 신규 결함은 즉시 결함 수정 이력에 누적합니다.
 
 ---
 
@@ -1092,3 +1109,180 @@ cd dashboard && npm run build
 - `ruff`, `compileall`, `dashboard build` 모두 PASS
 
 **최신 결과**: PASS — Qwen3 30B Q5 및 Mistral Small 3.2 24B Q5 다운로드 완료, `collective-council` active PASS, 표적 라우터/매니저 테스트 36/36 PASS, 전체 `330 passed in 8.15s`, `ruff` PASS, `compileall` PASS, `npm run build` PASS, 실제 Qwen3 `ModelManager.generate()` 및 8012 API 한국어 응답/`think` 미포함 검증 PASS
+
+### [Phase 34] Artifact-Based Planning Engine & Output Formatting 검증
+
+**목표**
+`ArtifactEngine`이 정상적으로 `implementation_plan.md`, `task.md`, `walkthrough.md`를 생성하고, `StreamProcessor`가 GitHub Alerts 및 Markdown 확장 렌더링을 정상적으로 정제하는지 검증합니다.
+
+**테스트 절차**
+1. 오케스트레이터의 Planning Mode가 `ArtifactEngine`을 호출하는지 확인.
+2. `write_artifact` 도구가 `ArtifactMetadata`를 파싱하여 `artifacts/` 디렉토리에 마크다운 파일을 생성하는지 확인.
+3. `> [!NOTE]` 형태의 GitHub Alerts가 훼손되지 않고 확장 지원 형식으로 치환되는지 검증.
+
+**실행 명령**
+```bash
+python -m pytest -q
+```
+
+**통과 조건**
+- `artifacts/` 내에 `implementation_plan.md`가 정상 생성됨
+- GitHub Alerts 구문이 올바르게 포맷팅됨.
+
+**최신 결과**: PASS — `write_artifact` 도구 및 `ArtifactEngine` 통합 완료, StreamProcessor GitHub Alerts 정제 검증 완료
+
+---
+
+### [Phase 35] DAG-Based Tool Execution & TDD Auto-Repair Loop 검증
+
+**목표**
+여러 도구 호출이 `waitForPreviousTools` 의존성 그래프에 따라 병렬 및 순차적으로 실행되는지 확인하고, 테스트 실패 시 자율적으로 코드를 수정하는 `AutoRepairLoop`가 동작하는지 확인합니다.
+
+**테스트 절차**
+1. `orchestrator.py`가 `waitForPreviousTools: true`를 파싱하여 도구 실행을 배치(batch)로 쪼개어 스케줄링하는지 확인.
+2. `goal_runner.py`가 TDD Auto-Repair를 인지하고 목표 계약에 명시하는지 확인.
+3. 전체 회귀 테스트 스위트를 재실행하여 파서와 오케스트레이터의 변경이 기존 `tool_call` 워크플로우를 깨뜨리지 않는지 확인.
+
+**실행 명령**
+```bash
+python -m pytest -q
+```
+
+**통과 조건**
+- `execution_batches`가 도구 의존성에 맞게 올바르게 나뉨
+- 전체 테스트 349/349 PASS
+
+**최신 결과**: PASS — `waitForPreviousTools` 기반 DAG 병렬 실행기 구현 완료, 전체 349개 테스트 `8.62s` 통과 완료
+
+---
+
+### [Phase 36] 집단지성 벤치마크 누적 비교 검증
+
+> **목적**: collective-council이 단일 모델보다 실제로 나은지 감으로 판단하지 않고, 동일 과제에 대한 품질 점수, 필수 키워드 충족률, 레이턴시, 토큰 사용량을 누적 비교합니다.
+
+**검증 기준 및 절차**
+
+1. **Slash command 반환 경로**: `/benchmark`와 `/benchmark report`는 일반 문자열을 반환하고, `/benchmark run <suite>`만 스트리밍 generator를 반환하는지 확인.
+2. **API 직렬화 안정성**: `/api/slash`가 generator 결과를 JSON에 그대로 넣지 않고 문자열로 합쳐 반환하는지 확인.
+3. **종합 점수 산출**: `BenchmarkHarness`가 `QualityGate` 점수와 `expected_keywords` 충족률을 결합해 `benchmark_score`를 기록하는지 확인.
+4. **누적 비교표**: `/benchmark report`가 평균 종합점수, 평균 품질, 키워드 커버리지, A/B 비율, 평균 레이턴시, 평균 출력 토큰, 현재 우세 타겟을 표시하는지 확인.
+5. **구버전 DB 호환성**: 기존 `data/benchmark_results.json`에 `benchmark_score`가 없어도 리포트가 0%로 붕괴하지 않는지 확인.
+6. **Command Palette 접근성**: `Collective Benchmark Report (/benchmark)` 항목이 표시되고 `/benchmark report`를 채팅 입력창에 프리필하는지 확인.
+
+**실행**
+
+```bash
+python -m pytest tests/test_benchmark_harness.py tests/test_api_server.py::test_slash_api_benchmark_help_returns_plain_text -q
+curl -sS -H 'Content-Type: application/json' -H 'X-Access-Pin: 1935' \
+  -X POST http://127.0.0.1:8012/api/slash \
+  -d '{"input":"/benchmark"}'
+curl -sS -H 'Content-Type: application/json' -H 'X-Access-Pin: 1935' \
+  -X POST http://127.0.0.1:8012/api/slash \
+  -d '{"input":"/benchmark report"}'
+python -m ruff check src tests
+python -m pytest -q
+python -m compileall -q src tests
+cd dashboard && npm run build
+```
+
+**통과 조건**
+
+- `/benchmark` API 응답에 `Benchmark 명령어`가 포함
+- `/benchmark report` API 응답이 문자열이며 `Benchmark 비교표` 또는 결과 없음 안내를 포함
+- 비교표에 `평균 종합점수`, `키워드 커버리지`, `현재 우세 타겟` 표시
+- `tests/test_benchmark_harness.py` 전체 PASS
+- 전체 `python -m pytest -q`가 355/355 PASS
+- `ruff`, `compileall`, `dashboard build` 모두 PASS
+
+**최신 결과**: PASS — 표적 벤치마크/API 테스트 21개 PASS, 실제 8012 `/benchmark` 및 `/benchmark report` 호출 PASS, legacy DB 종합점수 보정 PASS, 전체 `355 passed in 7.53s`, `ruff` PASS, `compileall` PASS, `npm run build` PASS
+
+---
+
+### [Phase 37] Codex식 채팅 출력 타이포그래피 및 Markdown 표시 검증
+
+> **목적**: 사용자가 Codex 화면에서 보는 것처럼 Antigravity-K assistant 답변도 긴 본문, 목록, 코드, 표를 읽기 좋은 문서형 출력으로 표시하는지 검증합니다.
+
+**검증 기준 및 절차**
+
+1. **assistant 전용 본문 폭**: `.message.assistant`와 `.message.system`이 `--chat-content-width` 기준으로 과도하게 넓어지지 않는지 확인.
+2. **폰트 크기와 행간**: `--chat-font-size: 14.5px`, `--chat-line-height: 1.68`이 assistant bubble에 적용되는지 확인.
+3. **Markdown 문서 리듬**: heading, paragraph, list, inline code, code block이 과도하게 크거나 장식적이지 않고 읽기 좋은 간격을 유지하는지 확인.
+4. **표 모바일 안정성**: 좁은 화면에서 표 셀이 한 글자씩 찢어지지 않고 `md-table-wrap` 가로 스크롤로 유지되는지 확인.
+5. **타이포그래피 정책**: 음수 `letter-spacing`이 남아 있지 않은지 확인.
+6. **실제 브라우저 확인**: 8012 대시보드를 reload하고 `/benchmark report` 계열 Markdown 출력에서 표 깨짐 여부를 확인.
+
+**실행**
+
+```bash
+python -m pytest tests/test_planning_and_rendering_quality.py::test_dashboard_chat_output_uses_codex_like_reading_style -q
+cd dashboard && npm run build
+python -m ruff check src tests
+python -m pytest -q
+python -m compileall -q src tests
+```
+
+**통과 조건**
+
+- CSS에 `--chat-content-width`, `--chat-font-size`, `--chat-line-height`가 존재
+- assistant/system 메시지가 문서형 최대 폭을 사용
+- heading 크기가 compact 문서형 수준으로 제한
+- Markdown table에 최소 폭과 nowrap이 적용되어 모바일에서 가로 스크롤 가능
+- 전체 `python -m pytest -q`가 356/356 PASS
+- `ruff`, `compileall`, `dashboard build` 모두 PASS
+
+**최신 결과**: PASS — 채팅 출력 스타일 회귀 테스트 PASS, 실제 8012 브라우저 확인 중 표 세로 줄바꿈 결함 발견 및 수정, 전체 `356 passed in 7.77s`, `ruff` PASS, `compileall` PASS, `npm run build` PASS
+
+---
+
+### [Phase 38] Agent Manager 필요성/중복성/프로젝트별 관리 검증
+
+> **목적**: Agent Manager가 실제로 필요한 기능인지, Agent Workspace 페이지와 과도하게 중복되는지, 각 프로젝트별로 Agent task를 분리 관리할 수 있는지 검증합니다.
+
+**검증 결론**
+
+1. **필요성**: 필요. 채팅 중 백그라운드 Agent task를 즉시 확인하고 중단하는 빠른 패널 역할이며, 전체 보드 페이지로 이동하지 않아도 현재 작업 맥락을 볼 수 있습니다.
+2. **중복성**: 부분 중복. Agent Workspace 페이지는 전체 Kanban board, Agent Manager는 현재 채팅/현재 프로젝트용 quick view로 역할을 분리합니다.
+3. **개선 필요성**: 기존 구현은 task가 전역 리스트여서 프로젝트별 분리 관리가 불가능했고, 모바일 화면에서는 버튼이 숨겨져 접근이 불가능했습니다.
+
+**검증 기준 및 절차**
+
+1. **모바일 접근성**: 모바일 app bar에 `mobile-agent-mgr-btn`이 표시되고 패널이 열리는지 확인.
+2. **현재 프로젝트 표시**: Agent Manager header에 현재 workspace 이름과 경로가 표시되는지 확인.
+3. **프로젝트별 API 필터**: `/api/kanban/tasks?workspace=<path>`가 해당 프로젝트 task만 반환하는지 확인.
+4. **WebSocket payload 정합성**: `/ws/kanban` 최초 payload와 broadcast payload가 `tasks` 배열과 status group을 모두 포함하는지 확인.
+5. **WebSocket 프로젝트 필터**: 브로드캐스트는 전역이어도 Agent Manager 패널은 현재 `currentWorkspacePath` 기준으로 `task.project_path`를 필터링하는지 확인.
+6. **취소 상태 정합성**: 패널의 중단 버튼을 누르면 API가 `cancelled` 상태를 반환하고 UI가 `취소됨`으로 표시하는지 확인.
+
+**실행**
+
+```bash
+python -m pytest \
+  tests/test_api_server.py::test_kanban_tasks_are_project_scoped_cancelled_and_removable \
+  tests/test_api_server.py::test_kanban_websocket_sends_flat_tasks_payload \
+  tests/test_planning_and_rendering_quality.py::test_agent_manager_is_mobile_accessible_and_project_scoped \
+  -q
+cd dashboard && npm run build
+python -m ruff check src tests
+python -m pytest -q
+python -m compileall -q src tests
+```
+
+**실제 브라우저 검증**
+
+- `http://127.0.0.1:8012/?agent_manager_project_check=1778136100000` 접속
+- 모바일 상단 `🤖` 버튼 클릭
+- 현재 프로젝트 task `Agent Manager current project QA task` 표시 확인
+- 다른 프로젝트 task `Agent Manager other project hidden task` 미표시 확인
+- `중단` 클릭 후 `취소됨` 표시 확인
+
+**통과 조건**
+
+- 좁은 화면에서 Agent Manager 버튼이 보이고 패널이 열림
+- 현재 프로젝트명/경로가 패널 header에 표시됨
+- 현재 workspace task만 렌더링됨
+- 다른 project task는 패널에 섞이지 않음
+- 취소 후 상태가 `cancelled`이며 UI가 `취소됨`으로 표시
+- 전체 `python -m pytest -q`가 359/359 PASS
+- `ruff`, `compileall`, `dashboard build` 모두 PASS
+
+**최신 결과**: PASS — Agent Manager 모바일 접근/프로젝트별 필터/취소 표시 실제 브라우저 검증 PASS, 표적 테스트 3개 PASS, 전체 `359 passed in 7.81s`, `ruff` PASS, `compileall` PASS, `npm run build` PASS

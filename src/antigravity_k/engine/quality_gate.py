@@ -99,6 +99,10 @@ class QualityGate:
         score *= s
         issues.extend(i)
 
+        s, i = self._check_information_density(agent_output)
+        score *= s
+        issues.extend(i)
+
         grade = (
             QualityGrade.A
             if score >= 0.8
@@ -436,4 +440,54 @@ class QualityGate:
         if not has_table:
             score *= 0.65
             issues.append("비교 요청에 Markdown 비교표(table) 누락")
+        return score, issues
+
+    def _check_information_density(self, output: str) -> tuple:
+        """출력물의 정보 밀도를 검증합니다.
+        장황하지만 정보가 없는 답변(filler)을 감점합니다."""
+        score, issues = 1.0, []
+        if len(output) < 300:
+            return score, issues
+
+        prose = re.sub(r"```(?:\w+)?\s*.*?```", "", output, flags=re.DOTALL).strip()
+        if not prose:
+            return score, issues
+
+        # 1. 문장 단위 반복 감지
+        sentences = re.split(r"[.!?。\n]", prose)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+        if sentences:
+            unique = set(sentences)
+            dup_ratio = 1.0 - (len(unique) / len(sentences))
+            if dup_ratio > 0.4:
+                score *= 0.4
+                issues.append(f"문장 수준 반복 과다 (중복률 {dup_ratio:.0%})")
+            elif dup_ratio > 0.25:
+                score *= 0.7
+                issues.append(f"문장 수준 반복 감지 (중복률 {dup_ratio:.0%})")
+
+        # 2. 구조 요소 밀도 (heading, list, code block)
+        if len(output) > 800:
+            headings = len(re.findall(r"^#{1,3}\s", output, re.MULTILINE))
+            lists = len(re.findall(r"^\s*[-*]\s", output, re.MULTILINE))
+            code_blocks = len(re.findall(r"```", output))
+            tables = len(re.findall(r"^\s*\|.+\|\s*$", output, re.MULTILINE))
+            structure_count = headings + lists + code_blocks // 2 + tables
+            chars_per_structure = len(output) / max(structure_count, 1)
+            if chars_per_structure > 600 and structure_count < 3:
+                score *= 0.75
+                issues.append("구조 요소 부족 (heading/list/table 없는 긴 산문)")
+
+        # 3. 고유 단어 비율 (filler 탐지)
+        words = re.findall(r"[가-힣a-zA-Z]{2,}", prose.lower())
+        if len(words) > 50:
+            unique_words = set(words)
+            vocab_richness = len(unique_words) / len(words)
+            if vocab_richness < 0.2:
+                score *= 0.5
+                issues.append(f"어휘 다양성 극히 낮음 ({vocab_richness:.0%})")
+            elif vocab_richness < 0.3:
+                score *= 0.75
+                issues.append(f"어휘 다양성 낮음 ({vocab_richness:.0%})")
+
         return score, issues

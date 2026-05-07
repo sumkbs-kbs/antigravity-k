@@ -19,6 +19,7 @@ from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.embeddings import EmbeddingEngine, get_embedding_engine
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.config import config
 from antigravity_k.api.models import (
     EmbeddingData,
     EmbeddingRequest,
@@ -475,13 +476,65 @@ task_counter = 100
 kanban_clients = set()
 
 
+def _default_project_path() -> str:
+    try:
+        return str(Path(config.paths.project_root).resolve())
+    except Exception:
+        return str(Path.cwd().resolve())
+
+
+def _normalize_project_path(project_path: Optional[str] = None) -> str:
+    raw = str(project_path or "").strip()
+    if not raw or raw == "/":
+        return _default_project_path()
+    return str(Path(raw).expanduser().resolve())
+
+
+def _project_name(project_path: str) -> str:
+    path = Path(project_path)
+    return path.name or str(path)
+
+
+def _task_matches_workspace(task: dict, workspace: Optional[str]) -> bool:
+    if not workspace:
+        return True
+    expected = _normalize_project_path(workspace)
+    actual = _normalize_project_path(task.get("project_path"))
+    return actual == expected
+
+
+def _serialize_kanban_payload(tasks: Optional[list] = None) -> dict:
+    selected = list(tasks if tasks is not None else kanban_tasks)
+    payload = {
+        "tasks": selected,
+        "todo": [],
+        "in_progress": [],
+        "completed": [],
+        "cancelled": [],
+        # Backward-compatible aliases for older Kanban consumers.
+        "BACKLOG": [],
+        "IN_PROGRESS": [],
+        "REVIEW": [],
+        "DONE": [],
+    }
+    for task in selected:
+        status = task.get("status", "todo")
+        if status in payload:
+            payload[status].append(task)
+        if status == "todo":
+            payload["BACKLOG"].append(task)
+        elif status == "in_progress":
+            payload["IN_PROGRESS"].append(task)
+        elif status == "completed":
+            payload["DONE"].append(task)
+        elif status == "cancelled":
+            payload["DONE"].append(task)
+    return payload
+
+
 async def broadcast_kanban():
-    # Helper to broadcast state to all connected clients
-    state = {"todo": [], "in_progress": [], "completed": []}
-    for t in kanban_tasks:
-        if t["status"] in state:
-            state[t["status"]].append(t)
-    message = json.dumps(state)
+    # Helper to broadcast the flat task list plus grouped status views.
+    message = json.dumps(_serialize_kanban_payload())
     for client in list(kanban_clients):
         try:
             await client.send_text(message)
@@ -508,6 +561,8 @@ def _on_agent_turn_started(**kwargs):
             "type": "Agent",
             "role": role,
             "priority": "normal",
+            "project_path": _default_project_path(),
+            "project_name": _project_name(_default_project_path()),
         }
     )
     task_counter += 1
@@ -532,12 +587,20 @@ global_event_bus.subscribe("AgentTurnEnded", _on_agent_turn_ended)
 async def create_kanban_task(request: Request):
     global task_counter
     data = await request.json()
+    project_path = _normalize_project_path(
+        data.get("project_path") or data.get("workspace_path") or data.get("workspace")
+    )
     task = {
         "id": f"T{task_counter}",
         "title": data.get("description", "Untitled Task"),
+        "description": data.get("description", "Untitled Task"),
         "role": data.get("assignee", "auto"),
         "status": "todo",
         "tokens": 0,
+        "type": data.get("type", "Task"),
+        "priority": data.get("priority", "normal"),
+        "project_path": project_path,
+        "project_name": _project_name(project_path),
     }
     task_counter += 1
     kanban_tasks.append(task)
@@ -546,8 +609,9 @@ async def create_kanban_task(request: Request):
 
 
 @router.get("/api/kanban/tasks")
-async def get_kanban_tasks():
-    return {"data": kanban_tasks}
+async def get_kanban_tasks(workspace: Optional[str] = Query(None)):
+    tasks = [t for t in kanban_tasks if _task_matches_workspace(t, workspace)]
+    return {"data": tasks, "workspace": _normalize_project_path(workspace) if workspace else None}
 
 
 @router.post("/api/kanban/tasks/{task_id}/cancel")
@@ -563,10 +627,21 @@ async def cancel_kanban_task_endpoint(task_id: str):
 
     for task in kanban_tasks:
         if str(task["id"]) == str(task_id):
-            task["status"] = "completed"
+            task["status"] = "cancelled"
             task["title"] = f"[중단됨] {task.get('title', '')}"
             await broadcast_kanban()
-            return {"ok": True, "message": "Task cancelled"}
+            return {"ok": True, "message": "Task cancelled", "task": task}
+
+    raise HTTPException(status_code=404, detail="Task not found")
+
+
+@router.delete("/api/kanban/tasks/{task_id}")
+async def delete_kanban_task_endpoint(task_id: str):
+    for idx, task in enumerate(list(kanban_tasks)):
+        if str(task["id"]) == str(task_id):
+            removed = kanban_tasks.pop(idx)
+            await broadcast_kanban()
+            return {"ok": True, "message": "Task removed", "task": removed}
 
     raise HTTPException(status_code=404, detail="Task not found")
 
@@ -593,11 +668,7 @@ async def websocket_kanban(websocket: WebSocket):
     await websocket.accept()
     kanban_clients.add(websocket)
     try:
-        # Send initial state
-        state = {"BACKLOG": [], "IN_PROGRESS": [], "REVIEW": [], "DONE": []}
-        for t in kanban_tasks:
-            state[t["status"]].append(t)
-        await websocket.send_text(json.dumps(state))
+        await websocket.send_text(json.dumps(_serialize_kanban_payload()))
 
         while True:
             await websocket.receive_text()
@@ -810,6 +881,10 @@ async def slash_command(request: Request):
 
     # is_command() 검사를 제거하여 일반 텍스트도 자연어 처리(_execute_natural_language)로 넘어가게 합니다.
     result = registry.execute(text)
+    import types
+
+    if isinstance(result, types.GeneratorType):
+        result = "".join(str(chunk) for chunk in result)
     return {"ok": True, "result": result}
 
 
@@ -858,15 +933,21 @@ START_TIME = time.time()
 async def system_status():
     """서버의 현재 상태, 메모리 사용량 및 업타임을 반환합니다."""
     try:
-        process = psutil.Process(os.getpid())
-        mem_info = process.memory_info()
+        from antigravity_k.api.dependencies import get_model_manager
+
+        mem_info = psutil.virtual_memory()
         uptime_seconds = int(time.time() - START_TIME)
+
+        # Get global token usage from tracker
+        model_manager = get_model_manager()
+        total_tokens = model_manager.tracker.get_total_tokens()
 
         return {
             "ok": True,
             "status": "online",
-            "memory_mb": round(mem_info.rss / (1024 * 1024), 1),
-            "cpu_percent": process.cpu_percent(),
+            "memory_mb": mem_info.percent, # Returns percentage despite the legacy key name
+            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "total_tokens": total_tokens,
             "uptime_seconds": uptime_seconds,
             "version": "v0.2.0",
         }

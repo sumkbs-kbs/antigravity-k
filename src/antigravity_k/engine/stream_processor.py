@@ -30,7 +30,7 @@ _INTERNAL_TAG_RE = re.compile(
 _SCRATCH_PAD_BLOCK_RE = re.compile(
     r"<scratch_pad>.*?</scratch_pad>", re.DOTALL | re.IGNORECASE
 )
-_CJK_CLEANUP_RE = re.compile(r"[\u4e00-\u9fff]+")
+_CJK_CLEANUP_RE = re.compile(r"[\u4e00-\u9fff]{5,}")
 
 
 @dataclass
@@ -204,7 +204,32 @@ class StreamProcessor:
         cleaned = _INTERNAL_TAG_RE.sub("", cleaned)
         cleaned = _CJK_CLEANUP_RE.sub("", cleaned)
 
+        # 확장 마크다운 지원 (GitHub Alerts, render_diffs)
+        cleaned = self._format_markdown_extensions(cleaned)
+
         return cleaned if cleaned.strip() else ""
+
+    def _format_markdown_extensions(self, text: str) -> str:
+        """GitHub Alerts 및 render_diffs() 등의 확장 마크다운을 처리합니다."""
+        import re
+
+        # render_diffs(uri) 처리
+        text = re.sub(
+            r"render_diffs\((.*?)\)", r"\n\n**[Diff Render]** 📄 `\1`\n\n", text
+        )
+
+        # GitHub Alerts 스타일링
+        alert_map = {
+            "NOTE": "ℹ️ **NOTE**",
+            "TIP": "💡 **TIP**",
+            "IMPORTANT": "❗ **IMPORTANT**",
+            "WARNING": "⚠️ **WARNING**",
+            "CAUTION": "🛑 **CAUTION**",
+        }
+        for key, replacement in alert_map.items():
+            text = text.replace(f"> [!{key}]", f"> {replacement}")
+
+        return text
 
     def reset(self):
         """새 step을 위해 상태를 리셋합니다."""
