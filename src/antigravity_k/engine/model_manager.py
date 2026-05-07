@@ -11,8 +11,9 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from .collective_intelligence import CollectiveIntelligenceEngine
 from .model_registry import ModelProfile, ModelRegistry
-from .model_router import ModelRouter, AllModelsUnavailableError
+from .model_router import AllModelsUnavailableError, ModelRouter, RouteStrategy
 from .usage_tracker import UsageTracker
 
 logger = logging.getLogger("antigravity_k.model_manager")
@@ -162,6 +163,28 @@ class ModelManager:
             return self.load(default.name)
         return None
 
+    def get_target_for_role(
+        self, role_name: str, default_role: str = "reasoning"
+    ) -> str:
+        """
+        역할별 실행 타겟을 반환합니다.
+
+        config.yaml의 agent_models는 단일 모델뿐 아니라 콤보 이름도 허용합니다.
+        콤보가 반환되면 generate()/stream_generate()가 해당 전략에 따라 처리합니다.
+        """
+        raw = getattr(self._registry, "_raw", {})
+        agent_models = raw.get("agent_models", {})
+        if isinstance(agent_models, dict):
+            for key in (role_name, role_name.upper(), role_name.lower(), "default"):
+                value = agent_models.get(key)
+                if isinstance(value, str) and value:
+                    return value
+
+        default = self._registry.get_default(default_role)
+        if default:
+            return default.name
+        return "default_model"
+
     def prefetch(self, name: str) -> bool:
         """
         런타임 지연을 방지하기 위해 사전에 모델을 로드합니다.
@@ -209,6 +232,15 @@ class ModelManager:
         Returns:
             생성된 텍스트
         """
+        collective_internal = bool(kwargs.pop("_collective_internal", False))
+        combo = self.router.get_combo(target)
+        if (
+            combo
+            and combo.strategy == RouteStrategy.COLLECTIVE
+            and not collective_internal
+        ):
+            return self.generate_collective(prompt, target, **kwargs)
+
         start_time = time.time()
         fallback_depth = 0
         used_model = None
@@ -242,6 +274,7 @@ class ModelManager:
 
             # 실제 추론 수행 (Mac MLX 또는 Windows 더미)
             response_text = self._do_generate(loaded, prompt, **kwargs)
+            response_text = self._strip_hidden_reasoning(response_text)
 
             # 토큰 수 대략적 계산 (실제로는 토크나이저 사용)
             tokens_in = (
@@ -297,12 +330,89 @@ class ModelManager:
                 return self.generate(prompt, combo_name, **kwargs)
             else:
                 logger.error(f"[{used_model}] 단일 모델 추론 실패: {error_msg}")
-                raise
+            raise
+
+    def generate_collective(self, prompt: str, target: str, **kwargs) -> str:
+        """여러 모델의 제안, 비판, 최종 합성을 거쳐 답변을 생성합니다."""
+        cfg = self._collective_config()
+        combo = self.router.get_combo(target)
+        if combo:
+            participants = self.router.available_model_names(target)
+        else:
+            participants = [target]
+
+        min_participants = int(cfg.get("min_participants", 2))
+        max_proposers = int(cfg.get("max_proposers", 3))
+        max_critics = int(cfg.get("max_critics", 2))
+
+        if len(participants) < min_participants:
+            logger.warning(
+                "집단지성 최소 참여 모델 부족: target=%s participants=%s",
+                target,
+                participants,
+            )
+            routed = (
+                self.router.route(target) if combo else self.router.route_single(target)
+            )
+            return self.generate(
+                prompt,
+                routed.name,
+                _collective_internal=True,
+                **kwargs,
+            )
+
+        critic_combo = cfg.get("critic_combo", "critic-swarm")
+        critics = self._available_combo_or_models(critic_combo, participants)
+        arbiter = str(cfg.get("arbiter_combo", "supreme-court"))
+        if (
+            not self.router.get_combo(arbiter)
+            and self._registry.get_model(arbiter) is None
+        ):
+            arbiter = participants[0]
+
+        def generate_fn(
+            model_or_combo: str, phase_prompt: str, phase_kwargs: dict
+        ) -> str:
+            response = self.generate(
+                phase_prompt,
+                model_or_combo,
+                _collective_internal=True,
+                **phase_kwargs,
+            )
+            if response.strip().lower().startswith("[api error"):
+                self.router.mark_failure(model_or_combo, reason=response[:300])
+            return response
+
+        engine = CollectiveIntelligenceEngine(generate_fn)
+        return engine.run(
+            prompt,
+            proposers=participants,
+            critics=critics,
+            arbiter=arbiter,
+            max_proposers=max_proposers,
+            max_critics=max_critics,
+            min_participants=min_participants,
+            expose_trace=bool(cfg.get("expose_trace", True)),
+            generation_kwargs=kwargs,
+        )
 
     def stream_generate(self, prompt: str, target: str, **kwargs):
         """
         텍스트 생성 수행 (스트리밍).
         """
+        collective_internal = bool(kwargs.pop("_collective_internal", False))
+        combo = self.router.get_combo(target)
+        if (
+            combo
+            and combo.strategy == RouteStrategy.COLLECTIVE
+            and not collective_internal
+        ):
+            text = self.generate_collective(prompt, target, **kwargs)
+            chunk_size = int(kwargs.get("stream_chunk_size", 256))
+            for idx in range(0, len(text), chunk_size):
+                yield text[idx : idx + chunk_size]
+            return
+
         start_time = time.time()
         fallback_depth = 0
         used_model = None
@@ -377,6 +487,25 @@ class ModelManager:
             else:
                 logger.error(f"[{used_model}] 단일 모델 추론 실패: {error_msg}")
                 raise
+
+    def _collective_config(self) -> dict:
+        raw = getattr(self._registry, "_raw", {})
+        cfg = raw.get("collective_intelligence", {})
+        return cfg if isinstance(cfg, dict) else {}
+
+    def _available_combo_or_models(
+        self,
+        combo_name: str,
+        fallback_models: list[str],
+    ) -> list[str]:
+        if self.router.get_combo(combo_name):
+            try:
+                available = self.router.available_model_names(combo_name)
+                if available:
+                    return available
+            except Exception as exc:
+                logger.warning("비판 콤보 조회 실패: %s (%s)", combo_name, exc)
+        return fallback_models
 
     def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
         """내부 텍스트 생성 로직 분리"""
@@ -478,6 +607,10 @@ class ModelManager:
             data["messages"] = api_msgs
         else:
             data["messages"] = [{"role": "user", "content": prompt}]
+        data["messages"] = self._suppress_model_thinking(
+            loaded.profile.name,
+            data["messages"],
+        )
 
         req = urllib.request.Request(
             url,
@@ -490,7 +623,12 @@ class ModelManager:
         try:
             with urllib.request.urlopen(req, timeout=300) as response:
                 result = json.loads(response.read().decode("utf-8"))
-                content = result["choices"][0]["message"]["content"]
+                message = result["choices"][0]["message"]
+                content = message.get("content", "")
+                if not content and message.get("thinking"):
+                    raise RuntimeError(
+                        "model returned hidden thinking without final content"
+                    )
                 logger.debug(
                     f"Ollama response content ({len(content)} chars): {content[:200]}"
                 )
@@ -498,6 +636,45 @@ class ModelManager:
         except Exception as e:
             logger.error(f"Local API generation failed: {e}")
             return f"[API Error for {loaded.profile.name}] {e}"
+
+    @staticmethod
+    def _suppress_model_thinking(model_name: str, messages: list[dict]) -> list[dict]:
+        """Inject direct-answer mode for models that otherwise emit thinking-only output."""
+        if "qwen3" not in model_name.lower():
+            return messages
+
+        directive = (
+            "/no_think\n"
+            "Answer directly. Do not output hidden reasoning, thinking traces, "
+            "<think>, or <thought> blocks."
+        )
+        prepared = [dict(message) for message in messages]
+        if prepared and prepared[0].get("role") == "system":
+            content = str(prepared[0].get("content", ""))
+            if "/no_think" not in content:
+                prepared[0]["content"] = f"{directive}\n{content}".strip()
+            return prepared
+
+        return [{"role": "system", "content": directive}, *prepared]
+
+    @staticmethod
+    def _strip_hidden_reasoning(text: str) -> str:
+        """Remove common hidden-reasoning blocks from non-streaming model output."""
+        import re
+
+        cleaned = re.sub(
+            r"<(think|thought)\b[^>]*>.*?</\1>",
+            "",
+            text or "",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        cleaned = re.sub(
+            r"---\s*Thinking Process\s*---.*?---\s*End of Thinking\*?\s*---",
+            "",
+            cleaned,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        return cleaned.strip()
 
     def _apply_dynamic_inference_config(
         self, loaded_profile, prompt_or_messages, kwargs
@@ -649,6 +826,8 @@ class ModelManager:
         else:
             api_msgs = [{"role": "user", "content": prompt}]
 
+        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
+
         model_name, temperature, thinking_config, attribution = (
             self._apply_dynamic_inference_config(loaded.profile, api_msgs, kwargs)
         )
@@ -693,17 +872,9 @@ class ModelManager:
                         if "message" in chunk:
                             msg = chunk["message"]
 
-                            # Ollama Native API uses 'thinking' field for CoT
-                            if "thinking" in msg and msg["thinking"]:
-                                if not in_reasoning:
-                                    in_reasoning = True
-                                    yield "<think>\n"
-                                yield msg["thinking"]
-
                             if "content" in msg and msg["content"]:
                                 if in_reasoning:
                                     in_reasoning = False
-                                    yield "\n</think>\n\n"
                                 yield msg["content"]
                     except json.JSONDecodeError:
                         continue

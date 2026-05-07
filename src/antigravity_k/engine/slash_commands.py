@@ -50,12 +50,14 @@ class SlashCommandRegistry:
         session_manager=None,
         context_shaper=None,
         model_manager=None,
+        skill_loader=None,
     ):
         self._commands: Dict[str, SlashCommand] = {}
         self._tool_registry = tool_registry
         self._session_manager = session_manager
         self._context_shaper = context_shaper
         self._model_manager = model_manager
+        self._skill_loader = skill_loader
 
         # 기본 커맨드 등록
         self._register_defaults()
@@ -119,6 +121,16 @@ class SlashCommandRegistry:
                 description="에이전트 전체 상태를 요약합니다.",
                 handler=self._cmd_status,
                 usage="/status",
+                category="general",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="self",
+                description="현재 런타임 기준으로 Antigravity-K가 할 수 있는 일과 한계를 표시합니다.",
+                handler=self._cmd_self,
+                usage="/self",
                 category="general",
             )
         )
@@ -195,6 +207,16 @@ class SlashCommandRegistry:
 
         self.register(
             SlashCommand(
+                name="evolve",
+                description="본 프로그램 스스로 코드를 수정, 검증하고 문서를 업데이트하는 메타 진화를 수행합니다.",
+                handler=self._cmd_evolve,
+                usage="/evolve <기능 고도화 요구사항>",
+                category="autonomy",
+            )
+        )
+
+        self.register(
+            SlashCommand(
                 name="goal",
                 description="자율 목표를 성공 기준, 실행 루프, 검증 게이트로 변환합니다.",
                 handler=self._cmd_goal,
@@ -205,10 +227,60 @@ class SlashCommandRegistry:
 
         self.register(
             SlashCommand(
+                name="agentic",
+                description="최신 에이전틱 기술 레이더와 Antigravity-K 업그레이드 우선순위를 표시합니다.",
+                handler=self._cmd_agentic,
+                usage="/agentic [objective]",
+                category="autonomy",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="mcp",
+                description="MCP 최신 기능 레이더, 서버 설정 감사, 안전 템플릿을 표시합니다.",
+                handler=self._cmd_mcp,
+                usage="/mcp [radar|audit <path>|template]",
+                category="tools",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="capabilities",
+                description="현재 PC/도구/MCP/Skills의 자율 사용 가능 여부를 판단합니다.",
+                handler=self._cmd_capabilities,
+                usage="/capabilities [objective]",
+                category="autonomy",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="codex",
+                description="Codex식 강점과 운영 루프를 Antigravity-K 업그레이드 계약으로 변환합니다.",
+                handler=self._cmd_codex,
+                usage="/codex [objective]",
+                category="autonomy",
+            )
+        )
+
+        self.register(
+            SlashCommand(
                 name="aishell",
                 description="자연어 지시를 파싱하여 터미널(Bash) 커맨드로 즉시 변환 후 실행합니다.",
                 handler=self._cmd_aishell,
                 usage="/aishell <명령어>",
+                category="system",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="benchmark",
+                description="collective-council vs 단일 모델 품질/속도 벤치마크를 실행하거나 누적 비교표를 출력합니다.",
+                handler=self._cmd_benchmark,
+                usage="/benchmark [run [suite|case-id] | report [suite] | clear]",
                 category="system",
             )
         )
@@ -228,10 +300,14 @@ class SlashCommandRegistry:
 
     def execute(self, text: str) -> str:
         """슬래시 커맨드를 실행하거나 자연어 의도를 처리합니다."""
+        text = (text or "").strip()
+        if not text:
+            return "Error: Empty command."
+
         if not text.startswith("/"):
             return self._execute_natural_language(text)
 
-        parts = text.strip().split()
+        parts = text.split()
         if not parts:
             return "Error: Empty command."
 
@@ -311,6 +387,19 @@ class SlashCommandRegistry:
             lines.append("")
 
         return "\n".join(lines)
+
+    def _cmd_self(self, args: list) -> str:
+        """런타임 기반 자기 능력 보고서."""
+        from antigravity_k.engine.self_capability import SelfCapabilityEngine
+
+        engine = SelfCapabilityEngine()
+        snapshot = engine.build(
+            tool_registry=self._tool_registry,
+            skill_loader=self._skill_loader,
+            model_manager=self._model_manager,
+            slash_commands=self._commands,
+        )
+        return engine.render_markdown(snapshot)
 
     def _cmd_tools(self, args: list) -> str:
         """도구 목록 표시."""
@@ -654,6 +743,116 @@ class SlashCommandRegistry:
         report = runner.run(objective, context=context)
         return runner.render_markdown(report)
 
+    def _cmd_agentic(self, args: list) -> str:
+        """최신 에이전틱 기술 레이더."""
+        objective = " ".join(args).strip()
+        from antigravity_k.engine.agentic_tech_radar import AgenticTechRadar
+
+        radar = AgenticTechRadar()
+        report = radar.evaluate(objective)
+        return radar.render_markdown(report)
+
+    def _cmd_mcp(self, args: list) -> str:
+        """MCP 최신 기능 레이더 및 설정 감사."""
+        from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
+
+        advisor = MCPCapabilityAdvisor()
+        subcommand = args[0].lower() if args else "radar"
+
+        if subcommand == "template":
+            return "```json\n" + advisor.render_template() + "\n```"
+
+        if subcommand == "audit" or subcommand.endswith(".json"):
+            path = args[1] if subcommand == "audit" and len(args) > 1 else subcommand
+            if subcommand == "audit" and len(args) <= 1:
+                path = ".mcp.json"
+            config = advisor.load_config(path)
+            report = advisor.audit_config(config, source=path)
+            return advisor.render_markdown(report)
+
+        if subcommand in {"radar", "capabilities", "latest"}:
+            report = advisor.audit_config({}, source="latest-capability-radar")
+            return advisor.render_markdown(report)
+
+        return "Usage: `/mcp [radar|audit <path>|template]`"
+
+    def _cmd_capabilities(self, args: list) -> str:
+        """현재 등록된 capabilities의 자율 사용 가능성 표시."""
+        objective = " ".join(args).strip()
+        lines = [
+            "# Autonomous Capability Manifest",
+            "",
+            f"**Objective:** `{objective or 'general'}`",
+            "",
+        ]
+
+        if self._tool_registry is not None:
+            lines.append(self._tool_registry.render_autonomous_policy().strip())
+            lines.append("")
+            decisions = self._tool_registry.get_autonomous_manifest(objective)
+            counts = {
+                "allow": sum(1 for item in decisions if item.decision == "allow"),
+                "prompt": sum(1 for item in decisions if item.decision == "prompt"),
+                "deny": sum(1 for item in decisions if item.decision == "deny"),
+            }
+            lines.append(
+                f"**Tools/MCP:** allow={counts['allow']}, prompt={counts['prompt']}, deny={counts['deny']}"
+            )
+            lines.append("")
+            if not decisions:
+                lines.append(
+                    "- Tool registry is connected, but no executable tools are registered yet."
+                )
+            else:
+                for decision in decisions[:30]:
+                    lines.append(
+                        f"- `{decision.capability_id}` [{decision.capability_type}] "
+                        f"→ **{decision.decision}** "
+                        f"(risk={decision.risk_level}, trust={decision.trust_level}) — {decision.reason}"
+                    )
+                if len(decisions) > 30:
+                    lines.append(f"- ... {len(decisions) - 30} more capabilities")
+        else:
+            lines.append("**Tools/MCP:** Tool registry not connected.")
+
+        if self._skill_loader is not None:
+            skill_decisions = [
+                decision
+                for decision in self._skill_loader.get_autonomous_manifest(objective)
+                if decision.score > 0
+            ]
+            lines.extend(["", "## Skills", ""])
+            if not skill_decisions:
+                lines.append("- No relevant skill candidates for this objective.")
+            else:
+                for decision in skill_decisions[:10]:
+                    lines.append(
+                        f"- `{decision.capability_id}` → **{decision.decision}** "
+                        f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}"
+                    )
+        else:
+            lines.extend(["", "**Skills:** Skill loader not connected."])
+
+        return "\n".join(lines)
+
+    def _cmd_codex(self, args: list) -> str:
+        """Codex식 강점을 Antigravity-K 실행 계약으로 표시합니다."""
+        objective = " ".join(args).strip()
+        connected_tools = len(self._tool_registry) if self._tool_registry else 0
+        known_skills = 0
+        if self._skill_loader is not None:
+            known_skills = len(self._skill_loader.get_autonomous_manifest(objective))
+
+        from antigravity_k.engine.codex_transfer import CodexTransferEngine
+
+        engine = CodexTransferEngine()
+        report = engine.build(
+            objective=objective,
+            connected_tools=connected_tools,
+            known_skills=known_skills,
+        )
+        return engine.render_markdown(report)
+
     def _cmd_approve(self, args: list) -> str:
         return "System command: /approve is managed by the orchestrator."
 
@@ -662,6 +861,28 @@ class SlashCommandRegistry:
 
     def _cmd_skill(self, args: list) -> str:
         return "System command: /skill is managed by the orchestrator."
+
+    def _cmd_evolve(self, args: list):
+        if not self._model_manager:
+            return "Error: Model manager is not connected."
+
+        requirement = " ".join(args).strip()
+        if not requirement:
+            return "Usage: `/evolve <기능 고도화 요구사항>`"
+
+        from antigravity_k.agents.meta_evolution_agent import MetaEvolutionAgent
+        from antigravity_k.engine.orchestrator import OrchestratorAgent
+
+        # 임시 툴 익스큐터 생성
+        orch = OrchestratorAgent(
+            model_manager=self._model_manager, tool_registry=self._tool_registry
+        )
+        agent = MetaEvolutionAgent(
+            model_manager=self._model_manager, tool_executor=orch._tool_executor
+        )
+
+        # Generator 자체를 반환 (chat.py에서 스트리밍으로 소비됨)
+        return agent.evolve(requirement)
 
     def _cmd_aishell(self, args: list) -> str:
         """자연어 의도를 받아 Bash 코드로 변환 후 실행합니다."""
@@ -730,3 +951,48 @@ class SlashCommandRegistry:
             f"> 명령: `{command}`\n\n"
             f"**실행 결과:**\n```text\n{output}\n```"
         )
+
+    def _cmd_benchmark(self, args: list) -> str:
+        """벤치마크 실행/보고서 출력."""
+        if not self._model_manager:
+            return "❌ ModelManager가 필요합니다."
+
+        from antigravity_k.engine.benchmark_harness import BenchmarkHarness
+
+        harness = BenchmarkHarness(model_manager=self._model_manager)
+
+        if not args:
+            return (
+                "📊 **Benchmark 명령어**\n\n"
+                "- `/benchmark run` — 전체 스위트 실행\n"
+                "- `/benchmark run sim-001` — 특정 과제만 실행\n"
+                "- `/benchmark run simple` — 카테고리별 실행\n"
+                "- `/benchmark report` — 누적 비교표 출력\n"
+                "- `/benchmark clear` — 누적 결과 초기화"
+            )
+
+        sub = args[0].lower()
+
+        if sub == "run":
+            suite_name = args[1] if len(args) > 1 else "all"
+            yield "🚀 **벤치마크 실행 시작**\n\n"
+            yield f"스위트: `{suite_name}`\n\n"
+            yield "⏳ 과제를 순차 실행 중입니다. VRAM 경합 방지를 위해 하나씩 처리합니다...\n\n"
+
+            try:
+                report = harness.run_suite(suite_name)
+                yield f"✅ **벤치마크 완료** ({report.duration_s:.1f}s, {len(report.results)}건)\n\n"
+                yield harness.comparison_table(suite_name)
+            except Exception as e:
+                yield f"❌ 벤치마크 실행 실패: {e}"
+
+        elif sub == "report":
+            suite_name = args[1] if len(args) > 1 else "all"
+            return harness.comparison_table(suite_name)
+
+        elif sub == "clear":
+            harness.clear_history()
+            return "🗑️ 벤치마크 누적 결과가 초기화되었습니다."
+
+        else:
+            return f"❓ 알 수 없는 하위 명령: `{sub}`. `/benchmark` 로 도움말을 확인하세요."

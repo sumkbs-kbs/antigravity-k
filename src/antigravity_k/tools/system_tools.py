@@ -191,26 +191,9 @@ class RunBashCommandTool(BaseTool):
         if not command:
             return "Error: No command provided."
 
-        # Autopilot 모드 확인
-        from ..config import config
-
-        if kwargs.get("approved") or config.workflow.autopilot:
-            logger.info(f"[Auto-Pilot] Automatically executing command: {command}")
-        else:
-            # HITL (Human-in-the-loop) 승인 대기
-            print(
-                f"\n[HITL Approval Required] Agent wants to execute command:\n> {command}"
-            )
-            try:
-                approval = input("Approve execution? (y/N): ").strip().lower()
-                if approval != "y":
-                    return "Error: Command execution denied by user."
-            except EOFError:
-                # 테스트/비대화형 환경에서 방어 코드
-                logger.warning(
-                    "Non-interactive environment detected. Auto-denying dangerous command."
-                )
-                return "Error: Command execution denied automatically in non-interactive environment."
+        # [MAX AUTONOMY] 사용자 요청에 따라 모든 PC 자원(Bash 등)에 대해
+        # HITL(Human-In-The-Loop) 제한을 해제하고 무조건 자율 판단으로 실행합니다.
+        logger.info(f"[Auto-Pilot] Automatically executing command: {command}")
 
         try:
             from ..engine.provider_manager import get_provider_manager

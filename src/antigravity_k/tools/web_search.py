@@ -196,7 +196,12 @@ class WebSearchEngine:
         max_results: int = 8,
         cache_ttl_hours: int = 24,
     ):
-        self.searxng_url = searxng_url
+        import os
+
+        self.searxng_url = searxng_url or os.environ.get(
+            "SEARXNG_URL", "http://localhost:8080"
+        )
+        self.tavily_api_key = os.environ.get("TAVILY_API_KEY")
         self.max_results = max_results
         self.cache = SearchCache(ttl_hours=cache_ttl_hours)
         self._client: Optional[httpx.AsyncClient] = None
@@ -281,6 +286,48 @@ class WebSearchEngine:
 
         except Exception as e:
             logger.error(f"DuckDuckGo 검색 오류: {e}")
+
+        return results
+
+    # ─── Tavily AI 검색 (LLM-Ready 정제 데이터) ───────────────────
+
+    async def _search_tavily(self, query: str) -> list[SearchResult]:
+        """Tavily AI API — 불필요한 HTML을 제거한 LLM-Ready 데이터 제공."""
+        if not self.tavily_api_key:
+            return []
+
+        client = await self._get_client()
+        results: list[SearchResult] = []
+
+        try:
+            url = "https://api.tavily.com/search"
+            payload = {
+                "api_key": self.tavily_api_key,
+                "query": query,
+                "search_depth": "basic",
+                "max_results": self.max_results,
+            }
+            resp = await client.post(url, json=payload, timeout=15.0)
+
+            if resp.status_code != 200:
+                logger.warning(f"Tavily AI 응답 실패: {resp.status_code}")
+                return results
+
+            data = resp.json()
+            for i, item in enumerate(data.get("results", [])[: self.max_results]):
+                results.append(
+                    SearchResult(
+                        title=item.get("title", ""),
+                        url=item.get("url", ""),
+                        snippet=item.get("content", ""),
+                        source="Tavily AI",
+                        timestamp=datetime.now().isoformat(),
+                        relevance_score=item.get("score", 1.0 - i * 0.1),
+                    )
+                )
+
+        except Exception as e:
+            logger.error(f"Tavily AI 검색 오류: {e}")
 
         return results
 
@@ -420,26 +467,35 @@ class WebSearchEngine:
                 logger.info(f"캐시 히트: '{query}' ({len(cached.results)}개 결과)")
                 return cached
 
-        # 2. Multi-Engine 검색 (폴백 체인 + 결과 병합)
+        # 2. Multi-Engine 검색 (우선순위: Tavily -> SearXNG -> Jina -> DuckDuckGo)
         all_results: list[SearchResult] = []
         engines_used: list[str] = []
 
-        # 2a. Jina Search (무료 시맨틱 검색)
-        jina_results = await self._search_jina(query)
-        if jina_results:
-            all_results.extend(jina_results)
-            engines_used.append("jina")
-            logger.info(f"Jina Search: {len(jina_results)}개 결과")
+        # 2a. Tavily AI (우선 적용: LLM 친화적 결과)
+        if self.tavily_api_key:
+            tavily_results = await self._search_tavily(query)
+            if tavily_results:
+                all_results.extend(tavily_results)
+                engines_used.append("tavily")
+                logger.info(f"Tavily AI: {len(tavily_results)}개 결과")
 
-        # 2b. SearXNG (자체 호스팅)
-        if self.searxng_url:
+        # 2b. SearXNG (자체 호스팅 메타 검색 우선)
+        if self.searxng_url and len(all_results) < self.max_results:
             searxng_results = await self._search_searxng(query)
             if searxng_results:
                 all_results.extend(searxng_results)
                 engines_used.append("searxng")
                 logger.info(f"SearXNG: {len(searxng_results)}개 결과")
 
-        # 2c. DuckDuckGo (폴백 또는 보완)
+        # 2c. Jina Search (무료 시맨틱 검색)
+        if len(all_results) < self.max_results:
+            jina_results = await self._search_jina(query)
+            if jina_results:
+                all_results.extend(jina_results)
+                engines_used.append("jina")
+                logger.info(f"Jina Search: {len(jina_results)}개 결과")
+
+        # 2d. DuckDuckGo (최종 폴백)
         if len(all_results) < 3:
             ddg_results = await self._search_duckduckgo(query)
             if ddg_results:

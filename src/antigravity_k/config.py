@@ -9,10 +9,42 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator, ConfigDict
 import os
+import yaml
 
 
 # 프로젝트 루트 경로 자동 감지
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _load_yaml_config() -> dict:
+    """Load repository config.yaml when present; environment variables still win."""
+    config_path = Path(os.environ.get("AGK_CONFIG_FILE", PROJECT_ROOT / "config.yaml"))
+    if not config_path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _section_overrides(
+    raw_config: dict, section: str, config_cls: type[BaseSettings]
+) -> dict:
+    section_data = raw_config.get(section, {})
+    if not isinstance(section_data, dict):
+        return {}
+
+    env_prefix = config_cls.model_config.get("env_prefix", "")
+    overrides = {}
+    for key, value in section_data.items():
+        if key not in config_cls.model_fields:
+            continue
+        env_name = f"{env_prefix}{key}".upper()
+        if env_name in os.environ:
+            continue
+        overrides[key] = value
+    return overrides
 
 
 class ModelConfig(BaseSettings):
@@ -141,6 +173,11 @@ class SecurityConfig(BaseSettings):
         default=os.environ.get("AGK_ENV", "development") == "production",
         description="프로덕션 환경에서 LintAI 미설치 시 Fail-Closed 적용",
     )
+    # 추가: 외부 접속 보호용 PIN
+    access_pin: str = Field(
+        default="0000",
+        description="외부(또는 로컬) 프론트엔드 접속용 보안 PIN",
+    )
 
     model_config = ConfigDict(env_prefix="AGK_SEC_")
 
@@ -208,14 +245,25 @@ class AppConfig:
     """전체 애플리케이션 설정을 통합합니다."""
 
     def __init__(self):
-        self.model = ModelConfig()
-        self.server = ServerConfig()
-        self.paths = PathConfig()
-        self.security = SecurityConfig()
-        self.workflow = WorkflowConfig()
-        self.i18n = I18nConfig()
-        self.router = RouterConfig()
-        self.computer_use = ComputerUseConfig()
+        raw_config = _load_yaml_config()
+        self.model = ModelConfig(**_section_overrides(raw_config, "model", ModelConfig))
+        self.server = ServerConfig(
+            **_section_overrides(raw_config, "server", ServerConfig)
+        )
+        self.paths = PathConfig(**_section_overrides(raw_config, "paths", PathConfig))
+        self.security = SecurityConfig(
+            **_section_overrides(raw_config, "security", SecurityConfig)
+        )
+        self.workflow = WorkflowConfig(
+            **_section_overrides(raw_config, "workflow", WorkflowConfig)
+        )
+        self.i18n = I18nConfig(**_section_overrides(raw_config, "i18n", I18nConfig))
+        self.router = RouterConfig(
+            **_section_overrides(raw_config, "router", RouterConfig)
+        )
+        self.computer_use = ComputerUseConfig(
+            **_section_overrides(raw_config, "computer_use", ComputerUseConfig)
+        )
 
     def ensure_directories(self):
         """필요한 디렉토리를 생성합니다."""

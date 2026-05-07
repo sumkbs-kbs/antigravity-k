@@ -36,13 +36,16 @@ class ToolExecutor:
         model_manager=None,
         vault_engine=None,
         project_root: str = ".",
+        capability_policy_config: Dict[str, Any] | None = None,
     ):
         self.tool_registry = tool_registry
         self.permission_gate = permission_gate
         self.manager = model_manager
         self.vault_engine = vault_engine
         self.project_root = project_root
+        self.capability_policy_config = capability_policy_config or {}
         self._consecutive_errors = 0
+        self.current_objective = ""
 
         # Singleton instantiation to avoid lazy init costs during active error recovery
         try:
@@ -53,7 +56,11 @@ class ToolExecutor:
             logger.error(f"Failed to initialize ImmuneSystem in ToolExecutor: {e}")
             self._immune_system = None
 
-    def execute(self, name: str, args: Dict[str, Any]) -> str:
+    def set_objective(self, objective: str) -> None:
+        """현재 턴 목표를 capability policy 판단에 제공합니다."""
+        self.current_objective = objective or ""
+
+    def execute(self, name: str, args: Dict[str, Any], objective: str = "") -> str:
         """ToolRegistry를 통해 도구를 실행합니다. (사전 검증 및 구조화된 에러 반환 포함)"""
         try:
             if name not in self.tool_registry:
@@ -81,7 +88,37 @@ class ToolExecutor:
                 except Exception as ve:
                     logger.warning(f"Validation check failed for {name}: {ve}")
 
-            perm, result = self.tool_registry.execute_with_permission(name, args)
+            # ─── Preflight Validator (Hermes 차용) ───
+            # 파일 읽기, 편집 도구 실행 전 경로가 존재하는지 확인하고,
+            # 파일 쓰기 도구의 경우 대상 디렉토리가 없으면 자율적으로 생성합니다.
+            file_path = args.get("file_path") or args.get("path") or args.get("target")
+            if file_path:
+                abs_path = (
+                    file_path
+                    if os.path.isabs(file_path)
+                    else os.path.join(self.project_root, file_path)
+                )
+                if name in (
+                    "write_file",
+                    "write_to_file",
+                    "edit_file",
+                    "replace_file_content",
+                ):
+                    parent_dir = os.path.dirname(abs_path)
+                    if parent_dir and not os.path.exists(parent_dir):
+                        try:
+                            os.makedirs(parent_dir, exist_ok=True)
+                            logger.info(
+                                f"Preflight Validator: Auto-created missing directory {parent_dir}"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Preflight Validator failed to create dir {parent_dir}: {e}"
+                            )
+
+            perm, result = self.tool_registry.execute_with_permission(
+                name, args, objective=objective or self.current_objective
+            )
 
             if perm == Permission.DENY:
                 self._consecutive_errors += 1
@@ -277,6 +314,9 @@ class ToolExecutor:
             )
             logger.info(f"Registered {len(self.tool_registry)} tools via ToolRegistry")
 
+            # MCP 동적 도구 로딩: 감사 통과한 서버만 ToolRegistry에 편입합니다.
+            self._load_mcp_tools()
+
             # Auto-Skill 동적 로딩 (ECA)
             self._load_auto_skills()
 
@@ -315,6 +355,35 @@ class ToolExecutor:
                         )
             except Exception as e:
                 logger.warning(f"Failed to load auto-skill {skill_file}: {e}")
+
+    def _load_mcp_tools(self):
+        """프로젝트 MCP 설정을 감사한 뒤 안전한 MCP 도구를 동적으로 등록합니다."""
+        config_path = os.environ.get("AGK_MCP_CONFIG") or os.path.join(
+            self.project_root, ".mcp.json"
+        )
+        if self.capability_policy_config.get("auto_load_mcp", True) is False:
+            logger.info("MCP auto-load disabled by autonomous_capabilities config.")
+            return
+        if not os.path.exists(config_path):
+            return
+
+        try:
+            from antigravity_k.tools.mcp_tool_loader import MCPToolLoader
+
+            loader = MCPToolLoader(
+                config_path=config_path,
+                include_system_tools=False,
+            )
+            for tool in loader.load_tools():
+                if tool.name in self.tool_registry:
+                    logger.warning(
+                        f"Skipping MCP tool '{tool.name}' because a local tool already exists."
+                    )
+                    continue
+                self.tool_registry.install(tool)
+            logger.info(f"Registered MCP tools from {config_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load MCP tools from {config_path}: {e}")
 
     def reset_error_counter(self):
         """턴 시작 시 에러 카운터를 리셋합니다."""

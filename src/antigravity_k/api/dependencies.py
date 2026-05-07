@@ -11,6 +11,7 @@ from antigravity_k.engine.context_shaper import ContextShaper
 from antigravity_k.engine.session_manager import SessionManager
 from antigravity_k.engine.orchestrator import OrchestratorAgent
 from antigravity_k.engine.embeddings import EmbeddingEngine
+from antigravity_k.engine.skill_loader import SkillLoader
 
 logger = logging.getLogger("antigravity_k.api.dependencies")
 
@@ -20,6 +21,7 @@ protocol_translator: Optional[ProtocolTranslator] = None
 vault_engine: Optional[VaultEngine] = None
 
 _tool_registry: Optional[ToolRegistry] = None
+_skill_loader: Optional[SkillLoader] = None
 _context_shaper: Optional[ContextShaper] = None
 _session_manager: Optional[SessionManager] = None
 _orchestrator: Optional[OrchestratorAgent] = None
@@ -35,8 +37,16 @@ def _get_session_manager() -> SessionManager:
 def __get_tool_registry() -> ToolRegistry:
     global _tool_registry
     if _tool_registry is None:
-        _tool_registry = ToolRegistry()
+        _tool_registry = ToolRegistry(project_root=os.getcwd())
+        _tool_registry.auto_discover("antigravity_k.tools")
     return _tool_registry
+
+
+def __get_skill_loader() -> SkillLoader:
+    global _skill_loader
+    if _skill_loader is None:
+        _skill_loader = SkillLoader(project_root=os.getcwd())
+    return _skill_loader
 
 
 def _get_context_shaper() -> ContextShaper:

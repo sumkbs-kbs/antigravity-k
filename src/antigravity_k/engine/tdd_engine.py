@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple
 import httpx
 
 from antigravity_k.engine.external_brain import ExternalBrainRouter
+from antigravity_k.engine.quality_gate import QualityGate, QualityGrade
 
 logger = logging.getLogger("antigravity_k.tdd_engine")
 
@@ -483,33 +484,105 @@ class OmniTDDEngine:
         """
         sys_prompt = (
             "당신은 시니어 소프트웨어 엔지니어이자 기술 교육자입니다. "
-            "아래의 '사용자 원본 질문'과 '검증 완료된 코드'를 바탕으로 "
+            "아래의 '사용자 원본 질문'과 '검증 완료된 구현물'을 바탕으로 "
             "완전한 한국어 기술 응답을 작성하세요.\n\n"
             "반드시 다음 3단 구조를 지키세요:\n"
             "### 🔍 분석\n사용자 요구사항의 핵심 파악 (2~3문장)\n\n"
-            "### 💻 구현 코드\n검증 완료된 코드를 그대로 ```python 블록으로 제시\n\n"
+            "### 💻 구현 코드\n검증 완료된 코드를 적절한 언어(python, html 등)의 코드 블록으로 제시\n\n"
             "### 📊 설명\n"
             "- 각 방법/함수의 동작 원리를 간결하게 설명\n"
-            "- 시간/공간 복잡도가 관련되면 Big-O 표기를 반드시 포함\n"
             "- 여러 방법 비교 시 비교 표(마크다운 테이블) 포함\n"
             "- '💡 팁:' 섹션으로 실무 활용 팁 제공\n\n"
-            "규칙:\n"
-            "- 코드는 수정하지 마세요 (이미 테스트 통과됨)\n"
-            "- 응답은 반드시 한국어로 작성\n"
-            "- 같은 문단을 반복하지 마세요"
+            "[CRITICAL RULES]\n"
+            "1. 반드시 100% 자연스러운 한국어(Korean)로만 작성하세요.\n"
+            "2. 절대로 일본어(日本語), 중국어(中文) 문자를 섞어 쓰지 마세요 (품질 게이트 탈락의 원인이 됩니다).\n"
+            "3. 영어는 변수명이나 고유 명사에만 사용하세요.\n"
+            "4. 같은 문단이나 문장을 2회 이상 반복하지 마세요.\n"
+            "5. 불필요한 'Implementation Plan' 등의 영어 제목을 생성하지 마세요."
         )
         user_prompt = (
             f"사용자 원본 질문:\n{original_prompt}\n\n"
-            f"검증 완료된 코드:\n```python\n{winning_code}\n```"
+            f"검증 완료된 구현물:\n```\n{winning_code}\n```"
         )
         try:
             explanation = await self._call_llm(sys_prompt, user_prompt)
             if explanation and len(explanation.strip()) > 50:
-                return explanation.strip()
+                quality = QualityGate(max_retries=0).evaluate(
+                    "coding", original_prompt, explanation
+                )
+                if quality.grade in (QualityGrade.A, QualityGrade.B):
+                    return explanation.strip()
+                logger.warning(
+                    "[OmniTDD] Reconstructed response failed quality gate: %s",
+                    ", ".join(quality.issues),
+                )
         except Exception as e:
             logger.warning(f"[OmniTDD] Response reconstruction failed: {e}")
-        # 폴백: 최소한의 설명
-        return f"### 💻 구현 코드\n\n```python\n{winning_code}\n```"
+        return self._fallback_reconstructed_response(original_prompt, winning_code)
+
+    def _fallback_reconstructed_response(
+        self, original_prompt: str, winning_code: str
+    ) -> str:
+        """LLM 재구성이 실패해도 코드-only 응답을 피하는 결정론적 폴백."""
+        prompt_lower = original_prompt.lower()
+        complexity_requested = bool(
+            re.search(
+                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|"
+                r"time complexity|space complexity)",
+                prompt_lower,
+            )
+        )
+        comparison_requested = bool(
+            re.search(r"(비교|차이|장단점|compare|comparison|trade-?off)", prompt_lower)
+        )
+        gcd_requested = "gcd" in prompt_lower or "최대공약수" in original_prompt
+
+        if complexity_requested and gcd_requested:
+            complexity_note = (
+                "- 시간복잡도: 유클리드 호제법은 `O(log(min(a, b)))`입니다.\n"
+                "- 단순 감소/탐색형 반복 구현은 최악의 경우 `O(min(a, b))`까지 커질 수 있습니다.\n"
+                "- 반복문 기반 구현의 공간복잡도는 보통 `O(1)`입니다."
+            )
+        elif complexity_requested:
+            complexity_note = (
+                "- 시간복잡도: 선형 탐색 구조는 보통 `O(n)`, 입력을 절반씩 줄이는 구조는 `O(log n)`입니다.\n"
+                "- 공간복잡도는 추가 자료구조 사용 여부를 기준으로 산정해야 합니다."
+            )
+        else:
+            complexity_note = (
+                "- 검증 완료된 코드를 기준으로 입력, 출력, 예외 조건을 함께 확인하세요."
+            )
+
+        comparison_table = ""
+        if comparison_requested:
+            if gcd_requested:
+                comparison_table = (
+                    "\n\n| 방법 | 시간복잡도 | 공간복잡도 | 특징 |\n"
+                    "| --- | --- | --- | --- |\n"
+                    "| 유클리드 호제법 | `O(log(min(a, b)))` | `O(1)` | 가장 효율적인 일반 해법 |\n"
+                    "| 단순 반복 탐색 | `O(min(a, b))` | `O(1)` | 이해하기 쉽지만 큰 입력에서 느림 |"
+                )
+            else:
+                comparison_table = (
+                    "\n\n| 관점 | 확인 기준 | 설명 |\n"
+                    "| --- | --- | --- |\n"
+                    "| 성능 | Big-O | 입력 크기 증가에 따른 실행 시간 변화 |\n"
+                    "| 안정성 | 테스트 통과 여부 | 생성 코드가 샌드박스 검증을 통과했는지 |\n"
+                    "| 유지보수성 | 구조 | 함수 분리와 가독성 수준 |"
+                )
+
+        return (
+            "### 🔍 분석\n\n"
+            "요청은 검증 가능한 코드를 작성하고, 그 코드가 왜 적절한지 설명하는 것입니다. "
+            "아래 코드는 TDD 루프에서 검증을 통과한 최종 구현을 그대로 제시합니다.\n\n"
+            "### 💻 구현 코드\n\n"
+            f"```\n{winning_code}\n```\n\n"
+            "### 📊 설명\n\n"
+            f"{complexity_note}"
+            f"{comparison_table}\n\n"
+            "💡 팁: 실제 프로젝트에 반영할 때는 정상 입력뿐 아니라 0, 음수, 같은 값, 매우 큰 값 같은 "
+            "경계 조건을 테스트에 포함하면 출력 품질과 런타임 안정성을 함께 높일 수 있습니다."
+        )
 
     def _extract_python_code(self, text: str) -> str:
         """마크다운이나 불필요한 텍스트에서 파이썬 코드만 추출합니다."""

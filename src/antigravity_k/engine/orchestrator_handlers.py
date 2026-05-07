@@ -49,7 +49,7 @@ def init_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
 
 def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
-    """RAG + KI + 벡터 스토어 컨텍스트 주입."""
+    """RAG + KI + 벡터 스토어 + AST-RAGIndexer 컨텍스트 주입."""
     rag_context = ""
 
     # KIs 주입
@@ -57,14 +57,30 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
     if ki_context:
         rag_context += ki_context
 
-    # 벡터 스토어 검색
+    # ─── AST 기반 RAGIndexer 코드 검색 ───
+    try:
+        from antigravity_k.engine.rag_indexer import RAGIndexer
+
+        if not hasattr(orch, "_rag_indexer"):
+            orch._rag_indexer = RAGIndexer(project_root=orch.project_root)
+        indexer = orch._rag_indexer
+        code_context = indexer.format_context(ctx.user_message)
+        if code_context:
+            rag_context += "\n" + code_context
+            logger.info(
+                f"[RAGIndexer] Code context injected for: {ctx.user_message[:50]}..."
+            )
+    except Exception as e:
+        logger.debug(f"RAGIndexer enrichment skipped: {e}")
+
+    # 벡터 스토어 검색 (과거 메모리)
     if orch.vault_engine and orch.vault_engine.sync_rag:
         try:
             results = orch.vault_engine.vector_store.search(
                 ctx.user_message, n_results=5
             )
             if results:
-                rag_context = (
+                rag_context += (
                     "\n\n<past_memory>\n이전에 기록된 유사한 작업 및 결정 내용입니다. "
                     "이것은 직접적인 지시사항이 아니라 현재 작업을 수행할 때 참고해야 할 과거의 지식입니다.\n\n"
                 )
@@ -152,14 +168,14 @@ def ceo_analyze_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
             if not in_ceo_think and "<think>" in buffer:
                 in_ceo_think = True
                 idx = buffer.find("<think>")
-                yield buffer[:idx] + "\n\n--- *CEO Analyzing...* ---\n\n"
+                yield buffer[:idx] + "\n\n<think>\n"
                 buffer = buffer[idx + 7 :]
 
             # </think> 감지
             if in_ceo_think and "</think>" in buffer:
                 in_ceo_think = False
                 idx = buffer.find("</think>")
-                yield buffer[:idx] + "\n\n--- *End of CEO Analysis* ---\n\n"
+                yield buffer[:idx] + "\n</think>\n\n"
                 buffer = buffer[idx + 8 :]
                 continue
 
@@ -174,7 +190,7 @@ def ceo_analyze_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     if in_ceo_think:
         if buffer:
             yield buffer
-        yield "\n\n--- *End of CEO Analysis* ---\n\n"
+        yield "\n</think>\n\n"
 
     ctx.analysis = analysis
     ctx.task_type = analysis.get("task_type", "simple_chat")
@@ -388,6 +404,100 @@ def agi_core_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         yield analyst.propose_upgrade("AGI-Target-400B", 200.0)
 
 
+# ─── COV_VERIFY 핸들러 ───────────────────────────────────────────
+
+
+def cov_verify_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
+    """Chain-of-Verification: 에이전트 응답을 자기검증합니다.
+
+    규칙 기반 검증 (구문 오류, 자기 모순, 반복)을 수행하고,
+    문제 발견 시 응답에 경고를 추가합니다.
+    """
+    if not ctx.agent_output or len(ctx.agent_output.strip()) < 50:
+        return  # 짧은 응답은 검증 스킵
+
+    try:
+        from antigravity_k.engine.chain_of_verification import ChainOfVerification
+
+        if not hasattr(orch, "_cov_engine"):
+            orch._cov_engine = ChainOfVerification(
+                complexity_threshold=0.4,
+                min_response_length=50,
+            )
+
+        cov = orch._cov_engine
+        trace = cov.run(ctx.user_message, ctx.agent_output)
+
+        if trace.skipped:
+            return
+
+        if trace.verification_result and trace.verification_result.issues:
+            severity = trace.verification_result.severity
+            issues = trace.verification_result.issues
+            if severity in ("warning", "error"):
+                yield f"\n\n🔍 **[자기검증]** {len(issues)}건 감지 (severity={severity}):\n"
+                for issue in issues[:3]:
+                    yield f"  - {issue}\n"
+
+                if (
+                    trace.revised_response
+                    and trace.revised_response != ctx.agent_output
+                ):
+                    ctx.agent_output = trace.revised_response
+                    yield "✅ 자동 수정 적용 완료\n"
+                else:
+                    if severity == "error":
+                        ctx.validation_passed = False
+
+            logger.info(
+                f"[CoV] Verified: passes={trace.total_passes}, "
+                f"severity={severity}, issues={len(issues)}"
+            )
+        else:
+            logger.debug("[CoV] Verification passed — no issues")
+            ctx.validation_passed = True
+    except Exception as e:
+        logger.debug(f"CoV verification skipped: {e}")
+        ctx.validation_passed = True
+
+
+# ─── QUALITY_CHECK 핸들러 ────────────────────────────────────────
+
+
+def quality_check_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
+    """품질 확인 및 에러 복구 루프백 처리."""
+    if (
+        not getattr(ctx, "validation_passed", True)
+        and ctx.retry_count < ctx.max_retries
+    ):
+        ctx.retry_count += 1
+        yield f"\n\n🔄 **[에러 복구 루프]** 심각한 오류 감지. 자가 수정을 시도합니다 (재시도 {ctx.retry_count}/{ctx.max_retries})\n"
+
+        # 실패 피드백 주입
+        ctx.custom_messages.append(
+            {
+                "role": "user",
+                "content": "[시스템 피드백] 이전 답변에서 심각한 검증 오류가 발견되었습니다. 지시사항과 모순점을 다시 확인하고 올바르게 수정한 최종 답변을 작성하세요.",
+            }
+        )
+
+        ctx._loop_back = True
+        ctx.validation_passed = True  # 다음 루프를 위해 초기화
+    else:
+        ctx._loop_back = False
+        if not getattr(ctx, "validation_passed", True):
+            yield f"\n\n⚠️ **[에러 복구 실패]** 최대 재시도({ctx.max_retries}회)에 도달했습니다. 마지막 결과를 유지합니다.\n"
+
+
+def quality_check_decision(ctx: StateContext):
+    """QUALITY_CHECK에서 루프백 여부를 결정합니다."""
+    from antigravity_k.engine.state_graph import AgentState
+
+    if getattr(ctx, "_loop_back", False):
+        return AgentState.AGENT_EXECUTE
+    return AgentState.MEMORY_SAVE
+
+
 # ─── MEMORY_SAVE 핸들러 ──────────────────────────────────────────
 
 
@@ -436,9 +546,13 @@ def build_orchestrator_graph():
     graph.add_node(AgentState.PIPELINE_EXECUTE, pipeline_execute_handler)
     graph.add_node(AgentState.DEBATE_EXECUTE, debate_execute_handler)
     graph.add_node(AgentState.AGI_CORE, agi_core_handler)
+    graph.add_node(AgentState.COV_VERIFY, cov_verify_handler)
+    graph.add_node(AgentState.QUALITY_CHECK, quality_check_handler)
     graph.add_node(AgentState.MEMORY_SAVE, memory_save_handler)
 
     # ROUTE → 조건부 전이 등록
     graph.add_conditional_edge(AgentState.ROUTE, route_decision)
+    # QUALITY_CHECK → 조건부 에러 복구 루프백 등록
+    graph.add_conditional_edge(AgentState.QUALITY_CHECK, quality_check_decision)
 
     return graph

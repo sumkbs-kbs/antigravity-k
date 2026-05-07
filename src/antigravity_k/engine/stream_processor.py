@@ -4,8 +4,8 @@ Antigravity-K: 스트림 후처리 엔진 (StreamProcessor)
 LLM 스트리밍 출력의 실시간 정제를 담당합니다.
 
 책임:
-  1. <thought>...</thought> 블록 감지 → UI 렌더링 변환
-  2. 내부 태그 (%%THINK_END%%, <algorithm>) 필터링
+  1. <thought>/<think> 내부 추론 블록 감지 → 사용자 출력에서 제거
+  2. 내부 태그 (%%THINK_START%%/%%THINK_END%%, <algorithm>) 필터링
   3. CJK(중국어) 혼입 제거
   4. 반복 루프 감지 (동일 블록 3회 반복 시 중단)
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # 사전 컴파일된 정규식 (모듈 수준 — 매 인스턴스 재생성 방지)
 _INTERNAL_TAG_RE = re.compile(
-    r"%%THINK_END%%|</?algorithm>|📋 Copy|</?scratch_pad>|</?output_code>",
+    r"%%THINK_START%%|%%THINK_END%%|</?algorithm>|📋 Copy|</?scratch_pad>|</?output_code>",
     re.IGNORECASE,
 )
 # <scratch_pad>...</scratch_pad> 전체 블록 제거용 (flush 시)
@@ -59,6 +59,7 @@ class StreamProcessor:
     def __init__(self, repetition_threshold: int = 3):
         self._state = StreamState()
         self._repetition_threshold = repetition_threshold
+        self._buffer = ""
 
     def process_text(self, text: str) -> Tuple[str, bool]:
         """텍스트 청크를 정제합니다.
@@ -74,35 +75,51 @@ class StreamProcessor:
         if not text:
             return "", False
 
-        # Step 0: <scratch_pad> 블록 억제 (내부 계획 유출 방지)
+        self._buffer += text
         output_parts = []
-        remaining = text
-        while remaining:
+
+        while True:
             if self._state.in_scratch_pad:
-                end_idx = remaining.lower().find("</scratch_pad>")
+                end_idx = self._buffer.lower().find("</scratch_pad>")
                 if end_idx != -1:
-                    # 블록 종료 — 내용 전체 버림
-                    remaining = remaining[end_idx + len("</scratch_pad>") :]
+                    # 블록 종료 — 이전 내용은 모두 버림
+                    self._buffer = self._buffer[end_idx + len("</scratch_pad>") :]
                     self._state.in_scratch_pad = False
                 else:
-                    # 아직 블록 안에 있음 — 전부 버림
-                    remaining = ""
+                    # 아직 종료 안됨. 버퍼의 뒷부분(태그 조각)만 유지
+                    last_lt = self._buffer.rfind("<")
+                    if last_lt != -1:
+                        self._buffer = self._buffer[last_lt:]
+                    else:
+                        self._buffer = ""
+                    break
             else:
-                start_idx = remaining.lower().find("<scratch_pad>")
+                start_idx = self._buffer.lower().find("<scratch_pad>")
                 if start_idx != -1:
-                    # 블록 시작 전 텍스트는 보존
-                    output_parts.append(remaining[:start_idx])
-                    remaining = remaining[start_idx + len("<scratch_pad>") :]
+                    # 시작 태그 앞부분은 방출
+                    output_parts.append(self._buffer[:start_idx])
+                    self._buffer = self._buffer[start_idx + len("<scratch_pad>") :]
                     self._state.in_scratch_pad = True
                 else:
-                    output_parts.append(remaining)
-                    remaining = ""
-        text = "".join(output_parts)
-        if not text:
+                    # 태그가 잘려있을 수 있으므로 끝에 '<'가 있으면 보류
+                    last_lt = self._buffer.rfind("<")
+                    tail = self._buffer[last_lt:] if last_lt != -1 else ""
+                    if last_lt != -1 and ">" not in tail and len(tail) < 15:
+                        # '<' 뒤에 문자가 너무 짧으면 잘린 태그일 수 있음
+                        output_parts.append(self._buffer[:last_lt])
+                        self._buffer = self._buffer[last_lt:]
+                        break
+                    else:
+                        output_parts.append(self._buffer)
+                        self._buffer = ""
+                        break
+
+        output_text = "".join(output_parts)
+        if not output_text:
             return "", False
 
-        # Step 1: <thought>/<think> 블록 변환
-        output = self._process_thought_blocks(text)
+        # Step 1: <thought>/<think> 내부 추론 블록 제거
+        output = self._process_thought_blocks(output_text)
 
         if not output:
             return "", False
@@ -127,7 +144,7 @@ class StreamProcessor:
         return output if output.strip() else "", False
 
     def _process_thought_blocks(self, text: str) -> str:
-        """<thought>/<think> 블록을 UI-friendly 형태로 변환합니다."""
+        """<thought>/<think> 블록을 사용자 출력에서 제거합니다."""
         output = ""
         i = 0
         lower_text = text.lower()
@@ -144,11 +161,10 @@ class StreamProcessor:
                 candidates = [(pos, length) for pos, length in candidates if pos != -1]
                 if candidates:
                     end_idx, tag_len = min(candidates, key=lambda x: x[0])
-                    output += text[i:end_idx] + "\n\n--- *End of Thinking* ---\n\n"
                     i = end_idx + tag_len
                     self._state.in_think_block = False
                 else:
-                    output += text[i:]
+                    # 닫는 태그가 올 때까지 내부 추론 내용은 모두 숨깁니다.
                     break
             else:
                 # <thought> 또는 <think> 시작 태그 탐색
@@ -161,7 +177,7 @@ class StreamProcessor:
                 candidates = [(pos, length) for pos, length in candidates if pos != -1]
                 if candidates:
                     start_idx, tag_len = min(candidates, key=lambda x: x[0])
-                    output += text[i:start_idx] + "\n\n--- *Thinking Process* ---\n\n"
+                    output += text[i:start_idx]
                     i = start_idx + tag_len
                     self._state.in_think_block = True
                 else:
@@ -170,11 +186,20 @@ class StreamProcessor:
         return output
 
     def process_flush_text(self, text: str) -> str:
-        """flush 시점의 텍스트를 정제합니다 (thought 블록 제거 + 태그 정제)."""
-        # thought 블록 완전 제거 (flush 시점에는 보여줄 필요 없음)
-        cleaned = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL)
-        if "<thought>" in cleaned:
-            cleaned = cleaned[: cleaned.index("<thought>")]
+        """flush 시점의 텍스트를 정제합니다 (thought/think 블록 제거 + 태그 정제)."""
+        flush_text = self._buffer + text
+        self._buffer = ""
+
+        # thought/think 블록 완전 제거 (flush 시점에도 사용자에게 보여주지 않음)
+        cleaned = re.sub(
+            r"<(?:thought|think)>.*?</(?:thought|think)>",
+            "",
+            flush_text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        open_match = re.search(r"<(?:thought|think)>", cleaned, flags=re.IGNORECASE)
+        if open_match:
+            cleaned = cleaned[: open_match.start()]
 
         cleaned = _INTERNAL_TAG_RE.sub("", cleaned)
         cleaned = _CJK_CLEANUP_RE.sub("", cleaned)
@@ -184,6 +209,7 @@ class StreamProcessor:
     def reset(self):
         """새 step을 위해 상태를 리셋합니다."""
         self._state = StreamState()
+        self._buffer = ""
 
     @property
     def is_in_think_block(self) -> bool:

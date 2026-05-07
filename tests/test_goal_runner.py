@@ -24,6 +24,8 @@ def test_goal_runner_builds_autonomous_contract():
     assert "execute_with_verification" in markdown
     assert "Capability Transfer Matrix" in markdown
     assert "PermissionGate" in markdown
+    assert "Response quality gates" in markdown
+    assert "QualityGate + OmniTDD.Response Reconstructor" in markdown
 
 
 def test_goal_runner_high_risk_goal_is_approval_gated():

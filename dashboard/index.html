@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="Antigravity-K — 로컬 AI 엔지니어링 에이전트 대시보드">
     <title>Antigravity-K</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,6 +24,16 @@
 
     <!-- Monaco Editor Loader -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+    <!-- Mermaid.js for Diagrams -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.mermaid) {
+                window.mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+            }
+        });
+    </script>
 </head>
 <body>
     <div id="app">
@@ -65,6 +75,9 @@
                 </div>
                 <div id="system-metrics" style="font-size: 11px; color: var(--text-secondary); display: none;">
                     RAM: <span id="sys-mem">--</span>MB | CPU: <span id="sys-cpu">--</span>%
+                </div>
+                <div id="system-agent-metrics" style="font-size: 11px; color: var(--text-secondary); display: none; margin-top: 4px;">
+                    RAG: <span id="sys-rag">0</span> files | CoV: <span id="sys-cov">Off</span>
                 </div>
                 <button id="toggle-terminal-btn" class="icon-btn" style="text-align: left; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);">
                     💻 터미널 토글

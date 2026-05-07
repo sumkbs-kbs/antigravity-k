@@ -9,6 +9,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0', // 외부 기기(모바일 등)에서 접근 허용
+    allowedHosts: ['antigravity-k.cloud'],
     // Python FastAPI 백엔드로 API 프록시
     proxy: {
       '/v1': {

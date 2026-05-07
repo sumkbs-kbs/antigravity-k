@@ -225,7 +225,7 @@ class EditFileTool(BaseTool):
 
 
 class MultiReplaceFileContentTool(BaseTool):
-    """한 파일에서 여러 개의 비연속적인 텍스트 영역을 동시에 찾아 바꿉니다."""
+    """한 파일에서 여러 개의 비연속적인 텍스트 영역을 정밀하게(라인 기반으로) 찾아 바꿉니다."""
 
     category = ToolCategory.FILE_IO
     render_in = RenderIn.CONTEXTUAL
@@ -238,8 +238,8 @@ class MultiReplaceFileContentTool(BaseTool):
         self._name = "multi_replace_file_content"
         self._description = (
             "Edit a file by replacing multiple non-contiguous blocks of text at once. "
-            "Pass an array of 'chunks', each containing 'old_str' and 'new_str'. "
-            "This is safer and faster than rewriting the whole file."
+            "Pass an array of 'ReplacementChunks'. For each chunk, specify StartLine, EndLine, TargetContent, and ReplacementContent. "
+            "This ensures exact matching and avoids ambiguous replacements."
         )
         self._schema = {
             "type": "object",
@@ -248,26 +248,30 @@ class MultiReplaceFileContentTool(BaseTool):
                     "type": "string",
                     "description": "Path to the file to modify.",
                 },
-                "chunks": {
+                "ReplacementChunks": {
                     "type": "array",
-                    "description": "List of replacements to make.",
+                    "description": "List of replacement chunks.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "old_str": {
+                            "StartLine": {"type": "integer"},
+                            "EndLine": {"type": "integer"},
+                            "TargetContent": {
                                 "type": "string",
                                 "description": "Exact text to find.",
                             },
-                            "new_str": {
+                            "ReplacementContent": {
                                 "type": "string",
                                 "description": "Text to replace it with.",
                             },
+                            "old_str": {"type": "string"},  # Backward compatibility
+                            "new_str": {"type": "string"},
                         },
-                        "required": ["old_str", "new_str"],
+                        "required": ["TargetContent", "ReplacementContent"],
                     },
                 },
             },
-            "required": ["file_path", "chunks"],
+            "required": ["file_path"],
         }
 
     @property
@@ -284,7 +288,8 @@ class MultiReplaceFileContentTool(BaseTool):
 
     def execute(self, **kwargs) -> Any:
         file_path = kwargs.get("file_path", "")
-        chunks = kwargs.get("chunks", [])
+        # Backward compatibility check
+        chunks = kwargs.get("ReplacementChunks", kwargs.get("chunks", []))
 
         if not os.path.exists(file_path):
             return f"Error: File not found: {file_path}"
@@ -293,26 +298,37 @@ class MultiReplaceFileContentTool(BaseTool):
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            success_count = 0
+            lines = content.splitlines(True)  # Keep newlines
+
+            # To avoid line number shifting issues, we should process from bottom to top or just use text replace if Start/End are used for scoping
+
             for idx, chunk in enumerate(chunks):
-                old_str = chunk.get("old_str", "")
-                new_str = chunk.get("new_str", "")
+                # Backwards compatible
+                target = chunk.get("TargetContent", chunk.get("old_str", ""))
+                replacement = chunk.get("ReplacementContent", chunk.get("new_str", ""))
+                start_line = chunk.get("StartLine", 1)
+                end_line = chunk.get("EndLine", len(lines))
 
-                count = content.count(old_str)
+                # If precise lines are given, scope the count check to those lines
+                # Convert 1-indexed to 0-indexed
+                start_idx = max(0, start_line - 1)
+                end_idx = min(len(lines), end_line)
+
+                scoped_text = "".join(lines[start_idx:end_idx])
+
+                count = scoped_text.count(target)
                 if count == 0:
-                    return (
-                        f"Error on chunk {idx+1}: old_str not found in file. Aborting."
-                    )
+                    return f"Error on chunk {idx+1}: TargetContent not found in lines {start_line}-{end_line}. Aborting."
                 if count > 1:
-                    return f"Error on chunk {idx+1}: old_str found {count} times. Be more specific. Aborting."
+                    return f"Error on chunk {idx+1}: TargetContent found {count} times in lines {start_line}-{end_line}. Be more specific. Aborting."
 
-                content = content.replace(old_str, new_str, 1)
-                success_count += 1
+                new_scoped_text = scoped_text.replace(target, replacement, 1)
+                lines[start_idx:end_idx] = [new_scoped_text]
 
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
+                f.write("".join(lines))
 
-            return f"Successfully applied {success_count} replacements to {file_path}."
+            return f"Successfully applied {len(chunks)} replacements to {file_path}."
         except Exception as e:
             return f"Error applying multi-replace: {e}"
 

@@ -300,6 +300,10 @@ class TestSlashCommands(unittest.TestCase):
         self.assertIn("슬래시 커맨드", result)
         self.assertIn("/tools", result)
         self.assertIn("/goal", result)
+        self.assertIn("/agentic", result)
+        self.assertIn("/mcp", result)
+        self.assertIn("/capabilities", result)
+        self.assertIn("/codex", result)
 
     def test_status_command(self):
         """/status 실행."""
@@ -318,6 +322,18 @@ class TestSlashCommands(unittest.TestCase):
 
         goal_completions = self.registry.get_completions("/go")
         self.assertIn("/goal", goal_completions)
+
+        agentic_completions = self.registry.get_completions("/ag")
+        self.assertIn("/agentic", agentic_completions)
+
+        mcp_completions = self.registry.get_completions("/mc")
+        self.assertIn("/mcp", mcp_completions)
+
+        capability_completions = self.registry.get_completions("/ca")
+        self.assertIn("/capabilities", capability_completions)
+
+        codex_completions = self.registry.get_completions("/co")
+        self.assertIn("/codex", codex_completions)
 
     def test_completions_empty(self):
         """매칭 없으면 빈 리스트."""
@@ -347,6 +363,22 @@ class TestSlashCommands(unittest.TestCase):
         self.assertIn("Success Criteria", result)
         self.assertIn("Autonomous Judgment Policy", result)
         self.assertIn("Capability Transfer Matrix", result)
+
+    def test_agentic_command(self):
+        """/agentic — 에이전틱 업그레이드 레이더 생성."""
+        result = self.registry.execute("/agentic 최신 에이전틱 기술을 반영해줘")
+
+        self.assertIn("Agentic Upgrade Radar", result)
+        self.assertIn("Upgrade Decision Matrix", result)
+        self.assertIn("LangGraph", result)
+
+    def test_mcp_command(self):
+        """/mcp — MCP 최신 기능 레이더 생성."""
+        result = self.registry.execute("/mcp")
+
+        self.assertIn("MCP Upgrade Radar", result)
+        self.assertIn("Streamable HTTP transport", result)
+        self.assertIn("Tool annotations", result)
 
 
 # ─────────── 5. 통합 E2E 흐름 테스트 ───────────

@@ -69,9 +69,12 @@ class CognitiveLoop:
     - 모든 학습 내용을 영속적으로 저장
     """
 
-    def __init__(self, project_root: str = ".", failure_memory=None):
+    def __init__(
+        self, project_root: str = ".", failure_memory=None, external_brain_router=None
+    ):
         self.project_root = project_root
         self.failure_memory = failure_memory
+        self._external_brain_router = external_brain_router
         self._current_plan: Optional[ExecutionPlan] = None
         self._step_history: List[Dict[str, Any]] = []
         self._retry_count = 0
@@ -287,11 +290,21 @@ class CognitiveLoop:
         """
         StepContext 상태를 분석하여 반복되는 오류가 있는지 확인하고,
         필요 시 에이전트의 전략을 동적으로 적응(Adapt)시킵니다.
+        3회 이상 연속 실패 시 External Brain에 자동 위임합니다.
         """
         if not self._step_history:
             return None
 
         recent_failures = [s for s in self._step_history[-3:] if not s["passed"]]
+
+        # 최근 3번 모두 실패 → External Brain 자동 위임
+        if len(recent_failures) >= 3 and self._external_brain_router:
+            delegation_result = self.auto_delegate_to_external_brain(
+                task, recent_failures
+            )
+            if delegation_result:
+                self._retry_count += 1
+                return delegation_result
 
         # 최근 3번 중 2번 이상 실패한 경우 전략 변경 제안
         if len(recent_failures) >= 2:
@@ -307,6 +320,88 @@ class CognitiveLoop:
                 "3. 파일 권한이나 환경의 제약이 있는지 확인하는 도구(예: run_bash_command로 ls -la)를 먼저 실행하세요.\n"
             )
             return adaptation
+
+        return None
+
+    def auto_delegate_to_external_brain(
+        self, task: str, failures: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """
+        반복 실패 시 External Brain(Gemini/ChatGPT)에 자동 위임하여
+        전문가 조언을 받아 다음 시도에 주입합니다.
+
+        Returns:
+            외부 두뇌의 조언을 포함한 적응 프롬프트, 또는 None
+        """
+        if not self._external_brain_router:
+            return None
+
+        # 위임 프롬프트 구성: 실패 이력 + 원래 목표
+        failure_summary = "\n".join(
+            f"- 도구 '{f['tool']}': {', '.join(f.get('issues', []))}"
+            for f in failures[:3]
+        )
+
+        delegation_prompt = (
+            f"다음 작업을 수행하려 했으나 {len(failures)}회 연속 실패했습니다.\n\n"
+            f"## 작업 목표\n{task}\n\n"
+            f"## 실패 이력\n{failure_summary}\n\n"
+            "위 실패 패턴을 분석하고, 이 문제를 해결하기 위한 "
+            "구체적이고 실행 가능한 접근법을 3가지 제안해주세요. "
+            "각 접근법에 사용할 도구/명령어와 예상 결과를 포함하세요."
+        )
+
+        try:
+            import asyncio
+
+            # 이벤트 루프가 있으면 그 안에서, 없으면 새로 생성
+            try:
+                _loop = asyncio.get_running_loop()  # noqa: F841
+                # 이미 루프 안에 있으면 동기 폴백 사용
+                logger.info(
+                    "[CognitiveLoop] External Brain delegation "
+                    "(async loop detected, scheduling)"
+                )
+                future = asyncio.ensure_future(
+                    self._external_brain_router.send(
+                        delegation_prompt, strategy="fallback"
+                    )
+                )
+                # 타임아웃 30초
+                result = asyncio.get_event_loop().run_until_complete(
+                    asyncio.wait_for(future, timeout=30)
+                )
+            except RuntimeError:
+                result = asyncio.run(
+                    self._external_brain_router.send(
+                        delegation_prompt, strategy="fallback"
+                    )
+                )
+
+            if result and result.success and result.text:
+                advice = result.text[:2000]
+                logger.info(
+                    f"[CognitiveLoop] External Brain advice received "
+                    f"from {result.source} ({result.latency_ms:.0f}ms)"
+                )
+
+                # 실패 메모리에 저장
+                if self.failure_memory:
+                    self.failure_memory.record(
+                        task=task,
+                        error_pattern=f"3x_failure_{failures[0].get('tool', 'unknown')}",
+                        fix_applied=f"external_brain_delegation_{result.source}",
+                    )
+
+                return (
+                    "\n\n🧠 **[External Brain 자동 위임]** 🧠\n"
+                    f"반복 실패를 감지하여 외부 AI({result.source})에 자동 위임했습니다.\n\n"
+                    f"### 전문가 조언\n{advice}\n\n"
+                    "위 조언을 참고하여 완전히 다른 접근법으로 재시도하세요."
+                )
+
+        except Exception as e:
+            logger.warning(f"[CognitiveLoop] External Brain delegation failed: {e}")
 
         return None
 

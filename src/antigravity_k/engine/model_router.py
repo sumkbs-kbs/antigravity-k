@@ -31,6 +31,7 @@ class RouteStrategy(Enum):
     FALLBACK = "fallback"  # 순서대로 시도, 실패 시 다음 모델
     ROUND_ROBIN = "round-robin"  # 순환 분배
     LOAD_BALANCE = "load-balance"  # 메모리 부하 기반 분배
+    COLLECTIVE = "collective"  # 여러 모델 제안/비판/합성 집단지성 실행
 
 
 # ─── 데이터 클래스 ───────────────────────────────────────────────────
@@ -320,6 +321,8 @@ class ModelRouter:
         - FALLBACK: 순서대로 시도, 사용 불가 시 다음 모델
         - ROUND_ROBIN: 순환 분배 (부하 분산)
         - LOAD_BALANCE: 메모리 사용량 기반 최적 선택
+        - COLLECTIVE: ModelManager의 집단지성 실행기가 전체 후보를 호출.
+          단일 라우팅이 필요한 레거시 경로에서는 fallback과 동일하게 동작.
         """
         combo = self._combos.get(combo_name)
         if combo is None:
@@ -337,6 +340,8 @@ class ModelRouter:
             return self._route_round_robin(combo)
         elif combo.strategy == RouteStrategy.LOAD_BALANCE:
             return self._route_load_balance(combo)
+        elif combo.strategy == RouteStrategy.COLLECTIVE:
+            return self._route_fallback(combo)
         else:
             return self._route_fallback(combo)
 
@@ -354,6 +359,20 @@ class ModelRouter:
         if profile is None:
             raise ValueError(f"모델 '{model_name}'이 레지스트리에 없습니다.")
         return profile
+
+    def available_model_names(self, combo_name: str) -> List[str]:
+        """콤보 안에서 현재 라우팅 가능한 모델 이름 목록을 반환합니다."""
+        combo = self._combos.get(combo_name)
+        if combo is None:
+            raise ComboNotFoundError(combo_name, list(self._combos.keys()))
+
+        self._tracker.clear_expired()
+        return [
+            model_name
+            for model_name in combo.models
+            if self._tracker.is_available(model_name)
+            and self._registry.get_model(model_name) is not None
+        ]
 
     # ─── 전략별 라우팅 구현 ──────────────────────────────────────────
 

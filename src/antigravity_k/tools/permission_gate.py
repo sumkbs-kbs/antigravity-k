@@ -151,7 +151,9 @@ class PermissionGate:
             "critical": (
                 Permission.DENY
                 if self.mode in ("strict", "balanced")
-                else Permission.PROMPT
+                else (
+                    Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT
+                )
             ),
         }
 
@@ -203,12 +205,17 @@ class PermissionGate:
         if tool_name in ("read_file", "grep_search", "glob_search"):
             return Permission.ALLOW
 
-        # 프로젝트 외부 파일 접근 = Prompt
-        # P1 수정: Windows 대소문자 불일치 방지 — normcase 적용
+        # 프로젝트 외부 파일 접근
         if not os.path.normcase(abs_path).startswith(
             os.path.normcase(self.project_root)
         ):
             if self.mode == "strict":
+                return Permission.DENY
+            elif self.mode == "auto-pilot":
+                logger.warning(
+                    "Auto-pilot denied external write path outside project_root: %s",
+                    abs_path,
+                )
                 return Permission.DENY
             return Permission.PROMPT
 

@@ -1,8 +1,19 @@
 export const ChatPage = {
   render: () => `
     <div class="ide-layout">
+      <!-- 모바일 전용 Top App Bar (CSS로 모바일에서만 노출됨) -->
+      <div class="mobile-app-bar" style="display:none;">
+        <button class="mobile-hamburger" id="mobile-hamburger-btn">☰</button>
+        <span class="mobile-app-title">Antigravity-K</span>
+        <div class="mobile-actions">
+          <button id="mobile-command-palette-btn" class="icon-btn" title="Command Palette" style="font-size:18px;">🔎</button>
+          <button id="mobile-new-chat-btn" class="icon-btn" title="New Chat" style="font-size:18px;">➕</button>
+        </div>
+      </div>
+
       <!-- 왼쪽: 파일 탐색기 -->
-      <div class="ide-explorer glass-panel">
+      <div class="explorer-overlay" id="explorer-overlay"></div>
+      <div class="ide-explorer glass-panel" id="ide-explorer">
         <div class="explorer-header" style="display:flex; justify-content:space-between; align-items:center;">
           <span class="explorer-title">EXPLORER</span>
           <div>
@@ -326,7 +337,29 @@ export const ChatPage = {
       renderChatMessages();
     }
 
-    function loadChatHistory() {
+    async function loadChatHistory() {
+      // 1. Fetch from Backend (Global Single Session)
+      try {
+        const res = await fetch('/api/session/messages');
+        const data = await res.json();
+        if (data.ok && data.messages && data.messages.length > 0) {
+          activeSessionId = "backend_session";
+          chatMessages = data.messages;
+          chatSessions = [{
+            id: activeSessionId,
+            title: "Current Active Session",
+            updatedAt: new Date().toISOString(),
+            messages: chatMessages
+          }];
+          saveChatHistory(); // Sync to localStorage
+          renderChatMessages();
+          return; // 성공적으로 로드됨
+        }
+      } catch (e) {
+        console.error("Failed to fetch backend session:", e);
+      }
+
+      // 2. Fallback to LocalStorage (if backend is empty or fails)
       const saved = localStorage.getItem('antigravity_chat_' + currentWorkspacePath);
       if (saved) {
         try {
@@ -374,6 +407,11 @@ export const ChatPage = {
         });
       }
       history.scrollTop = history.scrollHeight;
+      setTimeout(() => {
+        if (window.mermaid) {
+           try { window.mermaid.init(undefined, document.querySelectorAll('.mermaid')); } catch(e){}
+        }
+      }, 100);
     }
 
     function saveChatHistory() {
@@ -655,27 +693,63 @@ export const ChatPage = {
           tdd_mode: !!document.getElementById('tdd-toggle')?.classList.contains('active')
         };
 
-        const response = await fetch('/v1/chat/completions', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload),
-          signal: currentAbortController.signal
-        });
+        let response;
+        try {
+          response = await fetch('/v1/chat/completions', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+            signal: currentAbortController.signal
+          });
 
-        if (!response.ok) throw new Error('Network response was not ok');
+          if (!response.ok && response.status >= 500) {
+            throw new Error(`Server returned ${response.status}`);
+          }
+        } catch (fetchErr) {
+          if (fetchErr.name === 'AbortError') throw fetchErr;
+          console.warn('Streaming request failed or blocked. Falling back to non-streaming mode...', fetchErr);
+          payload.stream = false;
+          assistantMsgDiv.querySelector('.bubble').innerHTML = '<span style="color:var(--text-secondary); font-size:13px;">(사내망 스트리밍 차단 감지: 우회 모드로 안전하게 재요청 중... 잠시만 기다려주세요)</span>';
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        const contentSpan = assistantMsgDiv.querySelector('.bubble');
+          response = await fetch('/v1/chat/completions', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+            signal: currentAbortController.signal
+          });
+        }
 
-        let buffer = '';
-        let isFirstChunk = true;
-        let lastSaveTime = Date.now();
+        if (!response.ok) throw new Error('Network response was not ok: ' + response.status);
 
         // 빈 어시스턴트 메시지를 미리 저장하여, 새로고침 시에도 마지막 메시지가 assistant가 되게 보장
         const assistantMsgObj = {role: "assistant", content: ""};
         chatMessages.push(assistantMsgObj);
         saveChatHistory();
+
+        const contentSpan = assistantMsgDiv.querySelector('.bubble');
+
+        if (!payload.stream) {
+          const data = await response.json();
+          assistantContent = data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
+          assistantMsgObj.content = assistantContent;
+          saveChatHistory();
+          contentSpan.innerHTML = formatContent(assistantContent);
+          if (ChatPage.refreshFileTree) ChatPage.refreshFileTree();
+          renderDiffs(assistantMsgDiv);
+          if (window.mermaid) {
+             try { window.mermaid.init(undefined, document.querySelectorAll('.mermaid')); } catch(e){}
+          }
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        let buffer = '';
+        let isFirstChunk = true;
+        let lastSaveTime = Date.now();
+
+
 
         while (true) {
           const { done, value } = await reader.read();
@@ -689,6 +763,9 @@ export const ChatPage = {
             // 채팅 완료 시 파일 트리 자동 새로고침 및 디프 렌더링
             if (ChatPage.refreshFileTree) ChatPage.refreshFileTree();
             renderDiffs(assistantMsgDiv);
+            if (window.mermaid) {
+               try { window.mermaid.init(undefined, document.querySelectorAll('.mermaid')); } catch(e){}
+            }
             break;
           }
 
@@ -778,6 +855,19 @@ export const ChatPage = {
     function formatContent(str) {
       // ── 1단계: HTML 이스케이프 (raw text 보호) ──
       let text = str;
+      const escapeMarkdownHTML = (value) => String(value).replace(/[&<>'"]/g,
+        tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag])
+      );
+      const safeCarouselImageSrc = (value) => {
+        const src = String(value || '').trim();
+        if (/^(https?:\/\/|data:image\/|\/|\.\/|\.\.\/)/i.test(src)) return src;
+        return '';
+      };
+      const safeMarkdownUrl = (value) => {
+        const url = String(value || '').trim();
+        if (/^(https?:\/\/|mailto:|\/|\.\/|\.\.\/|#)/i.test(url)) return escapeMarkdownHTML(url);
+        return '#';
+      };
 
       // ── 2단계: 코드블록 보호 (마크다운 처리 전에 추출) ──
       const codeBlocks = [];
@@ -1043,7 +1133,11 @@ export const ChatPage = {
       // Strikethrough
       text = text.replace(/~~(.+?)~~/g, '<del>$1</del>');
       // Links [text](url)
-      text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="md-link">$1</a>');
+      text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
+        const safeHref = safeMarkdownUrl(href);
+        const rel = /^https?:\/\//i.test(safeHref) ? ' rel="noopener noreferrer"' : '';
+        return `<a href="${safeHref}" target="_blank" class="md-link"${rel}>${label}</a>`;
+      });
 
       // ── 7단계: 코드블록 복원 ──
       text = text.replace(/%%CODEBLOCK_(\d+)%%/g, (match, idx) => {
@@ -1060,6 +1154,34 @@ export const ChatPage = {
             return `<span class="diff-ctx">${escaped}</span>`;
           }).join('\n');
           return `<div class="code-block-wrap"><div class="code-block-header">${langLabel}<button class="copy-btn" onclick="navigator.clipboard.writeText(atob('${btoa(unescape(encodeURIComponent(block.code)))}'))">📋 Copy</button></div><pre class="code-block diff-block">${diffLines}</pre></div>`;
+        }
+
+        // Mermaid 처리
+        if (block.lang === 'mermaid') {
+          return `<div class="mermaid">${escapeMarkdownHTML(block.code)}</div>`;
+        }
+
+        // Carousel 처리
+        if (block.lang === 'carousel') {
+          const slides = block.code.split(/<!--\s*slide\s*-->/i);
+          let carouselHtml = '<div class="md-carousel-container">';
+          slides.forEach(slide => {
+             const imagePlaceholders = [];
+             let slideHtml = slide.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
+               const idx = imagePlaceholders.length;
+               const safeSrc = escapeMarkdownHTML(safeCarouselImageSrc(src));
+               const safeAlt = escapeMarkdownHTML(alt);
+               imagePlaceholders.push(`<img src="${safeSrc}" alt="${safeAlt}" loading="lazy">`);
+               return `%%CAROUSEL_IMAGE_${idx}%%`;
+             });
+             slideHtml = escapeMarkdownHTML(slideHtml);
+             slideHtml = slideHtml.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+             slideHtml = slideHtml.replace(/%%CAROUSEL_IMAGE_(\d+)%%/g, (match, idx) => imagePlaceholders[parseInt(idx)] || '');
+             slideHtml = slideHtml.replace(/\n/g, '<br>');
+             carouselHtml += `<div class="md-carousel-slide">${slideHtml.trim()}</div>`;
+          });
+          carouselHtml += '</div>';
+          return carouselHtml;
         }
 
         return `<div class="code-block-wrap"><div class="code-block-header">${langLabel}<button class="copy-btn" onclick="navigator.clipboard.writeText(atob('${btoa(unescape(encodeURIComponent(block.code)))}'))">📋 Copy</button></div><pre class="code-block">${escapedCode}</pre></div>`;
@@ -1513,7 +1635,7 @@ export const ChatPage = {
             }).catch(e => console.warn('Vault sync failed:', e));
             loadDirectory('.');
             currentWorkspacePath = data.workspace;
-            loadChatHistory();
+            await loadChatHistory();
             editorTitle.textContent = "Welcome";
             if (monacoEditor) monacoEditor.setValue("");
             if(editorPlaceholder) editorPlaceholder.style.display = 'block';
@@ -1549,28 +1671,80 @@ export const ChatPage = {
     });
 
     // ─── 3. 창 분할 (Split.js) ───
-    if (typeof Split !== 'undefined') {
-      let savedSizes = [20, 50, 30];
-      try {
-        const stored = localStorage.getItem('ide_split_sizes_v5');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length === 3) {
-            savedSizes = parsed;
+    let splitInstance = null;
+    function initSplitJs() {
+      if (typeof Split !== 'undefined') {
+        // 모바일에서는 Split.js 비활성화
+        if (window.innerWidth <= 768) {
+          if (splitInstance) {
+            splitInstance.destroy();
+            splitInstance = null;
           }
+          return;
         }
-      } catch(e) { console.warn("Failed to load split sizes", e); }
 
-      const splitInstance = Split(['.ide-explorer', '.ide-editor', '.ide-chat'], {
-        sizes: savedSizes,
-        minSize: [150, 300, 300],
-        gutterSize: 6,
-        cursor: 'col-resize',
-        onDragEnd: () => {
-          localStorage.setItem('ide_split_sizes_v5', JSON.stringify(splitInstance.getSizes()));
-          // Monaco 에디터 사이즈 자동 재계산 유도
-          if (monacoEditor) monacoEditor.layout();
-        }
+        if (splitInstance) return; // 이미 활성화됨
+
+        let savedSizes = [20, 50, 30];
+        try {
+          const stored = localStorage.getItem('ide_split_sizes_v5');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length === 3) {
+              savedSizes = parsed;
+            }
+          }
+        } catch(e) { console.warn("Failed to load split sizes", e); }
+
+        splitInstance = Split(['#ide-explorer', '.ide-editor', '.ide-chat'], {
+          sizes: savedSizes,
+          minSize: [150, 300, 300],
+          gutterSize: 6,
+          cursor: 'col-resize',
+          onDragEnd: () => {
+            localStorage.setItem('ide_split_sizes_v5', JSON.stringify(splitInstance.getSizes()));
+            // Monaco 에디터 사이즈 자동 재계산 유도
+            if (monacoEditor) monacoEditor.layout();
+          }
+        });
+      }
+    }
+
+    // 초기 실행 및 리사이즈 이벤트 바인딩
+    initSplitJs();
+    window.addEventListener('resize', initSplitJs);
+
+    // ─── 모바일 햄버거 메뉴 오프캔버스 로직 ───
+    const mobileHamburgerBtn = document.getElementById('mobile-hamburger-btn');
+    const explorerOverlay = document.getElementById('explorer-overlay');
+    const ideExplorer = document.getElementById('ide-explorer');
+
+    if (mobileHamburgerBtn) {
+      mobileHamburgerBtn.addEventListener('click', () => {
+        ideExplorer.classList.add('open');
+        explorerOverlay.classList.add('open');
+      });
+    }
+
+    if (explorerOverlay) {
+      explorerOverlay.addEventListener('click', () => {
+        ideExplorer.classList.remove('open');
+        explorerOverlay.classList.remove('open');
+      });
+    }
+
+    const mobileCommandPaletteBtn = document.getElementById('mobile-command-palette-btn');
+    if (mobileCommandPaletteBtn) {
+      mobileCommandPaletteBtn.addEventListener('click', () => {
+        window.openCommandPalette?.();
+      });
+    }
+
+    // 모바일에서 새 채팅 생성 버튼
+    const mobileNewChatBtn = document.getElementById('mobile-new-chat-btn');
+    if (mobileNewChatBtn) {
+      mobileNewChatBtn.addEventListener('click', () => {
+        document.getElementById('new-chat-btn')?.click();
       });
     }
 
@@ -1606,7 +1780,7 @@ export const ChatPage = {
         console.error("Failed to initialize workspace path:", e);
       } finally {
         loadDirectory('.');
-        loadChatHistory();
+        await loadChatHistory();
         checkActiveAgent();
       }
     };

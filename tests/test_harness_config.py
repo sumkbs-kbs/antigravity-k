@@ -21,3 +21,15 @@ def test_harness_reads_urls_from_environment(monkeypatch):
     assert harness.base_url == "https://qa.example.test:9443"
     assert harness.dashboard_url == "http://127.0.0.1:5175"
     assert harness.ws_url == "wss://qa.example.test:9443/ws/terminal"
+
+
+def test_harness_uses_access_pin_for_protected_api_calls(monkeypatch):
+    monkeypatch.setenv("AGK_HARNESS_ACCESS_PIN", "test-pin")
+
+    harness = Harness()
+
+    assert harness._request_headers() == {"X-Access-Pin": "test-pin"}
+    assert harness._request_headers({"Content-Type": "application/json"}) == {
+        "Content-Type": "application/json",
+        "X-Access-Pin": "test-pin",
+    }

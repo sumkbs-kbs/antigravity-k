@@ -20,6 +20,10 @@ from typing import Dict, List, Optional, Set, Any, Tuple
 
 from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
 from .permission_gate import PermissionGate, Permission
+from antigravity_k.engine.capability_policy import (
+    AutonomousCapabilityPolicy,
+    CapabilityDecision,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +44,27 @@ class ToolRegistry:
         registry.auto_discover("antigravity_k.tools")  # 패키지 자동 탐색
     """
 
-    def __init__(self, project_root: Optional[str] = None):
+    def __init__(
+        self,
+        project_root: Optional[str] = None,
+        capability_policy_config: Optional[Dict[str, Any]] = None,
+    ):
         self._tools: Dict[str, BaseTool] = {}
         self._installed_classes: Set[str] = set()
         self._permission_gate = PermissionGate(project_root=project_root)
+        policy_config = capability_policy_config or {}
+        self._capability_policy = AutonomousCapabilityPolicy(
+            project_root=project_root,
+            max_autonomous_risk=str(policy_config.get("max_autonomous_risk", "high")),
+            allow_critical_autonomy=bool(
+                policy_config.get("allow_critical_autonomy", False)
+            ),
+        )
 
     def set_project_root(self, new_root: str):
         """런타임 중에 PermissionGate의 프로젝트 루트를 갱신합니다."""
         self._permission_gate.set_project_root(new_root)
+        self._capability_policy.set_project_root(new_root)
 
     # ─────────────────── 등록 API ───────────────────
 
@@ -204,7 +221,7 @@ class ToolRegistry:
         return self._permission_gate
 
     def execute_with_permission(
-        self, tool_name: str, args: Dict[str, Any]
+        self, tool_name: str, args: Dict[str, Any], objective: str = ""
     ) -> Tuple[Permission, str]:
         """
         권한 검증 후 도구를 실행합니다 (Claw Code PermissionPolicy 패턴).
@@ -218,6 +235,23 @@ class ToolRegistry:
         tool = self.get(tool_name)
         if not tool:
             return Permission.DENY, f"Error: Tool '{tool_name}' not found."
+
+        # 자율 capability 정책: MCP/Skills/로컬 PC 도구를 한 정책 언어로 판정합니다.
+        capability_decision = self._capability_policy.decide_tool(
+            tool, args=args, objective=objective
+        )
+        if capability_decision.is_blocked:
+            return (
+                Permission.DENY,
+                f"[DENIED] {capability_decision.reason}",
+            )
+        if capability_decision.requires_approval:
+            return Permission.PROMPT, (
+                f"[APPROVAL REQUIRED] '{tool_name}' needs your permission.\n"
+                f"Args: {args}\n"
+                f"Risk: {tool.risk_level.value}\n"
+                f"Reason: {capability_decision.reason}"
+            )
 
         # 권한 검증
         permission = self._permission_gate.check(
@@ -242,6 +276,28 @@ class ToolRegistry:
             args = {**args, "approved": True}
         result = tool(**args)
         return Permission.ALLOW, result
+
+    def decide_tool_use(
+        self, tool_name: str, args: Optional[Dict[str, Any]] = None, objective: str = ""
+    ) -> Optional[CapabilityDecision]:
+        """도구 실행 전 자율 판단 결과를 반환합니다."""
+        tool = self.get(tool_name)
+        if not tool:
+            return None
+        return self._capability_policy.decide_tool(
+            tool, args=args or {}, objective=objective
+        )
+
+    def get_autonomous_manifest(self, objective: str = "") -> List[CapabilityDecision]:
+        """현재 등록된 모든 도구의 자율 사용 가능성을 반환합니다."""
+        return [
+            self._capability_policy.decide_tool(tool, args={}, objective=objective)
+            for tool in self._tools.values()
+        ]
+
+    def render_autonomous_policy(self) -> str:
+        """LLM 시스템 프롬프트에 주입할 capability 정책 요약."""
+        return self._capability_policy.render_policy_prompt()
 
     def execute_approved(self, tool_name: str, args: Dict[str, Any]) -> str:
         """승인된 도구를 실행하고 캐시에 기록합니다."""

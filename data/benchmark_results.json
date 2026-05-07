@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-07T21:35:37.947905",
+  "total_results": 15,
+  "results": [
+    {
+      "case_id": "sim-001",
+      "target": "collective-council",
+      "quality_score": 0.6,
+      "quality_grade": "good",
+      "latency_ms": 279569.5,
+      "tokens_in": 34,
+      "tokens_out": 339,
+      "output_preview": "> 집단지성: 후보 3개(hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M, hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 비교하고 비판 2개(hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 반영해 `supreme-court`가 최종 합성했습니다.\n\n```python\ndef fibonacci_recursive(n: int) -> int:\n    \"\"\"\n    재귀적 방법을 사용하여 n번째 피보나치 수를 반환합니다.\n    \n    Args:\n        n (int): 피보나치 수열의 위치입니다. 0 이상의 정수여야 합니다.\n    \n    Returns:\n        int: n번째 피보나치 수입니다.\n    \n    Raise",
+      "timestamp": 1778155583.9218729,
+      "issues": [
+        "한국어 띄어쓰기/문장 경계 품질 저하"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M",
+      "quality_score": 0.7,
+      "quality_grade": "good",
+      "latency_ms": 5937.3,
+      "tokens_in": 34,
+      "tokens_out": 173,
+      "output_preview": "```python\ndef fibonacci_recursive(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer.\")\n    if n == 0:\n        return 0\n    if n == 1:\n        return 1\n    return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)\n\ndef fibonacci_iterative(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer.\")\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n```\n\n### 시간복잡도 설명:\n\n- **재귀적 방법 (`fibonacci_recursi",
+      "timestamp": 1778155589.859541,
+      "issues": [
+        "요청과 관련성 낮음"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M",
+      "quality_score": 1.0,
+      "quality_grade": "excellent",
+      "latency_ms": 37854.3,
+      "tokens_in": 34,
+      "tokens_out": 551,
+      "output_preview": "아래는 Python으로 n번째 피보나치 수를 반환하는 함수 `fibonacci(n)`을 재귀와 반복 두 가지 방법으로 구현한 코드입니다. 또한 각 방법의 시간복잡도와 예외 처리도 포함했습니다.\n\n### 1. 재귀적 방법 (Recursive Approach)\n```python\ndef fibonacci_recursive(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    else:\n        return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)\n```\n\n### 2. 반복적 방법 (Iterative Approach)\n```python\ndef fibonacci_iterative(n: int) ->",
+      "timestamp": 1778155627.7146509,
+      "issues": [],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "deepseek-r1:32b",
+      "quality_score": 0.32,
+      "quality_grade": "retry",
+      "latency_ms": 112410.3,
+      "tokens_in": 34,
+      "tokens_out": 719,
+      "output_preview": "To solve this problem, we need to write two Python functions that compute the nth Fibonacci number using both recursive and iterative approaches. Additionally, we must handle cases where the input is a negative integer by raising an appropriate exception. We will also explain the time complexities of each approach.\n\n### Approach\nThe Fibonacci sequence starts with 0 and 1, and each subsequent number is the sum of the previous two numbers. The nth Fibonacci number can be computed using either a re",
+      "timestamp": 1778155740.12665,
+      "issues": [
+        "요청과 관련성 낮음",
+        "코드-only 응답"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "collective-council",
+      "quality_score": 0.05,
+      "quality_grade": "fail",
+      "latency_ms": 278180.3,
+      "tokens_in": 34,
+      "tokens_out": 229,
+      "output_preview": "> 집단지성: 후보 3개(hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M, hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 비교하고 비판 2개(hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 반영해 `supreme-court`가 최종 합성했습니다.\n\n```python\ndef fibonacci_recursive(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    else:\n        return fi",
+      "timestamp": 1778156018.30896,
+      "issues": [
+        "요청과 관련성 낮음",
+        "요청된 코드 블록 누락",
+        "중국어 문자열 혼입 감지 (9개 구절: 时间复杂度、更加高效、空间复杂度)",
+        "한국어 띄어쓰기/문장 경계 품질 저하"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M",
+      "quality_score": 1.0,
+      "quality_grade": "excellent",
+      "latency_ms": 5837.3,
+      "tokens_in": 34,
+      "tokens_out": 172,
+      "output_preview": "```python\ndef fibonacci_recursive(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer.\")\n    if n == 0:\n        return 0\n    if n == 1:\n        return 1\n    return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)\n\ndef fibonacci_iterative(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer.\")\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n```\n\n### 시간복잡도 설명\n\n- **재귀적 방법 (`fibonacci_recursiv",
+      "timestamp": 1778156024.1475542,
+      "issues": [],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M",
+      "quality_score": 0.3,
+      "quality_grade": "retry",
+      "latency_ms": 35381.1,
+      "tokens_in": 34,
+      "tokens_out": 476,
+      "output_preview": "아래는 Python으로 n번째 피보나치 수를 반환하는 함수 `fibonacci(n: int) -> int`를 재귀와 반복 두 가지 방법으로 구현한 코드입니다. 또한, 각 방법의 시간복잡도 설명과 음수 입력에 대한 예외 처리를 포함했습니다.\n\n### 1. 재귀적 방법 (Recursive Approach)\n```python\ndef fibonacci_recursive(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n must be a non-negative integer\")\n    if n == 0:\n        return 0\n    elif n == 1:\n        return 1\n    else:\n        return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)\n```\n\n**시간복잡도:**\n- 재귀적 방법의 시간복잡도는 \\(O(2^n)\\)입니다. 이는 각 호출이 두",
+      "timestamp": 1778156059.5300071,
+      "issues": [
+        "반복 콘텐츠 탐지 (3회 반복)"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "deepseek-r1:32b",
+      "quality_score": 0.32,
+      "quality_grade": "retry",
+      "latency_ms": 65367.9,
+      "tokens_in": 34,
+      "tokens_out": 589,
+      "output_preview": "To solve this problem, we need to write a Python function that returns the nth Fibonacci number using both recursive and iterative approaches. Additionally, we must handle cases where the input is negative by raising an appropriate exception.\n\n### Approach\nThe Fibonacci sequence is defined such that each number is the sum of the two preceding ones, starting from 0 and 1. Thus, fib(0) = 0, fib(1) = 1, fib(2) = 1, fib(3) = 2, and so on.\n\n#### Recursive Approach\nThe recursive method directly follow",
+      "timestamp": 1778156124.8992379,
+      "issues": [
+        "요청과 관련성 낮음",
+        "코드-only 응답"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-002",
+      "target": "collective-council",
+      "quality_score": 0.21,
+      "quality_grade": "fail",
+      "latency_ms": 319370.0,
+      "tokens_in": 41,
+      "tokens_out": 323,
+      "output_preview": "> 집단지성: 후보 3개(hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M, hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 비교하고 비판 2개(hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 반영해 `supreme-court`가 최종 합성했습니다.\n\n```python\nimport unicodedata\n\ndef reverse_unicode(s: str) -> str:\n    # Grapheme cluster 단위로 분할 후 역순으로 조합\n    graphemes = []\n    current_grapheme = []\n\n    for char in s:\n        if unicodedata.combining(char):\n       ",
+      "timestamp": 1778156444.2711732,
+      "issues": [
+        "비교 구조 부족",
+        "한국어 띄어쓰기/문장 경계 품질 저하",
+        "비교 요청에 Markdown 비교표(table) 누락"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-002",
+      "target": "hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M",
+      "quality_score": 0.06,
+      "quality_grade": "fail",
+      "latency_ms": 4910.2,
+      "tokens_in": 41,
+      "tokens_out": 95,
+      "output_preview": "def reverse_unicode(s: str) -> str:\n    # grapheme cluster 단위로 분리하여 뒤집기\n    import grapheme\n    return ''.join(reversed(list(grapheme.graphemes(s))))\n\n# 예시\n# reverse_unicode('안녕🌍세계')  # '계세🌍녕안'\n\n# 비교: grapheme cluster vs 단순 슬라이싱\n# 단순 슬라이싱: '안녕🌍세계'[::-1] → '계세🌍녕안' (올바르게 동작하지만, 일부 이모지나 조합 문자에서 오류 발생 가능)\n# grapheme cluster: grapheme.graphemes()를 사용하여 실제 시각적 단위로 분리하여 뒤집기 → 안전한 결과 제공",
+      "timestamp": 1778156449.181887,
+      "issues": [
+        "요청된 코드 블록 누락",
+        "비교 구조 부족",
+        "한국어 띄어쓰기/문장 경계 품질 저하",
+        "비교 요청에 Markdown 비교표(table) 누락"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-002",
+      "target": "hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M",
+      "quality_score": 0.65,
+      "quality_grade": "good",
+      "latency_ms": 31230.3,
+      "tokens_in": 41,
+      "tokens_out": 369,
+      "output_preview": "# 유니코드 이모지를 포함한 문자열 뒤집기\n\nPython에서 유니코드 이모지를 포함한 문자열을 안전하게 뒤집으려면 **grapheme cluster**를 고려해야 합니다.\n\n## 문제점: 단순한 슬라이싱 사용 시\n\n```python\ndef reverse_simple(s: str) -> str:\n    return s[::-1]\n\n# 테스트\nprint(reverse_simple('안녕🌍세계'))  # '界世🌍녕안' → 잘못된 결과!\n```\n\n이 방법은 이모지(🌍)가 여러 유니코드 코드 포인트로 구성되어 있어 문제가 발생합니다. '🌍'는 U+1F30D로 단일 문자로 보이지만, 실제로는 여러 코드 포인트의 조합으로 구성될 수 있습니다.\n\n## 해결책: grapheme cluster 사용\n\n```python\nimport regex  # pip install regex 필요\n\ndef reverse_unicode(s: str) -> str:\n    return ''.join(reversed(l",
+      "timestamp": 1778156480.4135182,
+      "issues": [
+        "비교 요청에 Markdown 비교표(table) 누락"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-002",
+      "target": "deepseek-r1:32b",
+      "quality_score": 0.29,
+      "quality_grade": "fail",
+      "latency_ms": 56977.3,
+      "tokens_in": 41,
+      "tokens_out": 584,
+      "output_preview": "To solve this problem, we need to create a function `reverse_unicode` that safely reverses a string containing Unicode characters, including emojis. The challenge is to ensure that each user-perceived character (grapheme cluster) is treated as a single unit during the reversal process.\n\n### Approach\nThe approach involves two main steps:\n1. **Grapheme Cluster Method**: This method splits the input string into grapheme clusters, which are sequences of one or more Unicode code points that represent",
+      "timestamp": 1778156537.3921542,
+      "issues": [
+        "코드-only 응답",
+        "비교 요청에 Markdown 비교표(table) 누락"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "collective-council",
+      "quality_score": 0.6,
+      "quality_grade": "good",
+      "latency_ms": 570670.7,
+      "tokens_in": 34,
+      "tokens_out": 961,
+      "output_preview": "> 집단지성: 후보 2개(qwen3.6:latest, hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M)를 비교하고 비판 2개(hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M, deepseek-r1:32b)를 반영해 `supreme-court`가 최종 합성했습니다.\n\n### Python 구현 코드\n\n```python\ndef fibonacci_recursive(n: int) -> int:\n    \"\"\"재귀 방식을 이용한 피보나치 수열 계산\"\"\"\n    if n < 0:\n        raise ValueError(\"n은 음수가 될 수 없습니다.\")\n    if n == 0:\n        return 0\n    if n == 1:\n        return 1\n    return fibonacci_recursive(n -",
+      "timestamp": 1778157283.777814,
+      "issues": [
+        "한국어 띄어쓰기/문장 경계 품질 저하"
+      ],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "qwen3.6:latest",
+      "quality_score": 1.0,
+      "quality_grade": "excellent",
+      "latency_ms": 54169.5,
+      "tokens_in": 34,
+      "tokens_out": 167,
+      "output_preview": "```python\ndef fibonacci_recursive(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n은 음수가 될 수 없습니다.\")\n    if n <= 1:\n        return n\n    return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)\n\ndef fibonacci_iterative(n: int) -> int:\n    if n < 0:\n        raise ValueError(\"n은 음수가 될 수 없습니다.\")\n    if n <= 1:\n        return n\n    a, b = 0, 1\n    for _ in range(2, n + 1):\n        a, b = b, a + b\n    return b\n```\n\n**시간복잡도 설명**\n- **재귀 방식**: `O(2^n)` - 매 호출마다 두 번의 하위 호출이 발생하며 중복 계산이 지수적으",
+      "timestamp": 1778157337.947776,
+      "issues": [],
+      "error": ""
+    },
+    {
+      "case_id": "sim-001",
+      "target": "gemma4:31b",
+      "quality_score": 0.0,
+      "quality_grade": "fail",
+      "latency_ms": 0.0,
+      "tokens_in": 34,
+      "tokens_out": 0,
+      "output_preview": "",
+      "timestamp": 1778157337.947855,
+      "issues": [
+        "모델 'gemma4:31b'이 레지스트리에 없습니다."
+      ],
+      "error": "모델 'gemma4:31b'이 레지스트리에 없습니다."
+    }
+  ]
+}

@@ -52,8 +52,10 @@ class EngineContext:
 
         # Core Tools & Gates
         self.shared_tool_registry = tool_registry is not None
+        capability_policy_config = self.config.get("autonomous_capabilities", {})
         self.tool_registry = tool_registry or ToolRegistry(
-            project_root=self.project_root
+            project_root=self.project_root,
+            capability_policy_config=capability_policy_config,
         )
         self.permission_gate = PermissionGate(project_root=self.project_root)
 
@@ -82,7 +84,10 @@ class EngineContext:
         self.user_model = UserIntentModeler(project_root=self.project_root)
         self.context_shaper = ContextShaper()
         self.session_manager = SessionManager()
-        self.skill_loader = SkillLoader()
+        self.skill_loader = SkillLoader(
+            project_root=self.project_root,
+            capability_policy_config=capability_policy_config,
+        )
         self.ide_manager = IDEContextManager()
         self.prompt_builder = PromptBuilder()
 
@@ -91,6 +96,7 @@ class EngineContext:
             session_manager=self.session_manager,
             context_shaper=self.context_shaper,
             model_manager=model_manager,
+            skill_loader=self.skill_loader,
         )
 
         self.tool_executor = ToolExecutor(
@@ -99,6 +105,7 @@ class EngineContext:
             model_manager=model_manager,
             vault_engine=vault_engine,
             project_root=self.project_root,
+            capability_policy_config=capability_policy_config,
         )
 
         if not self.shared_tool_registry:

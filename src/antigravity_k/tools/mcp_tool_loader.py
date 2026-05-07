@@ -2,8 +2,11 @@ import logging
 import json
 import asyncio
 import os
-from typing import List, Dict, Any, Optional
-from .base_tool import BaseTool
+from typing import List, Dict, Any, Mapping, Optional
+
+from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
+
+from .base_tool import BaseTool, RiskLevel, ToolCategory
 from .system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool
 from .mcp_session_manager import MCPSessionManager
 from mcp.client.session import ClientSession
@@ -23,11 +26,23 @@ class MCPTool(BaseTool):
         description: str,
         schema: Dict[str, Any],
         mcp_client: ClientSession,
+        server_name: str = "",
+        transport: str = "stdio",
+        annotations: Optional[Mapping[str, Any]] = None,
+        server_policy: Optional[Mapping[str, Any]] = None,
     ):
         self._name = name
         self._description = description
         self._schema = schema
         self._mcp_client = mcp_client
+        self._server_name = server_name
+        self._transport = transport
+        self._annotations = dict(annotations or {})
+        self._server_policy = dict(server_policy or {})
+        self.category = ToolCategory.DATA
+        self.risk_level = _risk_from_annotations(self._annotations)
+        self.icon = "🔌"
+        self.tags = [tag for tag in ["mcp", server_name, transport] if tag]
 
     @property
     def name(self) -> str:
@@ -68,14 +83,32 @@ class MCPTool(BaseTool):
 
         return result
 
+    def to_metadata(self) -> Dict[str, Any]:
+        metadata = super().to_metadata()
+        metadata["mcp"] = {
+            "server": self._server_name,
+            "transport": self._transport,
+            "annotations": self._annotations,
+            "trust_level": self._server_policy.get("trust_level", "experimental"),
+            "remote": self._transport in {"http", "streamable-http", "sse"},
+            "authenticated": bool(self._server_policy.get("authenticated")),
+            "timeout_ms": self._server_policy.get("timeout_ms"),
+        }
+        return metadata
+
 
 class MCPToolLoader:
     """
     설정된 MCP 서버들로부터 도구 목록을 가져와서 BaseTool 객체 리스트로 변환하는 로더.
     """
 
-    def __init__(self, config_path: Optional[str] = ".mcp.json"):
+    def __init__(
+        self,
+        config_path: Optional[str] = ".mcp.json",
+        include_system_tools: bool = True,
+    ):
         self.config_path = config_path
+        self.include_system_tools = include_system_tools
         self.tools: List[BaseTool] = []
         self.session_manager = MCPSessionManager()
 
@@ -87,9 +120,10 @@ class MCPToolLoader:
         logger.info("Loading tools from MCP servers...")
 
         # 시스템(Local) 도구 등록
-        self.tools.extend(
-            [ReadFileTool(), ReplaceFileContentTool(), RunBashCommandTool()]
-        )
+        if self.include_system_tools:
+            self.tools.extend(
+                [ReadFileTool(), ReplaceFileContentTool(), RunBashCommandTool()]
+            )
 
         if not self.config_path or not os.path.exists(self.config_path):
             logger.warning(
@@ -112,35 +146,172 @@ class MCPToolLoader:
             config = json.load(f)
 
         mcp_servers = config.get("mcpServers", {})
-        for server_name, server_config in mcp_servers.items():
-            command = server_config.get("command")
-            args = server_config.get("args", [])
-            env = server_config.get("env", None)
+        advisor = MCPCapabilityAdvisor()
+        audit = advisor.audit_config(
+            {"mcpServers": mcp_servers}, source=self.config_path
+        )
+        blocked_servers = {
+            finding.server for finding in audit.findings if finding.severity == "error"
+        }
 
-            if not command:
-                logger.error(f"MCP Server '{server_name}' is missing 'command'.")
+        for finding in audit.findings:
+            log_message = (
+                f"MCP audit [{finding.severity}] {finding.server}: "
+                f"{finding.message} {finding.recommendation}"
+            )
+            if finding.severity == "error":
+                logger.error(log_message)
+            elif finding.severity == "warning":
+                logger.warning(log_message)
+            else:
+                logger.info(log_message)
+
+        for server_name, server_config in mcp_servers.items():
+            if server_name in blocked_servers:
+                logger.error(
+                    f"Skipping MCP server '{server_name}' due to audit errors."
+                )
                 continue
 
             try:
-                session = await self.session_manager.connect_server(
-                    server_name, command, args, env
+                transport = _transport_for(server_config)
+                session = await self._connect_server(
+                    server_name, server_config, transport
                 )
 
                 # Fetch available tools
                 tools_response = await session.list_tools()
 
                 for tool in tools_response.tools:
+                    annotations = _annotations_to_dict(
+                        getattr(tool, "annotations", None)
+                    )
                     mcp_tool = MCPTool(
                         name=tool.name,
                         description=tool.description or "",
-                        schema=tool.inputSchema,
+                        schema=getattr(tool, "inputSchema", None)
+                        or getattr(tool, "input_schema", {})
+                        or {},
                         mcp_client=session,
+                        server_name=server_name,
+                        transport=transport,
+                        annotations=annotations,
+                        server_policy=_server_policy(server_config),
                     )
                     self.tools.append(mcp_tool)
                     logger.info(f"Registered MCP tool: {tool.name} from {server_name}")
 
             except Exception as e:
                 logger.error(f"Error loading tools from '{server_name}': {e}")
+
+    async def _connect_server(
+        self,
+        server_name: str,
+        server_config: Mapping[str, Any],
+        transport: str,
+    ) -> ClientSession:
+        if transport == "stdio":
+            command = str(server_config.get("command", "")).strip()
+            args = [str(arg) for arg in server_config.get("args", []) or []]
+            env = server_config.get("env", None)
+            return await self.session_manager.connect_server(
+                server_name, command, args, env
+            )
+
+        headers = _string_dict(server_config.get("headers", {}))
+        url = str(server_config.get("url") or server_config.get("endpoint") or "")
+        timeout = _timeout_seconds(server_config, default=30)
+        sse_read_timeout = _timeout_seconds(
+            server_config, default=300, keys=("sse_read_timeout", "sse_read_timeout_ms")
+        )
+
+        if transport in {"http", "streamable-http"}:
+            return await self.session_manager.connect_streamable_http(
+                server_name,
+                url,
+                headers=headers or None,
+                timeout=timeout,
+                sse_read_timeout=sse_read_timeout,
+            )
+
+        if transport == "sse":
+            return await self.session_manager.connect_sse(
+                server_name,
+                url,
+                headers=headers or None,
+                timeout=timeout,
+                sse_read_timeout=sse_read_timeout,
+            )
+
+        raise ValueError(f"Unsupported MCP transport: {transport}")
+
+
+def _transport_for(server: Mapping[str, Any]) -> str:
+    transport = str(server.get("transport") or server.get("type") or "").lower()
+    if transport in {"streamable_http", "streamable-http"}:
+        return "streamable-http"
+    if transport:
+        return transport
+    if server.get("command"):
+        return "stdio"
+    if server.get("url") or server.get("endpoint"):
+        return "http"
+    return "unknown"
+
+
+def _annotations_to_dict(annotations: Any) -> Dict[str, Any]:
+    if annotations is None:
+        return {}
+    if hasattr(annotations, "model_dump"):
+        return annotations.model_dump(exclude_none=True)
+    if hasattr(annotations, "dict"):
+        return annotations.dict(exclude_none=True)
+    if isinstance(annotations, Mapping):
+        return dict(annotations)
+    return {}
+
+
+def _risk_from_annotations(annotations: Mapping[str, Any]) -> RiskLevel:
+    if annotations.get("destructiveHint"):
+        return RiskLevel.HIGH
+    if annotations.get("openWorldHint"):
+        return RiskLevel.MEDIUM
+    if annotations.get("readOnlyHint"):
+        return RiskLevel.SAFE
+    return RiskLevel.MEDIUM
+
+
+def _timeout_seconds(
+    config: Mapping[str, Any],
+    default: float,
+    keys: tuple[str, str] = ("timeout", "timeout_ms"),
+) -> float:
+    primary, millis = keys
+    if primary in config:
+        return float(config[primary])
+    if millis in config:
+        return float(config[millis]) / 1000
+    return default
+
+
+def _string_dict(raw: Any) -> Dict[str, str]:
+    if not isinstance(raw, Mapping):
+        return {}
+    return {str(key): str(value) for key, value in raw.items()}
+
+
+def _server_policy(config: Mapping[str, Any]) -> Dict[str, Any]:
+    headers = config.get("headers", {})
+    authenticated = bool(config.get("auth") or config.get("auth_profile"))
+    if isinstance(headers, Mapping):
+        authenticated = authenticated or any(
+            str(key).lower() == "authorization" for key in headers
+        )
+    return {
+        "trust_level": config.get("trust_level", "experimental"),
+        "authenticated": authenticated,
+        "timeout_ms": config.get("timeout_ms") or config.get("timeout"),
+    }
 
 
 # ─── MCP 서버 레지스트리 (커뮤니티 무료 서버 카탈로그) ─────────────

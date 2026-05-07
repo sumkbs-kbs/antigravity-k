@@ -22,6 +22,8 @@ from enum import Enum
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Callable
 
+from antigravity_k.config import config
+
 logger = logging.getLogger("antigravity_k.harness")
 
 
@@ -570,6 +572,9 @@ class TestHarness:
             or os.environ.get("AGK_HARNESS_WS_URL")
             or self._derive_ws_url(self.base_url)
         )
+        self.access_pin = os.environ.get("AGK_HARNESS_ACCESS_PIN") or (
+            config.security.access_pin
+        )
         self.healing_loop = HealingLoop(max_attempts=3)
         self.feedback = FeedbackCollector()
         self.intents: List[TestIntent] = list(self.DEFAULT_INTENTS)
@@ -582,6 +587,12 @@ class TestHarness:
         scheme = "wss" if parsed.scheme == "https" else "ws"
         netloc = parsed.netloc or "localhost:8000"
         return f"{scheme}://{netloc}/ws/terminal"
+
+    def _request_headers(self, extra: Optional[dict] = None) -> dict:
+        headers = dict(extra or {})
+        if self.access_pin:
+            headers["X-Access-Pin"] = self.access_pin
+        return headers
 
     async def run_all(self, use_browser: bool = True) -> HarnessReport:
         """모든 테스트 인텐트를 실행합니다."""
@@ -670,7 +681,7 @@ class TestHarness:
                 req = urllib.request.Request(
                     f"{self.base_url}/api/agent/tools/browser/vision-analyze",
                     data=json.dumps({"prompt": "Describe this UI."}).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers=self._request_headers({"Content-Type": "application/json"}),
                     method="POST",
                 )
                 try:
@@ -707,7 +718,8 @@ class TestHarness:
 
             elif intent.id == "external_brain_list":
                 req = urllib.request.Request(
-                    f"{self.base_url}/api/agent/tools/external-brain/list"
+                    f"{self.base_url}/api/agent/tools/external-brain/list",
+                    headers=self._request_headers(),
                 )
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode())
@@ -760,6 +772,19 @@ class TestHarness:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
+            if self.access_pin:
+                await page.context.add_cookies(
+                    [
+                        {
+                            "name": "ag_access_pin",
+                            "value": self.access_pin,
+                            "url": self.dashboard_url,
+                        }
+                    ]
+                )
+                await page.add_init_script(
+                    f"localStorage.setItem('ag_access_pin', {json.dumps(self.access_pin)});"
+                )
 
             for intent in intents:
                 try:
@@ -906,7 +931,7 @@ class TestHarness:
                 req = urllib.request.Request(
                     f"{self.base_url}/api/agent/tools/fs/read",
                     data=json.dumps({"file_path": ".", "action": "list"}).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers=self._request_headers({"Content-Type": "application/json"}),
                     method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=5) as _resp:

@@ -15,6 +15,10 @@ Antigravity-K: 토큰 추정기 (TokenEstimator)
 """
 
 from typing import Dict, List
+import re
+
+# 한글, 한자, 일본어(히라가나/가타카나) 정규식
+CJK_PATTERN = re.compile(r"[\uac00-\ud7a3\u4e00-\u9fff\u3040-\u30ff]")
 
 
 class TokenEstimator:
@@ -35,7 +39,10 @@ class TokenEstimator:
         """단일 텍스트의 토큰 수를 추정합니다."""
         if not text:
             return 0
-        return len(text.encode("utf-8")) // TokenEstimator.BYTES_PER_TOKEN
+        base_tokens = len(text.encode("utf-8")) // TokenEstimator.BYTES_PER_TOKEN
+        # 한글/CJK 문자는 모델에 따라 토큰을 더 많이 소비하므로 보정치 추가 (+1 token/char)
+        cjk_count = len(CJK_PATTERN.findall(text))
+        return base_tokens + cjk_count
 
     @staticmethod
     def estimate_messages(
@@ -53,7 +60,7 @@ class TokenEstimator:
                 total += msg["_tokens"]
             else:
                 content = msg.get("content", "")
-                tokens = len(content.encode("utf-8")) // TokenEstimator.BYTES_PER_TOKEN
+                tokens = TokenEstimator.estimate_text(content)
                 if use_cache:
                     msg["_tokens"] = tokens
                 total += tokens
@@ -65,9 +72,6 @@ class TokenEstimator:
         by_role: Dict[str, int] = {}
         for msg in messages:
             role = msg.get("role", "unknown")
-            tokens = (
-                len(msg.get("content", "").encode("utf-8"))
-                // TokenEstimator.BYTES_PER_TOKEN
-            )
+            tokens = TokenEstimator.estimate_text(msg.get("content", ""))
             by_role[role] = by_role.get(role, 0) + tokens
         return by_role

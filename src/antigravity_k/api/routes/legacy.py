@@ -29,6 +29,7 @@ from antigravity_k.api.dependencies import (
     get_model_manager,
     get_vault_engine,
     __get_tool_registry,
+    __get_skill_loader,
     _get_context_shaper,
     _get_session_manager,
     get_orchestrator,
@@ -44,7 +45,23 @@ def health_check():
     manager = get_model_manager()
     info = manager.status() if manager else {}
     backends = info.get("loaded_models", {}) if isinstance(info, dict) else {}
-    return {"status": "ok", "backends": backends}
+
+    # 시스템 상태 추가 (RAG, CoV)
+    orchestrator = get_orchestrator()
+    rag_files = 0
+    cov_active = False
+    if orchestrator:
+        if getattr(orchestrator, "_rag_indexer", None):
+            rag_files = len(getattr(orchestrator._rag_indexer, "_file_hashes", {}))
+        if getattr(orchestrator, "_cov_engine", None):
+            cov_active = True
+
+    return {
+        "status": "ok",
+        "backends": backends,
+        "rag_index_files": rag_files,
+        "cov_active": cov_active,
+    }
 
 
 class WakeRequest(BaseModel):
@@ -780,6 +797,7 @@ def _get_slash_registry():
             session_manager=_get_session_manager(),
             context_shaper=_get_context_shaper(),
             model_manager=get_model_manager(),
+            skill_loader=__get_skill_loader(),
         )
     return _slash_registry
 
@@ -787,7 +805,7 @@ def _get_slash_registry():
 @router.post("/api/slash")
 async def slash_command(request: Request):
     body = await request.json()
-    text = body.get("command", "")
+    text = body.get("command") or body.get("input") or body.get("text") or ""
     registry = _get_slash_registry()
 
     # is_command() 검사를 제거하여 일반 텍스트도 자연어 처리(_execute_natural_language)로 넘어가게 합니다.
@@ -803,9 +821,15 @@ async def slash_completions(prefix: str = "/"):
 
 @router.get("/api/session/info")
 async def session_info():
-    # P0 수정: 매번 새 인스턴스 대신 싱글톤 사용
     sm = _get_session_manager()
     return {"ok": True, "session": sm.get_session_info() or {}}
+
+
+@router.get("/api/session/messages")
+async def session_messages():
+    sm = _get_session_manager()
+    sm.start_session(resume=True)
+    return {"ok": True, "messages": sm.get_messages()}
 
 
 @router.post("/api/session/save")

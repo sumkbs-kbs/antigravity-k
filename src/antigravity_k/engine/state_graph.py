@@ -52,6 +52,7 @@ class AgentState(Enum):
     PRE_ROUTE = "pre_route"  # 불확실성 + 사용자 모델
     ROUTE = "route"  # 태스크 유형 라우팅
     AGENT_EXECUTE = "agent_execute"  # 단일 에이전트 실행
+    COV_VERIFY = "cov_verify"  # Chain-of-Verification 자기검증
     PIPELINE_EXECUTE = "pipeline_execute"  # 멀티 스텝 파이프라인
     DEBATE_EXECUTE = "debate_execute"  # 토론 파이프라인
     AGI_CORE = "agi_core"  # AGI 코어 작업
@@ -96,6 +97,11 @@ class StateContext:
     current_state: AgentState = AgentState.INIT
     state_history: List[Dict[str, Any]] = field(default_factory=list)
     checkpoints: List[Dict[str, Any]] = field(default_factory=list)
+
+    # 에러 복구 루프 추적
+    retry_count: int = 0
+    max_retries: int = 3
+    validation_passed: bool = True
 
     # 메타
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -342,7 +348,14 @@ def build_default_graph() -> AgentStateGraph:
 
     # ROUTE → 조건부 전이 (핸들러에서 등록)
     # AGENT_EXECUTE, PIPELINE_EXECUTE, DEBATE_EXECUTE → MEMORY_SAVE
-    graph.add_edge(AgentState.AGENT_EXECUTE, AgentState.MEMORY_SAVE)
+    graph.add_edge(AgentState.AGENT_EXECUTE, AgentState.COV_VERIFY)
+
+    # Phase 5: COV_VERIFY 이후 바로 메모리 저장하지 않고 QUALITY_CHECK로 진행
+    graph.add_edge(AgentState.COV_VERIFY, AgentState.QUALITY_CHECK)
+
+    # QUALITY_CHECK 이후 조건부 전이(실패시 AGENT_EXECUTE 루프백, 성공시 MEMORY_SAVE)를
+    # 핸들러 레벨(build_orchestrator_graph)에서 add_conditional_edge로 등록함
+
     graph.add_edge(AgentState.PIPELINE_EXECUTE, AgentState.MEMORY_SAVE)
     graph.add_edge(AgentState.DEBATE_EXECUTE, AgentState.MEMORY_SAVE)
     graph.add_edge(AgentState.AGI_CORE, AgentState.COMPLETE)

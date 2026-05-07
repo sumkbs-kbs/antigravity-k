@@ -12,6 +12,7 @@ Antigravity-K: CEO 기반 멀티 에이전트 오케스트레이터
 
 import logging
 import os
+import re
 from typing import List, Dict, Any, Generator, Optional, Union
 
 from antigravity_k.engine.tool_call_parser import ToolCallParser, EventType
@@ -149,9 +150,15 @@ class OrchestratorAgent:
             '{"name": "tool_name", "arguments": {"arg1": "value1"}}\n'
             "</tool_call>\n\n"
             "CRITICAL RULES:\n"
-            "- Output ONLY ONE tool_call per message.\n"
-            "- Wait for the <tool_response> before making another tool call.\n"
-            "- If no tool is needed, just answer directly without any tool_call or scratch_pad tags.\n\n"
+            "- You can output MULTIPLE tool_call blocks sequentially if they can be executed in parallel.\n"
+            "- Wait for ALL <tool_response> tags before making another batch of tool calls.\n"
+            "- If no tool is needed, just answer directly without any tool_call or scratch_pad tags.\n"
+            "OUTPUT QUALITY GATES:\n"
+            "1. You MUST include Korean explanations even when asked for code. Do not just output code blocks.\n"
+            "2. Provide Big-O notation (Time/Space complexity) for algorithmic tasks.\n"
+            "3. Provide reasoning for your technical choices before or after code blocks.\n"
+            "4. Use Markdown Tables when comparing 3 or more methods.\n"
+            "5. Never repeat the same paragraph twice.\n\n"
             "### Example Usage:\n"
             "User: Show me the contents of main.py\n"
             "Assistant: \n"
@@ -166,6 +173,28 @@ class OrchestratorAgent:
             "</tool_call>\n\n"
             "## Available Tools\n"
         )
+        if hasattr(self.tool_registry, "render_autonomous_policy"):
+            tool_section += "\n" + self.tool_registry.render_autonomous_policy() + "\n"
+        try:
+            from antigravity_k.engine.codex_transfer import CodexTransferEngine
+
+            tool_section += "\n" + CodexTransferEngine().render_prompt_contract() + "\n"
+        except Exception as e:
+            logger.debug(f"Codex operating contract unavailable: {e}")
+        try:
+            from antigravity_k.engine.self_capability import SelfCapabilityEngine
+
+            engine = SelfCapabilityEngine()
+            snapshot = engine.build(
+                tool_registry=self.tool_registry,
+                skill_loader=self.skill_loader,
+                model_manager=self.manager,
+                project_root=self.project_root,
+                slash_commands=getattr(self.slash_commands, "_commands", {}),
+            )
+            tool_section += "\n" + engine.render_prompt_contract(snapshot) + "\n"
+        except Exception as e:
+            logger.debug(f"Self-capability contract unavailable: {e}")
         for schema in self.tool_registry.to_llm_schemas():
             params = schema.get("input_schema", {})
             required = params.get("required") or []
@@ -180,9 +209,59 @@ class OrchestratorAgent:
                 tool_section += f"  Parameters: {', '.join(param_strs)}\n"
         return tool_section
 
+    def _requires_planning_mode(
+        self, task_type: str, messages: List[Dict[str, str]]
+    ) -> bool:
+        """복잡한 구조 변경에만 Planning Mode를 강제합니다."""
+        if task_type == "complex":
+            return True
+        if task_type != "coding":
+            return False
+
+        request_text = "\n".join(
+            str(msg.get("content", "")) for msg in messages if msg.get("role") == "user"
+        ).lower()
+        return bool(
+            re.search(
+                r"(아키텍처|구조|전면|대규모|마이그레이션|프레임워크|리팩토링|"
+                r"architecture|refactor|migrate|framework|plugin system)",
+                request_text,
+            )
+        )
+
     def _execute_tool(self, name: str, args: Dict[str, Any]) -> str:
         """ToolExecutor에 위임합니다. (I-1 리팩터링)"""
         return self._tool_executor.execute(name, args)
+
+    def _latest_user_text(self, messages: List[Dict[str, str]]) -> str:
+        """최근 user 메시지의 텍스트만 반환합니다."""
+        for msg in reversed(messages):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                return " ".join(
+                    str(part.get("text", ""))
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ).strip()
+        return ""
+
+    def _render_self_capability_response(self) -> str:
+        """런타임 사실 기반 자기 능력 보고서를 생성합니다."""
+        from antigravity_k.engine.self_capability import SelfCapabilityEngine
+
+        engine = SelfCapabilityEngine()
+        snapshot = engine.build(
+            tool_registry=self.tool_registry,
+            skill_loader=self.skill_loader,
+            model_manager=self.manager,
+            project_root=self.project_root,
+            slash_commands=getattr(self.slash_commands, "_commands", {}),
+        )
+        return engine.render_markdown(snapshot)
 
     def _register_claw_tools(self):
         """ToolExecutor에 위임합니다. (I-1 리팩터링)"""
@@ -198,7 +277,7 @@ class OrchestratorAgent:
             user_message=user_message,
             target_model=target_model,
             ceo_prompt_template=get_orchestrator_prompt("CEO"),
-            get_model_for_role_fn=self._get_model_for_role,
+            model_manager=self.manager,
         )
 
     def _rebuild_prompt(
@@ -229,10 +308,26 @@ class OrchestratorAgent:
         if hasattr(self, "manager") and not self.manager.is_loaded(delegate_model):
             yield f"\n\n*(🚀 `{delegate_model}` 모델을 VRAM에 로드 중입니다. 모델 크기에 따라 1~3분이 소요될 수 있습니다...)*\n\n"
         system_prompt = get_orchestrator_prompt(delegate_to)
+
+        # [Phase 17] 복합/대규모 태스크인 경우 Planning Mode 워크플로우 강제 주입
+        if self._requires_planning_mode(task_type, messages) and delegate_to != "CEO":
+            planning_mode_enforcement = (
+                "\n\n[CRITICAL ALGORITHM OVERRIDE]\n"
+                "You are executing a COMPLEX task. You MUST enter PLANNING MODE.\n"
+                "1. DO NOT write any functional code or implementation details in your initial response.\n"
+                "2. You MUST use the `write_file` tool to create `artifacts/implementation_plan.md` outlining your technical plan.\n"
+                "3. End your response EXACTLY with the string `[APPROVAL REQUIRED]` on a new line to pause execution and ask the user for permission to proceed.\n"
+                "Failure to do this will result in a Quality Gate failure and retry loop.\n"
+            )
+            system_prompt += planning_mode_enforcement
+
         tool_prompt = self._build_tool_prompt() if delegate_to != "CEO" else ""
 
         # 턴 시작 시 에러 카운터 리셋 (이전 턴의 에러가 이월되지 않도록)
         self._tool_executor.reset_error_counter()
+        user_objective = messages[-1].get("content", "") if messages else ""
+        if hasattr(self._tool_executor, "set_objective"):
+            self._tool_executor.set_objective(user_objective)
 
         # ─── E-1: 인지 루프 초기화 ───
         self.cognitive_loop.reset()
@@ -280,10 +375,12 @@ class OrchestratorAgent:
         full_output = ""
         stream_proc = StreamProcessor()
         for step in range(max_steps):
+            requires_approval_break = False
             parser = ToolCallParser()
             full_response = ""
             tool_executed = False
             stream_proc.reset()
+            pending_tool_calls = []
 
             # 스텝 경고: 남은 스텝이 적으면 에이전트에게 알림
             if step >= _WARN_STEP:
@@ -399,8 +496,14 @@ class OrchestratorAgent:
 
                             is_approval_required = (
                                 isinstance(tool_result, str)
-                                and "[APPROVAL REQUIRED]" in tool_result
+                                and (
+                                    "[APPROVAL REQUIRED]" in tool_result
+                                    or "WAITING_FOR_USER_APPROVAL" in tool_result
+                                )
+                                and tool_name in ["run_command", "ask_question", "plan"]
                             )
+                            if is_approval_required:
+                                requires_approval_break = True
 
                             post_decision = self.tool_guardrail.after_call(
                                 tool_name, tool_args, tool_result, failed=is_failed
@@ -499,6 +602,17 @@ class OrchestratorAgent:
                             )
                             yield f"\n```\n{result_preview}\n```\n"
 
+                            is_approval_required = (
+                                isinstance(tool_result, str)
+                                and (
+                                    "[APPROVAL REQUIRED]" in tool_result
+                                    or "WAITING_FOR_USER_APPROVAL" in tool_result
+                                )
+                                and tool_name in ["run_command", "ask_question", "plan"]
+                            )
+                            if is_approval_required:
+                                requires_approval_break = True
+
                             parser.tool_responses.append(
                                 f"<tool_response>\n{tool_result}\n</tool_response>"
                             )
@@ -547,6 +661,158 @@ class OrchestratorAgent:
                     )
                     return
 
+            if pending_tool_calls:
+                import concurrent.futures
+                from antigravity_k.engine.event_bus import global_event_bus
+
+                yield f"\n\n🚀 **[{len(pending_tool_calls)}개의 도구 병렬 실행 시작]**\n"
+
+                def _run_tool_task(tc):
+                    tool_name = tc.name
+                    tool_args = tc.arguments
+
+                    try:
+                        global_event_bus.publish("ToolExecutionStarted", name=tool_name)
+                    except Exception:
+                        pass
+
+                    pre_decision = self.tool_guardrail.before_call(tool_name, tool_args)
+                    if not pre_decision.allows_execution:
+                        logger.warning(
+                            f"🛡️ Guardrail blocked: {pre_decision.code} ({tool_name})"
+                        )
+                        synthetic = guardrail_synthetic_result(pre_decision)
+
+                        try:
+                            global_event_bus.publish(
+                                "ToolExecutionFinished", name=tool_name
+                            )
+                        except Exception:
+                            pass
+
+                        return tc, pre_decision, None, synthetic, True
+
+                    tool_result = self._execute_tool(tool_name, tool_args)
+
+                    try:
+                        global_event_bus.publish(
+                            "ToolExecutionFinished", name=tool_name
+                        )
+                    except Exception:
+                        pass
+
+                    # CognitiveLoop Verify
+                    try:
+                        verification = self.cognitive_loop.verify_tool_result(
+                            tool_name, tool_args, str(tool_result)
+                        )
+                        if not verification["passed"]:
+                            self.failure_memory.record(
+                                tool=tool_name,
+                                error_text=str(tool_result)[:500],
+                                args_summary=str(tool_args)[:200],
+                            )
+                    except Exception as ve:
+                        logger.debug(f"Cognitive verification error: {ve}")
+
+                    post_decision = self.tool_guardrail.after_call(
+                        tool_name,
+                        tool_args,
+                        tool_result,
+                        failed=(
+                            isinstance(tool_result, str)
+                            and tool_result.strip().startswith("Error")
+                        ),
+                    )
+                    return tc, pre_decision, post_decision, tool_result, False
+
+                results_collected = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {
+                        executor.submit(_run_tool_task, tc): tc
+                        for tc in pending_tool_calls
+                    }
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            res = future.result()
+                            results_collected.append(res)
+                        except Exception as e:
+                            tc = futures[future]
+                            results_collected.append(
+                                (tc, None, None, f"Exception: {e}", True)
+                            )
+
+                # 정렬하여 UI 출력
+                results_collected.sort(key=lambda x: pending_tool_calls.index(x[0]))
+
+                for (
+                    tc,
+                    pre_decision,
+                    post_decision,
+                    tool_result,
+                    blocked,
+                ) in results_collected:
+                    tool_name = tc.name
+                    if blocked:
+                        yield f"\n\n🛡️ **[Tool Loop Guard]** {pre_decision.message if pre_decision else tool_result}\n"
+                        parser.tool_responses.append(
+                            f"<tool_response>\n{tool_result}\n</tool_response>"
+                        )
+                        continue
+
+                    is_failed = isinstance(
+                        tool_result, str
+                    ) and tool_result.strip().startswith("Error")
+                    is_approval_required = (
+                        isinstance(tool_result, str)
+                        and (
+                            "[APPROVAL REQUIRED]" in tool_result
+                            or "WAITING_FOR_USER_APPROVAL" in tool_result
+                        )
+                        and tool_name in ["run_command", "ask_question", "plan"]
+                    )
+                    if is_approval_required:
+                        requires_approval_break = True
+
+                    if is_approval_required:
+                        status_icon = "✋"
+                    elif is_failed or (
+                        post_decision
+                        and (
+                            post_decision.action == "warn" or post_decision.should_halt
+                        )
+                    ):
+                        status_icon = "❌"
+                    else:
+                        status_icon = "✅"
+
+                    yield '<details class="tool-card" style="margin: 10px 0; border: 1px solid #333; border-radius: 8px; background: rgba(0,0,0,0.2);">\n'
+                    yield f'<summary style="padding: 8px; cursor: pointer; font-weight: bold; border-bottom: 1px solid #333;"><span class="icon">🛠️</span> Executing <b>{tool_name}</b> <span style="opacity:0.7; font-weight:normal; font-size:0.9em;">(Step {step+1}/{max_steps})</span> {status_icon}</summary>\n'
+                    yield '<div style="padding: 10px;">\n'
+
+                    if post_decision and post_decision.action == "warn":
+                        tool_result = append_guardrail_guidance(
+                            tool_result, post_decision
+                        )
+                        yield f"\n⚠️ {post_decision.message}\n"
+                    elif post_decision and post_decision.should_halt:
+                        tool_result = append_guardrail_guidance(
+                            tool_result, post_decision
+                        )
+                        yield f"\n\n🛡️ **[Tool Loop Guard]** {post_decision.message}\n"
+
+                    result_preview = (
+                        tool_result[:1500]
+                        if isinstance(tool_result, str) and len(tool_result) > 1500
+                        else tool_result
+                    )
+                    yield f"\n```\n{result_preview}\n```\n"
+                    yield "</div>\n</details>\n\n"
+
+                    parser.tool_responses.append(
+                        f"<tool_response>\n{tool_result}\n</tool_response>"
+                    )
+
             if tool_executed:
                 # 스트림이 모두 종료된 후, 컨텍스트(prompt 및 shaped_messages)를 갱신
                 all_tool_responses = "\n".join(getattr(parser, "tool_responses", []))
@@ -557,10 +823,7 @@ class OrchestratorAgent:
                 shaped_messages.append({"role": "user", "content": all_tool_responses})
 
                 # Planning Mode 및 Tool Guardrail 승인 대기 지원
-                if (
-                    "WAITING_FOR_USER_APPROVAL" in all_tool_responses
-                    or "[APPROVAL REQUIRED]" in all_tool_responses
-                ):
+                if requires_approval_break:
                     yield "\n\n✋ **[APPROVAL REQUIRED]** 사용자의 승인을 대기합니다. (계획안 검토 후 승인/거절을 결정해 주세요.)\n"
                     break
 
@@ -594,6 +857,42 @@ class OrchestratorAgent:
             )
             if quality.user_message:
                 yield f"\n{quality.user_message}\n"
+            if quality.should_retry and quality.feedback:
+                self.quality_gate.mark_retry()
+                retry_messages = list(shaped_messages)
+                retry_messages.extend(
+                    [
+                        {"role": "assistant", "content": full_output},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"{quality.feedback}\n"
+                                "도구를 새로 호출하지 말고, 위 문제만 수정해 최종 답변을 한국어로 다시 작성하세요."
+                            ),
+                        },
+                    ]
+                )
+                retry_prompt = self._rebuild_prompt(
+                    system_prompt
+                    + "\n\n[QUALITY RETRY] Rewrite the final answer only. Do not call tools.",
+                    "",
+                    skill_prompts,
+                    retry_messages,
+                )
+                retry_output = ""
+                try:
+                    for chunk in self.manager.stream_generate(
+                        retry_prompt,
+                        delegate_model,
+                        temperature=0.2,
+                    ):
+                        retry_output += str(chunk)
+                        yield str(chunk)
+                    if retry_output.strip():
+                        full_output = retry_output
+                        self._last_agent_output = full_output
+                except Exception as retry_error:
+                    logger.warning(f"Quality retry failed: {retry_error}")
             if quality.grade.value in ("retry", "fail"):
                 logger.warning(
                     f"[QualityGate] Grade={quality.grade.value}, score={quality.score}"
@@ -614,6 +913,19 @@ class OrchestratorAgent:
         기존의 레거시 선형 루프를 완전히 폐기하고,
         내부를 명시적 상태 전이 그래프(AgentStateGraph)로 단일화하여 실행합니다.
         """
+        try:
+            from antigravity_k.engine.self_capability import (
+                is_self_capability_request,
+            )
+
+            if is_self_capability_request(self._latest_user_text(messages)):
+                response = self._render_self_capability_response()
+                self._last_agent_output = response
+                yield response
+                return
+        except Exception as e:
+            logger.debug(f"Self-capability fast path skipped: {e}")
+
         if not self._state_graph:
             # Fallback to building the graph if not initialized
             from antigravity_k.engine.orchestrator_handlers import (

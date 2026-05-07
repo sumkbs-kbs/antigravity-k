@@ -510,6 +510,11 @@ class GoalRunner:
                 "ruff + pytest + dashboard build",
             ),
             (
+                "Response quality gates",
+                "코드-only 응답, Big-O 누락, 반복 문단, 비교 구조 누락을 자동 감점",
+                "QualityGate + OmniTDD.Response Reconstructor",
+            ),
+            (
                 "DOM-grounded QA",
                 "실제 화면 DOM을 근거로 UI 동작 검증",
                 "/qa + browser harness + command palette",

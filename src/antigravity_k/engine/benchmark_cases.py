@@ -1,0 +1,191 @@
+"""
+Antigravity-K: 벤치마크 과제 세트 (Built-in)
+=============================================
+collective-council vs 단일 모델 비교를 위한 내장 코딩 과제 정의.
+
+난이도 1~5:
+  1: 단순 함수 (피보나치, 문자열)
+  2: 한국어/유틸리티
+  3: 중급 알고리즘 (BST, LRU)
+  4: 리팩토링/디자인 패턴
+  5: 아키텍처 설계
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class BenchmarkCase:
+    """벤치마크 과제 1건."""
+
+    id: str
+    category: str  # simple | algorithm | architecture | korean | refactor
+    prompt: str
+    difficulty: int  # 1-5
+    expected_keywords: tuple[str, ...] = ()
+    description: str = ""
+
+
+# ─── 내장 과제 세트 ─────────────────────────────────────────────────
+
+BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
+    # ── simple (난이도 1) ──────────────────────────────────────────
+    BenchmarkCase(
+        id="sim-001",
+        category="simple",
+        difficulty=1,
+        description="피보나치 함수",
+        prompt=(
+            "Python으로 n번째 피보나치 수를 반환하는 함수 `fibonacci(n: int) -> int`를 작성하세요.\n"
+            "- 재귀와 반복 두 가지 방법을 모두 구현하세요.\n"
+            "- 각 방법의 시간복잡도를 설명하세요.\n"
+            "- n이 음수일 때의 예외 처리를 포함하세요."
+        ),
+        expected_keywords=("def fibonacci", "O(", "raise", "return"),
+    ),
+    BenchmarkCase(
+        id="sim-002",
+        category="simple",
+        difficulty=1,
+        description="문자열 뒤집기 (유니코드 안전)",
+        prompt=(
+            "Python으로 유니코드 이모지를 포함한 문자열을 안전하게 뒤집는 함수 "
+            "`reverse_unicode(s: str) -> str`를 작성하세요.\n"
+            "- '안녕🌍세계' → '계세🌍녕안' 이 올바르게 동작해야 합니다.\n"
+            "- grapheme cluster를 고려한 방법과 단순 슬라이싱 방법을 비교하세요."
+        ),
+        expected_keywords=("def reverse", "return"),
+    ),
+    # ── algorithm (난이도 3) ───────────────────────────────────────
+    BenchmarkCase(
+        id="alg-001",
+        category="algorithm",
+        difficulty=3,
+        description="이진 탐색 트리 (BST)",
+        prompt=(
+            "Python으로 이진 탐색 트리(BST)를 구현하세요.\n"
+            "- `insert(val)`, `search(val) -> bool`, `delete(val)` 메서드를 포함하세요.\n"
+            "- delete는 자식이 0/1/2인 경우를 모두 처리하세요.\n"
+            "- 중위 순회(in-order traversal) 메서드도 추가하세요.\n"
+            "- 각 연산의 평균/최악 시간복잡도를 설명하세요."
+        ),
+        expected_keywords=("class", "insert", "search", "delete", "O("),
+    ),
+    BenchmarkCase(
+        id="alg-002",
+        category="algorithm",
+        difficulty=3,
+        description="LRU 캐시 구현",
+        prompt=(
+            "Python으로 LRU(Least Recently Used) 캐시를 구현하세요.\n"
+            "- `get(key)` 과 `put(key, value)` 모두 O(1)이어야 합니다.\n"
+            "- capacity를 초과하면 가장 오래 사용되지 않은 항목을 자동 제거합니다.\n"
+            "- OrderedDict 사용 버전과 이중 연결 리스트 + dict 직접 구현 버전을 모두 작성하세요.\n"
+            "- 두 구현의 장단점을 비교 표로 정리하세요."
+        ),
+        expected_keywords=("class", "get", "put", "O(1)"),
+    ),
+    # ── korean (난이도 2) ─────────────────────────────────────────
+    BenchmarkCase(
+        id="kor-001",
+        category="korean",
+        difficulty=2,
+        description="한국어 자연수 변환",
+        prompt=(
+            "Python으로 정수를 한국어 읽기 문자열로 변환하는 함수 "
+            "`int_to_korean(n: int) -> str`를 작성하세요.\n"
+            "- 예: 12345 → '일만이천삼백사십오'\n"
+            "- 1억, 1조 단위까지 지원하세요.\n"
+            "- 0과 음수도 처리하세요."
+        ),
+        expected_keywords=("def int_to_korean", "만", "억", "return"),
+    ),
+    # ── refactor (난이도 4) ────────────────────────────────────────
+    BenchmarkCase(
+        id="ref-001",
+        category="refactor",
+        difficulty=4,
+        description="스파게티 코드 리팩토링",
+        prompt=(
+            "아래의 Python 코드를 SOLID 원칙에 맞게 리팩토링하세요.\n"
+            "변경 전후의 구조를 비교 설명하고, 각 원칙이 어떻게 적용되었는지 서술하세요.\n\n"
+            "```python\n"
+            "def process(data, mode):\n"
+            "    result = []\n"
+            "    for item in data:\n"
+            "        if mode == 'upper':\n"
+            "            result.append(item.upper())\n"
+            "        elif mode == 'lower':\n"
+            "            result.append(item.lower())\n"
+            "        elif mode == 'title':\n"
+            "            result.append(item.title())\n"
+            "        elif mode == 'reverse':\n"
+            "            result.append(item[::-1])\n"
+            "        elif mode == 'count':\n"
+            "            result.append(len(item))\n"
+            "        else:\n"
+            "            result.append(item)\n"
+            "    return result\n"
+            "```"
+        ),
+        expected_keywords=("class", "SOLID", "def"),
+    ),
+    # ── architecture (난이도 5) ────────────────────────────────────
+    BenchmarkCase(
+        id="arc-001",
+        category="architecture",
+        difficulty=5,
+        description="FastAPI 플러그인 시스템 설계",
+        prompt=(
+            "FastAPI 기반 백엔드에 런타임 플러그인 시스템을 설계하세요.\n"
+            "- 플러그인은 독립 Python 패키지로 배포되며, 서버 재시작 없이 로드/언로드 가능해야 합니다.\n"
+            "- 플러그인은 새 라우트, 미들웨어, 이벤트 핸들러를 등록할 수 있어야 합니다.\n"
+            "- 플러그인 간 의존성 관리, 버전 충돌 해결, 샌드박싱 전략을 포함하세요.\n"
+            "- 핵심 인터페이스(Protocol/ABC)와 레지스트리 코드를 Python으로 작성하세요.\n"
+            "- 아키텍처 다이어그램을 ASCII art로 그려주세요."
+        ),
+        expected_keywords=("class", "Plugin", "register", "load"),
+    ),
+    BenchmarkCase(
+        id="arc-002",
+        category="architecture",
+        difficulty=5,
+        description="이벤트 소싱 CQRS 설계",
+        prompt=(
+            "Python으로 이벤트 소싱(Event Sourcing) + CQRS 패턴을 설계하세요.\n"
+            "- Command 핸들러, Event Store, Projection(Read Model) 핵심 컴포넌트를 구현하세요.\n"
+            "- 이벤트 저장소는 append-only이며, 스냅샷을 통한 복원을 지원해야 합니다.\n"
+            "- 간단한 은행 계좌 도메인(입금, 출금, 잔액 조회)으로 예시를 들어주세요.\n"
+            "- 이벤트 소싱의 장점과 단점, 적합한 사용 사례를 설명하세요."
+        ),
+        expected_keywords=("Event", "Command", "class", "append"),
+    ),
+)
+
+
+def get_suite(name: str = "all") -> list[BenchmarkCase]:
+    """과제 세트를 반환합니다.
+
+    Args:
+        name: "all", "simple", "algorithm", "architecture", "korean", "refactor",
+              또는 개별 case id (예: "sim-001")
+    """
+    if name == "all":
+        return list(BUILTIN_CASES)
+
+    # 개별 ID 매칭
+    for case in BUILTIN_CASES:
+        if case.id == name:
+            return [case]
+
+    # 카테고리 매칭
+    matched = [c for c in BUILTIN_CASES if c.category == name]
+    if matched:
+        return matched
+
+    return list(BUILTIN_CASES)
+
+
+"""Antigravity-K Benchmark Cases — Built-in coding challenge suite."""

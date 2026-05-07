@@ -23,11 +23,25 @@ const state = {
 const API_BASE = '/v1';
 const BACKEND_API = '/api';
 
+function installConsoleNoiseFilter() {
+  const originalWarn = console.warn.bind(console);
+  console.warn = (...args) => {
+    const message = args.map(arg => String(arg)).join(' ');
+    if (message.includes("Duplicate definition of module 'vs/editor/editor.main'")) {
+      return;
+    }
+    originalWarn(...args);
+  };
+}
+
+installConsoleNoiseFilter();
+
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
+  const { suppressLog = false, ...requestOptions } = options;
   const config = {
     headers: { 'Content-Type': 'application/json' },
-    ...options,
+    ...requestOptions,
   };
 
   try {
@@ -35,10 +49,84 @@ export async function apiRequest(endpoint, options = {}) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return await resp.json();
   } catch (err) {
-    console.error(`API Error (${endpoint}):`, err);
+    if (!suppressLog) {
+      console.error(`API Error (${endpoint}):`, err);
+    }
     throw err;
   }
 }
+
+// ─── PIN Auth Interceptor ──────────────────────────────────────────
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+  let [resource, config] = args;
+  const requestUrl = typeof resource === 'string' ? resource : resource?.url || '';
+  const skipPinModal = Boolean(config?.skipPinModal);
+  if (config && Object.prototype.hasOwnProperty.call(config, 'skipPinModal')) {
+    config = { ...config };
+    delete config.skipPinModal;
+  }
+
+  const pin = localStorage.getItem('ag_access_pin');
+  if (pin) {
+    config = config || {};
+    config.headers = new Headers(config.headers || {});
+    // FormData 등 기존 Content-Type을 보존하기 위해 단순 추가
+    config.headers.set('X-Access-Pin', pin);
+  }
+
+  const response = await originalFetch(resource, config);
+
+  const isBackgroundStatusCheck = requestUrl.includes('/api/system/status');
+  if (response.status === 401 && !skipPinModal && !isBackgroundStatusCheck) {
+    showPinModal();
+  }
+  return response;
+};
+
+function showPinModal() {
+  if (document.getElementById('pin-auth-modal')) return;
+
+  const modal = document.createElement('div');
+  modal.id = 'pin-auth-modal';
+  modal.className = 'modal-overlay open';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;';
+  modal.innerHTML = `
+    <div class="glass-panel" style="padding: 32px; border-radius: 16px; text-align: center; max-width: 300px; width: 90%;">
+      <h2 style="margin-top:0;">🔒 시스템 잠금</h2>
+      <p style="color:var(--text-secondary); font-size:13px; margin-bottom: 24px;">외부 접속 보안을 위해 PIN 번호를 입력하세요.</p>
+      <input type="password" id="pin-input" placeholder="PIN 입력" style="width:100%; padding: 12px; border-radius:8px; border:1px solid var(--glass-border); background:rgba(0,0,0,0.5); color:#fff; text-align:center; font-size: 20px; letter-spacing: 4px; box-sizing: border-box; margin-bottom:16px;" autofocus>
+      <button id="pin-submit-btn" class="glow-btn" style="width:100%; padding: 12px; border-radius: 8px; font-size: 15px; font-weight:bold;">잠금 해제</button>
+      <div id="pin-error-msg" style="color:#ff6b6b; font-size:12px; margin-top:12px; display:none;">PIN 번호가 올바르지 않습니다.</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('pin-submit-btn').addEventListener('click', async () => {
+    const pin = document.getElementById('pin-input').value;
+    localStorage.setItem('ag_access_pin', pin);
+    document.cookie = "ag_access_pin=" + pin + "; path=/; max-age=31536000";
+
+    try {
+      const res = await originalFetch('/api/session/info', {
+        headers: { 'X-Access-Pin': pin }
+      });
+      if (res.ok) {
+        modal.remove();
+        window.location.reload();
+      } else {
+        document.getElementById('pin-error-msg').style.display = 'block';
+      }
+    } catch (e) {
+      document.getElementById('pin-error-msg').style.display = 'block';
+    }
+  });
+
+  document.getElementById('pin-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('pin-submit-btn').click();
+  });
+}
+
 
 // ─── Global UI Utils ───────────────────────────────────────────────
 window.showToast = function(message, type = 'success') {
@@ -146,8 +234,8 @@ async function checkSystemStatus() {
   const cpuSpan = document.getElementById('sys-cpu');
 
   try {
-    // 1. 기존 LLM 상태 (v1/health)
-    const data = await apiRequest('/health');
+    // 1. 기존 LLM 상태 (v1/health). Polling failures update UI state without console errors.
+    const data = await apiRequest('/health', { suppressLog: true });
     state.backendStatus = data;
 
     if (data.status === 'ok') {
@@ -158,23 +246,50 @@ async function checkSystemStatus() {
       } else {
         statusText.textContent = `엔진 활성`;
       }
+
+      // RAG / CoV 시스템 상태 업데이트
+      const agentMetricsDiv = document.getElementById('system-agent-metrics');
+      if (agentMetricsDiv) {
+        agentMetricsDiv.style.display = 'block';
+        document.getElementById('sys-rag').textContent = data.rag_index_files || '0';
+        document.getElementById('sys-cov').textContent = data.cov_active ? 'On' : 'Off';
+        if (data.cov_active) {
+            document.getElementById('sys-cov').style.color = '#10b981'; // green
+        }
+      }
     } else {
       statusDot.className = 'status-dot offline';
       statusText.textContent = '추론 엔진 없음';
+      const agentMetricsDiv = document.getElementById('system-agent-metrics');
+      if (agentMetricsDiv) agentMetricsDiv.style.display = 'none';
     }
+  } catch (err) {
+    statusDot.className = 'status-dot offline';
+    statusText.textContent = '연결 실패';
+    const agentMetricsDiv = document.getElementById('system-agent-metrics');
+    if (agentMetricsDiv) agentMetricsDiv.style.display = 'none';
+  }
 
-    // 2. 서버 메트릭 상태 (/api/system/status)
-    const sysResp = await fetch('/api/system/status');
+  try {
+    // 2. 서버 메트릭 상태 (/api/system/status). PIN-protected 401 is an expected state.
+    const sysResp = await fetch('/api/system/status', { skipPinModal: true });
+    if (sysResp.status === 401) {
+      metricsDiv.style.display = 'none';
+      return;
+    }
+    if (!sysResp.ok) {
+      metricsDiv.style.display = 'none';
+      return;
+    }
     const sysData = await sysResp.json();
     if (sysData.ok) {
       metricsDiv.style.display = 'block';
       memSpan.textContent = sysData.memory_mb;
       cpuSpan.textContent = sysData.cpu_percent;
+    } else {
+      metricsDiv.style.display = 'none';
     }
   } catch (err) {
-    console.error('System check failed:', err);
-    statusDot.className = 'status-dot offline';
-    statusText.textContent = '연결 실패';
     metricsDiv.style.display = 'none';
   }
 }

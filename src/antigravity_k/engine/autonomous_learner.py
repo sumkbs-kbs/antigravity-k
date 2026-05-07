@@ -237,48 +237,98 @@ class AutonomousLearner:
 
     def auto_learn(self, gaps: List[KnowledgeGap]) -> List[LearnedKnowledge]:
         """
-        지식 갭에 대해 웹 검색 + 스크래핑 + 요약을 수행하고 KI에 저장합니다.
+        다중 에이전트 협업 파이프라인 (Vibe Coding Style):
+        1. Query Generator: 이미 분석된 gaps.search_queries 사용
+        2. Search Infra: SearxNG/Tavily를 통해 검색 후 URL 확보
+        3. Web Surfer: BrowserSurfingAgent가 해당 URL에 접속해 시각적 탐색 후 데이터 추출
+        4. Synthesizer: DeepSeek-V4가 수집된 정보를 교차 검증 및 최종 요약
         """
-        from antigravity_k.tools.web_search import WebSearchTool
+        from antigravity_k.tools.web_search import WebSearchEngine
+        from antigravity_k.agents.browser_surfing_agent import BrowserSurfingAgent
 
-        search_tool = WebSearchTool()
+        search_engine = WebSearchEngine()
+        surfer = BrowserSurfingAgent(
+            model_manager=self.manager, vision_model_name="qwen3.5-omni"
+        )
+
         learned = []
 
-        for gap in gaps:
-            try:
-                all_results = []
-                for query in gap.search_queries[:2]:
-                    result_text = search_tool.execute(query=query)
-                    if result_text and "결과 없음" not in result_text:
-                        all_results.append(result_text)
+        # asyncio.run is not safe inside an async context, but auto_learn seems synchronous right now?
+        # Actually auto_learn is called synchronously in orchestrator_handlers.py!
+        # But WebSearchEngine and BrowserSurfingAgent are async.
+        # Let's wrap async execution
+        import asyncio
 
-                if not all_results:
-                    logger.info(f"[AutoLearn] No results for: {gap.topic}")
-                    continue
+        async def _run_vibe_coding_pipeline():
+            for gap in gaps:
+                try:
+                    all_results = []
+                    for query in gap.search_queries[:2]:
+                        # 검색 인프라 (SearxNG/Tavily)
+                        response = await search_engine.search(query=query)
+                        if response and response.results:
+                            # 상위 2개 URL에 대해 Browser-Use 서핑 수행
+                            for r in response.results[:2]:
+                                logger.info(
+                                    f"[AutoLearn] Surfing {r.url} for '{gap.topic}'..."
+                                )
+                                content = await surfer.surf(
+                                    url=r.url, goal=gap.topic, max_steps=3
+                                )
+                                if content and len(content) > 50:
+                                    all_results.append(
+                                        f"Source: {r.url}\nContent: {content}"
+                                    )
+                                else:
+                                    all_results.append(
+                                        f"Source: {r.url}\nSnippet: {r.snippet}"
+                                    )
 
-                # 검색 결과 합산
-                combined = "\n\n".join(all_results)
+                    if not all_results:
+                        logger.info(
+                            f"[AutoLearn] No valid surfing results for: {gap.topic}"
+                        )
+                        continue
 
-                # LLM 요약 (가능한 경우)
-                summary = self._summarize_results(gap.topic, combined)
+                    # 검색 결과 합산
+                    combined = "\n\n".join(all_results)
 
-                # KI에 저장
-                ki_id = self._save_to_ki(gap.topic, summary, gap.search_queries)
+                    # Synthesizer (DeepSeek-V4)를 통한 요약 및 교차 검증
+                    summary = self._summarize_results(gap.topic, combined)
 
-                learned.append(
-                    LearnedKnowledge(
-                        topic=gap.topic,
-                        summary=summary,
-                        sources=gap.search_queries,
-                        learned_at=datetime.now().isoformat(),
-                        ki_id=ki_id,
+                    # KI에 저장
+                    ki_id = self._save_to_ki(gap.topic, summary, gap.search_queries)
+
+                    learned.append(
+                        LearnedKnowledge(
+                            topic=gap.topic,
+                            summary=summary,
+                            sources=gap.search_queries,
+                            learned_at=datetime.now().isoformat(),
+                            ki_id=ki_id,
+                        )
                     )
-                )
 
-                logger.info(f"[AutoLearn] Learned: {gap.topic} ({len(summary)} chars)")
+                    logger.info(
+                        f"[AutoLearn] Synthesized: {gap.topic} ({len(summary)} chars)"
+                    )
 
-            except Exception as e:
-                logger.error(f"[AutoLearn] Failed to learn about '{gap.topic}': {e}")
+                except Exception as e:
+                    logger.error(
+                        f"[AutoLearn] Failed to learn about '{gap.topic}': {e}"
+                    )
+            await search_engine.close()
+
+        # Execute async pipeline
+        try:
+            asyncio.get_running_loop()
+            # If we are already in an event loop, we can't use asyncio.run.
+            # We'll need to create a task, but since this is called from sync generator,
+            # we block on it using a new loop if no loop exists, or run_until_complete if possible.
+            # However, handlers yield strings. So this must be running in a thread.
+            asyncio.run(_run_vibe_coding_pipeline())
+        except RuntimeError:
+            asyncio.run(_run_vibe_coding_pipeline())
 
         return learned
 
@@ -296,7 +346,7 @@ class AutonomousLearner:
                 f"Write a clear, structured summary in the language that matches the topic."
             )
             data = {
-                "model": "qwen3.6:latest",
+                "model": "deepseek-v4",
                 "prompt": prompt,
                 "stream": False,
                 "options": {"num_predict": 800, "temperature": 0.3},

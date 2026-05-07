@@ -118,16 +118,86 @@ async def chat_completions(
 
     messages = internal_req.get("messages", [])
 
+    from antigravity_k.api.dependencies import _get_session_manager
+
+    session_manager = _get_session_manager()
+    session_manager.start_session(resume=True)
+
+    # Auto-restore context for new conversations (UI sends few messages)
+    if len(messages) <= 2:
+        restored_context = session_manager.auto_restore()
+        if restored_context:
+            messages.insert(0, {"role": "system", "content": restored_context})
+
     is_stream = body.get("stream", False)
     is_agent_mode = body.get("agent_mode", True)
     is_plan_mode = body.get("plan_mode", False)
-    is_tdd_mode = body.get("tdd_mode", False)
 
+    # [AUTONOMY] 사용자의 TDD 모드 자동 판단 요구사항 반영
+    is_tdd_mode = body.get("tdd_mode", False)
     slash_text = _latest_user_text(messages)
-    if slash_text.startswith("/"):
+
+    if is_tdd_mode:
+        # TDD가 켜져 있어도, 단순 작업(폴더 생성, 스크립트 실행, 진행 요청)이면 자동으로 끕니다.
+        simple_indicators = [
+            "폴더",
+            "파일 생성",
+            "출력",
+            "실행",
+            "진행해줘",
+            "만들어줘",
+            "테스트 폴더",
+        ]
+        if (
+            len(slash_text) < 150
+            and any(k in slash_text for k in simple_indicators)
+            and "알고리즘" not in slash_text
+            and "리팩토링" not in slash_text
+        ):
+            import logging
+
+            logging.getLogger(__name__).info(
+                f"Auto-TDD: Disabling TDD mode for simple task: {slash_text[:50]}"
+            )
+            is_tdd_mode = False
+    else:
+        # TDD가 꺼져 있어도, 복잡한 알고리즘이나 리팩토링 요청이면 자동으로 켭니다.
+        complex_indicators = ["알고리즘", "리팩토링", "최적화", "병렬 처리", "TDD로"]
+        if any(k in slash_text for k in complex_indicators):
+            import logging
+
+            logging.getLogger(__name__).info(
+                f"Auto-TDD: Enabling TDD mode for complex task: {slash_text[:50]}"
+            )
+            is_tdd_mode = True
+
+    from antigravity_k.engine.self_capability import (
+        SelfCapabilityEngine,
+        is_self_capability_request,
+    )
+
+    if is_self_capability_request(slash_text):
+        from antigravity_k.api.dependencies import (
+            __get_skill_loader,
+            __get_tool_registry,
+        )
         from . import legacy as legacy_routes
 
-        result = legacy_routes._get_slash_registry().execute(slash_text)
+        registry = legacy_routes._get_slash_registry()
+        engine = SelfCapabilityEngine()
+        snapshot = engine.build(
+            tool_registry=__get_tool_registry(),
+            skill_loader=__get_skill_loader(),
+            model_manager=manager,
+            slash_commands=getattr(registry, "_commands", {}),
+        )
+        result = engine.render_markdown(snapshot)
+        session_manager.add_turn(
+            [
+                {"role": "user", "content": slash_text},
+                {"role": "assistant", "content": result},
+            ]
+        )
         if is_stream:
             return _stream_text_response(result, target_model)
 
@@ -142,6 +212,60 @@ async def chat_completions(
             source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
         )
         return translator.translate_response(internal_resp, target=target_format)
+
+    if slash_text.startswith("/"):
+        from . import legacy as legacy_routes
+
+        registry = legacy_routes._get_slash_registry()
+        # 등록된 슬래시 명령어인 경우에만 라우팅 (파일 경로 등 오인 방지)
+        if registry.is_command(slash_text):
+            result = registry.execute(slash_text)
+
+            import types
+
+            if isinstance(result, types.GeneratorType):
+                if is_stream:
+
+                    async def _gen_stream():
+                        for chunk in result:
+                            data = {
+                                "id": "chatcmpl-stream",
+                                "object": "chat.completion.chunk",
+                                "model": target_model,
+                                "choices": [
+                                    {
+                                        "delta": {"content": chunk},
+                                        "index": 0,
+                                        "finish_reason": None,
+                                    }
+                                ],
+                            }
+                            yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                            await asyncio.sleep(0.01)
+                        yield "data: [DONE]\n\n"
+
+                    return StreamingResponse(
+                        _gen_stream(), media_type="text/event-stream"
+                    )
+                else:
+                    result = "".join(list(result))
+
+            if is_stream:
+                return _stream_text_response(result, target_model)
+
+            internal_resp = {
+                "content": result,
+                "model": target_model,
+                "finish_reason": "stop",
+                "tokens_in": len(slash_text) // 4,
+                "tokens_out": len(result) // 4,
+            }
+            target_format = (
+                source_format
+                if source_format != APIFormat.INTERNAL
+                else APIFormat.OPENAI
+            )
+            return translator.translate_response(internal_resp, target=target_format)
 
     # TDD Mode: OmniTDDEngine 비동기 실행 및 실시간 스트리밍 반환
     if is_tdd_mode:
@@ -212,6 +336,16 @@ async def chat_completions(
 
                 yield yield_chunk(res)
                 yield "data: [DONE]\n\n"
+
+                # 세션에 기록 저장 (프로젝트 단위 컨텍스트 영속성)
+                user_msg = _latest_user_text(messages)
+                session_manager.add_turn(
+                    [
+                        {"role": "user", "content": user_msg},
+                        {"role": "assistant", "content": res},
+                    ]
+                )
+
             except Exception as e:
                 logger.error(f"TDD Stream error: {e}", exc_info=True)
                 yield yield_chunk(f"\n\n[Error: {str(e)}]")
@@ -300,10 +434,12 @@ async def chat_completions(
         active_session.is_active = True
 
         async def event_generator():
+            full_response = ""
             try:
                 async for chunk in iterate_in_threadpool(
                     orchestrator.run_stream(messages, target_model=target_model)
                 ):
+                    full_response += chunk
                     active_session.history.append(chunk)
                     data = {
                         "id": "chatcmpl-stream",
@@ -318,6 +454,15 @@ async def chat_completions(
                         ],
                     }
                     yield f"data: {json.dumps(data)}\n\n"
+
+                # 세션에 기록 저장 (프로젝트 단위 컨텍스트 영속성)
+                user_msg = _latest_user_text(messages)
+                session_manager.add_turn(
+                    [
+                        {"role": "user", "content": user_msg},
+                        {"role": "assistant", "content": full_response},
+                    ]
+                )
 
                 active_session.done = True
                 yield "data: [DONE]\n\n"
@@ -368,9 +513,11 @@ async def chat_completions(
         if is_stream:
 
             def event_generator_native():
+                full_response = ""
                 for chunk in manager.stream_generate(
                     prompt=prompt, target=target_model, **kwargs
                 ):
+                    full_response += chunk
                     data = {
                         "id": "chatcmpl-stream",
                         "object": "chat.completion.chunk",
@@ -384,6 +531,14 @@ async def chat_completions(
                         ],
                     }
                     yield f"data: {json.dumps(data)}\n\n"
+
+                user_msg = _latest_user_text(messages)
+                session_manager.add_turn(
+                    [
+                        {"role": "user", "content": user_msg},
+                        {"role": "assistant", "content": full_response},
+                    ]
+                )
                 yield "data: [DONE]\n\n"
 
             return StreamingResponse(
@@ -393,6 +548,15 @@ async def chat_completions(
             response_text = manager.generate(
                 prompt=prompt, target=target_model, **kwargs
             )
+
+            user_msg = _latest_user_text(messages)
+            session_manager.add_turn(
+                [
+                    {"role": "user", "content": user_msg},
+                    {"role": "assistant", "content": response_text},
+                ]
+            )
+
             internal_resp = {
                 "content": response_text,
                 "model": target_model,

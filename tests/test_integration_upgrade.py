@@ -49,6 +49,33 @@ class TestAppConfigIntegration:
         assert hasattr(cfg.security, "max_tool_risk")
         assert cfg.security.max_tool_risk == "high"
 
+    def test_yaml_config_is_loaded(self, tmp_path, monkeypatch):
+        """AppConfig가 config.yaml 값을 실제 런타임에 반영하는지 확인."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "security:\n  access_pin: '2468'\nserver:\n  port: 9812\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("AGK_CONFIG_FILE", str(config_file))
+        monkeypatch.delenv("AGK_SEC_ACCESS_PIN", raising=False)
+        monkeypatch.delenv("AGK_SERVER_PORT", raising=False)
+
+        cfg = AppConfig()
+
+        assert cfg.security.access_pin == "2468"
+        assert cfg.server.port == 9812
+
+    def test_environment_overrides_yaml_config(self, tmp_path, monkeypatch):
+        """환경변수가 config.yaml보다 높은 우선순위를 갖는지 확인."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("security:\n  access_pin: '2468'\n", encoding="utf-8")
+        monkeypatch.setenv("AGK_CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("AGK_SEC_ACCESS_PIN", "env-pin")
+
+        cfg = AppConfig()
+
+        assert cfg.security.access_pin == "env-pin"
+
     def test_summary_includes_new_fields(self):
         """summary()에 새 필드들이 포함되는지 확인."""
         cfg = AppConfig()
@@ -126,7 +153,7 @@ class TestBaseAgentI18n:
             model_id="test",
         )
         prompt = agent._build_system_prompt()
-        assert "한국어로 답변하세요" in prompt
+        assert "한국어로만 답변하세요" in prompt or "출력 품질 규약" in prompt
 
     def test_english_reasoning_prompt(self):
         """영어 로케일에서 영어 추론 지시문이 포함되는지 확인."""

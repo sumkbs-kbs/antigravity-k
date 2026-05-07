@@ -1,3 +1,5 @@
+security:
+  access_pin: "1935"
 integrations:
   slack:
     enabled: false
@@ -15,6 +17,14 @@ models:
     estimated_memory_gb: 20
     context_length: 32768
     description: DeepSeek R1 32B — 미들급 아키텍트 모델
+  - name: deepseek-v4
+    repo: deepseek-v4
+    role: reasoning
+    quantization: 4bit
+    estimated_memory_gb: 40
+    context_length: 128000
+    description: DeepSeek V4 — 교차 검증 및 모순 탐지 특화 (최상위 추론)
+
   - name: qwen3.6:latest
     repo: qwen3.6:latest
     role: reasoning
@@ -50,7 +60,29 @@ models:
     estimated_memory_gb: 20
     context_length: 32768
     description: SuperGemma4 31B Abliterated (HuggingFace GGUF)
+  - name: hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M
+    repo: hf.co/Qwen/Qwen3-30B-A3B-GGUF
+    role: reasoning
+    quantization: gguf-q5_k_m
+    estimated_memory_gb: 21
+    context_length: 32768
+    description: Qwen3 30B-A3B Q5_K_M — HF 공식 GGUF, 3.3B active MoE, 한국어/에이전트/일반 추론 기본 후보
+  - name: hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    repo: hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF
+    role: reasoning
+    quantization: gguf-q5_k_m
+    estimated_memory_gb: 16
+    context_length: 32768
+    description: Mistral Small 3.2 24B Instruct Q5_K_M — 프랑스 Mistral 계열, Qwen/DeepSeek 편중을 완화하는 균형 추론 및 QA 후보
+  - name: hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF:Q4_K_M
+    repo: hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF
+    role: reasoning
+    quantization: gguf-q4_k_m
+    estimated_memory_gb: 42
+    context_length: 131072
+    description: Llama 3.3 70B Instruct Q4_K_M — Meta Llama 계열, 고난도 비평/최종 판정용 후보
   coding:
+
   - name: qwen2.5-coder:32b
     repo: qwen2.5-coder:32b
     role: coding
@@ -58,6 +90,13 @@ models:
     estimated_memory_gb: 18
     context_length: 32768
     description: Qwen 코더 32B — 메인 워커용 미들급 코더
+  - name: hf.co/Qwen/Qwen3-Coder-Next-GGUF:Q4_K_M
+    repo: hf.co/Qwen/Qwen3-Coder-Next-GGUF
+    role: coding
+    quantization: gguf-q4_k_m
+    estimated_memory_gb: 49
+    context_length: 262144
+    description: Qwen3-Coder-Next Q4_K_M — HF 공식 GGUF, 80B total/3B active, agentic coding 및 long-horizon tool use 전담
 
   embedding:
   - name: bge-m3:latest
@@ -73,6 +112,13 @@ models:
     dimensions: 768
     description: Nomic Embed — 경량 임베딩
   vision:
+  - name: qwen3.5-omni
+    repo: qwen3.5-omni
+    role: vision
+    quantization: 4bit
+    estimated_memory_gb: 24
+    context_length: 32768
+    description: Qwen 3.5 Omni — 스크린샷 이해 기반 DOM 제어 및 브라우징 전담
   - name: qwen2.5vl:32b
     repo: qwen2.5vl:32b
     role: vision
@@ -87,7 +133,7 @@ models:
     estimated_memory_gb: 8
     description: LLaVA 13B — 경량 멀티모달 비전 (폴백)
 defaults:
-  reasoning: hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+  reasoning: hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M
   coding: qwen2.5-coder:32b
   embedding: bge-m3:latest
   vision: qwen2.5vl:32b
@@ -110,6 +156,26 @@ workflow:
   autopilot: true
   auto_commit: true
   auto_artifacts: true
+
+collective_intelligence:
+  enabled: true
+  default_target: collective-council
+  min_participants: 2
+  max_proposers: 3
+  max_critics: 2
+  critic_combo: critic-swarm
+  arbiter_combo: supreme-court
+  expose_trace: true
+  philosophy: "여러 중급 이상 모델이 독립 제안, 상호 비판, 최종 합성을 수행해 단일 거대 모델 의존을 줄인다."
+
+autonomous_capabilities:
+  enabled: true
+  max_autonomous_risk: high          # safe | low | medium | high | critical
+  allow_critical_autonomy: false     # desktop/computer control 등 critical 기능은 승인 요청
+  auto_match_skills: true
+  auto_load_mcp: true
+  deny_unauthenticated_remote_mcp: true
+
 agent_models:
   CEO: orchestrator-swarm
   ENG_MANAGER: manager-swarm
@@ -120,77 +186,94 @@ agent_models:
   DESIGNER: creative-swarm
   PROPOSER: ideation-swarm
   ARBITER: supreme-court
-  default: fast-response
+  default: collective-council
 combos:
+  collective-council:
+    models:
+    - qwen3.6:latest
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    strategy: collective
+    description: 차세대 집단지성 평의회 (Qwen3.6-27B Dense 코딩최강 + Gemma4-31B-unsloth 에이전틱최강 + Mistral 한국어균형)
   orchestrator-swarm:
     models:
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
     - qwen3.6:latest
-    strategy: round-robin
-    description: CEO/관리자 역할 집단 (Google + Alibaba 순환 의사결정)
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    strategy: collective
+    description: CEO/관리자 역할 집단 (Qwen3.6 추론 + Gemma4-unsloth 에이전틱 + Mistral 균형 의사결정)
   manager-swarm:
     models:
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     - qwen3.6:latest
-    - llama4:latest
-    strategy: round-robin
-    description: 실무 매니징 집단
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    strategy: collective
+    description: 실무 매니징 집단 (Mistral 균형 판단 + Qwen3.6 추론 + Gemma4 에이전틱)
   architect-swarm:
     models:
+    - qwen3.6:latest
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     - deepseek-r1:32b
-    - nemotron-3-super:latest
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
-    strategy: round-robin
-    description: 구조 설계 특화 집단 (DeepSeek 논리 + Nvidia 비평 + Google 균형)
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    strategy: collective
+    description: 구조 설계 특화 집단 (Qwen3.6 기획 + Mistral 균형 + DeepSeek 논리 + Gemma4 비평)
   coding-swarm:
     models:
+    - qwen3.6:latest
     - qwen2.5-coder:32b
-    - llama4:latest
-    - deepseek-r1:32b
-    strategy: round-robin
-    description: 코딩 워커 집단 (각기 다른 모델이 번갈아가며 코드 작성 및 리뷰)
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    strategy: collective
+    description: 코딩 워커 집단 (Qwen3.6-27B SWE-bench 77.2 + Qwen2.5-Coder 전문코딩 + Mistral 한국어검증)
   qa-swarm:
     models:
-    - llama4:latest
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
-    strategy: round-robin
-    description: 엣지 케이스 테스트 집단
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    - qwen3.6:latest
+    strategy: collective
+    description: QA 테스트 집단 (Mistral QA + Gemma4 비전/에이전틱 + Qwen3.6 추론)
   critic-swarm:
     models:
-    - nemotron-3-super:latest
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     - deepseek-r1:32b
-    strategy: round-robin
-    description: 코드 및 논리 비판 전담 집단
+    - nemotron-3-super:latest
+    - hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF:Q4_K_M
+    strategy: fallback
+    description: 코드 및 논리 비판 전담 집단 (설치 완료 Mistral/DeepSeek 우선, Nemotron/Llama 70B 고난도 폴백)
   creative-swarm:
     models:
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
     - qwen3.6:latest
-    strategy: round-robin
-    description: 디자인/기획 집단
+    strategy: collective
+    description: 디자인/기획 집단 (Mistral 창작 + Gemma4-unsloth 비전 + Qwen3.6 구조)
   ideation-swarm:
     models:
-    - qwen3.6:latest
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
-    strategy: round-robin
-    description: 아이디어 제안 집단
+    - hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:Q5_K_M
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    strategy: collective
+    description: 아이디어 제안 집단 (Qwen3.6-35B MoE 초고속 + Gemma4-unsloth + Mistral)
   supreme-court:
     models:
+    - mistral-medium-3.5:128b
     - deepseek-r1:70b
     - nemotron-3-super:latest
     strategy: fallback
-    description: 최종 판결 집단 (초거대 모델 폴백 체인)
+    description: 최종 판결 집단 (Mistral-Medium-128B 최고품질 판결 + DeepSeek-70B 논리 + Nemotron 폴백)
   fast-response:
     models:
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
-    - qwen3.6:latest
+    - hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:Q5_K_M
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
     strategy: load-balance
-    description: 일반 응답용 로드밸런싱 집단
+    description: 일반 응답용 로드밸런싱 (Qwen3.6-35B MoE 초고속3B활성 + Mistral 한국어 + Gemma4 비전)
   reasoning-balanced:
     models:
-    - deepseek-r1:32b
-    - hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
     - qwen3.6:latest
-    strategy: round-robin
-    description: 균형 잡힌 추론 집단 (Reflection, Watchdog, Trainer 용)
+    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
+    strategy: collective
+    description: 균형 잡힌 추론 집단 (Qwen3.6-27B Dense + Mistral + Gemma4 교차 검증)
 router:
   default_strategy: fallback
   cooldown_base_sec: 60

@@ -1,0 +1,71 @@
+{
+  "query": "그럼 로컬llm모델의 최신 동향을 확인해서 어떻게 하면 니가 업그레이드 될수 있는지를 검토해서 결과를 알려줄래?",
+  "cached_at": "2026-05-07T17:01:10.300105",
+  "engine": "duckduckgo",
+  "results": [
+    {
+      "title": "Ollama와 LM Studio 완벽 비교: 로컬 LLM 구축 가이드",
+      "url": "https://jcomin.tistory.com/entry/Ollama%EC%99%80-LM-Studio-%EC%99%84%EB%B2%BD-%EB%B9%84%EA%B5%90-%EB%A1%9C%EC%BB%AC-LLM-%EA%B5%AC%EC%B6%95-%EA%B0%80%EC%9D%B4%EB%93%9C",
+      "snippet": "이러한 문제점을 해결하기 위해 많은 개발자와 사용자들이 LLM을 로컬 환경에서 구동하는 방법에 관심을 갖게 되었습니다. 오늘은 로컬 LLM 실행을 위한 두 가지 인기 있는 도구인 Ollama와 LM Studio를 비교하고, 각각의 설치 및 활용 방법에 대해 알아보겠습니다.",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299801",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "2025년 로컬 LLM 실행 완벽 가이드 - Pockit Blog",
+      "url": "https://pockit.tools/ko/blog/running-local-llms-guide-2025/",
+      "snippet": "OpenAI API에만 의존하던 시대는 저물어가고 있습니다. 물론 복잡한 추론 영역에서는 여전히 GPT-4나 Claude 3.5 Sonnet이 왕좌를 지키고 있지만, 개발자들의 로컬 머신에서는 조용한 혁명이 일어나고 있습니다. 2025년 현재, 로컬에서 LLM (Large Language Model)을 실행하는 것은 더 이상 주말 취미 생활이 아닙니다 ...",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299846",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "[기타/AI] 로컬 LLM 시작 가이드: Ollama, LM Studio, llama.cpp를 어떻게 고를까",
+      "url": "https://neomindstd.github.io/%EA%B8%B0%ED%83%80/local-llm-guide/",
+      "snippet": "로컬 LLM의 장단점, Ollama·LM Studio·llama.cpp의 차이, 처음 설치할 때의 선택 기준, 로컬 API와 UI 구성 흐름을 입문자 관점에서 설명합니다.",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299870",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "로컬 Llm 완전정복: 구독료 0원으로 내 Pc에서 Ai 쓰는 법",
+      "url": "https://magister1318.blog/2026/03/10/%EB%A1%9C%EC%BB%AC-llm-%EC%99%84%EC%A0%84%EC%A0%95%EB%B3%B5-%EA%B5%AC%EB%8F%85%EB%A3%8C-0%EC%9B%90%EC%9C%BC%EB%A1%9C-%EB%82%B4-pc%EC%97%90%EC%84%9C-ai-%EC%93%B0%EB%8A%94-%EB%B2%95/",
+      "snippet": "2026년 3월 최신 기준, 로컬 LLM을 무료로 내 PC에서 실행하는 방법을 완전 정리했습니다. Ollama·LM Studio 비교부터 Llama 4·GLM-4.7 추천 모델까지, 구독료 없이 AI를 쓰는 완벽 가이드입니다. URL slug: local-llm-complete-guide-2026",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299910",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "2025년 기준, 가장 많이 쓰이는 로컬 Llm 모델 Top 7과 장단점 비교",
+      "url": "https://imaginegarden.biz/%EB%A1%9C%EC%BB%AC-llm-%EB%AA%A8%EB%8D%B8-%EC%B6%94%EC%B2%9C-%EB%B9%84%EA%B5%90/",
+      "snippet": "2025년 현재, 로컬에서 가장 널리 사용되는 LLM 모델 7가지를 소개합니다. Mistral, Hermes, LLaMA3, Gemma 등 각 모델의 특징과 장단점을 비교 분석해, 작업 목적에 맞는 최적의 로컬 AI를 선택해보세요.",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299933",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "로컬 LLM 도구 호출 성능 비교: 21개 모델 실증 평가로 찾은 최적의 선택 - AI Sparkup",
+      "url": "https://aisparkup.com/posts/3220",
+      "snippet": "Docker 팀이 21개 LLM 모델을 대상으로 3,570개 테스트를 실행해 도구 호출 성능을 실증 평가한 연구 결과를 바탕으로, 개발자들이 AI 에이전트 구축 시 최적의 로컬 모델을 선택할 수 있는 실용적인 가이드를 제공합니다.",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299947",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "회사 기밀 유출 없는 오프라인 AI: 로컬 LLM(Ollama, LM Studio) 내 PC 설치 및 실무 활용 가이드",
+      "url": "https://ai-insightlab.blogspot.com/2026/02/local-llm-ollama-lm-studio-guide.html",
+      "snippet": "회사 기밀 유출 걱정 없이 인터넷 연결 없이도 내 PC에서 챗GPT처럼 작동하는 오프라인 AI(로컬 LLM) 구축 가이드입니다. Ollama와 LM Studio를 활용하여 안전하게 업무 생산성을 높이는 방법을 확인해 보세요.",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299963",
+      "relevance_score": 1.0
+    },
+    {
+      "title": "로컬 LLM 실행 가이드 — Ollama, LM Studio, llama.cpp | TechFeed",
+      "url": "https://tech.ambitstock.com/local-llm-guide-ollama-lmstudio-llamacpp/",
+      "snippet": "프라이버시·비용·오프라인이 중요한 상황에서 로컬 LLM을 실행하는 방법을 정리한다. Ollama, LM Studio, llama.cpp 설치, 모델 추천, GPU 요구사항, API 호출과 프롬프트 체이닝을 포함한다.",
+      "source": "DuckDuckGo",
+      "timestamp": "2026-05-07T17:01:10.299978",
+      "relevance_score": 1.0
+    }
+  ]
+}

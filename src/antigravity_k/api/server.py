@@ -5,6 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import os
 from fastapi.staticfiles import StaticFiles
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from antigravity_k.config import config
 import asyncio
 
 logger = logging.getLogger("antigravity_k.api.server")
@@ -42,7 +45,29 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def verify_access_pin(request: Request, call_next):
+    """
+    API 접근 시 설정된 보안 PIN을 검증합니다.
+    Header(X-Access-Pin) 또는 Cookie(ag_access_pin)를 통해 검사합니다.
+    """
+    if request.url.path.startswith("/api/"):
+        required_pin = config.security.access_pin
+        if required_pin:
+            pin_from_header = request.headers.get("X-Access-Pin")
+            pin_from_cookie = request.cookies.get("ag_access_pin")
+
+            if pin_from_header != required_pin and pin_from_cookie != required_pin:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or missing Access PIN", "ok": False},
+                )
+    return await call_next(request)
+
 
 from antigravity_k.api.routes import api_router
 

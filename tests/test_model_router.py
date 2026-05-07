@@ -192,6 +192,16 @@ class TestModelCombo:
         )
         assert combo.strategy == RouteStrategy.ROUND_ROBIN
 
+    def test_collective_strategy(self):
+        combo = ModelCombo.from_dict(
+            "test",
+            {
+                "models": ["a", "b", "c"],
+                "strategy": "collective",
+            },
+        )
+        assert combo.strategy == RouteStrategy.COLLECTIVE
+
 
 # ─── ModelRouter: 폴백 전략 테스트 ───────────────────────────────────
 
@@ -302,6 +312,24 @@ class TestRouterManagement:
         router.mark_failure("qwen3-72b")
         router.mark_recovered("qwen3-72b")
         profile = router.route("coding-stack")
+        assert profile.name == "qwen3-72b"
+
+    def test_available_model_names(self, router):
+        router.mark_failure("qwen3-72b")
+        available = router.available_model_names("coding-stack")
+        assert "qwen3-72b" not in available
+        assert available == ["qwen-coder-32b", "llama4-scout"]
+
+    def test_collective_routes_as_fallback_for_legacy_paths(self, mock_registry):
+        router = ModelRouter(mock_registry)
+        router.register_combo(
+            ModelCombo(
+                name="collective-council",
+                models=["qwen3-72b", "qwen-coder-32b"],
+                strategy=RouteStrategy.COLLECTIVE,
+            )
+        )
+        profile = router.route("collective-council")
         assert profile.name == "qwen3-72b"
 
 

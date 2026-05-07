@@ -130,17 +130,20 @@ class TeamManager:
         persona = get_persona(role_name)
         agent_name = custom_name or role_name
 
-        # 실제 환경에서는 ModelManager를 통해 각 역할에 맞는 최적의 모델(예: Hermes 3, Qwen 등)을
-        # 할당해야 하지만, 여기서는 더미 model_id를 지정합니다.
         model_id = "default_model"
         if self.model_manager:
-            model_role = "reasoning"
-            if persona["role"] == "WORKER":
-                model_role = "coding"
-
-            loaded_model = self.model_manager.get_by_role(model_role)
-            if loaded_model:
-                model_id = loaded_model.profile.name
+            if hasattr(self.model_manager, "get_target_for_role"):
+                model_id = self.model_manager.get_target_for_role(
+                    role_name=persona["role"],
+                    default_role=(
+                        "coding" if persona["role"] == "WORKER" else "reasoning"
+                    ),
+                )
+            else:
+                model_role = "coding" if persona["role"] == "WORKER" else "reasoning"
+                loaded_model = self.model_manager.get_by_role(model_role)
+                if loaded_model:
+                    model_id = loaded_model.profile.name
 
         agent = BaseAgent(
             name=agent_name,

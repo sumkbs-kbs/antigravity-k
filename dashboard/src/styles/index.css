@@ -276,11 +276,12 @@ body {
 
 .message {
   display: flex;
-  gap: 16px;
-  max-width: 85%;
+  gap: 12px;
+  max-width: 100%;
   opacity: 0;
   transform: translateY(10px);
   transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  padding: 4px 0;
 }
 
 .message.visible {
@@ -291,41 +292,57 @@ body {
 .message.user {
   align-self: flex-end;
   flex-direction: row-reverse;
+  max-width: 80%;
 }
 
 .avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 8px;
   background: var(--bg-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 14px;
   flex-shrink: 0;
   border: 1px solid var(--glass-border);
+  margin-top: 2px;
 }
 
 .message.user .avatar {
   background: var(--accent-color);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  font-size: 12px;
 }
 
 .bubble {
-  padding: 12px 16px;
-  border-radius: var(--radius-lg);
-  line-height: 1.65;
+  padding: 2px 0;
+  border-radius: 0;
+  line-height: 1.7;
   font-size: var(--text-md);
   word-break: break-word;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  flex: 1;
+  min-width: 0;
 }
 
 .message.user .bubble {
-  background: var(--bubble-user);
-  border-bottom-right-radius: 4px;
+  background: var(--bubble-user) !important;
+  border-radius: 18px 18px 4px 18px;
+  padding: 10px 16px;
 }
 
 .message.assistant .bubble, .message.system .bubble {
-  background: var(--bubble-bot);
-  border-bottom-left-radius: 4px;
+  background: transparent !important;
+  padding-left: 0;
+  border-left: none;
 }
 
 .chat-input-area {
@@ -679,15 +696,15 @@ body {
 
 /* ─── Think Block ─── */
 .think-block {
-  margin: 12px 0;
+  margin: 8px 0;
   border-radius: 8px;
-  background: rgba(30, 41, 59, 0.5); /* Slate 800 with opacity */
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
   transition: all 0.3s ease;
 }
 .think-block.generating {
-  border-color: rgba(168, 85, 247, 0.4);
+  border-color: rgba(168, 85, 247, 0.3);
   animation: think-glow 2s infinite ease-in-out;
 }
 @keyframes think-glow {
@@ -695,18 +712,31 @@ body {
   50% { box-shadow: 0 0 16px rgba(168, 85, 247, 0.3); border-color: rgba(168, 85, 247, 0.6); }
 }
 .think-block summary {
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #94a3b8; /* Slate 400 */
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8b8fa3;
   cursor: pointer;
-  background: rgba(0, 0, 0, 0.2);
+  background: transparent;
   user-select: none;
   transition: background 0.2s, color 0.2s;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.think-block summary::-webkit-details-marker { display: none; }
+.think-block summary::after {
+  content: '›';
+  font-size: 14px;
+  color: #6b7280;
+  transition: transform 0.2s;
+}
+.think-block[open] summary::after {
+  transform: rotate(90deg);
 }
 .think-block summary:hover {
-  background: rgba(0, 0, 0, 0.3);
-  color: #e2e8f0; /* Slate 200 */
+  color: #c8cad0;
 }
 .think-block .typing-indicator span {
   background-color: #c084fc; /* Purple 400 */
@@ -716,12 +746,15 @@ body {
   color: #cbd5e1; /* Slate 300 */
 }
 .think-content {
-  padding: 12px 14px;
+  padding: 10px 12px;
   font-size: 13px;
-  color: #94a3b8;
-  font-style: italic;
+  color: #8b8fa3;
+  font-style: normal;
   line-height: 1.6;
   white-space: pre-wrap;
+  border-left: 2px solid rgba(168, 85, 247, 0.3);
+  margin-left: 10px;
+  margin-bottom: 8px;
 }
 @keyframes pulse-opacity {
   0%, 100% { opacity: 1; }
@@ -1883,70 +1916,106 @@ body {
     flex-direction: column;
   }
 
+  /* 기존 좌측 네비게이션용 사이드바 숨김 처리 */
   .sidebar {
-    flex-direction: row;
-    min-width: unset;
-    max-width: unset;
-    width: 100%;
-    padding: 6px 8px;
-    border-right: none;
+    display: none !important;
+  }
+
+  /* 모바일 전용 Top App Bar */
+  .mobile-app-bar {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
     border-bottom: 1px solid var(--glass-border);
-    overflow-x: auto;
-    gap: 4px;
+    z-index: 100;
+    height: 50px;
+    box-sizing: border-box;
   }
 
-  .sidebar-header {
-    display: none;
+  .mobile-app-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--text-primary);
   }
 
-  .sidebar-nav {
-    flex-direction: row;
-    gap: 4px;
+  .mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mobile-hamburger {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 24px;
+    cursor: pointer;
     padding: 0;
-    flex: unset;
   }
 
-  .nav-item {
-    padding: 6px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-    border-radius: 8px;
+  /* Explorer를 화면 좌측에서 나오는 슬라이드 오프캔버스로 변경 */
+  .ide-explorer {
+    display: flex !important;
+    position: fixed;
+    top: 0;
+    left: -100%;
+    width: 80%;
+    max-width: 300px;
+    height: 100vh;
+    z-index: 2000;
+    background: var(--bg-primary);
+    border-right: 1px solid var(--glass-border);
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .ide-explorer.open {
+    left: 0;
   }
 
-  .nav-label {
-    display: none;
+  /* 오프캔버스 배경 오버레이 */
+  .explorer-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1999;
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .explorer-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
   }
 
-  .nav-icon {
-    margin-right: 0;
-    font-size: 18px;
-  }
-
-  .sidebar-footer {
-    display: none;
-  }
-
-  #right-container {
-    height: calc(100vh - 50px) !important;
-  }
-
-  /* IDE Layout: stack vertically on mobile */
   .ide-layout {
     flex-direction: column;
+    height: calc(100vh - 50px); /* 헤더 영역 제외 */
+    position: relative;
   }
 
-  .ide-explorer {
-    display: none !important; /* Explorer는 모바일에서 숨김 */
-  }
-
+  /* 에디터는 모바일에서 숨김 */
   .ide-editor {
-    display: none !important; /* 에디터도 모바일에서 숨김 - 채팅만 표시 */
+    display: none !important;
   }
 
   .ide-chat {
     width: 100% !important;
     min-width: unset !important;
     height: 100% !important;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+  }
+
+  /* 기존 채팅 헤더는 모바일 앱바로 대체 */
+  .chat-header {
+    display: none !important;
   }
 
   /* Split.js gutter 숨김 */
@@ -1954,55 +2023,86 @@ body {
     display: none !important;
   }
 
-  /* 채팅 헤더 */
-  .chat-header {
-    padding: 8px 12px;
-    flex-wrap: wrap;
-    gap: 6px;
+  /* 채팅 히스토리 뷰 최적화 (제미나이 룩) */
+  .chat-history {
+    flex: 1;
+    padding: 12px;
+    padding-bottom: 140px !important; /* 플로팅 바 여백 */
+    overflow-y: auto;
   }
 
-  .chat-header h2 {
-    font-size: 16px;
+  /* 메시지 버블 모바일 최적화 */
+  .message {
+    padding: 0;
+    margin-bottom: 20px;
+    gap: 8px;
+  }
+  .message .avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    margin-top: 2px;
+  }
+  .message .bubble {
+    max-width: 100%;
+    font-size: 15px; /* iOS 모바일 가독성 증대 */
+    line-height: 1.6;
+  }
+  .message.user .bubble {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 16px 16px 4px 16px;
+  }
+  .message.assistant .bubble {
+    background: transparent !important;
+    padding: 2px 0;
+    border-radius: 0;
+  }
+  .code-block {
+    font-size: 12px;
+    border-radius: 8px;
   }
 
-  .model-selector-wrap {
-    flex-wrap: wrap;
+  /* Gemini 스타일 하단 플로팅 입력바 */
+  .chat-input-wrapper {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 92%;
+    max-width: 600px;
+    z-index: 1000;
+    background: var(--bg-secondary);
+    border-radius: 28px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    border: 1px solid var(--glass-border);
+    padding: 4px;
+    box-sizing: border-box;
   }
 
-  .glass-select {
-    font-size: 11px;
-    max-width: 140px;
-  }
-
-  /* 채팅 입력 영역 */
   .chat-input-area {
-    padding: 8px 10px !important;
+    border: none;
+    border-radius: 28px;
+    background: transparent;
+    padding: 4px 8px !important;
+    box-shadow: none;
+    backdrop-filter: none;
   }
 
   #chat-input {
-    font-size: 14px !important;
-    min-height: 36px !important;
+    font-size: 16px !important; /* iOS 자동 줌 방지 */
+    min-height: 24px !important;
+    max-height: 120px;
+    padding: 10px 4px !important;
   }
 
-  /* Plan 토글 바 */
+  /* Plan 토글 바 숨김 (공간 확보) */
   .plan-toggle-bar {
-    padding: 4px 8px;
-    font-size: 11px;
+    display: none !important;
   }
 
-  /* Agent Manager 패널 */
   .agent-manager-panel {
     width: 100% !important;
-  }
-
-  /* 메시지 버블 */
-  .message .bubble {
-    max-width: 95%;
-    font-size: 14px;
-  }
-
-  .code-block {
-    font-size: 12px;
   }
 }
 
@@ -2055,4 +2155,49 @@ body {
   .sidebar {
     padding-top: env(safe-area-inset-top);
   }
+}
+
+/* ─── Carousel ─── */
+.md-carousel-container {
+  display: flex;
+  overflow-x: auto;
+  gap: 16px;
+  padding: 16px 0;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-color) rgba(255,255,255,0.05);
+}
+.md-carousel-container::-webkit-scrollbar {
+  height: 8px;
+}
+.md-carousel-container::-webkit-scrollbar-thumb {
+  background: var(--accent-color);
+  border-radius: 8px;
+}
+.md-carousel-slide {
+  flex: 0 0 85%;
+  min-width: 250px;
+  scroll-snap-align: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.md-carousel-slide img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+/* ─── Mermaid ─── */
+.mermaid {
+  background: #f0f0f0;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 16px 0;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
 }

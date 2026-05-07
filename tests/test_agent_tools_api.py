@@ -2,6 +2,13 @@ from fastapi.testclient import TestClient
 
 from antigravity_k.api.routes import agent_tools
 from antigravity_k.api.server import app
+from antigravity_k.config import config
+
+
+def _auth_headers() -> dict[str, str]:
+    if not config.security.access_pin:
+        return {}
+    return {"X-Access-Pin": config.security.access_pin}
 
 
 def test_vision_analyze_without_screenshot_returns_400():
@@ -11,6 +18,7 @@ def test_vision_analyze_without_screenshot_returns_400():
         response = client.post(
             "/api/agent/tools/browser/vision-analyze",
             json={"prompt": "check the UI"},
+            headers=_auth_headers(),
         )
 
     assert response.status_code == 400
@@ -24,6 +32,7 @@ def test_browser_action_requires_launch_returns_400():
         response = client.post(
             "/api/agent/tools/browser/action",
             json={"action": "snapshot"},
+            headers=_auth_headers(),
         )
 
     assert response.status_code == 400
@@ -42,14 +51,17 @@ def test_agent_fs_write_and_read_are_limited_to_project_root(tmp_path, monkeypat
         write_response = client.post(
             "/api/agent/tools/fs/write",
             json={"path": str(target), "content": "qa-ok"},
+            headers=_auth_headers(),
         )
         read_response = client.post(
             "/api/agent/tools/fs/read",
             json={"path": str(target)},
+            headers=_auth_headers(),
         )
         denied_response = client.post(
             "/api/agent/tools/fs/write",
             json={"path": str(outside), "content": "nope"},
+            headers=_auth_headers(),
         )
 
     assert write_response.status_code == 200
@@ -63,6 +75,7 @@ def test_agent_shell_blocks_dangerous_commands():
         response = client.post(
             "/api/agent/tools/shell/run",
             json={"command": "rm -rf /"},
+            headers=_auth_headers(),
         )
 
     assert response.status_code == 403

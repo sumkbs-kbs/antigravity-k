@@ -44,6 +44,61 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }, 120);
         }},
+        { id: 'agentic', title: 'Agentic Upgrade Radar (/agentic)', icon: '🧭', action: () => {
+            navigateTo('chat');
+            setTimeout(() => {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput) {
+                    chatInput.value = '/agentic ';
+                    chatInput.focus();
+                    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 120);
+        }},
+        { id: 'mcp', title: 'MCP Upgrade Radar (/mcp)', icon: '🔌', action: () => {
+            navigateTo('chat');
+            setTimeout(() => {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput) {
+                    chatInput.value = '/mcp ';
+                    chatInput.focus();
+                    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 120);
+        }},
+        { id: 'capabilities', title: 'Autonomous Capabilities (/capabilities)', icon: '🧠', action: () => {
+            navigateTo('chat');
+            setTimeout(() => {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput) {
+                    chatInput.value = '/capabilities ';
+                    chatInput.focus();
+                    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 120);
+        }},
+        { id: 'self', title: 'Self Capability Report (/self)', icon: '🪪', action: () => {
+            navigateTo('chat');
+            setTimeout(() => {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput) {
+                    chatInput.value = '/self';
+                    chatInput.focus();
+                    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 120);
+        }},
+        { id: 'codex', title: 'Codex Capability Transfer (/codex)', icon: '⚡', action: () => {
+            navigateTo('chat');
+            setTimeout(() => {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput) {
+                    chatInput.value = '/codex ';
+                    chatInput.focus();
+                    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            }, 120);
+        }},
         { id: 'settings', title: 'Preferences', icon: '⚙️', action: () => navigateTo('settings') },
         { id: 'sync', title: 'Sync Vault (Git)', icon: '🔄', action: () => syncVault() },
         { id: 'selftest', title: 'Run Self-Test (Cmd+Shift+T)', icon: '🧪', action: () => {
@@ -145,6 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
         isVisible = false;
         overlay.style.display = 'none';
     }
+
+    window.openCommandPalette = () => {
+        if (!isVisible) togglePalette();
+    };
+    window.toggleCommandPalette = togglePalette;
 
     const triggerButton = document.getElementById('open-command-palette-btn');
     if (triggerButton) {
@@ -265,7 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keyboard bindings
     document.addEventListener('keydown', (e) => {
         // Cmd+K (Mac) or Ctrl+K (Windows/Linux)
-        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
             e.preventDefault();
             togglePalette();
         }
