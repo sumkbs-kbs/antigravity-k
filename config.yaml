@@ -220,10 +220,10 @@ combos:
   coding-swarm:
     models:
     - qwen3.6:latest
-    - qwen2.5-coder:32b
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
     - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     strategy: collective
-    description: 코딩 워커 집단 (Qwen3.6-27B SWE-bench 77.2 + Qwen2.5-Coder 전문코딩 + Mistral 한국어검증)
+    description: 코딩 워커 집단 (Qwen3.6-27B SWE-bench 77.2 코딩최강 + Gemma4 에이전틱 + Mistral 한국어검증)
   qa-swarm:
     models:
     - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
@@ -235,10 +235,9 @@ combos:
     models:
     - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     - deepseek-r1:32b
-    - nemotron-3-super:latest
-    - hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF:Q4_K_M
+    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
     strategy: fallback
-    description: 코드 및 논리 비판 전담 집단 (설치 완료 Mistral/DeepSeek 우선, Nemotron/Llama 70B 고난도 폴백)
+    description: 코드 및 논리 비판 전담 (Mistral/DeepSeek 우선, Gemma4 폴백)
   creative-swarm:
     models:
     - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
@@ -248,7 +247,7 @@ combos:
     description: 디자인/기획 집단 (Mistral 창작 + Gemma4-unsloth 비전 + Qwen3.6 구조)
   ideation-swarm:
     models:
-    - hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:Q5_K_M
+    - qwen3.6:latest
     - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
     - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     strategy: collective
@@ -257,12 +256,12 @@ combos:
     models:
     - mistral-medium-3.5:128b
     - deepseek-r1:70b
-    - nemotron-3-super:latest
+    - deepseek-r1:32b
     strategy: fallback
-    description: 최종 판결 집단 (Mistral-Medium-128B 최고품질 판결 + DeepSeek-70B 논리 + Nemotron 폴백)
+    description: 최종 판결 집단 (Mistral-Medium-128B 최고품질 + DeepSeek-70B 논리 + DeepSeek-32B 경량폴백)
   fast-response:
     models:
-    - hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:Q5_K_M
+    - qwen3.6:latest
     - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
     - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
     strategy: load-balance
@@ -329,3 +328,16 @@ external_brains:
       type: playwright
       url: https://gemini.google.com
       timeout_sec: 120
+
+media_generation:
+  text_to_image:
+    enabled: true
+    model: "schnell" # FLUX.1-schnell via mflux
+    quantize: "q4"
+  text_to_audio:
+    enabled: true
+    model: "kokoro-v0_19.onnx"
+  text_to_video:
+    enabled: true
+    model: "Lightricks/LTX-Video"
+    backend: "mps"
