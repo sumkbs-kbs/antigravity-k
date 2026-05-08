@@ -277,6 +277,36 @@ class SlashCommandRegistry:
 
         self.register(
             SlashCommand(
+                name="finance",
+                description="Financial Assistant 페르소나를 활성화하여 재무 분석 및 모델링을 수행합니다.",
+                handler=self._cmd_finance,
+                usage="/finance <분석 대상 및 상황>",
+                category="finance",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="comps",
+                description="유사기업비교(Comps) 분석을 수행합니다.",
+                handler=self._cmd_finance,
+                usage="/comps <기업명>",
+                category="finance",
+            )
+        )
+
+        self.register(
+            SlashCommand(
+                name="dcf",
+                description="DCF(현금흐름할인법) 가치평가 모델을 생성합니다.",
+                handler=self._cmd_finance,
+                usage="/dcf <기업명>",
+                category="finance",
+            )
+        )
+
+        self.register(
+            SlashCommand(
                 name="aishell",
                 description="자연어 지시를 파싱하여 터미널(Bash) 커맨드로 즉시 변환 후 실행합니다.",
                 handler=self._cmd_aishell,
@@ -1061,4 +1091,18 @@ class SlashCommandRegistry:
             "로컬 모델이 연결되지 않아 프롬프트만 생성합니다.\n"
             "아래 프롬프트를 LLM에 직접 전달하세요:\n\n"
             f"```\n{prompt}\n```"
+        )
+
+    def _cmd_finance(self, args: list) -> str:
+        """금융 어시스턴트 커맨드 라우터 (/finance, /comps, /dcf)."""
+        # 이 커맨드는 내부적으로 financial-assistant 페르소나 또는 fa-modeling 스킬을
+        # 주입하기 위한 가이드 메시지를 출력하고 런타임에 컨텍스트를 주입하는 역할을 합니다.
+        query = " ".join(args).strip()
+
+        return (
+            "💼 **Financial Assistant 가동 준비 완료**\n\n"
+            f"요청하신 분석 대상: `{query if query else '미지정'}`\n\n"
+            "Antigravity-K 시스템이 **financial-assistant** 및 **fa-modeling** 스킬을 장착했습니다.\n"
+            "이제 DCF(가치평가), Comps(비교분석), 3-Statement 모델링 등 전문 금융 분석 요청을 자유롭게 대화로 이어가세요!\n"
+            '(예시: "해당 기업의 과거 3년 재무 데이터를 기반으로 DCF 모델을 작성해줘. Base/Bear/Bull 시나리오를 적용해.")'
         )

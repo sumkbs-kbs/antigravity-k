@@ -399,6 +399,14 @@ class MCPServerRegistry:
             "category": "reasoning",
             "free": True,
         },
+        "gitnexus": {
+            "name": "GitNexus",
+            "description": "코드베이스 Knowledge Graph 및 파급 효과(Blast Radius) 분석",
+            "command": "npx",
+            "args": ["-y", "gitnexus@latest", "mcp"],
+            "category": "dev",
+            "free": True,
+        },
     }
 
     def get_all(self) -> Dict[str, Dict]:
@@ -411,7 +419,7 @@ class MCPServerRegistry:
 
     def get_recommended(self) -> List[str]:
         """에이전트 기능 강화에 추천하는 서버 목록을 반환합니다."""
-        return ["filesystem", "fetch", "memory", "sequential-thinking"]
+        return ["filesystem", "fetch", "memory", "sequential-thinking", "gitnexus"]
 
     def generate_config(self, output_path: str, server_ids: List[str] = None) -> str:
         """

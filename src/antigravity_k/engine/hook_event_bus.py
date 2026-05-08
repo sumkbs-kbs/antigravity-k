@@ -321,9 +321,7 @@ class HookEventBus:
         }
 
         try:
-            tmp_path.write_text(
-                json.dumps(body, ensure_ascii=False), encoding="utf-8"
-            )
+            tmp_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
             tmp_path.rename(resp_path)
             return True
         except Exception as e:
@@ -444,9 +442,7 @@ class HookEventBus:
                 try:
                     callback(event)
                 except Exception as e:
-                    logger.error(
-                        f"[HookEventBus] 콜백 실행 오류 ({event.kind}): {e}"
-                    )
+                    logger.error(f"[HookEventBus] 콜백 실행 오류 ({event.kind}): {e}")
             # 와일드카드 구독자
             for callback in self._subscribers.get("*", []):
                 try:

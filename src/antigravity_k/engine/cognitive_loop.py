@@ -17,6 +17,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from antigravity_k.engine.memory.cavemem_store import CavememStore
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,11 @@ class CognitiveLoop:
     """
 
     def __init__(
-        self, project_root: str = ".", failure_memory=None, external_brain_router=None
+        self,
+        project_root: str = ".",
+        failure_memory=None,
+        external_brain_router=None,
+        enable_caveman: bool = False,
     ):
         self.project_root = project_root
         self.failure_memory = failure_memory
@@ -80,6 +85,8 @@ class CognitiveLoop:
         self._retry_count = 0
         self._max_retries = 2
         self._dialectic_enabled = True  # 변증법적 자기 비판 활성화 (Hegelion 패턴)
+        self.enable_caveman = enable_caveman
+        self.cavemem_store = CavememStore()
 
     # ─── Phase 1: PLAN ─────────────────────────────────────
 
@@ -98,11 +105,44 @@ class CognitiveLoop:
                     + "\n위 실수를 반복하지 마세요.\n"
                 )
 
+        caveman_instruction = ""
+        if self.enable_caveman:
+            caveman_instruction = (
+                "\n<caveman_mode>\n"
+                "CRITICAL: Drop filler words, articles, and pleasantries. "
+                "Output maximum compression prose. "
+                "Keep 100% technical accuracy. Do not use 'I will', 'Here is', etc. "
+                "Just give the answer or the exact action.\n"
+                "</caveman_mode>\n"
+            )
+
+        cavemem_context = ""
+        past_observations = self.cavemem_store.search_observations(task, limit=3)
+        if past_observations:
+            cavemem_context = (
+                "\n\n🧠 과거 장기 기억(Cavemem):\n"
+                + "\n".join(
+                    f"- {obs['compressed_content']}" for obs in past_observations
+                )
+                + "\n"
+            )
+
+        gitnexus_instruction = (
+            "\n<gitnexus_guidance>\n"
+            "If GitNexus tools (`impact`, `context`, `query`, `detect_changes`) are available, "
+            "you MUST use them before modifying files to understand blast radius and dependencies. "
+            "Never perform blind edits without codebase context.\n"
+            "</gitnexus_guidance>\n"
+        )
+
         return (
             "<scratch_pad>\n"
             f"Goal: {task}\n"
             f"Available Tools: {', '.join(available_tools[:20])}\n"
             f"{failure_context}"
+            f"{cavemem_context}"
+            f"{caveman_instruction}"
+            f"{gitnexus_instruction}"
             "Actions: 먼저 아래 형식으로 실행 계획을 세우세요:\n"
             "1. [단계 설명] — 사용할 도구\n"
             "2. [단계 설명] — 사용할 도구\n"
@@ -197,7 +237,7 @@ class CognitiveLoop:
         if not passed:
             suggestion = self._suggest_fix(tool_name, tool_args, result, issues)
 
-        # 이력 기록
+        # 이력 기록 (Local memory)
         self._step_history.append(
             {
                 "tool": tool_name,
@@ -206,6 +246,12 @@ class CognitiveLoop:
                 "issues": issues,
                 "timestamp": datetime.now().isoformat(),
             }
+        )
+
+        # 영구 장기 기억 (Cavemem)
+        obs_content = f"Tool '{tool_name}' returned grade {grade}. Passed: {passed}. Issues: {issues}. Suggestion: {suggestion}"
+        self.cavemem_store.store_observation(
+            session_id="cognitive_loop", content=obs_content
         )
 
         return {
@@ -229,6 +275,23 @@ class CognitiveLoop:
         if "에러를 반환" in str(issues):
             return "에러 메시지를 분석하고 다른 접근법을 시도하세요."
         return "결과를 재검토하고 다른 전략을 시도하세요."
+
+    # ─── Phase 2.5: Auto Memory Extraction (SurfSense 패턴) ───
+
+    def auto_extract_memory(self, user_message: str, model_fn=None) -> None:
+        """사용자 메시지에서 장기 기억할 가치가 있는 정보를 자동 추출합니다.
+
+        SurfSense의 memory_extraction.py 패턴을 적용하여,
+        대화 턴마다 fire-and-forget으로 호출합니다.
+        """
+        try:
+            self.cavemem_store.extract_memory(
+                user_message=user_message,
+                session_id="cognitive_loop",
+                model_fn=model_fn,
+            )
+        except Exception:
+            pass  # 기억 추출 실패가 메인 루프를 막지 않음
 
     # ─── Phase 3: REFLECT ─────────────────────────────────────
 

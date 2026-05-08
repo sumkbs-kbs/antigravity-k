@@ -120,6 +120,19 @@ class MCPCapabilityAdvisor:
                 priority="P1",
                 evidence_url="https://huggingface.co/docs/huggingface_hub/package_reference/mcp",
             ),
+            MCPCapability(
+                name="Precomputed Relational Intelligence (GitNexus)",
+                why_it_matters=(
+                    "Graph-based AST parsers like GitNexus precompute dependency chains, "
+                    "preventing LLMs from hallucinating blast radius or missing references."
+                ),
+                antigravity_action=(
+                    "Expose GitNexus MCP tools (`impact`, `context`) to the orchestration "
+                    "loop so the agent can safely explore dependencies before refactoring."
+                ),
+                priority="P1",
+                evidence_url="https://github.com/abhigyanpatwari/GitNexus",
+            ),
         ]
 
     def load_config(self, path: str | Path) -> Mapping[str, Any]:
@@ -347,6 +360,14 @@ class MCPCapabilityAdvisor:
                     "trust_level": "verified",
                     "timeout_ms": 30000,
                     "tool_annotations": "required",
+                },
+                "gitnexus": {
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "gitnexus@latest", "mcp"],
+                    "trust_level": "local",
+                    "timeout_ms": 60000,
+                    "tool_annotations": "read-only",
                 },
             }
         }

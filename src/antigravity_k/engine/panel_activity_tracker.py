@@ -105,18 +105,14 @@ class PanelActivityTracker:
         self._notify_change(panel_id, "activity", state)
         return True
 
-    def set_current_tool(
-        self, panel_id: str, tool: str, detail: str = ""
-    ) -> None:
+    def set_current_tool(self, panel_id: str, tool: str, detail: str = "") -> None:
         """현재 실행 중인 도구를 설정합니다.
 
         PreToolUse 시 호출. PostToolUse는 다음 PreToolUse가 갱신할 때까지
         유지하여 깜박임 방지 (Sidabari 패턴).
         """
         with self._lock:
-            self._current_tools[panel_id] = PanelCurrentTool(
-                tool=tool, detail=detail
-            )
+            self._current_tools[panel_id] = PanelCurrentTool(tool=tool, detail=detail)
         self._notify_change(panel_id, "tool", tool)
 
     def clear_current_tool(self, panel_id: str) -> None:
@@ -165,9 +161,7 @@ class PanelActivityTracker:
         """상태 변경 시 호출할 콜백을 등록합니다."""
         self._change_callbacks.append(callback)
 
-    def _notify_change(
-        self, panel_id: str, change_type: str, value: str
-    ) -> None:
+    def _notify_change(self, panel_id: str, change_type: str, value: str) -> None:
         """변경 알림을 콜백들에게 전달합니다."""
         for callback in self._change_callbacks:
             try:
@@ -274,9 +268,7 @@ def init_panel_activity_tracker() -> PanelActivityTracker:
         hook_bus = get_hook_event_bus()
         if hook_bus._initialized:
             hook_bus.subscribe_all(tracker.handle_hook_event)
-            logger.info(
-                "[PanelActivityTracker] HookEventBus에 연결 완료"
-            )
+            logger.info("[PanelActivityTracker] HookEventBus에 연결 완료")
     except ImportError:
         logger.debug("[PanelActivityTracker] HookEventBus 미사용")
     except Exception as e:

@@ -22,6 +22,9 @@ from antigravity_k.engine.tool_guardrails import (
 )
 from antigravity_k.engine.error_classifier import classify_api_error
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
+from antigravity_k.engine.agent_state import TaskState, SubTask
+from antigravity_k.engine.cognitive_loop import CognitiveLoop
+from antigravity_k.engine.multiplexer import Multiplexer
 from antigravity_k.engine.engine_context import EngineContext
 from antigravity_k.engine.state_graph import StateContext
 from antigravity_k.engine.stream_processor import StreamProcessor

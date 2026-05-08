@@ -1,9 +1,9 @@
 # DOM 기반 정밀 기능 테스트 프로시저 (v6.9)
 
-> **최종 검증일**: 2026-05-08 03:24 KST
-> **최종 결과**: 38/38 Phase PASS, pytest 379 passed (359 기존 + 20 신규 v6.9 검증)
+> **최종 검증일**: 2026-05-08 11:40 KST
+> **최종 결과**: 44/44 Phase PASS, pytest 통과 (SurfSense 양분 이식 검증 포함)
 > **최종 리포트**: `test_report.md`
-> **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Auto-Index), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive), `OutputQualityComparator`, `SelfImprovementLoop`
+> **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Hybrid Search + RRF), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive + Auto-Extract), `OutputQualityComparator`, `SelfImprovementLoop`, `CavemanCompressor`, `CavekitBackprop`, `GitNexusArchitect`
 
 본 문서는 Antigravity-K를 실제 사용자가 조작하는 환경과 최대한 동일하게 검증하기 위한 전문 QA 절차서입니다. 검증은 브라우저 DOM 조작, 보호 PIN 인증, API 호출, 정적 분석, 전체 테스트, 빌드, 출력 품질 비교, 채팅 출력 타이포그래피/Markdown 표시 품질, Agent Manager 프로젝트별 작업 관리, 출력물 DOM 안전성 검사, 자기 능력 인식(`/self`) 검증, MCP/Skills/로컬 PC capability 자율 판단 검사, Codex식 운영 강점 이식(`/codex`), 집단지성 모델 경쟁/비판/합성, 집단지성 벤치마크 누적 비교, RAG 컨텍스트 확장(자동 인덱싱), 자기검증 루프, 웹 검색 도구(Tavily/SearxNG), 비전-언어 자율 웹 서퍼(Browser-Use), External Brain 자동 위임, 4-Tier 인지 메모리 시스템, 정보 밀도 품질 검증, 한국어 한자 보존 CJK 정밀 필터, 자기 개선 피드백 루프, 출력 품질 비교기, GoalRunner 자동 검증을 모두 포함합니다.
 
@@ -712,6 +712,101 @@ print('Phase 25: ALL 5 CHECKS PASSED ✅')
 **통과 조건**: 5개 인라인 체크 + 3개 pytest 모두 PASS
 
 **최신 결과**: PASS — pytest 3/3, 인라인 5/5
+
+### Phase 26: Caveman Token Compression
+
+**목적**: 토큰 효율을 극대화하기 위해 불필요한 조사와 존댓말을 생략하는 원시인(Caveman) 대화 모드가 정상 작동하는지 검증합니다.
+
+**절차**
+- `ServerConfig`에서 `enable_caveman_compression = True` 설정
+- 인지 루프(`CognitiveLoop`) 프롬프트에 `<caveman_instruction>`이 정상 주입되는지 확인
+- 에이전트의 답변이 극도로 축약된 형태(예: "코드 수정 완료", "테스트 패스")로 반환되는지 확인
+
+**통과 조건**
+- 프롬프트에 Caveman 지침이 포함되어야 함
+- 토큰 사용량이 유의미하게 감소
+
+**최신 결과**: PASS
+
+### Phase 27: Cavekit Backprop Reflex
+
+**목적**: 동일한 에러의 반복 발생(할루시네이션)을 방지하기 위해, 해결되지 않은 실패 내역을 `SPEC.md`의 `§B Bugs / Invariants` 섹션에 자가 기록하는지 검증합니다.
+
+**절차**
+- `GoalRunner`에서 강제로 실패 조건을 여러 번 발생시킴
+- `backprop_failures`가 호출되어 현재 디렉토리의 `SPEC.md`에 해당 이슈가 기록되는지 확인
+- 다음 번 계획 수립 시 해당 Invariant를 회피하는지 확인
+
+**통과 조건**
+- `SPEC.md`에 `[Cavekit Reflex]` 태그와 함께 오류 원인이 명확히 기록됨
+
+**최신 결과**: PASS
+
+### Phase 28: GitNexus MCP Integration
+
+**목적**: 맹목적인 파일 수정으로 인한 의존성 붕괴를 막기 위해, 코드를 수정하기 전 GitNexus의 `impact` 및 `context` 도구를 필수적으로 호출하도록 강제하는지 검증합니다.
+
+**절차**
+- `mcp_tool_loader.py`에 `gitnexus`가 정상 로드되는지 확인
+- `CognitiveLoop`의 `<scratch_pad>`에 `<gitnexus_guidance>`가 주입되는지 확인
+- 에이전트가 리팩토링 계획 단계에서 `context` 또는 `impact` 도구를 먼저 호출하는지 확인
+
+**통과 조건**
+- `.mcp.json` 생성 시 `gitnexus` 포함
+- 프롬프트에 `MUST use them before modifying files` 지침 포함
+
+**최신 결과**: PASS
+
+### Phase 29: Hybrid Search with RRF (SurfSense 이식)
+
+**목적**: RAG 검색 품질을 대폭 강화하기 위해, 시맨틱 검색과 키워드 검색을 Reciprocal Rank Fusion(RRF) 공식으로 융합하는 하이브리드 검색이 정상 작동하는지 검증합니다.
+
+**절차**
+- `RAGIndexer.search()` 호출 시 `mode="hybrid"` (기본값) 사용
+- 정확한 함수명(예: `create_plan_prompt`)으로 검색하여 키워드 채널이 결과를 반환하는지 확인
+- 시맨틱 질의(예: "계획을 세우는 프롬프트 생성 기능")와 키워드 질의의 결과가 RRF로 융합되는지 확인
+- RRF 상수 `k=60` 적용 확인
+
+**통과 조건**
+- `mode="keyword"` → 식별자 정확 매칭 결과 반환
+- `mode="hybrid"` → 두 채널의 RRF 융합 결과 반환
+- `mode="semantic"` → 기존 벡터 검색 동작 유지
+
+**최신 결과**: PASS
+
+### Phase 30: Table-Aware Markdown Chunking (SurfSense 이식)
+
+**목적**: Markdown 테이블이 RAG 청킹 과정에서 중간에 잘리지 않도록, 테이블 블록을 통째로 하나의 청크로 보존하는지 검증합니다.
+
+**절차**
+- 테이블이 포함된 Markdown 파일(예: `test_process.md`)을 `_chunk_markdown()`으로 청킹
+- 결과 청크 중 `node_type="table"` 타입이 존재하는지 확인
+- 테이블 청크의 `content`에 헤더 행, 구분자 행, 데이터 행이 모두 포함되어 있는지 확인
+- 테이블 사이의 산문 텍스트는 기존 헤딩 기반 청킹이 적용되는지 확인
+
+**통과 조건**
+- 테이블 블록이 분할되지 않고 단일 청크로 보존
+- 비-테이블 텍스트는 헤딩 기반 분할 유지
+
+**최신 결과**: PASS
+
+### Phase 31: LLM-Driven Memory Extraction (SurfSense 이식)
+
+**목적**: 대화에서 장기 기억할 가치가 있는 정보(선호도, 프로젝트 맥락, 기술 스택 등)를 자동으로 추출하여 `CavememStore`에 저장하는지 검증합니다.
+
+**절차**
+- `CavememStore.extract_memory("나는 Python 3.12와 FastAPI를 사용해")` 호출
+- 규칙 기반 폴백이 키워드 매칭으로 해당 메시지를 "기억할 가치 있음"으로 판정하는지 확인
+- `extract_memory("안녕하세요")` 호출 시 `None` 반환 (기억할 가치 없음) 확인
+- `CognitiveLoop.auto_extract_memory()` 호출 시 예외가 메인 루프를 차단하지 않는지 확인
+- `model_fn` 제공 시 LLM 기반 추출이 수행되고, `NO_UPDATE` 응답을 올바르게 처리하는지 확인
+
+**통과 조건**
+- 기억할 가치 있는 메시지 → 자동 저장
+- 일회성 인사/질문 → `None` 반환
+- LLM 실패 → 규칙 기반 폴백 정상 동작
+
+**최신 결과**: PASS
 
 ---
 

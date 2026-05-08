@@ -181,9 +181,7 @@ def validate_directory(directory: str) -> Path:
     return path
 
 
-def _merge_deny(
-    existing: Dict[str, Any], new_patterns: List[str]
-) -> int:
+def _merge_deny(existing: Dict[str, Any], new_patterns: List[str]) -> int:
     """기존 설정에 deny 패턴을 병합합니다.
 
     Sidabari의 merge_deny 로직 이식:
@@ -207,9 +205,7 @@ def _merge_deny(
         if isinstance(marker, dict):
             installed_list = marker.get("installed_patterns", [])
             if isinstance(installed_list, list):
-                prev_installed.update(
-                    p for p in installed_list if isinstance(p, str)
-                )
+                prev_installed.update(p for p in installed_list if isinstance(p, str))
 
     deny_list = permissions.setdefault("deny", [])
     if not isinstance(deny_list, list):
@@ -219,8 +215,7 @@ def _merge_deny(
     # 1a) 이전 _antigravity 패턴 제거
     if prev_installed:
         deny_list[:] = [
-            d for d in deny_list
-            if not (isinstance(d, str) and d in prev_installed)
+            d for d in deny_list if not (isinstance(d, str) and d in prev_installed)
         ]
 
     # 1b) 레거시 마커 키 제거
@@ -229,14 +224,13 @@ def _merge_deny(
 
     # 2) 코드 변경으로 삭제된 레거시 패턴 제거
     deny_list[:] = [
-        d for d in deny_list
+        d
+        for d in deny_list
         if not (isinstance(d, str) and d in LEGACY_REMOVED_PATTERNS)
     ]
 
     # 3) 새 패턴 추가 (중복 방지)
-    existing_set: Set[str] = {
-        d for d in deny_list if isinstance(d, str)
-    }
+    existing_set: Set[str] = {d for d in deny_list if isinstance(d, str)}
     added = 0
     for pat in new_patterns:
         if pat not in existing_set:
@@ -384,5 +378,3 @@ def is_command_blocked_by_deny(command: str) -> bool:
         elif fnmatch.fnmatch(command, pattern):
             return True
     return False
-
-

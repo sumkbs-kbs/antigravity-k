@@ -2,17 +2,22 @@
 Antigravity-K: 모델 레지스트리
 config.yaml에서 모델 프로필을 읽어 카탈로그로 관리합니다.
 """
+
 from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Type
 import yaml
+
+from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
+from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 
 
 @dataclass
 class ModelProfile:
     """하나의 모델 프로필"""
+
     name: str
     repo: str
     role: str  # reasoning | coding | embedding | vision
@@ -36,8 +41,12 @@ class ModelProfile:
         )
 
     def to_dict(self) -> dict:
-        result = {"name": self.name, "repo": self.repo, "role": self.role,
-                  "estimated_memory_gb": self.estimated_memory_gb}
+        result = {
+            "name": self.name,
+            "repo": self.repo,
+            "role": self.role,
+            "estimated_memory_gb": self.estimated_memory_gb,
+        }
         if self.quantization:
             result["quantization"] = self.quantization
         if self.context_length:
@@ -52,6 +61,7 @@ class ModelProfile:
 @dataclass
 class DefaultModels:
     """서버 시작 시 기본 활성 모델"""
+
     reasoning: Optional[str] = None
     coding: Optional[str] = None
     embedding: Optional[str] = None
@@ -59,12 +69,15 @@ class DefaultModels:
 
     @classmethod
     def from_dict(cls, data: dict) -> "DefaultModels":
-        return cls(**{k: data.get(k) for k in ("reasoning", "coding", "embedding", "vision")})
+        return cls(
+            **{k: data.get(k) for k in ("reasoning", "coding", "embedding", "vision")}
+        )
 
 
 @dataclass
 class MemoryConfig:
     """메모리 관리 설정"""
+
     total_system_gb: float = 128.0
     max_loaded_gb: float = 100.0
     system_reserve_gb: float = 16.0
@@ -88,11 +101,17 @@ class ServerConfig:
     port: int = 8000
     workers: int = 1
     log_level: str = "info"
+    enable_caveman_compression: bool = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "ServerConfig":
-        return cls(host=data.get("host", "127.0.0.1"), port=data.get("port", 8000),
-                   workers=data.get("workers", 1), log_level=data.get("log_level", "info"))
+        return cls(
+            host=data.get("host", "127.0.0.1"),
+            port=data.get("port", 8000),
+            workers=data.get("workers", 1),
+            log_level=data.get("log_level", "info"),
+            enable_caveman_compression=data.get("enable_caveman_compression", False),
+        )
 
 
 class ModelRegistry:
@@ -100,6 +119,7 @@ class ModelRegistry:
     config.yaml 기반 모델 카탈로그.
     list_models(), get_model(name), find_by_role(role), get_default(role) 제공.
     """
+
     def __init__(self, config_path: Optional[str] = None):
         if config_path is None:
             project_root = Path(__file__).resolve().parents[3]
@@ -144,6 +164,21 @@ class ModelRegistry:
 
     def get_model(self, name: str) -> Optional[ModelProfile]:
         return self._models.get(name)
+
+    def get_adapter_for_model(self, name: str) -> Optional[BaseProviderAdapter]:
+        """
+        주어진 모델이 어떤 API 규격을 사용하는지에 따라 적절한 변환 어댑터를 반환합니다.
+        기본적으로 Claude가 아닌 모든 모델은 OpenAIAdapter(OpenRouter, Ollama 호환)를 통과합니다.
+        """
+        model = self.get_model(name)
+        if not model:
+            return None
+
+        # 예시 로직: 이름이나 레포에 'claude'가 없으면 범용 OpenAI 규격으로 취급
+        if "claude" not in model.name.lower() and "anthropic" not in model.repo.lower():
+            return OpenAIAdapter()
+
+        return None
 
     def find_by_role(self, role: str) -> list[ModelProfile]:
         return [m for m in self._models.values() if m.role == role]

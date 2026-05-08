@@ -6,12 +6,17 @@ VectorStore에 인덱싱하여, 오케스트레이터가 질문과 관련된 코
 자동으로 컨텍스트에 주입할 수 있게 합니다.
 
 격차 해소 대상: 컨텍스트 윈도우 한계 (4K~32K → 사실상 무제한)
+
+SurfSense 양분 이식:
+- Hybrid Search + RRF (Reciprocal Rank Fusion)
+- Table-Aware Markdown Chunking
 """
 
 import ast
 import hashlib
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -217,11 +222,90 @@ class RAGIndexer:
 
         return len(chunks)
 
-    def search(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
-        """질문과 관련된 코드 청크를 검색합니다."""
+    def search(
+        self, query: str, n_results: int = 5, mode: str = "hybrid"
+    ) -> List[Dict[str, Any]]:
+        """질문과 관련된 코드 청크를 검색합니다.
+
+        Args:
+            query: 검색 질의
+            n_results: 반환할 결과 수
+            mode: 검색 모드 — "semantic", "keyword", "hybrid" (기본)
+        """
         if not self.vector_store:
             return []
-        return self.vector_store.search(query, n_results=n_results)
+
+        if mode == "keyword":
+            return self._keyword_search(query, n_results)
+        elif mode == "semantic":
+            return self.vector_store.search(query, n_results=n_results)
+        else:  # hybrid (default)
+            return self._hybrid_search_rrf(query, n_results)
+
+    def _keyword_search(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
+        """키워드 기반 정확 매칭 검색 (식별자, 함수명, 클래스명 등)."""
+        if not self.vector_store:
+            return []
+
+        all_chunks = getattr(self.vector_store, "_chunks", None)
+        if all_chunks is None:
+            # VectorStore가 내부 청크 목록을 노출하지 않으면 시맨틱으로 폴백
+            return self.vector_store.search(query, n_results=n_results)
+
+        query_tokens = query.lower().split()
+        scored: List[tuple] = []
+        for chunk in all_chunks:
+            text = chunk.get("text", "").lower()
+            meta = chunk.get("metadata", {})
+            node_name = meta.get("node_name", "").lower()
+
+            # 식별자 정확 매칭 보너스
+            score = 0.0
+            for token in query_tokens:
+                if token in node_name:
+                    score += 3.0  # 이름 매칭 가중치
+                if token in text:
+                    score += 1.0
+
+            if score > 0:
+                scored.append((score, chunk))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [item[1] for item in scored[:n_results]]
+
+    def _hybrid_search_rrf(
+        self, query: str, n_results: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Hybrid Search with Reciprocal Rank Fusion (SurfSense 패턴).
+
+        시맨틱 검색과 키워드 검색 결과를 RRF 공식으로 융합합니다.
+        RRF score = 1/(k + rank_semantic) + 1/(k + rank_keyword)
+        """
+        k = 60  # RRF 상수 (SurfSense 동일)
+        fetch_n = n_results * 3  # 더 많이 가져와서 융합
+
+        # 두 검색 채널 실행
+        semantic_results = self.vector_store.search(query, n_results=fetch_n)
+        keyword_results = self._keyword_search(query, fetch_n)
+
+        # 청크 ID → RRF 점수 계산
+        rrf_scores: Dict[str, float] = {}
+        chunk_map: Dict[str, Dict[str, Any]] = {}
+
+        for rank, result in enumerate(semantic_results):
+            cid = result.get("id", str(rank))
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            chunk_map[cid] = result
+
+        for rank, result in enumerate(keyword_results):
+            cid = result.get("id", str(hash(result.get("text", "")[:100])))
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            if cid not in chunk_map:
+                chunk_map[cid] = result
+
+        # RRF 점수 기준 정렬
+        sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)
+        return [chunk_map[cid] for cid in sorted_ids[:n_results] if cid in chunk_map]
 
     def format_context(
         self, query: str, n_results: int = 5, max_chars: int = 6000
@@ -372,18 +456,69 @@ class RAGIndexer:
                         rel_path, f"cls_{node.name}_fn_{item.name}"
                     )
 
-    # ─── Markdown 청킹 ───────────────────────────────────────
+    # ─── Markdown 청킹 (Table-Aware, SurfSense 패턴) ────────
+
+    # Markdown 테이블 블록 감지 정규식
+    _TABLE_BLOCK_RE = re.compile(
+        r"(?:(?:^|\n)(?=[ \t]*\|)(?:[ \t]*\|[^\n]*\n)+)",
+        re.MULTILINE,
+    )
 
     def _chunk_markdown(self, rel_path: str, content: str) -> List[CodeChunk]:
-        """Markdown 파일을 헤딩 기준으로 섹션별 분할합니다."""
+        """Table-aware Markdown 청킹.
+
+        SurfSense의 chunk_text_hybrid() 패턴을 적용하여:
+        1. Markdown 테이블 블록은 분할하지 않고 통째로 하나의 청크로 보존
+        2. 테이블 사이의 일반 텍스트는 기존 헤딩 기반 청킹 적용
+        """
+        chunks: List[CodeChunk] = []
+        cursor = 0
+        table_idx = 0
+
+        for match in self._TABLE_BLOCK_RE.finditer(content):
+            # 테이블 이전의 일반 텍스트 → 헤딩 기반 청킹
+            prose = content[cursor : match.start()].strip()
+            if prose:
+                chunks.extend(self._chunk_markdown_prose(rel_path, prose, cursor))
+
+            # 테이블 블록 → 통째로 하나의 청크
+            table_block = match.group(0).strip()
+            if table_block:
+                line_offset = content[: match.start()].count("\n") + 1
+                table_lines = table_block.count("\n") + 1
+                chunks.append(
+                    CodeChunk(
+                        chunk_id=self._make_id(rel_path, f"table_{table_idx}"),
+                        file_path=rel_path,
+                        node_type="table",
+                        node_name=f"table_{table_idx}",
+                        content=table_block[:MAX_CHUNK_CHARS],
+                        start_line=line_offset,
+                        end_line=line_offset + table_lines - 1,
+                    )
+                )
+                table_idx += 1
+
+            cursor = match.end()
+
+        # 마지막 테이블 이후의 텍스트
+        trailing = content[cursor:].strip()
+        if trailing:
+            chunks.extend(self._chunk_markdown_prose(rel_path, trailing, cursor))
+
+        return chunks if chunks else self._chunk_generic(rel_path, content)
+
+    def _chunk_markdown_prose(
+        self, rel_path: str, prose: str, char_offset: int = 0
+    ) -> List[CodeChunk]:
+        """Markdown 산문(비-테이블) 텍스트를 헤딩 기준으로 분할합니다."""
         chunks: List[CodeChunk] = []
         current_section = ""
         current_title = "intro"
         section_start = 1
 
-        for i, line in enumerate(content.split("\n"), 1):
+        for i, line in enumerate(prose.split("\n"), 1):
             if line.startswith("#"):
-                # 이전 섹션 저장
                 if current_section.strip():
                     chunks.append(
                         CodeChunk(
@@ -402,7 +537,6 @@ class RAGIndexer:
             else:
                 current_section += line + "\n"
 
-        # 마지막 섹션
         if current_section.strip():
             chunks.append(
                 CodeChunk(
@@ -412,11 +546,11 @@ class RAGIndexer:
                     node_name=current_title,
                     content=current_section[:MAX_CHUNK_CHARS],
                     start_line=section_start,
-                    end_line=len(content.split("\n")),
+                    end_line=len(prose.split("\n")),
                 )
             )
 
-        return chunks if chunks else self._chunk_generic(rel_path, content)
+        return chunks
 
     # ─── 일반 텍스트 청킹 ────────────────────────────────────
 

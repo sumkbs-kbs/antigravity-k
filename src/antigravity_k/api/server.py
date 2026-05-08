@@ -84,6 +84,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[RAG] Auto-index startup skipped: {e}")
 
+    # 6) IDE Server (code-server Web IDE)
+    try:
+        from antigravity_k.engine.ide_server import IDEServer
+
+        ide_server = IDEServer(port=8080, workspace_dir=project_root)
+        ide_server.start()
+        app.state.ide_server = ide_server
+        logger.info("[Startup] IDE Server initialized on port 8080")
+    except Exception as e:
+        logger.warning(f"[Startup] IDE Server init skipped: {e}")
+
     yield
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")
@@ -100,13 +111,21 @@ async def lifespan(app: FastAPI):
     # Sidabari 서브시스템 정리
     try:
         from antigravity_k.engine.hook_event_bus import get_hook_event_bus
+
         get_hook_event_bus().shutdown()
     except Exception:
         pass
 
     try:
         from antigravity_k.engine.audit_db import get_audit_db
+
         get_audit_db().close()
+    except Exception:
+        pass
+
+    try:
+        if hasattr(app.state, "ide_server"):
+            app.state.ide_server.stop()
     except Exception:
         pass
 
@@ -152,6 +171,47 @@ async def verify_access_pin(request: Request, call_next):
 from antigravity_k.api.routes import api_router
 
 app.include_router(api_router)
+
+import httpx
+from fastapi.responses import StreamingResponse
+
+
+@app.api_route(
+    "/ide/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
+)
+async def reverse_proxy_ide(request: Request, path: str):
+    """
+    code-server (Web IDE)에 대한 리버스 프록시
+    주의: 완벽한 VS Code 구동을 위해서는 WebSocket 프록싱이 필요하며,
+    현 구현은 기초적인 HTTP 프록싱만 제공합니다. 실사용 시 Nginx 등을 권장합니다.
+    """
+    ide_host = "http://127.0.0.1:8080"
+    url = f"{ide_host}/{path}"
+    if request.url.query:
+        url += f"?{request.url.query}"
+
+    # httpx를 이용해 트래픽 포워딩
+    async with httpx.AsyncClient() as client:
+        # 헤더 조작 시 Host 헤더 등이 충돌할 수 있으므로 필터링 필요
+        req_headers = dict(request.headers)
+        req_headers.pop("host", None)
+
+        rp_req = client.build_request(
+            request.method, url, headers=req_headers, content=await request.body()
+        )
+        try:
+            rp_resp = await client.send(rp_req, stream=True)
+            return StreamingResponse(
+                rp_resp.aiter_raw(),
+                status_code=rp_resp.status_code,
+                headers=dict(rp_resp.headers),
+            )
+        except httpx.RequestError as exc:
+            return JSONResponse(
+                status_code=502,
+                content={"detail": "IDE Server Proxy Error", "error": str(exc)},
+            )
 
 
 # --- STATIC FILES FOR DASHBOARD ---

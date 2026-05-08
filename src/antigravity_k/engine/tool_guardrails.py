@@ -41,48 +41,53 @@ logger = logging.getLogger("antigravity_k.engine.tool_guardrails")
 # ── 읽기 전용 (비진행성 감지 대상) 도구 목록 ──
 # 실제 ToolRegistry에 등록된 이름과 반드시 일치해야 함
 
-IDEMPOTENT_TOOL_NAMES = frozenset({
-    "read_file",
-    "glob_search",
-    "grep_search",
-    "web_search",
-    "web_scrape",
-    "fetch_dom",
-    "git_status",
-    "git_log",
-    "git_diff",
-    "list_directory",
-    "hex_dump",
-    "search_knowledge",
-    "impact_analyzer",
-})
+IDEMPOTENT_TOOL_NAMES = frozenset(
+    {
+        "read_file",
+        "glob_search",
+        "grep_search",
+        "web_search",
+        "web_scrape",
+        "fetch_dom",
+        "git_status",
+        "git_log",
+        "git_diff",
+        "list_directory",
+        "hex_dump",
+        "search_knowledge",
+        "impact_analyzer",
+    }
+)
 
 # ── 변경 가능 도구 목록 ──
 
-MUTATING_TOOL_NAMES = frozenset({
-    "run_bash_command",
-    "run_persistent_command",
-    "send_command_input",
-    "interactive_pty",
-    "write_file",
-    "edit_file",
-    "multi_replace_file_content",
-    "replace_file_content",
-    "write_artifact",
-    "git_commit",
-    "run_tests",
-    "auto_lint",
-    "create_pr",
-    "run_docker_bash",
-    "computer_use",
-    "agent_spawn",
-    "cowork_delegate",
-    "db_migration",
-    "store_knowledge",
-})
+MUTATING_TOOL_NAMES = frozenset(
+    {
+        "run_bash_command",
+        "run_persistent_command",
+        "send_command_input",
+        "interactive_pty",
+        "write_file",
+        "edit_file",
+        "multi_replace_file_content",
+        "replace_file_content",
+        "write_artifact",
+        "git_commit",
+        "run_tests",
+        "auto_lint",
+        "create_pr",
+        "run_docker_bash",
+        "computer_use",
+        "agent_spawn",
+        "cowork_delegate",
+        "db_migration",
+        "store_knowledge",
+    }
+)
 
 
 # ── 설정 ──
+
 
 @dataclass(frozen=True)
 class ToolCallGuardrailConfig:
@@ -111,7 +116,9 @@ class ToolCallGuardrailConfig:
     mutating_tools: frozenset = field(default_factory=lambda: MUTATING_TOOL_NAMES)
 
     @classmethod
-    def from_config(cls, data: Optional[Mapping[str, Any]] = None) -> "ToolCallGuardrailConfig":
+    def from_config(
+        cls, data: Optional[Mapping[str, Any]] = None
+    ) -> "ToolCallGuardrailConfig":
         """config.yaml의 `tool_loop_guardrails` 섹션에서 설정 로드."""
         if not isinstance(data, Mapping):
             return cls()
@@ -125,30 +132,39 @@ class ToolCallGuardrailConfig:
 
         defaults = cls()
         return cls(
-            warnings_enabled=_as_bool(data.get("warnings_enabled"), defaults.warnings_enabled),
-            hard_stop_enabled=_as_bool(data.get("hard_stop_enabled"), defaults.hard_stop_enabled),
+            warnings_enabled=_as_bool(
+                data.get("warnings_enabled"), defaults.warnings_enabled
+            ),
+            hard_stop_enabled=_as_bool(
+                data.get("hard_stop_enabled"), defaults.hard_stop_enabled
+            ),
             exact_failure_warn_after=_positive_int(
                 warn_after.get("exact_failure"), defaults.exact_failure_warn_after
             ),
             same_tool_failure_warn_after=_positive_int(
-                warn_after.get("same_tool_failure"), defaults.same_tool_failure_warn_after
+                warn_after.get("same_tool_failure"),
+                defaults.same_tool_failure_warn_after,
             ),
             no_progress_warn_after=_positive_int(
-                warn_after.get("idempotent_no_progress"), defaults.no_progress_warn_after
+                warn_after.get("idempotent_no_progress"),
+                defaults.no_progress_warn_after,
             ),
             exact_failure_block_after=_positive_int(
                 hard_stop_after.get("exact_failure"), defaults.exact_failure_block_after
             ),
             same_tool_failure_halt_after=_positive_int(
-                hard_stop_after.get("same_tool_failure"), defaults.same_tool_failure_halt_after
+                hard_stop_after.get("same_tool_failure"),
+                defaults.same_tool_failure_halt_after,
             ),
             no_progress_block_after=_positive_int(
-                hard_stop_after.get("idempotent_no_progress"), defaults.no_progress_block_after
+                hard_stop_after.get("idempotent_no_progress"),
+                defaults.no_progress_block_after,
             ),
         )
 
 
 # ── 도구 호출 시그니처 (해시 기반 비교) ──
+
 
 @dataclass(frozen=True)
 class ToolCallSignature:
@@ -168,13 +184,14 @@ class ToolCallSignature:
 
 # ── 가드레일 판정 결과 ──
 
+
 @dataclass(frozen=True)
 class ToolGuardrailDecision:
     """가드레일 판정 결과."""
 
-    action: str = "allow"     # allow | warn | block | halt
-    code: str = "allow"       # 판정 코드
-    message: str = ""         # 사용자/에이전트 안내 메시지
+    action: str = "allow"  # allow | warn | block | halt
+    code: str = "allow"  # 판정 코드
+    message: str = ""  # 사용자/에이전트 안내 메시지
     tool_name: str = ""
     count: int = 0
     signature: Optional[ToolCallSignature] = None
@@ -203,6 +220,7 @@ class ToolGuardrailDecision:
 
 
 # ── 실패 분류 헬퍼 ──
+
 
 def classify_tool_failure(tool_name: str, result: Optional[str]) -> Tuple[bool, str]:
     """도구 실행 결과에서 실패 여부를 추정합니다.
@@ -233,6 +251,7 @@ def classify_tool_failure(tool_name: str, result: Optional[str]) -> Tuple[bool, 
 
 
 # ── 메인 컨트롤러 ──
+
 
 class ToolCallGuardrailController:
     """턴별 도구 호출 루프 감지 컨트롤러.
@@ -268,8 +287,9 @@ class ToolCallGuardrailController:
 
         # Check Declarative Security Policies
         from .security_policy import get_policy_engine
+
         engine = get_policy_engine()
-        
+
         if tool_name in ["run_bash_command", "run_persistent_command"] and args:
             cmd = args.get("command", "")
             if not engine.is_command_allowed(cmd):
@@ -278,11 +298,12 @@ class ToolCallGuardrailController:
                     code="policy_denied",
                     message=f"Command '{cmd}' is blocked by declarative security policy.",
                     tool_name=tool_name,
-                    signature=signature
+                    signature=signature,
                 )
             # Claude Deny Patterns (Sidabari claude_safety.rs 이식)
             try:
                 from .claude_deny_patterns import is_command_blocked_by_deny
+
                 if is_command_blocked_by_deny(cmd):
                     return ToolGuardrailDecision(
                         action="block",
@@ -292,7 +313,7 @@ class ToolCallGuardrailController:
                             "This is a protective rule from claude_deny_patterns."
                         ),
                         tool_name=tool_name,
-                        signature=signature
+                        signature=signature,
                     )
             except ImportError:
                 pass
@@ -305,7 +326,7 @@ class ToolCallGuardrailController:
                     code="policy_denied",
                     message=f"Domain '{url}' is blocked by declarative security policy.",
                     tool_name=tool_name,
-                    signature=signature
+                    signature=signature,
                 )
 
         if not self.config.hard_stop_enabled:
@@ -387,7 +408,10 @@ class ToolCallGuardrailController:
             repeat_count = previous[1] + 1
         self._no_progress[signature] = (result_hash, repeat_count)
 
-        if self.config.warnings_enabled and repeat_count >= self.config.no_progress_warn_after:
+        if (
+            self.config.warnings_enabled
+            and repeat_count >= self.config.no_progress_warn_after
+        ):
             return ToolGuardrailDecision(
                 action="warn",
                 code="idempotent_no_progress_warning",
@@ -400,7 +424,9 @@ class ToolCallGuardrailController:
                 signature=signature,
             )
 
-        return ToolGuardrailDecision(tool_name=tool_name, count=repeat_count, signature=signature)
+        return ToolGuardrailDecision(
+            tool_name=tool_name, count=repeat_count, signature=signature
+        )
 
     def _handle_failure(
         self, tool_name: str, signature: ToolCallSignature
@@ -416,7 +442,10 @@ class ToolCallGuardrailController:
         self._same_tool_failure_counts[tool_name] = same_count
 
         # 차단 판정 (hard_stop 활성 시)
-        if self.config.hard_stop_enabled and same_count >= self.config.same_tool_failure_halt_after:
+        if (
+            self.config.hard_stop_enabled
+            and same_count >= self.config.same_tool_failure_halt_after
+        ):
             decision = ToolGuardrailDecision(
                 action="halt",
                 code="same_tool_failure_halt",
@@ -459,7 +488,9 @@ class ToolCallGuardrailController:
                     signature=signature,
                 )
 
-        return ToolGuardrailDecision(tool_name=tool_name, count=exact_count, signature=signature)
+        return ToolGuardrailDecision(
+            tool_name=tool_name, count=exact_count, signature=signature
+        )
 
     def _is_idempotent(self, tool_name: str) -> bool:
         """도구가 읽기 전용(비진행성 추적 대상)인지 확인."""
@@ -469,6 +500,7 @@ class ToolCallGuardrailController:
 
 
 # ── 합성 결과 생성 ──
+
 
 def guardrail_synthetic_result(decision: ToolGuardrailDecision) -> str:
     """차단된 도구 호출에 대한 합성 에러 결과를 생성합니다."""
@@ -485,12 +517,17 @@ def append_guardrail_guidance(result: str, decision: ToolGuardrailDecision) -> s
     """경고 메시지를 도구 결과에 추가합니다."""
     if decision.action not in {"warn", "halt"} or not decision.message:
         return result
-    label = "⛔ Tool loop 강제 중단" if decision.action == "halt" else "⚠️ Tool loop 경고"
-    suffix = f"\n\n[{label}: {decision.code}; count={decision.count}; {decision.message}]"
+    label = (
+        "⛔ Tool loop 강제 중단" if decision.action == "halt" else "⚠️ Tool loop 경고"
+    )
+    suffix = (
+        f"\n\n[{label}: {decision.code}; count={decision.count}; {decision.message}]"
+    )
     return (result or "") + suffix
 
 
 # ── 유틸리티 ──
+
 
 def _canonical_args(args: Mapping[str, Any]) -> str:
     """인자를 정규화된 JSON 문자열로 변환."""
@@ -512,7 +549,13 @@ def _result_hash(result: Optional[str]) -> str:
     content = result or ""
     try:
         parsed = json.loads(content)
-        canonical = json.dumps(parsed, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        canonical = json.dumps(
+            parsed,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
     except (json.JSONDecodeError, TypeError):
         canonical = content
     return _sha256(canonical)

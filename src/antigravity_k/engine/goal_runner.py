@@ -652,3 +652,36 @@ class GoalRunner:
 
         results["repair_needed"] = not results["verified"]
         return results
+
+    def backprop_failures(
+        self,
+        report: GoalReport,
+        verification_results: dict[str, Any],
+        spec_path: str = "SPEC.md",
+    ):
+        """
+        [Cavekit] Backprop Reflex:
+        실패한 검증 결과를 SPEC.md의 불변 규칙(§V Invariants)이나
+        버그 리포트(§B Bugs)로 강제 역전파하여 동일한 실수를 방지합니다.
+        """
+        if verification_results.get("verified", True):
+            return
+
+        failures = verification_results.get("failures", [])
+        if not failures:
+            return
+
+        import os
+
+        mode = "a" if os.path.exists(spec_path) else "w"
+        with open(spec_path, mode, encoding="utf-8") as f:
+            if mode == "w":
+                f.write("# Autonomous Execution Spec\\n\\n")
+
+            f.write("\\n## §B Bugs / Invariants (Auto-Backprop)\\n")
+            f.write(f"Goal: {report.normalized_objective}\\n")
+            for fail in failures:
+                check_name = fail.get("check", "Unknown")
+                error_msg = fail.get("error", "").replace("\\n", " ")
+                f.write(f"- [FAILED] {check_name}: {error_msg}\\n")
+            f.write("\\n")

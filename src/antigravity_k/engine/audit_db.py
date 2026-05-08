@@ -205,9 +205,7 @@ class AuditDb:
             for row in rows
         ]
 
-    def query_tool_stats(
-        self, since_ms: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+    def query_tool_stats(self, since_ms: Optional[int] = None) -> List[Dict[str, Any]]:
         """도구별 호출 통계를 조회합니다."""
         if not self._conn:
             return []
