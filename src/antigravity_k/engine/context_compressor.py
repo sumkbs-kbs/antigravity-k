@@ -73,12 +73,56 @@ class ContextCompressor:
             logger.warning(f"Failed to save long term memory: {e}")
 
     def estimate_tokens(self, text: str) -> int:
-        """Rough token estimation."""
-        return len(text) // 4
+        """Rough token estimation (IronClaw: ~1.3 tokens/word)."""
+        # 영어: 단어 기반, 한국어: 문자 기반 혼합 추정
+        words = text.split()
+        return max(1, int(len(words) * 1.3) + 4)  # +4 overhead per message
 
     def needs_compression(self, messages: List[Dict[str, str]]) -> bool:
         total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
         return total_tokens > self.token_limit
+
+    def usage_percent(self, messages: List[Dict[str, str]]) -> float:
+        """컨텍스트 사용률을 반환합니다 (IronClaw context_monitor.rs 패턴)."""
+        total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
+        if self.token_limit <= 0:
+            return 0.0
+        return (total_tokens / self.token_limit) * 100.0
+
+    def suggest_strategy(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """사용률에 따른 압축 전략을 제안합니다 (IronClaw compaction.rs 패턴).
+
+        IronClaw 3단계 Compaction Strategy:
+        - 80-85%: MoveToWorkspace (RAG로 이관)
+        - 85-95%: Summarize (요약 후 최근 5개 유지)
+        - 95%+:   Truncate (긴급 절삭, 최근 3개만 유지)
+        """
+        usage = self.usage_percent(messages)
+        if usage >= 95:
+            return "truncate"
+        elif usage >= 85:
+            return "summarize"
+        elif usage >= 80:
+            return "move_to_workspace"
+        return None
+
+    def context_breakdown(self, messages: List[Dict[str, str]]) -> Dict[str, int]:
+        """역할별 토큰 사용량을 분석합니다 (IronClaw ContextBreakdown 패턴)."""
+        breakdown = {
+            "system": 0,
+            "user": 0,
+            "assistant": 0,
+            "tool": 0,
+            "total": 0,
+            "message_count": len(messages),
+        }
+        for m in messages:
+            tokens = self.estimate_tokens(m.get("content", ""))
+            role = m.get("role", "user")
+            if role in breakdown:
+                breakdown[role] += tokens
+            breakdown["total"] += tokens
+        return breakdown
 
     def compress(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """

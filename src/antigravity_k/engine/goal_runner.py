@@ -9,9 +9,14 @@ agents, tools, and UI workflows can follow safely.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
+
+from .self_repair import SelfRepairEngine
+
+logger = logging.getLogger("antigravity_k.engine.goal_runner")
 
 
 @dataclass(frozen=True)
@@ -651,6 +656,44 @@ class GoalRunner:
                 )
 
         results["repair_needed"] = not results["verified"]
+
+        # ── IronClaw SelfRepair Integration ──
+        # 실패 시 SelfRepairEngine으로 자동 복구 판정
+        if results["repair_needed"]:
+            try:
+                repair_engine = SelfRepairEngine()
+                repair_engine.register_job(report.objective[:50])
+                for fail in results.get("failures", []):
+                    repair_engine.record_failure(
+                        job_id=report.objective[:50],
+                        tool_name=fail.get("check", "unknown"),
+                        error=fail.get("error", ""),
+                    )
+                detection = repair_engine.detect_stuck(
+                    {
+                        "job_id": report.objective[:50],
+                        "state": "in_progress",
+                        "current_tool": (
+                            results["failures"][0].get("check", "")
+                            if results["failures"]
+                            else ""
+                        ),
+                    }
+                )
+                repair_result = repair_engine.attempt_repair(detection)
+                results["self_repair"] = {
+                    "is_stuck": detection.is_stuck,
+                    "repair_level": repair_result.level.value,
+                    "action_taken": repair_result.action_taken,
+                    "message": repair_result.message,
+                }
+                logger.info(
+                    f"SelfRepair: {repair_result.level.value} — {repair_result.action_taken}"
+                )
+            except Exception as e:
+                logger.warning(f"SelfRepair integration error: {e}")
+                results["self_repair"] = {"error": str(e)}
+
         return results
 
     def backprop_failures(

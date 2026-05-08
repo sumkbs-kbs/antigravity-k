@@ -6,6 +6,7 @@ from typing import Optional, List
 
 from .model_manager import ModelManager
 from .vault import VaultEngine
+from .heartbeat import HeartbeatMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +23,12 @@ class AmbientWatchdog:
         project_root: str,
         model_manager: ModelManager,
         vault_engine: Optional[VaultEngine],
+        heartbeat: Optional[HeartbeatMonitor] = None,
     ):
         self.project_root = project_root
         self.model_manager = model_manager
         self.vault_engine = vault_engine
+        self.heartbeat = heartbeat or HeartbeatMonitor(project_root=project_root)
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -35,6 +38,7 @@ class AmbientWatchdog:
         self._last_diff_hash = ""
         self._last_change_time = 0.0
         self._analyzing = False
+        self._heartbeat_counter = 0  # IronClaw heartbeat cycle counter
 
         # 콜백 큐 (오케스트레이터로 메시지 전달용)
         self.notification_queue: List[str] = []
@@ -80,6 +84,8 @@ class AmbientWatchdog:
 
                 if not current_diff:
                     self._last_diff_hash = ""
+                    # IronClaw Heartbeat: diff가 없을 때도 하트비트 체크
+                    self._maybe_run_heartbeat()
                     continue
 
                 current_hash = str(hash(current_diff))
@@ -101,6 +107,23 @@ class AmbientWatchdog:
 
             except Exception as e:
                 logger.error(f"Watchdog error: {e}")
+
+    def _maybe_run_heartbeat(self):
+        """IronClaw Heartbeat: watchdog loop 60 cycle (5s x 60 = 5min) heartbeat check."""
+        self._heartbeat_counter += 1
+        if self._heartbeat_counter < 60:
+            return
+        self._heartbeat_counter = 0
+
+        try:
+            results = self.heartbeat.execute_due_tasks()
+            for result in results:
+                if not result.success:
+                    self.notification_queue.append(
+                        f"\u26a0\ufe0f [Heartbeat] {result.task_title}: {result.message}"
+                    )
+        except Exception as e:
+            logger.warning(f"Heartbeat execution error: {e}")
 
     def _analyze_proactively(self, diff_content: str):
         """

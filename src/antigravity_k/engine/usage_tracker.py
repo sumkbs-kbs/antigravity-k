@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .cost_guard import CostGuard
+
 logger = logging.getLogger("antigravity_k.usage_tracker")
 
 
@@ -100,12 +102,14 @@ class UsageTracker:
         db_path: Optional[str] = None,
         max_records: int = 10000,
         auto_save_interval: int = 50,
+        cost_guard: Optional[CostGuard] = None,
     ):
         self._db_path = Path(db_path) if db_path else None
         self._max_records = max_records
         self._auto_save_interval = auto_save_interval
         self._records: List[UsageRecord] = []
         self._unsaved_count = 0
+        self._cost_guard = cost_guard  # IronClaw CostGuard 통합
 
         # DB 파일에서 기존 기록 로드
         if self._db_path:
@@ -136,6 +140,16 @@ class UsageTracker:
             combo_name=combo_name,
             fallback_depth=fallback_depth,
         )
+
+        # ── IronClaw CostGuard Integration ──
+        # 비용 기록 (cost_guard가 연결된 경우)
+        if self._cost_guard and success:
+            self._cost_guard.record_spend(
+                cost_usd=0.0,  # 로컬 모델은 비용 0
+                model=model_name,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+            )
 
         self._records.append(entry)
         self._unsaved_count += 1
