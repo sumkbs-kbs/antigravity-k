@@ -89,71 +89,81 @@ class ArtifactEngine:
             "3. Set `request_feedback: true` in the ArtifactMetadata to pause execution and ask the user for permission to proceed.\n"
             "4. After approval, create a `task.md` using `write_artifact` with a checkbox list.\n"
             "5. After completion, create a `walkthrough.md` summarizing the changes.\n"
+            "\n[ANTIGRAVITY MARKDOWN STANDARDS - STRICT COMPLIANCE REQUIRED]\n"
+            "- Use GitHub Alerts (`> [!NOTE]`, `> [!WARNING]`, etc.) to highlight critical info.\n"
+            "- NEVER wrap file link text in backticks. Correct: `[utils.py](file:///...)`, Incorrect: `[`utils.py`](file:///...)`.\n"
+            "- When writing Mermaid diagrams, NEVER include HTML tags inside node labels.\n"
+            "- For presenting multiple sequential visual or code blocks, use ````carousel` syntax with `<!-- slide -->` separators.\n"
+            "- Ensure your output has high information density. Do not generate long, repetitive filler text.\n"
         )
 
 
 def register_artifact_tool(tool_registry, project_root: str):
     """도구 레지스트리에 write_artifact 도구를 등록합니다."""
     engine = ArtifactEngine(project_root)
+    
+    from antigravity_k.tools.base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
 
-    def write_artifact(
-        target_file: str, code_content: str, metadata: Dict[str, Any] = None
-    ) -> str:
-        meta_obj = None
-        if metadata:
-            meta_obj = ArtifactMetadata(
-                artifact_type=metadata.get("artifact_type", "other"),
-                summary=metadata.get("summary", ""),
-                request_feedback=metadata.get("request_feedback", False),
-            )
+    class WriteArtifactTool(BaseTool):
+        name = "write_artifact"
+        description = "Create or update planning artifacts like implementation_plan.md, task.md, and walkthrough.md. MUST be used when in planning mode."
+        category = ToolCategory.FILE_IO
+        render_in = RenderIn.CONTEXTUAL
+        risk_level = RiskLevel.LOW
+        icon = "📝"
 
-        result = engine.write_artifact(target_file, code_content, meta_obj)
-
-        if result["success"]:
-            msg = result["message"]
-            if result.get("request_feedback"):
-                msg += "\n\nWAITING_FOR_USER_APPROVAL"
-            return msg
-        return f"Error writing artifact: {result.get('error')}"
-
-    tool_schema = {
-        "name": "write_artifact",
-        "description": "Create or update planning artifacts like implementation_plan.md, task.md, and walkthrough.md. MUST be used when in planning mode.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "target_file": {
-                    "type": "string",
-                    "description": "The target file to create (e.g., implementation_plan.md)",
-                },
-                "code_content": {
-                    "type": "string",
-                    "description": "The markdown content to write",
-                },
-                "metadata": {
-                    "type": "object",
-                    "properties": {
-                        "artifact_type": {
-                            "type": "string",
-                            "enum": [
-                                "implementation_plan",
-                                "task",
-                                "walkthrough",
-                                "other",
-                            ],
-                        },
-                        "summary": {"type": "string"},
-                        "request_feedback": {
-                            "type": "boolean",
-                            "description": "Set to true to pause and request user approval",
-                        },
+        @property
+        def parameters_schema(self) -> Dict[str, Any]:
+            return {
+                "type": "object",
+                "properties": {
+                    "target_file": {
+                        "type": "string",
+                        "description": "The target file to create (e.g., implementation_plan.md)",
                     },
-                    "required": ["artifact_type"],
+                    "code_content": {
+                        "type": "string",
+                        "description": "The markdown content to write",
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "properties": {
+                            "artifact_type": {
+                                "type": "string",
+                                "enum": [
+                                    "implementation_plan",
+                                    "task",
+                                    "walkthrough",
+                                    "other",
+                                ],
+                            },
+                            "summary": {"type": "string"},
+                            "request_feedback": {
+                                "type": "boolean",
+                                "description": "Set to true to pause and request user approval",
+                            },
+                        },
+                        "required": ["artifact_type"],
+                    },
                 },
-            },
-            "required": ["target_file", "code_content"],
-        },
-    }
+                "required": ["target_file", "code_content"],
+            }
 
-    tool_registry.register(tool_schema, write_artifact)
+        def execute(self, target_file: str, code_content: str, metadata: Dict[str, Any] = None) -> Any:
+            meta_obj = None
+            if metadata:
+                meta_obj = ArtifactMetadata(
+                    artifact_type=metadata.get("artifact_type", "other"),
+                    summary=metadata.get("summary", ""),
+                    request_feedback=metadata.get("request_feedback", False),
+                )
+            result = engine.write_artifact(target_file, code_content, meta_obj)
+            if result["success"]:
+                msg = result["message"]
+                if result.get("request_feedback"):
+                    msg += "\n\nWAITING_FOR_USER_APPROVAL"
+                return msg
+            return f"Error writing artifact: {result.get('error')}"
+
+    tool_registry.install(WriteArtifactTool())
     return engine
