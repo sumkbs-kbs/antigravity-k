@@ -407,7 +407,10 @@ class ModelManager:
             and combo.strategy == RouteStrategy.COLLECTIVE
             and not collective_internal
         ):
-            text = self.generate_collective(prompt, target, **kwargs)
+            try:
+                text = self.generate_collective(prompt, target, **kwargs)
+            except Exception as e:
+                text = f"[API Error] 집단지성 실행 중 오류가 발생했습니다: {e}"
             chunk_size = int(kwargs.get("stream_chunk_size", 256))
             for idx in range(0, len(text), chunk_size):
                 yield text[idx : idx + chunk_size]

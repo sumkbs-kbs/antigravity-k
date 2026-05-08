@@ -134,42 +134,50 @@ async def chat_completions(
     is_plan_mode = body.get("plan_mode", False)
 
     # [AUTONOMY] 사용자의 TDD 모드 자동 판단 요구사항 반영
+    # [AUTONOMY] 사용자의 TDD 모드 자동 판단 요구사항 반영 (옵션 2: 소형 LLM 기반 자율 의도 파악)
     is_tdd_mode = body.get("tdd_mode", False)
     slash_text = _latest_user_text(messages)
 
-    if is_tdd_mode:
-        # TDD가 켜져 있어도, 단순 작업(폴더 생성, 스크립트 실행, 진행 요청)이면 자동으로 끕니다.
-        simple_indicators = [
-            "폴더",
-            "파일 생성",
-            "출력",
-            "실행",
-            "진행해줘",
-            "만들어줘",
-            "테스트 폴더",
-        ]
-        if (
-            len(slash_text) < 150
-            and any(k in slash_text for k in simple_indicators)
-            and "알고리즘" not in slash_text
-            and "리팩토링" not in slash_text
-        ):
-            import logging
+    import logging
 
-            logging.getLogger(__name__).info(
-                f"Auto-TDD: Disabling TDD mode for simple task: {slash_text[:50]}"
-            )
-            is_tdd_mode = False
-    else:
-        # TDD가 꺼져 있어도, 복잡한 알고리즘이나 리팩토링 요청이면 자동으로 켭니다.
-        complex_indicators = ["알고리즘", "리팩토링", "최적화", "병렬 처리", "TDD로"]
-        if any(k in slash_text for k in complex_indicators):
-            import logging
+    logger_auto = logging.getLogger(__name__)
 
-            logging.getLogger(__name__).info(
-                f"Auto-TDD: Enabling TDD mode for complex task: {slash_text[:50]}"
-            )
-            is_tdd_mode = True
+    if not is_tdd_mode and slash_text:
+        # 매우 단순한 인사말 등은 LLM 호출 없이 빠른 패스
+        fast_bypass = ["안녕", "고마워", "누구야", "뭐해"]
+        if len(slash_text) < 15 and any(k in slash_text for k in fast_bypass):
+            pass
+        else:
+
+            def _classify_tdd_intent():
+                prompt = (
+                    "You are an autonomous intent router. Analyze if the following user request requires "
+                    "writing new code, fixing bugs, or implementing software features. "
+                    "If YES (coding task), reply EXACTLY with 'true'. "
+                    "If NO (simple question, explanation, general chat), reply EXACTLY with 'false'.\n\n"
+                    f"User Request: {slash_text[:500]}"
+                )
+                try:
+                    # 최대한 빠르고 결정론적인 판단을 위해 온도(temperature) 0.0 설정
+                    res = manager.generate(
+                        prompt=prompt,
+                        target=target_model,
+                        max_tokens=10,
+                        temperature=0.0,
+                    )
+                    return "true" in res.lower()
+                except Exception as e:
+                    logger_auto.warning(f"Auto-TDD LLM classification failed: {e}")
+                    return False
+
+            from starlette.concurrency import run_in_threadpool
+
+            needs_tdd = await run_in_threadpool(_classify_tdd_intent)
+            if needs_tdd:
+                logger_auto.info(
+                    f"Auto-TDD: LLM autonomously enabled TDD mode for: {slash_text[:50]}"
+                )
+                is_tdd_mode = True
 
     from antigravity_k.engine.self_capability import (
         SelfCapabilityEngine,

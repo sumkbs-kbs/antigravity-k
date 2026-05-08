@@ -65,10 +65,12 @@ class CollectiveIntelligenceEngine:
             )
 
         proposals = self._collect_proposals(prompt, proposer_models, kwargs)
-        if len(proposals) < min_participants:
-            raise ValueError(
+        if len(proposals) == 0:
+            return "[API Error] 집단지성에 참여할 가용 모델이 없습니다. (API 500 에러 또는 네트워크 연결 확인 필요)"
+        elif len(proposals) < min_participants:
+            logger.warning(
                 f"유효 후보 답변이 {len(proposals)}개뿐입니다. "
-                f"최소 {min_participants}개가 필요합니다."
+                f"최소 {min_participants}개에 미달하지만 부족한 대로 진행합니다."
             )
 
         if not critic_models:
