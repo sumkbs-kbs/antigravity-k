@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
         async def _bg_index():
             try:
                 indexer = RAGIndexer(project_root=project_root)
-                count = indexer.build_index()
+                count = indexer.index_project()
                 logger.info(
                     f"[RAG] Background indexing complete: {count} files indexed"
                 )

@@ -1,0 +1,179 @@
+# Sources
+
+현재 v1 설계 시 확인한 외부 표면:
+
+- Vercel skills package 구조: https://vercel.com/kb/guide/agent-skills-creating-installing-and-sharing-reusable-agent-context
+- `SRTrain` / `ryanking13/SRT`: https://github.com/ryanking13/SRT
+- `korail2` / `carpedm20/korail2`: https://github.com/carpedm20/korail2
+- `korail2` anti-bot bypass PR #54: https://github.com/carpedm20/korail2/pull/54
+- 숲나들e 공식 사이트: https://foresttrip.go.kr/index.jsp
+- 숲나들e 로그인: https://www.foresttrip.go.kr/com/login.do
+- 숲나들e 월별예약조회 화면: https://www.foresttrip.go.kr/rep/or/sssn/monthRsrvtSmplStatus.do
+- 숲나들e 월별 예약 가능 정보 JSON endpoint: https://www.foresttrip.go.kr/rep/or/selectRsrvtAvailInfoListForMonthRsrvtSmpl.do
+- `kbo-game`: https://github.com/vkehfdl1/kbo-game
+- KBL 일정/결과 API: https://api.kbl.or.kr/match/list
+- KBL 팀 순위 API: https://api.kbl.or.kr/league/rank/team
+- tossinvest-cli: https://github.com/JungHoonGhae/tossinvest-cli
+- 하이패스 메인: https://www.hipass.co.kr/main.do
+- 하이패스 로그인: https://www.hipass.co.kr/comm/lginpg.do
+- 하이패스 사용내역 조회 진입: https://www.hipass.co.kr/usepculr/InitUsePculrTabSearch.do
+- 하이패스 사용내역 이용안내: https://www.hipass.co.kr/html/guide/siteguide_6.jsp
+- 하이패스 사용내역 이용안내(do): https://www.hipass.co.kr/info/guide/siteguide_6.do
+- 법원경매정보 메인: https://www.courtauction.go.kr
+- 법원경매정보 부동산매각공고 진입: https://www.courtauction.go.kr/pgj/index.on?w2xPath=/pgj/ui/pgj100/PGJ143M01.xml&pgjId=143M01
+- 법원경매정보 경매사건검색 진입: https://www.courtauction.go.kr/pgj/index.on?w2xPath=/pgj/ui/pgj100/PGJ159M00.xml&pgjId=159M00
+- 법원경매정보 매각공고 목록 endpoint: https://www.courtauction.go.kr/pgj/pgj143/selectRletDspslPbanc.on
+- 법원경매정보 매각공고 상세 endpoint: https://www.courtauction.go.kr/pgj/pgj143/selectRletDspslPbancDtl.on
+- 법원경매정보 사건 단건 endpoint: https://www.courtauction.go.kr/pgj/pgj15A/selectAuctnCsSrchRslt.on
+- 법원경매정보 법원사무소 코드 endpoint: https://www.courtauction.go.kr/pgj/pgjComm/selectCortOfcCdLst.on
+- data.go.kr "법원경매정보 OPEN API 미구축" 회신(2015-009): https://www.data.go.kr/odmc/trublMdat/mdatCase/board.do?id=45
+- K League 일정/결과 JSON: https://www.kleague.com/getScheduleList.do
+- K League 팀 순위 JSON: https://www.kleague.com/record/teamRank.do
+- jerjangmin original `lck-analytics` skill pack: https://github.com/jerjangmin/share/tree/main/SKILL/lck-analytics
+- Riot LoL Esports schedule API: https://esports-api.lolesports.com/persisted/gw/getSchedule
+- Riot LoL Esports tournaments API: https://esports-api.lolesports.com/persisted/gw/getTournamentsForLeague
+- Riot LoL Esports standings API: https://esports-api.lolesports.com/persisted/gw/getStandings
+- Riot LoL Esports event details API: https://esports-api.lolesports.com/persisted/gw/getEventDetails
+- Riot LoL Esports live window feed: https://feed.lolesports.com/livestats/v1/window/<gameId>
+- Riot LoL Esports live details feed: https://feed.lolesports.com/livestats/v1/details/<gameId>
+- Oracle's Elixir data glossary: https://oracleselixir.com/tools/downloads
+- `kordoc`: https://github.com/chrisryugj/kordoc
+- `pdfjs-dist`: https://www.npmjs.com/package/pdfjs-dist
+- `rhwp` upstream (Rust + WebAssembly HWP parser/renderer/editor, MIT, by Edward Kim): https://github.com/edwardkim/rhwp
+- `rhwp` CLI source (upstream subcommand truth table): https://github.com/edwardkim/rhwp/blob/main/src/main.rs
+- `@rhwp/core` npm (WASM bindings used by `k-skill-rhwp`): https://www.npmjs.com/package/@rhwp/core
+- `@rhwp/editor` npm (upstream iframe editor — not wrapped by this repo, documented for reference): https://www.npmjs.com/package/@rhwp/editor
+- rhwp HWPX-save-disabled issue #196 (data-safety gate until #197 ships): https://github.com/edwardkim/rhwp/issues/196
+- korean-law-mcp: https://github.com/chrisryugj/korean-law-mcp
+- korean-privacy-terms upstream: https://github.com/kimlawtech/korean-privacy-terms (Apache-2.0)
+- korean-jangbu-for upstream: https://github.com/kimlawtech/korean-jangbu-for (Apache-2.0; original author @kimlawtech, SpeciAI)
+- corporate-registration-consulting skill: local://corporate-registration-consulting
+- 대법원 인터넷등기소: https://www.iros.go.kr
+- 온라인법인설립시스템: https://www.startbiz.go.kr
+- 등기부등본 자동화 참고 구현(`challengekim/iros-registry-automation`, MIT): https://github.com/challengekim/iros-registry-automation — 실행 가이드는 `iros-registry-automation/scripts/upstream.pin`의 reviewed SHA로 checkout한 버전을 기준으로 한다.
+- 위택스 등록면허세 신고/납부: https://www.wetax.go.kr
+- 국가법령정보센터 지방세법/지방세법 시행령/상법/상업등기법/조세특례제한법: https://www.law.go.kr
+- 국세청 창업중소기업 세액감면 안내: https://www.nts.go.kr
+- real-estate-mcp: https://github.com/tae0y/real-estate-mcp/tree/main
+- 한국장학재단 학자금 지원구간 산정절차: https://www.kosaf.go.kr/ko/tuition.do?pg=tuition04_09_01&type=tuition
+- 한국장학재단 학자금 지원구간 경곗값 확인: https://www.kosaf.go.kr/ko/tuition.do?naviParam=JH%2C01%2C01%2C03&pg=tuition04_09_07
+- 한국장학재단 푸른등대 기부장학금: https://www.kosaf.go.kr/ko/scholar.do?pg=scholarship05_11_01
+- 삼성꿈장학재단: https://www.sdream.or.kr/w/web60gV
+- korea-stock-mcp: https://github.com/jjlabsio/korea-stock-mcp
+- 공공데이터포털 의약품개요정보(e약은요): https://www.data.go.kr/data/15075057/openapi.do
+- 식약처 e약은요 endpoint: https://apis.data.go.kr/1471000/DrbEasyDrugInfoService/getDrbEasyDrugList
+- 공공데이터포털 안전상비의약품 정보: https://www.data.go.kr/data/15097208/openapi.do
+- 식약처 안전상비의약품 endpoint: https://apis.data.go.kr/1471000/SafeStadDrugService/getSafeStadDrugInq
+- 공공데이터포털 검사 부적합 식품정보: https://www.data.go.kr/data/15056516/openapi.do
+- 식약처 부적합 식품 endpoint: https://apis.data.go.kr/1471000/PrsecImproptFoodInfoService03/getPrsecImproptFoodList01
+- 공공데이터포털 식품 회수·판매중지 정보: https://www.data.go.kr/data/15074318/openapi.do
+- 식품안전나라 I0490 안내: https://www.foodsafetykorea.go.kr/api/openApiInfo.do?menu_grp=MENU_GRP31&menu_no=661&show_cnt=10&start_idx=1&svc_no=I0490&svc_type_cd=API_TYPE06
+- 식품안전나라 I0490 sample: https://openapi.foodsafetykorea.go.kr/api/sample/I0490/json/1/5
+- KRX OPEN API 메인: https://openapi.krx.co.kr/contents/OPP/MAIN/main/index.cmd
+- KRX 종목 기본정보 API (KOSPI): http://data-dbg.krx.co.kr/svc/apis/sto/stk_isu_base_info
+- KRX 일별 매매정보 API (KOSPI): http://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd
+- MOLIT 아파트 매매 실거래가 API: https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade
+- MOLIT 아파트 전월세 API: https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent
+- MOLIT 오피스텔 매매 API: https://apis.data.go.kr/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade
+- MOLIT 오피스텔 전월세 API: https://apis.data.go.kr/1613000/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent
+- MOLIT 연립다세대 매매 API: https://apis.data.go.kr/1613000/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade
+- MOLIT 연립다세대 전월세 API: https://apis.data.go.kr/1613000/RTMSDataSvcRHRent/getRTMSDataSvcRHRent
+- MOLIT 단독/다가구 매매 API: https://apis.data.go.kr/1613000/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade
+- MOLIT 단독/다가구 전월세 API: https://apis.data.go.kr/1613000/RTMSDataSvcSHRent/getRTMSDataSvcSHRent
+- MOLIT 상업업무용 매매 API: https://apis.data.go.kr/1613000/RTMSDataSvcNrgTrade/getRTMSDataSvcNrgTrade
+- LH 청약플러스 공고 목록: https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancList.do?mi=1026
+- 공공데이터포털 한국토지주택공사 임대공고문 정보 API: https://www.data.go.kr/data/15058530/openapi.do
+- LH 임대공고문 목록 endpoint: http://apis.data.go.kr/B552555/lhLeaseNoticeInfo1/lhLeaseNoticeInfo1
+- LH 임대공고문 상세(공급정보) endpoint: http://apis.data.go.kr/B552555/lhLeaseNoticeDtlInfo1/getLeaseNoticeDtlInfo1
+- LH 청약 샘플 reference 구현(heereal/Bunyang_MoeumZip): https://github.com/heereal/Bunyang_MoeumZip
+- beopmang: https://api.beopmang.org
+- `silver-flight-group/kakaocli`: https://github.com/silver-flight-group/kakaocli
+- KakaoTalk Mac 설치 참고(`mas`): https://velog.io/@bonjugi/%EB%A7%A5%EB%B6%81-M1%EC%97%90-homebrew%EB%A1%9C-node-vscode-%EC%B9%B4%EC%B9%B4%EC%98%A4%ED%86%A1-%EC%84%A4%EC%B9%98%ED%95%98%EA%B8%B0
+- 동행복권 로또 결과 페이지: https://www.dhlottery.co.kr/lt645/result
+- 동행복권 지난 회차 JSON 표면: https://www.dhlottery.co.kr/lt645/selectPstLt645InfoNew.do
+- 바른한글 메인: https://nara-speller.co.kr/speller/
+- 바른한글 사용법: https://nara-speller.co.kr/guide/
+- 바른한글 이전 버전: https://nara-speller.co.kr/old_speller/
+- 바른한글 이전 버전 결과 POST 표면: https://nara-speller.co.kr/old_speller/results
+- 바른한글 robots: https://nara-speller.co.kr/robots.txt
+- Unicode Text Segmentation (UAX #29): https://www.unicode.org/reports/tr29/
+- Unicode Normalization Forms (UAX #15): https://www.unicode.org/reports/tr15/
+- WHATWG Encoding Standard: https://encoding.spec.whatwg.org/
+- Node Buffer.byteLength: https://nodejs.org/api/buffer.html
+- 2023 학교생활기록부 기재요령(경기도교육청 PDF): https://www.goe.go.kr/resource/old/BBSMSTR_000000030136/BBS_202302211104253520.pdf
+- 다이소몰 매장 검색: https://www.daisomall.co.kr/api/ms/msg/selStr
+- 다이소몰 매장 검색어 목록: https://www.daisomall.co.kr/api/ms/msg/selStrSrchKeyword
+- 다이소몰 매장 상세: https://www.daisomall.co.kr/api/dl/dla-api/selStrInfo
+- 다이소몰 상품 검색 요약: https://www.daisomall.co.kr/ssn/search/Search
+- 다이소몰 상품 검색 목록: https://www.daisomall.co.kr/ssn/search/SearchGoods
+- 다이소몰 상품 요약 목록: https://www.daisomall.co.kr/ssn/search/GoodsMummResult
+- 다이소몰 매장 픽업 재고: https://www.daisomall.co.kr/api/pd/pdh/selStrPkupStck
+- 다이소몰 온라인 재고: https://www.daisomall.co.kr/api/pdo/selOnlStck
+- 마켓컬리 검색 API(v4): https://api.kurly.com/search/v4/sites/market/normal-search
+- 마켓컬리 검색 개수 API(v3): https://api.kurly.com/search/v3/sites/market/normal-search/count
+- 마켓컬리 상품 상세 페이지 예시: https://www.kurly.com/goods/5063110
+- olive-young / multi-retail upstream repo (`hmmhmmhm/daiso-mcp`): https://github.com/hmmhmmhm/daiso-mcp
+- olive-young CLI package (`daiso`): https://www.npmjs.com/package/daiso
+- olive-young stores API: https://mcp.aka.page/api/oliveyoung/stores
+- olive-young products API: https://mcp.aka.page/api/oliveyoung/products
+- olive-young inventory API: https://mcp.aka.page/api/oliveyoung/inventory
+- daiso/olive-young public MCP endpoint: https://mcp.aka.page/mcp
+- hola-poke-yeoksam reference repo: https://github.com/mnspkm/hola-poke-yeoksam-skill
+- hola-poke-yeoksam remote MCP endpoint: https://hola-poke-yeoksam-skill.onrender.com/mcp
+- retention-corp/coupang_partners (Coupang Partners client and local MCP-compatible layer): https://github.com/retention-corp/coupang_partners
+- coupang_partners local MCP contract: local://coupang-mcp
+- coupang_partners hosted fallback (credentialless, allowlist-gated): https://a.retn.kr/v1/public/assist
+- coupang_partners hosted fallback PR (merged): https://github.com/retention-corp/coupang_partners/pull/1
+- bunjang-cli package: https://www.npmjs.com/package/bunjang-cli
+- bunjang-cli repo: https://github.com/pinion05/bunjangcli
+- 블루리본 메인: https://www.bluer.co.kr/
+- 블루리본 지역 검색: https://www.bluer.co.kr/search/zone
+- 블루리본 주변 맛집 JSON: https://www.bluer.co.kr/restaurants/map
+- 카카오맵 모바일 검색: https://m.map.kakao.com/actions/searchView
+- 카카오맵 장소 패널 JSON: https://place-api.map.kakao.com/places/panel3/<confirmId>
+- 조선왕조실록 메인: https://sillok.history.go.kr
+- 조선왕조실록 검색 결과: https://sillok.history.go.kr/search/searchResultList.do
+- 조선왕조실록 기사 상세: https://sillok.history.go.kr/id/kda_12512030_002
+- KIPRIS Plus 특허/실용신안 API 목록: https://plus.kipris.or.kr/portal/data/service/List.do?subTab=SC001&entYn=N&menuNo=200100
+- 공공데이터포털 특허/실용신안 정보 검색 서비스: https://www.data.go.kr/data/15058788/openapi.do
+- KIPRIS Plus 특허/실용신안 검색 endpoint: https://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch
+- KIPRIS Plus 특허/실용신안 서지상세 endpoint: https://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getBibliographyDetailInfoSearch
+- Opinet 오픈 API 안내: https://www.opinet.co.kr/user/custapi/openApiInfo.do
+- Opinet 반경 내 주유소 API: https://www.opinet.co.kr/api/aroundAll.do
+- Opinet 주유소 상세정보 API: https://www.opinet.co.kr/api/detailById.do
+- Opinet 지역코드 API: https://www.opinet.co.kr/api/areaCode.do
+- 공공데이터포털 공중화장실 표준데이터: https://www.data.go.kr/data/15012892/standard.do
+- 공중화장실정보 파일 소개: https://file.localdata.go.kr/file/public_restroom_info/info
+- 공중화장실정보 전국 CSV: https://file.localdata.go.kr/file/download/public_restroom_info/info
+- 공중화장실정보 지역별 CSV: https://file.localdata.go.kr/file/download/public_restroom_info/info?orgCode=<시도코드>
+- 서울특별시 지하철 실시간 도착정보: https://www.data.go.kr/data/15058052/openapi.do
+- 경찰청 LOST112 습득물 목록: https://www.lost112.go.kr/find/findList.do
+- 서울교통공사 유실물센터: https://www.seoulmetro.co.kr/kr/page.do?menuIdx=541
+- GeekNews public RSS/Atom feed: https://feeds.feedburner.com/geeknews-feed
+- GeekNews home: https://news.hada.io
+- 기상청 단기예보 조회서비스: https://www.data.go.kr/data/15084084/openapi.do
+- 에어코리아 대기오염정보: https://www.data.go.kr/data/15073861/openapi.do
+- 에어코리아 측정소정보: https://www.data.go.kr/data/15073877/openapi.do
+- 한강홍수통제소 Open API 레퍼런스: https://www.hrfco.go.kr/web/openapiPage/reference.do
+- 한강홍수통제소 Open API 인증키 안내: https://www.hrfco.go.kr/web/openapiPage/certifyKey.do
+- 한강홍수통제소 Open API 정책: https://www.hrfco.go.kr/web/openapi/policy.do
+- 한강홍수통제소 API base: https://api.hrfco.go.kr
+- 우체국 도로명주소 검색: https://parcel.epost.go.kr/parcel/comm/zipcode/comm_newzipcd_list.jsp
+- 우체국 통합 우편번호/영문주소 검색: https://www.epost.kr/search.RetrieveIntegrationNewZipCdList.comm
+- CJ대한통운 배송조회: https://www.cjlogistics.com/ko/tool/parcel/tracking
+- CJ대한통운 배송상세 JSON: https://www.cjlogistics.com/ko/tool/parcel/tracking-detail
+- 우체국 배송조회: https://service.epost.go.kr/trace.RetrieveRegiPrclDeliv.postal?sid1=
+- 우체국 배송상세 HTML: https://service.epost.go.kr/trace.RetrieveDomRigiTraceList.comm
+
+- SK렌터카 다이렉트 타고BUY inventory page: https://www.skdirect.co.kr/tb
+- 롯데오토옥션 공개 메인: https://www.lotteautoauction.net/hp/pub/cmm/viewMain.do
+- 레드캡렌터카 business rent portal: https://biz.redcap.co.kr/rent/
+
+- Naver Shopping public BFF JSON: `https://ns-portal.shopping.naver.com/api/v2/shopping-paged-slot?query=<검색어>&source=shp_gui` (네이버 쇼핑 가격비교 스킬의 no-key fallback)
+- Naver Developers Search API shopping docs: https://developers.naver.com/docs/serviceapi/search/shopping/shopping.md
+
+- 도서관 정보나루 Open API 활용방법: https://www.data4library.kr/apiUtilization
+- 도서관 정보나루 도서 검색 endpoint: https://data4library.kr/api/srchBooks
+- 도서관 정보나루 도서 상세 endpoint: https://data4library.kr/api/srchDtlList
+- 도서관 정보나루 도서 소장 도서관 endpoint: https://data4library.kr/api/libSrchByBook
+- 도서관 정보나루 도서관별 도서 소장여부 endpoint: https://data4library.kr/api/bookExist

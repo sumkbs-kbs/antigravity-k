@@ -1,0 +1,32 @@
+{
+  "name": "toss-securities",
+  "version": "0.3.0",
+  "description": "Safe read-only tossctl wrapper for Toss Securities skill workflows",
+  "license": "MIT",
+  "main": "src/index.js",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NomaDamas/k-skill.git"
+  },
+  "keywords": [
+    "k-skill",
+    "korea",
+    "toss",
+    "securities",
+    "tossctl"
+  ],
+  "scripts": {
+    "lint": "node --check src/index.js && node --check src/parse.js && node --check test/index.test.js",
+    "test": "node --test"
+  }
+}

@@ -162,6 +162,104 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
         ),
         expected_keywords=("Event", "Command", "class", "append"),
     ),
+    # ── search (난이도 1~2, Phase 1 검증) ─────────────────────────
+    BenchmarkCase(
+        id="srch-001",
+        category="search",
+        difficulty=1,
+        description="주가 조회 (Fast-Path + 적응형 샘플링 검증)",
+        prompt=(
+            "한화에어로스페이스 오늘 종가를 알려줘.\n"
+            "- 종가, 전일 대비, 거래량을 마크다운 테이블로 정리해줘.\n"
+            "- 출처를 명시해줘."
+        ),
+        expected_keywords=("한화에어로스페이스", "종가", "|", "출처"),
+    ),
+    BenchmarkCase(
+        id="srch-002",
+        category="search",
+        difficulty=2,
+        description="실시간 뉴스 검색 + 요약",
+        prompt=(
+            "AI 반도체 시장의 최신 동향을 웹 검색으로 조사하고 핵심 3가지를 정리해줘.\n"
+            "- 각 동향에 출처 링크를 포함해줘.\n"
+            "- 마크다운 리스트 형식으로 작성해줘."
+        ),
+        expected_keywords=("반도체", "AI", "출처"),
+    ),
+    # ── analysis (난이도 3, Phase 2 검증) ─────────────────────────
+    BenchmarkCase(
+        id="anl-001",
+        category="analysis",
+        difficulty=3,
+        description="기술 비교 분석 (품질 게이트 + 계층형 프롬프트 검증)",
+        prompt=(
+            "로컬 LLM 추론 프레임워크를 비교 분석해줘.\n"
+            "- Ollama, LM Studio, llama.cpp, vLLM 4가지를 비교해줘.\n"
+            "- 설치 편의성, 성능, GPU 지원, API 호환성 기준으로 마크다운 비교 표를 만들어줘.\n"
+            "- 각각의 장단점과 추천 사용 시나리오를 설명해줘."
+        ),
+        expected_keywords=("Ollama", "llama.cpp", "|", "장점", "단점"),
+    ),
+    BenchmarkCase(
+        id="anl-002",
+        category="analysis",
+        difficulty=3,
+        description="아키텍처 분석 리포트",
+        prompt=(
+            "마이크로서비스 아키텍처(MSA)와 모놀리식 아키텍처의 차이를 분석해줘.\n"
+            "- 확장성, 배포, 팀 구성, 복잡도 관점에서 비교 표를 작성해줘.\n"
+            "- 각 아키텍처가 적합한 프로젝트 유형을 구체적으로 제시해줘.\n"
+            "- 실제 마이그레이션 시 주의사항도 포함해줘."
+        ),
+        expected_keywords=("마이크로서비스", "모놀리식", "|", "확장"),
+    ),
+    # ── creative (난이도 2, 적응형 샘플링 CREATIVE 프로파일 검증) ──
+    BenchmarkCase(
+        id="crv-001",
+        category="creative",
+        difficulty=2,
+        description="기술 블로그 글 작성",
+        prompt=(
+            "Python의 비동기 프로그래밍(asyncio)에 대한 기술 블로그 글을 작성해줘.\n"
+            "- 초보자도 이해할 수 있는 수준으로 작성해줘.\n"
+            "- 비유와 예제 코드를 포함해줘.\n"
+            "- 1000자 이상으로 작성해줘."
+        ),
+        expected_keywords=("asyncio", "await", "async", "def"),
+    ),
+    # ── regression (Phase 1-3 회귀 검증) ─────────────────────────
+    BenchmarkCase(
+        id="reg-001",
+        category="regression",
+        difficulty=2,
+        description="품질 게이트 회귀: 코드-only 응답 차단 확인",
+        prompt=(
+            "Python으로 버블 정렬을 구현해줘.\n"
+            "- 시간복잡도를 설명해줘.\n"
+            "- 최적화 방법도 알려줘."
+        ),
+        expected_keywords=("def", "O(", "최적화", "설명"),
+    ),
+    BenchmarkCase(
+        id="reg-002",
+        category="regression",
+        difficulty=2,
+        description="한국어 답변 품질 회귀: 외국어 오염 없음 확인",
+        prompt=(
+            "TCP와 UDP의 차이를 설명하고, "
+            "각각 적합한 사용 사례를 3가지씩 들어줘."
+        ),
+        expected_keywords=("TCP", "UDP", "사례"),
+    ),
+    BenchmarkCase(
+        id="reg-003",
+        category="regression",
+        difficulty=1,
+        description="자기소개 회귀: 없는 기능 언급 차단 확인",
+        prompt="너를 소개하고 니가 할 수 있는 일과 할 수 없는 일을 알려줘.",
+        expected_keywords=("할 수 있", "할 수 없"),
+    ),
 )
 
 
@@ -170,6 +268,7 @@ def get_suite(name: str = "all") -> list[BenchmarkCase]:
 
     Args:
         name: "all", "simple", "algorithm", "architecture", "korean", "refactor",
+              "search", "analysis", "creative", "regression",
               또는 개별 case id (예: "sim-001")
     """
     if name == "all":

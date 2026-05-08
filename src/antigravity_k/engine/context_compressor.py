@@ -74,9 +74,12 @@ class ContextCompressor:
 
     def estimate_tokens(self, text: str) -> int:
         """Rough token estimation (IronClaw: ~1.3 tokens/word)."""
-        # 영어: 단어 기반, 한국어: 문자 기반 혼합 추정
+        # 영어: 단어 기반, 한국어/CJK: 문자 기반 혼합 추정
         words = text.split()
-        return max(1, int(len(words) * 1.3) + 4)  # +4 overhead per message
+        word_estimate = int(len(words) * 1.3)
+        # 긴 문자열이 단어 분리 안 되는 경우(반복 문자, CJK 등) 문자 기반 보정
+        char_estimate = len(text) // 4  # ~4 chars per token
+        return max(1, max(word_estimate, char_estimate) + 4)  # +4 overhead per message
 
     def needs_compression(self, messages: List[Dict[str, str]]) -> bool:
         total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
@@ -160,6 +163,131 @@ class ContextCompressor:
         summary_msg = {"role": "system", "content": summary_text}
         compressed = system_msgs + [summary_msg] + recent_msgs
         return compressed
+
+    # ─── 토큰 예산 시스템 (Adaptive Token Budget) ───
+
+    # 역할별 중요도 가중치: 높을수록 보존 우선순위가 높음
+    _IMPORTANCE_WEIGHTS = {
+        "system": 1.0,      # 시스템 프롬프트: 항상 보존
+        "user": 0.9,        # 사용자 입력: 핵심 의도
+        "tool": 0.8,        # 도구 결과: 사실 데이터
+        "assistant": 0.5,   # AI 응답: 필요시 요약 가능
+    }
+
+    # 작업 유형별 압축 전략
+    _TASK_COMPRESSION = {
+        "SEARCH": {"keep_last_n": 4, "max_tool_chars": 2000},
+        "CODE": {"keep_last_n": 8, "max_tool_chars": 4000},
+        "ANALYSIS": {"keep_last_n": 6, "max_tool_chars": 3000},
+        "CREATIVE": {"keep_last_n": 6, "max_tool_chars": 2000},
+        "GENERAL": {"keep_last_n": 6, "max_tool_chars": 3000},
+    }
+
+    def adaptive_compress(
+        self,
+        messages: List[Dict[str, str]],
+        task_type: str = "GENERAL",
+        token_budget: Optional[int] = None,
+    ) -> List[Dict[str, str]]:
+        """토큰 예산 기반 적응형 압축.
+
+        각 메시지에 중요도 점수를 부여하고, 예산 내에서
+        가장 중요한 정보만 보존합니다.
+
+        Args:
+            messages: 전체 메시지 히스토리
+            task_type: 작업 유형 (SEARCH/CODE/ANALYSIS/CREATIVE/GENERAL)
+            token_budget: 목표 토큰 수 (None이면 self.token_limit 사용)
+        """
+        budget = token_budget or self.token_limit
+        total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
+
+        if total_tokens <= budget:
+            return messages
+
+        logger.info(
+            f"[AdaptiveCompress] {total_tokens} tokens → target {budget} "
+            f"(task: {task_type})"
+        )
+
+        strategy = self._TASK_COMPRESSION.get(
+            task_type, self._TASK_COMPRESSION["GENERAL"]
+        )
+        keep_last_n = strategy["keep_last_n"]
+        max_tool_chars = strategy["max_tool_chars"]
+
+        # 1단계: 시스템 메시지 분리 (항상 보존)
+        system_msgs = [m for m in messages if m.get("role") == "system"]
+        other_msgs = [m for m in messages if m.get("role") != "system"]
+
+        if len(other_msgs) <= keep_last_n:
+            return messages
+
+        # 2단계: 최근 N개 보존, 나머지에 중요도 점수 부여
+        recent = other_msgs[-keep_last_n:]
+        old = other_msgs[:-keep_last_n]
+
+        scored_old = []
+        for i, msg in enumerate(old):
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            weight = self._IMPORTANCE_WEIGHTS.get(role, 0.5)
+
+            # 위치 감쇄: 최근에 가까울수록 더 중요
+            recency_bonus = (i + 1) / len(old) * 0.3
+            importance = weight + recency_bonus
+
+            scored_old.append((importance, i, msg))
+
+        # 3단계: 중요도 순으로 정렬, 예산 내에서 선별
+        scored_old.sort(key=lambda x: x[0], reverse=True)
+
+        # 시스템 + 최근 메시지의 토큰 먼저 계산
+        reserved_tokens = sum(
+            self.estimate_tokens(m.get("content", "")) for m in system_msgs + recent
+        )
+        remaining_budget = budget - reserved_tokens
+
+        kept_old = []
+        for importance, orig_idx, msg in scored_old:
+            content = msg.get("content", "")
+            role = msg.get("role", "")
+
+            # 도구 결과가 너무 길면 잘라내기
+            if role == "tool" and len(content) > max_tool_chars:
+                msg = dict(msg)
+                msg["content"] = content[:max_tool_chars] + "\n...(결과 일부 생략)"
+
+            msg_tokens = self.estimate_tokens(msg.get("content", ""))
+            if msg_tokens <= remaining_budget:
+                kept_old.append((orig_idx, msg))
+                remaining_budget -= msg_tokens
+
+        # 원래 순서로 복원
+        kept_old.sort(key=lambda x: x[0])
+        kept_msgs = [msg for _, msg in kept_old]
+
+        # 4단계: 버려진 메시지 요약
+        kept_indices = {idx for idx, _ in kept_old}
+        dropped = [old[i] for i in range(len(old)) if i not in kept_indices]
+
+        result = system_msgs[:]
+
+        if dropped:
+            summary = self._summarize_old_messages(dropped)
+            if summary:
+                result.append({"role": "system", "content": summary})
+
+        result.extend(kept_msgs)
+        result.extend(recent)
+
+        final_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in result)
+        logger.info(
+            f"[AdaptiveCompress] 완료: {total_tokens} → {final_tokens} tokens "
+            f"({len(dropped)}개 메시지 요약, {len(kept_msgs)}개 선별 보존)"
+        )
+
+        return result
 
     def enrich_with_rag(
         self,

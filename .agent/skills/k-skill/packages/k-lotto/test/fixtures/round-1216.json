@@ -1,0 +1,43 @@
+{
+  "resultCode": null,
+  "resultMessage": null,
+  "data": {
+    "list": [
+      {
+        "winType0": 0,
+        "winType1": 8,
+        "winType2": 5,
+        "winType3": 1,
+        "gmSqNo": 5133,
+        "ltEpsd": 1216,
+        "tm1WnNo": 3,
+        "tm2WnNo": 10,
+        "tm3WnNo": 14,
+        "tm4WnNo": 15,
+        "tm5WnNo": 23,
+        "tm6WnNo": 24,
+        "bnsWnNo": 25,
+        "ltRflYmd": "20260321",
+        "rnk1WnNope": 14,
+        "rnk1WnAmt": 2148654000,
+        "rnk1SumWnAmt": 30081156000,
+        "rnk2WnNope": 87,
+        "rnk2WnAmt": 57626736,
+        "rnk2SumWnAmt": 5013526032,
+        "rnk3WnNope": 3181,
+        "rnk3WnAmt": 1576085,
+        "rnk3SumWnAmt": 5013526385,
+        "rnk4WnNope": 168089,
+        "rnk4WnAmt": 50000,
+        "rnk4SumWnAmt": 8404450000,
+        "rnk5WnNope": 2853121,
+        "rnk5WnAmt": 5000,
+        "rnk5SumWnAmt": 14265605000,
+        "sumWnNope": 3024492,
+        "rlvtEpsdSumNtslAmt": 62778263417,
+        "wholEpsdSumNtslAmt": 125556526000,
+        "excelRnk": "1등"
+      }
+    ]
+  }
+}

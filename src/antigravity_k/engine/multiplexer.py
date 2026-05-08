@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from typing import List, Dict, Any
-import os
 
 from antigravity_k.engine.worktree_manager import WorktreeManager
 from antigravity_k.engine.goal_runner import GoalRunner

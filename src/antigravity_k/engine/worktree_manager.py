@@ -13,7 +13,7 @@ class WorktreeManager:
     격리된 환경(Worktree)에서 작업할 수 있도록 지원합니다.
     """
 
-    def __init__(self, base_repo_path: str, worktrees_dir: str = ".ag_worktrees"):
+    def __init__(self, base_repo_path: str = ".", worktrees_dir: str = ".ag_worktrees"):
         self.base_repo_path = base_repo_path
         self.worktrees_dir = os.path.join(base_repo_path, worktrees_dir)
 

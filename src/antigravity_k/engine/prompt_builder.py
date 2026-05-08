@@ -204,6 +204,111 @@ class PromptBuilder:
 
         return tool_section
 
+    # ─── 계층형 프롬프트 아키텍처 (Structured & Segmented Prompts) ───
+    def structured_prompt(
+        self,
+        role: str,
+        task: str,
+        context: str = "",
+        constraints: Optional[List[str]] = None,
+        output_format: str = "",
+        few_shot: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """계층화된 섹션으로 구성된 프롬프트를 생성합니다.
+
+        소형 모델은 구조가 명확할수록 지시 이행률이 높아집니다.
+        연구 근거: FabWebStudio 2025, RecursiveAI 2025
+
+        Args:
+            role: 역할 (예: "금융 분석 전문가")
+            task: 수행할 작업 설명
+            context: RAG 등에서 가져온 참고 자료
+            constraints: 지켜야 할 제약 조건 목록
+            output_format: 출력 형식 지정
+            few_shot: 입출력 예시 목록 [{"input": "...", "output": "..."}]
+
+        Returns:
+            섹션으로 구분된 구조화 프롬프트
+        """
+        sections = []
+
+        # [ROLE] 역할 정의
+        sections.append(f"[ROLE]\n당신은 {role}입니다.")
+
+        # [CONSTRAINTS] 제약 조건
+        if constraints:
+            constraint_lines = "\n".join(f"- {c}" for c in constraints)
+            sections.append(f"[CONSTRAINTS]\n{constraint_lines}")
+        else:
+            sections.append(
+                "[CONSTRAINTS]\n"
+                "- 반드시 한국어로 답변하세요.\n"
+                "- 불필요한 서론과 사족을 생략하고 핵심만 전달하세요.\n"
+                "- 확실하지 않은 정보는 명확히 '확인 불가'라고 표시하세요."
+            )
+
+        # [CONTEXT] 참고 자료 (RAG 문서, 검색 결과 등)
+        if context:
+            sections.append(f"[CONTEXT]\n{context}")
+
+        # [EXAMPLES] Few-Shot 예시
+        if few_shot:
+            examples = []
+            for i, ex in enumerate(few_shot, 1):
+                examples.append(
+                    f"예시 {i}:\n"
+                    f"  입력: {ex['input']}\n"
+                    f"  출력: {ex['output']}"
+                )
+            sections.append(f"[EXAMPLES]\n" + "\n\n".join(examples))
+
+        # [OUTPUT FORMAT] 출력 형식
+        if output_format:
+            sections.append(f"[OUTPUT FORMAT]\n{output_format}")
+
+        # [TASK] 수행할 작업 — 항상 마지막 (쿼리 후치 배치 원칙)
+        sections.append(f"[TASK]\n{task}")
+
+        return "\n\n".join(sections)
+
+    def get_task_few_shots(self, task_type: str) -> List[Dict[str, str]]:
+        """작업 유형별 기본 Few-Shot 예시를 반환합니다.
+
+        Args:
+            task_type: SEARCH, CODE, ANALYSIS, CREATIVE, GENERAL
+
+        Returns:
+            입출력 예시 목록
+        """
+        _EXAMPLES: Dict[str, List[Dict[str, str]]] = {
+            "SEARCH": [
+                {
+                    "input": "삼성전자 오늘 종가 알려줘",
+                    "output": (
+                        "## 삼성전자 (005930) 오늘 종가\n\n"
+                        "| 항목 | 값 |\n|---|---|\n"
+                        "| 종가 | 82,400원 |\n| 전일 대비 | +1,200원 (+1.48%) |\n"
+                        "| 거래량 | 15,234,567주 |\n\n"
+                        "*출처: 네이버 금융 [1]*"
+                    ),
+                }
+            ],
+            "CODE": [
+                {
+                    "input": "Python으로 피보나치 함수 만들어줘",
+                    "output": (
+                        "**메모이제이션** 기법을 사용하여 중복 계산을 제거한 효율적인 구현입니다.\n\n"
+                        "```python\nfrom functools import lru_cache\n\n"
+                        "@lru_cache(maxsize=None)\ndef fibonacci(n: int) -> int:\n"
+                        "    if n < 2:\n        return n\n"
+                        "    return fibonacci(n - 1) + fibonacci(n - 2)\n```\n\n"
+                        "**동작 원리:** `@lru_cache`가 이전 계산 결과를 캐싱하여 O(n) 시간복잡도를 달성합니다."
+                    ),
+                }
+            ],
+        }
+        return _EXAMPLES.get(task_type, [])
+
     def clear_cache(self):
         """캐시를 비웁니다 (프롬프트 파일 수정 후 리로드 시)."""
         self._cache.clear()

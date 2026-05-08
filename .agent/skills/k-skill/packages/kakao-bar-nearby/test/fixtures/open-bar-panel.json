@@ -1,0 +1,80 @@
+{
+  "summary": {
+    "confirm_id": "2001",
+    "name": "데이브루펍",
+    "category": {
+      "name1": "음식점",
+      "name2": "술집",
+      "name3": "맥주,호프"
+    },
+    "point": {
+      "lon": 126.9722,
+      "lat": 37.5553
+    },
+    "address": {
+      "disp": "서울 중구 칠패로 31"
+    },
+    "phone_numbers": [
+      { "tel": "02-1111-2222" }
+    ]
+  },
+  "open_hours": {
+    "headline": {
+      "code": "OPEN",
+      "display_text": "영업 중",
+      "display_text_info": "23:30 라스트오더"
+    },
+    "week_from_today": {
+      "week_periods": [
+        {
+          "days": [
+            {
+              "day_of_the_week_desc": "일(3/29)",
+              "on_days": {
+                "start_end_time_desc": "12:00 ~ 23:30"
+              },
+              "is_highlight": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "menu": {
+    "menus": {
+      "items": [
+        { "name": "수제맥주 샘플러", "price": 18000 },
+        { "name": "감바스", "price": 22000 },
+        { "name": "페퍼로니 피자", "price": 24000 }
+      ],
+      "menu_type": "FOOD"
+    }
+  },
+  "ai_mate": {
+    "summary": {
+      "title": "낮술도 가능한 캐주얼 펍",
+      "contents": ["단체석"]
+    },
+    "bottom_sheet": {
+      "summary": "수제맥주와 피자를 함께 즐기기 좋고, 낮에도 운영하는 캐주얼 펍입니다.",
+      "sheets": [
+        {
+          "title": "제공 서비스",
+          "ui_type": "LIST",
+          "list": [
+            {
+              "title": "좌석 옵션",
+              "keywords": ["단체석", "바테이블"]
+            }
+          ]
+        }
+      ]
+    },
+    "blog_summaries": [
+      { "title": "방문 목적", "keywords": ["2차", "친구·지인"] }
+    ]
+  },
+  "place_add_info": {
+    "tags": ["술한잔하기좋은"]
+  }
+}

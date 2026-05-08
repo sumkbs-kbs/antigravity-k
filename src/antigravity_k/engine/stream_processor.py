@@ -186,9 +186,21 @@ class StreamProcessor:
         return output
 
     def process_flush_text(self, text: str) -> str:
-        """flush 시점의 텍스트를 정제합니다 (thought/think 블록 제거 + 태그 정제)."""
+        """flush 시점의 텍스트를 정제합니다 (thought/think 블록 제거 + 태그 정제 + 수다스러운 프리필 제거)."""
         flush_text = self._buffer + text
         self._buffer = ""
+
+        # 프리필(Pre-fill fluff) 차단: "제가 검색해볼게요", "Would you like me to" 등 무의미한 서술형 텍스트 필터링
+        flush_text = re.sub(
+            r"(?i)^(?:Here is the|I will|Let me|Would you like me to|I can|I'll|Okay,|Sure,|Yes,).{0,30}(?:search|find|look up|perform|provide|check).{0,50}(?:\?|\.|:)?\s*",
+            "",
+            flush_text
+        )
+        flush_text = re.sub(
+            r"^(?:제가 |네, |알겠습니다. ).{0,30}(?:검색|찾아|확인|조회).{0,20}(?:해볼까요\?|해보겠습니다\.|해드릴게요\.)\s*",
+            "",
+            flush_text
+        )
 
         # thought/think 블록 완전 제거 (flush 시점에도 사용자에게 보여주지 않음)
         cleaned = re.sub(

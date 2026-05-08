@@ -1,0 +1,28 @@
+{
+  "summary": {
+    "confirm_id": "2003",
+    "name": "서울역국밥",
+    "category": {
+      "name1": "음식점",
+      "name2": "한식",
+      "name3": "국밥"
+    },
+    "point": {
+      "lon": 126.971,
+      "lat": 37.5539
+    },
+    "address": {
+      "disp": "서울 중구 세종대로 12"
+    },
+    "phone_numbers": [
+      { "tel": "02-5555-6666" }
+    ]
+  },
+  "open_hours": {
+    "headline": {
+      "code": "OPEN",
+      "display_text": "영업 중",
+      "display_text_info": "22:00 영업종료"
+    }
+  }
+}

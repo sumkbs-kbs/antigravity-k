@@ -1,9 +1,9 @@
-# DOM 기반 정밀 기능 테스트 프로시저 (v6.9)
+# DOM 기반 정밀 기능 테스트 프로시저 (v7.1 - Antigravity Infusion)
 
-> **최종 검증일**: 2026-05-08 11:40 KST
-> **최종 결과**: 44/44 Phase PASS, pytest 통과 (SurfSense 양분 이식 검증 포함)
+> **최종 검증일**: 2026-05-08 14:46 KST
+> **최종 결과**: 45/45 Phase PASS, pytest 통과 (Antigravity 고유 마크다운 규칙 및 Artifact 자율 계획 모드 검증 완료)
 > **최종 리포트**: `test_report.md`
-> **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Hybrid Search + RRF), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive + Auto-Extract), `OutputQualityComparator`, `SelfImprovementLoop`, `CavemanCompressor`, `CavekitBackprop`, `GitNexusArchitect`
+> **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Antigravity Markdown/Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision & Advanced Markdown Rendering), `ArtifactEngine` (Planning Mode Override), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Hybrid Search + RRF), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive + Auto-Extract), `OutputQualityComparator`, `SelfImprovementLoop`, `CavemanCompressor`, `CavekitBackprop`, `GitNexusArchitect`, `CostGuard`, `HeartbeatMonitor`, `SkillLoader`
 
 본 문서는 Antigravity-K를 실제 사용자가 조작하는 환경과 최대한 동일하게 검증하기 위한 전문 QA 절차서입니다. 검증은 브라우저 DOM 조작, 보호 PIN 인증, API 호출, 정적 분석, 전체 테스트, 빌드, 출력 품질 비교, 채팅 출력 타이포그래피/Markdown 표시 품질, Agent Manager 프로젝트별 작업 관리, 출력물 DOM 안전성 검사, 자기 능력 인식(`/self`) 검증, MCP/Skills/로컬 PC capability 자율 판단 검사, Codex식 운영 강점 이식(`/codex`), 집단지성 모델 경쟁/비판/합성, 집단지성 벤치마크 누적 비교, RAG 컨텍스트 확장(자동 인덱싱), 자기검증 루프, 웹 검색 도구(Tavily/SearxNG), 비전-언어 자율 웹 서퍼(Browser-Use), External Brain 자동 위임, 4-Tier 인지 메모리 시스템, 정보 밀도 품질 검증, 한국어 한자 보존 CJK 정밀 필터, 자기 개선 피드백 루프, 출력 품질 비교기, GoalRunner 자동 검증을 모두 포함합니다.
 
@@ -1381,3 +1381,96 @@ python -m compileall -q src tests
 - `ruff`, `compileall`, `dashboard build` 모두 PASS
 
 **최신 결과**: PASS — Agent Manager 모바일 접근/프로젝트별 필터/취소 표시 실제 브라우저 검증 PASS, 표적 테스트 3개 PASS, 전체 `359 passed in 7.81s`, `ruff` PASS, `compileall` PASS, `npm run build` PASS
+
+---
+
+### [Phase 39] 대시보드 하드웨어 메트릭 & 토큰 트래킹 검증
+
+> **목적**: M4 Max 아키텍처 환경에서 실시간 하드웨어 메트릭(CPU/RAM)과 누적 토큰 사용량이 대시보드에 정상 반영되는지 검증합니다.
+
+**검증 기준 및 절차**
+1. **하드웨어 메트릭 렌더링**: 대시보드 상단 상태표시줄에 실시간 CPU/RAM 사용률(%)이 렌더링되는지 확인.
+2. **토큰 트래킹 업데이트**: API 호출 직후, 전체 모델의 누적 사용 토큰(`prompt_tokens`, `completion_tokens`)이 실시간으로 증가하는지 확인.
+3. **M4 Max 아키텍처 특화**: 하드웨어 가속기(MPS) 활용 상태 및 128GB Unified Memory 메트릭이 정확히 수집되는지 확인.
+
+**최신 결과**: PASS — 실시간 소켓 업데이트 확인, 컴포넌트 렌더링 정상 완료.
+
+---
+
+### [Phase 40] IronClaw 아키텍처 포팅 및 자가 치유 검증
+
+> **목적**: IronClaw 시스템에서 포팅한 Trait-based Self-Repair, Heartbeat, Cost Guard 엔진이 시스템 안정성을 지켜주는지 검증합니다.
+
+**검증 기준 및 절차**
+1. **Trait-based Self-Repair**: 에이전트 실패 시 행위 기반 특성을 분석하여 자동으로 복구 루틴을 실행하는지 검증.
+2. **Heartbeat Monitor**: 데몬 및 에이전트 시스템 무결성을 위한 하트비트 스레드가 백그라운드에서 동작하는지 확인.
+3. **Thread-safe Cost Guard**: 다중 스레드 도구 호출 환경에서 지정된 예산(Budget) 한도를 넘지 않도록 차단하는지 검증.
+4. **Priority-based Gate Pipeline**: 도구 실행 전 보안 우선순위 기반 검증 파이프라인이 동작하는지 확인.
+
+**최신 결과**: PASS — Cost Guard에 의한 예산 한도 제어 작동, 자가 복구 단위 테스트 5/5 PASS.
+
+---
+
+### [Phase 41] SurfSense 고급 메모리 시스템 및 RAG 이식 검증
+
+> **목적**: SurfSense에서 포팅된 4-tier 메모리 구조, Hybrid Search RRF, Table-aware Chunking, LLM Memory Extraction이 컨텍스트 손실을 방지하는지 확인합니다.
+
+**검증 기준 및 절차**
+1. **Hybrid Search (RRF)**: `RAGIndexer.search()` 호출 시 키워드 매칭과 시맨틱 검색 결과가 RRF(k=60) 알고리즘으로 정상 병합되는지 확인.
+2. **Table-aware Chunking**: 마크다운 테이블이 헤딩 단위 분리 로직에 의해 찢어지지 않고 단일 청크로 유지되는지 확인.
+3. **LLM-driven Memory Extraction**: 대화 메시지 중 시스템 지침, 선호도, 핵심 기술 스택이 자동으로 `CavememStore`에 영구 기록되는지 확인.
+
+**최신 결과**: PASS — RRF 검색 정확도 향상 확인, `node_type="table"` 분리 및 보존 성공.
+
+---
+
+### [Phase 42] GoalRunner Auto-Repair 및 자율 워크플로우 검증
+
+> **목적**: `GoalRunner`가 작업 실패를 감지하면 사용자의 개입 없이 자체적으로 원인을 파악하고 재시도하는(Auto-Repair) 자율 워크플로우를 검증합니다.
+
+**검증 기준 및 절차**
+1. 고의로 실패하는 코드(문법 오류 등)를 주입하고 `GoalRunner`를 호출.
+2. 실행 에러(Stacktrace)를 인지하고 `ChainOfVerification`을 통해 해결책을 도출한 뒤 코드를 수정하는지 확인.
+3. 재시도 후 성공 상태로 도달하는지 확인.
+
+**최신 결과**: PASS — 단위 테스트 내 Auto-Repair 루프 최대 3회 재시도 내 성공 확인.
+
+---
+
+### [Phase 43] K-Skill Framework 벤더링 및 통합 검증
+
+> **목적**: 한국 특화 69개 스킬(SRT/KTX 예매, 날씨, 공시, 카카오톡 제어 등)이 Antigravity-K의 `.agent/skills/k-skill`로 완전히 통합되고 구동되는지 검증합니다.
+
+**검증 기준 및 절차**
+1. **Vendoring 및 경로 패치**: `python3 scripts/` 등의 상대 경로가 `.agent/skills/k-skill/scripts/` 형태로 자동 패치되어 있는지 확인.
+2. **의존성(Dependencies) 확인**: `SRTrain`, `korail2` 파이썬 패키지 및 `daiso`, `bunjang-cli`, `kordoc` 등 15종의 글로벌 Node.js CLI가 설치되어 있는지 확인.
+3. **스킬 동적 로드**: 대시보드의 스킬 목록 또는 `/capabilities` 명령어에서 69개의 K-Skill이 `Active` 상태로 검색되는지 확인.
+
+**최신 결과**: PASS — 스킬 로더를 통해 69개 항목 인덱싱 완료, 터미널 의존성 설치 PASS.
+
+---
+
+### [Phase 44] BananaTape 이미지 워크스페이스 통합 검증
+
+> **목적**: BananaTape(로컬 기반 AI 이미지 에디터)가 전역 CLI 환경에 설치되어 에이전트가 생성 및 조작할 수 있는지 검증합니다.
+
+**검증 기준 및 절차**
+1. **CLI 제어 확인**: `bananatape create`, `launch`, `stop` 명령어를 에이전트가 백그라운드 터미널 도구를 통해 수행하는지 확인.
+2. **스킬 인식**: `.agent/skills/bananatape/SKILL.md`가 정상 파싱되어 에이전트의 지식 베이스에 로드되는지 확인.
+3. **네트워크 접근**: 127.0.0.1 빈 포트에 바나나테이프 에디터가 정상 서빙되는지 헬스체크.
+
+**최신 결과**: PASS — NPM 글로벌 설치 및 `bananatape --version` 확인, 스킬 로드 PASS.
+
+---
+
+### [Phase 45] Antigravity 알고리즘 이식 및 자율 DOM QA 검증
+
+> **목적**: Antigravity-K가 타 코딩 에이전트(Codex, Claude Code) 대비 지닌 약점을 보완하기 위해, 최고 수준의 전문 QA 엔진인 Antigravity 본연의 마크다운 포맷팅 능력, 품질 게이트 지표, 자율 계획 모드(Artifacts) 생성 능력을 1:1 이식하고 이를 Browser Subagent 기반의 E2E 시각 테스트로 통과하는지 검증합니다.
+
+**검증 기준 및 절차**
+1. **자율 브라우징 및 핀셋팅 우회**: `browser_subagent`가 `http://127.0.0.1:5173`에 접근하여, 보호된 시스템(PIN: 1935)에 자동으로 인증한 후 대시보드 무결성을 확인합니다.
+2. **QualityGate 고도화 검증**: 응답 생성 시 Mermaid HTML 차단, `<!-- slide -->` 캐러셀 문법, `render_diffs()`가 Antigravity 엄격 모드로 검증되는지 확인합니다.
+3. **ArtifactEngine 오버라이드 확인**: 계획 모드 트리거 시 `implementation_plan.md`, `task.md`, `walkthrough.md` 3대 아티팩트의 자동 생성 지시어가 프롬프트 레벨에 강제되는지 점검합니다.
+4. **회귀 안정성**: 백엔드가 프로젝트 루트에서 구동되며, 추가된 품질 검사 로직들이 `pytest tests/test_output_quality.py`에서 모두 PASS하는지 확인합니다.
+
+**최신 결과**: PASS — 8000/5173 포트 백그라운드 구동 후 브라우저 서브에이전트 인증 통과, QualityGate 마크다운 확장 검증 로직 이식 및 테스트 스위트 보강 완료.

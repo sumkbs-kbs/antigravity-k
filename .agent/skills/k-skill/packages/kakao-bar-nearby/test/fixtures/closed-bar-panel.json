@@ -1,0 +1,72 @@
+{
+  "summary": {
+    "confirm_id": "2002",
+    "name": "밤산책와인바",
+    "category": {
+      "name1": "음식점",
+      "name2": "술집",
+      "name3": "와인바"
+    },
+    "point": {
+      "lon": 126.9689,
+      "lat": 37.5575
+    },
+    "address": {
+      "disp": "서울 중구 중림로 10"
+    },
+    "phone_numbers": [
+      { "tel": "02-3333-4444" }
+    ]
+  },
+  "open_hours": {
+    "headline": {
+      "code": "BEFORE_OPEN",
+      "display_text": "영업 전",
+      "display_text_info": "18:00 오픈"
+    },
+    "week_from_today": {
+      "week_periods": [
+        {
+          "days": [
+            {
+              "day_of_the_week_desc": "일(3/29)",
+              "on_days": {
+                "start_end_time_desc": "18:00 ~ 01:00"
+              },
+              "is_highlight": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "menu": {
+    "menus": {
+      "items": [
+        { "name": "하우스와인", "price": 13000 },
+        { "name": "치즈 플레이트", "price": 21000 }
+      ],
+      "menu_type": "FOOD"
+    }
+  },
+  "ai_mate": {
+    "bottom_sheet": {
+      "summary": "조용한 분위기의 와인바입니다.",
+      "sheets": [
+        {
+          "title": "제공 서비스",
+          "ui_type": "LIST",
+          "list": [
+            {
+              "title": "좌석 옵션",
+              "keywords": ["바테이블"]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "place_add_info": {
+    "tags": ["데이트하기좋은"]
+  }
+}

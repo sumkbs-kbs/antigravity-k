@@ -34,9 +34,17 @@ class QualityScore:
 class QualityGate:
     """에이전트 출력 품질 자동 평가. A/B는 통과, C/F는 재시도."""
 
-    def __init__(self, max_retries: int = 1):
+    def __init__(self, max_retries: int = 1, verify_fn=None):
+        """
+        Args:
+            max_retries: 최대 재시도 횟수
+            verify_fn: LLM 기반 자가검증 함수 (prompt -> str).
+                       경량 모델(예: qwen3:4b)로 의미론적 품질 검증을 수행.
+                       None이면 LLM 검증을 건너뜁니다.
+        """
         self.max_retries = max_retries
         self._retry_count = 0
+        self._verify_fn = verify_fn
 
     def evaluate(
         self, task_type: str, user_request: str, agent_output: str
@@ -103,6 +111,19 @@ class QualityGate:
         score *= s
         issues.extend(i)
 
+        s, i = self._check_antigravity_markdown_standards(agent_output)
+        score *= s
+        issues.extend(i)
+
+        # ─── LLM 기반 자가 검증 (Semantic Self-Verification) ───
+        # 정규식 기반 점수가 통과권(B 이상)일 때만 LLM 검증 실행하여 비용 절약
+        if self._verify_fn and score >= 0.6 and len(agent_output) > 100:
+            llm_score, llm_issues = self._llm_self_verify(
+                user_request, agent_output, task_type
+            )
+            score *= llm_score
+            issues.extend(llm_issues)
+
         grade = (
             QualityGrade.A
             if score >= 0.8
@@ -138,6 +159,55 @@ class QualityGate:
 
     def reset(self):
         self._retry_count = 0
+
+    def _llm_self_verify(
+        self, user_request: str, agent_output: str, task_type: str
+    ) -> tuple:
+        """경량 LLM으로 응답의 의미론적 품질을 검증합니다.
+
+        연구 근거: Self-RAG, Corrective RAG (2024-2025)
+
+        Returns:
+            (score_multiplier: float, issues: list[str])
+        """
+        try:
+            verify_prompt = (
+                "[ROLE]\n당신은 AI 응답 품질 검증관입니다.\n\n"
+                "[TASK]\n아래의 사용자 질문과 AI 응답을 비교하여 품질을 평가하세요.\n"
+                "다음 3가지 항목을 각각 1~5점으로 채점하고, "
+                "총점(15점 만점)을 마지막 줄에 '총점: N' 형식으로 출력하세요.\n\n"
+                "1. 정확성 — 질문에 정확히 답했는가?\n"
+                "2. 완결성 — 빠진 핵심 정보 없이 충분한가?\n"
+                "3. 간결성 — 불필요한 반복이나 사족 없이 핵심만 전달했는가?\n\n"
+                f"[사용자 질문]\n{user_request[:300]}\n\n"
+                f"[AI 응답]\n{agent_output[:800]}\n\n"
+                "채점:"
+            )
+
+            result = self._verify_fn(verify_prompt)
+            if not result:
+                return 1.0, []
+
+            # "총점: N" 패턴 추출
+            import re
+            match = re.search(r"총점[:\s]*(\d+)", result)
+            if match:
+                total = int(match.group(1))
+                # 15점 만점 → 0.0~1.0 스케일링 (7점 미만이면 감점)
+                if total >= 12:
+                    return 1.0, []
+                elif total >= 9:
+                    return 0.9, [f"LLM검증: 중간 품질 ({total}/15점)"]
+                elif total >= 7:
+                    return 0.75, [f"LLM검증: 미흡 ({total}/15점)"]
+                else:
+                    return 0.5, [f"LLM검증: 심각한 품질 문제 ({total}/15점)"]
+
+            return 1.0, []  # 파싱 실패 시 감점하지 않음
+
+        except Exception as e:
+            logger.warning(f"LLM self-verification failed: {e}")
+            return 1.0, []  # 검증 실패 시 패스스루
 
     def _check_code(self, output: str) -> tuple:
         score, issues = 1.0, []
@@ -489,5 +559,34 @@ class QualityGate:
             elif vocab_richness < 0.3:
                 score *= 0.75
                 issues.append(f"어휘 다양성 낮음 ({vocab_richness:.0%})")
+
+        return score, issues
+
+    def _check_antigravity_markdown_standards(self, output: str) -> tuple:
+        """Antigravity 모델 수준의 마크다운 규약(Mermaid, Carousel, 파일 링크 등) 준수 여부 검증."""
+        score, issues = 1.0, []
+        
+        # 1. Mermaid 블록에 HTML 태그 포함 여부 (에러 유발)
+        mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
+        for block in mermaid_blocks:
+            if re.search(r"<[a-zA-Z]+.*?>", block):
+                score *= 0.8
+                issues.append("Mermaid 다이어그램 내 HTML 태그 포함 (렌더링 에러 위험)")
+        
+        # 2. Carousel syntax 오류 (슬라이드 주석은 있으나 백틱 선언이 틀린 경우)
+        if re.search(r"<!--\s*slide\s*-->", output, re.IGNORECASE):
+            if not re.search(r"````carousel", output, re.IGNORECASE):
+                score *= 0.75
+                issues.append("Carousel 마크다운 문법 오류 (백틱 4개 ````carousel 선언 필요)")
+
+        # 3. 잘못된 파일 링크 포맷 (링크 텍스트를 백틱으로 감싸면 렌더링 깨짐)
+        if re.search(r"\[`[^`]+`\]\(file://", output):
+            score *= 0.85
+            issues.append("파일 링크 텍스트에 백틱 사용 (마크다운 링크 포맷 깨짐 위험)")
+
+        # 4. Old Note Block 감지 (GitHub Alerts로 유도)
+        if re.search(r"\*\*(Note|Warning|Important)\*\*:", output, re.IGNORECASE):
+            score *= 0.9  # 경고성 감점
+            issues.append("구형 경고 블록 감지 (GitHub Alerts `> [!NOTE]` 스타일 권장)")
 
         return score, issues

@@ -32,6 +32,7 @@ class RouteStrategy(Enum):
     ROUND_ROBIN = "round-robin"  # 순환 분배
     LOAD_BALANCE = "load-balance"  # 메모리 부하 기반 분배
     COLLECTIVE = "collective"  # 여러 모델 제안/비판/합성 집단지성 실행
+    CASCADING = "cascading"  # 경량→중형→대형 점진적 에스컬레이션 (신뢰도 기반)
 
 
 # ─── 데이터 클래스 ───────────────────────────────────────────────────
@@ -340,6 +341,8 @@ class ModelRouter:
             return self._route_round_robin(combo)
         elif combo.strategy == RouteStrategy.LOAD_BALANCE:
             return self._route_load_balance(combo)
+        elif combo.strategy == RouteStrategy.CASCADING:
+            return self._route_cascading(combo)
         elif combo.strategy == RouteStrategy.COLLECTIVE:
             return self._route_fallback(combo)
         else:
@@ -447,6 +450,128 @@ class ModelRouter:
             f"(load-balance, {selected.estimated_memory_gb}GB)"
         )
         return selected
+
+    def _route_cascading(self, combo: ModelCombo) -> ModelProfile:
+        """
+        Cascading 전략: 경량 모델부터 시도하고, 신뢰도가 낮으면 자동 에스컬레이션.
+
+        모델 목록의 순서가 곧 에스컬레이션 티어입니다:
+          - models[0]: Tier 1 (경량, 4B 급) — 빠른 응답
+          - models[1]: Tier 2 (중형, 24B 급) — 품질 응답
+          - models[2]: Tier 3 (대형, 72B 급 또는 MoA) — 최고 품질
+
+        route()는 가장 가벼운 가용 모델을 반환하고,
+        실제 에스컬레이션은 ModelManager에서 응답 품질을 평가한 후
+        escalate()를 호출하여 다음 티어 모델을 받아옵니다.
+        """
+        for model_name in combo.models:
+            if not self._tracker.is_available(model_name):
+                continue
+            profile = self._registry.get_model(model_name)
+            if profile is None:
+                continue
+            logger.info(
+                f"[{combo.name}] 라우팅 → {model_name} "
+                f"(cascading, Tier {combo.models.index(model_name) + 1}/"
+                f"{len(combo.models)})"
+            )
+            return profile
+
+        raise AllModelsUnavailableError(combo.name, combo.models)
+
+    def escalate(
+        self, combo_name: str, current_model: str
+    ) -> Optional[ModelProfile]:
+        """현재 모델에서 다음 티어로 에스컬레이션합니다.
+
+        Args:
+            combo_name: 콤보 이름
+            current_model: 현재 사용 중인 모델 이름
+
+        Returns:
+            다음 티어의 ModelProfile, 또는 없으면 None (최고 티어 도달)
+        """
+        combo = self._combos.get(combo_name)
+        if combo is None:
+            return None
+
+        try:
+            idx = combo.models.index(current_model)
+        except ValueError:
+            return None
+
+        # 다음 티어부터 가용 모델 탐색
+        for next_model in combo.models[idx + 1:]:
+            if not self._tracker.is_available(next_model):
+                continue
+            profile = self._registry.get_model(next_model)
+            if profile:
+                logger.info(
+                    f"[{combo_name}] 에스컬레이션: {current_model} → {next_model} "
+                    f"(Tier {combo.models.index(next_model) + 1})"
+                )
+                return profile
+
+        logger.info(
+            f"[{combo_name}] 에스컬레이션 불가: {current_model}이 최고 티어"
+        )
+        return None
+
+    @staticmethod
+    def estimate_confidence(response: str) -> float:
+        """응답 텍스트에서 신뢰도 점수를 휴리스틱으로 추정합니다.
+
+        신뢰도가 낮은 응답의 특징:
+        - 매우 짧은 응답 (정보 부족)
+        - "확실하지 않습니다", "모르겠습니다" 등 불확실성 표현
+        - 반복적인 패턴
+        - 도구 호출 실패/에러 포함
+
+        Returns:
+            0.0 ~ 1.0 사이의 신뢰도 점수
+        """
+        import re
+
+        if not response or len(response.strip()) < 20:
+            return 0.1
+
+        score = 1.0
+
+        # 너무 짧은 응답 감점
+        if len(response) < 100:
+            score *= 0.6
+        elif len(response) < 200:
+            score *= 0.8
+
+        # 불확실성 표현 감점
+        uncertainty_patterns = [
+            r"확실하지 않", r"모르겠", r"잘 모르",
+            r"정확하지 않", r"불확실", r"추측",
+            r"I'm not sure", r"I don't know", r"uncertain",
+        ]
+        for pat in uncertainty_patterns:
+            if re.search(pat, response, re.IGNORECASE):
+                score *= 0.7
+                break
+
+        # 에러/실패 표현 감점
+        error_patterns = [
+            r"\[API Error", r"\[Error", r"실패",
+            r"failed", r"error", r"exception",
+        ]
+        for pat in error_patterns:
+            if re.search(pat, response, re.IGNORECASE):
+                score *= 0.5
+                break
+
+        # 반복 패턴 감점
+        sentences = response.split(".")
+        if len(sentences) > 3:
+            unique_ratio = len(set(sentences)) / len(sentences)
+            if unique_ratio < 0.5:
+                score *= 0.5
+
+        return max(0.0, min(1.0, score))
 
     # ─── 실패/복구 관리 ──────────────────────────────────────────────
 

@@ -309,7 +309,7 @@ class ToolCallGuardrailController:
                         action="block",
                         code="claude_deny_pattern",
                         message=(
-                            f"Command blocked by safety deny pattern. "
+                            "Command blocked by safety deny pattern. "
                             "This is a protective rule from claude_deny_patterns."
                         ),
                         tool_name=tool_name,

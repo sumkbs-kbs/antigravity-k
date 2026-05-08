@@ -19,6 +19,46 @@ from .usage_tracker import UsageTracker
 logger = logging.getLogger("antigravity_k.model_manager")
 
 
+# ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
+@dataclass
+class SamplingProfile:
+    """작업 유형별 최적 샘플링 파라미터.
+
+    연구 근거:
+      - Min-P는 Top-P보다 저확률 토큰(환각 원인)을 효과적으로 가지치기
+      - 사실 기반 작업에는 낮은 temperature, 창의적 작업에는 높은 temperature
+    """
+    temperature: float
+    min_p: float
+    repeat_penalty: float
+    top_p: float = 0.9
+    description: str = ""
+
+
+SAMPLING_PROFILES: dict[str, SamplingProfile] = {
+    "SEARCH": SamplingProfile(
+        temperature=0.15, min_p=0.05, repeat_penalty=1.3,
+        description="사실 기반 검색/조회 (환각 최소화)"
+    ),
+    "CODE": SamplingProfile(
+        temperature=0.25, min_p=0.1, repeat_penalty=1.2,
+        description="코드 생성/디버깅 (정확도 우선)"
+    ),
+    "ANALYSIS": SamplingProfile(
+        temperature=0.35, min_p=0.08, repeat_penalty=1.3,
+        description="분석/리포트 (논리적 추론)"
+    ),
+    "CREATIVE": SamplingProfile(
+        temperature=0.7, min_p=0.02, repeat_penalty=1.1,
+        description="창의적 글쓰기 (다양성 우선)"
+    ),
+    "GENERAL": SamplingProfile(
+        temperature=0.5, min_p=0.05, repeat_penalty=1.3,
+        description="일반 대화 (균형)"
+    ),
+}
+
+
 @dataclass
 class LoadedModel:
     """현재 메모리에 로드된 모델 정보"""
@@ -591,13 +631,30 @@ class ModelManager:
         url = f"{base_url}/chat/completions"
         api_key = config.model.api_key
 
+        # ─── 적응형 샘플링 프로파일 적용 ───
+        task_type = kwargs.get("task_type", "GENERAL")
+        profile = SAMPLING_PROFILES.get(task_type, SAMPLING_PROFILES["GENERAL"])
+
+        # kwargs에 명시적으로 지정된 값이 있으면 그것을 우선 사용 (하위 호환성)
+        temperature = kwargs.get("temperature", profile.temperature)
+        min_p = kwargs.get("min_p", profile.min_p)
+        repeat_penalty = kwargs.get("repeat_penalty", profile.repeat_penalty)
+
         data = {
             "model": loaded.profile.name,
             "stream": False,
-            "temperature": kwargs.get("temperature", 0.7),
+            "temperature": temperature,
             "max_tokens": kwargs.get("max_tokens", 4096),
-            "repeat_penalty": 1.3,
+            "repeat_penalty": repeat_penalty,
+            "options": {
+                "min_p": min_p,
+            },
         }
+
+        # ─── Ollama Structured Output (JSON Schema 강제) ───
+        json_schema = kwargs.get("response_format")
+        if json_schema:
+            data["format"] = json_schema
 
         if "raw_messages" in kwargs:
             sys_msg = kwargs.get("system_prompt", "")
