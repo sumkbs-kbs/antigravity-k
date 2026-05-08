@@ -48,12 +48,16 @@ class SelfEvolutionTool(BaseTool):
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["evolve", "generate_skill", "rsi_cycle"],
-                    "description": "Evolution mode: 'evolve' to improve existing code, 'generate_skill' to create a new tool, 'rsi_cycle' to run full recursive self-improvement.",
+                    "enum": ["evolve", "generate_skill", "rsi_cycle", "meta_architect", "self_play"],
+                    "description": "Evolution mode: 'evolve' (improve code), 'generate_skill' (create tool), 'rsi_cycle' (full RSI), 'meta_architect' (system-wide refactor), 'self_play' (autonomous dataset learning).",
                 },
                 "target_files": {
                     "type": "string",
-                    "description": "Optional comma-separated list of files to focus on (e.g., 'orchestrator.py,model_manager.py')",
+                    "description": "Optional comma-separated list of files to focus on.",
+                },
+                "dataset_name": {
+                    "type": "string",
+                    "description": "Optional Hugging Face dataset name when mode='self_play'. Leave empty for random or default dataset.",
                 },
             },
             "required": ["evolution_goal"],
@@ -83,6 +87,11 @@ class SelfEvolutionTool(BaseTool):
             return self._generate_new_skill(goal)
         elif mode == "rsi_cycle":
             return self._run_rsi_cycle(goal)
+        elif mode == "meta_architect":
+            return self._run_meta_architect(goal)
+        elif mode == "self_play":
+            dataset_name = kwargs.get("dataset_name", "")
+            return self._run_self_play(dataset_name)
         else:
             return self._evolve_codebase(goal, target_files)
 
@@ -130,6 +139,49 @@ class SelfEvolutionTool(BaseTool):
         except Exception as e:
             logger.error(f"Skill generation error: {e}", exc_info=True)
             return f"❌ 스킬 생성 중 오류: {e}"
+
+    def _run_meta_architect(self, goal: str) -> str:
+        """Level 3: Meta-Architect를 호출하여 전체 시스템 아키텍처 수준의 리팩터링을 수행합니다."""
+        try:
+            from antigravity_k.engine.meta_architect import MetaArchitect
+            project_root = self._find_project_root()
+            architect = MetaArchitect(project_root=project_root)
+            proposal = architect.analyze_and_propose({"weaknesses": [goal]})
+            if proposal:
+                architect.execute_proposal(proposal)
+                return f"✅ Meta-Architect가 제안을 성공적으로 실행했습니다.\n\n목표: {goal}\n개요: {proposal[:300]}..."
+            return "⚠️ Meta-Architect가 적절한 개선 제안을 생성하지 못했습니다."
+        except Exception as e:
+            logger.error(f"Meta-Architect error: {e}", exc_info=True)
+            return f"❌ Meta-Architect 실행 중 오류: {e}"
+
+    def _run_self_play(self, dataset_name: str) -> str:
+        """Level 3: 지정된(또는 무작위) 데이터셋을 활용해 자율 훈련(Self-Play) 사이클을 가동합니다."""
+        try:
+            from antigravity_k.engine.curriculum_generator import CurriculumGenerator
+            import asyncio
+            project_root = self._find_project_root()
+            generator = CurriculumGenerator(project_root=project_root)
+            
+            task = generator.generate_new_challenge(dataset_name=dataset_name)
+            if not task:
+                return "⚠️ 자가 학습 과제를 생성하지 못했습니다."
+
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            if loop.is_running():
+                loop.create_task(generator.self_play(task))
+            else:
+                loop.run_until_complete(generator.self_play(task))
+                
+            return f"✅ 자가 학습(Self-Play) 모드가 시작되었습니다.\n테스크 ID: {task.task_id}\n대상 데이터셋: {dataset_name or 'Auto/Synthetic'}"
+        except Exception as e:
+            logger.error(f"Self-Play error: {e}", exc_info=True)
+            return f"❌ 자가 학습 실행 중 오류: {e}"
 
     def _evolve_codebase(self, goal: str, target_files: str) -> str:
         """기존 코드베이스를 분석하고 개선합니다."""

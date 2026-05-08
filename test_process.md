@@ -808,6 +808,39 @@ print('Phase 25: ALL 5 CHECKS PASSED ✅')
 
 **최신 결과**: PASS
 
+### Phase 32: Meta-Architect (Level 3 Autonomous Refactoring)
+
+**목적**: Meta-Architect가 에이전트의 약점 패턴을 분석하여 대규모 시스템 단위의 리팩토링 제안을 생성하고 안전하게 실행하는지 검증합니다.
+
+**절차**
+- `self_evolution_tool.py`를 통해 `mode="meta_architect"`, `evolution_goal="test memory module"` 호출
+- Meta-Architect가 코드베이스를 스캔하고 `architectural_proposal`을 생성하는지 확인
+- 승인된 `architect_sandbox`에서 `_execute_proposal()`이 실행되어 변경사항이 커밋되는지 확인
+
+**통과 조건**
+- 구조적 변경 제안 생성 완료
+- 파일 생성/수정 성공 및 SyntaxError 없음
+- RSISandbox를 거쳐 불변성 검증 통과
+
+**최신 결과**: PASS
+
+### Phase 33: Self-Play Curriculum & Auto-Mapper (Level 3)
+
+**목적**: 에이전트가 임의의 Hugging Face 데이터셋을 주입받았을 때, 스키마를 자율 해석(Auto-Mapper)하고 스스로 문제를 풀며(Self-Play), 실패 시 LoRA 훈련 데이터를 생성하는지 검증합니다.
+
+**절차**
+- `self_evolution_tool.py`를 통해 `mode="self_play"`, `dataset_name="openai_humaneval"` 호출
+- `DatasetIngestor`가 샘플 데이터를 LLM에 넘겨 `prompt_col`, `test_col`, `ground_truth_col`을 올바르게 매핑하는지 확인
+- 매핑된 규칙으로 `CurriculumGenerator`가 문제를 출제하고 `OmniTDDEngine`이 벤치마크를 수행하는지 확인
+- 의도적으로 실패 유도 시 `data/failed/` 폴더에 `lora_payload`가 올바른 구조로 떨어지는지 확인
+
+**통과 조건**
+- `dataset_mappings.json`에 자율 분석된 스키마 저장됨
+- Self-Play 과제(Task) 정상 실행됨
+- 실패 시 `failed` 아카이브에 정답(`ground_truth_solution`)을 포함한 LoRA 페이로드 생성됨
+
+**최신 결과**: PASS
+
 ---
 
 ## 4. 결함 수정 이력
