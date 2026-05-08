@@ -75,8 +75,33 @@ class SkillLibrary:
 
 
 class DatasetIngestor:
-    """Hugging Face 데이터셋을 로드하고 미해결 문제를 샘플링하는 인제스터."""
-    def __init__(self, dataset_name: str = "openai_humaneval"):
+    """Hugging Face 데이터셋을 로드하고 미해결 문제를 샘플링하는 인제스터 (Auto-Mapper 기능 포함)."""
+    def __init__(self, project_root: str, ollama_url: str):
+        self.project_root = project_root
+        self.ollama_url = ollama_url
+        self.dataset_name = "openai_humaneval"  # 기본값
+        self.dataset = None
+        self.mappings_file = os.path.join(project_root, "data", "dataset_mappings.json")
+        os.makedirs(os.path.dirname(self.mappings_file), exist_ok=True)
+        self.mappings = self._load_mappings()
+
+    def _load_mappings(self) -> Dict[str, Dict[str, str]]:
+        if os.path.exists(self.mappings_file):
+            try:
+                with open(self.mappings_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_mappings(self):
+        try:
+            with open(self.mappings_file, "w", encoding="utf-8") as f:
+                json.dump(self.mappings, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[Curriculum] 데이터셋 매핑 저장 실패: {e}")
+
+    def set_dataset(self, dataset_name: str):
         self.dataset_name = dataset_name
         self.dataset = None
 
@@ -92,19 +117,73 @@ class DatasetIngestor:
             logger.error(f"[Curriculum] 데이터셋 로드 실패: {e}")
             return False
 
+    def _analyze_schema_with_llm(self, sample_item: dict) -> Dict[str, str]:
+        """LLM을 사용하여 알 수 없는 데이터셋의 스키마를 자율적으로 분석하고 매핑합니다."""
+        logger.info(f"[Curriculum] '{self.dataset_name}' 데이터셋 스키마 자율 분석 중...")
+        sample_json = json.dumps(sample_item, ensure_ascii=False, indent=2)
+        
+        prompt = (
+            "[ROLE] 당신은 데이터 엔지니어입니다.\n"
+            "[TASK] 아래는 허깅페이스 데이터셋의 레코드 1개 샘플입니다.\n"
+            "이 구조를 분석하여 코딩 테스트(또는 문제 풀이) 파이프라인에서 사용할 핵심 컬럼 3개의 이름을 찾아내세요.\n\n"
+            f"--- JSON SAMPLE ---\n{sample_json[:2000]}\n\n"
+            "[REQUIREMENTS]\n"
+            "1. prompt_col: 문제의 지시사항이나 설명이 들어간 컬럼명 (예: text, prompt, question, instruction)\n"
+            "2. test_col: 작성한 코드를 검증할 테스트 코드가 들어간 컬럼명 (없으면 빈 문자열). (예: test, test_list)\n"
+            "3. ground_truth_col: 완벽한 정답 코드가 들어간 컬럼명 (예: code, answer, solution, canonical_solution)\n\n"
+            "아래 JSON 형식으로만 응답하세요:\n"
+            '{"prompt_col": "...", "test_col": "...", "ground_truth_col": "..."}'
+        )
+        
+        try:
+            # CurriculumGenerator의 _call_llm 로직을 직접 사용할 수 없으므로, 여기에 독립적 구현체 추가
+            data = {
+                "model": "deepseek-v4",
+                "prompt": prompt,
+                "stream": False,
+                "options": {"num_predict": 512, "temperature": 0.1}
+            }
+            req = urllib.request.Request(
+                f"{self.ollama_url}/api/generate",
+                data=json.dumps(data).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                content = result.get("response", "")
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                
+                match = re.search(r"\{.*\}", content, re.DOTALL)
+                if match:
+                    mapping = json.loads(match.group())
+                    logger.info(f"[Curriculum] 스키마 분석 성공: {mapping}")
+                    return mapping
+        except Exception as e:
+            logger.error(f"[Curriculum] 스키마 자율 분석 실패: {e}")
+            
+        # 분석 실패 시 휴리스틱 폴백
+        return {"prompt_col": "prompt", "test_col": "test", "ground_truth_col": "canonical_solution"}
+
     def sample_task(self) -> Optional[CurriculumTask]:
         if not self.dataset:
             if not self.load():
                 return None
         
-        # 무작위 샘플링 (추후 '이미 푼 문제' 필터링 추가 가능)
+        # 무작위 샘플링
         idx = random.randint(0, len(self.dataset) - 1)
         item = self.dataset[idx]
         
+        # 스키마 매핑 획득 (Auto-Mapping)
+        if self.dataset_name not in self.mappings:
+            self.mappings[self.dataset_name] = self._analyze_schema_with_llm(item)
+            self._save_mappings()
+            
+        mapping = self.mappings[self.dataset_name]
+        
         task_id = f"hf_{self.dataset_name.replace('/', '_')}_{item.get('task_id', idx)}"
-        prompt_req = item.get("prompt", "")
-        tests = item.get("test", "")
-        ground_truth = item.get("canonical_solution", "")
+        prompt_req = item.get(mapping.get("prompt_col", ""), "")
+        tests = item.get(mapping.get("test_col", ""), "")
+        ground_truth = item.get(mapping.get("ground_truth_col", ""), "")
         
         # 테스트 코드가 있으면 변환, 없으면 빈 테스트
         pytest_code = tests if tests else "import pytest\n\ndef test_placeholder():\n    pass\n"
@@ -112,10 +191,10 @@ class DatasetIngestor:
         return CurriculumTask(
             task_id=task_id,
             domain="huggingface_dataset",
-            difficulty=6, # HumanEval 기본 난이도
-            prompt_requirement=prompt_req,
-            generated_test_code=pytest_code,
-            ground_truth_code=ground_truth,
+            difficulty=6, # 기본 난이도
+            prompt_requirement=str(prompt_req),
+            generated_test_code=str(pytest_code),
+            ground_truth_code=str(ground_truth) if ground_truth else None,
             is_hf_dataset=True
         )
 
@@ -129,13 +208,16 @@ class CurriculumGenerator:
         self.benchmark_dir = os.path.join(project_root, "tests", "curriculum")
         os.makedirs(self.benchmark_dir, exist_ok=True)
         self.skill_library = SkillLibrary(project_root)
-        self.dataset_ingestor = DatasetIngestor("openai_humaneval")
+        self.dataset_ingestor = DatasetIngestor(project_root, ollama_url)
 
-    def generate_new_challenge(self, domain: str = "algorithm", force_synthetic: bool = False) -> Optional[CurriculumTask]:
+    def generate_new_challenge(self, domain: str = "algorithm", force_synthetic: bool = False, dataset_name: Optional[str] = None) -> Optional[CurriculumTask]:
         """듀얼 모드: HF 데이터셋(Mode B)과 자율 창작(Mode A) 중 하나를 선택해 과제를 생성합니다."""
         
-        # 50% 확률로 Hugging Face 데이터셋 활용 (Mode B)
-        if not force_synthetic and HAS_DATASETS and random.random() < 0.5:
+        if dataset_name:
+            self.dataset_ingestor.set_dataset(dataset_name)
+            
+        # 50% 확률로 Hugging Face 데이터셋 활용 (Mode B) 또는 데이터셋 이름이 명시된 경우
+        if dataset_name or (not force_synthetic and HAS_DATASETS and random.random() < 0.5):
             logger.info("[Curriculum] Mode B: Hugging Face 데이터셋에서 샘플링합니다.")
             task = self.dataset_ingestor.sample_task()
             if task:
