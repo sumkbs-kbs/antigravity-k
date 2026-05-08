@@ -48,3 +48,4 @@ discord.py
 slack_sdk
 alembic
 slack_bolt
+datasets>=2.19.0

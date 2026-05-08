@@ -15,10 +15,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import urllib.request
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List, Dict
+
+try:
+    from datasets import load_dataset
+    HAS_DATASETS = True
+except ImportError:
+    HAS_DATASETS = False
 
 logger = logging.getLogger("antigravity_k.curriculum_generator")
 
@@ -32,6 +39,8 @@ class CurriculumTask:
     prompt_requirement: str
     generated_test_code: str
     passed: bool = False
+    ground_truth_code: Optional[str] = None
+    is_hf_dataset: bool = False
 
 
 class SkillLibrary:
@@ -65,6 +74,52 @@ class SkillLibrary:
             f.write(f'"""\nDescription: {description}\n"""\n\n{code}')
 
 
+class DatasetIngestor:
+    """Hugging Face 데이터셋을 로드하고 미해결 문제를 샘플링하는 인제스터."""
+    def __init__(self, dataset_name: str = "openai_humaneval"):
+        self.dataset_name = dataset_name
+        self.dataset = None
+
+    def load(self):
+        if not HAS_DATASETS:
+            logger.warning("[Curriculum] Hugging Face 'datasets' 라이브러리가 설치되지 않았습니다.")
+            return False
+        try:
+            logger.info(f"[Curriculum] 데이터셋 로드 중: {self.dataset_name}...")
+            self.dataset = load_dataset(self.dataset_name, split="test")
+            return True
+        except Exception as e:
+            logger.error(f"[Curriculum] 데이터셋 로드 실패: {e}")
+            return False
+
+    def sample_task(self) -> Optional[CurriculumTask]:
+        if not self.dataset:
+            if not self.load():
+                return None
+        
+        # 무작위 샘플링 (추후 '이미 푼 문제' 필터링 추가 가능)
+        idx = random.randint(0, len(self.dataset) - 1)
+        item = self.dataset[idx]
+        
+        task_id = f"hf_{self.dataset_name.replace('/', '_')}_{item.get('task_id', idx)}"
+        prompt_req = item.get("prompt", "")
+        tests = item.get("test", "")
+        ground_truth = item.get("canonical_solution", "")
+        
+        # 테스트 코드가 있으면 변환, 없으면 빈 테스트
+        pytest_code = tests if tests else "import pytest\n\ndef test_placeholder():\n    pass\n"
+
+        return CurriculumTask(
+            task_id=task_id,
+            domain="huggingface_dataset",
+            difficulty=6, # HumanEval 기본 난이도
+            prompt_requirement=prompt_req,
+            generated_test_code=pytest_code,
+            ground_truth_code=ground_truth,
+            is_hf_dataset=True
+        )
+
+
 class CurriculumGenerator:
     """자가 벤치마크 생성기 (Voyager & Frontier 기반)."""
 
@@ -74,10 +129,20 @@ class CurriculumGenerator:
         self.benchmark_dir = os.path.join(project_root, "tests", "curriculum")
         os.makedirs(self.benchmark_dir, exist_ok=True)
         self.skill_library = SkillLibrary(project_root)
+        self.dataset_ingestor = DatasetIngestor("openai_humaneval")
 
-    def generate_new_challenge(self, domain: str = "algorithm") -> Optional[CurriculumTask]:
-        """주어진 도메인에서 현재 스킬 경계(Frontier)에 있는 새로운 테스트 과제를 생성합니다."""
-        logger.info(f"[Curriculum] '{domain}' 도메인에서 Frontier 과제 탐색 중...")
+    def generate_new_challenge(self, domain: str = "algorithm", force_synthetic: bool = False) -> Optional[CurriculumTask]:
+        """듀얼 모드: HF 데이터셋(Mode B)과 자율 창작(Mode A) 중 하나를 선택해 과제를 생성합니다."""
+        
+        # 50% 확률로 Hugging Face 데이터셋 활용 (Mode B)
+        if not force_synthetic and HAS_DATASETS and random.random() < 0.5:
+            logger.info("[Curriculum] Mode B: Hugging Face 데이터셋에서 샘플링합니다.")
+            task = self.dataset_ingestor.sample_task()
+            if task:
+                return task
+            
+        # Mode A (Synthetic Frontier)
+        logger.info(f"[Curriculum] Mode A: '{domain}' 도메인에서 Synthetic Frontier 과제 탐색 중...")
         
         known_skills = self.skill_library.get_known_skills()
         skills_text = "\n".join([f"- {s}" for s in known_skills[-10:]]) if known_skills else "아직 획득한 특수 스킬이 없습니다."
@@ -156,11 +221,22 @@ class CurriculumGenerator:
                     )
             else:
                 logger.warning(f"[Curriculum] 💥 챌린지 실패. LoRA 파인튜닝 대기열에 추가. ({task.task_id})")
-                # 실패 로그를 남겨 나중에 LoRAPipeline에서 사용
                 fail_log = os.path.join(self.benchmark_dir, "failed", f"{task.task_id}.json")
                 os.makedirs(os.path.dirname(fail_log), exist_ok=True)
+                
+                # 정답(Ground Truth)이 존재한다면 초고품질 LoRA 페이로드로 변환
+                log_data = report.to_dict()
+                if task.is_hf_dataset and task.ground_truth_code:
+                    logger.info("[Curriculum] 정답지(Ground Truth)를 포함한 고품질 LoRA 훈련 데이터셋을 생성합니다.")
+                    log_data["lora_payload"] = {
+                        "instruction": task.prompt_requirement,
+                        "failed_attempt": report.final_code,
+                        "ground_truth_solution": task.ground_truth_code,
+                        "tests": task.generated_test_code
+                    }
+                    
                 with open(fail_log, "w", encoding="utf-8") as f:
-                    json.dump(report.to_dict(), f, ensure_ascii=False, indent=2)
+                    json.dump(log_data, f, ensure_ascii=False, indent=2)
 
             return task.passed
 
