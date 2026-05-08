@@ -8,7 +8,9 @@ import tempfile
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-WRAPPER_PATH = REPO_ROOT / "coupang-product-search" / "scripts" / "coupang_partners_mcp.py"
+WRAPPER_PATH = (
+    REPO_ROOT / "coupang-product-search" / "scripts" / "coupang_partners_mcp.py"
+)
 
 
 def load_wrapper_module():
@@ -23,7 +25,10 @@ class CoupangPartnersMcpWrapperTests(unittest.TestCase):
     def test_defaults_to_retention_corp_repo_and_local_mcp_contract(self):
         wrapper = load_wrapper_module()
 
-        self.assertEqual(wrapper.UPSTREAM_REPO_URL, "https://github.com/retention-corp/coupang_partners.git")
+        self.assertEqual(
+            wrapper.UPSTREAM_REPO_URL,
+            "https://github.com/retention-corp/coupang_partners.git",
+        )
         self.assertEqual(wrapper.DEFAULT_MCP_ENDPOINT, "local://coupang-mcp")
 
     def test_passes_arguments_to_upstream_bin_without_network_when_repo_exists(self):
@@ -241,7 +246,9 @@ class CoupangPartnersMcpWrapperTests(unittest.TestCase):
             payload = json.loads(completed.stdout)
             self.assertEqual(payload["OPENCLAW_SHOPPING_CLIENT_ID"], "openclaw-skill")
             self.assertEqual(payload["OPENCLAW_SHOPPING_FORCE_HOSTED"], "1")
-            self.assertEqual(payload["OPENCLAW_SHOPPING_BASE_URL"], "https://staging.example.com")
+            self.assertEqual(
+                payload["OPENCLAW_SHOPPING_BASE_URL"], "https://staging.example.com"
+            )
 
     def test_help_epilog_documents_credentialless_hosted_fallback(self):
         completed = subprocess.run(
@@ -257,7 +264,9 @@ class CoupangPartnersMcpWrapperTests(unittest.TestCase):
         self.assertIn("OPENCLAW_SHOPPING", help_text)
         self.assertRegex(help_text, r"(hosted|호스티드|a\.retn\.kr)")
 
-    def test_help_epilog_drops_non_allowlisted_coupang_mcp_fallback_recommendation(self):
+    def test_help_epilog_drops_non_allowlisted_coupang_mcp_fallback_recommendation(
+        self,
+    ):
         # Direct probes against https://a.retn.kr/v1/public/assist on 2026-04-21
         # confirmed that `X-OpenClaw-Client-Id: coupang-mcp-fallback` returns
         # HTTP 403 ("Client is not allowlisted"), while the upstream default

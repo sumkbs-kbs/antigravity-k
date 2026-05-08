@@ -109,7 +109,9 @@ except ModuleNotFoundError as exc:
 else:
     _KORAIL_IMPORT_ERROR = None
 
-DEFAULT_USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 13; SM-S928N Build/UP1A.231005.007)"
+DEFAULT_USER_AGENT = (
+    "Dalvik/2.1.0 (Linux; U; Android 13; SM-S928N Build/UP1A.231005.007)"
+)
 DYNAPATH_PATHS = [
     "/classes/com.korail.mobile.certification.TicketReservation",
     "/classes/com.korail.mobile.nonMember.NonMemTicket",
@@ -125,14 +127,14 @@ RESERVE_OPTION_MAP = {
     "special-only": ReserveOption.SPECIAL_ONLY,
 }
 TRAIN_TYPE_MAP = {
-    "ktx": TrainType.KTX,                       # 100 — KTX/KTX-산천
-    "itx-saemaeul": TrainType.ITX_SAEMAEUL,     # 101 — ITX-새마을
-    "mugunghwa": TrainType.MUGUNGHWA,           # 102 — 무궁화호
-    "nuriro": TrainType.NURIRO,                 # 102 — 누리로
-    "tonggeun": TrainType.TONGGUEN,             # 103 — 통근열차
-    "itx-cheongchun": TrainType.ITX_CHEONGCHUN, # 104 — ITX-청춘
-    "airport": TrainType.AIRPORT,               # 105 — 공항직통
-    "all": TrainType.ALL,                       # 109 — 전체
+    "ktx": TrainType.KTX,  # 100 — KTX/KTX-산천
+    "itx-saemaeul": TrainType.ITX_SAEMAEUL,  # 101 — ITX-새마을
+    "mugunghwa": TrainType.MUGUNGHWA,  # 102 — 무궁화호
+    "nuriro": TrainType.NURIRO,  # 102 — 누리로
+    "tonggeun": TrainType.TONGGUEN,  # 103 — 통근열차
+    "itx-cheongchun": TrainType.ITX_CHEONGCHUN,  # 104 — ITX-청춘
+    "airport": TrainType.AIRPORT,  # 105 — 공항직통
+    "all": TrainType.ALL,  # 109 — 전체
 }
 TRAIN_ID_PREFIX = "ktx:v1:"
 TRAIN_ID_INVALID_MESSAGE = "train_id is invalid; rerun search and copy a fresh train_id"
@@ -280,13 +282,21 @@ class PatchedKorail(Korail):
     _sid_key = b"2485dd54d9deaa36"
     _device_id = "558a4f02041657ea"
 
-    def __init__(self, korail_id: str, korail_pw: str, auto_login: bool = True, want_feedback: bool = False):
+    def __init__(
+        self,
+        korail_id: str,
+        korail_pw: str,
+        auto_login: bool = True,
+        want_feedback: bool = False,
+    ):
         import requests
 
         self._session = requests.session()
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         self._engine = DynaPathMasterEngine()
-        super().__init__(korail_id, korail_pw, auto_login=False, want_feedback=want_feedback)
+        super().__init__(
+            korail_id, korail_pw, auto_login=False, want_feedback=want_feedback
+        )
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         if auto_login:
             self.login(korail_id, korail_pw)
@@ -295,7 +305,9 @@ class PatchedKorail(Korail):
         ensure_runtime_dependencies()
         plaintext = f"{self._device}{timestamp_ms}".encode("utf-8")
         cipher = AES.new(self._sid_key, AES.MODE_CBC, iv=self._sid_key)
-        return base64.b64encode(cipher.encrypt(pad(plaintext, 16))).decode("utf-8") + "\n"
+        return (
+            base64.b64encode(cipher.encrypt(pad(plaintext, 16))).decode("utf-8") + "\n"
+        )
 
     def _auth_headers_and_sid(self, url: str) -> tuple[dict[str, str], str | None]:
         headers: dict[str, str] = {}
@@ -303,7 +315,9 @@ class PatchedKorail(Korail):
         if any(path in url for path in DYNAPATH_PATHS):
             timestamp_ms = int(time.time() * 1000)
             nonce = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
-            headers["x-dynapath-m-token"] = self._engine.generate_token(self._device_id, timestamp_ms, nonce)
+            headers["x-dynapath-m-token"] = self._engine.generate_token(
+                self._device_id, timestamp_ms, nonce
+            )
             sid = self._generate_sid(timestamp_ms)
         return headers, sid
 
@@ -337,7 +351,9 @@ class PatchedKorail(Korail):
         if sid:
             payload["Sid"] = sid
 
-        response = self._session.post(korail_mod.KORAIL_LOGIN, data=payload, headers=headers)
+        response = self._session.post(
+            korail_mod.KORAIL_LOGIN, data=payload, headers=headers
+        )
         data = json.loads(response.text)
         if data["strResult"] == "SUCC" and data.get("strMbCrdNo") is not None:
             self._key = data["Key"]
@@ -361,7 +377,9 @@ class PatchedKorail(Korail):
         include_no_seats: bool = False,
         include_waiting_list: bool = False,
     ):
-        kst_now = korail_mod.datetime.now(korail_mod.timezone.utc) + korail_mod.timedelta(hours=9)
+        kst_now = korail_mod.datetime.now(
+            korail_mod.timezone.utc
+        ) + korail_mod.timedelta(hours=9)
         if date is None:
             date = kst_now.strftime("%Y%m%d")
         if time_value is None:
@@ -370,14 +388,26 @@ class PatchedKorail(Korail):
             passengers = [AdultPassenger()]
 
         passengers = Passenger.reduce(passengers)
-        adult_count = reduce(lambda total, passenger: total + passenger.count, [p for p in passengers if isinstance(p, AdultPassenger)], 0)
-        child_count = reduce(lambda total, passenger: total + passenger.count, [p for p in passengers if isinstance(p, ChildPassenger)], 0)
+        adult_count = reduce(
+            lambda total, passenger: total + passenger.count,
+            [p for p in passengers if isinstance(p, AdultPassenger)],
+            0,
+        )
+        child_count = reduce(
+            lambda total, passenger: total + passenger.count,
+            [p for p in passengers if isinstance(p, ChildPassenger)],
+            0,
+        )
         toddler_count = reduce(
             lambda total, passenger: total + passenger.count,
             [p for p in passengers if isinstance(p, ToddlerPassenger)],
             0,
         )
-        senior_count = reduce(lambda total, passenger: total + passenger.count, [p for p in passengers if isinstance(p, SeniorPassenger)], 0)
+        senior_count = reduce(
+            lambda total, passenger: total + passenger.count,
+            [p for p in passengers if isinstance(p, SeniorPassenger)],
+            0,
+        )
 
         headers, sid = self._auth_headers_and_sid(korail_mod.KORAIL_SEARCH_SCHEDULE)
         payload = {
@@ -407,22 +437,36 @@ class PatchedKorail(Korail):
         if sid:
             payload["Sid"] = sid
 
-        response = self._session.post(korail_mod.KORAIL_SEARCH_SCHEDULE, params=payload, headers=headers)
+        response = self._session.post(
+            korail_mod.KORAIL_SEARCH_SCHEDULE, params=payload, headers=headers
+        )
         data = json.loads(response.text)
         if self._result_check(data):
             trains = [korail_mod.Train(info) for info in data["trn_infos"]["trn_info"]]
-            trains = [train for train in trains if train.dep_name == dep and train.arr_name == arr]
+            trains = [
+                train
+                for train in trains
+                if train.dep_name == dep and train.arr_name == arr
+            ]
             filters = [lambda train: train.has_seat()]
             if include_no_seats:
                 filters.append(lambda train: not train.has_seat())
             if include_waiting_list:
                 filters.append(lambda train: train.has_waiting_list())
-            trains = [train for train in trains if any(check(train) for check in filters)]
+            trains = [
+                train for train in trains if any(check(train) for check in filters)
+            ]
             if not trains:
                 raise NoResultsError()
             return trains
 
-    def reserve(self, train, passengers=None, option=ReserveOption.GENERAL_FIRST, try_waiting=False):
+    def reserve(
+        self,
+        train,
+        passengers=None,
+        option=ReserveOption.GENERAL_FIRST,
+        try_waiting=False,
+    ):
         reserving_seat = True
         try:
             if not train.has_seat():
@@ -444,7 +488,11 @@ class PatchedKorail(Korail):
             else:
                 raise ValueError(f"unsupported reserve option: {option}")
         except SoldOutError:
-            if try_waiting and option != ReserveOption.SPECIAL_ONLY and train.has_general_waiting_list():
+            if (
+                try_waiting
+                and option != ReserveOption.SPECIAL_ONLY
+                and train.has_general_waiting_list()
+            ):
                 reserving_seat = False
                 seat_type = "1"
             else:
@@ -454,7 +502,9 @@ class PatchedKorail(Korail):
             passengers = [AdultPassenger()]
 
         passengers = Passenger.reduce(passengers)
-        passenger_count = reduce(lambda total, passenger: total + passenger.count, passengers, 0)
+        passenger_count = reduce(
+            lambda total, passenger: total + passenger.count, passengers, 0
+        )
         headers, sid = self._auth_headers_and_sid(korail_mod.KORAIL_TICKETRESERVATION)
         payload = {
             "Device": self._device,
@@ -503,18 +553,28 @@ class PatchedKorail(Korail):
         for index, passenger in enumerate(passengers, start=1):
             payload.update(passenger.get_dict(index))
 
-        response = self._session.get(korail_mod.KORAIL_TICKETRESERVATION, params=payload, headers=headers)
+        response = self._session.get(
+            korail_mod.KORAIL_TICKETRESERVATION, params=payload, headers=headers
+        )
         data = json.loads(response.text)
         if self._result_check(data):
             reservation_id = data["h_pnr_no"]
-            matches = [reservation for reservation in self.reservations() if reservation.rsv_id == reservation_id]
+            matches = [
+                reservation
+                for reservation in self.reservations()
+                if reservation.rsv_id == reservation_id
+            ]
             if len(matches) == 1:
                 return matches[0]
-            raise KorailError(f"reservation {reservation_id} was created but could not be reloaded")
+            raise KorailError(
+                f"reservation {reservation_id} was created but could not be reloaded"
+            )
 
     def reservations(self):
         payload = {"Device": self._device, "Version": self._version, "Key": self._key}
-        response = self._session.get(korail_mod.KORAIL_MYRESERVATIONLIST, params=payload)
+        response = self._session.get(
+            korail_mod.KORAIL_MYRESERVATIONLIST, params=payload
+        )
         data = json.loads(response.text)
         try:
             if self._result_check(data):
@@ -565,7 +625,9 @@ def build_train_id_payload(train) -> dict[str, str]:
 
 
 def build_train_id(train) -> str:
-    payload = json.dumps(build_train_id_payload(train), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    payload = json.dumps(
+        build_train_id_payload(train), ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
     encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
     return f"{TRAIN_ID_PREFIX}{encoded}"
 
@@ -576,12 +638,18 @@ def parse_train_id(train_id: str) -> dict[str, str]:
     encoded = train_id.removeprefix(TRAIN_ID_PREFIX)
     padded = encoded + ("=" * ((4 - len(encoded) % 4) % 4))
     try:
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        payload = json.loads(
+            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        )
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SystemExit(TRAIN_ID_INVALID_MESSAGE) from exc
     if not isinstance(payload, dict):
         raise SystemExit(TRAIN_ID_INVALID_MESSAGE)
-    invalid_fields = [field for field in TRAIN_ID_FIELDS if not isinstance(payload.get(field), str) or not payload[field]]
+    invalid_fields = [
+        field
+        for field in TRAIN_ID_FIELDS
+        if not isinstance(payload.get(field), str) or not payload[field]
+    ]
     if invalid_fields:
         raise SystemExit(TRAIN_ID_INVALID_MESSAGE)
     return {field: payload[field] for field in TRAIN_ID_FIELDS}
@@ -670,10 +738,15 @@ def command_search(args: argparse.Namespace) -> None:
         include_waiting_list=args.include_waiting_list,
     )
     visible_trains = trains[: args.limit]
-    print_json({
-        "count": len(visible_trains),
-        "trains": [normalize_train(train, index) for index, train in enumerate(visible_trains, start=1)],
-    })
+    print_json(
+        {
+            "count": len(visible_trains),
+            "trains": [
+                normalize_train(train, index)
+                for index, train in enumerate(visible_trains, start=1)
+            ],
+        }
+    )
 
 
 def command_reserve(args: argparse.Namespace) -> None:
@@ -705,16 +778,27 @@ def command_reserve(args: argparse.Namespace) -> None:
 def command_reservations(_: argparse.Namespace) -> None:
     client = build_client()
     reservations = client.reservations()
-    print_json({
-        "count": len(reservations),
-        "reservations": [normalize_reservation(reservation) for reservation in reservations],
-    })
+    print_json(
+        {
+            "count": len(reservations),
+            "reservations": [
+                normalize_reservation(reservation) for reservation in reservations
+            ],
+        }
+    )
 
 
 def command_cancel(args: argparse.Namespace) -> None:
     client = build_client()
     reservations = client.reservations()
-    match = next((reservation for reservation in reservations if reservation.rsv_id == args.reservation_id), None)
+    match = next(
+        (
+            reservation
+            for reservation in reservations
+            if reservation.rsv_id == args.reservation_id
+        ),
+        None,
+    )
     if match is None:
         raise SystemExit(f"reservation {args.reservation_id} not found")
     client.cancel(match)
@@ -733,34 +817,54 @@ def add_common_trip_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Patched KTX/Korail booking helper for k-skill")
+    parser = argparse.ArgumentParser(
+        description="Patched KTX/Korail booking helper for k-skill"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     search_parser = subparsers.add_parser("search", help="KTX/Korail 열차를 조회합니다")
     add_common_trip_args(search_parser)
-    search_parser.add_argument("--limit", type=int, default=5, help="출력할 최대 열차 수")
+    search_parser.add_argument(
+        "--limit", type=int, default=5, help="출력할 최대 열차 수"
+    )
     search_parser.add_argument(
         "--train-type",
         choices=sorted(TRAIN_TYPE_MAP),
         default="ktx",
         help="조회할 열차 종류 (기본 ktx). ITX-청춘 노선은 itx-cheongchun, 무궁화는 mugunghwa, 전체는 all 사용",
     )
-    search_parser.add_argument("--include-no-seats", action="store_true", help="매진 열차도 포함")
-    search_parser.add_argument("--include-waiting-list", action="store_true", help="예약 대기 가능 열차도 포함")
+    search_parser.add_argument(
+        "--include-no-seats", action="store_true", help="매진 열차도 포함"
+    )
+    search_parser.add_argument(
+        "--include-waiting-list", action="store_true", help="예약 대기 가능 열차도 포함"
+    )
     search_parser.set_defaults(func=command_search)
 
-    reserve_parser = subparsers.add_parser("reserve", help="조회 결과 중 하나를 예약합니다")
+    reserve_parser = subparsers.add_parser(
+        "reserve", help="조회 결과 중 하나를 예약합니다"
+    )
     add_common_trip_args(reserve_parser)
-    reserve_parser.add_argument("--train-id", required=True, help="search 결과에서 복사한 stable train_id")
-    reserve_parser.add_argument("--seat-option", choices=sorted(RESERVE_OPTION_MAP), default="general-first")
+    reserve_parser.add_argument(
+        "--train-id", required=True, help="search 결과에서 복사한 stable train_id"
+    )
+    reserve_parser.add_argument(
+        "--seat-option", choices=sorted(RESERVE_OPTION_MAP), default="general-first"
+    )
     reserve_parser.add_argument(
         "--train-type",
         choices=sorted(TRAIN_TYPE_MAP),
         default="ktx",
         help="재조회할 열차 종류 — search 단계에서 사용한 값과 동일하게 지정 (기본 ktx)",
     )
-    reserve_parser.add_argument("--include-no-seats", action="store_true", help="검색 시 매진 열차도 포함")
-    reserve_parser.add_argument("--include-waiting-list", action="store_true", help="검색 시 예약대기 열차도 포함")
+    reserve_parser.add_argument(
+        "--include-no-seats", action="store_true", help="검색 시 매진 열차도 포함"
+    )
+    reserve_parser.add_argument(
+        "--include-waiting-list",
+        action="store_true",
+        help="검색 시 예약대기 열차도 포함",
+    )
     reserve_parser.add_argument(
         "--try-waiting",
         action="store_true",
@@ -768,7 +872,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reserve_parser.set_defaults(func=command_reserve)
 
-    reservations_parser = subparsers.add_parser("reservations", help="현재 예약 목록을 조회합니다")
+    reservations_parser = subparsers.add_parser(
+        "reservations", help="현재 예약 목록을 조회합니다"
+    )
     reservations_parser.set_defaults(func=command_reservations)
 
     cancel_parser = subparsers.add_parser("cancel", help="예약번호로 예약을 취소합니다")

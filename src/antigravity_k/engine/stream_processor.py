@@ -194,12 +194,12 @@ class StreamProcessor:
         flush_text = re.sub(
             r"(?i)^(?:Here is the|I will|Let me|Would you like me to|I can|I'll|Okay,|Sure,|Yes,).{0,30}(?:search|find|look up|perform|provide|check).{0,50}(?:\?|\.|:)?\s*",
             "",
-            flush_text
+            flush_text,
         )
         flush_text = re.sub(
             r"^(?:제가 |네, |알겠습니다. ).{0,30}(?:검색|찾아|확인|조회).{0,20}(?:해볼까요\?|해보겠습니다\.|해드릴게요\.)\s*",
             "",
-            flush_text
+            flush_text,
         )
 
         # thought/think 블록 완전 제거 (flush 시점에도 사용자에게 보여주지 않음)

@@ -149,6 +149,7 @@ async def chat_completions(
         if len(slash_text) < 15 and any(k in slash_text for k in fast_bypass):
             pass
         else:
+
             def _classify_intent():
                 prompt = (
                     "You are an autonomous intent router. Analyze the user request and categorize it into ONE of these exactly:\n"
@@ -167,21 +168,28 @@ async def chat_completions(
                         temperature=0.0,
                     )
                     r = res.lower()
-                    if "tdd" in r: return "TDD"
-                    if "search" in r: return "SEARCH"
+                    if "tdd" in r:
+                        return "TDD"
+                    if "search" in r:
+                        return "SEARCH"
                     return "GENERAL"
                 except Exception as e:
                     logger_auto.warning(f"Auto-Intent LLM classification failed: {e}")
                     return "GENERAL"
 
             from starlette.concurrency import run_in_threadpool
+
             intent = await run_in_threadpool(_classify_intent)
-            
+
             if intent == "TDD":
-                logger_auto.info(f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}")
+                logger_auto.info(
+                    f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}"
+                )
                 is_tdd_mode = True
             elif intent == "SEARCH":
-                logger_auto.info(f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}")
+                logger_auto.info(
+                    f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}"
+                )
                 is_fast_search = True
 
     if is_fast_search:
@@ -209,11 +217,13 @@ async def chat_completions(
             )
 
             if is_stream:
+
                 async def _fast_stream():
                     yield f"data: {json.dumps({'id':'chatcmpl-stream','object':'chat.completion.chunk','model':target_model,'choices':[{'delta':{'content':'🔍 **빠른 웹 검색 모드 실행 중...**\\n\\n'},'index':0,'finish_reason':None}]}, ensure_ascii=False)}\n\n"
                     # SEARCH 샘플링 프로파일 (low temp=0.15, min_p=0.05)
                     gen = manager.stream_generate(
-                        prompt=fast_prompt, target=target_model,
+                        prompt=fast_prompt,
+                        target=target_model,
                         task_type="SEARCH",
                     )
                     for chunk in gen:
@@ -221,11 +231,17 @@ async def chat_completions(
                             "id": "chatcmpl-stream",
                             "object": "chat.completion.chunk",
                             "model": target_model,
-                            "choices": [{"delta": {"content": chunk}, "index": 0, "finish_reason": None}],
+                            "choices": [
+                                {
+                                    "delta": {"content": chunk},
+                                    "index": 0,
+                                    "finish_reason": None,
+                                }
+                            ],
                         }
                         yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                     yield "data: [DONE]\n\n"
-                
+
                 # 빠른 검색도 세션 컨텍스트에 저장
                 session_manager.add_turn(
                     [
@@ -243,9 +259,20 @@ async def chat_completions(
                     "tokens_in": len(slash_text) // 4,
                     "tokens_out": len(fast_res) // 4,
                 }
-                session_manager.add_turn([{"role": "user", "content": slash_text}, {"role": "assistant", "content": fast_res}])
-                target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
-                return translator.translate_response(internal_resp, target=target_format)
+                session_manager.add_turn(
+                    [
+                        {"role": "user", "content": slash_text},
+                        {"role": "assistant", "content": fast_res},
+                    ]
+                )
+                target_format = (
+                    source_format
+                    if source_format != APIFormat.INTERNAL
+                    else APIFormat.OPENAI
+                )
+                return translator.translate_response(
+                    internal_resp, target=target_format
+                )
         except Exception as e:
             logger_auto.error(f"Fast search failed: {e}. Falling back to normal mode.")
             is_fast_search = False

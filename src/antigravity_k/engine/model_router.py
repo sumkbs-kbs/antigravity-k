@@ -479,9 +479,7 @@ class ModelRouter:
 
         raise AllModelsUnavailableError(combo.name, combo.models)
 
-    def escalate(
-        self, combo_name: str, current_model: str
-    ) -> Optional[ModelProfile]:
+    def escalate(self, combo_name: str, current_model: str) -> Optional[ModelProfile]:
         """현재 모델에서 다음 티어로 에스컬레이션합니다.
 
         Args:
@@ -501,7 +499,7 @@ class ModelRouter:
             return None
 
         # 다음 티어부터 가용 모델 탐색
-        for next_model in combo.models[idx + 1:]:
+        for next_model in combo.models[idx + 1 :]:
             if not self._tracker.is_available(next_model):
                 continue
             profile = self._registry.get_model(next_model)
@@ -512,9 +510,7 @@ class ModelRouter:
                 )
                 return profile
 
-        logger.info(
-            f"[{combo_name}] 에스컬레이션 불가: {current_model}이 최고 티어"
-        )
+        logger.info(f"[{combo_name}] 에스컬레이션 불가: {current_model}이 최고 티어")
         return None
 
     @staticmethod
@@ -545,9 +541,15 @@ class ModelRouter:
 
         # 불확실성 표현 감점
         uncertainty_patterns = [
-            r"확실하지 않", r"모르겠", r"잘 모르",
-            r"정확하지 않", r"불확실", r"추측",
-            r"I'm not sure", r"I don't know", r"uncertain",
+            r"확실하지 않",
+            r"모르겠",
+            r"잘 모르",
+            r"정확하지 않",
+            r"불확실",
+            r"추측",
+            r"I'm not sure",
+            r"I don't know",
+            r"uncertain",
         ]
         for pat in uncertainty_patterns:
             if re.search(pat, response, re.IGNORECASE):
@@ -556,8 +558,12 @@ class ModelRouter:
 
         # 에러/실패 표현 감점
         error_patterns = [
-            r"\[API Error", r"\[Error", r"실패",
-            r"failed", r"error", r"exception",
+            r"\[API Error",
+            r"\[Error",
+            r"실패",
+            r"failed",
+            r"error",
+            r"exception",
         ]
         for pat in error_patterns:
             if re.search(pat, response, re.IGNORECASE):

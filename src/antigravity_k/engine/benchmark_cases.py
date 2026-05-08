@@ -247,8 +247,7 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
         difficulty=2,
         description="한국어 답변 품질 회귀: 외국어 오염 없음 확인",
         prompt=(
-            "TCP와 UDP의 차이를 설명하고, "
-            "각각 적합한 사용 사례를 3가지씩 들어줘."
+            "TCP와 UDP의 차이를 설명하고, " "각각 적합한 사용 사례를 3가지씩 들어줘."
         ),
         expected_keywords=("TCP", "UDP", "사례"),
     ),

@@ -892,14 +892,26 @@ class OrchestratorAgent:
                 # 스트림이 모두 종료된 후, 컨텍스트(prompt 및 shaped_messages)를 갱신
                 # Context Scrubbing: 로컬 모델이 <tool_call> 전에 출력한 불필요한 대화(Pre-fill fluff)를 제거
                 import re
-                tool_call_blocks = re.findall(r"(<tool_call>.*?</tool_call>)", full_response, re.DOTALL)
-                clean_assistant_content = "\n".join(tool_call_blocks) if tool_call_blocks else full_response
+
+                tool_call_blocks = re.findall(
+                    r"(<tool_call>.*?</tool_call>)", full_response, re.DOTALL
+                )
+                clean_assistant_content = (
+                    "\n".join(tool_call_blocks) if tool_call_blocks else full_response
+                )
 
                 all_tool_responses = "\n".join(getattr(parser, "tool_responses", []))
-                prompt += clean_assistant_content + "\n" + all_tool_responses + "\nAssistant: "
+                prompt += (
+                    clean_assistant_content
+                    + "\n"
+                    + all_tool_responses
+                    + "\nAssistant: "
+                )
 
                 # API 전송용 raw_messages에도 반영
-                shaped_messages.append({"role": "assistant", "content": clean_assistant_content})
+                shaped_messages.append(
+                    {"role": "assistant", "content": clean_assistant_content}
+                )
                 shaped_messages.append({"role": "user", "content": all_tool_responses})
 
                 # Planning Mode 및 Tool Guardrail 승인 대기 지원

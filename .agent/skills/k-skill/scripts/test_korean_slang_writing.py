@@ -1,4 +1,5 @@
 """Tests for korean-slang-writing skill (slang_search + slang_lookup)."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -135,7 +136,7 @@ class SeedIndexShapeTest(unittest.TestCase):
                 url.startswith(prefix),
                 f"{entry['term']!r} namuwiki_url must start with {prefix}: got {url!r}",
             )
-            path_segment = url[len(prefix):]
+            path_segment = url[len(prefix) :]
             decoded = urllib.parse.unquote(path_segment)
             candidates = {entry["term"], *entry.get("aliases", [])}
             self.assertIn(
@@ -164,12 +165,16 @@ class SeedIndexShapeTest(unittest.TestCase):
 
 class SearchQueryMatchingTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.index = make_index([
-            make_entry(term="중꺾마", aliases=["중요한 건 꺾이지 않는 마음"], era="2022"),
-            make_entry(term="갓생", aliases=["갓생러"], era="2021"),
-            make_entry(term="럭키비키", aliases=["Lucky Vicky"], era="2024"),
-            make_entry(term="중꺾그마", aliases=[], era="2023"),
-        ])
+        self.index = make_index(
+            [
+                make_entry(
+                    term="중꺾마", aliases=["중요한 건 꺾이지 않는 마음"], era="2022"
+                ),
+                make_entry(term="갓생", aliases=["갓생러"], era="2021"),
+                make_entry(term="럭키비키", aliases=["Lucky Vicky"], era="2024"),
+                make_entry(term="중꺾그마", aliases=[], era="2023"),
+            ]
+        )
 
     def test_exact_term_match_wins_over_substring(self) -> None:
         result = slang_search.search(query="중꺾마", index=self.index)
@@ -198,10 +203,12 @@ class SearchQueryMatchingTest(unittest.TestCase):
         self.assertEqual(result["candidates"][0]["term"], "럭키비키")
 
     def test_exact_match_outranks_substring_match(self) -> None:
-        index = make_index([
-            make_entry(term="중꺾그마", era="2023"),
-            make_entry(term="중꺾마", era="2022"),
-        ])
+        index = make_index(
+            [
+                make_entry(term="중꺾그마", era="2023"),
+                make_entry(term="중꺾마", era="2022"),
+            ]
+        )
         result = slang_search.search(query="중꺾마", index=index)
         reasons = [c["match_reason"] for c in result["candidates"]]
         self.assertEqual(result["candidates"][0]["term"], "중꺾마")
@@ -221,41 +228,43 @@ class SearchQueryMatchingTest(unittest.TestCase):
 
 class SearchFilterTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.index = make_index([
-            make_entry(
-                term="A긍정",
-                mood_tags=["긍정", "유머"],
-                usage_context=["SNS", "마케팅"],
-                safety="safe",
-                intensity="medium",
-                era="2022",
-            ),
-            make_entry(
-                term="B부정",
-                mood_tags=["부정"],
-                usage_context=["일상"],
-                safety="safe",
-                intensity="subtle",
-                era="2021",
-            ),
-            make_entry(
-                term="C강한",
-                mood_tags=["긍정"],
-                usage_context=["SNS"],
-                safety="spicy",
-                intensity="strong",
-                era="2020",
-            ),
-            make_entry(
-                term="D옛것",
-                mood_tags=["긍정"],
-                usage_context=["SNS"],
-                safety="safe",
-                intensity="medium",
-                era="2015",
-                still_usable=False,
-            ),
-        ])
+        self.index = make_index(
+            [
+                make_entry(
+                    term="A긍정",
+                    mood_tags=["긍정", "유머"],
+                    usage_context=["SNS", "마케팅"],
+                    safety="safe",
+                    intensity="medium",
+                    era="2022",
+                ),
+                make_entry(
+                    term="B부정",
+                    mood_tags=["부정"],
+                    usage_context=["일상"],
+                    safety="safe",
+                    intensity="subtle",
+                    era="2021",
+                ),
+                make_entry(
+                    term="C강한",
+                    mood_tags=["긍정"],
+                    usage_context=["SNS"],
+                    safety="spicy",
+                    intensity="strong",
+                    era="2020",
+                ),
+                make_entry(
+                    term="D옛것",
+                    mood_tags=["긍정"],
+                    usage_context=["SNS"],
+                    safety="safe",
+                    intensity="medium",
+                    era="2015",
+                    still_usable=False,
+                ),
+            ]
+        )
 
     def test_mood_filter_matches_any_of_requested_tags(self) -> None:
         result = slang_search.search(mood=["긍정"], index=self.index)
@@ -318,13 +327,21 @@ class SearchFilterTest(unittest.TestCase):
 
 class SearchCliTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture_path = pathlib.Path(__file__).resolve().parent / "fixtures" / "slang-fixture.json"
+        self.fixture_path = (
+            pathlib.Path(__file__).resolve().parent / "fixtures" / "slang-fixture.json"
+        )
         self.fixture_path.parent.mkdir(parents=True, exist_ok=True)
-        fixture = make_index([
-            make_entry(term="갓생", aliases=["갓생러"], mood_tags=["긍정"], era="2021"),
-            make_entry(term="현타", mood_tags=["부정"], era="2015"),
-        ])
-        self.fixture_path.write_text(json.dumps(fixture, ensure_ascii=False), encoding="utf-8")
+        fixture = make_index(
+            [
+                make_entry(
+                    term="갓생", aliases=["갓생러"], mood_tags=["긍정"], era="2021"
+                ),
+                make_entry(term="현타", mood_tags=["부정"], era="2015"),
+            ]
+        )
+        self.fixture_path.write_text(
+            json.dumps(fixture, ensure_ascii=False), encoding="utf-8"
+        )
 
     def tearDown(self) -> None:
         if self.fixture_path.exists():
@@ -372,7 +389,10 @@ class SearchCliTest(unittest.TestCase):
         ]
         err_buf = io.StringIO()
         out_buf = io.StringIO()
-        with mock.patch.object(sys, "stderr", err_buf), mock.patch.object(sys, "stdout", out_buf):
+        with (
+            mock.patch.object(sys, "stderr", err_buf),
+            mock.patch.object(sys, "stdout", out_buf),
+        ):
             exit_code = slang_search.main(argv)
         self.assertNotEqual(exit_code, 0)
         self.assertIn("error", err_buf.getvalue().lower())
@@ -451,16 +471,16 @@ class LookupParsingTest(unittest.TestCase):
 
     def test_extract_summary_truncates_to_max_length(self) -> None:
         long_html = (
-            "<html><body><article><p>"
-            + ("가" * 5000)
-            + "</p></article></body></html>"
+            "<html><body><article><p>" + ("가" * 5000) + "</p></article></body></html>"
         )
         summary = slang_lookup.extract_summary(long_html, max_length=100)
         # Summary is capped at max_length + 3 chars for the "..." suffix.
         self.assertLessEqual(len(summary), 103)
 
     def test_extract_summary_returns_empty_on_unknown_structure(self) -> None:
-        summary = slang_lookup.extract_summary("<html><body></body></html>", max_length=1500)
+        summary = slang_lookup.extract_summary(
+            "<html><body></body></html>", max_length=1500
+        )
         self.assertEqual(summary, "")
 
     def test_extract_summary_uses_h2_section_boundaries_on_current_namuwiki_layout(
@@ -783,7 +803,9 @@ class HttpUtilitiesTest(unittest.TestCase):
 
 class LookupCliTest(unittest.TestCase):
     def test_cli_json_output(self) -> None:
-        with mock.patch.object(slang_lookup, "fetch_page", return_value=LookupParsingTest.HTML_SAMPLE):
+        with mock.patch.object(
+            slang_lookup, "fetch_page", return_value=LookupParsingTest.HTML_SAMPLE
+        ):
             argv = [
                 "중꺾마",
                 "--format",
@@ -807,7 +829,10 @@ class LookupCliTest(unittest.TestCase):
             argv = ["https://namu.wiki/w/test"]
             out_buf = io.StringIO()
             err_buf = io.StringIO()
-            with mock.patch.object(sys, "stdout", out_buf), mock.patch.object(sys, "stderr", err_buf):
+            with (
+                mock.patch.object(sys, "stdout", out_buf),
+                mock.patch.object(sys, "stderr", err_buf),
+            ):
                 exit_code = slang_lookup.main(argv)
         self.assertEqual(exit_code, 2)
         output = json.loads(out_buf.getvalue())

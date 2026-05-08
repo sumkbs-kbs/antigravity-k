@@ -134,7 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Look up Korean postcodes and official English addresses from ePost.",
     )
     parser.add_argument("query", help="Korean road-name or jibun address query")
-    parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help="maximum number of rows to keep")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_LIMIT,
+        help="maximum number of rows to keep",
+    )
     return parser
 
 

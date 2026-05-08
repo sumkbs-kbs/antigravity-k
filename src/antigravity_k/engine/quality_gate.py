@@ -190,6 +190,7 @@ class QualityGate:
 
             # "총점: N" 패턴 추출
             import re
+
             match = re.search(r"총점[:\s]*(\d+)", result)
             if match:
                 total = int(match.group(1))
@@ -565,19 +566,21 @@ class QualityGate:
     def _check_antigravity_markdown_standards(self, output: str) -> tuple:
         """Antigravity 모델 수준의 마크다운 규약(Mermaid, Carousel, 파일 링크 등) 준수 여부 검증."""
         score, issues = 1.0, []
-        
+
         # 1. Mermaid 블록에 HTML 태그 포함 여부 (에러 유발)
         mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
         for block in mermaid_blocks:
             if re.search(r"<[a-zA-Z]+.*?>", block):
                 score *= 0.8
                 issues.append("Mermaid 다이어그램 내 HTML 태그 포함 (렌더링 에러 위험)")
-        
+
         # 2. Carousel syntax 오류 (슬라이드 주석은 있으나 백틱 선언이 틀린 경우)
         if re.search(r"<!--\s*slide\s*-->", output, re.IGNORECASE):
             if not re.search(r"````carousel", output, re.IGNORECASE):
                 score *= 0.75
-                issues.append("Carousel 마크다운 문법 오류 (백틱 4개 ````carousel 선언 필요)")
+                issues.append(
+                    "Carousel 마크다운 문법 오류 (백틱 4개 ````carousel 선언 필요)"
+                )
 
         # 3. 잘못된 파일 링크 포맷 (링크 텍스트를 백틱으로 감싸면 렌더링 깨짐)
         if re.search(r"\[`[^`]+`\]\(file://", output):

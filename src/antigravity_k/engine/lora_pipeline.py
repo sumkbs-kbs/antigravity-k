@@ -35,6 +35,7 @@ logger = logging.getLogger("antigravity_k.lora_pipeline")
 @dataclass
 class HarvestEntry:
     """수확된 고품질 응답 1건"""
+
     user_request: str
     agent_output: str
     quality_score: float
@@ -77,7 +78,7 @@ class LoRAPipeline:
 
     # 수확 조건: 이 점수 이상만 수확
     HARVEST_THRESHOLD = 0.75  # B등급 이상 (score >= 0.6은 B, 0.75면 B+ 이상만)
-    MAX_HARVEST_SIZE = 5000   # 최대 수확 건수
+    MAX_HARVEST_SIZE = 5000  # 최대 수확 건수
 
     def __init__(
         self,
@@ -134,8 +135,10 @@ class LoRAPipeline:
 
         # 중복 방지: 동일 요청 + 동일 응답(앞 200자)
         for existing in self._entries[-100:]:  # 최근 100개만 검사
-            if (existing.user_request == user_request
-                    and existing.agent_output[:200] == agent_output[:200]):
+            if (
+                existing.user_request == user_request
+                and existing.agent_output[:200] == agent_output[:200]
+            ):
                 return False
 
         entry = HarvestEntry(
@@ -213,16 +216,14 @@ class LoRAPipeline:
             "format": format,
             "avg_score": (
                 sum(e.quality_score for e in selected) / len(selected)
-                if selected else 0
+                if selected
+                else 0
             ),
             "avg_word_count": (
-                sum(e.word_count for e in selected) / len(selected)
-                if selected else 0
+                sum(e.word_count for e in selected) / len(selected) if selected else 0
             ),
         }
-        logger.info(
-            f"[LoRA] 데이터셋 내보내기 완료: {len(selected)}건 → {output}"
-        )
+        logger.info(f"[LoRA] 데이터셋 내보내기 완료: {len(selected)}건 → {output}")
         return stats
 
     # ─── 3단계: 학습 설정 생성 (Config) ───────────────────────────

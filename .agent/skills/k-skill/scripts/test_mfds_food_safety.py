@@ -80,8 +80,15 @@ class FoodNormalizationTest(unittest.TestCase):
 
 class ProxyResolutionTest(unittest.TestCase):
     def test_resolve_proxy_base_url_defaults_to_hosted_proxy(self):
-        self.assertEqual(resolve_proxy_base_url(None, env={}), "https://k-skill-proxy.nomadamas.org")
-        self.assertEqual(resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "https://proxy.example.com/"}), "https://proxy.example.com")
+        self.assertEqual(
+            resolve_proxy_base_url(None, env={}), "https://k-skill-proxy.nomadamas.org"
+        )
+        self.assertEqual(
+            resolve_proxy_base_url(
+                None, env={"KSKILL_PROXY_BASE_URL": "https://proxy.example.com/"}
+            ),
+            "https://proxy.example.com",
+        )
         with self.assertRaisesRegex(ValueError, "KSKILL_PROXY_BASE_URL"):
             resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "off"})
 
@@ -92,10 +99,17 @@ class ProxyResolutionTest(unittest.TestCase):
             captured["url"] = request.full_url
             return {"items": [], "warnings": []}
 
-        payload = search_food_safety("김밥", limit=4, base_url="https://proxy.example.com", request_json=fake_request_json)
+        payload = search_food_safety(
+            "김밥",
+            limit=4,
+            base_url="https://proxy.example.com",
+            request_json=fake_request_json,
+        )
 
         self.assertEqual(payload, {"items": [], "warnings": []})
-        self.assertIn("https://proxy.example.com/v1/mfds/food-safety/search", captured["url"])
+        self.assertIn(
+            "https://proxy.example.com/v1/mfds/food-safety/search", captured["url"]
+        )
         self.assertIn("query=%EA%B9%80%EB%B0%A5", captured["url"])
         self.assertIn("limit=4", captured["url"])
 

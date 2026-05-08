@@ -63,9 +63,13 @@ class SubwayLostPropertyQueryTest(unittest.TestCase):
         self.assertIn("--max-time", command)
         self.assertEqual(command[command.index("--max-time") + 1], "60")
         self.assertIn("--referer", command)
-        self.assertEqual(command[command.index("--referer") + 1], "https://www.lost112.go.kr/")
+        self.assertEqual(
+            command[command.index("--referer") + 1], "https://www.lost112.go.kr/"
+        )
         self.assertIn("--output", command)
-        self.assertEqual(command[command.index("--output") + 1], "lost112-search-result.html")
+        self.assertEqual(
+            command[command.index("--output") + 1], "lost112-search-result.html"
+        )
         self.assertIn("SITE=V", " ".join(command))
         self.assertEqual(command[-1], LOST112_LIST_URL)
 
@@ -76,7 +80,9 @@ class SubwayLostPropertyQueryTest(unittest.TestCase):
 
 class SubwayLostPropertyProbeTest(unittest.TestCase):
     def test_probe_source_marks_successful_fetch_as_reachable(self):
-        runner = mock.Mock(return_value=mock.Mock(returncode=0, stdout="<html></html>", stderr=""))
+        runner = mock.Mock(
+            return_value=mock.Mock(returncode=0, stdout="<html></html>", stderr="")
+        )
 
         status = probe_source("LOST112", LOST112_LIST_URL, runner=runner)
 
@@ -89,9 +95,15 @@ class SubwayLostPropertyProbeTest(unittest.TestCase):
         self.assertEqual(command[-1], LOST112_LIST_URL)
 
     def test_probe_source_marks_timeouts_cleanly(self):
-        runner = mock.Mock(side_effect=__import__("subprocess").CalledProcessError(28, ["curl"], stderr="Operation timed out"))
+        runner = mock.Mock(
+            side_effect=__import__("subprocess").CalledProcessError(
+                28, ["curl"], stderr="Operation timed out"
+            )
+        )
 
-        status = probe_source("서울교통공사", SEOUL_METRO_LOST_CENTER_URL, runner=runner)
+        status = probe_source(
+            "서울교통공사", SEOUL_METRO_LOST_CENTER_URL, runner=runner
+        )
 
         self.assertEqual(status["status"], "timeout")
         self.assertIn("timed out", status["detail"].lower())
@@ -116,9 +128,13 @@ class SubwayLostPropertyCliShapeTest(unittest.TestCase):
             repo_root / "subway-lost-property" / "scripts" / "subway_lost_property.py",
         ):
             with self.subTest(helper=helper):
-                self.assertTrue(os.access(helper, os.X_OK), f"{helper} should be executable")
                 self.assertTrue(
-                    helper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3\n"),
+                    os.access(helper, os.X_OK), f"{helper} should be executable"
+                )
+                self.assertTrue(
+                    helper.read_text(encoding="utf-8").startswith(
+                        "#!/usr/bin/env python3\n"
+                    ),
                     f"{helper} should start with a Python shebang",
                 )
 

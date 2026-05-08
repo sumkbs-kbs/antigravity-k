@@ -35,9 +35,13 @@ class DeadlineStatusTest(unittest.TestCase):
         self.assertEqual(today, date(2026, 4, 16))
 
     def test_resolve_today_falls_back_to_kst_when_missing_or_invalid(self):
-        with mock.patch.object(scholarship_filter, "current_kst_date", return_value=date(2026, 4, 16)):
+        with mock.patch.object(
+            scholarship_filter, "current_kst_date", return_value=date(2026, 4, 16)
+        ):
             self.assertEqual(scholarship_filter.resolve_today(None), date(2026, 4, 16))
-            self.assertEqual(scholarship_filter.resolve_today("not-a-date"), date(2026, 4, 16))
+            self.assertEqual(
+                scholarship_filter.resolve_today("not-a-date"), date(2026, 4, 16)
+            )
 
     def test_infer_deadline_status_overrides_stale_cached_status_with_dates(self):
         record = {
@@ -52,7 +56,9 @@ class DeadlineStatusTest(unittest.TestCase):
 
         self.assertEqual(status, "closed")
 
-    def test_infer_deadline_status_returns_unknown_for_noncanonical_cached_value_without_dates(self):
+    def test_infer_deadline_status_returns_unknown_for_noncanonical_cached_value_without_dates(
+        self,
+    ):
         record = {"deadline": {"status": "d-3"}}
 
         status = scholarship_filter.infer_deadline_status(record, date(2026, 4, 15))
@@ -67,7 +73,9 @@ class DeadlineStatusTest(unittest.TestCase):
         self.assertEqual(status, "open")
 
     def test_report_does_not_crash_on_noncanonical_status_and_counts_unknown(self):
-        payload = json.dumps([{"name": "x", "deadline": {"status": "d-3"}}], ensure_ascii=False)
+        payload = json.dumps(
+            [{"name": "x", "deadline": {"status": "d-3"}}], ensure_ascii=False
+        )
 
         result = subprocess.run(
             [sys.executable, str(FILTER_PATH), "report", "--today", "2026-04-15"],
@@ -84,7 +92,9 @@ class DeadlineStatusTest(unittest.TestCase):
 
 class AmountHandlingTest(unittest.TestCase):
     def test_extract_amount_value_uses_amount_fields_and_ignores_irrelevant_notes(self):
-        from_text = scholarship_filter.extract_amount_value({"amount": {"text": "생활비 250만원 지급"}})
+        from_text = scholarship_filter.extract_amount_value(
+            {"amount": {"text": "생활비 250만원 지급"}}
+        )
         ignored_notes = scholarship_filter.extract_amount_value(
             {
                 "amount": {"text": "등록금 전액"},
@@ -117,7 +127,9 @@ class AmountHandlingTest(unittest.TestCase):
             deadline_within_days=None,
         )
 
-        matched, reasons = scholarship_filter.match_filter({"amount": {"text": "등록금 전액"}}, args)
+        matched, reasons = scholarship_filter.match_filter(
+            {"amount": {"text": "등록금 전액"}}, args
+        )
 
         self.assertTrue(matched)
         self.assertIn("amount>=2000000?", reasons)
@@ -144,7 +156,9 @@ class AmountHandlingTest(unittest.TestCase):
             deadline_within_days=None,
         )
 
-        matched, reasons = scholarship_filter.match_filter({"amount": {"text": "등록금 전액"}}, args)
+        matched, reasons = scholarship_filter.match_filter(
+            {"amount": {"text": "등록금 전액"}}, args
+        )
 
         self.assertFalse(matched)
         self.assertEqual(reasons, [])

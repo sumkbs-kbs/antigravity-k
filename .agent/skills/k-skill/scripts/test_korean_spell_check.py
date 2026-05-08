@@ -51,7 +51,9 @@ class SplitTextIntoChunksTest(unittest.TestCase):
 
         chunks = split_text_into_chunks(text, max_chars=15)
 
-        self.assertEqual(chunks, ["첫 문단입니다.\n\n", "둘째 문단입니다.\n\n", "셋째 문단입니다."])
+        self.assertEqual(
+            chunks, ["첫 문단입니다.\n\n", "둘째 문단입니다.\n\n", "셋째 문단입니다."]
+        )
         self.assertEqual("".join(chunks), text)
 
     def test_preserves_exact_blank_runs_and_indentation_when_rejoined(self):
@@ -147,7 +149,10 @@ $(document).ready(function(){{
         )
 
         self.assertEqual(len(report["chunks"]), 2)
-        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n아버지가 방에 들어가신다.")
+        self.assertEqual(
+            report["corrected_text"],
+            "아버지가 방에 들어가신다.\n\n아버지가 방에 들어가신다.",
+        )
         self.assertEqual(len(report["issues"]), 2)
         self.assertIsInstance(report["issues"][0], SpellCheckIssue)
         self.assertEqual(report["issues"][0].original, "아버지가방에들어가신다")
@@ -177,10 +182,17 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요.")
-        self.assertEqual(report["chunks"][0]["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요.")
+        self.assertEqual(
+            report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요."
+        )
+        self.assertEqual(
+            report["chunks"][0]["corrected_text"],
+            "아버지가 방에 들어가신다.\n\n왠지 안 돼요.",
+        )
 
-    def test_check_text_preserves_blank_lines_when_service_suggests_sentence_spacing(self):
+    def test_check_text_preserves_blank_lines_when_service_suggests_sentence_spacing(
+        self,
+    ):
         html = """<!DOCTYPE html>
 <html>
 <body>
@@ -203,9 +215,13 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요.")
+        self.assertEqual(
+            report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요."
+        )
 
-    def test_check_text_preserves_indent_and_triple_blank_lines_for_file_style_input(self):
+    def test_check_text_preserves_indent_and_triple_blank_lines_for_file_style_input(
+        self,
+    ):
         html = """<!DOCTYPE html>
 <html>
 <body>
@@ -227,9 +243,13 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요.")
+        self.assertEqual(
+            report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요."
+        )
 
-    def test_check_text_keeps_separator_layout_when_service_merges_spacing_across_boundary(self):
+    def test_check_text_keeps_separator_layout_when_service_merges_spacing_across_boundary(
+        self,
+    ):
         html = """<!DOCTYPE html>
 <html>
 <body>
@@ -251,7 +271,9 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요.")
+        self.assertEqual(
+            report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요."
+        )
 
     def test_check_text_accepts_no_issue_chunks_before_a_later_corrected_chunk(self):
         error_html = """<!DOCTYPE html>

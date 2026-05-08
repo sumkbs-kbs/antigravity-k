@@ -2554,7 +2554,7 @@ test("MFDS public-health skill docs require interview-first safety flow and offi
 test("docs/setup.md and k-skill-setup document hosted household waste proxy flow", () => {
   const setup = read(path.join("docs", "setup.md"));
   const setupSkill = read(path.join("k-skill-setup", "SKILL.md"));
-  
+
   assert.match(
     setup,
     /한국 주식 정보 조회, 생활쓰레기 배출정보 조회, 학교 급식 식단 조회, 의약품 안전 체크, 식품 안전 체크는 기본 hosted proxy를 쓰므로/,

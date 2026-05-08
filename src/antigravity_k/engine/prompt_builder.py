@@ -256,9 +256,7 @@ class PromptBuilder:
             examples = []
             for i, ex in enumerate(few_shot, 1):
                 examples.append(
-                    f"예시 {i}:\n"
-                    f"  입력: {ex['input']}\n"
-                    f"  출력: {ex['output']}"
+                    f"예시 {i}:\n" f"  입력: {ex['input']}\n" f"  출력: {ex['output']}"
                 )
             sections.append(f"[EXAMPLES]\n" + "\n\n".join(examples))
 

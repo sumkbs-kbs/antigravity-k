@@ -53,6 +53,8 @@ def urlopen(request: urllib.request.Request, timeout: int, *, insecure: bool = F
             file=sys.stderr,
         )
         return urllib.request.urlopen(
-            request, timeout=timeout, context=_get_ssl_context(insecure=True),
+            request,
+            timeout=timeout,
+            context=_get_ssl_context(insecure=True),
         )
     return urllib.request.urlopen(request, timeout=timeout, context=_get_ssl_context())

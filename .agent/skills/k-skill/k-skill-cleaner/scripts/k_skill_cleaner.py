@@ -44,13 +44,20 @@ AGENT_USAGE_SOURCES = [
     },
     {
         "agent": "Codex",
-        "paths": ["~/.codex/sessions/**/*.jsonl", "~/.codex/log/**/*.log", ".omx/logs/**/*.log"],
+        "paths": [
+            "~/.codex/sessions/**/*.jsonl",
+            "~/.codex/log/**/*.log",
+            ".omx/logs/**/*.log",
+        ],
         "method": "Scan Codex session/log lines for routed skill names, $skill invocations, and SKILL.md reads.",
         "confidence": "best-effort",
     },
     {
         "agent": "OpenCode",
-        "paths": ["~/.local/share/opencode/**/*.jsonl", "~/.config/opencode/**/*.jsonl"],
+        "paths": [
+            "~/.local/share/opencode/**/*.jsonl",
+            "~/.config/opencode/**/*.jsonl",
+        ],
         "method": "Scan OpenCode data/config logs when available; ask for an exported transcript otherwise.",
         "confidence": "best-effort",
     },
@@ -107,7 +114,9 @@ def find_skill_dirs(root: Path | str) -> list[str]:
     return sorted(skills)
 
 
-def _walk_strings(value: Any, key_hint: str | None = None) -> Iterable[tuple[str | None, str]]:
+def _walk_strings(
+    value: Any, key_hint: str | None = None
+) -> Iterable[tuple[str | None, str]]:
     if isinstance(value, str):
         yield key_hint, value
     elif isinstance(value, Mapping):
@@ -165,7 +174,15 @@ def _parse_datetime(value: str | datetime | None) -> datetime | None:
 
 
 def _line_datetime_from_json(record: Any) -> datetime | None:
-    timestamp_keys = {"timestamp", "time", "created_at", "createdat", "date", "datetime", "ts"}
+    timestamp_keys = {
+        "timestamp",
+        "time",
+        "created_at",
+        "createdat",
+        "date",
+        "datetime",
+        "ts",
+    }
     if not isinstance(record, Mapping):
         return None
     for key, value in record.items():
@@ -179,7 +196,10 @@ def _line_datetime_from_json(record: Any) -> datetime | None:
 
 
 def _line_datetime_from_text(line: str) -> datetime | None:
-    match = re.search(r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b", line)
+    match = re.search(
+        r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b",
+        line,
+    )
     if not match:
         return None
     raw = match.group(0)
@@ -197,7 +217,9 @@ def _mtime_datetime(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
 
 
-def _line_is_in_window(path: Path, line: str, parsed: Any | None, since: datetime | None) -> bool:
+def _line_is_in_window(
+    path: Path, line: str, parsed: Any | None, since: datetime | None
+) -> bool:
     if since is None:
         return True
     line_dt = _line_datetime_from_json(parsed) if parsed is not None else None
@@ -239,7 +261,9 @@ def collect_skill_usage(
                     if not _line_is_in_window(path, line, parsed, since_dt):
                         continue
                     for skill in skills:
-                        if (parsed is not None and _json_mentions_skill(parsed, skill)) or _line_mentions_skill(line, skill):
+                        if (
+                            parsed is not None and _json_mentions_skill(parsed, skill)
+                        ) or _line_mentions_skill(line, skill):
                             counts[skill] += 1
         except OSError:
             continue
@@ -315,7 +339,11 @@ def expand_default_log_paths() -> list[Path]:
     paths: list[Path] = []
     for source in AGENT_USAGE_SOURCES:
         for pattern in source.get("paths", []):
-            paths.extend(Path().glob(os.path.expanduser(pattern)) if not pattern.startswith("~") else Path.home().glob(pattern[2:]))
+            paths.extend(
+                Path().glob(os.path.expanduser(pattern))
+                if not pattern.startswith("~")
+                else Path.home().glob(pattern[2:])
+            )
     return sorted({path for path in paths if path.is_file()})
 
 
@@ -325,7 +353,9 @@ def parse_csv(value: str | None) -> set[str]:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
-def _resolve_since(days: int | None, since: str | None, now: datetime | None = None) -> datetime | None:
+def _resolve_since(
+    days: int | None, since: str | None, now: datetime | None = None
+) -> datetime | None:
     explicit_since = _parse_datetime(since)
     if explicit_since is not None:
         return explicit_since
@@ -342,20 +372,49 @@ def _resolve_since(days: int | None, since: str | None, now: datetime | None = N
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Suggest K-skill cleanup candidates from interviews and usage logs.")
+    parser = argparse.ArgumentParser(
+        description="Suggest K-skill cleanup candidates from interviews and usage logs."
+    )
     parser.add_argument(
         "--skills-root",
         default=".",
         help="Directory containing root-level skills; a skill directory with SKILL.md auto-scans its parent",
     )
-    parser.add_argument("--usage-json", help="Optional JSON object mapping skill names to trigger counts")
-    parser.add_argument("--log", action="append", default=[], help="Agent log file to scan; repeatable")
-    parser.add_argument("--scan-default-logs", action="store_true", help="Best-effort scan known local agent log locations")
-    parser.add_argument("--never-use", default="", help="Comma-separated skills the user says they never use")
-    parser.add_argument("--keep", default="", help="Comma-separated skills to protect from suggestions")
-    parser.add_argument("--low-usage-threshold", type=int, default=1, help="Counts at or below this threshold are review candidates")
-    parser.add_argument("--days", type=int, help="Only count log records from the last N days; untimestamped lines use file mtime fallback")
-    parser.add_argument("--since", help="Only count log records on or after this ISO date/datetime; overrides --days")
+    parser.add_argument(
+        "--usage-json",
+        help="Optional JSON object mapping skill names to trigger counts",
+    )
+    parser.add_argument(
+        "--log", action="append", default=[], help="Agent log file to scan; repeatable"
+    )
+    parser.add_argument(
+        "--scan-default-logs",
+        action="store_true",
+        help="Best-effort scan known local agent log locations",
+    )
+    parser.add_argument(
+        "--never-use",
+        default="",
+        help="Comma-separated skills the user says they never use",
+    )
+    parser.add_argument(
+        "--keep", default="", help="Comma-separated skills to protect from suggestions"
+    )
+    parser.add_argument(
+        "--low-usage-threshold",
+        type=int,
+        default=1,
+        help="Counts at or below this threshold are review candidates",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        help="Only count log records from the last N days; untimestamped lines use file mtime fallback",
+    )
+    parser.add_argument(
+        "--since",
+        help="Only count log records on or after this ISO date/datetime; overrides --days",
+    )
     return parser
 
 
@@ -369,7 +428,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.scan_default_logs:
         log_paths.extend(expand_default_log_paths())
     since = _resolve_since(args.days, args.since)
-    scanned_log_paths = sorted({str(path.expanduser()) for path in log_paths if path.expanduser().is_file()})
+    scanned_log_paths = sorted(
+        {str(path.expanduser()) for path in log_paths if path.expanduser().is_file()}
+    )
     log_counts = collect_skill_usage(log_paths, skill_names, since=since)
     for skill, count in log_counts.items():
         usage_counts[skill] = usage_counts.get(skill, 0) + count

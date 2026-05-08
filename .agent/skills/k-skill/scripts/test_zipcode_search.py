@@ -91,9 +91,13 @@ class ZipcodeSearchCliShapeTest(unittest.TestCase):
             repo_root / "zipcode-search" / "scripts" / "zipcode_search.py",
         ):
             with self.subTest(helper=helper):
-                self.assertTrue(os.access(helper, os.X_OK), f"{helper} should be executable")
                 self.assertTrue(
-                    helper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3\n"),
+                    os.access(helper, os.X_OK), f"{helper} should be executable"
+                )
+                self.assertTrue(
+                    helper.read_text(encoding="utf-8").startswith(
+                        "#!/usr/bin/env python3\n"
+                    ),
                     f"{helper} should start with a Python shebang",
                 )
 

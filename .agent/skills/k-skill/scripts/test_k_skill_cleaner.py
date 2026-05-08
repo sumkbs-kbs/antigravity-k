@@ -20,9 +20,13 @@ class KSkillCleanerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "keep-me").mkdir()
-            (root / "keep-me" / "SKILL.md").write_text("---\nname: keep-me\n", encoding="utf-8")
+            (root / "keep-me" / "SKILL.md").write_text(
+                "---\nname: keep-me\n", encoding="utf-8"
+            )
             (root / "docs").mkdir()
-            (root / "docs" / "SKILL.md").write_text("not a root skill", encoding="utf-8")
+            (root / "docs" / "SKILL.md").write_text(
+                "not a root skill", encoding="utf-8"
+            )
             (root / "no-skill").mkdir()
 
             self.assertEqual(find_skill_dirs(root), ["keep-me"])
@@ -33,7 +37,9 @@ class KSkillCleanerTest(unittest.TestCase):
             (root / "codex.jsonl").write_text(
                 "\n".join(
                     [
-                        json.dumps({"event": "skill_triggered", "skill": "kbo-results"}),
+                        json.dumps(
+                            {"event": "skill_triggered", "skill": "kbo-results"}
+                        ),
                         json.dumps({"message": "Using $kbo-results for sports lookup"}),
                         "Claude loaded skill: korean-law-search",
                         json.dumps({"tool": {"name": "korean-law-search"}}),
@@ -42,7 +48,9 @@ class KSkillCleanerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            counts = collect_skill_usage([root / "codex.jsonl"], ["kbo-results", "korean-law-search", "unused"])
+            counts = collect_skill_usage(
+                [root / "codex.jsonl"], ["kbo-results", "korean-law-search", "unused"]
+            )
 
             self.assertEqual(counts["kbo-results"], 2)
             self.assertEqual(counts["korean-law-search"], 2)
@@ -55,8 +63,18 @@ class KSkillCleanerTest(unittest.TestCase):
             recent_log.write_text(
                 "\n".join(
                     [
-                        json.dumps({"timestamp": "2026-04-20T12:00:00+09:00", "skill": "kbo-results"}),
-                        json.dumps({"timestamp": "2026-01-10T12:00:00+09:00", "skill": "korean-law-search"}),
+                        json.dumps(
+                            {
+                                "timestamp": "2026-04-20T12:00:00+09:00",
+                                "skill": "kbo-results",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "timestamp": "2026-01-10T12:00:00+09:00",
+                                "skill": "korean-law-search",
+                            }
+                        ),
                         "loaded skill: fallback-skill",
                     ]
                 ),
@@ -89,9 +107,15 @@ class KSkillCleanerTest(unittest.TestCase):
     def test_collect_skill_usage_streams_log_files_without_reading_whole_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "codex.jsonl"
-            log_path.write_text(json.dumps({"skill": "kbo-results"}) + "\n", encoding="utf-8")
+            log_path.write_text(
+                json.dumps({"skill": "kbo-results"}) + "\n", encoding="utf-8"
+            )
 
-            with patch.object(Path, "read_text", side_effect=AssertionError("collect_skill_usage must stream logs")):
+            with patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("collect_skill_usage must stream logs"),
+            ):
                 counts = collect_skill_usage([log_path], ["kbo-results", "unused"])
 
             self.assertEqual(counts["kbo-results"], 1)
@@ -102,7 +126,9 @@ class KSkillCleanerTest(unittest.TestCase):
             root = Path(tmp)
             skill_dir = root / "kbo-results"
             skill_dir.mkdir()
-            (skill_dir / "SKILL.md").write_text("---\nname: kbo-results\n", encoding="utf-8")
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: kbo-results\n", encoding="utf-8"
+            )
             usage_json = root / "usage.json"
             usage_json.write_text(json.dumps({"kbo-results": 3}), encoding="utf-8")
 
@@ -143,7 +169,9 @@ class KSkillCleanerTest(unittest.TestCase):
             low_usage_threshold=1,
         )
 
-        self.assertEqual([candidate["skill"] for candidate in candidates], ["unused", "rare"])
+        self.assertEqual(
+            [candidate["skill"] for candidate in candidates], ["unused", "rare"]
+        )
         self.assertEqual(candidates[0]["action"], "remove")
         self.assertIn("interview_never_use", candidates[0]["reasons"])
         self.assertEqual(candidates[1]["action"], "review")
@@ -151,7 +179,13 @@ class KSkillCleanerTest(unittest.TestCase):
 
     def test_documents_agent_specific_usage_sources(self):
         agents = {source["agent"] for source in AGENT_USAGE_SOURCES}
-        expected_agents = {"Claude Code", "Codex", "OpenCode", "OpenClaw/ClawHub", "Hermes Agent"}
+        expected_agents = {
+            "Claude Code",
+            "Codex",
+            "OpenCode",
+            "OpenClaw/ClawHub",
+            "Hermes Agent",
+        }
 
         self.assertTrue(expected_agents.issubset(agents))
         for source in AGENT_USAGE_SOURCES:
@@ -164,16 +198,23 @@ class KSkillCleanerTest(unittest.TestCase):
             cleaner_dir = skills_root / "k-skill-cleaner"
             cleaner_scripts = cleaner_dir / "scripts"
             cleaner_scripts.mkdir(parents=True)
-            (cleaner_dir / "SKILL.md").write_text("---\nname: k-skill-cleaner\n", encoding="utf-8")
+            (cleaner_dir / "SKILL.md").write_text(
+                "---\nname: k-skill-cleaner\n", encoding="utf-8"
+            )
             shutil.copyfile(
-                Path(__file__).resolve().parents[1] / "k-skill-cleaner" / "scripts" / "k_skill_cleaner.py",
+                Path(__file__).resolve().parents[1]
+                / "k-skill-cleaner"
+                / "scripts"
+                / "k_skill_cleaner.py",
                 cleaner_scripts / "k_skill_cleaner.py",
             )
 
             for skill in ["kbo-results", "k-skill-setup"]:
                 skill_dir = skills_root / skill
                 skill_dir.mkdir()
-                (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n", encoding="utf-8")
+                (skill_dir / "SKILL.md").write_text(
+                    f"---\nname: {skill}\n", encoding="utf-8"
+                )
 
             result = subprocess.run(
                 [

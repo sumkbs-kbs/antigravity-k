@@ -47,10 +47,13 @@ class GeekNewsFeedParseTest(unittest.TestCase):
 
         items = list_items(feed, limit=2)
 
-        self.assertEqual([item.id for item in items], [
-            "https://news.hada.io/topic?id=28441",
-            "https://news.hada.io/topic?id=28440",
-        ])
+        self.assertEqual(
+            [item.id for item in items],
+            [
+                "https://news.hada.io/topic?id=28441",
+                "https://news.hada.io/topic?id=28440",
+            ],
+        )
 
     def test_search_items_matches_title_summary_and_author_case_insensitively(self):
         feed = load_feed(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -58,8 +61,13 @@ class GeekNewsFeedParseTest(unittest.TestCase):
         ai_matches = search_items(feed, query="agent", limit=5)
         author_matches = search_items(feed, query="WORKDRIVER", limit=5)
 
-        self.assertEqual([item.id for item in ai_matches], ["https://news.hada.io/topic?id=28440"])
-        self.assertEqual([item.id for item in author_matches], ["https://news.hada.io/topic?id=28439"])
+        self.assertEqual(
+            [item.id for item in ai_matches], ["https://news.hada.io/topic?id=28440"]
+        )
+        self.assertEqual(
+            [item.id for item in author_matches],
+            ["https://news.hada.io/topic?id=28439"],
+        )
 
     def test_get_item_detail_resolves_by_id_or_link_and_errors_cleanly(self):
         feed = load_feed(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -67,7 +75,10 @@ class GeekNewsFeedParseTest(unittest.TestCase):
         item = get_item_detail(feed, "https://news.hada.io/topic?id=28439")
         same_item = get_item_detail(feed, "28439")
 
-        self.assertEqual(item.title, "Show GN: [GN] 비개발자 + Claude로 프로덕션 운영 238일 — 무엇이 됐고 무엇이 안 됐나?")
+        self.assertEqual(
+            item.title,
+            "Show GN: [GN] 비개발자 + Claude로 프로덕션 운영 238일 — 무엇이 됐고 무엇이 안 됐나?",
+        )
         self.assertEqual(same_item.id, item.id)
         with self.assertRaisesRegex(LookupError, "No GeekNews entry matched"):
             get_item_detail(feed, "missing-topic")
@@ -85,7 +96,9 @@ class GeekNewsPayloadShapeTest(unittest.TestCase):
         self.assertEqual(list_payload["count"], 2)
         self.assertEqual(search_payload["query"], "claude")
         self.assertEqual(search_payload["count"], 1)
-        self.assertEqual(detail_payload["item"]["id"], "https://news.hada.io/topic?id=28439")
+        self.assertEqual(
+            detail_payload["item"]["id"], "https://news.hada.io/topic?id=28439"
+        )
         self.assertIn("summary", detail_payload["item"])
         self.assertIn("content_html", detail_payload["item"])
 
@@ -117,9 +130,13 @@ class GeekNewsCliShapeTest(unittest.TestCase):
             repo_root / "geeknews-search" / "scripts" / "geeknews_search.py",
         ):
             with self.subTest(helper=helper):
-                self.assertTrue(os.access(helper, os.X_OK), f"{helper} should be executable")
                 self.assertTrue(
-                    helper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3\n"),
+                    os.access(helper, os.X_OK), f"{helper} should be executable"
+                )
+                self.assertTrue(
+                    helper.read_text(encoding="utf-8").startswith(
+                        "#!/usr/bin/env python3\n"
+                    ),
                     f"{helper} should start with a Python shebang",
                 )
 

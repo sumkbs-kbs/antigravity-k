@@ -149,7 +149,7 @@ def test_quality_gate_retries_bad_markdown_extensions():
     gate = QualityGate()
 
     output = """여기에 결과를 출력합니다.
-    
+
 ```mermaid
 graph TD
     A[<div class='node'>Start</div>] --> B[End]
@@ -168,7 +168,9 @@ graph TD
     result = gate.evaluate("reasoning", "마크다운 테스트", output)
 
     assert result.should_retry is True
-    assert any("Mermaid 다이어그램 내 HTML 태그 포함" in issue for issue in result.issues)
+    assert any(
+        "Mermaid 다이어그램 내 HTML 태그 포함" in issue for issue in result.issues
+    )
     assert any("Carousel 마크다운 문법 오류" in issue for issue in result.issues)
     assert any("파일 링크 텍스트에 백틱 사용" in issue for issue in result.issues)
     assert any("구형 경고 블록 감지" in issue for issue in result.issues)

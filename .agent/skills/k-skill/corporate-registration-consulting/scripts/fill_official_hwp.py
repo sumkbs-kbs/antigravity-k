@@ -59,7 +59,9 @@ def run_set_cell(current: Path, output: Path, spec: dict, text: str, cwd: Path) 
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
 
-def fill_form(data: dict, form_path: Path, map_path: Path, output_path: Path, cwd: Path) -> list[str]:
+def fill_form(
+    data: dict, form_path: Path, map_path: Path, output_path: Path, cwd: Path
+) -> list[str]:
     fill_map = load_json(map_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = output_path.with_suffix(output_path.suffix + ".tmp")
@@ -84,17 +86,48 @@ def fill_form(data: dict, form_path: Path, map_path: Path, output_path: Path, cw
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fill official form 65-1 HWP with JSON data")
-    parser.add_argument("--input-json", required=True, type=Path, help="JSON file with form field values")
-    parser.add_argument("--output", required=True, type=Path, help="Output HWP path outside the repository")
-    parser.add_argument("--form", type=Path, default=DEFAULT_FORM, help="Official HWP source form")
-    parser.add_argument("--map", dest="map_path", type=Path, default=DEFAULT_MAP, help="HWP cell fill map")
-    parser.add_argument("--cwd", type=Path, default=Path.cwd(), help="Directory where npx k-skill-rhwp is available")
+    parser = argparse.ArgumentParser(
+        description="Fill official form 65-1 HWP with JSON data"
+    )
+    parser.add_argument(
+        "--input-json",
+        required=True,
+        type=Path,
+        help="JSON file with form field values",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Output HWP path outside the repository",
+    )
+    parser.add_argument(
+        "--form", type=Path, default=DEFAULT_FORM, help="Official HWP source form"
+    )
+    parser.add_argument(
+        "--map",
+        dest="map_path",
+        type=Path,
+        default=DEFAULT_MAP,
+        help="HWP cell fill map",
+    )
+    parser.add_argument(
+        "--cwd",
+        type=Path,
+        default=Path.cwd(),
+        help="Directory where npx k-skill-rhwp is available",
+    )
     args = parser.parse_args(argv)
 
     data = load_json(args.input_json)
     written = fill_form(data, args.form, args.map_path, args.output, args.cwd)
-    print(json.dumps({"ok": True, "output": str(args.output), "fields_written": written}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {"ok": True, "output": str(args.output), "fields_written": written},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

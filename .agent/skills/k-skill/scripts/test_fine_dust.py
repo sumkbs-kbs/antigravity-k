@@ -94,17 +94,19 @@ class FineDustTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with redirect_stdout(stdout):
-            fine_dust.main([
-                "report",
-                "--station-file",
-                str(station_path),
-                "--measurement-file",
-                str(measurement_path),
-                "--lat",
-                "37.5665",
-                "--lon",
-                "126.9780",
-            ])
+            fine_dust.main(
+                [
+                    "report",
+                    "--station-file",
+                    str(station_path),
+                    "--measurement-file",
+                    str(measurement_path),
+                    "--lat",
+                    "37.5665",
+                    "--lon",
+                    "126.9780",
+                ]
+            )
 
         rendered = stdout.getvalue()
         self.assertIn("측정소: 중구", rendered)
@@ -117,10 +119,20 @@ class FineDustTests(unittest.TestCase):
 
         def fake_fetch_json(url, params):
             recorded_calls.append((url, params))
-            return {"response": {"body": {"items": [{"stationName": "중구", "addr": "서울 중구 서소문로 124"}]}}}
+            return {
+                "response": {
+                    "body": {
+                        "items": [
+                            {"stationName": "중구", "addr": "서울 중구 서소문로 124"}
+                        ]
+                    }
+                }
+            }
 
         with (
-            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
+            mock.patch.object(
+                fine_dust, "get_required_secret", return_value="test-secret"
+            ),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             payload = fine_dust.fetch_station_payload(args)
@@ -136,8 +148,20 @@ class FineDustTests(unittest.TestCase):
         self.assertNotIn("dmX", request_params)
         self.assertNotIn("dmY", request_params)
 
-    def test_live_station_lookup_falls_back_to_region_search_after_empty_nearby_result(self):
-        args = fine_dust.parse_args(["report", "--lat", "37.5665", "--lon", "126.9780", "--region-hint", "서울 강남구"])
+    def test_live_station_lookup_falls_back_to_region_search_after_empty_nearby_result(
+        self,
+    ):
+        args = fine_dust.parse_args(
+            [
+                "report",
+                "--lat",
+                "37.5665",
+                "--lon",
+                "126.9780",
+                "--region-hint",
+                "서울 강남구",
+            ]
+        )
         recorded_calls = []
 
         def fake_fetch_json(url, params):
@@ -145,18 +169,34 @@ class FineDustTests(unittest.TestCase):
             if url.endswith("/getNearbyMsrstnList"):
                 return {"response": {"body": {"items": []}}}
             if url.endswith("/getMsrstnList"):
-                return {"response": {"body": {"items": [{"stationName": "강남구", "addr": "서울 강남구 학동로 426"}]}}}
+                return {
+                    "response": {
+                        "body": {
+                            "items": [
+                                {
+                                    "stationName": "강남구",
+                                    "addr": "서울 강남구 학동로 426",
+                                }
+                            ]
+                        }
+                    }
+                }
             raise AssertionError(f"unexpected URL: {url}")
 
         with (
-            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
+            mock.patch.object(
+                fine_dust, "get_required_secret", return_value="test-secret"
+            ),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             payload = fine_dust.fetch_station_payload(args)
 
         items = fine_dust.extract_items(payload)
         self.assertEqual(items[0]["stationName"], "강남구")
-        self.assertEqual([url.rsplit("/", 1)[-1] for url, _ in recorded_calls], ["getNearbyMsrstnList", "getMsrstnList"])
+        self.assertEqual(
+            [url.rsplit("/", 1)[-1] for url, _ in recorded_calls],
+            ["getNearbyMsrstnList", "getMsrstnList"],
+        )
         fallback_params = recorded_calls[1][1]
         self.assertEqual(fallback_params["addr"], "서울 강남구")
 
@@ -167,7 +207,18 @@ class FineDustTests(unittest.TestCase):
             if url.endswith("/getNearbyMsrstnList"):
                 return {"response": {"body": {"items": []}}}
             if url.endswith("/getMsrstnList"):
-                return {"response": {"body": {"items": [{"stationName": "강남구", "addr": "서울 강남구 학동로 426"}]}}}
+                return {
+                    "response": {
+                        "body": {
+                            "items": [
+                                {
+                                    "stationName": "강남구",
+                                    "addr": "서울 강남구 학동로 426",
+                                }
+                            ]
+                        }
+                    }
+                }
             if url.endswith("/getMsrstnAcctoRltmMesureDnsty"):
                 return {
                     "response": {
@@ -190,8 +241,12 @@ class FineDustTests(unittest.TestCase):
 
         with (
             redirect_stdout(stdout),
-            mock.patch.dict(fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False),
-            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
+            mock.patch.dict(
+                fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False
+            ),
+            mock.patch.object(
+                fine_dust, "get_required_secret", return_value="test-secret"
+            ),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             fine_dust.main(
@@ -211,7 +266,9 @@ class FineDustTests(unittest.TestCase):
         self.assertEqual(rendered["station_name"], "강남구")
         self.assertEqual(rendered["lookup_mode"], "fallback")
 
-    def test_cli_json_report_uses_station_name_directly_when_station_lookup_is_empty(self):
+    def test_cli_json_report_uses_station_name_directly_when_station_lookup_is_empty(
+        self,
+    ):
         stdout = io.StringIO()
         recorded_calls = []
 
@@ -241,8 +298,12 @@ class FineDustTests(unittest.TestCase):
 
         with (
             redirect_stdout(stdout),
-            mock.patch.dict(fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False),
-            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
+            mock.patch.dict(
+                fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False
+            ),
+            mock.patch.object(
+                fine_dust, "get_required_secret", return_value="test-secret"
+            ),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             fine_dust.main(["report", "--station-name", "중구", "--json"])
@@ -251,7 +312,10 @@ class FineDustTests(unittest.TestCase):
         self.assertEqual(rendered["station_name"], "중구")
         self.assertIsNone(rendered["station_address"])
         self.assertEqual(rendered["lookup_mode"], "fallback")
-        self.assertEqual([url.rsplit("/", 1)[-1] for url, _ in recorded_calls], ["getMsrstnList", "getMsrstnAcctoRltmMesureDnsty"])
+        self.assertEqual(
+            [url.rsplit("/", 1)[-1] for url, _ in recorded_calls],
+            ["getMsrstnList", "getMsrstnAcctoRltmMesureDnsty"],
+        )
         self.assertEqual(recorded_calls[1][1]["stationName"], "중구")
 
     def test_cli_json_report_prefers_proxy_when_proxy_base_url_is_configured(self):
@@ -269,9 +333,18 @@ class FineDustTests(unittest.TestCase):
 
         with (
             redirect_stdout(stdout),
-            mock.patch.dict(fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "https://k-skill-proxy.nomadamas.org"}),
-            mock.patch.object(fine_dust, "fetch_proxy_report", return_value=proxy_report),
-            mock.patch.object(fine_dust, "fetch_station_lookup", side_effect=AssertionError("direct lookup should not run")),
+            mock.patch.dict(
+                fine_dust.os.environ,
+                {"KSKILL_PROXY_BASE_URL": "https://k-skill-proxy.nomadamas.org"},
+            ),
+            mock.patch.object(
+                fine_dust, "fetch_proxy_report", return_value=proxy_report
+            ),
+            mock.patch.object(
+                fine_dust,
+                "fetch_station_lookup",
+                side_effect=AssertionError("direct lookup should not run"),
+            ),
         ):
             fine_dust.main(["report", "--region-hint", "서울 강남구", "--json"])
 

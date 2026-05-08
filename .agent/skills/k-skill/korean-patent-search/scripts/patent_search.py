@@ -149,7 +149,9 @@ def build_search_params(
     service_key: str,
 ) -> dict[str, str]:
     if not patent and not utility:
-        raise ValueError("At least one of patent or utility must remain enabled for keyword search.")
+        raise ValueError(
+            "At least one of patent or utility must remain enabled for keyword search."
+        )
     params = {
         "word": query,
         "patent": "true" if patent else "false",
@@ -164,7 +166,10 @@ def build_search_params(
 
 
 def build_detail_params(*, application_number: str, service_key: str) -> dict[str, str]:
-    return {"applicationNumber": application_number, "ServiceKey": urllib.parse.unquote(service_key)}
+    return {
+        "applicationNumber": application_number,
+        "ServiceKey": urllib.parse.unquote(service_key),
+    }
 
 
 def fetch_xml(url: str, params: dict[str, str], timeout: int = DEFAULT_TIMEOUT) -> str:
@@ -175,7 +180,9 @@ def fetch_xml(url: str, params: dict[str, str], timeout: int = DEFAULT_TIMEOUT) 
             return response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"KIPRIS Plus HTTP {exc.code}: {body or exc.reason}") from exc
+        raise RuntimeError(
+            f"KIPRIS Plus HTTP {exc.code}: {body or exc.reason}"
+        ) from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Failed to reach KIPRIS Plus API: {exc.reason}") from exc
 
@@ -192,7 +199,9 @@ def iter_children(element: ET.Element | XmlNode | None) -> list[ET.Element | Xml
     return list(element)
 
 
-def find_child(element: ET.Element | XmlNode | None, tag_name: str) -> ET.Element | XmlNode | None:
+def find_child(
+    element: ET.Element | XmlNode | None, tag_name: str
+) -> ET.Element | XmlNode | None:
     normalized_tag = normalize_tag(tag_name)
     for child in iter_children(element):
         if normalize_tag(child.tag) == normalized_tag:
@@ -200,9 +209,15 @@ def find_child(element: ET.Element | XmlNode | None, tag_name: str) -> ET.Elemen
     return None
 
 
-def find_children(element: ET.Element | XmlNode | None, tag_name: str) -> list[ET.Element | XmlNode]:
+def find_children(
+    element: ET.Element | XmlNode | None, tag_name: str
+) -> list[ET.Element | XmlNode]:
     normalized_tag = normalize_tag(tag_name)
-    return [child for child in iter_children(element) if normalize_tag(child.tag) == normalized_tag]
+    return [
+        child
+        for child in iter_children(element)
+        if normalize_tag(child.tag) == normalized_tag
+    ]
 
 
 def parse_xml_with_fallback(xml_text: str) -> XmlNode:
@@ -290,7 +305,9 @@ def parse_patent_detail_response(xml_text: str) -> PatentDetail:
         items_parent = find_child(body, "items")
         item = find_child(items_parent, "item")
     if item is None:
-        raise RuntimeError("KIPRIS Plus detail response did not include an item payload")
+        raise RuntimeError(
+            "KIPRIS Plus detail response did not include an item payload"
+        )
 
     search_item = parse_patent_item(item)
     return PatentDetail(
@@ -363,14 +380,46 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--query", help="Keyword for KIPRIS getWordSearch")
-    mode.add_argument("--application-number", help="Application number for bibliography detail lookup")
-    parser.add_argument("--year", type=parse_positive_int, help="Optional year filter for keyword search")
-    parser.add_argument("--page-no", type=parse_positive_int, default=DEFAULT_PAGE_NO, help="Response page number")
-    parser.add_argument("--num-rows", type=parse_positive_int, default=DEFAULT_NUM_ROWS, help="Rows per page")
-    parser.add_argument("--service-key", help=f"KIPRIS Plus ServiceKey (defaults to ${SERVICE_KEY_ENV_VAR})")
-    parser.add_argument("--exclude-patent", action="store_true", help="Exclude patent results from keyword search")
-    parser.add_argument("--exclude-utility", action="store_true", help="Exclude utility-model results from keyword search")
-    parser.add_argument("--timeout", type=parse_positive_int, default=DEFAULT_TIMEOUT, help="HTTP timeout seconds")
+    mode.add_argument(
+        "--application-number", help="Application number for bibliography detail lookup"
+    )
+    parser.add_argument(
+        "--year",
+        type=parse_positive_int,
+        help="Optional year filter for keyword search",
+    )
+    parser.add_argument(
+        "--page-no",
+        type=parse_positive_int,
+        default=DEFAULT_PAGE_NO,
+        help="Response page number",
+    )
+    parser.add_argument(
+        "--num-rows",
+        type=parse_positive_int,
+        default=DEFAULT_NUM_ROWS,
+        help="Rows per page",
+    )
+    parser.add_argument(
+        "--service-key",
+        help=f"KIPRIS Plus ServiceKey (defaults to ${SERVICE_KEY_ENV_VAR})",
+    )
+    parser.add_argument(
+        "--exclude-patent",
+        action="store_true",
+        help="Exclude patent results from keyword search",
+    )
+    parser.add_argument(
+        "--exclude-utility",
+        action="store_true",
+        help="Exclude utility-model results from keyword search",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=parse_positive_int,
+        default=DEFAULT_TIMEOUT,
+        help="HTTP timeout seconds",
+    )
     return parser.parse_args(argv)
 
 

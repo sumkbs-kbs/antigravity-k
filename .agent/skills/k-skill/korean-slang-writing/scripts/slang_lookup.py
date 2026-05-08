@@ -84,11 +84,11 @@ def _find_main_content(cleaned_html: str) -> str:
         )
         match = pattern.search(cleaned_html)
         if match:
-            return cleaned_html[match.start():]
+            return cleaned_html[match.start() :]
 
     article_match = re.search(r"<article[^>]*>", cleaned_html, re.IGNORECASE)
     if article_match:
-        return cleaned_html[article_match.start():]
+        return cleaned_html[article_match.start() :]
 
     return ""
 

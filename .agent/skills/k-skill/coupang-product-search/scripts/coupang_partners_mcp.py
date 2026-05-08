@@ -17,7 +17,9 @@ from typing import Sequence
 
 UPSTREAM_REPO_URL = "https://github.com/retention-corp/coupang_partners.git"
 DEFAULT_MCP_ENDPOINT = "local://coupang-mcp"
-DEFAULT_REPO_DIR = pathlib.Path(os.getenv("COUPANG_PARTNERS_REPO_DIR", "~/.cache/k-skill/coupang_partners")).expanduser()
+DEFAULT_REPO_DIR = pathlib.Path(
+    os.getenv("COUPANG_PARTNERS_REPO_DIR", "~/.cache/k-skill/coupang_partners")
+).expanduser()
 UPSTREAM_CLI = pathlib.Path("bin") / "coupang_mcp.py"
 
 
@@ -79,7 +81,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if args.upstream_args and args.upstream_args[0] == "--":
         args.upstream_args = args.upstream_args[1:]
     if not args.upstream_args:
-        parser.error("missing upstream command; try: tools, init, search <keyword>, rocket <keyword>, budget <keyword>")
+        parser.error(
+            "missing upstream command; try: tools, init, search <keyword>, rocket <keyword>, budget <keyword>"
+        )
     return args
 
 
@@ -87,11 +91,16 @@ def upstream_cli_path(repo_dir: pathlib.Path) -> pathlib.Path:
     return repo_dir / UPSTREAM_CLI
 
 
-def ensure_repo(repo_dir: pathlib.Path, *, clone: bool = True, update: bool = False) -> pathlib.Path:
+def ensure_repo(
+    repo_dir: pathlib.Path, *, clone: bool = True, update: bool = False
+) -> pathlib.Path:
     cli_path = upstream_cli_path(repo_dir)
     if cli_path.exists():
         if update:
-            run_checked(["git", "-C", str(repo_dir), "pull", "--ff-only"], "failed to update upstream checkout")
+            run_checked(
+                ["git", "-C", str(repo_dir), "pull", "--ff-only"],
+                "failed to update upstream checkout",
+            )
         return cli_path
 
     if repo_dir.exists():
@@ -107,9 +116,14 @@ def ensure_repo(repo_dir: pathlib.Path, *, clone: bool = True, update: bool = Fa
         )
 
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
-    run_checked(["git", "clone", "--depth", "1", UPSTREAM_REPO_URL, str(repo_dir)], "failed to clone upstream checkout")
+    run_checked(
+        ["git", "clone", "--depth", "1", UPSTREAM_REPO_URL, str(repo_dir)],
+        "failed to clone upstream checkout",
+    )
     if not cli_path.exists():
-        raise BootstrapError(f"Cloned {UPSTREAM_REPO_URL}, but {UPSTREAM_CLI} was not found in {repo_dir}")
+        raise BootstrapError(
+            f"Cloned {UPSTREAM_REPO_URL}, but {UPSTREAM_CLI} was not found in {repo_dir}"
+        )
     return cli_path
 
 
@@ -117,7 +131,9 @@ def run_checked(command: Sequence[str], context: str) -> None:
     try:
         subprocess.run(command, check=True)
     except FileNotFoundError as exc:
-        raise BootstrapError(f"{context}: required executable not found: {command[0]}") from exc
+        raise BootstrapError(
+            f"{context}: required executable not found: {command[0]}"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         raise BootstrapError(f"{context}: {exc}") from exc
 

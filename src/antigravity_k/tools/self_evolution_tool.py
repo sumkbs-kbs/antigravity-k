@@ -48,8 +48,8 @@ class SelfEvolutionTool(BaseTool):
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["evolve", "generate_skill"],
-                    "description": "Evolution mode: 'evolve' to improve existing code, 'generate_skill' to create a new tool.",
+                    "enum": ["evolve", "generate_skill", "rsi_cycle"],
+                    "description": "Evolution mode: 'evolve' to improve existing code, 'generate_skill' to create a new tool, 'rsi_cycle' to run full recursive self-improvement.",
                 },
                 "target_files": {
                     "type": "string",
@@ -81,8 +81,38 @@ class SelfEvolutionTool(BaseTool):
 
         if mode == "generate_skill":
             return self._generate_new_skill(goal)
+        elif mode == "rsi_cycle":
+            return self._run_rsi_cycle(goal)
         else:
             return self._evolve_codebase(goal, target_files)
+
+    def _run_rsi_cycle(self, goal: str) -> str:
+        """RSI Engine을 통한 재귀적 자기개선 사이클을 실행합니다."""
+        try:
+            from antigravity_k.engine.rsi_engine import RSIEngine, RSIConfig
+
+            project_root = self._find_project_root()
+            config = RSIConfig(max_cycles=1, auto_apply_prompts=True)
+            engine = RSIEngine(config=config, project_root=project_root)
+
+            result = engine.run_cycle(
+                performance_data={"weaknesses": [goal]}
+            )
+
+            report = engine.render_report_markdown()
+            status = "✅ 성공" if result.success else "❌ 실패"
+            return (
+                f"🧬 **[RSI 사이클 완료]** {status}\n\n"
+                f"- 개선 전: {result.before_score:.1%}\n"
+                f"- 개선 후: {result.after_score:.1%}\n"
+                f"- 변화량: Δ{result.improvement:+.1%}\n"
+                f"- 변이 유형: {result.mutation_type}\n"
+                f"- 소요 시간: {result.duration_sec:.1f}s\n\n"
+                f"{report}"
+            )
+        except Exception as e:
+            logger.error(f"RSI cycle error: {e}", exc_info=True)
+            return f"❌ RSI 사이클 오류: {e}"
 
     def _generate_new_skill(self, goal: str) -> str:
         """새로운 도구를 자동 생성합니다."""

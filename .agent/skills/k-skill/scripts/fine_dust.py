@@ -43,11 +43,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     report = subparsers.add_parser("report", help="build a PM10/PM2.5 report")
     report.add_argument("--lat", type=float, help="WGS84 latitude")
     report.add_argument("--lon", type=float, help="WGS84 longitude")
-    report.add_argument("--region-hint", help="fallback region/administrative-area hint")
+    report.add_argument(
+        "--region-hint", help="fallback region/administrative-area hint"
+    )
     report.add_argument("--station-name", help="explicit station name fallback")
     report.add_argument("--station-file", help="offline station JSON fixture")
     report.add_argument("--measurement-file", help="offline measurement JSON fixture")
-    report.add_argument("--json", action="store_true", help="print JSON instead of text")
+    report.add_argument(
+        "--json", action="store_true", help="print JSON instead of text"
+    )
     return parser.parse_args(argv)
 
 
@@ -83,7 +87,9 @@ def squared_distance(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> 
     return (lat_a - lat_b) ** 2 + (lon_a - lon_b) ** 2
 
 
-def meridional_arc(phi: float, *, semi_major_axis: float, eccentricity_squared: float) -> float:
+def meridional_arc(
+    phi: float, *, semi_major_axis: float, eccentricity_squared: float
+) -> float:
     e2 = eccentricity_squared
     return semi_major_axis * (
         (1 - e2 / 4 - 3 * e2**2 / 64 - 5 * e2**3 / 256) * phi
@@ -138,7 +144,9 @@ def wgs84_to_air_korea_tm(lat: float, lon: float) -> tuple[float, float]:
     curvature = second_eccentricity_squared * cos_lat * cos_lat
     A = (lon_rad - AIR_KOREA_TM_LON0) * cos_lat
 
-    meridional = meridional_arc(lat_rad, semi_major_axis=BESSEL_A, eccentricity_squared=bessel_e2)
+    meridional = meridional_arc(
+        lat_rad, semi_major_axis=BESSEL_A, eccentricity_squared=bessel_e2
+    )
     meridional_origin = meridional_arc(
         AIR_KOREA_TM_LAT0,
         semi_major_axis=BESSEL_A,
@@ -148,7 +156,15 @@ def wgs84_to_air_korea_tm(lat: float, lon: float) -> tuple[float, float]:
     tm_x = AIR_KOREA_TM_FALSE_EASTING + AIR_KOREA_TM_SCALE * prime_vertical_radius * (
         A
         + (1 - tan_squared + curvature) * A**3 / 6
-        + (5 - 18 * tan_squared + tan_squared**2 + 72 * curvature - 58 * second_eccentricity_squared) * A**5 / 120
+        + (
+            5
+            - 18 * tan_squared
+            + tan_squared**2
+            + 72 * curvature
+            - 58 * second_eccentricity_squared
+        )
+        * A**5
+        / 120
     )
     tm_y = AIR_KOREA_TM_FALSE_NORTHING + AIR_KOREA_TM_SCALE * (
         meridional
@@ -158,7 +174,13 @@ def wgs84_to_air_korea_tm(lat: float, lon: float) -> tuple[float, float]:
         * (
             A**2 / 2
             + (5 - tan_squared + 9 * curvature + 4 * curvature**2) * A**4 / 24
-            + (61 - 58 * tan_squared + tan_squared**2 + 600 * curvature - 330 * second_eccentricity_squared)
+            + (
+                61
+                - 58 * tan_squared
+                + tan_squared**2
+                + 600 * curvature
+                - 330 * second_eccentricity_squared
+            )
             * A**6
             / 720
         )
@@ -178,14 +200,18 @@ def pick_station(
         raise SystemExit("측정소 후보가 없습니다.")
 
     if station_name:
-        exact_match = next((item for item in station_items if item.get("stationName") == station_name), None)
+        exact_match = next(
+            (item for item in station_items if item.get("stationName") == station_name),
+            None,
+        )
         if exact_match:
             return exact_match
         partial_match = next(
             (
                 item
                 for item in station_items
-                if station_name in str(item.get("stationName", "")) or station_name in str(item.get("addr", ""))
+                if station_name in str(item.get("stationName", ""))
+                or station_name in str(item.get("addr", ""))
             ),
             None,
         )
@@ -205,10 +231,16 @@ def pick_station(
             return candidates[0][1]
 
     if region_hint:
-        tokens = sorted({token for token in region_hint.split() if token}, key=len, reverse=True)
+        tokens = sorted(
+            {token for token in region_hint.split() if token}, key=len, reverse=True
+        )
         for token in tokens:
             station_name_match = next(
-                (item for item in station_items if token in str(item.get("stationName", ""))),
+                (
+                    item
+                    for item in station_items
+                    if token in str(item.get("stationName", ""))
+                ),
                 None,
             )
             if station_name_match:
@@ -248,12 +280,19 @@ def resolve_station(
 
 
 def find_measurement(measurement_items: list[dict], station_name: str) -> dict:
-    exact_match = next((item for item in measurement_items if item.get("stationName") == station_name), None)
+    exact_match = next(
+        (item for item in measurement_items if item.get("stationName") == station_name),
+        None,
+    )
     if exact_match:
         return exact_match
 
     partial_match = next(
-        (item for item in measurement_items if station_name in str(item.get("stationName", ""))),
+        (
+            item
+            for item in measurement_items
+            if station_name in str(item.get("stationName", ""))
+        ),
         None,
     )
     if partial_match:
@@ -302,7 +341,9 @@ def build_report(
     )
     measurement = find_measurement(measurement_items, station["stationName"])
 
-    resolved_lookup_mode = lookup_mode or ("coordinates" if lat is not None and lon is not None else "fallback")
+    resolved_lookup_mode = lookup_mode or (
+        "coordinates" if lat is not None and lon is not None else "fallback"
+    )
 
     return {
         "station_name": station["stationName"],
@@ -325,12 +366,14 @@ def build_report(
                 value=measurement.get("pm25Value"),
             ),
         },
-        "khai_grade": "정보없음"
-        if measurement.get("khaiGrade") in (None, "")
-        else grade_to_label(
-            measurement.get("khaiGrade"),
-            pollutant="pm10",
-            value=measurement.get("pm10Value"),
+        "khai_grade": (
+            "정보없음"
+            if measurement.get("khaiGrade") in (None, "")
+            else grade_to_label(
+                measurement.get("khaiGrade"),
+                pollutant="pm10",
+                value=measurement.get("pm10Value"),
+            )
         ),
     }
 
@@ -379,14 +422,18 @@ def read_json_response(request: urllib.request.Request | str) -> dict:
                 detail.append(f"시도: {sido_name}")
             if candidates:
                 detail.append(f"후보 측정소: {', '.join(candidates)}")
-                detail.append("위 후보 중 정확한 측정소명으로 --station-name 재조회하세요.")
+                detail.append(
+                    "위 후보 중 정확한 측정소명으로 --station-name 재조회하세요."
+                )
             raise SystemExit("\n".join(detail)) from exc
 
         raise SystemExit(message or f"요청이 실패했습니다: HTTP {exc.code}") from exc
 
 
 def fetch_json(url: str, params: dict[str, object]) -> dict:
-    query = urllib.parse.urlencode({key: value for key, value in params.items() if value is not None})
+    query = urllib.parse.urlencode(
+        {key: value for key, value in params.items() if value is not None}
+    )
     request_url = f"{url}?{query}"
     return read_json_response(request_url)
 
@@ -413,7 +460,11 @@ def fetch_proxy_report(args: argparse.Namespace) -> dict | None:
 
 def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict, str]:
     if args.station_file:
-        return load_json_file(args.station_file), "coordinates" if args.lat is not None and args.lon is not None else "fallback"
+        return load_json_file(args.station_file), (
+            "coordinates"
+            if args.lat is not None and args.lon is not None
+            else "fallback"
+        )
 
     service_key = get_required_secret()
     common = {

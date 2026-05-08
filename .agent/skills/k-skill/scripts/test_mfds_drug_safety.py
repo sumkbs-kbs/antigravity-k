@@ -69,8 +69,15 @@ class DrugNormalizationTest(unittest.TestCase):
 
 class ProxyResolutionTest(unittest.TestCase):
     def test_resolve_proxy_base_url_defaults_to_hosted_proxy(self):
-        self.assertEqual(resolve_proxy_base_url(None, env={}), "https://k-skill-proxy.nomadamas.org")
-        self.assertEqual(resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "https://proxy.example.com/"}), "https://proxy.example.com")
+        self.assertEqual(
+            resolve_proxy_base_url(None, env={}), "https://k-skill-proxy.nomadamas.org"
+        )
+        self.assertEqual(
+            resolve_proxy_base_url(
+                None, env={"KSKILL_PROXY_BASE_URL": "https://proxy.example.com/"}
+            ),
+            "https://proxy.example.com",
+        )
         with self.assertRaisesRegex(ValueError, "KSKILL_PROXY_BASE_URL"):
             resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "off"})
 
@@ -81,10 +88,17 @@ class ProxyResolutionTest(unittest.TestCase):
             captured["url"] = request.full_url
             return {"items": []}
 
-        payload = lookup_drugs(["타이레놀", "판콜"], limit=3, base_url="https://proxy.example.com", request_json=fake_request_json)
+        payload = lookup_drugs(
+            ["타이레놀", "판콜"],
+            limit=3,
+            base_url="https://proxy.example.com",
+            request_json=fake_request_json,
+        )
 
         self.assertEqual(payload, {"items": []})
-        self.assertIn("https://proxy.example.com/v1/mfds/drug-safety/lookup", captured["url"])
+        self.assertIn(
+            "https://proxy.example.com/v1/mfds/drug-safety/lookup", captured["url"]
+        )
         self.assertIn("itemName=%ED%83%80%EC%9D%B4%EB%A0%88%EB%86%80", captured["url"])
         self.assertIn("itemName=%ED%8C%90%EC%BD%9C", captured["url"])
         self.assertIn("limit=3", captured["url"])

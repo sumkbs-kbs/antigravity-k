@@ -144,7 +144,9 @@ def load_feed(xml_text: str) -> GeekNewsFeed:
     prefix = _feed_prefix(xml_text)
     items = []
     for entry in _entry_blocks(xml_text):
-        author_block_match = re.search(r"<author\b[^>]*>(.*?)</author>", entry, re.DOTALL)
+        author_block_match = re.search(
+            r"<author\b[^>]*>(.*?)</author>", entry, re.DOTALL
+        )
         author_block = author_block_match.group(1) if author_block_match else ""
         content_html = (_first_raw_tag(entry, "content") or "").strip()
         items.append(
@@ -152,7 +154,8 @@ def load_feed(xml_text: str) -> GeekNewsFeed:
                 id=_first_tag(entry, "id") or "",
                 title=_first_tag(entry, "title") or "",
                 link=_first_link_href(entry) or (_first_tag(entry, "id") or ""),
-                published=_first_tag(entry, "published") or _first_tag(entry, "updated"),
+                published=_first_tag(entry, "published")
+                or _first_tag(entry, "updated"),
                 updated=_first_tag(entry, "updated"),
                 author_name=_first_tag(author_block, "name"),
                 author_url=_first_tag(author_block, "uri"),
@@ -174,7 +177,7 @@ def load_feed(xml_text: str) -> GeekNewsFeed:
 
 
 def list_items(feed: GeekNewsFeed, limit: int = 10) -> list[GeekNewsItem]:
-    return feed.items[:_validate_limit(limit)]
+    return feed.items[: _validate_limit(limit)]
 
 
 def search_items(feed: GeekNewsFeed, query: str, limit: int = 10) -> list[GeekNewsItem]:
@@ -210,7 +213,9 @@ def get_item_detail(feed: GeekNewsFeed, lookup: str) -> GeekNewsItem:
     for item in feed.items:
         candidates = [item.id, item.link, item.title]
         lowered = [candidate.casefold() for candidate in candidates if candidate]
-        if normalized_lookup in lowered or any(normalized_lookup in candidate for candidate in lowered):
+        if normalized_lookup in lowered or any(
+            normalized_lookup in candidate for candidate in lowered
+        ):
             return item
     raise LookupError(f"No GeekNews entry matched: {lookup}")
 
@@ -221,10 +226,16 @@ def _serialize_items(items: list[GeekNewsItem]) -> list[dict[str, object]]:
 
 def build_list_payload(feed: GeekNewsFeed, limit: int = 10) -> dict[str, object]:
     items = list_items(feed, limit=limit)
-    return {"source": feed.source_dict(), "count": len(items), "items": _serialize_items(items)}
+    return {
+        "source": feed.source_dict(),
+        "count": len(items),
+        "items": _serialize_items(items),
+    }
 
 
-def build_search_payload(feed: GeekNewsFeed, query: str, limit: int = 10) -> dict[str, object]:
+def build_search_payload(
+    feed: GeekNewsFeed, query: str, limit: int = 10
+) -> dict[str, object]:
     items = search_items(feed, query=query, limit=limit)
     return {
         "source": feed.source_dict(),
@@ -240,19 +251,25 @@ def build_detail_payload(feed: GeekNewsFeed, lookup: str) -> dict[str, object]:
 
 
 def fetch_feed(url: str = GEEKNEWS_FEED_URL, timeout: int = 20) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "k-skill-geeknews/1.0"})
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "k-skill-geeknews/1.0"}
+    )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
 
 
 def _add_feed_source_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--feed-url", default=GEEKNEWS_FEED_URL, help="기본값: GeekNews public feed URL")
+    parser.add_argument(
+        "--feed-url", default=GEEKNEWS_FEED_URL, help="기본값: GeekNews public feed URL"
+    )
     parser.add_argument("--feed-file", help="테스트/오프라인 검증용 로컬 Atom XML 파일")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Read GeekNews entries from the public RSS/Atom feed.")
+    parser = argparse.ArgumentParser(
+        description="Read GeekNews entries from the public RSS/Atom feed."
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -267,7 +284,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     detail_parser = subparsers.add_parser("detail", help="항목 상세 확인")
     _add_feed_source_args(detail_parser)
-    detail_parser.add_argument("--id", required=True, help="entry id/link/topic id 일부")
+    detail_parser.add_argument(
+        "--id", required=True, help="entry id/link/topic id 일부"
+    )
 
     return parser.parse_args(argv)
 

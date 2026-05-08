@@ -137,7 +137,14 @@ def search(
 
         order = MATCH_REASON_ORDER.get(match_reason, 9)
         era_rank = _era_sort_key(str(entry.get("era", "")))
-        scored.append((order, era_rank, str(entry.get("term", "")), {**entry, "match_reason": match_reason}))
+        scored.append(
+            (
+                order,
+                era_rank,
+                str(entry.get("term", "")),
+                {**entry, "match_reason": match_reason},
+            )
+        )
 
     scored.sort(key=lambda item: (item[0], item[1], item[2]))
 

@@ -18,7 +18,7 @@ def build_school_queries(
     if school_domain:
         domain_targets = [f"site:{school_domain}"]
     else:
-        domain_targets = [f"site:*.ac.kr \"{school_name}\""]
+        domain_targets = [f'site:*.ac.kr "{school_name}"']
 
     base_suffixes = [
         f"{year} 장학 공고",
@@ -39,15 +39,15 @@ def build_school_queries(
             queries.append(f"{target} {suffix}")
 
         for college in colleges:
-            queries.append(f"{target} \"{college}\" 장학")
-            queries.append(f"{target} \"{college}\" 외부 장학")
-            queries.append(f"{target} \"{college}\" 장학생 모집")
+            queries.append(f'{target} "{college}" 장학')
+            queries.append(f'{target} "{college}" 외부 장학')
+            queries.append(f'{target} "{college}" 장학생 모집')
 
         for department in departments:
-            queries.append(f"{target} \"{department}\" 장학")
-            queries.append(f"{target} \"{department}\" 외부 장학")
-            queries.append(f"{target} \"{department}\" 공지 장학생")
-            queries.append(f"{target} \"{department}\" 대학원 장학")
+            queries.append(f'{target} "{department}" 장학')
+            queries.append(f'{target} "{department}" 외부 장학')
+            queries.append(f'{target} "{department}" 공지 장학생')
+            queries.append(f'{target} "{department}" 대학원 장학')
 
     url_hints = [
         "/scholarship",
@@ -115,11 +115,32 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate exhaustive official scholarship search queries for a Korean university or for nationwide university coverage.",
     )
     parser.add_argument("--school-name", help="University name, e.g. 서울대학교.")
-    parser.add_argument("--school-domain", help="Official university domain, e.g. snu.ac.kr.")
-    parser.add_argument("--department", action="append", default=[], help="Department or program name. Repeatable.")
-    parser.add_argument("--college", action="append", default=[], help="College/faculty name. Repeatable.")
-    parser.add_argument("--nationwide", action="store_true", help="Generate search queries for all Korean universities.")
-    parser.add_argument("--year", type=int, default=date.today().year, help="Target year for notice search.")
+    parser.add_argument(
+        "--school-domain", help="Official university domain, e.g. snu.ac.kr."
+    )
+    parser.add_argument(
+        "--department",
+        action="append",
+        default=[],
+        help="Department or program name. Repeatable.",
+    )
+    parser.add_argument(
+        "--college",
+        action="append",
+        default=[],
+        help="College/faculty name. Repeatable.",
+    )
+    parser.add_argument(
+        "--nationwide",
+        action="store_true",
+        help="Generate search queries for all Korean universities.",
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=date.today().year,
+        help="Target year for notice search.",
+    )
     return parser
 
 

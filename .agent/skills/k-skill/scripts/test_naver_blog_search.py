@@ -4,7 +4,12 @@ import unittest
 from unittest import mock
 
 
-MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "naver-blog-research" / "scripts" / "naver_search.py"
+MODULE_PATH = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / "naver-blog-research"
+    / "scripts"
+    / "naver_search.py"
+)
 MODULE_SPEC = importlib.util.spec_from_file_location("naver_search", MODULE_PATH)
 naver_search = importlib.util.module_from_spec(MODULE_SPEC)
 assert MODULE_SPEC.loader is not None
@@ -38,14 +43,25 @@ class RequestBuilderTest(unittest.TestCase):
 
 
 class SearchWorkflowTest(unittest.TestCase):
-    def test_search_uses_15_result_pages_and_ignores_extra_anchors_beyond_page_window(self):
+    def test_search_uses_15_result_pages_and_ignores_extra_anchors_beyond_page_window(
+        self,
+    ):
         fetch_starts: list[int] = []
         parsed_pages = {
-            "page-1": [make_result(index) for index in range(1, 16)] + [make_result(101), make_result(102)],
-            "page-16": [make_result(index) for index in range(16, 31)] + [make_result(101), make_result(102)],
+            "page-1": [make_result(index) for index in range(1, 16)]
+            + [make_result(101), make_result(102)],
+            "page-16": [make_result(index) for index in range(16, 31)]
+            + [make_result(101), make_result(102)],
         }
 
-        def fake_fetch(query: str, start: int = 1, sort: str = "sim", timeout: int = 15, *, insecure: bool = False) -> str:
+        def fake_fetch(
+            query: str,
+            start: int = 1,
+            sort: str = "sim",
+            timeout: int = 15,
+            *,
+            insecure: bool = False,
+        ) -> str:
             self.assertEqual(query, "서울 맛집")
             self.assertEqual(sort, "sim")
             self.assertEqual(timeout, 15)
@@ -57,8 +73,12 @@ class SearchWorkflowTest(unittest.TestCase):
             return parsed_pages[html]
 
         with (
-            mock.patch.object(naver_search, "fetch_search_page", side_effect=fake_fetch),
-            mock.patch.object(naver_search, "parse_search_results", side_effect=fake_parse),
+            mock.patch.object(
+                naver_search, "fetch_search_page", side_effect=fake_fetch
+            ),
+            mock.patch.object(
+                naver_search, "parse_search_results", side_effect=fake_parse
+            ),
             mock.patch.object(naver_search.time, "sleep"),
         ):
             result = naver_search.search("서울 맛집", count=20)
@@ -73,13 +93,24 @@ class SearchWorkflowTest(unittest.TestCase):
     def test_search_passes_date_sort_through_to_fetcher(self):
         captured_sorts: list[str] = []
 
-        def fake_fetch(query: str, start: int = 1, sort: str = "sim", timeout: int = 15, *, insecure: bool = False) -> str:
+        def fake_fetch(
+            query: str,
+            start: int = 1,
+            sort: str = "sim",
+            timeout: int = 15,
+            *,
+            insecure: bool = False,
+        ) -> str:
             captured_sorts.append(sort)
             return "page-1"
 
         with (
-            mock.patch.object(naver_search, "fetch_search_page", side_effect=fake_fetch),
-            mock.patch.object(naver_search, "parse_search_results", return_value=[make_result(1)]),
+            mock.patch.object(
+                naver_search, "fetch_search_page", side_effect=fake_fetch
+            ),
+            mock.patch.object(
+                naver_search, "parse_search_results", return_value=[make_result(1)]
+            ),
         ):
             result = naver_search.search("서울 맛집", count=1, sort="date")
 

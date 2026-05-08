@@ -72,7 +72,9 @@ def fetch_html(url: str, timeout: int) -> str:
         raise ValueError(f"not a namuwiki URL: {url}")
     request = urllib.request.Request(url, headers=browser_headers())
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=_get_ssl_context()) as response:
+        with urllib.request.urlopen(
+            request, timeout=timeout, context=_get_ssl_context()
+        ) as response:
             body = response.read()
     except urllib.error.HTTPError as error:
         status = error.code

@@ -36,13 +36,14 @@ logger = logging.getLogger("antigravity_k.deterministic_worker")
 
 class TaskIntent(Enum):
     """Deterministic Worker가 처리할 수 있는 작업 유형"""
-    STOCK_LOOKUP = "stock_lookup"          # 주가 조회
-    WEATHER_CHECK = "weather_check"        # 날씨 조회
-    WEB_SEARCH = "web_search"              # 웹 검색 + 요약
-    FILE_OPERATION = "file_operation"       # 파일 읽기/쓰기
-    CODE_GENERATION = "code_generation"    # 코드 생성
-    DATA_ANALYSIS = "data_analysis"        # 데이터 분석
-    UNKNOWN = "unknown"                     # 분류 불가 → LLM 자유 생성
+
+    STOCK_LOOKUP = "stock_lookup"  # 주가 조회
+    WEATHER_CHECK = "weather_check"  # 날씨 조회
+    WEB_SEARCH = "web_search"  # 웹 검색 + 요약
+    FILE_OPERATION = "file_operation"  # 파일 읽기/쓰기
+    CODE_GENERATION = "code_generation"  # 코드 생성
+    DATA_ANALYSIS = "data_analysis"  # 데이터 분석
+    UNKNOWN = "unknown"  # 분류 불가 → LLM 자유 생성
 
 
 # ─── 데이터 구조 ─────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ class TaskIntent(Enum):
 @dataclass
 class WorkerDecision:
     """LLM이 내리는 판단 결과 (구조화된 JSON으로 강제)"""
+
     intent: TaskIntent
     parameters: Dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
@@ -60,6 +62,7 @@ class WorkerDecision:
 @dataclass
 class WorkerResult:
     """레시피 실행 결과"""
+
     success: bool
     data: Any = None
     formatted_output: str = ""
@@ -143,6 +146,7 @@ class WebSearchRecipe(WorkerRecipe):
         start = time.time()
         try:
             from antigravity_k.tools.web_search import WebSearchTool
+
             tool = WebSearchTool()
             raw = tool.execute(query=params["query"])
             elapsed = (time.time() - start) * 1000
@@ -189,6 +193,7 @@ class FileReadRecipe(WorkerRecipe):
 
     def validate(self, params: Dict[str, Any]) -> bool:
         import os
+
         path = params.get("path", "")
         return bool(path) and os.path.exists(path)
 
@@ -204,7 +209,7 @@ class FileReadRecipe(WorkerRecipe):
 
             if end_line == -1:
                 end_line = len(lines)
-            selected = lines[max(0, start_line - 1):end_line]
+            selected = lines[max(0, start_line - 1) : end_line]
             content = "".join(selected)
 
             elapsed = (time.time() - start) * 1000
@@ -285,7 +290,9 @@ class DeterministicWorker:
     def register_recipe(self, recipe: WorkerRecipe) -> None:
         """레시피를 등록합니다."""
         self._recipes[recipe.intent] = recipe
-        logger.info(f"[DeterministicWorker] 레시피 등록: {recipe.name} ({recipe.intent.value})")
+        logger.info(
+            f"[DeterministicWorker] 레시피 등록: {recipe.name} ({recipe.intent.value})"
+        )
 
     def unregister_recipe(self, intent: TaskIntent) -> bool:
         """레시피를 해제합니다."""
@@ -404,6 +411,7 @@ class DeterministicWorker:
             return result.formatted_output
 
         from antigravity_k.engine.prompt_builder import PromptBuilder
+
         pb = PromptBuilder()
         format_prompt = pb.structured_prompt(
             role="정보 정리 전문가",
@@ -467,9 +475,7 @@ class DeterministicWorker:
 
         # 3) 포맷
         if result.success:
-            result.formatted_output = self.format_response(
-                user_input, result
-            )
+            result.formatted_output = self.format_response(user_input, result)
 
         return result
 
@@ -481,6 +487,8 @@ class DeterministicWorker:
             "judge_model": self._judge_model,
             "formatter_model": self._formatter_model,
         }
+
+
 """
 Antigravity-K Deterministic Worker — LLM judges, Python executes.
 """

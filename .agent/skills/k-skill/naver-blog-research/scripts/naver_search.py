@@ -38,17 +38,28 @@ def strip_html(text: str) -> str:
     return unescape(TAG_RE.sub("", text)).strip()
 
 
-def build_search_params(query: str, start: int = FIRST_PAGE_START, sort: str = "sim") -> dict[str, str]:
+def build_search_params(
+    query: str, start: int = FIRST_PAGE_START, sort: str = "sim"
+) -> dict[str, str]:
     return {
         "query": query,
         "ssc": "tab.blog.all",
         "sm": "tab_jum" if start <= FIRST_PAGE_START else "tab_pge",
         "start": str(start),
-        "nso": {"sim": "so:r,p:all,a:all", "date": "so:dd,p:all,a:all"}.get(sort, "so:r,p:all,a:all"),
+        "nso": {"sim": "so:r,p:all,a:all", "date": "so:dd,p:all,a:all"}.get(
+            sort, "so:r,p:all,a:all"
+        ),
     }
 
 
-def fetch_search_page(query: str, start: int = 1, sort: str = "sim", timeout: int = 15, *, insecure: bool = False) -> str:
+def fetch_search_page(
+    query: str,
+    start: int = 1,
+    sort: str = "sim",
+    timeout: int = 15,
+    *,
+    insecure: bool = False,
+) -> str:
     params = build_search_params(query, start=start, sort=sort)
     url = f"{SEARCH_URL}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url, headers=DEFAULT_HEADERS)
@@ -101,7 +112,14 @@ def parse_search_results(html: str) -> list[dict]:
     return results
 
 
-def search(query: str, count: int = DEFAULT_COUNT, sort: str = "sim", timeout: int = 15, *, insecure: bool = False) -> dict:
+def search(
+    query: str,
+    count: int = DEFAULT_COUNT,
+    sort: str = "sim",
+    timeout: int = 15,
+    *,
+    insecure: bool = False,
+) -> dict:
     count = max(1, min(count, MAX_COUNT))
     all_results: list[dict] = []
     seen_urls: set[str] = set()
@@ -116,12 +134,17 @@ def search(query: str, count: int = DEFAULT_COUNT, sort: str = "sim", timeout: i
         if page_num > 0:
             time.sleep(0.5)
 
-        html = fetch_search_page(query, start=start, sort=sort, timeout=timeout, insecure=insecure)
+        html = fetch_search_page(
+            query, start=start, sort=sort, timeout=timeout, insecure=insecure
+        )
         page_results = parse_search_results(html)[:RESULTS_PER_PAGE]
 
         if not page_results:
             if start == 1:
-                print("[warn] 검색 결과 파싱 실패. 네이버 HTML 구조가 변경되었을 수 있습니다.", file=sys.stderr)
+                print(
+                    "[warn] 검색 결과 파싱 실패. 네이버 HTML 구조가 변경되었을 수 있습니다.",
+                    file=sys.stderr,
+                )
             break
 
         new_count = 0
@@ -151,19 +174,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("query", help="Search query string.")
     parser.add_argument(
-        "--count", type=int, default=DEFAULT_COUNT,
+        "--count",
+        type=int,
+        default=DEFAULT_COUNT,
         help=f"Number of results to return (max {MAX_COUNT}, default {DEFAULT_COUNT}).",
     )
     parser.add_argument(
-        "--sort", choices=["sim", "date"], default="sim",
+        "--sort",
+        choices=["sim", "date"],
+        default="sim",
         help="Sort order: sim (relevance) or date (newest first). Default: sim.",
     )
     parser.add_argument(
-        "--timeout", type=int, default=15,
+        "--timeout",
+        type=int,
+        default=15,
         help="HTTP request timeout in seconds. Default: 15.",
     )
     parser.add_argument(
-        "--insecure", action="store_true",
+        "--insecure",
+        action="store_true",
         help="Skip SSL certificate verification (use only when certificate errors occur).",
     )
     return parser.parse_args(argv)

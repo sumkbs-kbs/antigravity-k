@@ -44,7 +44,9 @@ _MAGIC_BYTES = (
 )
 
 
-def guess_extension(url: str, content_type: str | None = None, data: bytes | None = None) -> str:
+def guess_extension(
+    url: str, content_type: str | None = None, data: bytes | None = None
+) -> str:
     if content_type:
         ct = content_type.split(";")[0].strip().lower()
         if ct in CONTENT_TYPE_TO_EXT:
@@ -57,7 +59,7 @@ def guess_extension(url: str, content_type: str | None = None, data: bytes | Non
 
     if data:
         for magic, ext in _MAGIC_BYTES:
-            if data[:len(magic)] == magic:
+            if data[: len(magic)] == magic:
                 if ext == ".webp" and data[8:12] != b"WEBP":
                     continue
                 return ext
@@ -67,7 +69,14 @@ def guess_extension(url: str, content_type: str | None = None, data: bytes | Non
     return ".jpg"
 
 
-def download_image(url: str, output_path: str, output_dir: str, timeout: int = DEFAULT_TIMEOUT, *, insecure: bool = False) -> dict:
+def download_image(
+    url: str,
+    output_path: str,
+    output_dir: str,
+    timeout: int = DEFAULT_TIMEOUT,
+    *,
+    insecure: bool = False,
+) -> dict:
     """Download a single image from a Naver CDN URL.
 
     *output_dir* is used solely for path-traversal protection: the resolved
@@ -125,7 +134,9 @@ def download_images(
         for i, url in enumerate(targets, start=1):
             filename = f"{i:03d}"
             output_path = os.path.join(output_dir, filename)
-            future = executor.submit(download_image, url, output_path, output_dir, timeout, insecure=insecure)
+            future = executor.submit(
+                download_image, url, output_path, output_dir, timeout, insecure=insecure
+            )
             future_to_index[future] = i
 
         for future in as_completed(future_to_index):
@@ -155,23 +166,32 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         description="Download images from Naver blog CDN URLs."
     )
     parser.add_argument(
-        "--urls", type=str, default="",
+        "--urls",
+        type=str,
+        default="",
         help="Comma-separated image URLs.",
     )
     parser.add_argument(
-        "--output", type=str, default=DEFAULT_OUTPUT_DIR,
+        "--output",
+        type=str,
+        default=DEFAULT_OUTPUT_DIR,
         help=f"Output directory. Default: {DEFAULT_OUTPUT_DIR}",
     )
     parser.add_argument(
-        "--max", type=int, default=DEFAULT_MAX,
+        "--max",
+        type=int,
+        default=DEFAULT_MAX,
         help=f"Maximum number of images to download. Default: {DEFAULT_MAX}",
     )
     parser.add_argument(
-        "--timeout", type=int, default=DEFAULT_TIMEOUT,
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT,
         help=f"HTTP request timeout in seconds. Default: {DEFAULT_TIMEOUT}",
     )
     parser.add_argument(
-        "--insecure", action="store_true",
+        "--insecure",
+        action="store_true",
         help="Skip SSL certificate verification (use only when certificate errors occur).",
     )
     return parser.parse_args(argv)
@@ -181,10 +201,15 @@ def read_urls_from_stdin() -> list[str]:
     try:
         data = json.load(sys.stdin)
         if isinstance(data, dict) and "images" in data:
-            return [img["url"] for img in data["images"] if isinstance(img, dict) and img.get("url")]
+            return [
+                img["url"]
+                for img in data["images"]
+                if isinstance(img, dict) and img.get("url")
+            ]
         if isinstance(data, list):
             return [
-                u for item in data
+                u
+                for item in data
                 if (u := (item if isinstance(item, str) else item.get("url", "")))
             ]
         if isinstance(data, dict):
@@ -212,7 +237,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if not urls:
         print(
-            json.dumps({"error": "No image URLs provided. Use --urls or pipe naver_read.py output via stdin."}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "error": "No image URLs provided. Use --urls or pipe naver_read.py output via stdin."
+                },
+                ensure_ascii=False,
+            ),
             file=sys.stderr,
         )
         return 1

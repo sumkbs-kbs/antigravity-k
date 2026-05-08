@@ -66,9 +66,7 @@ def tokenize_plist_xml(xml_text: str) -> list[tuple[str, str]]:
     normalized = re.sub(r"<\?xml[^>]*\?>", "", xml_text)
     normalized = re.sub(r"<!DOCTYPE[^>]*>", "", normalized)
     normalized = re.sub(r"<([A-Za-z0-9]+)\s*/>", r"<\1></\1>", normalized)
-    normalized = (
-        normalized.replace("\r", "")
-    )
+    normalized = normalized.replace("\r", "")
     tokens: list[tuple[str, str]] = []
     position = 0
     for match in re.finditer(r"<(/?)([A-Za-z0-9]+)(?: [^>]*)?>", normalized):
@@ -200,7 +198,11 @@ def discover_database_files(container_path: Path) -> list[Path]:
     if not container_path.exists():
         return []
     return sorted(
-        [path for path in container_path.iterdir() if path.is_file() and HEX_DATABASE_PATTERN.fullmatch(path.name)],
+        [
+            path
+            for path in container_path.iterdir()
+            if path.is_file() and HEX_DATABASE_PATTERN.fullmatch(path.name)
+        ],
         key=lambda item: item.name,
     )
 
@@ -231,7 +233,9 @@ def recover_user_id_from_sha512(
     if normalized_workers == 1:
         return _scan_user_id_range((0, max_user_id + 1, hex_hash))
 
-    start_method = "fork" if "fork" in mp.get_all_start_methods() else mp.get_start_method()
+    start_method = (
+        "fork" if "fork" in mp.get_all_start_methods() else mp.get_start_method()
+    )
     ctx = mp.get_context(start_method)
     job_iter = (
         (start, min(start + chunk_size, max_user_id + 1), hex_hash)
@@ -249,7 +253,10 @@ def _scan_user_id_range(job: tuple[int, int, str]) -> int | None:
     start, end, hex_hash = job
     target = hex_hash.encode("ascii")
     for user_id in range(start, end):
-        if hashlib.sha512(str(user_id).encode("utf-8")).hexdigest().encode("ascii") == target:
+        if (
+            hashlib.sha512(str(user_id).encode("utf-8")).hexdigest().encode("ascii")
+            == target
+        ):
             return user_id
     return None
 
@@ -287,7 +294,9 @@ def resolve_auth_state(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
 ) -> ResolvedAuth:
     if not state.database_files:
-        raise AuthResolutionError("No KakaoTalk database files were discovered in the container path.")
+        raise AuthResolutionError(
+            "No KakaoTalk database files were discovered in the container path."
+        )
 
     candidates = list(state.candidate_user_ids)
     if user_id_override is not None:
@@ -308,7 +317,9 @@ def resolve_auth_state(
             chunk_size=chunk_size,
         )
         if recovered is not None and recovered not in candidates:
-            resolved = _try_resolved_auth(recovered, "hash-recovery", state, verify_access)
+            resolved = _try_resolved_auth(
+                recovered, "hash-recovery", state, verify_access
+            )
             if resolved is not None:
                 persist_auth_cache(resolved, cache_path)
                 return resolved
@@ -341,7 +352,9 @@ def _try_resolved_auth(
     return None
 
 
-def prioritized_database_paths(database_files: Sequence[Path], derived_name: str) -> list[Path]:
+def prioritized_database_paths(
+    database_files: Sequence[Path], derived_name: str
+) -> list[Path]:
     preferred_names = {derived_name, f"{derived_name}.db"}
     preferred = [path for path in database_files if path.name in preferred_names]
     fallback = [path for path in database_files if path.name not in preferred_names]
@@ -362,7 +375,13 @@ def load_cached_auth(cache_path: Path) -> ResolvedAuth | None:
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
 
-    if user_id <= 0 or not uuid or not database_name or not key or not database_path.exists():
+    if (
+        user_id <= 0
+        or not uuid
+        or not database_name
+        or not key
+        or not database_path.exists()
+    ):
         return None
 
     return ResolvedAuth(
@@ -387,7 +406,9 @@ def persist_auth_cache(resolved: ResolvedAuth, cache_path: Path | None) -> None:
         "key": resolved.key,
         "source": resolved.source,
     }
-    cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    cache_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     try:
         os.chmod(cache_path, 0o600)
     except OSError:
@@ -395,7 +416,9 @@ def persist_auth_cache(resolved: ResolvedAuth, cache_path: Path | None) -> None:
 
 
 def platform_uuid() -> str:
-    result = run_command(["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], check=True)
+    result = run_command(
+        ["/usr/sbin/ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], check=True
+    )
     match = re.search(r'"IOPlatformUUID" = "([0-9A-F-]+)"', result.stdout)
     if not match:
         raise AuthResolutionError("Could not read IOPlatformUUID from ioreg output.")
@@ -403,7 +426,9 @@ def platform_uuid() -> str:
 
 
 def convert_plist_to_xml(plist_path: Path) -> str:
-    result = run_command(["/usr/bin/plutil", "-convert", "xml1", "-o", "-", str(plist_path)], check=True)
+    result = run_command(
+        ["/usr/bin/plutil", "-convert", "xml1", "-o", "-", str(plist_path)], check=True
+    )
     return result.stdout
 
 
@@ -444,7 +469,9 @@ def preference_paths() -> list[Path]:
         / "Preferences"
     )
     paths = sorted(pref_dir.glob("com.kakao.KakaoTalkMac*.plist"))
-    global_pref = Path.home() / "Library" / "Preferences" / "com.kakao.KakaoTalkMac.plist"
+    global_pref = (
+        Path.home() / "Library" / "Preferences" / "com.kakao.KakaoTalkMac.plist"
+    )
     if global_pref.exists():
         paths.append(global_pref)
     deduped: list[Path] = []
@@ -485,10 +512,16 @@ def verify_database_access(resolved: ResolvedAuth) -> bool:
     return result.returncode == 0
 
 
-def run_command(args: Sequence[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+def run_command(
+    args: Sequence[str], *, check: bool
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(args, capture_output=True, text=True, check=False)
     if check and result.returncode != 0:
-        raise AuthResolutionError(result.stderr.strip() or result.stdout.strip() or f"command failed: {' '.join(args)}")
+        raise AuthResolutionError(
+            result.stderr.strip()
+            or result.stdout.strip()
+            or f"command failed: {' '.join(args)}"
+        )
     return result
 
 
@@ -554,12 +587,14 @@ def render_auth(resolved: ResolvedAuth, *, output_format: str, cache_path: Path)
             "",
             "You can now run:",
             "  python3 scripts/kakaotalk_mac.py chats --limit 10 --json",
-            "  python3 scripts/kakaotalk_mac.py messages --chat \"채팅방 이름\" --since 1d --json",
+            '  python3 scripts/kakaotalk_mac.py messages --chat "채팅방 이름" --since 1d --json',
         ]
     )
 
 
-def build_passthrough_command(command: str, auth: ResolvedAuth, forwarded_args: Sequence[str]) -> list[str]:
+def build_passthrough_command(
+    command: str, auth: ResolvedAuth, forwarded_args: Sequence[str]
+) -> list[str]:
     if command not in READ_ONLY_COMMANDS:
         raise AuthResolutionError(
             f"Unsupported command '{command}'. Allowed read-only commands: {', '.join(READ_ONLY_COMMANDS)}"
@@ -583,7 +618,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         cache_path = Path(args.cache_path).expanduser()
         if args.command == "auth":
             if forwarded_args:
-                raise AuthResolutionError(f"Unexpected auth arguments: {' '.join(forwarded_args)}")
+                raise AuthResolutionError(
+                    f"Unexpected auth arguments: {' '.join(forwarded_args)}"
+                )
             resolved = resolve_auth(
                 refresh=args.refresh,
                 cache_path=cache_path,
@@ -593,7 +630,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 workers=args.workers,
                 chunk_size=args.chunk_size,
             )
-            print(render_auth(resolved, output_format=args.format, cache_path=cache_path))
+            print(
+                render_auth(resolved, output_format=args.format, cache_path=cache_path)
+            )
             return 0
 
         resolved = resolve_auth(
@@ -605,7 +644,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             workers=args.workers,
             chunk_size=args.chunk_size,
         )
-        result = subprocess.run(build_passthrough_command(args.command, resolved, forwarded_args))
+        result = subprocess.run(
+            build_passthrough_command(args.command, resolved, forwarded_args)
+        )
         return result.returncode
     except (AuthResolutionError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -618,15 +659,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    auth_parser = subparsers.add_parser("auth", help="Recover/cache the working KakaoTalk DB/key tuple.")
+    auth_parser = subparsers.add_parser(
+        "auth", help="Recover/cache the working KakaoTalk DB/key tuple."
+    )
     add_auth_options(auth_parser)
-    auth_parser.add_argument("--refresh", action="store_true", help="Ignore cached auth and resolve again.")
-    auth_parser.add_argument("--format", choices=("text", "json", "shell"), default="text")
+    auth_parser.add_argument(
+        "--refresh", action="store_true", help="Ignore cached auth and resolve again."
+    )
+    auth_parser.add_argument(
+        "--format", choices=("text", "json", "shell"), default="text"
+    )
 
     for command in READ_ONLY_COMMANDS:
-        passthrough = subparsers.add_parser(command, help=f"Run kakaocli {command} with cached/recovered auth.")
+        passthrough = subparsers.add_parser(
+            command, help=f"Run kakaocli {command} with cached/recovered auth."
+        )
         add_auth_options(passthrough)
-        passthrough.add_argument("--refresh-auth", action="store_true", help="Refresh cached auth before running.")
+        passthrough.add_argument(
+            "--refresh-auth",
+            action="store_true",
+            help="Refresh cached auth before running.",
+        )
 
     return parser
 
@@ -635,7 +688,9 @@ def add_auth_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cache-path", default=str(DEFAULT_CACHE_PATH))
     parser.add_argument("--user-id", type=int, help="Explicit Kakao user_id override.")
     parser.add_argument("--uuid", help="Explicit device UUID override.")
-    parser.add_argument("--max-user-id", type=non_negative_int, default=DEFAULT_MAX_USER_ID)
+    parser.add_argument(
+        "--max-user-id", type=non_negative_int, default=DEFAULT_MAX_USER_ID
+    )
     parser.add_argument("--workers", type=positive_int, default=None)
     parser.add_argument("--chunk-size", type=positive_int, default=DEFAULT_CHUNK_SIZE)
 
