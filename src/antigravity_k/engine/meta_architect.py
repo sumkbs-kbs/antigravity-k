@@ -42,6 +42,26 @@ class MetaArchitect:
         self.project_root = project_root
         self.ollama_url = ollama_url
         self._engine_dir = os.path.join(project_root, "src", "antigravity_k", "engine")
+        self._archive_path = os.path.join(project_root, "data", "arch_archive.json")
+        os.makedirs(os.path.dirname(self._archive_path), exist_ok=True)
+
+    def _get_evolution_history(self) -> str:
+        """이전 성공/실패 아키텍처 진화 기록을 로드합니다 (EUREKA Style)."""
+        if not os.path.exists(self._archive_path):
+            return "No previous evolution history."
+        try:
+            with open(self._archive_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+                recent = history[-3:]  # 최근 3개만
+                if not recent:
+                    return "No previous evolution history."
+                lines = []
+                for h in recent:
+                    status = "✅ SUCCESS" if h.get("passed") else "❌ FAILED"
+                    lines.append(f"[{status}] {h.get('title')} - {h.get('description')}")
+                return "\n".join(lines)
+        except Exception:
+            return "No previous evolution history."
 
     def _get_architecture_context(self) -> str:
         """시스템의 현재 구조적 컨텍스트를 수집합니다."""
@@ -69,10 +89,14 @@ class MetaArchitect:
         
         context = self._get_architecture_context()
         perf_text = json.dumps(performance_data, ensure_ascii=False, indent=2)
+        history_text = self._get_evolution_history()
 
         prompt = (
             "[ROLE] 당신은 최고 수준의 AI 아키텍트(Meta-Architect)입니다.\n"
+            "[HARDWARE TARGET] 이 시스템은 Apple M5 Max (128GB RAM, 4TB SSD)에서 구동됩니다. "
+            "따라서 대용량 메모리를 활용한 캐싱, 병렬 처리(멀티스레딩/비동기), 거대한 벡터 연산 등 하드웨어 자원을 극대화하는 아키텍처 제안을 환영합니다.\n\n"
             "목표는 현재 AI 에이전트 코어 시스템의 병목을 발견하고 아키텍처를 개선하는 것입니다.\n\n"
+            f"--- 진화 기록 (이전 시도 참조) ---\n{history_text}\n\n"
             f"{context}\n\n"
             f"--- 최근 성능 데이터 ---\n{perf_text}\n\n"
             "[TASK]\n"
@@ -119,14 +143,15 @@ class MetaArchitect:
                     with open(path, "r", encoding="utf-8") as f:
                         file_contents[filename] = f.read()
 
-            # LLM에게 수정된 코드 요청
+            # LLM에게 수정된 코드 요청 (Evolutionary Search & Self-Rewarding)
             for filename, content in file_contents.items():
-                new_content = self._generate_modified_code(filename, content, proposal)
+                logger.info(f"[Meta-Architect] {filename} 변이 생성 중 (Self-Rewarding 루프)...")
+                new_content = self._generate_with_self_reward(filename, content, proposal)
                 if new_content:
                     proposal.modifications[filename] = new_content
 
             if not proposal.modifications:
-                logger.warning("[Meta-Architect] 생성된 수정 코드가 없습니다.")
+                logger.warning("[Meta-Architect] 생성된 수정 코드가 없습니다. 롤백합니다.")
                 return False
 
             # Sandbox 적용 및 검증 (Option B)
@@ -148,9 +173,11 @@ class MetaArchitect:
                         break
                 
                 if not all_passed:
+                    self._save_archive(proposal)
                     raise Exception("Meta-Architect macromutation failed validation. Rolling back.")
 
                 proposal.passed = True
+                self._save_archive(proposal)
                 logger.info(f"[Meta-Architect] 리팩터링 완전 통과 및 병합 완료: {proposal.title}")
                 return True
 
@@ -158,11 +185,66 @@ class MetaArchitect:
             logger.error(f"[Meta-Architect] 실행 중 롤백됨: {e}")
             return False
 
-    def _generate_modified_code(self, filename: str, original_code: str, proposal: ArchitectureProposal) -> str:
+    def _save_archive(self, proposal: ArchitectureProposal):
+        """EUREKA 스타일: 진화 기록 저장"""
+        try:
+            history = []
+            if os.path.exists(self._archive_path):
+                with open(self._archive_path, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+            
+            history.append({
+                "proposal_id": proposal.proposal_id,
+                "title": proposal.title,
+                "description": proposal.description,
+                "passed": proposal.passed
+            })
+            
+            with open(self._archive_path, "w", encoding="utf-8") as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[Meta-Architect] 아카이브 저장 실패: {e}")
+
+    def _generate_with_self_reward(self, filename: str, original_code: str, proposal: ArchitectureProposal) -> str:
+        """Self-Rewarding LMs (Meta, 2024) 기반 자체 평가-수정 루프."""
+        max_attempts = 3
+        feedback = ""
+        best_code = ""
+        best_score = -1
+
+        for attempt in range(1, max_attempts + 1):
+            # 1. 제안 생성 (Actor)
+            current_code = self._generate_modified_code(filename, original_code, proposal, feedback)
+            if not current_code:
+                break
+            
+            # 2. 자체 평가 (Meta-Judge)
+            score, eval_feedback = self._evaluate_with_judge(filename, original_code, current_code)
+            logger.info(f"[Meta-Architect] 자체 평가 (Attempt {attempt}): Score {score}/5. Feedback: {eval_feedback[:50]}...")
+            
+            if score > best_score:
+                best_score = score
+                best_code = current_code
+                
+            if score >= 4:
+                # 4점 이상이면 샌드박스로 이관
+                return best_code
+            
+            # 4점 미만이면 피드백을 반영해 재작성
+            feedback = f"이전 시도 실패 이유 (점수 {score}/5): {eval_feedback}\n위 문제를 반드시 해결하세요."
+
+        return best_code
+
+    def _generate_modified_code(self, filename: str, original_code: str, proposal: ArchitectureProposal, feedback: str = "") -> str:
         prompt = (
             f"[ROLE] 당신은 시니어 소프트웨어 아키텍트입니다.\n"
             f"[TASK] 아래 아키텍처 제안을 수행하기 위해 '{filename}' 코드를 리팩터링하세요.\n\n"
             f"제안: {proposal.title}\n설명: {proposal.description}\n\n"
+        )
+        if feedback:
+            prompt += f"[CRITICAL FEEDBACK]\n{feedback}\n\n"
+        
+        prompt += (
             f"--- 원본 {filename} ---\n{original_code}\n\n"
             "개선된 전체 Python 코드를 출력하세요. 다른 텍스트 없이 순수 코드만 출력하세요. "
             "반드시 완전한 코드를 출력해야 합니다."
@@ -177,12 +259,41 @@ class MetaArchitect:
         except Exception:
             return ""
 
+    def _evaluate_with_judge(self, filename: str, original_code: str, new_code: str) -> tuple[int, str]:
+        """생성된 코드를 Meta-Judge가 평가하여 점수(0~5)와 피드백을 반환합니다."""
+        prompt = (
+            f"[ROLE] 당신은 전설적인 수석 엔지니어(Principal Engineer)이자 코드 리뷰어(Meta-Judge)입니다.\n"
+            f"[TASK] 원본 코드와 새로 제안된 코드를 비교하여, 새로 제안된 코드의 품질을 0~5점으로 평가하세요.\n\n"
+            "평가 기준:\n"
+            "1. 문법 및 실행 가능성 (Syntax Error 여부)\n"
+            "2. 아키텍처 개선 효과 (실제 구조적 이득이 있는가)\n"
+            "3. 보안 및 스레드 안전성 (Side-effects)\n\n"
+            "응답은 반드시 아래 JSON 형식으로만 하세요:\n"
+            '{"score": 3, "feedback": "변수명이 명확해졌으나, 스레드 안전성 처리가 누락되었습니다."}\n'
+            "절대로 마크다운을 씌우지 말고 JSON만 출력하세요."
+        )
+        try:
+            resp = self._call_llm(prompt, "deepseek-v4", 512)
+            data = self._extract_json(resp)
+            if data and "score" in data:
+                return int(data["score"]), data.get("feedback", "")
+        except Exception:
+            pass
+        # 평가 실패 시 기본 통과 점수
+        return 4, "Self-judge failed. Defaulting to 4."
+
     def _call_llm(self, prompt: str, model: str, num_predict: int) -> str:
         data = {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {"num_predict": num_predict, "temperature": 0.2},
+            "options": {
+                "num_predict": num_predict, 
+                "temperature": 0.2,
+                "num_ctx": 32768,       # M5 Max 128GB RAM 최적화: 대용량 컨텍스트
+                "num_thread": 16,       # M5 Max 최적화: 고속 연산 스레드
+                "num_gpu": 99           # Apple Silicon GPU 완전 가속
+            },
         }
         req = urllib.request.Request(
             f"{self.ollama_url}/api/generate",
