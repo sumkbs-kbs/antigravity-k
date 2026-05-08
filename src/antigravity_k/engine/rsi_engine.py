@@ -80,6 +80,7 @@ class RSIConfig:
     auto_apply_code: bool = True  # Option B: 벤치마크 통과 시
     require_dual_audit: bool = True
     cooldown_sec: float = 5.0
+    level3_trigger_interval: int = 5  # 매 5사이클마다 Meta-Architect 가동
 
 
 class RSIEngine:
@@ -150,6 +151,14 @@ class RSIEngine:
         logger.info(f"[RSI] ═══ 사이클 {self._generation} 시작 ═══")
 
         try:
+            # ─── Level 3: Meta-Architect 개입 (정기적) ───
+            if self._generation % self.config.level3_trigger_interval == 0:
+                self._trigger_meta_architect(performance_data or {})
+
+            # ─── Level 3: Self-Play Curriculum 개입 (탐색적) ───
+            if self._generation % (self.config.level3_trigger_interval + 2) == 0:
+                self._trigger_self_play()
+
             # Phase 1: OBSERVE — 현재 성능 측정
             result.before_score = self._observe(benchmark_fn, result)
 
@@ -441,6 +450,44 @@ class RSIEngine:
                 result.phase_results["integrate"] = "rolled_back"
             else:
                 result.phase_results["integrate"] = "skipped"
+
+    # ─── Level 3 연동 ──────────────────────────────────────────
+
+    def _trigger_meta_architect(self, performance_data: Dict[str, Any]) -> None:
+        """Level 3: 메타 아키텍트를 가동하여 대규모 리팩터링을 시도합니다."""
+        logger.info("[RSI Level 3] Meta-Architect 엔진 가동...")
+        try:
+            from .meta_architect import MetaArchitect
+            architect = MetaArchitect(project_root=self._root)
+            proposal = architect.analyze_and_propose(performance_data)
+            if proposal:
+                architect.execute_proposal(proposal)
+        except Exception as e:
+            logger.error(f"[RSI Level 3] Meta-Architect 실행 실패: {e}")
+
+    def _trigger_self_play(self) -> None:
+        """Level 3: 새로운 커리큘럼을 생성하여 자가 학습을 진행합니다."""
+        logger.info("[RSI Level 3] Self-Play Curriculum 엔진 가동...")
+        try:
+            from .curriculum_generator import CurriculumGenerator
+            import asyncio
+            generator = CurriculumGenerator(project_root=self._root)
+            task = generator.generate_new_challenge()
+            if task:
+                # 동기 환경에서 비동기 호출 (새 루프 생성)
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                if loop.is_running():
+                    # 이미 루프가 돌고 있다면 task 생성
+                    loop.create_task(generator.self_play(task))
+                else:
+                    loop.run_until_complete(generator.self_play(task))
+        except Exception as e:
+            logger.error(f"[RSI Level 3] Self-Play 실행 실패: {e}")
 
     # ─── 통계 및 보고 ────────────────────────────────────────────
 
