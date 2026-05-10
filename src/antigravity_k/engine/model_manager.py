@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from .collective_intelligence import CollectiveIntelligenceEngine
+from .memory_policy import MemoryPolicy
 from .model_registry import ModelProfile, ModelRegistry
 from .model_router import AllModelsUnavailableError, ModelRouter, RouteStrategy
 from .usage_tracker import UsageTracker
@@ -20,51 +21,8 @@ logger = logging.getLogger("antigravity_k.model_manager")
 
 
 # ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
-@dataclass
-class SamplingProfile:
-    """작업 유형별 최적 샘플링 파라미터.
-
-    연구 근거:
-      - Min-P는 Top-P보다 저확률 토큰(환각 원인)을 효과적으로 가지치기
-      - 사실 기반 작업에는 낮은 temperature, 창의적 작업에는 높은 temperature
-    """
-
-    temperature: float
-    min_p: float
-    repeat_penalty: float
-    top_p: float = 0.9
-    description: str = ""
-
-
-SAMPLING_PROFILES: dict[str, SamplingProfile] = {
-    "SEARCH": SamplingProfile(
-        temperature=0.15,
-        min_p=0.05,
-        repeat_penalty=1.3,
-        description="사실 기반 검색/조회 (환각 최소화)",
-    ),
-    "CODE": SamplingProfile(
-        temperature=0.25,
-        min_p=0.1,
-        repeat_penalty=1.2,
-        description="코드 생성/디버깅 (정확도 우선)",
-    ),
-    "ANALYSIS": SamplingProfile(
-        temperature=0.35,
-        min_p=0.08,
-        repeat_penalty=1.3,
-        description="분석/리포트 (논리적 추론)",
-    ),
-    "CREATIVE": SamplingProfile(
-        temperature=0.7,
-        min_p=0.02,
-        repeat_penalty=1.1,
-        description="창의적 글쓰기 (다양성 우선)",
-    ),
-    "GENERAL": SamplingProfile(
-        temperature=0.5, min_p=0.05, repeat_penalty=1.3, description="일반 대화 (균형)"
-    ),
-}
+# Single Source of Truth: engine/sampling_config.py
+from .sampling_config import SamplingProfile, SAMPLING_PROFILES
 
 
 @dataclass
@@ -104,6 +62,13 @@ class ModelManager:
         self._registry = registry
         self._loaded: OrderedDict[str, LoadedModel] = OrderedDict()
         self._mem_config = registry.memory_config
+
+        # MemoryPolicy: 메모리 관리 정책 위임
+        self._memory_policy = MemoryPolicy(
+            max_gb=self._mem_config.max_loaded_gb,
+            cooldown_sec=self._mem_config.unload_cooldown_sec,
+            auto_unload=self._mem_config.auto_unload,
+        )
 
         # 9Router 패턴 통합
         self.router = router or ModelRouter(registry)
@@ -644,7 +609,12 @@ class ModelManager:
         profile = SAMPLING_PROFILES.get(task_type, SAMPLING_PROFILES["GENERAL"])
 
         # kwargs에 명시적으로 지정된 값이 있으면 그것을 우선 사용 (하위 호환성)
-        temperature = kwargs.get("temperature", profile.temperature)
+        base_temp = kwargs.get("temperature", profile.temperature)
+
+        # DINKIssTyle-AI-BBS: Randomizer & Temperature Boost
+        boost = self.router.get_temperature_boost(loaded.profile.name)
+        temperature = min(1.0, base_temp + boost)
+
         min_p = kwargs.get("min_p", profile.min_p)
         repeat_penalty = kwargs.get("repeat_penalty", profile.repeat_penalty)
 
@@ -1006,47 +976,12 @@ class ModelManager:
     # ─── 내부 메서드 ─────────────────────────────────────────────────
 
     def _ensure_memory(self, needed_gb: float) -> None:
-        """필요한 메모리 확보 (자동 언로드)"""
-        if not self._mem_config.auto_unload:
-            return
-
-        current_used = sum(m.actual_memory_gb for m in self._loaded.values())
-        available = self._mem_config.max_loaded_gb - current_used
-
-        if available >= needed_gb:
-            return
-
-        # LRU: 가장 오래 사용하지 않은 모델부터 언로드
-        sorted_models = sorted(
-            self._loaded.items(),
-            key=lambda x: x[1].last_used_at,
+        """필요한 메모리 확보 (MemoryPolicy에 위임)"""
+        self._memory_policy.ensure_memory(
+            needed_gb=needed_gb,
+            loaded_models=self._loaded,
+            unload_fn=self.unload,
         )
-
-        for name, loaded in sorted_models:
-            if available >= needed_gb:
-                break
-
-            elapsed_sec = time.time() - loaded.last_used_at
-            if elapsed_sec < self._mem_config.unload_cooldown_sec:
-                logger.warning(
-                    f"[{name}] 쿨다운({self._mem_config.unload_cooldown_sec}초) 경과 전이지만 "
-                    f"메모리 부족으로 강제 언로드 시도 (경과: {elapsed_sec:.1f}초)"
-                )
-            else:
-                logger.info(
-                    f"[{name}] 메모리 확보를 위해 자동 언로드 "
-                    f"({loaded.actual_memory_gb}GB)"
-                )
-
-            available += loaded.actual_memory_gb
-            self.unload(name)
-
-        if available < needed_gb:
-            raise MemoryError(
-                f"메모리 부족: 필요 {needed_gb}GB, "
-                f"사용 가능 {available:.1f}GB "
-                f"(한도 {self._mem_config.max_loaded_gb}GB)"
-            )
 
     def _load_mlx_model(self, profile: ModelProfile) -> tuple[Any, Any]:
         """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)"""

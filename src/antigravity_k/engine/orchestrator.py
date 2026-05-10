@@ -11,8 +11,10 @@ Antigravity-K: CEO 기반 멀티 에이전트 오케스트레이터
 """
 
 import logging
+from ui.prompts import PLANNING_MODE_BLOCK
 import os
 import re
+import time
 from typing import List, Dict, Any, Generator, Optional, Union
 
 from antigravity_k.engine.tool_call_parser import ToolCallParser, EventType
@@ -77,19 +79,18 @@ class OrchestratorAgent:
             self.vault_engine, self.manager, self._get_model_for_role
         )
 
-        self.ki_engine = self.ctx.ki_engine
-        self.failure_memory = self.ctx.failure_memory
-        self.autonomous_learner = self.ctx.autonomous_learner
-        self.cognitive_loop = self.ctx.cognitive_loop
-        self.quality_gate = self.ctx.quality_gate
-        self.uncertainty_estimator = self.ctx.uncertainty_estimator
-        self.user_model = self.ctx.user_model
-        self.skill_loader = self.ctx.skill_loader
-        self.ide_manager = self.ctx.ide_manager
-        self.slash_commands = self.ctx.slash_commands
-        self.tool_guardrail = self.ctx.tool_guardrail
-        self._tool_executor = self.ctx.tool_executor
-        self.memory_manager = self.ctx.memory_manager
+        self.ki_engine = getattr(self.ctx, "ki_engine", None)
+        self.autonomous_learner = getattr(self.ctx, "autonomous_learner", None)
+        self.cognitive_loop = getattr(self.ctx, "cognitive_loop", None)
+        self.quality_gate = getattr(self.ctx, "quality_gate", None)
+        self.uncertainty_estimator = getattr(self.ctx, "uncertainty_estimator", None)
+        self.user_model = getattr(self.ctx, "user_model", None)
+        self.skill_loader = getattr(self.ctx, "skill_loader", None)
+        self.ide_manager = getattr(self.ctx, "ide_manager", None)
+        self.slash_commands = getattr(self.ctx, "slash_commands", None)
+        self.tool_guardrail = getattr(self.ctx, "tool_guardrail", None)
+        self._tool_executor = getattr(self.ctx, "tool_executor", None)
+        self.memory_manager = getattr(self.ctx, "memory_manager", None)
 
         # Capacity Flow 가드레일 (DeepSeek-TUI 패턴 이식)
         self._capacity_checkpoint = CapacityCheckpoint()
@@ -138,17 +139,106 @@ class OrchestratorAgent:
         except Exception as e:
             logger.warning(f"Failed to initialize ArtifactEngine: {e}")
 
+        # 상태 추적 초기화
+        self._last_agent_output = ""
+
+        # ─── Lazy-init Heavy Components ───
+        # SkillAutoLearner와 TrajectoryCompressor는 실제 사용 시점에 초기화됩니다.
+        # (시작 시간과 메모리 절약)
+        self._skill_auto_learner_initialized = False
+        self._skill_auto_learner_instance = None
+        self._trajectory_compressor_initialized = False
+        self._trajectory_compressor_instance = None
+
         # 세션 자동 시작 (프로젝트별 대화 영속성)
         try:
             self.session_manager.start_session(project_path=self.project_root)
         except Exception as e:
             logger.warning(f"Session start failed: {e}")
 
+        # ─── PlanGuard + HarnessEnforcer (바이브코딩 + 하네스 엔지니어링) ───
+        try:
+            from antigravity_k.engine.plan_guard import PlanGuard
+            from antigravity_k.engine.harness_enforcer import HarnessEnforcer
+
+            self.plan_guard = PlanGuard()
+            self.harness = HarnessEnforcer(
+                project_root=self.project_root,
+                strict_mode=False,
+            )
+            self.harness.load_guidelines()
+            logger.info("[Orchestrator] PlanGuard + HarnessEnforcer 활성화 완료")
+        except Exception as e:
+            logger.warning(f"PlanGuard/Harness init failed: {e}")
+            self.plan_guard = None
+            self.harness = None
+
+        # Fact Appender 초기화 (ALDA LLM Wiki 기능)
+        try:
+            from antigravity_k.engine.fact_appender import initialize_fact_appender
+
+            self.fact_appender = initialize_fact_appender(
+                self.manager, self.project_root
+            )
+            logger.info("[Orchestrator] FactAppender 활성화 완료")
+        except Exception as e:
+            logger.warning(f"Failed to initialize FactAppender: {e}")
+
     def _get_model_for_role(self, role: str) -> str:
         """역할에 맞는 모델을 반환합니다. config.yaml 매핑 우선."""
         return self.agent_models.get(
             role, self.agent_models.get("default", "qwen3.6:latest")
         )
+
+    @property
+    def skill_auto_learner(self):
+        """SkillAutoLearner 지연 초기화 (첫 접근 시 생성)."""
+        if not self._skill_auto_learner_initialized:
+            self._skill_auto_learner_initialized = True
+            try:
+                from antigravity_k.engine.skill_auto_learner import SkillAutoLearner
+
+                self._skill_auto_learner_instance = SkillAutoLearner(
+                    self.project_root, self.manager
+                )
+                logger.info(
+                    "[Orchestrator] SkillAutoLearner (Closed Learning Loop) 활성화 완료"
+                )
+            except Exception as e:
+                logger.warning(f"SkillAutoLearner init failed: {e}")
+                self._skill_auto_learner_instance = None
+        return self._skill_auto_learner_instance
+
+    @property
+    def trajectory_compressor(self):
+        """TrajectoryCompressor 지연 초기화 (첫 접근 시 생성)."""
+        if not self._trajectory_compressor_initialized:
+            self._trajectory_compressor_initialized = True
+            try:
+                from antigravity_k.engine.trajectory_compressor import (
+                    TrajectoryCompressor,
+                )
+
+                summarize_fn = None
+                if self.manager:
+
+                    def _summarize(prompt: str) -> str:
+                        default_m = self.manager.config.get("defaults", {}).get(
+                            "reasoning", "qwen3.6:latest"
+                        )
+                        return self.manager.generate(
+                            prompt=prompt, target=default_m, max_tokens=512
+                        )
+
+                    summarize_fn = _summarize
+                self._trajectory_compressor_instance = TrajectoryCompressor(
+                    summarize_fn=summarize_fn
+                )
+                logger.info("[Orchestrator] TrajectoryCompressor 활성화 완료")
+            except Exception as e:
+                logger.warning(f"TrajectoryCompressor init failed: {e}")
+                self._trajectory_compressor_instance = None
+        return self._trajectory_compressor_instance
 
     def _build_tool_prompt(self) -> str:
         """도구 목록을 프롬프트에 주입합니다. few-shot 예시 포함."""
@@ -315,16 +405,19 @@ class OrchestratorAgent:
         prompt += "Assistant: "
         return prompt
 
-    def _run_single_agent(
+    def _prepare_agent_prompt(
         self,
         messages: List[Dict[str, str]],
         delegate_to: str,
         task_type: str,
-        max_steps: int = 15,
-    ) -> Generator[str, None, None]:
+    ) -> tuple:
+        """에이전트 실행에 필요한 프롬프트와 컨텍스트를 준비합니다.
+
+        Returns:
+            (delegate_model, system_prompt, tool_prompt, skill_prompts,
+             prompt, shaped_messages)
+        """
         delegate_model = self._get_model_for_role(delegate_to)
-        if hasattr(self, "manager") and not self.manager.is_loaded(delegate_model):
-            yield f"\n\n*(🚀 `{delegate_model}` 모델을 VRAM에 로드 중입니다. 모델 크기에 따라 1~3분이 소요될 수 있습니다...)*\n\n"
         system_prompt = get_orchestrator_prompt(delegate_to)
 
         # [Phase 17] 복합/대규모 태스크인 경우 Planning Mode 워크플로우 강제 주입
@@ -334,14 +427,7 @@ class OrchestratorAgent:
                     self.artifact_engine.inject_planning_prompt()
                 )
             else:
-                planning_mode_enforcement = (
-                    "\n\n[CRITICAL ALGORITHM OVERRIDE]\n"
-                    "You are executing a COMPLEX task. You MUST enter PLANNING MODE.\n"
-                    "1. DO NOT write any functional code or implementation details in your initial response.\n"
-                    "2. You MUST use the `write_file` tool to create `artifacts/implementation_plan.md` outlining your technical plan.\n"
-                    "3. End your response EXACTLY with the string `[APPROVAL REQUIRED]` on a new line to pause execution and ask the user for permission to proceed.\n"
-                    "Failure to do this will result in a Quality Gate failure and retry loop.\n"
-                )
+                planning_mode_enforcement = PLANNING_MODE_BLOCK
             system_prompt += planning_mode_enforcement
 
         tool_prompt = self._build_tool_prompt() if delegate_to != "CEO" else ""
@@ -353,13 +439,13 @@ class OrchestratorAgent:
             self._tool_executor.set_objective(user_objective)
 
         # ─── E-1: 인지 루프 초기화 ───
-        self.cognitive_loop.reset()
-        self.quality_gate.reset()
+        if self.cognitive_loop:
+            self.cognitive_loop.reset()
+        if self.quality_gate:
+            self.quality_gate.reset()
 
         # ─── E-3: 실패 학습 컨텍스트 주입 ───
-        failure_context = self.failure_memory.build_prompt(
-            messages[-1].get("content", "") if messages else ""
-        )
+        failure_context = ""
 
         # Skill injection
         skill_prompts = (
@@ -383,9 +469,49 @@ class OrchestratorAgent:
         # ─── Context Shaper 적용 (컨텍스트 압축 시스템) ───
         shaped_messages = self.context_shaper.shape(messages)
 
+        # ─── Tool Result Clearing (Anthropic Context Editing) ───
+        shaped_messages = self.context_shaper.clear_old_tool_results(shaped_messages)
+
+        # ─── Decision Anchor 주입 (Anthropic 컨텍스트 엔지니어링) ───
+        if hasattr(self.ctx, "decision_anchor"):
+            shaped_messages = self.ctx.decision_anchor.inject_into_messages(
+                shaped_messages
+            )
+
+        # ─── Budget Awareness 주입 (Anthropic Context Awareness) ───
+        shaped_messages = self.context_shaper.inject_budget_awareness(shaped_messages)
+
         for msg in shaped_messages:
             prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
         prompt += "Assistant: "
+
+        return (
+            delegate_model,
+            system_prompt,
+            tool_prompt,
+            skill_prompts,
+            prompt,
+            shaped_messages,
+        )
+
+    def _run_single_agent(
+        self,
+        messages: List[Dict[str, str]],
+        delegate_to: str,
+        task_type: str,
+        max_steps: int = 15,
+    ) -> Generator[str, None, None]:
+        (
+            delegate_model,
+            system_prompt,
+            tool_prompt,
+            skill_prompts,
+            prompt,
+            shaped_messages,
+        ) = self._prepare_agent_prompt(messages, delegate_to, task_type)
+
+        if hasattr(self, "manager") and not self.manager.is_loaded(delegate_model):
+            yield f"\n\n*(🚀 `{delegate_model}` 모델을 VRAM에 로드 중입니다. 모델 크기에 따라 1~3분이 소요될 수 있습니다...)*\n\n"
 
         logger.info(
             f"Delegate: role={delegate_to}, model={delegate_model}, task_type={task_type}"
@@ -393,6 +519,15 @@ class OrchestratorAgent:
 
         # ─── Tool Loop Guardrail (Hermes 패턴 + Capacity Flow) ───
         self.tool_guardrail.reset_for_turn()
+
+        # ─── Observability: 성능 추적 ───
+        turn_start_time = time.time()
+
+        # ─── Trajectory Evaluation: 도구 궤적 추적 ───
+        # P0: deque(maxlen=50)으로 무제한 성장 방지 + 턴마다 초기화
+        from collections import deque
+
+        self.tool_trace = deque(maxlen=50)
 
         full_output = ""
         stream_proc = StreamProcessor()
@@ -424,6 +559,7 @@ class OrchestratorAgent:
             )
             final_sys_prompt = f"{clean_sys_prompt}\n{tool_prompt}".strip()
 
+            stream_start = time.time()
             try:
                 stream = self.manager.stream_generate(
                     prompt=prompt,
@@ -455,6 +591,17 @@ class OrchestratorAgent:
                             tool_name = event.tool_call.name
                             tool_args = event.tool_call.arguments
 
+                            # ── Trajectory Evaluation (루프 감지) ──
+                            self.tool_trace.append(
+                                {"name": tool_name, "args": tool_args}
+                            )
+                            if len(self.tool_trace) >= 3:
+                                last_3 = self.tool_trace[-3:]
+                                if last_3[0] == last_3[1] == last_3[2]:
+                                    yield f"\n\n🔥 **[Trajectory Loop Detected]** 동일한 도구(`{tool_name}`)를 똑같은 인자로 3회 연속 호출했습니다. 환각 루프 방지를 위해 강제 중단합니다.\n"
+                                    tool_executed = True
+                                    break
+
                             # ── Before-call 가드레일 (Hermes 패턴) ──
                             try:
                                 from antigravity_k.engine.event_bus import (
@@ -468,6 +615,43 @@ class OrchestratorAgent:
                                 logger.error(
                                     f"Failed to publish ToolExecutionStarted: {e}"
                                 )
+
+                            # ─── PlanGuard & HarnessEnforcer ───
+                            blocked_reason = None
+                            if hasattr(self, "harness") and self.harness:
+                                h_res = self.harness.check_tool_boundary(tool_name)
+                                if not h_res["allowed"]:
+                                    blocked_reason = (
+                                        f"HarnessEnforcer: {h_res['reason']}"
+                                    )
+
+                            if (
+                                not blocked_reason
+                                and hasattr(self, "plan_guard")
+                                and self.plan_guard
+                            ):
+                                pg_res = self.plan_guard.check_tool_permission(
+                                    tool_name
+                                )
+                                if not pg_res["allowed"]:
+                                    blocked_reason = f"PlanGuard: {pg_res['reason']}"
+
+                            if blocked_reason:
+                                logger.warning(
+                                    f"🛡️ Tool blocked: {blocked_reason} ({tool_name})"
+                                )
+                                yield f"\n\n🚫 **[Blocked]** {blocked_reason}\n"
+                                parser.tool_responses.append(
+                                    f"<tool_response>\nError: [Blocked] {blocked_reason}\n</tool_response>"
+                                )
+                                try:
+                                    global_event_bus.publish(
+                                        "ToolExecutionFinished", name=tool_name
+                                    )
+                                except Exception:
+                                    pass
+                                tool_executed = True
+                                continue
 
                             pre_decision = self.tool_guardrail.before_call(
                                 tool_name, tool_args
@@ -507,16 +691,14 @@ class OrchestratorAgent:
 
                             # ── E-1: 인지 루프 검증 (CognitiveLoop Verify) ──
                             try:
-                                verification = self.cognitive_loop.verify_tool_result(
-                                    tool_name, tool_args, str(tool_result)
-                                )
-                                if not verification["passed"]:
-                                    # E-3: 실패 기록
-                                    self.failure_memory.record(
-                                        tool=tool_name,
-                                        error_text=str(tool_result)[:500],
-                                        args_summary=str(tool_args)[:200],
+                                if self.cognitive_loop:
+                                    verification = (
+                                        self.cognitive_loop.verify_tool_result(
+                                            tool_name, tool_args, str(tool_result)
+                                        )
                                     )
+                                    if not verification["passed"]:
+                                        pass
                             except Exception as ve:
                                 logger.debug(f"Cognitive verification error: {ve}")
 
@@ -524,6 +706,11 @@ class OrchestratorAgent:
                             is_failed = isinstance(
                                 tool_result, str
                             ) and tool_result.strip().startswith("Error")
+
+                            if is_failed and hasattr(self, "harness") and self.harness:
+                                fb_action = self.harness.feedback_loop(str(tool_result))
+                                if fb_action.action_type == "escalate":
+                                    yield f"\n\n⚠️ **[Harness]** 에스컬레이션: 반복 오류 감지. 롤백 또는 플랜 변경을 권장합니다.\n"
 
                             is_approval_required = (
                                 isinstance(tool_result, str)
@@ -734,15 +921,12 @@ class OrchestratorAgent:
 
                     # CognitiveLoop Verify
                     try:
-                        verification = self.cognitive_loop.verify_tool_result(
-                            tool_name, tool_args, str(tool_result)
-                        )
-                        if not verification["passed"]:
-                            self.failure_memory.record(
-                                tool=tool_name,
-                                error_text=str(tool_result)[:500],
-                                args_summary=str(tool_args)[:200],
+                        if self.cognitive_loop:
+                            verification = self.cognitive_loop.verify_tool_result(
+                                tool_name, tool_args, str(tool_result)
                             )
+                            if not verification["passed"]:
+                                pass
                     except Exception as ve:
                         logger.debug(f"Cognitive verification error: {ve}")
 
@@ -931,66 +1115,116 @@ class OrchestratorAgent:
         # ─── E-1: 인지 루프 성찰 (Reflect) ───
         try:
             user_task = messages[-1].get("content", "") if messages else ""
-            self.cognitive_loop.reflect(user_task, full_output)
-            anti_patterns = self.cognitive_loop.get_anti_patterns()
-            if anti_patterns:
-                logger.info(
-                    f"[CognitiveLoop] Anti-patterns detected: {len(anti_patterns)}"
-                )
+            if self.cognitive_loop:
+                self.cognitive_loop.reflect(user_task, full_output)
+                anti_patterns = self.cognitive_loop.get_anti_patterns()
+                if anti_patterns:
+                    logger.info(
+                        f"[CognitiveLoop] Anti-patterns detected: {len(anti_patterns)}"
+                    )
         except Exception as e:
             logger.debug(f"Reflection error: {e}")
 
         # ─── E-5: 품질 검증 게이트 ───
         try:
-            quality = self.quality_gate.evaluate(
-                task_type,
-                messages[-1].get("content", "") if messages else "",
-                full_output,
-            )
-            if quality.user_message:
-                yield f"\n{quality.user_message}\n"
-            if quality.should_retry and quality.feedback:
-                self.quality_gate.mark_retry()
-                retry_messages = list(shaped_messages)
-                retry_messages.extend(
-                    [
-                        {"role": "assistant", "content": full_output},
-                        {
-                            "role": "user",
-                            "content": (
-                                f"{quality.feedback}\n"
-                                "도구를 새로 호출하지 말고, 위 문제만 수정해 최종 답변을 한국어로 다시 작성하세요."
-                            ),
-                        },
-                    ]
+            if self.quality_gate:
+                quality = self.quality_gate.evaluate(
+                    task_type,
+                    messages[-1].get("content", "") if messages else "",
+                    full_output,
                 )
-                retry_prompt = self._rebuild_prompt(
-                    system_prompt
-                    + "\n\n[QUALITY RETRY] Rewrite the final answer only. Do not call tools.",
-                    "",
-                    skill_prompts,
-                    retry_messages,
-                )
-                retry_output = ""
-                try:
-                    for chunk in self.manager.stream_generate(
-                        retry_prompt,
-                        delegate_model,
-                        temperature=0.2,
-                    ):
-                        retry_output += str(chunk)
-                        yield str(chunk)
-                    if retry_output.strip():
-                        full_output = retry_output
-                        self._last_agent_output = full_output
-                except Exception as retry_error:
-                    logger.warning(f"Quality retry failed: {retry_error}")
+                if quality.user_message:
+                    yield f"\n{quality.user_message}\n"
+                if quality.should_retry and quality.feedback:
+                    self.quality_gate.mark_retry()
+
+                    # [Manual Escalation] 단일 모델 한계 도달 시 강제 중단 및 사용자 선택 위임
+                    retry_cnt = getattr(self.quality_gate, "_retry_count", 1)
+                    if retry_cnt >= 3:
+                        yield f"\n\n🔥 **[Quality Gate Limit]** 단일 모델의 자가 수정 한계에 도달했습니다 (실패 {retry_cnt}회). 불필요한 자원 낭비를 막기 위해 작업을 강제 중단합니다.\n\n💡 *이 문제를 다각도로 깊이 있게 분석하려면 'Swarm(집단지성)으로 해결해줘'라고 명시적으로 지시해 주세요!*\n"
+                        return
+
+                    retry_messages = list(shaped_messages)
+                    retry_messages.extend(
+                        [
+                            {"role": "assistant", "content": full_output},
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"{quality.feedback}\n"
+                                    "도구를 새로 호출하지 말고, 지적된 문제를 완벽히 수정해 최종 답변을 다시 작성하세요. "
+                                    "[CRITICAL] 반드시 100% 자연스러운 한국어로만 출력해야 하며, '计划안'과 같은 한자/중국어/일본어로 번역되는 오류가 절대로 발생해선 안 됩니다. 기존 출력 구조를 유지하되 한글로만 작성하세요."
+                                ),
+                            },
+                        ]
+                    )
+                    retry_prompt = self._rebuild_prompt(
+                        system_prompt
+                        + "\n\n[QUALITY RETRY] Rewrite the final answer only. Do not call tools.",
+                        "",
+                        skill_prompts,
+                        retry_messages,
+                    )
+                    retry_output = ""
+                    try:
+                        for chunk in self.manager.stream_generate(
+                            retry_prompt,
+                            delegate_model,
+                            temperature=0.2,
+                        ):
+                            retry_output += str(chunk)
+                            yield str(chunk)
+                        if retry_output.strip():
+                            full_output = retry_output
+                            self._last_agent_output = full_output
+                    except Exception as retry_error:
+                        logger.warning(f"Quality retry failed: {retry_error}")
             if quality.grade.value in ("retry", "fail"):
                 logger.warning(
                     f"[QualityGate] Grade={quality.grade.value}, score={quality.score}"
                 )
         except Exception as e:
             logger.debug(f"QualityGate error: {e}")
+
+        # ─── Decision Anchor 자동 추출 (Anthropic 컨텍스트 엔지니어링) ───
+        try:
+            if hasattr(self.ctx, "decision_anchor") and messages and full_output:
+                user_msg = messages[-1].get("content", "") if messages else ""
+                candidate = self.ctx.decision_anchor.auto_extract(user_msg, full_output)
+                if candidate:
+                    self.ctx.decision_anchor.add(
+                        decision=candidate["decision"],
+                        category=candidate["category"],
+                        priority=5,
+                        source="auto",
+                    )
+        except Exception as e:
+            logger.debug(f"Decision anchor extraction error: {e}")
+
+        # ALDA LLM Wiki: AgentTurnCompleted 이벤트 발행 (FactAppender 트리거)
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish(
+                "AgentTurnCompleted",
+                user_message=messages[-1].get("content", "") if messages else "",
+                assistant_response=full_output,
+                project_root=self.project_root,
+            )
+        except Exception as e:
+            logger.error(f"Failed to publish AgentTurnCompleted: {e}")
+
+        # ─── Closed Learning Loop: 태스크 완료 훅 ───
+        try:
+            if self.skill_auto_learner:
+                user_msg = messages[-1].get("content", "") if messages else ""
+                learn_msg = self.skill_auto_learner.on_task_complete(
+                    user_message=user_msg
+                )
+                if learn_msg:
+                    yield learn_msg
+        except Exception as e:
+            logger.debug(f"SkillAutoLearner hook error: {e}")
 
     def run_stream(
         self,
@@ -1029,6 +1263,26 @@ class OrchestratorAgent:
         # Memory Prefetch: 대화 시작 전 관련 기억 주입
         try:
             user_text = self._latest_user_text(messages)
+
+            # --- Hermes Synergy: Preflight Validator ---
+            from antigravity_k.engine.preflight_validator import PreflightValidator
+            from antigravity_k.engine.engine_profile import (
+                engine_strictness,
+                EngineProfile,
+            )
+
+            validator = PreflightValidator(self.model_manager)
+            is_valid, reject_reason, profile = validator.validate(user_text)
+            if not is_valid:
+                yield f"✈️ [Preflight 거부]\n{reject_reason}"
+                return
+
+            if profile == EngineProfile.FAST_PROTOTYPER:
+                yield "🚀 [FAST_PROTOTYPER 모드] 엄격한 검증을 생략하고 빠른 구축을 시작합니다...\n\n"
+            else:
+                yield "🛡️ [STRICT_ENGINEER 모드] 정밀한 엔지니어링 및 44단계 검증 프로세스를 시작합니다...\n\n"
+            # -------------------------------------------
+
             recalled = self.memory_manager.prefetch_all(user_text)
             if recalled:
                 messages = list(messages)  # 원본 불변
@@ -1038,6 +1292,19 @@ class OrchestratorAgent:
                 )
         except Exception as e:
             logger.debug(f"Memory prefetch error: {e}")
+
+        # ─── Trajectory Compressor: 대화 궤적 압축 체크포인트 ───
+        try:
+            if (
+                self.trajectory_compressor
+                and self.trajectory_compressor.should_compress(messages)
+            ):
+                result = self.trajectory_compressor.compress(messages)
+                messages = result.compressed_messages
+                yield f"\n{result.user_message}\n\n"
+                logger.info(f"[Orchestrator] {result.user_message}")
+        except Exception as e:
+            logger.debug(f"Trajectory compression error: {e}")
 
         ctx = StateContext(
             messages=messages,
