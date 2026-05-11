@@ -72,7 +72,12 @@ class ToolGuardrailManager:
                         source="harness",
                     )
             except Exception as e:
-                logger.debug(f"Harness check error: {e}")
+                logger.warning(f"Harness check error (default-deny): {e}")
+                return GuardrailDecision(
+                    allowed=False,
+                    message=f"Guardrail check failed (safe default): {e}",
+                    source="harness",
+                )
 
         # 2. PlanGuard permission check
         if self._plan_guard:
@@ -85,7 +90,12 @@ class ToolGuardrailManager:
                         source="plan_guard",
                     )
             except Exception as e:
-                logger.debug(f"PlanGuard check error: {e}")
+                logger.warning(f"PlanGuard check error (default-deny): {e}")
+                return GuardrailDecision(
+                    allowed=False,
+                    message=f"PlanGuard check failed (safe default): {e}",
+                    source="plan_guard",
+                )
 
         # 3. General tool guardrail (loop detection etc.)
         if self._guardrail:
@@ -100,7 +110,12 @@ class ToolGuardrailManager:
                         source="tool_guardrail",
                     )
             except Exception as e:
-                logger.debug(f"Tool guardrail before_call error: {e}")
+                logger.warning(f"Tool guardrail before_call error (default-deny): {e}")
+                return GuardrailDecision(
+                    allowed=False,
+                    message=f"Tool guardrail check failed (safe default): {e}",
+                    source="tool_guardrail",
+                )
 
         return GuardrailDecision(allowed=True)
 

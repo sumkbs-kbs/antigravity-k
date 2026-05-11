@@ -101,12 +101,38 @@ class AutonomousLearner:
         """태스크 수행에 새로운 외부 지식이 필요한지 빠르게 판단합니다."""
         lower = task_description.lower()
 
+        # ─── 단순 대화 질문 빠른 거부 (False Positive 방지) ───
+        # 짧은 질문(80자 미만)이면서 기술 용어가 없으면 학습 불필요
+        if len(task_description) < 80:
+            tech_terms_found = sum(
+                1
+                for kw in [
+                    "api",
+                    "라이브러리",
+                    "프레임워크",
+                    "패키지",
+                    "설치",
+                    "library",
+                    "framework",
+                    "install",
+                    "package",
+                    "deploy",
+                    "docker",
+                    "kubernetes",
+                    "database",
+                ]
+                if kw in lower
+            )
+            if tech_terms_found == 0:
+                logger.debug("[AutoLearn] Short conversational question, skipping")
+                return False
+
         # 키워드 기반 빠른 감지
         all_triggers = _LEARN_TRIGGERS_KO + _LEARN_TRIGGERS_EN
         matches = sum(1 for kw in all_triggers if kw in lower)
 
-        # 2개 이상 트리거 매칭 시 학습 필요
-        if matches >= 2:
+        # 3개 이상 트리거 매칭 시 학습 필요 (임계값 상향)
+        if matches >= 3:
             logger.info(f"[AutoLearn] Triggered by keywords ({matches} matches)")
             return True
 
@@ -114,9 +140,9 @@ class AutonomousLearner:
         if re.search(r"https?://|pip install|npm install|brew install", lower):
             return True
 
-        # 물음표가 있으면 정보 탐색 의도
+        # 물음표 + 기술 키워드 2개 이상일 때만 학습 (조건 강화)
         if "?" in task_description or "어떻게" in lower or "how" in lower:
-            if matches >= 1:
+            if matches >= 2:
                 return True
 
         return False
@@ -197,10 +223,15 @@ class AutonomousLearner:
         """키워드 기반 폴백 — LLM 없이 검색 쿼리를 생성합니다."""
         gaps = []
 
+        # URL 제거 (오탐 방지)
+        text_without_urls = re.sub(r"https?://\S+", "", task_description)
+
         # 핵심 명사구 추출 (간단한 휴리스틱)
         # 따옴표 안의 내용, 영문 고유명사, 기술 용어 추출
-        quoted = re.findall(r'["\']([^"\']+)["\']', task_description)
-        tech_terms = re.findall(r"\b[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)*\b", task_description)
+        quoted = re.findall(r'["\']([^"\']+)["\']', text_without_urls)
+        tech_terms = re.findall(
+            r"\b[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)*\b", text_without_urls
+        )
 
         # 쿼리 후보 생성
         if quoted:
@@ -246,6 +277,16 @@ class AutonomousLearner:
         from antigravity_k.tools.web_search import WebSearchEngine
         from antigravity_k.agents.browser_surfing_agent import BrowserSurfingAgent
 
+        try:
+            from antigravity_k.engine.hook_event_bus import (
+                get_hook_event_bus,
+                HookEventEmit,
+            )
+
+            bus = get_hook_event_bus()
+        except ImportError:
+            bus = None
+
         search_engine = WebSearchEngine()
         surfer = BrowserSurfingAgent(
             model_manager=self.manager, vision_model_name="qwen3.5-omni"
@@ -260,6 +301,12 @@ class AutonomousLearner:
         import asyncio
 
         async def _run_vibe_coding_pipeline():
+            if bus:
+                bus.emit(
+                    HookEventEmit(
+                        kind="agent-turn-start", payload={"panel_id": "auto_learner"}
+                    )
+                )
             for gap in gaps:
                 try:
                     all_results = []
@@ -272,6 +319,19 @@ class AutonomousLearner:
                                 logger.info(
                                     f"[AutoLearn] Surfing {r.url} for '{gap.topic}'..."
                                 )
+                                if bus:
+                                    bus.emit(
+                                        HookEventEmit(
+                                            kind="pretool",
+                                            payload={
+                                                "panel_id": "auto_learner",
+                                                "tool_name": "WebSurfer",
+                                                "tool_input": {
+                                                    "command": f"Surfing: {r.url}"
+                                                },
+                                            },
+                                        )
+                                    )
                                 content = await surfer.surf(
                                     url=r.url, goal=gap.topic, max_steps=3
                                 )
@@ -292,6 +352,20 @@ class AutonomousLearner:
 
                     # 검색 결과 합산
                     combined = "\n\n".join(all_results)
+
+                    if bus:
+                        bus.emit(
+                            HookEventEmit(
+                                kind="pretool",
+                                payload={
+                                    "panel_id": "auto_learner",
+                                    "tool_name": "Synthesizer",
+                                    "tool_input": {
+                                        "command": f"Summarizing: {gap.topic}"
+                                    },
+                                },
+                            )
+                        )
 
                     # Synthesizer (DeepSeek-V4)를 통한 요약 및 교차 검증
                     summary = self._summarize_results(gap.topic, combined)
@@ -318,16 +392,30 @@ class AutonomousLearner:
                         f"[AutoLearn] Failed to learn about '{gap.topic}': {e}"
                     )
             await search_engine.close()
+            if bus:
+                bus.emit(
+                    HookEventEmit(
+                        kind="agent-turn-end", payload={"panel_id": "auto_learner"}
+                    )
+                )
 
         # Execute async pipeline
         try:
-            asyncio.get_running_loop()
-            # If we are already in an event loop, we can't use asyncio.run.
-            # We'll need to create a task, but since this is called from sync generator,
-            # we block on it using a new loop if no loop exists, or run_until_complete if possible.
-            # However, handlers yield strings. So this must be running in a thread.
-            asyncio.run(_run_vibe_coding_pipeline())
+            loop = asyncio.get_running_loop()
         except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # Already inside an event loop (e.g. uvicorn) — run in a separate thread
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, _run_vibe_coding_pipeline())
+                try:
+                    future.result(timeout=120)
+                except Exception as e:
+                    logger.error(f"[AutoLearn] Pipeline failed in thread: {e}")
+        else:
             asyncio.run(_run_vibe_coding_pipeline())
 
         return learned
