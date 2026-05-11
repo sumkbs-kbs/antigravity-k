@@ -111,7 +111,16 @@ class DatasetIngestor:
             return False
         try:
             logger.info(f"[Curriculum] 데이터셋 로드 중: {self.dataset_name}...")
-            self.dataset = load_dataset(self.dataset_name, split="test")
+            # 우선 전체 데이터셋 메타를 로드하여 가능한 분할을 확인 (streaming=True로 빠르게 확인)
+            try:
+                ds = load_dataset(self.dataset_name, streaming=True)
+                splits = list(ds.keys())
+                target_split = "test" if "test" in splits else ("train" if "train" in splits else splits[0])
+            except Exception:
+                target_split = "test"
+
+            self.dataset = load_dataset(self.dataset_name, split=target_split)
+            logger.info(f"[Curriculum] '{target_split}' 분할 데이터셋 로드 완료.")
             return True
         except Exception as e:
             logger.error(f"[Curriculum] 데이터셋 로드 실패: {e}")
@@ -138,7 +147,7 @@ class DatasetIngestor:
         try:
             # CurriculumGenerator의 _call_llm 로직을 직접 사용할 수 없으므로, 여기에 독립적 구현체 추가
             data = {
-                "model": "deepseek-v4",
+                "model": "deepseek-r1:32b",
                 "prompt": prompt,
                 "stream": False,
                 "options": {"num_predict": 512, "temperature": 0.1}
@@ -202,7 +211,7 @@ class DatasetIngestor:
 class CurriculumGenerator:
     """자가 벤치마크 생성기 (Voyager & Frontier 기반)."""
 
-    def __init__(self, project_root: str, ollama_url: str = "http://localhost:11434"):
+    def __init__(self, project_root: str, ollama_url: str = config.model.api_base.replace('/v1', '').rstrip('/')):
         self.project_root = project_root
         self.ollama_url = ollama_url
         self.benchmark_dir = os.path.join(project_root, "tests", "curriculum")

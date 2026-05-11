@@ -53,7 +53,7 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
     rag_context = ""
 
     # KIs 주입
-    ki_context = orch.ki_engine.build_ki_prompt()
+    ki_context = orch.ctx.ki_engine.build_ki_prompt()
     if ki_context:
         rag_context += ki_context
 
@@ -109,19 +109,29 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
 def auto_learn_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     """자율 학습 파이프라인."""
     try:
-        if orch.autonomous_learner.should_learn(ctx.user_message):
+        if orch.ctx.autonomous_learner.should_learn(ctx.user_message):
             yield "🔬 **[자율 학습]** 필요한 지식을 인터넷에서 수집 중...\n"
-            gaps = orch.autonomous_learner.analyze_knowledge_gap(ctx.user_message)
+            gaps = orch.ctx.autonomous_learner.analyze_knowledge_gap(ctx.user_message)
             if gaps:
                 yield f"📚 {len(gaps)}개 지식 갭 감지: {', '.join(g.topic[:30] for g in gaps)}\n"
-                learned = orch.autonomous_learner.auto_learn(gaps)
+                learned = orch.ctx.autonomous_learner.auto_learn(gaps)
                 if learned:
-                    learn_context = orch.autonomous_learner.format_context(learned)
+                    learn_context = orch.ctx.autonomous_learner.format_context(learned)
                     ctx.custom_messages[-1] = {
                         "role": "user",
                         "content": ctx.custom_messages[-1]["content"] + learn_context,
                     }
-                    yield f"✅ **[자율 학습 완료]** {len(learned)}건 학습 → KI 저장 완료\n\n"
+                    import os
+                    msg = f"✅ **[자율 학습 완료]** {len(learned)}건 학습 → Wiki 저장 완료\n"
+                    ki_dir = os.path.abspath(orch.ctx.autonomous_learner.ki_engine.ki_dir) if orch.ctx.autonomous_learner.ki_engine else ""
+                    for item in learned:
+                        summary_preview = item.summary[:60].replace('\n', ' ') + "..."
+                        if ki_dir:
+                            file_path = os.path.join(ki_dir, f"{item.ki_id}_metadata.json")
+                            msg += f"> **[{item.topic}](file://{file_path})**: {summary_preview}\n"
+                        else:
+                            msg += f"> **{item.topic}**: {summary_preview}\n"
+                    yield msg + "\n"
                 else:
                     yield "ℹ️ *학습 대상 없음 — 기존 지식으로 진행*\n\n"
     except Exception as e:
@@ -133,9 +143,9 @@ def auto_learn_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
 def skill_match_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     """스킬 자동 매칭."""
-    if hasattr(orch, "skill_loader") and orch.skill_loader:
+    if hasattr(orch, "skill_loader") and orch.ctx.skill_loader:
         try:
-            auto_activated = orch.skill_loader.auto_match(
+            auto_activated = orch.ctx.skill_loader.auto_match(
                 ctx.user_message, max_skills=2
             )
             if auto_activated:
@@ -211,14 +221,14 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     """불확실성 인식 + 사용자 모델 학습."""
     # 불확실성 인식
     try:
-        ki_count = len(orch.ki_engine.load_kis()) if orch.ki_engine else 0
-        uncertainty = orch.uncertainty_estimator.estimate(
+        ki_count = len(orch.ctx.ki_engine.load_kis()) if orch.ctx.ki_engine else 0
+        uncertainty = orch.ctx.uncertainty_estimator.estimate(
             ctx.user_message, ctx.analysis, ki_count
         )
         if uncertainty.should_ask_user:
             yield f"\n❓ **[불확실성 감지]** {uncertainty.clarification}\n"
         elif uncertainty.confidence.value != "high":
-            unc_context = orch.uncertainty_estimator.format_prompt_injection(
+            unc_context = orch.ctx.uncertainty_estimator.format_prompt_injection(
                 uncertainty
             )
             if unc_context:
@@ -231,8 +241,8 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
     # 사용자 모델 학습
     try:
-        orch.user_model.observe(ctx.user_message, ctx.task_type)
-        user_context = orch.user_model.build_context()
+        orch.ctx.user_model.observe(ctx.user_message, ctx.task_type)
+        user_context = orch.ctx.user_model.build_context()
         if user_context:
             ctx.custom_messages[-1] = {
                 "role": "user",
@@ -303,10 +313,12 @@ def agent_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]
             "content": ctx.refined_prompt + ctx.rag_context,
         }
 
-    yield from orch._run_single_agent(
-        ctx.custom_messages, ctx.delegate_to, ctx.task_type, ctx.max_steps
+    from antigravity_k.engine.tool_loop import ToolLoopEngine
+    tool_loop = ToolLoopEngine(orch)
+    yield from tool_loop.run_loop(
+        ctx.custom_messages, ctx.delegate_to, ctx.task_type, ctx.max_steps, ctx.target_model
     )
-    ctx.agent_output = orch._last_agent_output
+    ctx.agent_output = getattr(orch, "_last_agent_output", "")
 
 
 # ─── PIPELINE_EXECUTE 핸들러 ─────────────────────────────────────
@@ -325,7 +337,9 @@ def pipeline_execute_handler(ctx: StateContext, orch) -> Generator[str, None, No
 
         yield f"\n\n---\n**[Step {step_num}] {agent_role}**: {task_desc}\n\n"
 
-        for chunk in orch._run_single_agent(
+        from antigravity_k.engine.tool_loop import ToolLoopEngine
+        tool_loop = ToolLoopEngine(orch)
+        for chunk in tool_loop.run_loop(
             current_messages, agent_role, "complex_step", ctx.max_steps
         ):
             yield chunk
@@ -356,7 +370,9 @@ def debate_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None
     )
 
     yield "\n\n💡 **[PROPOSER의 제안]**\n\n"
-    for chunk in orch._run_single_agent(
+    from antigravity_k.engine.tool_loop import ToolLoopEngine
+    tool_loop = ToolLoopEngine(orch)
+    for chunk in tool_loop.run_loop(
         current_messages, "PROPOSER", "debate_propose", ctx.max_steps
     ):
         yield chunk
@@ -367,7 +383,9 @@ def debate_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None
     )
 
     yield "\n\n⚖️ **[CRITIC의 비판 및 검증]**\n\n"
-    for chunk in orch._run_single_agent(
+    from antigravity_k.engine.tool_loop import ToolLoopEngine
+    tool_loop = ToolLoopEngine(orch)
+    for chunk in tool_loop.run_loop(
         current_messages, "CRITIC", "debate_critic", ctx.max_steps
     ):
         yield chunk

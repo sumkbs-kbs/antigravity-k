@@ -167,6 +167,16 @@ class SlashCommandRegistry:
 
         self.register(
             SlashCommand(
+                name="resume",
+                description="최신 DB 체크포인트에서 상태를 복구하여 작업을 이어서 진행합니다.",
+                handler=self._cmd_resume,
+                usage="/resume [trace_id]",
+                category="session",
+            )
+        )
+
+        self.register(
+            SlashCommand(
                 name="approve",
                 description="대기 중인 도구 실행을 승인합니다.",
                 handler=self._cmd_approve,
@@ -324,6 +334,31 @@ class SlashCommandRegistry:
                 category="system",
             )
         )
+
+        # Agent Skills: Lifecycle Commands
+        def make_handler(cmd_name):
+            return lambda args: self._cmd_lifecycle(cmd_name, args)
+
+        lifecycle_commands = [
+            ("spec", "Spec before code. Write a PRD covering objectives.", "lifecycle"),
+            ("plan", "Small, atomic tasks. Decompose specs into implementable units.", "lifecycle"),
+            ("build", "One slice at a time. Implement incrementally.", "lifecycle"),
+            ("test", "Tests are proof. Red-Green-Refactor.", "lifecycle"),
+            ("review", "Improve code health. Five-axis code review.", "lifecycle"),
+            ("code-simplify", "Clarity over cleverness. Reduce complexity.", "lifecycle"),
+            ("ship", "Faster is safer. Pre-launch checks and staged rollouts.", "lifecycle"),
+        ]
+        
+        for name, desc, cat in lifecycle_commands:
+            self.register(
+                SlashCommand(
+                    name=name,
+                    description=desc,
+                    handler=make_handler(name),
+                    usage=f"/{name} [arguments]",
+                    category=cat,
+                )
+            )
 
     # ─────────── 레지스트리 API ───────────
 
@@ -577,6 +612,16 @@ class SlashCommandRegistry:
         if self._context_shaper:
             stats = self._context_shaper.get_stats()
             lines.append(f"  **압축 횟수:** {stats.get('total_shaped', 0)}회")
+            lines.append("")
+            
+        # AgentTracer Readiness Score 연결
+        try:
+            from antigravity_k.engine.logging_util import AgentTracer
+            readiness = AgentTracer.get_readiness_score()
+            status_emoji = "🟢" if readiness["status"] == "ready" else "🟡" if readiness["status"] == "degraded" else "🔴"
+            lines.append(f"  {status_emoji} **시스템 준비도(Readiness):** {readiness['score']}/100 ({readiness['status']})")
+        except Exception:
+            pass
 
         return "\n".join(lines)
 
@@ -642,6 +687,50 @@ class SlashCommandRegistry:
                 lines.append(f"  {k}: {v}")
             return "\n".join(lines)
         return f"알 수 없는 세션 명령: {sub}"
+
+    def _cmd_resume(self, args: list) -> str:
+        """Durable Checkpoint 기반 상태 복구 및 재개."""
+        import sqlite3
+        import json
+        
+        db_path = ".agk_context.db"
+        trace_id = args[0] if args else None
+        
+        try:
+            with sqlite3.connect(db_path) as conn:
+                if trace_id:
+                    cursor = conn.execute('SELECT * FROM checkpoints WHERE trace_id = ? ORDER BY timestamp DESC LIMIT 1', (trace_id,))
+                else:
+                    cursor = conn.execute('SELECT * FROM checkpoints ORDER BY timestamp DESC LIMIT 1')
+                row = cursor.fetchone()
+                
+            if not row:
+                return "❌ 복구할 수 있는 체크포인트를 찾지 못했습니다."
+                
+            recovered_trace_id = row[0]
+            label = row[1]
+            state = row[2]
+            task_type = row[3]
+            context_json = json.loads(row[5])
+            
+            if self._session_manager and "messages" in context_json:
+                self._session_manager._current_session["messages"] = context_json["messages"]
+                self._session_manager.save()
+            
+            return (
+                f"✅ **[Durable Recovery 성공]**\n\n"
+                f"- **Trace ID**: `{recovered_trace_id}`\n"
+                f"- **Checkpoint**: `{label}`\n"
+                f"- **State**: `{state}`\n"
+                f"- **Task Type**: `{task_type}`\n"
+                f"- **Messages**: {len(context_json.get('messages', []))}개 복원됨\n\n"
+                f"컨텍스트가 성공적으로 복원되었습니다. 작업을 이어서 진행할 수 있습니다."
+            )
+            
+        except sqlite3.OperationalError:
+            return "❌ 체크포인트 데이터베이스(`.agk_context.db`)가 아직 생성되지 않았거나 존재하지 않습니다."
+        except Exception as e:
+            return f"❌ 체크포인트 복구 중 오류 발생: {str(e)}"
 
     def _cmd_project(self, args: list) -> str:
         """프로젝트 초기화 및 샌드박싱."""
@@ -918,7 +1007,7 @@ class SlashCommandRegistry:
             model_manager=self._model_manager, tool_registry=self._tool_registry
         )
         agent = MetaEvolutionAgent(
-            model_manager=self._model_manager, tool_executor=orch._tool_executor
+            model_manager=self._model_manager, tool_executor=orch.ctx.tool_executor
         )
 
         # Generator 자체를 반환 (chat.py에서 스트리밍으로 소비됨)
@@ -1106,3 +1195,35 @@ class SlashCommandRegistry:
             "이제 DCF(가치평가), Comps(비교분석), 3-Statement 모델링 등 전문 금융 분석 요청을 자유롭게 대화로 이어가세요!\n"
             '(예시: "해당 기업의 과거 3년 재무 데이터를 기반으로 DCF 모델을 작성해줘. Base/Bear/Bull 시나리오를 적용해.")'
         )
+
+    def _cmd_lifecycle(self, command_name: str, args: list) -> str:
+        """Lifecycle command handler (e.g. /spec, /build)."""
+        prompt = " ".join(args).strip()
+        
+        # Mapping to Addy Osmani's agent skills
+        skill_maps = {
+            "spec": "spec-driven-development",
+            "plan": "planning-and-task-breakdown",
+            "build": "incremental-implementation",
+            "test": "test-driven-development",
+            "review": "code-review-and-quality",
+            "code-simplify": "code-simplification",
+            "ship": "shipping-and-launch"
+        }
+        
+        skill_name = skill_maps.get(command_name, command_name)
+        
+        if self._skill_loader:
+            try:
+                self._skill_loader.activate(skill_name)
+            except Exception as e:
+                logger.warning(f"Could not explicitly activate skill {skill_name}: {e}")
+            
+        system_injection = (
+            f"ACTIVATE LIFECYCLE SKILL: {skill_name}.\n"
+            f"Please strictly follow the workflow and verification gates defined for this skill.\n"
+            f"Task: {prompt}"
+        )
+        
+        return self._execute_natural_language(system_injection)
+

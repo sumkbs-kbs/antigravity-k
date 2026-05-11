@@ -187,7 +187,7 @@ class AutonomousLearner:
                 "options": {"num_predict": 512, "temperature": 0.3},
             }
             req = urllib.request.Request(
-                "http://localhost:11434/api/generate",
+                f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
@@ -440,7 +440,7 @@ class AutonomousLearner:
                 "options": {"num_predict": 800, "temperature": 0.3},
             }
             req = urllib.request.Request(
-                "http://localhost:11434/api/generate",
+                f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )

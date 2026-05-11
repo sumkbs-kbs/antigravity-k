@@ -22,7 +22,7 @@ logger = logging.getLogger("antigravity_k.model_manager")
 
 # ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
 # Single Source of Truth: engine/sampling_config.py
-from .sampling_config import SamplingProfile, SAMPLING_PROFILES
+from .sampling_config import SAMPLING_PROFILES
 
 
 @dataclass
@@ -862,7 +862,25 @@ class ModelManager:
             else:
                 api_msgs = kwargs["raw_messages"]
         else:
-            api_msgs = [{"role": "user", "content": prompt}]
+            if isinstance(prompt, list):
+                api_msgs = prompt
+            else:
+                api_msgs = [{"role": "user", "content": prompt}]
+
+        # Normalize messages for Ollama (it strictly requires string content)
+        normalized_msgs = []
+        for msg in api_msgs:
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                str_content = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        str_content.append(part.get("text", ""))
+                    elif isinstance(part, str):
+                        str_content.append(part)
+                content = " ".join(str_content)
+            normalized_msgs.append({**msg, "content": content})
+        api_msgs = normalized_msgs
 
         api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
 
@@ -916,6 +934,13 @@ class ModelManager:
                                 yield msg["content"]
                     except json.JSONDecodeError:
                         continue
+        except urllib.error.HTTPError as e:
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                error_body = ""
+            logger.error(f"Local API stream failed with HTTPError: {e} - {error_body}")
+            yield f"[API Error for {loaded.profile.name}] {e} - {error_body}"
         except Exception as e:
             logger.error(f"Local API stream failed: {e}")
             yield f"[API Error for {loaded.profile.name}] {e}"
@@ -961,13 +986,13 @@ class ModelManager:
                 import urllib.request
                 import json
 
-                req = urllib.request.Request("http://localhost:11434/api/ps")
+                req = urllib.request.Request(f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/tags")
                 with urllib.request.urlopen(req, timeout=2) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     for m in data.get("models", []):
                         m_name = m.get("name", "")
                         # e.g. "deepseek-r1:70b" or "deepseek-r1" match
-                        if m_name == name or m_name.startswith(name + ":"):
+                        if m_name == name or m_name.startswith(name + ":") or name.startswith(m_name + ":"):
                             return True
             except Exception:
                 pass
@@ -1061,6 +1086,13 @@ class _OllamaTokenizer:
     def encode(self, text: str, **kwargs) -> list[int]:
         """토큰 수 추정: CJK 문자 개별 1.5토큰 + 라틴 단어 1.3토큰"""
         import math
+        import json
+
+        if not isinstance(text, str):
+            try:
+                text = json.dumps(text, ensure_ascii=False)
+            except Exception:
+                text = str(text)
 
         cjk_count = 0
         latin_parts = []

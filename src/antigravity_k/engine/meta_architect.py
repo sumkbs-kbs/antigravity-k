@@ -38,7 +38,7 @@ class ArchitectureProposal:
 class MetaArchitect:
     """시스템 전체를 조망하고 재설계하는 메타 아키텍트 엔진."""
 
-    def __init__(self, project_root: str, ollama_url: str = "http://localhost:11434"):
+    def __init__(self, project_root: str, ollama_url: str = config.model.api_base.replace('/v1', '').rstrip('/')):
         self.project_root = project_root
         self.ollama_url = ollama_url
         self._engine_dir = os.path.join(project_root, "src", "antigravity_k", "engine")
@@ -262,8 +262,8 @@ class MetaArchitect:
     def _evaluate_with_judge(self, filename: str, original_code: str, new_code: str) -> tuple[int, str]:
         """생성된 코드를 Meta-Judge가 평가하여 점수(0~5)와 피드백을 반환합니다."""
         prompt = (
-            f"[ROLE] 당신은 전설적인 수석 엔지니어(Principal Engineer)이자 코드 리뷰어(Meta-Judge)입니다.\n"
-            f"[TASK] 원본 코드와 새로 제안된 코드를 비교하여, 새로 제안된 코드의 품질을 0~5점으로 평가하세요.\n\n"
+            "[ROLE] 당신은 전설적인 수석 엔지니어(Principal Engineer)이자 코드 리뷰어(Meta-Judge)입니다.\n"
+            "[TASK] 원본 코드와 새로 제안된 코드를 비교하여, 새로 제안된 코드의 품질을 0~5점으로 평가하세요.\n\n"
             "평가 기준:\n"
             "1. 문법 및 실행 가능성 (Syntax Error 여부)\n"
             "2. 아키텍처 개선 효과 (실제 구조적 이득이 있는가)\n"

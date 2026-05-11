@@ -81,7 +81,7 @@ class PromptEvolver:
 
     def __init__(
         self,
-        ollama_url: str = "http://localhost:11434",
+        ollama_url: str = config.model.api_base.replace('/v1', '').rstrip('/'),
         optimizer_model: str = "",
         candidates_per_gen: int = 3,
         persist_dir: str = "data/prompt_evolution",
