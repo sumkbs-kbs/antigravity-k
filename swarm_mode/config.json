@@ -1,0 +1,68 @@
+{
+  "swarm": {
+    "name": "Financial-Tech Correlation Analyzer",
+    "max_workers": 4,
+    "timeout": 300,
+    "retry_attempts": 2,
+    "fail_safe": "partial"
+  },
+  "workers": [
+    {
+      "name": "financial_analyzer",
+      "enabled": true,
+      "params": {
+        "sources": ["korea", "us", "global"],
+        "metrics": ["KOSPI", "KOSDAQ", "gold", "oil", "usd_krw", "samsung", "skhynix"]
+      }
+    },
+    {
+      "name": "tech_trend_analyzer",
+      "enabled": true,
+      "params": {
+        "sources": ["web_search", "yt_analysis", "wiki_research"],
+        "focus_areas": ["LLM", "AI_agents", "semiconductor", "shipping", "energy"]
+      }
+    },
+    {
+      "name": "correlator",
+      "enabled": false,
+      "params": {
+        "threshold": 0.6,
+        "output_format": "wiki"
+      }
+    }
+  ],
+  "output": {
+    "dir": "swarm_mode/outputs",
+    "format": "json",
+    "include_wiki_doc": true
+  },
+  "goal_mode": {
+    "enabled": false,
+    "strategy_description": "",
+    "backtest_config": null
+  },
+  "lm": {
+    "strategy": "three_tier",
+    "local_base_url": "http://localhost:11434",
+    "local_model": "qwen3.6-models",
+    "local_model_single": "qwen3.6-models",
+    "or_base_url": "https://openrouter.ai/api/v1",
+    "or_free_model": "openrouter/free",
+    "or_paid_model": "google/gemini-2.5-pro-preview-05-14",
+    "or_paid_cost_limit": 10.0,
+    "or_api_key": "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",
+    "max_retries": 3,
+    "retry_delay": 2.0,
+    "local_timeout": 60,
+    "or_free_timeout": 120,
+    "or_paid_timeout": 180,
+    "three_tier": {
+      "enabled": true,
+      "tier1_local": "보안 민감 데이터를 다루거나 개인 정보 처리 시",
+      "tier2_free_model": "일반 분석, 요약, 탐색적 작업",
+      "tier3_paid_model": "complex=true 또는 force_paid=true 명시적 요청 시만",
+      "cost_alert_threshold": 8.0
+    }
+  }
+}
