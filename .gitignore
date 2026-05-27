@@ -58,3 +58,6 @@ demo_artifacts/
 .mypy_cache/
 .tox/
 node_modules/
+
+# LFS large file (will be migrated)
+.agent/skills/gstack/bin/gstack-global-discover.exe
