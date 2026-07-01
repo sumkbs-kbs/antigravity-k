@@ -99,7 +99,7 @@ async def chat_completions(
 ):
     try:
         body = await request.json()
-    except Exception:
+    except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     source_format = translator.detect_format(body)

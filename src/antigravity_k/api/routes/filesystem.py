@@ -141,7 +141,7 @@ async def fs_browse(dir: str = "/"):
             parent_dir = None
 
         return {"ok": True, "current": target_dir, "parent": parent_dir, "items": items}
-    except Exception as e:
+    except OSError as e:
         logger.error("FS browse error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -166,7 +166,7 @@ async def fs_mkdir(req: MkdirRequest):
         return {"ok": True, "path": target_dir}
     except HTTPException:
         raise
-    except Exception as e:
+    except OSError as e:
         logger.error("FS mkdir error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -195,7 +195,7 @@ async def fs_delete(req: DeleteRequest):
         return {"ok": True, "path": target_path}
     except HTTPException:
         raise
-    except Exception as e:
+    except OSError as e:
         logger.error("FS delete error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -231,7 +231,7 @@ async def fs_list(dir: str = "."):
         return {"ok": True, "items": items}
     except HTTPException:
         raise
-    except Exception as e:
+    except OSError as e:
         logger.error("FS list error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -255,6 +255,6 @@ async def fs_read(file: str):
         raise HTTPException(status_code=400, detail="Cannot read binary file.")
     except HTTPException:
         raise
-    except Exception as e:
+    except OSError as e:
         logger.error("FS read error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

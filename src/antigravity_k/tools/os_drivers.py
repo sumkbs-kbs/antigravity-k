@@ -766,7 +766,7 @@ class MacOSScreenDriver(ScreenDriver):
             w = Quartz.CGDisplayPixelsWide(main_display)
             h = Quartz.CGDisplayPixelsHigh(main_display)
             return (w, h)
-        except Exception:
+        except (ImportError, ValueError, RuntimeError):
             # subprocess 폴백
             import subprocess
 
@@ -782,7 +782,7 @@ class MacOSScreenDriver(ScreenDriver):
                 match = _re.search(r"Resolution:\s+(\d+)\s*x\s*(\d+)", result.stdout)
                 if match:
                     return (int(match.group(1)), int(match.group(2)))
-            except Exception:
+            except (subprocess.SubprocessError, OSError):
                 logger.exception("Unhandled exception")
                 pass
             return (1920, 1080)

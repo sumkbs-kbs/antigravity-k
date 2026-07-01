@@ -7,6 +7,7 @@ Memory, Toolset, Harness, Shields, Security, Slash, Session, Code Intel, System 
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -296,7 +297,7 @@ async def system_status():
             "uptime_seconds": uptime_seconds,
             "version": "v0.2.0",
         }
-    except Exception as e:
+    except (psutil.Error, OSError, RuntimeError) as e:
         logger.error("Status error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -322,7 +323,7 @@ async def system_restart(background_tasks: BackgroundTasks):
             "ok": True,
             "message": "Restart triggered. The server will reboot in a moment.",
         }
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.error("Restart error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -475,7 +476,7 @@ async def code_intel_index(request: Request):
         return result
     except ImportError:
         raise HTTPException(status_code=501, detail="Code Intel not installed")
-    except Exception as e:
+    except (json.JSONDecodeError, FileNotFoundError, ValueError, RuntimeError) as e:
         logger.error("Code Intel index error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -507,7 +508,7 @@ async def code_intel_search(q: str, repo_path: str, top_k: int = 10):
         return {"query": q, "results": results}
     except HTTPException:
         raise
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         logger.error("Code Intel search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -540,7 +541,7 @@ async def code_intel_impact(request: Request):
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         logger.error("Code Intel impact error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 

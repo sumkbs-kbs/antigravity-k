@@ -6,7 +6,7 @@ import os
 import subprocess
 
 from fastapi import APIRouter, Body, HTTPException, Request
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import Browser, BrowserContext, Error, Page, async_playwright
 from pydantic import BaseModel
 
 from antigravity_k.config import config
@@ -83,7 +83,7 @@ def read_file(req: FileReadRequest):
     try:
         with open(req.path, encoding="utf-8") as f:
             return {"ok": True, "content": f.read()}
-    except Exception as e:
+    except (OSError, UnicodeDecodeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -98,7 +98,7 @@ def write_file(req: FileWriteRequest):
         with open(req.path, "w", encoding="utf-8") as f:
             f.write(req.content)
         return {"ok": True, "path": req.path}
-    except Exception as e:
+    except OSError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -127,7 +127,7 @@ def run_shell(req: ShellRunRequest):
         raise HTTPException(status_code=408, detail="Command execution timed out")
     except HTTPException:
         raise
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -244,7 +244,7 @@ async def browser_action(req: BrowserActionRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except (Error, OSError, TimeoutError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -332,7 +332,7 @@ async def browser_self_test(
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except (ImportError, RuntimeError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -378,7 +378,7 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except (ImportError, RuntimeError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -450,8 +450,10 @@ async def vision_analyze(req: VisionAnalyzeRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except (httpx.RequestError, httpx.HTTPStatusError, Error) as e:
         raise HTTPException(status_code=500, detail=str(e))
+    except (KeyError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=f"Response parse error: {e}")
 
 
 # ─── External Brain (외부 AI 두뇌 간접 연동) ─────────────────
@@ -540,5 +542,5 @@ async def tdd_generate(req: TDDGenerateRequest):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except (ImportError, RuntimeError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))

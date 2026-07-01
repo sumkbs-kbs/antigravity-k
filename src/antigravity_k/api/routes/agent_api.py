@@ -131,7 +131,7 @@ async def create_embeddings(
             model=request.model,
             usage=UsageStats(prompt_tokens=tokens, total_tokens=tokens),
         )
-    except Exception as e:
+    except (ValueError, RuntimeError, KeyError) as e:
         logger.error("Embedding error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 

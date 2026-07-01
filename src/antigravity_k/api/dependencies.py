@@ -87,11 +87,11 @@ def get_vault_engine() -> VaultEngine | None:
         vault_path = os.environ.get("ANTIGRAVITY_VAULT_PATH", "./vault_data")
         try:
             vault_engine = VaultEngine(vault_path=vault_path, sync_rag=True)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             logger.warning("VaultEngine 초기화 실패 (RAG 비활성): %s", e)
             try:
                 vault_engine = VaultEngine(vault_path=vault_path, sync_rag=False)
-            except Exception:
+            except OSError:
                 logger.exception("VaultEngine 완전 실패")
                 return None
     return vault_engine

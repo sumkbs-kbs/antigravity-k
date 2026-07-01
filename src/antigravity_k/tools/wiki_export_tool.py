@@ -131,7 +131,7 @@ class WikiExportTool(BaseTool):
         if not os.path.exists(wiki_dir):
             try:
                 os.makedirs(wiki_dir, exist_ok=True)
-            except Exception:
+            except OSError:
                 logger.exception("Unhandled exception")
                 wiki_dir = project_root
 
@@ -150,13 +150,13 @@ class WikiExportTool(BaseTool):
             with open(target_path, "w", encoding="utf-8") as f:
                 f.write(full_content)
             return f"✅ Successfully exported knowledge to Wiki at: {target_path}"
-        except Exception:
+        except OSError:
             # Fallback to root if permission denied
             fallback_path = os.path.join(project_root, safe_filename)
             try:
                 with open(fallback_path, "w", encoding="utf-8") as f:
                     f.write(full_content)
                 return f"⚠️ Permission denied to write to {wiki_dir}. Saved to fallback path: {fallback_path}"
-            except Exception as e2:
+            except OSError as e2:
                 logger.exception("Unhandled exception")
                 return f"❌ Failed to export wiki: {e2}"

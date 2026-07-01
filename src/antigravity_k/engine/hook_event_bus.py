@@ -437,12 +437,12 @@ class HookEventBus:
         """Req 파일을 읽어 gate-request 이벤트를 발생시킵니다."""
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, ValueError):
             # Windows: atomic rename 직후 읽기 실패 → 짧은 재시도
             time.sleep(0.05)
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, ValueError):
                 logger.exception("[HookEventBus] req 읽기 실패 (%s)", path)
                 return
 

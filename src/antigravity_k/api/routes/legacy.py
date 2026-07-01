@@ -258,7 +258,7 @@ async def create_embeddings(
             model=request.model,
             usage=UsageStats(prompt_tokens=tokens, total_tokens=tokens),
         )
-    except Exception as e:
+    except (ValueError, RuntimeError, KeyError) as e:
         logger.error("Embedding error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -287,15 +287,15 @@ async def set_vault_config(request: Request):
         # 디렉토리가 없으면 생성 시도
         try:
             os.makedirs(target, exist_ok=True)
-        except Exception as e:
+        except OSError as e:
             raise HTTPException(status_code=400, detail=f"Cannot create directory: {e}")
     try:
         vault_engine = VaultEngine(vault_path=target, sync_rag=True)
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         logger.warning("Vault 재초기화 실패 (RAG 비활성): %s", e)
         try:
             vault_engine = VaultEngine(vault_path=target, sync_rag=False)
-        except Exception as e2:
+        except (OSError, RuntimeError, ValueError) as e2:
             raise HTTPException(status_code=500, detail=f"Vault init failed: {e2}")
     return {"ok": True, "vault_path": str(vault_engine.vault_path)}
 
@@ -355,7 +355,7 @@ def vault_read(path: str, engine: VaultEngine = Depends(get_vault_engine)):
         return {"path": path, "metadata": metadata, "content": content}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Note not found: {path}")
-    except Exception as e:
+    except OSError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -376,7 +376,7 @@ async def vault_write(request: Request, engine: VaultEngine = Depends(get_vault_
     try:
         engine.write_note(path, metadata, content, commit_message=f"Wiki edit: {path}")
         return {"ok": True, "path": path}
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -388,7 +388,7 @@ async def vault_sync(engine: VaultEngine = Depends(get_vault_engine)):
     try:
         commit_hash = engine.create_snapshot("Manual sync via Command Palette")
         return {"ok": True, "commit": commit_hash}
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -419,7 +419,7 @@ def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
             "semantic_results": semantic_results,
             "keyword_results": keyword_results,
         }
-    except Exception as e:
+    except (ValueError, KeyError) as e:
         logger.error("Search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -879,7 +879,7 @@ async def code_intel_index(request: Request):
             status_code=501,
             detail="Code Intel 모듈이 설치되지 않았습니다 (pip install networkx rank-bm25)",
         )
-    except Exception as e:
+    except (json.JSONDecodeError, FileNotFoundError, ValueError, RuntimeError) as e:
         logger.error("Code Intel index error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -904,7 +904,7 @@ async def code_intel_search(q: str, repo_path: str, top_k: int = 10):
         return {"query": q, "results": results}
     except HTTPException:
         raise
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         logger.error("Code Intel search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -929,7 +929,7 @@ async def code_intel_impact(request: Request):
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except (ValueError, KeyError, RuntimeError) as e:
         logger.error("Code Intel impact error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1048,7 +1048,7 @@ async def system_status():
             "uptime_seconds": uptime_seconds,
             "version": "v0.2.0",
         }
-    except Exception as e:
+    except (psutil.Error, OSError, RuntimeError) as e:
         logger.error("Status error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1077,7 +1077,7 @@ async def system_restart(background_tasks: BackgroundTasks):
             "ok": True,
             "message": "Restart triggered. The server will reboot in a moment.",
         }
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         logger.error("Restart error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
