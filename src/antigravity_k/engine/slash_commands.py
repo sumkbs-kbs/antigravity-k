@@ -1,5 +1,5 @@
-"""
-SlashCommands — 슬래시 커맨드 레지스트리
+"""SlashCommands — 슬래시 커맨드 레지스트리.
+
 ==========================================
 Claw Code의 CommandRegistry 아키텍처 이식.
 
@@ -13,7 +13,7 @@ Claw Code의 CommandRegistry 아키텍처 이식.
 """
 
 import logging
-from typing import Callable, Dict, List
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,16 @@ class SlashCommand:
         usage: str = "",
         category: str = "general",
     ):
+        """Initialize the SlashCommand.
+
+        Args:
+            name (str): str name.
+            description (str): str description.
+            handler (Callable): Callable handler.
+            usage (str): str usage.
+            category (str): str category.
+
+        """
         self.name = name
         self.description = description
         self.handler = handler
@@ -37,8 +47,7 @@ class SlashCommand:
 
 
 class SlashCommandRegistry:
-    """
-    슬래시 커맨드 중앙 레지스트리.
+    """슬래시 커맨드 중앙 레지스트리.
 
     Claw Code의 CommandRegistry 패턴:
     - /help, /tools, /context, /memory, /model, /status, /compact, /session
@@ -52,7 +61,17 @@ class SlashCommandRegistry:
         model_manager=None,
         skill_loader=None,
     ):
-        self._commands: Dict[str, SlashCommand] = {}
+        """Initialize the SlashCommandRegistry.
+
+        Args:
+            tool_registry: tool registry.
+            session_manager: session manager.
+            context_shaper: context shaper.
+            model_manager: model manager.
+            skill_loader: skill loader.
+
+        """
+        self._commands: dict[str, SlashCommand] = {}
         self._tool_registry = tool_registry
         self._session_manager = session_manager
         self._context_shaper = context_shaper
@@ -64,7 +83,6 @@ class SlashCommandRegistry:
 
     def _register_defaults(self):
         """기본 슬래시 커맨드를 등록합니다."""
-
         self.register(
             SlashCommand(
                 name="help",
@@ -72,7 +90,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_help,
                 usage="/help",
                 category="general",
-            )
+            ),
         )
 
         self.register(
@@ -82,7 +100,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_tools,
                 usage="/tools [category]",
                 category="tools",
-            )
+            ),
         )
 
         self.register(
@@ -92,7 +110,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_context,
                 usage="/context",
                 category="context",
-            )
+            ),
         )
 
         self.register(
@@ -102,7 +120,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_memory,
                 usage="/memory [key]",
                 category="session",
-            )
+            ),
         )
 
         self.register(
@@ -112,7 +130,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_model,
                 usage="/model [model_name]",
                 category="model",
-            )
+            ),
         )
 
         self.register(
@@ -122,7 +140,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_status,
                 usage="/status",
                 category="general",
-            )
+            ),
         )
 
         self.register(
@@ -132,7 +150,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_self,
                 usage="/self",
                 category="general",
-            )
+            ),
         )
 
         self.register(
@@ -142,7 +160,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_compact,
                 usage="/compact",
                 category="context",
-            )
+            ),
         )
 
         self.register(
@@ -152,7 +170,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_session,
                 usage="/session [list|save|load <id>|info]",
                 category="session",
-            )
+            ),
         )
 
         self.register(
@@ -162,7 +180,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_project,
                 usage="/project <folder_path>",
                 category="session",
-            )
+            ),
         )
 
         self.register(
@@ -172,7 +190,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_resume,
                 usage="/resume [trace_id]",
                 category="session",
-            )
+            ),
         )
 
         self.register(
@@ -182,7 +200,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_approve,
                 usage="/approve <tool_name>",
                 category="system",
-            )
+            ),
         )
 
         self.register(
@@ -192,7 +210,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_browse,
                 usage="/browse <url> [지시사항]",
                 category="system",
-            )
+            ),
         )
 
         self.register(
@@ -202,7 +220,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_skill,
                 usage="/skill [list|activate <id>|deactivate <id>|clear]",
                 category="system",
-            )
+            ),
         )
 
         self.register(
@@ -212,7 +230,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_qa,
                 usage="/qa [url]",
                 category="system",
-            )
+            ),
         )
 
         self.register(
@@ -222,7 +240,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_evolve,
                 usage="/evolve <기능 고도화 요구사항>",
                 category="autonomy",
-            )
+            ),
         )
 
         self.register(
@@ -232,7 +250,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_goal,
                 usage="/goal <objective>",
                 category="autonomy",
-            )
+            ),
         )
 
         self.register(
@@ -242,7 +260,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_agentic,
                 usage="/agentic [objective]",
                 category="autonomy",
-            )
+            ),
         )
 
         self.register(
@@ -252,7 +270,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_mcp,
                 usage="/mcp [radar|audit <path>|template]",
                 category="tools",
-            )
+            ),
         )
 
         self.register(
@@ -262,7 +280,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_capabilities,
                 usage="/capabilities [objective]",
                 category="autonomy",
-            )
+            ),
         )
 
         self.register(
@@ -272,7 +290,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_codex,
                 usage="/codex [objective]",
                 category="autonomy",
-            )
+            ),
         )
 
         self.register(
@@ -282,7 +300,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_dialectic,
                 usage="/dialectic <질문 또는 문제>",
                 category="autonomy",
-            )
+            ),
         )
 
         self.register(
@@ -292,7 +310,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_finance,
                 usage="/finance <분석 대상 및 상황>",
                 category="finance",
-            )
+            ),
         )
 
         self.register(
@@ -302,7 +320,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_finance,
                 usage="/comps <기업명>",
                 category="finance",
-            )
+            ),
         )
 
         self.register(
@@ -312,7 +330,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_finance,
                 usage="/dcf <기업명>",
                 category="finance",
-            )
+            ),
         )
 
         self.register(
@@ -322,7 +340,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_aishell,
                 usage="/aishell <명령어>",
                 category="system",
-            )
+            ),
         )
 
         self.register(
@@ -332,7 +350,7 @@ class SlashCommandRegistry:
                 handler=self._cmd_benchmark,
                 usage="/benchmark [run [suite|case-id] | report [suite] | clear]",
                 category="system",
-            )
+            ),
         )
 
         # Agent Skills: Lifecycle Commands
@@ -348,7 +366,7 @@ class SlashCommandRegistry:
             ("code-simplify", "Clarity over cleverness. Reduce complexity.", "lifecycle"),
             ("ship", "Faster is safer. Pre-launch checks and staged rollouts.", "lifecycle"),
         ]
-        
+
         for name, desc, cat in lifecycle_commands:
             self.register(
                 SlashCommand(
@@ -357,7 +375,7 @@ class SlashCommandRegistry:
                     handler=make_handler(name),
                     usage=f"/{name} [arguments]",
                     category=cat,
-                )
+                ),
             )
 
     # ─────────── 레지스트리 API ───────────
@@ -396,7 +414,7 @@ class SlashCommandRegistry:
         try:
             return command.handler(args)
         except Exception as e:
-            logger.error(f"Slash command error: {e}", exc_info=True)
+            logger.error("Slash command error: %s", e, exc_info=True)
             return f"Error executing /{cmd_name}: {e}"
 
     def _execute_natural_language(self, text: str) -> str:
@@ -404,15 +422,11 @@ class SlashCommandRegistry:
         from antigravity_k.engine.orchestrator import OrchestratorAgent
 
         if not self._model_manager:
-            return (
-                "Error: Model manager is not available for natural language execution."
-            )
+            return "Error: Model manager is not available for natural language execution."
 
         info = self._model_manager.get_model_info()
         target_model = (
-            info.get("active_model", "default")
-            if isinstance(info, dict)
-            else getattr(info, "active_model", "default")
+            info.get("active_model", "default") if isinstance(info, dict) else getattr(info, "active_model", "default")
         )
         if target_model == "default" or not target_model:
             # Fallback to whatever model is first or default in manager
@@ -435,10 +449,10 @@ class SlashCommandRegistry:
         try:
             return orchestrator.run_sync(messages, target_model=target_model)
         except Exception as e:
-            logger.error(f"Natural language execution error: {e}", exc_info=True)
+            logger.error("Natural language execution error: %s", e, exc_info=True)
             return f"자연어 처리 중 오류 발생: {e}"
 
-    def get_completions(self, prefix: str) -> List[str]:
+    def get_completions(self, prefix: str) -> list[str]:
         """자동완성 후보를 반환합니다."""
         if not prefix.startswith("/"):
             return []
@@ -451,7 +465,7 @@ class SlashCommandRegistry:
         """도움말 표시."""
         lines = ["📚 **Antigravity-K 슬래시 커맨드**", ""]
 
-        categories: Dict[str, List[SlashCommand]] = {}
+        categories: dict[str, list[SlashCommand]] = {}
         for cmd in self._commands.values():
             categories.setdefault(cmd.category, []).append(cmd)
 
@@ -496,9 +510,7 @@ class SlashCommandRegistry:
                 "high": "🔴",
                 "critical": "⛔",
             }.get(tool.risk_level.value, "⚪")
-            lines.append(
-                f"  {tool.icon} `{tool.name}` {risk_icon} — {tool.description[:60]}"
-            )
+            lines.append(f"  {tool.icon} `{tool.name}` {risk_icon} — {tool.description[:60]}")
 
         lines.append(f"\n총 {len(tools)}개 도구 등록됨")
         return "\n".join(lines)
@@ -539,7 +551,7 @@ class SlashCommandRegistry:
                 f"    총 압축: {stats.get('total_shaped', 0)}회",
                 f"    절약 토큰: {stats.get('tokens_saved', 0):,}",
                 f"    콘텐츠 축소: {stats.get('collapses', 0)}건",
-            ]
+            ],
         )
 
         return "\n".join(lines)
@@ -577,6 +589,7 @@ class SlashCommandRegistry:
                 self._model_manager.set_model(args[0])
                 return f"✅ 모델이 `{args[0]}`로 변경되었습니다."
             except Exception as e:
+                logger.exception("Unhandled exception")
                 return f"모델 변경 실패: {e}"
 
         # 현재 모델 정보
@@ -584,6 +597,7 @@ class SlashCommandRegistry:
             info = self._model_manager.get_model_info()
             return f"🤖 **현재 모델:** {info}"
         except Exception:
+            logger.exception("Unhandled exception")
             return "모델 정보를 가져올 수 없습니다."
 
     def _cmd_status(self, args: list) -> str:
@@ -601,7 +615,7 @@ class SlashCommandRegistry:
                         f"  **메시지:** {info['message_count']}",
                         f"  **메모리 키:** {len(info['memory_keys'])}개",
                         "",
-                    ]
+                    ],
                 )
 
         # 도구 정보
@@ -613,14 +627,20 @@ class SlashCommandRegistry:
             stats = self._context_shaper.get_stats()
             lines.append(f"  **압축 횟수:** {stats.get('total_shaped', 0)}회")
             lines.append("")
-            
+
         # AgentTracer Readiness Score 연결
         try:
             from antigravity_k.engine.logging_util import AgentTracer
+
             readiness = AgentTracer.get_readiness_score()
-            status_emoji = "🟢" if readiness["status"] == "ready" else "🟡" if readiness["status"] == "degraded" else "🔴"
-            lines.append(f"  {status_emoji} **시스템 준비도(Readiness):** {readiness['score']}/100 ({readiness['status']})")
+            status_emoji = (
+                "🟢" if readiness["status"] == "ready" else "🟡" if readiness["status"] == "degraded" else "🔴"
+            )
+            lines.append(
+                f"  {status_emoji} **시스템 준비도(Readiness):** {readiness['score']}/100 ({readiness['status']})",
+            )
         except Exception:
+            logger.exception("Unhandled exception")
             pass
 
         return "\n".join(lines)
@@ -662,10 +682,7 @@ class SlashCommandRegistry:
                 return "저장된 세션이 없습니다."
             lines = ["📁 **세션 목록**", ""]
             for s in sessions:
-                lines.append(
-                    f"  `{s['id']}` — 턴: {s['turn_count']}, "
-                    f"경로: {s['project_path']}"
-                )
+                lines.append(f"  `{s['id']}` — 턴: {s['turn_count']}, 경로: {s['project_path']}")
             return "\n".join(lines)
 
         elif sub == "save":
@@ -690,33 +707,38 @@ class SlashCommandRegistry:
 
     def _cmd_resume(self, args: list) -> str:
         """Durable Checkpoint 기반 상태 복구 및 재개."""
-        import sqlite3
         import json
-        
+        import sqlite3
+
         db_path = ".agk_context.db"
         trace_id = args[0] if args else None
-        
+
         try:
             with sqlite3.connect(db_path) as conn:
                 if trace_id:
-                    cursor = conn.execute('SELECT * FROM checkpoints WHERE trace_id = ? ORDER BY timestamp DESC LIMIT 1', (trace_id,))
+                    cursor = conn.execute(
+                        "SELECT * FROM checkpoints WHERE trace_id = ? ORDER BY timestamp DESC LIMIT 1",
+                        (trace_id,),
+                    )
                 else:
-                    cursor = conn.execute('SELECT * FROM checkpoints ORDER BY timestamp DESC LIMIT 1')
+                    cursor = conn.execute(
+                        "SELECT * FROM checkpoints ORDER BY timestamp DESC LIMIT 1",
+                    )
                 row = cursor.fetchone()
-                
+
             if not row:
                 return "❌ 복구할 수 있는 체크포인트를 찾지 못했습니다."
-                
+
             recovered_trace_id = row[0]
             label = row[1]
             state = row[2]
             task_type = row[3]
             context_json = json.loads(row[5])
-            
+
             if self._session_manager and "messages" in context_json:
                 self._session_manager._current_session["messages"] = context_json["messages"]
                 self._session_manager.save()
-            
+
             return (
                 f"✅ **[Durable Recovery 성공]**\n\n"
                 f"- **Trace ID**: `{recovered_trace_id}`\n"
@@ -726,10 +748,11 @@ class SlashCommandRegistry:
                 f"- **Messages**: {len(context_json.get('messages', []))}개 복원됨\n\n"
                 f"컨텍스트가 성공적으로 복원되었습니다. 작업을 이어서 진행할 수 있습니다."
             )
-            
+
         except sqlite3.OperationalError:
             return "❌ 체크포인트 데이터베이스(`.agk_context.db`)가 아직 생성되지 않았거나 존재하지 않습니다."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"❌ 체크포인트 복구 중 오류 발생: {str(e)}"
 
     def _cmd_project(self, args: list) -> str:
@@ -745,6 +768,7 @@ class SlashCommandRegistry:
         try:
             os.makedirs(folder_path, exist_ok=True)
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"❌ 폴더 생성 실패: {e}"
 
         # 2. ToolRegistry 및 PermissionGate 샌드박스 바인딩
@@ -772,8 +796,8 @@ class SlashCommandRegistry:
                 try:
                     with open(fpath, "w", encoding="utf-8") as f:
                         f.write(content)
-                except Exception as e:
-                    logger.error(f"Failed to create scaffolding file {fpath}: {e}")
+                except Exception:
+                    logger.exception("Failed to create scaffolding file %s", fpath)
 
         return (
             f"✅ 프로젝트가 성공적으로 설정되었습니다!\n\n"
@@ -804,11 +828,7 @@ class SlashCommandRegistry:
         # 3. 브라우저 세션 정리 (QA 명령어는 단발성이므로 닫기)
         tool.execute(action="close")
 
-        if (
-            "Error" in result
-            or "error" in result.lower()
-            and "browser" in result.lower()
-        ):
+        if "Error" in result or "error" in result.lower() and "browser" in result.lower():
             return f"❌ QA 실패: DOM 추출 중 오류 발생\n\n```text\n{result}\n```"
 
         # 간단한 휴리스틱 검사
@@ -826,7 +846,7 @@ class SlashCommandRegistry:
         found_errors = [kw for kw in error_keywords if kw in result]
         if found_errors:
             report.append(
-                f"❌ **UI 에러 발생:** 화면 내에 다음 에러 키워드가 포함되어 있습니다: {', '.join(found_errors)}"
+                f"❌ **UI 에러 발생:** 화면 내에 다음 에러 키워드가 포함되어 있습니다: {', '.join(found_errors)}",
             )
         else:
             report.append("✅ **UI 에러 없음:** 화면 내 치명적 에러 문구 미검출.")
@@ -836,12 +856,10 @@ class SlashCommandRegistry:
         found_models = [kw for kw in model_keywords if kw.lower() in result.lower()]
         if found_models:
             report.append(
-                f"✅ **모델 로드 확인:** 드롭다운 내 다음 모델들이 발견됨: {', '.join(found_models)}"
+                f"✅ **모델 로드 확인:** 드롭다운 내 다음 모델들이 발견됨: {', '.join(found_models)}",
             )
         else:
-            report.append(
-                "⚠️ **모델 미발견:** 화면에서 설치된 로컬 모델 목록을 찾을 수 없습니다."
-            )
+            report.append("⚠️ **모델 미발견:** 화면에서 설치된 로컬 모델 목록을 찾을 수 없습니다.")
 
         report.append("\n**추출된 DOM 텍스트 요약 (최대 300자):**")
         report.append(f"```text\n{result[:300]}...\n```")
@@ -859,11 +877,13 @@ class SlashCommandRegistry:
             try:
                 context["session"] = self._session_manager.get_session_info()
             except Exception:
+                logger.exception("Unhandled exception")
                 context["session"] = "unavailable"
         if self._tool_registry:
             try:
                 context["tool_count"] = len(self._tool_registry)
             except Exception:
+                logger.exception("Unhandled exception")
                 context["tool_count"] = "unknown"
 
         from antigravity_k.engine.goal_runner import GoalRunner
@@ -925,19 +945,19 @@ class SlashCommandRegistry:
                 "deny": sum(1 for item in decisions if item.decision == "deny"),
             }
             lines.append(
-                f"**Tools/MCP:** allow={counts['allow']}, prompt={counts['prompt']}, deny={counts['deny']}"
+                f"**Tools/MCP:** allow={counts['allow']}, prompt={counts['prompt']}, deny={counts['deny']}",
             )
             lines.append("")
             if not decisions:
                 lines.append(
-                    "- Tool registry is connected, but no executable tools are registered yet."
+                    "- Tool registry is connected, but no executable tools are registered yet.",
                 )
             else:
                 for decision in decisions[:30]:
                     lines.append(
                         f"- `{decision.capability_id}` [{decision.capability_type}] "
                         f"→ **{decision.decision}** "
-                        f"(risk={decision.risk_level}, trust={decision.trust_level}) — {decision.reason}"
+                        f"(risk={decision.risk_level}, trust={decision.trust_level}) — {decision.reason}",
                     )
                 if len(decisions) > 30:
                     lines.append(f"- ... {len(decisions) - 30} more capabilities")
@@ -946,9 +966,7 @@ class SlashCommandRegistry:
 
         if self._skill_loader is not None:
             skill_decisions = [
-                decision
-                for decision in self._skill_loader.get_autonomous_manifest(objective)
-                if decision.score > 0
+                decision for decision in self._skill_loader.get_autonomous_manifest(objective) if decision.score > 0
             ]
             lines.extend(["", "## Skills", ""])
             if not skill_decisions:
@@ -957,7 +975,7 @@ class SlashCommandRegistry:
                 for decision in skill_decisions[:10]:
                     lines.append(
                         f"- `{decision.capability_id}` → **{decision.decision}** "
-                        f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}"
+                        f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}",
                     )
         else:
             lines.extend(["", "**Skills:** Skill loader not connected."])
@@ -1004,10 +1022,12 @@ class SlashCommandRegistry:
 
         # 임시 툴 익스큐터 생성
         orch = OrchestratorAgent(
-            model_manager=self._model_manager, tool_registry=self._tool_registry
+            model_manager=self._model_manager,
+            tool_registry=self._tool_registry,
         )
         agent = MetaEvolutionAgent(
-            model_manager=self._model_manager, tool_executor=orch.ctx.tool_executor
+            model_manager=self._model_manager,
+            tool_executor=orch.ctx.tool_executor,
         )
 
         # Generator 자체를 반환 (chat.py에서 스트리밍으로 소비됨)
@@ -1032,9 +1052,7 @@ class SlashCommandRegistry:
 
         info = self._model_manager.get_model_info()
         target_model = (
-            info.get("active_model", "default")
-            if isinstance(info, dict)
-            else getattr(info, "active_model", "default")
+            info.get("active_model", "default") if isinstance(info, dict) else getattr(info, "active_model", "default")
         )
         if target_model == "default" or not target_model:
             models = self._model_manager.list_models()
@@ -1055,18 +1073,14 @@ class SlashCommandRegistry:
                 command = (
                     "\n".join(lines[1:-1])
                     if len(lines) > 2
-                    else command.replace("```bash", "")
-                    .replace("```sh", "")
-                    .replace("```", "")
+                    else command.replace("```bash", "").replace("```sh", "").replace("```", "")
                 )
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"❌ 명령어 번역 실패: {e}"
 
         # 3. 도구를 활용해 실행
-        if (
-            not self._tool_registry
-            or "run_bash_command" not in self._tool_registry._tools
-        ):
+        if not self._tool_registry or "run_bash_command" not in self._tool_registry._tools:
             return f"번역된 명령어: `{command}`\n\n(실행 실패: run_bash_command 도구를 찾을 수 없습니다.)"
 
         tool = self._tool_registry._tools["run_bash_command"]
@@ -1115,6 +1129,7 @@ class SlashCommandRegistry:
                     yield f"✅ **벤치마크 완료** ({report.duration_s:.1f}s, {len(report.results)}건)\n\n"
                     yield harness.comparison_table(suite_name)
                 except Exception as e:
+                    logger.exception("Unhandled exception")
                     yield f"❌ 벤치마크 실행 실패: {e}"
 
             return _run_stream()
@@ -1171,8 +1186,8 @@ class SlashCommandRegistry:
                 result = engine.parse_structured_response(raw_result, query)
                 return engine.render_markdown(result)
             except Exception as e:
-                logger.error(f"Dialectic execution error: {e}", exc_info=True)
-                return f"⚠️ 변증법 추론 실행 오류: {e}\n\n아래 프롬프트를 직접 사용할 수 있습니다:\n\n```\n{prompt[:500]}...\n```"
+                logger.error("Dialectic execution error: %s", e, exc_info=True)
+                return f"⚠️ 변증법 추론 실행 오류: {e}\n\n아래 프롬프트를 직접 사용할 수 있습니다:\n\n```\n{prompt[:500]}...\n```"  # noqa: E501
 
         # 모델 없으면 프롬프트만 반환
         return (
@@ -1192,14 +1207,14 @@ class SlashCommandRegistry:
             "💼 **Financial Assistant 가동 준비 완료**\n\n"
             f"요청하신 분석 대상: `{query if query else '미지정'}`\n\n"
             "Antigravity-K 시스템이 **financial-assistant** 및 **fa-modeling** 스킬을 장착했습니다.\n"
-            "이제 DCF(가치평가), Comps(비교분석), 3-Statement 모델링 등 전문 금융 분석 요청을 자유롭게 대화로 이어가세요!\n"
-            '(예시: "해당 기업의 과거 3년 재무 데이터를 기반으로 DCF 모델을 작성해줘. Base/Bear/Bull 시나리오를 적용해.")'
+            "이제 DCF(가치평가), Comps(비교분석), 3-Statement 모델링 등 전문 금융 분석 요청을 자유롭게 대화로 이어가세요!\n"  # noqa: E501
+            '(예시: "해당 기업의 과거 3년 재무 데이터를 기반으로 DCF 모델을 작성해줘. Base/Bear/Bull 시나리오를 적용해.")'  # noqa: E501
         )
 
     def _cmd_lifecycle(self, command_name: str, args: list) -> str:
         """Lifecycle command handler (e.g. /spec, /build)."""
         prompt = " ".join(args).strip()
-        
+
         # Mapping to Addy Osmani's agent skills
         skill_maps = {
             "spec": "spec-driven-development",
@@ -1208,22 +1223,21 @@ class SlashCommandRegistry:
             "test": "test-driven-development",
             "review": "code-review-and-quality",
             "code-simplify": "code-simplification",
-            "ship": "shipping-and-launch"
+            "ship": "shipping-and-launch",
         }
-        
+
         skill_name = skill_maps.get(command_name, command_name)
-        
+
         if self._skill_loader:
             try:
                 self._skill_loader.activate(skill_name)
-            except Exception as e:
-                logger.warning(f"Could not explicitly activate skill {skill_name}: {e}")
-            
+            except Exception:
+                logger.exception("Could not explicitly activate skill %s", skill_name)
+
         system_injection = (
             f"ACTIVATE LIFECYCLE SKILL: {skill_name}.\n"
             f"Please strictly follow the workflow and verification gates defined for this skill.\n"
             f"Task: {prompt}"
         )
-        
-        return self._execute_natural_language(system_injection)
 
+        return self._execute_natural_language(system_injection)

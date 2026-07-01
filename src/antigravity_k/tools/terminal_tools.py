@@ -1,10 +1,10 @@
-import subprocess
-import os
-import uuid
 import logging
-from typing import Dict, Any
+import os
+import subprocess
+import uuid
+from typing import Any, Dict
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ class PersistentTerminalManager:
                     break
                 output += line
         except Exception as e:
+            logger.exception("Unhandled exception")
             logger.debug(f"Failed to read stdout for term_id {term_id}: {e}")
 
         try:
@@ -59,6 +60,7 @@ class PersistentTerminalManager:
                     break
                 output += line
         except Exception as e:
+            logger.exception("Unhandled exception")
             logger.debug(f"Failed to read stderr for term_id {term_id}: {e}")
 
         if process.poll() is not None:
@@ -80,6 +82,7 @@ class PersistentTerminalManager:
             process.stdin.flush()
             return "Input sent."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error sending input: {e}"
 
 
@@ -95,7 +98,9 @@ class RunPersistentCommandTool(BaseTool):
     def __init__(self):
         super().__init__()
         self._name = "run_persistent_command"
-        self._description = "Run a long-running bash command in the background (e.g., servers, watchers). Returns a Terminal ID."
+        self._description = (
+            "Run a long-running bash command in the background (e.g., servers, watchers). Returns a Terminal ID."
+        )
         self._schema = {
             "type": "object",
             "properties": {
@@ -131,8 +136,9 @@ class RunPersistentCommandTool(BaseTool):
         manager = PersistentTerminalManager()
         try:
             term_id = manager.create_terminal(command, os.path.abspath(cwd))
-            return f"Started command '{command}' in background. Terminal ID: {term_id}\nUse check_command_status tool to view output."
+            return f"Started command '{command}' in background. Terminal ID: {term_id}\nUse check_command_status tool to view output."  # noqa: E501
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error starting command: {e}"
 
 
@@ -191,9 +197,7 @@ class SendCommandInputTool(BaseTool):
     def __init__(self):
         super().__init__()
         self._name = "send_command_input"
-        self._description = (
-            "Send standard input (stdin) to a running persistent terminal."
-        )
+        self._description = "Send standard input (stdin) to a running persistent terminal."
         self._schema = {
             "type": "object",
             "properties": {
@@ -247,11 +251,11 @@ class InteractivePTYTool(BaseTool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The interactive command to run (e.g., 'gdb ./a.out'). If a session is already running, this creates a NEW session.",
+                    "description": "The interactive command to run (e.g., 'gdb ./a.out'). If a session is already running, this creates a NEW session.",  # noqa: E501
                 },
                 "input_text": {
                     "type": "string",
-                    "description": "Text to send to the running PTY session. Include \n if you want to press Enter. Use this instead of 'command' to interact with an active session.",
+                    "description": "Text to send to the running PTY session. Include \n if you want to press Enter. Use this instead of 'command' to interact with an active session.",  # noqa: E501
                 },
                 "wait_ms": {
                     "type": "integer",
@@ -296,13 +300,14 @@ class InteractivePTYTool(BaseTool):
             pid, fd = pty.fork()
             if pid == 0:
                 # Child process
-                import sys
                 import shlex
+                import sys
 
                 try:
                     cmd_args = shlex.split(command)
                     os.execvp(cmd_args[0], cmd_args)
                 except Exception as e:
+                    logger.exception("Unhandled exception")
                     print(f"Exec failed: {e}")
                     sys.exit(1)
             else:
@@ -314,9 +319,7 @@ class InteractivePTYTool(BaseTool):
         # Interact with existing session
         if input_text:
             if not InteractivePTYTool._active_pid or not InteractivePTYTool._active_fd:
-                return (
-                    "Error: No active PTY session. Start one by providing a 'command'."
-                )
+                return "Error: No active PTY session. Start one by providing a 'command'."
 
             try:
                 os.write(InteractivePTYTool._active_fd, input_text.encode("utf-8"))

@@ -1,16 +1,18 @@
-import os
-import logging
-from datetime import datetime
-from typing import Any, Dict
+"""Wiki Export Tool module."""
 
-from antigravity_k.tools.base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+import logging
+import os
+from datetime import datetime
+from typing import Any
+
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
 
 class WikiExportTool(BaseTool):
-    """
-    WikiExportTool: 에이전트가 학습한 내용이나 아키텍처 결정을
+    """WikiExportTool: 에이전트가 학습한 내용이나 아키텍처 결정을.
+
     사용자의 로컬 지식베이스(Wiki)에 마크다운 파일로 내보냅니다.
     """
 
@@ -21,6 +23,7 @@ class WikiExportTool(BaseTool):
     tags = ["wiki", "knowledge", "export", "markdown", "obsidian"]
 
     def __init__(self):
+        """Initialize the WikiExportTool."""
         super().__init__()
         self._name = "export_to_wiki"
         self._description = (
@@ -53,17 +56,44 @@ class WikiExportTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         title = kwargs.get("title")
         tags = kwargs.get("tags", [])
         content = kwargs.get("content")
@@ -80,7 +110,8 @@ class WikiExportTool(BaseTool):
         # 1. Try to read from config.yaml if available
         project_root = os.getcwd()
         wiki_dir = os.path.join(
-            project_root, "wiki_exports"
+            project_root,
+            "wiki_exports",
         )  # Default to workspace local folder to avoid permission errors
 
         try:
@@ -88,19 +119,20 @@ class WikiExportTool(BaseTool):
 
             config_path = os.path.join(project_root, "config.yaml")
             if os.path.exists(config_path):
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     config = yaml.safe_load(f)
                     configured_dir = config.get("wiki_dir")
                     if configured_dir:
                         wiki_dir = configured_dir
-        except Exception as e:
-            logger.warning(f"Could not read wiki_dir from config: {e}")
+        except Exception:
+            logger.exception("Could not read wiki_dir from config")
 
         # Fallback if the configured absolute path isn't writable or doesn't exist
         if not os.path.exists(wiki_dir):
             try:
                 os.makedirs(wiki_dir, exist_ok=True)
             except Exception:
+                logger.exception("Unhandled exception")
                 wiki_dir = project_root
 
         target_path = os.path.join(wiki_dir, safe_filename)
@@ -126,4 +158,5 @@ class WikiExportTool(BaseTool):
                     f.write(full_content)
                 return f"⚠️ Permission denied to write to {wiki_dir}. Saved to fallback path: {fallback_path}"
             except Exception as e2:
+                logger.exception("Unhandled exception")
                 return f"❌ Failed to export wiki: {e2}"

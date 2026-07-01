@@ -1,9 +1,12 @@
+import logging
 import os
 import subprocess
 import urllib.request
 from typing import Any, Dict
 
-from .base_tool import BaseTool, ToolCategory, RiskLevel, RenderIn
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+
+logger = logging.getLogger(__name__)
 
 
 class GenerateImageTool(BaseTool):
@@ -117,8 +120,8 @@ class GenerateAudioTool(BaseTool):
 
     def execute(self, text: str, output_path: str, voice: str = "af_heart") -> str:
         try:
-            from kokoro_onnx import Kokoro
             import soundfile as sf
+            from kokoro_onnx import Kokoro
 
             model_path = os.path.join(os.getcwd(), "data", "kokoro-v0_19.onnx")
             voices_path = os.path.join(os.getcwd(), "data", "voices.json")
@@ -140,17 +143,14 @@ class GenerateAudioTool(BaseTool):
 
             kokoro = Kokoro(model_path, voices_path)
             # Default to US English, could parameterize language mapping later
-            samples, sample_rate = kokoro.create(
-                text, voice=voice, speed=1.0, lang="en-us"
-            )
+            samples, sample_rate = kokoro.create(text, voice=voice, speed=1.0, lang="en-us")
 
             sf.write(output_path, samples, sample_rate)
             return f"Audio successfully generated at: {output_path}"
         except ImportError:
-            return (
-                "Failed to generate audio: kokoro-onnx or soundfile is not installed."
-            )
+            return "Failed to generate audio: kokoro-onnx or soundfile is not installed."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Failed to generate audio: {str(e)}"
 
 
@@ -167,7 +167,7 @@ class GenerateVideoTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Generate a short video from text using a local Video Generation model (LTX-Video). This takes several minutes."
+        return "Generate a short video from text using a local Video Generation model (LTX-Video). This takes several minutes."  # noqa: E501
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -212,9 +212,7 @@ except Exception as e:
 
         try:
             # We run this as a subprocess to keep the tool memory isolated and allow it to fail cleanly
-            subprocess.run(
-                ["python", script_path], check=True, capture_output=True, text=True
-            )
+            subprocess.run(["python", script_path], check=True, capture_output=True, text=True)
             if os.path.exists(script_path):
                 os.remove(script_path)
             return f"Video successfully generated at: {output_path}"

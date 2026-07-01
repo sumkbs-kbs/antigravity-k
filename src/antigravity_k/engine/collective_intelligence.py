@@ -1,5 +1,4 @@
-"""
-Collective intelligence execution for Antigravity-K.
+"""Collective intelligence execution for Antigravity-K.
 
 This module turns a model combo into a small council:
 independent proposals, focused criticism, and a final synthesis.
@@ -8,8 +7,8 @@ independent proposals, focused criticism, and a final synthesis.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Callable, Iterable
 
 logger = logging.getLogger("antigravity_k.collective_intelligence")
 
@@ -39,6 +38,12 @@ class CollectiveIntelligenceEngine:
     """Run proposal, critique, and synthesis rounds across multiple local models."""
 
     def __init__(self, generate_fn: GenerateFn):
+        """Initialize the CollectiveIntelligenceEngine.
+
+        Args:
+            generate_fn (GenerateFn): GenerateFn generate fn.
+
+        """
         self._generate_fn = generate_fn
 
     def run(
@@ -60,17 +65,16 @@ class CollectiveIntelligenceEngine:
         critic_models = self._unique_nonempty(critics)[:max_critics]
 
         if len(proposer_models) < min_participants:
-            raise ValueError(
-                f"집단지성 실행에는 최소 {min_participants}개 모델이 필요합니다."
-            )
+            raise ValueError(f"집단지성 실행에는 최소 {min_participants}개 모델이 필요합니다.")
 
         proposals = self._collect_proposals(prompt, proposer_models, kwargs)
         if len(proposals) == 0:
             return "[API Error] 집단지성에 참여할 가용 모델이 없습니다. (API 500 에러 또는 네트워크 연결 확인 필요)"
         elif len(proposals) < min_participants:
             logger.warning(
-                f"유효 후보 답변이 {len(proposals)}개뿐입니다. "
-                f"최소 {min_participants}개에 미달하지만 부족한 대로 진행합니다."
+                "유효 후보 답변이 %s개뿐입니다. 최소 %s개에 미달하지만 부족한 대로 진행합니다.",
+                len(proposals),
+                min_participants,
             )
 
         if not critic_models:
@@ -97,13 +101,9 @@ class CollectiveIntelligenceEngine:
             proposal_prompt = self._proposal_prompt(prompt, model)
             text = self._safe_generate(model, proposal_prompt, kwargs)
             if self._is_error_response(text):
-                logger.warning(
-                    "Collective proposal skipped for %s: %s", model, text[:160]
-                )
+                logger.warning("Collective proposal skipped for %s: %s", model, text[:160])
                 continue
-            proposals.append(
-                CollectiveEntry(model=model, role="proposal", content=text.strip())
-            )
+            proposals.append(CollectiveEntry(model=model, role="proposal", content=text.strip()))
         return proposals
 
     def _collect_critiques(
@@ -119,13 +119,9 @@ class CollectiveIntelligenceEngine:
             critique_prompt = self._critique_prompt(prompt, critique_context)
             text = self._safe_generate(model, critique_prompt, kwargs)
             if self._is_error_response(text):
-                logger.warning(
-                    "Collective critique skipped for %s: %s", model, text[:160]
-                )
+                logger.warning("Collective critique skipped for %s: %s", model, text[:160])
                 continue
-            critiques.append(
-                CollectiveEntry(model=model, role="critique", content=text.strip())
-            )
+            critiques.append(CollectiveEntry(model=model, role="critique", content=text.strip()))
         return critiques
 
     def _synthesize(
@@ -154,6 +150,7 @@ class CollectiveIntelligenceEngine:
             phase_kwargs.setdefault("max_tokens", 2048)
             return self._generate_fn(target, prompt, phase_kwargs)
         except Exception as exc:
+            logger.exception("Unhandled exception")
             return f"[Collective Error for {target}] {exc}"
 
     @staticmethod

@@ -1,19 +1,21 @@
-"""
-Impact Analyzer Tool
+"""Impact Analyzer Tool.
+
 =====================
 파일 수정 전후로 해당 파일/심볼을 의존하는 다른 파일과 테스트를 검색하여 영향도를 분석하는 도구.
 """
 
+import logging
 import os
 import subprocess
-from typing import Any, Dict
-from antigravity_k.tools.base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from typing import Any
+
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+
+logger = logging.getLogger(__name__)
 
 
 class ImpactAnalyzerTool(BaseTool):
-    """
-    특정 파일이나 키워드의 변경이 프로젝트 내 다른 파일에 미치는 영향을 분석합니다.
-    """
+    """특정 파일이나 키워드의 변경이 프로젝트 내 다른 파일에 미치는 영향을 분석합니다."""
 
     category = ToolCategory.SEARCH
     render_in = RenderIn.CONTEXTUAL
@@ -22,6 +24,7 @@ class ImpactAnalyzerTool(BaseTool):
     tags = ["impact", "analysis", "dependency", "search"]
 
     def __init__(self):
+        """Initialize the ImpactAnalyzerTool."""
         super().__init__()
         self._name = "impact_analyzer"
         self._description = (
@@ -45,17 +48,44 @@ class ImpactAnalyzerTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         target_path = kwargs.get("target_path")
         symbol_name = kwargs.get("symbol_name")
 
@@ -102,12 +132,10 @@ class ImpactAnalyzerTool(BaseTool):
                         check=False,
                     )
                     if result.returncode == 0 and result.stdout:
-                        files = [
-                            f.removeprefix("./")
-                            for f in result.stdout.strip().split("\n")
-                        ]
+                        files = [f.removeprefix("./") for f in result.stdout.strip().split("\n")]
                         affected_files.update(files)
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         # 2. 관련 테스트 파일 추론
@@ -145,15 +173,11 @@ class ImpactAnalyzerTool(BaseTool):
             if len(test_files) > 10:
                 report.append(f"  ... and {len(test_files) - 10} more")
         else:
-            report.append(
-                "  None found. (Warning: This change might not be covered by tests)"
-            )
+            report.append("  None found. (Warning: This change might not be covered by tests)")
 
         report.append("\n⚠️ Recommendation:")
         if test_files:
-            report.append(
-                "  Please run the related tests above to ensure no breaking changes."
-            )
+            report.append("  Please run the related tests above to ensure no breaking changes.")
         else:
             report.append("  Consider adding unit tests for the modified component.")
 

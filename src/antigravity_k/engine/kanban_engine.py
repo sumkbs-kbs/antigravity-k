@@ -122,10 +122,7 @@ class KanbanBoard:
         if target == TaskStatus.IN_PROGRESS:
             blocked_by = self._check_dependencies(task)
             if blocked_by:
-                raise ValueError(
-                    f"Task '{task.title}' is blocked by unfinished dependencies: "
-                    f"{', '.join(blocked_by)}"
-                )
+                raise ValueError(f"Task '{task.title}' is blocked by unfinished dependencies: {', '.join(blocked_by)}")
 
         # Move between columns
         old_col = self.column_order.get(task.status.value, [])
@@ -150,11 +147,7 @@ class KanbanBoard:
 
     def get_next_actionable(self) -> Optional[KanbanTask]:
         """의존성이 충족된 다음 실행 가능 태스크 반환."""
-        candidates = [
-            t
-            for t in self.tasks.values()
-            if t.status == TaskStatus.TODO and not self._check_dependencies(t)
-        ]
+        candidates = [t for t in self.tasks.values() if t.status == TaskStatus.TODO and not self._check_dependencies(t)]
         if not candidates:
             return None
         candidates.sort(key=lambda t: (-t.priority, t.created_at))
@@ -164,11 +157,7 @@ class KanbanBoard:
         return [t for t in self.tasks.values() if t.status == status]
 
     def is_complete(self) -> bool:
-        return (
-            all(t.status == TaskStatus.DONE for t in self.tasks.values())
-            if self.tasks
-            else False
-        )
+        return all(t.status == TaskStatus.DONE for t in self.tasks.values()) if self.tasks else False
 
     def progress_pct(self) -> float:
         if not self.tasks:
@@ -196,7 +185,7 @@ class KanbanBoard:
     def to_markdown(self) -> str:
         lines = [
             f"# 📋 Kanban Board: {self.name}",
-            f"**Progress:** {self.progress_pct()}% ({sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)}/{len(self.tasks)})",
+            f"**Progress:** {self.progress_pct()}% ({sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)}/{len(self.tasks)})",  # noqa: E501
             "",
         ]
 
@@ -214,9 +203,7 @@ class KanbanBoard:
             if not tasks:
                 continue
             icon = status_icon.get(status, "")
-            lines.append(
-                f"### {icon} {status.value.upper().replace('_', ' ')} ({len(tasks)})"
-            )
+            lines.append(f"### {icon} {status.value.upper().replace('_', ' ')} ({len(tasks)})")
             for t in tasks:
                 pri = "🔴 " if t.priority >= 2 else ("🟡 " if t.priority == 1 else "")
                 deps = f" ← depends: {', '.join(t.depends_on)}" if t.depends_on else ""

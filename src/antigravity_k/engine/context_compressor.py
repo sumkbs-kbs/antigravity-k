@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Context Compressor (Memory Pruning + RAG Retrieval)
+"""Antigravity-K: Context Compressor (Memory Pruning + RAG Retrieval).
+
 ==================================================================
 Monitors conversation history and automatically compresses or prunes
 older messages into semantic summaries to prevent context window bloat
@@ -11,26 +11,28 @@ and reduce LLM hallucinations in long-running tasks.
 import json
 import logging
 import os
-from typing import List, Dict, Optional, Callable
+from collections.abc import Callable
 
 logger = logging.getLogger("antigravity_k.context_compressor")
 
 
 class ContextCompressor:
+    """Contextcompressor."""
+
     def __init__(
         self,
         token_limit: int = 8000,
         keep_last_n: int = 10,
-        summarize_fn: Optional[Callable[[str], str]] = None,
-        rag_search_fn: Optional[Callable[[str, int], str]] = None,
-        persistence_dir: Optional[str] = None,
+        summarize_fn: Callable[[str], str] | None = None,
+        rag_search_fn: Callable[[str, int], str] | None = None,
+        persistence_dir: str | None = None,
     ):
-        """
-        Args:
-            token_limit: 메시지 히스토리의 토큰 한도
-            keep_last_n: 항상 유지할 최근 메시지 수
-            summarize_fn: LLM 요약 함수 (prompt -> summary)
-            rag_search_fn: RAG 검색 함수 (query, n_results) -> context_str
+        """Args:
+        token_limit: 메시지 히스토리의 토큰 한도
+        keep_last_n: 항상 유지할 최근 메시지 수
+        summarize_fn: LLM 요약 함수 (prompt -> summary)
+        rag_search_fn: RAG 검색 함수 (query, n_results) -> context_str.
+
         """
         self.token_limit = token_limit
         self.keep_last_n = keep_last_n
@@ -41,21 +43,19 @@ class ContextCompressor:
         self._memory_file = None
         if self.persistence_dir:
             os.makedirs(self.persistence_dir, exist_ok=True)
-            self._memory_file = os.path.join(
-                self.persistence_dir, "long_term_memory.json"
-            )
+            self._memory_file = os.path.join(self.persistence_dir, "long_term_memory.json")
 
         # 시맨틱 메모리: pruning된 메시지 요약을 보존
-        self._pruned_summaries: List[str] = self._load_memory()
+        self._pruned_summaries: list[str] = self._load_memory()
 
-    def _load_memory(self) -> List[str]:
+    def _load_memory(self) -> list[str]:
         if not self._memory_file or not os.path.exists(self._memory_file):
             return []
         try:
-            with open(self._memory_file, "r", encoding="utf-8") as f:
+            with open(self._memory_file, encoding="utf-8") as f:
                 return json.load(f).get("pruned_summaries", [])
-        except Exception as e:
-            logger.warning(f"Failed to load long term memory: {e}")
+        except Exception:
+            logger.exception("Failed to load long term memory")
         return []
 
     def _save_memory(self):
@@ -69,8 +69,8 @@ class ContextCompressor:
                     ensure_ascii=False,
                     indent=2,
                 )
-        except Exception as e:
-            logger.warning(f"Failed to save long term memory: {e}")
+        except Exception:
+            logger.exception("Failed to save long term memory")
 
     def estimate_tokens(self, text: str) -> int:
         """Rough token estimation (IronClaw: ~1.3 tokens/word)."""
@@ -81,18 +81,27 @@ class ContextCompressor:
         char_estimate = len(text) // 4  # ~4 chars per token
         return max(1, max(word_estimate, char_estimate) + 4)  # +4 overhead per message
 
-    def needs_compression(self, messages: List[Dict[str, str]]) -> bool:
+    def needs_compression(self, messages: list[dict[str, str]]) -> bool:
+        """Needs Compression.
+
+        Args:
+            messages (list[dict[str, str]]): list[dict[str, str]] messages.
+
+        Returns:
+            bool: The bool result.
+
+        """
         total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
         return total_tokens > self.token_limit
 
-    def usage_percent(self, messages: List[Dict[str, str]]) -> float:
+    def usage_percent(self, messages: list[dict[str, str]]) -> float:
         """컨텍스트 사용률을 반환합니다 (IronClaw context_monitor.rs 패턴)."""
         total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
         if self.token_limit <= 0:
             return 0.0
         return (total_tokens / self.token_limit) * 100.0
 
-    def suggest_strategy(self, messages: List[Dict[str, str]]) -> Optional[str]:
+    def suggest_strategy(self, messages: list[dict[str, str]]) -> str | None:
         """사용률에 따른 압축 전략을 제안합니다 (IronClaw compaction.rs 패턴).
 
         IronClaw 3단계 Compaction Strategy:
@@ -109,7 +118,7 @@ class ContextCompressor:
             return "move_to_workspace"
         return None
 
-    def context_breakdown(self, messages: List[Dict[str, str]]) -> Dict[str, int]:
+    def context_breakdown(self, messages: list[dict[str, str]]) -> dict[str, int]:
         """역할별 토큰 사용량을 분석합니다 (IronClaw ContextBreakdown 패턴)."""
         breakdown = {
             "system": 0,
@@ -127,18 +136,16 @@ class ContextCompressor:
             breakdown["total"] += tokens
         return breakdown
 
-    def compress(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        """
-        Compresses the message history by keeping the system prompt,
+    def compress(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        """Compresses the message history by keeping the system prompt,.
+
         summarizing the middle (via LLM if available), and keeping
         the most recent N messages intact.
         """
         if not messages or not self.needs_compression(messages):
             return messages
 
-        logger.info(
-            f"[Compressor] Context exceeds limit ({self.token_limit}). Compressing..."
-        )
+        logger.info("[Compressor] Context exceeds limit (%s). Compressing...", self.token_limit)
 
         system_msgs = [m for m in messages if m.get("role") == "system"]
         other_msgs = [m for m in messages if m.get("role") != "system"]
@@ -185,10 +192,10 @@ class ContextCompressor:
 
     def adaptive_compress(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         task_type: str = "GENERAL",
-        token_budget: Optional[int] = None,
-    ) -> List[Dict[str, str]]:
+        token_budget: int | None = None,
+    ) -> list[dict[str, str]]:
         """토큰 예산 기반 적응형 압축.
 
         각 메시지에 중요도 점수를 부여하고, 예산 내에서
@@ -198,6 +205,7 @@ class ContextCompressor:
             messages: 전체 메시지 히스토리
             task_type: 작업 유형 (SEARCH/CODE/ANALYSIS/CREATIVE/GENERAL)
             token_budget: 목표 토큰 수 (None이면 self.token_limit 사용)
+
         """
         budget = token_budget or self.token_limit
         total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
@@ -206,13 +214,13 @@ class ContextCompressor:
             return messages
 
         logger.info(
-            f"[AdaptiveCompress] {total_tokens} tokens → target {budget} "
-            f"(task: {task_type})"
+            "[AdaptiveCompress] %s tokens → target %s (task: %s)",
+            total_tokens,
+            budget,
+            task_type,
         )
 
-        strategy = self._TASK_COMPRESSION.get(
-            task_type, self._TASK_COMPRESSION["GENERAL"]
-        )
+        strategy = self._TASK_COMPRESSION.get(task_type, self._TASK_COMPRESSION["GENERAL"])
         keep_last_n = strategy["keep_last_n"]
         max_tool_chars = strategy["max_tool_chars"]
 
@@ -243,9 +251,7 @@ class ContextCompressor:
         scored_old.sort(key=lambda x: x[0], reverse=True)
 
         # 시스템 + 최근 메시지의 토큰 먼저 계산
-        reserved_tokens = sum(
-            self.estimate_tokens(m.get("content", "")) for m in system_msgs + recent
-        )
+        reserved_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in system_msgs + recent)
         remaining_budget = budget - reserved_tokens
 
         kept_old = []
@@ -283,20 +289,22 @@ class ContextCompressor:
 
         final_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in result)
         logger.info(
-            f"[AdaptiveCompress] 완료: {total_tokens} → {final_tokens} tokens "
-            f"({len(dropped)}개 메시지 요약, {len(kept_msgs)}개 선별 보존)"
+            "[AdaptiveCompress] 완료: %s → %s tokens (%s개 메시지 요약, %s개 선별 보존)",
+            total_tokens,
+            final_tokens,
+            len(dropped),
+            len(kept_msgs),
         )
 
         return result
 
     def enrich_with_rag(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         user_query: str,
         max_rag_chars: int = 4000,
-    ) -> List[Dict[str, str]]:
-        """
-        RAG 검색 결과를 메시지에 주입합니다.
+    ) -> list[dict[str, str]]:
+        """RAG 검색 결과를 메시지에 주입합니다.
 
         사용자 질문과 관련된 코드 청크를 VectorStore에서 검색하여
         시스템 메시지로 추가합니다.
@@ -308,14 +316,12 @@ class ContextCompressor:
             rag_context = self._rag_search_fn(user_query, 5)
             if not rag_context or len(rag_context.strip()) < 20:
                 return messages
-        except Exception as e:
-            logger.warning(f"[Compressor] RAG search failed: {e}")
+        except Exception:
+            logger.exception("[Compressor] RAG search failed")
             return messages
 
         # 토큰 예산 확인
-        current_tokens = sum(
-            self.estimate_tokens(m.get("content", "")) for m in messages
-        )
+        current_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
         rag_tokens = self.estimate_tokens(rag_context)
 
         if current_tokens + rag_tokens > self.token_limit:
@@ -344,13 +350,11 @@ class ContextCompressor:
         if not system_inserted:
             result.insert(0, rag_msg)
 
-        logger.info(f"[Compressor] RAG context injected: {len(rag_context)} chars")
+        logger.info("[Compressor] RAG context injected: %s chars", len(rag_context))
         return result
 
-    def inject_memory(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
-        """
-        과거 pruning된 요약을 현재 대화에 재주입합니다 (장기 기억).
-        """
+    def inject_memory(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        """과거 pruning된 요약을 현재 대화에 재주입합니다 (장기 기억)."""
         if not self._pruned_summaries:
             return messages
 
@@ -371,35 +375,28 @@ class ContextCompressor:
 
         return result if inserted else [memory_msg] + messages
 
-    def get_pruned_summaries(self) -> List[str]:
+    def get_pruned_summaries(self) -> list[str]:
         """보존된 과거 요약을 반환합니다."""
         return list(self._pruned_summaries)
 
-    def _summarize_old_messages(self, old_msgs: List[Dict[str, str]]) -> str:
+    def _summarize_old_messages(self, old_msgs: list[dict[str, str]]) -> str:
         """오래된 메시지를 LLM으로 요약하거나 휴리스틱 요약합니다."""
         if not old_msgs:
             return ""
 
         # LLM 요약 가능 시
         if self._summarize_fn:
-            combined = "\n".join(
-                f"[{m.get('role', '?')}]: {m.get('content', '')[:200]}"
-                for m in old_msgs
-            )
+            combined = "\n".join(f"[{m.get('role', '?')}]: {m.get('content', '')[:200]}" for m in old_msgs)
             prompt = (
                 "아래 대화 기록을 3줄 이내로 핵심만 요약해주세요. "
-                "특히 사용자의 결정사항, 아키텍처 선택, 변경된 파일을 포함하세요.\n\n"
-                + combined[:2000]
+                "특히 사용자의 결정사항, 아키텍처 선택, 변경된 파일을 포함하세요.\n\n" + combined[:2000]
             )
             try:
                 summary = self._summarize_fn(prompt)
                 if summary and len(summary.strip()) > 20:
-                    return (
-                        f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n"
-                        + summary.strip()
-                    )
-            except Exception as e:
-                logger.warning(f"[Compressor] LLM summarization failed: {e}")
+                    return f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n" + summary.strip()
+            except Exception:
+                logger.exception("[Compressor] LLM summarization failed")
 
         # 폴백: 휴리스틱 요약
         key_msgs = []
@@ -411,9 +408,7 @@ class ContextCompressor:
                 key_msgs.append(f"[{role}]: {content[:100]}")
 
         if key_msgs:
-            return f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n" + "\n".join(
-                key_msgs[:5]
-            )
+            return f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n" + "\n".join(key_msgs[:5])
 
         return (
             f"[System Note: {len(old_msgs)} older messages were pruned for "

@@ -1,5 +1,5 @@
-"""
-PanelActivityTracker — 에이전트/패널별 활동 상태 실시간 추적
+"""PanelActivityTracker — 에이전트/패널별 활동 상태 실시간 추적.
+
 =============================================================
 Sidabari의 useAppStore.ts → panelActivity/panelCurrentTool 패턴을 서버 사이드로 이식.
 
@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.panel_activity_tracker")
 
@@ -34,11 +35,24 @@ class PanelActivity:
 
     __slots__ = ("state", "since")
 
-    def __init__(self, state: str, since: Optional[float] = None):
+    def __init__(self, state: str, since: float | None = None):
+        """Initialize the PanelActivity.
+
+        Args:
+            state (str): str state.
+            since (float | None): float | None since.
+
+        """
         self.state = state
         self.since = since or time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "state": self.state,
             "since": self.since,
@@ -54,12 +68,26 @@ class PanelCurrentTool:
 
     __slots__ = ("tool", "detail", "since")
 
-    def __init__(self, tool: str, detail: str, since: Optional[float] = None):
+    def __init__(self, tool: str, detail: str, since: float | None = None):
+        """Initialize the PanelCurrentTool.
+
+        Args:
+            tool (str): str tool.
+            detail (str): str detail.
+            since (float | None): float | None since.
+
+        """
         self.tool = tool
         self.detail = detail
         self.since = since or time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "tool": self.tool,
             "detail": self.detail,
@@ -76,10 +104,11 @@ class PanelActivityTracker:
     """
 
     def __init__(self):
-        self._activities: Dict[str, PanelActivity] = {}
-        self._current_tools: Dict[str, PanelCurrentTool] = {}
+        """Initialize the PanelActivityTracker."""
+        self._activities: dict[str, PanelActivity] = {}
+        self._current_tools: dict[str, PanelCurrentTool] = {}
         self._lock = threading.Lock()
-        self._change_callbacks: List[Callable] = []
+        self._change_callbacks: list[Callable] = []
 
     def set_activity(self, panel_id: str, state: str) -> bool:
         """패널 활동 상태를 설정합니다.
@@ -89,6 +118,7 @@ class PanelActivityTracker:
 
         Returns:
             상태가 변경되었으면 True
+
         """
         with self._lock:
             current = self._activities.get(panel_id)
@@ -126,17 +156,17 @@ class PanelActivityTracker:
             del self._current_tools[panel_id]
         self._notify_change(panel_id, "tool_cleared", "")
 
-    def get_activity(self, panel_id: str) -> Optional[PanelActivity]:
+    def get_activity(self, panel_id: str) -> PanelActivity | None:
         """특정 패널의 활동 상태를 반환합니다."""
         with self._lock:
             return self._activities.get(panel_id)
 
-    def get_current_tool(self, panel_id: str) -> Optional[PanelCurrentTool]:
+    def get_current_tool(self, panel_id: str) -> PanelCurrentTool | None:
         """특정 패널의 현재 도구를 반환합니다."""
         with self._lock:
             return self._current_tools.get(panel_id)
 
-    def get_all_activities(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_activities(self) -> dict[str, dict[str, Any]]:
         """모든 패널의 활동 상태를 반환합니다."""
         with self._lock:
             result = {}
@@ -148,14 +178,10 @@ class PanelActivityTracker:
                 result[panel_id] = entry
             return result
 
-    def get_thinking_panels(self) -> List[str]:
+    def get_thinking_panels(self) -> list[str]:
         """현재 thinking 상태인 패널 ID 목록을 반환합니다."""
         with self._lock:
-            return [
-                pid
-                for pid, act in self._activities.items()
-                if act.state == PanelActivityState.THINKING
-            ]
+            return [pid for pid, act in self._activities.items() if act.state == PanelActivityState.THINKING]
 
     def on_change(self, callback: Callable) -> None:
         """상태 변경 시 호출할 콜백을 등록합니다."""
@@ -170,8 +196,8 @@ class PanelActivityTracker:
                     change_type=change_type,
                     value=value,
                 )
-            except Exception as e:
-                logger.error(f"[PanelActivityTracker] 콜백 오류: {e}")
+            except Exception:
+                logger.exception("[PanelActivityTracker] 콜백 오류")
 
     # ── EventBus 연동 헬퍼 ──
 
@@ -214,7 +240,7 @@ class PanelActivityTracker:
             self.set_activity(panel_id, PanelActivityState.THINKING)
 
     @staticmethod
-    def _summarize_tool(payload: Dict[str, Any]) -> str:
+    def _summarize_tool(payload: dict[str, Any]) -> str:
         """도구 호출에 대한 사용자 가시 요약을 생성합니다.
 
         Sidabari HookBridge.tsx의 summary() 함수 이식.
@@ -244,7 +270,7 @@ class PanelActivityTracker:
 
 # ── 글로벌 싱글톤 ──
 
-_global_tracker: Optional[PanelActivityTracker] = None
+_global_tracker: PanelActivityTracker | None = None
 _global_lock = threading.Lock()
 
 
@@ -271,7 +297,7 @@ def init_panel_activity_tracker() -> PanelActivityTracker:
             logger.info("[PanelActivityTracker] HookEventBus에 연결 완료")
     except ImportError:
         logger.debug("[PanelActivityTracker] HookEventBus 미사용")
-    except Exception as e:
-        logger.warning(f"[PanelActivityTracker] HookEventBus 연결 실패: {e}")
+    except Exception:
+        logger.exception("[PanelActivityTracker] HookEventBus 연결 실패")
 
     return tracker

@@ -1,22 +1,28 @@
+"""Agent Tools module."""
+
+import base64
+import logging
 import os
 import subprocess
-from pydantic import BaseModel
+
 from fastapi import APIRouter, Body, HTTPException, Request
-from typing import Optional
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext
-import base64
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from pydantic import BaseModel
 
 from antigravity_k.config import config
 from antigravity_k.tools.permission_gate import Permission, PermissionGate
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 class BrowserState:
+    """Browserstate."""
+
     playwright = None
-    browser: Optional[Browser] = None
-    context: Optional[BrowserContext] = None
-    page: Optional[Page] = None
+    browser: Browser | None = None
+    context: BrowserContext | None = None
+    page: Page | None = None
     console_errors: list = []
     console_logs: list = []
 
@@ -25,9 +31,7 @@ browser_state = BrowserState()
 
 
 def _permission_gate() -> PermissionGate:
-    return PermissionGate(
-        project_root=str(config.paths.project_root), mode="auto-pilot"
-    )
+    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
 def _require_allowed(tool_name: str, args: dict, risk_level: str):
@@ -40,18 +44,33 @@ def _require_allowed(tool_name: str, args: dict, risk_level: str):
 
 
 class FileReadRequest(BaseModel):
+    """Filereadrequest.
+
+    Bases: BaseModel
+    """
+
     path: str
 
 
 class FileWriteRequest(BaseModel):
+    """Filewriterequest.
+
+    Bases: BaseModel
+    """
+
     path: str
     content: str
     overwrite: bool = False
 
 
 class ShellRunRequest(BaseModel):
+    """Shellrunrequest.
+
+    Bases: BaseModel
+    """
+
     command: str
-    cwd: Optional[str] = None
+    cwd: str | None = None
     timeout: int = 30
 
 
@@ -62,7 +81,7 @@ def read_file(req: FileReadRequest):
     if not os.path.exists(req.path):
         raise HTTPException(status_code=404, detail="File not found")
     try:
-        with open(req.path, "r", encoding="utf-8") as f:
+        with open(req.path, encoding="utf-8") as f:
             return {"ok": True, "content": f.read()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -113,25 +132,30 @@ def run_shell(req: ShellRunRequest):
 
 
 class BrowserActionRequest(BaseModel):
+    """Browseractionrequest.
+
+    Bases: BaseModel
+    """
+
     action: str  # "launch", "goto", "click", "type", "snapshot", "close"
-    url: Optional[str] = None
-    selector: Optional[str] = None
-    text: Optional[str] = None
+    url: str | None = None
+    selector: str | None = None
+    text: str | None = None
 
 
 @router.post("/api/agent/tools/browser/action")
 async def browser_action(req: BrowserActionRequest):
-    """Playwright 기반 브라우저 자동화 엔진 API"""
+    """Playwright 기반 브라우저 자동화 엔진 API."""
     try:
         if req.action == "launch":
             if not browser_state.playwright:
                 browser_state.playwright = await async_playwright().start()
             if not browser_state.browser:
                 browser_state.browser = await browser_state.playwright.chromium.launch(
-                    headless=True
+                    headless=True,
                 )
                 browser_state.context = await browser_state.browser.new_context(
-                    viewport={"width": 1280, "height": 800}
+                    viewport={"width": 1280, "height": 800},
                 )
                 browser_state.page = await browser_state.context.new_page()
                 # Console error/log auto-collection
@@ -140,13 +164,9 @@ async def browser_action(req: BrowserActionRequest):
                 browser_state.page.on(
                     "console",
                     lambda msg: (
-                        browser_state.console_errors.append(
-                            {"type": msg.type, "text": msg.text}
-                        )
+                        browser_state.console_errors.append({"type": msg.type, "text": msg.text})
                         if msg.type in ("error", "warning")
-                        else browser_state.console_logs.append(
-                            {"type": msg.type, "text": msg.text}
-                        )
+                        else browser_state.console_logs.append({"type": msg.type, "text": msg.text})
                     ),
                 )
             return {"ok": True, "message": "Browser launched with console capture"}
@@ -165,7 +185,8 @@ async def browser_action(req: BrowserActionRequest):
         # For remaining actions, ensure page exists
         if not browser_state.page:
             raise HTTPException(
-                status_code=400, detail="Browser is not launched. Call 'launch' first."
+                status_code=400,
+                detail="Browser is not launched. Call 'launch' first.",
             )
 
         if req.action == "goto":
@@ -176,16 +197,15 @@ async def browser_action(req: BrowserActionRequest):
 
         elif req.action == "click":
             if not req.selector:
-                raise HTTPException(
-                    status_code=400, detail="Selector is required for click"
-                )
+                raise HTTPException(status_code=400, detail="Selector is required for click")
             await browser_state.page.click(req.selector)
             return {"ok": True, "selector": req.selector}
 
         elif req.action == "type":
             if not req.selector or req.text is None:
                 raise HTTPException(
-                    status_code=400, detail="Selector and text are required for type"
+                    status_code=400,
+                    detail="Selector and text are required for type",
                 )
             await browser_state.page.fill(req.selector, req.text)
             return {"ok": True, "selector": req.selector, "text": req.text}
@@ -201,6 +221,7 @@ async def browser_action(req: BrowserActionRequest):
                 a11y_snapshot = await browser_state.page.accessibility.snapshot()
                 a11y_tree = _flatten_a11y_tree(a11y_snapshot) if a11y_snapshot else None
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
             return {
@@ -229,8 +250,8 @@ async def browser_action(req: BrowserActionRequest):
 
 # ─── Accessibility Tree Flattener ─────────────────────────────
 def _flatten_a11y_tree(node: dict, depth: int = 0) -> str:
-    """
-    Playwright의 Accessibility Tree를 LLM이 이해할 수 있는
+    """Playwright의 Accessibility Tree를 LLM이 이해할 수 있는.
+
     컴팩트한 텍스트 표현으로 변환합니다.
 
     예시 출력:
@@ -264,10 +285,15 @@ def _flatten_a11y_tree(node: dict, depth: int = 0) -> str:
 
 # ─── Self-Test Orchestration ──────────────────────────────────
 class BrowserSelfTestRequest(BaseModel):
+    """Browserselftestrequest.
+
+    Bases: BaseModel
+    """
+
     scope: str = "all"
-    base_url: Optional[str] = None
-    dashboard_url: Optional[str] = None
-    ws_url: Optional[str] = None
+    base_url: str | None = None
+    dashboard_url: str | None = None
+    ws_url: str | None = None
 
 
 @router.post("/api/agent/tools/browser/self-test")
@@ -275,8 +301,8 @@ async def browser_self_test(
     request: Request,
     req: BrowserSelfTestRequest = Body(default_factory=BrowserSelfTestRequest),
 ):
-    """
-    기존 TestHarness 프레임워크를 활용하여
+    """기존 TestHarness 프레임워크를 활용하여.
+
     Antigravity-K가 스스로를 테스트하는 멀티스텝 오케스트레이션 루프.
 
     실행 흐름:
@@ -301,11 +327,7 @@ async def browser_self_test(
             "ok": True,
             "report": report.to_dict(),
             "markdown": report.to_markdown(),
-            "feedback": (
-                "✅ 모든 테스트 통과"
-                if report.failed == 0
-                else f"⚠️ {report.failed}개 테스트 실패"
-            ),
+            "feedback": ("✅ 모든 테스트 통과" if report.failed == 0 else f"⚠️ {report.failed}개 테스트 실패"),
             "trend": harness.feedback.get_trend(),
         }
     except HTTPException:
@@ -316,6 +338,11 @@ async def browser_self_test(
 
 # ─── Autonomous QA Full Loop ─────────────────────────────────
 class AutonomousQARequest(BaseModel):
+    """Autonomousqarequest.
+
+    Bases: BaseModel
+    """
+
     url: str = "http://localhost:5173"
     max_iterations: int = 3
     vision_model: str = "qwen2.5vl:32b"
@@ -324,8 +351,7 @@ class AutonomousQARequest(BaseModel):
 
 @router.post("/api/agent/tools/browser/autonomous-qa")
 async def autonomous_qa_loop(req: AutonomousQARequest):
-    """
-    완전 자율 QA 루프: 비전 분석 → 코드 수정 → 자동 적용 → 재테스트 → 검증.
+    """완전 자율 QA 루프: 비전 분석 → 코드 수정 → 자동 적용 → 재테스트 → 검증.
 
     이 엔드포인트가 호출되면:
     1. Playwright로 대시보드 스크린샷 촬영
@@ -358,17 +384,19 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
 
 # ─── Vision Analysis (멀티모달 LLM 연동) ─────────────────────
 class VisionAnalyzeRequest(BaseModel):
-    screenshot_base64: Optional[str] = None
-    prompt: str = (
-        "이 UI 스크린샷을 분석하세요. 레이아웃 문제, 겹침, 잘림, 정렬 오류가 있으면 모두 지적하고 수정 방법을 제안하세요."
-    )
+    """Visionanalyzerequest.
+
+    Bases: BaseModel
+    """
+
+    screenshot_base64: str | None = None
+    prompt: str = "이 UI 스크린샷을 분석하세요. 레이아웃 문제, 겹침, 잘림, 정렬 오류가 있으면 모두 지적하고 수정 방법을 제안하세요."  # noqa: E501
     model: str = "qwen2.5vl:32b"
 
 
 @router.post("/api/agent/tools/browser/vision-analyze")
 async def vision_analyze(req: VisionAnalyzeRequest):
-    """
-    멀티모달 비전 LLM을 활용한 UI 스크린샷 자동 분석.
+    """멀티모달 비전 LLM을 활용한 UI 스크린샷 자동 분석.
 
     1. screenshot_base64가 없으면 현재 브라우저에서 자동 캡처
     2. 비전 모델(qwen2.5vl:32b)에 이미지+프롬프트 전달
@@ -400,7 +428,7 @@ async def vision_analyze(req: VisionAnalyzeRequest):
                             "role": "user",
                             "content": req.prompt,
                             "images": [screenshot_b64],
-                        }
+                        },
                     ],
                     "stream": False,
                 },
@@ -428,6 +456,11 @@ async def vision_analyze(req: VisionAnalyzeRequest):
 
 # ─── External Brain (외부 AI 두뇌 간접 연동) ─────────────────
 class ExternalBrainRequest(BaseModel):
+    """Externalbrainrequest.
+
+    Bases: BaseModel
+    """
+
     prompt: str
     target: str = ""  # "gemini_app", "chatgpt_web", "gemini_web", or "" for auto
     strategy: str = "fallback"  # "fallback", "round-robin", "compare"
@@ -445,8 +478,7 @@ async def external_brain_list():
 
 @router.post("/api/agent/tools/external-brain/send")
 async def external_brain_send(req: ExternalBrainRequest):
-    """
-    외부 AI 두뇌에 프롬프트를 전송합니다.
+    """외부 AI 두뇌에 프롬프트를 전송합니다.
 
     Antigravity-K가 설치된 Gemini 앱이나 ChatGPT 웹의 채팅 UI를
     GUI 자동화로 제어하여 API 없이 추론 결과를 획득합니다.
@@ -477,16 +509,21 @@ async def external_brain_send(req: ExternalBrainRequest):
 
 # ─── TDD Loop Engine ─────────────────────────────────────────
 class TDDGenerateRequest(BaseModel):
+    """Tddgeneraterequest.
+
+    Bases: BaseModel
+    """
+
     prompt: str
-    target_file_path: Optional[str] = None
+    target_file_path: str | None = None
     max_iterations: int = 3
     coding_model: str = "deepseek-r1:70b"
 
 
 @router.post("/api/agent/tools/tdd-generate")
 async def tdd_generate(req: TDDGenerateRequest):
-    """
-    Test-Driven Generation 자율 루프.
+    """Test-Driven Generation 자율 루프.
+
     코드와 테스트를 생성하고, 실패 시 에러 로그를 분석하여 코드를 자동 수정합니다.
     """
     try:
@@ -496,9 +533,7 @@ async def tdd_generate(req: TDDGenerateRequest):
             coding_model=req.coding_model,
             max_iterations=req.max_iterations,
         )
-        report = await engine.run_tdd_loop(
-            req.prompt, target_file_path=req.target_file_path
-        )
+        report = await engine.run_tdd_loop(req.prompt, target_file_path=req.target_file_path)
         return {
             "ok": report.status == "passed",
             "report": report.to_dict(),

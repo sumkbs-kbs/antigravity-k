@@ -1,34 +1,42 @@
+"""Team Manager module."""
+
 import logging
 import os
-import time
 import subprocess
-from typing import Dict, List, Optional
-from rich.console import Console
-from rich.panel import Panel
-from rich.markdown import Markdown
+import time
 
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+
+from ..config import config
+from ..i18n import I18n, get_i18n
+from ..knowledge.artifact_service import ArtifactService
+from ..tools.base_tool import RiskLevel
+from ..tools.tool_registry import ToolRegistry
 from .base_agent import BaseAgent
-from .personas import get_persona
+from .coordinator import CoordinatorManager
 from .kanban import KanbanBoard
 from .message_bus import MessageBus
-from ..config import config
-from ..knowledge.artifact_service import ArtifactService
-from .coordinator import CoordinatorManager
-from ..tools.tool_registry import ToolRegistry
-from ..tools.base_tool import RiskLevel
-from ..i18n import get_i18n, I18n
+from .personas import get_persona
 
 logger = logging.getLogger(__name__)
 
 
 class TeamManager:
-    """
-    Claude Agent Teams 아키텍처를 구현하는 오케스트레이터(CTO 역할).
+    """Claude Agent Teams 아키텍처를 구현하는 오케스트레이터(CTO 역할).
+
     하위 에이전트들을 관리하고, 상태(Kanban)를 추적하며 메시지를 라우팅합니다.
     """
 
     def __init__(self, model_manager=None):
-        self.agents: Dict[str, BaseAgent] = {}
+        """Initialize the TeamManager.
+
+        Args:
+            model_manager: model manager.
+
+        """
+        self.agents: dict[str, BaseAgent] = {}
         self.kanban_board = KanbanBoard()
         self.message_bus = MessageBus()
         self.model_manager = model_manager
@@ -41,15 +49,13 @@ class TeamManager:
 
         # ── I18n 초기화 (tiptap-vuetify i18n 패턴) ──
         locale_code = config.i18n.locale if config.i18n.locale != "auto" else None
-        self.i18n: I18n = (
-            get_i18n() if locale_code is None else I18n(locale_code=locale_code)
-        )
+        self.i18n: I18n = get_i18n() if locale_code is None else I18n(locale_code=locale_code)
 
         # 초기 기본 팀 구성
         self._initialize_default_team()
 
     def _auto_commit(self, phase_name: str):
-        """Autopilot: 중요 지점 자동 Git 커밋 수행"""
+        """Autopilot: 중요 지점 자동 Git 커밋 수행."""
         if not config.workflow.auto_commit:
             return
 
@@ -61,54 +67,51 @@ class TeamManager:
                 text=True,
             ).stdout
             if not status_output.strip():
-                logger.info(f"Autopilot: No changes to commit for phase {phase_name}")
+                logger.info("Autopilot: No changes to commit for phase %s", phase_name)
                 return
 
-            logger.info(f"Autopilot: Auto-committing for phase {phase_name}")
+            logger.info("Autopilot: Auto-committing for phase %s", phase_name)
             subprocess.run(["git", "add", "."], check=True, capture_output=True)
             subprocess.run(
                 ["git", "commit", "-m", f"[Auto-Agent] Phase: {phase_name}"],
                 check=True,
                 capture_output=True,
             )
-            logger.info(f"Auto-commit successful: {phase_name}")
+            logger.info("Auto-commit successful: %s", phase_name)
         except subprocess.CalledProcessError as e:
-            err_msg = (
-                e.output.decode("utf-8", errors="ignore")
-                if isinstance(e.output, bytes)
-                else str(e)
-            )
-            logger.debug(f"Auto-commit skipped or failed: {err_msg}")
-        except Exception as e:
-            logger.error(f"Auto-commit failed: {e}")
+            err_msg = e.output.decode("utf-8", errors="ignore") if isinstance(e.output, bytes) else str(e)
+            logger.debug("Auto-commit skipped or failed: %s", err_msg)
+        except Exception:
+            logger.exception("Auto-commit failed")
 
     def _initialize_tool_registry(self):
-        """
-        시스템 도구들을 ToolRegistry에 자동 등록합니다.
+        """시스템 도구들을 ToolRegistry에 자동 등록합니다.
+
         tiptap-vuetify의 Plugin.install() 패턴 적용.
         """
+        from ..tools.ci_tools import TestRunnerTool
         from ..tools.system_tools import (
             ReadFileTool,
             ReplaceFileContentTool,
             RunBashCommandTool,
         )
-        from ..tools.ci_tools import TestRunnerTool
 
         self.tool_registry.install_many(
-            ReadFileTool, ReplaceFileContentTool, RunBashCommandTool, TestRunnerTool
+            ReadFileTool,
+            ReplaceFileContentTool,
+            RunBashCommandTool,
+            TestRunnerTool,
         )
         # ComputerUseTool은 설정에 따라 조건부 등록
         if config.computer_use.enabled:
             from ..tools.computer_use import ComputerUseTool
 
-            self.tool_registry.install(
-                ComputerUseTool, force_stub=config.computer_use.force_stub
-            )
+            self.tool_registry.install(ComputerUseTool, force_stub=config.computer_use.force_stub)
         logger.info(self.tool_registry.summary())
 
-    def get_tools_for_role(self, role_name: str) -> List:
-        """
-        역할(role)에 맞는 도구 목록을 ToolRegistry에서 필터링하여 반환합니다.
+    def get_tools_for_role(self, role_name: str) -> list:
+        """역할(role)에 맞는 도구 목록을 ToolRegistry에서 필터링하여 반환합니다.
+
         위험도가 config.security.max_tool_risk를 초과하는 도구는 자동 제외됩니다.
         """
         max_risk_str = config.security.max_tool_risk
@@ -125,7 +128,7 @@ class TeamManager:
         for role_name in ["CEO", "ENG_MANAGER", "WORKER", "QA"]:
             self.create_agent(role_name)
 
-    def create_agent(self, role_name: str, custom_name: Optional[str] = None):
+    def create_agent(self, role_name: str, custom_name: str | None = None):
         """새로운 에이전트를 생성하여 팀에 합류시킵니다."""
         persona = get_persona(role_name)
         agent_name = custom_name or role_name
@@ -135,9 +138,7 @@ class TeamManager:
             if hasattr(self.model_manager, "get_target_for_role"):
                 model_id = self.model_manager.get_target_for_role(
                     role_name=persona["role"],
-                    default_role=(
-                        "coding" if persona["role"] == "WORKER" else "reasoning"
-                    ),
+                    default_role=("coding" if persona["role"] == "WORKER" else "reasoning"),
                 )
             else:
                 model_role = "coding" if persona["role"] == "WORKER" else "reasoning"
@@ -154,24 +155,26 @@ class TeamManager:
         self.message_bus.subscribe("general", agent)
         self.agents[agent_name] = agent
         logger.info(
-            f"Agent '{agent_name}' ({persona['role']}, Model: {model_id}) joined the team."
+            "Agent '%s' (%s, Model: %s) joined the team.",
+            agent_name,
+            persona["role"],
+            model_id,
         )
 
     def add_task(self, task_description: str):
         """새로운 작업을 Kanban TODO 리스트에 추가합니다."""
         return self.kanban_board.create_task(task_description)
 
-    def move_task(
-        self, task_id: str, new_status: str, verification_note: Optional[str] = None
-    ):
+    def move_task(self, task_id: str, new_status: str, verification_note: str | None = None):
         """작업의 상태를 변경합니다 (예: TODO -> IN_PROGRESS). DONE으로 이동 시 Auto-Reflection 트리거."""
         self.kanban_board.move_task(task_id, new_status, verification_note)
 
         if new_status == "DONE":
             # Auto-Reflection (ECA Pipeline) 트리거
             try:
-                from ..engine.reflection import ReflectionAgent
                 import threading
+
+                from ..engine.reflection import ReflectionAgent
 
                 # Fetch task info
                 with self.kanban_board._get_connection() as conn:
@@ -188,7 +191,8 @@ class TeamManager:
                         wt_path = wt_manager.get_worktree_path(task_id)
 
                         reflector = ReflectionAgent(
-                            project_root=os.getcwd(), model_manager=self.model_manager
+                            project_root=os.getcwd(),
+                            model_manager=self.model_manager,
                         )
 
                         # 백그라운드 스레드에서 회고 실행 (사용자 블로킹 방지)
@@ -198,15 +202,13 @@ class TeamManager:
                             daemon=True,
                         )
                         t.start()
-            except Exception as e:
-                logger.warning(
-                    f"Failed to trigger Reflection Agent for task {task_id}: {e}"
-                )
+            except Exception:
+                logger.exception("Failed to trigger Reflection Agent for task %s", task_id)
 
     def delegate_task(self, task_id: str, agent_name: str):
         """특정 에이전트에게 작업을 할당합니다."""
         if agent_name not in self.agents:
-            logger.error(f"Agent {agent_name} does not exist.")
+            logger.error("Agent %s does not exist.", agent_name)
             return
 
         self.kanban_board.assign_task(task_id, agent_name)
@@ -216,21 +218,19 @@ class TeamManager:
 
             wt_manager = WorktreeManager()
             wt_path = wt_manager.create_worktree(task_id)
-            logger.info(f"Worktree sandboxed for task {task_id} at {wt_path}")
+            logger.info("Worktree sandboxed for task %s at %s", task_id, wt_path)
 
             # DB에 worktree_branch 업데이트 (Task 3 마이그레이션 이후 지원)
             if hasattr(self.kanban_board, "update_task_worktree"):
                 self.kanban_board.update_task_worktree(task_id, f"ag-task-{task_id}")
-        except Exception as e:
-            logger.warning(f"Failed to create worktree sandbox for task {task_id}: {e}")
+        except Exception:
+            logger.exception("Failed to create worktree sandbox for task %s", task_id)
 
-        logger.info(f"Task {task_id} delegated to {agent_name}")
+        logger.info("Task %s delegated to %s", task_id, agent_name)
 
-    def spawn_subagent(
-        self, task_description: str, context: Optional[Dict] = None
-    ) -> str:
-        """
-        독립적인 서브에이전트(Worker)를 스레드로 스폰하여 병렬 작업을 수행합니다.
+    def spawn_subagent(self, task_description: str, context: dict | None = None) -> str:
+        """독립적인 서브에이전트(Worker)를 스레드로 스폰하여 병렬 작업을 수행합니다.
+
         (Subagent-Driven Development 아키텍처)
         """
         task_id = self.add_task(task_description)
@@ -243,7 +243,7 @@ class TeamManager:
         import threading
 
         def _run_subagent():
-            logger.info(f"Subagent {subagent_name} started for {task_id}")
+            logger.info("Subagent %s started for %s", subagent_name, task_id)
             agent = self.agents[subagent_name]
 
             # 컨텍스트가 있다면 프롬프트에 추가
@@ -255,29 +255,29 @@ class TeamManager:
             if config.workflow.auto_artifacts:
                 console = Console()
                 with console.status(
-                    f"[cyan]Subagent {subagent_name} is generating dynamic plan..."
+                    f"[cyan]Subagent {subagent_name} is generating dynamic plan...",
                 ):
-                    plan_prompt = f"Analyze the following task and provide a detailed implementation plan. Task: {task_description}"
-                    if context:
-                        plan_prompt += f"\nContext: {context}"
-                    plan_content = agent.run(
-                        plan_prompt, model_manager=self.model_manager
+                    plan_prompt = (
+                        f"Analyze the following task and provide a detailed implementation plan. "
+                        f"Task: {task_description}"
                     )
 
-                    checklist_prompt = f"Based on this implementation plan, generate a concise checklist of steps to execute. Provide only the items, one per line, with no introductory text or bullet points.\nPlan:\n{plan_content}"
+                    if context:
+                        plan_prompt += f"\nContext: {context}"
+                    plan_content = agent.run(plan_prompt, model_manager=self.model_manager)
+
+                    checklist_prompt = "Based on this implementation plan, generate a concise checklist of steps to execute. Provide only the items, one"  # type: ignore  # noqa: E501
+                    "per line, with no introductory text or bullet points.\nPlan:\n{plan_content}"
                     checklist_content = agent.run(
-                        checklist_prompt, model_manager=self.model_manager
+                        checklist_prompt,
+                        model_manager=self.model_manager,
                     )
 
                     checklist_items = [
-                        line.strip("- *[]").strip()
-                        for line in checklist_content.split("\n")
-                        if line.strip()
+                        line.strip("- *[]").strip() for line in checklist_content.split("\n") if line.strip()
                     ]
 
-                self.artifact_service.generate_plan(
-                    task_id, task_description, plan_content
-                )
+                self.artifact_service.generate_plan(task_id, task_description, plan_content)
                 self.artifact_service.generate_checklist(task_id, checklist_items)
 
             # Autopilot: 커밋 (시작)
@@ -287,7 +287,10 @@ class TeamManager:
                 # 서브에이전트 구동
                 result = agent.run(prompt, model_manager=self.model_manager)
                 logger.info(
-                    f"Subagent {subagent_name} finished {task_id}. Result length: {len(result)}"
+                    "Subagent %s finished %s. Result length: %s",
+                    subagent_name,
+                    task_id,
+                    len(result),
                 )
 
                 # 작업 완료 시 REVIEW 상태로 이동 (Verification Gate 통과를 위함)
@@ -299,15 +302,13 @@ class TeamManager:
                         task_id,
                         f"Subagent completed task successfully.\nResult length: {len(result)}",
                     )
-                    self.artifact_service.generate_result(
-                        task_id, result, status="REVIEW"
-                    )
+                    self.artifact_service.generate_result(task_id, result, status="REVIEW")
 
                 # Autopilot: 커밋 (종료)
                 self._auto_commit(f"Finish Subagent Task {task_id}")
 
             except Exception as e:
-                logger.error(f"Subagent {subagent_name} failed on {task_id}: {str(e)}")
+                logger.exception("Subagent %s failed on %s", subagent_name, task_id)
                 # 실패 시 BACKLOG로 상태 원복
                 self.move_task(task_id, "BACKLOG")
                 if config.workflow.auto_artifacts:
@@ -330,20 +331,23 @@ class TeamManager:
         topic: str,
         rounds: int = 2,
         num_critics: int = 2,
-        context: Optional[Dict] = None,
+        context: dict | None = None,
     ) -> str:
-        """
-        주어진 주제(topic)에 대해 PROPOSER와 다수의 CRITIC 에이전트가 상호 토론(Debate)하여 최적의 결과를 도출합니다.
+        """주어진 주제(topic)에 대해 PROPOSER와 다수의 CRITIC 에이전트가 상호 토론(Debate)하여 최적의 결과를 도출합니다.
+
         (N:N / MoE / Peer Review 방식)
         """
         console = Console()
         console.print(
             Panel(
-                f"[bold green]Starting Debate[/bold green]\nTopic: {topic}\nRounds: {rounds}, Critics: {num_critics}"
-            )
+                f"[bold green]Starting Debate[/bold green]\nTopic: {topic}\nRounds: {rounds}, Critics: {num_critics}",
+            ),
         )
         logger.info(
-            f"Starting debate on topic: {topic} for {rounds} rounds with {num_critics} critics via MessageBus."
+            "Starting debate on topic: %s for %s rounds with %s critics via MessageBus.",
+            topic,
+            rounds,
+            num_critics,
         )
 
         # 모델 프리패칭 (가능한 경우)
@@ -359,7 +363,7 @@ class TeamManager:
 
         critic_names = []
         for i in range(num_critics):
-            critic_name = f"TEMP_CRITIC_{id(self)}_{i+1}"
+            critic_name = f"TEMP_CRITIC_{id(self)}_{i + 1}"
             self.create_agent("CRITIC", custom_name=critic_name)
             critic_names.append(critic_name)
 
@@ -376,7 +380,7 @@ class TeamManager:
         for i in range(1, rounds + 1):
             debate_log.append(f"## Round {i}\n")
             console.print(f"\n[bold magenta]--- Debate Round {i} ---[/bold magenta]")
-            logger.info(f"--- Debate Round {i} ---")
+            logger.info("--- Debate Round %s ---", i)
 
             # 1. Proposer의 제안/수정
             if i == 1:
@@ -384,42 +388,41 @@ class TeamManager:
                 if context:
                     prompt += f"\nContext: {context}"
             else:
-                prompt = "Please revise your previous proposal based on the CRITICS' feedback provided in the channel. Consolidate their feedback and improve your proposal."
+                prompt = "Please revise your previous proposal based on the CRITICS' feedback provided in the channel."  # type: ignore
+                "Consolidate their feedback and improve your proposal."
 
             with console.status(f"[cyan]PROPOSER is thinking (Round {i})..."):
-                current_proposal = proposer.run(
-                    prompt, model_manager=self.model_manager
-                )
+                current_proposal = proposer.run(prompt, model_manager=self.model_manager)
 
             self.message_bus.publish(channel_name, proposer_name, current_proposal)
             debate_log.append(f"### PROPOSER\n{current_proposal}\n")
-            logger.info(f"Proposer completed round {i}.")
+            logger.info("Proposer completed round %s.", i)
             console.print(
                 Panel(
                     Markdown(current_proposal),
                     title="[blue]PROPOSER[/blue]",
                     border_style="blue",
-                )
+                ),
             )
 
             # 2. 다수 Critic의 비판
-            critique_prompt = "Please analyze the latest proposal from PROPOSER critically and provide constructive feedback."
+            critique_prompt = (
+                "Please analyze the latest proposal from PROPOSER critically and provide constructive feedback."
+            )
             for idx, c_name in enumerate(critic_names):
                 critic = self.agents[c_name]
-                with console.status(f"[yellow]CRITIC {idx+1} is analyzing..."):
-                    critic_feedback = critic.run(
-                        critique_prompt, model_manager=self.model_manager
-                    )
+                with console.status(f"[yellow]CRITIC {idx + 1} is analyzing..."):
+                    critic_feedback = critic.run(critique_prompt, model_manager=self.model_manager)
 
                 self.message_bus.publish(channel_name, c_name, critic_feedback)
-                debate_log.append(f"### CRITIC {idx+1}\n{critic_feedback}\n")
-                logger.info(f"Critic {idx+1} ({c_name}) completed round {i}.")
+                debate_log.append(f"### CRITIC {idx + 1}\n{critic_feedback}\n")
+                logger.info("Critic %s (%s) completed round %s.", idx + 1, c_name, i)
                 console.print(
                     Panel(
                         Markdown(critic_feedback),
-                        title=f"[yellow]CRITIC {idx+1}[/yellow]",
+                        title=f"[yellow]CRITIC {idx + 1}[/yellow]",
                         border_style="yellow",
-                    )
+                    ),
                 )
 
         # 최종 산출물 정리 (ARBITER 중재)
@@ -428,7 +431,8 @@ class TeamManager:
         arbiter = self.agents[arbiter_name]
 
         with console.status("[green]ARBITER is finalizing the consensus..."):
-            final_summary_prompt = "Based on the debate above, objectively weigh the arguments, resolve any conflicts, and provide the final, fully refined and optimal consensus solution. Do not include the debate history, only the final result."
+            final_summary_prompt = "Based on the debate above, objectively weigh the arguments, resolve any conflicts, and provide the final, fully refined"  # type: ignore  # noqa: E501
+            "and optimal consensus solution. Do not include the debate history, only the final result."
 
             # 토론 기록을 Context로 전달
             full_debate_context = "\n".join(debate_log)
@@ -443,7 +447,7 @@ class TeamManager:
                 Markdown(final_result),
                 title="[bold green]Final Optimal Solution (by ARBITER)[/bold green]",
                 border_style="green",
-            )
+            ),
         )
 
         # ArtifactService를 이용해 토론 기록 저장
@@ -457,10 +461,10 @@ class TeamManager:
                 content=log_content,
                 extension="md",
             )
-            logger.info(f"Debate log saved to {artifact_path}")
+            logger.info("Debate log saved to %s", artifact_path)
             console.print("[dim]Debate log saved to artifacts.[/dim]")
-        except Exception as e:
-            logger.error(f"Failed to save debate log: {e}")
+        except Exception:
+            logger.exception("Failed to save debate log")
 
         # 임시 에이전트 자원 정리
         del self.agents[proposer_name]
@@ -475,8 +479,8 @@ class TeamManager:
         return final_result
 
     def run_team_cycle(self):
-        """
-        팀 전체의 협업 사이클을 한 번 돕니다.
+        """팀 전체의 협업 사이클을 한 번 돕니다.
+
         자율 작업 풀링(Pull) 및 메시지 버스 연동을 처리합니다.
         """
         logger.info("Running team collaboration cycle...")
@@ -487,19 +491,19 @@ class TeamManager:
                 pulled_task_id = self.kanban_board.pull_task(agent_name)
                 if pulled_task_id:
                     logger.info(
-                        f"Agent '{agent_name}' autonomously pulled task '{pulled_task_id}'"
+                        "Agent '%s' autonomously pulled task '%s'",
+                        agent_name,
+                        pulled_task_id,
                     )
                     # 향후: 여기서 agent.run() 을 호출하여 작업 시작 가능
 
         # 2. 메시지 버스의 알림을 처리 (추후 구현)
         logger.info("Team cycle completed.")
 
-    def run_coordinator_task(
-        self, user_prompt: str, context: Optional[Dict] = None
-    ) -> str:
-        """
-        CoordinatorManager를 이용해 태스크를 동적으로 분석하고 다중 에이전트 병렬 실행을 수행합니다.
+    def run_coordinator_task(self, user_prompt: str, context: dict | None = None) -> str:
+        """CoordinatorManager를 이용해 태스크를 동적으로 분석하고 다중 에이전트 병렬 실행을 수행합니다.
+
         (Antigravity-K 2단계 고도화 아키텍처)
         """
-        logger.info(f"Delegating task to Coordinator: {user_prompt[:50]}...")
+        logger.info("Delegating task to Coordinator: %s...", user_prompt[:50])
         return self.coordinator.analyze_and_delegate(user_prompt, context)

@@ -1,20 +1,23 @@
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+"""Workspace Links module."""
+
 import os
 import urllib.parse
+
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/workspaces")
 
 
 @router.get("/links")
 async def get_workspace_links():
-    """
-    현재 Antigravity-K가 위치한 프로젝트 루트 및
+    """현재 Antigravity-K가 위치한 프로젝트 루트 및.
+
     Multiplexer를 통해 생성된 Git Worktree 샌드박스들의 경로를 바탕으로
     로컬 네이티브 IDE(VS Code, JetBrains)용 딥링크를 생성하여 반환합니다.
     """
     project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
     )
     worktrees_dir = os.path.join(project_root, ".ag_worktrees")
 
@@ -34,9 +37,7 @@ async def get_workspace_links():
 
 
 def _generate_links_for_path(absolute_path: str, name: str) -> dict:
-    """
-    주어진 경로에 대한 VS Code 및 JetBrains Gateway 접근 URI를 생성합니다.
-    """
+    """주어진 경로에 대한 VS Code 및 JetBrains Gateway 접근 URI를 생성합니다."""
     # URL Encoding for paths
     encoded_path = urllib.parse.quote(absolute_path)
 

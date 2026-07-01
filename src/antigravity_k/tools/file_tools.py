@@ -1,5 +1,5 @@
-"""
-FileTools — 파일 I/O 도구 4종
+"""FileTools — 파일 I/O 도구 4종.
+
 ==============================
 Claw Code의 파일 도구 아키텍처 이식:
 - write_file   : 새 파일 생성 (디렉토리 자동 생성)
@@ -8,13 +8,13 @@ Claw Code의 파일 도구 아키텍처 이식:
 - grep_search   : 코드 내 텍스트/정규식 검색
 """
 
-import os
-import re
 import glob as glob_module
 import logging
-from typing import Any, Dict, List
+import os
+import re
+from typing import Any
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class WriteFileTool(BaseTool):
     tags = ["file", "write", "create"]
 
     def __init__(self):
+        """Initialize the WriteFileTool."""
         super().__init__()
         self._name = "write_file"
         self._description = (
@@ -52,17 +53,44 @@ class WriteFileTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         file_path = kwargs.get("file_path", "")
         content = kwargs.get("content", "")
 
@@ -76,6 +104,7 @@ class WriteFileTool(BaseTool):
 
             return f"Successfully wrote {len(content)} chars to {file_path}"
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error writing file: {e}"
 
 
@@ -89,6 +118,7 @@ class CreateDirectoryTool(BaseTool):
     tags = ["file", "directory", "mkdir", "create"]
 
     def __init__(self):
+        """Initialize the CreateDirectoryTool."""
         super().__init__()
         self._name = "create_directory"
         self._description = (
@@ -108,29 +138,57 @@ class CreateDirectoryTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         dir_path = kwargs.get("dir_path", "")
 
         try:
             os.makedirs(dir_path, exist_ok=True)
             return f"Successfully created directory: {dir_path}"
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error creating directory: {e}"
 
 
 class EditFileTool(BaseTool):
-    """
-    Claw Code 스타일 diff 기반 정밀 편집.
+    """Claw Code 스타일 diff 기반 정밀 편집.
+
     파일에서 old_str을 찾아 new_str로 교체합니다.
     """
 
@@ -141,6 +199,7 @@ class EditFileTool(BaseTool):
     tags = ["file", "edit", "diff", "replace"]
 
     def __init__(self):
+        """Initialize the EditFileTool."""
         super().__init__()
         self._name = "edit_file"
         self._description = (
@@ -169,17 +228,44 @@ class EditFileTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         file_path = kwargs.get("file_path", "")
         old_str = kwargs.get("old_str", "")
         new_str = kwargs.get("new_str", "")
@@ -188,7 +274,7 @@ class EditFileTool(BaseTool):
             return f"Error: File not found: {file_path}"
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             count = content.count(old_str)
@@ -221,6 +307,7 @@ class EditFileTool(BaseTool):
                 f"({len(old_str)} → {len(new_str)} chars)"
             )
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error editing file: {e}"
 
 
@@ -234,11 +321,13 @@ class MultiReplaceFileContentTool(BaseTool):
     tags = ["file", "edit", "multi", "replace", "refactor"]
 
     def __init__(self):
+        """Initialize the MultiReplaceFileContentTool."""
         super().__init__()
         self._name = "multi_replace_file_content"
         self._description = (
             "Edit a file by replacing multiple non-contiguous blocks of text at once. "
-            "Pass an array of 'ReplacementChunks'. For each chunk, specify StartLine, EndLine, TargetContent, and ReplacementContent. "
+            "Pass an array of 'ReplacementChunks'. For each chunk, specify StartLine, EndLine, TargetContent,"  # type: ignore
+            "and ReplacementContent. "
             "This ensures exact matching and avoids ambiguous replacements."
         )
         self._schema = {
@@ -276,17 +365,44 @@ class MultiReplaceFileContentTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         file_path = kwargs.get("file_path", "")
         # Backward compatibility check
         chunks = kwargs.get("ReplacementChunks", kwargs.get("chunks", []))
@@ -295,12 +411,12 @@ class MultiReplaceFileContentTool(BaseTool):
             return f"Error: File not found: {file_path}"
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             lines = content.splitlines(True)  # Keep newlines
 
-            # To avoid line number shifting issues, we should process from bottom to top or just use text replace if Start/End are used for scoping
+            # To avoid line number shifting issues, we should process from bottom to top or just use text replace if Start/End are used for scoping  # noqa: E501
 
             for idx, chunk in enumerate(chunks):
                 # Backwards compatible
@@ -318,24 +434,31 @@ class MultiReplaceFileContentTool(BaseTool):
 
                 count = scoped_text.count(target)
                 if count == 0:
-                    return f"Error on chunk {idx+1}: TargetContent not found in lines {start_line}-{end_line}. Aborting."
+                    return (
+                        f"Error on chunk {idx + 1}: TargetContent not found in lines {start_line}-{end_line}. Aborting."
+                    )
                 if count > 1:
-                    return f"Error on chunk {idx+1}: TargetContent found {count} times in lines {start_line}-{end_line}. Be more specific. Aborting."
+                    return (
+                        f"Error on chunk {idx + 1}: TargetContent found {count} times in "
+                        f"lines {start_line}-{end_line}. Be more specific. "
+                        f"Aborting."
+                    )
 
                 new_scoped_text = scoped_text.replace(target, replacement, 1)
                 lines[start_idx:end_idx] = [new_scoped_text]
 
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write("".join(lines))
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write("".join(lines))
 
             return f"Successfully applied {len(chunks)} replacements to {file_path}."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error applying multi-replace: {e}"
 
 
 class GlobSearchTool(BaseTool):
-    """
-    파일 패턴 검색 (수정 시간순 정렬).
+    """파일 패턴 검색 (수정 시간순 정렬).
+
     Claw Code의 glob 도구 — 최근 수정된 파일을 우선 표시.
     """
 
@@ -346,6 +469,7 @@ class GlobSearchTool(BaseTool):
     tags = ["search", "glob", "files", "find"]
 
     def __init__(self):
+        """Initialize the GlobSearchTool."""
         super().__init__()
         self._name = "glob_search"
         self._description = (
@@ -376,17 +500,44 @@ class GlobSearchTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         pattern = kwargs.get("pattern", "")
         root = kwargs.get("root", ".")
         max_results = kwargs.get("max_results", 50)
@@ -406,7 +557,7 @@ class GlobSearchTool(BaseTool):
                             "path": os.path.relpath(m, root),
                             "size": size,
                             "modified": mtime,
-                        }
+                        },
                     )
                 except OSError:
                     continue
@@ -424,6 +575,7 @@ class GlobSearchTool(BaseTool):
 
             return "\n".join(lines)
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error searching files: {e}"
 
     @staticmethod
@@ -436,8 +588,8 @@ class GlobSearchTool(BaseTool):
 
 
 class GrepSearchTool(BaseTool):
-    """
-    코드 내 텍스트/정규식 검색.
+    """코드 내 텍스트/정규식 검색.
+
     Claw Code의 grep 도구 — 행 번호와 컨텍스트를 포함한 결과.
     """
 
@@ -448,6 +600,7 @@ class GrepSearchTool(BaseTool):
     tags = ["search", "grep", "text", "regex"]
 
     def __init__(self):
+        """Initialize the GrepSearchTool."""
         super().__init__()
         self._name = "grep_search"
         self._description = (
@@ -487,17 +640,44 @@ class GrepSearchTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         query = kwargs.get("query", "")
         path = kwargs.get("path", ".")
         include = kwargs.get("include", "")
@@ -515,7 +695,7 @@ class GrepSearchTool(BaseTool):
         except re.error as e:
             return f"Error: Invalid regex pattern: {e}"
 
-        results: List[str] = []
+        results: list[str] = []
 
         try:
             if os.path.isfile(path):
@@ -531,19 +711,13 @@ class GrepSearchTool(BaseTool):
 
                 # 바이너리 파일 스킵
                 try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(file_path, encoding="utf-8", errors="ignore") as f:
                         for line_num, line in enumerate(f, 1):
                             if len(results) >= max_results:
                                 break
                             if pattern.search(line):
-                                rel_path = (
-                                    os.path.relpath(file_path, path)
-                                    if os.path.isdir(path)
-                                    else file_path
-                                )
-                                results.append(
-                                    f"{rel_path}:{line_num}: {line.rstrip()}"
-                                )
+                                rel_path = os.path.relpath(file_path, path) if os.path.isdir(path) else file_path
+                                results.append(f"{rel_path}:{line_num}: {line.rstrip()}")
                 except (OSError, UnicodeDecodeError):
                     continue
 
@@ -553,4 +727,5 @@ class GrepSearchTool(BaseTool):
             header = f"Found {len(results)} matches:"
             return header + "\n" + "\n".join(results)
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error searching: {e}"

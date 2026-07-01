@@ -67,18 +67,15 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
         code_context = indexer.format_context(ctx.user_message)
         if code_context:
             rag_context += "\n" + code_context
-            logger.info(
-                f"[RAGIndexer] Code context injected for: {ctx.user_message[:50]}..."
-            )
+            logger.info(f"[RAGIndexer] Code context injected for: {ctx.user_message[:50]}...")
     except Exception as e:
+        logger.exception("Unhandled exception")
         logger.debug(f"RAGIndexer enrichment skipped: {e}")
 
     # 벡터 스토어 검색 (과거 메모리)
     if orch.vault_engine and orch.vault_engine.sync_rag:
         try:
-            results = orch.vault_engine.vector_store.search(
-                ctx.user_message, n_results=5
-            )
+            results = orch.vault_engine.vector_store.search(ctx.user_message, n_results=5)
             if results:
                 rag_context += (
                     "\n\n<past_memory>\n이전에 기록된 유사한 작업 및 결정 내용입니다. "
@@ -88,8 +85,8 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
                     source = res.get("metadata", {}).get("source", "Unknown")
                     rag_context += f"--- Source: {source} ---\n{res['text']}\n\n"
                 rag_context += "</past_memory>"
-        except Exception as e:
-            logger.warning(f"RAG search failed: {e}")
+        except Exception:
+            logger.exception("RAG search failed")
 
     ctx.rag_context = rag_context
 
@@ -122,10 +119,15 @@ def auto_learn_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
                         "content": ctx.custom_messages[-1]["content"] + learn_context,
                     }
                     import os
+
                     msg = f"✅ **[자율 학습 완료]** {len(learned)}건 학습 → Wiki 저장 완료\n"
-                    ki_dir = os.path.abspath(orch.ctx.autonomous_learner.ki_engine.ki_dir) if orch.ctx.autonomous_learner.ki_engine else ""
+                    ki_dir = (
+                        os.path.abspath(orch.ctx.autonomous_learner.ki_engine.ki_dir)
+                        if orch.ctx.autonomous_learner.ki_engine
+                        else ""
+                    )
                     for item in learned:
-                        summary_preview = item.summary[:60].replace('\n', ' ') + "..."
+                        summary_preview = item.summary[:60].replace("\n", " ") + "..."
                         if ki_dir:
                             file_path = os.path.join(ki_dir, f"{item.ki_id}_metadata.json")
                             msg += f"> **[{item.topic}](file://{file_path})**: {summary_preview}\n"
@@ -134,8 +136,8 @@ def auto_learn_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
                     yield msg + "\n"
                 else:
                     yield "ℹ️ *학습 대상 없음 — 기존 지식으로 진행*\n\n"
-    except Exception as e:
-        logger.warning(f"Autonomous learning pipeline error: {e}")
+    except Exception:
+        logger.exception("Autonomous learning pipeline error")
 
 
 # ─── SKILL_MATCH 핸들러 ───────────────────────────────────────────
@@ -145,14 +147,13 @@ def skill_match_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     """스킬 자동 매칭."""
     if hasattr(orch, "skill_loader") and orch.ctx.skill_loader:
         try:
-            auto_activated = orch.ctx.skill_loader.auto_match(
-                ctx.user_message, max_skills=2
-            )
+            auto_activated = orch.ctx.skill_loader.auto_match(ctx.user_message, max_skills=2)
             if auto_activated:
                 skills_str = ", ".join(auto_activated)
                 yield f"🧠 *스킬 자동 활성화: {skills_str}*\n"
                 logger.info(f"[AutoSkill] Auto-activated: {auto_activated}")
         except Exception as e:
+            logger.exception("Unhandled exception")
             logger.debug(f"Auto skill matching failed: {e}")
 
 
@@ -222,21 +223,18 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     # 불확실성 인식
     try:
         ki_count = len(orch.ctx.ki_engine.load_kis()) if orch.ctx.ki_engine else 0
-        uncertainty = orch.ctx.uncertainty_estimator.estimate(
-            ctx.user_message, ctx.analysis, ki_count
-        )
+        uncertainty = orch.ctx.uncertainty_estimator.estimate(ctx.user_message, ctx.analysis, ki_count)
         if uncertainty.should_ask_user:
             yield f"\n❓ **[불확실성 감지]** {uncertainty.clarification}\n"
         elif uncertainty.confidence.value != "high":
-            unc_context = orch.ctx.uncertainty_estimator.format_prompt_injection(
-                uncertainty
-            )
+            unc_context = orch.ctx.uncertainty_estimator.format_prompt_injection(uncertainty)
             if unc_context:
                 ctx.custom_messages[-1] = {
                     "role": "user",
                     "content": ctx.custom_messages[-1]["content"] + unc_context,
                 }
     except Exception as e:
+        logger.exception("Unhandled exception")
         logger.debug(f"Uncertainty estimation error: {e}")
 
     # 사용자 모델 학습
@@ -249,6 +247,7 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
                 "content": ctx.custom_messages[-1]["content"] + user_context,
             }
     except Exception as e:
+        logger.exception("Unhandled exception")
         logger.debug(f"User model error: {e}")
 
 
@@ -298,7 +297,7 @@ def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         yield "**[CEO]** 태스크 분석 완료 → ⚖️ **토론(Debate) 파이프라인** 시작\n\n"
     elif ctx.delegate_to != "SELF":
         delegate_model = orch._get_model_for_role(ctx.delegate_to)
-        yield f"**[CEO]** 태스크 분석 완료 → {emoji} **{ctx.delegate_to}** 에이전트에게 위임 (모델: `{delegate_model}`)\n\n"
+        yield f"**[CEO]** 태스크 분석 완료 → {emoji} **{ctx.delegate_to}** 에이전트에게 위임 (모델: `{delegate_model}`)\n\n"  # noqa: E501
 
 
 # ─── AGENT_EXECUTE 핸들러 ────────────────────────────────────────
@@ -314,10 +313,9 @@ def agent_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]
         }
 
     from antigravity_k.engine.tool_loop import ToolLoopEngine
+
     tool_loop = ToolLoopEngine(orch)
-    yield from tool_loop.run_loop(
-        ctx.custom_messages, ctx.delegate_to, ctx.task_type, ctx.max_steps, ctx.target_model
-    )
+    yield from tool_loop.run_loop(ctx.custom_messages, ctx.delegate_to, ctx.task_type, ctx.max_steps, ctx.target_model)
     ctx.agent_output = getattr(orch, "_last_agent_output", "")
 
 
@@ -338,10 +336,9 @@ def pipeline_execute_handler(ctx: StateContext, orch) -> Generator[str, None, No
         yield f"\n\n---\n**[Step {step_num}] {agent_role}**: {task_desc}\n\n"
 
         from antigravity_k.engine.tool_loop import ToolLoopEngine
+
         tool_loop = ToolLoopEngine(orch)
-        for chunk in tool_loop.run_loop(
-            current_messages, agent_role, "complex_step", ctx.max_steps
-        ):
+        for chunk in tool_loop.run_loop(current_messages, agent_role, "complex_step", ctx.max_steps):
             yield chunk
 
         if hasattr(orch, "_last_agent_output"):
@@ -365,35 +362,27 @@ def debate_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None
     yield f"\n\n⚖️ **토론 시작**: {debate_topic}\n"
 
     current_messages = list(ctx.custom_messages)
-    current_messages.append(
-        {"role": "user", "content": f"Debate Topic: {debate_topic}"}
-    )
+    current_messages.append({"role": "user", "content": f"Debate Topic: {debate_topic}"})
 
     yield "\n\n💡 **[PROPOSER의 제안]**\n\n"
     from antigravity_k.engine.tool_loop import ToolLoopEngine
+
     tool_loop = ToolLoopEngine(orch)
-    for chunk in tool_loop.run_loop(
-        current_messages, "PROPOSER", "debate_propose", ctx.max_steps
-    ):
+    for chunk in tool_loop.run_loop(current_messages, "PROPOSER", "debate_propose", ctx.max_steps):
         yield chunk
 
     proposer_output = getattr(orch, "_last_agent_output", "")
-    current_messages.append(
-        {"role": "assistant", "content": f"PROPOSER 제안: {proposer_output}"}
-    )
+    current_messages.append({"role": "assistant", "content": f"PROPOSER 제안: {proposer_output}"})
 
     yield "\n\n⚖️ **[CRITIC의 비판 및 검증]**\n\n"
     from antigravity_k.engine.tool_loop import ToolLoopEngine
+
     tool_loop = ToolLoopEngine(orch)
-    for chunk in tool_loop.run_loop(
-        current_messages, "CRITIC", "debate_critic", ctx.max_steps
-    ):
+    for chunk in tool_loop.run_loop(current_messages, "CRITIC", "debate_critic", ctx.max_steps):
         yield chunk
 
     critic_output = getattr(orch, "_last_agent_output", "")
-    current_messages.append(
-        {"role": "assistant", "content": f"CRITIC 비판: {critic_output}"}
-    )
+    current_messages.append({"role": "assistant", "content": f"CRITIC 비판: {critic_output}"})
 
     ctx.agent_output = critic_output
 
@@ -457,24 +446,19 @@ def cov_verify_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
                 for issue in issues[:3]:
                     yield f"  - {issue}\n"
 
-                if (
-                    trace.revised_response
-                    and trace.revised_response != ctx.agent_output
-                ):
+                if trace.revised_response and trace.revised_response != ctx.agent_output:
                     ctx.agent_output = trace.revised_response
                     yield "✅ 자동 수정 적용 완료\n"
                 else:
                     if severity == "error":
                         ctx.validation_passed = False
 
-            logger.info(
-                f"[CoV] Verified: passes={trace.total_passes}, "
-                f"severity={severity}, issues={len(issues)}"
-            )
+            logger.info(f"[CoV] Verified: passes={trace.total_passes}, severity={severity}, issues={len(issues)}")
         else:
             logger.debug("[CoV] Verification passed — no issues")
             ctx.validation_passed = True
     except Exception as e:
+        logger.exception("Unhandled exception")
         logger.debug(f"CoV verification skipped: {e}")
         ctx.validation_passed = True
 
@@ -484,18 +468,15 @@ def cov_verify_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
 def quality_check_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     """품질 확인 및 에러 복구 루프백 처리."""
-    if (
-        not getattr(ctx, "validation_passed", True)
-        and ctx.retry_count < ctx.max_retries
-    ):
+    if not getattr(ctx, "validation_passed", True) and ctx.retry_count < ctx.max_retries:
         ctx.retry_count += 1
-        yield f"\n\n🔄 **[에러 복구 루프]** 심각한 오류 감지. 자가 수정을 시도합니다 (재시도 {ctx.retry_count}/{ctx.max_retries})\n"
+        yield f"\n\n🔄 **[에러 복구 루프]** 심각한 오류 감지. 자가 수정을 시도합니다 (재시도 {ctx.retry_count}/{ctx.max_retries})\n"  # noqa: E501
 
         # 실패 피드백 주입
         ctx.custom_messages.append(
             {
                 "role": "user",
-                "content": "[시스템 피드백] 이전 답변에서 심각한 검증 오류가 발견되었습니다. 지시사항과 모순점을 다시 확인하고 올바르게 수정한 최종 답변을 작성하세요.",
+                "content": "[시스템 피드백] 이전 답변에서 심각한 검증 오류가 발견되었습니다. 지시사항과 모순점을 다시 확인하고 올바르게 수정한 최종 답변을 작성하세요.",  # noqa: E501
             }
         )
 
@@ -504,7 +485,7 @@ def quality_check_handler(ctx: StateContext, orch) -> Generator[str, None, None]
     else:
         ctx._loop_back = False
         if not getattr(ctx, "validation_passed", True):
-            yield f"\n\n⚠️ **[에러 복구 실패]** 최대 재시도({ctx.max_retries}회)에 도달했습니다. 마지막 결과를 유지합니다.\n"
+            yield f"\n\n⚠️ **[에러 복구 실패]** 최대 재시도({ctx.max_retries}회)에 도달했습니다. 마지막 결과를 유지합니다.\n"  # noqa: E501
 
 
 def quality_check_decision(ctx: StateContext):
@@ -536,6 +517,7 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         tokens_out = TokenEstimator.estimate_text(ctx.agent_output)
         yield f"\n\n📊 **[Token Usage]** In: {tokens_in} tokens | Out: {tokens_out} tokens\n"
     except Exception:
+        logger.exception("Unhandled exception")
         pass
 
 

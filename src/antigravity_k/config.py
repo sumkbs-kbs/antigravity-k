@@ -1,16 +1,16 @@
-"""
-Antigravity-K: 전역 설정 (Config)
+"""Antigravity-K: 전역 설정 (Config).
+
 ===================================
 모든 설정은 환경변수 또는 config.yaml에서 로드됩니다.
 Apple Silicon M5 Max (128GB) 기준 기본값이 설정되어 있습니다.
 """
 
-from pathlib import Path
-from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator, ConfigDict
 import os
-import yaml
+from pathlib import Path
 
+import yaml
+from pydantic import ConfigDict, Field, model_validator
+from pydantic_settings import BaseSettings
 
 # 프로젝트 루트 경로 자동 감지
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -28,9 +28,7 @@ def _load_yaml_config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _section_overrides(
-    raw_config: dict, section: str, config_cls: type[BaseSettings]
-) -> dict:
+def _section_overrides(raw_config: dict, section: str, config_cls: type[BaseSettings]) -> dict:
     section_data = raw_config.get(section, {})
     if not isinstance(section_data, dict):
         return {}
@@ -96,6 +94,7 @@ class ModelConfig(BaseSettings):
 
     @model_validator(mode="after")
     def set_defaults_by_engine(self):
+        """Set defaults by engine."""
         engine = self.api_engine.lower()
         if not self.api_base:
             if engine == "ollama":
@@ -161,11 +160,7 @@ class SecurityConfig(BaseSettings):
     audit_log_enabled: bool = Field(default=True, description="감사 로그 활성화")
     max_tool_risk: str = Field(
         # P2 수정: 환경 프로파일 분리 — production에서는 medium이 기본
-        default=(
-            "medium"
-            if os.environ.get("AGK_ENV", "development") == "production"
-            else "high"
-        ),
+        default=("medium" if os.environ.get("AGK_ENV", "development") == "production" else "high"),
         description="자동 승인 없이 사용 가능한 최대 도구 위험도 (safe/low/medium/high/critical)",
     )
     # 추가: LintAI strict 모드 플래그
@@ -212,9 +207,7 @@ class RouterConfig(BaseSettings):
     max_cooldown_sec: int = Field(default=3600, description="최대 쿨다운(초)")
     max_retries: int = Field(default=3, description="최대 재시도 횟수")
     usage_tracking: bool = Field(default=True, description="사용량 추적 활성화")
-    usage_db_path: str = Field(
-        default="", description="사용량 DB 경로 (빈 문자열=자동)"
-    )
+    usage_db_path: str = Field(default="", description="사용량 DB 경로 (빈 문자열=자동)")
 
     model_config = ConfigDict(env_prefix="AGK_ROUTER_")
 
@@ -223,12 +216,8 @@ class ComputerUseConfig(BaseSettings):
     """데스크탑 자동화 (Computer Use) 설정."""
 
     enabled: bool = Field(default=True, description="Computer Use 기능 활성화")
-    hitl_required: bool = Field(
-        default=True, description="위험 액션 시 사용자 승인 필요"
-    )
-    force_stub: bool = Field(
-        default=False, description="테스트용 Stub 드라이버 강제 사용"
-    )
+    hitl_required: bool = Field(default=True, description="위험 액션 시 사용자 승인 필요")
+    force_stub: bool = Field(default=False, description="테스트용 Stub 드라이버 강제 사용")
     screenshot_dir: Path = Field(
         default=PROJECT_ROOT / "data" / "screenshots",
         description="스크린샷 저장 디렉토리",
@@ -245,24 +234,17 @@ class AppConfig:
     """전체 애플리케이션 설정을 통합합니다."""
 
     def __init__(self):
+        """Initialize the AppConfig."""
         raw_config = _load_yaml_config()
         self.model = ModelConfig(**_section_overrides(raw_config, "model", ModelConfig))
-        self.server = ServerConfig(
-            **_section_overrides(raw_config, "server", ServerConfig)
-        )
+        self.server = ServerConfig(**_section_overrides(raw_config, "server", ServerConfig))
         self.paths = PathConfig(**_section_overrides(raw_config, "paths", PathConfig))
-        self.security = SecurityConfig(
-            **_section_overrides(raw_config, "security", SecurityConfig)
-        )
-        self.workflow = WorkflowConfig(
-            **_section_overrides(raw_config, "workflow", WorkflowConfig)
-        )
+        self.security = SecurityConfig(**_section_overrides(raw_config, "security", SecurityConfig))
+        self.workflow = WorkflowConfig(**_section_overrides(raw_config, "workflow", WorkflowConfig))
         self.i18n = I18nConfig(**_section_overrides(raw_config, "i18n", I18nConfig))
-        self.router = RouterConfig(
-            **_section_overrides(raw_config, "router", RouterConfig)
-        )
+        self.router = RouterConfig(**_section_overrides(raw_config, "router", RouterConfig))
         self.computer_use = ComputerUseConfig(
-            **_section_overrides(raw_config, "computer_use", ComputerUseConfig)
+            **_section_overrides(raw_config, "computer_use", ComputerUseConfig),
         )
 
     def ensure_directories(self):

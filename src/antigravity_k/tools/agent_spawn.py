@@ -1,5 +1,5 @@
-"""
-AgentSpawn — Sub-Agent 스폰 도구
+"""AgentSpawn — Sub-Agent 스폰 도구.
+
 =================================
 Claw Code의 Agent Task 아키텍처 이식.
 
@@ -14,16 +14,15 @@ Claw Code의 Agent Task 아키텍처 이식.
 
 import logging
 import time
-from typing import Any, Dict
+from typing import Any
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
 
 class AgentSpawnTool(BaseTool):
-    """
-    Sub-Agent를 스폰하여 독립 작업을 수행합니다.
+    """Sub-Agent를 스폰하여 독립 작업을 수행합니다.
 
     Claw Code의 agent_task 패턴:
     - 별도 LLM 호출로 하위 작업 수행
@@ -38,6 +37,13 @@ class AgentSpawnTool(BaseTool):
     tags = ["agent", "spawn", "delegate", "subtask"]
 
     def __init__(self, model_manager=None, tool_registry=None):
+        """Initialize the AgentSpawnTool.
+
+        Args:
+            model_manager: model manager.
+            tool_registry: tool registry.
+
+        """
         super().__init__()
         self._name = "agent_spawn"
         self._description = (
@@ -71,17 +77,44 @@ class AgentSpawnTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         task = kwargs.get("task", "")
         tool_names = kwargs.get("tools", ["read_file", "glob_search", "grep_search"])
         max_tokens = kwargs.get("max_tokens", 4096)
@@ -95,7 +128,7 @@ class AgentSpawnTool(BaseTool):
         try:
             return self._spawn_sub_agent(task, tool_names, max_tokens)
         except Exception as e:
-            logger.error(f"Sub-agent spawn failed: {e}")
+            logger.exception("Sub-agent spawn failed")
             return f"Error: Sub-agent failed: {e}"
 
     def _spawn_sub_agent(self, task: str, tool_names: list, max_tokens: int) -> str:
@@ -103,8 +136,8 @@ class AgentSpawnTool(BaseTool):
         start_time = time.time()
 
         try:
-            from antigravity_k.engine.orchestrator import OrchestratorAgent
             from antigravity_k.api.server import get_vault_engine
+            from antigravity_k.engine.orchestrator import OrchestratorAgent
 
             sub_orchestrator = OrchestratorAgent(
                 model_manager=self._model_manager,
@@ -130,20 +163,18 @@ class AgentSpawnTool(BaseTool):
                 },
             ]
 
-            logger.info(f"Starting synchronous Sub-Agent for task: {task[:50]}...")
+            logger.info("Starting synchronous Sub-Agent for task: %s...", task[:50])
 
             output_parts = []
-            for chunk in sub_orchestrator.run_stream(
-                messages, target_model=target_model
-            ):
+            for chunk in sub_orchestrator.run_stream(messages, target_model=target_model):
                 output_parts.append(chunk)
 
             elapsed = time.time() - start_time
             result = "".join(output_parts)
 
-            return f"[Sub-Agent Result] (completed in {elapsed:.1f}s)\n" f"{result}"
+            return f"[Sub-Agent Result] (completed in {elapsed:.1f}s)\n{result}"
         except Exception as e:
-            logger.error(f"Sub-agent execution failed: {e}", exc_info=True)
+            logger.error("Sub-agent execution failed: %s", e, exc_info=True)
             return f"Sub-agent execution failed: {e}"
 
     def _fallback_execute(self, task: str, tool_names: list) -> str:

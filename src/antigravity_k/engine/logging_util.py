@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 구조화 로깅 유틸리티 (Structured Logging)
+"""Antigravity-K: 구조화 로깅 유틸리티 (Structured Logging).
+
 =========================================================
 ad-hoc logger.info 호출을 JSON-lines 형식의 구조화 로그로 대체합니다.
 downstream 분석과 대시보드 연동을 위해 timestamp, level, component, message,
@@ -21,9 +21,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 import threading
-from dataclasses import dataclass, field, asdict
+import time
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 logger = logging.getLogger("antigravity_k.logging_util")
@@ -47,6 +47,7 @@ def structured_log(
 
     Returns:
         생성된 로그 엔트리 딕셔너리
+
     """
     entry = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -71,8 +72,8 @@ def structured_log(
     try:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception as e:
-        logger.warning(f"Failed to write structured log: {e}")
+    except Exception:
+        logger.exception("Failed to write structured log")
 
     return entry
 
@@ -103,6 +104,15 @@ class MetricsCollector:
     _lock = threading.Lock()
 
     def __new__(cls, log_dir: str | None = None) -> MetricsCollector:
+        """Create a new instance.
+
+        Args:
+            log_dir (str | None): str | None log dir.
+
+        Returns:
+            MetricsCollector: The metricscollector result.
+
+        """
         with cls._lock:
             if cls._instance is None:
                 instance = super().__new__(cls)
@@ -111,6 +121,12 @@ class MetricsCollector:
             return cls._instance
 
     def __init__(self, log_dir: str | None = None):
+        """Initialize the MetricsCollector.
+
+        Args:
+            log_dir (str | None): str | None log dir.
+
+        """
         if self._initialized:
             return
         self._initialized = True
@@ -149,7 +165,7 @@ class MetricsCollector:
                     "latency_ms": latency_ms,
                     "success": success,
                     "timestamp": time.time(),
-                }
+                },
             )
 
     def record_guardrail_violation(self, code: str = "") -> None:
@@ -166,9 +182,7 @@ class MetricsCollector:
                 return None
 
             self._current.end_time = time.time()
-            self._current.latency_ms = (
-                self._current.end_time - self._current.start_time
-            ) * 1000
+            self._current.latency_ms = (self._current.end_time - self._current.start_time) * 1000
             self._current.tokens_in = tokens_in
             self._current.tokens_out = tokens_out
 
@@ -191,8 +205,8 @@ class MetricsCollector:
         try:
             with open(metrics_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception as e:
-            logger.warning(f"Failed to write metrics: {e}")
+        except Exception:
+            logger.exception("Failed to write metrics")
 
     def get_summary(self) -> dict[str, Any]:
         """수집된 모든 턴의 요약 통계를 반환합니다."""
@@ -207,9 +221,7 @@ class MetricsCollector:
                 "max_latency_ms": max(latencies),
                 "total_tool_calls": sum(t.tool_calls for t in self._history),
                 "total_tool_failures": sum(t.tool_failures for t in self._history),
-                "total_guardrail_violations": sum(
-                    t.guardrail_violations for t in self._history
-                ),
+                "total_guardrail_violations": sum(t.guardrail_violations for t in self._history),
                 "total_tokens_in": sum(t.tokens_in for t in self._history),
                 "total_tokens_out": sum(t.tokens_out for t in self._history),
             }

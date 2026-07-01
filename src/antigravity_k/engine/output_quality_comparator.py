@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Output Quality Comparator
+"""Antigravity-K: Output Quality Comparator.
+
 =========================================
 동일 질문에 대한 참조 출력과 실제 출력의 품질을 다차원으로 비교합니다.
 
@@ -22,8 +22,11 @@ Antigravity-K: Output Quality Comparator
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -37,6 +40,7 @@ class DimensionScore:
     notes: str = ""
 
     def __post_init__(self):
+        """Post Init."""
         self.delta = round(self.actual_score - self.reference_score, 3)
 
 
@@ -53,11 +57,23 @@ class ComparisonResult:
 
     @property
     def overall_delta(self) -> float:
+        """Overall Delta.
+
+        Returns:
+            float: The float result.
+
+        """
         if not self.dimensions:
             return 0.0
         return sum(d.delta for d in self.dimensions) / len(self.dimensions)
 
     def to_markdown(self) -> str:
+        """To Markdown.
+
+        Returns:
+            str: The str result.
+
+        """
         lines = [
             "## 📊 Output Quality Comparison",
             f"**Question**: {self.question[:80]}",
@@ -69,17 +85,17 @@ class ComparisonResult:
             delta_str = f"+{d.delta:.2f}" if d.delta >= 0 else f"{d.delta:.2f}"
             icon = "✅" if d.delta >= 0 else "⚠️"
             lines.append(
-                f"| {d.name} | {d.reference_score:.2f} | {d.actual_score:.2f} | {icon} {delta_str} | {d.notes} |"
+                f"| {d.name} | {d.reference_score:.2f} | {d.actual_score:.2f} | {icon} {delta_str} | {d.notes} |",
             )
         lines.extend(
             [
                 "",
                 f"**참조 등급**: {self.reference_grade}  |  **실제 등급**: {self.actual_grade}",
-                f"**승자**: {'🏆 실제 출력' if self.winner == 'actual' else '📋 참조 출력' if self.winner == 'reference' else '🤝 동점'}",
+                f"**승자**: {'🏆 실제 출력' if self.winner == 'actual' else '📋 참조 출력' if self.winner == 'reference' else '🤝 동점'}",  # noqa: E501
                 f"**종합 Δ**: {self.overall_delta:+.3f}",
                 "",
                 f"> {self.summary}",
-            ]
+            ],
         )
         return "\n".join(lines)
 
@@ -100,50 +116,40 @@ class OutputQualityComparator:
         ref_struct = self._structure_score(reference_output)
         act_struct = self._structure_score(actual_output)
         result.dimensions.append(
-            DimensionScore(
-                "구조 밀도", ref_struct, act_struct, notes="heading/list/table/code"
-            )
+            DimensionScore("구조 밀도", ref_struct, act_struct, notes="heading/list/table/code"),
         )
 
         # 2. 정보 밀도
         ref_info = self._information_density(reference_output)
         act_info = self._information_density(actual_output)
         result.dimensions.append(
-            DimensionScore("정보 밀도", ref_info, act_info, notes="고유 개념 비율")
+            DimensionScore("정보 밀도", ref_info, act_info, notes="고유 개념 비율"),
         )
 
         # 3. 언어 순수성
         ref_purity = self._language_purity(reference_output)
         act_purity = self._language_purity(actual_output)
         result.dimensions.append(
-            DimensionScore(
-                "언어 순수성", ref_purity, act_purity, notes="CJK/내부추론 유출"
-            )
+            DimensionScore("언어 순수성", ref_purity, act_purity, notes="CJK/내부추론 유출"),
         )
 
         # 4. 한국어 가독성
         ref_read = self._korean_readability(reference_output)
         act_read = self._korean_readability(actual_output)
         result.dimensions.append(
-            DimensionScore(
-                "한국어 가독성", ref_read, act_read, notes="띄어쓰기/문장 길이"
-            )
+            DimensionScore("한국어 가독성", ref_read, act_read, notes="띄어쓰기/문장 길이"),
         )
 
         # 5. 코드 정확성
         ref_code = self._code_accuracy(reference_output)
         act_code = self._code_accuracy(actual_output)
         result.dimensions.append(
-            DimensionScore("코드 정확성", ref_code, act_code, notes="구문 검증")
+            DimensionScore("코드 정확성", ref_code, act_code, notes="구문 검증"),
         )
 
         # 등급 산정
-        ref_avg = sum(d.reference_score for d in result.dimensions) / len(
-            result.dimensions
-        )
-        act_avg = sum(d.actual_score for d in result.dimensions) / len(
-            result.dimensions
-        )
+        ref_avg = sum(d.reference_score for d in result.dimensions) / len(result.dimensions)
+        act_avg = sum(d.actual_score for d in result.dimensions) / len(result.dimensions)
         result.reference_grade = self._grade(ref_avg)
         result.actual_grade = self._grade(act_avg)
 
@@ -197,9 +203,7 @@ class OutputQualityComparator:
 
     def _korean_readability(self, text: str) -> float:
         """한국어 가독성 점수."""
-        korean_lines = [
-            line for line in text.split("\n") if re.search(r"[가-힣]", line)
-        ]
+        korean_lines = [line for line in text.split("\n") if re.search(r"[가-힣]", line)]
         if not korean_lines:
             return 0.8
 
@@ -237,6 +241,7 @@ class OutputQualityComparator:
             except SyntaxError:
                 pass
             except Exception:
+                logger.exception("Unhandled exception")
                 valid += 1  # 비-Python 코드는 통과로 간주
 
         return valid / len(code_blocks) if code_blocks else 1.0

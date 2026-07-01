@@ -1,5 +1,5 @@
-"""
-SecurityPolicyEngine — 선언적 보안 정책 + 도구 권한 관리
+"""SecurityPolicyEngine — 선언적 보안 정책 + 도구 권한 관리.
+
 =========================================================
 IronClaw permissions.rs 패턴 이식:
 - PermissionState 3분류: AlwaysAllow / AskEachTime / Disabled
@@ -11,7 +11,7 @@ IronClaw permissions.rs 패턴 이식:
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
 
@@ -31,7 +31,7 @@ class PermissionState(str, Enum):
 
 # ── Seeded Defaults (IronClaw seeded_default_permission 이식) ──
 
-_SEEDED_DEFAULTS: Dict[str, PermissionState] = {
+_SEEDED_DEFAULTS: dict[str, PermissionState] = {
     # 읽기 전용 / 정보 조회 → 자동 허용
     "echo": PermissionState.ALWAYS_ALLOW,
     "time": PermissionState.ALWAYS_ALLOW,
@@ -78,14 +78,15 @@ _SEEDED_DEFAULTS: Dict[str, PermissionState] = {
 }
 
 
-def seeded_default_permission(tool_name: str) -> Optional[PermissionState]:
+def seeded_default_permission(tool_name: str) -> PermissionState | None:
     """도구의 기본 권한을 반환합니다 (IronClaw seeded_default_permission 이식)."""
     canonical = tool_name.replace("-", "_")
     return _SEEDED_DEFAULTS.get(canonical)
 
 
 def effective_permission(
-    tool_name: str, overrides: Optional[Dict[str, PermissionState]] = None
+    tool_name: str,
+    overrides: dict[str, PermissionState] | None = None,
 ) -> PermissionState:
     """실효 권한을 결정합니다 (IronClaw effective_permission 이식).
 
@@ -127,20 +128,24 @@ class SecurityPolicyEngine:
     """
 
     def __init__(self, policy_file: str = "policy.yaml"):
+        """Initialize the SecurityPolicyEngine.
+
+        Args:
+            policy_file (str): str policy file.
+
+        """
         # W-5: 상대 경로 시 프로젝트 루트 기준 절대 경로로 변환
         _policy_path = Path(policy_file)
         if not _policy_path.is_absolute():
-            _policy_path = (
-                Path(__file__).resolve().parent.parent.parent.parent / policy_file
-            )
+            _policy_path = Path(__file__).resolve().parent.parent.parent.parent / policy_file
         self.policy_file = _policy_path
-        self.policy: Dict[str, Any] = {
+        self.policy: dict[str, Any] = {
             "network": {"allowed_domains": [], "blocked_domains": []},
             "filesystem": {"allowed_paths": [], "read_only_paths": []},
             "process": {"blocked_commands": []},
         }
         self._load_failed = False  # Fail-Closed 플래그
-        self._tool_permission_overrides: Dict[str, PermissionState] = {}
+        self._tool_permission_overrides: dict[str, PermissionState] = {}
         self.load_policy()
 
     def load_policy(self):
@@ -151,13 +156,13 @@ class SecurityPolicyEngine:
         """
         if self.policy_file.exists():
             try:
-                with open(self.policy_file, "r") as f:
+                with open(self.policy_file) as f:
                     loaded = yaml.safe_load(f)
                     if loaded:
                         self.policy.update(loaded)
                 self._load_failed = False
-            except Exception as e:
-                logger.warning(f"보안 정책 로드 실패 (fail-closed 적용): {e}")
+            except Exception:
+                logger.exception("보안 정책 로드 실패 (fail-closed 적용)")
                 self._load_failed = True
 
     def is_command_allowed(self, command: str) -> bool:
@@ -203,7 +208,7 @@ class SecurityPolicyEngine:
         """도구 권한을 오버라이드합니다."""
         canonical = tool_name.replace("-", "_")
         self._tool_permission_overrides[canonical] = state
-        logger.info(f"도구 권한 변경: {canonical} → {state.value}")
+        logger.info("도구 권한 변경: %s → %s", canonical, state.value)
 
     def is_tool_allowed(self, tool_name: str) -> bool:
         """도구가 사용 가능한지 확인합니다 (Disabled가 아닌지)."""
@@ -225,4 +230,10 @@ policy_engine = SecurityPolicyEngine()
 
 
 def get_policy_engine() -> SecurityPolicyEngine:
+    """Retrieve policy engine.
+
+    Returns:
+        SecurityPolicyEngine: The securitypolicyengine result.
+
+    """
     return policy_engine

@@ -1,31 +1,40 @@
+"""Reflection module."""
+
 import ast
-import os
 import json
 import logging
+import os
 import uuid
 from datetime import datetime
 
-from .model_manager import ModelManager
 from .knowledge import KIEngine
+from .model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
 
 class ReflectionAgent:
-    """
-    ECA (Evolutionary Cognitive Architecture)의 핵심 컴포넌트입니다.
+    """ECA (Evolutionary Cognitive Architecture)의 핵심 컴포넌트입니다.
+
     작업(Task)이 완료되면 Git Diff와 대화 내역을 바탕으로 스스로 학습(Reflection)하고,
     KIs (지식)를 추출하거나 새로운 파이썬 스킬(Auto-Skill)을 합성합니다.
     """
 
     def __init__(self, project_root: str, model_manager: ModelManager):
+        """Initialize the ReflectionAgent.
+
+        Args:
+            project_root (str): str project root.
+            model_manager (ModelManager): ModelManager model manager.
+
+        """
         self.project_root = project_root
         self.model_manager = model_manager
         self.ki_engine = KIEngine(project_root)
 
     def reflect_on_task(self, task_id: str, worktree_path: str, task_desc: str):
         """태스크 완료 시 자동 회고를 수행하고 지식/스킬을 추출합니다."""
-        logger.info(f"Starting auto-reflection for task {task_id}")
+        logger.info("Starting auto-reflection for task %s", task_id)
 
         # 1. 변경된 코드 파악 (간단한 git diff 래핑 로직)
         diff_output = ""
@@ -49,8 +58,8 @@ class ReflectionAgent:
                     text=True,
                 )
                 commit_hash = res_hash.stdout.strip()
-        except Exception as e:
-            logger.warning(f"Failed to get git diff for reflection: {e}")
+        except Exception:
+            logger.exception("Failed to get git diff for reflection")
 
         if not diff_output:
             logger.info("No diff found. Skipping reflection.")
@@ -58,6 +67,7 @@ class ReflectionAgent:
 
         # 2. 메타 인지 프롬프트 구성
         prompt = f"""You are the ECA (Evolutionary Cognitive Architecture) Reflection Agent for Antigravity-K.
+
 A task has just been completed. Your job is to extract long-term architectural knowledge or identify repetitive skills.
 
 Task Description: {task_desc}
@@ -79,15 +89,15 @@ Based on this, return ONLY a JSON object:
 
         try:
             response = self.model_manager.generate(
-                prompt, target="reasoning-balanced", model_id="default"
+                prompt,
+                target="reasoning-balanced",
+                model_id="default",
             )
 
             import re
 
             clean_json = response.strip()
-            json_match = re.search(
-                r"```(?:json)?\s*(\{.*?\})\s*```", clean_json, re.DOTALL
-            )
+            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_json, re.DOTALL)
             if json_match:
                 clean_json = json_match.group(1)
             else:
@@ -116,15 +126,19 @@ Based on this, return ONLY a JSON object:
             if data.get("propose_auto_skill") and data.get("skill_description"):
                 self._synthesize_skill(data["skill_description"])
 
-        except Exception as e:
-            logger.warning(f"Reflection failed or returned invalid JSON: {e}")
+        except Exception:
+            logger.exception("Reflection failed or returned invalid JSON")
 
     def _synthesize_skill(self, desc: str):
         """자동으로 새로운 도구(BaseTool) 파이썬 스크립트를 합성합니다."""
-        logger.info(f"Synthesizing new auto-skill based on: {desc}")
+        logger.info("Synthesizing new auto-skill based on: %s", desc)
 
         prompt = f"""You are the ECA (Evolutionary Cognitive Architecture) Skill Synthesizer.
-Based on the following skill description, write a Python class that inherits from `BaseTool` (from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel).
+
+Based on the following skill description, write a Python class that inherits
+from `BaseTool` (from .base_tool import BaseTool,
+    ToolCategory, RenderIn, RiskLevel))
+
 The tool should implement the `execute(self, **kwargs)` method and return a string.
 
 Skill Description: {desc}
@@ -135,7 +149,9 @@ Do not use undefined variables. Handle exceptions safely.
 """
         try:
             response = self.model_manager.generate(
-                prompt, target="reasoning-balanced", model_id="default"
+                prompt,
+                target="reasoning-balanced",
+                model_id="default",
             )
             code = response.strip()
             if code.startswith("```python"):
@@ -150,9 +166,7 @@ Do not use undefined variables. Handle exceptions safely.
                 try:
                     ast.parse(code)
                 except SyntaxError as e:
-                    logger.warning(
-                        f"[ReflectionAgent] Auto-skill syntax error, NOT saving: {e}"
-                    )
+                    logger.warning("[ReflectionAgent] Auto-skill syntax error, NOT saving: %s", e)
                     return
 
                 skill_id = uuid.uuid4().hex[:6]
@@ -167,12 +181,8 @@ Do not use undefined variables. Handle exceptions safely.
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(code)
 
-                logger.info(
-                    f"Successfully synthesized and saved new skill to {file_path}"
-                )
+                logger.info("Successfully synthesized and saved new skill to %s", file_path)
             else:
-                logger.warning(
-                    "Synthesized skill code is invalid or missing BaseTool inheritance."
-                )
-        except Exception as e:
-            logger.error(f"Failed to synthesize skill: {e}")
+                logger.warning("Synthesized skill code is invalid or missing BaseTool inheritance.")
+        except Exception:
+            logger.exception("Failed to synthesize skill")

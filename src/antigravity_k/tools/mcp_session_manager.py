@@ -1,6 +1,8 @@
-from contextlib import AsyncExitStack
+"""Mcp Session Manager module."""
+
 import logging
-from typing import Any, Dict, Optional
+from contextlib import AsyncExitStack
+from typing import Any
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -11,29 +13,31 @@ logger = logging.getLogger(__name__)
 
 
 class MCPSessionManager:
-    """
-    Manages MCP sessions with external plugins/servers.
+    """Manages MCP sessions with external plugins/servers.
+
     Handles the asynchronous lifecycle of MCP servers running over stdio,
     Streamable HTTP, and legacy SSE transports.
     """
 
     def __init__(self):
-        self.sessions: Dict[str, ClientSession] = {}
-        self.exit_stacks: Dict[str, AsyncExitStack] = {}
-        self.session_ids: Dict[str, Optional[str]] = {}
+        """Initialize the MCPSessionManager."""
+        self.sessions: dict[str, ClientSession] = {}
+        self.exit_stacks: dict[str, AsyncExitStack] = {}
+        self.session_ids: dict[str, str | None] = {}
 
     async def connect_server(
         self,
         server_name: str,
         command: str,
         args: list[str],
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
     ) -> ClientSession:
-        """
-        Connects to an MCP server over stdio.
-        """
+        """Connect to an MCP server over stdio."""
         logger.info(
-            f"Connecting to MCP server '{server_name}' using command: {command} {' '.join(args)}"
+            "Connecting to MCP server '%s' using command: %s %s",
+            server_name,
+            command,
+            " ".join(args),
         )
 
         stack = AsyncExitStack()
@@ -50,13 +54,11 @@ class MCPSessionManager:
             await session.initialize()
 
             self.sessions[server_name] = session
-            logger.info(
-                f"Successfully connected and initialized MCP server '{server_name}'"
-            )
+            logger.info("Successfully connected and initialized MCP server '%s'", server_name)
             return session
 
         except Exception as e:
-            logger.error(f"Failed to connect to MCP server '{server_name}': {e}")
+            logger.error("Failed to connect to MCP server '%s': %s", server_name, e)
             await stack.aclose()
             if server_name in self.exit_stacks:
                 del self.exit_stacks[server_name]
@@ -66,17 +68,13 @@ class MCPSessionManager:
         self,
         server_name: str,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 300,
-        auth: Optional[Any] = None,
+        auth: Any | None = None,
     ) -> ClientSession:
-        """
-        Connects to an MCP server using the current Streamable HTTP transport.
-        """
-        logger.info(
-            f"Connecting to MCP server '{server_name}' over Streamable HTTP: {url}"
-        )
+        """Connect to an MCP server using the current Streamable HTTP transport."""
+        logger.info("Connecting to MCP server '%s' over Streamable HTTP: %s", server_name, url)
 
         stack = AsyncExitStack()
         self.exit_stacks[server_name] = stack
@@ -89,7 +87,7 @@ class MCPSessionManager:
                     timeout=timeout,
                     sse_read_timeout=sse_read_timeout,
                     auth=auth,
-                )
+                ),
             )
 
             session = await stack.enter_async_context(ClientSession(read, write))
@@ -98,14 +96,16 @@ class MCPSessionManager:
             self.sessions[server_name] = session
             self.session_ids[server_name] = get_session_id()
             logger.info(
-                f"Successfully connected and initialized MCP server '{server_name}' "
-                "over Streamable HTTP"
+                "Successfully connected and initialized MCP server '%s' over Streamable HTTP",
+                server_name,
             )
             return session
 
         except Exception as e:
             logger.error(
-                f"Failed to connect to MCP server '{server_name}' over Streamable HTTP: {e}"
+                "Failed to connect to MCP server '%s' over Streamable HTTP: %s",
+                server_name,
+                e,
             )
             await stack.aclose()
             if server_name in self.exit_stacks:
@@ -118,16 +118,16 @@ class MCPSessionManager:
         self,
         server_name: str,
         url: str,
-        headers: Optional[Dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
         timeout: float = 5,
         sse_read_timeout: float = 300,
-        auth: Optional[Any] = None,
+        auth: Any | None = None,
     ) -> ClientSession:
-        """
-        Connects to an MCP server using the legacy HTTP+SSE transport.
+        """Connect to an MCP server using the legacy HTTP+SSE transport.
+
         Prefer connect_streamable_http for new remote servers.
         """
-        logger.info(f"Connecting to MCP server '{server_name}' over legacy SSE: {url}")
+        logger.info("Connecting to MCP server '%s' over legacy SSE: %s", server_name, url)
 
         stack = AsyncExitStack()
         self.exit_stacks[server_name] = stack
@@ -140,7 +140,7 @@ class MCPSessionManager:
                     timeout=timeout,
                     sse_read_timeout=sse_read_timeout,
                     auth=auth,
-                )
+                ),
             )
 
             session = await stack.enter_async_context(ClientSession(read, write))
@@ -148,25 +148,22 @@ class MCPSessionManager:
 
             self.sessions[server_name] = session
             logger.info(
-                f"Successfully connected and initialized MCP server '{server_name}' over SSE"
+                "Successfully connected and initialized MCP server '%s' over SSE",
+                server_name,
             )
             return session
 
         except Exception as e:
-            logger.error(
-                f"Failed to connect to MCP server '{server_name}' over SSE: {e}"
-            )
+            logger.error("Failed to connect to MCP server '%s' over SSE: %s", server_name, e)
             await stack.aclose()
             if server_name in self.exit_stacks:
                 del self.exit_stacks[server_name]
             raise
 
     async def disconnect_server(self, server_name: str):
-        """
-        Disconnects from an MCP server and cleans up resources.
-        """
+        """Disconnects from an MCP server and cleans up resources."""
         if server_name in self.exit_stacks:
-            logger.info(f"Disconnecting MCP server '{server_name}'")
+            logger.info("Disconnecting MCP server '%s'", server_name)
             await self.exit_stacks[server_name].aclose()
             del self.exit_stacks[server_name]
 
@@ -176,13 +173,20 @@ class MCPSessionManager:
         if server_name in self.session_ids:
             del self.session_ids[server_name]
 
-    def get_session(self, server_name: str) -> Optional[ClientSession]:
+    def get_session(self, server_name: str) -> ClientSession | None:
+        """Retrieve session.
+
+        Args:
+            server_name (str): str server name.
+
+        Returns:
+            ClientSession | None: The clientsession | none result.
+
+        """
         return self.sessions.get(server_name)
 
     async def cleanup(self):
-        """
-        Disconnects all active MCP servers.
-        """
+        """Disconnects all active MCP servers."""
         servers = list(self.exit_stacks.keys())
         for server in servers:
             await self.disconnect_server(server)

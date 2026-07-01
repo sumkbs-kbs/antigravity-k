@@ -1,14 +1,15 @@
-import logging
+"""Server module."""
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-import os
-from fastapi.staticfiles import StaticFiles
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from antigravity_k.config import config
 import asyncio
+import logging
+import os
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from antigravity_k.config import config
 
 logger = logging.getLogger("antigravity_k.api.server")
 
@@ -17,10 +18,14 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Lifespan.
+
+    Args:
+        app (FastAPI): FastAPI app.
+
+    """
     # Startup — Sidabari 패턴 기반 서브시스템 초기화
-    project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    )
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     vault_data_dir = os.path.join(project_root, "vault_data")
 
     # 1) HookEventBus 초기화 (파일 기반 실시간 이벤트 IPC)
@@ -29,8 +34,8 @@ async def lifespan(app: FastAPI):
 
         init_hook_event_bus(vault_data_dir)
         logger.info("[Startup] HookEventBus initialized")
-    except Exception as e:
-        logger.warning(f"[Startup] HookEventBus init skipped: {e}")
+    except Exception:
+        logger.exception("[Startup] HookEventBus init skipped")
 
     # 2) AuditDb 초기화 (SQLite 감사 로그)
     try:
@@ -38,8 +43,8 @@ async def lifespan(app: FastAPI):
 
         init_audit_db(vault_data_dir)
         logger.info("[Startup] AuditDb initialized")
-    except Exception as e:
-        logger.warning(f"[Startup] AuditDb init skipped: {e}")
+    except Exception:
+        logger.exception("[Startup] AuditDb init skipped")
 
     # 3) PanelActivityTracker 초기화 (에이전트 활동 추적)
     try:
@@ -49,8 +54,8 @@ async def lifespan(app: FastAPI):
 
         init_panel_activity_tracker()
         logger.info("[Startup] PanelActivityTracker initialized")
-    except Exception as e:
-        logger.warning(f"[Startup] PanelActivityTracker init skipped: {e}")
+    except Exception:
+        logger.exception("[Startup] PanelActivityTracker init skipped")
 
     # 4) EventBus ↔ HookEventBus 듀얼 싱크 브릿지
     try:
@@ -58,8 +63,8 @@ async def lifespan(app: FastAPI):
 
         bridge_to_hook_event_bus()
         logger.info("[Startup] EventBus dual-sync bridge established")
-    except Exception as e:
-        logger.warning(f"[Startup] EventBus bridge skipped: {e}")
+    except Exception:
+        logger.exception("[Startup] EventBus bridge skipped")
 
     # 5) RAG 자동 인덱싱 (기존)
     try:
@@ -69,11 +74,9 @@ async def lifespan(app: FastAPI):
             try:
                 indexer = RAGIndexer(project_root=project_root)
                 count = indexer.index_project()
-                logger.info(
-                    f"[RAG] Background indexing complete: {count} files indexed"
-                )
-            except Exception as e:
-                logger.warning(f"[RAG] Background indexing failed: {e}")
+                logger.info("[RAG] Background indexing complete: %s files indexed", count)
+            except Exception:
+                logger.exception("[RAG] Background indexing failed")
 
         task = asyncio.create_task(_bg_index())
         if not hasattr(app.state, "background_tasks"):
@@ -81,8 +84,8 @@ async def lifespan(app: FastAPI):
         app.state.background_tasks.add(task)
         task.add_done_callback(app.state.background_tasks.discard)
         logger.info("[RAG] Background indexing started")
-    except Exception as e:
-        logger.warning(f"[RAG] Auto-index startup skipped: {e}")
+    except Exception:
+        logger.exception("[RAG] Auto-index startup skipped")
 
     # 6) IDE Server (code-server Web IDE)
     try:
@@ -92,17 +95,13 @@ async def lifespan(app: FastAPI):
         ide_server.start()
         app.state.ide_server = ide_server
         logger.info("[Startup] IDE Server initialized on port 8080")
-    except Exception as e:
-        logger.warning(f"[Startup] IDE Server init skipped: {e}")
+    except Exception:
+        logger.exception("[Startup] IDE Server init skipped")
 
     yield
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")
-    tasks = [
-        task
-        for task in getattr(app.state, "background_tasks", set())
-        if not task.done()
-    ]
+    tasks = [task for task in getattr(app.state, "background_tasks", set()) if not task.done()]
     for task in tasks:
         task.cancel()
     if tasks:
@@ -114,6 +113,7 @@ async def lifespan(app: FastAPI):
 
         get_hook_event_bus().shutdown()
     except Exception:
+        logger.exception("Unhandled exception")
         pass
 
     try:
@@ -121,15 +121,17 @@ async def lifespan(app: FastAPI):
 
         get_audit_db().close()
     except Exception:
+        logger.exception("Unhandled exception")
         pass
 
     try:
         if hasattr(app.state, "ide_server"):
             app.state.ide_server.stop()
     except Exception:
+        logger.exception("Unhandled exception")
         pass
 
-    logger.info(f"Shutdown complete: {len(tasks)} tasks cancelled.")
+    logger.info("Shutdown complete: %s tasks cancelled.", len(tasks))
 
 
 app = FastAPI(
@@ -150,8 +152,8 @@ app.add_middleware(
 
 @app.middleware("http")
 async def verify_access_pin(request: Request, call_next):
-    """
-    API 접근 시 설정된 보안 PIN을 검증합니다.
+    """API 접근 시 설정된 보안 PIN을 검증하세요.
+
     Header(X-Access-Pin) 또는 Cookie(ag_access_pin)를 통해 검사합니다.
     """
     if request.url.path.startswith("/api/"):
@@ -181,8 +183,8 @@ from fastapi.responses import StreamingResponse
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
 )
 async def reverse_proxy_ide(request: Request, path: str):
-    """
-    code-server (Web IDE)에 대한 리버스 프록시
+    """code-server (Web IDE)에 대한 리버스 프록시.
+
     주의: 완벽한 VS Code 구동을 위해서는 WebSocket 프록싱이 필요하며,
     현 구현은 기초적인 HTTP 프록싱만 제공합니다. 실사용 시 Nginx 등을 권장합니다.
     """
@@ -198,7 +200,10 @@ async def reverse_proxy_ide(request: Request, path: str):
         req_headers.pop("host", None)
 
         rp_req = client.build_request(
-            request.method, url, headers=req_headers, content=await request.body()
+            request.method,
+            url,
+            headers=req_headers,
+            content=await request.body(),
         )
         try:
             rp_resp = await client.send(rp_req, stream=True)
@@ -224,7 +229,8 @@ if os.path.exists(dashboard_path):
     app.mount("/", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
 else:
     logger.warning(
-        f"Dashboard build not found at {dashboard_path}. Please run npm run build in dashboard/"
+        "Dashboard build not found at %s. Please run npm run build in dashboard/",
+        dashboard_path,
     )
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Deterministic Worker (결정론적 실행 엔진)
+"""Antigravity-K: Deterministic Worker (결정론적 실행 엔진).
+
 =========================================================
 LLM은 "무엇을 할지 판단"만 하고, 실제 실행은 Python이 담당.
 
@@ -26,7 +26,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.deterministic_worker")
 
@@ -35,7 +35,7 @@ logger = logging.getLogger("antigravity_k.deterministic_worker")
 
 
 class TaskIntent(Enum):
-    """Deterministic Worker가 처리할 수 있는 작업 유형"""
+    """Deterministic Worker가 처리할 수 있는 작업 유형."""
 
     STOCK_LOOKUP = "stock_lookup"  # 주가 조회
     WEATHER_CHECK = "weather_check"  # 날씨 조회
@@ -51,17 +51,17 @@ class TaskIntent(Enum):
 
 @dataclass
 class WorkerDecision:
-    """LLM이 내리는 판단 결과 (구조화된 JSON으로 강제)"""
+    """LLM이 내리는 판단 결과 (구조화된 JSON으로 강제)."""
 
     intent: TaskIntent
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     reasoning: str = ""
 
 
 @dataclass
 class WorkerResult:
-    """레시피 실행 결과"""
+    """레시피 실행 결과."""
 
     success: bool
     data: Any = None
@@ -87,28 +87,28 @@ class WorkerRecipe(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """레시피 이름"""
+        """레시피 이름."""
 
     @property
     @abstractmethod
     def intent(self) -> TaskIntent:
-        """처리할 작업 유형"""
+        """처리할 작업 유형."""
 
     @property
     @abstractmethod
-    def parameter_schema(self) -> Dict[str, Any]:
-        """JSON Schema 형태의 파라미터 정의"""
+    def parameter_schema(self) -> dict[str, Any]:
+        """JSON Schema 형태의 파라미터 정의."""
 
     @abstractmethod
-    def validate(self, params: Dict[str, Any]) -> bool:
-        """파라미터 유효성 검증"""
+    def validate(self, params: dict[str, Any]) -> bool:
+        """파라미터 유효성 검증."""
 
     @abstractmethod
-    def execute(self, params: Dict[str, Any]) -> WorkerResult:
-        """결정론적 실행"""
+    def execute(self, params: dict[str, Any]) -> WorkerResult:
+        """결정론적 실행."""
 
     def format_output(self, result: WorkerResult) -> str:
-        """결과를 사용자 친화적 마크다운으로 포맷 (오버라이드 가능)"""
+        """결과를 사용자 친화적 마크다운으로 포맷 (오버라이드 가능)."""
         if result.error:
             return f"> [!WARNING]\n> 실행 중 오류: {result.error}"
         return result.formatted_output or str(result.data)
@@ -118,18 +118,36 @@ class WorkerRecipe(ABC):
 
 
 class WebSearchRecipe(WorkerRecipe):
-    """웹 검색 + 결과 요약 레시피"""
+    """웹 검색 + 결과 요약 레시피."""
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "web_search"
 
     @property
     def intent(self) -> TaskIntent:
+        """Intent.
+
+        Returns:
+            TaskIntent: The taskintent result.
+
+        """
         return TaskIntent.WEB_SEARCH
 
     @property
-    def parameter_schema(self) -> Dict[str, Any]:
+    def parameter_schema(self) -> dict[str, Any]:
+        """Parameter Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "type": "object",
             "properties": {
@@ -139,10 +157,28 @@ class WebSearchRecipe(WorkerRecipe):
             "required": ["query"],
         }
 
-    def validate(self, params: Dict[str, Any]) -> bool:
+    def validate(self, params: dict[str, Any]) -> bool:
+        """Validate.
+
+        Args:
+            params (dict[str, Any]): dict[str, Any] params.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return bool(params.get("query", "").strip())
 
-    def execute(self, params: Dict[str, Any]) -> WorkerResult:
+    def execute(self, params: dict[str, Any]) -> WorkerResult:
+        """Execute.
+
+        Args:
+            params (dict[str, Any]): dict[str, Any] params.
+
+        Returns:
+            WorkerResult: The workerresult result.
+
+        """
         start = time.time()
         try:
             from antigravity_k.tools.web_search import WebSearchTool
@@ -159,6 +195,7 @@ class WebSearchRecipe(WorkerRecipe):
                 recipe_name=self.name,
             )
         except Exception as e:
+            logger.exception("Unhandled exception")
             elapsed = (time.time() - start) * 1000
             return WorkerResult(
                 success=False,
@@ -169,18 +206,36 @@ class WebSearchRecipe(WorkerRecipe):
 
 
 class FileReadRecipe(WorkerRecipe):
-    """파일 읽기 레시피"""
+    """파일 읽기 레시피."""
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "file_read"
 
     @property
     def intent(self) -> TaskIntent:
+        """Intent.
+
+        Returns:
+            TaskIntent: The taskintent result.
+
+        """
         return TaskIntent.FILE_OPERATION
 
     @property
-    def parameter_schema(self) -> Dict[str, Any]:
+    def parameter_schema(self) -> dict[str, Any]:
+        """Parameter Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "type": "object",
             "properties": {
@@ -191,20 +246,38 @@ class FileReadRecipe(WorkerRecipe):
             "required": ["path"],
         }
 
-    def validate(self, params: Dict[str, Any]) -> bool:
+    def validate(self, params: dict[str, Any]) -> bool:
+        """Validate.
+
+        Args:
+            params (dict[str, Any]): dict[str, Any] params.
+
+        Returns:
+            bool: The bool result.
+
+        """
         import os
 
         path = params.get("path", "")
         return bool(path) and os.path.exists(path)
 
-    def execute(self, params: Dict[str, Any]) -> WorkerResult:
+    def execute(self, params: dict[str, Any]) -> WorkerResult:
+        """Execute.
+
+        Args:
+            params (dict[str, Any]): dict[str, Any] params.
+
+        Returns:
+            WorkerResult: The workerresult result.
+
+        """
         start = time.time()
         try:
             path = params["path"]
             start_line = params.get("start_line", 1)
             end_line = params.get("end_line", -1)
 
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 lines = f.readlines()
 
             if end_line == -1:
@@ -221,6 +294,7 @@ class FileReadRecipe(WorkerRecipe):
                 recipe_name=self.name,
             )
         except Exception as e:
+            logger.exception("Unhandled exception")
             elapsed = (time.time() - start) * 1000
             return WorkerResult(
                 success=False,
@@ -278,10 +352,18 @@ class DeterministicWorker:
         judge_model: str = "",
         formatter_model: str = "",
     ):
+        """Initialize the DeterministicWorker.
+
+        Args:
+            model_manager: model manager.
+            judge_model (str): str judge model.
+            formatter_model (str): str formatter model.
+
+        """
         self._manager = model_manager
         self._judge_model = judge_model
         self._formatter_model = formatter_model
-        self._recipes: Dict[TaskIntent, WorkerRecipe] = {}
+        self._recipes: dict[TaskIntent, WorkerRecipe] = {}
 
         # 내장 레시피 자동 등록
         self.register_recipe(WebSearchRecipe())
@@ -290,9 +372,7 @@ class DeterministicWorker:
     def register_recipe(self, recipe: WorkerRecipe) -> None:
         """레시피를 등록합니다."""
         self._recipes[recipe.intent] = recipe
-        logger.info(
-            f"[DeterministicWorker] 레시피 등록: {recipe.name} ({recipe.intent.value})"
-        )
+        logger.info("[DeterministicWorker] 레시피 등록: %s (%s)", recipe.name, recipe.intent.value)
 
     def unregister_recipe(self, intent: TaskIntent) -> bool:
         """레시피를 해제합니다."""
@@ -301,7 +381,7 @@ class DeterministicWorker:
             return True
         return False
 
-    def list_recipes(self) -> List[Dict[str, Any]]:
+    def list_recipes(self) -> list[dict[str, Any]]:
         """등록된 레시피 목록을 반환합니다."""
         return [
             {
@@ -320,6 +400,7 @@ class DeterministicWorker:
 
         Returns:
             WorkerDecision: 구조화된 판단 결과
+
         """
         if not self._manager:
             return WorkerDecision(intent=TaskIntent.UNKNOWN, confidence=0.0)
@@ -333,16 +414,11 @@ class DeterministicWorker:
         )
         for recipe in self._recipes.values():
             props = recipe.parameter_schema.get("properties", {})
-            param_desc = ", ".join(
-                f"{k}: {v.get('description', v.get('type', ''))}"
-                for k, v in props.items()
-            )
+            param_desc = ", ".join(f"{k}: {v.get('description', v.get('type', ''))}" for k, v in props.items())
             judge_prompt += f"- {recipe.intent.value}: {param_desc}\n"
 
         judge_prompt += (
-            f"\n사용자 입력: {user_input}\n\n"
-            "위 입력에 가장 적합한 intent를 선택하고, "
-            "필요한 parameters를 추출하세요."
+            f"\n사용자 입력: {user_input}\n\n위 입력에 가장 적합한 intent를 선택하고, 필요한 parameters를 추출하세요."
         )
 
         try:
@@ -368,8 +444,8 @@ class DeterministicWorker:
                 confidence=parsed.get("confidence", 0.5),
                 reasoning=parsed.get("reasoning", ""),
             )
-        except Exception as e:
-            logger.warning(f"[DeterministicWorker] 판단 실패: {e}")
+        except Exception:
+            logger.exception("[DeterministicWorker] 판단 실패")
             return WorkerDecision(intent=TaskIntent.UNKNOWN, confidence=0.0)
 
     def execute(self, decision: WorkerDecision) -> WorkerResult:
@@ -389,10 +465,7 @@ class DeterministicWorker:
                 recipe_name=recipe.name,
             )
 
-        logger.info(
-            f"[DeterministicWorker] 실행: {recipe.name} "
-            f"(params: {decision.parameters})"
-        )
+        logger.info("[DeterministicWorker] 실행: %s (params: %s)", recipe.name, decision.parameters)
         return recipe.execute(decision.parameters)
 
     def format_response(
@@ -439,8 +512,8 @@ class DeterministicWorker:
                 max_tokens=2048,
             )
             return formatted
-        except Exception as e:
-            logger.warning(f"[DeterministicWorker] 포맷 실패: {e}")
+        except Exception:
+            logger.exception("[DeterministicWorker] 포맷 실패")
             return result.formatted_output
 
     def run(self, user_input: str) -> WorkerResult:
@@ -455,12 +528,14 @@ class DeterministicWorker:
 
         Returns:
             WorkerResult with formatted_output 포함
+
         """
         # 1) 판단
         decision = self.judge(user_input)
         logger.info(
-            f"[DeterministicWorker] 판단 완료: "
-            f"{decision.intent.value} (신뢰도: {decision.confidence:.0%})"
+            "[DeterministicWorker] 판단 완료: %s (신뢰도: %s)",
+            decision.intent.value,
+            decision.confidence,
         )
 
         if decision.intent == TaskIntent.UNKNOWN or decision.confidence < 0.4:
@@ -479,7 +554,7 @@ class DeterministicWorker:
 
         return result
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """워커 상태를 반환합니다."""
         return {
             "registered_recipes": len(self._recipes),

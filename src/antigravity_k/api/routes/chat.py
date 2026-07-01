@@ -1,21 +1,21 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+import asyncio
 import json
 import logging
-import asyncio
 
-from antigravity_k.engine.model_manager import ModelManager
-from antigravity_k.engine.protocol_translator import ProtocolTranslator, APIFormat
-from antigravity_k.engine.audit_logger import get_audit_logger
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 # 이 함수들은 server.py의 의존성 주입 함수들을 참조합니다.
 # 순환 참조를 피하기 위해 내부 임포트를 사용하거나 server.py에서 공유 모듈로 분리하는 것이 좋습니다.
 # 여기서는 router.dependencies를 사용하지 않고 직접 가져옵니다.
 from antigravity_k.api.dependencies import (
     get_model_manager,
-    get_translator,
     get_orchestrator,
+    get_translator,
 )
+from antigravity_k.engine.audit_logger import get_audit_logger
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.protocol_translator import APIFormat, ProtocolTranslator
 
 logger = logging.getLogger("antigravity_k.api.chat")
 
@@ -31,11 +31,7 @@ def _latest_user_text(messages: list[dict]) -> str:
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
-            parts = [
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            ]
+            parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
             return " ".join(parts).strip()
     return ""
 
@@ -62,8 +58,9 @@ def _stream_text_response(text: str, model: str):
 
 @router.get("/v1/chat/completions/reconnect")
 async def chat_reconnect():
-    from .legacy import _active_session
     import asyncio
+
+    from .legacy import _active_session
 
     async def event_generator():
         if not _active_session.is_active:
@@ -86,11 +83,7 @@ async def chat_reconnect():
             await asyncio.sleep(0.5)
 
         if _active_session.error:
-            data = {
-                "choices": [
-                    {"delta": {"content": f"\n\n[Error: {_active_session.error}]"}}
-                ]
-            }
+            data = {"choices": [{"delta": {"content": f"\n\n[Error: {_active_session.error}]"}}]}
             yield f"data: {json.dumps(data)}\n\n"
 
         yield "data: [DONE]\n\n"
@@ -152,7 +145,7 @@ async def chat_completions(
 
             def _classify_intent():
                 prompt = (
-                    "You are an autonomous intent router. Analyze the user request and categorize it into ONE of these exactly:\n"
+                    "You are an autonomous intent router. Analyze the user request and categorize it into ONE of these exactly:\n"  # noqa: E501
                     "1. 'TDD' - requires writing new code, fixing bugs, or implementing software features.\n"
                     "2. 'SEARCH' - simple web search for information (e.g. stock price, weather, news).\n"
                     "3. 'GENERAL' - simple question, explanation, general chat.\n\n"
@@ -174,6 +167,7 @@ async def chat_completions(
                         return "SEARCH"
                     return "GENERAL"
                 except Exception as e:
+                    logger.exception("Unhandled exception")
                     logger_auto.warning(f"Auto-Intent LLM classification failed: {e}")
                     return "GENERAL"
 
@@ -182,20 +176,16 @@ async def chat_completions(
             intent = await run_in_threadpool(_classify_intent)
 
             if intent == "TDD":
-                logger_auto.info(
-                    f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}"
-                )
+                logger_auto.info(f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}")
                 is_tdd_mode = True
             elif intent == "SEARCH":
-                logger_auto.info(
-                    f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}"
-                )
+                logger_auto.info(f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}")
                 is_fast_search = True
 
     if is_fast_search:
         try:
-            from antigravity_k.tools.web_search import WebSearchTool
             from antigravity_k.engine.prompt_builder import PromptBuilder
+            from antigravity_k.tools.web_search import WebSearchTool
 
             tool = WebSearchTool()
             search_res = tool.execute(query=slash_text)
@@ -219,7 +209,7 @@ async def chat_completions(
             if is_stream:
 
                 async def _fast_stream():
-                    yield f"data: {json.dumps({'id':'chatcmpl-stream','object':'chat.completion.chunk','model':target_model,'choices':[{'delta':{'content':'🔍 **빠른 웹 검색 모드 실행 중...**\\n\\n'},'index':0,'finish_reason':None}]}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'id': 'chatcmpl-stream', 'object': 'chat.completion.chunk', 'model': target_model, 'choices': [{'delta': {'content': '🔍 **빠른 웹 검색 모드 실행 중...**\\n\\n'}, 'index': 0, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"  # noqa: E501
                     # SEARCH 샘플링 프로파일 (low temp=0.15, min_p=0.05)
                     gen = manager.stream_generate(
                         prompt=fast_prompt,
@@ -265,15 +255,10 @@ async def chat_completions(
                         {"role": "assistant", "content": fast_res},
                     ]
                 )
-                target_format = (
-                    source_format
-                    if source_format != APIFormat.INTERNAL
-                    else APIFormat.OPENAI
-                )
-                return translator.translate_response(
-                    internal_resp, target=target_format
-                )
+                target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
+                return translator.translate_response(internal_resp, target=target_format)
         except Exception as e:
+            logger.exception("Unhandled exception")
             logger_auto.error(f"Fast search failed: {e}. Falling back to normal mode.")
             is_fast_search = False
 
@@ -287,6 +272,7 @@ async def chat_completions(
             __get_skill_loader,
             __get_tool_registry,
         )
+
         from . import legacy as legacy_routes
 
         registry = legacy_routes._get_slash_registry()
@@ -314,9 +300,7 @@ async def chat_completions(
             "tokens_in": len(slash_text) // 4,
             "tokens_out": len(result) // 4,
         }
-        target_format = (
-            source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
-        )
+        target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
         return translator.translate_response(internal_resp, target=target_format)
 
     if slash_text.startswith("/"):
@@ -350,9 +334,7 @@ async def chat_completions(
                             await asyncio.sleep(0.01)
                         yield "data: [DONE]\n\n"
 
-                    return StreamingResponse(
-                        _gen_stream(), media_type="text/event-stream"
-                    )
+                    return StreamingResponse(_gen_stream(), media_type="text/event-stream")
                 else:
                     result = "".join(list(result))
 
@@ -366,11 +348,7 @@ async def chat_completions(
                 "tokens_in": len(slash_text) // 4,
                 "tokens_out": len(result) // 4,
             }
-            target_format = (
-                source_format
-                if source_format != APIFormat.INTERNAL
-                else APIFormat.OPENAI
-            )
+            target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
             return translator.translate_response(internal_resp, target=target_format)
 
     # TDD Mode: OmniTDDEngine 비동기 실행 및 실시간 스트리밍 반환
@@ -382,9 +360,7 @@ async def chat_completions(
             if msg.get("role") == "user":
                 content = msg.get("content", "")
                 if isinstance(content, list):
-                    content = " ".join(
-                        [c.get("text", "") for c in content if c.get("type") == "text"]
-                    )
+                    content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
                 prompt += content + "\n"
 
         # 간단한 정규식으로 타겟 파일 경로 추출 시도 (예: 파일명.py)
@@ -396,9 +372,7 @@ async def chat_completions(
             # 기본 작업 공간 기준 경로
             import os
 
-            target_file_path = os.path.join(
-                "/Users/mr.k/program/coding/ssak_comp/antigravity-k", target_file_path
-            )
+            target_file_path = os.path.join("/Users/mr.k/program/coding/ssak_comp/antigravity-k", target_file_path)
 
         async def tdd_event_generator():
             def yield_chunk(text):
@@ -406,27 +380,19 @@ async def chat_completions(
                     "id": "chatcmpl-stream",
                     "object": "chat.completion.chunk",
                     "model": target_model,
-                    "choices": [
-                        {"delta": {"content": text}, "index": 0, "finish_reason": None}
-                    ],
+                    "choices": [{"delta": {"content": text}, "index": 0, "finish_reason": None}],
                 }
                 return f"data: {json.dumps(data)}\n\n"
 
             try:
-                yield yield_chunk(
-                    "🧪 **Omni-TDD Mode Activated**\n\nStarting multi-model racing engine...\n\n"
-                )
-                yield yield_chunk(
-                    "⏳ Sandboxed generation and testing in progress... (This may take 1-2 minutes)\n\n"
-                )
+                yield yield_chunk("🧪 **Omni-TDD Mode Activated**\n\nStarting multi-model racing engine...\n\n")
+                yield yield_chunk("⏳ Sandboxed generation and testing in progress... (This may take 1-2 minutes)\n\n")
 
                 engine = OmniTDDEngine(coding_model=target_model)
-                report = await engine.run_tdd_loop(
-                    prompt, target_file_path=target_file_path
-                )
+                report = await engine.run_tdd_loop(prompt, target_file_path=target_file_path)
 
                 if report.status == "passed":
-                    meta = f"✅ **TDD Completed Successfully**\n\n- **Winner:** `{report.winner_source}`\n- **Iterations:** {report.total_iterations}\n- **Duration:** {report.duration_ms/1000:.1f}s\n"
+                    meta = f"✅ **TDD Completed Successfully**\n\n- **Winner:** `{report.winner_source}`\n- **Iterations:** {report.total_iterations}\n- **Duration:** {report.duration_ms / 1000:.1f}s\n"  # noqa: E501
                     if report.skipped_racing:
                         meta += "- **Mode:** Adaptive (local-only, racing skipped)\n"
                     if target_file_path:
@@ -438,7 +404,7 @@ async def chat_completions(
                     else:
                         res = meta + f"```python\n{report.final_code}\n```\n"
                 else:
-                    res = f"❌ **TDD Failed**\n\n- **Iterations:** {report.total_iterations}\n- **Error:** {report.error}\n"
+                    res = f"❌ **TDD Failed**\n\n- **Iterations:** {report.total_iterations}\n- **Error:** {report.error}\n"  # noqa: E501
 
                 yield yield_chunk(res)
                 yield "data: [DONE]\n\n"
@@ -496,23 +462,17 @@ async def chat_completions(
             import os
 
             config_path = os.path.join(
-                os.path.dirname(
-                    os.path.dirname(
-                        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                    )
-                ),
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
                 "config.yaml",
             )
             with open(config_path, "r") as f:
                 cfg = yaml.safe_load(f)
             vision_model = cfg.get("defaults", {}).get("vision")
             if vision_model:
-                logger.info(
-                    f"[Vision Auto-Routing] 이미지 감지 → 모델 전환: {target_model} → {vision_model}"
-                )
+                logger.info(f"[Vision Auto-Routing] 이미지 감지 → 모델 전환: {target_model} → {vision_model}")
                 target_model = vision_model
-        except Exception as e:
-            logger.warning(f"Vision auto-routing config read failed: {e}")
+        except Exception:
+            logger.exception("Vision auto-routing config read failed")
 
     audit = get_audit_logger()
     audit.log_event(
@@ -542,9 +502,7 @@ async def chat_completions(
         async def event_generator():
             full_response = ""
             try:
-                async for chunk in iterate_in_threadpool(
-                    orchestrator.run_stream(messages, target_model=target_model)
-                ):
+                async for chunk in iterate_in_threadpool(orchestrator.run_stream(messages, target_model=target_model)):
                     full_response += chunk
                     active_session.history.append(chunk)
                     data = {
@@ -604,9 +562,7 @@ async def chat_completions(
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if isinstance(content, list):
-            content = " ".join(
-                [c.get("text", "") for c in content if c.get("type") == "text"]
-            )
+            content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
         prompt += f"{role.capitalize()}: {content}\n"
     prompt += "Assistant: "
 
@@ -620,9 +576,7 @@ async def chat_completions(
 
             def event_generator_native():
                 full_response = ""
-                for chunk in manager.stream_generate(
-                    prompt=prompt, target=target_model, **kwargs
-                ):
+                for chunk in manager.stream_generate(prompt=prompt, target=target_model, **kwargs):
                     full_response += chunk
                     data = {
                         "id": "chatcmpl-stream",
@@ -647,13 +601,9 @@ async def chat_completions(
                 )
                 yield "data: [DONE]\n\n"
 
-            return StreamingResponse(
-                event_generator_native(), media_type="text/event-stream"
-            )
+            return StreamingResponse(event_generator_native(), media_type="text/event-stream")
         else:
-            response_text = manager.generate(
-                prompt=prompt, target=target_model, **kwargs
-            )
+            response_text = manager.generate(prompt=prompt, target=target_model, **kwargs)
 
             user_msg = _latest_user_text(messages)
             session_manager.add_turn(
@@ -670,11 +620,7 @@ async def chat_completions(
                 "tokens_in": len(prompt) // 4,
                 "tokens_out": len(response_text) // 4,
             }
-            target_format = (
-                source_format
-                if source_format != APIFormat.INTERNAL
-                else APIFormat.OPENAI
-            )
+            target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
             return translator.translate_response(internal_resp, target=target_format)
     except Exception as e:
         logger.error(f"Generation error: {e}", exc_info=True)

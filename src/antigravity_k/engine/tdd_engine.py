@@ -1,14 +1,16 @@
+"""Tdd Engine module."""
+
 import asyncio
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import time
-import shutil
-import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Tuple
+
 import httpx
 
 from antigravity_k.engine.external_brain import ExternalBrainRouter
@@ -18,6 +20,11 @@ logger = logging.getLogger("antigravity_k.tdd_engine")
 
 
 class TDDStatus(str, Enum):
+    """Tddstatus.
+
+    Bases: str, Enum
+    """
+
     PENDING = "pending"
     GENERATING = "generating"
     TESTING = "testing"
@@ -28,6 +35,8 @@ class TDDStatus(str, Enum):
 
 @dataclass
 class TDDCandidate:
+    """Tddcandidate."""
+
     source: str
     code: str
     stdout: str = ""
@@ -39,27 +48,37 @@ class TDDCandidate:
 
 @dataclass
 class TDDAttempt:
+    """Tddattempt."""
+
     iteration: int
     test_code: str
-    candidates: List[TDDCandidate] = field(default_factory=list)
+    candidates: list[TDDCandidate] = field(default_factory=list)
     winner_source: str = ""
     duration_ms: float = 0.0
 
 
 @dataclass
 class TDDReport:
+    """Tddreport."""
+
     prompt: str
     status: TDDStatus = TDDStatus.PENDING
     final_code: str = ""
     explanation: str = ""
     winner_source: str = ""
     total_iterations: int = 0
-    attempts: List[TDDAttempt] = field(default_factory=list)
+    attempts: list[TDDAttempt] = field(default_factory=list)
     duration_ms: float = 0.0
     error: str = ""
     skipped_racing: bool = False
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return {
             "prompt": self.prompt,
             "status": self.status.value,
@@ -91,8 +110,8 @@ class TDDReport:
 
 
 class OmniTDDEngine:
-    """
-    Omni-Resource Test-Driven Generation Engine.
+    """Omni-Resource Test-Driven Generation Engine.
+
     가용 가능한 모든 두뇌(로컬 모델, ChatGPT 웹, Gemini 앱 등)를 동시에 호출하여
     코드를 작성하고, 테스트를 통과한 최적의 코드를 선별(Racing & Synthesis)합니다.
     """
@@ -104,14 +123,21 @@ class OmniTDDEngine:
         max_iterations: int = 3,
         workspace_dir: str = "",
     ):
+        """Initialize the OmniTDDEngine.
+
+        Args:
+            ollama_url (str): str ollama url.
+            coding_model (str): str coding model.
+            max_iterations (int): int max iterations.
+            workspace_dir (str): str workspace dir.
+
+        """
         self.ollama_url = ollama_url
         self.coding_model = coding_model
         self.max_iterations = max_iterations
         self.workspace_dir = workspace_dir or os.path.join(
             os.path.dirname(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                )
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             ),
             "tests",
             ".tdd_tmp",
@@ -143,9 +169,17 @@ class OmniTDDEngine:
         # 30토큰 미만 + 단순 지시어 → 레이싱 불필요
         return token_count < 30 and has_simple
 
-    async def run_tdd_loop(
-        self, prompt: str, target_file_path: str = None
-    ) -> TDDReport:
+    async def run_tdd_loop(self, prompt: str, target_file_path: str = None) -> TDDReport:
+        """Run tdd loop.
+
+        Args:
+            prompt (str): str prompt.
+            target_file_path (str): str target file path.
+
+        Returns:
+            TDDReport: The tddreport result.
+
+        """
         report = TDDReport(prompt=prompt)
         start_time = time.time()
         skip_racing = self._should_skip_racing(prompt)
@@ -156,7 +190,7 @@ class OmniTDDEngine:
 
         current_test_code = ""
         # 에러 로그 풀 (각 소스별 에러를 저장하여 다음 라운드에 피드백)
-        error_logs: Dict[str, str] = {}
+        error_logs: dict[str, str] = {}
 
         try:
             for iteration in range(1, self.max_iterations + 1):
@@ -165,7 +199,9 @@ class OmniTDDEngine:
                 attempt = TDDAttempt(iteration=iteration, test_code="")
 
                 logger.info(
-                    f"[OmniTDD] Iteration {iteration} starting... (racing={'OFF' if skip_racing else 'ON'})"
+                    "[OmniTDD] Iteration %s starting... (racing=%s)",
+                    iteration,
+                    "OFF" if skip_racing else "ON",
                 )
 
                 if iteration == 1:
@@ -177,13 +213,8 @@ class OmniTDDEngine:
                     # 테스트 파일 기록
                     with open(test_file, "w", encoding="utf-8") as f:
                         test_code_to_write = current_test_code
-                        if (
-                            "import solution" not in test_code_to_write
-                            and "from solution" not in test_code_to_write
-                        ):
-                            test_code_to_write = (
-                                "import solution\n\n" + test_code_to_write
-                            )
+                        if "import solution" not in test_code_to_write and "from solution" not in test_code_to_write:
+                            test_code_to_write = "import solution\n\n" + test_code_to_write
                         f.write(test_code_to_write)
 
                     # 2. Adaptive: 단순 요청이면 로컬만, 복잡하면 멀티모델 레이싱
@@ -196,7 +227,9 @@ class OmniTDDEngine:
                     attempt.test_code = current_test_code
                     # 2. 다중 모델 병렬 버그 픽스
                     candidates = await self._get_fixed_candidates(
-                        prompt, current_test_code, error_logs
+                        prompt,
+                        current_test_code,
+                        error_logs,
                     )
 
                 if not candidates:
@@ -222,13 +255,13 @@ class OmniTDDEngine:
                     attempt.duration_ms = (time.time() - attempt_start) * 1000
                     report.attempts.append(attempt)
                     logger.info(
-                        f"[OmniTDD] Iteration {iteration} Success! Winner: {winner.source}"
+                        "[OmniTDD] Iteration %s Success! Winner: %s",
+                        iteration,
+                        winner.source,
                     )
 
                     # Response Reconstructor: 코드 + 한국어 설명 생성
-                    report.explanation = await self._reconstruct_response(
-                        prompt, winner.code
-                    )
+                    report.explanation = await self._reconstruct_response(prompt, winner.code)
 
                     if target_file_path:
                         try:
@@ -239,18 +272,18 @@ class OmniTDDEngine:
                             with open(target_file_path, "w", encoding="utf-8") as tf:
                                 tf.write(winner.code)
                             logger.info(
-                                f"[OmniTDD] Saved winning code to target path: {target_file_path}"
+                                "[OmniTDD] Saved winning code to target path: %s",
+                                target_file_path,
                             )
-                        except Exception as e:
-                            logger.error(
-                                f"[OmniTDD] Failed to write target file {target_file_path}: {e}"
+                        except Exception:
+                            logger.exception(
+                                "[OmniTDD] Failed to write target file %s",
+                                target_file_path,
                             )
 
                     break
                 else:
-                    logger.warning(
-                        f"[OmniTDD] Iteration {iteration} failed for all candidates."
-                    )
+                    logger.warning("[OmniTDD] Iteration %s failed for all candidates.", iteration)
                     # 다음 라운드 피드백용 에러 저장
                     for c in candidates:
                         error_logs[c.source] = (
@@ -262,12 +295,10 @@ class OmniTDDEngine:
 
             if report.status != TDDStatus.PASSED:
                 report.status = TDDStatus.FAILED
-                report.error = (
-                    "Max iterations reached. All models failed to pass the tests."
-                )
+                report.error = "Max iterations reached. All models failed to pass the tests."
 
         except Exception as e:
-            logger.error(f"[OmniTDD] Error: {e}")
+            logger.exception("[OmniTDD] Error")
             report.status = TDDStatus.FAILED
             report.error = str(e)
         finally:
@@ -299,13 +330,14 @@ class OmniTDDEngine:
             cand.exit_code = process.returncode
             cand.passed = cand.exit_code == 0
         except Exception as e:
+            logger.exception("Unhandled exception")
             cand.exit_code = -1
             cand.stderr = str(e)
             cand.passed = False
 
         cand.duration_ms = (time.time() - start) * 1000
 
-    async def _generate_local_baseline(self, prompt: str) -> Tuple[str, str]:
+    async def _generate_local_baseline(self, prompt: str) -> tuple[str, str]:
         """로컬 모델로부터 기준 테스트 코드(pytest)를 추출합니다."""
         sys_prompt = (
             "You are an expert Test-Driven Python Engineer. "
@@ -313,7 +345,8 @@ class OmniTDDEngine:
             "Output ONLY a single raw JSON object (no markdown fences, no explanations before or after). "
             'The JSON must have exactly two keys: "code" (the implementation) and "test_code" (the pytest tests). '
             "The test_code must import from 'solution' module (e.g. 'from solution import ...'). "
-            'Example output format: {"code": "def add(a,b):\\n    return a+b", "test_code": "from solution import add\\n\\ndef test_add():\\n    assert add(1,2)==3"}'
+            'Example output format: {"code": "def add(a,b):\\n    return a+b", "test_code": "from solution'  # type: ignore
+            'import add\\n\\ndef test_add():\\n    assert add(1,2)==3"}'
         )
         user_prompt = f"Requirement:\n{prompt}\n\nReturn only the JSON object:"
 
@@ -327,33 +360,31 @@ class OmniTDDEngine:
                 return data.get("code", ""), data.get("test_code", "")
             except json.JSONDecodeError:
                 # 2차: 이스케이프 문제 → 코드 블록에서 분리 시도
-                code_blocks = re.findall(
-                    r"```(?:python)?\s*(.*?)\s*```", content, re.DOTALL
-                )
+                code_blocks = re.findall(r"```(?:python)?\s*(.*?)\s*```", content, re.DOTALL)
                 if len(code_blocks) >= 2:
                     return code_blocks[0], code_blocks[1]
                 elif len(code_blocks) == 1:
                     return code_blocks[0], ""
         return "", ""
 
-    async def _get_local_only_candidate(self, prompt: str) -> List[TDDCandidate]:
+    async def _get_local_only_candidate(self, prompt: str) -> list[TDDCandidate]:
         """Adaptive Mode: 로컬 모델만으로 단독 코드 생성 (레이싱 스킵)."""
         logger.info("[OmniTDD] Adaptive mode — local model only (skip racing)")
-        sys = "You are an expert Python engineer. Provide only the raw python code. No markdown formatting, no explanations."
+        sys = "You are an expert Python engineer. Provide only the raw python code. No markdown formatting, no explanations."  # noqa: E501
         res = await self._call_llm(sys, f"Requirement:\n{prompt}")
         code = self._extract_python_code(res)
         if code:
             return [TDDCandidate(source=f"local({self.coding_model})", code=code)]
         return []
 
-    async def _get_initial_candidates(self, prompt: str) -> List[TDDCandidate]:
+    async def _get_initial_candidates(self, prompt: str) -> list[TDDCandidate]:
         """모든 가용 두뇌에 코딩을 요청합니다."""
         logger.info("[OmniTDD] Racing all available models...")
         tasks = []
 
         # 1. 로컬 모델
         async def local_task():
-            sys = "You are an expert Python engineer. Provide only the raw python code. No markdown formatting, no explanations."
+            sys = "You are an expert Python engineer. Provide only the raw python code. No markdown formatting, no explanations."  # noqa: E501
             res = await self._call_llm(sys, f"Requirement:\n{prompt}")
             code = self._extract_python_code(res)
             return TDDCandidate(source=f"local({self.coding_model})", code=code)
@@ -361,7 +392,10 @@ class OmniTDDEngine:
         tasks.append(local_task())
 
         # 2. 외부 두뇌 (ChatGPT, Gemini 등)
-        ext_prompt = f"You are an expert Python engineer. Implement the following requirement. Provide only the raw python code without markdown formatting or explanations.\n\nRequirement:\n{prompt}"
+        ext_prompt = (
+            "You are an expert Python engineer. Implement the following requirement. Provide only the raw python code"  # type: ignore
+        )
+        "without markdown formatting or explanations.\n\nRequirement:\n{prompt}"
 
         async def external_task():
             try:
@@ -379,8 +413,8 @@ class OmniTDDEngine:
                             if code:
                                 cands.append(TDDCandidate(source=source, code=code))
                 return cands
-            except Exception as e:
-                logger.error(f"[OmniTDD] External brain task failed: {e}")
+            except Exception:
+                logger.exception("[OmniTDD] External brain task failed")
                 return []
 
         tasks.append(external_task())
@@ -392,16 +426,17 @@ class OmniTDDEngine:
             if isinstance(r, TDDCandidate) and r.code:
                 candidates.append(r)
             elif isinstance(r, list):
-                candidates.extend(
-                    c for c in r if isinstance(c, TDDCandidate) and c.code
-                )
+                candidates.extend(c for c in r if isinstance(c, TDDCandidate) and c.code)
 
-        logger.info(f"[OmniTDD] Received {len(candidates)} candidates.")
+        logger.info("[OmniTDD] Received %s candidates.", len(candidates))
         return candidates
 
     async def _get_fixed_candidates(
-        self, prompt: str, test_code: str, error_logs: Dict[str, str]
-    ) -> List[TDDCandidate]:
+        self,
+        prompt: str,
+        test_code: str,
+        error_logs: dict[str, str],
+    ) -> list[TDDCandidate]:
         """실패한 각 두뇌에 자신의 에러 로그를 주어 버그 픽스를 요청합니다."""
         logger.info("[OmniTDD] Requesting bug fixes from all models...")
         tasks = []
@@ -411,12 +446,14 @@ class OmniTDDEngine:
         if local_source in error_logs:
 
             async def local_fix():
-                sys = "You are an expert Python engineer. The previous code failed the tests. Provide only the raw fixed python code. No markdown formatting."
-                user = f"Requirement:\n{prompt}\n\nTests:\n{test_code}\n\nMy Previous Attempt & Error:\n{error_logs[local_source]}\n\nPlease fix the code."
-                res = await self._call_llm(sys, user)
-                return TDDCandidate(
-                    source=local_source, code=self._extract_python_code(res)
+                sys = (
+                    "You are an expert Python engineer. The previous code failed the tests. Provide only the raw fixed"  # type: ignore
                 )
+                "python code. No markdown formatting."
+                user = f"Requirement:\n{prompt}\n\nTests:\n{test_code}\n\nMy Previous Attempt &"  # type: ignore
+                "Error:\n{error_logs[local_source]}\n\nPlease fix the code."
+                res = await self._call_llm(sys, user)
+                return TDDCandidate(source=local_source, code=self._extract_python_code(res))
 
             tasks.append(local_fix())
 
@@ -426,36 +463,35 @@ class OmniTDDEngine:
                 continue
 
             async def ext_fix(src=source, err=error):
-                ext_prompt = f"You are an expert Python engineer. The previous code failed. Provide only the raw fixed python code. No markdown formatting.\n\nRequirement:\n{prompt}\n\nTests:\n{test_code}\n\nMy Previous Attempt & Error:\n{err}"
+                ext_prompt = "You are an expert Python engineer. The previous code failed. Provide only the raw fixed python code. No markdown"  # type: ignore  # noqa: E501
+                "formatting.\n\nRequirement:\n{prompt}\n\nTests:\n{test_code}\n\nMy Previous Attempt & Error:\n{err}"
                 resp = await self.brain_router.send(ext_prompt, target=src)
                 if resp.success:
-                    return TDDCandidate(
-                        source=src, code=self._extract_python_code(resp.text)
-                    )
+                    return TDDCandidate(source=src, code=self._extract_python_code(resp.text))
                 return None
 
             tasks.append(ext_fix())
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         candidates = [r for r in results if isinstance(r, TDDCandidate) and r.code]
-        logger.info(f"[OmniTDD] Received {len(candidates)} fixed candidates.")
+        logger.info("[OmniTDD] Received %s fixed candidates.", len(candidates))
         return candidates
 
     async def _synthesize_results(
-        self, passed_candidates: List[TDDCandidate], prompt: str
+        self,
+        passed_candidates: list[TDDCandidate],
+        prompt: str,
     ) -> TDDCandidate:
         """통과한 여러 후보 중 최고의 코드를 로컬 심판 모델이 채택합니다."""
         if len(passed_candidates) == 1:
             return passed_candidates[0]
 
-        logger.info(
-            f"[OmniTDD] Synthesizing {len(passed_candidates)} passing candidates..."
-        )
+        logger.info("[OmniTDD] Synthesizing %s passing candidates...", len(passed_candidates))
         sys_prompt = "You are a senior principal engineer evaluating multiple working implementations."
         user_prompt = f"Requirement: {prompt}\n\n"
 
         for i, c in enumerate(passed_candidates):
-            user_prompt += f"Implementation {i+1} (Source: {c.source}):\n```python\n{c.code}\n```\n\n"
+            user_prompt += f"Implementation {i + 1} (Source: {c.source}):\n```python\n{c.code}\n```\n\n"
 
         user_prompt += (
             "All implementations pass the tests. Choose the best one based on performance, "
@@ -474,9 +510,7 @@ class OmniTDDEngine:
         # 기본값으로 가장 짧은 코드(또는 첫 번째) 선택
         return passed_candidates[0]
 
-    async def _reconstruct_response(
-        self, original_prompt: str, winning_code: str
-    ) -> str:
+    async def _reconstruct_response(self, original_prompt: str, winning_code: str) -> str:
         """Response Reconstructor: 우승 코드를 기반으로 완전한 한국어 응답을 생성합니다.
 
         TDD 엔진의 핵심 품질 게이트. 코드-only 응답을
@@ -500,15 +534,14 @@ class OmniTDDEngine:
             "4. 같은 문단이나 문장을 2회 이상 반복하지 마세요.\n"
             "5. 불필요한 'Implementation Plan' 등의 영어 제목을 생성하지 마세요."
         )
-        user_prompt = (
-            f"사용자 원본 질문:\n{original_prompt}\n\n"
-            f"검증 완료된 구현물:\n```\n{winning_code}\n```"
-        )
+        user_prompt = f"사용자 원본 질문:\n{original_prompt}\n\n검증 완료된 구현물:\n```\n{winning_code}\n```"
         try:
             explanation = await self._call_llm(sys_prompt, user_prompt)
             if explanation and len(explanation.strip()) > 50:
                 quality = QualityGate(max_retries=0).evaluate(
-                    "coding", original_prompt, explanation
+                    "coding",
+                    original_prompt,
+                    explanation,
                 )
                 if quality.grade in (QualityGrade.A, QualityGrade.B):
                     return explanation.strip()
@@ -516,13 +549,11 @@ class OmniTDDEngine:
                     "[OmniTDD] Reconstructed response failed quality gate: %s",
                     ", ".join(quality.issues),
                 )
-        except Exception as e:
-            logger.warning(f"[OmniTDD] Response reconstruction failed: {e}")
+        except Exception:
+            logger.exception("[OmniTDD] Response reconstruction failed")
         return self._fallback_reconstructed_response(original_prompt, winning_code)
 
-    def _fallback_reconstructed_response(
-        self, original_prompt: str, winning_code: str
-    ) -> str:
+    def _fallback_reconstructed_response(self, original_prompt: str, winning_code: str) -> str:
         """LLM 재구성이 실패해도 코드-only 응답을 피하는 결정론적 폴백."""
         prompt_lower = original_prompt.lower()
         complexity_requested = bool(
@@ -530,10 +561,10 @@ class OmniTDDEngine:
                 r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|"
                 r"time complexity|space complexity)",
                 prompt_lower,
-            )
+            ),
         )
         comparison_requested = bool(
-            re.search(r"(비교|차이|장단점|compare|comparison|trade-?off)", prompt_lower)
+            re.search(r"(비교|차이|장단점|compare|comparison|trade-?off)", prompt_lower),
         )
         gcd_requested = "gcd" in prompt_lower or "최대공약수" in original_prompt
 
@@ -549,9 +580,7 @@ class OmniTDDEngine:
                 "- 공간복잡도는 추가 자료구조 사용 여부를 기준으로 산정해야 합니다."
             )
         else:
-            complexity_note = (
-                "- 검증 완료된 코드를 기준으로 입력, 출력, 예외 조건을 함께 확인하세요."
-            )
+            complexity_note = "- 검증 완료된 코드를 기준으로 입력, 출력, 예외 조건을 함께 확인하세요."
 
         comparison_table = ""
         if comparison_requested:
@@ -610,5 +639,5 @@ class OmniTDDEngine:
             if resp.status_code == 200:
                 return resp.json().get("message", {}).get("content", "")
             else:
-                logger.error(f"LLM API error: {resp.status_code}")
+                logger.error("LLM API error: %s", resp.status_code)
                 return ""

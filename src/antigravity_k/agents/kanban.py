@@ -1,9 +1,9 @@
 import logging
 import sqlite3
 import threading
-from typing import Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,7 @@ class KanbanBoard:
         """가장 마지막 Task ID를 기반으로 다음 ID를 가져옵니다."""
         with self._lock:
             with self._get_connection() as conn:
-                cur = conn.execute(
-                    "SELECT id FROM tasks ORDER BY created_at DESC LIMIT 1"
-                )
+                cur = conn.execute("SELECT id FROM tasks ORDER BY created_at DESC LIMIT 1")
                 row = cur.fetchone()
                 if row:
                     # 'TASK-X' 형식에서 숫자 추출
@@ -96,7 +94,7 @@ class KanbanBoard:
 
             with self._get_connection() as conn:
                 conn.execute(
-                    "INSERT INTO tasks (id, description, status, assignee, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO tasks (id, description, status, assignee, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",  # noqa: E501
                     (task_id, description, "TODO", assignee, now, now),
                 )
                 conn.commit()
@@ -115,9 +113,7 @@ class KanbanBoard:
                 conn.commit()
             logger.info(f"Task {task_id} worktree updated to {branch_name}")
 
-    def move_task(
-        self, task_id: str, new_status: str, verification_note: Optional[str] = None
-    ):
+    def move_task(self, task_id: str, new_status: str, verification_note: Optional[str] = None):
         """태스크 상태를 업데이트하고 히스토리를 남깁니다."""
         valid_statuses = {"TODO", "IN_PROGRESS", "REVIEW", "DONE", "BACKLOG"}
         if new_status not in valid_statuses:
@@ -136,7 +132,7 @@ class KanbanBoard:
                 if old_status == "REVIEW" and new_status == "DONE":
                     if not verification_note or not verification_note.strip():
                         raise ValueError(
-                            "Transition from REVIEW to DONE requires a verification_note (e.g., test logs, QA approval)."
+                            "Transition from REVIEW to DONE requires a verification_note (e.g., test logs, QA approval)."  # noqa: E501
                         )
 
                 if old_status != new_status:
@@ -146,7 +142,7 @@ class KanbanBoard:
                         (new_status, now, task_id),
                     )
 
-                    # Store verification_note in changed_at or another column if we needed, but for now we append it to history's new_status or just enforce the gate.
+                    # Store verification_note in changed_at or another column if we needed, but for now we append it to history's new_status or just enforce the gate.  # noqa: E501
                     history_status = new_status
                     if verification_note:
                         history_status = f"{new_status} (Note: {verification_note})"
@@ -156,9 +152,7 @@ class KanbanBoard:
                         (task_id, old_status, history_status, now),
                     )
                     conn.commit()
-                    logger.info(
-                        f"Task {task_id} moved from {old_status} to {new_status}"
-                    )
+                    logger.info(f"Task {task_id} moved from {old_status} to {new_status}")
 
     def assign_task(self, task_id: str, assignee: str):
         """태스크를 에이전트에게 할당합니다. TODO 상태면 IN_PROGRESS로 이동합니다."""
@@ -203,7 +197,7 @@ class KanbanBoard:
             with self._get_connection() as conn:
                 # 할당되지 않은 TODO 작업을 오래된 순으로 하나 가져옴
                 cur = conn.execute(
-                    "SELECT id FROM tasks WHERE status = 'TODO' AND (assignee IS NULL OR assignee = '') ORDER BY created_at ASC LIMIT 1"
+                    "SELECT id FROM tasks WHERE status = 'TODO' AND (assignee IS NULL OR assignee = '') ORDER BY created_at ASC LIMIT 1"  # noqa: E501
                 )
                 row = cur.fetchone()
                 if row:
@@ -215,7 +209,7 @@ class KanbanBoard:
                         (assignee, now, task_id),
                     )
                     conn.execute(
-                        "INSERT INTO task_history (task_id, old_status, new_status, changed_at) VALUES (?, 'TODO', 'IN_PROGRESS', ?)",
+                        "INSERT INTO task_history (task_id, old_status, new_status, changed_at) VALUES (?, 'TODO', 'IN_PROGRESS', ?)",  # noqa: E501
                         (task_id, now),
                     )
                     conn.commit()

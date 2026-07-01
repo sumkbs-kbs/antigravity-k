@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 완전 자율 QA 루프 엔진 (AutonomousQA)
+"""Antigravity-K: 완전 자율 QA 루프 엔진 (AutonomousQA).
+
 =====================================================
 비전 분석 → 코드 수정 생성 → 자동 적용 → 재테스트 → 검증
 의 완전 자율 폐쇄 루프를 구현합니다.
@@ -25,7 +25,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.autonomous_qa")
 
@@ -34,6 +34,11 @@ logger = logging.getLogger("antigravity_k.autonomous_qa")
 
 
 class FixStatus(str, Enum):
+    """Fixstatus.
+
+    Bases: str, Enum
+    """
+
     PENDING = "pending"
     ANALYZING = "analyzing"
     FIXING = "fixing"
@@ -45,7 +50,7 @@ class FixStatus(str, Enum):
 
 @dataclass
 class UIDefect:
-    """비전 모델이 감지한 UI 결함"""
+    """비전 모델이 감지한 UI 결함."""
 
     description: str
     severity: str = "medium"  # critical, high, medium, low
@@ -56,11 +61,11 @@ class UIDefect:
 
 @dataclass
 class FixAttempt:
-    """코드 수정 시도 기록"""
+    """코드 수정 시도 기록."""
 
     iteration: int
-    defects_found: List[UIDefect]
-    patches_applied: List[Dict[str, str]]
+    defects_found: list[UIDefect]
+    patches_applied: list[dict[str, str]]
     before_screenshot_hash: str = ""
     after_screenshot_hash: str = ""
     visual_diff_score: float = 0.0
@@ -70,7 +75,7 @@ class FixAttempt:
 
 @dataclass
 class AutonomousQAReport:
-    """자율 QA 루프 전체 보고서"""
+    """자율 QA 루프 전체 보고서."""
 
     url: str = ""
     total_iterations: int = 0
@@ -78,14 +83,20 @@ class AutonomousQAReport:
     total_fixes_applied: int = 0
     total_resolved: int = 0
     status: FixStatus = FixStatus.PENDING
-    attempts: List[FixAttempt] = field(default_factory=list)
-    performance_metrics: Dict[str, Any] = field(default_factory=dict)
-    viewport_results: Dict[str, Any] = field(default_factory=dict)
-    console_errors: List[Dict] = field(default_factory=list)
+    attempts: list[FixAttempt] = field(default_factory=list)
+    performance_metrics: dict[str, Any] = field(default_factory=dict)
+    viewport_results: dict[str, Any] = field(default_factory=dict)
+    console_errors: list[dict] = field(default_factory=list)
     duration_ms: float = 0
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return {
             "url": self.url,
             "status": self.status.value,
@@ -111,11 +122,13 @@ class AutonomousQAReport:
         }
 
     def to_markdown(self) -> str:
-        icon = (
-            "✅"
-            if self.status == FixStatus.FIXED or self.status == FixStatus.NO_ISSUES
-            else "❌"
-        )
+        """To Markdown.
+
+        Returns:
+            str: The str result.
+
+        """
+        icon = "✅" if self.status == FixStatus.FIXED or self.status == FixStatus.NO_ISSUES else "❌"
         lines = [
             f"# {icon} Autonomous QA Report",
             "",
@@ -150,9 +163,7 @@ class AutonomousQAReport:
                 if d.file_path:
                     lines.append(f"  - 파일: `{d.file_path}`")
             if attempt.resolved:
-                lines.append(
-                    f"- ✅ Visual Diff: {attempt.visual_diff_score:.3f} (해결됨)"
-                )
+                lines.append(f"- ✅ Visual Diff: {attempt.visual_diff_score:.3f} (해결됨)")
             lines.append("")
 
         return "\n".join(lines)
@@ -162,8 +173,7 @@ class AutonomousQAReport:
 
 
 class AutonomousQAEngine:
-    """
-    완전 자율 폐쇄 루프 QA 엔진.
+    """완전 자율 폐쇄 루프 QA 엔진.
 
     Screenshot → Vision → CodeFix → Apply → Re-test → Verify
     """
@@ -183,13 +193,24 @@ class AutonomousQAEngine:
         max_iterations: int = 3,
         project_root: str = "",
     ):
+        """Initialize the AutonomousQAEngine.
+
+        Args:
+            dashboard_url (str): str dashboard url.
+            ollama_url (str): str ollama url.
+            vision_model (str): str vision model.
+            coding_model (str): str coding model.
+            max_iterations (int): int max iterations.
+            project_root (str): str project root.
+
+        """
         self.dashboard_url = dashboard_url
         self.ollama_url = ollama_url
         self.vision_model = vision_model
         self.coding_model = coding_model
         self.max_iterations = max_iterations
         self.project_root = project_root or os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         )
 
     async def run_full_loop(self, url: str = "") -> AutonomousQAReport:
@@ -226,17 +247,13 @@ class AutonomousQAEngine:
                 report.total_iterations = iteration
                 report.status = FixStatus.ANALYZING
 
-                attempt = FixAttempt(
-                    iteration=iteration, defects_found=[], patches_applied=[]
-                )
+                attempt = FixAttempt(iteration=iteration, defects_found=[], patches_applied=[])
                 attempt_start = time.time()
 
                 # Step 1: 스크린샷
                 screenshot_bytes = await page.screenshot(full_page=True)
                 screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                attempt.before_screenshot_hash = hashlib.md5(
-                    screenshot_bytes
-                ).hexdigest()
+                attempt.before_screenshot_hash = hashlib.md5(screenshot_bytes).hexdigest()
 
                 # Step 2: 비전 분석
                 defects = await self._vision_analyze(screenshot_b64)
@@ -248,9 +265,7 @@ class AutonomousQAEngine:
                     attempt.resolved = True
                     attempt.duration_ms = (time.time() - attempt_start) * 1000
                     report.attempts.append(attempt)
-                    logger.info(
-                        f"[AutonomousQA] Iteration {iteration}: No defects found ✅"
-                    )
+                    logger.info("[AutonomousQA] Iteration %s: No defects found ✅", iteration)
                     break
 
                 # Step 3: 코드 수정 생성
@@ -272,9 +287,7 @@ class AutonomousQAEngine:
                 attempt.after_screenshot_hash = hashlib.md5(after_bytes).hexdigest()
 
                 # Step 6: Visual Regression 비교
-                attempt.visual_diff_score = self._compare_screenshots(
-                    screenshot_bytes, after_bytes
-                )
+                attempt.visual_diff_score = self._compare_screenshots(screenshot_bytes, after_bytes)
 
                 # 변화가 있으면 재분석하여 해결 여부 확인
                 if attempt.visual_diff_score > 0.01:
@@ -290,9 +303,7 @@ class AutonomousQAEngine:
                 report.attempts.append(attempt)
 
                 if attempt.resolved:
-                    logger.info(
-                        f"[AutonomousQA] All defects resolved at iteration {iteration} ✅"
-                    )
+                    logger.info("[AutonomousQA] All defects resolved at iteration %s ✅", iteration)
                     break
 
             # ── 반응형 테스트 ──
@@ -309,7 +320,7 @@ class AutonomousQAEngine:
 
     # ─── 비전 분석 ─────────────────────────────────────────────
 
-    async def _vision_analyze(self, screenshot_b64: str) -> List[UIDefect]:
+    async def _vision_analyze(self, screenshot_b64: str) -> list[UIDefect]:
         """멀티모달 비전 LLM으로 UI 결함을 분석합니다."""
         import httpx
 
@@ -334,14 +345,14 @@ class AutonomousQAEngine:
                                 "role": "user",
                                 "content": prompt,
                                 "images": [screenshot_b64],
-                            }
+                            },
                         ],
                         "stream": False,
                     },
                 )
 
             if resp.status_code != 200:
-                logger.error(f"Vision API error: {resp.status_code}")
+                logger.error("Vision API error: %s", resp.status_code)
                 return []
 
             content = resp.json().get("message", {}).get("content", "[]")
@@ -364,22 +375,17 @@ class AutonomousQAEngine:
                 ]
             return []
 
-        except Exception as e:
-            logger.error(f"Vision analysis failed: {e}")
+        except Exception:
+            logger.exception("Vision analysis failed")
             return []
 
     # ─── 코드 수정 생성 ───────────────────────────────────────
 
-    async def _generate_code_fixes(
-        self, defects: List[UIDefect]
-    ) -> List[Dict[str, str]]:
+    async def _generate_code_fixes(self, defects: list[UIDefect]) -> list[dict[str, str]]:
         """코딩 LLM으로 코드 수정 패치를 생성합니다."""
         import httpx
 
-        defect_descriptions = "\n".join(
-            f"- [{d.severity}] {d.description} (제안: {d.suggested_fix})"
-            for d in defects
-        )
+        defect_descriptions = "\n".join(f"- [{d.severity}] {d.description} (제안: {d.suggested_fix})" for d in defects)
 
         prompt = (
             f"다음 UI 결함을 수정하는 코드 패치를 생성하세요:\n{defect_descriptions}\n\n"
@@ -413,39 +419,39 @@ class AutonomousQAEngine:
                 return json.loads(json_match.group())
             return []
 
-        except Exception as e:
-            logger.error(f"Code fix generation failed: {e}")
+        except Exception:
+            logger.exception("Code fix generation failed")
             return []
 
     # ─── 패치 적용 ─────────────────────────────────────────────
 
-    def _apply_patch(self, patch: Dict[str, str]) -> bool:
+    def _apply_patch(self, patch: dict[str, str]) -> bool:
         """코드 패치를 파일에 적용합니다."""
         file_path = os.path.join(self.project_root, patch.get("file", ""))
         search = patch.get("search", "")
         replace = patch.get("replace", "")
 
         if not os.path.exists(file_path) or not search:
-            logger.warning(f"Patch skip: file not found or empty search — {file_path}")
+            logger.warning("Patch skip: file not found or empty search — %s", file_path)
             return False
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             if search not in content:
-                logger.warning(f"Patch skip: search text not found in {file_path}")
+                logger.warning("Patch skip: search text not found in %s", file_path)
                 return False
 
             new_content = content.replace(search, replace, 1)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
-            logger.info(f"[AutonomousQA] Patch applied: {file_path}")
+            logger.info("[AutonomousQA] Patch applied: %s", file_path)
             return True
 
-        except Exception as e:
-            logger.error(f"Patch apply failed: {e}")
+        except Exception:
+            logger.exception("Patch apply failed")
             return False
 
     # ─── Visual Regression ─────────────────────────────────────
@@ -474,11 +480,12 @@ class AutonomousQAEngine:
 
     # ─── 성능 메트릭 ───────────────────────────────────────────
 
-    async def _collect_performance(self, page) -> Dict[str, Any]:
+    async def _collect_performance(self, page) -> dict[str, Any]:
         """Core Web Vitals 및 로딩 성능을 측정합니다."""
         try:
             metrics = await page.evaluate(
                 """() => {
+
                 const perf = performance.getEntriesByType('navigation')[0];
                 const paint = performance.getEntriesByType('paint');
                 const fcp = paint.find(p => p.name === 'first-contentful-paint');
@@ -489,16 +496,17 @@ class AutonomousQAEngine:
                     dom_nodes: document.querySelectorAll('*').length,
                     js_heap_mb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
                 };
-            }"""
+            }""",
             )
             return metrics
         except Exception as e:
-            logger.debug(f"Performance collection failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Performance collection failed: %s", e)
             return {}
 
     # ─── 반응형 테스트 ─────────────────────────────────────────
 
-    async def _test_viewports(self, page, url: str) -> Dict[str, Any]:
+    async def _test_viewports(self, page, url: str) -> dict[str, Any]:
         """다중 뷰포트에서 레이아웃 검증을 수행합니다."""
         results = {}
         for name, vp in self.VIEWPORTS.items():
@@ -508,7 +516,7 @@ class AutonomousQAEngine:
 
                 # 가로 스크롤 발생 여부 확인 (레이아웃 깨짐 지표)
                 overflow = await page.evaluate(
-                    "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"
+                    "() => document.documentElement.scrollWidth > document.documentElement.clientWidth",
                 )
                 # 주요 요소 가시성 확인
                 app_visible = await page.query_selector("#app")
@@ -521,10 +529,13 @@ class AutonomousQAEngine:
                     "summary": (
                         "OK"
                         if (not overflow and app_visible)
-                        else "Overflow detected" if overflow else "App not visible"
+                        else "Overflow detected"
+                        if overflow
+                        else "App not visible"
                     ),
                 }
             except Exception as e:
+                logger.exception("Unhandled exception")
                 results[name] = {"pass": False, "summary": str(e)}
 
         return results

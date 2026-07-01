@@ -1,8 +1,11 @@
-import os
-import yaml
+"""Skill Loader module."""
+
 import logging
-from typing import Dict, Any, List, Optional
+import os
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from antigravity_k.engine.capability_policy import (
     AutonomousCapabilityPolicy,
@@ -13,17 +16,25 @@ logger = logging.getLogger(__name__)
 
 
 class SkillLoader:
-    """
-    동적 스킬 로더
+    """동적 스킬 로더.
+
     프로젝트의 .agent/skills/ 폴더에 있는 Markdown 지침서(Skills)를 파싱하고 로드합니다.
     """
 
     def __init__(
         self,
-        project_root: Optional[str] = None,
+        project_root: str | None = None,
         include_global: bool = True,
-        capability_policy_config: Optional[Dict[str, Any]] = None,
+        capability_policy_config: dict[str, Any] | None = None,
     ):
+        """Initialize the SkillLoader.
+
+        Args:
+            project_root (str | None): str | None project root.
+            include_global (bool): bool include global.
+            capability_policy_config (dict[str, Any] | None): dict[str, Any] | None capability policy config.
+
+        """
         self.project_root = Path(project_root) if project_root else Path(os.getcwd())
         self.skills_dir = self.project_root / ".agent" / "skills"
         self.include_global = include_global
@@ -36,23 +47,21 @@ class SkillLoader:
             home_dir / ".agents" / "skills",
         ]
 
-        self._skills: Dict[str, Dict[str, Any]] = {}
-        self.active_skills: List[str] = []
-        self.last_decisions: List[CapabilityDecision] = []
+        self._skills: dict[str, dict[str, Any]] = {}
+        self.active_skills: list[str] = []
+        self.last_decisions: list[CapabilityDecision] = []
         policy_config = capability_policy_config or {}
         self.auto_match_enabled = bool(policy_config.get("auto_match_skills", True))
         self._capability_policy = AutonomousCapabilityPolicy(
             project_root=str(self.project_root),
             max_autonomous_risk=str(policy_config.get("max_autonomous_risk", "high")),
-            allow_critical_autonomy=bool(
-                policy_config.get("allow_critical_autonomy", False)
-            ),
+            allow_critical_autonomy=bool(policy_config.get("allow_critical_autonomy", False)),
         )
 
         self.refresh()
 
     def refresh(self):
-        """디렉토리를 스캔하여 스킬 목록을 캐시합니다. (전역 -> 로컬 순서로 오버라이드)"""
+        """디렉토리를 스캔하여 스킬 목록을 캐시합니다. (전역 -> 로컬 순서로 오버라이드)."""
         self._skills.clear()
 
         # 1. 글로벌 스킬 로드
@@ -81,13 +90,15 @@ class SkillLoader:
                         parsed["is_global"] = is_global
                         self._skills[skill_id] = parsed
                         logger.debug(
-                            f"Loaded {'global' if is_global else 'local'} skill: {skill_id}"
+                            "Loaded %s skill: %s",
+                            "global" if is_global else "local",
+                            skill_id,
                         )
 
-    def _parse_markdown(self, path: Path) -> Optional[Dict[str, Any]]:
+    def _parse_markdown(self, path: Path) -> dict[str, Any] | None:
         """마크다운 파일에서 YAML Frontmatter와 Body를 추출합니다."""
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 content = f.read()
 
             metadata = {}
@@ -118,15 +129,15 @@ class SkillLoader:
                 "trust_level": str(metadata.get("trust_level", "local")).lower(),
                 "requires_approval": bool(metadata.get("requires_approval", False)),
             }
-        except Exception as e:
-            logger.error(f"Failed to parse skill file {path}: {e}")
+        except Exception:
+            logger.exception("Failed to parse skill file %s", path)
             return None
 
-    def get_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
+    def get_skill(self, skill_id: str) -> dict[str, Any] | None:
         """ID로 스킬을 조회합니다."""
         return self._skills.get(skill_id)
 
-    def list_skills(self) -> List[Dict[str, Any]]:
+    def list_skills(self) -> list[dict[str, Any]]:
         """모든 스킬 메타데이터를 반환합니다."""
         return [
             {
@@ -172,9 +183,8 @@ class SkillLoader:
         prompts.append("==================================\n")
         return "\n".join(prompts)
 
-    def auto_match(self, user_prompt: str, max_skills: int = 3) -> List[str]:
-        """
-        사용자 프롬프트와 스킬의 키워드/설명을 비교하여 관련 스킬을 자동 활성화합니다.
+    def auto_match(self, user_prompt: str, max_skills: int = 3) -> list[str]:
+        """사용자 프롬프트와 스킬의 키워드/설명을 비교하여 관련 스킬을 자동 활성화합니다.
 
         자동화 핵심 기능:
         - 사용자가 /skill activate를 수동으로 입력할 필요 없음
@@ -188,15 +198,13 @@ class SkillLoader:
             return []
 
         prompt_lower = user_prompt.lower()
-        decisions: List[CapabilityDecision] = []
+        decisions: list[CapabilityDecision] = []
 
         for skill_id, skill_data in self._skills.items():
             if skill_id in self.active_skills:
                 continue  # 이미 활성화된 스킬 스킵
 
-            decision = self._capability_policy.decide_skill(
-                skill_id, skill_data, prompt_lower
-            )
+            decision = self._capability_policy.decide_skill(skill_id, skill_data, prompt_lower)
             if decision.score > 3:
                 decisions.append(decision)
 
@@ -225,11 +233,11 @@ class SkillLoader:
 
         return activated
 
-    def get_last_decisions(self) -> List[CapabilityDecision]:
+    def get_last_decisions(self) -> list[CapabilityDecision]:
         """최근 자동 스킬 판단 결과를 반환합니다."""
         return list(self.last_decisions)
 
-    def get_autonomous_manifest(self, objective: str = "") -> List[CapabilityDecision]:
+    def get_autonomous_manifest(self, objective: str = "") -> list[CapabilityDecision]:
         """전체 스킬의 자율 활성화 판단 결과를 반환합니다."""
         decisions = [
             self._capability_policy.decide_skill(skill_id, skill_data, objective)

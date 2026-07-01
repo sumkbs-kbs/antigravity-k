@@ -1,5 +1,5 @@
-"""
-Autonomous Goal Runner
+"""Autonomous Goal Runner.
+
 ======================
 
 Deterministic planning core behind the `/goal` command.  It turns an
@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from typing import Any
 
 from .self_repair import SelfRepairEngine
 
@@ -74,9 +75,15 @@ class GoalReport:
     judgment: GoalJudgment
     capability_matrix: list[tuple[str, str, str]]
     next_actions: list[str]
-    kanban_board: Optional[Any] = None  # KanbanBoard (Agent-Teams 패턴 이식)
+    kanban_board: Any | None = None  # KanbanBoard (Agent-Teams 패턴 이식)
 
     def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "objective": self.objective,
             "normalized_objective": self.normalized_objective,
@@ -119,8 +126,7 @@ class GoalReport:
 
 
 class GoalRunner:
-    """
-    Build an autonomous, evidence-first execution plan.
+    """Build an autonomous, evidence-first execution plan.
 
     The runner is intentionally deterministic so `/goal` remains useful even
     when no local model is loaded.  Model-backed agents can consume the same
@@ -219,6 +225,12 @@ class GoalRunner:
     }
 
     def __init__(self, max_iterations: int = 3):
+        """Initialize the GoalRunner.
+
+        Args:
+            max_iterations (int): int max iterations.
+
+        """
         self.max_iterations = max(1, max_iterations)
 
     def run(
@@ -226,6 +238,16 @@ class GoalRunner:
         objective: str,
         context: Mapping[str, Any] | None = None,
     ) -> GoalReport:
+        """Run.
+
+        Args:
+            objective (str): str objective.
+            context (Mapping[str, Any] | None): Mapping[str, Any] | None context.
+
+        Returns:
+            GoalReport: The goalreport result.
+
+        """
         normalized = self._normalize(objective)
         assessment = self._assess(normalized, context or {})
         steps = self._steps(assessment)
@@ -238,6 +260,7 @@ class GoalRunner:
             kanban = KanbanBoard(name=f"Goal: {normalized[:50]}")
             kanban.decompose_from_steps(steps)
         except Exception:
+            logger.exception("Unhandled exception")
             pass  # kanban 없이도 정상 동작
 
         return GoalReport(
@@ -253,6 +276,15 @@ class GoalRunner:
         )
 
     def render_markdown(self, report: GoalReport) -> str:
+        """Render markdown.
+
+        Args:
+            report (GoalReport): GoalReport report.
+
+        Returns:
+            str: The str result.
+
+        """
         lines = [
             "# /goal Autonomous Goal Contract",
             "",
@@ -266,8 +298,7 @@ class GoalRunner:
         ]
         if report.assessment.missing_inputs:
             lines.append(
-                "- Missing inputs: "
-                + ", ".join(f"`{item}`" for item in report.assessment.missing_inputs)
+                "- Missing inputs: " + ", ".join(f"`{item}`" for item in report.assessment.missing_inputs),
             )
 
         lines.extend(["", "## Success Criteria"])
@@ -275,19 +306,14 @@ class GoalRunner:
 
         lines.extend(["", "## Autonomous Judgment Policy"])
         lines.append(f"- Decision: `{report.judgment.decision}`")
-        lines.append(
-            f"- Ready to execute: `{str(report.judgment.ready_to_execute).lower()}`"
-        )
+        lines.append(f"- Ready to execute: `{str(report.judgment.ready_to_execute).lower()}`")
         if report.judgment.blocked_by:
             lines.append(
-                "- Blocked by: "
-                + ", ".join(f"`{item}`" for item in report.judgment.blocked_by)
+                "- Blocked by: " + ", ".join(f"`{item}`" for item in report.judgment.blocked_by),
             )
         lines.append("- Required gates: " + "; ".join(report.judgment.gates))
         for signal in report.judgment.signals:
-            lines.append(
-                f"- Signal `{signal.name}`: {signal.score:.2f} — {signal.evidence}"
-            )
+            lines.append(f"- Signal `{signal.name}`: {signal.score:.2f} — {signal.evidence}")
 
         lines.extend(["", "## Autonomous Loop"])
         for step in report.steps:
@@ -329,9 +355,7 @@ class GoalRunner:
         if domain_scores[domain] == 0:
             domain = "general"
 
-        has_deliverable = any(
-            keyword in lowered for keyword in self._DELIVERABLE_KEYWORDS
-        )
+        has_deliverable = any(keyword in lowered for keyword in self._DELIVERABLE_KEYWORDS)
         has_risk = any(keyword in lowered for keyword in self._RISK_KEYWORDS)
         token_count = len(re.findall(r"[\w가-힣]+", normalized))
         context_bonus = 0.1 if context else 0.0
@@ -343,8 +367,7 @@ class GoalRunner:
         confidence = round(
             min(
                 0.98,
-                (clarity + deliverable_score + safety_score + verification_score) / 4
-                + context_bonus,
+                (clarity + deliverable_score + safety_score + verification_score) / 4 + context_bonus,
             ),
             2,
         )
@@ -385,7 +408,7 @@ class GoalRunner:
         ]
         if assessment.domain == "coding":
             criteria.append(
-                "정적 분석, 단위 테스트, 빌드, DOM/UI 검증 중 적용 가능한 게이트가 통과된다."
+                "정적 분석, 단위 테스트, 빌드, DOM/UI 검증 중 적용 가능한 게이트가 통과된다.",
             )
         if assessment.domain == "documentation":
             criteria.append("절차 문서와 테스트 리포트가 실제 수행 결과와 일치한다.")
@@ -454,19 +477,13 @@ class GoalRunner:
         token_count = len(re.findall(r"[\w가-힣]+", normalized))
         clarity_score = min(1.0, max(0.0, token_count / 18))
         safety_score = 0.35 if assessment.risk_level == "high" else 0.95
-        verification_score = (
-            0.95 if assessment.domain in {"coding", "documentation"} else 0.75
-        )
+        verification_score = 0.95 if assessment.domain in {"coding", "documentation"} else 0.75
         context_score = 0.9 if context else 0.55
         confidence_score = assessment.confidence
 
         signals = [
-            GoalSignal(
-                "clarity", round(clarity_score, 2), f"{token_count} objective tokens"
-            ),
-            GoalSignal(
-                "safety", round(safety_score, 2), f"risk={assessment.risk_level}"
-            ),
+            GoalSignal("clarity", round(clarity_score, 2), f"{token_count} objective tokens"),
+            GoalSignal("safety", round(safety_score, 2), f"risk={assessment.risk_level}"),
             GoalSignal(
                 "verification",
                 round(verification_score, 2),
@@ -477,9 +494,7 @@ class GoalRunner:
                 round(context_score, 2),
                 "runtime context available" if context else "no runtime context",
             ),
-            GoalSignal(
-                "confidence", round(confidence_score, 2), "readiness assessment"
-            ),
+            GoalSignal("confidence", round(confidence_score, 2), "readiness assessment"),
         ]
 
         blocked_by = list(assessment.missing_inputs)
@@ -500,9 +515,7 @@ class GoalRunner:
             "report: update test_report.md and test_process.md with evidence",
         ]
         if assessment.risk_level == "high":
-            gates.insert(
-                0, "approval: require explicit user approval before high-risk action"
-            )
+            gates.insert(0, "approval: require explicit user approval before high-risk action")
 
         return GoalJudgment(
             decision=decision,
@@ -578,15 +591,17 @@ class GoalRunner:
     # ── Auto-Verify Loop (Issue #61) ──
 
     def execute_and_verify(
-        self, report: GoalReport, project_root: str | None = None
+        self,
+        report: GoalReport,
+        project_root: str | None = None,
     ) -> dict[str, Any]:
         """목표 실행 후 자동 검증을 수행합니다.
 
         ruff, pytest, compileall, npm build 등을 실행하고 결과를 반환합니다.
         실패 시 Repair Loop 진입을 위한 정보를 포함합니다.
         """
-        import subprocess
         import os
+        import subprocess
 
         root = project_root or os.getcwd()
         results: dict[str, Any] = {
@@ -632,7 +647,7 @@ class GoalRunner:
                         {
                             "check": name,
                             "error": result.stderr[-300:] if result.stderr else "",
-                        }
+                        },
                     )
             except subprocess.TimeoutExpired:
                 results["checks"].append(
@@ -641,7 +656,7 @@ class GoalRunner:
                         "passed": False,
                         "return_code": -1,
                         "output": "TIMEOUT",
-                    }
+                    },
                 )
                 results["verified"] = False
                 results["failures"].append({"check": name, "error": "Timeout (120s)"})
@@ -652,7 +667,7 @@ class GoalRunner:
                         "passed": True,
                         "return_code": 0,
                         "output": "SKIPPED (not found)",
-                    }
+                    },
                 )
 
         results["repair_needed"] = not results["verified"]
@@ -673,12 +688,8 @@ class GoalRunner:
                     {
                         "job_id": report.objective[:50],
                         "state": "in_progress",
-                        "current_tool": (
-                            results["failures"][0].get("check", "")
-                            if results["failures"]
-                            else ""
-                        ),
-                    }
+                        "current_tool": (results["failures"][0].get("check", "") if results["failures"] else ""),
+                    },
                 )
                 repair_result = repair_engine.attempt_repair(detection)
                 results["self_repair"] = {
@@ -688,10 +699,12 @@ class GoalRunner:
                     "message": repair_result.message,
                 }
                 logger.info(
-                    f"SelfRepair: {repair_result.level.value} — {repair_result.action_taken}"
+                    "SelfRepair: %s — %s",
+                    repair_result.level.value,
+                    repair_result.action_taken,
                 )
             except Exception as e:
-                logger.warning(f"SelfRepair integration error: {e}")
+                logger.exception("SelfRepair integration error")
                 results["self_repair"] = {"error": str(e)}
 
         return results
@@ -702,8 +715,8 @@ class GoalRunner:
         verification_results: dict[str, Any],
         spec_path: str = "SPEC.md",
     ):
-        """
-        [Cavekit] Backprop Reflex:
+        """[Cavekit] Backprop Reflex:
+
         실패한 검증 결과를 SPEC.md의 불변 규칙(§V Invariants)이나
         버그 리포트(§B Bugs)로 강제 역전파하여 동일한 실수를 방지합니다.
         """

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Meta-Architect Engine (Level 3 자율 아키텍처 재설계)
+"""Antigravity-K: Meta-Architect Engine (Level 3 자율 아키텍처 재설계).
+
 ================================================================
 에이전트가 전체 시스템 아키텍처를 분석하고, 구조적 병목을 해결하기 위해
 코어 엔진을 자율적으로 리팩터링 및 재설계합니다.
@@ -18,27 +18,41 @@ import os
 import re
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from antigravity_k.config import config
 
 logger = logging.getLogger("antigravity_k.meta_architect")
 
 
 @dataclass
 class ArchitectureProposal:
-    """아키텍처 변경 제안서"""
+    """아키텍처 변경 제안서."""
+
     proposal_id: str
     title: str
-    target_files: List[str]
+    target_files: list[str]
     description: str
     expected_benefit: str
-    modifications: Dict[str, str] = field(default_factory=dict)  # filepath -> new_content
+    modifications: dict[str, str] = field(default_factory=dict)  # filepath -> new_content
     passed: bool = False
 
 
 class MetaArchitect:
     """시스템 전체를 조망하고 재설계하는 메타 아키텍트 엔진."""
 
-    def __init__(self, project_root: str, ollama_url: str = config.model.api_base.replace('/v1', '').rstrip('/')):
+    def __init__(
+        self,
+        project_root: str,
+        ollama_url: str = config.model.api_base.replace("/v1", "").rstrip("/"),
+    ):
+        """Initialize the MetaArchitect.
+
+        Args:
+            project_root (str): str project root.
+            ollama_url (str): str ollama url.
+
+        """
         self.project_root = project_root
         self.ollama_url = ollama_url
         self._engine_dir = os.path.join(project_root, "src", "antigravity_k", "engine")
@@ -50,7 +64,7 @@ class MetaArchitect:
         if not os.path.exists(self._archive_path):
             return "No previous evolution history."
         try:
-            with open(self._archive_path, "r", encoding="utf-8") as f:
+            with open(self._archive_path, encoding="utf-8") as f:
                 history = json.load(f)
                 recent = history[-3:]  # 최근 3개만
                 if not recent:
@@ -61,6 +75,7 @@ class MetaArchitect:
                     lines.append(f"[{status}] {h.get('title')} - {h.get('description')}")
                 return "\n".join(lines)
         except Exception:
+            logger.exception("Unhandled exception")
             return "No previous evolution history."
 
     def _get_architecture_context(self) -> str:
@@ -68,7 +83,7 @@ class MetaArchitect:
         context = []
         arch_file = os.path.join(self.project_root, "ARCHITECTURE.md")
         if os.path.exists(arch_file):
-            with open(arch_file, "r", encoding="utf-8") as f:
+            with open(arch_file, encoding="utf-8") as f:
                 context.append(f"--- ARCHITECTURE.md ---\n{f.read()[:2000]}\n")
 
         # 코어 엔진 파일 목록 및 크기
@@ -83,10 +98,13 @@ class MetaArchitect:
 
         return "\n".join(context)
 
-    def analyze_and_propose(self, performance_data: Dict[str, Any]) -> Optional[ArchitectureProposal]:
+    def analyze_and_propose(
+        self,
+        performance_data: dict[str, Any],
+    ) -> ArchitectureProposal | None:
         """현재 시스템의 병목을 분석하고 리팩터링을 제안합니다."""
         logger.info("[Meta-Architect] 전체 아키텍처 분석 및 제안 시작...")
-        
+
         context = self._get_architecture_context()
         perf_text = json.dumps(performance_data, ensure_ascii=False, indent=2)
         history_text = self._get_evolution_history()
@@ -94,7 +112,7 @@ class MetaArchitect:
         prompt = (
             "[ROLE] 당신은 최고 수준의 AI 아키텍트(Meta-Architect)입니다.\n"
             "[HARDWARE TARGET] 이 시스템은 Apple M5 Max (128GB RAM, 4TB SSD)에서 구동됩니다. "
-            "따라서 대용량 메모리를 활용한 캐싱, 병렬 처리(멀티스레딩/비동기), 거대한 벡터 연산 등 하드웨어 자원을 극대화하는 아키텍처 제안을 환영합니다.\n\n"
+            "따라서 대용량 메모리를 활용한 캐싱, 병렬 처리(멀티스레딩/비동기), 거대한 벡터 연산 등 하드웨어 자원을 극대화하는 아키텍처 제안을 환영합니다.\n\n"  # noqa: E501
             "목표는 현재 AI 에이전트 코어 시스템의 병목을 발견하고 아키텍처를 개선하는 것입니다.\n\n"
             f"--- 진화 기록 (이전 시도 참조) ---\n{history_text}\n\n"
             f"{context}\n\n"
@@ -102,7 +120,8 @@ class MetaArchitect:
             "[TASK]\n"
             "위 데이터를 바탕으로 가장 필요한 1가지 대규모 리팩터링 또는 신규 모듈 도입을 제안하세요.\n"
             "제안은 다음 JSON 형식으로 출력해야 합니다:\n"
-            '{"title": "...", "description": "...", "target_files": ["file1.py", "file2.py"], "expected_benefit": "..."}\n'
+            '{"title": "...", "description": "...", "target_files": ["file1.py", "file2.py"],'
+            '"expected_benefit": "..."}\n'
             "오직 JSON만 출력하세요. (마크다운 불필요)"
         )
 
@@ -117,35 +136,36 @@ class MetaArchitect:
                     description=data["description"],
                     expected_benefit=data["expected_benefit"],
                 )
-                logger.info(f"[Meta-Architect] 제안 생성: {proposal.title}")
+                logger.info("[Meta-Architect] 제안 생성: %s", proposal.title)
                 return proposal
-        except Exception as e:
-            logger.error(f"[Meta-Architect] 제안 생성 실패: {e}")
+        except Exception:
+            logger.exception("[Meta-Architect] 제안 생성 실패")
         return None
 
     def execute_proposal(self, proposal: ArchitectureProposal) -> bool:
         """제안된 아키텍처 변경을 샌드박스 내에서 실행합니다 (Option B: 완전 자율)."""
-        logger.info(f"[Meta-Architect] 리팩터링 실행 시도: {proposal.title}")
-        
+        logger.info("[Meta-Architect] 리팩터링 실행 시도: %s", proposal.title)
+
         try:
             from antigravity_k.engine.rsi_sandbox import RSISandbox
+
             sandbox = RSISandbox(project_root=self.project_root)
-            
+
             # 파일 내용 읽기
             file_contents = {}
             for filename in proposal.target_files:
                 if sandbox.is_immutable(filename):
-                    logger.warning(f"[Meta-Architect] 불변 파일({filename}) 수정 시도 차단.")
+                    logger.warning("[Meta-Architect] 불변 파일(%s) 수정 시도 차단.", filename)
                     return False
-                
+
                 path = os.path.join(self._engine_dir, filename)
                 if os.path.exists(path):
-                    with open(path, "r", encoding="utf-8") as f:
+                    with open(path, encoding="utf-8") as f:
                         file_contents[filename] = f.read()
 
             # LLM에게 수정된 코드 요청 (Evolutionary Search & Self-Rewarding)
             for filename, content in file_contents.items():
-                logger.info(f"[Meta-Architect] {filename} 변이 생성 중 (Self-Rewarding 루프)...")
+                logger.info("[Meta-Architect] %s 변이 생성 중 (Self-Rewarding 루프)...", filename)
                 new_content = self._generate_with_self_reward(filename, content, proposal)
                 if new_content:
                     proposal.modifications[filename] = new_content
@@ -157,55 +177,66 @@ class MetaArchitect:
             # Sandbox 적용 및 검증 (Option B)
             with sandbox.safe_mutation(f"meta_architect_{proposal.proposal_id}"):
                 all_passed = True
-                
+
                 # 1. 파일 임시 덮어쓰기
                 for filename, new_code in proposal.modifications.items():
                     path = os.path.join(self._engine_dir, filename)
                     with open(path, "w", encoding="utf-8") as f:
                         f.write(new_code)
-                
+
                 # 2. 샌드박스 일괄 검증
                 for filename, new_code in proposal.modifications.items():
                     val_result = sandbox.validate_mutation(filename, new_code)
                     if val_result.get("ast", "").value == "fail" or val_result.get("tests", "").value == "fail":
                         all_passed = False
-                        logger.error(f"[Meta-Architect] 샌드박스 검증 실패: {filename} -> {val_result}")
+                        logger.error(
+                            "[Meta-Architect] 샌드박스 검증 실패: %s -> %s",
+                            filename,
+                            val_result,
+                        )
                         break
-                
+
                 if not all_passed:
                     self._save_archive(proposal)
                     raise Exception("Meta-Architect macromutation failed validation. Rolling back.")
 
                 proposal.passed = True
                 self._save_archive(proposal)
-                logger.info(f"[Meta-Architect] 리팩터링 완전 통과 및 병합 완료: {proposal.title}")
+                logger.info("[Meta-Architect] 리팩터링 완전 통과 및 병합 완료: %s", proposal.title)
                 return True
 
-        except Exception as e:
-            logger.error(f"[Meta-Architect] 실행 중 롤백됨: {e}")
+        except Exception:
+            logger.exception("[Meta-Architect] 실행 중 롤백됨")
             return False
 
     def _save_archive(self, proposal: ArchitectureProposal):
-        """EUREKA 스타일: 진화 기록 저장"""
+        """EUREKA 스타일: 진화 기록 저장."""
         try:
             history = []
             if os.path.exists(self._archive_path):
-                with open(self._archive_path, "r", encoding="utf-8") as f:
+                with open(self._archive_path, encoding="utf-8") as f:
                     history = json.load(f)
-            
-            history.append({
-                "proposal_id": proposal.proposal_id,
-                "title": proposal.title,
-                "description": proposal.description,
-                "passed": proposal.passed
-            })
-            
+
+            history.append(
+                {
+                    "proposal_id": proposal.proposal_id,
+                    "title": proposal.title,
+                    "description": proposal.description,
+                    "passed": proposal.passed,
+                },
+            )
+
             with open(self._archive_path, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"[Meta-Architect] 아카이브 저장 실패: {e}")
+        except Exception:
+            logger.exception("[Meta-Architect] 아카이브 저장 실패")
 
-    def _generate_with_self_reward(self, filename: str, original_code: str, proposal: ArchitectureProposal) -> str:
+    def _generate_with_self_reward(
+        self,
+        filename: str,
+        original_code: str,
+        proposal: ArchitectureProposal,
+    ) -> str:
         """Self-Rewarding LMs (Meta, 2024) 기반 자체 평가-수정 루프."""
         max_attempts = 3
         feedback = ""
@@ -217,25 +248,36 @@ class MetaArchitect:
             current_code = self._generate_modified_code(filename, original_code, proposal, feedback)
             if not current_code:
                 break
-            
+
             # 2. 자체 평가 (Meta-Judge)
             score, eval_feedback = self._evaluate_with_judge(filename, original_code, current_code)
-            logger.info(f"[Meta-Architect] 자체 평가 (Attempt {attempt}): Score {score}/5. Feedback: {eval_feedback[:50]}...")
-            
+            logger.info(
+                "[Meta-Architect] 자체 평가 (Attempt %s): Score %s/5. Feedback: %s...",
+                attempt,
+                score,
+                eval_feedback[:50],
+            )
+
             if score > best_score:
                 best_score = score
                 best_code = current_code
-                
+
             if score >= 4:
                 # 4점 이상이면 샌드박스로 이관
                 return best_code
-            
+
             # 4점 미만이면 피드백을 반영해 재작성
             feedback = f"이전 시도 실패 이유 (점수 {score}/5): {eval_feedback}\n위 문제를 반드시 해결하세요."
 
         return best_code
 
-    def _generate_modified_code(self, filename: str, original_code: str, proposal: ArchitectureProposal, feedback: str = "") -> str:
+    def _generate_modified_code(
+        self,
+        filename: str,
+        original_code: str,
+        proposal: ArchitectureProposal,
+        feedback: str = "",
+    ) -> str:
         prompt = (
             f"[ROLE] 당신은 시니어 소프트웨어 아키텍트입니다.\n"
             f"[TASK] 아래 아키텍처 제안을 수행하기 위해 '{filename}' 코드를 리팩터링하세요.\n\n"
@@ -243,7 +285,7 @@ class MetaArchitect:
         )
         if feedback:
             prompt += f"[CRITICAL FEEDBACK]\n{feedback}\n\n"
-        
+
         prompt += (
             f"--- 원본 {filename} ---\n{original_code}\n\n"
             "개선된 전체 Python 코드를 출력하세요. 다른 텍스트 없이 순수 코드만 출력하세요. "
@@ -257,9 +299,15 @@ class MetaArchitect:
                 return max(matches, key=len)
             return resp.strip()
         except Exception:
+            logger.exception("Unhandled exception")
             return ""
 
-    def _evaluate_with_judge(self, filename: str, original_code: str, new_code: str) -> tuple[int, str]:
+    def _evaluate_with_judge(
+        self,
+        filename: str,
+        original_code: str,
+        new_code: str,
+    ) -> tuple[int, str]:
         """생성된 코드를 Meta-Judge가 평가하여 점수(0~5)와 피드백을 반환합니다."""
         prompt = (
             "[ROLE] 당신은 전설적인 수석 엔지니어(Principal Engineer)이자 코드 리뷰어(Meta-Judge)입니다.\n"
@@ -278,6 +326,7 @@ class MetaArchitect:
             if data and "score" in data:
                 return int(data["score"]), data.get("feedback", "")
         except Exception:
+            logger.exception("Unhandled exception")
             pass
         # 평가 실패 시 기본 통과 점수
         return 4, "Self-judge failed. Defaulting to 4."
@@ -288,11 +337,11 @@ class MetaArchitect:
             "prompt": prompt,
             "stream": False,
             "options": {
-                "num_predict": num_predict, 
+                "num_predict": num_predict,
                 "temperature": 0.2,
-                "num_ctx": 32768,       # M5 Max 128GB RAM 최적화: 대용량 컨텍스트
-                "num_thread": 16,       # M5 Max 최적화: 고속 연산 스레드
-                "num_gpu": 99           # Apple Silicon GPU 완전 가속
+                "num_ctx": 32768,  # M5 Max 128GB RAM 최적화: 대용량 컨텍스트
+                "num_thread": 16,  # M5 Max 최적화: 고속 연산 스레드
+                "num_gpu": 99,  # Apple Silicon GPU 완전 가속
             },
         }
         req = urllib.request.Request(
@@ -305,7 +354,7 @@ class MetaArchitect:
             content = result.get("response", "")
             return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-    def _extract_json(self, text: str) -> Optional[Dict]:
+    def _extract_json(self, text: str) -> dict | None:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:

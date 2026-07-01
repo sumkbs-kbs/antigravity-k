@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Vision + DOM 하이브리드 인식 엔진
+"""Antigravity-K: Vision + DOM 하이브리드 인식 엔진.
+
 =================================================
 스크린샷(Vision)과 DOM 구조를 동시에 분석하여
 인간 수준의 시각적 맥락을 AI 에이전트에게 제공합니다.
@@ -19,9 +19,8 @@ Antigravity-K: Vision + DOM 하이브리드 인식 엔진
 import base64
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
-from .semantic_dom import SemanticDOMParser, SemanticSnapshot, BoundingBox
+from .semantic_dom import BoundingBox, SemanticDOMParser, SemanticSnapshot
 
 logger = logging.getLogger("antigravity_k.tools.vision_dom")
 
@@ -35,7 +34,7 @@ class Obstacle:
 
     type: str  # "modal", "popup", "cookie_banner", "overlay"
     description: str
-    bbox: Optional[BoundingBox] = None
+    bbox: BoundingBox | None = None
     close_ref: str = ""  # 닫기 버튼의 @ref
     blocking: bool = True  # 다른 요소와의 상호작용을 방해하는지
 
@@ -44,17 +43,29 @@ class Obstacle:
 class HybridAnalysis:
     """Vision + DOM 융합 분석 결과."""
 
-    snapshot: Optional[SemanticSnapshot] = None
+    snapshot: SemanticSnapshot | None = None
     screenshot_base64: str = ""
     som_image_base64: str = ""  # Set-of-Mark 마킹된 이미지
-    obstacles: List[Obstacle] = field(default_factory=list)
+    obstacles: list[Obstacle] = field(default_factory=list)
     page_state: str = "normal"  # normal, loading, error, blocked
-    viewport_size: Tuple[int, int] = (0, 0)
+    viewport_size: tuple[int, int] = (0, 0)
 
     def has_obstacles(self) -> bool:
+        """Check if obstacles.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return len(self.obstacles) > 0
 
-    def blocking_obstacles(self) -> List[Obstacle]:
+    def blocking_obstacles(self) -> list[Obstacle]:
+        """Blocking Obstacles.
+
+        Returns:
+            list[Obstacle]: The list[obstacle] result.
+
+        """
         return [o for o in self.obstacles if o.blocking]
 
     def to_llm_summary(self) -> str:
@@ -79,6 +90,7 @@ class HybridAnalysis:
 # JS: 인터랙티브 요소 위에 번호 오버레이 추가
 _SOM_OVERLAY_JS = """
 (refs) => {
+
     // 기존 SoM 오버레이 제거
     document.querySelectorAll('.antigravity-som-marker').forEach(el => el.remove());
 
@@ -154,6 +166,7 @@ _SOM_OVERLAY_JS = """
 # JS: SoM 오버레이 제거
 _SOM_CLEANUP_JS = """
 () => {
+
     document.querySelectorAll('.antigravity-som-marker').forEach(el => el.remove());
     const styles = document.querySelectorAll('style');
     styles.forEach(s => {
@@ -165,6 +178,7 @@ _SOM_CLEANUP_JS = """
 # JS: 장애물(모달/팝업) 감지
 _OBSTACLE_DETECT_JS = """
 () => {
+
     const obstacles = [];
 
     // 1. 모달/다이얼로그 감지
@@ -267,8 +281,7 @@ _OBSTACLE_DETECT_JS = """
 
 
 class VisionDOMHybrid:
-    """
-    Vision + DOM 하이브리드 인식 엔진.
+    """Vision + DOM 하이브리드 인식 엔진.
 
     스크린샷과 DOM을 동시에 분석하여:
     1. Set-of-Mark: 인터랙티브 요소에 번호 마킹
@@ -277,13 +290,17 @@ class VisionDOMHybrid:
     """
 
     def __init__(self, dom_parser: SemanticDOMParser = None):
+        """Initialize the VisionDOMHybrid.
+
+        Args:
+            dom_parser (SemanticDOMParser): SemanticDOMParser dom parser.
+
+        """
         self.dom_parser = dom_parser or SemanticDOMParser()
 
     # ─── 메인 분석 ────────────────────────────────────────────
 
-    async def analyze_async(
-        self, page, snapshot: SemanticSnapshot = None
-    ) -> HybridAnalysis:
+    async def analyze_async(self, page, snapshot: SemanticSnapshot = None) -> HybridAnalysis:
         """비동기: DOM + Vision 융합 분석."""
         analysis = HybridAnalysis()
 
@@ -298,6 +315,7 @@ class VisionDOMHybrid:
             if vp:
                 analysis.viewport_size = (vp["width"], vp["height"])
         except Exception:
+            logger.exception("Unhandled exception")
             pass
 
         # 3. 장애물 감지
@@ -306,11 +324,9 @@ class VisionDOMHybrid:
         # 4. 스크린샷 (원본)
         try:
             screenshot_bytes = await page.screenshot(type="png")
-            analysis.screenshot_base64 = base64.b64encode(screenshot_bytes).decode(
-                "utf-8"
-            )
-        except Exception as e:
-            logger.warning(f"[VisionDOM] Screenshot failed: {e}")
+            analysis.screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+        except Exception:
+            logger.exception("[VisionDOM] Screenshot failed")
 
         # 5. 페이지 상태 판정
         analysis.page_state = self._judge_page_state(analysis)
@@ -330,17 +346,16 @@ class VisionDOMHybrid:
             if vp:
                 analysis.viewport_size = (vp["width"], vp["height"])
         except Exception:
+            logger.exception("Unhandled exception")
             pass
 
         analysis.obstacles = self._detect_obstacles_sync(page, snapshot)
 
         try:
             screenshot_bytes = page.screenshot(type="png")
-            analysis.screenshot_base64 = base64.b64encode(screenshot_bytes).decode(
-                "utf-8"
-            )
-        except Exception as e:
-            logger.warning(f"[VisionDOM] Screenshot failed: {e}")
+            analysis.screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+        except Exception:
+            logger.exception("[VisionDOM] Screenshot failed")
 
         analysis.page_state = self._judge_page_state(analysis)
         return analysis
@@ -372,8 +387,8 @@ class VisionDOMHybrid:
 
             return base64.b64encode(raw).decode("utf-8")
 
-        except Exception as e:
-            logger.error(f"[VisionDOM] SoM rendering failed: {e}")
+        except Exception:
+            logger.exception("[VisionDOM] SoM rendering failed")
             raw = await page.screenshot(type="png")
             return base64.b64encode(raw).decode("utf-8")
 
@@ -393,38 +408,34 @@ class VisionDOMHybrid:
             raw = page.screenshot(type="png")
             page.evaluate(_SOM_CLEANUP_JS)
             return base64.b64encode(raw).decode("utf-8")
-        except Exception as e:
-            logger.error(f"[VisionDOM] SoM rendering failed: {e}")
+        except Exception:
+            logger.exception("[VisionDOM] SoM rendering failed")
             raw = page.screenshot(type="png")
             return base64.b64encode(raw).decode("utf-8")
 
     # ─── 장애물 감지 ──────────────────────────────────────────
 
-    async def _detect_obstacles_async(
-        self, page, snapshot: SemanticSnapshot
-    ) -> List[Obstacle]:
+    async def _detect_obstacles_async(self, page, snapshot: SemanticSnapshot) -> list[Obstacle]:
         """비동기: 장애물 감지."""
         try:
             raw_obstacles = await page.evaluate(_OBSTACLE_DETECT_JS)
             return self._parse_obstacles(raw_obstacles, snapshot)
         except Exception as e:
-            logger.debug(f"[VisionDOM] Obstacle detection failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[VisionDOM] Obstacle detection failed: %s", e)
             return []
 
-    def _detect_obstacles_sync(
-        self, page, snapshot: SemanticSnapshot
-    ) -> List[Obstacle]:
+    def _detect_obstacles_sync(self, page, snapshot: SemanticSnapshot) -> list[Obstacle]:
         """동기: 장애물 감지."""
         try:
             raw_obstacles = page.evaluate(_OBSTACLE_DETECT_JS)
             return self._parse_obstacles(raw_obstacles, snapshot)
         except Exception as e:
-            logger.debug(f"[VisionDOM] Obstacle detection failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[VisionDOM] Obstacle detection failed: %s", e)
             return []
 
-    def _parse_obstacles(
-        self, raw_list: list, snapshot: SemanticSnapshot
-    ) -> List[Obstacle]:
+    def _parse_obstacles(self, raw_list: list, snapshot: SemanticSnapshot) -> list[Obstacle]:
         """JS 결과를 Obstacle 객체로 변환."""
         obstacles = []
         for raw in raw_list:
@@ -457,7 +468,7 @@ class VisionDOMHybrid:
                     bbox=bbox,
                     close_ref=close_ref,
                     blocking=raw.get("type") in ("modal", "overlay"),
-                )
+                ),
             )
 
         return obstacles

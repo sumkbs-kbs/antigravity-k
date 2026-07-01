@@ -1,15 +1,18 @@
-import logging
-import requests
-from typing import Dict, Any
+"""Web Scraper module."""
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+import logging
+from typing import Any
+
+import requests
+
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
+
 class WebScraperTool(BaseTool):
-    """
-    외부 웹사이트 또는 문서를 크롤링하여 Markdown 형식으로 반환하는 도구입니다.
-    """
+    """외부 웹사이트 또는 문서를 크롤링하여 Markdown 형식으로 반환하는 도구입니다."""
+
     category = ToolCategory.SEARCH
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.SAFE
@@ -17,6 +20,7 @@ class WebScraperTool(BaseTool):
     tags = ["crawl", "scrape", "documentation", "web"]
 
     def __init__(self):
+        """Initialize the WebScraperTool."""
         super().__init__()
         self._name = "web_scrape"
         self._description = (
@@ -26,22 +30,51 @@ class WebScraperTool(BaseTool):
         self._schema = {
             "type": "object",
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "The full URL of the web page to scrape."
-                }
+                "url": {"type": "string", "description": "The full URL of the web page to scrape."},
             },
-            "required": ["url"]
+            "required": ["url"],
         }
 
     @property
-    def name(self) -> str: return self._name
+    def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
+        return self._name
+
     @property
-    def description(self) -> str: return self._description
+    def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
+        return self._description
+
     @property
-    def parameters_schema(self) -> Dict[str, Any]: return self._schema
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
+        return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         url = kwargs.get("url")
         if not url:
             return "Error: 'url' parameter is required."
@@ -53,34 +86,36 @@ class WebScraperTool(BaseTool):
             return "Error: Required libraries not installed. Run 'pip install beautifulsoup4 markdownify'."
 
         try:
-            logger.info(f"Scraping URL: {url}")
+            logger.info("Scraping URL: %s", url)
             headers = {
-                "User-Agent": "Mozilla/5.0 (compatible; AntigravityAgent/1.0; +https://example.com)"
+                "User-Agent": "Mozilla/5.0 (compatible; AntigravityAgent/1.0; +https://example.com)",
             }
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
             # Remove script and style elements
             for script in soup(["script", "style", "noscript", "header", "footer", "nav"]):
                 script.decompose()
-                
+
             # Try to find main content
-            main_content = soup.find('main') or soup.find('article') or soup.body
-            
+            main_content = soup.find("main") or soup.find("article") or soup.body
+
             if not main_content:
                 return "Error: Could not find main content on the page."
-                
+
             markdown_text = markdownify.markdownify(str(main_content), heading_style="ATX")
-            
+
             # Simple cleanup of excessive newlines
             import re
-            cleaned_md = re.sub(r'\n{3,}', '\n\n', markdown_text).strip()
-            
+
+            cleaned_md = re.sub(r"\n{3,}", "\n\n", markdown_text).strip()
+
             return f"Source: {url}\n\n{cleaned_md}"
-            
+
         except requests.exceptions.RequestException as e:
             return f"Error fetching URL: {str(e)}"
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error processing content: {str(e)}"

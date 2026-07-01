@@ -1,20 +1,32 @@
+"""Vault module."""
+
+import logging
 import os
 import subprocess
-import yaml
-from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
-import logging
+from typing import Any
+
+import yaml
 
 # RAG Imports
 from antigravity_k.engine.chunker import MarkdownChunker
-from antigravity_k.engine.vector_store import VectorStore
 from antigravity_k.engine.event_bus import global_event_bus
+from antigravity_k.engine.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 
 class VaultEngine:
+    """Vaultengine."""
+
     def __init__(self, vault_path: str, sync_rag: bool = True):
+        """Initialize the VaultEngine.
+
+        Args:
+            vault_path (str): str vault path.
+            sync_rag (bool): bool sync rag.
+
+        """
         self.vault_path = Path(vault_path).resolve()
         self._ensure_git_repo()
 
@@ -38,13 +50,11 @@ class VaultEngine:
                     capture_output=True,
                     text=True,
                 )
-                logger.info(f"Initialized Git repository at {self.vault_path}")
+                logger.info("Initialized Git repository at %s", self.vault_path)
             except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to initialize Git repo: {e.stderr}")
+                logger.error("Failed to initialize Git repo: %s", e.stderr)
 
-    def _auto_commit(
-        self, file_path: str, message: str = "Auto-commit via VaultEngine"
-    ):
+    def _auto_commit(self, file_path: str, message: str = "Auto-commit via VaultEngine"):
         """Stage the file and commit changes to the local Git repository."""
         try:
             # Stage the specific file
@@ -64,17 +74,16 @@ class VaultEngine:
             )
             # Git commit returns non-zero if there's nothing to commit.
             if result.returncode == 0:
-                logger.info(f"Git commit successful: {message}")
+                logger.info("Git commit successful: %s", message)
             elif "nothing to commit" not in result.stdout:
-                logger.warning(
-                    f"Git commit warning/error: {result.stderr or result.stdout}"
-                )
+                logger.warning("Git commit warning/error: %s", result.stderr or result.stdout)
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to auto-commit {file_path}: {e.stderr}")
+            logger.error("Failed to auto-commit %s: %s", file_path, e.stderr)
 
-    def create_snapshot(self, message: str) -> Optional[str]:
+    def create_snapshot(self, message: str) -> str | None:
         """Create a filesystem checkpoint (snapshot) by committing all current changes.
-        Returns the commit hash if successful, None otherwise."""
+        Returns the commit hash if successful, None otherwise.
+        """
         try:
             subprocess.run(
                 ["git", "add", "."],
@@ -98,10 +107,10 @@ class VaultEngine:
                     check=True,
                 )
                 commit_hash = hash_res.stdout.strip()
-                logger.info(f"Snapshot created: {commit_hash} - {message}")
+                logger.info("Snapshot created: %s - %s", commit_hash, message)
                 return commit_hash
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to create snapshot: {e.stderr}")
+            logger.error("Failed to create snapshot: %s", e.stderr)
         return None
 
     def restore_snapshot(self, commit_hash: str) -> bool:
@@ -113,16 +122,8 @@ class VaultEngine:
             os.path.expanduser("~"),
             os.path.expanduser("~/Desktop"),
         ]
-        if (
-            any(
-                real_path == d or real_path.startswith(d + os.sep)
-                for d in dangerous_paths
-            )
-            or len(real_path) < 5
-        ):
-            logger.error(
-                f"[SAFETY] Refusing git reset --hard in dangerous path: {real_path}"
-            )
+        if any(real_path == d or real_path.startswith(d + os.sep) for d in dangerous_paths) or len(real_path) < 5:
+            logger.error("[SAFETY] Refusing git reset --hard in dangerous path: %s", real_path)
             return False
 
         try:
@@ -142,13 +143,13 @@ class VaultEngine:
                 capture_output=True,
                 text=True,
             )
-            logger.info(f"Successfully restored snapshot to {commit_hash}")
+            logger.info("Successfully restored snapshot to %s", commit_hash)
             return True
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to restore snapshot {commit_hash}: {e.stderr}")
+            logger.error("Failed to restore snapshot %s: %s", commit_hash, e.stderr)
             return False
 
-    def parse_markdown(self, content: str) -> Tuple[Dict[str, Any], str]:
+    def parse_markdown(self, content: str) -> tuple[dict[str, Any], str]:
         """Parse a markdown string containing YAML frontmatter.
 
         Returns a tuple of (metadata_dict, body_content).
@@ -162,23 +163,23 @@ class VaultEngine:
                     metadata = yaml.safe_load(frontmatter_str) or {}
                     return metadata, body_content
                 except yaml.YAMLError as e:
-                    logger.error(f"YAML parsing error: {e}")
+                    logger.error("YAML parsing error: %s", e)
         return {}, content
 
-    def format_markdown(self, metadata: Dict[str, Any], content: str) -> str:
+    def format_markdown(self, metadata: dict[str, Any], content: str) -> str:
         """Format metadata dictionary and body content into a markdown string with frontmatter."""
         if not metadata:
             return content
         frontmatter = yaml.dump(metadata, sort_keys=False, default_flow_style=False)
         return f"---\n{frontmatter}---\n{content}"
 
-    def read_note(self, relative_path: str) -> Tuple[Dict[str, Any], str]:
+    def read_note(self, relative_path: str) -> tuple[dict[str, Any], str]:
         """Read a note and return its metadata and content."""
         file_path = self.vault_path / relative_path
         if not file_path.exists():
             raise FileNotFoundError(f"Note not found: {file_path}")
 
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
 
         return self.parse_markdown(content)
@@ -186,9 +187,9 @@ class VaultEngine:
     def write_note(
         self,
         relative_path: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         content: str,
-        commit_message: Optional[str] = None,
+        commit_message: str | None = None,
     ):
         """Write a note with metadata and trigger an auto-commit."""
         file_path = self.vault_path / relative_path
@@ -210,13 +211,11 @@ class VaultEngine:
                 # 1. Delete old chunks for this file
                 self.vector_store.delete_file_chunks(str(relative_path))
                 # 2. Chunk the new content
-                chunks = self.chunker.chunk_document(
-                    str(relative_path), metadata, content
-                )
+                chunks = self.chunker.chunk_document(str(relative_path), metadata, content)
                 # 3. Upsert new chunks
                 self.vector_store.upsert_chunks(chunks)
-            except Exception as e:
-                logger.error(f"Failed to sync RAG for {relative_path}: {e}")
+            except Exception:
+                logger.exception("Failed to sync RAG for %s", relative_path)
 
         # LLM Wiki 동기화 — 모든 Vault 기록을 /Users/mr.k/wiki에 통합
         self._sync_to_wiki(relative_path, metadata, content)
@@ -228,7 +227,7 @@ class VaultEngine:
             title=metadata.get("title", ""),
         )
 
-    def _sync_to_wiki(self, relative_path: str, metadata: Dict[str, Any], content: str):
+    def _sync_to_wiki(self, relative_path: str, metadata: dict[str, Any], content: str):
         """Vault에 기록된 노트를 LLM Wiki(SQLite + Markdown)에 동기화합니다.
 
         실패 시 Vault 기록에는 영향을 주지 않습니다 (best-effort).
@@ -264,11 +263,11 @@ class VaultEngine:
                     source="vault",
                     source_url=str(self.vault_path / relative_path),
                 )
-        except Exception as e:
-            logger.warning(f"LLM Wiki 동기화 실패 (Vault 기록은 정상): {e}")
+        except Exception:
+            logger.exception("LLM Wiki 동기화 실패 (Vault 기록은 정상)")
 
     def search_notes(self, query: str) -> list[str]:
-        """Simple text search across all notes in the vault (excluding .git)."""
+        """Search text across all notes in the vault (excluding .git)."""
         results = []
         for root, dirs, files in os.walk(self.vault_path):
             if ".git" in dirs:
@@ -277,18 +276,16 @@ class VaultEngine:
                 if file.endswith(".md"):
                     file_path = Path(root) / file
                     try:
-                        with open(file_path, "r", encoding="utf-8") as f:
+                        with open(file_path, encoding="utf-8") as f:
                             if query.lower() in f.read().lower():
-                                results.append(
-                                    str(file_path.relative_to(self.vault_path))
-                                )
-                    except Exception as e:
-                        logger.warning(f"Error reading {file_path} during search: {e}")
+                                results.append(str(file_path.relative_to(self.vault_path)))
+                    except Exception:
+                        logger.exception("Error reading %s during search", file_path)
         return results
 
     def ingest_workspace(self, workspace_path: str):
-        """
-        Ingest an entire workspace folder into the VectorStore for RAG.
+        """Ingest an entire workspace folder into the VectorStore for RAG.
+
         Reads text and code files, chunks them, and upserts them.
         """
         if not self.sync_rag:
@@ -297,7 +294,7 @@ class VaultEngine:
 
         workspace = Path(workspace_path).resolve()
         if not workspace.exists() or not workspace.is_dir():
-            logger.error(f"Workspace path does not exist: {workspace_path}")
+            logger.error("Workspace path does not exist: %s", workspace_path)
             return
 
         ignore_dirs = {
@@ -327,19 +324,17 @@ class VaultEngine:
         }
 
         total_chunks = 0
-        logger.info(f"Starting workspace ingestion for: {workspace}")
+        logger.info("Starting workspace ingestion for: %s", workspace)
 
         for root, dirs, files in os.walk(workspace):
-            dirs[:] = [
-                d for d in dirs if d not in ignore_dirs and not d.startswith(".")
-            ]
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
             for file in files:
                 file_path = Path(root) / file
                 if file_path.suffix.lower() not in valid_extensions:
                     continue
 
                 try:
-                    with open(file_path, "r", encoding="utf-8") as f:
+                    with open(file_path, encoding="utf-8") as f:
                         content = f.read()
 
                     if not content.strip():
@@ -360,10 +355,10 @@ class VaultEngine:
                 except UnicodeDecodeError:
                     # Skip binary or non-utf8 files
                     continue
-                except Exception as e:
-                    logger.warning(f"Failed to ingest {file_path}: {e}")
+                except Exception:
+                    logger.exception("Failed to ingest %s", file_path)
 
-        logger.info(f"Workspace ingestion complete. Total chunks: {total_chunks}")
+        logger.info("Workspace ingestion complete. Total chunks: %s", total_chunks)
         return {
             "status": "success",
             "total_chunks": total_chunks,

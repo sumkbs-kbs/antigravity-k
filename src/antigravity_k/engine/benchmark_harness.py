@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 벤치마크 하네스 (BenchmarkHarness)
+"""Antigravity-K: 벤치마크 하네스 (BenchmarkHarness).
+
 ===================================================
 collective-council vs 단일 모델 품질/속도/토큰 효율 A/B 비교 엔진.
 
@@ -20,7 +20,6 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from antigravity_k.engine.benchmark_cases import BenchmarkCase, get_suite
 from antigravity_k.engine.quality_gate import QualityGate
@@ -52,6 +51,12 @@ class BenchmarkResult:
     error: str = ""
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return asdict(self)
 
 
@@ -67,9 +72,21 @@ class BenchmarkReport:
 
     @property
     def duration_s(self) -> float:
+        """Duration S.
+
+        Returns:
+            float: The float result.
+
+        """
         return self.finished_at - self.started_at
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return {
             "suite_name": self.suite_name,
             "targets": self.targets,
@@ -91,9 +108,17 @@ class BenchmarkHarness:
     def __init__(
         self,
         model_manager,
-        db_path: Optional[Path] = None,
-        quality_gate: Optional[QualityGate] = None,
+        db_path: Path | None = None,
+        quality_gate: QualityGate | None = None,
     ):
+        """Initialize the BenchmarkHarness.
+
+        Args:
+            model_manager: model manager.
+            db_path (Path | None): Path | None db path.
+            quality_gate (QualityGate | None): QualityGate | None quality gate.
+
+        """
         self._manager = model_manager
         self._db_path = db_path or self.DEFAULT_DB_PATH
         self._quality_gate = quality_gate or QualityGate(max_retries=0)
@@ -127,13 +152,14 @@ class BenchmarkHarness:
     def run_suite(
         self,
         suite_name: str = "all",
-        targets: Optional[list[str]] = None,
+        targets: list[str] | None = None,
     ) -> BenchmarkReport:
         """과제 스위트를 실행합니다.
 
         Args:
             suite_name: "all", "simple", "algorithm", 또는 개별 ID
             targets: 비교 대상 목록. None이면 config에서 자동 결정.
+
         """
         if targets is None:
             targets = self._default_targets()
@@ -193,7 +219,7 @@ class BenchmarkHarness:
         # ── 요약 테이블 ──
         lines = [
             "## 📊 Benchmark 비교표\n",
-            "| 타겟 | 실행 수 | 평균 종합점수 | 평균 품질 | 키워드 커버리지 | A/B 비율 | 평균 레이턴시 | 평균 토큰(out) |",
+            "| 타겟 | 실행 수 | 평균 종합점수 | 평균 품질 | 키워드 커버리지 | A/B 비율 | 평균 레이턴시 | 평균 토큰(out) |",  # noqa: E501
             "|------|---------|---------------|----------|----------------|---------|-------------|---------------|",
         ]
 
@@ -203,15 +229,13 @@ class BenchmarkHarness:
             avg_b = sum(r.benchmark_score for r in results) / n
             avg_q = sum(r.quality_score for r in results) / n
             avg_k = sum(r.keyword_coverage for r in results) / n
-            ab_count = sum(
-                1 for r in results if r.quality_grade in ("excellent", "good")
-            )
+            ab_count = sum(1 for r in results if r.quality_grade in ("excellent", "good"))
             ab_ratio = ab_count / n * 100
             avg_lat = sum(r.latency_ms for r in results) / n / 1000
             avg_tok = sum(r.tokens_out for r in results) / n
             target_summaries.append((target, avg_b, avg_q, avg_k, avg_lat))
             lines.append(
-                f"| `{target}` | {n} | {avg_b:.0%} | {avg_q:.0%} | {avg_k:.0%} | {ab_ratio:.0f}% | {avg_lat:.1f}s | {avg_tok:.0f} |"
+                f"| `{target}` | {n} | {avg_b:.0%} | {avg_q:.0%} | {avg_k:.0%} | {ab_ratio:.0f}% | {avg_lat:.1f}s | {avg_tok:.0f} |",  # noqa: E501
             )
 
         if target_summaries:
@@ -225,9 +249,7 @@ class BenchmarkHarness:
         # ── 과제별 상세 ──
         lines.append("\n### 과제별 상세\n")
         target_names = sorted(targets.keys())
-        header = (
-            "| 과제 | 난이도 | " + " | ".join(f"`{t}`" for t in target_names) + " |"
-        )
+        header = "| 과제 | 난이도 | " + " | ".join(f"`{t}`" for t in target_names) + " |"
         sep = "|------|--------|" + "|".join("--------" for _ in target_names) + "|"
         lines.append(header)
         lines.append(sep)
@@ -236,9 +258,7 @@ class BenchmarkHarness:
             row = f"| {case.id} | {'⭐' * case.difficulty} |"
             for target in target_names:
                 # 가장 최근 결과 사용
-                matching = [
-                    r for r in relevant if r.case_id == case.id and r.target == target
-                ]
+                matching = [r for r in relevant if r.case_id == case.id and r.target == target]
                 if matching:
                     latest = max(matching, key=lambda r: r.timestamp)
                     grade_emoji = {
@@ -275,7 +295,7 @@ class BenchmarkHarness:
             )
         except Exception as exc:
             error = str(exc)
-            logger.error("[Benchmark] %s × %s 실행 실패: %s", case.id, target, exc)
+            logger.exception("[Benchmark] %s × %s 실행 실패", case.id, target)
 
         elapsed_ms = (time.time() - start) * 1000
 
@@ -293,9 +313,7 @@ class BenchmarkHarness:
         # 토큰 추정
         tokens_in = len(case.prompt) // 4
         tokens_out = len(output) // 4
-        keyword_coverage, passed_keywords, missing_keywords = self._score_keywords(
-            case, output
-        )
+        keyword_coverage, passed_keywords, missing_keywords = self._score_keywords(case, output)
         benchmark_score = self._compose_benchmark_score(
             quality_score=quality_score,
             keyword_coverage=keyword_coverage,
@@ -368,7 +386,7 @@ class BenchmarkHarness:
         if not self._db_path.exists():
             return
         try:
-            with open(self._db_path, "r", encoding="utf-8") as f:
+            with open(self._db_path, encoding="utf-8") as f:
                 data = json.load(f)
             self._history = []
             for raw_result in data.get("results", []):
@@ -376,13 +394,11 @@ class BenchmarkHarness:
                 if "benchmark_score" not in raw_result:
                     result.benchmark_score = result.quality_score
                 if "keyword_coverage" not in raw_result:
-                    result.keyword_coverage = (
-                        1.0 if result.output_preview and not result.error else 0.0
-                    )
+                    result.keyword_coverage = 1.0 if result.output_preview and not result.error else 0.0
                 self._history.append(result)
             logger.info("[Benchmark] %d개 기존 결과 로드", len(self._history))
-        except Exception as exc:
-            logger.warning("[Benchmark] 기존 결과 로드 실패: %s", exc)
+        except Exception:
+            logger.exception("[Benchmark] 기존 결과 로드 실패")
             self._history = []
 
     def _save_history(self) -> None:
@@ -398,8 +414,8 @@ class BenchmarkHarness:
             with open(self._db_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             logger.debug("[Benchmark] 결과 저장: %s", self._db_path)
-        except Exception as exc:
-            logger.error("[Benchmark] 결과 저장 실패: %s", exc)
+        except Exception:
+            logger.exception("[Benchmark] 결과 저장 실패")
 
     def clear_history(self) -> None:
         """누적 결과를 초기화합니다."""

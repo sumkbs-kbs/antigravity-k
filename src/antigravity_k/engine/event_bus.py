@@ -1,6 +1,9 @@
+"""Event Bus module."""
+
 import asyncio
 import logging
-from typing import Callable, Dict, List, Any, Awaitable, Union
+from collections.abc import Awaitable, Callable
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -8,14 +11,15 @@ CallbackType = Union[Callable[..., Any], Callable[..., Awaitable[Any]]]
 
 
 class EventBus:
-    """
-    비동기/동기 이벤트 버스 (Pub/Sub)
+    """비동기/동기 이벤트 버스 (Pub/Sub).
+
     Antigravity-K의 단일 동기 루프의 병목을 해소하고,
     다양한 모듈(인지, 로깅, UI)이 이벤트 기반으로 통신할 수 있게 합니다.
     """
 
     def __init__(self):
-        self._subscribers: Dict[str, List[CallbackType]] = {}
+        """Initialize the EventBus."""
+        self._subscribers: dict[str, list[CallbackType]] = {}
 
     def subscribe(self, event_name: str, callback: CallbackType):
         """특정 이벤트에 콜백을 등록합니다."""
@@ -23,21 +27,16 @@ class EventBus:
             self._subscribers[event_name] = []
         if callback not in self._subscribers[event_name]:
             self._subscribers[event_name].append(callback)
-            logger.debug(
-                f"[EventBus] Subscribed '{callback.__name__}' to '{event_name}'"
-            )
+            logger.debug("[EventBus] Subscribed '%s' to '%s'", callback.__name__, event_name)
 
     def unsubscribe(self, event_name: str, callback: CallbackType):
         """특정 이벤트에서 콜백을 제거합니다."""
-        if (
-            event_name in self._subscribers
-            and callback in self._subscribers[event_name]
-        ):
+        if event_name in self._subscribers and callback in self._subscribers[event_name]:
             self._subscribers[event_name].remove(callback)
 
     def publish(self, event_name: str, **kwargs):
-        """
-        이벤트를 동기적으로 발생시킵니다.
+        """이벤트를 동기적으로 발생시킵니다.
+
         비동기 콜백은 백그라운드 태스크로 스케줄링됩니다.
         """
         if event_name not in self._subscribers:
@@ -57,14 +56,15 @@ class EventBus:
                     callback(**kwargs)
             except Exception as e:
                 logger.error(
-                    f"[EventBus] Error in callback '{callback.__name__}' for event '{event_name}': {e}",
+                    "[EventBus] Error in callback '%s' for event '%s': %s",
+                    callback.__name__,
+                    event_name,
+                    e,
                     exc_info=True,
                 )
 
     async def publish_async(self, event_name: str, **kwargs):
-        """
-        이벤트를 비동기적으로 발생시킵니다.
-        """
+        """이벤트를 비동기적으로 발생시킵니다."""
         if event_name not in self._subscribers:
             return
 
@@ -77,7 +77,9 @@ class EventBus:
                     callback(**kwargs)
                 except Exception as e:
                     logger.error(
-                        f"[EventBus] Error in sync callback '{callback.__name__}': {e}",
+                        "[EventBus] Error in sync callback '%s': %s",
+                        callback.__name__,
+                        e,
                         exc_info=True,
                     )
 
@@ -122,5 +124,5 @@ def bridge_to_hook_event_bus():
         logger.info("[EventBus] HookEventBus 듀얼 싱크 브릿지 설정 완료")
     except ImportError:
         logger.debug("[EventBus] HookEventBus 미설치 — 듀얼 싱크 비활성")
-    except Exception as e:
-        logger.warning(f"[EventBus] HookEventBus 브릿지 설정 실패: {e}")
+    except Exception:
+        logger.exception("[EventBus] HookEventBus 브릿지 설정 실패")

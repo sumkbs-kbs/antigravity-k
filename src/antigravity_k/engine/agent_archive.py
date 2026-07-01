@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Agent Archive (에이전트 변이체 아카이브)
+"""Antigravity-K: Agent Archive (에이전트 변이체 아카이브).
+
 =====================================================
 성공한 에이전트 변이체를 저장하고 진화 계보를 추적합니다.
 
@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.agent_archive")
 
@@ -36,10 +36,10 @@ class AgentVariant:
     system_prompt_hash: str = ""
     system_prompt_snippet: str = ""  # 첫 200자
     tool_prompt_hash: str = ""
-    few_shot_examples: List[str] = field(default_factory=list)
+    few_shot_examples: list[str] = field(default_factory=list)
 
     # 샘플링 설정
-    sampling_profiles: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    sampling_profiles: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # 성능 지표
     benchmark_score: float = 0.0
@@ -58,14 +58,26 @@ class AgentVariant:
     retired: bool = False
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "AgentVariant":
-        return cls(**{
-            k: v for k, v in data.items()
-            if k in cls.__dataclass_fields__
-        })
+        """From Dict.
+
+        Args:
+            data (dict): dict data.
+
+        Returns:
+            'AgentVariant': The 'agentvariant' result.
+
+        """
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 class AgentArchive:
@@ -79,9 +91,15 @@ class AgentArchive:
     MIN_IMPROVEMENT_THRESHOLD = 0.01  # 최소 개선율 (1%)
 
     def __init__(self, archive_dir: str = "data/agent_archive"):
+        """Initialize the AgentArchive.
+
+        Args:
+            archive_dir (str): str archive dir.
+
+        """
         self._dir = Path(archive_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._variants: List[AgentVariant] = []
+        self._variants: list[AgentVariant] = []
         self._generation_counter = 0
         self._load()
 
@@ -96,14 +114,16 @@ class AgentArchive:
 
         Returns:
             True if archived, False if rejected
+
         """
         if variant.parent_id:
             parent = self.get(variant.parent_id)
             if parent and variant.benchmark_score <= parent.benchmark_score:
                 if variant.improvement_delta < self.MIN_IMPROVEMENT_THRESHOLD:
                     logger.info(
-                        f"[Archive] 변이체 거부: {variant.variant_id} "
-                        f"(개선 미달: {variant.improvement_delta:+.2%})"
+                        "[Archive] 변이체 거부: %s (개선 미달: %s)",
+                        variant.variant_id,
+                        variant.improvement_delta,
                     )
                     return False
 
@@ -118,27 +138,29 @@ class AgentArchive:
 
         self._save()
         logger.info(
-            f"[Archive] 저장: {variant.variant_id} "
-            f"(Gen {variant.generation}, score: {variant.benchmark_score:.2%}, "
-            f"Δ{variant.improvement_delta:+.2%})"
+            "[Archive] 저장: %s (Gen %s, score: %s, Δ%s)",
+            variant.variant_id,
+            variant.generation,
+            variant.benchmark_score,
+            variant.improvement_delta,
         )
         return True
 
-    def get(self, variant_id: str) -> Optional[AgentVariant]:
+    def get(self, variant_id: str) -> AgentVariant | None:
         """변이체를 ID로 조회합니다."""
         for v in self._variants:
             if v.variant_id == variant_id:
                 return v
         return None
 
-    def get_best(self) -> Optional[AgentVariant]:
+    def get_best(self) -> AgentVariant | None:
         """가장 높은 성능의 변이체를 반환합니다."""
         active = [v for v in self._variants if not v.retired]
         if not active:
             return None
         return max(active, key=lambda v: v.benchmark_score)
 
-    def get_latest(self) -> Optional[AgentVariant]:
+    def get_latest(self) -> AgentVariant | None:
         """가장 최근 변이체를 반환합니다."""
         active = [v for v in self._variants if not v.retired]
         return active[-1] if active else None
@@ -151,7 +173,7 @@ class AgentArchive:
 
     # ─── 진화 계보 ───────────────────────────────────────────────
 
-    def lineage(self, variant_id: str) -> List[AgentVariant]:
+    def lineage(self, variant_id: str) -> list[AgentVariant]:
         """변이체의 진화 계보를 추적합니다 (자손 → 조상)."""
         chain = []
         current_id = variant_id
@@ -183,7 +205,7 @@ class AgentArchive:
             lines.append(
                 f"{prefix} **Gen {v.generation}** `{v.variant_id}` "
                 f"— {v.mutation_type} ({v.benchmark_score:.1%}, "
-                f"Δ{v.improvement_delta:+.1%})"
+                f"Δ{v.improvement_delta:+.1%})",
             )
             if v.mutation_description:
                 lines.append(f"{'  ' * (i + 1)}*{v.mutation_description}*")
@@ -196,7 +218,7 @@ class AgentArchive:
         self,
         parent_a_id: str,
         parent_b_id: str,
-    ) -> Optional[AgentVariant]:
+    ) -> AgentVariant | None:
         """두 성공 변이체의 장점을 교차 결합합니다.
 
         결합 전략:
@@ -240,12 +262,12 @@ class AgentArchive:
             ),
         )
 
-        logger.info(f"[Archive] 교차 결합 생성: {child_id}")
+        logger.info("[Archive] 교차 결합 생성: %s", child_id)
         return child
 
     # ─── 통계 및 유틸 ────────────────────────────────────────────
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """아카이브 통계를 반환합니다."""
         active = [v for v in self._variants if not v.retired]
         if not active:
@@ -272,22 +294,20 @@ class AgentArchive:
             return
         weakest = min(active, key=lambda v: v.benchmark_score)
         weakest.retired = True
-        logger.info(f"[Archive] 은퇴: {weakest.variant_id} ({weakest.benchmark_score:.1%})")
+        logger.info("[Archive] 은퇴: %s (%s)", weakest.variant_id, weakest.benchmark_score)
 
     def _load(self) -> None:
         archive_file = self._dir / "archive.json"
         if not archive_file.exists():
             return
         try:
-            with open(archive_file, "r", encoding="utf-8") as f:
+            with open(archive_file, encoding="utf-8") as f:
                 data = json.load(f)
-            self._variants = [
-                AgentVariant.from_dict(v) for v in data.get("variants", [])
-            ]
+            self._variants = [AgentVariant.from_dict(v) for v in data.get("variants", [])]
             self._generation_counter = data.get("generation_counter", 0)
-            logger.info(f"[Archive] {len(self._variants)}개 변이체 로드")
-        except Exception as e:
-            logger.warning(f"[Archive] 로드 실패: {e}")
+            logger.info("[Archive] %s개 변이체 로드", len(self._variants))
+        except Exception:
+            logger.exception("[Archive] 로드 실패")
 
     def _save(self) -> None:
         archive_file = self._dir / "archive.json"
@@ -300,8 +320,8 @@ class AgentArchive:
             }
             with open(archive_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"[Archive] 저장 실패: {e}")
+        except Exception:
+            logger.exception("[Archive] 저장 실패")
 
 
 """Antigravity-K Agent Archive — Evolutionary variant storage with lineage tracking."""

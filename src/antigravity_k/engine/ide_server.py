@@ -1,27 +1,34 @@
+"""Ide Server module."""
+
+import logging
 import os
 import subprocess
 import threading
-import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class IDEServer:
-    """
-    Manages the lifecycle of the code-server daemon to provide a Web IDE.
-    """
+    """Manages the lifecycle of the code-server daemon to provide a Web IDE."""
 
     def __init__(self, port: int = 8080, workspace_dir: str = "."):
+        """Initialize the IDEServer.
+
+        Args:
+            port (int): int port.
+            workspace_dir (str): str workspace dir.
+
+        """
         self.port = port
         self.workspace_dir = workspace_dir
-        self.process: Optional[subprocess.Popen] = None
+        self.process: subprocess.Popen | None = None
         self._lock = threading.Lock()
 
     def start(self):
+        """Start."""
         with self._lock:
             if self.process and self.process.poll() is None:
-                logger.info(f"IDE Server is already running on port {self.port}.")
+                logger.info("IDE Server is already running on port %s.", self.port)
                 return
 
             # Note: auth=none is used because we assume the dashboard handles authentication,
@@ -43,7 +50,9 @@ class IDEServer:
                     env=os.environ.copy(),
                 )
                 logger.info(
-                    f"Started IDE (code-server) on port {self.port} for {self.workspace_dir}"
+                    "Started IDE (code-server) on port %s for %s",
+                    self.port,
+                    self.workspace_dir,
                 )
             except FileNotFoundError:
                 logger.error("code-server executable not found in PATH.")
@@ -51,6 +60,7 @@ class IDEServer:
                 self.process = None
 
     def stop(self):
+        """Stop."""
         with self._lock:
             if self.process and self.process.poll() is None:
                 logger.info("Stopping IDE Server...")
@@ -63,5 +73,11 @@ class IDEServer:
                 logger.info("IDE Server stopped.")
 
     def is_running(self) -> bool:
+        """Check if running.
+
+        Returns:
+            bool: The bool result.
+
+        """
         with self._lock:
             return self.process is not None and self.process.poll() is None

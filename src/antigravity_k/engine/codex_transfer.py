@@ -1,5 +1,4 @@
-"""
-Codex capability transfer contract.
+"""Codex capability transfer contract.
 
 This module turns Codex-like working strengths into deterministic,
 testable Antigravity-K operating rules. It does not copy private model
@@ -122,6 +121,17 @@ class CodexTransferEngine:
         connected_tools: int = 0,
         known_skills: int = 0,
     ) -> CodexTransferReport:
+        """Build.
+
+        Args:
+            objective (str): str objective.
+            connected_tools (int): int connected tools.
+            known_skills (int): int known skills.
+
+        Returns:
+            CodexTransferReport: The codextransferreport result.
+
+        """
         normalized = " ".join((objective or "general system upgrade").split())
         return CodexTransferReport(
             objective=normalized,
@@ -133,6 +143,15 @@ class CodexTransferEngine:
         )
 
     def render_markdown(self, report: CodexTransferReport) -> str:
+        """Render markdown.
+
+        Args:
+            report (CodexTransferReport): CodexTransferReport report.
+
+        Returns:
+            str: The str result.
+
+        """
         lines = [
             "# Codex Capability Transfer Manifest",
             "",
@@ -146,9 +165,7 @@ class CodexTransferEngine:
             "",
             "## Operating Loop",
         ]
-        lines.extend(
-            f"{index}. {step}" for index, step in enumerate(report.operating_loop, 1)
-        )
+        lines.extend(f"{index}. {step}" for index, step in enumerate(report.operating_loop, 1))
 
         lines.extend(
             [
@@ -157,7 +174,7 @@ class CodexTransferEngine:
                 "",
                 "| Strength | Codex-grade behavior | Antigravity-K implementation | Verification gate |",
                 "|---|---|---|---|",
-            ]
+            ],
         )
         for strength in report.strengths:
             lines.append(
@@ -165,7 +182,7 @@ class CodexTransferEngine:
                 f"{strength.title} | "
                 f"{strength.behavior} | "
                 f"{strength.antigravity_mapping} | "
-                f"{strength.verification_gate} |"
+                f"{strength.verification_gate} |",
             )
 
         lines.extend(["", "## Zero-Error Completion Gates"])
@@ -180,11 +197,17 @@ class CodexTransferEngine:
                 "- `/mcp radar`: inspect MCP upgrade and safety posture.",
                 "- `POST /api/agent/tools/browser/self-test`: run integrated self-test.",
                 "- `python -m ruff check src tests && python -m pytest`: enforce regression gates.",
-            ]
+            ],
         )
         return "\n".join(lines)
 
     def render_prompt_contract(self) -> str:
+        """Render prompt contract.
+
+        Returns:
+            str: The str result.
+
+        """
         report = self.build("agent execution policy")
         return (
             "## Codex-Grade Operating Contract\n"

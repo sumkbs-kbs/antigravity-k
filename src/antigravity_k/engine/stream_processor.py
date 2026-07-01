@@ -27,9 +27,7 @@ _INTERNAL_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 # <scratch_pad>...</scratch_pad> 전체 블록 제거용 (flush 시)
-_SCRATCH_PAD_BLOCK_RE = re.compile(
-    r"<scratch_pad>.*?</scratch_pad>", re.DOTALL | re.IGNORECASE
-)
+_SCRATCH_PAD_BLOCK_RE = re.compile(r"<scratch_pad>.*?</scratch_pad>", re.DOTALL | re.IGNORECASE)
 _CJK_CLEANUP_RE = re.compile(r"[\u4e00-\u9fff]{5,}")
 
 
@@ -133,9 +131,7 @@ class StreamProcessor:
         # Step 4: 반복 루프 감지
         stripped = output.strip()
         if len(stripped) > 50:
-            self._state.seen_blocks[stripped] = (
-                self._state.seen_blocks.get(stripped, 0) + 1
-            )
+            self._state.seen_blocks[stripped] = self._state.seen_blocks.get(stripped, 0) + 1
             if self._state.seen_blocks[stripped] >= self._repetition_threshold:
                 self._state.repetition_detected = True
                 logger.warning("Repetition loop detected by StreamProcessor")
@@ -192,12 +188,12 @@ class StreamProcessor:
 
         # 프리필(Pre-fill fluff) 차단: "제가 검색해볼게요", "Would you like me to" 등 무의미한 서술형 텍스트 필터링
         flush_text = re.sub(
-            r"(?i)^(?:Here is the|I will|Let me|Would you like me to|I can|I'll|Okay,|Sure,|Yes,).{0,30}(?:search|find|look up|perform|provide|check).{0,50}(?:\?|\.|:)?\s*",
+            r"(?i)^(?:Here is the|I will|Let me|Would you like me to|I can|I'll|Okay,|Sure,|Yes,).{0,30}(?:search|find|look up|perform|provide|check).{0,50}(?:\?|\.|:)?\s*",  # noqa: E501
             "",
             flush_text,
         )
         flush_text = re.sub(
-            r"^(?:제가 |네, |알겠습니다. ).{0,30}(?:검색|찾아|확인|조회).{0,20}(?:해볼까요\?|해보겠습니다\.|해드릴게요\.)\s*",
+            r"^(?:제가 |네, |알겠습니다. ).{0,30}(?:검색|찾아|확인|조회).{0,20}(?:해볼까요\?|해보겠습니다\.|해드릴게요\.)\s*",  # noqa: E501
             "",
             flush_text,
         )
@@ -226,9 +222,7 @@ class StreamProcessor:
         import re
 
         # render_diffs(uri) 처리
-        text = re.sub(
-            r"render_diffs\((.*?)\)", r"\n\n**[Diff Render]** 📄 `\1`\n\n", text
-        )
+        text = re.sub(r"render_diffs\((.*?)\)", r"\n\n**[Diff Render]** 📄 `\1`\n\n", text)
 
         # GitHub Alerts 스타일링
         alert_map = {

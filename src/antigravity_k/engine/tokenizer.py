@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 토큰 추정기 (TokenEstimator)
+"""Antigravity-K: 토큰 추정기 (TokenEstimator).
+
 =============================================
 시스템 전체에서 단 하나의 토큰 추정 공식만 사용하도록 통일합니다.
 
@@ -14,7 +14,6 @@ Antigravity-K: 토큰 추정기 (TokenEstimator)
   - 성능을 위한 캐싱 (메시지별 _tokens 필드)
 """
 
-from typing import Dict, List
 import re
 
 # 한글, 한자, 일본어(히라가나/가타카나) 정규식
@@ -45,14 +44,13 @@ class TokenEstimator:
         return base_tokens + cjk_count
 
     @staticmethod
-    def estimate_messages(
-        messages: List[Dict[str, str]], use_cache: bool = True
-    ) -> int:
+    def estimate_messages(messages: list[dict[str, str]], use_cache: bool = True) -> int:
         """메시지 리스트의 총 토큰 수를 추정합니다.
 
         Args:
             messages: [{"role": "...", "content": "..."}] 리스트
             use_cache: True이면 메시지별 _tokens 필드에 캐시 (반복 호출 시 성능 향상)
+
         """
         total = 0
         for msg in messages:
@@ -67,9 +65,9 @@ class TokenEstimator:
         return total
 
     @staticmethod
-    def estimate_messages_by_role(messages: List[Dict[str, str]]) -> Dict[str, int]:
+    def estimate_messages_by_role(messages: list[dict[str, str]]) -> dict[str, int]:
         """역할별 토큰 사용량을 분석합니다."""
-        by_role: Dict[str, int] = {}
+        by_role: dict[str, int] = {}
         for msg in messages:
             role = msg.get("role", "unknown")
             tokens = TokenEstimator.estimate_text(msg.get("content", ""))

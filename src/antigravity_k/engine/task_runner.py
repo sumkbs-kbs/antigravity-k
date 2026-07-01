@@ -15,9 +15,10 @@ import logging
 import sqlite3
 import threading
 import uuid
-from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from antigravity_k.engine.worktree_manager import WorktreeManager
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,7 @@ class TaskStatus:
 class TaskCheckpoint:
     """태스크 실행 중간 상태 스냅샷"""
 
-    def __init__(
-        self, task_id: str, step: int, context: Dict[str, Any], output_so_far: str
-    ):
+    def __init__(self, task_id: str, step: int, context: Dict[str, Any], output_so_far: str):
         self.task_id = task_id
         self.step = step
         self.context = context
@@ -66,9 +65,7 @@ class BackgroundTask:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "task_id": self.task_id,
-            "prompt": (
-                self.prompt[:100] + "..." if len(self.prompt) > 100 else self.prompt
-            ),
+            "prompt": (self.prompt[:100] + "..." if len(self.prompt) > 100 else self.prompt),
             "status": self.status,
             "progress": self.progress,
             "output_length": len(self.output),
@@ -158,8 +155,8 @@ class BackgroundTaskRunner:
         if use_worktree:
             try:
                 task.worktree_path = self.worktree_manager.create_worktree(task_id)
-            except Exception as e:
-                logger.error(f"Failed to create worktree: {e}")
+            except Exception:
+                logger.exception("Failed to create worktree")
 
         with self._lock:
             self._tasks[task_id] = task
@@ -230,20 +227,16 @@ class BackgroundTaskRunner:
 
             # ─── Snapshot (Filesystem Checkpoint) 생성 ───
             # W-6: 순환참조 제거 — api.server 역방향 import 대신 DI된 vault_engine 사용
-            vault_engine = self.vault_engine or getattr(
-                orchestrator, "vault_engine", None
-            )
+            vault_engine = self.vault_engine or getattr(orchestrator, "vault_engine", None)
 
             if vault_engine:
                 try:
-                    snapshot_hash = vault_engine.create_snapshot(
-                        f"Pre-task checkpoint for {task.task_id}"
-                    )
+                    snapshot_hash = vault_engine.create_snapshot(f"Pre-task checkpoint for {task.task_id}")
                     if snapshot_hash:
                         task.context["snapshot_hash"] = snapshot_hash
                         logger.info(f"Created pre-task snapshot: {snapshot_hash}")
-                except Exception as e:
-                    logger.warning(f"Failed to create pre-task snapshot: {e}")
+                except Exception:
+                    logger.exception("Failed to create pre-task snapshot")
 
             messages = [{"role": "user", "content": task.prompt}]
             if task.context:
@@ -270,10 +263,8 @@ class BackgroundTaskRunner:
                     if task.context.get("use_worktree", False):
                         try:
                             self.worktree_manager.remove_worktree(task.task_id)
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to cleanup worktree on cancellation: {e}"
-                            )
+                        except Exception:
+                            logger.exception("Failed to cleanup worktree on cancellation")
                     return
 
                 output_parts.append(chunk)
@@ -292,9 +283,7 @@ class BackgroundTaskRunner:
             task.updated_at = datetime.now().isoformat()
 
             self._update_db_status(task.task_id, TaskStatus.DONE, output=task.output)
-            logger.info(
-                f"Background task completed: {task.task_id}, output length: {len(task.output)}"
-            )
+            logger.info(f"Background task completed: {task.task_id}, output length: {len(task.output)}")
 
             # ─── LLM Wiki (Vault) 자동 기록: 세컨드 브레인 축적 ───
             self._save_to_vault(task, orchestrator)
@@ -304,7 +293,7 @@ class BackgroundTaskRunner:
             task.error = str(e)
             task.updated_at = datetime.now().isoformat()
             self._update_db_status(task.task_id, TaskStatus.FAILED, error=str(e))
-            logger.error(f"Background task failed: {task.task_id}, error: {e}")
+            logger.exception(f"Background task failed: {task.task_id}, error")
 
         finally:
             if task.worktree_path:
@@ -320,9 +309,7 @@ class BackgroundTaskRunner:
 
         # 메모리에 없으면 DB에서 조회 (이전 세션의 태스크)
         with self._get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM task_history WHERE task_id = ?", (task_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM task_history WHERE task_id = ?", (task_id,)).fetchone()
             if row:
                 return {
                     "task_id": row["task_id"],
@@ -347,9 +334,7 @@ class BackgroundTaskRunner:
         # DB의 히스토리 (활성 태스크와 중복 제거)
         active_ids = {r["task_id"] for r in results}
         with self._get_connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM task_history ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM task_history ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
             for row in rows:
                 if row["task_id"] not in active_ids:
                     results.append(
@@ -362,9 +347,7 @@ class BackgroundTaskRunner:
                         }
                     )
 
-        return sorted(results, key=lambda x: x.get("created_at", ""), reverse=True)[
-            :limit
-        ]
+        return sorted(results, key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
 
     def get_output(self, task_id: str) -> Optional[str]:
         """완료된 태스크의 전체 출력을 반환합니다."""
@@ -374,9 +357,7 @@ class BackgroundTaskRunner:
                 return task.output
 
         with self._get_connection() as conn:
-            row = conn.execute(
-                "SELECT output FROM task_history WHERE task_id = ?", (task_id,)
-            ).fetchone()
+            row = conn.execute("SELECT output FROM task_history WHERE task_id = ?", (task_id,)).fetchone()
             if row:
                 return row["output"]
         return None
@@ -386,7 +367,7 @@ class BackgroundTaskRunner:
         try:
             with self._get_connection() as conn:
                 conn.execute(
-                    "INSERT INTO task_checkpoints (task_id, step, context_json, output_so_far, created_at) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO task_checkpoints (task_id, step, context_json, output_so_far, created_at) VALUES (?, ?, ?, ?, ?)",  # noqa: E501
                     (
                         task_id,
                         step,
@@ -397,8 +378,8 @@ class BackgroundTaskRunner:
                 )
                 conn.commit()
             logger.debug(f"Checkpoint saved: {task_id} at step {step}")
-        except Exception as e:
-            logger.warning(f"Checkpoint save failed: {e}")
+        except Exception:
+            logger.exception("Checkpoint save failed")
 
     def _save_to_vault(self, task: BackgroundTask, orchestrator=None):
         """태스크 완료 결과를 Vault에 기록하여 세컨드 브레인 메모리로 축적.
@@ -406,9 +387,7 @@ class BackgroundTaskRunner:
         """
         try:
             # W-6: 순환참조 제거 — DI된 vault_engine 또는 orchestrator에서 추출
-            vault_engine = self.vault_engine or getattr(
-                orchestrator, "vault_engine", None
-            )
+            vault_engine = self.vault_engine or getattr(orchestrator, "vault_engine", None)
 
             if not vault_engine:
                 logger.warning("VaultEngine is not available. Skipping vault record.")
@@ -421,9 +400,7 @@ class BackgroundTaskRunner:
             context_md = ""
             if task.context:
                 context_md = (
-                    "## Context\n```json\n"
-                    + json.dumps(task.context, ensure_ascii=False, indent=2)
-                    + "\n```\n\n"
+                    "## Context\n```json\n" + json.dumps(task.context, ensure_ascii=False, indent=2) + "\n```\n\n"
                 )
 
             # --- 1. Memory Consolidation (기억 정제 및 도구 이력 추출) ---
@@ -433,13 +410,13 @@ class BackgroundTaskRunner:
                     import re
 
                     summary_prompt = (
-                        "당신은 에이전트의 작업 로그를 분석하여 세컨드 브레인(Wiki)에 저장할 핵심 기억(Memory)을 추출하는 전문가입니다.\n"
+                        "당신은 에이전트의 작업 로그를 분석하여 세컨드 브레인(Wiki)에 저장할 핵심 기억(Memory)을 추출하는 전문가입니다.\n"  # noqa: E501
                         f"아래는 에이전트가 수행한 작업의 로그입니다.\n\n"
                         f"<task_prompt>\n{task.prompt}\n</task_prompt>\n\n"
                         f"<task_output>\n{task.output[-6000:]}\n</task_output>\n\n"
                         "다음 항목을 마크다운 포맷으로 작성해주세요:\n"
-                        "1. **핵심 요약 (Lessons Learned)**: 이 작업에서 성공적으로 해결한 문제와 배운 점을 3~4줄로 요약.\n"
-                        "2. **도구 및 에러 이력 (Tool Trajectory)**: 사용한 주요 도구들과 직면했던 에러, 그리고 어떻게 극복했는지 간략히 기록."
+                        "1. **핵심 요약 (Lessons Learned)**: 이 작업에서 성공적으로 해결한 문제와 배운 점을 3~4줄로 요약.\n"  # noqa: E501
+                        "2. **도구 및 에러 이력 (Tool Trajectory)**: 사용한 주요 도구들과 직면했던 에러, 그리고 어떻게 극복했는지 간략히 기록."  # noqa: E501
                     )
 
                     summarizer_model = orchestrator._get_model_for_role("default")
@@ -448,24 +425,20 @@ class BackgroundTaskRunner:
                         prompt=summary_prompt,
                         target=summarizer_model,
                         raw_messages=[{"role": "user", "content": summary_prompt}],
-                        system_prompt="출력은 오직 마크다운으로 작성된 분석 결과여야 합니다. 불필요한 서론/결론은 생략하세요. /no_think",
+                        system_prompt="출력은 오직 마크다운으로 작성된 분석 결과여야 합니다. 불필요한 서론/결론은 생략하세요. /no_think",  # noqa: E501
                     )
 
                     extracted_text = ""
                     for chunk in response_gen:
                         extracted_text += chunk
 
-                    extracted_text = re.sub(
-                        r"<think>.*?</think>", "", extracted_text, flags=re.DOTALL
-                    ).strip()
+                    extracted_text = re.sub(r"<think>.*?</think>", "", extracted_text, flags=re.DOTALL).strip()
 
                     if extracted_text:
                         summary_content = f"## 🧠 Memory Consolidation (자가 학습)\n\n{extracted_text}\n\n"
-                except Exception as llm_e:
-                    logger.warning(f"Memory consolidation failed: {llm_e}")
-                    summary_content = (
-                        "## 🧠 Memory Consolidation\n\n*(요약 생성에 실패했습니다)*\n\n"
-                    )
+                except Exception:
+                    logger.exception("Memory consolidation failed")
+                    summary_content = "## 🧠 Memory Consolidation\n\n*(요약 생성에 실패했습니다)*\n\n"
 
             # --- 2. 최종 마크다운 조합 ---
             content = f"# Task: {task.prompt[:50]}...\n\n"
@@ -491,8 +464,8 @@ class BackgroundTaskRunner:
                 commit_message=f"Agent memory recorded with consolidation for task {task.task_id}",
             )
             logger.info(f"Task memory saved to vault: {filename}")
-        except Exception as e:
-            logger.error(f"Failed to save task result to vault: {e}")
+        except Exception:
+            logger.exception("Failed to save task result to vault")
 
     def get_last_checkpoint(self, task_id: str) -> Optional[Dict[str, Any]]:
         """마지막 체크포인트를 조회합니다."""
@@ -525,9 +498,7 @@ class BackgroundTaskRunner:
 
         # 원래 프롬프트 조회
         with self._get_connection() as conn:
-            row = conn.execute(
-                "SELECT prompt FROM task_history WHERE task_id = ?", (task_id,)
-            ).fetchone()
+            row = conn.execute("SELECT prompt FROM task_history WHERE task_id = ?", (task_id,)).fetchone()
             if not row:
                 return False
 
@@ -554,14 +525,10 @@ class BackgroundTaskRunner:
         task._thread = thread
         thread.start()
 
-        logger.info(
-            f"Task resumed from checkpoint: {task_id} at step {checkpoint['step']}"
-        )
+        logger.info(f"Task resumed from checkpoint: {task_id} at step {checkpoint['step']}")
         return True
 
-    def _update_db_status(
-        self, task_id: str, status: str, output: str = None, error: str = None
-    ):
+    def _update_db_status(self, task_id: str, status: str, output: str = None, error: str = None):
         """DB에 태스크 상태를 업데이트합니다."""
         try:
             with self._get_connection() as conn:
@@ -576,8 +543,8 @@ class BackgroundTaskRunner:
                         (status, task_id),
                     )
                 conn.commit()
-        except Exception as e:
-            logger.warning(f"DB status update failed: {e}")
+        except Exception:
+            logger.exception("DB status update failed")
 
 
 # ── 싱글톤 인스턴스 ──

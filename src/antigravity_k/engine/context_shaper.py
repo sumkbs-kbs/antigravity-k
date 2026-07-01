@@ -1,5 +1,5 @@
-"""
-ContextShaper — 5단계 컨텍스트 압축 파이프라인
+"""ContextShaper — 5단계 컨텍스트 압축 파이프라인.
+
 ================================================
 Claw Code의 Context Compaction Shapers 아키텍처 이식.
 
@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from antigravity_k.engine.tokenizer import TokenEstimator
 
@@ -26,8 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class ContextShaper:
-    """
-    5단계 컨텍스트 압축 파이프라인.
+    """5단계 컨텍스트 압축 파이프라인.
 
     Claw Code의 Shaper 체인 패턴:
     messages → BudgetReducer → Snip → MicroCompact → ContextCollapse → AutoCompact → shaped
@@ -46,13 +45,24 @@ class ContextShaper:
         max_tokens: int = 128_000,
         reserve_tokens: int = 4_096,  # 응답 예약
         collapse_threshold: int = 2000,  # 이 길이 초과 도구 출력 → collapse
-        storage_dir: Optional[str] = None,
+        storage_dir: str | None = None,
     ):
+        """Initialize the ContextShaper.
+
+        Args:
+            max_tokens (int): int max tokens.
+            reserve_tokens (int): int reserve tokens.
+            collapse_threshold (int): int collapse threshold.
+            storage_dir (str | None): str | None storage dir.
+
+        """
         self.max_tokens = max_tokens
         self.reserve_tokens = reserve_tokens
         self.collapse_threshold = collapse_threshold
         self.storage_dir = storage_dir or os.path.join(
-            os.path.expanduser("~"), ".antigravity", "context_store"
+            os.path.expanduser("~"),
+            ".antigravity",
+            "context_store",
         )
         os.makedirs(self.storage_dir, exist_ok=True)
 
@@ -66,12 +76,11 @@ class ContextShaper:
 
     def shape(
         self,
-        messages: List[Dict[str, str]],
-        budget: Optional[int] = None,
+        messages: list[dict[str, str]],
+        budget: int | None = None,
         force_compact: bool = False,
-    ) -> List[Dict[str, str]]:
-        """
-        메시지 리스트에 5단계 압축 파이프라인을 적용합니다.
+    ) -> list[dict[str, str]]:
+        """메시지 리스트에 5단계 압축 파이프라인을 적용합니다.
 
         Args:
             messages: [{"role": "...", "content": "..."}] 리스트
@@ -81,6 +90,7 @@ class ContextShaper:
 
         Returns:
             압축된 메시지 리스트
+
         """
         budget = budget or (self.max_tokens - self.reserve_tokens)
         original_size = self._estimate_tokens(messages)
@@ -115,8 +125,10 @@ class ContextShaper:
         self._stats["tokens_saved"] += original_size - self._estimate_tokens(shaped)
 
         logger.info(
-            f"Context shaped: {original_size} → {self._estimate_tokens(shaped)} tokens "
-            f"(saved {original_size - self._estimate_tokens(shaped)})"
+            "Context shaped: %s → %s tokens (saved %s)",
+            original_size,
+            self._estimate_tokens(shaped),
+            original_size - self._estimate_tokens(shaped),
         )
 
         return shaped
@@ -127,16 +139,14 @@ class ContextShaper:
         """목표 토큰 수를 계산합니다."""
         # 80% 수준으로 타겟 설정 (여유 확보)
         target = int(budget * 0.8)
-        logger.debug(
-            f"BudgetReducer: current={current}, budget={budget}, target={target}"
-        )
+        logger.debug("BudgetReducer: current=%s, budget=%s, target=%s", current, budget, target)
         return target
 
     # ─────────── Stage 2: Snip ───────────
 
-    def _snip(self, messages: List[Dict], target: int) -> List[Dict]:
-        """
-        오래된 저우선 메시지를 절삭합니다.
+    def _snip(self, messages: list[dict], target: int) -> list[dict]:
+        """오래된 저우선 메시지를 절삭합니다.
+
         시스템 메시지와 최근 5턴은 보존.
         """
         if self._estimate_tokens(messages) <= target:
@@ -165,9 +175,9 @@ class ContextShaper:
 
     # ─────────── Stage 3: MicroCompact ───────────
 
-    def _micro_compact(self, messages: List[Dict]) -> List[Dict]:
-        """
-        연속 도구 결과를 합치고, 긴 내용을 축약합니다.
+    def _micro_compact(self, messages: list[dict]) -> list[dict]:
+        """연속 도구 결과를 합치고, 긴 내용을 축약합니다.
+
         Claw Code의 'consecutive tool results merge' 패턴.
         """
         if len(messages) < 3:
@@ -192,7 +202,7 @@ class ContextShaper:
                                 "role": "tool",
                                 "content": merged_content,
                                 "name": "merged_tools",
-                            }
+                            },
                         )
                     else:
                         # 단일 도구 결과도 축약
@@ -206,25 +216,20 @@ class ContextShaper:
         if tool_buffer:
             if len(tool_buffer) > 1:
                 merged = "\n---\n".join(
-                    f"[{t.get('name', 'tool')}] {self._truncate(t.get('content', ''), 500)}"
-                    for t in tool_buffer
+                    f"[{t.get('name', 'tool')}] {self._truncate(t.get('content', ''), 500)}" for t in tool_buffer
                 )
-                result.append(
-                    {"role": "tool", "content": merged, "name": "merged_tools"}
-                )
+                result.append({"role": "tool", "content": merged, "name": "merged_tools"})
             else:
-                tool_buffer[0]["content"] = self._truncate(
-                    tool_buffer[0].get("content", ""), 1000
-                )
+                tool_buffer[0]["content"] = self._truncate(tool_buffer[0].get("content", ""), 1000)
                 result.append(tool_buffer[0])
 
         return result
 
     # ─────────── Stage 4: Context Collapse ───────────
 
-    def _context_collapse(self, messages: List[Dict]) -> List[Dict]:
-        """
-        긴 도구 출력(파일 내용, grep 결과)을 참조 ID로 교체하고 디스크에 저장.
+    def _context_collapse(self, messages: list[dict]) -> list[dict]:
+        """긴 도구 출력(파일 내용, grep 결과)을 참조 ID로 교체하고 디스크에 저장.
+
         Claw Code의 'reference ID replacement' 패턴.
         """
         result = []
@@ -242,10 +247,7 @@ class ContextShaper:
 
                 # 축약 버전 (첫 200자 + 참조 ID)
                 preview = content[:200]
-                collapsed = (
-                    f"{preview}...\n"
-                    f"[Full output stored as ref:{ref_id}, {len(content)} chars]"
-                )
+                collapsed = f"{preview}...\n[Full output stored as ref:{ref_id}, {len(content)} chars]"
 
                 result.append({**msg, "content": collapsed})
                 self._stats["collapses"] += 1
@@ -254,20 +256,20 @@ class ContextShaper:
 
         return result
 
-    def restore_collapsed(self, ref_id: str) -> Optional[str]:
+    def restore_collapsed(self, ref_id: str) -> str | None:
         """참조 ID로 저장된 전체 내용을 복원합니다."""
         ref_path = os.path.join(self.storage_dir, f"{ref_id}.json")
         if os.path.exists(ref_path):
-            with open(ref_path, "r", encoding="utf-8") as f:
+            with open(ref_path, encoding="utf-8") as f:
                 data = json.load(f)
             return data.get("content")
         return None
 
     # ─────────── Stage 5: Auto Compact ───────────
 
-    def _auto_compact(self, messages: List[Dict], budget: int) -> List[Dict]:
-        """
-        여전히 예산 초과 시, 이전 대화를 요약문으로 교체합니다.
+    def _auto_compact(self, messages: list[dict], budget: int) -> list[dict]:
+        """여전히 예산 초과 시, 이전 대화를 요약문으로 교체합니다.
+
         Claw Code의 'auto-compact with LLM summary' 패턴.
 
         Note: LLM 호출 없이 규칙 기반 요약으로 구현 (로컬 LLM 호출은 추후).
@@ -297,7 +299,7 @@ class ContextShaper:
                 summary_parts.append(f"- Tool '{name}' executed")
 
         summary = "[Previous conversation summary]\n" + "\n".join(
-            summary_parts[:20]
+            summary_parts[:20],
         )  # 최대 20개 항목
 
         summary_msg = {"role": "system", "content": summary}
@@ -307,9 +309,10 @@ class ContextShaper:
     # ─────────── 유틸리티 ───────────
 
     @staticmethod
-    def _estimate_tokens(messages: List[Dict]) -> int:
+    def _estimate_tokens(messages: list[dict]) -> int:
         """메시지 리스트의 대략적인 토큰 수를 추정합니다.
-        TokenEstimator 통일 모듈에 위임합니다."""
+        TokenEstimator 통일 모듈에 위임합니다.
+        """
         return TokenEstimator.estimate_messages(messages)
 
     @staticmethod
@@ -319,11 +322,11 @@ class ContextShaper:
             return text
         return text[:max_len] + f"... ({len(text)} total chars)"
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """압축 통계를 반환합니다."""
         return dict(self._stats)
 
-    def get_token_usage(self, messages: List[Dict]) -> Dict[str, Any]:
+    def get_token_usage(self, messages: list[dict]) -> dict[str, Any]:
         """현재 컨텍스트 토큰 사용량을 분석합니다."""
         total = self._estimate_tokens(messages)
         by_role = TokenEstimator.estimate_messages_by_role(messages)

@@ -1,13 +1,21 @@
+"""System Tools module."""
+
 import logging
 import os
 import subprocess
-from typing import Any, Dict
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from typing import Any
+
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
 
 class ReadFileTool(BaseTool):
+    """Readfiletool.
+
+    Bases: BaseTool
+    """
+
     category = ToolCategory.FILE_IO
     render_in = RenderIn.TOOLBAR
     risk_level = RiskLevel.SAFE
@@ -15,6 +23,7 @@ class ReadFileTool(BaseTool):
     tags = ["file", "read", "io", "view"]
 
     def __init__(self):
+        """Initialize the ReadFileTool."""
         super().__init__()
         self._name = "read_file"
         self._description = (
@@ -42,17 +51,44 @@ class ReadFileTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         file_path = kwargs.get("file_path")
         start_line = kwargs.get("start_line")
         end_line = kwargs.get("end_line")
@@ -60,7 +96,7 @@ class ReadFileTool(BaseTool):
         if not file_path or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 if start_line or end_line:
                     lines = f.readlines()
                     total = len(lines)
@@ -68,8 +104,8 @@ class ReadFileTool(BaseTool):
                     e = min(total, end_line or total)
                     selected = lines[s:e]
                     # 줄 번호 포함 출력
-                    numbered = [f"{i+s+1}: {line}" for i, line in enumerate(selected)]
-                    header = f"[Showing lines {s+1}-{e} of {total} total]\n"
+                    numbered = [f"{i + s + 1}: {line}" for i, line in enumerate(selected)]
+                    header = f"[Showing lines {s + 1}-{e} of {total} total]\n"
                     return header + "".join(numbered)
                 else:
                     content = f.read()
@@ -77,13 +113,23 @@ class ReadFileTool(BaseTool):
                     lines = content.split("\n")
                     if len(lines) > 800:
                         truncated = "\n".join(lines[:800])
-                        return f"{truncated}\n\n[... truncated, {len(lines)} total lines. Use start_line/end_line for specific ranges.]"
+                        return (
+                            f"{truncated}\n\n[... truncated, {len(lines)} total lines. "
+                            f"Use start_line/end_line for specific ranges.]"
+                        )
+
                     return content
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error reading file: {e}"
 
 
 class ReplaceFileContentTool(BaseTool):
+    """Replacefilecontenttool.
+
+    Bases: BaseTool
+    """
+
     category = ToolCategory.FILE_IO
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.LOW
@@ -91,11 +137,10 @@ class ReplaceFileContentTool(BaseTool):
     tags = ["file", "write", "edit"]
 
     def __init__(self):
+        """Initialize the ReplaceFileContentTool."""
         super().__init__()
         self._name = "replace_file_content"
-        self._description = (
-            "Replaces a specific block of text in a file with new content."
-        )
+        self._description = "Replaces a specific block of text in a file with new content."
         self._schema = {
             "type": "object",
             "properties": {
@@ -117,17 +162,44 @@ class ReplaceFileContentTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         file_path = kwargs.get("file_path")
         target_text = kwargs.get("target_text", "")
         replacement_text = kwargs.get("replacement_text", "")
@@ -136,7 +208,7 @@ class ReplaceFileContentTool(BaseTool):
             return f"Error: File not found at {file_path}"
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             if target_text not in content:
@@ -149,10 +221,16 @@ class ReplaceFileContentTool(BaseTool):
 
             return f"Successfully updated {file_path}."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error replacing content: {e}"
 
 
 class RunBashCommandTool(BaseTool):
+    """Runbashcommandtool.
+
+    Bases: BaseTool
+    """
+
     category = ToolCategory.CODE_EXEC
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.HIGH
@@ -160,40 +238,70 @@ class RunBashCommandTool(BaseTool):
     tags = ["shell", "command", "bash", "exec"]
 
     def __init__(self):
+        """Initialize the RunBashCommandTool."""
         super().__init__()
         self._name = "run_bash_command"
-        self._description = "Executes a shell command. Requires Human-In-The-Loop (HITL) approval unless Autopilot is enabled."
+        self._description = (
+            "Executes a shell command. Requires Human-In-The-Loop (HITL) approval unless Autopilot is enabled."
+        )
         self._schema = {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
                     "description": "The shell command to execute.",
-                }
+                },
             },
             "required": ["command"],
         }
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         command = kwargs.get("command")
         if not command:
             return "Error: No command provided."
 
         # [MAX AUTONOMY] 사용자 요청에 따라 모든 PC 자원(Bash 등)에 대해
         # HITL(Human-In-The-Loop) 제한을 해제하고 무조건 자율 판단으로 실행합니다.
-        logger.info(f"[Auto-Pilot] Automatically executing command: {command}")
+        logger.info("[Auto-Pilot] Automatically executing command: %s", command)
 
         try:
             from ..engine.provider_manager import get_provider_manager
@@ -217,12 +325,13 @@ class RunBashCommandTool(BaseTool):
         except subprocess.TimeoutExpired:
             return "Error: Command timed out after 60 seconds."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error executing command: {e}"
 
 
 class ListDirectoryTool(BaseTool):
-    """
-    디렉토리 탐색 도구.
+    """디렉토리 탐색 도구.
+
     프로젝트 구조를 파악하기 위한 필수 도구.
     """
 
@@ -233,6 +342,7 @@ class ListDirectoryTool(BaseTool):
     tags = ["directory", "list", "explore", "tree"]
 
     def __init__(self):
+        """Initialize the ListDirectoryTool."""
         super().__init__()
         self._name = "list_directory"
         self._description = (
@@ -263,17 +373,44 @@ class ListDirectoryTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         path = kwargs.get("path", ".")
         recursive = kwargs.get("recursive", False)
         max_depth = kwargs.get("max_depth", 3)
@@ -323,13 +460,7 @@ class ListDirectoryTool(BaseTool):
             for d in dirs:
                 full = os.path.join(dir_path, d)
                 child_count = (
-                    len(
-                        [
-                            x
-                            for x in os.listdir(full)
-                            if x not in IGNORE and not x.startswith(".")
-                        ]
-                    )
+                    len([x for x in os.listdir(full) if x not in IGNORE and not x.startswith(".")])
                     if os.path.isdir(full)
                     else 0
                 )
@@ -356,8 +487,8 @@ class ListDirectoryTool(BaseTool):
 
 
 class NaturalLanguageBashTool(BaseTool):
-    """
-    AiShell: Natural Language to Bash Command Tool.
+    """AiShell: Natural Language to Bash Command Tool.
+
     에이전트가 복잡한 bash 명령어의 문법을 고민하지 않고 자연어로 의도를 전달하면,
     LLM을 통해 정확한 쉘 명령어로 변환하여 실행합니다.
     """
@@ -369,6 +500,7 @@ class NaturalLanguageBashTool(BaseTool):
     tags = ["bash", "shell", "nlp", "aishell"]
 
     def __init__(self):
+        """Initialize the NaturalLanguageBashTool."""
         super().__init__()
         self._name = "aishell"
         self._description = (
@@ -380,34 +512,62 @@ class NaturalLanguageBashTool(BaseTool):
             "properties": {
                 "intent": {
                     "type": "string",
-                    "description": "Natural language description of what you want to do (e.g. 'find all python files modified yesterday')",
-                }
+                    "description": "Natural language description of what you want to do (e.g. 'find all python files modified yesterday')",  # noqa: E501
+                },
             },
             "required": ["intent"],
         }
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         intent = kwargs.get("intent")
         if not intent:
             return "Error: No intent provided."
 
         try:
-            from ..engine.orchestrator import OrchestratorAgent
             from ..engine.model_manager import ModelManager
+            from ..engine.orchestrator import OrchestratorAgent
 
-            prompt = f"Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
+            prompt = "Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the"  # type: ignore  # noqa: E501
+            "command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
 
             try:
                 # Use default ModelManager and Orchestrator
@@ -425,9 +585,7 @@ class NaturalLanguageBashTool(BaseTool):
                     target_model = models[0].get("id") if models else "local-model"
 
                 messages = [{"role": "user", "content": prompt}]
-                command = orchestrator.run_sync(
-                    messages, target_model=target_model
-                ).strip()
+                command = orchestrator.run_sync(messages, target_model=target_model).strip()
 
                 # Remove markdown code blocks if any
                 if command.startswith("```"):
@@ -435,16 +593,16 @@ class NaturalLanguageBashTool(BaseTool):
                     command = (
                         "\n".join(lines[1:-1])
                         if len(lines) > 2
-                        else command.replace("```bash", "")
-                        .replace("```sh", "")
-                        .replace("```", "")
+                        else command.replace("```bash", "").replace("```sh", "").replace("```", "")
                     )
             except Exception as e:
+                logger.exception("Unhandled exception")
                 return f"Error translating intent to bash via ModelManager: {e}"
 
-            logger.info(f"AiShell translated '{intent}' -> `{command}`")
+            logger.info("AiShell translated '%s' -> `%s`", intent, command)
 
             import os
+
             from ..engine.provider_manager import get_provider_manager
 
             # Now execute it
@@ -467,4 +625,5 @@ class NaturalLanguageBashTool(BaseTool):
             return f"Executed Command: `{command}`\n\nOutput:\n{output if output else 'Success (no output).'}"
 
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"AiShell execution failed: {e}"

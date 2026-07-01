@@ -1,5 +1,5 @@
-"""
-HookEventBus — 파일 기반 실시간 이벤트 IPC
+"""HookEventBus — 파일 기반 실시간 이벤트 IPC.
+
 ==============================================
 Sidabari의 hooks_bus.rs + HookBridge.tsx 패턴을 Python으로 이식.
 
@@ -29,8 +29,9 @@ import stat
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.hook_event_bus")
 
@@ -57,7 +58,7 @@ EVENT_KIND_MAP = {
 }
 
 
-def classify_event(payload: Dict[str, Any]) -> str:
+def classify_event(payload: dict[str, Any]) -> str:
     """이벤트 페이로드에서 종류를 분류합니다 (Sidabari classify_event 이식)."""
     # _antigravity 메타데이터에서 먼저 확인
     meta = payload.get("_antigravity", {})
@@ -76,12 +77,25 @@ class HookEventEmit:
 
     __slots__ = ("kind", "payload", "timestamp")
 
-    def __init__(self, kind: str, payload: Dict[str, Any]):
+    def __init__(self, kind: str, payload: dict[str, Any]):
+        """Initialize the HookEventEmit.
+
+        Args:
+            kind (str): str kind.
+            payload (dict[str, Any]): dict[str, Any] payload.
+
+        """
         self.kind = kind
         self.payload = payload
         self.timestamp = time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "kind": self.kind,
             "payload": self.payload,
@@ -97,10 +111,19 @@ class GateRequest:
     def __init__(
         self,
         request_id: str,
-        panel_id: Optional[str],
+        panel_id: str | None,
         hook_event_name: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
     ):
+        """Initialize the GateRequest.
+
+        Args:
+            request_id (str): str request id.
+            panel_id (str | None): str | None panel id.
+            hook_event_name (str): str hook event name.
+            payload (dict[str, Any]): dict[str, Any] payload.
+
+        """
         self.request_id = request_id
         self.panel_id = panel_id
         self.hook_event_name = hook_event_name
@@ -114,17 +137,23 @@ class HookEventBus:
     JSONL 파일을 통한 프로세스 간 이벤트 전달 + 인메모리 EventBus 브릿지.
     """
 
-    def __init__(self, base_dir: Optional[str] = None):
-        self._base_dir: Optional[Path] = Path(base_dir) if base_dir else None
-        self._events_path: Optional[Path] = None
+    def __init__(self, base_dir: str | None = None):
+        """Initialize the HookEventBus.
+
+        Args:
+            base_dir (str | None): str | None base dir.
+
+        """
+        self._base_dir: Path | None = Path(base_dir) if base_dir else None
+        self._events_path: Path | None = None
         self._offset: int = 0
-        self._subscribers: Dict[str, List[Callable]] = {}
-        self._watcher_thread: Optional[threading.Thread] = None
+        self._subscribers: dict[str, list[Callable]] = {}
+        self._watcher_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._initialized = False
 
-    def init(self, vault_data_dir: Optional[str] = None) -> "HookEventBus":
+    def init(self, vault_data_dir: str | None = None) -> "HookEventBus":
         """이벤트 버스를 초기화합니다.
 
         디렉토리 생성, 권한 설정, 잔여 파일 sweep, watcher 시작.
@@ -146,7 +175,7 @@ class HookEventBus:
             try:
                 os.chmod(self._base_dir, stat.S_IRWXU)
             except OSError as e:
-                logger.warning(f"[HookEventBus] 디렉토리 권한 설정 실패: {e}")
+                logger.warning("[HookEventBus] 디렉토리 권한 설정 실패: %s", e)
 
         # events.jsonl 생성/확인
         self._events_path = self._base_dir / EVENTS_FILE
@@ -170,8 +199,9 @@ class HookEventBus:
         self._initialized = True
 
         logger.info(
-            f"[HookEventBus] Initialized at {self._base_dir}, "
-            f"start_offset={self._offset}"
+            "[HookEventBus] Initialized at %s, start_offset=%s",
+            self._base_dir,
+            self._offset,
         )
         return self
 
@@ -188,9 +218,9 @@ class HookEventBus:
     def emit_event(
         self,
         event_name: str,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict[str, Any] | None = None,
         *,
-        panel_id: Optional[str] = None,
+        panel_id: str | None = None,
     ):
         """이벤트를 JSONL 파일에 기록합니다.
 
@@ -212,8 +242,8 @@ class HookEventBus:
             line = json.dumps(event_data, ensure_ascii=False, default=str) + "\n"
             with open(self._events_path, "a", encoding="utf-8") as f:
                 f.write(line)
-        except Exception as e:
-            logger.error(f"[HookEventBus] 이벤트 기록 실패: {e}")
+        except Exception:
+            logger.exception("[HookEventBus] 이벤트 기록 실패")
 
     # ── 이벤트 구독 ──
 
@@ -240,11 +270,11 @@ class HookEventBus:
     def send_gate_request(
         self,
         hook_event_name: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         *,
-        panel_id: Optional[str] = None,
+        panel_id: str | None = None,
         timeout: float = 30.0,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Gate 요청을 보내고 응답을 대기합니다.
 
         req-<uuid>.json 작성 후 resp-<uuid>.json이 나타날 때까지 대기.
@@ -266,12 +296,10 @@ class HookEventBus:
         try:
             # Atomic write via tmp file
             tmp_path = req_path.with_suffix(".json.tmp")
-            tmp_path.write_text(
-                json.dumps(req_data, ensure_ascii=False), encoding="utf-8"
-            )
+            tmp_path.write_text(json.dumps(req_data, ensure_ascii=False), encoding="utf-8")
             tmp_path.rename(req_path)
-        except Exception as e:
-            logger.error(f"[HookEventBus] Gate 요청 작성 실패: {e}")
+        except Exception:
+            logger.exception("[HookEventBus] Gate 요청 작성 실패")
             return None
 
         # 응답 대기 (polling)
@@ -284,14 +312,14 @@ class HookEventBus:
                     req_path.unlink(missing_ok=True)
                     resp_path.unlink(missing_ok=True)
                     return resp_data
-                except Exception as e:
-                    logger.error(f"[HookEventBus] Gate 응답 읽기 실패: {e}")
+                except Exception:
+                    logger.exception("[HookEventBus] Gate 응답 읽기 실패")
                     return None
             time.sleep(0.1)
 
         # Timeout — cleanup
         req_path.unlink(missing_ok=True)
-        logger.warning(f"[HookEventBus] Gate 응답 타임아웃: {request_id}")
+        logger.warning("[HookEventBus] Gate 응답 타임아웃: %s", request_id)
         return None
 
     def respond_gate(
@@ -309,7 +337,7 @@ class HookEventBus:
 
         valid_decisions = {"allow", "deny", "ask", "defer"}
         if decision not in valid_decisions:
-            logger.error(f"[HookEventBus] 유효하지 않은 decision: {decision}")
+            logger.error("[HookEventBus] 유효하지 않은 decision: %s", decision)
             return False
 
         resp_path = self._base_dir / f"resp-{request_id}.json"
@@ -324,8 +352,8 @@ class HookEventBus:
             tmp_path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
             tmp_path.rename(resp_path)
             return True
-        except Exception as e:
-            logger.error(f"[HookEventBus] Gate 응답 작성 실패: {e}")
+        except Exception:
+            logger.exception("[HookEventBus] Gate 응답 작성 실패")
             return False
 
     # ── 내부 Watcher ──
@@ -341,8 +369,8 @@ class HookEventBus:
             try:
                 self._tail_events()
                 self._check_req_files()
-            except Exception as e:
-                logger.error(f"[HookEventBus] Watch loop error: {e}")
+            except Exception:
+                logger.exception("[HookEventBus] Watch loop error")
 
             self._stop_event.wait(poll_interval)
 
@@ -364,7 +392,7 @@ class HookEventBus:
             return
 
         try:
-            with open(self._events_path, "r", encoding="utf-8") as f:
+            with open(self._events_path, encoding="utf-8") as f:
                 f.seek(self._offset)
                 new_offset = self._offset
 
@@ -378,8 +406,9 @@ class HookEventBus:
                         payload = json.loads(trimmed)
                     except json.JSONDecodeError as e:
                         logger.warning(
-                            f"[HookEventBus] JSON 파싱 실패: {e} "
-                            f"(line {len(trimmed)} bytes)"
+                            "[HookEventBus] JSON 파싱 실패: %s (line %s bytes)",
+                            e,
+                            len(trimmed),
                         )
                         continue
 
@@ -388,8 +417,8 @@ class HookEventBus:
                     self._dispatch(event)
 
                 self._offset = new_offset
-        except Exception as e:
-            logger.error(f"[HookEventBus] tail 실패: {e}")
+        except Exception:
+            logger.exception("[HookEventBus] tail 실패")
 
     def _check_req_files(self):
         """req-*.json 파일을 확인하여 gate 요청 이벤트를 발생시킵니다."""
@@ -401,11 +430,11 @@ class HookEventBus:
                 name = entry.name
                 if name.startswith("req-") and name.endswith(".json"):
                     self._handle_req_file(entry)
-        except Exception as e:
-            logger.error(f"[HookEventBus] req 파일 확인 실패: {e}")
+        except Exception:
+            logger.exception("[HookEventBus] req 파일 확인 실패")
 
     def _handle_req_file(self, path: Path):
-        """req 파일을 읽어 gate-request 이벤트를 발생시킵니다."""
+        """Req 파일을 읽어 gate-request 이벤트를 발생시킵니다."""
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -413,8 +442,8 @@ class HookEventBus:
             time.sleep(0.05)
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.error(f"[HookEventBus] req 읽기 실패 ({path}): {e}")
+            except Exception:
+                logger.exception("[HookEventBus] req 읽기 실패 (%s)", path)
                 return
 
         request = GateRequest(
@@ -441,16 +470,14 @@ class HookEventBus:
             for callback in self._subscribers.get(event.kind, []):
                 try:
                     callback(event)
-                except Exception as e:
-                    logger.error(f"[HookEventBus] 콜백 실행 오류 ({event.kind}): {e}")
+                except Exception:
+                    logger.exception("[HookEventBus] 콜백 실행 오류 (%s)", event.kind)
             # 와일드카드 구독자
             for callback in self._subscribers.get("*", []):
                 try:
                     callback(event)
-                except Exception as e:
-                    logger.error(
-                        f"[HookEventBus] 와일드카드 콜백 오류 ({event.kind}): {e}"
-                    )
+                except Exception:
+                    logger.exception("[HookEventBus] 와일드카드 콜백 오류 (%s)", event.kind)
 
     def _sweep_stale(self):
         """시작 시 잔여 req-/resp- 파일을 제거합니다."""
@@ -468,20 +495,33 @@ class HookEventBus:
                     except OSError:
                         pass
         except Exception:
+            logger.exception("Unhandled exception")
             pass
 
     @property
-    def base_dir(self) -> Optional[Path]:
+    def base_dir(self) -> Path | None:
+        """Base Dir.
+
+        Returns:
+            Path | None: The path | none result.
+
+        """
         return self._base_dir
 
     @property
-    def events_path(self) -> Optional[Path]:
+    def events_path(self) -> Path | None:
+        """Events Path.
+
+        Returns:
+            Path | None: The path | none result.
+
+        """
         return self._events_path
 
 
 # ── 글로벌 싱글톤 ──
 
-_global_hook_bus: Optional[HookEventBus] = None
+_global_hook_bus: HookEventBus | None = None
 _global_lock = threading.Lock()
 
 
@@ -495,7 +535,7 @@ def get_hook_event_bus() -> HookEventBus:
     return _global_hook_bus
 
 
-def init_hook_event_bus(vault_data_dir: Optional[str] = None) -> HookEventBus:
+def init_hook_event_bus(vault_data_dir: str | None = None) -> HookEventBus:
     """글로벌 HookEventBus를 초기화합니다."""
     bus = get_hook_event_bus()
     bus.init(vault_data_dir)

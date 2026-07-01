@@ -1,57 +1,65 @@
-"""
-Antigravity-K: Engine Context (DI Container)
+"""Antigravity-K: Engine Context (DI Container).
+
 ============================================
 Provides a unified context holding initialized services (Singletons/Scoped)
 to decouple Orchestrator from direct instantiations.
 """
 
-import os
-import yaml
 import logging
+import os
 
-from antigravity_k.tools.tool_registry import ToolRegistry
-from antigravity_k.tools.permission_gate import PermissionGate
-from antigravity_k.engine.skill_loader import SkillLoader
-from antigravity_k.engine.context_shaper import ContextShaper
-from antigravity_k.engine.session_manager import SessionManager
-from antigravity_k.engine.ide_sync import IDEContextManager
-from antigravity_k.engine.slash_commands import SlashCommandRegistry
-from antigravity_k.engine.tool_guardrails import (
-    ToolCallGuardrailController,
-    ToolCallGuardrailConfig,
-)
-from antigravity_k.engine.knowledge import KIEngine
+import yaml
+
 from antigravity_k.engine.autonomous_learner import AutonomousLearner
 from antigravity_k.engine.cognitive_loop import CognitiveLoop
-from antigravity_k.engine.quality_gate import QualityGate
+from antigravity_k.engine.context_shaper import ContextShaper
 from antigravity_k.engine.failure_memory import FailureMemory
-from antigravity_k.engine.uncertainty import UncertaintyEstimator
-from antigravity_k.engine.user_model import UserIntentModeler
-from antigravity_k.engine.prompt_builder import PromptBuilder
-from antigravity_k.engine.tool_executor import ToolExecutor
+from antigravity_k.engine.ide_sync import IDEContextManager
+from antigravity_k.engine.knowledge import KIEngine
 from antigravity_k.engine.memory_provider import (
-    MemoryManager,
     BuiltinMemoryProvider,
     EpisodicMemoryProvider,
+    MemoryManager,
     WorkingMemoryBuffer,
 )
+from antigravity_k.engine.prompt_builder import PromptBuilder
+from antigravity_k.engine.quality_gate import QualityGate
+from antigravity_k.engine.session_manager import SessionManager
+from antigravity_k.engine.skill_loader import SkillLoader
+from antigravity_k.engine.slash_commands import SlashCommandRegistry
+from antigravity_k.engine.tool_executor import ToolExecutor
+from antigravity_k.engine.tool_guardrails import (
+    ToolCallGuardrailConfig,
+    ToolCallGuardrailController,
+)
+from antigravity_k.engine.uncertainty import UncertaintyEstimator
+from antigravity_k.engine.user_model import UserIntentModeler
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger("antigravity_k.engine_context")
 
 
 class EngineContext:
-    def __init__(
-        self, model_manager, vault_engine=None, project_root=None, tool_registry=None
-    ):
+    """Enginecontext."""
+
+    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None):
+        """Initialize the EngineContext.
+
+        Args:
+            model_manager: model manager.
+            vault_engine: vault engine.
+            project_root: project root.
+            tool_registry: tool registry.
+
+        """
         self.model_manager = model_manager
         self.vault_engine = vault_engine
         self.project_root = project_root or os.getcwd()
 
         # Load Config
         self.config = {}
-        config_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "config.yaml"
-        )
+        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config.yaml")
         if os.path.exists(config_path):
             with open(config_path) as f:
                 self.config = yaml.safe_load(f) or {}
@@ -128,6 +136,6 @@ class EngineContext:
         try:
             section = self.config.get("tool_loop_guardrails", {})
             return ToolCallGuardrailConfig.from_config(section)
-        except Exception as e:
-            logger.warning(f"Failed to load guardrail config: {e}")
+        except Exception:
+            logger.exception("Failed to load guardrail config")
         return ToolCallGuardrailConfig()

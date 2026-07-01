@@ -1,5 +1,5 @@
-"""
-Shields — 에이전트 보호 레벨 시스템
+"""Shields — 에이전트 보호 레벨 시스템.
+
 ====================================
 NemoClaw의 shields.ts + shields-audit.ts 패턴을 이식.
 
@@ -29,7 +29,7 @@ import logging
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.shields")
 
@@ -48,13 +48,13 @@ class ShieldsState:
     """현재 Shields 상태."""
 
     shields_down: bool = False
-    shields_down_at: Optional[str] = None
-    shields_down_timeout: Optional[int] = None
-    shields_down_reason: Optional[str] = None
-    previous_toolset: Optional[str] = None
-    target_toolset: Optional[str] = None
+    shields_down_at: str | None = None
+    shields_down_timeout: int | None = None
+    shields_down_reason: str | None = None
+    previous_toolset: str | None = None
+    target_toolset: str | None = None
     permanent: bool = False
-    updated_at: Optional[str] = None
+    updated_at: str | None = None
 
     @property
     def is_protected(self) -> bool:
@@ -62,7 +62,7 @@ class ShieldsState:
         return not self.shields_down
 
     @property
-    def remaining_seconds(self) -> Optional[int]:
+    def remaining_seconds(self) -> int | None:
         """남은 시간(초). None이면 영구."""
         if not self.shields_down or self.permanent:
             return None
@@ -71,9 +71,7 @@ class ShieldsState:
         import datetime
 
         down_at = datetime.datetime.fromisoformat(self.shields_down_at)
-        elapsed = (
-            datetime.datetime.now(datetime.timezone.utc) - down_at
-        ).total_seconds()
+        elapsed = (datetime.datetime.now(datetime.timezone.utc) - down_at).total_seconds()
         return max(0, int(self.shields_down_timeout - elapsed))
 
     @property
@@ -89,12 +87,12 @@ class AuditEntry:
 
     action: str
     timestamp: str
-    reason: Optional[str] = None
-    timeout_seconds: Optional[int] = None
-    duration_seconds: Optional[int] = None
-    restored_by: Optional[str] = None
-    previous_toolset: Optional[str] = None
-    target_toolset: Optional[str] = None
+    reason: str | None = None
+    timeout_seconds: int | None = None
+    duration_seconds: int | None = None
+    restored_by: str | None = None
+    previous_toolset: str | None = None
+    target_toolset: str | None = None
 
 
 # ── Shields Manager ──
@@ -110,14 +108,24 @@ class ShieldsManager:
     def __init__(
         self,
         toolset_manager=None,
-        state_dir: Optional[str] = None,
+        state_dir: str | None = None,
         default_timeout: int = DEFAULT_TIMEOUT_SECONDS,
         max_timeout: int = MAX_TIMEOUT_SECONDS,
         default_safe_toolset: str = "safe",
     ):
+        """Initialize the ShieldsManager.
+
+        Args:
+            toolset_manager: toolset manager.
+            state_dir (str | None): str | None state dir.
+            default_timeout (int): int default timeout.
+            max_timeout (int): int max timeout.
+            default_safe_toolset (str): str default safe toolset.
+
+        """
         self._toolset_manager = toolset_manager
         self._state = ShieldsState()
-        self._audit_log: List[AuditEntry] = []
+        self._audit_log: list[AuditEntry] = []
         self._default_timeout = default_timeout
         self._max_timeout = max_timeout
         self._default_safe_toolset = default_safe_toolset
@@ -137,22 +145,40 @@ class ShieldsManager:
 
     @property
     def state(self) -> ShieldsState:
+        """State.
+
+        Returns:
+            ShieldsState: The shieldsstate result.
+
+        """
         return self._state
 
     @property
     def is_down(self) -> bool:
+        """Check if down.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return self._state.shields_down
 
     @property
     def is_up(self) -> bool:
+        """Check if up.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return not self._state.shields_down
 
     # ── 핵심 API ──
 
     def shields_down(
         self,
-        reason: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
+        reason: str | None = None,
+        timeout_seconds: int | None = None,
         target_toolset: str = "full",
     ) -> ShieldsState:
         """Shields를 내립니다 (권한 완화).
@@ -164,6 +190,7 @@ class ShieldsManager:
 
         Returns:
             업데이트된 ShieldsState
+
         """
         if self._state.shields_down:
             logger.warning("Shields already DOWN. Use shields_up() first.")
@@ -198,7 +225,7 @@ class ShieldsManager:
         # ToolsetManager 전환
         if self._toolset_manager:
             self._toolset_manager.set_active(target_toolset)
-            logger.info(f"Toolset switched to '{target_toolset}' (shields down)")
+            logger.info("Toolset switched to '%s' (shields down)", target_toolset)
 
         # 감사 로그
         self._append_audit(
@@ -209,11 +236,11 @@ class ShieldsManager:
                 timeout_seconds=timeout,
                 previous_toolset=previous_toolset,
                 target_toolset=target_toolset,
-            )
+            ),
         )
 
         self._save_state()
-        logger.info(f"Shields DOWN: timeout={timeout}s, reason={reason}")
+        logger.info("Shields DOWN: timeout=%ss, reason=%s", timeout, reason)
         return self._state
 
     def shields_up(self, restored_by: str = "operator") -> ShieldsState:
@@ -224,6 +251,7 @@ class ShieldsManager:
 
         Returns:
             업데이트된 ShieldsState
+
         """
         if not self._state.shields_down:
             logger.info("Shields already UP.")
@@ -238,14 +266,14 @@ class ShieldsManager:
         if self._state.shields_down_at:
             down_at = datetime.datetime.fromisoformat(self._state.shields_down_at)
             duration_seconds = int(
-                (datetime.datetime.now(datetime.timezone.utc) - down_at).total_seconds()
+                (datetime.datetime.now(datetime.timezone.utc) - down_at).total_seconds(),
             )
 
         # ToolsetManager 복원
         previous_toolset = self._state.previous_toolset or self._default_safe_toolset
         if self._toolset_manager:
             self._toolset_manager.set_active(previous_toolset)
-            logger.info(f"Toolset restored to '{previous_toolset}' (shields up)")
+            logger.info("Toolset restored to '%s' (shields up)", previous_toolset)
 
         # 감사 로그
         self._append_audit(
@@ -255,7 +283,7 @@ class ShieldsManager:
                 restored_by=restored_by,
                 duration_seconds=duration_seconds,
                 reason=self._state.shields_down_reason,
-            )
+            ),
         )
 
         # 상태 초기화
@@ -271,9 +299,7 @@ class ShieldsManager:
         )
 
         self._save_state()
-        logger.info(
-            f"Shields UP: restored_by={restored_by}, duration={duration_seconds}s"
-        )
+        logger.info("Shields UP: restored_by=%s, duration=%ss", restored_by, duration_seconds)
         return self._state
 
     def check_timeout(self) -> bool:
@@ -283,6 +309,7 @@ class ShieldsManager:
 
         Returns:
             True이면 타임아웃으로 인해 shields가 UP으로 복원됨.
+
         """
         if not self._state.shields_down or self._state.permanent:
             return False
@@ -294,7 +321,7 @@ class ShieldsManager:
 
         return False
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         """현재 Shields 상태를 딕셔너리로 반환합니다."""
         return {
             "shields_down": self._state.shields_down,
@@ -302,13 +329,11 @@ class ShieldsManager:
             "remaining_seconds": self._state.remaining_seconds,
             "reason": self._state.shields_down_reason,
             "permanent": self._state.permanent,
-            "active_toolset": (
-                self._toolset_manager.active_toolset if self._toolset_manager else None
-            ),
+            "active_toolset": (self._toolset_manager.active_toolset if self._toolset_manager else None),
             "updated_at": self._state.updated_at,
         }
 
-    def get_audit_log(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_audit_log(self, limit: int = 50) -> list[dict[str, Any]]:
         """최근 감사 로그를 반환합니다."""
         entries = self._audit_log[-limit:]
         return [asdict(e) for e in entries]
@@ -316,17 +341,13 @@ class ShieldsManager:
     # ── config.yaml 연동 ──
 
     @classmethod
-    def from_config(
-        cls, config: Optional[Dict[str, Any]] = None, **kwargs
-    ) -> "ShieldsManager":
+    def from_config(cls, config: dict[str, Any] | None = None, **kwargs) -> "ShieldsManager":
         """config.yaml의 `shields` 섹션에서 인스턴스를 생성합니다."""
         if not isinstance(config, dict):
             return cls(**kwargs)
 
         return cls(
-            default_timeout=config.get(
-                "default_timeout_seconds", DEFAULT_TIMEOUT_SECONDS
-            ),
+            default_timeout=config.get("default_timeout_seconds", DEFAULT_TIMEOUT_SECONDS),
             max_timeout=config.get("max_timeout_seconds", MAX_TIMEOUT_SECONDS),
             default_safe_toolset=config.get("default_mode", "safe"),
             **kwargs,
@@ -340,26 +361,22 @@ class ShieldsManager:
             try:
                 data = json.loads(self._state_file.read_text())
                 self._state = ShieldsState(
-                    **{
-                        k: v
-                        for k, v in data.items()
-                        if k in ShieldsState.__dataclass_fields__
-                    }
+                    **{k: v for k, v in data.items() if k in ShieldsState.__dataclass_fields__},
                 )
                 # 로드 직후 타임아웃 확인
                 self.check_timeout()
             except Exception as e:
-                logger.debug(f"Failed to load shields state: {e}")
+                logger.exception("Unhandled exception")
+                logger.debug("Failed to load shields state: %s", e)
 
     def _save_state(self) -> None:
         """상태를 파일에 저장합니다."""
         try:
             self._state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            self._state_file.write_text(
-                json.dumps(asdict(self._state), indent=2, default=str)
-            )
+            self._state_file.write_text(json.dumps(asdict(self._state), indent=2, default=str))
         except Exception as e:
-            logger.debug(f"Failed to save shields state: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Failed to save shields state: %s", e)
 
     def _append_audit(self, entry: AuditEntry) -> None:
         """감사 로그에 항목을 추가합니다."""
@@ -369,4 +386,5 @@ class ShieldsManager:
             with open(self._audit_file, "a") as f:
                 f.write(json.dumps(asdict(entry), default=str) + "\n")
         except Exception as e:
-            logger.debug(f"Failed to write audit log: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Failed to write audit log: %s", e)

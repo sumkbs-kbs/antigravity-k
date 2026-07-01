@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 브라우저 자동화 도구 (Harness Engineering 적용)
+"""Antigravity-K: 브라우저 자동화 도구 (Harness Engineering 적용).
+
 =============================================================
 Playwright 기반 브라우저 자동화 + Intent 기반 테스트 + Self-Healing.
 에이전트가 브라우저를 열고, 클릭하고, 입력하고, 스크린샷을 찍고,
@@ -16,16 +16,15 @@ v2 업그레이드:
 import json
 import logging
 import time
-from typing import Any, Dict
+from typing import Any
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger("antigravity_k.tools.browser")
 
 
 class BrowserTool(BaseTool):
-    """
-    Playwright 기반 브라우저 자동화 도구.
+    """Playwright 기반 브라우저 자동화 도구.
 
     하네스 엔지니어링 적용:
     - Intent 기반 테스트: CSS 셀렉터 대신 자연어 의도로 요소 탐색
@@ -40,6 +39,7 @@ class BrowserTool(BaseTool):
     tags = ["browser", "playwright", "web", "test", "automation"]
 
     def __init__(self):
+        """Initialize the BrowserTool."""
         self.page = None
         self.context = None
         self.browser = None
@@ -52,10 +52,22 @@ class BrowserTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "browser"
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return (
             "브라우저를 조작하여 웹 페이지를 탐색하고 테스트합니다. "
             "기본 액션: 페이지 이동(goto), 클릭(click), 텍스트 입력(type), "
@@ -67,7 +79,13 @@ class BrowserTool(BaseTool):
         )
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "type": "object",
             "properties": {
@@ -128,6 +146,15 @@ class BrowserTool(BaseTool):
         }
 
     def execute(self, **kwargs) -> str:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            str: The str result.
+
+        """
         action = kwargs.get("action")
 
         try:
@@ -185,7 +212,7 @@ class BrowserTool(BaseTool):
                 return f"Unknown action: {action}"
 
         except Exception as e:
-            logger.error(f"Browser action '{action}' failed: {e}")
+            logger.exception("Browser action '%s' failed", action)
             return f"Error: {str(e)}"
 
     def _action_goto(self, params: dict) -> str:
@@ -215,9 +242,7 @@ class BrowserTool(BaseTool):
                 if text:
                     el = self.page.get_by_text(text, exact=False)
                     el.click(timeout=timeout)
-                    return (
-                        f"[Healed] CSS '{selector}' failed → clicked by text '{text}'"
-                    )
+                    return f"[Healed] CSS '{selector}' failed → clicked by text '{text}'"
                 raise
         else:
             return "Error: selector 또는 text 중 하나를 지정해야 합니다"
@@ -241,12 +266,13 @@ class BrowserTool(BaseTool):
         return f"Screenshot saved to {path}"
 
     def _action_read_dom(self, params: dict) -> str:
-        """현재 페이지의 주요 DOM 구조를 읽습니다 (에이전트가 이해하기 쉬운 형태)"""
+        """현재 페이지의 주요 DOM 구조를 읽습니다 (에이전트가 이해하기 쉬운 형태)."""
         selector = params.get("selector", "body")
 
         # 주요 인터랙티브 요소만 추출
         result = self.page.evaluate(
             f"""() => {{
+
             const el = document.querySelector('{selector}');
             if (!el) return 'Element not found';
 
@@ -263,13 +289,13 @@ class BrowserTool(BaseTool):
                 role: e.getAttribute('role') || null,
                 ariaLabel: e.getAttribute('aria-label') || null,
             }}));
-        }}"""
+        }}""",
         )
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     def _action_accessibility(self, params: dict) -> str:
-        """Accessibility Tree 스냅샷 (하네스 엔지니어링 핵심)"""
+        """Accessibility Tree 스냅샷을 생성합니다 (하네스 엔지니어링 핵심)."""
         snapshot = self.page.accessibility.snapshot()
         if not snapshot:
             return "Accessibility snapshot unavailable"
@@ -310,7 +336,7 @@ class BrowserTool(BaseTool):
         return "Browser closed."
 
     def _format_a11y_tree(self, node: dict, depth: int = 0, max_depth: int = 3) -> str:
-        """Accessibility Tree를 읽기 쉬운 텍스트로 포맷"""
+        """Accessibility Tree를 읽기 쉬운 텍스트로 포맷합니다."""
         if depth > max_depth:
             return ""
 
@@ -361,9 +387,7 @@ class BrowserTool(BaseTool):
         snapshot = parser.enrich_with_a11y_sync(self.page, snapshot)
         self._last_snapshot = snapshot
 
-        context = parser.to_llm_context(
-            snapshot, max_elements=max_elements, include_bbox=True
-        )
+        context = parser.to_llm_context(snapshot, max_elements=max_elements, include_bbox=True)
         return context
 
     def _action_click_by_intent(self, params: dict) -> str:
@@ -403,7 +427,9 @@ class BrowserTool(BaseTool):
         if analysis.snapshot:
             parser = self._ensure_dom_parser()
             dom_ctx = parser.to_llm_context(
-                analysis.snapshot, max_elements=30, interactable_only=True
+                analysis.snapshot,
+                max_elements=30,
+                interactable_only=True,
             )
             summary += "\n\n" + dom_ctx
 

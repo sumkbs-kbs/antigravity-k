@@ -1,9 +1,12 @@
+"""Routes package."""
+
 from fastapi import APIRouter
-from .events import router as events_router
-from .chat import router as chat_router
-from .legacy import router as legacy_router
-from .agent_tools import router as agent_tools_router
+
 from .agent_activity import router as agent_activity_router
+from .agent_tools import router as agent_tools_router
+from .chat import router as chat_router
+from .events import router as events_router
+from .legacy import router as legacy_router
 from .workspace_links import router as workspace_links_router
 
 api_router = APIRouter()

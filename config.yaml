@@ -88,6 +88,27 @@ models:
     estimated_memory_gb: 22
     context_length: 32768
     description: Gemma 4 31B IT (unsloth Q5_K_M) — Google Gemma 계열, 에이전틱 코딩/추론 최강 후보, 집단지성 핵심 참여자
+  - name: gemini-2.0-flash-exp:free
+    repo: openrouter/google/gemini-2.0-flash-exp:free
+    role: reasoning
+    quantization: api
+    estimated_memory_gb: 0.0
+    context_length: 32768
+    description: OpenRouter Gemini 2.0 Flash (Free)
+  - name: llama-3.3-70b-instruct:free
+    repo: openrouter/meta-llama/llama-3.3-70b-instruct:free
+    role: reasoning
+    quantization: api
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: OpenRouter Llama 3.3 70B Instruct (Free)
+  - name: deepseek-chat:free
+    repo: openrouter/deepseek/deepseek-chat:free
+    role: reasoning
+    quantization: api
+    estimated_memory_gb: 0.0
+    context_length: 65536
+    description: OpenRouter DeepSeek V3 (Free)
   coding:
 
   - name: qwen2.5-coder:32b
@@ -287,9 +308,18 @@ router:
   max_retries: 3
   usage_tracking: true
   usage_db_path: ./data/usage.json
+# ─── API Keys (보안: config.yaml은 fallback, 환경변수/.env/vault 우선) ───
+# API 키는 다음과 같은 방법으로 설정 가능합니다 (4단계 우선순위):
+#   1. 환경변수: AGK_ANTHROPIC_KEY, AGK_OPENAI_KEY, AGK_OPENROUTER_KEY
+#   2. .env 파일: 프로젝트 루트의 .env 파일
+#   3. 이 config.yaml (fallback)
+#   4. Vault 암호화 저장소: `agk key set` CLI 명령어
+#
+# 실제 키는 절대 이 파일에 직접 입력하지 마세요!
 api_keys:
-  anthropic: sk-ant-your-key-here
-  openai: sk-proj-your-key-here
+  anthropic: ""
+  openai: ""
+  openrouter: ""
 
 # ─── NemoClaw-ported Security Settings ───
 secret_scanner:

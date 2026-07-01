@@ -1,5 +1,5 @@
-"""
-MemoryProvider — 플러그인 기반 에이전트 메모리 시스템
+"""MemoryProvider — 플러그인 기반 에이전트 메모리 시스템.
+
 =====================================================
 Hermes Agent의 memory_manager.py 패턴을 Antigravity-K에 이식.
 
@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.memory_provider")
 
@@ -56,12 +56,13 @@ class MemoryProvider(ABC):
         return False
 
     @abstractmethod
-    def prefetch(self, query: str, session_id: Optional[str] = None) -> str:
+    def prefetch(self, query: str, session_id: str | None = None) -> str:
         """쿼리에 관련된 기억을 회상합니다.
 
         Returns:
             시스템 프롬프트에 주입할 컨텍스트 문자열.
             빈 문자열이면 관련 기억 없음.
+
         """
         ...
 
@@ -71,12 +72,12 @@ class MemoryProvider(ABC):
         user_message: str,
         assistant_response: str,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """대화 턴을 기억에 동기화합니다."""
         ...
 
-    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_tool_schemas(self) -> list[dict[str, Any]]:
         """제공자가 노출하는 도구 스키마.
 
         기본값은 빈 리스트 (도구 없음).
@@ -100,13 +101,25 @@ class BuiltinMemoryProvider(MemoryProvider):
     """
 
     def __init__(self, session_manager):
+        """Initialize the BuiltinMemoryProvider.
+
+        Args:
+            session_manager: session manager.
+
+        """
         self._session_manager = session_manager
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "builtin"
 
-    def prefetch(self, query: str, session_id: Optional[str] = None) -> str:
+    def prefetch(self, query: str, session_id: str | None = None) -> str:
         """Working Memory에서 관련 기억을 회상합니다."""
         try:
             memories = self._session_manager.get_working_memory()
@@ -129,7 +142,8 @@ class BuiltinMemoryProvider(MemoryProvider):
 
             return "[Relevant Memory]\n" + "\n".join(relevant)
         except Exception as e:
-            logger.debug(f"BuiltinMemoryProvider.prefetch error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("BuiltinMemoryProvider.prefetch error: %s", e)
             return ""
 
     def sync_turn(
@@ -137,21 +151,23 @@ class BuiltinMemoryProvider(MemoryProvider):
         user_message: str,
         assistant_response: str,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """턴 정보를 SessionManager에 동기화합니다."""
         try:
             self._session_manager.add_turn(role="user", content=user_message)
             self._session_manager.add_turn(role="assistant", content=assistant_response)
         except Exception as e:
-            logger.debug(f"BuiltinMemoryProvider.sync_turn error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("BuiltinMemoryProvider.sync_turn error: %s", e)
 
     def on_session_switch(self, new_session_id: str) -> None:
         """세션 전환 시 SessionManager의 세션을 전환합니다."""
         try:
             self._session_manager.start_session(resume=True)
         except Exception as e:
-            logger.debug(f"BuiltinMemoryProvider.on_session_switch error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("BuiltinMemoryProvider.on_session_switch error: %s", e)
 
 
 # ── 메모리 매니저 (오케스트레이터) ──
@@ -170,11 +186,18 @@ class MemoryManager:
     MAX_EXTERNAL_PROVIDERS = 1
 
     def __init__(self):
-        self._providers: List[MemoryProvider] = []
+        """Initialize the MemoryManager."""
+        self._providers: list[MemoryProvider] = []
         self._external_count = 0
 
     @property
-    def providers(self) -> List[MemoryProvider]:
+    def providers(self) -> list[MemoryProvider]:
+        """Providers.
+
+        Returns:
+            list[MemoryProvider]: The list[memoryprovider] result.
+
+        """
         return list(self._providers)
 
     def add_provider(self, provider: MemoryProvider) -> None:
@@ -184,18 +207,21 @@ class MemoryManager:
 
         Raises:
             ValueError: 외부 제공자 한도 초과 시
+
         """
         if provider.is_external:
             if self._external_count >= self.MAX_EXTERNAL_PROVIDERS:
                 raise ValueError(
                     f"외부 메모리 제공자는 최대 {self.MAX_EXTERNAL_PROVIDERS}개만 "
-                    f"등록할 수 있습니다. 현재: {self._external_count}"
+                    f"등록할 수 있습니다. 현재: {self._external_count}",
                 )
             self._external_count += 1
 
         self._providers.append(provider)
         logger.info(
-            f"Memory provider registered: {provider.name} (external={provider.is_external})"
+            "Memory provider registered: %s (external=%s)",
+            provider.name,
+            provider.is_external,
         )
 
     def remove_provider(self, name: str) -> bool:
@@ -205,11 +231,11 @@ class MemoryManager:
                 removed = self._providers.pop(i)
                 if removed.is_external:
                     self._external_count -= 1
-                logger.info(f"Memory provider removed: {name}")
+                logger.info("Memory provider removed: %s", name)
                 return True
         return False
 
-    def prefetch_all(self, query: str, session_id: Optional[str] = None) -> str:
+    def prefetch_all(self, query: str, session_id: str | None = None) -> str:
         """모든 제공자에서 관련 기억을 회상합니다.
 
         각 제공자의 결과를 결합하여 하나의 컨텍스트 문자열로 반환합니다.
@@ -226,10 +252,13 @@ class MemoryManager:
                 if result and result.strip():
                     parts.append(result.strip())
                     logger.debug(
-                        f"Memory prefetch [{provider.name}]: {len(result)} chars in {elapsed:.2f}s"
+                        "Memory prefetch [%s]: %s chars in %ss",
+                        provider.name,
+                        len(result),
+                        elapsed,
                     )
-            except Exception as e:
-                logger.warning(f"Memory prefetch error [{provider.name}]: {e}")
+            except Exception:
+                logger.exception("Memory prefetch error [%s]", provider.name)
 
         return "\n\n".join(parts) if parts else ""
 
@@ -238,34 +267,34 @@ class MemoryManager:
         user_message: str,
         assistant_response: str,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """모든 제공자에 턴 데이터를 동기화합니다."""
         for provider in self._providers:
             try:
                 provider.sync_turn(user_message, assistant_response, metadata=metadata)
-            except Exception as e:
-                logger.warning(f"Memory sync error [{provider.name}]: {e}")
+            except Exception:
+                logger.exception("Memory sync error [%s]", provider.name)
 
     def on_session_switch(self, new_session_id: str) -> None:
         """세션 전환을 모든 제공자에 전파합니다."""
         for provider in self._providers:
             try:
                 provider.on_session_switch(new_session_id)
-            except Exception as e:
-                logger.warning(f"Session switch error [{provider.name}]: {e}")
+            except Exception:
+                logger.exception("Session switch error [%s]", provider.name)
 
-    def get_all_tool_schemas(self) -> List[Dict[str, Any]]:
+    def get_all_tool_schemas(self) -> list[dict[str, Any]]:
         """모든 제공자의 도구 스키마를 수집합니다."""
         schemas = []
         for provider in self._providers:
             try:
                 schemas.extend(provider.get_tool_schemas())
-            except Exception as e:
-                logger.warning(f"Tool schema error [{provider.name}]: {e}")
+            except Exception:
+                logger.exception("Tool schema error [%s]", provider.name)
         return schemas
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """메모리 시스템 통계를 반환합니다."""
         return {
             "total_providers": len(self._providers),
@@ -291,16 +320,29 @@ class EpisodicMemoryProvider(MemoryProvider):
     """
 
     def __init__(self, max_episodes: int = 200, decay_threshold: float = 0.3):
-        self._episodes: List[Dict[str, Any]] = []
+        """Initialize the EpisodicMemoryProvider.
+
+        Args:
+            max_episodes (int): int max episodes.
+            decay_threshold (float): float decay threshold.
+
+        """
+        self._episodes: list[dict[str, Any]] = []
         self._max_episodes = max_episodes
         self._decay_threshold = decay_threshold
-        self._access_counts: Dict[int, int] = {}  # episode_id → access count
+        self._access_counts: dict[int, int] = {}  # episode_id → access count
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "episodic"
 
-    def prefetch(self, query: str, session_id: Optional[str] = None) -> str:
+    def prefetch(self, query: str, session_id: str | None = None) -> str:
         """쿼리와 관련된 과거 에피소드를 회상합니다."""
         if not self._episodes:
             return ""
@@ -343,15 +385,9 @@ class EpisodicMemoryProvider(MemoryProvider):
         lines = ["[Episodic Memory — 관련 과거 경험]"]
         for score, _, ep in top:
             ts = ep.get("timestamp", "")[:16]
-            user_summary = (
-                ep["user"][:80] + "..."
-                if len(ep.get("user", "")) > 80
-                else ep.get("user", "")
-            )
+            user_summary = ep["user"][:80] + "..." if len(ep.get("user", "")) > 80 else ep.get("user", "")
             asst_summary = (
-                ep["assistant"][:120] + "..."
-                if len(ep.get("assistant", "")) > 120
-                else ep.get("assistant", "")
+                ep["assistant"][:120] + "..." if len(ep.get("assistant", "")) > 120 else ep.get("assistant", "")
             )
             lines.append(f"  [{ts}] Q: {user_summary}")
             lines.append(f"           A: {asst_summary}")
@@ -363,7 +399,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         user_message: str,
         assistant_response: str,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """대화 턴을 에피소드로 저장합니다."""
         from datetime import datetime as _dt
@@ -396,14 +432,10 @@ class EpisodicMemoryProvider(MemoryProvider):
         scored_indices.sort(key=lambda x: x[0])
 
         # 하위 20% 제거
-        remove_count = (
-            len(self._episodes) - self._max_episodes + int(self._max_episodes * 0.1)
-        )
+        remove_count = len(self._episodes) - self._max_episodes + int(self._max_episodes * 0.1)
         remove_indices = set(idx for _, idx in scored_indices[:remove_count])
 
-        self._episodes = [
-            ep for i, ep in enumerate(self._episodes) if i not in remove_indices
-        ]
+        self._episodes = [ep for i, ep in enumerate(self._episodes) if i not in remove_indices]
         # 접근 카운트 재인덱싱
         new_counts = {}
         new_idx = 0
@@ -415,16 +447,22 @@ class EpisodicMemoryProvider(MemoryProvider):
         self._access_counts = new_counts
 
         logger.info(
-            f"[EpisodicMemory] Consolidation: {remove_count}개 에피소드 감쇠, 남은: {len(self._episodes)}"
+            "[EpisodicMemory] Consolidation: %s개 에피소드 감쇠, 남은: %s",
+            remove_count,
+            len(self._episodes),
         )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
+        """Retrieve stats.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "total_episodes": len(self._episodes),
             "max_episodes": self._max_episodes,
-            "most_accessed": sorted(
-                self._access_counts.items(), key=lambda x: x[1], reverse=True
-            )[:5],
+            "most_accessed": sorted(self._access_counts.items(), key=lambda x: x[1], reverse=True)[:5],
         }
 
 
@@ -443,15 +481,27 @@ class WorkingMemoryBuffer(MemoryProvider):
     """
 
     def __init__(self, max_turns: int = 20):
-        self._turns: List[Dict[str, str]] = []
+        """Initialize the WorkingMemoryBuffer.
+
+        Args:
+            max_turns (int): int max turns.
+
+        """
+        self._turns: list[dict[str, str]] = []
         self._pinned: set = set()  # 고정된 턴 인덱스
         self._max_turns = max_turns
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "working_memory"
 
-    def prefetch(self, query: str, session_id: Optional[str] = None) -> str:
+    def prefetch(self, query: str, session_id: str | None = None) -> str:
         """워킹 메모리에서 최근 컨텍스트를 반환합니다."""
         if not self._turns:
             return ""
@@ -468,7 +518,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         user_message: str,
         assistant_response: str,
         *,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """턴을 워킹 메모리에 추가합니다."""
         self._turns.append({"role": "user", "content": user_message})
@@ -489,7 +539,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         """특정 턴을 고정하여 감쇠되지 않도록 합니다."""
         self._pinned.add(turn_index)
 
-    def get_recent(self, n: int = 5) -> List[Dict[str, str]]:
+    def get_recent(self, n: int = 5) -> list[dict[str, str]]:
         """최근 N개 턴을 반환합니다."""
         return self._turns[-n * 2 :]
 

@@ -1,8 +1,10 @@
-import os
-import logging
-from typing import Dict, Any
+"""Vision Tools module."""
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+import logging
+import os
+from typing import Any
+
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +19,16 @@ class GenerateImageTool(BaseTool):
     tags = ["image", "vision", "generate", "design"]
 
     def __init__(self, project_root: str = None):
+        """Initialize the GenerateImageTool.
+
+        Args:
+            project_root (str): str project root.
+
+        """
         super().__init__()
         self._name = "generate_image"
-        self._description = "Generate an image or edit existing images based on a text prompt. The resulting image will be saved to the artifacts directory. You can use this tool to generate user interfaces, mockups, or design assets."
+        self._description = "Generate an image or edit existing images based on a text prompt. The resulting image will be saved to the artifacts"  # type: ignore  # noqa: E501
+        "directory. You can use this tool to generate user interfaces, mockups, or design assets."
         self._schema = {
             "type": "object",
             "properties": {
@@ -43,17 +52,44 @@ class GenerateImageTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         image_name = kwargs.get("image_name", "")
         prompt = kwargs.get("prompt", "")
 

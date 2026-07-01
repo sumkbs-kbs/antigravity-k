@@ -1,5 +1,5 @@
-"""
-Antigravity-K: LoRA 파인튜닝 파이프라인
+"""Antigravity-K: LoRA 파인튜닝 파이프라인.
+
 ========================================
 QualityGate A등급 응답을 자동 수확하여 도메인 특화 LoRA 학습 데이터를 구축하고,
 Unsloth/mlx-lm 기반 파인튜닝 설정을 자동 생성합니다.
@@ -20,11 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.lora_pipeline")
 
@@ -34,7 +33,7 @@ logger = logging.getLogger("antigravity_k.lora_pipeline")
 
 @dataclass
 class HarvestEntry:
-    """수확된 고품질 응답 1건"""
+    """수확된 고품질 응답 1건."""
 
     user_request: str
     agent_output: str
@@ -44,23 +43,23 @@ class HarvestEntry:
     model_used: str
     timestamp: float
     word_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_training_format(self) -> Dict[str, str]:
-        """SFT(Supervised Fine-Tuning) 학습용 포맷으로 변환"""
+    def to_training_format(self) -> dict[str, str]:
+        """SFT(Supervised Fine-Tuning) 학습용 포맷으로 변환."""
         return {
             "instruction": self.user_request,
             "output": self.agent_output,
             "input": "",  # 추가 컨텍스트 (있으면)
         }
 
-    def to_chat_format(self) -> Dict[str, Any]:
-        """ChatML 학습용 포맷으로 변환"""
+    def to_chat_format(self) -> dict[str, Any]:
+        """ChatML 학습용 포맷으로 변환."""
         return {
             "messages": [
                 {"role": "user", "content": self.user_request},
                 {"role": "assistant", "content": self.agent_output},
-            ]
+            ],
         }
 
 
@@ -85,11 +84,18 @@ class LoRAPipeline:
         harvest_dir: str = "data/lora_harvest",
         min_score: float = 0.75,
     ):
+        """Initialize the LoRAPipeline.
+
+        Args:
+            harvest_dir (str): str harvest dir.
+            min_score (float): float min score.
+
+        """
         self._harvest_dir = Path(harvest_dir)
         self._harvest_dir.mkdir(parents=True, exist_ok=True)
         self._min_score = min_score
         self._harvest_file = self._harvest_dir / "harvest.jsonl"
-        self._entries: List[HarvestEntry] = []
+        self._entries: list[HarvestEntry] = []
         self._load_existing()
 
     def _load_existing(self) -> None:
@@ -97,15 +103,15 @@ class LoRAPipeline:
         if not self._harvest_file.exists():
             return
         try:
-            with open(self._harvest_file, "r", encoding="utf-8") as f:
+            with open(self._harvest_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:
                         data = json.loads(line)
                         self._entries.append(HarvestEntry(**data))
-            logger.info(f"[LoRA] {len(self._entries)}개 기존 수확 데이터 로드")
-        except Exception as e:
-            logger.warning(f"[LoRA] 기존 수확 데이터 로드 실패: {e}")
+            logger.info("[LoRA] %s개 기존 수확 데이터 로드", len(self._entries))
+        except Exception:
+            logger.exception("[LoRA] 기존 수확 데이터 로드 실패")
 
     # ─── 1단계: 수확 (Harvest) ────────────────────────────────────
 
@@ -117,7 +123,7 @@ class LoRAPipeline:
         quality_grade: str = "",
         task_type: str = "general",
         model_used: str = "",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """고품질 응답을 자동 수확합니다.
 
@@ -125,6 +131,7 @@ class LoRAPipeline:
 
         Returns:
             True if harvested, False if below threshold
+
         """
         if quality_score < self._min_score:
             return False
@@ -135,10 +142,7 @@ class LoRAPipeline:
 
         # 중복 방지: 동일 요청 + 동일 응답(앞 200자)
         for existing in self._entries[-100:]:  # 최근 100개만 검사
-            if (
-                existing.user_request == user_request
-                and existing.agent_output[:200] == agent_output[:200]
-            ):
+            if existing.user_request == user_request and existing.agent_output[:200] == agent_output[:200]:
                 return False
 
         entry = HarvestEntry(
@@ -157,8 +161,11 @@ class LoRAPipeline:
         self._append_to_file(entry)
 
         logger.info(
-            f"[LoRA] 수확 완료: {quality_grade} ({quality_score:.0%}) "
-            f"— {user_request[:50]}... (총 {len(self._entries)}건)"
+            "[LoRA] 수확 완료: %s (%s) — %s... (총 %s건)",
+            quality_grade,
+            quality_score,
+            user_request[:50],
+            len(self._entries),
         )
         return True
 
@@ -167,8 +174,8 @@ class LoRAPipeline:
         try:
             with open(self._harvest_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
-        except Exception as e:
-            logger.warning(f"[LoRA] 수확 데이터 저장 실패: {e}")
+        except Exception:
+            logger.exception("[LoRA] 수확 데이터 저장 실패")
 
     # ─── 2단계: 내보내기 (Export) ─────────────────────────────────
 
@@ -176,9 +183,9 @@ class LoRAPipeline:
         self,
         output_path: str = "data/lora_dataset.jsonl",
         format: str = "chat",
-        min_score: Optional[float] = None,
+        min_score: float | None = None,
         max_entries: int = 2000,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """수확 데이터를 학습용 JSONL로 내보냅니다.
 
         Args:
@@ -189,6 +196,7 @@ class LoRAPipeline:
 
         Returns:
             내보내기 통계
+
         """
         threshold = min_score or self._min_score
         filtered = [e for e in self._entries if e.quality_score >= threshold]
@@ -214,16 +222,10 @@ class LoRAPipeline:
             "min_score_filter": threshold,
             "output_path": str(output),
             "format": format,
-            "avg_score": (
-                sum(e.quality_score for e in selected) / len(selected)
-                if selected
-                else 0
-            ),
-            "avg_word_count": (
-                sum(e.word_count for e in selected) / len(selected) if selected else 0
-            ),
+            "avg_score": (sum(e.quality_score for e in selected) / len(selected) if selected else 0),
+            "avg_word_count": (sum(e.word_count for e in selected) / len(selected) if selected else 0),
         }
-        logger.info(f"[LoRA] 데이터셋 내보내기 완료: {len(selected)}건 → {output}")
+        logger.info("[LoRA] 데이터셋 내보내기 완료: %s건 → %s", len(selected), output)
         return stats
 
     # ─── 3단계: 학습 설정 생성 (Config) ───────────────────────────
@@ -234,7 +236,7 @@ class LoRAPipeline:
         dataset_path: str = "data/lora_dataset.jsonl",
         output_dir: str = "data/lora_output",
         platform: str = "auto",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """LoRA/QLoRA 학습 설정을 자동 생성합니다.
 
         Args:
@@ -245,6 +247,7 @@ class LoRAPipeline:
 
         Returns:
             생성된 설정 dict
+
         """
         import platform as plt
 
@@ -262,14 +265,12 @@ class LoRAPipeline:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
-        logger.info(f"[LoRA] 학습 설정 생성: {config_path} (platform: {platform})")
+        logger.info("[LoRA] 학습 설정 생성: %s (platform: %s)", config_path, platform)
         return config
 
     @staticmethod
-    def _mlx_lora_config(
-        base_model: str, dataset_path: str, output_dir: str
-    ) -> Dict[str, Any]:
-        """Apple Silicon mlx-lm LoRA 설정"""
+    def _mlx_lora_config(base_model: str, dataset_path: str, output_dir: str) -> dict[str, Any]:
+        """Apple Silicon mlx-lm LoRA 설정."""
         return {
             "platform": "mlx",
             "command": (
@@ -308,14 +309,13 @@ class LoRAPipeline:
         }
 
     @staticmethod
-    def _unsloth_config(
-        base_model: str, dataset_path: str, output_dir: str
-    ) -> Dict[str, Any]:
-        """GPU 서버 Unsloth QLoRA 설정"""
+    def _unsloth_config(base_model: str, dataset_path: str, output_dir: str) -> dict[str, Any]:
+        """GPU 서버 Unsloth QLoRA 설정."""
         return {
             "platform": "unsloth",
             "script": f"""
 from unsloth import FastLanguageModel
+
 import torch
 
 model, tokenizer = FastLanguageModel.from_pretrained(
@@ -385,7 +385,7 @@ model.save_pretrained("{output_dir}/lora_model")
 
     # ─── 유틸리티 ─────────────────────────────────────────────────
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """수확 통계를 반환합니다."""
         if not self._entries:
             return {"total": 0, "message": "수확 데이터 없음"}

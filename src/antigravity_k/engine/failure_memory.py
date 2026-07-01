@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 실패 학습 메모리 (FailureMemory)
+"""Antigravity-K: 실패 학습 메모리 (FailureMemory).
+
 ===============================================
 E-3: 실패 패턴을 기록하고 동일 실수를 방지합니다.
 """
@@ -10,7 +10,6 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import List, Dict
 
 from antigravity_k.engine.gbrain import global_gbrain
 
@@ -20,8 +19,7 @@ _DEFAULT_LOG = ".antigravity/failure_log.jsonl"
 
 
 class FailureMemory:
-    """
-    에이전트의 실패를 기억하고, 같은 실수를 반복하지 않도록 합니다.
+    """에이전트의 실패를 기억하고, 같은 실수를 반복하지 않도록 합니다.
 
     동작:
     1. record(): 실패 발생 시 패턴/원인/해결책을 기록
@@ -30,9 +28,15 @@ class FailureMemory:
     """
 
     def __init__(self, project_root: str = "."):
+        """Initialize the FailureMemory.
+
+        Args:
+            project_root (str): str project root.
+
+        """
         self.project_root = project_root
         self._log_path = os.path.join(project_root, _DEFAULT_LOG)
-        self._session_failures: List[Dict] = []  # 현재 세션 내 실패
+        self._session_failures: list[dict] = []  # 현재 세션 내 실패
         os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
 
     def record(
@@ -78,50 +82,48 @@ class FailureMemory:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             # 로테이션: 1000줄 초과 시 최신 500줄만 유지 (디스크 고갈 방지)
             self._rotate_log_if_needed()
-        except Exception as e:
-            logger.warning(f"[FailureMemory] Failed to write fallback log: {e}")
+        except Exception:
+            logger.exception("[FailureMemory] Failed to write fallback log")
 
     def _rotate_log_if_needed(self, max_lines: int = 1000, keep_lines: int = 500):
         """JSONL 로그가 max_lines를 초과하면 최신 keep_lines줄만 유지합니다."""
         try:
             if not os.path.exists(self._log_path):
                 return
-            with open(self._log_path, "r", encoding="utf-8") as f:
+            with open(self._log_path, encoding="utf-8") as f:
                 lines = f.readlines()
             if len(lines) > max_lines:
-                logger.info(
-                    f"[FailureMemory] Rotating log: {len(lines)} → {keep_lines} lines"
-                )
+                logger.info("[FailureMemory] Rotating log: %s → %s lines", len(lines), keep_lines)
                 with open(self._log_path, "w", encoding="utf-8") as f:
                     f.writelines(lines[-keep_lines:])
         except Exception as e:
-            logger.debug(f"[FailureMemory] Log rotation failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[FailureMemory] Log rotation failed: %s", e)
 
-    def find_similar(self, task_or_error: str, max_results: int = 3) -> List[Dict]:
+    def find_similar(self, task_or_error: str, max_results: int = 3) -> list[dict]:
         """GBrain 의미론적 검색을 사용하여 유사한 과거 실패를 검색합니다."""
         results = []
 
         # 1. 먼저 GBrain VectorDB 조회
         try:
             gbrain_results = global_gbrain.search_semantic(
-                query=task_or_error, limit=max_results, filter_label="failure"
+                query=task_or_error,
+                limit=max_results,
+                filter_label="failure",
             )
             for r in gbrain_results:
                 # FailureMemory의 포맷에 맞게 변환
                 results.append(
                     {
                         "tool": r.get("tool", "unknown"),
-                        "error_pattern": r.get(
-                            "error_pattern", r.get("content", "")[:50]
-                        ),
+                        "error_pattern": r.get("error_pattern", r.get("content", "")[:50]),
                         "fix_applied": "",  # GBrain content에 포함되어 있음
                         "source": "gbrain",
-                    }
+                    },
                 )
         except Exception as e:
-            logger.debug(
-                f"[FailureMemory] GBrain search failed, fallback to keyword: {e}"
-            )
+            logger.exception("Unhandled exception")
+            logger.debug("[FailureMemory] GBrain search failed, fallback to keyword: %s", e)
 
         if len(results) >= max_results:
             return results[:max_results]
@@ -151,7 +153,7 @@ class FailureMemory:
         lines.append("</failure_memory>")
         return "\n".join(lines)
 
-    def get_session_stats(self) -> Dict:
+    def get_session_stats(self) -> dict:
         """현재 세션의 실패 통계를 반환합니다."""
         total = len(self._session_failures)
         if total == 0:
@@ -180,7 +182,7 @@ class FailureMemory:
         first_line = error_text.strip().split("\n")[0]
         return first_line[:100]
 
-    def _is_similar(self, entry: Dict, keywords: set) -> bool:
+    def _is_similar(self, entry: dict, keywords: set) -> bool:
         """키워드 기반 유사도 판단."""
         entry_text = f"{entry.get('tool', '')} {entry.get('error_pattern', '')} {entry.get('args_summary', '')}".lower()
         entry_words = set(re.findall(r"[a-zA-Z_]{3,}", entry_text))

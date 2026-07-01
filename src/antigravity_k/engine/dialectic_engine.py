@@ -74,13 +74,9 @@ class DialecticResult:
             "thesis": self.thesis,
             "antithesis": self.antithesis,
             "synthesis": self.synthesis,
-            "contradictions": [
-                {"description": c.description, "evidence": c.evidence}
-                for c in self.contradictions
-            ],
+            "contradictions": [{"description": c.description, "evidence": c.evidence} for c in self.contradictions],
             "research_proposals": [
-                {"proposal": r.proposal, "testable_prediction": r.testable_prediction}
-                for r in self.research_proposals
+                {"proposal": r.proposal, "testable_prediction": r.testable_prediction} for r in self.research_proposals
             ],
         }
 
@@ -99,9 +95,7 @@ class AutocodingState:
     last_coach_feedback: Optional[str] = None
 
     @classmethod
-    def create(
-        cls, requirements: str, max_turns: int = 5, session_name: Optional[str] = None
-    ) -> "AutocodingState":
+    def create(cls, requirements: str, max_turns: int = 5, session_name: Optional[str] = None) -> "AutocodingState":
         return cls(
             session_id=str(uuid.uuid4()),
             session_name=session_name,
@@ -162,7 +156,7 @@ class AutocodingState:
         return max(0, self.max_turns - self.current_turn)
 
     def summary(self) -> str:
-        return f"Session: {self.session_name or self.session_id[:8]}\nTurn: {self.current_turn + 1}/{self.max_turns}\nPhase: {self.phase}"
+        return f"Session: {self.session_name or self.session_id[:8]}\nTurn: {self.current_turn + 1}/{self.max_turns}\nPhase: {self.phase}"  # noqa: E501
 
 
 class DialecticEngine:
@@ -186,13 +180,9 @@ class DialecticEngine:
         },
     ]
 
-    def create_single_shot_prompt(
-        self, query: str, use_council: bool = False, use_search: bool = False
-    ) -> str:
+    def create_single_shot_prompt(self, query: str, use_council: bool = False, use_search: bool = False) -> str:
         search_inst = (
-            "\nBefore beginning, use available search tools to gather current information."
-            if use_search
-            else ""
+            "\nBefore beginning, use available search tools to gather current information." if use_search else ""
         )
         council_inst = (
             """
@@ -208,15 +198,14 @@ QUERY: {query}
 **PHASE 1 - THESIS:** Generate a comprehensive initial position.
 **PHASE 2 - ANTITHESIS:**{council_inst}
 Critically examine your thesis. For each problem use: CONTRADICTION: [desc] / EVIDENCE: [explanation]
-**PHASE 3 - SYNTHESIS:** Transcend both with novel insights. Use RESEARCH_PROPOSAL: / TESTABLE_PREDICTION: if applicable.
+**PHASE 3 - SYNTHESIS:** Transcend both with novel insights.
+Use RESEARCH_PROPOSAL: / TESTABLE_PREDICTION: if applicable.
 
 Structure as: ## THESIS / ## ANTITHESIS / ## SYNTHESIS / ## CONTRADICTIONS IDENTIFIED / ## RESEARCH PROPOSALS
 
 Begin now."""
 
-    def create_workflow(
-        self, query: str, use_council: bool = False, use_search: bool = False
-    ) -> Dict[str, Any]:
+    def create_workflow(self, query: str, use_council: bool = False, use_search: bool = False) -> Dict[str, Any]:
         workflow: Dict[str, Any] = {
             "query": query,
             "workflow_type": "prompt_driven_dialectic",
@@ -235,9 +224,7 @@ Begin now."""
                     {
                         "step": 2 + i,
                         "name": f"Council: {m['name']}",
-                        "prompt": self._council_prompt(
-                            query, "{{thesis}}", m
-                        ).to_dict(),
+                        "prompt": self._council_prompt(query, "{{thesis}}", m).to_dict(),
                     }
                 )
             syn_step = 2 + len(self.COUNCIL_MEMBERS)
@@ -246,9 +233,7 @@ Begin now."""
                 {
                     "step": 2,
                     "name": "Generate Antithesis",
-                    "prompt": self._antithesis_prompt(
-                        query, "{{thesis}}", use_search
-                    ).to_dict(),
+                    "prompt": self._antithesis_prompt(query, "{{thesis}}", use_search).to_dict(),
                 }
             )
             syn_step = 3
@@ -256,9 +241,7 @@ Begin now."""
             {
                 "step": syn_step,
                 "name": "Generate Synthesis",
-                "prompt": self._synthesis_prompt(
-                    query, "{{thesis}}", "{{antithesis}}"
-                ).to_dict(),
+                "prompt": self._synthesis_prompt(query, "{{thesis}}", "{{antithesis}}").to_dict(),
             }
         )
         return workflow
@@ -274,15 +257,11 @@ Begin now."""
         return result
 
     def generate_player_prompt(self, state: AutocodingState) -> str:
-        fb = (
-            f"\nPREVIOUS COACH FEEDBACK:\n{state.last_coach_feedback}"
-            if state.last_coach_feedback
-            else ""
-        )
-        return f"PLAYER turn {state.current_turn+1}/{state.max_turns}\nREQUIREMENTS:\n{state.requirements}{fb}\nImplement now."
+        fb = f"\nPREVIOUS COACH FEEDBACK:\n{state.last_coach_feedback}" if state.last_coach_feedback else ""
+        return f"PLAYER turn {state.current_turn + 1}/{state.max_turns}\nREQUIREMENTS:\n{state.requirements}{fb}\nImplement now."  # noqa: E501
 
     def generate_coach_prompt(self, state: AutocodingState, player_output: str) -> str:
-        return f"COACH turn {state.current_turn+1}/{state.max_turns} ({state.turns_remaining()} left)\nREQUIREMENTS:\n{state.requirements}\nPLAYER OUTPUT:\n{player_output}\nRespond APPROVED or FEEDBACK."
+        return f"COACH turn {state.current_turn + 1}/{state.max_turns} ({state.turns_remaining()} left)\nREQUIREMENTS:\n{state.requirements}\nPLAYER OUTPUT:\n{player_output}\nRespond APPROVED or FEEDBACK."  # noqa: E501
 
     @staticmethod
     def render_markdown(result: DialecticResult) -> str:
@@ -313,9 +292,7 @@ Begin now."""
             expected_format="text",
         )
 
-    def _antithesis_prompt(
-        self, query: str, thesis: str, use_search: bool
-    ) -> DialecticalPrompt:
+    def _antithesis_prompt(self, query: str, thesis: str, use_search: bool) -> DialecticalPrompt:
         s = "\nUse search tools first." if use_search else ""
         return DialecticalPrompt(
             phase="antithesis",
@@ -324,19 +301,15 @@ Begin now."""
             expected_format="text with markers",
         )
 
-    def _council_prompt(
-        self, query: str, thesis: str, member: dict
-    ) -> DialecticalPrompt:
+    def _council_prompt(self, query: str, thesis: str, member: dict) -> DialecticalPrompt:
         return DialecticalPrompt(
-            phase=f"council_{member['name'].lower().replace(' ','_')}",
+            phase=f"council_{member['name'].lower().replace(' ', '_')}",
             prompt=f"You are {member['name']}.\nQUERY: {query}\nTHESIS: {thesis}\nFocus: {member['focus']}",
             instructions=f"Critique as {member['name']}.",
             expected_format="text with markers",
         )
 
-    def _synthesis_prompt(
-        self, query: str, thesis: str, antithesis: str
-    ) -> DialecticalPrompt:
+    def _synthesis_prompt(self, query: str, thesis: str, antithesis: str) -> DialecticalPrompt:
         return DialecticalPrompt(
             phase="synthesis",
             prompt=f"SYNTHESIS phase.\nQUERY: {query}\nTHESIS: {thesis}\nANTITHESIS: {antithesis}\nTranscend both.",
@@ -367,8 +340,7 @@ Begin now."""
             re.DOTALL,
         )
         return [
-            Contradiction(description=m.group(1).strip(), evidence=m.group(2).strip())
-            for m in pattern.finditer(text)
+            Contradiction(description=m.group(1).strip(), evidence=m.group(2).strip()) for m in pattern.finditer(text)
         ]
 
     @staticmethod
@@ -378,8 +350,6 @@ Begin now."""
             re.DOTALL,
         )
         return [
-            ResearchProposal(
-                proposal=m.group(1).strip(), testable_prediction=m.group(2).strip()
-            )
+            ResearchProposal(proposal=m.group(1).strip(), testable_prediction=m.group(2).strip())
             for m in pattern.finditer(text)
         ]

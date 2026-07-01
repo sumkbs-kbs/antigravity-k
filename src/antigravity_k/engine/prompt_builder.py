@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 프롬프트 빌더 (PromptBuilder)
+"""Antigravity-K: 프롬프트 빌더 (PromptBuilder).
+
 =============================================
 역할별 시스템 프롬프트, 도구 가이드, 페르소나 스타일링을
 코드에서 분리하여 `prompts/` 디렉토리의 마크다운 파일로 관리합니다.
@@ -20,10 +20,10 @@ Antigravity-K: 프롬프트 빌더 (PromptBuilder)
   └── persona.md
 """
 
+import datetime
 import logging
 import os
-import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +38,22 @@ class PromptBuilder:
     """
 
     # prompts/ 디렉토리를 찾기 위한 기본 경로
-    _DEFAULT_PROMPTS_DIR = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "prompts"
-    )
+    _DEFAULT_PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "prompts")
 
-    def __init__(self, prompts_dir: Optional[str] = None):
+    def __init__(self, prompts_dir: str | None = None):
+        """Initialize the PromptBuilder.
+
+        Args:
+            prompts_dir (str | None): str | None prompts dir.
+
+        """
         self._dir = os.path.abspath(prompts_dir or self._DEFAULT_PROMPTS_DIR)
-        self._cache: Dict[str, str] = {}
+        self._cache: dict[str, str] = {}
 
         if not os.path.isdir(self._dir):
-            logger.warning(
-                f"Prompts directory not found: {self._dir}. Using inline fallbacks."
-            )
+            logger.warning("Prompts directory not found: %s. Using inline fallbacks.", self._dir)
 
-    def _load(self, relative_path: str) -> Optional[str]:
+    def _load(self, relative_path: str) -> str | None:
         """프롬프트 파일을 로드합니다 (캐시 적용)."""
         if relative_path in self._cache:
             return self._cache[relative_path]
@@ -61,7 +63,7 @@ class PromptBuilder:
             return None
 
         try:
-            with open(full_path, "r", encoding="utf-8") as f:
+            with open(full_path, encoding="utf-8") as f:
                 content = f.read()
 
             # YAML 프론트매터 제거 (--- ... --- 블록)
@@ -72,8 +74,8 @@ class PromptBuilder:
 
             self._cache[relative_path] = content
             return content
-        except Exception as e:
-            logger.error(f"Failed to load prompt file {full_path}: {e}")
+        except Exception:
+            logger.exception("Failed to load prompt file %s", full_path)
             return None
 
     def role_prompt(self, role: str) -> str:
@@ -84,39 +86,36 @@ class PromptBuilder:
 
         Returns:
             프롬프트 텍스트. 파일이 없으면 inline fallback 반환.
+
         """
         filename = f"roles/{role.lower()}.md"
         content = self._load(filename)
 
         if content is None:
             # fallback: 파일이 없으면 기본 프롬프트
-            logger.debug(f"No prompt file for role '{role}', using DEFAULT")
+            logger.debug("No prompt file for role '%s', using DEFAULT", role)
             content = self._load("roles/default.md")
 
-        return (
-            content
-            or f"You are a helpful AI assistant acting as {role}. Always respond in Korean."
-        )
+        return content or f"You are a helpful AI assistant acting as {role}. Always respond in Korean."
 
     def persona_prompt(self) -> str:
         """페르소나 스타일링 CORE DIRECTIVE를 로드합니다."""
         content = self._load("persona.md")
         if content is None:
             return ""
-        return (
-            f"\n\n[CORE DIRECTIVE: ANTIGRAVITY PERSONA & RESPONSE STYLING]\n{content}"
-        )
+        return f"\n\n[CORE DIRECTIVE: ANTIGRAVITY PERSONA & RESPONSE STYLING]\n{content}"
 
     def tool_guide(
         self,
-        tool_schemas: List[Dict[str, Any]],
-        current_time: Optional[datetime.datetime] = None,
+        tool_schemas: list[dict[str, Any]],
+        current_time: datetime.datetime | None = None,
     ) -> str:
         """도구 사용 가이드 프롬프트를 생성합니다.
 
         Args:
             tool_schemas: ToolRegistry.to_llm_schemas() 결과
             current_time: 현재 시간 (None이면 자동)
+
         """
         now = current_time or datetime.datetime.now()
         now_str = now.strftime("%Y년 %m월 %d일 %H시 %M분")
@@ -145,25 +144,25 @@ class PromptBuilder:
             "검색어에 포함하세요. 절대 상대적인 단어('내일')로만 검색하지 마세요.\n"
             "9. **`<thought>` 블록 안에서 `<action_call>` 태그를 절대 사용하거나 언급하지 마세요.** "
             "`<action_call>`은 오직 `<thought>` 블록 바깥에서만 사용해야 합니다.\n"
-            "10. **[CRITICAL] 사용자가 파일 생성, 수정, 또는 명령 실행을 요구하면 절대 코드만 텍스트로 보여주지 마세요.** "
+            "10. **[CRITICAL] 사용자가 파일 생성, 수정, 또는 명령 실행을 요구하면 절대 코드만 텍스트로 보여주지 마세요.** "  # noqa: E501
             "당신은 스스로 컴퓨터와 상호작용할 수 있습니다. `write_file`, `run_bash_command` 등의 도구를 직접 호출하여 "
             "**반드시 물리적으로 파일을 생성하고 명령을 실행**해야 합니다.\n"
             "11. **[CRITICAL] 사용자의 명시적인 요구가 없다면, 도구를 실행하기 전에 허락이나 동의를 구하지 마세요.** "
             "스스로 판단하여 도구를 즉시 실행하고, 그 결과를 정리해서 사용자에게 보고하세요. "
             "안전한 파일 생성이나 폴더 생성 작업은 질문 없이 바로 실행해야 합니다.\n\n"
             "### 📊 출력 품질 게이트 (Output Quality Gate):\n"
-            "12. **코드 요청에도 반드시 한국어 설명을 포함하세요.** 코드 블록만 단독으로 응답하는 것은 품질 부족입니다. "
+            "12. **코드 요청에도 반드시 한국어 설명을 포함하세요.** 코드 블록만 단독으로 응답하는 것은 품질 부족입니다. "  # noqa: E501
             "최소한 '왜 이 방법을 선택했는지'와 '동작 원리'를 한국어로 설명하세요.\n"
-            "13. **[CRITICAL] 시간/공간 복잡도(Big-O)는 사용자가 알고리즘이나 성능에 대해 명시적으로 물어볼 때만 포함하세요.** "
+            "13. **[CRITICAL] 시간/공간 복잡도(Big-O)는 사용자가 알고리즘이나 성능에 대해 명시적으로 물어볼 때만 포함하세요.** "  # noqa: E501
             "단순한 폴더 생성, HTML 작성, API 연동 같은 작업에는 절대 Big-O를 설명하지 마세요.\n"
-            "14. **코드 블록 전후로 선택 근거를 제시하세요.** '왜 이 알고리즘/패턴을 선택했는지' 1~2문장으로 설명하세요.\n"
+            "14. **코드 블록 전후로 선택 근거를 제시하세요.** '왜 이 알고리즘/패턴을 선택했는지' 1~2문장으로 설명하세요.\n"  # noqa: E501
             "15. **3개 이상의 방법 비교 요청 시 반드시 비교 표(마크다운 테이블)를 포함하세요.** "
             "| 방법 | 시간복잡도 | 공간복잡도 | 특징 | 형태의 표를 사용하세요.\n"
             "16. **한 응답에서 같은 문단을 2회 이상 반복하지 마세요.** 반복 감지 시 해당 문단을 제거하세요.\n"
             "17. **응답이 지나치게 짧으면(200자 미만) 품질 부족입니다.** 추가 설명, 예시, 팁을 보완하세요.\n\n"
             "18. **[CRITICAL] 자기소개/능력 설명은 실제 등록된 도구와 Skills만 근거로 작성하세요.** "
             "WiFi, 볼륨, 클립보드, OS 제어처럼 현재 도구 목록에 없는 기능을 가진 것처럼 말하지 마세요.\n"
-            "19. **[CRITICAL] 최신/최근/실시간 동향 질문은 반드시 검색 도구로 확인하거나, 검색 도구가 없으면 그 한계를 명확히 말하세요.** "
+            "19. **[CRITICAL] 최신/최근/실시간 동향 질문은 반드시 검색 도구로 확인하거나, 검색 도구가 없으면 그 한계를 명확히 말하세요.** "  # noqa: E501
             "지식 cutoff나 오래된 일반론만으로 최신 정보를 답하지 마세요.\n"
             "20. **[CRITICAL] 내부 추론을 사용자에게 노출하지 마세요.** "
             "`Thinking Process`, `<think>`, `<thought>`, 영어 혼잣말, 계획 독백은 최종 답변에 포함될 수 없습니다.\n"
@@ -171,7 +170,7 @@ class PromptBuilder:
             "### 📑 Artifacts 및 Planning Mode (Google Tolaria Architecture):\n"
             "22. **대규모 아키텍처 변경이나 복잡한 요구사항 시, 코드를 바로 짜지 말고 계획안을 먼저 작성하세요.**\n"
             "  - `write_file` 도구를 사용하여 `artifacts/implementation_plan.md` 파일을 생성하세요.\n"
-            "  - 파일 작성 완료 후 사용자에게 승인을 요청하는 **`[APPROVAL REQUIRED]`** 문자열을 응답에 포함하여 멈추세요.\n"
+            "  - 파일 작성 완료 후 사용자에게 승인을 요청하는 **`[APPROVAL REQUIRED]`** 문자열을 응답에 포함하여 멈추세요.\n"  # noqa: E501
             "23. **승인을 받으면 `artifacts/task.md`를 생성하고 할 일 목록을 기록 및 갱신하며 작업하세요.**\n"
             "24. **Artifact 작성 시 마크다운 요소를 적극 활용하세요.**\n"
             "  - GitHub 스타일 경고 (`> [!NOTE]`, `> [!WARNING]`, `> [!IMPORTANT]`)\n"
@@ -210,9 +209,9 @@ class PromptBuilder:
         role: str,
         task: str,
         context: str = "",
-        constraints: Optional[List[str]] = None,
+        constraints: list[str] | None = None,
         output_format: str = "",
-        few_shot: Optional[List[Dict[str, str]]] = None,
+        few_shot: list[dict[str, str]] | None = None,
     ) -> str:
         """계층화된 섹션으로 구성된 프롬프트를 생성합니다.
 
@@ -229,6 +228,7 @@ class PromptBuilder:
 
         Returns:
             섹션으로 구분된 구조화 프롬프트
+
         """
         sections = []
 
@@ -244,7 +244,7 @@ class PromptBuilder:
                 "[CONSTRAINTS]\n"
                 "- 반드시 한국어로 답변하세요.\n"
                 "- 불필요한 서론과 사족을 생략하고 핵심만 전달하세요.\n"
-                "- 확실하지 않은 정보는 명확히 '확인 불가'라고 표시하세요."
+                "- 확실하지 않은 정보는 명확히 '확인 불가'라고 표시하세요.",
             )
 
         # [CONTEXT] 참고 자료 (RAG 문서, 검색 결과 등)
@@ -255,10 +255,8 @@ class PromptBuilder:
         if few_shot:
             examples = []
             for i, ex in enumerate(few_shot, 1):
-                examples.append(
-                    f"예시 {i}:\n" f"  입력: {ex['input']}\n" f"  출력: {ex['output']}"
-                )
-            sections.append(f"[EXAMPLES]\n" + "\n\n".join(examples))
+                examples.append(f"예시 {i}:\n  입력: {ex['input']}\n  출력: {ex['output']}")
+            sections.append("[EXAMPLES]\n" + "\n\n".join(examples))
 
         # [OUTPUT FORMAT] 출력 형식
         if output_format:
@@ -269,7 +267,7 @@ class PromptBuilder:
 
         return "\n\n".join(sections)
 
-    def get_task_few_shots(self, task_type: str) -> List[Dict[str, str]]:
+    def get_task_few_shots(self, task_type: str) -> list[dict[str, str]]:
         """작업 유형별 기본 Few-Shot 예시를 반환합니다.
 
         Args:
@@ -277,8 +275,9 @@ class PromptBuilder:
 
         Returns:
             입출력 예시 목록
+
         """
-        _EXAMPLES: Dict[str, List[Dict[str, str]]] = {
+        _EXAMPLES: dict[str, list[dict[str, str]]] = {
             "SEARCH": [
                 {
                     "input": "삼성전자 오늘 종가 알려줘",
@@ -289,7 +288,7 @@ class PromptBuilder:
                         "| 거래량 | 15,234,567주 |\n\n"
                         "*출처: 네이버 금융 [1]*"
                     ),
-                }
+                },
             ],
             "CODE": [
                 {
@@ -302,7 +301,7 @@ class PromptBuilder:
                         "    return fibonacci(n - 1) + fibonacci(n - 2)\n```\n\n"
                         "**동작 원리:** `@lru_cache`가 이전 계산 결과를 캐싱하여 O(n) 시간복잡도를 달성합니다."
                     ),
-                }
+                },
             ],
         }
         return _EXAMPLES.get(task_type, [])

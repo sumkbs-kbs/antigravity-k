@@ -1,5 +1,5 @@
-"""
-CostGuard — 비용 제어 가드
+"""CostGuard — 비용 제어 가드.
+
 ============================
 IronClaw cost_guard.rs 패턴 이식.
 
@@ -30,7 +30,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Deque, Dict
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.cost_guard")
 
@@ -38,7 +38,7 @@ logger = logging.getLogger("antigravity_k.engine.cost_guard")
 # ── 모델별 가격표 (USD per 1M tokens) ──
 # 로컬 모델은 전력 비용 기반 추정, 클라우드는 공시 가격
 
-MODEL_PRICING: Dict[str, Dict[str, float]] = {
+MODEL_PRICING: dict[str, dict[str, float]] = {
     # 로컬 모델 (전력 비용 기반 추정)
     "default": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
     "local": {"input": 0.001, "output": 0.002, "cached_input": 0.0005},
@@ -67,6 +67,12 @@ class CostDecision:
 
     @property
     def budget_usage_percent(self) -> float:
+        """Budget Usage Percent.
+
+        Returns:
+            float: The float result.
+
+        """
         if self.remaining_budget_usd <= 0 and self.daily_spend_usd > 0:
             return 100.0
         total = self.daily_spend_usd + self.remaining_budget_usd
@@ -104,6 +110,15 @@ class CostGuard:
         hourly_action_limit: int = 100,
         enabled: bool = True,
     ):
+        """Initialize the CostGuard.
+
+        Args:
+            daily_budget_usd (float): float daily budget usd.
+            user_daily_budget_usd (float): float user daily budget usd.
+            hourly_action_limit (int): int hourly action limit.
+            enabled (bool): bool enabled.
+
+        """
         self.daily_budget_usd = daily_budget_usd
         self.user_daily_budget_usd = user_daily_budget_usd
         self.hourly_action_limit = hourly_action_limit
@@ -111,12 +126,12 @@ class CostGuard:
 
         self._lock = threading.Lock()
         self._global_daily_spend: float = 0.0
-        self._user_daily_spend: Dict[str, float] = {}
+        self._user_daily_spend: dict[str, float] = {}
         self._last_reset_date: str = self._today_utc()
         self._spend_history: list[SpendRecord] = []
 
         # Rate limiter: VecDeque 슬라이딩 윈도우 (IronClaw 패턴)
-        self._action_timestamps: Deque[float] = deque()
+        self._action_timestamps: deque[float] = deque()
 
     # ── 예산 확인 ──
 
@@ -148,8 +163,7 @@ class CostGuard:
                     return CostDecision(
                         allowed=False,
                         reason=(
-                            f"글로벌 일일 예산 소진 "
-                            f"(${self._global_daily_spend:.4f}/${self.daily_budget_usd:.2f})"
+                            f"글로벌 일일 예산 소진 (${self._global_daily_spend:.4f}/${self.daily_budget_usd:.2f})"
                         ),
                         estimated_cost_usd=estimated,
                         remaining_budget_usd=max(0, remaining_global),
@@ -162,10 +176,7 @@ class CostGuard:
             if estimated > remaining_user and remaining_user <= 0:
                 return CostDecision(
                     allowed=False,
-                    reason=(
-                        f"사용자 '{user_id}' 일일 예산 소진 "
-                        f"(${user_spend:.4f}/${self.user_daily_budget_usd:.2f})"
-                    ),
+                    reason=(f"사용자 '{user_id}' 일일 예산 소진 (${user_spend:.4f}/${self.user_daily_budget_usd:.2f})"),
                     estimated_cost_usd=estimated,
                     remaining_budget_usd=max(0, remaining_user),
                     daily_spend_usd=user_spend,
@@ -181,10 +192,7 @@ class CostGuard:
             if hourly_count >= self.hourly_action_limit:
                 return CostDecision(
                     allowed=False,
-                    reason=(
-                        f"시간당 액션 한도 초과 "
-                        f"({hourly_count}/{self.hourly_action_limit})"
-                    ),
+                    reason=(f"시간당 액션 한도 초과 ({hourly_count}/{self.hourly_action_limit})"),
                     estimated_cost_usd=estimated,
                     remaining_budget_usd=max(0, remaining_global),
                     daily_spend_usd=self._global_daily_spend,
@@ -216,9 +224,7 @@ class CostGuard:
         with self._lock:
             self._maybe_reset_daily()
             self._global_daily_spend += cost_usd
-            self._user_daily_spend[user_id] = (
-                self._user_daily_spend.get(user_id, 0.0) + cost_usd
-            )
+            self._user_daily_spend[user_id] = self._user_daily_spend.get(user_id, 0.0) + cost_usd
             self._action_timestamps.append(time.time())
 
             self._spend_history.append(
@@ -229,7 +235,7 @@ class CostGuard:
                     user_id=user_id,
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
-                )
+                ),
             )
 
             # 이력 크기 제한
@@ -237,8 +243,10 @@ class CostGuard:
                 self._spend_history = self._spend_history[-2500:]
 
         logger.debug(
-            f"CostGuard: recorded ${cost_usd:.6f} for {user_id} "
-            f"(daily total: ${self._global_daily_spend:.4f})"
+            "CostGuard: recorded $%s for %s (daily total: $%s)",
+            cost_usd,
+            user_id,
+            self._global_daily_spend,
         )
 
     # ── 조회 API ──
@@ -252,34 +260,25 @@ class CostGuard:
             user_remaining = self.user_daily_budget_usd - user_spend
             return min(max(0, global_remaining), max(0, user_remaining))
 
-    def get_daily_stats(self) -> Dict[str, Any]:
+    def get_daily_stats(self) -> dict[str, Any]:
         """일일 비용 통계를 반환합니다."""
         with self._lock:
             self._maybe_reset_daily()
             return {
                 "global_daily_spend_usd": round(self._global_daily_spend, 6),
                 "daily_budget_usd": self.daily_budget_usd,
-                "remaining_usd": round(
-                    max(0, self.daily_budget_usd - self._global_daily_spend), 6
-                ),
+                "remaining_usd": round(max(0, self.daily_budget_usd - self._global_daily_spend), 6),
                 "usage_percent": round(
-                    (
-                        (self._global_daily_spend / self.daily_budget_usd * 100)
-                        if self.daily_budget_usd > 0
-                        else 0
-                    ),
+                    ((self._global_daily_spend / self.daily_budget_usd * 100) if self.daily_budget_usd > 0 else 0),
                     1,
                 ),
-                "user_spends": {
-                    uid: round(spend, 6)
-                    for uid, spend in self._user_daily_spend.items()
-                },
+                "user_spends": {uid: round(spend, 6) for uid, spend in self._user_daily_spend.items()},
                 "hourly_actions": len(self._action_timestamps),
                 "hourly_limit": self.hourly_action_limit,
                 "reset_date": self._last_reset_date,
             }
 
-    def to_dashboard_data(self) -> Dict[str, Any]:
+    def to_dashboard_data(self) -> dict[str, Any]:
         """대시보드 UI용 데이터를 반환합니다."""
         stats = self.get_daily_stats()
         stats["enabled"] = self.enabled
@@ -337,8 +336,10 @@ class CostGuard:
         today = self._today_utc()
         if today != self._last_reset_date:
             logger.info(
-                f"CostGuard: daily reset ({self._last_reset_date} → {today}), "
-                f"yesterday spend: ${self._global_daily_spend:.4f}"
+                "CostGuard: daily reset (%s → %s), yesterday spend: $%s",
+                self._last_reset_date,
+                today,
+                self._global_daily_spend,
             )
             self._global_daily_spend = 0.0
             self._user_daily_spend.clear()

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 구조화된 JSON 로거 (Structured JSON Logger)
+"""Antigravity-K: 구조화된 JSON 로거 (Structured JSON Logger).
+
 ======================================================
 에이전트 시스템 전체의 이벤트를 JSON 형태로 포맷팅하여 저장합니다.
 추적성(Traceability) 향상을 위해 세션 ID(Trace ID)와
@@ -10,18 +10,33 @@ import json
 import logging
 import traceback
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 
 class JSONFormatter(logging.Formatter):
     """표준 로깅을 구조화된 JSON으로 변환하는 커스텀 포매터."""
 
     def __init__(self, **kwargs):
+        """Initialize the JSONFormatter.
+
+        Args:
+            **kwargs: kwargs.
+
+        """
         super().__init__()
         self.static_fields = kwargs
 
     def format(self, record: logging.LogRecord) -> str:
-        log_data: Dict[str, Any] = {
+        """Format.
+
+        Args:
+            record (logging.LogRecord): logging.LogRecord record.
+
+        Returns:
+            str: The str result.
+
+        """
+        log_data: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created).isoformat() + "Z",
             "level": record.levelname,
             "logger": record.name,
@@ -70,7 +85,8 @@ class JSONFormatter(logging.Formatter):
 
 
 def setup_json_logger(
-    log_file_path: str = "logs/agent_json.log", level: int = logging.INFO
+    log_file_path: str = "logs/agent_json.log",
+    level: int = logging.INFO,
 ) -> logging.Logger:
     """JSON 파일 기반 로거를 설정합니다."""
     import os
@@ -80,7 +96,11 @@ def setup_json_logger(
 
     # 매일 자정에 로그 로테이션, 최대 30일 보관
     file_handler = TimedRotatingFileHandler(
-        log_file_path, when="midnight", interval=1, backupCount=30, encoding="utf-8"
+        log_file_path,
+        when="midnight",
+        interval=1,
+        backupCount=30,
+        encoding="utf-8",
     )
 
     formatter = JSONFormatter(app_name="antigravity-k")
@@ -90,8 +110,7 @@ def setup_json_logger(
 
     # 중복 핸들러 방지
     has_json_handler = any(
-        isinstance(h, TimedRotatingFileHandler)
-        and getattr(h, "baseFilename", "").endswith(".log")
+        isinstance(h, TimedRotatingFileHandler) and getattr(h, "baseFilename", "").endswith(".log")
         for h in root_logger.handlers
     )
 

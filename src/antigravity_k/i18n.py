@@ -1,5 +1,5 @@
-"""
-i18n — 에이전트 다국어 지원 시스템
+"""i18n — 에이전트 다국어 지원 시스템.
+
 ===================================
 
 tiptap-vuetify의 i18n 패턴에서 영감:
@@ -14,16 +14,16 @@ tiptap-vuetify의 i18n 패턴에서 영감:
 - 사용자 언어 자동 감지 및 전환
 """
 
-import logging
 import locale
-from typing import Dict, Optional, Any
+import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 # ─────────────────── 번역 사전 ───────────────────
 
-_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+_TRANSLATIONS: dict[str, dict[str, str]] = {
     "ko": {
         "agent.greeting": "안녕하세요! {agent_name} 에이전트입니다. 무엇을 도와드릴까요?",
         "agent.task_complete": "작업이 완료되었습니다.",
@@ -86,103 +86,113 @@ _FALLBACK_LOCALE = "en"
 
 
 class I18n:
-    """
-    에이전트 시스템의 다국어 관리자.
-    
+    """에이전트 시스템의 다국어 관리자.
+
     tiptap-vuetify가 Vuetify.lang.current를 자동 감지하듯,
     OS 로케일에서 언어를 자동 감지하거나 명시적으로 설정할 수 있습니다.
-    
+
     사용 예:
         i18n = I18n()                          # 자동 감지
         i18n = I18n(locale="en")               # 명시 지정
         msg = i18n.t("agent.greeting", agent_name="PM")
     """
-    
-    def __init__(self, locale_code: Optional[str] = None):
+
+    def __init__(self, locale_code: str | None = None):
+        """Initialize the I18n.
+
+        Args:
+            locale_code (str | None): str | None locale code.
+
+        """
         if locale_code:
             if locale_code in _TRANSLATIONS:
                 self._locale = locale_code
             else:
                 logger.warning(
-                    f"Locale '{locale_code}' not supported. "
-                    f"Using fallback: {_FALLBACK_LOCALE}"
+                    "Locale '%s' not supported. Using fallback: %s",
+                    locale_code,
+                    _FALLBACK_LOCALE,
                 )
                 self._locale = _FALLBACK_LOCALE
         else:
             self._locale = self._detect_locale()
-        
-        logger.info(f"I18n initialized with locale: {self._locale}")
-    
+
+        logger.info("I18n initialized with locale: %s", self._locale)
+
     @property
     def locale(self) -> str:
+        """Locale.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._locale
-    
+
     @locale.setter
     def locale(self, value: str):
         if value not in _TRANSLATIONS:
             logger.warning(
-                f"Locale '{value}' not supported. "
-                f"Available: {list(_TRANSLATIONS.keys())}. "
-                f"Using fallback: {_FALLBACK_LOCALE}"
+                "Locale '%s' not supported. Available: %s. Using fallback: %s",
+                value,
+                list(_TRANSLATIONS.keys()),
+                _FALLBACK_LOCALE,
             )
             self._locale = _FALLBACK_LOCALE
         else:
             self._locale = value
-            logger.info(f"Locale changed to: {value}")
-    
+            logger.info("Locale changed to: %s", value)
+
     def t(self, key: str, **kwargs) -> str:
-        """
-        번역 키에 대응하는 메시지를 반환합니다.
-        
+        """번역 키에 대응하는 메시지를 반환합니다.
+
         tiptap-vuetify의 i18n 맵핑과 동일한 패턴:
         키 → 현재 언어 사전에서 조회 → 없으면 폴백 → 없으면 키 자체 반환
-        
+
         Args:
             key: 번역 키 (예: "agent.greeting")
             **kwargs: 문자열 포맷 파라미터
-        
+
         Returns:
             번역된 문자열
+
         """
         # 1차: 현재 로케일에서 검색
         message = _TRANSLATIONS.get(self._locale, {}).get(key)
-        
+
         # 2차: 폴백 로케일에서 검색
         if message is None and self._locale != _FALLBACK_LOCALE:
             message = _TRANSLATIONS.get(_FALLBACK_LOCALE, {}).get(key)
-        
+
         # 3차: 키 자체를 반환
         if message is None:
-            logger.debug(f"Translation not found for key: '{key}' (locale={self._locale})")
+            logger.debug("Translation not found for key: '%s' (locale=%s)", key, self._locale)
             return key
-        
+
         # 포맷 파라미터 적용
         try:
             return message.format(**kwargs)
         except (KeyError, IndexError):
             return message
-    
-    def add_translations(self, locale_code: str, translations: Dict[str, str]):
-        """
-        동적으로 번역을 추가합니다.
-        
+
+    def add_translations(self, locale_code: str, translations: dict[str, str]):
+        """동적으로 번역을 추가합니다.
+
         tiptap-vuetify의 커스텀 아이콘 팩 확장과 유사하게,
         사용자가 커스텀 번역을 추가/오버라이드할 수 있습니다.
         """
         if locale_code not in _TRANSLATIONS:
             _TRANSLATIONS[locale_code] = {}
         _TRANSLATIONS[locale_code].update(translations)
-        logger.info(
-            f"Added {len(translations)} translations for locale '{locale_code}'"
-        )
-    
+        logger.info("Added %s translations for locale '%s'", len(translations), locale_code)
+
     def available_locales(self) -> list:
         """사용 가능한 언어 목록."""
         return list(_TRANSLATIONS.keys())
-    
+
     def _detect_locale(self) -> str:
-        """
-        OS 로케일에서 언어를 자동 감지합니다.
+        """OS 로케일에서 언어를 자동 감지합니다.
+
         tiptap-vuetify가 Vuetify.lang.current를 읽는 것과 동일한 원리.
         """
         try:
@@ -192,26 +202,24 @@ class I18n:
                 if lang in _TRANSLATIONS:
                     return lang
         except Exception:
+            logger.exception("Unhandled exception")
             pass
-        
+
         return _DEFAULT_LOCALE
-    
-    def summary(self) -> Dict[str, Any]:
+
+    def summary(self) -> dict[str, Any]:
         """현재 i18n 상태 요약."""
         return {
             "current_locale": self._locale,
             "available_locales": self.available_locales(),
-            "total_keys": {
-                loc: len(trans) 
-                for loc, trans in _TRANSLATIONS.items()
-            },
+            "total_keys": {loc: len(trans) for loc, trans in _TRANSLATIONS.items()},
         }
 
 
 # ─────────────────── 글로벌 인스턴스 ───────────────────
 # tiptap-vuetify처럼 import 즉시 사용 가능한 싱글턴
 
-_global_i18n: Optional[I18n] = None
+_global_i18n: I18n | None = None
 
 
 def get_i18n() -> I18n:

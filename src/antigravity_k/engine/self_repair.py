@@ -1,5 +1,5 @@
-"""
-SelfRepairEngine — 자율 복구 엔진
+"""SelfRepairEngine — 자율 복구 엔진.
+
 ==================================
 IronClaw self_repair.rs 패턴 이식.
 
@@ -29,7 +29,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.self_repair")
 
@@ -61,7 +61,7 @@ PROTECTED_TOOL_NAMES: frozenset[str] = frozenset(
         "memory_search",
         "memory_read",
         "memory_tree",
-    }
+    },
 )
 
 
@@ -127,7 +127,7 @@ class RepairResult:
     action_taken: str = ""
     message: str = ""
     fingerprint: str = ""
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 # ── 메인 엔진 ──
@@ -140,11 +140,17 @@ class SelfRepairEngine:
     GoalRunner의 Repair Loop(Step 5)를 실시간 자율 복구로 강화합니다.
     """
 
-    def __init__(self, policy: Optional[StuckJobPolicy] = None):
+    def __init__(self, policy: StuckJobPolicy | None = None):
+        """Initialize the SelfRepairEngine.
+
+        Args:
+            policy (StuckJobPolicy | None): StuckJobPolicy | None policy.
+
+        """
         self.policy = policy or StuckJobPolicy()
-        self._notified_fingerprints: Set[str] = set()
-        self._job_failure_history: Dict[str, List[Dict[str, Any]]] = {}
-        self._job_start_times: Dict[str, float] = {}
+        self._notified_fingerprints: set[str] = set()
+        self._job_failure_history: dict[str, list[dict[str, Any]]] = {}
+        self._job_start_times: dict[str, float] = {}
         self._max_fingerprint_cache = 500
 
     # ── 보호 도구 필터 (IronClaw defense-in-depth) ──
@@ -179,19 +185,17 @@ class SelfRepairEngine:
                 "error": error[:300],
                 "args_hash": args_hash,
                 "timestamp": time.time(),
-            }
+            },
         )
 
     def record_success(self, job_id: str, tool_name: str) -> None:
         """도구 성공 시 해당 도구의 실패 카운트를 초기화합니다."""
         history = self._job_failure_history.get(job_id, [])
-        self._job_failure_history[job_id] = [
-            f for f in history if f["tool_name"] != tool_name
-        ]
+        self._job_failure_history[job_id] = [f for f in history if f["tool_name"] != tool_name]
 
     # ── Stuck 감지 ──
 
-    def detect_stuck(self, job_state: Dict[str, Any]) -> StuckDetection:
+    def detect_stuck(self, job_state: dict[str, Any]) -> StuckDetection:
         """작업 상태를 분석하여 Stuck 여부를 감지합니다.
 
         IronClaw 패턴: InProgress → Stuck → Failed 3단계 전이.
@@ -218,9 +222,7 @@ class SelfRepairEngine:
         total_failures = len(history)
 
         # 동일 도구 반복 실패 카운트
-        same_tool_failures = (
-            sum(1 for f in history if f["tool_name"] == tool_name) if tool_name else 0
-        )
+        same_tool_failures = sum(1 for f in history if f["tool_name"] == tool_name) if tool_name else 0
 
         # Stuck 판정 기준
         is_stuck = False
@@ -235,22 +237,15 @@ class SelfRepairEngine:
             is_stuck = True
             reason = f"same_tool_failures_exceeded ({same_tool_failures}/{self.policy.max_same_tool_failures})"
             suggested = JobState.STUCK
-        elif (
-            elapsed >= self.policy.failed_timeout_seconds and current == JobState.STUCK
-        ):
+        elif elapsed >= self.policy.failed_timeout_seconds and current == JobState.STUCK:
             is_stuck = True
             reason = f"stuck_timeout_exceeded ({elapsed:.0f}s/{self.policy.failed_timeout_seconds}s)"
             suggested = JobState.FAILED
-        elif (
-            elapsed >= self.policy.stuck_timeout_seconds
-            and current == JobState.IN_PROGRESS
-        ):
+        elif elapsed >= self.policy.stuck_timeout_seconds and current == JobState.IN_PROGRESS:
             # InProgress가 오래 지속되면 Stuck으로 전이
             if total_failures > 0:
                 is_stuck = True
-                reason = (
-                    f"progress_stalled ({elapsed:.0f}s with {total_failures} failures)"
-                )
+                reason = f"progress_stalled ({elapsed:.0f}s with {total_failures} failures)"
                 suggested = JobState.STUCK
 
         return StuckDetection(
@@ -357,7 +352,7 @@ class SelfRepairEngine:
 
         return True
 
-    def clear_notifications(self, job_id: Optional[str] = None) -> None:
+    def clear_notifications(self, job_id: str | None = None) -> None:
         """알림 핑거프린트 캐시를 초기화합니다."""
         if job_id is None:
             self._notified_fingerprints.clear()
@@ -366,11 +361,9 @@ class SelfRepairEngine:
 
     # ── 상태 보고 ──
 
-    def get_repair_stats(self) -> Dict[str, Any]:
+    def get_repair_stats(self) -> dict[str, Any]:
         """복구 엔진 통계를 반환합니다."""
-        total_failures = sum(
-            len(history) for history in self._job_failure_history.values()
-        )
+        total_failures = sum(len(history) for history in self._job_failure_history.values())
         active_jobs = len(self._job_start_times)
         return {
             "active_jobs": active_jobs,

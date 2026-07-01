@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Skill Auto-Learner (Closed Learning Loop)
+"""Antigravity-K: Skill Auto-Learner (Closed Learning Loop).
+
 =========================================================
 Hermes Agent의 핵심 기술을 흡수한 폐쇄 학습 루프.
 태스크 완료 시 도구 호출 시퀀스를 분석하여 반복 패턴을 감지하고,
@@ -22,7 +22,8 @@ import urllib.request
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+
+from antigravity_k.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ToolCall:
     """단일 도구 호출 기록."""
+
     name: str
-    arguments: Dict
+    arguments: dict
     result_summary: str = ""
     success: bool = True
     timestamp: str = ""
@@ -40,18 +42,20 @@ class ToolCall:
 @dataclass
 class LearnedPattern:
     """감지된 도구 호출 패턴."""
-    tool_sequence: List[str]
+
+    tool_sequence: list[str]
     frequency: int
-    context_keywords: List[str] = field(default_factory=list)
-    example_args: List[Dict] = field(default_factory=list)
+    context_keywords: list[str] = field(default_factory=list)
+    example_args: list[dict] = field(default_factory=list)
 
 
 @dataclass
 class SkillRecord:
     """자동 생성된 스킬의 메타데이터."""
+
     name: str
     description: str
-    source_pattern: List[str]
+    source_pattern: list[str]
     created_at: str
     use_count: int = 0
     success_count: int = 0
@@ -60,9 +64,8 @@ class SkillRecord:
 
 
 class SkillAutoLearner:
-    """
-    Closed Learning Loop 엔진.
-    
+    """Closed Learning Loop 엔진.
+
     매 태스크 완료 시 도구 호출 시퀀스를 분석하여
     반복 패턴을 감지하고 재사용 가능한 스킬을 자율 생성합니다.
     """
@@ -75,25 +78,32 @@ class SkillAutoLearner:
     PERMANENT_THRESHOLD = 3
 
     def __init__(self, project_root: str, model_manager=None):
+        """Initialize the SkillAutoLearner.
+
+        Args:
+            project_root (str): str project root.
+            model_manager: model manager.
+
+        """
         self.project_root = project_root
         self.manager = model_manager
         self._skills_dir = os.path.join(project_root, ".agent", "skills", "auto-learned")
         self._registry_path = os.path.join(self._skills_dir, "_registry.json")
-        self._history: List[List[ToolCall]] = []  # 세션 내 태스크별 도구 호출 이력
-        self._current_task_calls: List[ToolCall] = []
-        self._registry: Dict[str, SkillRecord] = {}
+        self._history: list[list[ToolCall]] = []  # 세션 내 태스크별 도구 호출 이력
+        self._current_task_calls: list[ToolCall] = []
+        self._registry: dict[str, SkillRecord] = {}
         self._load_registry()
 
     def _load_registry(self):
         """스킬 레지스트리를 디스크에서 로드합니다."""
         if os.path.exists(self._registry_path):
             try:
-                with open(self._registry_path, "r", encoding="utf-8") as f:
+                with open(self._registry_path, encoding="utf-8") as f:
                     data = json.load(f)
                 for name, rec in data.items():
                     self._registry[name] = SkillRecord(**rec)
-            except Exception as e:
-                logger.warning(f"[AutoLearn] Registry load error: {e}")
+            except Exception:
+                logger.exception("[AutoLearn] Registry load error")
 
     def _save_registry(self):
         """스킬 레지스트리를 디스크에 저장합니다."""
@@ -113,8 +123,8 @@ class SkillAutoLearner:
                 }
             with open(self._registry_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"[AutoLearn] Registry save error: {e}")
+        except Exception:
+            logger.exception("[AutoLearn] Registry save error")
 
     # ─── 1. Observe: 도구 호출 수집 ───
 
@@ -137,14 +147,14 @@ class SkillAutoLearner:
 
     # ─── 2. Detect: 패턴 감지 ───
 
-    def detect_patterns(self) -> List[LearnedPattern]:
+    def detect_patterns(self) -> list[LearnedPattern]:
         """이력에서 반복되는 도구 호출 시퀀스를 감지합니다."""
         if len(self._history) < self.MIN_PATTERN_FREQUENCY:
             return []
 
         # N-gram 기반 시퀀스 추출 (2~5개 도구 조합)
         sequence_counter: Counter = Counter()
-        sequence_examples: Dict[tuple, List[Dict]] = {}
+        sequence_examples: dict[tuple, list[dict]] = {}
 
         for task_calls in self._history:
             tool_names = [c.name for c in task_calls if c.success]
@@ -153,37 +163,35 @@ class SkillAutoLearner:
 
             for n in range(self.MIN_SEQUENCE_LENGTH, min(len(tool_names) + 1, 6)):
                 for i in range(len(tool_names) - n + 1):
-                    seq = tuple(tool_names[i:i + n])
+                    seq = tuple(tool_names[i : i + n])
                     sequence_counter[seq] += 1
                     if seq not in sequence_examples:
-                        sequence_examples[seq] = [
-                            c.arguments for c in task_calls[i:i + n]
-                        ]
+                        sequence_examples[seq] = [c.arguments for c in task_calls[i : i + n]]
 
         # 이미 스킬로 생성된 패턴 필터링
-        existing_patterns = {
-            tuple(rec.source_pattern) for rec in self._registry.values()
-        }
+        existing_patterns = {tuple(rec.source_pattern) for rec in self._registry.values()}
 
         patterns = []
         for seq, count in sequence_counter.most_common(10):
             if count >= self.MIN_PATTERN_FREQUENCY and seq not in existing_patterns:
-                patterns.append(LearnedPattern(
-                    tool_sequence=list(seq),
-                    frequency=count,
-                    example_args=sequence_examples.get(seq, []),
-                ))
+                patterns.append(
+                    LearnedPattern(
+                        tool_sequence=list(seq),
+                        frequency=count,
+                        example_args=sequence_examples.get(seq, []),
+                    ),
+                )
 
         return patterns
 
     # ─── 3. Generate: 스킬 생성 ───
 
-    def generate_skill(self, pattern: LearnedPattern, user_context: str = "") -> Optional[str]:
-        """
-        감지된 패턴을 기반으로 재사용 가능한 스킬 마크다운을 자동 생성합니다.
-        
+    def generate_skill(self, pattern: LearnedPattern, user_context: str = "") -> str | None:
+        """감지된 패턴을 기반으로 재사용 가능한 스킬 마크다운을 자동 생성합니다.
+
         Returns:
             생성된 스킬 파일 경로, 실패 시 None
+
         """
         prompt = (
             "[ROLE] You are a skill author for an AI agent framework.\n"
@@ -226,7 +234,12 @@ class SkillAutoLearner:
                 skill_content = result.get("response", "")
 
             # <think> 태그 제거
-            skill_content = re.sub(r"<think>.*?</think>", "", skill_content, flags=re.DOTALL).strip()
+            skill_content = re.sub(
+                r"<think>.*?</think>",
+                "",
+                skill_content,
+                flags=re.DOTALL,
+            ).strip()
 
             if not skill_content or "---" not in skill_content:
                 logger.warning("[AutoLearn] LLM did not produce valid skill content")
@@ -256,22 +269,27 @@ class SkillAutoLearner:
             self._registry[skill_name] = record
             self._save_registry()
 
-            logger.info(f"[AutoLearn] Skill created: {skill_name} from pattern {pattern.tool_sequence}")
+            logger.info(
+                "[AutoLearn] Skill created: %s from pattern %s",
+                skill_name,
+                pattern.tool_sequence,
+            )
             return skill_path
 
-        except Exception as e:
-            logger.error(f"[AutoLearn] Skill generation failed: {e}")
+        except Exception:
+            logger.exception("[AutoLearn] Skill generation failed")
             return None
 
     # ─── 4. On Task Complete: 메인 훅 ───
 
-    def on_task_complete(self, user_message: str = "") -> Optional[str]:
-        """
-        태스크 완료 시 호출되는 메인 훅.
+    def on_task_complete(self, user_message: str = "") -> str | None:
+        """태스크 완료 시 호출되는 메인 훅.
+
         도구 호출 이력을 분석하여 패턴을 감지하고 스킬을 생성합니다.
-        
+
         Returns:
             생성된 스킬에 대한 사용자 알림 메시지, 없으면 None
+
         """
         self.flush_task()
 
@@ -304,9 +322,9 @@ class SkillAutoLearner:
 
     # ─── 6. Garbage Collection ───
 
-    def gc_stale_skills(self) -> List[str]:
-        """
-        PERMANENT_THRESHOLD 미만의 성공 횟수를 가진 스킬 중
+    def gc_stale_skills(self) -> list[str]:
+        """PERMANENT_THRESHOLD 미만의 성공 횟수를 가진 스킬 중.
+
         30일 이상 사용되지 않은 스킬을 제거합니다.
         """
         removed = []
@@ -326,10 +344,11 @@ class SkillAutoLearner:
                 skill_dir = os.path.dirname(rec.file_path)
                 if os.path.isdir(skill_dir):
                     import shutil
+
                     shutil.rmtree(skill_dir, ignore_errors=True)
                 del self._registry[name]
                 removed.append(name)
-                logger.info(f"[AutoLearn] GC removed stale skill: {name} (idle {days_idle}d)")
+                logger.info("[AutoLearn] GC removed stale skill: %s (idle %sd)", name, days_idle)
 
         if removed:
             self._save_registry()
@@ -342,7 +361,5 @@ class SkillAutoLearner:
         probation = total - permanent
         total_uses = sum(r.use_count for r in self._registry.values())
         return (
-            f"📊 Auto-Learn Status: {total}개 스킬 "
-            f"(영구 {permanent}개, 관찰 중 {probation}개, "
-            f"총 {total_uses}회 사용)"
+            f"📊 Auto-Learn Status: {total}개 스킬 (영구 {permanent}개, 관찰 중 {probation}개, 총 {total_uses}회 사용)"
         )

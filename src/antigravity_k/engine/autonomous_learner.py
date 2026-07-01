@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 자율 학습 파이프라인 (Autonomous Learner)
+"""Antigravity-K: 자율 학습 파이프라인 (Autonomous Learner).
+
 =======================================================
 사용자 명령 수행 시 에이전트가 자동으로 지식 갭을 감지하고,
 웹 검색/스크래핑을 통해 학습하여 Vault(KI)에 영속적으로 저장합니다.
@@ -10,14 +10,15 @@ Antigravity-K: 자율 학습 파이프라인 (Autonomous Learner)
   3. auto_learn(gaps) → 웹 검색 → 스크래핑 → 요약 → KI 저장
 """
 
+import hashlib
 import json
 import logging
 import re
-import hashlib
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List
+
+from antigravity_k.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ class KnowledgeGap:
 
     topic: str
     reason: str  # 왜 이 지식이 필요한지
-    search_queries: List[str] = field(default_factory=list)  # 검색 쿼리 후보
+    search_queries: list[str] = field(default_factory=list)  # 검색 쿼리 후보
 
 
 @dataclass
@@ -40,7 +41,7 @@ class LearnedKnowledge:
 
     topic: str
     summary: str
-    sources: List[str] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
     learned_at: str = ""
     ki_id: str = ""
 
@@ -83,14 +84,21 @@ _LEARN_TRIGGERS_EN = [
 
 
 class AutonomousLearner:
-    """
-    자율 학습 엔진.
+    """자율 학습 엔진.
 
     CEO 분석 후, 에이전트가 태스크를 실행하기 전에 호출되어
     필요한 지식을 자동으로 웹에서 수집하고 Vault에 저장합니다.
     """
 
     def __init__(self, model_manager=None, ki_engine=None, project_root: str = "."):
+        """Initialize the AutonomousLearner.
+
+        Args:
+            model_manager: model manager.
+            ki_engine: ki engine.
+            project_root (str): str project root.
+
+        """
         self.manager = model_manager
         self.ki_engine = ki_engine
         self.project_root = project_root
@@ -133,7 +141,7 @@ class AutonomousLearner:
 
         # 3개 이상 트리거 매칭 시 학습 필요 (임계값 상향)
         if matches >= 3:
-            logger.info(f"[AutoLearn] Triggered by keywords ({matches} matches)")
+            logger.info("[AutoLearn] Triggered by keywords (%s matches)", matches)
             return True
 
         # URL이나 패키지 이름이 포함된 경우
@@ -147,22 +155,22 @@ class AutonomousLearner:
 
         return False
 
-    def analyze_knowledge_gap(self, task_description: str) -> List[KnowledgeGap]:
-        """
-        LLM을 사용하여 태스크에 필요한 지식 갭을 분석합니다.
+    def analyze_knowledge_gap(self, task_description: str) -> list[KnowledgeGap]:
+        """LLM을 사용하여 태스크에 필요한 지식 갭을 분석합니다.
+
         LLM이 없으면 키워드 기반 폴백으로 검색 쿼리를 생성합니다.
         """
         # LLM 기반 분석 시도
         if self.manager:
             try:
                 return self._analyze_with_llm(task_description)
-            except Exception as e:
-                logger.warning(f"[AutoLearn] LLM analysis failed, falling back: {e}")
+            except Exception:
+                logger.exception("[AutoLearn] LLM analysis failed, falling back")
 
         # 키워드 기반 폴백
         return self._analyze_with_keywords(task_description)
 
-    def _analyze_with_llm(self, task_description: str) -> List[KnowledgeGap]:
+    def _analyze_with_llm(self, task_description: str) -> list[KnowledgeGap]:
         """LLM에게 지식 갭 분석을 요청합니다."""
         prompt = (
             "You are a knowledge gap analyzer. Given the following user task, "
@@ -210,16 +218,16 @@ class AutonomousLearner:
                             topic=item.get("topic", ""),
                             reason=item.get("reason", ""),
                             search_queries=item.get("search_queries", [])[:3],
-                        )
+                        ),
                     )
                 return gaps
 
-        except Exception as e:
-            logger.warning(f"[AutoLearn] LLM gap analysis error: {e}")
+        except Exception:
+            logger.exception("[AutoLearn] LLM gap analysis error")
 
         return self._analyze_with_keywords(task_description)
 
-    def _analyze_with_keywords(self, task_description: str) -> List[KnowledgeGap]:
+    def _analyze_with_keywords(self, task_description: str) -> list[KnowledgeGap]:
         """키워드 기반 폴백 — LLM 없이 검색 쿼리를 생성합니다."""
         gaps = []
 
@@ -229,9 +237,7 @@ class AutonomousLearner:
         # 핵심 명사구 추출 (간단한 휴리스틱)
         # 따옴표 안의 내용, 영문 고유명사, 기술 용어 추출
         quoted = re.findall(r'["\']([^"\']+)["\']', text_without_urls)
-        tech_terms = re.findall(
-            r"\b[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)*\b", text_without_urls
-        )
+        tech_terms = re.findall(r"\b[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)*\b", text_without_urls)
 
         # 쿼리 후보 생성
         if quoted:
@@ -241,7 +247,7 @@ class AutonomousLearner:
                         topic=q,
                         reason="사용자가 명시적으로 언급한 주제",
                         search_queries=[q, f"{q} tutorial", f"{q} 사용법"],
-                    )
+                    ),
                 )
 
         if tech_terms:
@@ -251,7 +257,7 @@ class AutonomousLearner:
                     topic=combined,
                     reason="기술 용어 감지",
                     search_queries=[combined, f"{combined} documentation"],
-                )
+                ),
             )
 
         # 기본 폴백
@@ -261,26 +267,26 @@ class AutonomousLearner:
                     topic=task_description[:100],
                     reason="일반 태스크 학습",
                     search_queries=[task_description[:80]],
-                )
+                ),
             )
 
         return gaps[: self._max_gaps]
 
-    def auto_learn(self, gaps: List[KnowledgeGap]) -> List[LearnedKnowledge]:
-        """
-        다중 에이전트 협업 파이프라인 (Vibe Coding Style):
+    def auto_learn(self, gaps: list[KnowledgeGap]) -> list[LearnedKnowledge]:
+        """다중 에이전트 협업 파이프라인 (Vibe Coding Style):
+
         1. Query Generator: 이미 분석된 gaps.search_queries 사용
         2. Search Infra: SearxNG/Tavily를 통해 검색 후 URL 확보
         3. Web Surfer: BrowserSurfingAgent가 해당 URL에 접속해 시각적 탐색 후 데이터 추출
         4. Synthesizer: DeepSeek-V4가 수집된 정보를 교차 검증 및 최종 요약
         """
-        from antigravity_k.tools.web_search import WebSearchEngine
         from antigravity_k.agents.browser_surfing_agent import BrowserSurfingAgent
+        from antigravity_k.tools.web_search import WebSearchEngine
 
         try:
             from antigravity_k.engine.hook_event_bus import (
-                get_hook_event_bus,
                 HookEventEmit,
+                get_hook_event_bus,
             )
 
             bus = get_hook_event_bus()
@@ -288,9 +294,7 @@ class AutonomousLearner:
             bus = None
 
         search_engine = WebSearchEngine()
-        surfer = BrowserSurfingAgent(
-            model_manager=self.manager, vision_model_name="qwen3.5-omni"
-        )
+        surfer = BrowserSurfingAgent(model_manager=self.manager, vision_model_name="qwen3.5-omni")
 
         learned = []
 
@@ -303,9 +307,7 @@ class AutonomousLearner:
         async def _run_vibe_coding_pipeline():
             if bus:
                 bus.emit(
-                    HookEventEmit(
-                        kind="agent-turn-start", payload={"panel_id": "auto_learner"}
-                    )
+                    HookEventEmit(kind="agent-turn-start", payload={"panel_id": "auto_learner"}),
                 )
             for gap in gaps:
                 try:
@@ -316,9 +318,7 @@ class AutonomousLearner:
                         if response and response.results:
                             # 상위 2개 URL에 대해 Browser-Use 서핑 수행
                             for r in response.results[:2]:
-                                logger.info(
-                                    f"[AutoLearn] Surfing {r.url} for '{gap.topic}'..."
-                                )
+                                logger.info("[AutoLearn] Surfing %s for '%s'...", r.url, gap.topic)
                                 if bus:
                                     bus.emit(
                                         HookEventEmit(
@@ -326,28 +326,18 @@ class AutonomousLearner:
                                             payload={
                                                 "panel_id": "auto_learner",
                                                 "tool_name": "WebSurfer",
-                                                "tool_input": {
-                                                    "command": f"Surfing: {r.url}"
-                                                },
+                                                "tool_input": {"command": f"Surfing: {r.url}"},
                                             },
-                                        )
+                                        ),
                                     )
-                                content = await surfer.surf(
-                                    url=r.url, goal=gap.topic, max_steps=3
-                                )
+                                content = await surfer.surf(url=r.url, goal=gap.topic, max_steps=3)
                                 if content and len(content) > 50:
-                                    all_results.append(
-                                        f"Source: {r.url}\nContent: {content}"
-                                    )
+                                    all_results.append(f"Source: {r.url}\nContent: {content}")
                                 else:
-                                    all_results.append(
-                                        f"Source: {r.url}\nSnippet: {r.snippet}"
-                                    )
+                                    all_results.append(f"Source: {r.url}\nSnippet: {r.snippet}")
 
                     if not all_results:
-                        logger.info(
-                            f"[AutoLearn] No valid surfing results for: {gap.topic}"
-                        )
+                        logger.info("[AutoLearn] No valid surfing results for: %s", gap.topic)
                         continue
 
                     # 검색 결과 합산
@@ -360,11 +350,9 @@ class AutonomousLearner:
                                 payload={
                                     "panel_id": "auto_learner",
                                     "tool_name": "Synthesizer",
-                                    "tool_input": {
-                                        "command": f"Summarizing: {gap.topic}"
-                                    },
+                                    "tool_input": {"command": f"Summarizing: {gap.topic}"},
                                 },
-                            )
+                            ),
                         )
 
                     # Synthesizer (DeepSeek-V4)를 통한 요약 및 교차 검증
@@ -380,24 +368,16 @@ class AutonomousLearner:
                             sources=gap.search_queries,
                             learned_at=datetime.now().isoformat(),
                             ki_id=ki_id,
-                        )
+                        ),
                     )
 
-                    logger.info(
-                        f"[AutoLearn] Synthesized: {gap.topic} ({len(summary)} chars)"
-                    )
+                    logger.info("[AutoLearn] Synthesized: %s (%s chars)", gap.topic, len(summary))
 
-                except Exception as e:
-                    logger.error(
-                        f"[AutoLearn] Failed to learn about '{gap.topic}': {e}"
-                    )
+                except Exception:
+                    logger.exception("[AutoLearn] Failed to learn about '%s'", gap.topic)
             await search_engine.close()
             if bus:
-                bus.emit(
-                    HookEventEmit(
-                        kind="agent-turn-end", payload={"panel_id": "auto_learner"}
-                    )
-                )
+                bus.emit(HookEventEmit(kind="agent-turn-end", payload={"panel_id": "auto_learner"}))
 
         # Execute async pipeline
         try:
@@ -413,8 +393,8 @@ class AutonomousLearner:
                 future = pool.submit(asyncio.run, _run_vibe_coding_pipeline())
                 try:
                     future.result(timeout=120)
-                except Exception as e:
-                    logger.error(f"[AutoLearn] Pipeline failed in thread: {e}")
+                except Exception:
+                    logger.exception("[AutoLearn] Pipeline failed in thread")
         else:
             asyncio.run(_run_vibe_coding_pipeline())
 
@@ -448,15 +428,13 @@ class AutonomousLearner:
                 result = json.loads(resp.read().decode("utf-8"))
                 summary = result.get("response", "")
                 # <think> 태그 제거
-                summary = re.sub(
-                    r"<think>.*?</think>", "", summary, flags=re.DOTALL
-                ).strip()
+                summary = re.sub(r"<think>.*?</think>", "", summary, flags=re.DOTALL).strip()
                 return summary if summary else search_results[:2000]
-        except Exception as e:
-            logger.warning(f"[AutoLearn] Summarization failed: {e}")
+        except Exception:
+            logger.exception("[AutoLearn] Summarization failed")
             return search_results[:2000]
 
-    def _save_to_ki(self, topic: str, summary: str, sources: List[str]) -> str:
+    def _save_to_ki(self, topic: str, summary: str, sources: list[str]) -> str:
         """학습된 지식을 KIEngine에 저장합니다."""
         ki_id = f"autolearn_{hashlib.sha256(topic.encode()).hexdigest()[:12]}"
 
@@ -475,7 +453,7 @@ class AutonomousLearner:
 
         return ki_id
 
-    def format_context(self, learned: List[LearnedKnowledge]) -> str:
+    def format_context(self, learned: list[LearnedKnowledge]) -> str:
         """학습된 지식을 LLM 컨텍스트 주입용 텍스트로 포맷합니다."""
         if not learned:
             return ""

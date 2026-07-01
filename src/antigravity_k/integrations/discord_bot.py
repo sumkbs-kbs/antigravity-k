@@ -1,5 +1,7 @@
-import logging
+"""Discord Bot module."""
+
 import asyncio
+import logging
 
 logger = logging.getLogger("antigravity_k.integrations.discord")
 
@@ -10,12 +12,20 @@ except ImportError:
 
 
 class DiscordBotClient:
-    """
-    Antigravity-K Discord Integration
+    """Antigravity-K Discord Integration.
+
     디스코드 채널에서 멘션되면 Orchestrator를 통해 AI 응답을 생성하여 반환합니다.
     """
 
     def __init__(self, token: str, registry, target_model: str = "deepseek-r1:70b"):
+        """Initialize the DiscordBotClient.
+
+        Args:
+            token (str): str token.
+            registry: registry.
+            target_model (str): str target model.
+
+        """
         self.token = token
         self.registry = registry  # SlashCommandRegistry or Orchestrator
         self.target_model = target_model
@@ -30,7 +40,7 @@ class DiscordBotClient:
 
         @self.client.event
         async def on_ready():
-            logger.info(f"Discord Bot logged in as {self.client.user}")
+            logger.info("Discord Bot logged in as %s", self.client.user)
 
         @self.client.event
         async def on_message(message):
@@ -40,9 +50,7 @@ class DiscordBotClient:
 
             # Respond only if mentioned
             if self.client.user in message.mentions:
-                content = message.content.replace(
-                    f"<@{self.client.user.id}>", ""
-                ).strip()
+                content = message.content.replace(f"<@{self.client.user.id}>", "").strip()
                 if not content:
                     return
 
@@ -54,19 +62,17 @@ class DiscordBotClient:
 
                         # Discord 메시지 길이 제한(2000자) 우회 (Chunking)
                         if len(result) > 2000:
-                            chunks = [
-                                result[i : i + 1900]
-                                for i in range(0, len(result), 1900)
-                            ]
+                            chunks = [result[i : i + 1900] for i in range(0, len(result), 1900)]
                             for chunk in chunks:
                                 await message.reply(chunk)
                         else:
                             await message.reply(result)
                     except Exception as e:
-                        logger.error(f"Error handling discord message: {e}")
+                        logger.exception("Error handling discord message")
                         await message.reply(f"❌ 오류가 발생했습니다: {str(e)}")
 
     def run(self):
+        """Run."""
         if not discord:
             print("Please install discord.py")
             return

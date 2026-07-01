@@ -1,16 +1,19 @@
-from typing import Dict, Any
-from .base_adapter import BaseProviderAdapter
+"""Openai Adapter module."""
+
 import json
+from typing import Any
+
+from .base_adapter import BaseProviderAdapter
 
 
 class OpenAIAdapter(BaseProviderAdapter):
-    """
-    OpenRouter, DeepSeek, Ollama 등 OpenAI Chat Completions 형식을
+    """OpenRouter, DeepSeek, Ollama 등 OpenAI Chat Completions 형식을.
+
     사용하는 엔드포인트를 위한 범용 어댑터.
     """
 
-    def translate_request(self, anthropic_payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Anthropic -> OpenAI 형식 변환 (Tool Use 포함)"""
+    def translate_request(self, anthropic_payload: dict[str, Any]) -> dict[str, Any]:
+        """Anthropic -> OpenAI 형식 변환 (Tool Use 포함)."""
         openai_payload = {
             "model": anthropic_payload.get("model", ""),
             "messages": [],
@@ -21,12 +24,8 @@ class OpenAIAdapter(BaseProviderAdapter):
         if "system" in anthropic_payload:
             system_text = anthropic_payload["system"]
             if isinstance(system_text, list):
-                system_text = "".join(
-                    b["text"] for b in system_text if b["type"] == "text"
-                )
-            openai_payload["messages"].append(
-                {"role": "system", "content": system_text}
-            )
+                system_text = "".join(b["text"] for b in system_text if b["type"] == "text")
+            openai_payload["messages"].append({"role": "system", "content": system_text})
 
         # 2. Messages 변환
         for msg in anthropic_payload.get("messages", []):
@@ -49,7 +48,7 @@ class OpenAIAdapter(BaseProviderAdapter):
                         pass
                 if text_parts:
                     openai_payload["messages"].append(
-                        {"role": role, "content": "".join(text_parts)}
+                        {"role": role, "content": "".join(text_parts)},
                     )
 
         # 3. Tools 변환 (Anthropic Tools -> OpenAI Functions/Tools)
@@ -64,13 +63,13 @@ class OpenAIAdapter(BaseProviderAdapter):
                             "description": tool.get("description", ""),
                             "parameters": tool.get("input_schema", {}),
                         },
-                    }
+                    },
                 )
 
         return openai_payload
 
-    def translate_response(self, provider_response: Dict[str, Any]) -> Dict[str, Any]:
-        """OpenAI -> Anthropic 형식 복구"""
+    def translate_response(self, provider_response: dict[str, Any]) -> dict[str, Any]:
+        """OpenAI -> Anthropic 형식 복구."""
         if "choices" not in provider_response or not provider_response["choices"]:
             return provider_response  # Error or unknown
 
@@ -100,11 +99,20 @@ class OpenAIAdapter(BaseProviderAdapter):
                             "id": tc["id"],
                             "name": tc["function"]["name"],
                             "input": json.loads(tc["function"]["arguments"]),
-                        }
+                        },
                     )
 
         return anthropic_response
 
-    def translate_stream(self, provider_chunk: Dict[str, Any]) -> Dict[str, Any]:
+    def translate_stream(self, provider_chunk: dict[str, Any]) -> dict[str, Any]:
+        """Translate Stream.
+
+        Args:
+            provider_chunk (dict[str, Any]): dict[str, Any] provider chunk.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         # 간소화된 스트리밍 변환
         return provider_chunk

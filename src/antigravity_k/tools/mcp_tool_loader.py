@@ -1,22 +1,26 @@
-import logging
-import json
+"""Mcp Tool Loader module."""
+
 import asyncio
+import json
+import logging
 import os
-from typing import List, Dict, Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
+
+from mcp.client.session import ClientSession
 
 from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
 
 from .base_tool import BaseTool, RiskLevel, ToolCategory
-from .system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool
 from .mcp_session_manager import MCPSessionManager
-from mcp.client.session import ClientSession
+from .system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTool
 
 logger = logging.getLogger(__name__)
 
 
 class MCPTool(BaseTool):
-    """
-    MCP(Model Context Protocol) 리소스를 래핑하는 도구.
+    """MCP(Model Context Protocol) 리소스를 래핑하는 도구.
+
     실제 MCP 서버의 엔드포인트나 리소스를 호출하여 결과를 반환합니다.
     """
 
@@ -24,13 +28,26 @@ class MCPTool(BaseTool):
         self,
         name: str,
         description: str,
-        schema: Dict[str, Any],
+        schema: dict[str, Any],
         mcp_client: ClientSession,
         server_name: str = "",
         transport: str = "stdio",
-        annotations: Optional[Mapping[str, Any]] = None,
-        server_policy: Optional[Mapping[str, Any]] = None,
+        annotations: Mapping[str, Any] | None = None,
+        server_policy: Mapping[str, Any] | None = None,
     ):
+        """Initialize the MCPTool.
+
+        Args:
+            name (str): str name.
+            description (str): str description.
+            schema (dict[str, Any]): dict[str, Any] schema.
+            mcp_client (ClientSession): ClientSession mcp client.
+            server_name (str): str server name.
+            transport (str): str transport.
+            annotations (Mapping[str, Any] | None): Mapping[str, Any] | None annotations.
+            server_policy (Mapping[str, Any] | None): Mapping[str, Any] | None server policy.
+
+        """
         self._name = name
         self._description = description
         self._schema = schema
@@ -46,18 +63,45 @@ class MCPTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
-        logger.info(f"Executing MCP Tool '{self._name}' with args: {kwargs}")
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
+        logger.info("Executing MCP Tool '%s' with args: %s", self._name, kwargs)
 
         # Async MCP call wrapped synchronously
         try:
@@ -66,9 +110,7 @@ class MCPTool(BaseTool):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        result = loop.run_until_complete(
-            self._mcp_client.call_tool(self._name, arguments=kwargs)
-        )
+        result = loop.run_until_complete(self._mcp_client.call_tool(self._name, arguments=kwargs))
 
         # Format the CallToolResult
         # The result might contain .content which is a list of blocks
@@ -83,7 +125,13 @@ class MCPTool(BaseTool):
 
         return result
 
-    def to_metadata(self) -> Dict[str, Any]:
+    def to_metadata(self) -> dict[str, Any]:
+        """To Metadata.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         metadata = super().to_metadata()
         metadata["mcp"] = {
             "server": self._server_name,
@@ -98,36 +146,40 @@ class MCPTool(BaseTool):
 
 
 class MCPToolLoader:
-    """
-    설정된 MCP 서버들로부터 도구 목록을 가져와서 BaseTool 객체 리스트로 변환하는 로더.
-    """
+    """설정된 MCP 서버들로부터 도구 목록을 가져와서 BaseTool 객체 리스트로 변환하는 로더."""
 
     def __init__(
         self,
-        config_path: Optional[str] = ".mcp.json",
+        config_path: str | None = ".mcp.json",
         include_system_tools: bool = True,
     ):
+        """Initialize the MCPToolLoader.
+
+        Args:
+            config_path (str | None): str | None config path.
+            include_system_tools (bool): bool include system tools.
+
+        """
         self.config_path = config_path
         self.include_system_tools = include_system_tools
-        self.tools: List[BaseTool] = []
+        self.tools: list[BaseTool] = []
         self.session_manager = MCPSessionManager()
 
-    def load_tools(self) -> List[BaseTool]:
-        """
-        MCP 서버와 통신하여 사용 가능한 도구 목록을 조회하고 로드합니다.
+    def load_tools(self) -> list[BaseTool]:
+        """MCP 서버와 통신하여 사용 가능한 도구 목록을 조회하고 로드합니다.
+
         동기 방식으로 호출되며, 내부는 asyncio.run으로 비동기 초기화를 래핑합니다.
         """
         logger.info("Loading tools from MCP servers...")
 
         # 시스템(Local) 도구 등록
         if self.include_system_tools:
-            self.tools.extend(
-                [ReadFileTool(), ReplaceFileContentTool(), RunBashCommandTool()]
-            )
+            self.tools.extend([ReadFileTool(), ReplaceFileContentTool(), RunBashCommandTool()])
 
         if not self.config_path or not os.path.exists(self.config_path):
             logger.warning(
-                f"MCP config not found at {self.config_path}. Skipping dynamic MCP servers."
+                "MCP config not found at %s. Skipping dynamic MCP servers.",
+                self.config_path,
             )
             return self.tools
 
@@ -142,23 +194,16 @@ class MCPToolLoader:
         return self.tools
 
     async def _load_mcp_servers(self):
-        with open(self.config_path, "r", encoding="utf-8") as f:
+        with open(self.config_path, encoding="utf-8") as f:
             config = json.load(f)
 
         mcp_servers = config.get("mcpServers", {})
         advisor = MCPCapabilityAdvisor()
-        audit = advisor.audit_config(
-            {"mcpServers": mcp_servers}, source=self.config_path
-        )
-        blocked_servers = {
-            finding.server for finding in audit.findings if finding.severity == "error"
-        }
+        audit = advisor.audit_config({"mcpServers": mcp_servers}, source=self.config_path)
+        blocked_servers = {finding.server for finding in audit.findings if finding.severity == "error"}
 
         for finding in audit.findings:
-            log_message = (
-                f"MCP audit [{finding.severity}] {finding.server}: "
-                f"{finding.message} {finding.recommendation}"
-            )
+            log_message = f"MCP audit [{finding.severity}] {finding.server}: {finding.message} {finding.recommendation}"
             if finding.severity == "error":
                 logger.error(log_message)
             elif finding.severity == "warning":
@@ -168,30 +213,22 @@ class MCPToolLoader:
 
         for server_name, server_config in mcp_servers.items():
             if server_name in blocked_servers:
-                logger.error(
-                    f"Skipping MCP server '{server_name}' due to audit errors."
-                )
+                logger.error("Skipping MCP server '%s' due to audit errors.", server_name)
                 continue
 
             try:
                 transport = _transport_for(server_config)
-                session = await self._connect_server(
-                    server_name, server_config, transport
-                )
+                session = await self._connect_server(server_name, server_config, transport)
 
                 # Fetch available tools
                 tools_response = await session.list_tools()
 
                 for tool in tools_response.tools:
-                    annotations = _annotations_to_dict(
-                        getattr(tool, "annotations", None)
-                    )
+                    annotations = _annotations_to_dict(getattr(tool, "annotations", None))
                     mcp_tool = MCPTool(
                         name=tool.name,
                         description=tool.description or "",
-                        schema=getattr(tool, "inputSchema", None)
-                        or getattr(tool, "input_schema", {})
-                        or {},
+                        schema=getattr(tool, "inputSchema", None) or getattr(tool, "input_schema", {}) or {},
                         mcp_client=session,
                         server_name=server_name,
                         transport=transport,
@@ -199,10 +236,10 @@ class MCPToolLoader:
                         server_policy=_server_policy(server_config),
                     )
                     self.tools.append(mcp_tool)
-                    logger.info(f"Registered MCP tool: {tool.name} from {server_name}")
+                    logger.info("Registered MCP tool: %s from %s", tool.name, server_name)
 
-            except Exception as e:
-                logger.error(f"Error loading tools from '{server_name}': {e}")
+            except Exception:
+                logger.exception("Error loading tools from '%s'", server_name)
 
     async def _connect_server(
         self,
@@ -214,15 +251,15 @@ class MCPToolLoader:
             command = str(server_config.get("command", "")).strip()
             args = [str(arg) for arg in server_config.get("args", []) or []]
             env = server_config.get("env", None)
-            return await self.session_manager.connect_server(
-                server_name, command, args, env
-            )
+            return await self.session_manager.connect_server(server_name, command, args, env)
 
         headers = _string_dict(server_config.get("headers", {}))
         url = str(server_config.get("url") or server_config.get("endpoint") or "")
         timeout = _timeout_seconds(server_config, default=30)
         sse_read_timeout = _timeout_seconds(
-            server_config, default=300, keys=("sse_read_timeout", "sse_read_timeout_ms")
+            server_config,
+            default=300,
+            keys=("sse_read_timeout", "sse_read_timeout_ms"),
         )
 
         if transport in {"http", "streamable-http"}:
@@ -259,7 +296,7 @@ def _transport_for(server: Mapping[str, Any]) -> str:
     return "unknown"
 
 
-def _annotations_to_dict(annotations: Any) -> Dict[str, Any]:
+def _annotations_to_dict(annotations: Any) -> dict[str, Any]:
     if annotations is None:
         return {}
     if hasattr(annotations, "model_dump"):
@@ -294,19 +331,17 @@ def _timeout_seconds(
     return default
 
 
-def _string_dict(raw: Any) -> Dict[str, str]:
+def _string_dict(raw: Any) -> dict[str, str]:
     if not isinstance(raw, Mapping):
         return {}
     return {str(key): str(value) for key, value in raw.items()}
 
 
-def _server_policy(config: Mapping[str, Any]) -> Dict[str, Any]:
+def _server_policy(config: Mapping[str, Any]) -> dict[str, Any]:
     headers = config.get("headers", {})
     authenticated = bool(config.get("auth") or config.get("auth_profile"))
     if isinstance(headers, Mapping):
-        authenticated = authenticated or any(
-            str(key).lower() == "authorization" for key in headers
-        )
+        authenticated = authenticated or any(str(key).lower() == "authorization" for key in headers)
     return {
         "trust_level": config.get("trust_level", "experimental"),
         "authenticated": authenticated,
@@ -318,8 +353,7 @@ def _server_policy(config: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 class MCPServerRegistry:
-    """
-    MCP 에코시스템의 무료 커뮤니티 서버 카탈로그.
+    """MCP 에코시스템의 무료 커뮤니티 서버 카탈로그.
 
     추천 서버 목록을 관리하고, .mcp.json 설정 파일 자동 생성을 지원합니다.
     MCP가 Linux Foundation (Agentic AI Foundation)의 표준 프로토콜이 되면서
@@ -409,21 +443,20 @@ class MCPServerRegistry:
         },
     }
 
-    def get_all(self) -> Dict[str, Dict]:
+    def get_all(self) -> dict[str, dict]:
         """전체 카탈로그를 반환합니다."""
         return self.CATALOG.copy()
 
-    def get_by_category(self, category: str) -> Dict[str, Dict]:
+    def get_by_category(self, category: str) -> dict[str, dict]:
         """카테고리별 서버를 반환합니다."""
         return {k: v for k, v in self.CATALOG.items() if v.get("category") == category}
 
-    def get_recommended(self) -> List[str]:
+    def get_recommended(self) -> list[str]:
         """에이전트 기능 강화에 추천하는 서버 목록을 반환합니다."""
         return ["filesystem", "fetch", "memory", "sequential-thinking", "gitnexus"]
 
-    def generate_config(self, output_path: str, server_ids: List[str] = None) -> str:
-        """
-        .mcp.json 설정 파일을 자동 생성합니다.
+    def generate_config(self, output_path: str, server_ids: list[str] = None) -> str:
+        """.mcp.json 설정 파일을 자동 생성합니다.
 
         Args:
             output_path: 출력 경로 (예: ".mcp.json")
@@ -431,6 +464,7 @@ class MCPServerRegistry:
 
         Returns:
             생성된 파일 경로
+
         """
         if server_ids is None:
             server_ids = self.get_recommended()
@@ -439,7 +473,7 @@ class MCPServerRegistry:
 
         for sid in server_ids:
             if sid not in self.CATALOG:
-                logger.warning(f"Unknown MCP server: {sid}")
+                logger.warning("Unknown MCP server: %s", sid)
                 continue
 
             entry = self.CATALOG[sid]
@@ -456,7 +490,9 @@ class MCPServerRegistry:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
         logger.info(
-            f"[MCPRegistry] 설정 생성: {output_path} ({len(config['mcpServers'])}개 서버)"
+            "[MCPRegistry] 설정 생성: %s (%s개 서버)",
+            output_path,
+            len(config["mcpServers"]),
         )
         return output_path
 

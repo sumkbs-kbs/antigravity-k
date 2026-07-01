@@ -1,13 +1,14 @@
-"""
-Antigravity-K: 모델 레지스트리
+"""Antigravity-K: 모델 레지스트리.
+
 config.yaml에서 모델 프로필을 읽어 카탈로그로 관리합니다.
 """
 
 from __future__ import annotations
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Type
+
 import yaml
 
 from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
@@ -16,7 +17,7 @@ from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 
 @dataclass
 class ModelProfile:
-    """하나의 모델 프로필"""
+    """하나의 모델 프로필."""
 
     name: str
     repo: str
@@ -29,6 +30,15 @@ class ModelProfile:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ModelProfile":
+        """From Dict.
+
+        Args:
+            data (dict): dict data.
+
+        Returns:
+            'ModelProfile': The 'modelprofile' result.
+
+        """
         return cls(
             name=data.get("name", ""),
             repo=data.get("repo", ""),
@@ -41,6 +51,12 @@ class ModelProfile:
         )
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         result = {
             "name": self.name,
             "repo": self.repo,
@@ -60,23 +76,30 @@ class ModelProfile:
 
 @dataclass
 class DefaultModels:
-    """서버 시작 시 기본 활성 모델"""
+    """서버 시작 시 기본 활성 모델."""
 
-    reasoning: Optional[str] = None
-    coding: Optional[str] = None
-    embedding: Optional[str] = None
-    vision: Optional[str] = None
+    reasoning: str | None = None
+    coding: str | None = None
+    embedding: str | None = None
+    vision: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "DefaultModels":
-        return cls(
-            **{k: data.get(k) for k in ("reasoning", "coding", "embedding", "vision")}
-        )
+        """From Dict.
+
+        Args:
+            data (dict): dict data.
+
+        Returns:
+            'DefaultModels': The 'defaultmodels' result.
+
+        """
+        return cls(**{k: data.get(k) for k in ("reasoning", "coding", "embedding", "vision")})
 
 
 @dataclass
 class MemoryConfig:
-    """메모리 관리 설정"""
+    """메모리 관리 설정."""
 
     total_system_gb: float = 128.0
     max_loaded_gb: float = 100.0
@@ -86,6 +109,15 @@ class MemoryConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "MemoryConfig":
+        """From Dict.
+
+        Args:
+            data (dict): dict data.
+
+        Returns:
+            'MemoryConfig': The 'memoryconfig' result.
+
+        """
         return cls(
             total_system_gb=data.get("total_system_gb", 128.0),
             max_loaded_gb=data.get("max_loaded_gb", 100.0),
@@ -97,6 +129,8 @@ class MemoryConfig:
 
 @dataclass
 class ServerConfig:
+    """Serverconfig."""
+
     host: str = "127.0.0.1"
     port: int = 8000
     workers: int = 1
@@ -105,6 +139,15 @@ class ServerConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ServerConfig":
+        """From Dict.
+
+        Args:
+            data (dict): dict data.
+
+        Returns:
+            'ServerConfig': The 'serverconfig' result.
+
+        """
         return cls(
             host=data.get("host", "127.0.0.1"),
             port=data.get("port", 8000),
@@ -115,12 +158,18 @@ class ServerConfig:
 
 
 class ModelRegistry:
-    """
-    config.yaml 기반 모델 카탈로그.
+    """config.yaml 기반 모델 카탈로그.
+
     list_models(), get_model(name), find_by_role(role), get_default(role) 제공.
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
+        """Initialize the ModelRegistry.
+
+        Args:
+            config_path (str | None): str | None config path.
+
+        """
         if config_path is None:
             project_root = Path(__file__).resolve().parents[3]
             config_path = str(project_root / "config.yaml")
@@ -136,7 +185,7 @@ class ModelRegistry:
         path = Path(self._config_path)
         if not path.exists():
             raise FileNotFoundError(f"설정 파일 없음: {path}")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             self._raw = yaml.safe_load(f) or {}
 
         self._models.clear()
@@ -156,18 +205,33 @@ class ModelRegistry:
         self._server = ServerConfig.from_dict(self._raw.get("server", {}))
 
     def reload(self) -> None:
-        """설정 핫 리로드"""
+        """설정 핫 리로드."""
         self._load_config()
 
     def list_models(self) -> list[ModelProfile]:
+        """List Models.
+
+        Returns:
+            list[ModelProfile]: The list[modelprofile] result.
+
+        """
         return list(self._models.values())
 
-    def get_model(self, name: str) -> Optional[ModelProfile]:
+    def get_model(self, name: str) -> ModelProfile | None:
+        """Retrieve model.
+
+        Args:
+            name (str): str name.
+
+        Returns:
+            ModelProfile | None: The modelprofile | none result.
+
+        """
         return self._models.get(name)
 
-    def get_adapter_for_model(self, name: str) -> Optional[BaseProviderAdapter]:
-        """
-        주어진 모델이 어떤 API 규격을 사용하는지에 따라 적절한 변환 어댑터를 반환합니다.
+    def get_adapter_for_model(self, name: str) -> BaseProviderAdapter | None:
+        """주어진 모델이 어떤 API 규격을 사용하는지에 따라 적절한 변환 어댑터를 반환합니다.
+
         기본적으로 Claude가 아닌 모든 모델은 OpenAIAdapter(OpenRouter, Ollama 호환)를 통과합니다.
         """
         model = self.get_model(name)
@@ -181,34 +245,91 @@ class ModelRegistry:
         return None
 
     def find_by_role(self, role: str) -> list[ModelProfile]:
+        """Find by role.
+
+        Args:
+            role (str): str role.
+
+        Returns:
+            list[ModelProfile]: The list[modelprofile] result.
+
+        """
         return [m for m in self._models.values() if m.role == role]
 
-    def get_default(self, role: str) -> Optional[ModelProfile]:
+    def get_default(self, role: str) -> ModelProfile | None:
+        """Retrieve default.
+
+        Args:
+            role (str): str role.
+
+        Returns:
+            ModelProfile | None: The modelprofile | none result.
+
+        """
         name = getattr(self._defaults, role, None)
         return self._models.get(name) if name else None
 
     def model_exists(self, name: str) -> bool:
+        """Model Exists.
+
+        Args:
+            name (str): str name.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return name in self._models
 
     @property
     def defaults(self) -> DefaultModels:
+        """Defaults.
+
+        Returns:
+            DefaultModels: The defaultmodels result.
+
+        """
         return self._defaults
 
     @property
     def memory_config(self) -> MemoryConfig:
+        """Memory Config.
+
+        Returns:
+            MemoryConfig: The memoryconfig result.
+
+        """
         return self._memory
 
     @property
     def server_config(self) -> ServerConfig:
+        """Server Config.
+
+        Returns:
+            ServerConfig: The serverconfig result.
+
+        """
         return self._server
 
     @property
     def model_cache_path(self) -> Path:
+        """Model Cache Path.
+
+        Returns:
+            Path: The path result.
+
+        """
         paths = self._raw.get("paths", {})
         cache = paths.get("model_cache", "~/.cache/antigravity-k/models")
         return Path(os.path.expanduser(cache))
 
     def summary(self) -> str:
+        """Summary.
+
+        Returns:
+            str: The str result.
+
+        """
         lines = ["=== Model Registry ==="]
         roles: dict[str, list[ModelProfile]] = {}
         for m in self._models.values():

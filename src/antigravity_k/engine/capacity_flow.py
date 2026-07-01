@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Capacity Flow 가드레일
+"""Antigravity-K: Capacity Flow 가드레일.
+
 ======================================
 DeepSeek-TUI 아키텍처 이식 — 용량 체크포인트 + 크래시 복구.
 
@@ -18,12 +18,17 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class CapacityAction(str, Enum):
+    """Capacityaction.
+
+    Bases: str, Enum
+    """
+
     OK = "ok"
     WARN = "warn"
     COMPRESS = "compress"
@@ -38,12 +43,11 @@ class CapacityDecision:
     action: CapacityAction
     message: str
     usage_pct: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class CapacityCheckpoint:
-    """
-    DeepSeek-TUI 패턴: 용량 가드레일 체크포인트.
+    """DeepSeek-TUI 패턴: 용량 가드레일 체크포인트.
 
     3개 축으로 용량을 모니터링:
     1. 컨텍스트 토큰 예산
@@ -57,17 +61,31 @@ class CapacityCheckpoint:
         compress_pct: float = 85.0,
         halt_pct: float = 95.0,
     ):
+        """Initialize the CapacityCheckpoint.
+
+        Args:
+            warn_pct (float): float warn pct.
+            compress_pct (float): float compress pct.
+            halt_pct (float): float halt pct.
+
+        """
         self.warn_pct = warn_pct
         self.compress_pct = compress_pct
         self.halt_pct = halt_pct
 
-    def check_context_budget(
-        self, current_tokens: int, max_tokens: int
-    ) -> CapacityDecision:
+    def check_context_budget(self, current_tokens: int, max_tokens: int) -> CapacityDecision:
+        """Check Context Budget.
+
+        Args:
+            current_tokens (int): int current tokens.
+            max_tokens (int): int max tokens.
+
+        Returns:
+            CapacityDecision: The capacitydecision result.
+
+        """
         if max_tokens <= 0:
-            return CapacityDecision(
-                action=CapacityAction.OK, message="No token limit set."
-            )
+            return CapacityDecision(action=CapacityAction.OK, message="No token limit set.")
 
         usage_pct = (current_tokens / max_tokens) * 100
         remaining = max_tokens - current_tokens
@@ -91,11 +109,19 @@ class CapacityCheckpoint:
                 usage_pct=usage_pct,
             )
 
-        return CapacityDecision(
-            action=CapacityAction.OK, message="OK", usage_pct=usage_pct
-        )
+        return CapacityDecision(action=CapacityAction.OK, message="OK", usage_pct=usage_pct)
 
     def check_step_budget(self, current_step: int, max_steps: int) -> CapacityDecision:
+        """Check Step Budget.
+
+        Args:
+            current_step (int): int current step.
+            max_steps (int): int max steps.
+
+        Returns:
+            CapacityDecision: The capacitydecision result.
+
+        """
         if max_steps <= 0:
             return CapacityDecision(action=CapacityAction.OK, message="No step limit.")
 
@@ -121,13 +147,19 @@ class CapacityCheckpoint:
                 usage_pct=usage_pct,
             )
 
-        return CapacityDecision(
-            action=CapacityAction.OK, message="OK", usage_pct=usage_pct
-        )
+        return CapacityDecision(action=CapacityAction.OK, message="OK", usage_pct=usage_pct)
 
-    def check_cost_budget(
-        self, estimated_cost: float, max_cost: float = 0.0
-    ) -> CapacityDecision:
+    def check_cost_budget(self, estimated_cost: float, max_cost: float = 0.0) -> CapacityDecision:
+        """Check Cost Budget.
+
+        Args:
+            estimated_cost (float): float estimated cost.
+            max_cost (float): float max cost.
+
+        Returns:
+            CapacityDecision: The capacitydecision result.
+
+        """
         if max_cost <= 0:
             return CapacityDecision(action=CapacityAction.OK, message="No cost limit.")
 
@@ -147,27 +179,38 @@ class CapacityCheckpoint:
                 usage_pct=usage_pct,
             )
 
-        return CapacityDecision(
-            action=CapacityAction.OK, message="OK", usage_pct=usage_pct
-        )
+        return CapacityDecision(action=CapacityAction.OK, message="OK", usage_pct=usage_pct)
 
 
 class CrashRecovery:
-    """
-    DeepSeek-TUI 패턴: 체크포인트 기반 크래시 복구.
+    """DeepSeek-TUI 패턴: 체크포인트 기반 크래시 복구.
 
     - 실행 중 주기적으로 상태를 JSON 스냅샷으로 저장
     - 비정상 종료 시 최근 체크포인트에서 복원
     - 미완료 프롬프트를 오프라인 큐에 저장
     """
 
-    def __init__(self, checkpoint_dir: Optional[str] = None):
-        self.checkpoint_dir = Path(
-            checkpoint_dir or os.path.join("vault_data", "checkpoints")
-        )
+    def __init__(self, checkpoint_dir: str | None = None):
+        """Initialize the CrashRecovery.
+
+        Args:
+            checkpoint_dir (str | None): str | None checkpoint dir.
+
+        """
+        self.checkpoint_dir = Path(checkpoint_dir or os.path.join("vault_data", "checkpoints"))
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_checkpoint(self, state: Dict[str, Any], label: str = "auto") -> str:
+    def save_checkpoint(self, state: dict[str, Any], label: str = "auto") -> str:
+        """Save checkpoint.
+
+        Args:
+            state (dict[str, Any]): dict[str, Any] state.
+            label (str): str label.
+
+        Returns:
+            str: The str result.
+
+        """
         filename = f"checkpoint_{label}_{int(time.time())}.json"
         filepath = self.checkpoint_dir / filename
         state["_checkpoint_meta"] = {
@@ -177,33 +220,51 @@ class CrashRecovery:
         }
         try:
             filepath.write_text(
-                json.dumps(state, default=str, ensure_ascii=False), encoding="utf-8"
+                json.dumps(state, default=str, ensure_ascii=False),
+                encoding="utf-8",
             )
             # 권한 보호 (vault 규약: 0600)
             filepath.chmod(0o600)
-            logger.info(f"Checkpoint saved: {filepath}")
-        except Exception as e:
-            logger.error(f"Failed to save checkpoint: {e}")
+            logger.info("Checkpoint saved: %s", filepath)
+        except Exception:
+            logger.exception("Failed to save checkpoint")
         return str(filepath)
 
-    def restore_from_checkpoint(self, label: str = "auto") -> Optional[Dict[str, Any]]:
+    def restore_from_checkpoint(self, label: str = "auto") -> dict[str, Any] | None:
+        """Restore From Checkpoint.
+
+        Args:
+            label (str): str label.
+
+        Returns:
+            dict[str, Any] | None: The dict[str, any] | none result.
+
+        """
         pattern = f"checkpoint_{label}_*.json"
         candidates = sorted(self.checkpoint_dir.glob(pattern), reverse=True)
         if not candidates:
-            logger.info(f"No checkpoint found for label '{label}'")
+            logger.info("No checkpoint found for label '%s'", label)
             return None
         latest = candidates[0]
         try:
             data = json.loads(latest.read_text(encoding="utf-8"))
-            logger.info(f"Checkpoint restored: {latest}")
+            logger.info("Checkpoint restored: %s", latest)
             return data
-        except Exception as e:
-            logger.error(f"Failed to restore checkpoint: {e}")
+        except Exception:
+            logger.exception("Failed to restore checkpoint")
             return None
 
-    def queue_offline(
-        self, prompt: str, context: Optional[Dict[str, Any]] = None
-    ) -> str:
+    def queue_offline(self, prompt: str, context: dict[str, Any] | None = None) -> str:
+        """Queue Offline.
+
+        Args:
+            prompt (str): str prompt.
+            context (dict[str, Any] | None): dict[str, Any] | None context.
+
+        Returns:
+            str: The str result.
+
+        """
         queue_dir = self.checkpoint_dir / "offline_queue"
         queue_dir.mkdir(parents=True, exist_ok=True)
         filename = f"queued_{int(time.time())}_{uuid.uuid4().hex[:6]}.json"
@@ -213,20 +274,33 @@ class CrashRecovery:
             "context": context or {},
             "queued_at": time.time(),
         }
-        filepath.write_text(
-            json.dumps(entry, default=str, ensure_ascii=False), encoding="utf-8"
-        )
+        filepath.write_text(json.dumps(entry, default=str, ensure_ascii=False), encoding="utf-8")
         filepath.chmod(0o600)
-        logger.info(f"Offline queue entry saved: {filepath}")
+        logger.info("Offline queue entry saved: %s", filepath)
         return str(filepath)
 
     def list_offline_queue(self) -> list:
+        """List Offline Queue.
+
+        Returns:
+            list: The list result.
+
+        """
         queue_dir = self.checkpoint_dir / "offline_queue"
         if not queue_dir.exists():
             return []
         return sorted(queue_dir.glob("queued_*.json"), reverse=True)
 
     def cleanup_old_checkpoints(self, max_age_hours: float = 24.0) -> int:
+        """Cleanup Old Checkpoints.
+
+        Args:
+            max_age_hours (float): float max age hours.
+
+        Returns:
+            int: The int result.
+
+        """
         cutoff = time.time() - (max_age_hours * 3600)
         removed = 0
         for f in self.checkpoint_dir.glob("checkpoint_*.json"):
@@ -234,5 +308,5 @@ class CrashRecovery:
                 f.unlink()
                 removed += 1
         if removed:
-            logger.info(f"Cleaned up {removed} old checkpoints")
+            logger.info("Cleaned up %s old checkpoints", removed)
         return removed

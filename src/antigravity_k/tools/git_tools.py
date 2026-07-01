@@ -1,5 +1,5 @@
-"""
-GitTools — Git 도구 4종
+"""GitTools — Git 도구 4종.
+
 ========================
 Claw Code의 Git 도구 아키텍처 이식:
 - git_status : 변경 사항 확인
@@ -8,11 +8,11 @@ Claw Code의 Git 도구 아키텍처 이식:
 - git_log    : 커밋 히스토리 조회
 """
 
-import subprocess
 import logging
-from typing import Any, Dict
+import subprocess
+from typing import Any
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ def _run_git(args: list, cwd: str = ".", timeout: int = 30) -> str:
     except subprocess.TimeoutExpired:
         return f"Error: Git command timed out after {timeout}s."
     except Exception as e:
+        logger.exception("Unhandled exception")
         return f"Error running git: {e}"
 
 
@@ -51,12 +52,10 @@ class GitStatusTool(BaseTool):
     tags = ["git", "status", "changes"]
 
     def __init__(self):
+        """Initialize the GitStatusTool."""
         super().__init__()
         self._name = "git_status"
-        self._description = (
-            "Shows the current Git repository status including staged, "
-            "unstaged, and untracked files."
-        )
+        self._description = "Shows the current Git repository status including staged, unstaged, and untracked files."
         self._schema = {
             "type": "object",
             "properties": {
@@ -71,17 +70,44 @@ class GitStatusTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         path = kwargs.get("path", ".")
         return _run_git(["status", "--short", "--branch"], cwd=path)
 
@@ -96,12 +122,10 @@ class GitDiffTool(BaseTool):
     tags = ["git", "diff", "changes"]
 
     def __init__(self):
+        """Initialize the GitDiffTool."""
         super().__init__()
         self._name = "git_diff"
-        self._description = (
-            "Shows the diff of changes in the repository. "
-            "Use staged=true to see staged changes."
-        )
+        self._description = "Shows the diff of changes in the repository. Use staged=true to see staged changes."
         self._schema = {
             "type": "object",
             "properties": {
@@ -126,17 +150,44 @@ class GitDiffTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         path = kwargs.get("path", ".")
         staged = kwargs.get("staged", False)
         file_filter = kwargs.get("file", "")
@@ -176,11 +227,11 @@ class GitCommitTool(BaseTool):
     tags = ["git", "commit", "save"]
 
     def __init__(self):
+        """Initialize the GitCommitTool."""
         super().__init__()
         self._name = "git_commit"
         self._description = (
-            "Stages and commits changes with a message. "
-            "By default stages all changes. Requires approval."
+            "Stages and commits changes with a message. By default stages all changes. Requires approval."
         )
         self._schema = {
             "type": "object",
@@ -202,17 +253,44 @@ class GitCommitTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         message = kwargs.get("message", "")
         path = kwargs.get("path", ".")
         stage_all = kwargs.get("stage_all", True)
@@ -242,11 +320,10 @@ class GitLogTool(BaseTool):
     tags = ["git", "log", "history"]
 
     def __init__(self):
+        """Initialize the GitLogTool."""
         super().__init__()
         self._name = "git_log"
-        self._description = (
-            "Shows recent commit history with author, date, and message."
-        )
+        self._description = "Shows recent commit history with author, date, and message."
         self._schema = {
             "type": "object",
             "properties": {
@@ -271,17 +348,44 @@ class GitLogTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         path = kwargs.get("path", ".")
         count = kwargs.get("count", 10)
         oneline = kwargs.get("oneline", True)

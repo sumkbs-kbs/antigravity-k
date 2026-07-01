@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 에이전트 상태 그래프 엔진 (AgentStateGraph)
+"""Antigravity-K: 에이전트 상태 그래프 엔진 (AgentStateGraph).
+
 ==========================================================
 오케스트레이터의 암묵적 분기 로직을 명시적 상태 전이 그래프로 구조화합니다.
 
@@ -31,9 +31,10 @@ Antigravity-K: 에이전트 상태 그래프 엔진 (AgentStateGraph)
 import logging
 import time
 import uuid
+from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Generator, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.state_graph")
 
@@ -74,29 +75,29 @@ class StateContext:
     """
 
     # 입력
-    messages: List[Dict[str, str]] = field(default_factory=list)
+    messages: list[dict[str, str]] = field(default_factory=list)
     user_message: str = ""
     target_model: str = ""
     max_steps: int = 15
-    ephemeral_message: Optional[str] = None
+    ephemeral_message: str | None = None
 
     # CEO 분석 결과
-    analysis: Dict[str, Any] = field(default_factory=dict)
+    analysis: dict[str, Any] = field(default_factory=dict)
     task_type: str = "simple_chat"
     delegate_to: str = "SELF"
     refined_prompt: str = ""
 
     # 컨텍스트 데이터
     rag_context: str = ""
-    custom_messages: List[Dict[str, str]] = field(default_factory=list)
+    custom_messages: list[dict[str, str]] = field(default_factory=list)
 
     # 실행 결과
     agent_output: str = ""
 
     # 상태 추적
     current_state: AgentState = AgentState.INIT
-    state_history: List[Dict[str, Any]] = field(default_factory=list)
-    checkpoints: List[Dict[str, Any]] = field(default_factory=list)
+    state_history: list[dict[str, Any]] = field(default_factory=list)
+    checkpoints: list[dict[str, Any]] = field(default_factory=list)
 
     # 에러 복구 루프 추적
     retry_count: int = 0
@@ -106,7 +107,7 @@ class StateContext:
     # 메타
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     started_at: float = field(default_factory=time.time)
-    error: Optional[str] = None
+    error: str | None = None
 
     def transition_to(self, new_state: AgentState):
         """상태를 전이하고 이력을 기록합니다."""
@@ -117,9 +118,9 @@ class StateContext:
                 "from": old_state.value,
                 "to": new_state.value,
                 "timestamp": time.time(),
-            }
+            },
         )
-        logger.debug(f"[StateGraph] {old_state.value} → {new_state.value}")
+        logger.debug("[StateGraph] %s → %s", old_state.value, new_state.value)
 
     def save_checkpoint(self, label: str = ""):
         """현재 상태의 체크포인트를 저장합니다 (실패 시 복원용)."""
@@ -132,7 +133,7 @@ class StateContext:
             "timestamp": time.time(),
         }
         self.checkpoints.append(checkpoint)
-        logger.debug(f"[StateGraph] Checkpoint saved: {checkpoint['label']}")
+        logger.debug("[StateGraph] Checkpoint saved: %s", checkpoint["label"])
 
     def get_duration_ms(self) -> float:
         """실행 시작부터 현재까지 경과 시간 (ms)."""
@@ -163,8 +164,7 @@ NodeHandler = Callable  # type alias for clarity
 
 
 class AgentStateGraph:
-    """
-    에이전트 실행 흐름을 관리하는 상태 그래프 엔진.
+    """에이전트 실행 흐름을 관리하는 상태 그래프 엔진.
 
     기능:
     - 노드 등록 (상태별 핸들러)
@@ -175,9 +175,10 @@ class AgentStateGraph:
     """
 
     def __init__(self):
-        self._nodes: Dict[AgentState, NodeHandler] = {}
-        self._edges: Dict[AgentState, AgentState] = {}  # 고정 전이
-        self._conditional_edges: Dict[AgentState, Callable] = {}  # 조건부 전이
+        """Initialize the AgentStateGraph."""
+        self._nodes: dict[AgentState, NodeHandler] = {}
+        self._edges: dict[AgentState, AgentState] = {}  # 고정 전이
+        self._conditional_edges: dict[AgentState, Callable] = {}  # 조건부 전이
         self._entry_state: AgentState = AgentState.INIT
 
     # ─── 그래프 정의 API ─────────────────────────────────────
@@ -193,7 +194,9 @@ class AgentStateGraph:
         return self
 
     def add_conditional_edge(
-        self, from_state: AgentState, decision_fn: Callable[[StateContext], AgentState]
+        self,
+        from_state: AgentState,
+        decision_fn: Callable[[StateContext], AgentState],
     ):
         """조건부 전이 엣지를 추가합니다.
 
@@ -209,11 +212,8 @@ class AgentStateGraph:
 
     # ─── 그래프 실행 ─────────────────────────────────────────
 
-    def execute(
-        self, ctx: StateContext, orchestrator=None
-    ) -> Generator[str, None, None]:
-        """
-        상태 그래프를 실행합니다.
+    def execute(self, ctx: StateContext, orchestrator=None) -> Generator[str, None, None]:
+        """상태 그래프를 실행합니다.
 
         각 노드의 핸들러를 순서대로 실행하고,
         핸들러의 yield를 스트리밍 청크로 전달합니다.
@@ -224,6 +224,7 @@ class AgentStateGraph:
 
         Yields:
             스트리밍 텍스트 청크
+
         """
         ctx.transition_to(self._entry_state)
         max_transitions = 50  # 무한 루프 방지
@@ -238,7 +239,7 @@ class AgentStateGraph:
             # 핸들러 실행
             handler = self._nodes.get(current)
             if not handler:
-                logger.warning(f"[StateGraph] No handler for state: {current.value}")
+                logger.warning("[StateGraph] No handler for state: %s", current.value)
                 ctx.transition_to(AgentState.ERROR)
                 ctx.error = f"No handler registered for state: {current.value}"
                 break
@@ -258,9 +259,7 @@ class AgentStateGraph:
             except StopIteration:
                 pass
             except Exception as e:
-                logger.error(
-                    f"[StateGraph] Error in {current.value}: {e}", exc_info=True
-                )
+                logger.error("[StateGraph] Error in %s: %s", current.value, e, exc_info=True)
                 ctx.error = str(e)
                 ctx.transition_to(AgentState.ERROR)
                 yield f"\n\n❌ **[State Graph Error]** {current.value} 단계에서 오류 발생: {e}\n"
@@ -275,23 +274,19 @@ class AgentStateGraph:
 
             ctx.transition_to(next_state)
         else:
-            logger.error(f"[StateGraph] Max transitions ({max_transitions}) reached!")
+            logger.error("[StateGraph] Max transitions (%s) reached!", max_transitions)
             ctx.transition_to(AgentState.ERROR)
             ctx.error = "Maximum state transitions exceeded"
 
-    def _resolve_next_state(
-        self, current: AgentState, ctx: StateContext
-    ) -> Optional[AgentState]:
+    def _resolve_next_state(self, current: AgentState, ctx: StateContext) -> AgentState | None:
         """현재 상태에서 다음 상태를 결정합니다."""
         # 1. 조건부 엣지 우선
         if current in self._conditional_edges:
             decision_fn = self._conditional_edges[current]
             try:
                 return decision_fn(ctx)
-            except Exception as e:
-                logger.error(
-                    f"[StateGraph] Decision function error at {current.value}: {e}"
-                )
+            except Exception:
+                logger.exception("[StateGraph] Decision function error at %s", current.value)
                 return AgentState.ERROR
 
         # 2. 고정 엣지
@@ -303,7 +298,7 @@ class AgentStateGraph:
 
     # ─── 디버깅/관찰성 ───────────────────────────────────────
 
-    def get_graph_definition(self) -> Dict[str, Any]:
+    def get_graph_definition(self) -> dict[str, Any]:
         """그래프 정의를 JSON 직렬화 가능한 형태로 반환합니다."""
         return {
             "nodes": [s.value for s in self._nodes.keys()],

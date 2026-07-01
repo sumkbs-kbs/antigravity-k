@@ -1,6 +1,10 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+"""Events module."""
+
 import asyncio
 import logging
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
 from antigravity_k.engine.event_bus import global_event_bus
 
 logger = logging.getLogger("antigravity_k.api.events")
@@ -10,6 +14,12 @@ router = APIRouter()
 
 @router.websocket("/v1/ws/events")
 async def websocket_events(websocket: WebSocket):
+    """Websocket Events.
+
+    Args:
+        websocket (WebSocket): WebSocket websocket.
+
+    """
     await websocket.accept()
     queue = asyncio.Queue()
 
@@ -17,10 +27,9 @@ async def websocket_events(websocket: WebSocket):
         def _cb(**kwargs):
             try:
                 loop = asyncio.get_running_loop()
-                loop.call_soon_threadsafe(
-                    queue.put_nowait, {"event": e_name, "data": kwargs}
-                )
+                loop.call_soon_threadsafe(queue.put_nowait, {"event": e_name, "data": kwargs})
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         return _cb
@@ -55,11 +64,12 @@ async def websocket_events(websocket: WebSocket):
                 try:
                     await websocket.send_json({"event": "ping", "data": {}})
                 except Exception:
+                    logger.exception("Unhandled exception")
                     break
     except (WebSocketDisconnect, asyncio.CancelledError):
         logger.info("WebSocket disconnected from /v1/ws/events")
     except Exception as e:
-        logger.warning(f"WebSocket /v1/ws/events unexpected error: {e}")
+        logger.exception("WebSocket /v1/ws/events unexpected error")
     finally:
         for e, cb in callbacks.items():
             global_event_bus.unsubscribe(e, cb)

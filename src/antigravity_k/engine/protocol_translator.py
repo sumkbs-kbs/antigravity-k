@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 프로토콜 변환기
+"""Antigravity-K: 프로토콜 변환기.
+
 ==============================
 9Router의 formats.js 패턴 이식 — OpenAI / Anthropic / 내부 포맷 간 자동 변환.
 
@@ -15,13 +15,13 @@ import logging
 import time
 import uuid
 from enum import Enum
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 logger = logging.getLogger("antigravity_k.protocol_translator")
 
 
 class APIFormat(Enum):
-    """지원하는 API 포맷"""
+    """지원하는 API 포맷."""
 
     OPENAI = "openai"  # OpenAI Chat Completion API
     ANTHROPIC = "anthropic"  # Anthropic Messages API
@@ -29,8 +29,7 @@ class APIFormat(Enum):
 
 
 class ProtocolTranslator:
-    """
-    API 요청/응답 포맷 자동 변환기.
+    """API 요청/응답 포맷 자동 변환기.
 
     9Router 패턴: formats.js의 translateBody() 구현을 Python으로 이식.
     OpenAI ↔ Anthropic ↔ 내부 포맷 간 양방향 변환 지원.
@@ -53,8 +52,7 @@ class ProtocolTranslator:
         source: APIFormat,
         target: APIFormat = APIFormat.INTERNAL,
     ) -> dict:
-        """
-        요청 포맷을 변환합니다.
+        """요청 포맷을 변환합니다.
 
         Args:
             body: 원본 요청 바디
@@ -63,6 +61,7 @@ class ProtocolTranslator:
 
         Returns:
             변환된 요청 바디
+
         """
         if source == target:
             return body.copy()
@@ -85,8 +84,7 @@ class ProtocolTranslator:
         target: APIFormat,
         source: APIFormat = APIFormat.INTERNAL,
     ) -> dict:
-        """
-        응답 포맷을 변환합니다.
+        """응답 포맷을 변환합니다.
 
         Args:
             body: 원본 응답 바디
@@ -95,6 +93,7 @@ class ProtocolTranslator:
 
         Returns:
             변환된 응답 바디
+
         """
         if source == target:
             return body.copy()
@@ -115,8 +114,7 @@ class ProtocolTranslator:
 
     @staticmethod
     def detect_format(body: dict) -> APIFormat:
-        """
-        요청 바디에서 API 포맷을 자동 감지합니다.
+        """요청 바디에서 API 포맷을 자동 감지합니다.
 
         - "messages" + "model" → OpenAI
         - "messages" + "max_tokens" (no "model") → Anthropic (드문 케이스)
@@ -151,7 +149,7 @@ class ProtocolTranslator:
     # ─── OpenAI → 내부 ──────────────────────────────────────────────
 
     def _openai_to_internal_request(self, body: dict) -> dict:
-        """OpenAI Chat Completion 요청 → 내부 포맷"""
+        """OpenAI Chat Completion 요청 → 내부 포맷."""
         messages = body.get("messages", [])
         system_msg = ""
         chat_messages = []
@@ -179,7 +177,7 @@ class ProtocolTranslator:
     # ─── Anthropic → 내부 ───────────────────────────────────────────
 
     def _anthropic_to_internal_request(self, body: dict) -> dict:
-        """Anthropic Messages API 요청 → 내부 포맷"""
+        """Anthropic Messages API 요청 → 내부 포맷."""
         messages = body.get("messages", [])
         system_msg = body.get("system", "")
 
@@ -204,7 +202,7 @@ class ProtocolTranslator:
     # ─── 내부 → OpenAI ──────────────────────────────────────────────
 
     def _internal_to_openai_response(self, body: dict) -> dict:
-        """내부 응답 → OpenAI Chat Completion 응답"""
+        """내부 응답 → OpenAI Chat Completion 응답."""
         content = body.get("content", "")
         model = body.get("model", "antigravity-k")
 
@@ -221,7 +219,7 @@ class ProtocolTranslator:
                         "content": content,
                     },
                     "finish_reason": body.get("finish_reason", "stop"),
-                }
+                },
             ],
             "usage": {
                 "prompt_tokens": body.get("tokens_in", 0),
@@ -233,7 +231,7 @@ class ProtocolTranslator:
     # ─── 내부 → Anthropic ───────────────────────────────────────────
 
     def _internal_to_anthropic_response(self, body: dict) -> dict:
-        """내부 응답 → Anthropic Messages API 응답"""
+        """내부 응답 → Anthropic Messages API 응답."""
         content = body.get("content", "")
         model = body.get("model", "antigravity-k")
 
@@ -245,7 +243,7 @@ class ProtocolTranslator:
                 {
                     "type": "text",
                     "text": content,
-                }
+                },
             ],
             "model": model,
             "stop_reason": body.get("finish_reason", "end_turn"),
@@ -258,7 +256,7 @@ class ProtocolTranslator:
     # ─── 라우팅 메서드 ──────────────────────────────────────────────
 
     def _to_internal_request(self, body: dict, source: APIFormat) -> dict:
-        """외부 포맷 → 내부 포맷 변환 라우팅"""
+        """외부 포맷 → 내부 포맷 변환 라우팅."""
         if source == APIFormat.OPENAI:
             return self._openai_to_internal_request(body)
         elif source == APIFormat.ANTHROPIC:
@@ -267,7 +265,7 @@ class ProtocolTranslator:
             return body.copy()
 
     def _from_internal_request(self, body: dict, target: APIFormat) -> dict:
-        """내부 포맷 → 외부 포맷 변환 라우팅"""
+        """내부 포맷 → 외부 포맷 변환 라우팅."""
         if target == APIFormat.OPENAI:
             return self._internal_to_openai_request(body)
         elif target == APIFormat.ANTHROPIC:
@@ -276,7 +274,7 @@ class ProtocolTranslator:
             return body.copy()
 
     def _to_internal_response(self, body: dict, source: APIFormat) -> dict:
-        """외부 응답 → 내부 응답 변환 라우팅"""
+        """외부 응답 → 내부 응답 변환 라우팅."""
         if source == APIFormat.OPENAI:
             return self._openai_to_internal_response(body)
         elif source == APIFormat.ANTHROPIC:
@@ -285,7 +283,7 @@ class ProtocolTranslator:
             return body.copy()
 
     def _from_internal_response(self, body: dict, target: APIFormat) -> dict:
-        """내부 응답 → 외부 응답 변환 라우팅"""
+        """내부 응답 → 외부 응답 변환 라우팅."""
         if target == APIFormat.OPENAI:
             return self._internal_to_openai_response(body)
         elif target == APIFormat.ANTHROPIC:
@@ -296,7 +294,7 @@ class ProtocolTranslator:
     # ─── 추가 변환 헬퍼 ─────────────────────────────────────────────
 
     def _internal_to_openai_request(self, body: dict) -> dict:
-        """내부 포맷 → OpenAI 요청"""
+        """내부 포맷 → OpenAI 요청."""
         messages = []
         if body.get("system"):
             messages.append({"role": "system", "content": body["system"]})
@@ -314,8 +312,8 @@ class ProtocolTranslator:
         return result
 
     def _internal_to_anthropic_request(self, body: dict) -> dict:
-        """내부 포맷 → Anthropic 요청"""
-        result: Dict[str, Any] = {
+        """내부 포맷 → Anthropic 요청."""
+        result: dict[str, Any] = {
             "model": body.get("model", ""),
             "messages": body.get("messages", []),
             "max_tokens": body.get("max_tokens", 4096),
@@ -331,7 +329,7 @@ class ProtocolTranslator:
         return result
 
     def _openai_to_internal_response(self, body: dict) -> dict:
-        """OpenAI 응답 → 내부 포맷"""
+        """OpenAI 응답 → 내부 포맷."""
         choices = body.get("choices", [])
         content = ""
         finish_reason = "stop"
@@ -350,7 +348,7 @@ class ProtocolTranslator:
         }
 
     def _anthropic_to_internal_response(self, body: dict) -> dict:
-        """Anthropic 응답 → 내부 포맷"""
+        """Anthropic 응답 → 내부 포맷."""
         content_blocks = body.get("content", [])
         content = ""
         for block in content_blocks:
@@ -369,19 +367,16 @@ class ProtocolTranslator:
     # ─── 유틸 ────────────────────────────────────────────────────────
 
     @staticmethod
-    def _extract_content(content: Any) -> Union[str, List[Dict]]:
-        """
-        메시지 content 필드 정규화.
+    def _extract_content(content: Any) -> Union[str, list[dict]]:
+        """메시지 content 필드 정규화.
+
         OpenAI는 str 또는 List[dict] (멀티모달) 형식을 지원.
         """
         if isinstance(content, str):
             return content
         elif isinstance(content, list):
             # Check if there are any non-text items (e.g. image_url)
-            has_multimodal = any(
-                isinstance(item, dict) and item.get("type") != "text"
-                for item in content
-            )
+            has_multimodal = any(isinstance(item, dict) and item.get("type") != "text" for item in content)
             if has_multimodal:
                 return content  # Preserve the entire list for VLM processing
 

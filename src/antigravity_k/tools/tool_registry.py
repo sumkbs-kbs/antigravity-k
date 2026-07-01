@@ -1,5 +1,5 @@
-"""
-ToolRegistry — 도구 자동 발견 및 등록 시스템
+"""ToolRegistry — 도구 자동 발견 및 등록 시스템.
+
 ============================================
 
 tiptap-vuetify의 TiptapVuetifyPlugin.install() 패턴에서 영감:
@@ -13,24 +13,24 @@ tiptap-vuetify의 TiptapVuetifyPlugin.install() 패턴에서 영감:
 - 신규 도구 플러그인은 install()만 구현하면 자동 통합
 """
 
-import logging
 import importlib
+import logging
 import pkgutil
-from typing import Dict, List, Optional, Set, Any, Tuple
+from typing import Any
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
-from .permission_gate import PermissionGate, Permission
 from antigravity_k.engine.capability_policy import (
     AutonomousCapabilityPolicy,
     CapabilityDecision,
 )
 
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .permission_gate import Permission, PermissionGate
+
 logger = logging.getLogger(__name__)
 
 
 class ToolRegistry:
-    """
-    도구(Tool) 중앙 레지스트리.
+    """도구(Tool) 중앙 레지스트리.
 
     tiptap-vuetify의 Plugin 패턴을 차용:
     - install()로 자동 등록
@@ -46,19 +46,24 @@ class ToolRegistry:
 
     def __init__(
         self,
-        project_root: Optional[str] = None,
-        capability_policy_config: Optional[Dict[str, Any]] = None,
+        project_root: str | None = None,
+        capability_policy_config: dict[str, Any] | None = None,
     ):
-        self._tools: Dict[str, BaseTool] = {}
-        self._installed_classes: Set[str] = set()
+        """Initialize the ToolRegistry.
+
+        Args:
+            project_root (str | None): str | None project root.
+            capability_policy_config (dict[str, Any] | None): dict[str, Any] | None capability policy config.
+
+        """
+        self._tools: dict[str, BaseTool] = {}
+        self._installed_classes: set[str] = set()
         self._permission_gate = PermissionGate(project_root=project_root)
         policy_config = capability_policy_config or {}
         self._capability_policy = AutonomousCapabilityPolicy(
             project_root=project_root,
             max_autonomous_risk=str(policy_config.get("max_autonomous_risk", "high")),
-            allow_critical_autonomy=bool(
-                policy_config.get("allow_critical_autonomy", False)
-            ),
+            allow_critical_autonomy=bool(policy_config.get("allow_critical_autonomy", False)),
         )
 
     def set_project_root(self, new_root: str):
@@ -69,8 +74,7 @@ class ToolRegistry:
     # ─────────────────── 등록 API ───────────────────
 
     def install(self, tool_or_class, **kwargs) -> "ToolRegistry":
-        """
-        도구를 레지스트리에 등록합니다 (tiptap-vuetify의 Plugin.install 패턴).
+        """도구를 레지스트리에 등록합니다 (tiptap-vuetify의 Plugin.install 패턴).
 
         Args:
             tool_or_class: BaseTool 인스턴스 또는 BaseTool 서브클래스
@@ -78,6 +82,7 @@ class ToolRegistry:
 
         Returns:
             self (체이닝 가능)
+
         """
         if isinstance(tool_or_class, type) and issubclass(tool_or_class, BaseTool):
             # 클래스 → 인스턴스 생성
@@ -87,20 +92,22 @@ class ToolRegistry:
             tool = tool_or_class
         else:
             raise TypeError(
-                f"Expected BaseTool class or instance, got {type(tool_or_class).__name__}"
+                f"Expected BaseTool class or instance, got {type(tool_or_class).__name__}",
             )
 
         # 중복 등록 방지
         class_name = type(tool).__name__
         if tool.name in self._tools:
-            logger.warning(f"Tool '{tool.name}' already registered. Overwriting.")
+            logger.warning("Tool '%s' already registered. Overwriting.", tool.name)
 
         self._tools[tool.name] = tool
         self._installed_classes.add(class_name)
         logger.info(
-            f"Installed tool: {tool.name} "
-            f"[{tool.category.value}/{tool.risk_level.value}] "
-            f"icon={tool.icon}"
+            "Installed tool: %s [%s/%s] icon=%s",
+            tool.name,
+            tool.category.value,
+            tool.risk_level.value,
+            tool.icon,
         )
         return self
 
@@ -111,24 +118,24 @@ class ToolRegistry:
         return self
 
     def auto_discover(self, package_name: str) -> int:
-        """
-        지정된 패키지에서 BaseTool 서브클래스를 자동 발견합니다.
+        """지정된 패키지에서 BaseTool 서브클래스를 자동 발견합니다.
 
         tiptap-vuetify의 autoInstall() 패턴에서 영감:
         window.Vue가 있으면 자동으로 플러그인 설치.
 
         Returns:
             발견/등록된 도구 수
+
         """
         count = 0
         try:
             package = importlib.import_module(package_name)
         except ImportError:
-            logger.warning(f"Package '{package_name}' not found for auto-discovery.")
+            logger.warning("Package '%s' not found for auto-discovery.", package_name)
             return 0
 
         if not hasattr(package, "__path__"):
-            logger.warning(f"'{package_name}' is not a package.")
+            logger.warning("'%s' is not a package.", package_name)
             return 0
 
         for importer, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
@@ -149,28 +156,30 @@ class ToolRegistry:
                             self.install(attr)
                             count += 1
                         except Exception as e:
-                            logger.debug(f"Could not auto-install {attr.__name__}: {e}")
+                            logger.exception("Unhandled exception")
+                            logger.debug("Could not auto-install %s: %s", attr.__name__, e)
             except Exception as e:
-                logger.debug(f"Error importing {package_name}.{module_name}: {e}")
+                logger.exception("Unhandled exception")
+                logger.debug("Error importing %s.%s: %s", package_name, module_name, e)
 
-        logger.info(f"Auto-discovered {count} tools from '{package_name}'")
+        logger.info("Auto-discovered %s tools from '%s'", count, package_name)
         return count
 
     # ─────────────────── 조회 API ───────────────────
 
-    def get(self, name: str) -> Optional[BaseTool]:
+    def get(self, name: str) -> BaseTool | None:
         """이름으로 도구를 조회합니다."""
         return self._tools.get(name)
 
-    def get_all(self) -> List[BaseTool]:
+    def get_all(self) -> list[BaseTool]:
         """등록된 모든 도구 목록을 반환합니다."""
         return list(self._tools.values())
 
-    def get_names(self) -> List[str]:
+    def get_names(self) -> list[str]:
         """등록된 모든 도구 이름을 반환합니다."""
         return list(self._tools.keys())
 
-    def get_by_names(self, names: List[str]) -> List[BaseTool]:
+    def get_by_names(self, names: list[str]) -> list[BaseTool]:
         """이름 목록으로 도구들을 조회합니다."""
         result = []
         for n in names:
@@ -178,17 +187,17 @@ class ToolRegistry:
             if tool:
                 result.append(tool)
             else:
-                logger.warning(f"Tool '{n}' not found in registry.")
+                logger.warning("Tool '%s' not found in registry.", n)
         return result
 
     # ─────────────────── 필터링 API ───────────────────
     # tiptap-vuetify의 Extension RenderIn, Category 기반 필터링
 
-    def filter_by_category(self, category: ToolCategory) -> List[BaseTool]:
+    def filter_by_category(self, category: ToolCategory) -> list[BaseTool]:
         """카테고리별 도구 필터링."""
         return [t for t in self._tools.values() if t.category == category]
 
-    def filter_by_risk(self, max_risk: RiskLevel) -> List[BaseTool]:
+    def filter_by_risk(self, max_risk: RiskLevel) -> list[BaseTool]:
         """지정된 위험도 이하의 도구만 반환합니다."""
         risk_order = [
             RiskLevel.SAFE,
@@ -198,19 +207,17 @@ class ToolRegistry:
             RiskLevel.CRITICAL,
         ]
         max_idx = risk_order.index(max_risk)
-        return [
-            t for t in self._tools.values() if risk_order.index(t.risk_level) <= max_idx
-        ]
+        return [t for t in self._tools.values() if risk_order.index(t.risk_level) <= max_idx]
 
-    def filter_by_render(self, render_in: RenderIn) -> List[BaseTool]:
+    def filter_by_render(self, render_in: RenderIn) -> list[BaseTool]:
         """렌더 위치별 도구 필터링."""
         return [t for t in self._tools.values() if t.render_in == render_in]
 
-    def get_toolbar_tools(self) -> List[BaseTool]:
+    def get_toolbar_tools(self) -> list[BaseTool]:
         """항상 노출되는 주요 도구만 반환합니다."""
         return self.filter_by_render(RenderIn.TOOLBAR)
 
-    def get_safe_tools(self) -> List[BaseTool]:
+    def get_safe_tools(self) -> list[BaseTool]:
         """읽기 전용/안전한 도구만 반환합니다."""
         return self.filter_by_risk(RiskLevel.SAFE)
 
@@ -218,19 +225,28 @@ class ToolRegistry:
 
     @property
     def permission_gate(self) -> PermissionGate:
+        """Permission Gate.
+
+        Returns:
+            PermissionGate: The permissiongate result.
+
+        """
         return self._permission_gate
 
     def execute_with_permission(
-        self, tool_name: str, args: Dict[str, Any], objective: str = ""
-    ) -> Tuple[Permission, str]:
-        """
-        권한 검증 후 도구를 실행합니다 (Claw Code PermissionPolicy 패턴).
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        objective: str = "",
+    ) -> tuple[Permission, str]:
+        """권한 검증 후 도구를 실행합니다 (Claw Code PermissionPolicy 패턴).
 
         Returns:
             (permission, result) 튜플:
             - Permission.ALLOW + 실행 결과
             - Permission.PROMPT + 승인 요청 메시지
             - Permission.DENY + 차단 사유
+
         """
         tool = self.get(tool_name)
         if not tool:
@@ -238,7 +254,9 @@ class ToolRegistry:
 
         # 자율 capability 정책: MCP/Skills/로컬 PC 도구를 한 정책 언어로 판정합니다.
         capability_decision = self._capability_policy.decide_tool(
-            tool, args=args, objective=objective
+            tool,
+            args=args,
+            objective=objective,
         )
         if capability_decision.is_blocked:
             return (
@@ -254,9 +272,7 @@ class ToolRegistry:
             )
 
         # 권한 검증
-        permission = self._permission_gate.check(
-            tool_name, args, risk_level=tool.risk_level.value
-        )
+        permission = self._permission_gate.check(tool_name, args, risk_level=tool.risk_level.value)
 
         if permission == Permission.DENY:
             return (
@@ -266,9 +282,7 @@ class ToolRegistry:
 
         if permission == Permission.PROMPT:
             return Permission.PROMPT, (
-                f"[APPROVAL REQUIRED] '{tool_name}' needs your permission.\n"
-                f"Args: {args}\n"
-                f"Risk: {tool.risk_level.value}"
+                f"[APPROVAL REQUIRED] '{tool_name}' needs your permission.\nArgs: {args}\nRisk: {tool.risk_level.value}"
             )
 
         # Permission.ALLOW — 즉시 실행
@@ -278,28 +292,28 @@ class ToolRegistry:
         return Permission.ALLOW, result
 
     def decide_tool_use(
-        self, tool_name: str, args: Optional[Dict[str, Any]] = None, objective: str = ""
-    ) -> Optional[CapabilityDecision]:
+        self,
+        tool_name: str,
+        args: dict[str, Any] | None = None,
+        objective: str = "",
+    ) -> CapabilityDecision | None:
         """도구 실행 전 자율 판단 결과를 반환합니다."""
         tool = self.get(tool_name)
         if not tool:
             return None
-        return self._capability_policy.decide_tool(
-            tool, args=args or {}, objective=objective
-        )
+        return self._capability_policy.decide_tool(tool, args=args or {}, objective=objective)
 
-    def get_autonomous_manifest(self, objective: str = "") -> List[CapabilityDecision]:
+    def get_autonomous_manifest(self, objective: str = "") -> list[CapabilityDecision]:
         """현재 등록된 모든 도구의 자율 사용 가능성을 반환합니다."""
         return [
-            self._capability_policy.decide_tool(tool, args={}, objective=objective)
-            for tool in self._tools.values()
+            self._capability_policy.decide_tool(tool, args={}, objective=objective) for tool in self._tools.values()
         ]
 
     def render_autonomous_policy(self) -> str:
         """LLM 시스템 프롬프트에 주입할 capability 정책 요약."""
         return self._capability_policy.render_policy_prompt()
 
-    def execute_approved(self, tool_name: str, args: Dict[str, Any]) -> str:
+    def execute_approved(self, tool_name: str, args: dict[str, Any]) -> str:
         """승인된 도구를 실행하고 캐시에 기록합니다."""
         tool = self.get(tool_name)
         if not tool:
@@ -310,12 +324,12 @@ class ToolRegistry:
 
     # ─────────────────── 스키마 API ───────────────────
 
-    def to_llm_schemas(self, names: Optional[List[str]] = None) -> List[Dict]:
+    def to_llm_schemas(self, names: list[str] | None = None) -> list[dict]:
         """LLM에 전달할 도구 스키마 목록을 생성합니다."""
         tools = self.get_by_names(names) if names else self.get_all()
         return [t.to_tool_call_schema() for t in tools]
 
-    def to_metadata_list(self) -> List[Dict]:
+    def to_metadata_list(self) -> list[dict]:
         """UI 대시보드용 도구 메타데이터 목록."""
         return [t.to_metadata() for t in self._tools.values()]
 
@@ -326,7 +340,7 @@ class ToolRegistry:
         lines = [f"ToolRegistry: {len(self._tools)} tools installed"]
 
         # 카테고리별 통계
-        cats: Dict[str, int] = {}
+        cats: dict[str, int] = {}
         for t in self._tools.values():
             cats[t.category.value] = cats.get(t.category.value, 0) + 1
 
@@ -336,10 +350,31 @@ class ToolRegistry:
         return "\n".join(lines)
 
     def __len__(self) -> int:
+        """Return the length.
+
+        Returns:
+            int: The int result.
+
+        """
         return len(self._tools)
 
     def __contains__(self, name: str) -> bool:
+        """Check if contains item.
+
+        Args:
+            name (str): str name.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return name in self._tools
 
     def __repr__(self) -> str:
+        """Return a formal string representation.
+
+        Returns:
+            str: The str result.
+
+        """
         return f"<ToolRegistry tools={list(self._tools.keys())}>"

@@ -1,70 +1,118 @@
-from typing import List, Optional, Dict, Union
+"""Models module."""
+
+from typing import Union
+
 from pydantic import BaseModel
 
 
 class ChatMessageContent(BaseModel):
+    """Chatmessagecontent.
+
+    Bases: BaseModel
+    """
+
     type: str
-    text: Optional[str] = None
-    image_url: Optional[Dict[str, str]] = None
+    text: str | None = None
+    image_url: dict[str, str] | None = None
 
 
 class ChatMessage(BaseModel):
+    """Chatmessage.
+
+    Bases: BaseModel
+    """
+
     role: str
-    content: Union[str, List[ChatMessageContent]]
-    name: Optional[str] = None
+    content: Union[str, list[ChatMessageContent]]
+    name: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
+    """Chatcompletionrequest.
+
+    Bases: BaseModel
+    """
+
     model: str
-    messages: List[ChatMessage]
-    temperature: Optional[float] = 0.7
-    top_p: Optional[float] = 1.0
-    n: Optional[int] = 1
-    stream: Optional[bool] = False
-    stop: Optional[Union[str, List[str]]] = None
-    max_tokens: Optional[int] = None
-    presence_penalty: Optional[float] = 0.0
-    frequency_penalty: Optional[float] = 0.0
-    logit_bias: Optional[Dict[str, float]] = None
-    user: Optional[str] = None
+    messages: list[ChatMessage]
+    temperature: float | None = 0.7
+    top_p: float | None = 1.0
+    n: int | None = 1
+    stream: bool | None = False
+    stop: Union[str, list[str]] | None = None
+    max_tokens: int | None = None
+    presence_penalty: float | None = 0.0
+    frequency_penalty: float | None = 0.0
+    logit_bias: dict[str, float] | None = None
+    user: str | None = None
 
 
 class ChatCompletionResponseChoice(BaseModel):
+    """Chatcompletionresponsechoice.
+
+    Bases: BaseModel
+    """
+
     index: int
     message: ChatMessage
-    finish_reason: Optional[str] = "stop"
+    finish_reason: str | None = "stop"
 
 
 class UsageStats(BaseModel):
+    """Usagestats.
+
+    Bases: BaseModel
+    """
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
 
 
 class ChatCompletionResponse(BaseModel):
+    """Chatcompletionresponse.
+
+    Bases: BaseModel
+    """
+
     id: str
     object: str = "chat.completion"
     created: int
     model: str
-    choices: List[ChatCompletionResponseChoice]
+    choices: list[ChatCompletionResponseChoice]
     usage: UsageStats
 
 
 # Embeddings API
 class EmbeddingRequest(BaseModel):
-    input: Union[str, List[str]]
+    """Embeddingrequest.
+
+    Bases: BaseModel
+    """
+
+    input: Union[str, list[str]]
     model: str
-    user: Optional[str] = None
+    user: str | None = None
 
 
 class EmbeddingData(BaseModel):
+    """Embeddingdata.
+
+    Bases: BaseModel
+    """
+
     object: str = "embedding"
-    embedding: List[float]
+    embedding: list[float]
     index: int
 
 
 class EmbeddingResponse(BaseModel):
+    """Embeddingresponse.
+
+    Bases: BaseModel
+    """
+
     object: str = "list"
-    data: List[EmbeddingData]
+    data: list[EmbeddingData]
     model: str
     usage: UsageStats

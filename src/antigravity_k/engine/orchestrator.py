@@ -1,5 +1,5 @@
-"""
-Antigravity-K: CEO 기반 멀티 에이전트 오케스트레이터
+"""Antigravity-K: CEO 기반 멀티 에이전트 오케스트레이터.
+
 ====================================================
 사용자 명령 → CEO 접수/분석 → 역할별 위임 → 결과 종합 → 스트리밍 응답
 
@@ -10,19 +10,20 @@ Antigravity-K: CEO 기반 멀티 에이전트 오케스트레이터
   4) CEO가 최종 결과를 종합하여 사용자에게 스트리밍
 """
 
-from ui.prompts import PLANNING_MODE_BLOCK
 import os
 import re
-from typing import List, Dict, Any, Generator, Optional, Union
+from collections.abc import Generator
+from typing import Any, Union
 
+from antigravity_k.agents.personas import get_orchestrator_prompt
+from antigravity_k.engine.capacity_flow import CapacityCheckpoint
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
 from antigravity_k.engine.engine_context import EngineContext
-from antigravity_k.engine.state_graph import StateContext
-from antigravity_k.engine.memory_recorder import MemoryRecorder
-from antigravity_k.engine.capacity_flow import CapacityCheckpoint
-from antigravity_k.agents.personas import get_orchestrator_prompt
-
 from antigravity_k.engine.logging_util import get_structured_logger
+from antigravity_k.engine.memory_recorder import MemoryRecorder
+from antigravity_k.engine.state_graph import StateContext
+from ui.prompts import PLANNING_MODE_BLOCK
+
 logger = get_structured_logger("antigravity_k.orchestrator")
 
 # ─── 역할별 시스템 프롬프트 ─────────────────────────────────────────
@@ -30,14 +31,13 @@ logger = get_structured_logger("antigravity_k.orchestrator")
 # get_orchestrator_prompt(role) 를 사용합니다.
 
 
-def _load_agent_models(config: dict) -> Dict[str, str]:
-    """config dict에서 역할별 모델 매핑을 추출합니다."""
+def _load_agent_models(config: dict) -> dict[str, str]:
+    """Config dict에서 역할별 모델 매핑을 추출합니다."""
     return config.get("agent_models", {})
 
 
 class OrchestratorAgent:
-    """
-    CEO 기반 멀티 에이전트 오케스트레이터.
+    """CEO 기반 멀티 에이전트 오케스트레이터.
 
     사용자 명령 흐름:
     1. CEO 분석 (빠른 모델) → 태스크 유형 판별
@@ -46,9 +46,16 @@ class OrchestratorAgent:
     4. 결과 스트리밍 → 대시보드 표시
     """
 
-    def __init__(
-        self, model_manager, vault_engine=None, project_root=None, tool_registry=None
-    ):
+    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None):
+        """Initialize the OrchestratorAgent.
+
+        Args:
+            model_manager: model manager.
+            vault_engine: vault engine.
+            project_root: project root.
+            tool_registry: tool registry.
+
+        """
         self.manager = model_manager
         self.vault_engine = vault_engine
         self.project_root = project_root or os.getcwd()
@@ -68,7 +75,9 @@ class OrchestratorAgent:
         self.context_shaper = self.ctx.context_shaper
 
         self._memory_recorder = MemoryRecorder(
-            self.vault_engine, self.manager, self._get_model_for_role
+            self.vault_engine,
+            self.manager,
+            self._get_model_for_role,
         )
 
         # Capacity Flow 가드레일 (DeepSeek-TUI 패턴 이식)
@@ -80,12 +89,10 @@ class OrchestratorAgent:
             try:
                 from antigravity_k.engine.ambient_watchdog import AmbientWatchdog
 
-                self.watchdog = AmbientWatchdog(
-                    self.project_root, self.manager, self.vault_engine
-                )
+                self.watchdog = AmbientWatchdog(self.project_root, self.manager, self.vault_engine)
                 self.watchdog.start()
-            except Exception as e:
-                logger.error(f"Failed to start AmbientWatchdog: {e}")
+            except Exception:
+                logger.exception("Failed to start AmbientWatchdog")
 
         # 연속 에러 카운터 (자동 롤백 트리거용)
         self.ctx.tool_executor.reset_error_counter()
@@ -101,17 +108,18 @@ class OrchestratorAgent:
 
             self._state_graph = build_orchestrator_graph()
             logger.info("[Orchestrator] State Graph 엔진 활성화 완료")
-        except Exception as e:
-            logger.warning(f"[Orchestrator] State Graph 초기화 실패: {e}")
+        except Exception:
+            logger.exception("[Orchestrator] State Graph 초기화 실패")
             self._state_graph = None
 
         # Artifact Engine 초기화
         try:
             from antigravity_k.engine.artifact_engine import ArtifactEngine
+
             self.artifact_engine = ArtifactEngine(self.project_root)
             logger.info("[Orchestrator] Artifact Engine 활성화 완료")
-        except Exception as e:
-            logger.warning(f"Failed to initialize ArtifactEngine: {e}")
+        except Exception:
+            logger.exception("Failed to initialize ArtifactEngine")
 
         # 상태 추적 초기화
         self._last_agent_output = ""
@@ -127,13 +135,13 @@ class OrchestratorAgent:
         # 세션 자동 시작 (프로젝트별 대화 영속성)
         try:
             self.session_manager.start_session(project_path=self.project_root)
-        except Exception as e:
-            logger.warning(f"Session start failed: {e}")
+        except Exception:
+            logger.exception("Session start failed")
 
         # ─── PlanGuard + HarnessEnforcer (바이브코딩 + 하네스 엔지니어링) ───
         try:
-            from antigravity_k.engine.plan_guard import PlanGuard
             from antigravity_k.engine.harness_enforcer import HarnessEnforcer
+            from antigravity_k.engine.plan_guard import PlanGuard
 
             self.plan_guard = PlanGuard()
             self.harness = HarnessEnforcer(
@@ -142,8 +150,8 @@ class OrchestratorAgent:
             )
             self.harness.load_guidelines()
             logger.info("[Orchestrator] PlanGuard + HarnessEnforcer 활성화 완료")
-        except Exception as e:
-            logger.warning(f"PlanGuard/Harness init failed: {e}")
+        except Exception:
+            logger.exception("PlanGuard/Harness init failed")
             self.plan_guard = None
             self.harness = None
 
@@ -151,18 +159,14 @@ class OrchestratorAgent:
         try:
             from antigravity_k.engine.fact_appender import initialize_fact_appender
 
-            self.fact_appender = initialize_fact_appender(
-                self.manager, self.project_root
-            )
+            self.fact_appender = initialize_fact_appender(self.manager, self.project_root)
             logger.info("[Orchestrator] FactAppender 활성화 완료")
-        except Exception as e:
-            logger.warning(f"Failed to initialize FactAppender: {e}")
+        except Exception:
+            logger.exception("Failed to initialize FactAppender")
 
     def _get_model_for_role(self, role: str) -> str:
         """역할에 맞는 모델을 반환합니다. config.yaml 매핑 우선."""
-        return self.agent_models.get(
-            role, self.agent_models.get("default", "qwen3.6:latest")
-        )
+        return self.agent_models.get(role, self.agent_models.get("default", "qwen3.6:latest"))
 
     @property
     def skill_auto_learner(self):
@@ -173,13 +177,12 @@ class OrchestratorAgent:
                 from antigravity_k.engine.skill_auto_learner import SkillAutoLearner
 
                 self._skill_auto_learner_instance = SkillAutoLearner(
-                    self.project_root, self.manager
+                    self.project_root,
+                    self.manager,
                 )
-                logger.info(
-                    "[Orchestrator] SkillAutoLearner (Closed Learning Loop) 활성화 완료"
-                )
-            except Exception as e:
-                logger.warning(f"SkillAutoLearner init failed: {e}")
+                logger.info("[Orchestrator] SkillAutoLearner (Closed Learning Loop) 활성화 완료")
+            except Exception:
+                logger.exception("SkillAutoLearner init failed")
                 self._skill_auto_learner_instance = None
         return self._skill_auto_learner_instance
 
@@ -198,19 +201,22 @@ class OrchestratorAgent:
 
                     def _summarize(prompt: str) -> str:
                         default_m = self.manager.config.get("defaults", {}).get(
-                            "reasoning", "qwen3.6:latest"
+                            "reasoning",
+                            "qwen3.6:latest",
                         )
                         return self.manager.generate(
-                            prompt=prompt, target=default_m, max_tokens=512
+                            prompt=prompt,
+                            target=default_m,
+                            max_tokens=512,
                         )
 
                     summarize_fn = _summarize
                 self._trajectory_compressor_instance = TrajectoryCompressor(
-                    summarize_fn=summarize_fn
+                    summarize_fn=summarize_fn,
                 )
                 logger.info("[Orchestrator] TrajectoryCompressor 활성화 완료")
-            except Exception as e:
-                logger.warning(f"TrajectoryCompressor init failed: {e}")
+            except Exception:
+                logger.exception("TrajectoryCompressor init failed")
                 self._trajectory_compressor_instance = None
         return self._trajectory_compressor_instance
 
@@ -220,7 +226,8 @@ class OrchestratorAgent:
             "## Tool Usage Instructions\n"
             "You are a function calling AI model. You may call one or more functions to assist with the user query.\n"
             "Don't make assumptions about what values to plug into functions.\n"
-            "To use a tool, you MUST use the <scratch_pad> XML tags to record your reasoning and planning before you call the function.\n\n"
+            "To use a tool, you MUST use the <scratch_pad> XML tags to record your reasoning and planning before"  # type: ignore
+            "you call the function.\n\n"
             "<scratch_pad>\n"
             "Goal: <state task assigned by user>\n"
             "Actions: <describe what tools you will call>\n"
@@ -262,7 +269,8 @@ class OrchestratorAgent:
 
             tool_section += "\n" + CodexTransferEngine().render_prompt_contract() + "\n"
         except Exception as e:
-            logger.debug(f"Codex operating contract unavailable: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Codex operating contract unavailable: %s", e)
         try:
             from antigravity_k.engine.self_capability import SelfCapabilityEngine
 
@@ -276,7 +284,8 @@ class OrchestratorAgent:
             )
             tool_section += "\n" + engine.render_prompt_contract(snapshot) + "\n"
         except Exception as e:
-            logger.debug(f"Self-capability contract unavailable: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Self-capability contract unavailable: %s", e)
         for schema in self.tool_registry.to_llm_schemas():
             params = schema.get("input_schema", {})
             required = params.get("required") or []
@@ -291,31 +300,27 @@ class OrchestratorAgent:
                 tool_section += f"  Parameters: {', '.join(param_strs)}\n"
         return tool_section
 
-    def _requires_planning_mode(
-        self, task_type: str, messages: List[Dict[str, str]]
-    ) -> bool:
+    def _requires_planning_mode(self, task_type: str, messages: list[dict[str, str]]) -> bool:
         """복잡한 구조 변경에만 Planning Mode를 강제합니다."""
         if task_type == "complex":
             return True
         if task_type != "coding":
             return False
 
-        request_text = "\n".join(
-            str(msg.get("content", "")) for msg in messages if msg.get("role") == "user"
-        ).lower()
+        request_text = "\n".join(str(msg.get("content", "")) for msg in messages if msg.get("role") == "user").lower()
         return bool(
             re.search(
                 r"(아키텍처|구조|전면|대규모|마이그레이션|프레임워크|리팩토링|"
                 r"architecture|refactor|migrate|framework|plugin system)",
                 request_text,
-            )
+            ),
         )
 
-    def _execute_tool(self, name: str, args: Dict[str, Any]) -> str:
-        """ToolExecutor에 위임합니다. (I-1 리팩터링)"""
+    def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
+        """ToolExecutor에 위임합니다. (I-1 리팩터링)."""
         return self.ctx.tool_executor.execute(name, args)
 
-    def _latest_user_text(self, messages: List[Dict[str, str]]) -> str:
+    def _latest_user_text(self, messages: list[dict[str, str]]) -> str:
         """최근 user 메시지의 텍스트만 반환합니다."""
         for msg in reversed(messages):
             if msg.get("role") != "user":
@@ -346,15 +351,17 @@ class OrchestratorAgent:
         return engine.render_markdown(snapshot)
 
     def _register_claw_tools(self):
-        """ToolExecutor에 위임합니다. (I-1 리팩터링)"""
+        """ToolExecutor에 위임합니다. (I-1 리팩터링)."""
         self.ctx.tool_executor.register_default_tools()
 
     # ─── CEO 분석 단계 ─────────────────────────────────────────────────
 
     def _ceo_analyze(
-        self, user_message: str, target_model: str
+        self,
+        user_message: str,
+        target_model: str,
     ) -> Generator[Union[str, dict], None, None]:
-        """CEO 분석을 ceo_analyzer 모듈에 위임합니다. (I-1 리팩터링)"""
+        """CEO 분석을 ceo_analyzer 모듈에 위임합니다. (I-1 리팩터링)."""
         yield from _ceo_analyze_fn(
             user_message=user_message,
             target_model=target_model,
@@ -367,7 +374,7 @@ class OrchestratorAgent:
         system_prompt: str,
         tool_prompt: str,
         skill_prompts: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
     ) -> str:
         """컨텍스트 압축 후 프롬프트를 재구성합니다."""
         prompt = f"System: {system_prompt}\n{skill_prompts}\n"
@@ -381,7 +388,7 @@ class OrchestratorAgent:
 
     def _prepare_agent_prompt(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         delegate_to: str,
         task_type: str,
     ) -> tuple:
@@ -390,6 +397,7 @@ class OrchestratorAgent:
         Returns:
             (delegate_model, system_prompt, tool_prompt, skill_prompts,
              prompt, shaped_messages)
+
         """
         delegate_model = self._get_model_for_role(delegate_to)
         system_prompt = get_orchestrator_prompt(delegate_to)
@@ -397,9 +405,7 @@ class OrchestratorAgent:
         # [Phase 17] 복합/대규모 태스크인 경우 Planning Mode 워크플로우 강제 주입
         if self._requires_planning_mode(task_type, messages) and delegate_to != "CEO":
             if hasattr(self, "artifact_engine"):
-                planning_mode_enforcement = (
-                    self.artifact_engine.inject_planning_prompt()
-                )
+                planning_mode_enforcement = self.artifact_engine.inject_planning_prompt()
             else:
                 planning_mode_enforcement = PLANNING_MODE_BLOCK
             system_prompt += planning_mode_enforcement
@@ -422,11 +428,7 @@ class OrchestratorAgent:
         failure_context = ""
 
         # Skill injection
-        skill_prompts = (
-            self.ctx.skill_loader.get_active_prompts()
-            if hasattr(self, "skill_loader")
-            else ""
-        )
+        skill_prompts = self.ctx.skill_loader.get_active_prompts() if hasattr(self, "skill_loader") else ""
 
         # IDE Context injection
         ide_prompt = self.ctx.ide_manager.format_prompt()
@@ -448,9 +450,7 @@ class OrchestratorAgent:
 
         # ─── Decision Anchor 주입 (Anthropic 컨텍스트 엔지니어링) ───
         if hasattr(self.ctx, "decision_anchor"):
-            shaped_messages = self.ctx.decision_anchor.inject_into_messages(
-                shaped_messages
-            )
+            shaped_messages = self.ctx.decision_anchor.inject_into_messages(shaped_messages)
 
         # ─── Budget Awareness 주입 (Anthropic Context Awareness) ───
         shaped_messages = self.context_shaper.inject_budget_awareness(shaped_messages)
@@ -470,13 +470,12 @@ class OrchestratorAgent:
 
     def run_stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         target_model: str,
         max_steps: int = 15,
-        ephemeral_message: Optional[str] = None,
+        ephemeral_message: str | None = None,
     ) -> Generator[str, None, None]:
-        """
-        State Graph 기반 멀티 에이전트 스트리밍 실행.
+        """State Graph 기반 멀티 에이전트 스트리밍 실행.
 
         기존의 레거시 선형 루프를 완전히 폐기하고,
         내부를 명시적 상태 전이 그래프(AgentStateGraph)로 단일화하여 실행합니다.
@@ -492,7 +491,8 @@ class OrchestratorAgent:
                 yield response
                 return
         except Exception as e:
-            logger.debug(f"Self-capability fast path skipped: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Self-capability fast path skipped: %s", e)
 
         if not self._state_graph:
             # Fallback to building the graph if not initialized
@@ -507,10 +507,10 @@ class OrchestratorAgent:
             user_text = self._latest_user_text(messages)
 
             # --- Hermes Synergy: Preflight Validator ---
-            from antigravity_k.engine.preflight_validator import PreflightValidator
             from antigravity_k.engine.engine_profile import (
                 EngineProfile,
             )
+            from antigravity_k.engine.preflight_validator import PreflightValidator
 
             validator = PreflightValidator(self.model_manager)
             is_valid, reject_reason, profile = validator.validate(user_text)
@@ -532,20 +532,19 @@ class OrchestratorAgent:
                     {"role": "system", "content": f"[Recalled Memory]\n{recalled}"},
                 )
         except Exception as e:
-            logger.debug(f"Memory prefetch error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Memory prefetch error: %s", e)
 
         # ─── Trajectory Compressor: 대화 궤적 압축 체크포인트 ───
         try:
-            if (
-                self.trajectory_compressor
-                and self.trajectory_compressor.should_compress(messages)
-            ):
+            if self.trajectory_compressor and self.trajectory_compressor.should_compress(messages):
                 result = self.trajectory_compressor.compress(messages)
                 messages = result.compressed_messages
                 yield f"\n{result.user_message}\n\n"
-                logger.info(f"[Orchestrator] {result.user_message}")
+                logger.info("[Orchestrator] %s", result.user_message)
         except Exception as e:
-            logger.debug(f"Trajectory compression error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Trajectory compression error: %s", e)
 
         ctx = StateContext(
             messages=messages,
@@ -554,7 +553,7 @@ class OrchestratorAgent:
             ephemeral_message=ephemeral_message,
         )
 
-        logger.info(f"[Orchestrator] State Graph 실행 시작 (trace_id={ctx.trace_id})")
+        logger.info("[Orchestrator] State Graph 실행 시작 (trace_id=%s)", ctx.trace_id)
 
         yield from self._state_graph.execute(ctx, orchestrator=self)
 
@@ -568,15 +567,21 @@ class OrchestratorAgent:
                     ctx.agent_output,
                 )
             except Exception as e:
-                logger.debug(f"Memory sync error: {e}")
+                logger.exception("Unhandled exception")
+                logger.debug("Memory sync error: %s", e)
 
         logger.info(
-            f"[Orchestrator] State Graph 완료: {ctx.current_state.value}, "
-            f"{len(ctx.state_history)}개 전이, {ctx.get_duration_ms():.0f}ms"
+            "[Orchestrator] State Graph 완료: %s, %s개 전이, %sms",
+            ctx.current_state.value,
+            len(ctx.state_history),
+            ctx.get_duration_ms(),
         )
 
     def run_sync(
-        self, messages: List[Dict[str, str]], target_model: str, max_steps: int = 15
+        self,
+        messages: list[dict[str, str]],
+        target_model: str,
+        max_steps: int = 15,
     ) -> str:
         """동기식 실행 (커맨드 팔레트 등에서 사용)."""
         result = []

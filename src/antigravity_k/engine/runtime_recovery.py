@@ -1,5 +1,5 @@
-"""
-RuntimeRecovery — 에이전트 상태 분류 & 자동 복구 파이프라인
+"""RuntimeRecovery — 에이전트 상태 분류 & 자동 복구 파이프라인.
+
 ===========================================================
 NemoClaw의 runtime-recovery.ts + validation-recovery.ts + validation.ts 이식.
 
@@ -25,7 +25,7 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.runtime_recovery")
 
@@ -80,7 +80,7 @@ class StateClassification:
 
     state: AgentState
     reason: str
-    details: Optional[str] = None
+    details: str | None = None
 
 
 @dataclass
@@ -99,7 +99,7 @@ class RecoveryDecision:
     action: RecoveryAction
     message: str
     auto_executable: bool = True
-    suggested_command: Optional[str] = None
+    suggested_command: str | None = None
 
 
 @dataclass
@@ -109,7 +109,7 @@ class ComponentHealth:
     name: str
     status: HealthStatus
     detail: str
-    latency_ms: Optional[float] = None
+    latency_ms: float | None = None
 
 
 @dataclass
@@ -117,7 +117,7 @@ class SystemHealth:
     """전체 시스템 Health."""
 
     status: HealthStatus
-    components: List[ComponentHealth]
+    components: list[ComponentHealth]
     diagnosis: str = ""
     checked_at: str = ""
 
@@ -154,6 +154,7 @@ def classify_agent_state(
                     details="사용 가능한 모델이 없습니다.",
                 )
         except Exception as e:
+            logger.exception("Unhandled exception")
             error_text = str(e).lower()
             if any(kw in error_text for kw in ["connection", "timeout", "refused"]):
                 return StateClassification(
@@ -172,6 +173,7 @@ def classify_agent_state(
         try:
             session_manager.get_session_info()
         except Exception as e:
+            logger.exception("Unhandled exception")
             return StateClassification(
                 state=AgentState.DEGRADED,
                 reason="session_manager_error",
@@ -286,7 +288,7 @@ def classify_inference_failure(
 
 def determine_recovery(
     agent_state: StateClassification,
-    inference_failure: Optional[InferenceClassification] = None,
+    inference_failure: InferenceClassification | None = None,
 ) -> RecoveryDecision:
     """상태 분류에 기반하여 복구 전략을 결정합니다.
 
@@ -348,7 +350,7 @@ def deep_health_check(
     """
     import datetime
 
-    components: List[ComponentHealth] = []
+    components: list[ComponentHealth] = []
 
     # 1. Model Manager
     components.append(
@@ -356,7 +358,7 @@ def deep_health_check(
             "model_manager",
             model_manager,
             check_fn=lambda mm: bool(mm.list_models()),
-        )
+        ),
     )
 
     # 2. Session Manager
@@ -365,7 +367,7 @@ def deep_health_check(
             "session_manager",
             session_manager,
             check_fn=lambda sm: sm.get_session_info() is not None,
-        )
+        ),
     )
 
     # 3. Memory Manager
@@ -374,7 +376,7 @@ def deep_health_check(
             "memory_manager",
             memory_manager,
             check_fn=lambda mm: mm.get_stats() is not None,
-        )
+        ),
     )
 
     # 4. Toolset Manager
@@ -383,7 +385,7 @@ def deep_health_check(
             "toolset_manager",
             toolset_manager,
             check_fn=lambda ts: len(ts.get_active_tools()) > 0,
-        )
+        ),
     )
 
     # 5. Shields
@@ -393,7 +395,7 @@ def deep_health_check(
                 name="shields",
                 status=HealthStatus.HEALTHY,
                 detail=f"{'UP' if shields_manager.is_up else 'DOWN'}",
-            )
+            ),
         )
     else:
         components.append(
@@ -401,7 +403,7 @@ def deep_health_check(
                 name="shields",
                 status=HealthStatus.HEALTHY,
                 detail="not configured",
-            )
+            ),
         )
 
     # 종합 상태 결정
@@ -461,6 +463,7 @@ def _check_component(
                 latency_ms=round(latency, 1),
             )
     except Exception as e:
+        logger.exception("Unhandled exception")
         latency = (time.time() - start) * 1000
         return ComponentHealth(
             name=name,
@@ -478,12 +481,7 @@ def _transport_message(curl_status: int, text: str) -> str:
         return "서버에 연결할 수 없습니다. URL과 서비스 상태를 확인하세요."
     if curl_status == 28 or "timed out" in text or "timeout" in text:
         return "요청 시간이 초과되었습니다. 네트워크 상태를 확인하세요."
-    if (
-        curl_status in (35, 60)
-        or "ssl" in text
-        or "tls" in text
-        or "certificate" in text
-    ):
+    if curl_status in (35, 60) or "ssl" in text or "tls" in text or "certificate" in text:
         return "TLS/인증서 에러입니다. HTTPS 연결을 확인하세요."
     if "proxy" in text:
         return "프록시 에러입니다. 프록시 설정을 확인하세요."

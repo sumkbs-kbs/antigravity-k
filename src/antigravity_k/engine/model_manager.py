@@ -1,15 +1,16 @@
-"""
-Antigravity-K: 모델 매니저
+"""Antigravity-K: 모델 매니저.
+
 런타임 모델 로드/언로드/핫스왑 + 메모리 자동 관리
 """
 
 from __future__ import annotations
+
 import gc
 import logging
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from .collective_intelligence import CollectiveIntelligenceEngine
 from .memory_policy import MemoryPolicy
@@ -27,7 +28,7 @@ from .sampling_config import SAMPLING_PROFILES
 
 @dataclass
 class LoadedModel:
-    """현재 메모리에 로드된 모델 정보"""
+    """현재 메모리에 로드된 모델 정보."""
 
     profile: ModelProfile
     model: Any = None  # mlx_lm 모델 객체
@@ -37,13 +38,12 @@ class LoadedModel:
     actual_memory_gb: float = 0.0
 
     def touch(self):
-        """사용 시각 갱신 (LRU용)"""
+        """사용 시각 갱신 (LRU용)."""
         self.last_used_at = time.time()
 
 
 class ModelManager:
-    """
-    동적 모델 로드/언로드 매니저.
+    """동적 모델 로드/언로드 매니저.
 
     핵심 기능:
     - load(name): 모델 로드 (메모리 부족 시 자동 언로드)
@@ -56,9 +56,17 @@ class ModelManager:
     def __init__(
         self,
         registry: ModelRegistry,
-        router: Optional[ModelRouter] = None,
-        tracker: Optional[UsageTracker] = None,
+        router: ModelRouter | None = None,
+        tracker: UsageTracker | None = None,
     ):
+        """Initialize the ModelManager.
+
+        Args:
+            registry (ModelRegistry): ModelRegistry registry.
+            router (ModelRouter | None): ModelRouter | None router.
+            tracker (UsageTracker | None): UsageTracker | None tracker.
+
+        """
         self._registry = registry
         self._loaded: OrderedDict[str, LoadedModel] = OrderedDict()
         self._mem_config = registry.memory_config
@@ -84,12 +92,12 @@ class ModelManager:
     # ─── 핵심 API ────────────────────────────────────────────────────
 
     def load(self, name: str) -> LoadedModel:
-        """모델을 메모리에 로드"""
+        """모델을 메모리에 로드."""
         # 이미 로드됨
         if name in self._loaded:
             loaded = self._loaded[name]
             loaded.touch()
-            logger.info(f"[{name}] 이미 로드됨, 재사용")
+            logger.info("[%s] 이미 로드됨, 재사용", name)
             return loaded
 
         # 레지스트리에서 프로필 확인
@@ -97,14 +105,14 @@ class ModelManager:
         if profile is None:
             raise ValueError(
                 f"모델 '{name}'이 config.yaml에 등록되어 있지 않습니다.\n"
-                f"등록된 모델: {[m.name for m in self._registry.list_models()]}"
+                f"등록된 모델: {[m.name for m in self._registry.list_models()]}",
             )
 
         # 메모리 확보
         self._ensure_memory(profile.estimated_memory_gb)
 
         # 실제 모델 로드
-        logger.info(f"[{name}] 로드 시작 (예상 {profile.estimated_memory_gb}GB)...")
+        logger.info("[%s] 로드 시작 (예상 %sGB)...", name, profile.estimated_memory_gb)
         model_obj, tokenizer_obj = self._load_mlx_model(profile)
 
         now = time.time()
@@ -118,13 +126,13 @@ class ModelManager:
         )
 
         self._loaded[name] = loaded
-        logger.info(f"[{name}] 로드 완료 ✓")
+        logger.info("[%s] 로드 완료 ✓", name)
         return loaded
 
     def unload(self, name: str) -> bool:
-        """모델을 메모리에서 해제"""
+        """모델을 메모리에서 해제."""
         if name not in self._loaded:
-            logger.warning(f"[{name}] 로드되지 않은 모델")
+            logger.warning("[%s] 로드되지 않은 모델", name)
             return False
 
         loaded = self._loaded.pop(name)
@@ -133,11 +141,11 @@ class ModelManager:
         del loaded.tokenizer
         gc.collect()
 
-        logger.info(f"[{name}] 언로드 완료 ({loaded.actual_memory_gb}GB 해제)")
+        logger.info("[%s] 언로드 완료 (%sGB 해제)", name, loaded.actual_memory_gb)
         return True
 
-    def swap(self, new_name: str, role: Optional[str] = None) -> LoadedModel:
-        """같은 역할의 모델 교체 (기존 언로드 → 새 모델 로드)"""
+    def swap(self, new_name: str, role: str | None = None) -> LoadedModel:
+        """같은 역할의 모델 교체 (기존 언로드 → 새 모델 로드)."""
         new_profile = self._registry.get_model(new_name)
         if new_profile is None:
             raise ValueError(f"모델 '{new_name}'이 등록되어 있지 않습니다.")
@@ -146,26 +154,24 @@ class ModelManager:
 
         # 같은 역할로 로드된 기존 모델 찾아서 언로드
         to_unload = [
-            name
-            for name, loaded in self._loaded.items()
-            if loaded.profile.role == target_role and name != new_name
+            name for name, loaded in self._loaded.items() if loaded.profile.role == target_role and name != new_name
         ]
         for name in to_unload:
-            logger.info(f"[{name}] → [{new_name}] 교체를 위해 언로드")
+            logger.info("[%s] → [%s] 교체를 위해 언로드", name, new_name)
             self.unload(name)
 
         return self.load(new_name)
 
     def get(self, name: str) -> LoadedModel:
-        """로드된 모델 반환 (없으면 자동 로드)"""
+        """로드된 모델 반환 (없으면 자동 로드)."""
         if name in self._loaded:
             loaded = self._loaded[name]
             loaded.touch()
             return loaded
         return self.load(name)
 
-    def get_by_role(self, role: str) -> Optional[LoadedModel]:
-        """역할별로 현재 로드된 모델 반환"""
+    def get_by_role(self, role: str) -> LoadedModel | None:
+        """역할별로 현재 로드된 모델 반환."""
         for loaded in self._loaded.values():
             if loaded.profile.role == role:
                 loaded.touch()
@@ -176,11 +182,8 @@ class ModelManager:
             return self.load(default.name)
         return None
 
-    def get_target_for_role(
-        self, role_name: str, default_role: str = "reasoning"
-    ) -> str:
-        """
-        역할별 실행 타겟을 반환합니다.
+    def get_target_for_role(self, role_name: str, default_role: str = "reasoning") -> str:
+        """역할별 실행 타겟을 반환합니다.
 
         config.yaml의 agent_models는 단일 모델뿐 아니라 콤보 이름도 허용합니다.
         콤보가 반환되면 generate()/stream_generate()가 해당 전략에 따라 처리합니다.
@@ -199,8 +202,8 @@ class ModelManager:
         return "default_model"
 
     def prefetch(self, name: str) -> bool:
-        """
-        런타임 지연을 방지하기 위해 사전에 모델을 로드합니다.
+        """런타임 지연을 방지하기 위해 사전에 모델을 로드합니다.
+
         필요한 메모리가 확보 가능할 때만 로드하며, 이미 로드되어 있다면 무시합니다.
         """
         if name in self._loaded:
@@ -208,15 +211,15 @@ class ModelManager:
 
         profile = self._registry.get_model(name)
         if profile is None:
-            logger.warning(f"Prefetch 실패: '{name}' 모델을 찾을 수 없습니다.")
+            logger.warning("Prefetch 실패: '%s' 모델을 찾을 수 없습니다.", name)
             return False
 
         # 메모리 여유 체크
         current_used = sum(m.actual_memory_gb for m in self._loaded.values())
         if current_used + profile.estimated_memory_gb > self._mem_config.max_loaded_gb:
-            logger.warning(f"Prefetch 보류: [{name}] 로드를 위한 메모리 부족 예상")
+            logger.warning("Prefetch 보류: [%s] 로드를 위한 메모리 부족 예상", name)
             if self._mem_config.auto_unload:
-                logger.info(f"[{name}] 프리패치를 위해 기존 모델 자동 교체 시도")
+                logger.info("[%s] 프리패치를 위해 기존 모델 자동 교체 시도", name)
                 try:
                     self.load(name)
                     return True
@@ -227,15 +230,14 @@ class ModelManager:
         try:
             self.load(name)
             return True
-        except Exception as e:
-            logger.error(f"Prefetch 실패 [{name}]: {e}")
+        except Exception:
+            logger.exception("Prefetch 실패 [%s]", name)
             return False
 
     # ─── 추론 API (9Router 연동) ─────────────────────────────────────
 
     def generate(self, prompt: str, target: str, **kwargs) -> str:
-        """
-        텍스트 생성 수행.
+        """텍스트 생성 수행.
 
         Args:
             prompt: 입력 프롬프트
@@ -244,14 +246,11 @@ class ModelManager:
 
         Returns:
             생성된 텍스트
+
         """
         collective_internal = bool(kwargs.pop("_collective_internal", False))
         combo = self.router.get_combo(target)
-        if (
-            combo
-            and combo.strategy == RouteStrategy.COLLECTIVE
-            and not collective_internal
-        ):
+        if combo and combo.strategy == RouteStrategy.COLLECTIVE and not collective_internal:
             return self.generate_collective(prompt, target, **kwargs)
 
         start_time = time.time()
@@ -268,7 +267,7 @@ class ModelManager:
                 profile = self.router.route(target)
                 used_model = profile.name
 
-                # 라우팅된 모델의 fallback_depth (라우터 내부에서 인덱스로 추적하려면 라우터를 직접 사용해야 하므로 대략적으로 계산하거나 생략 가능.
+                # 라우팅된 모델의 fallback_depth (라우터 내부에서 인덱스로 추적하려면 라우터를 직접 사용해야 하므로 대략적으로 계산하거나 생략 가능.  # noqa: E501
                 # ModelRouter의 combo를 확인하여 인덱스를 fallback depth로 추정)
                 combo = self.router.get_combo(target)
                 if used_model in combo.models:
@@ -278,7 +277,7 @@ class ModelManager:
                 profile = self.router.route_single(target)
                 used_model = profile.name
         except AllModelsUnavailableError as e:
-            logger.error(f"추론 실패 (모든 모델 비가용): {e}")
+            logger.error("추론 실패 (모든 모델 비가용): %s", e)
             raise
 
         try:
@@ -290,16 +289,8 @@ class ModelManager:
             response_text = self._strip_hidden_reasoning(response_text)
 
             # 토큰 수 대략적 계산 (실제로는 토크나이저 사용)
-            tokens_in = (
-                len(loaded.tokenizer.encode(prompt))
-                if loaded.tokenizer
-                else len(prompt) // 4
-            )
-            tokens_out = (
-                len(loaded.tokenizer.encode(response_text))
-                if loaded.tokenizer
-                else len(response_text) // 4
-            )
+            tokens_in = len(loaded.tokenizer.encode(prompt)) if loaded.tokenizer else len(prompt) // 4
+            tokens_out = len(loaded.tokenizer.encode(response_text)) if loaded.tokenizer else len(response_text) // 4
             latency_ms = (time.time() - start_time) * 1000
 
             # 사용량 기록 (성공)
@@ -338,11 +329,14 @@ class ModelManager:
             # 콤보 라우팅인 경우 재귀적으로 다음 모델 시도
             if combo_name:
                 logger.warning(
-                    f"[{used_model}] 실패 ({error_msg}), 콤보[{combo_name}]의 다음 모델로 폴백 시도합니다..."
+                    "[%s] 실패 (%s), 콤보[%s]의 다음 모델로 폴백 시도합니다...",
+                    used_model,
+                    error_msg,
+                    combo_name,
                 )
                 return self.generate(prompt, combo_name, **kwargs)
             else:
-                logger.error(f"[{used_model}] 단일 모델 추론 실패: {error_msg}")
+                logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
             raise
 
     def generate_collective(self, prompt: str, target: str, **kwargs) -> str:
@@ -364,9 +358,7 @@ class ModelManager:
                 target,
                 participants,
             )
-            routed = (
-                self.router.route(target) if combo else self.router.route_single(target)
-            )
+            routed = self.router.route(target) if combo else self.router.route_single(target)
             return self.generate(
                 prompt,
                 routed.name,
@@ -377,15 +369,10 @@ class ModelManager:
         critic_combo = cfg.get("critic_combo", "critic-swarm")
         critics = self._available_combo_or_models(critic_combo, participants)
         arbiter = str(cfg.get("arbiter_combo", "supreme-court"))
-        if (
-            not self.router.get_combo(arbiter)
-            and self._registry.get_model(arbiter) is None
-        ):
+        if not self.router.get_combo(arbiter) and self._registry.get_model(arbiter) is None:
             arbiter = participants[0]
 
-        def generate_fn(
-            model_or_combo: str, phase_prompt: str, phase_kwargs: dict
-        ) -> str:
+        def generate_fn(model_or_combo: str, phase_prompt: str, phase_kwargs: dict) -> str:
             response = self.generate(
                 phase_prompt,
                 model_or_combo,
@@ -410,19 +397,14 @@ class ModelManager:
         )
 
     def stream_generate(self, prompt: str, target: str, **kwargs):
-        """
-        텍스트 생성 수행 (스트리밍).
-        """
+        """텍스트 생성 수행 (스트리밍)."""
         collective_internal = bool(kwargs.pop("_collective_internal", False))
         combo = self.router.get_combo(target)
-        if (
-            combo
-            and combo.strategy == RouteStrategy.COLLECTIVE
-            and not collective_internal
-        ):
+        if combo and combo.strategy == RouteStrategy.COLLECTIVE and not collective_internal:
             try:
                 text = self.generate_collective(prompt, target, **kwargs)
             except Exception as e:
+                logger.exception("Unhandled exception")
                 text = f"[API Error] 집단지성 실행 중 오류가 발생했습니다: {e}"
             chunk_size = int(kwargs.get("stream_chunk_size", 256))
             for idx in range(0, len(text), chunk_size):
@@ -446,7 +428,7 @@ class ModelManager:
                 profile = self.router.route_single(target)
                 used_model = profile.name
         except AllModelsUnavailableError as e:
-            logger.error(f"추론 실패 (모든 모델 비가용): {e}")
+            logger.error("추론 실패 (모든 모델 비가용): %s", e)
             raise
 
         try:
@@ -458,16 +440,8 @@ class ModelManager:
                 yield chunk
 
             # Record usage after completion
-            tokens_in = (
-                len(loaded.tokenizer.encode(prompt))
-                if loaded.tokenizer
-                else len(prompt) // 4
-            )
-            tokens_out = (
-                len(loaded.tokenizer.encode(full_text))
-                if loaded.tokenizer
-                else len(full_text) // 4
-            )
+            tokens_in = len(loaded.tokenizer.encode(prompt)) if loaded.tokenizer else len(prompt) // 4
+            tokens_out = len(loaded.tokenizer.encode(full_text)) if loaded.tokenizer else len(full_text) // 4
             latency_ms = (time.time() - start_time) * 1000
 
             self.tracker.record(
@@ -497,11 +471,14 @@ class ModelManager:
 
             if combo_name:
                 logger.warning(
-                    f"[{used_model}] 실패 ({error_msg}), 콤보[{combo_name}]의 다음 모델로 폴백 시도합니다..."
+                    "[%s] 실패 (%s), 콤보[%s]의 다음 모델로 폴백 시도합니다...",
+                    used_model,
+                    error_msg,
+                    combo_name,
                 )
                 yield from self.stream_generate(prompt, combo_name, **kwargs)
             else:
-                logger.error(f"[{used_model}] 단일 모델 추론 실패: {error_msg}")
+                logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
                 raise
 
     def _collective_config(self) -> dict:
@@ -519,13 +496,14 @@ class ModelManager:
                 available = self.router.available_model_names(combo_name)
                 if available:
                     return available
-            except Exception as exc:
-                logger.warning("비판 콤보 조회 실패: %s (%s)", combo_name, exc)
+            except Exception:
+                logger.exception("비판 콤보 조회 실패: %s", combo_name)
         return fallback_models
 
     def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
-        """내부 텍스트 생성 로직 분리"""
+        """내부 텍스트 생성 로직 분리."""
         import platform
+
         from ..config import config
 
         if loaded.profile.name.startswith("claude"):
@@ -534,11 +512,7 @@ class ModelManager:
                 result += chunk
             return result
 
-        if (
-            config.model.force_api
-            or platform.system() != "Darwin"
-            or isinstance(loaded.model, _OllamaModel)
-        ):
+        if config.model.force_api or platform.system() != "Darwin" or isinstance(loaded.model, _OllamaModel):
             # 외부 API (Ollama/LM Studio) 기반 추론
             return self._do_ollama_generate(loaded, prompt, **kwargs)
 
@@ -559,19 +533,16 @@ class ModelManager:
             return f"[Simulated MLX] {loaded.profile.name} processed: {prompt[:30]}"
 
     def _do_stream_generate(self, loaded: LoadedModel, prompt: str, **kwargs):
-        """내부 텍스트 생성 로직 분리 (스트리밍)"""
+        """내부 텍스트 생성 로직 분리 (스트리밍)."""
         import platform
+
         from ..config import config
 
         if loaded.profile.name.startswith("claude"):
             yield from self._do_anthropic_stream(loaded, prompt, **kwargs)
             return
 
-        if (
-            config.model.force_api
-            or platform.system() != "Darwin"
-            or isinstance(loaded.model, _OllamaModel)
-        ):
+        if config.model.force_api or platform.system() != "Darwin" or isinstance(loaded.model, _OllamaModel):
             # 외부 API (Ollama/LM Studio) 스트리밍 추론
             yield from self._do_ollama_stream(loaded, prompt, **kwargs)
             return
@@ -595,9 +566,10 @@ class ModelManager:
                 yield word + " "
 
     def _do_ollama_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
-        """OpenAI 호환 HTTP API (LM Studio, Ollama 등)를 통한 생성 로직"""
-        import urllib.request
+        """OpenAI 호환 HTTP API (LM Studio, Ollama 등)를 통한 생성 로직."""
         import json
+        import urllib.request
+
         from ..config import config
 
         base_url = config.model.api_base.rstrip("/")
@@ -637,9 +609,7 @@ class ModelManager:
         if "raw_messages" in kwargs:
             sys_msg = kwargs.get("system_prompt", "")
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs[
-                    "raw_messages"
-                ]
+                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
             else:
                 api_msgs = kwargs["raw_messages"]
             data["messages"] = api_msgs
@@ -664,15 +634,11 @@ class ModelManager:
                 message = result["choices"][0]["message"]
                 content = message.get("content", "")
                 if not content and message.get("thinking"):
-                    raise RuntimeError(
-                        "model returned hidden thinking without final content"
-                    )
-                logger.debug(
-                    f"Ollama response content ({len(content)} chars): {content[:200]}"
-                )
+                    raise RuntimeError("model returned hidden thinking without final content")
+                logger.debug("Ollama response content (%s chars): %s", len(content), content[:200])
                 return content
         except Exception as e:
-            logger.error(f"Local API generation failed: {e}")
+            logger.exception("Local API generation failed")
             return f"[API Error for {loaded.profile.name}] {e}"
 
     @staticmethod
@@ -682,9 +648,7 @@ class ModelManager:
             return messages
 
         directive = (
-            "/no_think\n"
-            "Answer directly. Do not output hidden reasoning, thinking traces, "
-            "<think>, or <thought> blocks."
+            "/no_think\nAnswer directly. Do not output hidden reasoning, thinking traces, <think>, or <thought> blocks."
         )
         prepared = [dict(message) for message in messages]
         if prepared and prepared[0].get("role") == "system":
@@ -714,9 +678,7 @@ class ModelManager:
         )
         return cleaned.strip()
 
-    def _apply_dynamic_inference_config(
-        self, loaded_profile, prompt_or_messages, kwargs
-    ):
+    def _apply_dynamic_inference_config(self, loaded_profile, prompt_or_messages, kwargs):
         import hashlib
 
         model_name = loaded_profile.name
@@ -754,6 +716,7 @@ class ModelManager:
 
     def _do_anthropic_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
         import anthropic
+
         from ..config import config
 
         api_key = config.config.get("api_keys", {}).get("anthropic")
@@ -767,8 +730,8 @@ class ModelManager:
         raw_messages = kwargs.get("raw_messages", [{"role": "user", "content": prompt}])
 
         # 1. Apply Dynamic Inference Config (Not-Claude-Code-Emulator Pattern)
-        model_name, temperature, thinking_config, attribution = (
-            self._apply_dynamic_inference_config(loaded.profile, raw_messages, kwargs)
+        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
+            loaded.profile, raw_messages, kwargs
         )
 
         # Format messages for anthropic
@@ -789,7 +752,7 @@ class ModelManager:
                     "type": "text",
                     "text": system_prompt,
                     "cache_control": {"type": "ephemeral"},
-                }
+                },
             )
             cache_blocks.append(system_blocks[0])
 
@@ -820,7 +783,7 @@ class ModelManager:
                     "type": "text",
                     "text": attribution,
                     "cache_control": {"type": "ephemeral"},
-                }
+                },
             )
 
         request_params = {
@@ -839,13 +802,14 @@ class ModelManager:
                 for text in stream.text_stream:
                     yield text
         except Exception as e:
-            logger.error(f"Anthropic API generation failed: {e}")
+            logger.exception("Anthropic API generation failed")
             yield f"[API Error for {model_name}] {e}"
 
     def _do_ollama_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
-        """Ollama Native API를 통한 스트리밍 생성 로직 (num_ctx 제어 및 reasoning 지원)"""
-        import urllib.request
+        """Ollama Native API를 통한 스트리밍 생성 로직 (num_ctx 제어 및 reasoning 지원)."""
         import json
+        import urllib.request
+
         from ..config import config
 
         base_url = config.model.api_base.rstrip("/")
@@ -856,9 +820,7 @@ class ModelManager:
         if "raw_messages" in kwargs:
             sys_msg = kwargs.get("system_prompt", "")
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs[
-                    "raw_messages"
-                ]
+                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
             else:
                 api_msgs = kwargs["raw_messages"]
         else:
@@ -884,8 +846,8 @@ class ModelManager:
 
         api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
 
-        model_name, temperature, thinking_config, attribution = (
-            self._apply_dynamic_inference_config(loaded.profile, api_msgs, kwargs)
+        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
+            loaded.profile, api_msgs, kwargs
         )
 
         if api_msgs and isinstance(api_msgs[0].get("content"), str):
@@ -938,17 +900,18 @@ class ModelManager:
             try:
                 error_body = e.read().decode("utf-8")
             except Exception:
+                logger.exception("Unhandled exception")
                 error_body = ""
-            logger.error(f"Local API stream failed with HTTPError: {e} - {error_body}")
+            logger.error("Local API stream failed with HTTPError: %s - %s", e, error_body)
             yield f"[API Error for {loaded.profile.name}] {e} - {error_body}"
         except Exception as e:
-            logger.error(f"Local API stream failed: {e}")
+            logger.exception("Local API stream failed")
             yield f"[API Error for {loaded.profile.name}] {e}"
 
     # ─── 상태 조회 ───────────────────────────────────────────────────
 
     def status(self) -> dict:
-        """현재 로드 상태 반환"""
+        """현재 로드 상태 반환."""
         loaded_models = []
         total_memory = 0.0
 
@@ -961,7 +924,7 @@ class ModelManager:
                     "memory_gb": loaded.actual_memory_gb,
                     "loaded_at": loaded.loaded_at,
                     "last_used_at": loaded.last_used_at,
-                }
+                },
             )
 
         return {
@@ -973,20 +936,33 @@ class ModelManager:
         }
 
     def loaded_names(self) -> list[str]:
-        """현재 로드된 모델 이름 목록"""
+        """현재 로드된 모델 이름 목록."""
         return list(self._loaded.keys())
 
     def is_loaded(self, name: str) -> bool:
+        """Check if loaded.
+
+        Args:
+            name (str): str name.
+
+        Returns:
+            bool: The bool result.
+
+        """
+        from ..config import config
+
         if name in self._loaded:
             return True
         # Check Ollama active models dynamically
         profile = self._registry.get_model(name)
         if profile and getattr(profile, "backend", "ollama") == "ollama":
             try:
-                import urllib.request
                 import json
+                import urllib.request
 
-                req = urllib.request.Request(f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/tags")
+                req = urllib.request.Request(
+                    f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/tags",
+                )
                 with urllib.request.urlopen(req, timeout=2) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     for m in data.get("models", []):
@@ -995,13 +971,14 @@ class ModelManager:
                         if m_name == name or m_name.startswith(name + ":") or name.startswith(m_name + ":"):
                             return True
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
         return False
 
     # ─── 내부 메서드 ─────────────────────────────────────────────────
 
     def _ensure_memory(self, needed_gb: float) -> None:
-        """필요한 메모리 확보 (MemoryPolicy에 위임)"""
+        """필요한 메모리 확보 (MemoryPolicy에 위임)."""
         self._memory_policy.ensure_memory(
             needed_gb=needed_gb,
             loaded_models=self._loaded,
@@ -1009,12 +986,13 @@ class ModelManager:
         )
 
     def _load_mlx_model(self, profile: ModelProfile) -> tuple[Any, Any]:
-        """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)"""
+        """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)."""
         import platform
+
         from ..config import config
 
         if config.model.force_api or platform.system() != "Darwin":
-            logger.info(f"[{profile.name}] 외부 API 어댑터 모드를 사용합니다.")
+            logger.info("[%s] 외부 API 어댑터 모드를 사용합니다.", profile.name)
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
 
         if profile.role == "embedding":
@@ -1030,14 +1008,14 @@ class ModelManager:
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
 
     def _load_embedding_model(self, profile: ModelProfile) -> tuple[Any, Any]:
-        """임베딩 모델 로드 (Mac 전용)"""
+        """임베딩 모델 로드 (Mac 전용)."""
         try:
             from sentence_transformers import SentenceTransformer
 
             model = SentenceTransformer(profile.repo)
             return model, None
-        except (ImportError, Exception) as e:
-            logger.warning(f"임베딩 모델 로드 실패 ({e}). 더미 임베딩 반환.")
+        except (ImportError, Exception):
+            logger.exception("임베딩 모델 로드 실패 (%s). 더미 임베딩 반환.")
             return _OllamaModel(profile.name), None
 
 
@@ -1045,7 +1023,7 @@ class ModelManager:
 
 
 class _OllamaModel:
-    """Windows에서 Ollama API 연동을 위한 더미 모델 객체"""
+    """Windows에서 Ollama API 연동을 위한 더미 모델 객체."""
 
     def __init__(self, name: str):
         self.name = name
@@ -1084,14 +1062,15 @@ class _OllamaTokenizer:
         return any(lo <= cp <= hi for lo, hi in _OllamaTokenizer._CJK_RANGES)
 
     def encode(self, text: str, **kwargs) -> list[int]:
-        """토큰 수 추정: CJK 문자 개별 1.5토큰 + 라틴 단어 1.3토큰"""
-        import math
+        """토큰 수 추정: CJK 문자 개별 1.5토큰 + 라틴 단어 1.3토큰."""
         import json
+        import math
 
         if not isinstance(text, str):
             try:
                 text = json.dumps(text, ensure_ascii=False)
             except Exception:
+                logger.exception("Unhandled exception")
                 text = str(text)
 
         cjk_count = 0

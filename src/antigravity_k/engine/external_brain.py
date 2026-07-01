@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 외부 AI 두뇌 어댑터 (ExternalBrainAdapter)
+"""Antigravity-K: 외부 AI 두뇌 어댑터 (ExternalBrainAdapter).
+
 ==========================================================
 설치된 AI 앱(Gemini Desktop, ChatGPT Web)의 채팅 UI를
 GUI 자동화로 제어하여 API 없이 추론 결과를 획득합니다.
@@ -19,7 +19,7 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.external_brain")
 
@@ -29,7 +29,7 @@ logger = logging.getLogger("antigravity_k.external_brain")
 
 @dataclass
 class BrainResponse:
-    """외부 두뇌로부터 받은 응답"""
+    """외부 두뇌로부터 받은 응답."""
 
     text: str
     source: str  # "gemini_app", "chatgpt_web", etc.
@@ -42,12 +42,19 @@ class BrainResponse:
 
 
 class ExternalBrainAdapter(ABC):
-    """외부 AI 두뇌 어댑터 기반 클래스"""
+    """외부 AI 두뇌 어댑터 기반 클래스."""
 
     def __init__(self, name: str, timeout_sec: float = 120.0):
+        """Initialize the ExternalBrainAdapter.
+
+        Args:
+            name (str): str name.
+            timeout_sec (float): float timeout sec.
+
+        """
         self.name = name
         self.timeout_sec = timeout_sec
-        self._available: Optional[bool] = None
+        self._available: bool | None = None
 
     @abstractmethod
     async def send(self, prompt: str) -> BrainResponse:
@@ -64,8 +71,7 @@ class ExternalBrainAdapter(ABC):
 
 
 class GeminiAppAdapter(ExternalBrainAdapter):
-    """
-    macOS Gemini 네이티브 앱을 AppleScript로 제어합니다.
+    """macOS Gemini 네이티브 앱을 AppleScript로 제어합니다.
 
     흐름:
     1. Gemini 앱 활성화 (AppleScript)
@@ -77,10 +83,16 @@ class GeminiAppAdapter(ExternalBrainAdapter):
     BUNDLE_ID = "com.google.GeminiMacOS"
 
     def __init__(self, timeout_sec: float = 120.0):
+        """Initialize the GeminiAppAdapter.
+
+        Args:
+            timeout_sec (float): float timeout sec.
+
+        """
         super().__init__("gemini_app", timeout_sec)
 
     async def is_available(self) -> bool:
-        """Gemini 앱이 설치되어 있는지 확인 (실행 중 아니어도 OK)"""
+        """Gemini 앱이 설치되어 있는지 확인 (실행 중 아니어도 OK)."""
         try:
             # 1) 프로세스 실행 중 확인
             result = subprocess.run(
@@ -105,20 +117,24 @@ class GeminiAppAdapter(ExternalBrainAdapter):
             )
             self._available = bool(check_app.stdout.strip())
             return self._available
-        except Exception as e:
-            logger.warning(f"Gemini availability check failed: {e}")
+        except Exception:
+            logger.exception("Gemini availability check failed")
             self._available = False
             return False
 
     async def _ensure_window(self):
         """Gemini 창이 없으면 새 채팅 창을 열어줍니다."""
         check_script = f"""tell application "System Events"
+
             tell process "{self.APP_NAME}"
                 return count of windows
             end tell
         end tell"""
         result = subprocess.run(
-            ["osascript", "-e", check_script], capture_output=True, text=True, timeout=5
+            ["osascript", "-e", check_script],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         win_count = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
         if win_count == 0:
@@ -133,7 +149,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
                 [
                     "osascript",
                     "-e",
-                    f'tell application "System Events" to tell process "{self.APP_NAME}" to keystroke "n" using command down',
+                    f'tell application "System Events" to tell process "{self.APP_NAME}" to keystroke "n" using command down',  # noqa: E501
                 ],
                 capture_output=True,
                 timeout=5,
@@ -171,13 +187,12 @@ class GeminiAppAdapter(ExternalBrainAdapter):
 
             # 2. 프롬프트 입력 (키보드 시뮬레이션)
             # 특수문자 이스케이프 처리
-            escaped_prompt = (
-                prompt.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-            )
+            escaped_prompt = prompt.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
             # 클립보드를 통한 안전한 텍스트 입력
             input_script = f"""
                 set the clipboard to "{escaped_prompt}"
+
                 tell application "System Events"
                     tell process "{self.APP_NAME}"
                         set frontmost to true
@@ -188,9 +203,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
                     end tell
                 end tell
             """
-            subprocess.run(
-                ["osascript", "-e", input_script], capture_output=True, timeout=15
-            )
+            subprocess.run(["osascript", "-e", input_script], capture_output=True, timeout=15)
 
             # 3. 응답 대기 (polling 방식)
             response_text = await self._wait_for_response(prompt)
@@ -214,7 +227,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
 
         except Exception as e:
             latency = (time.time() - start) * 1000
-            logger.error(f"GeminiApp send failed: {e}")
+            logger.exception("GeminiApp send failed")
             return BrainResponse(
                 text="",
                 source=self.name,
@@ -224,8 +237,8 @@ class GeminiAppAdapter(ExternalBrainAdapter):
             )
 
     async def _wait_for_response(self, prompt: str) -> str:
-        """
-        Gemini 앱의 응답을 Accessibility API로 추출합니다.
+        """Gemini 앱의 응답을 Accessibility API로 추출합니다.
+
         응답이 안정화(스트리밍 완료)될 때까지 polling합니다.
         """
         max_wait = self.timeout_sec
@@ -240,6 +253,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
 
             # 방법 1: Cmd+A → Cmd+C (전체 선택 → 클립보드)로 텍스트 추출
             extract_script = f"""tell application "System Events"
+
                 tell process "{self.APP_NAME}"
                     set frontmost to true
                     keystroke "a" using command down
@@ -285,7 +299,8 @@ class GeminiAppAdapter(ExternalBrainAdapter):
                         last_text = current_text
 
             except Exception as e:
-                logger.debug(f"Response extraction attempt failed: {e}")
+                logger.exception("Unhandled exception")
+                logger.debug("Response extraction attempt failed: %s", e)
                 continue
 
         return last_text or ""
@@ -295,8 +310,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
 
 
 class ChatGPTWebAdapter(ExternalBrainAdapter):
-    """
-    ChatGPT 웹 버전을 Playwright로 제어합니다.
+    """ChatGPT 웹 버전을 Playwright로 제어합니다.
 
     흐름:
     1. Chrome 프로필/쿠키로 자동 로그인
@@ -308,13 +322,20 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
     CHATGPT_URL = "https://chatgpt.com"
 
     def __init__(self, timeout_sec: float = 120.0, cookies_path: str = ""):
+        """Initialize the ChatGPTWebAdapter.
+
+        Args:
+            timeout_sec (float): float timeout sec.
+            cookies_path (str): str cookies path.
+
+        """
         super().__init__("chatgpt_web", timeout_sec)
         self.cookies_path = cookies_path
         self._browser = None
         self._page = None
 
     async def is_available(self) -> bool:
-        """Playwright가 설치되어 있는지 확인"""
+        """Playwright가 설치되어 있는지 확인."""
         self._available = importlib.util.find_spec("playwright.async_api") is not None
         return self._available
 
@@ -330,19 +351,16 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
                 import shutil
                 import tempfile
 
-                original_dir = os.path.expanduser(
-                    "~/Library/Application Support/Google/Chrome"
-                )
+                original_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome")
                 # 임시 디렉토리에 Default 프로필 쿠키만 복사
                 temp_dir = tempfile.mkdtemp(prefix="agk_chrome_")
                 try:
                     cookie_src = os.path.join(original_dir, "Default", "Cookies")
                     if os.path.exists(cookie_src):
                         os.makedirs(os.path.join(temp_dir, "Default"), exist_ok=True)
-                        shutil.copy2(
-                            cookie_src, os.path.join(temp_dir, "Default", "Cookies")
-                        )
+                        shutil.copy2(cookie_src, os.path.join(temp_dir, "Default", "Cookies"))
                 except Exception:
+                    logger.exception("Unhandled exception")
                     pass  # 쿠키 복사 실패 시 빈 프로필 사용
 
                 browser = await p.chromium.launch_persistent_context(
@@ -353,9 +371,7 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
                 )
 
                 page = browser.pages[0] if browser.pages else await browser.new_page()
-                await page.goto(
-                    self.CHATGPT_URL, wait_until="networkidle", timeout=30000
-                )
+                await page.goto(self.CHATGPT_URL, wait_until="networkidle", timeout=30000)
                 await asyncio.sleep(2)
 
                 # 입력란 찾기 (2026 ChatGPT UI 대응)
@@ -381,6 +397,7 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
                 try:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 except Exception:
+                    logger.exception("Unhandled exception")
                     pass
 
                 return BrainResponse(
@@ -393,7 +410,7 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
 
         except Exception as e:
             latency = (time.time() - start) * 1000
-            logger.error(f"ChatGPT web send failed: {e}")
+            logger.exception("ChatGPT web send failed")
             return BrainResponse(
                 text="",
                 source=self.name,
@@ -424,7 +441,7 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
             try:
                 # 캡챠나 네트워크 에러 등 감지
                 error_el = await page.query_selector(
-                    '.text-red-500, .error-message, div[data-testid="captcha"]'
+                    '.text-red-500, .error-message, div[data-testid="captcha"]',
                 )
                 if error_el:
                     err_text = await error_el.inner_text()
@@ -435,14 +452,15 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
                     if await page.query_selector(sel):
                         # 완료 마커를 찾았으므로 즉시 텍스트 추출
                         messages = await page.query_selector_all(
-                            '[data-message-author-role="assistant"], .markdown.prose, .agent-turn'
+                            '[data-message-author-role="assistant"], .markdown.prose, .agent-turn',
                         )
                         if messages:
                             return (await messages[-1].inner_text()).strip()
 
                 # Fallback: 기존의 Text Polling (길이 변화 없음 감지)
                 messages = await page.query_selector_all(
-                    '[data-message-author-role="assistant"], .markdown.prose, .agent-turn, article[data-testid^="conversation-turn"]'
+                    '[data-message-author-role="assistant"], .markdown.prose, .agent-turn,'
+                    'article[data-testid^="conversation-turn"]',
                 )
                 if messages:
                     last_msg = messages[-1]
@@ -467,29 +485,46 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
 
 
 class GeminiWebAdapter(ExternalBrainAdapter):
-    """
-    Gemini 웹 버전을 Playwright로 제어합니다 (앱 대안).
-    """
+    """Gemini 웹 버전을 Playwright로 제어합니다 (앱 대안)."""
 
     GEMINI_URL = "https://gemini.google.com"
 
     def __init__(self, timeout_sec: float = 120.0):
+        """Initialize the GeminiWebAdapter.
+
+        Args:
+            timeout_sec (float): float timeout sec.
+
+        """
         super().__init__("gemini_web", timeout_sec)
 
     async def is_available(self) -> bool:
+        """Check if available.
+
+        Returns:
+            bool: The bool result.
+
+        """
         self._available = importlib.util.find_spec("playwright.async_api") is not None
         return self._available
 
     async def send(self, prompt: str) -> BrainResponse:
+        """Send.
+
+        Args:
+            prompt (str): str prompt.
+
+        Returns:
+            BrainResponse: The brainresponse result.
+
+        """
         from playwright.async_api import async_playwright
 
         start = time.time()
 
         try:
             async with async_playwright() as p:
-                user_data_dir = os.path.expanduser(
-                    "~/Library/Application Support/Google/Chrome"
-                )
+                user_data_dir = os.path.expanduser("~/Library/Application Support/Google/Chrome")
                 browser = await p.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
                     headless=False,
@@ -497,9 +532,7 @@ class GeminiWebAdapter(ExternalBrainAdapter):
                     args=["--disable-blink-features=AutomationControlled"],
                 )
                 page = browser.pages[0] if browser.pages else await browser.new_page()
-                await page.goto(
-                    self.GEMINI_URL, wait_until="networkidle", timeout=30000
-                )
+                await page.goto(self.GEMINI_URL, wait_until="networkidle", timeout=30000)
                 await asyncio.sleep(2)
 
                 # 입력란
@@ -526,6 +559,7 @@ class GeminiWebAdapter(ExternalBrainAdapter):
                     success=bool(response_text),
                 )
         except Exception as e:
+            logger.exception("Unhandled exception")
             latency = (time.time() - start) * 1000
             return BrainResponse(
                 text="",
@@ -563,13 +597,13 @@ class GeminiWebAdapter(ExternalBrainAdapter):
                 for sel in completion_selectors:
                     if await page.query_selector(sel):
                         msgs = await page.query_selector_all(
-                            ".model-response-text, .response-container, message-content, .response-content"
+                            ".model-response-text, .response-container, message-content, .response-content",
                         )
                         if msgs:
                             return (await msgs[-1].inner_text()).strip()
 
                 msgs = await page.query_selector_all(
-                    ".model-response-text, .response-container, message-content, .response-content"
+                    ".model-response-text, .response-container, message-content, .response-content",
                 )
                 if msgs:
                     current = (await msgs[-1].inner_text()).strip()
@@ -591,8 +625,7 @@ class GeminiWebAdapter(ExternalBrainAdapter):
 
 
 class ExternalBrainRouter:
-    """
-    여러 외부 두뇌 어댑터를 관리하고 라우팅합니다.
+    """여러 외부 두뇌 어댑터를 관리하고 라우팅합니다.
 
     전략:
     - fallback: 첫 번째 가용 두뇌 사용, 실패 시 다음으로
@@ -600,7 +633,13 @@ class ExternalBrainRouter:
     - compare: 여러 두뇌에 동시 전송, 결과 비교
     """
 
-    def __init__(self, adapters: List[ExternalBrainAdapter] = None):
+    def __init__(self, adapters: list[ExternalBrainAdapter] = None):
+        """Initialize the ExternalBrainRouter.
+
+        Args:
+            adapters (list[ExternalBrainAdapter]): list[ExternalBrainAdapter] adapters.
+
+        """
         self.adapters = adapters or [
             GeminiAppAdapter(),
             ChatGPTWebAdapter(),
@@ -609,10 +648,12 @@ class ExternalBrainRouter:
         self._round_robin_idx = 0
 
     async def send(
-        self, prompt: str, strategy: str = "fallback", target: str = ""
+        self,
+        prompt: str,
+        strategy: str = "fallback",
+        target: str = "",
     ) -> BrainResponse:
         """프롬프트를 외부 두뇌에 전송합니다."""
-
         # 특정 타겟 지정
         if target:
             adapter = next((a for a in self.adapters if a.name == target), None)
@@ -640,7 +681,7 @@ class ExternalBrainRouter:
                 response = await adapter.send(prompt)
                 if response.success:
                     return response
-                logger.warning(f"[{adapter.name}] 실패, 다음 두뇌로 폴백")
+                logger.warning("[%s] 실패, 다음 두뇌로 폴백", adapter.name)
         return BrainResponse(
             text="",
             source="none",
@@ -651,9 +692,7 @@ class ExternalBrainRouter:
     async def _send_round_robin(self, prompt: str) -> BrainResponse:
         available = [a for a in self.adapters if await a.is_available()]
         if not available:
-            return BrainResponse(
-                text="", source="none", success=False, error="가용 두뇌 없음"
-            )
+            return BrainResponse(text="", source="none", success=False, error="가용 두뇌 없음")
 
         idx = self._round_robin_idx % len(available)
         self._round_robin_idx += 1
@@ -663,9 +702,7 @@ class ExternalBrainRouter:
         """여러 두뇌에 동시 전송하고 결과를 비교합니다."""
         available = [a for a in self.adapters if await a.is_available()]
         if not available:
-            return BrainResponse(
-                text="", source="none", success=False, error="가용 두뇌 없음"
-            )
+            return BrainResponse(text="", source="none", success=False, error="가용 두뇌 없음")
 
         tasks = [a.send(prompt) for a in available]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -676,16 +713,12 @@ class ExternalBrainRouter:
                 successful.append(r)
 
         if not successful:
-            return BrainResponse(
-                text="", source="compare", success=False, error="모든 비교 실패"
-            )
+            return BrainResponse(text="", source="compare", success=False, error="모든 비교 실패")
 
         # 비교 리포트 생성
         compare_text = "## 🧠 외부 두뇌 비교 결과\n\n"
         for i, r in enumerate(successful, 1):
-            compare_text += (
-                f"### [{r.source}] ({r.latency_ms:.0f}ms)\n{r.text}\n\n---\n\n"
-            )
+            compare_text += f"### [{r.source}] ({r.latency_ms:.0f}ms)\n{r.text}\n\n---\n\n"
 
         return BrainResponse(
             text=compare_text,
@@ -694,7 +727,7 @@ class ExternalBrainRouter:
             success=True,
         )
 
-    async def list_available(self) -> List[Dict[str, Any]]:
+    async def list_available(self) -> list[dict[str, Any]]:
         """사용 가능한 외부 두뇌 목록을 반환합니다."""
         result = []
         for adapter in self.adapters:
@@ -704,6 +737,6 @@ class ExternalBrainRouter:
                     "name": adapter.name,
                     "available": available,
                     "timeout_sec": adapter.timeout_sec,
-                }
+                },
             )
         return result

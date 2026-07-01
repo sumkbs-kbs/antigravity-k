@@ -1,8 +1,10 @@
-import os
-import logging
-from typing import Dict, Any
+"""Artifact Tools module."""
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+import logging
+import os
+from typing import Any
+
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +19,16 @@ class WriteArtifactTool(BaseTool):
     tags = ["artifact", "markdown", "write", "document", "plan"]
 
     def __init__(self, project_root: str = None):
+        """Initialize the WriteArtifactTool.
+
+        Args:
+            project_root (str): str project root.
+
+        """
         super().__init__()
         self._name = "write_artifact"
-        self._description = "Write a structured markdown artifact (like an implementation plan, review report, or task list). This will save the artifact directly into the 'artifacts/' directory of the current project. When in Planning Mode, set RequestFeedback to true to pause and ask for user approval."
+        self._description = "Write a structured markdown artifact (like an implementation plan, review report, or task list). This will save the"  # type: ignore  # noqa: E501
+        "artifact directly into the 'artifacts/' directory of the current project. When in Planning Mode, set RequestFeedback to true to pause and ask for user approval."  # noqa: E501
         self._schema = {
             "type": "object",
             "properties": {
@@ -67,17 +76,44 @@ class WriteArtifactTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         artifact_name = kwargs.get("artifact_name", "")
         content = kwargs.get("content", "")
         artifact_type = kwargs.get("artifact_type", "generic")
@@ -106,10 +142,13 @@ class WriteArtifactTool(BaseTool):
             req_feedback = metadata.get("RequestFeedback", False)
             art_type = metadata.get("ArtifactType", artifact_type)
 
-            result_str = f"[ARTIFACT GENERATED: {artifact_name} (Type: {art_type})]\nSuccessfully saved to {file_path}. "
+            result_str = (
+                f"[ARTIFACT GENERATED: {artifact_name} (Type: {art_type})]\nSuccessfully saved to {file_path}. "
+            )
             if req_feedback:
                 result_str += "\n[PLANNING_MODE: WAITING_FOR_USER_APPROVAL]"
 
             return result_str
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error generating artifact: {e}"

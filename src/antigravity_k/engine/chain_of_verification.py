@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Chain-of-Verification (CoV) 자기검증 루프
+"""Antigravity-K: Chain-of-Verification (CoV) 자기검증 루프.
+
 ========================================================
 모델이 생성한 답변을 동일 모델의 별도 호출로 검증하여
 복잡한 추론에서의 환각과 논리적 오류를 자가 수정합니다.
@@ -10,8 +10,8 @@ Antigravity-K: Chain-of-Verification (CoV) 자기검증 루프
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional
 
 logger = logging.getLogger("antigravity_k.chain_of_verification")
 
@@ -20,9 +20,9 @@ logger = logging.getLogger("antigravity_k.chain_of_verification")
 class VerificationResult:
     """검증 결과."""
 
-    issues_found: List[str] = field(default_factory=list)
+    issues_found: list[str] = field(default_factory=list)
     severity: str = "none"  # none, low, medium, high
-    suggested_fixes: List[str] = field(default_factory=list)
+    suggested_fixes: list[str] = field(default_factory=list)
     verification_reasoning: str = ""
     passed: bool = True
 
@@ -32,7 +32,7 @@ class CoVTrace:
     """CoV 실행 추적."""
 
     original_response: str = ""
-    verification_result: Optional[VerificationResult] = None
+    verification_result: VerificationResult | None = None
     revised_response: str = ""
     total_passes: int = 1
     total_latency_ms: float = 0.0
@@ -92,8 +92,7 @@ SIMPLE_INDICATORS = [
 
 
 class ChainOfVerification:
-    """
-    Generate → Verify → Revise 3-pass 자기검증 파이프라인.
+    """Generate → Verify → Revise 3-pass 자기검증 파이프라인.
 
     단순 질문은 1-pass로 통과시키고,
     복잡한 코드 생성/아키텍처 설계만 선택적으로 3-pass를 적용합니다.
@@ -101,15 +100,15 @@ class ChainOfVerification:
 
     def __init__(
         self,
-        generate_fn: Optional[Callable] = None,
+        generate_fn: Callable | None = None,
         min_response_length: int = 200,
         complexity_threshold: float = 0.4,
     ):
-        """
-        Args:
-            generate_fn: 모델 호출 함수 (prompt: str) -> str
-            min_response_length: CoV를 적용할 최소 응답 길이
-            complexity_threshold: 복잡도 점수 임계값 (0.0~1.0)
+        """Args:
+        generate_fn: 모델 호출 함수 (prompt: str) -> str
+        min_response_length: CoV를 적용할 최소 응답 길이
+        complexity_threshold: 복잡도 점수 임계값 (0.0~1.0).
+
         """
         self._generate_fn = generate_fn
         self.min_response_length = min_response_length
@@ -225,8 +224,8 @@ class ChainOfVerification:
             revised = self._generate_fn(revise_prompt)
             if revised and len(revised.strip()) > 50:
                 return revised
-        except Exception as e:
-            logger.warning(f"[CoV] Revision failed: {e}")
+        except Exception:
+            logger.exception("[CoV] Revision failed")
 
         return response  # 수정 실패 시 원본 유지
 
@@ -235,6 +234,7 @@ class ChainOfVerification:
 
         Returns:
             CoVTrace with original, verification, and revised response
+
         """
         trace = CoVTrace(original_response=response)
         start = time.time()
@@ -261,17 +261,18 @@ class ChainOfVerification:
 
         trace.total_latency_ms = (time.time() - start) * 1000
         logger.info(
-            f"[CoV] {trace.total_passes}-pass complete. "
-            f"Issues: {len(verification.issues_found)}, "
-            f"Severity: {verification.severity}, "
-            f"Latency: {trace.total_latency_ms:.0f}ms"
+            "[CoV] %s-pass complete. Issues: %s, Severity: %s, Latency: %sms",
+            trace.total_passes,
+            len(verification.issues_found),
+            verification.severity,
+            trace.total_latency_ms,
         )
 
         return trace
 
     # ─── 규칙 기반 빠른 검증 ──────────────────────────────────
 
-    def _rule_based_check(self, task: str, response: str) -> List[str]:
+    def _rule_based_check(self, task: str, response: str) -> list[str]:
         """LLM 호출 없이 규칙 기반으로 빠르게 검증합니다."""
         issues = []
 
@@ -283,9 +284,7 @@ class ChainOfVerification:
             try:
                 _ast.parse(code)
             except SyntaxError as e:
-                issues.append(
-                    f"코드 블록 #{i+1}에 구문 오류: {e.msg} (line {e.lineno})"
-                )
+                issues.append(f"코드 블록 #{i + 1}에 구문 오류: {e.msg} (line {e.lineno})")
 
         # 2. 자기 모순 감지 (동일 답변 내 상반된 주장)
         response_lower = response.lower()
@@ -300,9 +299,7 @@ class ChainOfVerification:
                 # 같은 문단에서 모순이면 문제
                 for para in response.split("\n\n"):
                     if a.lower() in para.lower() and b.lower() in para.lower():
-                        issues.append(
-                            f"자기 모순 감지: '{a}'와 '{b}'가 같은 문단에 동시 존재"
-                        )
+                        issues.append(f"자기 모순 감지: '{a}'와 '{b}'가 같은 문단에 동시 존재")
                         break
 
         # 3. 과도한 반복 감지
@@ -317,7 +314,7 @@ class ChainOfVerification:
 
         return issues
 
-    def _llm_verify(self, task: str, response: str) -> Optional[VerificationResult]:
+    def _llm_verify(self, task: str, response: str) -> VerificationResult | None:
         """LLM을 호출하여 심층 검증합니다."""
         verify_prompt = (
             "당신은 엄격한 테크니컬 리뷰어입니다. 아래 답변에서 다음 사항들을 검증해주세요:\n"
@@ -355,6 +352,6 @@ class ChainOfVerification:
 
             return result
 
-        except Exception as e:
-            logger.warning(f"[CoV] LLM verification failed: {e}")
+        except Exception:
+            logger.exception("[CoV] LLM verification failed")
             return None

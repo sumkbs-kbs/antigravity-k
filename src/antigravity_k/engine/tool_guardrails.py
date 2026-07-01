@@ -1,5 +1,5 @@
-"""
-ToolCallGuardrail — 도구 호출 루프 가드레일 시스템
+"""ToolCallGuardrail — 도구 호출 루프 가드레일 시스템.
+
 ====================================================
 Hermes Agent의 tool_guardrails.py 패턴을 Antigravity-K에 이식.
 
@@ -32,8 +32,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.tool_guardrails")
 
@@ -56,7 +57,7 @@ IDEMPOTENT_TOOL_NAMES = frozenset(
         "hex_dump",
         "search_knowledge",
         "impact_analyzer",
-    }
+    },
 )
 
 # ── 변경 가능 도구 목록 ──
@@ -82,7 +83,7 @@ MUTATING_TOOL_NAMES = frozenset(
         "cowork_delegate",
         "db_migration",
         "store_knowledge",
-    }
+    },
 )
 
 
@@ -116,9 +117,7 @@ class ToolCallGuardrailConfig:
     mutating_tools: frozenset = field(default_factory=lambda: MUTATING_TOOL_NAMES)
 
     @classmethod
-    def from_config(
-        cls, data: Optional[Mapping[str, Any]] = None
-    ) -> "ToolCallGuardrailConfig":
+    def from_config(cls, data: Mapping[str, Any] | None = None) -> "ToolCallGuardrailConfig":
         """config.yaml의 `tool_loop_guardrails` 섹션에서 설정 로드."""
         if not isinstance(data, Mapping):
             return cls()
@@ -132,14 +131,11 @@ class ToolCallGuardrailConfig:
 
         defaults = cls()
         return cls(
-            warnings_enabled=_as_bool(
-                data.get("warnings_enabled"), defaults.warnings_enabled
-            ),
-            hard_stop_enabled=_as_bool(
-                data.get("hard_stop_enabled"), defaults.hard_stop_enabled
-            ),
+            warnings_enabled=_as_bool(data.get("warnings_enabled"), defaults.warnings_enabled),
+            hard_stop_enabled=_as_bool(data.get("hard_stop_enabled"), defaults.hard_stop_enabled),
             exact_failure_warn_after=_positive_int(
-                warn_after.get("exact_failure"), defaults.exact_failure_warn_after
+                warn_after.get("exact_failure"),
+                defaults.exact_failure_warn_after,
             ),
             same_tool_failure_warn_after=_positive_int(
                 warn_after.get("same_tool_failure"),
@@ -150,7 +146,8 @@ class ToolCallGuardrailConfig:
                 defaults.no_progress_warn_after,
             ),
             exact_failure_block_after=_positive_int(
-                hard_stop_after.get("exact_failure"), defaults.exact_failure_block_after
+                hard_stop_after.get("exact_failure"),
+                defaults.exact_failure_block_after,
             ),
             same_tool_failure_halt_after=_positive_int(
                 hard_stop_after.get("same_tool_failure"),
@@ -175,10 +172,26 @@ class ToolCallSignature:
 
     @classmethod
     def from_call(cls, tool_name: str, args: Mapping[str, Any]) -> "ToolCallSignature":
+        """From Call.
+
+        Args:
+            tool_name (str): str tool name.
+            args (Mapping[str, Any]): Mapping[str, Any] args.
+
+        Returns:
+            'ToolCallSignature': The 'toolcallsignature' result.
+
+        """
         canonical = _canonical_args(args or {})
         return cls(tool_name=tool_name, args_hash=_sha256(canonical))
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
+        """To Dict.
+
+        Returns:
+            dict[str, str]: The dict[str, str] result.
+
+        """
         return {"tool_name": self.tool_name, "args_hash": self.args_hash}
 
 
@@ -194,7 +207,7 @@ class ToolGuardrailDecision:
     message: str = ""  # 사용자/에이전트 안내 메시지
     tool_name: str = ""
     count: int = 0
-    signature: Optional[ToolCallSignature] = None
+    signature: ToolCallSignature | None = None
 
     @property
     def allows_execution(self) -> bool:
@@ -206,7 +219,13 @@ class ToolGuardrailDecision:
         """턴을 강제 중단해야 하는지 여부."""
         return self.action in {"block", "halt"}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         data = {
             "action": self.action,
             "code": self.code,
@@ -222,7 +241,7 @@ class ToolGuardrailDecision:
 # ── 실패 분류 헬퍼 ──
 
 
-def classify_tool_failure(tool_name: str, result: Optional[str]) -> Tuple[bool, str]:
+def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str]:
     """도구 실행 결과에서 실패 여부를 추정합니다.
 
     호출자가 명시적으로 failed= 를 전달하지 않을 때의 폴백 분류기.
@@ -260,24 +279,32 @@ class ToolCallGuardrailController:
     실행 중단은 호출자(Orchestrator)가 결정합니다.
     """
 
-    def __init__(self, config: Optional[ToolCallGuardrailConfig] = None):
+    def __init__(self, config: ToolCallGuardrailConfig | None = None):
+        """Initialize the ToolCallGuardrailController.
+
+        Args:
+            config (ToolCallGuardrailConfig | None): ToolCallGuardrailConfig | None config.
+
+        """
         self.config = config or ToolCallGuardrailConfig()
         self.reset_for_turn()
 
     def reset_for_turn(self) -> None:
         """새 턴 시작 시 모든 카운터 초기화."""
-        self._exact_failure_counts: Dict[ToolCallSignature, int] = {}
-        self._same_tool_failure_counts: Dict[str, int] = {}
-        self._no_progress: Dict[ToolCallSignature, Tuple[str, int]] = {}
-        self._halt_decision: Optional[ToolGuardrailDecision] = None
+        self._exact_failure_counts: dict[ToolCallSignature, int] = {}
+        self._same_tool_failure_counts: dict[str, int] = {}
+        self._no_progress: dict[ToolCallSignature, tuple[str, int]] = {}
+        self._halt_decision: ToolGuardrailDecision | None = None
 
     @property
-    def halt_decision(self) -> Optional[ToolGuardrailDecision]:
+    def halt_decision(self) -> ToolGuardrailDecision | None:
         """마지막 차단 판정. None이면 아직 차단 없음."""
         return self._halt_decision
 
     def before_call(
-        self, tool_name: str, args: Optional[Mapping[str, Any]] = None
+        self,
+        tool_name: str,
+        args: Mapping[str, Any] | None = None,
     ) -> ToolGuardrailDecision:
         """도구 실행 전 사전 검사.
 
@@ -374,10 +401,10 @@ class ToolCallGuardrailController:
     def after_call(
         self,
         tool_name: str,
-        args: Optional[Mapping[str, Any]] = None,
-        result: Optional[str] = None,
+        args: Mapping[str, Any] | None = None,
+        result: str | None = None,
         *,
-        failed: Optional[bool] = None,
+        failed: bool | None = None,
     ) -> ToolGuardrailDecision:
         """도구 실행 후 결과 분석.
 
@@ -408,10 +435,7 @@ class ToolCallGuardrailController:
             repeat_count = previous[1] + 1
         self._no_progress[signature] = (result_hash, repeat_count)
 
-        if (
-            self.config.warnings_enabled
-            and repeat_count >= self.config.no_progress_warn_after
-        ):
+        if self.config.warnings_enabled and repeat_count >= self.config.no_progress_warn_after:
             return ToolGuardrailDecision(
                 action="warn",
                 code="idempotent_no_progress_warning",
@@ -424,12 +448,12 @@ class ToolCallGuardrailController:
                 signature=signature,
             )
 
-        return ToolGuardrailDecision(
-            tool_name=tool_name, count=repeat_count, signature=signature
-        )
+        return ToolGuardrailDecision(tool_name=tool_name, count=repeat_count, signature=signature)
 
     def _handle_failure(
-        self, tool_name: str, signature: ToolCallSignature
+        self,
+        tool_name: str,
+        signature: ToolCallSignature,
     ) -> ToolGuardrailDecision:
         """실패 시 카운터 업데이트 및 경고/차단 판정."""
         # 동일 인자 반복 실패 카운트
@@ -442,16 +466,12 @@ class ToolCallGuardrailController:
         self._same_tool_failure_counts[tool_name] = same_count
 
         # 차단 판정 (hard_stop 활성 시)
-        if (
-            self.config.hard_stop_enabled
-            and same_count >= self.config.same_tool_failure_halt_after
-        ):
+        if self.config.hard_stop_enabled and same_count >= self.config.same_tool_failure_halt_after:
             decision = ToolGuardrailDecision(
                 action="halt",
                 code="same_tool_failure_halt",
                 message=(
-                    f"{tool_name} 도구가 이번 턴에서 {same_count}회 실패했습니다. "
-                    "다른 도구나 접근 방법을 사용하세요."
+                    f"{tool_name} 도구가 이번 턴에서 {same_count}회 실패했습니다. 다른 도구나 접근 방법을 사용하세요."
                 ),
                 tool_name=tool_name,
                 count=same_count,
@@ -479,18 +499,13 @@ class ToolCallGuardrailController:
                 return ToolGuardrailDecision(
                     action="warn",
                     code="same_tool_failure_warning",
-                    message=(
-                        f"{tool_name} 도구가 이번 턴에서 {same_count}회 실패했습니다. "
-                        "접근 방법을 변경해 보세요."
-                    ),
+                    message=(f"{tool_name} 도구가 이번 턴에서 {same_count}회 실패했습니다. 접근 방법을 변경해 보세요."),
                     tool_name=tool_name,
                     count=same_count,
                     signature=signature,
                 )
 
-        return ToolGuardrailDecision(
-            tool_name=tool_name, count=exact_count, signature=signature
-        )
+        return ToolGuardrailDecision(tool_name=tool_name, count=exact_count, signature=signature)
 
     def _is_idempotent(self, tool_name: str) -> bool:
         """도구가 읽기 전용(비진행성 추적 대상)인지 확인."""
@@ -517,12 +532,8 @@ def append_guardrail_guidance(result: str, decision: ToolGuardrailDecision) -> s
     """경고 메시지를 도구 결과에 추가합니다."""
     if decision.action not in {"warn", "halt"} or not decision.message:
         return result
-    label = (
-        "⛔ Tool loop 강제 중단" if decision.action == "halt" else "⚠️ Tool loop 경고"
-    )
-    suffix = (
-        f"\n\n[{label}: {decision.code}; count={decision.count}; {decision.message}]"
-    )
+    label = "⛔ Tool loop 강제 중단" if decision.action == "halt" else "⚠️ Tool loop 경고"
+    suffix = f"\n\n[{label}: {decision.code}; count={decision.count}; {decision.message}]"
     return (result or "") + suffix
 
 
@@ -540,11 +551,11 @@ def _canonical_args(args: Mapping[str, Any]) -> str:
     )
 
 
-def _coerce_args(args: Optional[Mapping[str, Any]]) -> Mapping[str, Any]:
+def _coerce_args(args: Mapping[str, Any] | None) -> Mapping[str, Any]:
     return args if isinstance(args, Mapping) else {}
 
 
-def _result_hash(result: Optional[str]) -> str:
+def _result_hash(result: str | None) -> str:
     """결과 문자열의 정규화된 해시."""
     content = result or ""
     try:

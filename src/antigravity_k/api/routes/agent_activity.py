@@ -1,13 +1,13 @@
-"""
-Agent Activity API — 에이전트 활동 상태 + 감사 로그 조회 엔드포인트
+"""Agent Activity API — 에이전트 활동 상태 + 감사 로그 조회 엔드포인트.
+
 ====================================================================
 Sidabari의 패널 활동 추적 + SQLite 감사 로그를 대시보드에 제공합니다.
 """
 
-from fastapi import APIRouter, Query
-from typing import Optional
 import logging
 import time
+
+from fastapi import APIRouter, Query
 
 logger = logging.getLogger("antigravity_k.api.routes.agent_activity")
 
@@ -20,6 +20,7 @@ async def get_agent_activity():
 
     Returns:
         패널별 activity 상태 (thinking/idle) + 현재 도구 정보
+
     """
     try:
         from antigravity_k.engine.panel_activity_tracker import (
@@ -38,16 +39,16 @@ async def get_agent_activity():
             "timestamp": time.time(),
         }
     except Exception as e:
-        logger.error(f"Activity query failed: {e}")
+        logger.exception("Activity query failed")
         return {"ok": False, "error": str(e), "activities": {}}
 
 
 @router.get("/audit/recent")
 async def get_recent_audit_events(
     limit: int = Query(default=50, le=500),
-    kind: Optional[str] = Query(default=None),
-    panel_id: Optional[str] = Query(default=None),
-    since_minutes: Optional[int] = Query(default=None),
+    kind: str | None = Query(default=None),
+    panel_id: str | None = Query(default=None),
+    since_minutes: int | None = Query(default=None),
 ):
     """최근 감사 이벤트를 조회합니다.
 
@@ -56,6 +57,7 @@ async def get_recent_audit_events(
         kind: 이벤트 종류 필터
         panel_id: 패널 ID 필터
         since_minutes: 최근 N분 이내 이벤트만
+
     """
     try:
         from antigravity_k.engine.audit_db import get_audit_db
@@ -82,18 +84,19 @@ async def get_recent_audit_events(
             "total": db.count_events(since_ms=since_ms),
         }
     except Exception as e:
-        logger.error(f"Audit query failed: {e}")
+        logger.exception("Audit query failed")
         return {"ok": False, "error": str(e), "events": []}
 
 
 @router.get("/audit/tool-stats")
 async def get_tool_stats(
-    since_minutes: Optional[int] = Query(default=60),
+    since_minutes: int | None = Query(default=60),
 ):
     """도구별 호출 통계를 조회합니다.
 
     Args:
         since_minutes: 최근 N분 이내 통계 (기본 60분)
+
     """
     try:
         from antigravity_k.engine.audit_db import get_audit_db
@@ -114,12 +117,12 @@ async def get_tool_stats(
             "period_minutes": since_minutes,
         }
     except Exception as e:
-        logger.error(f"Tool stats query failed: {e}")
+        logger.exception("Tool stats query failed")
         return {"ok": False, "error": str(e), "stats": []}
 
 
 @router.get("/deny-rules/status")
-async def get_deny_rules_status(directory: Optional[str] = Query(default=None)):
+async def get_deny_rules_status(directory: str | None = Query(default=None)):
     """현재 deny 패턴 설치 상태를 확인합니다."""
     try:
         from antigravity_k.engine.claude_deny_patterns import (
@@ -137,13 +140,13 @@ async def get_deny_rules_status(directory: Optional[str] = Query(default=None)):
         else:
             return {"ok": True, "installed": False}
     except Exception as e:
-        logger.error(f"Deny rules status check failed: {e}")
+        logger.exception("Deny rules status check failed")
         return {"ok": False, "error": str(e)}
 
 
 @router.post("/deny-rules/install")
-async def install_deny_rules(directory: Optional[str] = None):
-    """deny 패턴을 설치합니다."""
+async def install_deny_rules(directory: str | None = None):
+    """Deny 패턴을 설치합니다."""
     try:
         from antigravity_k.engine.claude_deny_patterns import (
             install_deny_rules as _install,
@@ -157,5 +160,5 @@ async def install_deny_rules(directory: Optional[str] = None):
         report = _install(directory)
         return {"ok": True, **report.to_dict()}
     except Exception as e:
-        logger.error(f"Deny rules installation failed: {e}")
+        logger.exception("Deny rules installation failed")
         return {"ok": False, "error": str(e)}

@@ -1,5 +1,5 @@
-"""
-Computer Use 보안 Guardrail
+"""Computer Use 보안 Guardrail.
+
 ============================
 데스크탑 자동화 액션에 대한 보안 검증 레이어입니다.
 - 허용/차단 목록 기반 액션 필터링
@@ -8,16 +8,15 @@ Computer Use 보안 Guardrail
 """
 
 import logging
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class ActionGuard:
-    """
-    Computer Use 액션에 대한 보안 게이트키퍼.
+    """Computer Use 액션에 대한 보안 게이트키퍼.
 
     모든 액션 실행 전에 이 클래스를 통해 검증해야 합니다.
     허용된 액션만 통과시키며, 위험 액션은 차단 또는 HITL 요구합니다.
@@ -34,7 +33,7 @@ class ActionGuard:
             "type",
             "key",
             "scroll",
-        }
+        },
     )
 
     # HITL (사용자 승인) 필요 액션
@@ -42,7 +41,7 @@ class ActionGuard:
         {
             "left_click_drag",
             "hold_key",
-        }
+        },
     )
 
     # 절대 허용 불가 액션
@@ -51,7 +50,7 @@ class ActionGuard:
             "run_as_admin",
             "format_disk",
             "delete_system_file",
-        }
+        },
     )
 
     # P1 수정: 비율 기반 위험 영역 — 해상도 독립적 (런타임 계산)
@@ -85,7 +84,7 @@ class ActionGuard:
                     "y_max": int(zone["y_max_ratio"] * screen_height),
                     "x_min": int(zone["x_min_ratio"] * screen_width),
                     "x_max": int(zone["x_max_ratio"] * screen_width),
-                }
+                },
             )
         return zones
 
@@ -93,12 +92,21 @@ class ActionGuard:
         self,
         enabled: bool = True,
         hitl_required: bool = True,
-        audit_log_path: Optional[str] = None,
-        custom_blocked_actions: Optional[List[str]] = None,
+        audit_log_path: str | None = None,
+        custom_blocked_actions: list[str] | None = None,
     ):
+        """Initialize the ActionGuard.
+
+        Args:
+            enabled (bool): bool enabled.
+            hitl_required (bool): bool hitl required.
+            audit_log_path (str | None): str | None audit log path.
+            custom_blocked_actions (list[str] | None): list[str] | None custom blocked actions.
+
+        """
         self.enabled = enabled
         self.hitl_required = hitl_required
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
         if audit_log_path:
             self._audit_file = Path(audit_log_path)
@@ -107,13 +115,10 @@ class ActionGuard:
             self._audit_file = None
 
         if custom_blocked_actions:
-            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(
-                custom_blocked_actions
-            )
+            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions)
 
-    def validate_action(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        액션을 검증합니다.
+    def validate_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        """액션을 검증합니다.
 
         Returns:
             {
@@ -121,6 +126,7 @@ class ActionGuard:
                 "reason": str,
                 "requires_hitl": bool,  # 사용자 승인 필요 여부
             }
+
         """
         if not self.enabled:
             return {"allowed": True, "reason": "guard_disabled", "requires_hitl": False}
@@ -151,10 +157,7 @@ class ActionGuard:
             screen_w = params.get("screen_width", 1920)
             screen_h = params.get("screen_height", 1080)
             for zone in self.get_danger_zones(screen_w, screen_h):
-                if (
-                    zone["x_min"] <= x <= zone["x_max"]
-                    and zone["y_min"] <= y <= zone["y_max"]
-                ):
+                if zone["x_min"] <= x <= zone["x_max"] and zone["y_min"] <= y <= zone["y_max"]:
                     self._log_audit(
                         action,
                         params,
@@ -170,23 +173,21 @@ class ActionGuard:
         # 4. HITL 필요 여부 확인
         requires_hitl = (action in self.HITL_REQUIRED_ACTIONS) and self.hitl_required
 
-        self._log_audit(
-            action, params, allowed=True, reason="passed", requires_hitl=requires_hitl
-        )
+        self._log_audit(action, params, allowed=True, reason="passed", requires_hitl=requires_hitl)
         return {
             "allowed": True,
             "reason": "passed",
             "requires_hitl": requires_hitl,
         }
 
-    def get_audit_log(self) -> List[Dict[str, Any]]:
+    def get_audit_log(self) -> list[dict[str, Any]]:
         """감사 로그를 반환합니다."""
         return list(self._audit_log)
 
     def _log_audit(
         self,
         action: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         allowed: bool,
         reason: str,
         requires_hitl: bool = False,
@@ -215,5 +216,5 @@ class ActionGuard:
 
                 with open(self._audit_file, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            except Exception as e:
-                logger.error(f"Failed to write audit log: {e}")
+            except Exception:
+                logger.exception("Failed to write audit log")

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 스마트 모델 라우터
+"""Antigravity-K: 스마트 모델 라우터.
+
 ================================
 9Router 패턴 이식 — 3-Tier 폴백, 라운드로빈, 로드밸런싱 전략 지원.
 
@@ -15,7 +15,6 @@ import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
 
 from .model_registry import ModelProfile, ModelRegistry
 
@@ -26,7 +25,7 @@ logger = logging.getLogger("antigravity_k.model_router")
 
 
 class RouteStrategy(Enum):
-    """모델 선택 전략"""
+    """모델 선택 전략."""
 
     FALLBACK = "fallback"  # 순서대로 시도, 실패 시 다음 모델
     ROUND_ROBIN = "round-robin"  # 순환 분배
@@ -40,8 +39,7 @@ class RouteStrategy(Enum):
 
 @dataclass
 class ModelCombo:
-    """
-    모델 콤보: 여러 모델을 하나의 그룹으로 관리.
+    """모델 콤보: 여러 모델을 하나의 그룹으로 관리.
 
     예시 (config.yaml):
       combos:
@@ -51,19 +49,30 @@ class ModelCombo:
     """
 
     name: str
-    models: List[str]  # 모델 이름 목록 (우선순위순)
+    models: list[str]  # 모델 이름 목록 (우선순위순)
     strategy: RouteStrategy = RouteStrategy.FALLBACK
     description: str = ""
 
     @classmethod
     def from_dict(cls, name: str, data: dict) -> "ModelCombo":
+        """From Dict.
+
+        Args:
+            name (str): str name.
+            data (dict): dict data.
+
+        Returns:
+            'ModelCombo': The 'modelcombo' result.
+
+        """
         strategy_str = data.get("strategy", "fallback")
         try:
             strategy = RouteStrategy(strategy_str)
         except ValueError:
             logger.warning(
-                f"콤보 '{name}': 알 수 없는 전략 '{strategy_str}', "
-                f"fallback으로 대체합니다."
+                "콤보 '%s': 알 수 없는 전략 '%s', fallback으로 대체합니다.",
+                name,
+                strategy_str,
             )
             strategy = RouteStrategy.FALLBACK
 
@@ -77,7 +86,7 @@ class ModelCombo:
 
 @dataclass
 class UnavailableEntry:
-    """사용 불가 모델 추적 항목"""
+    """사용 불가 모델 추적 항목."""
 
     model_name: str
     marked_at: float  # 마킹 시각 (timestamp)
@@ -87,15 +96,15 @@ class UnavailableEntry:
 
     @property
     def available_at(self) -> float:
-        """다시 사용 가능해지는 시각"""
+        """다시 사용 가능해지는 시각."""
         return self.marked_at + self.cooldown_sec
 
     def is_expired(self) -> bool:
-        """쿨다운이 만료되었는지 확인"""
+        """쿨다운이 만료되었는지 확인."""
         return time.time() >= self.available_at
 
     def remaining_sec(self) -> float:
-        """남은 쿨다운 시간 (초)"""
+        """남은 쿨다운 시간 (초)."""
         return max(0.0, self.available_at - time.time())
 
 
@@ -103,8 +112,7 @@ class UnavailableEntry:
 
 
 class UnavailabilityTracker:
-    """
-    실패한 모델의 지수 백오프 쿨다운 관리.
+    """실패한 모델의 지수 백오프 쿨다운 관리.
 
     9Router 패턴: markAccountUnavailable() → 지수 백오프
     - 첫 실패: base_cooldown (60초)
@@ -119,13 +127,21 @@ class UnavailabilityTracker:
         max_cooldown_sec: float = 3600.0,
         backoff_multiplier: float = 2.0,
     ):
+        """Initialize the UnavailabilityTracker.
+
+        Args:
+            base_cooldown_sec (float): float base cooldown sec.
+            max_cooldown_sec (float): float max cooldown sec.
+            backoff_multiplier (float): float backoff multiplier.
+
+        """
         self._base = base_cooldown_sec
         self._max = max_cooldown_sec
         self._multiplier = backoff_multiplier
-        self._entries: Dict[str, UnavailableEntry] = {}
+        self._entries: dict[str, UnavailableEntry] = {}
 
     def mark_unavailable(self, model_name: str, reason: str = "") -> None:
-        """모델을 사용 불가로 마킹 (지수 백오프 적용)"""
+        """모델을 사용 불가로 마킹 (지수 백오프 적용)."""
         existing = self._entries.get(model_name)
 
         if existing and not existing.is_expired():
@@ -148,35 +164,37 @@ class UnavailabilityTracker:
         )
         self._entries[model_name] = entry
         logger.warning(
-            f"[{model_name}] 사용 불가 마킹 — "
-            f"쿨다운: {cooldown:.0f}초, 재시도: {retry}회, "
-            f"사유: {reason or '없음'}"
+            "[%s] 사용 불가 마킹 — 쿨다운: %s초, 재시도: %s회, 사유: %s",
+            model_name,
+            cooldown,
+            retry,
+            reason or "없음",
         )
 
     def is_available(self, model_name: str) -> bool:
-        """모델이 사용 가능한지 확인"""
+        """모델이 사용 가능한지 확인."""
         entry = self._entries.get(model_name)
         if entry is None:
             return True
         if entry.is_expired():
             # 쿨다운 만료 → 자동 복구
-            logger.info(f"[{model_name}] 쿨다운 만료, 재활성화")
+            logger.info("[%s] 쿨다운 만료, 재활성화", model_name)
             del self._entries[model_name]
             return True
         return False
 
     def mark_available(self, model_name: str) -> None:
-        """모델을 수동으로 사용 가능 상태로 복원"""
+        """모델을 수동으로 사용 가능 상태로 복원."""
         if model_name in self._entries:
             del self._entries[model_name]
-            logger.info(f"[{model_name}] 수동 재활성화")
+            logger.info("[%s] 수동 재활성화", model_name)
 
-    def get_entry(self, model_name: str) -> Optional[UnavailableEntry]:
-        """비가용 항목 조회"""
+    def get_entry(self, model_name: str) -> UnavailableEntry | None:
+        """비가용 항목 조회."""
         return self._entries.get(model_name)
 
-    def status(self) -> List[dict]:
-        """현재 비가용 모델 목록 반환"""
+    def status(self) -> list[dict]:
+        """현재 비가용 모델 목록 반환."""
         result = []
         for name, entry in self._entries.items():
             result.append(
@@ -186,19 +204,19 @@ class UnavailabilityTracker:
                     "retry_count": entry.retry_count,
                     "remaining_sec": round(entry.remaining_sec(), 1),
                     "expired": entry.is_expired(),
-                }
+                },
             )
         return result
 
     def clear_expired(self) -> int:
-        """만료된 항목 정리, 정리된 수 반환"""
+        """만료된 항목 정리, 정리된 수 반환."""
         expired = [name for name, entry in self._entries.items() if entry.is_expired()]
         for name in expired:
             del self._entries[name]
         return len(expired)
 
     def clear_all(self) -> None:
-        """모든 비가용 마킹 초기화"""
+        """모든 비가용 마킹 초기화."""
         self._entries.clear()
         logger.info("모든 비가용 마킹 초기화")
 
@@ -207,31 +225,42 @@ class UnavailabilityTracker:
 
 
 class AllModelsUnavailableError(Exception):
-    """콤보 내 모든 모델이 사용 불가"""
+    """콤보 내 모든 모델이 사용 불가."""
 
-    def __init__(self, combo_name: str, tried: List[str]):
+    def __init__(self, combo_name: str, tried: list[str]):
+        """Initialize the AllModelsUnavailableError.
+
+        Args:
+            combo_name (str): str combo name.
+            tried (list[str]): list[str] tried.
+
+        """
         self.combo_name = combo_name
         self.tried = tried
         super().__init__(f"콤보 '{combo_name}' 내 모든 모델이 사용 불가: {tried}")
 
 
 class ComboNotFoundError(Exception):
-    """요청한 콤보가 등록되어 있지 않음"""
+    """요청한 콤보가 등록되어 있지 않음."""
 
-    def __init__(self, combo_name: str, available: List[str]):
+    def __init__(self, combo_name: str, available: list[str]):
+        """Initialize the ComboNotFoundError.
+
+        Args:
+            combo_name (str): str combo name.
+            available (list[str]): list[str] available.
+
+        """
         self.combo_name = combo_name
         self.available = available
-        super().__init__(
-            f"콤보 '{combo_name}'을 찾을 수 없습니다. " f"등록된 콤보: {available}"
-        )
+        super().__init__(f"콤보 '{combo_name}'을 찾을 수 없습니다. 등록된 콤보: {available}")
 
 
 # ─── 메인 라우터 ─────────────────────────────────────────────────────
 
 
 class ModelRouter:
-    """
-    스마트 모델 라우터 — 9Router 패턴 기반.
+    """스마트 모델 라우터 — 9Router 패턴 기반.
 
     핵심 기능:
     - route(combo_name): 콤보 내에서 최적의 모델 선택
@@ -255,21 +284,30 @@ class ModelRouter:
         max_cooldown_sec: float = 3600.0,
         max_retries: int = 3,
     ):
+        """Initialize the ModelRouter.
+
+        Args:
+            registry (ModelRegistry): ModelRegistry registry.
+            base_cooldown_sec (float): float base cooldown sec.
+            max_cooldown_sec (float): float max cooldown sec.
+            max_retries (int): int max retries.
+
+        """
         self._registry = registry
-        self._combos: Dict[str, ModelCombo] = {}
+        self._combos: dict[str, ModelCombo] = {}
         self._tracker = UnavailabilityTracker(
             base_cooldown_sec=base_cooldown_sec,
             max_cooldown_sec=max_cooldown_sec,
         )
         self._max_retries = max_retries
         # 라운드로빈 인덱스 추적
-        self._rr_index: Dict[str, int] = {}
+        self._rr_index: dict[str, int] = {}
 
         # config.yaml에서 콤보 자동 로드
         self._load_combos_from_registry()
 
     def _load_combos_from_registry(self) -> None:
-        """ModelRegistry의 raw config에서 combos 섹션 로드"""
+        """ModelRegistry의 raw config에서 combos 섹션 로드."""
         raw = getattr(self._registry, "_raw", {})
         combos_data = raw.get("combos", {})
 
@@ -278,8 +316,10 @@ class ModelRouter:
                 combo = ModelCombo.from_dict(combo_name, combo_config)
                 self._combos[combo_name] = combo
                 logger.info(
-                    f"콤보 로드: {combo_name} "
-                    f"({len(combo.models)}개 모델, {combo.strategy.value})"
+                    "콤보 로드: %s (%s개 모델, %s)",
+                    combo_name,
+                    len(combo.models),
+                    combo.strategy.value,
                 )
 
     def reload(self) -> None:
@@ -291,12 +331,12 @@ class ModelRouter:
     # ─── 콤보 관리 ───────────────────────────────────────────────────
 
     def register_combo(self, combo: ModelCombo) -> None:
-        """콤보 등록"""
+        """콤보 등록."""
         self._combos[combo.name] = combo
-        logger.info(f"콤보 등록: {combo.name}")
+        logger.info("콤보 등록: %s", combo.name)
 
     def unregister_combo(self, name: str) -> bool:
-        """콤보 등록 해제"""
+        """콤보 등록 해제."""
         if name in self._combos:
             del self._combos[name]
             if name in self._rr_index:
@@ -304,19 +344,18 @@ class ModelRouter:
             return True
         return False
 
-    def get_combo(self, name: str) -> Optional[ModelCombo]:
-        """콤보 조회"""
+    def get_combo(self, name: str) -> ModelCombo | None:
+        """콤보 조회."""
         return self._combos.get(name)
 
-    def list_combos(self) -> List[ModelCombo]:
-        """등록된 모든 콤보 반환"""
+    def list_combos(self) -> list[ModelCombo]:
+        """등록된 모든 콤보 반환."""
         return list(self._combos.values())
 
     # ─── 핵심 라우팅 ─────────────────────────────────────────────────
 
     def route(self, combo_name: str) -> ModelProfile:
-        """
-        콤보 내에서 최적의 모델을 선택하여 반환.
+        """콤보 내에서 최적의 모델을 선택하여 반환.
 
         전략에 따라 동작이 다릅니다:
         - FALLBACK: 순서대로 시도, 사용 불가 시 다음 모델
@@ -349,7 +388,7 @@ class ModelRouter:
             return self._route_fallback(combo)
 
     def route_single(self, model_name: str) -> ModelProfile:
-        """단일 모델 직접 라우팅 (콤보 없이)"""
+        """단일 모델 직접 라우팅 (콤보 없이)."""
         if not self._tracker.is_available(model_name):
             entry = self._tracker.get_entry(model_name)
             remaining = entry.remaining_sec() if entry else 0
@@ -363,7 +402,7 @@ class ModelRouter:
             raise ValueError(f"모델 '{model_name}'이 레지스트리에 없습니다.")
         return profile
 
-    def available_model_names(self, combo_name: str) -> List[str]:
+    def available_model_names(self, combo_name: str) -> list[str]:
         """콤보 안에서 현재 라우팅 가능한 모델 이름 목록을 반환합니다."""
         combo = self._combos.get(combo_name)
         if combo is None:
@@ -373,15 +412,14 @@ class ModelRouter:
         return [
             model_name
             for model_name in combo.models
-            if self._tracker.is_available(model_name)
-            and self._registry.get_model(model_name) is not None
+            if self._tracker.is_available(model_name) and self._registry.get_model(model_name) is not None
         ]
 
     # ─── 전략별 라우팅 구현 ──────────────────────────────────────────
 
     def _route_fallback(self, combo: ModelCombo) -> ModelProfile:
-        """
-        폴백 전략: 순서대로 시도, 사용 불가 모델은 건너뜀.
+        """폴백 전략: 순서대로 시도, 사용 불가 모델은 건너뜀.
+
         9Router의 handleSingleModelChat → while(true) 폴백 루프 패턴.
         """
         tried = []
@@ -391,30 +429,23 @@ class ModelRouter:
             if not self._tracker.is_available(model_name):
                 entry = self._tracker.get_entry(model_name)
                 remaining = entry.remaining_sec() if entry else 0
-                logger.debug(
-                    f"[{combo.name}] {model_name} 스킵 "
-                    f"(쿨다운 {remaining:.0f}초 남음)"
-                )
+                logger.debug("[%s] %s 스킵 (쿨다운 %s초 남음)", combo.name, model_name, remaining)
                 continue
 
             profile = self._registry.get_model(model_name)
             if profile is None:
-                logger.warning(f"[{combo.name}] {model_name}이 레지스트리에 없음, 스킵")
+                logger.warning("[%s] %s이 레지스트리에 없음, 스킵", combo.name, model_name)
                 continue
 
-            logger.info(f"[{combo.name}] 라우팅 → {model_name} (fallback)")
+            logger.info("[%s] 라우팅 → %s (fallback)", combo.name, model_name)
             return profile
 
         raise AllModelsUnavailableError(combo.name, tried)
 
     def _route_round_robin(self, combo: ModelCombo) -> ModelProfile:
-        """
-        라운드로빈 전략: 사용 가능한 모델을 순환 선택.
-        """
+        """라운드로빈 전략: 사용 가능한 모델을 순환 선택."""
         available = [
-            m
-            for m in combo.models
-            if self._tracker.is_available(m) and self._registry.get_model(m) is not None
+            m for m in combo.models if self._tracker.is_available(m) and self._registry.get_model(m) is not None
         ]
 
         if not available:
@@ -425,13 +456,11 @@ class ModelRouter:
         self._rr_index[combo.name] = idx + 1
 
         profile = self._registry.get_model(selected)
-        logger.info(f"[{combo.name}] 라우팅 → {selected} " f"(round-robin, idx={idx})")
+        logger.info("[%s] 라우팅 → %s (round-robin, idx=%s)", combo.name, selected, idx)
         return profile  # type: ignore
 
     def _route_load_balance(self, combo: ModelCombo) -> ModelProfile:
-        """
-        로드밸런싱 전략: 메모리 사용량이 적은 모델 우선.
-        """
+        """로드밸런싱 전략: 메모리 사용량이 적은 모델 우선."""
         available = []
         for model_name in combo.models:
             if not self._tracker.is_available(model_name):
@@ -446,14 +475,15 @@ class ModelRouter:
         # 메모리 적게 쓰는 모델 우선 (경량 모델 선호)
         selected = min(available, key=lambda p: p.estimated_memory_gb)
         logger.info(
-            f"[{combo.name}] 라우팅 → {selected.name} "
-            f"(load-balance, {selected.estimated_memory_gb}GB)"
+            "[%s] 라우팅 → %s (load-balance, %sGB)",
+            combo.name,
+            selected.name,
+            selected.estimated_memory_gb,
         )
         return selected
 
     def _route_cascading(self, combo: ModelCombo) -> ModelProfile:
-        """
-        Cascading 전략: 경량 모델부터 시도하고, 신뢰도가 낮으면 자동 에스컬레이션.
+        """Cascading 전략: 경량 모델부터 시도하고, 신뢰도가 낮으면 자동 에스컬레이션.
 
         모델 목록의 순서가 곧 에스컬레이션 티어입니다:
           - models[0]: Tier 1 (경량, 4B 급) — 빠른 응답
@@ -471,15 +501,17 @@ class ModelRouter:
             if profile is None:
                 continue
             logger.info(
-                f"[{combo.name}] 라우팅 → {model_name} "
-                f"(cascading, Tier {combo.models.index(model_name) + 1}/"
-                f"{len(combo.models)})"
+                "[%s] 라우팅 → %s (cascading, Tier %s/%s)",
+                combo.name,
+                model_name,
+                combo.models.index(model_name) + 1,
+                len(combo.models),
             )
             return profile
 
         raise AllModelsUnavailableError(combo.name, combo.models)
 
-    def escalate(self, combo_name: str, current_model: str) -> Optional[ModelProfile]:
+    def escalate(self, combo_name: str, current_model: str) -> ModelProfile | None:
         """현재 모델에서 다음 티어로 에스컬레이션합니다.
 
         Args:
@@ -488,6 +520,7 @@ class ModelRouter:
 
         Returns:
             다음 티어의 ModelProfile, 또는 없으면 None (최고 티어 도달)
+
         """
         combo = self._combos.get(combo_name)
         if combo is None:
@@ -505,12 +538,15 @@ class ModelRouter:
             profile = self._registry.get_model(next_model)
             if profile:
                 logger.info(
-                    f"[{combo_name}] 에스컬레이션: {current_model} → {next_model} "
-                    f"(Tier {combo.models.index(next_model) + 1})"
+                    "[%s] 에스컬레이션: %s → %s (Tier %s)",
+                    combo_name,
+                    current_model,
+                    next_model,
+                    combo.models.index(next_model) + 1,
                 )
                 return profile
 
-        logger.info(f"[{combo_name}] 에스컬레이션 불가: {current_model}이 최고 티어")
+        logger.info("[%s] 에스컬레이션 불가: %s이 최고 티어", combo_name, current_model)
         return None
 
     @staticmethod
@@ -525,6 +561,7 @@ class ModelRouter:
 
         Returns:
             0.0 ~ 1.0 사이의 신뢰도 점수
+
         """
         import re
 
@@ -582,22 +619,20 @@ class ModelRouter:
     # ─── 실패/복구 관리 ──────────────────────────────────────────────
 
     def mark_failure(self, model_name: str, reason: str = "") -> None:
-        """모델 사용 실패 시 호출 — 쿨다운 등록"""
+        """모델 사용 실패 시 호출 — 쿨다운 등록."""
         self._tracker.mark_unavailable(model_name, reason)
 
     def mark_recovered(self, model_name: str) -> None:
-        """모델 복구 시 호출 — 쿨다운 해제"""
+        """모델 복구 시 호출 — 쿨다운 해제."""
         self._tracker.mark_available(model_name)
 
     # ─── 상태 조회 ───────────────────────────────────────────────────
 
     def status(self) -> dict:
-        """라우터 전체 상태 반환"""
+        """라우터 전체 상태 반환."""
         combos_info = []
         for combo in self._combos.values():
-            available_models = [
-                m for m in combo.models if self._tracker.is_available(m)
-            ]
+            available_models = [m for m in combo.models if self._tracker.is_available(m)]
             combos_info.append(
                 {
                     "name": combo.name,
@@ -606,7 +641,7 @@ class ModelRouter:
                     "available_models": len(available_models),
                     "models": combo.models,
                     "description": combo.description,
-                }
+                },
             )
 
         return {
@@ -616,7 +651,7 @@ class ModelRouter:
         }
 
     def summary(self) -> str:
-        """사람이 읽기 쉬운 요약"""
+        """사람이 읽기 쉬운 요약."""
         lines = ["=== Model Router ==="]
         for combo in self._combos.values():
             available = [m for m in combo.models if self._tracker.is_available(m)]
@@ -631,9 +666,7 @@ class ModelRouter:
             lines.append("\n[비가용 모델]")
             for entry in unavailable:
                 lines.append(
-                    f"  ✗ {entry['model']} — "
-                    f"남은 시간: {entry['remaining_sec']}초, "
-                    f"재시도: {entry['retry_count']}회"
+                    f"  ✗ {entry['model']} — 남은 시간: {entry['remaining_sec']}초, 재시도: {entry['retry_count']}회",
                 )
 
         return "\n".join(lines)

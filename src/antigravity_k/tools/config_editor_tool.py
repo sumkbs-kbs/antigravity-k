@@ -1,15 +1,19 @@
-import os
-import yaml
+"""Config Editor Tool module."""
+
 import logging
-from typing import Any, Dict
-from antigravity_k.tools.base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+import os
+from typing import Any
+
+import yaml
+
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
 
 class ConfigEditorTool(BaseTool):
-    """
-    ConfigEditorTool: AGI Core의 Auto-Roster Manager.
+    """ConfigEditorTool: AGI Core의 Auto-Roster Manager.
+
     config.yaml을 안전하게 파싱하여 모델을 추가하거나 삭제하며,
     필요 시 ollama 등의 백그라운드 모델 다운로드를 실행합니다.
     """
@@ -21,6 +25,7 @@ class ConfigEditorTool(BaseTool):
     tags = ["config", "yaml", "model", "roster", "download"]
 
     def __init__(self):
+        """Initialize the ConfigEditorTool."""
         super().__init__()
         self._name = "config_model_roster"
         self._description = (
@@ -34,11 +39,12 @@ class ConfigEditorTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": ["add", "remove", "update_agent_map", "update_swarm"],
-                    "description": "Whether to add/remove a model, update the agent_models mapping, or update a swarm combo.",
+                    "description": "Whether to add/remove a model, update the agent_models mapping, or update a swarm combo.",  # noqa: E501
                 },
                 "target_key": {
                     "type": "string",
-                    "description": "If update_agent_map, the agent role (e.g. 'WORKER'). If update_swarm, the combo name.",
+                    "description": "If update_agent_map, the agent role (e.g. 'WORKER'). If update_swarm, "
+                    "the combo name.",
                 },
                 "model_category": {
                     "type": "string",
@@ -47,7 +53,8 @@ class ConfigEditorTool(BaseTool):
                 },
                 "model_data": {
                     "type": "object",
-                    "description": "For add/remove, provide the model dict. For update_agent_map, provide {'combo_name': '...'}. For update_swarm, provide {'models': [...], 'strategy': '...'}",
+                    "description": "For add/remove, provide the model dict. For update_agent_map, provide {'combo_name': '...'}. For"  # type: ignore  # noqa: E501
+                    "update_swarm, provide {'models': [...], 'strategy': '...'}",
                 },
             },
             "required": ["action"],
@@ -55,17 +62,44 @@ class ConfigEditorTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         action = kwargs.get("action")
         category = kwargs.get("model_category")
         model_data = kwargs.get("model_data")
@@ -77,7 +111,7 @@ class ConfigEditorTool(BaseTool):
             return "Error: config.yaml not found."
 
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
 
             models_list = config.get("models", {}).get(category, [])
@@ -87,9 +121,7 @@ class ConfigEditorTool(BaseTool):
                     return f"Model {model_data.get('name')} already exists in category {category}."
                 models_list.append(model_data)
                 config["models"][category] = models_list
-                logger.info(
-                    f"Triggering background download for model: {model_data.get('name')}"
-                )
+                logger.info("Triggering background download for model: %s", model_data.get("name"))
                 msg = f"✅ Model {model_data.get('name')} added to {category}. Download initiated in background."
 
             elif action == "remove":
@@ -98,9 +130,7 @@ class ConfigEditorTool(BaseTool):
                 if len(new_list) == len(models_list):
                     return f"Model {name_to_remove} not found in category {category}."
                 config["models"][category] = new_list
-                logger.info(
-                    f"Triggering background removal for model: {name_to_remove}"
-                )
+                logger.info("Triggering background removal for model: %s", name_to_remove)
                 msg = f"🗑️ Model {name_to_remove} removed from {category}. Disk space reclaimed."
 
             elif action == "update_agent_map":
@@ -134,4 +164,5 @@ class ConfigEditorTool(BaseTool):
             return msg
 
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Failed to edit config.yaml: {e}"

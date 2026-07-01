@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from ..i18n import get_i18n
 
@@ -33,9 +33,9 @@ class BaseAgent:
                 "당신은 고도로 능력 있는 에이전트입니다. 답변하기 전에 반드시 <thought>...</thought> 태그 안에 "
                 "내부 사고 과정을 작성하세요. 문제를 분석하고 엣지 케이스를 고려한 후 최종 응답을 제공하세요.\n\n"
                 "## 출력 품질 규약 (Output Quality Contract)\n"
-                "1. **언어 순수성**: 반드시 한국어로만 답변하세요. 중국어(简体/繁體), 일본어(ひらがな/カタカナ) 문자를 절대 혼입하지 마세요.\n"
+                "1. **언어 순수성**: 반드시 한국어로만 답변하세요. 중국어(简体/繁體), 일본어(ひらがな/カタカナ) 문자를 절대 혼입하지 마세요.\n"  # noqa: E501
                 "2. **코드 응답**: 코드만 단독으로 출력하지 마세요. 반드시 한국어 설명을 함께 제공하세요.\n"
-                "3. **비교 요청**: 비교/차이/장단점을 묻는 질문에는 반드시 Markdown 비교표(| 항목 | A | B |)를 포함하세요.\n"
+                "3. **비교 요청**: 비교/차이/장단점을 묻는 질문에는 반드시 Markdown 비교표(| 항목 | A | B |)를 포함하세요.\n"  # noqa: E501
                 "4. **알고리즘 질문**: 복잡도 분석을 요청받으면 반드시 Big-O 표기법(O(n), O(log n) 등)을 명시하세요.\n"
                 "5. **구조화**: 긴 응답은 ## 헤딩, 번호 목록, 코드 블록으로 구조화하세요.\n"
                 "6. **반복 금지**: 동일한 문장이나 단락을 반복하지 마세요.\n"
@@ -43,7 +43,7 @@ class BaseAgent:
             ),
             "en": (
                 "You are a highly capable agent. Before taking any action or providing a final answer, "
-                "you MUST explicitly write down your internal reasoning process within <thought>...</thought> XML tags. "
+                "you MUST explicitly write down your internal reasoning process within <thought>...</thought> XML tags. "  # noqa: E501
                 "Use this space to break down the problem, consider edge cases, and plan your approach. "
                 "After your thought process, output your final response or action."
             ),
@@ -54,9 +54,7 @@ class BaseAgent:
             ),
         }
 
-        reasoning_instruction = reasoning_templates.get(
-            locale, reasoning_templates["en"]
-        )
+        reasoning_instruction = reasoning_templates.get(locale, reasoning_templates["en"])
         return f"{self.system_prompt}\n\n{reasoning_instruction}"
 
     def add_message(self, role: str, content: str):
@@ -67,9 +65,7 @@ class BaseAgent:
         messages.extend(self.history)
         return messages
 
-    def run(
-        self, context: str, model_manager=None, tools: Optional[List[Any]] = None
-    ) -> str:
+    def run(self, context: str, model_manager=None, tools: Optional[List[Any]] = None) -> str:
         """
         주어진 컨텍스트를 처리하고 모델을 통해 응답을 생성합니다.
         <think> 또는 <thought> 태그 내의 추론과 <tool_call> 태그를 파싱하여 도구를 실행하는 재귀적 루프를 포함합니다.
@@ -82,20 +78,14 @@ class BaseAgent:
 
         loaded_model = None
         try:
-            is_combo = bool(
-                getattr(model_manager, "router", None)
-                and model_manager.router.get_combo(self.model_id)
-            )
+            is_combo = bool(getattr(model_manager, "router", None) and model_manager.router.get_combo(self.model_id))
             if not is_combo:
                 loaded_model = model_manager.get(self.model_id)
         except Exception as e:
+            logger.exception("Unhandled exception")
             logger.debug("Model pre-load skipped for %s: %s", self.model_id, e)
 
-        if (
-            loaded_model
-            and hasattr(loaded_model.model, "name")
-            and "Dummy" in repr(loaded_model.model)
-        ):
+        if loaded_model and hasattr(loaded_model.model, "name") and "Dummy" in repr(loaded_model.model):
             return self._mock_run()
 
         MAX_ITERATIONS = 5
@@ -136,9 +126,7 @@ class BaseAgent:
                 # 도구 호출 파싱 로직 (<tool_call> JSON </tool_call>)
                 import re
 
-                tool_call_match = re.search(
-                    r"<tool_call>(.*?)</tool_call>", response, re.DOTALL
-                )
+                tool_call_match = re.search(r"<tool_call>(.*?)</tool_call>", response, re.DOTALL)
 
                 if tool_call_match and tools:
                     tool_call_text = tool_call_match.group(1).strip()
@@ -155,11 +143,10 @@ class BaseAgent:
                                 tool_result = t(**tool_args)
                                 break
 
-                        self.add_message(
-                            "tool", f"<tool_response>\n{tool_result}\n</tool_response>"
-                        )
+                        self.add_message("tool", f"<tool_response>\n{tool_result}\n</tool_response>")
                         continue  # 도구 실행 결과를 바탕으로 다시 모델 호출
                     except Exception as e:
+                        logger.exception("Unhandled exception")
                         self.add_message(
                             "tool",
                             f"<tool_response>\nError parsing tool call: {e}\n</tool_response>",
@@ -169,18 +156,13 @@ class BaseAgent:
                 return response
 
             except Exception as e:
-                logger.error(f"Error during model generation: {e}")
+                logger.exception("Error during model generation")
                 return f"Error: {e}"
 
         return "Error: Maximum iterations reached."
 
     def _mock_run(self) -> str:
         """테스트 및 Windows 개발 환경을 위한 더미 실행"""
-        response = (
-            "<thought>\n"
-            "This is a dummy thought process for testing.\n"
-            "</thought>\n"
-            "이것은 더미 응답입니다."
-        )
+        response = "<thought>\nThis is a dummy thought process for testing.\n</thought>\n이것은 더미 응답입니다."
         self.add_message("assistant", response)
         return response

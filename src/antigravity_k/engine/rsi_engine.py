@@ -1,5 +1,5 @@
-"""
-Antigravity-K: RSI Engine (재귀적 자기개선 오케스트레이터)
+"""Antigravity-K: RSI Engine (재귀적 자기개선 오케스트레이터).
+
 ========================================================
 Darwin Gödel Machine + ADAS 패턴 기반 7단계 자기개선 사이클.
 
@@ -8,19 +8,22 @@ Darwin Gödel Machine + ADAS 패턴 기반 7단계 자기개선 사이클.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.rsi_engine")
 
 
 class RSIPhase(Enum):
+    """Rsiphase.
+
+    Bases: Enum
+    """
+
     OBSERVE = "observe"
     DIAGNOSE = "diagnose"
     HYPOTHESIZE = "hypothesize"
@@ -31,6 +34,11 @@ class RSIPhase(Enum):
 
 
 class MutationType(Enum):
+    """Mutationtype.
+
+    Bases: Enum
+    """
+
     PROMPT = "prompt"
     SAMPLING = "sampling"
     CODE = "code"
@@ -41,6 +49,7 @@ class MutationType(Enum):
 @dataclass
 class ImprovementHypothesis:
     """개선 가설."""
+
     hypothesis_id: str
     mutation_type: str
     target: str  # 대상 파일/프롬프트/설정
@@ -53,9 +62,10 @@ class ImprovementHypothesis:
 @dataclass
 class RSICycleResult:
     """한 RSI 사이클의 결과."""
+
     cycle_id: str
     generation: int
-    phase_results: Dict[str, Any] = field(default_factory=dict)
+    phase_results: dict[str, Any] = field(default_factory=dict)
     before_score: float = 0.0
     after_score: float = 0.0
     improvement: float = 0.0
@@ -67,12 +77,19 @@ class RSICycleResult:
     timestamp: float = 0.0
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return asdict(self)
 
 
 @dataclass
 class RSIConfig:
     """RSI 엔진 설정."""
+
     max_cycles: int = 10
     min_improvement: float = 0.01  # 1% 미만 개선은 무시
     max_regression: float = -0.05  # 5% 이상 퇴화 시 즉시 롤백
@@ -96,9 +113,16 @@ class RSIEngine:
     """
 
     def __init__(self, config: RSIConfig | None = None, project_root: str = ""):
+        """Initialize the RSIEngine.
+
+        Args:
+            config (RSIConfig | None): RSIConfig | None config.
+            project_root (str): str project root.
+
+        """
         self.config = config or RSIConfig()
         self._root = project_root
-        self._cycle_history: List[RSICycleResult] = []
+        self._cycle_history: list[RSICycleResult] = []
         self._generation = 0
 
         # 지연 초기화 (의존성 주입 가능)
@@ -115,14 +139,17 @@ class RSIEngine:
         """필요한 하위 모듈을 지연 초기화합니다."""
         if self._sandbox is None:
             from .rsi_sandbox import RSISandbox
+
             self._sandbox = RSISandbox(project_root=self._root)
 
         if self._archive is None:
             from .agent_archive import AgentArchive
+
             self._archive = AgentArchive()
 
         if self._evolver is None:
             from .prompt_evolver import PromptEvolver
+
             self._evolver = PromptEvolver()
 
     # ─── 메인 RSI 루프 ──────────────────────────────────────────
@@ -130,7 +157,7 @@ class RSIEngine:
     def run_cycle(
         self,
         benchmark_fn: Callable[[], float] | None = None,
-        performance_data: Dict[str, Any] | None = None,
+        performance_data: dict[str, Any] | None = None,
     ) -> RSICycleResult:
         """RSI 사이클 1회를 실행합니다.
 
@@ -148,7 +175,7 @@ class RSIEngine:
             timestamp=start_time,
         )
 
-        logger.info(f"[RSI] ═══ 사이클 {self._generation} 시작 ═══")
+        logger.info("[RSI] ═══ 사이클 %s 시작 ═══", self._generation)
 
         try:
             # ─── Level 3: Meta-Architect 개입 (정기적) ───
@@ -177,9 +204,7 @@ class RSIEngine:
             mutation = self._mutate(best_hypothesis, result)
 
             # Phase 5: EVALUATE — 벤치마크 검증
-            result.after_score = self._evaluate(
-                benchmark_fn, mutation, result
-            )
+            result.after_score = self._evaluate(benchmark_fn, mutation, result)
             result.improvement = result.after_score - result.before_score
 
             # Phase 6: SELECT — 성공 여부 판정
@@ -189,17 +214,20 @@ class RSIEngine:
             self._integrate(accepted, result, mutation)
 
         except Exception as e:
-            logger.error(f"[RSI] 사이클 오류: {e}", exc_info=True)
+            logger.error("[RSI] 사이클 오류: %s", e, exc_info=True)
             result.phase_results["error"] = str(e)
 
         result.duration_sec = time.time() - start_time
         self._cycle_history.append(result)
 
         logger.info(
-            f"[RSI] ═══ 사이클 {self._generation} 완료: "
-            f"{'✅ 성공' if result.success else '❌ 실패'} "
-            f"({result.before_score:.1%} → {result.after_score:.1%}, "
-            f"Δ{result.improvement:+.1%}, {result.duration_sec:.1f}s) ═══"
+            "[RSI] ═══ 사이클 %s 완료: %s (%s → %s, Δ%s, %ss) ═══",
+            self._generation,
+            "✅ 성공" if result.success else "❌ 실패",
+            result.before_score,
+            result.after_score,
+            result.improvement,
+            result.duration_sec,
         )
         return result
 
@@ -207,14 +235,14 @@ class RSIEngine:
         self,
         max_cycles: int | None = None,
         benchmark_fn: Callable[[], float] | None = None,
-        performance_data: Dict[str, Any] | None = None,
-    ) -> List[RSICycleResult]:
+        performance_data: dict[str, Any] | None = None,
+    ) -> list[RSICycleResult]:
         """여러 RSI 사이클을 연속 실행합니다 (진화 루프)."""
         cycles = max_cycles or self.config.max_cycles
         results = []
 
         for i in range(cycles):
-            logger.info(f"[RSI] 진화 루프 {i+1}/{cycles}")
+            logger.info("[RSI] 진화 루프 %s/%s", i + 1, cycles)
             result = self.run_cycle(benchmark_fn, performance_data)
             results.append(result)
 
@@ -243,25 +271,23 @@ class RSIEngine:
         if benchmark_fn:
             try:
                 score = benchmark_fn()
-            except Exception as e:
-                logger.warning(f"[RSI:OBSERVE] 벤치마크 실행 실패: {e}")
+            except Exception:
+                logger.exception("[RSI:OBSERVE] 벤치마크 실행 실패")
 
         result.phase_results["observe"] = {
             "score": score,
             "archive_best": (
-                self._archive.get_best().benchmark_score
-                if self._archive and self._archive.get_best()
-                else None
+                self._archive.get_best().benchmark_score if self._archive and self._archive.get_best() else None
             ),
         }
-        logger.info(f"[RSI:OBSERVE] 현재 성능: {score:.2%}")
+        logger.info("[RSI:OBSERVE] 현재 성능: %s", score)
         return score
 
     def _diagnose(
         self,
-        performance_data: Dict[str, Any],
+        performance_data: dict[str, Any],
         result: RSICycleResult,
-    ) -> List[str]:
+    ) -> list[str]:
         """Phase 2: DIAGNOSE — 약점 패턴을 발견합니다."""
         weaknesses = []
 
@@ -283,14 +309,14 @@ class RSIEngine:
             weaknesses = ["특별한 약점 없음 — 탐색적 개선 시도"]
 
         result.phase_results["diagnose"] = {"weaknesses": weaknesses}
-        logger.info(f"[RSI:DIAGNOSE] 발견된 약점: {len(weaknesses)}개")
+        logger.info("[RSI:DIAGNOSE] 발견된 약점: %s개", len(weaknesses))
         return weaknesses
 
     def _hypothesize(
         self,
-        weaknesses: List[str],
+        weaknesses: list[str],
         result: RSICycleResult,
-    ) -> List[ImprovementHypothesis]:
+    ) -> list[ImprovementHypothesis]:
         """Phase 3: HYPOTHESIZE — 개선 가설을 생성합니다."""
         hypotheses = []
 
@@ -343,7 +369,7 @@ class RSIEngine:
         self,
         hypothesis: ImprovementHypothesis,
         result: RSICycleResult,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Phase 4: MUTATE — 가설에 따른 변이체를 생성합니다."""
         mutation = {"type": hypothesis.mutation_type, "applied": False}
         result.hypothesis_applied = hypothesis.hypothesis_id
@@ -353,6 +379,7 @@ class RSIEngine:
             # PromptEvolver를 사용하여 프롬프트 진화
             try:
                 from .prompt_builder import PromptBuilder
+
                 builder = PromptBuilder.__new__(PromptBuilder)
                 current_prompt = getattr(builder, "_system_prompt", "")
                 if not current_prompt:
@@ -366,7 +393,7 @@ class RSIEngine:
                 mutation["evolver_score"] = score
                 mutation["applied"] = True
             except Exception as e:
-                logger.warning(f"[RSI:MUTATE] 프롬프트 진화 실패: {e}")
+                logger.exception("[RSI:MUTATE] 프롬프트 진화 실패")
                 mutation["error"] = str(e)
 
         elif hypothesis.mutation_type == MutationType.SAMPLING.value:
@@ -380,7 +407,7 @@ class RSIEngine:
     def _evaluate(
         self,
         benchmark_fn: Callable | None,
-        mutation: Dict[str, Any],
+        mutation: dict[str, Any],
         result: RSICycleResult,
     ) -> float:
         """Phase 5: EVALUATE — 변이체를 벤치마크로 검증합니다."""
@@ -391,8 +418,8 @@ class RSIEngine:
         if benchmark_fn:
             try:
                 score = benchmark_fn()
-            except Exception as e:
-                logger.warning(f"[RSI:EVALUATE] 벤치마크 실패: {e}")
+            except Exception:
+                logger.exception("[RSI:EVALUATE] 벤치마크 실패")
 
         result.phase_results["evaluate"] = {"score": score}
         return score
@@ -403,17 +430,11 @@ class RSIEngine:
 
         if result.improvement >= self.config.min_improvement:
             accepted = True
-            logger.info(
-                f"[RSI:SELECT] ✅ 개선 수용: Δ{result.improvement:+.2%}"
-            )
+            logger.info("[RSI:SELECT] ✅ 개선 수용: Δ%s", result.improvement)
         elif result.improvement <= self.config.max_regression:
-            logger.warning(
-                f"[RSI:SELECT] ❌ 퇴화 감지, 롤백 예정: Δ{result.improvement:+.2%}"
-            )
+            logger.warning("[RSI:SELECT] ❌ 퇴화 감지, 롤백 예정: Δ%s", result.improvement)
         else:
-            logger.info(
-                f"[RSI:SELECT] ⏭ 무의미한 변화, 스킵: Δ{result.improvement:+.2%}"
-            )
+            logger.info("[RSI:SELECT] ⏭ 무의미한 변화, 스킵: Δ%s", result.improvement)
 
         result.success = accepted
         result.phase_results["select"] = {"accepted": accepted}
@@ -423,13 +444,14 @@ class RSIEngine:
         self,
         accepted: bool,
         result: RSICycleResult,
-        mutation: Dict[str, Any],
+        mutation: dict[str, Any],
     ) -> None:
         """Phase 7: INTEGRATE — 승인 시 반영, 실패 시 롤백."""
         if accepted:
             # AgentArchive에 변이체 저장
             try:
                 from .agent_archive import AgentVariant
+
                 variant = AgentVariant(
                     variant_id=result.cycle_id,
                     generation=result.generation,
@@ -439,8 +461,8 @@ class RSIEngine:
                     improvement_delta=result.improvement,
                 )
                 self._archive.archive(variant)
-            except Exception as e:
-                logger.warning(f"[RSI:INTEGRATE] 아카이브 저장 실패: {e}")
+            except Exception:
+                logger.exception("[RSI:INTEGRATE] 아카이브 저장 실패")
 
             result.phase_results["integrate"] = "archived"
         else:
@@ -453,24 +475,27 @@ class RSIEngine:
 
     # ─── Level 3 연동 ──────────────────────────────────────────
 
-    def _trigger_meta_architect(self, performance_data: Dict[str, Any]) -> None:
+    def _trigger_meta_architect(self, performance_data: dict[str, Any]) -> None:
         """Level 3: 메타 아키텍트를 가동하여 대규모 리팩터링을 시도합니다."""
         logger.info("[RSI Level 3] Meta-Architect 엔진 가동...")
         try:
             from .meta_architect import MetaArchitect
+
             architect = MetaArchitect(project_root=self._root)
             proposal = architect.analyze_and_propose(performance_data)
             if proposal:
                 architect.execute_proposal(proposal)
-        except Exception as e:
-            logger.error(f"[RSI Level 3] Meta-Architect 실행 실패: {e}")
+        except Exception:
+            logger.exception("[RSI Level 3] Meta-Architect 실행 실패")
 
     def _trigger_self_play(self) -> None:
         """Level 3: 새로운 커리큘럼을 생성하여 자가 학습을 진행합니다."""
         logger.info("[RSI Level 3] Self-Play Curriculum 엔진 가동...")
         try:
-            from .curriculum_generator import CurriculumGenerator
             import asyncio
+
+            from .curriculum_generator import CurriculumGenerator
+
             generator = CurriculumGenerator(project_root=self._root)
             task = generator.generate_new_challenge()
             if task:
@@ -480,18 +505,18 @@ class RSIEngine:
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                
+
                 if loop.is_running():
                     # 이미 루프가 돌고 있다면 task 생성
                     loop.create_task(generator.self_play(task))
                 else:
                     loop.run_until_complete(generator.self_play(task))
-        except Exception as e:
-            logger.error(f"[RSI Level 3] Self-Play 실행 실패: {e}")
+        except Exception:
+            logger.exception("[RSI Level 3] Self-Play 실행 실패")
 
     # ─── 통계 및 보고 ────────────────────────────────────────────
 
-    def get_evolution_report(self) -> Dict[str, Any]:
+    def get_evolution_report(self) -> dict[str, Any]:
         """전체 진화 보고서를 반환합니다."""
         if not self._cycle_history:
             return {"message": "진화 기록 없음", "cycles": 0}
@@ -503,16 +528,12 @@ class RSIEngine:
             "total_cycles": len(self._cycle_history),
             "successful": len(successes),
             "rolled_back": len(rollbacks),
-            "success_rate": f"{len(successes)/len(self._cycle_history)*100:.0f}%",
+            "success_rate": f"{len(successes) / len(self._cycle_history) * 100:.0f}%",
             "total_improvement": sum(c.improvement for c in successes),
             "best_cycle": (
-                max(self._cycle_history, key=lambda c: c.improvement).cycle_id
-                if self._cycle_history else None
+                max(self._cycle_history, key=lambda c: c.improvement).cycle_id if self._cycle_history else None
             ),
-            "avg_duration": (
-                sum(c.duration_sec for c in self._cycle_history)
-                / len(self._cycle_history)
-            ),
+            "avg_duration": (sum(c.duration_sec for c in self._cycle_history) / len(self._cycle_history)),
             "current_generation": self._generation,
         }
 
@@ -524,8 +545,8 @@ class RSIEngine:
 
         lines = [
             "## 🧬 RSI 진화 보고서\n",
-            f"| 항목 | 값 |",
-            f"|---|---|",
+            "| 항목 | 값 |",
+            "|---|---|",
             f"| 총 사이클 | {report['total_cycles']} |",
             f"| 성공 | {report['successful']} |",
             f"| 롤백 | {report['rolled_back']} |",
@@ -541,7 +562,7 @@ class RSIEngine:
             lines.append(
                 f"- {status} Gen {cycle.generation}: "
                 f"{cycle.before_score:.1%} → {cycle.after_score:.1%} "
-                f"(Δ{cycle.improvement:+.1%}, {cycle.mutation_type})"
+                f"(Δ{cycle.improvement:+.1%}, {cycle.mutation_type})",
             )
 
         return "\n".join(lines)

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 사용량 추적기
+"""Antigravity-K: 사용량 추적기.
+
 ============================
 9Router의 usageDb 패턴 이식 — 모델별 토큰·레이턴시·성공률 메트릭 추적.
 
@@ -18,7 +18,6 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from .cost_guard import CostGuard
 
@@ -30,7 +29,7 @@ logger = logging.getLogger("antigravity_k.usage_tracker")
 
 @dataclass
 class UsageRecord:
-    """요청 1건의 사용량 기록"""
+    """요청 1건의 사용량 기록."""
 
     model_name: str
     timestamp: float  # unix timestamp
@@ -44,12 +43,18 @@ class UsageRecord:
 
     @property
     def total_tokens(self) -> int:
+        """Total Tokens.
+
+        Returns:
+            int: The int result.
+
+        """
         return self.tokens_in + self.tokens_out
 
 
 @dataclass
 class UsageStats:
-    """기간별 통합 통계"""
+    """기간별 통합 통계."""
 
     model_name: str
     period: str  # hourly / daily / weekly / total
@@ -65,15 +70,33 @@ class UsageStats:
 
     @property
     def success_rate(self) -> float:
+        """Success Rate.
+
+        Returns:
+            float: The float result.
+
+        """
         if self.total_requests == 0:
             return 0.0
         return self.success_count / self.total_requests * 100
 
     @property
     def total_tokens(self) -> int:
+        """Total Tokens.
+
+        Returns:
+            int: The int result.
+
+        """
         return self.total_tokens_in + self.total_tokens_out
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         d = asdict(self)
         d["success_rate"] = round(self.success_rate, 1)
         d["total_tokens"] = self.total_tokens
@@ -84,8 +107,7 @@ class UsageStats:
 
 
 class UsageTracker:
-    """
-    모델별 사용량 및 성능 메트릭 추적.
+    """모델별 사용량 및 성능 메트릭 추적.
 
     9Router 패턴: usageDb.js의 프로바이더별 토큰·비용 추적 구조를
     로컬 JSON 파일 기반으로 구현.
@@ -99,15 +121,24 @@ class UsageTracker:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
         max_records: int = 10000,
         auto_save_interval: int = 50,
-        cost_guard: Optional[CostGuard] = None,
+        cost_guard: CostGuard | None = None,
     ):
+        """Initialize the UsageTracker.
+
+        Args:
+            db_path (str | None): str | None db path.
+            max_records (int): int max records.
+            auto_save_interval (int): int auto save interval.
+            cost_guard (CostGuard | None): CostGuard | None cost guard.
+
+        """
         self._db_path = Path(db_path) if db_path else None
         self._max_records = max_records
         self._auto_save_interval = auto_save_interval
-        self._records: List[UsageRecord] = []
+        self._records: list[UsageRecord] = []
         self._unsaved_count = 0
         self._cost_guard = cost_guard  # IronClaw CostGuard 통합
 
@@ -164,10 +195,12 @@ class UsageTracker:
             self._save()
 
         logger.debug(
-            f"사용량 기록: {model_name} — "
-            f"in={tokens_in}, out={tokens_out}, "
-            f"latency={latency_ms:.0f}ms, "
-            f"{'성공' if success else '실패'}"
+            "사용량 기록: %s — in=%s, out=%s, latency=%sms, %s",
+            model_name,
+            tokens_in,
+            tokens_out,
+            latency_ms,
+            "성공" if success else "실패",
         )
         return entry
 
@@ -175,26 +208,23 @@ class UsageTracker:
 
     def get_stats(
         self,
-        model_name: Optional[str] = None,
+        model_name: str | None = None,
         period: str = "daily",
-    ) -> List[UsageStats]:
-        """
-        기간별 통계를 계산합니다.
+    ) -> list[UsageStats]:
+        """기간별 통계를 계산합니다.
 
         Args:
             model_name: 특정 모델만 조회 (None=전체)
             period: hourly / daily / weekly / total
+
         """
         cutoff = self._get_cutoff(period)
         filtered = [
-            r
-            for r in self._records
-            if r.timestamp >= cutoff
-            and (model_name is None or r.model_name == model_name)
+            r for r in self._records if r.timestamp >= cutoff and (model_name is None or r.model_name == model_name)
         ]
 
         # 모델별로 그룹핑
-        grouped: Dict[str, List[UsageRecord]] = defaultdict(list)
+        grouped: dict[str, list[UsageRecord]] = defaultdict(list)
         for r in filtered:
             grouped[r.model_name].append(r)
 
@@ -207,16 +237,16 @@ class UsageTracker:
         stats_list.sort(key=lambda s: s.total_requests, reverse=True)
         return stats_list
 
-    def get_recent(self, count: int = 20) -> List[UsageRecord]:
-        """최근 N건의 기록 반환"""
+    def get_recent(self, count: int = 20) -> list[UsageRecord]:
+        """최근 N건의 기록 반환."""
         return list(reversed(self._records[-count:]))
 
-    def get_model_names(self) -> List[str]:
-        """기록에 등장한 모든 모델 이름"""
+    def get_model_names(self) -> list[str]:
+        """기록에 등장한 모든 모델 이름."""
         return list({r.model_name for r in self._records})
 
     def get_total_tokens(self) -> int:
-        """현재까지 기록된 모든 토큰 수(입력+출력) 합계 반환"""
+        """현재까지 기록된 모든 토큰 수(입력+출력) 합계 반환."""
         total = 0
         for r in self._records:
             total += r.tokens_in + r.tokens_out
@@ -225,7 +255,7 @@ class UsageTracker:
     # ─── 대시보드 데이터 ─────────────────────────────────────────────
 
     def to_dashboard_data(self) -> dict:
-        """대시보드 UI용 전체 통계 데이터"""
+        """대시보드 UI용 전체 통계 데이터."""
         daily_stats = self.get_stats(period="daily")
         total_stats = self.get_stats(period="total")
 
@@ -243,12 +273,12 @@ class UsageTracker:
     # ─── 영속화 ──────────────────────────────────────────────────────
 
     def save(self) -> None:
-        """수동 저장"""
+        """수동 저장."""
         if self._db_path:
             self._save()
 
     def _save(self) -> None:
-        """JSON 파일로 저장"""
+        """JSON 파일로 저장."""
         if not self._db_path:
             return
 
@@ -263,30 +293,30 @@ class UsageTracker:
             with open(self._db_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             self._unsaved_count = 0
-            logger.debug(f"사용량 DB 저장: {self._db_path} ({len(self._records)}건)")
-        except Exception as e:
-            logger.error(f"사용량 DB 저장 실패: {e}")
+            logger.debug("사용량 DB 저장: %s (%s건)", self._db_path, len(self._records))
+        except Exception:
+            logger.exception("사용량 DB 저장 실패")
 
     def _load(self) -> None:
-        """JSON 파일에서 로드"""
+        """JSON 파일에서 로드."""
         if not self._db_path or not self._db_path.exists():
             return
 
         try:
-            with open(self._db_path, "r", encoding="utf-8") as f:
+            with open(self._db_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             raw_records = data.get("records", [])
             self._records = [UsageRecord(**r) for r in raw_records]
-            logger.info(f"사용량 DB 로드: {self._db_path} ({len(self._records)}건)")
-        except Exception as e:
-            logger.warning(f"사용량 DB 로드 실패: {e}")
+            logger.info("사용량 DB 로드: %s (%s건)", self._db_path, len(self._records))
+        except Exception:
+            logger.exception("사용량 DB 로드 실패")
             self._records = []
 
     # ─── 내부 유틸 ───────────────────────────────────────────────────
 
     def _get_cutoff(self, period: str) -> float:
-        """기간별 시작 시각 계산"""
+        """기간별 시작 시각 계산."""
         now = time.time()
         if period == "hourly":
             return now - 3600
@@ -302,10 +332,10 @@ class UsageTracker:
     @staticmethod
     def _compute_stats(
         model_name: str,
-        records: List[UsageRecord],
+        records: list[UsageRecord],
         period: str,
     ) -> UsageStats:
-        """레코드 리스트에서 통합 통계 계산"""
+        """레코드 리스트에서 통합 통계 계산."""
         if not records:
             return UsageStats(model_name=model_name, period=period)
 
@@ -326,14 +356,14 @@ class UsageTracker:
             fallback_count=sum(1 for r in records if r.fallback_depth > 0),
         )
 
-    def _compute_hourly_trend(self, hours: int = 24) -> List[dict]:
-        """시간별 토큰 사용량 추세 (최근 N시간)"""
+    def _compute_hourly_trend(self, hours: int = 24) -> list[dict]:
+        """시간별 토큰 사용량 추세 (최근 N시간)."""
         now = time.time()
         cutoff = now - hours * 3600
         filtered = [r for r in self._records if r.timestamp >= cutoff]
 
         # 시간별 버킷
-        buckets: Dict[int, dict] = {}
+        buckets: dict[int, dict] = {}
         for r in filtered:
             hour_key = int((r.timestamp - cutoff) // 3600)
             if hour_key not in buckets:
@@ -354,7 +384,7 @@ class UsageTracker:
         return result
 
     def clear(self) -> None:
-        """모든 기록 삭제"""
+        """모든 기록 삭제."""
         self._records.clear()
         self._unsaved_count = 0
         if self._db_path:

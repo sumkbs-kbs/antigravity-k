@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 에이전트 실행 루프 (AgentLoop)
+"""Antigravity-K: 에이전트 실행 루프 (AgentLoop).
+
 =============================================
 ReAct(Reason+Act) 패턴의 상태머신 기반 에이전트 실행 엔진.
 
@@ -23,8 +23,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
-
 
 logger = logging.getLogger(__name__)
 
@@ -57,19 +55,23 @@ class StepContext:
     max_steps: int
     full_response: str = ""  # 현재 step의 raw LLM 출력
     tool_executed: bool = False  # 이 step에서 도구가 실행되었는지
-    tool_responses: List[str] = field(default_factory=list)  # 도구 응답 목록
+    tool_responses: list[str] = field(default_factory=list)  # 도구 응답 목록
     state: ReActState = ReActState.GENERATING
     adaptation_applied: bool = False  # 전략 수정(Adapt) 반영 여부
 
     @property
     def visible_text(self) -> str:
-        """thought 블록을 제외한 사용자 보이는 텍스트."""
-        return re.sub(
-            r"<thought>.*?</thought>", "", self.full_response, flags=re.DOTALL
-        )
+        """Thought 블록을 제외한 사용자 보이는 텍스트."""
+        return re.sub(r"<thought>.*?</thought>", "", self.full_response, flags=re.DOTALL)
 
     @property
     def steps_remaining(self) -> int:
+        """Steps Remaining.
+
+        Returns:
+            int: The int result.
+
+        """
         return self.max_steps - self.step_number
 
 
@@ -107,6 +109,7 @@ class NudgeDetector:
     MAX_NUDGES = 2
 
     def __init__(self):
+        """Initialize the NudgeDetector."""
         self._count = 0
 
     def should_nudge(self, ctx: StepContext, has_tool_prompt: bool) -> bool:
@@ -117,10 +120,7 @@ class NudgeDetector:
             return False
 
         visible = ctx.visible_text
-        has_plan = (
-            any(p in visible for p in _INCOMPLETE_PLAN_PATTERNS)
-            and len(visible.strip()) < 200
-        )
+        has_plan = any(p in visible for p in _INCOMPLETE_PLAN_PATTERNS) and len(visible.strip()) < 200
         return has_plan
 
     def nudge(self) -> str:
@@ -135,9 +135,16 @@ class NudgeDetector:
 
     @property
     def count(self) -> int:
+        """Count.
+
+        Returns:
+            int: The int result.
+
+        """
         return self._count
 
     def reset(self):
+        """Reset."""
         self._count = 0
 
 
@@ -151,6 +158,7 @@ class ParseErrorGuard:
     MAX_CONSECUTIVE = 2
 
     def __init__(self):
+        """Initialize the ParseErrorGuard."""
         self._count = 0
 
     def record_error(self) -> bool:
@@ -158,7 +166,8 @@ class ParseErrorGuard:
         self._count += 1
         if self._count >= self.MAX_CONSECUTIVE:
             logger.warning(
-                f"[ParseErrorGuard] {self._count} consecutive parse errors — stopping retries"
+                "[ParseErrorGuard] %s consecutive parse errors — stopping retries",
+                self._count,
             )
             return True  # 중단
         return False  # 계속 재시도
@@ -169,4 +178,10 @@ class ParseErrorGuard:
 
     @property
     def count(self) -> int:
+        """Count.
+
+        Returns:
+            int: The int result.
+
+        """
         return self._count

@@ -25,6 +25,7 @@ dependencies = [
     "networkx>=3.0",
     "rank-bm25>=0.2.2",
     "nest-asyncio>=1.6.0",
+    "cryptography>=48.0.0",
 ]
 
 [project.optional-dependencies]
@@ -63,10 +64,17 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py312"
-line-length = 100
+line-length = 120
 
 [tool.ruff.lint]
 # The current codebase still contains legacy route modules and compact helper
 # blocks that rely on local imports and one-line statements. Keep the static
 # gate focused on correctness issues such as undefined names and unused symbols.
 extend-ignore = ["E402", "E701", "E702"]
+extend-select = ["I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["antigravity_k"]
+
+[tool.mypy]
+ignore_missing_imports = true

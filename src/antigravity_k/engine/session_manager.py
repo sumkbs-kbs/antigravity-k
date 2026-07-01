@@ -1,5 +1,5 @@
-"""
-SessionManager — 세션 영속성 관리
+"""SessionManager — 세션 영속성 관리.
+
 ==================================
 Claw Code의 Session Persistence 아키텍처 이식.
 
@@ -12,20 +12,19 @@ Claw Code의 Session Persistence 아키텍처 이식.
 프로젝트 디렉토리 기반으로 세션을 자동 매칭합니다.
 """
 
-import json
 import hashlib
+import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class SessionManager:
-    """
-    세션 영속성 관리자.
+    """세션 영속성 관리자.
 
     Claw Code의 세션 패턴:
     - 프로젝트별 세션 자동 생성/복원
@@ -33,24 +32,31 @@ class SessionManager:
     - Working Memory (프로젝트별 장기 기억)
     """
 
-    def __init__(self, base_dir: Optional[str] = None):
+    def __init__(self, base_dir: str | None = None):
+        """Initialize the SessionManager.
+
+        Args:
+            base_dir (str | None): str | None base dir.
+
+        """
         self.base_dir = base_dir or os.path.join(
-            os.path.expanduser("~"), ".antigravity", "sessions"
+            os.path.expanduser("~"),
+            ".antigravity",
+            "sessions",
         )
         os.makedirs(self.base_dir, exist_ok=True)
 
-        self._current_session: Optional[Dict] = None
-        self._session_id: Optional[str] = None
+        self._current_session: dict | None = None
+        self._session_id: str | None = None
 
     # ─────────── 세션 라이프사이클 ───────────
 
     def start_session(
         self,
-        project_path: Optional[str] = None,
+        project_path: str | None = None,
         resume: bool = True,
     ) -> str:
-        """
-        새 세션을 시작하거나, 기존 세션을 이어갑니다.
+        """새 세션을 시작하거나, 기존 세션을 이어갑니다.
 
         Args:
             project_path: 프로젝트 루트 경로 (세션 매칭용)
@@ -58,21 +64,20 @@ class SessionManager:
 
         Returns:
             session_id
+
         """
         project_path = project_path or os.getcwd()
 
         # 프로젝트 기반 세션 ID 생성
         # P0 수정: MD5 → SHA256 (보안 감사 대응)
-        project_hash = hashlib.sha256(
-            os.path.abspath(project_path).encode()
-        ).hexdigest()[:8]
+        project_hash = hashlib.sha256(os.path.abspath(project_path).encode()).hexdigest()[:8]
 
         if resume:
             # 최근 세션 찾기
             existing = self._find_latest_session(project_hash)
             if existing:
                 self._load_session(existing)
-                logger.info(f"Resumed session: {self._session_id}")
+                logger.info("Resumed session: %s", self._session_id)
                 return self._session_id
 
         # 새 세션 생성
@@ -94,7 +99,7 @@ class SessionManager:
         }
 
         self._save_session()
-        logger.info(f"Created new session: {self._session_id}")
+        logger.info("Created new session: %s", self._session_id)
         return self._session_id
 
     def save(self):
@@ -108,13 +113,13 @@ class SessionManager:
         if self._current_session:
             self._current_session["metadata"]["ended_at"] = time.time()
             self._save_session()
-            logger.info(f"Session ended: {self._session_id}")
+            logger.info("Session ended: %s", self._session_id)
             self._current_session = None
             self._session_id = None
 
     # ─────────── Turn Memory ───────────
 
-    def add_turn(self, messages: List[Dict[str, str]]):
+    def add_turn(self, messages: list[dict[str, str]]):
         """턴(사용자 입력 + 어시스턴트 응답)을 세션에 추가합니다."""
         if not self._current_session:
             self.start_session()
@@ -127,13 +132,13 @@ class SessionManager:
         if self._current_session["turn_count"] % 5 == 0:
             self._save_session()
 
-    def get_messages(self) -> List[Dict[str, str]]:
+    def get_messages(self) -> list[dict[str, str]]:
         """현재 세션의 전체 메시지를 반환합니다."""
         if not self._current_session:
             return []
         return self._current_session.get("messages", [])
 
-    def get_recent_messages(self, count: int = 10) -> List[Dict[str, str]]:
+    def get_recent_messages(self, count: int = 10) -> list[dict[str, str]]:
         """최근 N개 메시지를 반환합니다."""
         messages = self.get_messages()
         return messages[-count:] if len(messages) > count else messages
@@ -166,7 +171,7 @@ class SessionManager:
             return mem["value"]
         return default
 
-    def get_all_memory(self) -> Dict[str, Any]:
+    def get_all_memory(self) -> dict[str, Any]:
         """모든 Working Memory를 반환합니다."""
         if not self._current_session:
             return {}
@@ -201,14 +206,14 @@ class SessionManager:
 
     # ─────────── 세션 조회 ───────────
 
-    def list_sessions(self, limit: int = 10) -> List[Dict]:
+    def list_sessions(self, limit: int = 10) -> list[dict]:
         """최근 세션 목록을 반환합니다."""
         sessions = []
         for fname in os.listdir(self.base_dir):
             if fname.endswith(".json"):
                 fpath = os.path.join(self.base_dir, fname)
                 try:
-                    with open(fpath, "r", encoding="utf-8") as f:
+                    with open(fpath, encoding="utf-8") as f:
                         data = json.load(f)
                     sessions.append(
                         {
@@ -217,7 +222,7 @@ class SessionManager:
                             "created_at": data.get("created_at", 0),
                             "updated_at": data.get("updated_at", 0),
                             "turn_count": data.get("turn_count", 0),
-                        }
+                        },
                     )
                 except (json.JSONDecodeError, KeyError):
                     continue
@@ -233,7 +238,7 @@ class SessionManager:
             return True
         return False
 
-    def get_session_info(self) -> Optional[Dict]:
+    def get_session_info(self) -> dict | None:
         """현재 세션 정보를 반환합니다."""
         if not self._current_session:
             return None
@@ -258,21 +263,21 @@ class SessionManager:
         try:
             with open(fpath, "w", encoding="utf-8") as f:
                 json.dump(self._current_session, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save session: {e}")
+        except Exception:
+            logger.exception("Failed to save session")
 
     def _load_session(self, fpath: str):
         """디스크에서 세션을 로드합니다."""
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
+            with open(fpath, encoding="utf-8") as f:
                 self._current_session = json.load(f)
             self._session_id = self._current_session.get("id")
-        except Exception as e:
-            logger.error(f"Failed to load session: {e}")
+        except Exception:
+            logger.exception("Failed to load session")
             self._current_session = None
             self._session_id = None
 
-    def _find_latest_session(self, project_hash: str) -> Optional[str]:
+    def _find_latest_session(self, project_hash: str) -> str | None:
         """프로젝트 해시로 최근 세션 파일을 찾습니다."""
         candidates = []
         for fname in os.listdir(self.base_dir):
@@ -288,9 +293,8 @@ class SessionManager:
 
     # ─────────── 자동 컨텍스트 복원 (P1-5) ───────────
 
-    def auto_restore(self, project_path: Optional[str] = None) -> Optional[str]:
-        """
-        이전 세션의 핵심 컨텍스트를 자동 복원합니다.
+    def auto_restore(self, project_path: str | None = None) -> str | None:
+        """이전 세션의 핵심 컨텍스트를 자동 복원합니다.
 
         자동화 핵심:
         - 마지막 세션의 요약 생성 (수정 파일, 사용 도구, 핵심 대화)
@@ -299,20 +303,20 @@ class SessionManager:
 
         Returns:
             복원된 컨텍스트 문자열 (없으면 None)
+
         """
         project_path = project_path or os.getcwd()
-        project_hash = hashlib.sha256(
-            os.path.abspath(project_path).encode()
-        ).hexdigest()[:8]
+        project_hash = hashlib.sha256(os.path.abspath(project_path).encode()).hexdigest()[:8]
 
         session_path = self._find_latest_session(project_hash)
         if not session_path:
             return None
 
         try:
-            with open(session_path, "r", encoding="utf-8") as f:
+            with open(session_path, encoding="utf-8") as f:
                 prev_session = json.load(f)
         except Exception:
+            logger.exception("Unhandled exception")
             return None
 
         # 세션 메타데이터 추출
@@ -327,9 +331,7 @@ class SessionManager:
             return None
 
         # 마지막 사용자 메시지 3개 요약
-        recent_user_msgs = [
-            m["content"][:200] for m in messages if m.get("role") == "user"
-        ][-3:]
+        recent_user_msgs = [m["content"][:200] for m in messages if m.get("role") == "user"][-3:]
 
         # 컨텍스트 문자열 생성
         parts = ["\n[SESSION CONTEXT RESTORE]"]
@@ -362,7 +364,7 @@ class SessionManager:
                 parts.append("Working memory keys: " + ", ".join(active_keys[:10]))
                 if len(active_keys) < len(working_mem):
                     parts.append(
-                        f"  *(Note: {len(working_mem) - len(active_keys)} old items were purged due to staleness)*"
+                        f"  *(Note: {len(working_mem) - len(active_keys)} old items were purged due to staleness)*",
                     )
 
         # 자율 행동/수복 메모리 주입 (Hermes 차용)
@@ -373,22 +375,19 @@ class SessionManager:
             if patches:
                 parts.append("\n[AUTONOMOUS LEARNINGS & PATCHES]")
                 # 최근 3개의 패치 이력만 컨텍스트에 주입
-                for p in sorted(patches, key=lambda x: x.stat().st_mtime, reverse=True)[
-                    :3
-                ]:
+                for p in sorted(patches, key=lambda x: x.stat().st_mtime, reverse=True)[:3]:
                     try:
-                        with open(p, "r", encoding="utf-8") as f:
+                        with open(p, encoding="utf-8") as f:
                             data = json.load(f)
                         parts.append(
-                            f"  - Self-Patched {data.get('target_file')}: {data.get('explanation')}"
+                            f"  - Self-Patched {data.get('target_file')}: {data.get('explanation')}",
                         )
                     except Exception:
+                        logger.exception("Unhandled exception")
                         continue
 
         parts.append("[END SESSION CONTEXT]\n")
 
         context = "\n".join(parts)
-        logger.info(
-            f"[AutoRestore] Restored context from session with {turn_count} turns"
-        )
+        logger.info("[AutoRestore] Restored context from session with %s turns", turn_count)
         return context

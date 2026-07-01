@@ -1,22 +1,32 @@
-import logging
+"""Slack Bot module."""
+
 import asyncio
+import logging
 
 logger = logging.getLogger("antigravity_k.integrations.slack")
 
 try:
-    from slack_bolt.async_app import AsyncApp
     from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
+    from slack_bolt.async_app import AsyncApp
 except ImportError:
     AsyncApp = None
 
 
 class SlackBotClient:
-    """
-    Antigravity-K Slack Integration
+    """Antigravity-K Slack Integration.
+
     Socket Mode를 사용하여 슬랙 채널의 멘션 이벤트에 응답합니다.
     """
 
     def __init__(self, bot_token: str, app_token: str, registry):
+        """Initialize the SlackBotClient.
+
+        Args:
+            bot_token (str): str bot token.
+            app_token (str): str app token.
+            registry: registry.
+
+        """
         self.bot_token = bot_token
         self.app_token = app_token
         self.registry = registry
@@ -43,10 +53,11 @@ class SlackBotClient:
                 result = await asyncio.to_thread(self.registry.execute, content)
                 await say(result)
             except Exception as e:
-                logger.error(f"Error handling slack mention: {e}")
+                logger.exception("Error handling slack mention")
                 await say(f"❌ 오류가 발생했습니다: {str(e)}")
 
     async def run_async(self):
+        """Run async."""
         if not AsyncApp:
             print("Please install slack_bolt and slack_sdk")
             return
@@ -54,6 +65,7 @@ class SlackBotClient:
         await handler.start_async()
 
     def run(self):
+        """Run."""
         asyncio.run(self.run_async())
 
 

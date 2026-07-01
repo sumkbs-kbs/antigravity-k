@@ -1,40 +1,43 @@
+"""Legacy module."""
+
+import asyncio
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
-    Query,
 )
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
-import json
-import logging
 from fastapi.responses import StreamingResponse
-import asyncio
-from pathlib import Path
+from pydantic import BaseModel, Field
 
-from antigravity_k.engine.model_manager import ModelManager
-from antigravity_k.engine.embeddings import EmbeddingEngine, get_embedding_engine
-from antigravity_k.engine.audit_logger import get_audit_logger
-from antigravity_k.engine.vault import VaultEngine
-from antigravity_k.config import config
+from antigravity_k.api.dependencies import (
+    __get_skill_loader,
+    __get_tool_registry,
+    _get_context_shaper,
+    _get_session_manager,
+    get_model_manager,
+    get_orchestrator,
+    get_vault_engine,
+)
 from antigravity_k.api.models import (
     EmbeddingData,
     EmbeddingRequest,
     EmbeddingResponse,
     UsageStats,
 )
-from antigravity_k.api.dependencies import (
-    get_model_manager,
-    get_vault_engine,
-    __get_tool_registry,
-    __get_skill_loader,
-    _get_context_shaper,
-    _get_session_manager,
-    get_orchestrator,
-)
+from antigravity_k.config import config
+from antigravity_k.engine.audit_logger import get_audit_logger
+from antigravity_k.engine.embeddings import EmbeddingEngine, get_embedding_engine
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.vault import VaultEngine
 
 logger = logging.getLogger("antigravity_k.api.legacy")
 router = APIRouter()
@@ -43,6 +46,7 @@ router = APIRouter()
 @router.get("/health")
 @router.get("/v1/health")
 def health_check():
+    """Health Check."""
     manager = get_model_manager()
     info = manager.status() if manager else {}
     backends = info.get("loaded_models", {}) if isinstance(info, dict) else {}
@@ -66,12 +70,19 @@ def health_check():
 
 
 class WakeRequest(BaseModel):
+    """Wakerequest.
+
+    Bases: BaseModel
+    """
+
     event_type: str = Field(
-        ..., description="Type of event (e.g. 'file_changed', 'lint_error', 'comment')"
+        ...,
+        description="Type of event (e.g. 'file_changed', 'lint_error', 'comment')",
     )
-    payload: Dict[str, Any] = Field(..., description="Detailed payload for the event")
+    payload: dict[str, Any] = Field(..., description="Detailed payload for the event")
     target_model: str = Field(
-        default="qwen3.6:latest", description="Model to use for the wake task"
+        default="qwen3.6:latest",
+        description="Model to use for the wake task",
     )
 
 
@@ -82,8 +93,8 @@ async def wake_agent(
     registry: Any = Depends(__get_tool_registry),
     vault: Any = Depends(get_vault_engine),
 ):
-    """
-    Paperclip의 Comment-driven Wake 개념을 포팅.
+    """Paperclip의 Comment-driven Wake 개념을 포팅.
+
     특정 시스템 이벤트 발생 시 에이전트가 백그라운드에서 즉시 기상하여 태스크를 수행합니다.
     """
     from antigravity_k.engine.task_runner import get_task_runner
@@ -91,7 +102,12 @@ async def wake_agent(
     runner = get_task_runner()
     orchestrator = get_orchestrator()
 
-    prompt = f"System Wake Event Triggered:\n- Type: {req.event_type}\n- Details: {json.dumps(req.payload, ensure_ascii=False)}\n\nPlease analyze this event and take any necessary actions."
+    payload_str = json.dumps(req.payload, ensure_ascii=False)
+    prompt = (
+        f"System Wake Event Triggered:\n- Type: {req.event_type}\n- Details:"
+        f"{payload_str}\n\nPlease analyze this event and"
+        f" take any necessary actions."
+    )
 
     task_id = runner.submit_task(
         prompt=prompt,
@@ -108,10 +124,13 @@ async def wake_agent(
 
 
 class EvolveRequest(BaseModel):
+    """Evolverequest.
+
+    Bases: BaseModel
+    """
+
     skill_name: str = Field(..., description="Name of the skill to evolve")
-    target_model: str = Field(
-        default="qwen3.6:latest", description="Model to use for evolution"
-    )
+    target_model: str = Field(default="qwen3.6:latest", description="Model to use for evolution")
 
 
 @router.post("/api/agent/evolve")
@@ -120,8 +139,8 @@ async def evolve_skill_api(
     manager: ModelManager = Depends(get_model_manager),
     vault: Any = Depends(get_vault_engine),
 ):
-    """
-    특정 스킬에 대해 과거 실패 이력을 바탕으로 한 자율 진화(Self-Evolution)를 시작합니다.
+    """특정 스킬에 대해 과거 실패 이력을 바탕으로 한 자율 진화(Self-Evolution)를 시작합니다.
+
     진화된 결과는 SKILL_EVOLVED.md 로 저장되어 인간의 검토를 기다립니다.
     """
     from antigravity_k.engine.evolution import EvolutionManager
@@ -133,9 +152,7 @@ async def evolve_skill_api(
         )
 
     ev_manager = EvolutionManager(model_manager=manager, vault_engine=vault)
-    draft_path = ev_manager.evolve_skill(
-        skill_name=req.skill_name, target_model=req.target_model
-    )
+    draft_path = ev_manager.evolve_skill(skill_name=req.skill_name, target_model=req.target_model)
 
     if draft_path:
         return {
@@ -145,14 +162,18 @@ async def evolve_skill_api(
         }
     else:
         raise HTTPException(
-            status_code=500, detail="Failed to evolve skill. Check logs for details."
+            status_code=500,
+            detail="Failed to evolve skill. Check logs for details.",
         )
 
 
 class EvolveSystemPromptRequest(BaseModel):
-    target_model: str = Field(
-        default="qwen3.6:latest", description="Model to use for evolution"
-    )
+    """Evolvesystempromptrequest.
+
+    Bases: BaseModel
+    """
+
+    target_model: str = Field(default="qwen3.6:latest", description="Model to use for evolution")
 
 
 @router.post("/api/agent/evolve_system_prompt")
@@ -161,9 +182,7 @@ async def evolve_system_prompt_api(
     manager: ModelManager = Depends(get_model_manager),
     vault: Any = Depends(get_vault_engine),
 ):
-    """
-    시스템 프롬프트의 자율 진화를 시작합니다.
-    """
+    """시스템 프롬프트의 자율 진화를 시작합니다."""
     from antigravity_k.engine.evolution import EvolutionManager
 
     if vault is None:
@@ -187,7 +206,7 @@ async def evolve_system_prompt_api(
 
 @router.get("/v1/models")
 def list_models(manager: ModelManager = Depends(get_model_manager)):
-    """설치/로드된 모델 목록 반환"""
+    """설치/로드된 모델 목록 반환."""
     import time
 
     models = manager._registry.list_models()
@@ -202,19 +221,25 @@ def list_models(manager: ModelManager = Depends(get_model_manager)):
                 "owned_by": "system",
                 "role": m.role,
                 "description": m.description,
-            }
+            },
         )
     return {"object": "list", "data": formatted_data}
 
 
 @router.post("/v1/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(
-    request: EmbeddingRequest, engine: EmbeddingEngine = Depends(get_embedding_engine)
+    request: EmbeddingRequest,
+    engine: EmbeddingEngine = Depends(get_embedding_engine),
 ):
+    """Create embeddings.
+
+    Args:
+        request (EmbeddingRequest): EmbeddingRequest request.
+        engine (EmbeddingEngine): EmbeddingEngine engine.
+
+    """
     audit = get_audit_logger()
-    audit.log_event(
-        "embedding_request", {"model": request.model, "input_len": len(request.input)}
-    )
+    audit.log_event("embedding_request", {"model": request.model, "input_len": len(request.input)})
 
     try:
         # Generate embeddings
@@ -226,11 +251,7 @@ async def create_embeddings(
             data.append(EmbeddingData(embedding=emb, index=i))
 
         # Basic usage tracking (dummy for now)
-        tokens = (
-            sum(len(t) // 4 for t in request.input)
-            if isinstance(request.input, list)
-            else len(request.input) // 4
-        )
+        tokens = sum(len(t) // 4 for t in request.input) if isinstance(request.input, list) else len(request.input) // 4
 
         return EmbeddingResponse(
             data=data,
@@ -238,7 +259,7 @@ async def create_embeddings(
             usage=UsageStats(prompt_tokens=tokens, total_tokens=tokens),
         )
     except Exception as e:
-        logger.error(f"Embedding error: {e}")
+        logger.error("Embedding error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -247,7 +268,7 @@ async def create_embeddings(
 
 @router.get("/api/vault/config")
 def vault_config(engine: VaultEngine = Depends(get_vault_engine)):
-    """현재 Vault 설정 조회"""
+    """현재 Vault 설정 조회."""
     if not engine:
         return {"ok": False, "vault_path": None, "message": "VaultEngine not available"}
     return {"ok": True, "vault_path": str(engine.vault_path)}
@@ -255,7 +276,7 @@ def vault_config(engine: VaultEngine = Depends(get_vault_engine)):
 
 @router.post("/api/vault/config")
 async def set_vault_config(request: Request):
-    """Vault 경로를 동적으로 변경 (Wiki + Chat 공유용)"""
+    """Vault 경로를 동적으로 변경 (Wiki + Chat 공유용)."""
     global vault_engine
     body = await request.json()
     new_path = body.get("vault_path", "")
@@ -271,7 +292,7 @@ async def set_vault_config(request: Request):
     try:
         vault_engine = VaultEngine(vault_path=target, sync_rag=True)
     except Exception as e:
-        logger.warning(f"Vault 재초기화 실패 (RAG 비활성): {e}")
+        logger.warning("Vault 재초기화 실패 (RAG 비활성): %s", e)
         try:
             vault_engine = VaultEngine(vault_path=target, sync_rag=False)
         except Exception as e2:
@@ -288,9 +309,7 @@ def vault_tree(engine: VaultEngine = Depends(get_vault_engine)):
     def build_tree(base_path: Path, rel_prefix: str = "") -> list:
         items = []
         try:
-            entries = sorted(
-                base_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())
-            )
+            entries = sorted(base_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
         except PermissionError:
             return items
         for entry in entries:
@@ -305,7 +324,7 @@ def vault_tree(engine: VaultEngine = Depends(get_vault_engine)):
                         "path": rel,
                         "type": "folder",
                         "children": children,
-                    }
+                    },
                 )
             elif entry.suffix.lower() in (".md", ".txt", ".yaml", ".yml"):
                 items.append(
@@ -314,7 +333,7 @@ def vault_tree(engine: VaultEngine = Depends(get_vault_engine)):
                         "path": rel,
                         "type": "file",
                         "size": entry.stat().st_size,
-                    }
+                    },
                 )
         return items
 
@@ -341,9 +360,7 @@ def vault_read(path: str, engine: VaultEngine = Depends(get_vault_engine)):
 
 
 @router.post("/api/vault/write")
-async def vault_write(
-    request: Request, engine: VaultEngine = Depends(get_vault_engine)
-):
+async def vault_write(request: Request, engine: VaultEngine = Depends(get_vault_engine)):
     """Create or update a note in the vault."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
@@ -365,7 +382,7 @@ async def vault_write(
 
 @router.post("/api/vault/sync")
 async def vault_sync(engine: VaultEngine = Depends(get_vault_engine)):
-    """현재 Vault 상태를 Git 스냅샷으로 저장"""
+    """현재 Vault 상태를 Git 스냅샷으로 저장."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
     try:
@@ -377,6 +394,13 @@ async def vault_sync(engine: VaultEngine = Depends(get_vault_engine)):
 
 @router.get("/v1/notes/search")
 def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
+    """Search for notes.
+
+    Args:
+        q (str): str q.
+        engine (VaultEngine): VaultEngine engine.
+
+    """
     if not q:
         raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
 
@@ -396,7 +420,7 @@ def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
             "keyword_results": keyword_results,
         }
     except Exception as e:
-        logger.error(f"Search error: {e}")
+        logger.error("Search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -408,9 +432,9 @@ from antigravity_k.engine.task_runner import get_task_runner
 async def submit_background_task(
     request: Request,
     manager: ModelManager = Depends(get_model_manager),
-    vault: Optional[VaultEngine] = Depends(get_vault_engine),
+    vault: VaultEngine | None = Depends(get_vault_engine),
 ):
-    """백그라운드 태스크 제출 — 장기 실행 작업을 비동기로 처리"""
+    """백그라운드 태스크 제출 — 장기 실행 작업을 비동기로 처리."""
     body = await request.json()
     prompt = body.get("prompt", "")
     context = body.get("context", {})
@@ -422,7 +446,10 @@ async def submit_background_task(
     orchestrator = get_orchestrator()
     runner = get_task_runner()
     task_id = runner.submit_task(
-        prompt=prompt, context=context, orchestrator=orchestrator, target_model=model
+        prompt=prompt,
+        context=context,
+        orchestrator=orchestrator,
+        target_model=model,
     )
 
     return {"status": "submitted", "task_id": task_id}
@@ -430,7 +457,7 @@ async def submit_background_task(
 
 @router.get("/api/tasks/{task_id}/status")
 async def get_task_status(task_id: str):
-    """태스크 진행 상태 조회"""
+    """태스크 진행 상태 조회."""
     runner = get_task_runner()
     status = runner.get_status(task_id)
     if not status:
@@ -440,14 +467,14 @@ async def get_task_status(task_id: str):
 
 @router.get("/api/tasks")
 async def list_tasks(limit: int = Query(default=20)):
-    """최근 태스크 목록"""
+    """최근 태스크 목록."""
     runner = get_task_runner()
     return {"status": "ok", "data": runner.list_tasks(limit=limit)}
 
 
 @router.get("/api/tasks/{task_id}/output")
 async def get_task_output(task_id: str):
-    """완료된 태스크의 전체 출력"""
+    """완료된 태스크의 전체 출력."""
     runner = get_task_runner()
     output = runner.get_output(task_id)
     if output is None:
@@ -459,9 +486,9 @@ async def get_task_output(task_id: str):
 async def resume_task(
     task_id: str,
     manager: ModelManager = Depends(get_model_manager),
-    vault: Optional[VaultEngine] = Depends(get_vault_engine),
+    vault: VaultEngine | None = Depends(get_vault_engine),
 ):
-    """중단된 태스크를 마지막 체크포인트에서 재개"""
+    """중단된 태스크를 마지막 체크포인트에서 재개."""
     orchestrator = get_orchestrator()
     runner = get_task_runner()
     success = runner.resume_task(task_id=task_id, orchestrator=orchestrator)
@@ -480,10 +507,11 @@ def _default_project_path() -> str:
     try:
         return str(Path(config.paths.project_root).resolve())
     except Exception:
+        logger.exception("Unhandled exception")
         return str(Path.cwd().resolve())
 
 
-def _normalize_project_path(project_path: Optional[str] = None) -> str:
+def _normalize_project_path(project_path: str | None = None) -> str:
     raw = str(project_path or "").strip()
     if not raw or raw == "/":
         return _default_project_path()
@@ -495,7 +523,7 @@ def _project_name(project_path: str) -> str:
     return path.name or str(path)
 
 
-def _task_matches_workspace(task: dict, workspace: Optional[str]) -> bool:
+def _task_matches_workspace(task: dict, workspace: str | None) -> bool:
     if not workspace:
         return True
     expected = _normalize_project_path(workspace)
@@ -503,7 +531,7 @@ def _task_matches_workspace(task: dict, workspace: Optional[str]) -> bool:
     return actual == expected
 
 
-def _serialize_kanban_payload(tasks: Optional[list] = None) -> dict:
+def _serialize_kanban_payload(tasks: list | None = None) -> dict:
     selected = list(tasks if tasks is not None else kanban_tasks)
     payload = {
         "tasks": selected,
@@ -533,12 +561,14 @@ def _serialize_kanban_payload(tasks: Optional[list] = None) -> dict:
 
 
 async def broadcast_kanban():
+    """Broadcast Kanban."""
     # Helper to broadcast the flat task list plus grouped status views.
     message = json.dumps(_serialize_kanban_payload())
     for client in list(kanban_clients):
         try:
             await client.send_text(message)
         except Exception:
+            logger.exception("Unhandled exception")
             kanban_clients.discard(client)
 
 
@@ -563,7 +593,7 @@ def _on_agent_turn_started(**kwargs):
             "priority": "normal",
             "project_path": _default_project_path(),
             "project_name": _project_name(_default_project_path()),
-        }
+        },
     )
     task_counter += 1
 
@@ -585,10 +615,16 @@ global_event_bus.subscribe("AgentTurnEnded", _on_agent_turn_ended)
 
 @router.post("/api/kanban/tasks")
 async def create_kanban_task(request: Request):
+    """Create kanban task.
+
+    Args:
+        request (Request): Request request.
+
+    """
     global task_counter
     data = await request.json()
     project_path = _normalize_project_path(
-        data.get("project_path") or data.get("workspace_path") or data.get("workspace")
+        data.get("project_path") or data.get("workspace_path") or data.get("workspace"),
     )
     task = {
         "id": f"T{task_counter}",
@@ -609,7 +645,13 @@ async def create_kanban_task(request: Request):
 
 
 @router.get("/api/kanban/tasks")
-async def get_kanban_tasks(workspace: Optional[str] = Query(None)):
+async def get_kanban_tasks(workspace: str | None = Query(None)):
+    """Retrieve kanban tasks.
+
+    Args:
+        workspace (str | None): str | None workspace.
+
+    """
     tasks = [t for t in kanban_tasks if _task_matches_workspace(t, workspace)]
     return {
         "data": tasks,
@@ -619,14 +661,20 @@ async def get_kanban_tasks(workspace: Optional[str] = Query(None)):
 
 @router.post("/api/kanban/tasks/{task_id}/cancel")
 async def cancel_kanban_task_endpoint(task_id: str):
+    """Cancel Kanban Task Endpoint.
+
+    Args:
+        task_id (str): str task id.
+
+    """
     # 실제 백그라운드 엔진 취소 호출 (mocking for non-existing real tasks)
     try:
         from antigravity_k.engine.task_runner import get_task_runner
 
         runner = get_task_runner()
         runner.cancel_task(task_id)
-    except Exception as e:
-        logger.warning(f"Engine cancel failed or skipped: {e}")
+    except Exception:
+        logger.exception("Engine cancel failed or skipped")
 
     for task in kanban_tasks:
         if str(task["id"]) == str(task_id):
@@ -640,6 +688,12 @@ async def cancel_kanban_task_endpoint(task_id: str):
 
 @router.delete("/api/kanban/tasks/{task_id}")
 async def delete_kanban_task_endpoint(task_id: str):
+    """Remove kanban task endpoint.
+
+    Args:
+        task_id (str): str task id.
+
+    """
     for idx, task in enumerate(list(kanban_tasks)):
         if str(task["id"]) == str(task_id):
             removed = kanban_tasks.pop(idx)
@@ -653,11 +707,23 @@ from pydantic import BaseModel
 
 
 class StatusUpdate(BaseModel):
+    """Statusupdate.
+
+    Bases: BaseModel
+    """
+
     status: str
 
 
 @router.put("/api/kanban/tasks/{task_id}/status")
 async def update_kanban_task_status(task_id: str, update: StatusUpdate):
+    """Update kanban task status.
+
+    Args:
+        task_id (str): str task id.
+        update (StatusUpdate): StatusUpdate update.
+
+    """
     for task in kanban_tasks:
         if task["id"] == task_id:
             task["status"] = update.status
@@ -668,6 +734,12 @@ async def update_kanban_task_status(task_id: str, update: StatusUpdate):
 
 @router.websocket("/ws/kanban")
 async def websocket_kanban(websocket: WebSocket):
+    """Websocket Kanban.
+
+    Args:
+        websocket (WebSocket): WebSocket websocket.
+
+    """
     await websocket.accept()
     kanban_clients.add(websocket)
     try:
@@ -678,18 +750,25 @@ async def websocket_kanban(websocket: WebSocket):
     except (WebSocketDisconnect, asyncio.CancelledError):
         kanban_clients.discard(websocket)
     except Exception:
+        logger.exception("Unhandled exception")
         kanban_clients.discard(websocket)
 
 
-import pty
-import os
-import termios
-import struct
 import fcntl
+import os
+import pty
+import struct
+import termios
 
 
 @router.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket):
+    """Websocket Terminal.
+
+    Args:
+        websocket (WebSocket): WebSocket websocket.
+
+    """
     await websocket.accept()
 
     # Create PTY
@@ -719,12 +798,11 @@ async def websocket_terminal(websocket: WebSocket):
             data = os.read(master, 1024)
             if data:
                 # Need to use a task to send over websocket
-                asyncio.create_task(
-                    websocket.send_text(data.decode("utf-8", errors="replace"))
-                )
+                asyncio.create_task(websocket.send_text(data.decode("utf-8", errors="replace")))
             else:
                 loop.remove_reader(master)
         except Exception:
+            logger.exception("Unhandled exception")
             loop.remove_reader(master)
 
     loop.add_reader(master, pty_output_callback)
@@ -734,6 +812,7 @@ async def websocket_terminal(websocket: WebSocket):
         try:
             loop.remove_reader(master)
         except Exception:
+            logger.exception("Unhandled exception")
             pass
         try:
             os.close(master)
@@ -770,13 +849,14 @@ async def websocket_terminal(websocket: WebSocket):
                     rows = msg.get("rows", 24)
                     winsize = struct.pack("HHHH", rows, cols, 0, 0)
                     fcntl.ioctl(master, termios.TIOCSWINSZ, winsize)
-                except Exception as e:
-                    logger.error(f"Resize error: {e}")
+                except Exception:
+                    logger.exception("Resize error")
             else:
                 os.write(master, data.encode("utf-8"))
     except (WebSocketDisconnect, asyncio.CancelledError):
         _cleanup_pty()
     except Exception:
+        logger.exception("Unhandled exception")
         _cleanup_pty()
 
 
@@ -800,7 +880,7 @@ async def code_intel_index(request: Request):
             detail="Code Intel 모듈이 설치되지 않았습니다 (pip install networkx rank-bm25)",
         )
     except Exception as e:
-        logger.error(f"Code Intel index error: {e}")
+        logger.error("Code Intel index error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -808,8 +888,8 @@ async def code_intel_index(request: Request):
 async def code_intel_search(q: str, repo_path: str, top_k: int = 10):
     """코드 심볼을 하이브리드 검색합니다."""
     try:
-        from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
         from antigravity_k.engine.code_intel.hybrid_search import HybridSearchEngine
+        from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
         pipeline = CodeIndexPipeline()
         loaded = pipeline.load_existing(repo_path)
@@ -825,7 +905,7 @@ async def code_intel_search(q: str, repo_path: str, top_k: int = 10):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Code Intel search error: {e}")
+        logger.error("Code Intel search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -833,8 +913,8 @@ async def code_intel_search(q: str, repo_path: str, top_k: int = 10):
 async def code_intel_impact(request: Request):
     """심볼의 Blast Radius 영향도를 분석합니다."""
     try:
-        from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
         from antigravity_k.engine.code_intel.impact_analyzer import ImpactAnalyzer
+        from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
         data = await request.json()
         repo_path = data.get("repo_path", ".")
@@ -843,16 +923,14 @@ async def code_intel_impact(request: Request):
         pipeline = CodeIndexPipeline()
         loaded = pipeline.load_existing(repo_path)
         if not loaded:
-            raise HTTPException(
-                status_code=404, detail=f"'{repo_path}'의 인덱스가 없습니다."
-            )
+            raise HTTPException(status_code=404, detail=f"'{repo_path}'의 인덱스가 없습니다.")
         analyzer = ImpactAnalyzer(pipeline.graph)
         result = analyzer.analyze(symbol_id, max_depth=max_depth)
         return result
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Code Intel impact error: {e}")
+        logger.error("Code Intel impact error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -878,6 +956,12 @@ def _get_slash_registry():
 
 @router.post("/api/slash")
 async def slash_command(request: Request):
+    """Slash Command.
+
+    Args:
+        request (Request): Request request.
+
+    """
     body = await request.json()
     text = body.get("command") or body.get("input") or body.get("text") or ""
     registry = _get_slash_registry()
@@ -893,18 +977,26 @@ async def slash_command(request: Request):
 
 @router.get("/api/slash/completions")
 async def slash_completions(prefix: str = "/"):
+    """Slash Completions.
+
+    Args:
+        prefix (str): str prefix.
+
+    """
     registry = _get_slash_registry()
     return {"completions": registry.get_completions(prefix)}
 
 
 @router.get("/api/session/info")
 async def session_info():
+    """Session Info."""
     sm = _get_session_manager()
     return {"ok": True, "session": sm.get_session_info() or {}}
 
 
 @router.get("/api/session/messages")
 async def session_messages():
+    """Session Messages."""
     sm = _get_session_manager()
     sm.start_session(resume=True)
     return {"ok": True, "messages": sm.get_messages()}
@@ -912,6 +1004,7 @@ async def session_messages():
 
 @router.post("/api/session/save")
 async def session_save():
+    """Session Save."""
     # P0 수정: 매번 새 인스턴스 대신 싱글톤 사용
     sm = _get_session_manager()
     sm.save()
@@ -925,8 +1018,9 @@ router.include_router(fs_router)
 
 
 # ─── System API (Status & Restart) ─────────────────
-import psutil
 import time
+
+import psutil
 
 # 서버 시작 시간 (업타임 계산용)
 START_TIME = time.time()
@@ -955,7 +1049,7 @@ async def system_status():
             "version": "v0.2.0",
         }
     except Exception as e:
-        logger.error(f"Status error: {e}")
+        logger.error("Status error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -984,12 +1078,15 @@ async def system_restart(background_tasks: BackgroundTasks):
             "message": "Restart triggered. The server will reboot in a moment.",
         }
     except Exception as e:
-        logger.error(f"Restart error: {e}")
+        logger.error("Restart error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 class ActiveAgentSession:
+    """Activeagentsession."""
+
     def __init__(self):
+        """Initialize the ActiveAgentSession."""
         self.q = ""
         self.is_active = False
         self.history = []
@@ -1002,7 +1099,7 @@ _active_session = ActiveAgentSession()
 
 @router.get("/api/agent/active")
 async def get_active_agent():
-    """Returns the currently active agent session if any."""
+    """Return the currently active agent session if any."""
     if _active_session.is_active:
         return {
             "active": True,
@@ -1017,8 +1114,8 @@ async def stream_agent(
     q: str = Query(None, description="User prompt to the agent"),
     reconnect: bool = False,
 ):
-    """
-    Server-Sent Events (SSE) endpoint to stream agent thoughts and outputs.
+    """Server-Sent Events (SSE) endpoint to stream agent thoughts and outputs.
+
     Supports reconnection to an ongoing session.
     """
     from starlette.concurrency import iterate_in_threadpool
@@ -1072,7 +1169,7 @@ async def stream_agent(
             # might still be cancelled. But with iterate_in_threadpool it usually
             # finishes the thread.
             async for chunk in iterate_in_threadpool(
-                orchestrator.run_stream(messages, target_model=target_model)
+                orchestrator.run_stream(messages, target_model=target_model),
             ):
                 if chunk:
                     _active_session.history.append(chunk)
@@ -1086,7 +1183,7 @@ async def stream_agent(
             logger.info("SSE client disconnected, but task might continue in thread.")
             raise
         except Exception as e:
-            logger.error(f"SSE Error: {e}", exc_info=True)
+            logger.error("SSE Error: %s", e, exc_info=True)
             _active_session.error = str(e)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:
@@ -1098,6 +1195,12 @@ async def stream_agent(
 
 @router.get("/api/logs")
 async def get_logs(lines: int = 100):
+    """Retrieve logs.
+
+    Args:
+        lines (int): int lines.
+
+    """
     log_file = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
         "logs",
@@ -1106,10 +1209,11 @@ async def get_logs(lines: int = 100):
     if not os.path.exists(log_file):
         return {"logs": ["Log file not found."]}
     try:
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             all_lines = f.readlines()
         return {"logs": all_lines[-lines:]}
     except Exception as e:
+        logger.exception("Unhandled exception")
         return {"logs": [f"Error reading logs: {str(e)}"]}
 
 
@@ -1118,6 +1222,7 @@ import yaml
 
 @router.get("/api/settings")
 async def get_settings():
+    """Retrieve settings."""
     config_file = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
         "config.yaml",
@@ -1125,7 +1230,7 @@ async def get_settings():
     if not os.path.exists(config_file):
         return {"settings": {}}
     try:
-        with open(config_file, "r", encoding="utf-8") as f:
+        with open(config_file, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         # Mask API keys
         if "api_keys" in cfg:
@@ -1135,16 +1240,17 @@ async def get_settings():
                     cfg["api_keys"][k] = val[:4] + "*" * (len(val) - 4)
         return {"settings": cfg}
     except Exception as e:
+        logger.exception("Unhandled exception")
         return {"settings": {"error": str(e)}}
 
 
 # ─── Memory & Toolset & Guardrail APIs ─────────────────────────────────────
 
-from antigravity_k.engine.memory_provider import MemoryManager, BuiltinMemoryProvider
+from antigravity_k.engine.memory_provider import BuiltinMemoryProvider, MemoryManager
 from antigravity_k.engine.toolset_manager import ToolsetManager
 
-_memory_manager: Optional[MemoryManager] = None
-_toolset_manager: Optional[ToolsetManager] = None
+_memory_manager: MemoryManager | None = None
+_toolset_manager: ToolsetManager | None = None
 
 
 def _get_memory_manager() -> MemoryManager:
@@ -1154,8 +1260,8 @@ def _get_memory_manager() -> MemoryManager:
         try:
             sm = _get_session_manager()
             _memory_manager.add_provider(BuiltinMemoryProvider(sm))
-        except Exception as e:
-            logger.warning(f"BuiltinMemoryProvider 초기화 실패: {e}")
+        except Exception:
+            logger.exception("BuiltinMemoryProvider 초기화 실패")
     return _memory_manager
 
 
@@ -1164,18 +1270,17 @@ def _get_toolset_manager() -> ToolsetManager:
     if _toolset_manager is None:
         try:
             config_file = os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 "config.yaml",
             )
             if os.path.exists(config_file):
-                with open(config_file, "r", encoding="utf-8") as f:
+                with open(config_file, encoding="utf-8") as f:
                     cfg = yaml.safe_load(f)
                 _toolset_manager = ToolsetManager.from_config(cfg.get("toolsets", {}))
             else:
                 _toolset_manager = ToolsetManager()
         except Exception:
+            logger.exception("Unhandled exception")
             _toolset_manager = ToolsetManager()
     return _toolset_manager
 
@@ -1251,6 +1356,7 @@ _harness_instance = None
 
 
 def get_harness():
+    """Retrieve harness."""
     global _harness_instance
     if _harness_instance is None:
         from antigravity_k.engine.harness import TestHarness
@@ -1265,6 +1371,7 @@ async def harness_self_test(request: Request):
     try:
         body = await request.json()
     except Exception:
+        logger.exception("Unhandled exception")
         body = {}
 
     scope = body.get("scope", "api_only")  # 기본: API만 (브라우저 없이 빠르게)
@@ -1295,17 +1402,17 @@ async def harness_trend():
 
 # ─── Shields & Security APIs (NemoClaw ported) ──────────────────────────────
 
-from antigravity_k.engine.shields import ShieldsManager
-from antigravity_k.engine.secret_scanner import (
-    scan_for_secrets,
-    redact,
-    strip_credentials,
-)
 from antigravity_k.engine.runtime_recovery import (
     deep_health_check,
 )
+from antigravity_k.engine.secret_scanner import (
+    redact,
+    scan_for_secrets,
+    strip_credentials,
+)
+from antigravity_k.engine.shields import ShieldsManager
 
-_shields_manager: Optional[ShieldsManager] = None
+_shields_manager: ShieldsManager | None = None
 
 
 def _get_shields_manager() -> ShieldsManager:
@@ -1313,14 +1420,12 @@ def _get_shields_manager() -> ShieldsManager:
     if _shields_manager is None:
         try:
             config_file = os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 "config.yaml",
             )
             shields_config = {}
             if os.path.exists(config_file):
-                with open(config_file, "r", encoding="utf-8") as f:
+                with open(config_file, encoding="utf-8") as f:
                     cfg = yaml.safe_load(f) or {}
                 shields_config = cfg.get("shields", {})
             _shields_manager = ShieldsManager.from_config(
@@ -1328,6 +1433,7 @@ def _get_shields_manager() -> ShieldsManager:
                 toolset_manager=_get_toolset_manager(),
             )
         except Exception:
+            logger.exception("Unhandled exception")
             _shields_manager = ShieldsManager(
                 toolset_manager=_get_toolset_manager(),
             )

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 하네스 엔지니어링 프레임워크
+"""Antigravity-K: 하네스 엔지니어링 프레임워크.
+
 ===========================================
 Intent 기반 테스트, Self-Healing Loop, 피드백 수집기를 포함한
 에이전트 주도 QA 자동화 시스템.
@@ -17,10 +17,11 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 from urllib.parse import urlparse
-from typing import Any, Dict, List, Optional, Callable
 
 from antigravity_k.config import config
 
@@ -31,6 +32,11 @@ logger = logging.getLogger("antigravity_k.harness")
 
 
 class TestStatus(str, Enum):
+    """Teststatus.
+
+    Bases: str, Enum
+    """
+
     PENDING = "pending"
     RUNNING = "running"
     PASSED = "passed"
@@ -41,7 +47,7 @@ class TestStatus(str, Enum):
 
 @dataclass
 class TestIntent:
-    """자연어 의도 기반 테스트 케이스"""
+    """자연어 의도 기반 테스트 케이스."""
 
     id: str
     intent: str  # "채팅에 메시지를 보내면 응답이 온다"
@@ -49,24 +55,30 @@ class TestIntent:
     priority: int = 1  # 1(높음) ~ 5(낮음)
     timeout_sec: float = 30.0
     max_heal_attempts: int = 3
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
 class TestResult:
-    """테스트 실행 결과"""
+    """테스트 실행 결과."""
 
     intent_id: str
     status: TestStatus
     duration_ms: float
     message: str = ""
-    screenshot_path: Optional[str] = None
+    screenshot_path: str | None = None
     healed: bool = False
-    heal_details: Optional[str] = None
-    dom_snapshot: Optional[str] = None
+    heal_details: str | None = None
+    dom_snapshot: str | None = None
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return {
             "intent_id": self.intent_id,
             "status": self.status.value,
@@ -81,7 +93,7 @@ class TestResult:
 
 @dataclass
 class HarnessReport:
-    """전체 테스트 하네스 실행 결과"""
+    """전체 테스트 하네스 실행 결과."""
 
     total: int = 0
     passed: int = 0
@@ -89,10 +101,16 @@ class HarnessReport:
     healed: int = 0
     skipped: int = 0
     duration_ms: float = 0
-    results: List[TestResult] = field(default_factory=list)
+    results: list[TestResult] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
+        """To Dict.
+
+        Returns:
+            dict: The dict result.
+
+        """
         return {
             "total": self.total,
             "passed": self.passed,
@@ -106,6 +124,12 @@ class HarnessReport:
         }
 
     def to_markdown(self) -> str:
+        """To Markdown.
+
+        Returns:
+            str: The str result.
+
+        """
         lines = [
             "# 🧪 Antigravity-K Self-Test Report",
             "",
@@ -124,11 +148,10 @@ class HarnessReport:
         ]
         for r in self.results:
             icon = {"passed": "✅", "failed": "❌", "healed": "🔧", "skipped": "⏭"}.get(
-                r.status.value, "❓"
+                r.status.value,
+                "❓",
             )
-            lines.append(
-                f"- {icon} **{r.intent_id}**: {r.message} ({r.duration_ms:.0f}ms)"
-            )
+            lines.append(f"- {icon} **{r.intent_id}**: {r.message} ({r.duration_ms:.0f}ms)")
             if r.healed and r.heal_details:
                 lines.append(f"  - 🩹 치유: {r.heal_details}")
         return "\n".join(lines)
@@ -138,8 +161,7 @@ class HarnessReport:
 
 
 class HealingLoop:
-    """
-    하네스 엔지니어링의 핵심: Self-Healing Loop.
+    """하네스 엔지니어링의 핵심: Self-Healing Loop.
 
     1. 실패 감지 → 2. DOM 스냅샷 분석 → 3. 셀렉터 대체 후보 탐색
     → 4. 재시도 → 5. 성공 시 치유 로그 기록
@@ -155,15 +177,23 @@ class HealingLoop:
     ]
 
     def __init__(self, max_attempts: int = 3):
+        """Initialize the HealingLoop.
+
+        Args:
+            max_attempts (int): int max attempts.
+
+        """
         self.max_attempts = max_attempts
-        self.heal_log: List[Dict[str, Any]] = []
+        self.heal_log: list[dict[str, Any]] = []
 
     async def try_with_healing(
-        self, action_fn: Callable, page, context: Dict[str, Any], intent: TestIntent
+        self,
+        action_fn: Callable,
+        page,
+        context: dict[str, Any],
+        intent: TestIntent,
     ) -> TestResult:
-        """
-        액션을 실행하되, 실패 시 self-healing을 시도합니다.
-        """
+        """액션을 실행하되, 실패 시 self-healing을 시도합니다."""
         start = time.time()
         last_error = None
 
@@ -179,17 +209,11 @@ class HealingLoop:
                     duration_ms=elapsed,
                     message=result_msg or "OK",
                     healed=healed,
-                    heal_details=(
-                        f"Attempt {attempt + 1}: {context.get('heal_strategy', 'N/A')}"
-                        if healed
-                        else None
-                    ),
+                    heal_details=(f"Attempt {attempt + 1}: {context.get('heal_strategy', 'N/A')}" if healed else None),
                 )
             except Exception as e:
                 last_error = str(e)
-                logger.warning(
-                    f"[HealingLoop] Attempt {attempt + 1}/{self.max_attempts + 1} failed: {e}"
-                )
+                logger.exception("[HealingLoop] Attempt %s/%s failed", attempt + 1, self.max_attempts + 1)
 
                 if attempt < self.max_attempts:
                     # DOM 분석 → 대체 셀렉터 탐색
@@ -207,8 +231,11 @@ class HealingLoop:
         )
 
     async def _analyze_and_heal(
-        self, page, context: Dict[str, Any], error: str
-    ) -> Optional[Dict[str, Any]]:
+        self,
+        page,
+        context: dict[str, Any],
+        error: str,
+    ) -> dict[str, Any] | None:
         """DOM을 분석하여 대체 셀렉터를 찾습니다."""
         try:
             # Accessibility Tree에서 대체 요소 탐색
@@ -231,19 +258,18 @@ class HealingLoop:
                         "healed": candidates[0],
                         "error": error,
                         "timestamp": time.time(),
-                    }
+                    },
                 )
                 return heal_info
 
         except Exception as e:
-            logger.debug(f"[HealingLoop] DOM analysis failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[HealingLoop] DOM analysis failed: %s", e)
 
         return None
 
-    def _find_candidates(
-        self, node: dict, target_text: str, depth: int = 0
-    ) -> List[str]:
-        """Accessibility Tree에서 텍스트가 유사한 노드를 재귀적으로 탐색"""
+    def _find_candidates(self, node: dict, target_text: str, depth: int = 0) -> list[str]:
+        """Accessibility Tree에서 텍스트가 유사한 노드를 재귀적으로 탐색합니다."""
         candidates = []
         name = node.get("name", "")
         role = node.get("role", "")
@@ -258,8 +284,7 @@ class HealingLoop:
 
 
 class HealingLoopV2(HealingLoop):
-    """
-    v2 Self-Healing Loop: SemanticDOMParser + 치유 학습 통합.
+    """v2 Self-Healing Loop: SemanticDOMParser + 치유 학습 통합.
 
     기존 HealingLoop의 텍스트 매칭을 시맨틱 매칭으로 업그레이드:
     1. 실패 → SemanticDOMParser로 현재 DOM 분석
@@ -287,9 +312,15 @@ class HealingLoopV2(HealingLoop):
     ]
 
     def __init__(self, max_attempts: int = 5):
+        """Initialize the HealingLoopV2.
+
+        Args:
+            max_attempts (int): int max attempts.
+
+        """
         super().__init__(max_attempts=max_attempts)
         # 치유 학습 메모리: {원본_셀렉터: 치유된_셀렉터}
-        self._heal_memory: Dict[str, Dict[str, Any]] = {}
+        self._heal_memory: dict[str, dict[str, Any]] = {}
         self._dom_parser = None
 
     def _ensure_dom_parser(self):
@@ -303,8 +334,11 @@ class HealingLoopV2(HealingLoop):
         return self._dom_parser
 
     async def _analyze_and_heal(
-        self, page, context: Dict[str, Any], error: str
-    ) -> Optional[Dict[str, Any]]:
+        self,
+        page,
+        context: dict[str, Any],
+        error: str,
+    ) -> dict[str, Any] | None:
         """v2: 7단계 전략으로 대체 요소를 탐색합니다."""
         original_selector = context.get("selector", "")
         target_text = context.get("target_text", "")
@@ -317,9 +351,7 @@ class HealingLoopV2(HealingLoop):
                 "selector": memory.get("healed_selector", ""),
                 "target_text": memory.get("healed_text", target_text),
             }
-            logger.info(
-                f"[HealingV2] Memory hit: {original_selector} → {memory['healed']}"
-            )
+            logger.info("[HealingV2] Memory hit: %s → %s", original_selector, memory["healed"])
             return heal_info
 
         # 전략 2: SemanticDOMParser 의도 매칭
@@ -331,7 +363,7 @@ class HealingLoopV2(HealingLoop):
                 element = parser.find_by_intent(snapshot, target_text)
                 if element:
                     heal_info = {
-                        "heal_strategy": f'semantic_intent: {element.ref} [{element.role.value}] "{element.display_name}"',
+                        "heal_strategy": f'semantic_intent: {element.ref} [{element.role.value}] "{element.display_name}"',  # noqa: E501
                         "selector": element.css_selector,
                         "target_text": element.display_name,
                         "healed_ref": element.ref,
@@ -339,7 +371,8 @@ class HealingLoopV2(HealingLoop):
                     self._record_heal(original_selector, heal_info)
                     return heal_info
             except Exception as e:
-                logger.debug(f"[HealingV2] Semantic heal failed: {e}")
+                logger.exception("Unhandled exception")
+                logger.debug("[HealingV2] Semantic heal failed: %s", e)
 
         # 전략 3-5: 기존 A11y Tree 기반 (HealingLoop 로직)
         try:
@@ -354,7 +387,8 @@ class HealingLoopV2(HealingLoop):
                     self._record_heal(original_selector, heal_info)
                     return heal_info
         except Exception as e:
-            logger.debug(f"[HealingV2] A11y heal failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[HealingV2] A11y heal failed: %s", e)
 
         # 전략 6: Bounding Box 좌표 기반 (SemanticDOMParser)
         if parser:
@@ -371,11 +405,12 @@ class HealingLoopV2(HealingLoop):
                         }
                         return heal_info
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         return None
 
-    def _record_heal(self, original: str, heal_info: Dict[str, Any]):
+    def _record_heal(self, original: str, heal_info: dict[str, Any]):
         """치유 결과를 학습 메모리에 기록합니다."""
         if original:
             self._heal_memory[original] = {
@@ -390,17 +425,15 @@ class HealingLoopV2(HealingLoop):
                 "original": original,
                 "healed": heal_info.get("heal_strategy", ""),
                 "timestamp": time.time(),
-            }
+            },
         )
 
-    def get_heal_stats(self) -> Dict[str, Any]:
+    def get_heal_stats(self) -> dict[str, Any]:
         """치유 통계를 반환합니다."""
         return {
             "total_heals": len(self.heal_log),
             "memory_entries": len(self._heal_memory),
-            "strategies_used": list(
-                set(h.get("healed", "").split(":")[0] for h in self.heal_log)
-            ),
+            "strategies_used": list(set(h.get("healed", "").split(":")[0] for h in self.heal_log)),
             "memory": {
                 k: {
                     "healed_to": v["healed"],
@@ -415,22 +448,21 @@ class HealingLoopV2(HealingLoop):
 
 
 class FeedbackCollector:
-    """
-    테스트 결과를 수집하고 에이전트에게 피드백합니다.
+    """테스트 결과를 수집하고 에이전트에게 피드백합니다.
+
     하네스 엔지니어링의 'Agent-Legible Feedback' 구현.
     """
 
     def __init__(self):
-        self.history: List[HarnessReport] = []
+        """Initialize the FeedbackCollector."""
+        self.history: list[HarnessReport] = []
 
     def collect(self, report: HarnessReport) -> str:
         """결과를 수집하고 에이전트가 읽을 수 있는 피드백을 생성합니다."""
         self.history.append(report)
 
         if report.failed == 0:
-            return (
-                f"✅ 모든 테스트 통과 ({report.passed + report.healed}/{report.total})"
-            )
+            return f"✅ 모든 테스트 통과 ({report.passed + report.healed}/{report.total})"
 
         # 실패한 테스트의 구체적인 정보를 에이전트에게 전달
         failed_tests = [r for r in report.results if r.status == TestStatus.FAILED]
@@ -442,7 +474,7 @@ class FeedbackCollector:
 
         return "\n".join(feedback_lines)
 
-    def get_trend(self) -> Dict[str, Any]:
+    def get_trend(self) -> dict[str, Any]:
         """최근 테스트 추세를 반환합니다."""
         if not self.history:
             return {"trend": "no_data"}
@@ -452,11 +484,7 @@ class FeedbackCollector:
 
         return {
             "recent_pass_rates": pass_rates,
-            "trend": (
-                "improving"
-                if len(pass_rates) > 1 and pass_rates[-1] > pass_rates[0]
-                else "stable"
-            ),
+            "trend": ("improving" if len(pass_rates) > 1 and pass_rates[-1] > pass_rates[0] else "stable"),
             "total_runs": len(self.history),
         }
 
@@ -465,8 +493,7 @@ class FeedbackCollector:
 
 
 class TestHarness:
-    """
-    하네스 엔지니어링 프레임워크의 메인 오케스트레이터.
+    """하네스 엔지니어링 프레임워크의 메인 오케스트레이터.
 
     Intent 기반 테스트를 실행하고, Self-Healing을 적용하며,
     결과를 수집하여 에이전트에게 피드백합니다.
@@ -553,31 +580,27 @@ class TestHarness:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        dashboard_url: Optional[str] = None,
-        ws_url: Optional[str] = None,
+        base_url: str | None = None,
+        dashboard_url: str | None = None,
+        ws_url: str | None = None,
     ):
-        self.base_url = (
-            base_url
-            or os.environ.get("AGK_HARNESS_BASE_URL")
-            or "http://localhost:8000"
-        ).rstrip("/")
+        """Initialize the TestHarness.
+
+        Args:
+            base_url (str | None): str | None base url.
+            dashboard_url (str | None): str | None dashboard url.
+            ws_url (str | None): str | None ws url.
+
+        """
+        self.base_url = (base_url or os.environ.get("AGK_HARNESS_BASE_URL") or "http://localhost:8000").rstrip("/")
         self.dashboard_url = (
-            dashboard_url
-            or os.environ.get("AGK_HARNESS_DASHBOARD_URL")
-            or "http://localhost:5173"
+            dashboard_url or os.environ.get("AGK_HARNESS_DASHBOARD_URL") or "http://localhost:5173"
         ).rstrip("/")
-        self.ws_url = (
-            ws_url
-            or os.environ.get("AGK_HARNESS_WS_URL")
-            or self._derive_ws_url(self.base_url)
-        )
-        self.access_pin = os.environ.get("AGK_HARNESS_ACCESS_PIN") or (
-            config.security.access_pin
-        )
+        self.ws_url = ws_url or os.environ.get("AGK_HARNESS_WS_URL") or self._derive_ws_url(self.base_url)
+        self.access_pin = os.environ.get("AGK_HARNESS_ACCESS_PIN") or (config.security.access_pin)
         self.healing_loop = HealingLoop(max_attempts=3)
         self.feedback = FeedbackCollector()
-        self.intents: List[TestIntent] = list(self.DEFAULT_INTENTS)
+        self.intents: list[TestIntent] = list(self.DEFAULT_INTENTS)
         self._browser = None
         self._playwright = None
 
@@ -588,7 +611,7 @@ class TestHarness:
         netloc = parsed.netloc or "localhost:8000"
         return f"{scheme}://{netloc}/ws/terminal"
 
-    def _request_headers(self, extra: Optional[dict] = None) -> dict:
+    def _request_headers(self, extra: dict | None = None) -> dict:
         headers = dict(extra or {})
         if self.access_pin:
             headers["X-Access-Pin"] = self.access_pin
@@ -607,9 +630,7 @@ class TestHarness:
 
         # UI/통합 테스트 (브라우저 필요)
         if use_browser:
-            browser_intents = [
-                i for i in self.intents if i.category in ("ui", "integration")
-            ]
+            browser_intents = [i for i in self.intents if i.category in ("ui", "integration")]
             browser_results = await self._run_browser_tests(browser_intents)
             report.results.extend(browser_results)
 
@@ -618,26 +639,24 @@ class TestHarness:
         report.passed = sum(1 for r in report.results if r.status == TestStatus.PASSED)
         report.failed = sum(1 for r in report.results if r.status == TestStatus.FAILED)
         report.healed = sum(1 for r in report.results if r.status == TestStatus.HEALED)
-        report.skipped = sum(
-            1 for r in report.results if r.status == TestStatus.SKIPPED
-        )
+        report.skipped = sum(1 for r in report.results if r.status == TestStatus.SKIPPED)
         report.duration_ms = (time.time() - start) * 1000
 
         # 피드백 수집
         feedback_msg = self.feedback.collect(report)
-        logger.info(f"[TestHarness] {feedback_msg}")
+        logger.info("[TestHarness] %s", feedback_msg)
 
         return report
 
     async def _run_api_test(self, intent: TestIntent) -> TestResult:
-        """API 테스트 실행 (run_in_executor로 블로킹 방지)"""
+        """API 테스트 실행합니다 (run_in_executor로 블로킹 방지)."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run_api_test_sync, intent)
 
     def _run_api_test_sync(self, intent: TestIntent) -> TestResult:
-        """API 테스트 동기 실행 (별도 스레드에서 실행됨)"""
-        import urllib.request
+        """API 테스트 동기 실행합니다 (별도 스레드에서 실행됨)."""
         import urllib.error
+        import urllib.request
 
         start = time.time()
 
@@ -648,13 +667,14 @@ class TestHarness:
                     data = json.loads(resp.read().decode())
                     if data.get("status") == "ok":
                         elapsed = (time.time() - start) * 1000
-                        return TestResult(
-                            intent.id, TestStatus.PASSED, elapsed, "Health OK"
-                        )
+                        return TestResult(intent.id, TestStatus.PASSED, elapsed, "Health OK")
                     else:
                         elapsed = (time.time() - start) * 1000
                         return TestResult(
-                            intent.id, TestStatus.FAILED, elapsed, f"Unexpected: {data}"
+                            intent.id,
+                            TestStatus.FAILED,
+                            elapsed,
+                            f"Unexpected: {data}",
                         )
 
             elif intent.id == "models_api":
@@ -673,7 +693,10 @@ class TestHarness:
                     else:
                         elapsed = (time.time() - start) * 1000
                         return TestResult(
-                            intent.id, TestStatus.FAILED, elapsed, "No models returned"
+                            intent.id,
+                            TestStatus.FAILED,
+                            elapsed,
+                            "No models returned",
                         )
 
             elif intent.id == "vision_analyze":
@@ -713,7 +736,10 @@ class TestHarness:
                             "Vision API reachable (screenshot required)",
                         )
                     return TestResult(
-                        intent.id, TestStatus.FAILED, elapsed, f"HTTP {he.code}: {body}"
+                        intent.id,
+                        TestStatus.FAILED,
+                        elapsed,
+                        f"HTTP {he.code}: {body}",
                     )
 
             elif intent.id == "external_brain_list":
@@ -743,16 +769,15 @@ class TestHarness:
 
             else:
                 elapsed = (time.time() - start) * 1000
-                return TestResult(
-                    intent.id, TestStatus.SKIPPED, elapsed, "Unknown API test"
-                )
+                return TestResult(intent.id, TestStatus.SKIPPED, elapsed, "Unknown API test")
 
         except Exception as e:
+            logger.exception("Unhandled exception")
             elapsed = (time.time() - start) * 1000
             return TestResult(intent.id, TestStatus.FAILED, elapsed, str(e))
 
-    async def _run_browser_tests(self, intents: List[TestIntent]) -> List[TestResult]:
-        """Playwright 기반 브라우저 테스트"""
+    async def _run_browser_tests(self, intents: list[TestIntent]) -> list[TestResult]:
+        """Playwright 기반 브라우저 테스트."""
         results = []
 
         try:
@@ -765,7 +790,7 @@ class TestHarness:
                         TestStatus.SKIPPED,
                         0,
                         "playwright 미설치. 'pip install playwright && playwright install chromium' 실행 필요",
-                    )
+                    ),
                 )
             return results
 
@@ -779,11 +804,11 @@ class TestHarness:
                             "name": "ag_access_pin",
                             "value": self.access_pin,
                             "url": self.dashboard_url,
-                        }
-                    ]
+                        },
+                    ],
                 )
                 await page.add_init_script(
-                    f"localStorage.setItem('ag_access_pin', {json.dumps(self.access_pin)});"
+                    f"localStorage.setItem('ag_access_pin', {json.dumps(self.access_pin)});",
                 )
 
             for intent in intents:
@@ -801,11 +826,10 @@ class TestHarness:
                     elif intent.id == "responsive_check":
                         result = await self._test_responsive(page, intent)
                     else:
-                        result = TestResult(
-                            intent.id, TestStatus.SKIPPED, 0, "Unknown test"
-                        )
+                        result = TestResult(intent.id, TestStatus.SKIPPED, 0, "Unknown test")
                     results.append(result)
                 except Exception as e:
+                    logger.exception("Unhandled exception")
                     results.append(TestResult(intent.id, TestStatus.FAILED, 0, str(e)))
 
             await browser.close()
@@ -813,8 +837,7 @@ class TestHarness:
         return results
 
     async def _goto_dashboard(self, page, timeout_ms: int = 15000) -> None:
-        """
-        Navigate to the SPA dashboard without waiting for networkidle.
+        """Navigate to the SPA dashboard without waiting for networkidle.
 
         The dashboard keeps WebSocket/event streams open, so networkidle is
         not a reliable readiness signal. A rendered app root or chat input is
@@ -828,23 +851,19 @@ class TestHarness:
         await page.wait_for_selector("#app, #chat-input", timeout=timeout_ms)
 
     async def _test_dashboard_load(self, page, intent: TestIntent) -> TestResult:
-        """대시보드 로딩 테스트"""
+        """대시보드 로딩 테스트."""
         start = time.time()
         await self._goto_dashboard(page, timeout_ms=int(intent.timeout_sec * 1000))
         title = await page.title()
         elapsed = (time.time() - start) * 1000
 
         if "Antigravity" in title or await page.query_selector("#app"):
-            return TestResult(
-                intent.id, TestStatus.PASSED, elapsed, f"Dashboard loaded: {title}"
-            )
+            return TestResult(intent.id, TestStatus.PASSED, elapsed, f"Dashboard loaded: {title}")
         else:
-            return TestResult(
-                intent.id, TestStatus.FAILED, elapsed, f"Unexpected title: {title}"
-            )
+            return TestResult(intent.id, TestStatus.FAILED, elapsed, f"Unexpected title: {title}")
 
     async def _test_chat_send(self, page, intent: TestIntent) -> TestResult:
-        """채팅 메시지 전송 및 응답 수신 테스트"""
+        """채팅 메시지 전송 및 응답 수신 테스트."""
         await self._goto_dashboard(page)
 
         # 채팅 입력란 찾기 (self-healing 포함)
@@ -857,9 +876,7 @@ class TestHarness:
             input_el = await pg.query_selector(ctx.get("selector", "#chat-input"))
             if not input_el:
                 # Healing: placeholder 텍스트로 찾기
-                input_el = await pg.query_selector(
-                    "input[placeholder], textarea[placeholder]"
-                )
+                input_el = await pg.query_selector("input[placeholder], textarea[placeholder]")
             if not input_el:
                 raise Exception("채팅 입력란을 찾을 수 없습니다")
 
@@ -875,6 +892,7 @@ class TestHarness:
             await pg.wait_for_function(
                 """
                 ([selector, before]) => {
+
                     const nodes = Array.from(document.querySelectorAll(selector));
                     if (nodes.length <= before) return false;
                     const latest = nodes[nodes.length - 1].innerText || "";
@@ -889,31 +907,29 @@ class TestHarness:
             )
             return "채팅 응답 수신 완료"
 
-        result = await self.healing_loop.try_with_healing(
-            chat_action, page, context, intent
-        )
+        result = await self.healing_loop.try_with_healing(chat_action, page, context, intent)
         return result
 
     async def _test_file_explorer(self, page, intent: TestIntent) -> TestResult:
-        """파일 탐색기 테스트 (2-Layer: UI 컨테이너 + API 검증)
+        """파일 탐색기 테스트 (2-Layer: UI 컨테이너 + API 검증).
 
         SPA의 파일 트리는 폴더를 명시적으로 열기 전까지 비어 있을 수 있으므로,
         1) Explorer 패널(컨테이너)이 DOM에 존재하는지 확인
         2) 백엔드 워크스페이스 파일 API가 응답하는지 확인
         두 가지 중 하나라도 통과하면 PASS로 처리합니다.
         """
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         start = time.time()
         await self._goto_dashboard(page)
 
         # Layer 1: DOM에서 파일 아이템 또는 Explorer 컨테이너 존재 확인
         file_items = await page.query_selector_all(
-            ".file-item, .tree-item, [class*='explorer'] li, [class*='explorer'] .item"
+            ".file-item, .tree-item, [class*='explorer'] li, [class*='explorer'] .item",
         )
         explorer_container = await page.query_selector(
-            ".ide-explorer, .file-tree, [class*='explorer']"
+            ".ide-explorer, .file-tree, [class*='explorer']",
         )
 
         if file_items and len(file_items) > 0:
@@ -960,7 +976,7 @@ class TestHarness:
         )
 
     async def _test_terminal_ws(self, intent: TestIntent) -> TestResult:
-        """터미널 WebSocket 연결 테스트"""
+        """터미널 WebSocket 연결 테스트."""
         start = time.time()
         try:
             import websockets
@@ -971,25 +987,20 @@ class TestHarness:
                 elapsed = (time.time() - start) * 1000
 
                 if "harness_test_ok" in response or response:
-                    return TestResult(
-                        intent.id, TestStatus.PASSED, elapsed, "WebSocket 연결 성공"
-                    )
+                    return TestResult(intent.id, TestStatus.PASSED, elapsed, "WebSocket 연결 성공")
                 else:
-                    return TestResult(
-                        intent.id, TestStatus.FAILED, elapsed, "응답 없음"
-                    )
+                    return TestResult(intent.id, TestStatus.FAILED, elapsed, "응답 없음")
         except ImportError:
             elapsed = (time.time() - start) * 1000
-            return TestResult(
-                intent.id, TestStatus.SKIPPED, elapsed, "websockets 미설치"
-            )
+            return TestResult(intent.id, TestStatus.SKIPPED, elapsed, "websockets 미설치")
         except Exception as e:
+            logger.exception("Unhandled exception")
             elapsed = (time.time() - start) * 1000
             message = str(e) or f"{type(e).__name__} while connecting to {self.ws_url}"
             return TestResult(intent.id, TestStatus.FAILED, elapsed, message)
 
     async def _test_autonomous_qa_dry(self, page, intent: TestIntent) -> TestResult:
-        """자율 QA 엔진 드라이런 — 초기화 + 스크린샷 가능 여부 확인"""
+        """자율 QA 엔진 드라이런 — 초기화 + 스크린샷 가능 여부 확인."""
         start = time.time()
         try:
             from antigravity_k.engine.autonomous_qa import AutonomousQAEngine
@@ -1009,15 +1020,14 @@ class TestHarness:
                     f"AutonomousQA 초기화 OK, 스크린샷 {len(screenshot)} bytes",
                 )
             else:
-                return TestResult(
-                    intent.id, TestStatus.FAILED, elapsed, "스크린샷 실패"
-                )
+                return TestResult(intent.id, TestStatus.FAILED, elapsed, "스크린샷 실패")
         except Exception as e:
+            logger.exception("Unhandled exception")
             elapsed = (time.time() - start) * 1000
             return TestResult(intent.id, TestStatus.FAILED, elapsed, str(e))
 
     async def _test_responsive(self, page, intent: TestIntent) -> TestResult:
-        """반응형 3종 뷰포트 테스트 (가로 스크롤 없음 확인)"""
+        """반응형 3종 뷰포트 테스트 (가로 스크롤 없음 확인)."""
         start = time.time()
         viewports = {
             "desktop": {"width": 1280, "height": 800},
@@ -1032,7 +1042,7 @@ class TestHarness:
                 await page.set_viewport_size(vp)
                 await self._goto_dashboard(page)
                 overflow = await page.evaluate(
-                    "() => document.documentElement.scrollWidth > document.documentElement.clientWidth"
+                    "() => document.documentElement.scrollWidth > document.documentElement.clientWidth",
                 )
                 if not overflow:
                     passed_count += 1
@@ -1040,6 +1050,7 @@ class TestHarness:
                 else:
                     details.append(f"❌ {name} (overflow)")
             except Exception as e:
+                logger.exception("Unhandled exception")
                 details.append(f"❌ {name} ({e})")
 
         elapsed = (time.time() - start) * 1000
@@ -1059,11 +1070,11 @@ class TestHarness:
             )
 
     def add_intent(self, intent: TestIntent):
-        """커스텀 테스트 인텐트 추가"""
+        """커스텀 테스트 인텐트 추가."""
         self.intents.append(intent)
 
-    def get_latest_report(self) -> Optional[HarnessReport]:
-        """가장 최근 테스트 결과 반환"""
+    def get_latest_report(self) -> HarnessReport | None:
+        """가장 최근 테스트 결과 반환."""
         if self.feedback.history:
             return self.feedback.history[-1]
         return None

@@ -1,5 +1,5 @@
-"""
-MemoryHygiene — 메타데이터 기반 자동 클린업
+"""MemoryHygiene — 메타데이터 기반 자동 클린업.
+
 =============================================
 IronClaw hygiene.rs 패턴 이식.
 
@@ -33,7 +33,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.memory_hygiene")
 
@@ -57,13 +57,19 @@ class HygieneReport:
     cleaned_count: int = 0
     cleaned_bytes: int = 0
     skipped_count: int = 0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     directories_scanned: int = 0
     elapsed_ms: float = 0.0
     timestamp: float = field(default_factory=time.time)
 
     @property
     def cleaned_mb(self) -> float:
+        """Cleaned Mb.
+
+        Returns:
+            float: The float result.
+
+        """
         return round(self.cleaned_bytes / (1024 * 1024), 2)
 
 
@@ -89,6 +95,16 @@ class MemoryHygiene:
         default_max_documents: int = 1000,
         cleanup_interval_hours: float = 24.0,
     ):
+        """Initialize the MemoryHygiene.
+
+        Args:
+            workspace_root (str): str workspace root.
+            state_file (str): str state file.
+            default_retention_days (int): int default retention days.
+            default_max_documents (int): int default max documents.
+            cleanup_interval_hours (float): float cleanup interval hours.
+
+        """
         self.workspace_root = os.path.abspath(workspace_root)
         self._state_file = os.path.join(self.workspace_root, state_file)
         self.default_policy = RetentionPolicy(
@@ -100,7 +116,7 @@ class MemoryHygiene:
 
     # ── run_if_due (IronClaw 패턴) ──
 
-    def run_if_due(self) -> Optional[HygieneReport]:
+    def run_if_due(self) -> HygieneReport | None:
         """클린업 실행 시점이 도래했으면 실행합니다.
 
         IronClaw 패턴: AtomicBool Guard로 TOCTOU 방지 + 주기 확인.
@@ -151,6 +167,7 @@ class MemoryHygiene:
 
         Returns:
             제거된 파일 수
+
         """
         policy = self._load_directory_policy(directory)
         if not os.path.isdir(directory):
@@ -181,9 +198,9 @@ class MemoryHygiene:
                 try:
                     os.remove(path)
                     removed += 1
-                    logger.debug(f"MemoryHygiene: 제거 (기간 초과) {path}")
+                    logger.debug("MemoryHygiene: 제거 (기간 초과) %s", path)
                 except OSError as e:
-                    logger.warning(f"MemoryHygiene: 제거 실패 {path}: {e}")
+                    logger.warning("MemoryHygiene: 제거 실패 %s: %s", path, e)
 
         # 최대 문서 수 초과 시 오래된 순으로 제거
         remaining = [f for f in files_with_mtime if os.path.exists(f[0])]
@@ -193,24 +210,22 @@ class MemoryHygiene:
                 try:
                     os.remove(path)
                     removed += 1
-                    logger.debug(f"MemoryHygiene: 제거 (한도 초과) {path}")
+                    logger.debug("MemoryHygiene: 제거 (한도 초과) %s", path)
                 except OSError as e:
-                    logger.warning(f"MemoryHygiene: 제거 실패 {path}: {e}")
+                    logger.warning("MemoryHygiene: 제거 실패 %s: %s", path, e)
 
         return removed
 
     # ── Atomic State File Writes (IronClaw 패턴) ──
 
-    def _save_state_atomic(self, state: Dict[str, Any]) -> None:
+    def _save_state_atomic(self, state: dict[str, Any]) -> None:
         """상태를 원자적으로 저장합니다.
 
         IronClaw 패턴: tmpfile → os.replace() 원자적 교체.
         """
         try:
             parent_dir = os.path.dirname(self._state_file)
-            fd, tmp_path = tempfile.mkstemp(
-                dir=parent_dir, prefix=".hygiene_", suffix=".tmp"
-            )
+            fd, tmp_path = tempfile.mkstemp(dir=parent_dir, prefix=".hygiene_", suffix=".tmp")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump(state, f, ensure_ascii=False, indent=2)
@@ -222,18 +237,18 @@ class MemoryHygiene:
                 except OSError:
                     pass
                 raise
-        except Exception as e:
-            logger.warning(f"MemoryHygiene: 상태 저장 실패: {e}")
+        except Exception:
+            logger.exception("MemoryHygiene: 상태 저장 실패")
 
-    def _load_state(self) -> Dict[str, Any]:
+    def _load_state(self) -> dict[str, Any]:
         """상태 파일을 로드합니다."""
         if not os.path.isfile(self._state_file):
             return {"last_run": 0.0}
         try:
-            with open(self._state_file, "r", encoding="utf-8") as f:
+            with open(self._state_file, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
-            logger.warning(f"MemoryHygiene: 상태 로드 실패: {e}")
+        except Exception:
+            logger.exception("MemoryHygiene: 상태 로드 실패")
             return {"last_run": 0.0}
 
     # ── 내부 실행 ──
@@ -254,18 +269,19 @@ class MemoryHygiene:
                 cleaned = self.apply_retention_policy(directory)
                 report.cleaned_count += cleaned
             except Exception as e:
+                logger.exception("Unhandled exception")
                 report.errors.append(f"{directory}: {e}")
 
         report.elapsed_ms = round((time.time() - start) * 1000, 1)
         logger.info(
-            f"MemoryHygiene: 클린업 완료 — "
-            f"{report.cleaned_count}개 제거, "
-            f"{report.directories_scanned}개 디렉토리, "
-            f"{report.elapsed_ms}ms"
+            "MemoryHygiene: 클린업 완료 — %s개 제거, %s개 디렉토리, %sms",
+            report.cleaned_count,
+            report.directories_scanned,
+            report.elapsed_ms,
         )
         return report
 
-    def _get_scan_directories(self) -> List[str]:
+    def _get_scan_directories(self) -> list[str]:
         """스캔할 디렉토리 목록을 반환합니다."""
         candidates = [
             os.path.join(self.workspace_root, "data", "logs"),
@@ -284,20 +300,16 @@ class MemoryHygiene:
         try:
             import yaml
 
-            with open(config_file, "r", encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
 
             return RetentionPolicy(
-                retention_days=int(
-                    data.get("retention_days", self.default_policy.retention_days)
-                ),
-                max_documents=int(
-                    data.get("max_documents", self.default_policy.max_documents)
-                ),
+                retention_days=int(data.get("retention_days", self.default_policy.retention_days)),
+                max_documents=int(data.get("max_documents", self.default_policy.max_documents)),
                 exclude_patterns=tuple(data.get("exclude_patterns", [])),
             )
-        except Exception as e:
-            logger.warning(f"MemoryHygiene: .config 로드 실패 ({config_file}): {e}")
+        except Exception:
+            logger.exception("MemoryHygiene: .config 로드 실패 (%s)", config_file)
             return self.default_policy
 
     @staticmethod
@@ -310,7 +322,7 @@ class MemoryHygiene:
 
     # ── 상태 보고 ──
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """메모리 위생 상태를 반환합니다."""
         last_run = self._state.get("last_run", 0.0)
         next_run = last_run + self.cleanup_interval if last_run > 0 else 0.0

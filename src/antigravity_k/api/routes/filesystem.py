@@ -1,15 +1,14 @@
-"""
-Antigravity-K API: 파일시스템 라우터
+"""Antigravity-K API: 파일시스템 라우터.
+
 ====================================
 I-6 리팩터링: server.py에서 분리된 /api/fs/* 및 /api/workspace/* 라우트.
 """
 
+import logging
 import os
 import shutil
-import logging
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 from antigravity_k.engine.vault import VaultEngine
@@ -23,28 +22,56 @@ WORKSPACE_ROOT = os.path.abspath(".")
 
 
 def get_workspace_root() -> str:
+    """Retrieve workspace root.
+
+    Returns:
+        str: The str result.
+
+    """
     return WORKSPACE_ROOT
 
 
 class WorkspaceRequest(BaseModel):
+    """Workspacerequest.
+
+    Bases: BaseModel
+    """
+
     path: str
 
 
 class MkdirRequest(BaseModel):
+    """Mkdirrequest.
+
+    Bases: BaseModel
+    """
+
     path: str
 
 
 class DeleteRequest(BaseModel):
+    """Deleterequest.
+
+    Bases: BaseModel
+    """
+
     path: str
 
 
 @router.get("/api/fs/workspace")
 async def get_workspace():
+    """Retrieve workspace."""
     return {"ok": True, "workspace": WORKSPACE_ROOT}
 
 
 @router.post("/api/fs/workspace")
 async def set_workspace(req: WorkspaceRequest):
+    """Set workspace.
+
+    Args:
+        req (WorkspaceRequest): WorkspaceRequest req.
+
+    """
     global WORKSPACE_ROOT
     target = os.path.abspath(req.path)
     if os.path.exists(target) and os.path.isdir(target):
@@ -54,19 +81,26 @@ async def set_workspace(req: WorkspaceRequest):
 
 
 def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine):
-    """Background task to ingest workspace"""
+    """Background task to ingest workspace."""
     try:
         vault_engine.ingest_workspace(workspace_path)
-        logger.info(f"Background ingestion completed for {workspace_path}")
-    except Exception as e:
-        logger.error(f"Background ingestion failed: {e}")
+        logger.info("Background ingestion completed for %s", workspace_path)
+    except Exception:
+        logger.exception("Background ingestion failed")
 
 
 @router.post("/api/workspace/ingest")
 async def ingest_workspace(
     background_tasks: BackgroundTasks,
-    path: Optional[str] = Query(None, description="Target path to index"),
+    path: str | None = Query(None, description="Target path to index"),
 ):
+    """Ingest Workspace.
+
+    Args:
+        background_tasks (BackgroundTasks): BackgroundTasks background tasks.
+        path (str | None): str | None path.
+
+    """
     from antigravity_k.api.server import get_vault_engine
 
     vault = get_vault_engine()
@@ -84,7 +118,7 @@ async def ingest_workspace(
 
 @router.get("/api/fs/browse")
 async def fs_browse(dir: str = "/"):
-    """시스템 전체를 브라우징하는 전용 API (보안 제한 없음, 로컬 구동 전제)"""
+    """시스템 전체를 브라우징하는 전용 API (보안 제한 없음, 로컬 구동 전제)."""
     try:
         target_dir = os.path.abspath(dir)
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
@@ -96,9 +130,7 @@ async def fs_browse(dir: str = "/"):
                 if entry.name.startswith("."):
                     continue
                 if entry.is_dir():
-                    items.append(
-                        {"name": entry.name, "path": entry.path, "is_dir": True}
-                    )
+                    items.append({"name": entry.name, "path": entry.path, "is_dir": True})
         except PermissionError:
             pass
 
@@ -110,26 +142,22 @@ async def fs_browse(dir: str = "/"):
 
         return {"ok": True, "current": target_dir, "parent": parent_dir, "items": items}
     except Exception as e:
-        logger.error(f"FS browse error: {e}")
+        logger.error("FS browse error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/api/fs/mkdir")
 async def fs_mkdir(req: MkdirRequest):
-    """지정된 경로에 새 디렉토리를 생성합니다"""
+    """지정된 경로에 새 디렉토리를 생성합니다."""
     try:
         clean_path = req.path.lstrip("/\\")
         if clean_path == "." or clean_path == "":
-            raise HTTPException(
-                status_code=400, detail="Invalid path for folder creation"
-            )
+            raise HTTPException(status_code=400, detail="Invalid path for folder creation")
 
         target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
 
         if not target_dir.startswith(WORKSPACE_ROOT):
-            raise HTTPException(
-                status_code=403, detail="Access denied outside of workspace root."
-            )
+            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
 
         if os.path.exists(target_dir):
             return {"ok": False, "detail": "Folder already exists"}
@@ -139,13 +167,13 @@ async def fs_mkdir(req: MkdirRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"FS mkdir error: {e}")
+        logger.error("FS mkdir error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/api/fs/delete")
 async def fs_delete(req: DeleteRequest):
-    """지정된 파일 또는 디렉토리를 삭제합니다"""
+    """지정된 파일 또는 디렉토리를 삭제합니다."""
     try:
         clean_path = req.path.lstrip("/\\")
         if clean_path == "." or clean_path == "":
@@ -154,9 +182,7 @@ async def fs_delete(req: DeleteRequest):
         target_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
 
         if not target_path.startswith(WORKSPACE_ROOT):
-            raise HTTPException(
-                status_code=403, detail="Access denied outside of workspace root."
-            )
+            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
 
         if not os.path.exists(target_path):
             return {"ok": False, "detail": "Path does not exist"}
@@ -170,13 +196,13 @@ async def fs_delete(req: DeleteRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"FS delete error: {e}")
+        logger.error("FS delete error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/fs/list")
 async def fs_list(dir: str = "."):
-    """디렉토리 목록을 반환합니다 (WORKSPACE_ROOT로 제한)"""
+    """디렉토리 목록을 반환합니다 (WORKSPACE_ROOT로 제한)."""
     try:
         if dir == ".":
             target_dir = WORKSPACE_ROOT
@@ -184,9 +210,7 @@ async def fs_list(dir: str = "."):
             target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, dir))
 
         if not target_dir.startswith(WORKSPACE_ROOT):
-            raise HTTPException(
-                status_code=403, detail="Access denied outside of workspace root."
-            )
+            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
 
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
             return {"ok": False, "items": []}
@@ -200,7 +224,7 @@ async def fs_list(dir: str = "."):
                     "name": entry.name,
                     "path": os.path.relpath(entry.path, WORKSPACE_ROOT),
                     "is_dir": entry.is_dir(),
-                }
+                },
             )
 
         items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
@@ -208,7 +232,7 @@ async def fs_list(dir: str = "."):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"FS list error: {e}")
+        logger.error("FS list error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -218,14 +242,12 @@ async def fs_read(file: str):
     try:
         target_file = os.path.abspath(os.path.join(WORKSPACE_ROOT, file))
         if not target_file.startswith(WORKSPACE_ROOT):
-            raise HTTPException(
-                status_code=403, detail="Access denied outside of workspace root."
-            )
+            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
 
         if not os.path.exists(target_file) or not os.path.isfile(target_file):
             raise HTTPException(status_code=404, detail="File not found.")
 
-        with open(target_file, "r", encoding="utf-8") as f:
+        with open(target_file, encoding="utf-8") as f:
             content = f.read()
 
         return {"ok": True, "content": content}
@@ -234,5 +256,5 @@ async def fs_read(file: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"FS read error: {e}")
+        logger.error("FS read error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

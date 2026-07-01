@@ -1,5 +1,4 @@
-"""
-Agentic technology radar for Antigravity-K.
+"""Agentic technology radar for Antigravity-K.
 
 The radar turns current public agent-framework patterns into a deterministic
 upgrade plan.  It is intentionally dependency-free: the project can expose a
@@ -37,10 +36,22 @@ class AgenticUpgradeReport:
 
     @property
     def high_priority_count(self) -> int:
+        """High Priority Count.
+
+        Returns:
+            int: The int result.
+
+        """
         return sum(1 for signal in self.signals if signal.priority == "P0")
 
     @property
     def medium_priority_count(self) -> int:
+        """Medium Priority Count.
+
+        Returns:
+            int: The int result.
+
+        """
         return sum(1 for signal in self.signals if signal.priority == "P1")
 
 
@@ -48,9 +59,24 @@ class AgenticTechRadar:
     """Build a current, evidence-backed agentic upgrade matrix."""
 
     def __init__(self, last_reviewed: str = "2026-05-07"):
+        """Initialize the AgenticTechRadar.
+
+        Args:
+            last_reviewed (str): str last reviewed.
+
+        """
         self.last_reviewed = last_reviewed
 
     def evaluate(self, objective: str = "") -> AgenticUpgradeReport:
+        """Evaluate.
+
+        Args:
+            objective (str): str objective.
+
+        Returns:
+            AgenticUpgradeReport: The agenticupgradereport result.
+
+        """
         normalized = objective.strip() or "Antigravity-K agentic upgrade review"
         signals = [
             AgenticTechSignal(
@@ -173,10 +199,7 @@ class AgenticTechRadar:
             "",
             f"**Objective:** {report.objective}",
             f"**Last reviewed:** {report.last_reviewed}",
-            (
-                f"**Priority mix:** P0={report.high_priority_count}, "
-                f"P1={report.medium_priority_count}"
-            ),
+            (f"**Priority mix:** P0={report.high_priority_count}, P1={report.medium_priority_count}"),
             "",
             "## Upgrade Decision Matrix",
             "",
@@ -193,9 +216,9 @@ class AgenticTechRadar:
                         signal.current_status,
                         signal.recommendation,
                         signal.priority,
-                    ]
+                    ],
                 )
-                + " |"
+                + " |",
             )
 
         lines.extend(["", "## Transfer Plan", ""])

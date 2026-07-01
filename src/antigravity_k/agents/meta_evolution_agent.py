@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
-"""
-Antigravity-K: Meta-Evolution Agent (Phase 7)
+"""Antigravity-K: Meta-Evolution Agent (Phase 7).
+
 ==============================================
 본 프로그램 스스로 소스코드를 수정하고, 테스트를 실행하며,
 문서(test_process.md 등)를 업데이트하는 자율 진화 에이전트.
 """
 
-import os
 import json
 import logging
+import os
+import re
 import shutil
 import time
-from typing import Dict, List, Optional, Generator
+from collections.abc import Generator
 from pathlib import Path
-import re
 
 logger = logging.getLogger("meta_evolution")
 
 
 class BackupManager:
-    """코드 변경 전 스냅샷 백업 및 롤백을 담당하는 매니저"""
+    """코드 변경 전 스냅샷 백업 및 롤백을 담당하는 매니저."""
 
     def __init__(self, project_root: str):
+        """Initialize the BackupManager.
+
+        Args:
+            project_root (str): str project root.
+
+        """
         self.project_root = Path(project_root)
         self.backup_dir = self.project_root / ".evolution_backups"
         self.backup_dir.mkdir(exist_ok=True)
-        self.current_snapshot: Optional[Path] = None
+        self.current_snapshot: Path | None = None
 
-    def create_snapshot(self, target_files: List[str]) -> str:
+    def create_snapshot(self, target_files: list[str]) -> str:
         """수정 예정 파일들의 스냅샷을 만듭니다."""
         snapshot_id = f"snap_{int(time.time())}"
         snapshot_path = self.backup_dir / snapshot_id
@@ -56,30 +62,34 @@ class BackupManager:
                     target_file = self.project_root / rel_path
                     shutil.copy2(backup_file, target_file)
             return True
-        except Exception as e:
-            logger.error(f"Rollback failed: {e}")
+        except Exception:
+            logger.exception("Rollback failed")
             return False
 
 
 class MetaEvolutionAgent:
-    """
-    프로그램의 자기 진화(Self-Programming) 루프를 제어합니다.
+    """프로그램의 자기 진화(Self-Programming) 루프를 제어합니다.
+
     Planning -> Execution (Edit) -> Test -> Documentation.
     """
 
     def __init__(self, model_manager, tool_executor, project_root: str = "."):
+        """Initialize the MetaEvolutionAgent.
+
+        Args:
+            model_manager: model manager.
+            tool_executor: tool executor.
+            project_root (str): str project root.
+
+        """
         self.manager = model_manager
         self.tool_executor = tool_executor
         self.project_root = project_root
         self.backup_manager = BackupManager(project_root)
         self.max_retries = 3
 
-    def evolve(
-        self, requirement: str, target_files: List[str] = None
-    ) -> Generator[str, None, str]:
-        """
-        요구사항에 맞춰 코드를 수정하고 검증하는 메인 루프 (Generator로 스트리밍).
-        """
+    def evolve(self, requirement: str, target_files: list[str] = None) -> Generator[str, None, str]:
+        """요구사항에 맞춰 코드를 수정하고 검증하는 메인 루프 (Generator로 스트리밍)."""
         yield "🧬 **[Meta-Evolution]** 자율 진화 시퀀스 시작...\n"
 
         if not target_files:
@@ -108,7 +118,7 @@ class MetaEvolutionAgent:
             response = self.manager.generate(
                 prompt=prompt,
                 model="hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest",  # SuperGemma4를 워커로 사용
-                system_prompt="You are an autonomous AI software engineer. Generate a specific implementation plan and XML tool calls to edit files.",
+                system_prompt="You are an autonomous AI software engineer. Generate a specific implementation plan and XML tool calls to edit files.",  # noqa: E501
             )
 
             yield "🤖 **[SuperGemma4]** 코드 변경사항 도출 완료.\n"
@@ -120,12 +130,14 @@ class MetaEvolutionAgent:
                 try:
                     self.tool_executor.execute(tc["name"], tc.get("arguments", {}))
                 except Exception as e:
+                    logger.exception("Unhandled exception")
                     yield f"⚠️ 도구 실행 에러: {e}\n"
 
             # 3. 테스트 실행 (pytest)
             yield "🧪 자체 검증 테스트(pytest) 실행 중...\n"
             test_result = self.tool_executor.execute(
-                "shell_run", {"command": "python3 -m pytest tests/"}
+                "shell_run",
+                {"command": "python3 -m pytest tests/"},
             )
 
             if (
@@ -158,14 +170,15 @@ class MetaEvolutionAgent:
         yield "\n🎉 **[Meta-Evolution 완료]** 본 프로그램 스스로 기능 고도화를 마쳤습니다!\n"
         return "진화 성공"
 
-    def _build_evolution_prompt(self, requirement: str, target_files: List[str]) -> str:
+    def _build_evolution_prompt(self, requirement: str, target_files: list[str]) -> str:
         # 실제 구현에서는 타겟 파일의 내용을 읽어서 첨부해야 합니다.
         contents = ""
         for f in target_files:
             try:
-                with open(os.path.join(self.project_root, f), "r") as fp:
+                with open(os.path.join(self.project_root, f)) as fp:
                     contents += f"\n--- {f} ---\n{fp.read()[:2000]}... (truncated)\n"
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         return f"""
@@ -178,18 +191,19 @@ class MetaEvolutionAgent:
         Use <tool_call>{{"name": "write_file", "arguments": {{"file_path": "...", "content": "..."}}}}</tool_call>
         """
 
-    def _extract_tool_calls(self, text: str) -> List[Dict]:
+    def _extract_tool_calls(self, text: str) -> list[dict]:
         calls = []
         matches = re.finditer(r"<tool_call>\s*({.*?})\s*</tool_call>", text, re.DOTALL)
         for m in matches:
             try:
                 calls.append(json.loads(m.group(1)))
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
         return calls
 
     def _update_documentation(self, requirement: str):
-        """test_process.md 및 test_report.md를 업데이트하는 로직"""
+        """test_process.md 및 test_report.md를 업데이트하는 로직."""
         test_proc_path = os.path.join(self.project_root, "test_process.md")
         if not os.path.exists(test_proc_path):
             return
@@ -200,5 +214,5 @@ class MetaEvolutionAgent:
                 f.write(f"- **업데이트 요구사항**: {requirement}\n")
                 f.write("- **상태**: 자동 수정 및 pytest 통과 완료\n")
                 f.write("- **검증결과**: PASS\n")
-        except Exception as e:
-            logger.error(f"Failed to update documentation: {e}")
+        except Exception:
+            logger.exception("Failed to update documentation")

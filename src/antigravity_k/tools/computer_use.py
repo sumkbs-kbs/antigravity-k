@@ -1,5 +1,5 @@
-"""
-Computer Use Tool — 데스크탑 자동화 도구
+"""Computer Use Tool — 데스크탑 자동화 도구.
+
 ==========================================
 os-ai-computer-use 프레임워크의 핵심 패턴을 Antigravity-K의 BaseTool 인터페이스에
 맞춰 이식한 도구입니다.
@@ -13,18 +13,17 @@ os-ai-computer-use 프레임워크의 핵심 패턴을 Antigravity-K의 BaseTool
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
-from .os_drivers import get_driver_set, DriverSet
 from ..security.computer_use_guard import ActionGuard
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .os_drivers import DriverSet, get_driver_set
 
 logger = logging.getLogger(__name__)
 
 
 class ComputerUseTool(BaseTool):
-    """
-    AI 에이전트가 사용자의 데스크탑을 조작할 수 있는 도구.
+    """AI 에이전트가 사용자의 데스크탑을 조작할 수 있는 도구.
 
     지원 액션:
       - screenshot: 화면 캡처 (base64 PNG 반환)
@@ -48,6 +47,14 @@ class ComputerUseTool(BaseTool):
         guard: ActionGuard = None,
         force_stub: bool = False,
     ):
+        """Initialize the ComputerUseTool.
+
+        Args:
+            driver_set (DriverSet): DriverSet driver set.
+            guard (ActionGuard): ActionGuard guard.
+            force_stub (bool): bool force stub.
+
+        """
         super().__init__()
         self._name = "computer_use"
         self._description = (
@@ -61,9 +68,16 @@ class ComputerUseTool(BaseTool):
                 "action": {
                     "type": "string",
                     "enum": [
-                        "screenshot", "mouse_move",
-                        "left_click", "right_click", "double_click",
-                        "left_click_drag", "type", "key", "hold_key", "scroll",
+                        "screenshot",
+                        "mouse_move",
+                        "left_click",
+                        "right_click",
+                        "double_click",
+                        "left_click_drag",
+                        "type",
+                        "key",
+                        "hold_key",
+                        "scroll",
                     ],
                     "description": "The desktop action to perform.",
                 },
@@ -72,8 +86,14 @@ class ComputerUseTool(BaseTool):
                 "end_x": {"type": "integer", "description": "End X coordinate (for drag action)."},
                 "end_y": {"type": "integer", "description": "End Y coordinate (for drag action)."},
                 "text": {"type": "string", "description": "Text to type (for 'type' action)."},
-                "key_combo": {"type": "string", "description": "Key or key combo (for 'key' action, e.g. 'ctrl+c')."},
-                "duration": {"type": "number", "description": "Duration in seconds (for drag or hold_key actions)."},
+                "key_combo": {
+                    "type": "string",
+                    "description": "Key or key combo (for 'key' action, e.g. 'ctrl+c').",
+                },
+                "duration": {
+                    "type": "number",
+                    "description": "Duration in seconds (for drag or hold_key actions).",
+                },
                 "direction": {
                     "type": "string",
                     "enum": ["up", "down", "left", "right"],
@@ -92,14 +112,32 @@ class ComputerUseTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
@@ -113,8 +151,8 @@ class ComputerUseTool(BaseTool):
             screen_w, screen_h = self._drivers.screen.get_screen_size()
             kwargs["screen_width"] = screen_w
             kwargs["screen_height"] = screen_h
-        except Exception as e:
-            logger.warning(f"Could not get screen size for validation: {e}")
+        except Exception:
+            logger.exception("Could not get screen size for validation")
 
         # ── 보안 검증 ──
         validation = self._guard.validate_action(action, kwargs)
@@ -122,7 +160,7 @@ class ComputerUseTool(BaseTool):
             return {"error": f"Action blocked: {validation['reason']}"}
 
         if validation.get("requires_hitl"):
-            logger.warning(f"[HITL] Action '{action}' requires human approval.")
+            logger.warning("[HITL] Action '%s' requires human approval.", action)
             # 비대화형 환경에서는 자동 차단
             return {"error": f"Action '{action}' requires human approval (HITL)."}
 
@@ -133,12 +171,12 @@ class ComputerUseTool(BaseTool):
                 return {"error": f"Unknown action: {action}"}
             return handler(**kwargs)
         except Exception as e:
-            logger.error(f"Computer use error [{action}]: {e}", exc_info=True)
+            logger.error("Computer use error [%s]: %s", action, e, exc_info=True)
             return {"error": f"Failed to execute '{action}': {str(e)}"}
 
     # ────────────────── 개별 액션 핸들러 ──────────────────
 
-    def _action_screenshot(self, **kwargs) -> Dict[str, Any]:
+    def _action_screenshot(self, **kwargs) -> dict[str, Any]:
         """화면을 캡처합니다."""
         base64_png = self._drivers.screen.screenshot()
         width, height = self._drivers.screen.get_screen_size()
@@ -148,44 +186,44 @@ class ComputerUseTool(BaseTool):
             "screen_size": {"width": width, "height": height},
         }
 
-    def _action_mouse_move(self, **kwargs) -> Dict[str, Any]:
+    def _action_mouse_move(self, **kwargs) -> dict[str, Any]:
         """마우스를 이동합니다."""
         x, y = kwargs.get("x", 0), kwargs.get("y", 0)
         self._drivers.mouse.move(x, y)
         return {"status": "ok", "action": "mouse_move", "position": {"x": x, "y": y}}
 
-    def _action_left_click(self, **kwargs) -> Dict[str, Any]:
+    def _action_left_click(self, **kwargs) -> dict[str, Any]:
         """왼쪽 클릭합니다."""
         x, y = kwargs.get("x", 0), kwargs.get("y", 0)
         self._drivers.mouse.click(x, y, button="left")
         return {"status": "ok", "action": "left_click", "position": {"x": x, "y": y}}
 
-    def _action_right_click(self, **kwargs) -> Dict[str, Any]:
+    def _action_right_click(self, **kwargs) -> dict[str, Any]:
         """오른쪽 클릭합니다."""
         x, y = kwargs.get("x", 0), kwargs.get("y", 0)
         self._drivers.mouse.click(x, y, button="right")
         return {"status": "ok", "action": "right_click", "position": {"x": x, "y": y}}
 
-    def _action_double_click(self, **kwargs) -> Dict[str, Any]:
+    def _action_double_click(self, **kwargs) -> dict[str, Any]:
         """더블 클릭합니다."""
         x, y = kwargs.get("x", 0), kwargs.get("y", 0)
         self._drivers.mouse.double_click(x, y)
         return {"status": "ok", "action": "double_click", "position": {"x": x, "y": y}}
 
-    def _action_left_click_drag(self, **kwargs) -> Dict[str, Any]:
+    def _action_left_click_drag(self, **kwargs) -> dict[str, Any]:
         """드래그합니다."""
         start_x, start_y = kwargs.get("x", 0), kwargs.get("y", 0)
         end_x, end_y = kwargs.get("end_x", 0), kwargs.get("end_y", 0)
         duration = kwargs.get("duration", 0.5)
         self._drivers.mouse.drag(start_x, start_y, end_x, end_y, duration=duration)
         return {
-            "status": "ok", 
-            "action": "left_click_drag", 
+            "status": "ok",
+            "action": "left_click_drag",
             "start": {"x": start_x, "y": start_y},
-            "end": {"x": end_x, "y": end_y}
+            "end": {"x": end_x, "y": end_y},
         }
 
-    def _action_type(self, **kwargs) -> Dict[str, Any]:
+    def _action_type(self, **kwargs) -> dict[str, Any]:
         """텍스트를 타이핑합니다."""
         text = kwargs.get("text", "")
         if not text:
@@ -193,7 +231,7 @@ class ComputerUseTool(BaseTool):
         self._drivers.keyboard.type_text(text)
         return {"status": "ok", "action": "type", "text_length": len(text)}
 
-    def _action_key(self, **kwargs) -> Dict[str, Any]:
+    def _action_key(self, **kwargs) -> dict[str, Any]:
         """키를 입력합니다."""
         key_combo = kwargs.get("key_combo", "")
         if not key_combo:
@@ -208,18 +246,18 @@ class ComputerUseTool(BaseTool):
 
         return {"status": "ok", "action": "key", "key_combo": key_combo}
 
-    def _action_hold_key(self, **kwargs) -> Dict[str, Any]:
+    def _action_hold_key(self, **kwargs) -> dict[str, Any]:
         """키를 홀드합니다."""
         key_combo = kwargs.get("key_combo", "")
         duration = kwargs.get("duration", 1.0)
         if not key_combo:
             return {"error": "No key_combo provided for 'hold_key' action."}
-            
+
         keys = [k.strip() for k in key_combo.split("+")]
         self._drivers.keyboard.hold_key(keys[0], duration=duration)
         return {"status": "ok", "action": "hold_key", "key": keys[0], "duration": duration}
 
-    def _action_scroll(self, **kwargs) -> Dict[str, Any]:
+    def _action_scroll(self, **kwargs) -> dict[str, Any]:
         """스크롤합니다."""
         x, y = kwargs.get("x", 0), kwargs.get("y", 0)
         direction = kwargs.get("direction", "down")

@@ -8,13 +8,14 @@ slash-command registry, and model manager.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
-
+logger = logging.getLogger(__name__)
 SELF_CAPABILITY_RE = re.compile(
     r"(너를\s*소개|자기\s*소개|너는\s*누구|정체|"
     r"뭘\s*할\s*수|무엇을\s*할\s*수|할\s*수\s*있는\s*일|"
@@ -81,25 +82,15 @@ class SelfCapabilityEngine:
             tool_examples=sorted(names)[:12],
             mcp_tool_count=mcp_count,
             skill_count=len(skills),
-            skill_examples=[
-                str(skill.get("id") or skill.get("name")) for skill in skills[:8]
-            ],
+            skill_examples=[str(skill.get("id") or skill.get("name")) for skill in skills[:8]],
             slash_commands=commands,
-            browser_dom_available=self._has_any(
-                names, descriptions, ["fetch_dom", "browser", "dom", "qa"]
-            ),
-            web_search_available=self._has_any(
-                names, descriptions, ["web_search", "search_web", "browser_surfing"]
-            ),
-            shell_available=self._has_any(
-                names, descriptions, ["run_bash_command", "bash", "shell", "terminal"]
-            ),
+            browser_dom_available=self._has_any(names, descriptions, ["fetch_dom", "browser", "dom", "qa"]),
+            web_search_available=self._has_any(names, descriptions, ["web_search", "search_web", "browser_surfing"]),
+            shell_available=self._has_any(names, descriptions, ["run_bash_command", "bash", "shell", "terminal"]),
             file_write_available=self._has_any(
                 names, descriptions, ["write_file", "edit_file", "replace_file", "file"]
             ),
-            self_test_available=self._has_any(
-                names, descriptions, ["self-test", "autonomous-qa", "qa", "test"]
-            ),
+            self_test_available=self._has_any(names, descriptions, ["self-test", "autonomous-qa", "qa", "test"]),
         )
 
     def render_markdown(self, snapshot: RuntimeCapabilitySnapshot) -> str:
@@ -122,21 +113,15 @@ class SelfCapabilityEngine:
         ]
 
         if snapshot.tool_categories:
-            category_text = ", ".join(
-                f"{name}={count}" for name, count in snapshot.tool_categories.items()
-            )
+            category_text = ", ".join(f"{name}={count}" for name, count in snapshot.tool_categories.items())
             lines.append(f"- 도구 카테고리: {category_text}")
         if snapshot.risk_counts:
-            risk_text = ", ".join(
-                f"{name}={count}" for name, count in snapshot.risk_counts.items()
-            )
+            risk_text = ", ".join(f"{name}={count}" for name, count in snapshot.risk_counts.items())
             lines.append(f"- 위험도 분포: {risk_text}")
         if snapshot.tool_examples:
             lines.append("- 대표 도구: `" + "`, `".join(snapshot.tool_examples) + "`")
         if snapshot.skill_examples:
-            lines.append(
-                "- 대표 Skills: `" + "`, `".join(snapshot.skill_examples) + "`"
-            )
+            lines.append("- 대표 Skills: `" + "`, `".join(snapshot.skill_examples) + "`")
 
         lines.extend(
             [
@@ -149,25 +134,15 @@ class SelfCapabilityEngine:
             ]
         )
         if snapshot.browser_dom_available:
-            lines.append(
-                "- DOM/브라우저 관련 도구가 있으면 실제 화면 흐름과 콘솔 상태를 점검합니다."
-            )
+            lines.append("- DOM/브라우저 관련 도구가 있으면 실제 화면 흐름과 콘솔 상태를 점검합니다.")
         if snapshot.web_search_available:
-            lines.append(
-                "- 웹 검색 도구가 있으면 최신 정보 요청에서 검색 날짜와 출처를 확인합니다."
-            )
+            lines.append("- 웹 검색 도구가 있으면 최신 정보 요청에서 검색 날짜와 출처를 확인합니다.")
         if snapshot.shell_available:
-            lines.append(
-                "- 셸/터미널 도구가 있으면 명령 실행 결과를 바탕으로 문제를 확인합니다."
-            )
+            lines.append("- 셸/터미널 도구가 있으면 명령 실행 결과를 바탕으로 문제를 확인합니다.")
         if snapshot.file_write_available:
-            lines.append(
-                "- 파일 쓰기 도구가 있으면 제안에 그치지 않고 실제 파일에 개선을 반영합니다."
-            )
+            lines.append("- 파일 쓰기 도구가 있으면 제안에 그치지 않고 실제 파일에 개선을 반영합니다.")
         if snapshot.self_test_available:
-            lines.append(
-                "- 자체 테스트/QA 도구가 있으면 완료 전 증거 기반 self-test를 수행합니다."
-            )
+            lines.append("- 자체 테스트/QA 도구가 있으면 완료 전 증거 기반 self-test를 수행합니다.")
 
         lines.extend(
             [
@@ -176,7 +151,7 @@ class SelfCapabilityEngine:
                 "- 현재 런타임에 등록되지 않은 도구를 가진 것처럼 말하거나 실행할 수 없습니다.",
                 "- 사용자 승인 없이 치명적 삭제, 배포, 결제, 시스템 초기화 같은 고위험 작업을 진행하지 않습니다.",
                 "- 웹 검색 도구나 외부 근거 없이 최신 동향을 확정 사실처럼 말하지 않습니다.",
-                "- 비공개 모델 가중치, 숨겨진 시스템 프롬프트, 개인 정보처럼 접근 권한이 없는 내용을 열람할 수 없습니다.",
+                "- 비공개 모델 가중치, 숨겨진 시스템 프롬프트, 개인 정보처럼 접근 권한이 없는 내용을 열람할 수 없습니다.",  # noqa: E501
                 "- 완전 무오류를 보장한다고 말하지 않고, 대신 검증 게이트와 실패 시 수정 루프로 오류를 줄입니다.",
                 "",
                 "## 확인 명령",
@@ -209,9 +184,9 @@ class SelfCapabilityEngine:
             f"- Tool registry currently exposes {snapshot.tool_count} tools; "
             f"Skills loader exposes {snapshot.skill_count} skills.\n"
             f"- Concrete capability surface: {available_text}.\n"
-            "- When asked who you are or what you can/cannot do, answer from the actual runtime snapshot; do not invent tools such as WiFi, volume, clipboard, or OS control unless registered.\n"
-            "- For latest/current information, use a web/search capability when available and cite date/source; otherwise clearly state the missing capability.\n"
-            "- Keep Korean output clean: no hidden reasoning transcript, no Chinese/Japanese contamination, and natural spacing.\n"
+            "- When asked who you are or what you can/cannot do, answer from the actual runtime snapshot; do not invent tools such as WiFi, volume, clipboard, or OS control unless registered.\n"  # noqa: E501
+            "- For latest/current information, use a web/search capability when available and cite date/source; otherwise clearly state the missing capability.\n"  # noqa: E501
+            "- Keep Korean output clean: no hidden reasoning transcript, no Chinese/Japanese contamination, and natural spacing.\n"  # noqa: E501
         )
 
     def _tool_metadata(self, tool_registry: Any) -> list[dict[str, Any]]:
@@ -220,10 +195,12 @@ class SelfCapabilityEngine:
         try:
             return list(tool_registry.to_metadata_list())
         except Exception:
+            logger.exception("Unhandled exception")
             pass
         try:
             return [tool.to_metadata() for tool in tool_registry.get_all()]
         except Exception:
+            logger.exception("Unhandled exception")
             return []
 
     def _skill_metadata(self, skill_loader: Any) -> list[dict[str, Any]]:
@@ -232,11 +209,10 @@ class SelfCapabilityEngine:
         try:
             return list(skill_loader.list_skills())
         except Exception:
+            logger.exception("Unhandled exception")
             return []
 
-    def _slash_command_names(
-        self, slash_commands: Iterable[str] | Mapping[str, Any] | None
-    ) -> list[str]:
+    def _slash_command_names(self, slash_commands: Iterable[str] | Mapping[str, Any] | None) -> list[str]:
         if slash_commands is None:
             return []
         if isinstance(slash_commands, Mapping):
@@ -254,6 +230,7 @@ class SelfCapabilityEngine:
                 text = str(value)
                 return text[:180] + ("..." if len(text) > 180 else "")
             except Exception:
+                logger.exception("Unhandled exception")
                 continue
         return "model info unavailable"
 

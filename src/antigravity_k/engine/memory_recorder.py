@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 에이전트 기억 기록기 (MemoryRecorder)
+"""Antigravity-K: 에이전트 기억 기록기 (MemoryRecorder).
+
 =====================================================
 에이전트의 작업 결과를 LLM Wiki(Vault)에 자동 기록합니다.
 
@@ -16,7 +16,7 @@ Antigravity-K: 에이전트 기억 기록기 (MemoryRecorder)
 import datetime
 import logging
 import re
-from typing import Generator
+from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,14 @@ class MemoryRecorder:
     """
 
     def __init__(self, vault_engine, model_manager, get_model_for_role_fn):
+        """Initialize the MemoryRecorder.
+
+        Args:
+            vault_engine: vault engine.
+            model_manager: model manager.
+            get_model_for_role_fn: get model for role fn.
+
+        """
         self.vault_engine = vault_engine
         self.manager = model_manager
         self._get_model = get_model_for_role_fn
@@ -57,6 +65,7 @@ class MemoryRecorder:
 
         Yields:
             진행 상태 메시지 (UI에 표시)
+
         """
         if not self.should_record(task_type):
             return
@@ -66,7 +75,7 @@ class MemoryRecorder:
 
             # ── Memory Consolidation ──
             summary_prompt = (
-                "당신은 에이전트의 작업 로그를 분석하여 세컨드 브레인(Wiki)에 저장할 핵심 기억(Memory)을 추출하는 전문가입니다.\n"
+                "당신은 에이전트의 작업 로그를 분석하여 세컨드 브레인(Wiki)에 저장할 핵심 기억(Memory)을 추출하는 전문가입니다.\n"  # noqa: E501
                 f"아래는 사용자의 요청과 에이전트의 결정(Decision)입니다.\n\n"
                 f"<user_request>\n{user_message}\n</user_request>\n\n"
                 f"<agent_decision>\n{agent_output[-6000:]}\n</agent_decision>\n\n"
@@ -87,7 +96,10 @@ class MemoryRecorder:
             for chunk in response_gen:
                 extracted_text += chunk
             extracted_text = re.sub(
-                r"<think>.*?</think>", "", extracted_text, flags=re.DOTALL
+                r"<think>.*?</think>",
+                "",
+                extracted_text,
+                flags=re.DOTALL,
             ).strip()
 
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -112,5 +124,5 @@ class MemoryRecorder:
             )
             yield f"💾 **[Agent Memory]** 정제 완료! LLM Wiki(`{filename}`)에 영구 기록되었습니다.\n"
         except Exception as e:
-            logger.error(f"Failed to record agent memory: {e}")
+            logger.exception("Failed to record agent memory")
             yield f"⚠️ **[Agent Memory]** 기록 중 오류가 발생했습니다: {e}\n"

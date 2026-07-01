@@ -1,5 +1,5 @@
-"""
-Antigravity-K: RAG Indexer
+"""Antigravity-K: RAG Indexer.
+
 ===========================
 프로젝트 소스 파일을 AST 기반으로 함수/클래스 단위 청크로 분할하고
 VectorStore에 인덱싱하여, 오케스트레이터가 질문과 관련된 코드를
@@ -19,7 +19,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.rag_indexer")
 
@@ -55,29 +55,37 @@ class CodeChunk:
     content: str
     start_line: int
     end_line: int
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RAGIndexer:
     """프로젝트 코드를 청크 단위로 분할하고 VectorStore에 인덱싱합니다."""
 
     def __init__(self, project_root: str, vector_store=None):
+        """Initialize the RAGIndexer.
+
+        Args:
+            project_root (str): str project root.
+            vector_store: vector store.
+
+        """
         self.project_root = os.path.abspath(project_root)
         self.vector_store = vector_store
-        self._file_hashes: Dict[str, str] = {}
+        self._file_hashes: dict[str, str] = {}
 
-    def index_project(self, subdirs: Optional[List[str]] = None) -> int:
+    def index_project(self, subdirs: list[str] | None = None) -> int:
         """프로젝트 전체 또는 지정된 하위 디렉토리를 인덱싱합니다.
 
         Returns:
             인덱싱된 총 청크 수
+
         """
         if subdirs:
             scan_dirs = [os.path.join(self.project_root, d) for d in subdirs]
         else:
             scan_dirs = [self.project_root]
 
-        all_chunks: List[CodeChunk] = []
+        all_chunks: list[CodeChunk] = []
 
         for scan_dir in scan_dirs:
             if not os.path.isdir(scan_dir):
@@ -95,9 +103,10 @@ class RAGIndexer:
                     rel_path = os.path.relpath(fpath, self.project_root)
 
                     try:
-                        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        with open(fpath, encoding="utf-8", errors="ignore") as f:
                             content = f.read()
                     except Exception:
+                        logger.exception("Unhandled exception")
                         continue
 
                     # 변경 감지 (해시 비교)
@@ -134,11 +143,11 @@ class RAGIndexer:
                 for c in all_chunks
             ]
             self.vector_store.upsert_chunks(store_chunks)
-            logger.info(f"[RAGIndexer] Indexed {len(store_chunks)} chunks from project")
+            logger.info("[RAGIndexer] Indexed %s chunks from project", len(store_chunks))
 
         return len(all_chunks)
 
-    def sync(self, subdirs: Optional[List[str]] = None) -> int:
+    def sync(self, subdirs: list[str] | None = None) -> int:
         """파일 시스템 변경사항(추가/수정/삭제)을 인덱스에 동기화합니다."""
         if subdirs:
             scan_dirs = [os.path.join(self.project_root, d) for d in subdirs]
@@ -164,9 +173,7 @@ class RAGIndexer:
             del self._file_hashes[rel_path]
             if self.vector_store:
                 self.vector_store.delete_file_chunks(rel_path)
-                logger.debug(
-                    f"[RAGIndexer] Removed chunks for deleted file: {rel_path}"
-                )
+                logger.debug("[RAGIndexer] Removed chunks for deleted file: %s", rel_path)
 
         # 추가/수정된 파일 처리 (기존 로직 재사용)
         return self.index_project(subdirs)
@@ -184,9 +191,10 @@ class RAGIndexer:
         ext = Path(abs_path).suffix.lower()
 
         try:
-            with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(abs_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except Exception:
+            logger.exception("Unhandled exception")
             return 0
 
         self._file_hashes[rel_path] = hashlib.md5(content.encode()).hexdigest()
@@ -222,15 +230,14 @@ class RAGIndexer:
 
         return len(chunks)
 
-    def search(
-        self, query: str, n_results: int = 5, mode: str = "hybrid"
-    ) -> List[Dict[str, Any]]:
+    def search(self, query: str, n_results: int = 5, mode: str = "hybrid") -> list[dict[str, Any]]:
         """질문과 관련된 코드 청크를 검색합니다.
 
         Args:
             query: 검색 질의
             n_results: 반환할 결과 수
             mode: 검색 모드 — "semantic", "keyword", "hybrid" (기본)
+
         """
         if not self.vector_store:
             return []
@@ -242,7 +249,7 @@ class RAGIndexer:
         else:  # hybrid (default)
             return self._hybrid_search_rrf(query, n_results)
 
-    def _keyword_search(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
+    def _keyword_search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
         """키워드 기반 정확 매칭 검색 (식별자, 함수명, 클래스명 등)."""
         if not self.vector_store:
             return []
@@ -253,7 +260,7 @@ class RAGIndexer:
             return self.vector_store.search(query, n_results=n_results)
 
         query_tokens = query.lower().split()
-        scored: List[tuple] = []
+        scored: list[tuple] = []
         for chunk in all_chunks:
             text = chunk.get("text", "").lower()
             meta = chunk.get("metadata", {})
@@ -273,9 +280,7 @@ class RAGIndexer:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item[1] for item in scored[:n_results]]
 
-    def _hybrid_search_rrf(
-        self, query: str, n_results: int = 5
-    ) -> List[Dict[str, Any]]:
+    def _hybrid_search_rrf(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
         """Hybrid Search with Reciprocal Rank Fusion (SurfSense 패턴).
 
         시맨틱 검색과 키워드 검색 결과를 RRF 공식으로 융합합니다.
@@ -289,8 +294,8 @@ class RAGIndexer:
         keyword_results = self._keyword_search(query, fetch_n)
 
         # 청크 ID → RRF 점수 계산
-        rrf_scores: Dict[str, float] = {}
-        chunk_map: Dict[str, Dict[str, Any]] = {}
+        rrf_scores: dict[str, float] = {}
+        chunk_map: dict[str, dict[str, Any]] = {}
 
         for rank, result in enumerate(semantic_results):
             cid = result.get("id", str(rank))
@@ -307,9 +312,7 @@ class RAGIndexer:
         sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)
         return [chunk_map[cid] for cid in sorted_ids[:n_results] if cid in chunk_map]
 
-    def format_context(
-        self, query: str, n_results: int = 5, max_chars: int = 6000
-    ) -> str:
+    def format_context(self, query: str, n_results: int = 5, max_chars: int = 6000) -> str:
         """검색 결과를 오케스트레이터에 주입할 컨텍스트 문자열로 포맷합니다."""
         results = self.search(query, n_results=n_results)
         if not results:
@@ -338,9 +341,9 @@ class RAGIndexer:
 
     # ─── Python AST 기반 청킹 ─────────────────────────────────
 
-    def _chunk_python(self, rel_path: str, content: str) -> List[CodeChunk]:
+    def _chunk_python(self, rel_path: str, content: str) -> list[CodeChunk]:
         """Python 파일을 AST로 파싱하여 함수/클래스 단위로 분할합니다."""
-        chunks: List[CodeChunk] = []
+        chunks: list[CodeChunk] = []
         lines = content.split("\n")
 
         try:
@@ -371,7 +374,7 @@ class RAGIndexer:
                         content=header_text,
                         start_line=1,
                         end_line=header_end,
-                    )
+                    ),
                 )
 
         # 함수/클래스 노드 추출
@@ -388,7 +391,11 @@ class RAGIndexer:
         return chunks
 
     def _extract_function_chunk(
-        self, chunks: List[CodeChunk], rel_path: str, lines: List[str], node
+        self,
+        chunks: list[CodeChunk],
+        rel_path: str,
+        lines: list[str],
+        node,
     ):
         """함수 노드를 청크로 추출합니다."""
         start = node.lineno - 1  # 0-indexed
@@ -407,15 +414,11 @@ class RAGIndexer:
                 content=text,
                 start_line=node.lineno,
                 end_line=end,
-                metadata={
-                    "decorators": [self._decorator_name(d) for d in node.decorator_list]
-                },
-            )
+                metadata={"decorators": [self._decorator_name(d) for d in node.decorator_list]},
+            ),
         )
 
-    def _extract_class_chunk(
-        self, chunks: List[CodeChunk], rel_path: str, lines: List[str], node
-    ):
+    def _extract_class_chunk(self, chunks: list[CodeChunk], rel_path: str, lines: list[str], node):
         """클래스 노드를 청크로 추출합니다. 메서드는 개별 청크로 분리."""
         # 클래스 시그니처 + docstring
         class_start = node.lineno - 1
@@ -441,7 +444,7 @@ class RAGIndexer:
                     content=class_header[:MAX_CHUNK_CHARS],
                     start_line=node.lineno,
                     end_line=first_method_line or (node.end_lineno or node.lineno),
-                )
+                ),
             )
 
         # 메서드들을 개별 청크로
@@ -452,9 +455,7 @@ class RAGIndexer:
                 if chunks:
                     chunks[-1].metadata["class"] = node.name
                     chunks[-1].node_name = f"{node.name}.{item.name}"
-                    chunks[-1].chunk_id = self._make_id(
-                        rel_path, f"cls_{node.name}_fn_{item.name}"
-                    )
+                    chunks[-1].chunk_id = self._make_id(rel_path, f"cls_{node.name}_fn_{item.name}")
 
     # ─── Markdown 청킹 (Table-Aware, SurfSense 패턴) ────────
 
@@ -464,14 +465,14 @@ class RAGIndexer:
         re.MULTILINE,
     )
 
-    def _chunk_markdown(self, rel_path: str, content: str) -> List[CodeChunk]:
+    def _chunk_markdown(self, rel_path: str, content: str) -> list[CodeChunk]:
         """Table-aware Markdown 청킹.
 
         SurfSense의 chunk_text_hybrid() 패턴을 적용하여:
         1. Markdown 테이블 블록은 분할하지 않고 통째로 하나의 청크로 보존
         2. 테이블 사이의 일반 텍스트는 기존 헤딩 기반 청킹 적용
         """
-        chunks: List[CodeChunk] = []
+        chunks: list[CodeChunk] = []
         cursor = 0
         table_idx = 0
 
@@ -495,7 +496,7 @@ class RAGIndexer:
                         content=table_block[:MAX_CHUNK_CHARS],
                         start_line=line_offset,
                         end_line=line_offset + table_lines - 1,
-                    )
+                    ),
                 )
                 table_idx += 1
 
@@ -509,10 +510,13 @@ class RAGIndexer:
         return chunks if chunks else self._chunk_generic(rel_path, content)
 
     def _chunk_markdown_prose(
-        self, rel_path: str, prose: str, char_offset: int = 0
-    ) -> List[CodeChunk]:
+        self,
+        rel_path: str,
+        prose: str,
+        char_offset: int = 0,
+    ) -> list[CodeChunk]:
         """Markdown 산문(비-테이블) 텍스트를 헤딩 기준으로 분할합니다."""
-        chunks: List[CodeChunk] = []
+        chunks: list[CodeChunk] = []
         current_section = ""
         current_title = "intro"
         section_start = 1
@@ -529,7 +533,7 @@ class RAGIndexer:
                             content=current_section[:MAX_CHUNK_CHARS],
                             start_line=section_start,
                             end_line=i - 1,
-                        )
+                        ),
                     )
                 current_title = line.lstrip("#").strip()[:60]
                 current_section = line + "\n"
@@ -547,16 +551,16 @@ class RAGIndexer:
                     content=current_section[:MAX_CHUNK_CHARS],
                     start_line=section_start,
                     end_line=len(prose.split("\n")),
-                )
+                ),
             )
 
         return chunks
 
     # ─── 일반 텍스트 청킹 ────────────────────────────────────
 
-    def _chunk_generic(self, rel_path: str, content: str) -> List[CodeChunk]:
+    def _chunk_generic(self, rel_path: str, content: str) -> list[CodeChunk]:
         """확장자에 무관하게 고정 크기로 분할합니다."""
-        chunks: List[CodeChunk] = []
+        chunks: list[CodeChunk] = []
         lines = content.split("\n")
         total_lines = len(lines)
 
@@ -573,11 +577,11 @@ class RAGIndexer:
                     chunk_id=self._make_id(rel_path, f"chunk_{i}"),
                     file_path=rel_path,
                     node_type="text_section",
-                    node_name=f"lines_{i+1}_{min(i+chunk_size, total_lines)}",
+                    node_name=f"lines_{i + 1}_{min(i + chunk_size, total_lines)}",
                     content=text[:MAX_CHUNK_CHARS],
                     start_line=i + 1,
                     end_line=min(i + chunk_size, total_lines),
-                )
+                ),
             )
 
         return chunks

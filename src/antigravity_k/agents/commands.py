@@ -1,19 +1,28 @@
+"""Commands module."""
+
 import logging
-from typing import Callable, Dict
+from collections.abc import Callable
+
 from .team_manager import TeamManager
 
 logger = logging.getLogger(__name__)
 
 
 class CommandHandler:
-    """
-    사용자(CTO)가 입력하는 슬래시 명령어(Slash Command)를 처리합니다.
+    """사용자(CTO)가 입력하는 슬래시 명령어(Slash Command)를 처리합니다.
+
     Claude Code의 명령어 시스템(/review, /tasks 등)을 차용했습니다.
     """
 
     def __init__(self, team_manager: TeamManager):
+        """Initialize the CommandHandler.
+
+        Args:
+            team_manager (TeamManager): TeamManager team manager.
+
+        """
         self.team_manager = team_manager
-        self.commands: Dict[str, Callable] = {
+        self.commands: dict[str, Callable] = {
             "/help": self.handle_help,
             "/tasks": self.handle_tasks,
             "/review": self.handle_review,
@@ -23,6 +32,15 @@ class CommandHandler:
         }
 
     def execute(self, command_str: str) -> str:
+        """Execute.
+
+        Args:
+            command_str (str): str command str.
+
+        Returns:
+            str: The str result.
+
+        """
         parts = command_str.strip().split()
         if not parts:
             return "명령어가 입력되지 않았습니다. /help를 입력해 도움말을 확인하세요."
@@ -34,7 +52,7 @@ class CommandHandler:
             try:
                 return self.commands[cmd](args)
             except Exception as e:
-                logger.error(f"Error executing command {cmd}: {e}")
+                logger.exception("Error executing command %s", cmd)
                 return f"명령어 실행 중 오류 발생: {e}"
         else:
             return f"알 수 없는 명령어입니다: {cmd}. '/help'를 입력하여 사용 가능한 명령어를 확인하세요."
@@ -57,7 +75,7 @@ class CommandHandler:
         return "시스템 헬스: 정상\n가동 중인 에이전트 수: 측정 중...\n(추후 팀 상태 연동 예정)"
 
     def handle_clear(self, args: list) -> str:
-        """상태 초기화 명령"""
+        """상태 초기화 명령."""
         return "CLEAR_COMMAND_RECEIVED"
 
     def handle_tasks(self, args: list) -> str:
@@ -70,9 +88,7 @@ class CommandHandler:
                 output.append("  (비어 있음)")
             for task in tasks:
                 assignee = task.get("assignee") or "Unassigned"
-                output.append(
-                    f"  - {task['id']}: {task['description']} (담당: {assignee})"
-                )
+                output.append(f"  - {task['id']}: {task['description']} (담당: {assignee})")
         return "\n".join(output)
 
     def handle_review(self, args: list) -> str:
@@ -97,4 +113,5 @@ class CommandHandler:
             self.team_manager.delegate_task(task_id, agent_name)
             return f"작업 {task_id}이(가) {agent_name} 에이전트에게 위임되었습니다."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return str(e)

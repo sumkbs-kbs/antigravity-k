@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 벤치마크 과제 세트 (Built-in)
+"""Antigravity-K: 벤치마크 과제 세트 (Built-in).
+
 =============================================
 collective-council vs 단일 모델 비교를 위한 내장 코딩 과제 정의.
 
@@ -234,11 +234,7 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
         category="regression",
         difficulty=2,
         description="품질 게이트 회귀: 코드-only 응답 차단 확인",
-        prompt=(
-            "Python으로 버블 정렬을 구현해줘.\n"
-            "- 시간복잡도를 설명해줘.\n"
-            "- 최적화 방법도 알려줘."
-        ),
+        prompt=("Python으로 버블 정렬을 구현해줘.\n- 시간복잡도를 설명해줘.\n- 최적화 방법도 알려줘."),
         expected_keywords=("def", "O(", "최적화", "설명"),
     ),
     BenchmarkCase(
@@ -246,9 +242,7 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
         category="regression",
         difficulty=2,
         description="한국어 답변 품질 회귀: 외국어 오염 없음 확인",
-        prompt=(
-            "TCP와 UDP의 차이를 설명하고, " "각각 적합한 사용 사례를 3가지씩 들어줘."
-        ),
+        prompt=("TCP와 UDP의 차이를 설명하고, 각각 적합한 사용 사례를 3가지씩 들어줘."),
         expected_keywords=("TCP", "UDP", "사례"),
     ),
     BenchmarkCase(
@@ -269,6 +263,7 @@ def get_suite(name: str = "all") -> list[BenchmarkCase]:
         name: "all", "simple", "algorithm", "architecture", "korean", "refactor",
               "search", "analysis", "creative", "regression",
               또는 개별 case id (예: "sim-001")
+
     """
     if name == "all":
         return list(BUILTIN_CASES)

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 시맨틱 DOM 파서 (Semantic DOM Engine)
+"""Antigravity-K: 시맨틱 DOM 파서 (Semantic DOM Engine).
+
 =====================================================
 browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
 네이티브로 구현한 고도화된 DOM 파싱 엔진입니다.
@@ -21,7 +21,6 @@ browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("antigravity_k.tools.semantic_dom")
 
@@ -60,10 +59,22 @@ class BoundingBox:
     height: float = 0.0
 
     @property
-    def center(self) -> Tuple[float, float]:
+    def center(self) -> tuple[float, float]:
+        """Center.
+
+        Returns:
+            tuple[float, float]: The tuple[float, float] result.
+
+        """
         return (self.x + self.width / 2, self.y + self.height / 2)
 
     def to_compact(self) -> str:
+        """To Compact.
+
+        Returns:
+            str: The str result.
+
+        """
         return f"({int(self.x)},{int(self.y)},{int(self.width)},{int(self.height)})"
 
 
@@ -82,9 +93,9 @@ class ElementInfo:
     is_interactable: bool = False  # 클릭/입력 가능 여부
     is_visible: bool = True  # 화면에 보이는지
     is_disabled: bool = False  # 비활성 상태인지
-    bbox: Optional[BoundingBox] = None
+    bbox: BoundingBox | None = None
     css_selector: str = ""  # 폴백용 CSS 셀렉터
-    children_refs: List[str] = field(default_factory=list)
+    children_refs: list[str] = field(default_factory=list)
     depth: int = 0
 
     @property
@@ -125,19 +136,43 @@ class ElementInfo:
 class SemanticSnapshot:
     """시맨틱 DOM 스냅샷."""
 
-    elements: Dict[str, ElementInfo] = field(default_factory=dict)
+    elements: dict[str, ElementInfo] = field(default_factory=dict)
     url: str = ""
     title: str = ""
     interactable_count: int = 0
     total_count: int = 0
 
-    def get(self, ref: str) -> Optional[ElementInfo]:
+    def get(self, ref: str) -> ElementInfo | None:
+        """Retrieve.
+
+        Args:
+            ref (str): str ref.
+
+        Returns:
+            ElementInfo | None: The elementinfo | none result.
+
+        """
         return self.elements.get(ref)
 
-    def interactable_elements(self) -> List[ElementInfo]:
+    def interactable_elements(self) -> list[ElementInfo]:
+        """Interactable Elements.
+
+        Returns:
+            list[ElementInfo]: The list[elementinfo] result.
+
+        """
         return [e for e in self.elements.values() if e.is_interactable]
 
-    def by_role(self, role: ElementRole) -> List[ElementInfo]:
+    def by_role(self, role: ElementRole) -> list[ElementInfo]:
+        """By Role.
+
+        Args:
+            role (ElementRole): ElementRole role.
+
+        Returns:
+            list[ElementInfo]: The list[elementinfo] result.
+
+        """
         return [e for e in self.elements.values() if e.role == role]
 
 
@@ -147,6 +182,7 @@ class SemanticSnapshot:
 # DOM에서 인터랙티브 요소 + 메타데이터 + Bounding Box를 한 번에 추출
 _DOM_EXTRACT_JS = """
 () => {
+
     const INTERACTIVE_SELECTORS = [
         'button', 'input', 'textarea', 'select', 'a[href]',
         '[role="button"]', '[role="link"]', '[role="textbox"]',
@@ -235,8 +271,7 @@ _DOM_EXTRACT_JS = """
 
 
 class SemanticDOMParser:
-    """
-    시맨틱 DOM 파싱 엔진.
+    """시맨틱 DOM 파싱 엔진.
 
     browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
     Antigravity-K 네이티브로 구현합니다.
@@ -267,6 +302,7 @@ class SemanticDOMParser:
     }
 
     def __init__(self):
+        """Initialize the SemanticDOMParser."""
         self._ref_counter = 0
 
     def _next_ref(self) -> str:
@@ -274,6 +310,7 @@ class SemanticDOMParser:
         return f"@ref{self._ref_counter}"
 
     def reset(self):
+        """Reset."""
         self._ref_counter = 0
 
     # ─── 메인 스냅샷 ──────────────────────────────────────────
@@ -284,8 +321,8 @@ class SemanticDOMParser:
 
         try:
             raw = await page.evaluate(_DOM_EXTRACT_JS)
-        except Exception as e:
-            logger.error(f"[SemanticDOM] JS 추출 실패: {e}")
+        except Exception:
+            logger.exception("[SemanticDOM] JS 추출 실패")
             return SemanticSnapshot()
 
         return self._build_snapshot(raw)
@@ -296,8 +333,8 @@ class SemanticDOMParser:
 
         try:
             raw = page.evaluate(_DOM_EXTRACT_JS)
-        except Exception as e:
-            logger.error(f"[SemanticDOM] JS 추출 실패: {e}")
+        except Exception:
+            logger.exception("[SemanticDOM] JS 추출 실패")
             return SemanticSnapshot()
 
         return self._build_snapshot(raw)
@@ -362,28 +399,26 @@ class SemanticDOMParser:
 
     # ─── A11y Tree 융합 ───────────────────────────────────────
 
-    async def enrich_with_a11y_async(
-        self, page, snapshot: SemanticSnapshot
-    ) -> SemanticSnapshot:
-        """Accessibility Tree 정보로 스냅샷을 보강합니다."""
+    async def enrich_with_a11y_async(self, page, snapshot: SemanticSnapshot) -> SemanticSnapshot:
+        """Accessibility Tree 정보로 스냅샷을 보강하세요."""
         try:
             a11y = await page.accessibility.snapshot()
             if a11y:
                 self._merge_a11y(snapshot, a11y)
         except Exception as e:
-            logger.debug(f"[SemanticDOM] A11y enrichment failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[SemanticDOM] A11y enrichment failed: %s", e)
         return snapshot
 
-    def enrich_with_a11y_sync(
-        self, page, snapshot: SemanticSnapshot
-    ) -> SemanticSnapshot:
+    def enrich_with_a11y_sync(self, page, snapshot: SemanticSnapshot) -> SemanticSnapshot:
         """동기: Accessibility Tree 정보로 스냅샷을 보강합니다."""
         try:
             a11y = page.accessibility.snapshot()
             if a11y:
                 self._merge_a11y(snapshot, a11y)
         except Exception as e:
-            logger.debug(f"[SemanticDOM] A11y enrichment failed: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("[SemanticDOM] A11y enrichment failed: %s", e)
         return snapshot
 
     def _merge_a11y(self, snapshot: SemanticSnapshot, a11y_node: dict, depth: int = 0):
@@ -393,9 +428,7 @@ class SemanticDOMParser:
         # A11y 노드와 매칭되는 DOM 요소 찾기
         if a11y_name:
             for el in snapshot.elements.values():
-                if (el.name and a11y_name in el.name) or (
-                    el.aria_label and a11y_name in el.aria_label
-                ):
+                if (el.name and a11y_name in el.name) or (el.aria_label and a11y_name in el.aria_label):
                     # A11y에서 더 나은 이름이 있으면 업데이트
                     if not el.aria_label and a11y_name:
                         el.aria_label = a11y_name
@@ -414,8 +447,7 @@ class SemanticDOMParser:
         include_bbox: bool = True,
         interactable_only: bool = False,
     ) -> str:
-        """
-        LLM 컨텍스트 윈도우에 맞게 압축된 DOM 표현을 생성합니다.
+        """LLM 컨텍스트 윈도우에 맞게 압축된 DOM 표현을 생성합니다.
 
         출력 형식:
         ```
@@ -451,9 +483,8 @@ class SemanticDOMParser:
         self,
         snapshot: SemanticSnapshot,
         intent: str,
-    ) -> Optional[ElementInfo]:
-        """
-        자연어 의도로 요소를 탐색합니다.
+    ) -> ElementInfo | None:
+        """자연어 의도로 요소를 탐색합니다.
 
         예:
             find_by_intent(snapshot, "로그인 버튼")  → @ref3
@@ -535,9 +566,7 @@ class SemanticDOMParser:
 
     # ─── @ref로 요소 조작 ─────────────────────────────────────
 
-    def resolve_ref(
-        self, snapshot: SemanticSnapshot, ref_or_intent: str
-    ) -> Optional[ElementInfo]:
+    def resolve_ref(self, snapshot: SemanticSnapshot, ref_or_intent: str) -> ElementInfo | None:
         """@ref 문자열 또는 자연어 의도를 ElementInfo로 해석합니다."""
         # @ref 형식
         if ref_or_intent.startswith("@ref"):
@@ -547,7 +576,10 @@ class SemanticDOMParser:
         return self.find_by_intent(snapshot, ref_or_intent)
 
     async def click_element_async(
-        self, page, snapshot: SemanticSnapshot, ref_or_intent: str
+        self,
+        page,
+        snapshot: SemanticSnapshot,
+        ref_or_intent: str,
     ) -> str:
         """@ref 또는 의도로 요소를 클릭합니다."""
         element = self.resolve_ref(snapshot, ref_or_intent)
@@ -560,6 +592,7 @@ class SemanticDOMParser:
                 await page.click(element.css_selector, timeout=5000)
                 return f'Clicked {element.ref} [{element.role.value}] "{element.display_name}"'
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         # 전략 2: Bounding Box 중심 좌표 클릭
@@ -574,13 +607,9 @@ class SemanticDOMParser:
             await el.click(timeout=5000)
             return f'[Text] Clicked {element.ref} by text "{element.display_name}"'
 
-        return (
-            f"Error: {element.ref}를 클릭할 수 없습니다 (셀렉터/좌표/텍스트 모두 실패)"
-        )
+        return f"Error: {element.ref}를 클릭할 수 없습니다 (셀렉터/좌표/텍스트 모두 실패)"
 
-    def click_element_sync(
-        self, page, snapshot: SemanticSnapshot, ref_or_intent: str
-    ) -> str:
+    def click_element_sync(self, page, snapshot: SemanticSnapshot, ref_or_intent: str) -> str:
         """동기: @ref 또는 의도로 요소를 클릭합니다."""
         element = self.resolve_ref(snapshot, ref_or_intent)
         if not element:
@@ -591,6 +620,7 @@ class SemanticDOMParser:
                 page.click(element.css_selector, timeout=5000)
                 return f'Clicked {element.ref} [{element.role.value}] "{element.display_name}"'
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         if element.bbox:

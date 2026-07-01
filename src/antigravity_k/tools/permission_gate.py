@@ -1,5 +1,5 @@
-"""
-PermissionGate — 3-Tier 권한 모델
+"""PermissionGate — 3-Tier 권한 모델.
+
 ==================================
 Claw Code의 PermissionPolicy 아키텍처를 이식.
 
@@ -13,11 +13,11 @@ Claw Code의 PermissionPolicy 아키텍처를 이식.
     if decision == Permission.ALLOW: ...
 """
 
+import logging
 import os
 import re
-import logging
 from enum import Enum
-from typing import Dict, Any, Optional, List, Set
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +31,7 @@ class Permission(str, Enum):
 
 
 class PermissionGate:
-    """
-    도구 실행 전 권한 검증 게이트.
+    """도구 실행 전 권한 검증 게이트.
 
     Claw Code의 PermissionPolicy struct 패턴:
     - per-tool 오버라이드
@@ -41,7 +40,7 @@ class PermissionGate:
     """
 
     # ─── 위험 명령 블랙리스트 ───
-    DANGEROUS_COMMANDS: List[str] = [
+    DANGEROUS_COMMANDS: list[str] = [
         r"rm\s+-rf\s+/",  # 루트 삭제
         r"del\s+/[sS]",  # Windows 전체 삭제
         r"format\s+[A-Za-z]:",  # 디스크 포맷
@@ -55,7 +54,7 @@ class PermissionGate:
     ]
 
     # ─── 보호 경로 (절대 쓰기 불가) ───
-    PROTECTED_PATHS: List[str] = [
+    PROTECTED_PATHS: list[str] = [
         "/etc",
         "/usr",
         "/bin",
@@ -70,50 +69,52 @@ class PermissionGate:
 
     def __init__(
         self,
-        project_root: Optional[str] = None,
+        project_root: str | None = None,
         mode: str = "auto-pilot",  # strict | balanced | permissive | auto-pilot
         auto_allow_safe: bool = True,
     ):
-        self.project_root = (
-            os.path.abspath(project_root) if project_root else os.getcwd()
-        )
+        """Initialize the PermissionGate.
+
+        Args:
+            project_root (str | None): str | None project root.
+            mode (str): str mode.
+            auto_allow_safe (bool): bool auto allow safe.
+
+        """
+        self.project_root = os.path.abspath(project_root) if project_root else os.getcwd()
         self.mode = mode
         self.auto_allow_safe = auto_allow_safe
 
         # 도구별 명시적 오버라이드
-        self._overrides: Dict[str, Permission] = {}
+        self._overrides: dict[str, Permission] = {}
 
         # 승인 캐시 (세션 내 반복 승인 방지)
-        self._approval_cache: Set[str] = set()
+        self._approval_cache: set[str] = set()
 
-        logger.info(
-            f"PermissionGate initialized: mode={mode}, "
-            f"project_root={self.project_root}"
-        )
+        logger.info("PermissionGate initialized: mode=%s, project_root=%s", mode, self.project_root)
 
     def set_project_root(self, new_root: str):
         """런타임 중에 프로젝트 루트를 변경하고 권한 모드를 자동화 모드로 설정합니다."""
         self.project_root = os.path.abspath(new_root)
         self.mode = "auto-pilot"  # 사용자의 개입 최소화를 위해 내부 파일 작업 자동 승인
         logger.info(
-            f"PermissionGate project_root updated to: {self.project_root} (mode set to auto-pilot)"
+            "PermissionGate project_root updated to: %s (mode set to auto-pilot)",
+            self.project_root,
         )
 
     def set_override(self, tool_name: str, permission: Permission):
         """특정 도구에 대한 권한을 명시적으로 설정합니다."""
         self._overrides[tool_name] = permission
-        logger.info(f"Permission override set: {tool_name} → {permission.value}")
+        logger.info("Permission override set: %s → %s", tool_name, permission.value)
 
-    def check(
-        self, tool_name: str, args: Dict[str, Any], risk_level: str = "safe"
-    ) -> Permission:
-        """
-        도구 실행 권한을 검증합니다.
+    def check(self, tool_name: str, args: dict[str, Any], risk_level: str = "safe") -> Permission:
+        """도구 실행 권한을 검증합니다.
 
         Returns:
             Permission.ALLOW  — 즉시 실행
             Permission.PROMPT — 사용자 확인 필요
             Permission.DENY   — 차단
+
         """
         # 1. 명시적 오버라이드 우선
         if tool_name in self._overrides:
@@ -123,7 +124,7 @@ class PermissionGate:
         if tool_name in ("run_bash_command", "bash"):
             command = args.get("command", "")
             if self._is_dangerous_command(command):
-                logger.warning(f"DENIED dangerous command: {command[:100]}")
+                logger.warning("DENIED dangerous command: %s", command[:100])
                 return Permission.DENY
 
         # 3. 경로 기반 샌드박싱 (파일 쓰기 도구)
@@ -137,23 +138,13 @@ class PermissionGate:
         # 4. risk_level 기반 결정
         risk_map = {
             "safe": Permission.ALLOW,
-            "low": (
-                Permission.ALLOW
-                if self.mode in ("permissive", "auto-pilot")
-                else Permission.PROMPT
-            ),
-            "medium": (
-                Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT
-            ),
-            "high": (
-                Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT
-            ),
+            "low": (Permission.ALLOW if self.mode in ("permissive", "auto-pilot") else Permission.PROMPT),
+            "medium": (Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT),
+            "high": (Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT),
             "critical": (
                 Permission.DENY
                 if self.mode in ("strict", "balanced")
-                else (
-                    Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT
-                )
+                else (Permission.ALLOW if self.mode == "auto-pilot" else Permission.PROMPT)
             ),
         }
 
@@ -166,7 +157,7 @@ class PermissionGate:
         # 5. 승인 캐시 확인 (같은 도구+패턴 반복 시 자동 승인)
         cache_key = f"{tool_name}:{risk_level}"
         if decision == Permission.PROMPT and cache_key in self._approval_cache:
-            logger.debug(f"Auto-approved from cache: {cache_key}")
+            logger.debug("Auto-approved from cache: %s", cache_key)
             return Permission.ALLOW
 
         return decision
@@ -190,7 +181,7 @@ class PermissionGate:
         for protected in self.PROTECTED_PATHS:
             protected_norm = os.path.normcase(protected).replace("/", "\\")
             if raw_norm.lower().startswith(protected_norm.lower()):
-                logger.warning(f"DENIED access to protected path: {raw_path}")
+                logger.warning("DENIED access to protected path: %s", raw_path)
                 return Permission.DENY
 
         abs_path = os.path.abspath(file_path)
@@ -198,7 +189,7 @@ class PermissionGate:
         # 보호 경로 차단
         for protected in self.PROTECTED_PATHS:
             if abs_path.lower().startswith(protected.lower()):
-                logger.warning(f"DENIED access to protected path: {abs_path}")
+                logger.warning("DENIED access to protected path: %s", abs_path)
                 return Permission.DENY
 
         # 읽기 전용 도구는 안전 도구로 분류되어 경로 밖 조회도 자동 허용합니다.
@@ -206,9 +197,7 @@ class PermissionGate:
             return Permission.ALLOW
 
         # 프로젝트 외부 파일 접근
-        if not os.path.normcase(abs_path).startswith(
-            os.path.normcase(self.project_root)
-        ):
+        if not os.path.normcase(abs_path).startswith(os.path.normcase(self.project_root)):
             if self.mode == "strict":
                 return Permission.DENY
             elif self.mode == "auto-pilot":
@@ -228,7 +217,7 @@ class PermissionGate:
         """승인 캐시를 초기화합니다."""
         self._approval_cache.clear()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """상태를 직렬화합니다."""
         return {
             "project_root": self.project_root,

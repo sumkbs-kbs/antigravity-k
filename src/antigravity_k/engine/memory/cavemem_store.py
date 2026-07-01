@@ -1,12 +1,19 @@
+"""Cavemem Store module."""
+
+import logging
 import os
-import sqlite3
 import re
+import sqlite3
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Observation:
+    """Observation."""
+
     id: int
     session_id: str
     content: str
@@ -15,12 +22,18 @@ class Observation:
 
 
 class CavememStore:
-    """
-    Persistent memory store utilizing SQLite FTS5 for local-first,
+    """Persistent memory store utilizing SQLite FTS5 for local-first,.
+
     cross-agent memory retrieval. Uses basic Caveman compression heuristics.
     """
 
     def __init__(self, db_path: str = ".antigravity/cavemem.sqlite3"):
+        """Initialize the CavememStore.
+
+        Args:
+            db_path (str): str db path.
+
+        """
         self.db_path = db_path
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._init_db()
@@ -31,44 +44,45 @@ class CavememStore:
             cursor.execute(
                 """
                 CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
+
                     session_id,
                     content,
                     compressed_content,
                     timestamp UNINDEXED
                 )
-            """
+            """,
             )
             # Create a regular table to auto-increment IDs and keep original data
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS observations (
+
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT,
                     content TEXT,
                     compressed_content TEXT,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
-            """
+            """,
             )
             # Trigger to auto-insert into FTS table
             cursor.execute(
                 """
                 CREATE TRIGGER IF NOT EXISTS obs_ai AFTER INSERT ON observations BEGIN
+
                     INSERT INTO observations_fts(rowid, session_id, content, compressed_content, timestamp)
                     VALUES (new.id, new.session_id, new.content, new.compressed_content, new.timestamp);
                 END;
-            """
+            """,
             )
             conn.commit()
 
     def compress_to_caveman(self, text: str) -> str:
-        """
-        Compress text by removing filler words, articles, and pleasantries.
-        """
+        """Compress text by removing filler words, articles, and pleasantries."""
         if not text:
             return ""
         # Remove common filler words (case insensitive)
-        fillers = r"\b(the|a|an|is|are|was|were|will|would|could|should|can|please|thank you|hello|hi|here is|i will|let me|we should)\b"
+        fillers = r"\b(the|a|an|is|are|was|were|will|would|could|should|can|please|thank you|hello|hi|here is|i will|let me|we should)\b"  # noqa: E501
         compressed = re.sub(fillers, "", text, flags=re.IGNORECASE)
         # Collapse multiple spaces
         compressed = re.sub(r"\s+", " ", compressed).strip()
@@ -77,6 +91,16 @@ class CavememStore:
         return compressed
 
     def store_observation(self, session_id: str, content: str) -> int:
+        """Store Observation.
+
+        Args:
+            session_id (str): str session id.
+            content (str): str content.
+
+        Returns:
+            int: The int result.
+
+        """
         compressed = self.compress_to_caveman(content)
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -88,7 +112,17 @@ class CavememStore:
             conn.commit()
             return obs_id
 
-    def search_observations(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search_observations(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Search for observations.
+
+        Args:
+            query (str): str query.
+            limit (int): int limit.
+
+        Returns:
+            list[dict[str, Any]]: The list[dict[str, any]] result.
+
+        """
         # FTS5 match query
         # We need to sanitize the query to avoid FTS syntax errors
         sanitized_query = re.sub(r"[^\w\s]", "", query).strip()
@@ -104,6 +138,7 @@ class CavememStore:
                 cursor.execute(
                     """
                     SELECT rowid as id, session_id, content, compressed_content, timestamp
+
                     FROM observations_fts
                     WHERE observations_fts MATCH ?
                     ORDER BY rank LIMIT ?
@@ -119,6 +154,7 @@ class CavememStore:
     # ─── LLM-Driven Memory Extraction (SurfSense 패턴) ────────
 
     _MEMORY_EXTRACT_PROMPT = """\
+
 You are a memory extraction assistant for an AI coding agent. Analyze the user's \
 message and decide if it contains any long-term information worth persisting.
 
@@ -148,8 +184,8 @@ If nothing is worth remembering, output exactly: NO_UPDATE
         self,
         user_message: str,
         session_id: str = "auto",
-        model_fn: Optional[Any] = None,
-    ) -> Optional[str]:
+        model_fn: Any | None = None,
+    ) -> str | None:
         """대화 턴에서 장기 기억할 가치가 있는 정보를 자동 추출합니다.
 
         SurfSense의 memory_extraction.py 패턴을 적용:
@@ -164,17 +200,14 @@ If nothing is worth remembering, output exactly: NO_UPDATE
 
         Returns:
             저장된 기억 내용 또는 None
+
         """
         if not user_message or len(user_message.strip()) < 10:
             return None
 
         # 현재 기억 맥락 조회
         recent = self.search_observations(user_message[:50], limit=3)
-        current_memory = (
-            "\n".join(obs.get("compressed_content", "") for obs in recent)
-            if recent
-            else "(empty)"
-        )
+        current_memory = "\n".join(obs.get("compressed_content", "") for obs in recent) if recent else "(empty)"
 
         if model_fn is not None:
             # LLM 기반 추출
@@ -184,11 +217,7 @@ If nothing is worth remembering, output exactly: NO_UPDATE
                     user_message=user_message,
                 )
                 response = model_fn(prompt)
-                text = (
-                    response.strip()
-                    if isinstance(response, str)
-                    else str(response).strip()
-                )
+                text = response.strip() if isinstance(response, str) else str(response).strip()
 
                 if text == "NO_UPDATE" or not text:
                     return None
@@ -196,6 +225,7 @@ If nothing is worth remembering, output exactly: NO_UPDATE
                 self.store_observation(session_id, text)
                 return text
             except Exception:
+                logger.exception("Unhandled exception")
                 pass  # LLM 실패 시 규칙 기반 폴백
 
         # 규칙 기반 폴백: 키워드 패턴으로 기억할 가치 판정

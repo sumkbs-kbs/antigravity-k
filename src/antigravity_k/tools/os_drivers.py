@@ -1,17 +1,16 @@
-"""
-OS 드라이버 추상화 계층 (os-ai-computer-use의 DriverSet 패턴 차용)
+"""OS 드라이버 추상화 계층 (os-ai-computer-use의 DriverSet 패턴 차용).
+
 ========================================================================
 마우스, 키보드, 화면 조작을 OS 독립적인 인터페이스로 추상화합니다.
 현재는 Windows(PyAutoGUI) 드라이버만 구현되어 있으며,
 향후 macOS(Quartz), Linux(X11)를 추가할 수 있습니다.
 """
 
-import sys
-import logging
 import base64
 import io
+import logging
+import sys
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ class MouseDriver(ABC):
 
     @abstractmethod
     def click(self, x: int, y: int, button: str = "left") -> None:
-        """지정 좌표를 클릭합니다. button: 'left', 'right', 'middle'"""
+        """지정 좌표를 클릭합니다. button: 'left', 'right', 'middle'."""
 
     @abstractmethod
     def double_click(self, x: int, y: int) -> None:
@@ -36,13 +35,18 @@ class MouseDriver(ABC):
 
     @abstractmethod
     def drag(
-        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+        self,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration: float = 0.5,
     ) -> None:
         """드래그합니다."""
 
     @abstractmethod
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
-        """스크롤합니다. direction: 'up', 'down', 'left', 'right'"""
+        """스크롤합니다. direction: 'up', 'down', 'left', 'right'."""
 
 
 class KeyboardDriver(ABC):
@@ -69,20 +73,26 @@ class ScreenDriver(ABC):
     """화면 캡처 추상 인터페이스."""
 
     @abstractmethod
-    def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
+    def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """화면을 캡처하여 base64 PNG 문자열로 반환합니다."""
 
     @abstractmethod
-    def get_screen_size(self) -> Tuple[int, int]:
+    def get_screen_size(self) -> tuple[int, int]:
         """(width, height) 형태로 화면 크기를 반환합니다."""
 
 
 class DriverSet:
     """OS별 드라이버 묶음."""
 
-    def __init__(
-        self, mouse: MouseDriver, keyboard: KeyboardDriver, screen: ScreenDriver
-    ):
+    def __init__(self, mouse: MouseDriver, keyboard: KeyboardDriver, screen: ScreenDriver):
+        """Initialize the DriverSet.
+
+        Args:
+            mouse (MouseDriver): MouseDriver mouse.
+            keyboard (KeyboardDriver): KeyboardDriver keyboard.
+            screen (ScreenDriver): ScreenDriver screen.
+
+        """
         self.mouse = mouse
         self.keyboard = keyboard
         self.screen = screen
@@ -95,6 +105,7 @@ class WindowsMouseDriver(MouseDriver):
     """Windows PyAutoGUI 기반 마우스 드라이버."""
 
     def __init__(self):
+        """Initialize the WindowsMouseDriver."""
         import pyautogui
 
         pyautogui.FAILSAFE = True  # 좌상단 이동 시 비상 중지
@@ -102,21 +113,68 @@ class WindowsMouseDriver(MouseDriver):
         self._pag = pyautogui
 
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
+        """Move.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            duration (float): float duration.
+
+        """
         self._pag.moveTo(x, y, duration=duration)
 
     def click(self, x: int, y: int, button: str = "left") -> None:
+        """Click.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            button (str): str button.
+
+        """
         self._pag.click(x, y, button=button)
 
     def double_click(self, x: int, y: int) -> None:
+        """Double Click.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+
+        """
         self._pag.doubleClick(x, y)
 
     def drag(
-        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+        self,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration: float = 0.5,
     ) -> None:
+        """Drag.
+
+        Args:
+            start_x (int): int start x.
+            start_y (int): int start y.
+            end_x (int): int end x.
+            end_y (int): int end y.
+            duration (float): float duration.
+
+        """
         self._pag.moveTo(start_x, start_y)
         self._pag.drag(end_x - start_x, end_y - start_y, duration=duration)
 
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
+        """Scroll.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            direction (str): str direction.
+            amount (int): int amount.
+
+        """
         self._pag.moveTo(x, y)
         scroll_amount = -amount if direction == "down" else amount
         if direction in ("left", "right"):
@@ -129,20 +187,47 @@ class WindowsKeyboardDriver(KeyboardDriver):
     """Windows PyAutoGUI 기반 키보드 드라이버."""
 
     def __init__(self):
+        """Initialize the WindowsKeyboardDriver."""
         import pyautogui
 
         self._pag = pyautogui
 
     def type_text(self, text: str, interval: float = 0.02) -> None:
+        """Type Text.
+
+        Args:
+            text (str): str text.
+            interval (float): float interval.
+
+        """
         self._pag.write(text, interval=interval)
 
     def press_key(self, key: str) -> None:
+        """Press Key.
+
+        Args:
+            key (str): str key.
+
+        """
         self._pag.press(key)
 
     def hotkey(self, *keys: str) -> None:
+        """Hotkey.
+
+        Args:
+            *keys (str): str keys.
+
+        """
         self._pag.hotkey(*keys)
 
     def hold_key(self, key: str, duration: float = 1.0) -> None:
+        """Hold Key.
+
+        Args:
+            key (str): str key.
+            duration (float): float duration.
+
+        """
         import time
 
         self._pag.keyDown(key)
@@ -154,18 +239,25 @@ class WindowsScreenDriver(ScreenDriver):
     """Windows PyAutoGUI 기반 화면 캡처 드라이버."""
 
     def __init__(self):
+        """Initialize the WindowsScreenDriver."""
         import pyautogui
 
         self._pag = pyautogui
 
-    def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
+    def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """화면 캡처 → base64 PNG 문자열 반환."""
         img = self._pag.screenshot(region=region)
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    def get_screen_size(self) -> Tuple[int, int]:
+    def get_screen_size(self) -> tuple[int, int]:
+        """Retrieve screen size.
+
+        Returns:
+            tuple[int, int]: The tuple[int, int] result.
+
+        """
         return self._pag.size()
 
 
@@ -176,23 +268,71 @@ class StubMouseDriver(MouseDriver):
     """테스트용 마우스 드라이버 (실제 조작 없음)."""
 
     def __init__(self):
+        """Initialize the StubMouseDriver."""
         self.last_action = None
 
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
+        """Move.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            duration (float): float duration.
+
+        """
         self.last_action = ("move", x, y)
 
     def click(self, x: int, y: int, button: str = "left") -> None:
+        """Click.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            button (str): str button.
+
+        """
         self.last_action = ("click", x, y, button)
 
     def double_click(self, x: int, y: int) -> None:
+        """Double Click.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+
+        """
         self.last_action = ("double_click", x, y)
 
     def drag(
-        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+        self,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration: float = 0.5,
     ) -> None:
+        """Drag.
+
+        Args:
+            start_x (int): int start x.
+            start_y (int): int start y.
+            end_x (int): int end x.
+            end_y (int): int end y.
+            duration (float): float duration.
+
+        """
         self.last_action = ("drag", start_x, start_y, end_x, end_y)
 
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
+        """Scroll.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            direction (str): str direction.
+            amount (int): int amount.
+
+        """
         self.last_action = ("scroll", x, y, direction, amount)
 
 
@@ -200,25 +340,61 @@ class StubKeyboardDriver(KeyboardDriver):
     """테스트용 키보드 드라이버 (실제 입력 없음)."""
 
     def __init__(self):
+        """Initialize the StubKeyboardDriver."""
         self.last_action = None
 
     def type_text(self, text: str, interval: float = 0.02) -> None:
+        """Type Text.
+
+        Args:
+            text (str): str text.
+            interval (float): float interval.
+
+        """
         self.last_action = ("type", text)
 
     def press_key(self, key: str) -> None:
+        """Press Key.
+
+        Args:
+            key (str): str key.
+
+        """
         self.last_action = ("press", key)
 
     def hotkey(self, *keys: str) -> None:
+        """Hotkey.
+
+        Args:
+            *keys (str): str keys.
+
+        """
         self.last_action = ("hotkey", keys)
 
     def hold_key(self, key: str, duration: float = 1.0) -> None:
+        """Hold Key.
+
+        Args:
+            key (str): str key.
+            duration (float): float duration.
+
+        """
         self.last_action = ("hold_key", key, duration)
 
 
 class StubScreenDriver(ScreenDriver):
     """테스트용 화면 드라이버 (1x1 투명 PNG 반환)."""
 
-    def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
+    def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
+        """Screenshot.
+
+        Args:
+            region (tuple[int, int, int, int] | None): tuple[int, int, int, int] | None region.
+
+        Returns:
+            str: The str result.
+
+        """
         # 최소 1x1 투명 PNG (base64)
         _TINY_PNG = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12Ng"
@@ -226,7 +402,13 @@ class StubScreenDriver(ScreenDriver):
         )
         return _TINY_PNG
 
-    def get_screen_size(self) -> Tuple[int, int]:
+    def get_screen_size(self) -> tuple[int, int]:
+        """Retrieve screen size.
+
+        Returns:
+            tuple[int, int]: The tuple[int, int] result.
+
+        """
         return (1920, 1080)
 
 
@@ -237,6 +419,14 @@ class MacOSMouseDriver(MouseDriver):
     """macOS Quartz 기반 마우스 드라이버."""
 
     def move(self, x: int, y: int, duration: float = 0.3) -> None:
+        """Move.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            duration (float): float duration.
+
+        """
         import Quartz
 
         event = Quartz.CGEventCreateMouseEvent(
@@ -248,23 +438,19 @@ class MacOSMouseDriver(MouseDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
     def click(self, x: int, y: int, button: str = "left") -> None:
+        """Click.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            button (str): str button.
+
+        """
         import Quartz
 
-        btn = (
-            Quartz.kCGMouseButtonLeft
-            if button == "left"
-            else Quartz.kCGMouseButtonRight
-        )
-        down_type = (
-            Quartz.kCGEventLeftMouseDown
-            if button == "left"
-            else Quartz.kCGEventRightMouseDown
-        )
-        up_type = (
-            Quartz.kCGEventLeftMouseUp
-            if button == "left"
-            else Quartz.kCGEventRightMouseUp
-        )
+        btn = Quartz.kCGMouseButtonLeft if button == "left" else Quartz.kCGMouseButtonRight
+        down_type = Quartz.kCGEventLeftMouseDown if button == "left" else Quartz.kCGEventRightMouseDown
+        up_type = Quartz.kCGEventLeftMouseUp if button == "left" else Quartz.kCGEventRightMouseUp
         point = Quartz.CGPointMake(x, y)
 
         down = Quartz.CGEventCreateMouseEvent(None, down_type, point, btn)
@@ -276,42 +462,56 @@ class MacOSMouseDriver(MouseDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def double_click(self, x: int, y: int) -> None:
-        import Quartz
+        """Double Click.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+
+        """
         import time
+
+        import Quartz
 
         point = Quartz.CGPointMake(x, y)
         btn = Quartz.kCGMouseButtonLeft
         for click_count in (1, 2):
-            down = Quartz.CGEventCreateMouseEvent(
-                None, Quartz.kCGEventLeftMouseDown, point, btn
-            )
-            up = Quartz.CGEventCreateMouseEvent(
-                None, Quartz.kCGEventLeftMouseUp, point, btn
-            )
-            Quartz.CGEventSetIntegerValueField(
-                down, Quartz.kCGMouseEventClickState, click_count
-            )
-            Quartz.CGEventSetIntegerValueField(
-                up, Quartz.kCGMouseEventClickState, click_count
-            )
+            down = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, point, btn)
+            up = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, point, btn)
+            Quartz.CGEventSetIntegerValueField(down, Quartz.kCGMouseEventClickState, click_count)
+            Quartz.CGEventSetIntegerValueField(up, Quartz.kCGMouseEventClickState, click_count)
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
             time.sleep(0.02)
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
             time.sleep(0.05)
 
     def drag(
-        self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5
+        self,
+        start_x: int,
+        start_y: int,
+        end_x: int,
+        end_y: int,
+        duration: float = 0.5,
     ) -> None:
-        import Quartz
+        """Drag.
+
+        Args:
+            start_x (int): int start x.
+            start_y (int): int start y.
+            end_x (int): int end x.
+            end_y (int): int end y.
+            duration (float): float duration.
+
+        """
         import time
+
+        import Quartz
 
         btn = Quartz.kCGMouseButtonLeft
         start = Quartz.CGPointMake(start_x, start_y)
         end = Quartz.CGPointMake(end_x, end_y)
 
-        down = Quartz.CGEventCreateMouseEvent(
-            None, Quartz.kCGEventLeftMouseDown, start, btn
-        )
+        down = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, start, btn)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
 
         steps = max(10, int(duration * 60))
@@ -320,7 +520,10 @@ class MacOSMouseDriver(MouseDriver):
             cx = start_x + (end_x - start_x) * t
             cy = start_y + (end_y - start_y) * t
             drag_ev = Quartz.CGEventCreateMouseEvent(
-                None, Quartz.kCGEventLeftMouseDragged, Quartz.CGPointMake(cx, cy), btn
+                None,
+                Quartz.kCGEventLeftMouseDragged,
+                Quartz.CGPointMake(cx, cy),
+                btn,
             )
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, drag_ev)
             time.sleep(duration / steps)
@@ -329,14 +532,21 @@ class MacOSMouseDriver(MouseDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def scroll(self, x: int, y: int, direction: str = "down", amount: int = 3) -> None:
+        """Scroll.
+
+        Args:
+            x (int): int x.
+            y (int): int y.
+            direction (str): str direction.
+            amount (int): int amount.
+
+        """
         import Quartz
 
         self.move(x, y, duration=0)
         dy = -amount if direction == "down" else amount if direction == "up" else 0
         dx = amount if direction == "right" else -amount if direction == "left" else 0
-        event = Quartz.CGEventCreateScrollWheelEvent(
-            None, Quartz.kCGScrollEventUnitLine, 2, dy, dx
-        )
+        event = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 2, dy, dx)
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
@@ -400,8 +610,16 @@ class MacOSKeyboardDriver(KeyboardDriver):
         return 0
 
     def type_text(self, text: str, interval: float = 0.02) -> None:
-        import Quartz
+        """Type Text.
+
+        Args:
+            text (str): str text.
+            interval (float): float interval.
+
+        """
         import time
+
+        import Quartz
 
         for char in text:
             event_down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
@@ -414,6 +632,12 @@ class MacOSKeyboardDriver(KeyboardDriver):
             time.sleep(interval)
 
     def press_key(self, key: str) -> None:
+        """Press Key.
+
+        Args:
+            key (str): str key.
+
+        """
         import Quartz
 
         keycode = self._get_keycode(key)
@@ -423,8 +647,15 @@ class MacOSKeyboardDriver(KeyboardDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def hotkey(self, *keys: str) -> None:
-        import Quartz
+        """Hotkey.
+
+        Args:
+            *keys (str): str keys.
+
+        """
         import time
+
+        import Quartz
 
         # 수정 키와 일반 키 분리
         mod_flags = 0
@@ -448,8 +679,16 @@ class MacOSKeyboardDriver(KeyboardDriver):
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
 
     def hold_key(self, key: str, duration: float = 1.0) -> None:
-        import Quartz
+        """Hold Key.
+
+        Args:
+            key (str): str key.
+            duration (float): float duration.
+
+        """
         import time
+
+        import Quartz
 
         keycode = self._get_keycode(key)
         down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
@@ -462,7 +701,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
 class MacOSScreenDriver(ScreenDriver):
     """macOS Quartz 기반 화면 캡처 드라이버."""
 
-    def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
+    def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """CGWindowListCreateImage로 화면을 캡처하고 base64 PNG로 반환합니다."""
         import Quartz
 
@@ -485,14 +724,13 @@ class MacOSScreenDriver(ScreenDriver):
         # CGImage → PNG data → base64
         bitmap = Quartz.NSBitmapImageRep.alloc().initWithCGImage_(image)
         png_data = bitmap.representationUsingType_properties_(
-            Quartz.NSPNGFileType if hasattr(Quartz, "NSPNGFileType") else 4, None
+            Quartz.NSPNGFileType if hasattr(Quartz, "NSPNGFileType") else 4,
+            None,
         )
         return base64.b64encode(bytes(png_data)).decode("utf-8")
 
-    def _screenshot_subprocess(
-        self, region: Optional[Tuple[int, int, int, int]] = None
-    ) -> str:
-        """screencapture CLI 폴백."""
+    def _screenshot_subprocess(self, region: tuple[int, int, int, int] | None = None) -> str:
+        """Screencapture CLI 폴백."""
         import subprocess
         import tempfile
 
@@ -514,7 +752,13 @@ class MacOSScreenDriver(ScreenDriver):
 
             _os.unlink(tmp_path)
 
-    def get_screen_size(self) -> Tuple[int, int]:
+    def get_screen_size(self) -> tuple[int, int]:
+        """Retrieve screen size.
+
+        Returns:
+            tuple[int, int]: The tuple[int, int] result.
+
+        """
         try:
             import Quartz
 
@@ -539,6 +783,7 @@ class MacOSScreenDriver(ScreenDriver):
                 if match:
                     return (int(match.group(1)), int(match.group(2)))
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
             return (1920, 1080)
 
@@ -547,8 +792,8 @@ class MacOSScreenDriver(ScreenDriver):
 
 
 def get_driver_set(force_stub: bool = False) -> DriverSet:
-    """
-    현재 OS에 맞는 드라이버 셋을 반환합니다.
+    """현재 OS에 맞는 드라이버 셋을 반환합니다.
+
     - force_stub=True: 테스트 환경용 Stub 드라이버 반환
     - macOS: Quartz 네이티브 드라이버 (PyAutoGUI 폴백)
     - Windows: PyAutoGUI 기반 드라이버
@@ -565,7 +810,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
     if sys.platform == "darwin":
         # macOS: Quartz 네이티브 드라이버 시도
         try:
-            import Quartz  # noqa: F401
+            import Quartz  # noqa: F401 — availability guard
 
             logger.info("Using macOS Quartz native drivers")
             return DriverSet(
@@ -574,9 +819,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
                 screen=MacOSScreenDriver(),
             )
         except ImportError:
-            logger.warning(
-                "Quartz (pyobjc-framework-Quartz) not available. Trying PyAutoGUI..."
-            )
+            logger.warning("Quartz (pyobjc-framework-Quartz) not available. Trying PyAutoGUI...")
             # PyAutoGUI 폴백
             try:
                 return DriverSet(
@@ -600,7 +843,5 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
             return get_driver_set(force_stub=True)
 
     # Linux 등 — Stub 반환
-    logger.warning(
-        f"No native driver for platform '{sys.platform}'. Using Stub drivers."
-    )
+    logger.warning("No native driver for platform '%s'. Using Stub drivers.", sys.platform)
     return get_driver_set(force_stub=True)

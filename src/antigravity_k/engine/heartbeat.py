@@ -1,5 +1,5 @@
-"""
-HeartbeatMonitor — 주기적 체크리스트 실행 데몬
+"""HeartbeatMonitor — 주기적 체크리스트 실행 데몬.
+
 ================================================
 IronClaw heartbeat.rs 패턴 이식.
 
@@ -29,7 +29,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.heartbeat")
 
@@ -72,9 +72,7 @@ class HeartbeatResult:
 # ── 인터벌 파싱 정규식 ──
 
 _INTERVAL_RE = re.compile(r"\(매\s*(\d+)\s*(분|시간|초)\)", re.IGNORECASE)
-_INTERVAL_EN_RE = re.compile(
-    r"\(every\s*(\d+)\s*(min|hour|sec|m|h|s)\w*\)", re.IGNORECASE
-)
+_INTERVAL_EN_RE = re.compile(r"\(every\s*(\d+)\s*(min|hour|sec|m|h|s)\w*\)", re.IGNORECASE)
 
 
 # ── 메인 모니터 ──
@@ -95,19 +93,28 @@ class HeartbeatMonitor:
         quiet_hours: tuple[int, int] = (23, 7),
         default_interval_minutes: int = 60,
     ):
+        """Initialize the HeartbeatMonitor.
+
+        Args:
+            project_root (str): str project root.
+            checklist_path (str): str checklist path.
+            quiet_hours (tuple[int, int]): tuple[int, int] quiet hours.
+            default_interval_minutes (int): int default interval minutes.
+
+        """
         self.project_root = os.path.abspath(project_root)
         self.checklist_path = os.path.join(self.project_root, checklist_path)
         self.quiet_start = quiet_hours[0]  # 23시
         self.quiet_end = quiet_hours[1]  # 07시
         self.default_interval = default_interval_minutes
 
-        self._tasks: List[HeartbeatTask] = []
+        self._tasks: list[HeartbeatTask] = []
         self._last_load_time: float = 0.0
-        self._results_history: List[HeartbeatResult] = []
+        self._results_history: list[HeartbeatResult] = []
 
     # ── 체크리스트 로드 ──
 
-    def load_checklist(self) -> List[HeartbeatTask]:
+    def load_checklist(self) -> list[HeartbeatTask]:
         """HEARTBEAT.md에서 체크리스트를 파싱합니다.
 
         IronClaw 패턴: 마크다운 체크리스트를 구조화된 태스크 목록으로 변환.
@@ -117,14 +124,14 @@ class HeartbeatMonitor:
             return []
 
         try:
-            with open(self.checklist_path, "r", encoding="utf-8") as f:
+            with open(self.checklist_path, encoding="utf-8") as f:
                 content = f.read()
-        except Exception as e:
-            logger.warning(f"HEARTBEAT.md 로드 실패: {e}")
+        except Exception:
+            logger.exception("HEARTBEAT.md 로드 실패")
             self._tasks = []
             return []
 
-        tasks: List[HeartbeatTask] = []
+        tasks: list[HeartbeatTask] = []
         current_section = ""
 
         for line in content.split("\n"):
@@ -145,7 +152,7 @@ class HeartbeatMonitor:
                         completed=False,
                         interval_minutes=interval,
                         section=current_section,
-                    )
+                    ),
                 )
             elif stripped.startswith("- [x] ") or stripped.startswith("- [X] "):
                 title = stripped[6:].strip()
@@ -154,7 +161,7 @@ class HeartbeatMonitor:
                         title=self._clean_title(title),
                         completed=True,
                         section=current_section,
-                    )
+                    ),
                 )
 
         # 기존 실행 시각 보존
@@ -165,7 +172,7 @@ class HeartbeatMonitor:
 
         self._tasks = tasks
         self._last_load_time = time.time()
-        logger.debug(f"HEARTBEAT.md: {len(tasks)}개 항목 로드 ({current_section})")
+        logger.debug("HEARTBEAT.md: %s개 항목 로드 (%s)", len(tasks), current_section)
         return tasks
 
     # ── 실행 ──
@@ -173,7 +180,7 @@ class HeartbeatMonitor:
     def execute_due_tasks(
         self,
         executor_fn=None,
-    ) -> List[HeartbeatResult]:
+    ) -> list[HeartbeatResult]:
         """실행 시점이 도래한 태스크를 실행합니다.
 
         IronClaw 패턴:
@@ -181,7 +188,7 @@ class HeartbeatMonitor:
         - 체크리스트가 비어 있으면 LLM 호출 생략 (비용 효율)
         - executor_fn이 None이면 태스크를 "due" 상태로만 보고
         """
-        results: List[HeartbeatResult] = []
+        results: list[HeartbeatResult] = []
 
         # Quiet Hours 확인
         if self.is_quiet_hours():
@@ -216,6 +223,7 @@ class HeartbeatMonitor:
                 )
                 task.last_run = time.time()
             except Exception as e:
+                logger.exception("Unhandled exception")
                 duration = (time.time() - start) * 1000
                 result = HeartbeatResult(
                     task_title=task.title,
@@ -249,7 +257,7 @@ class HeartbeatMonitor:
 
     # ── 상태 보고 ──
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """하트비트 모니터 상태를 반환합니다."""
         due_count = sum(1 for t in self._tasks if t.is_due)
         return {

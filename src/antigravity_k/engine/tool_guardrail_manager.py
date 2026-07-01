@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 도구 가드레일 관리자 (Tool Guardrail Manager)
+"""Antigravity-K: 도구 가드레일 관리자 (Tool Guardrail Manager).
+
 =============================================================
 오케스트레이터 루프에서 인라인으로 수행되던 가드레일 전/후 체크 로직을
 독립 모듈로 분리합니다. 오케스트레이터는 이 매니저에 도구 이름/인자를
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.tool_guardrail_manager")
 
@@ -47,13 +47,19 @@ class ToolGuardrailManager:
         plan_guard: Any = None,
         harness: Any = None,
     ):
+        """Initialize the ToolGuardrailManager.
+
+        Args:
+            tool_guardrail (Any): tool guardrail.
+            plan_guard (Any): plan guard.
+            harness (Any): harness.
+
+        """
         self._guardrail = tool_guardrail
         self._plan_guard = plan_guard
         self._harness = harness
 
-    def check_before(
-        self, tool_name: str, tool_args: Dict[str, Any]
-    ) -> GuardrailDecision:
+    def check_before(self, tool_name: str, tool_args: dict[str, Any]) -> GuardrailDecision:
         """도구 호출 전 통합 가드레일 체크.
 
         체크 순서:
@@ -72,7 +78,7 @@ class ToolGuardrailManager:
                         source="harness",
                     )
             except Exception as e:
-                logger.warning(f"Harness check error (default-deny): {e}")
+                logger.exception("Harness check error (default-deny)")
                 return GuardrailDecision(
                     allowed=False,
                     message=f"Guardrail check failed (safe default): {e}",
@@ -90,7 +96,7 @@ class ToolGuardrailManager:
                         source="plan_guard",
                     )
             except Exception as e:
-                logger.warning(f"PlanGuard check error (default-deny): {e}")
+                logger.exception("PlanGuard check error (default-deny)")
                 return GuardrailDecision(
                     allowed=False,
                     message=f"PlanGuard check failed (safe default): {e}",
@@ -110,7 +116,7 @@ class ToolGuardrailManager:
                         source="tool_guardrail",
                     )
             except Exception as e:
-                logger.warning(f"Tool guardrail before_call error (default-deny): {e}")
+                logger.exception("Tool guardrail before_call error (default-deny)")
                 return GuardrailDecision(
                     allowed=False,
                     message=f"Tool guardrail check failed (safe default): {e}",
@@ -122,7 +128,7 @@ class ToolGuardrailManager:
     def check_after(
         self,
         tool_name: str,
-        tool_args: Dict[str, Any],
+        tool_args: dict[str, Any],
         tool_result: Any,
         failed: bool = False,
     ) -> GuardrailDecision:
@@ -132,7 +138,10 @@ class ToolGuardrailManager:
 
         try:
             post_decision = self._guardrail.after_call(
-                tool_name, tool_args, tool_result, failed=failed
+                tool_name,
+                tool_args,
+                tool_result,
+                failed=failed,
             )
             return GuardrailDecision(
                 allowed=True,
@@ -142,7 +151,8 @@ class ToolGuardrailManager:
                 source="tool_guardrail",
             )
         except Exception as e:
-            logger.debug(f"Tool guardrail after_call error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Tool guardrail after_call error: %s", e)
             return GuardrailDecision(allowed=True)
 
     def reset_for_turn(self) -> None:
@@ -150,11 +160,12 @@ class ToolGuardrailManager:
         if self._guardrail and hasattr(self._guardrail, "reset_for_turn"):
             self._guardrail.reset_for_turn()
 
-    def on_failure_escalation(self, tool_result: str) -> Optional[str]:
+    def on_failure_escalation(self, tool_result: str) -> str | None:
         """실패 시 HarnessEnforcer 에스컬레이션 체크.
 
         Returns:
             에스컬레이션 메시지 또는 None
+
         """
         if not self._harness:
             return None
@@ -162,11 +173,9 @@ class ToolGuardrailManager:
         try:
             fb_action = self._harness.feedback_loop(str(tool_result))
             if fb_action.action_type == "escalate":
-                return (
-                    "⚠️ **[Harness]** 에스컬레이션: "
-                    "반복 오류 감지. 롤백 또는 플랜 변경을 권장합니다."
-                )
+                return "⚠️ **[Harness]** 에스컬레이션: 반복 오류 감지. 롤백 또는 플랜 변경을 권장합니다."
         except Exception as e:
-            logger.debug(f"Harness feedback_loop error: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Harness feedback_loop error: %s", e)
 
         return None

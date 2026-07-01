@@ -1,15 +1,17 @@
-import subprocess
-import os
+"""Ci Tools module."""
+
 import logging
-from typing import Any, Dict, List, Optional
-from .base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+import os
+import subprocess
+from typing import Any
+
+from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
 
 class TestRunnerTool(BaseTool):
-    """
-    자동 테스트 프레임워크 감지 + 구조화된 결과 파싱.
+    """자동 테스트 프레임워크 감지 + 구조화된 결과 파싱.
 
     자동화 기능:
     - 프로젝트 루트의 package.json, pyproject.toml, Makefile 등을 분석하여 테스트 명령 자동 감지
@@ -24,6 +26,7 @@ class TestRunnerTool(BaseTool):
     tags = ["test", "qa", "verify", "execute", "automation"]
 
     def __init__(self):
+        """Initialize the TestRunnerTool."""
         super().__init__()
         self._name = "run_tests"
         self._description = (
@@ -58,17 +61,35 @@ class TestRunnerTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
-    def _detect_test_framework(self, path: str) -> Optional[str]:
+    def _detect_test_framework(self, path: str) -> str | None:
         """프로젝트 파일을 분석하여 테스트 프레임워크와 명령을 자동 감지합니다."""
         detections = [
             # (파일, 조건, 명령)
@@ -92,19 +113,18 @@ class TestRunnerTool(BaseTool):
             filepath = os.path.join(path, filename)
             if os.path.exists(filepath):
                 try:
-                    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(filepath, encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                     if condition(content):
-                        logger.info(
-                            f"Auto-detected test framework: {command} (from {filename})"
-                        )
+                        logger.info("Auto-detected test framework: %s (from %s)", command, filename)
                         return command
                 except Exception:
+                    logger.exception("Unhandled exception")
                     continue
 
         return None
 
-    def _parse_test_result(self, output: str, returncode: int) -> Dict[str, Any]:
+    def _parse_test_result(self, output: str, returncode: int) -> dict[str, Any]:
         """테스트 출력을 구조화된 결과로 파싱합니다."""
         result = {
             "passed": returncode == 0,
@@ -138,9 +158,7 @@ class TestRunnerTool(BaseTool):
         if jest_fail:
             result["failed_count"] = int(jest_fail.group(1))
 
-        result["total"] = (
-            result["passed_count"] + result["failed_count"] + result["error_count"]
-        )
+        result["total"] = result["passed_count"] + result["failed_count"] + result["error_count"]
 
         # 에러 메시지 추출
         if not result["passed"]:
@@ -168,6 +186,15 @@ class TestRunnerTool(BaseTool):
         return result
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         command = kwargs.get("command", "")
         path = kwargs.get("path", ".")
         timeout = kwargs.get("timeout_seconds", 120)
@@ -187,7 +214,7 @@ class TestRunnerTool(BaseTool):
         if file_filter:
             command = f"{command} {file_filter}"
 
-        logger.info(f"[AutoTest] Running: {command} (timeout: {timeout}s)")
+        logger.info("[AutoTest] Running: %s (timeout: %ss)", command, timeout)
 
         try:
             result = subprocess.run(
@@ -223,12 +250,12 @@ class TestRunnerTool(BaseTool):
         except subprocess.TimeoutExpired:
             return f"Error: Test execution timed out after {timeout} seconds."
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error executing tests: {e}"
 
 
 class AutoLintTool(BaseTool):
-    """
-    자동 린트/포맷팅 도구.
+    """자동 린트/포맷팅 도구.
 
     파일 변경 후 자동으로 린트를 실행하여 코드 품질을 검증합니다.
     프로젝트의 린트 도구를 자동 감지합니다.
@@ -241,6 +268,7 @@ class AutoLintTool(BaseTool):
     tags = ["lint", "format", "quality", "automation"]
 
     def __init__(self):
+        """Initialize the AutoLintTool."""
         super().__init__()
         self._name = "auto_lint"
         self._description = (
@@ -270,24 +298,42 @@ class AutoLintTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
-    def _detect_linters(self, path: str) -> List[Dict[str, str]]:
-        """프로젝트 린트 도구 자동 감지"""
+    def _detect_linters(self, path: str) -> list[dict[str, str]]:
+        """프로젝트 린트 도구 자동 감지."""
         linters = []
 
         # Python
         if os.path.exists(os.path.join(path, "pyproject.toml")):
             try:
-                with open(os.path.join(path, "pyproject.toml"), "r") as f:
+                with open(os.path.join(path, "pyproject.toml")) as f:
                     content = f.read()
                 if "ruff" in content:
                     linters.append(
@@ -295,45 +341,42 @@ class AutoLintTool(BaseTool):
                             "name": "ruff",
                             "cmd": "ruff check",
                             "fix_cmd": "ruff check --fix",
-                        }
+                        },
                     )
                 elif "black" in content:
-                    linters.append(
-                        {"name": "black", "cmd": "black --check", "fix_cmd": "black"}
-                    )
+                    linters.append({"name": "black", "cmd": "black --check", "fix_cmd": "black"})
                 else:
                     linters.append(
                         {
                             "name": "ruff",
                             "cmd": "ruff check",
                             "fix_cmd": "ruff check --fix",
-                        }
+                        },
                     )
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         if os.path.exists(os.path.join(path, ".flake8")) or os.path.exists(
-            os.path.join(path, "setup.cfg")
+            os.path.join(path, "setup.cfg"),
         ):
             linters.append({"name": "flake8", "cmd": "flake8", "fix_cmd": "flake8"})
 
         # JavaScript/TypeScript
         if os.path.exists(os.path.join(path, ".eslintrc.json")) or os.path.exists(
-            os.path.join(path, ".eslintrc.js")
+            os.path.join(path, ".eslintrc.js"),
         ):
-            linters.append(
-                {"name": "eslint", "cmd": "npx eslint", "fix_cmd": "npx eslint --fix"}
-            )
+            linters.append({"name": "eslint", "cmd": "npx eslint", "fix_cmd": "npx eslint --fix"})
 
         if os.path.exists(os.path.join(path, ".prettierrc")) or os.path.exists(
-            os.path.join(path, ".prettierrc.json")
+            os.path.join(path, ".prettierrc.json"),
         ):
             linters.append(
                 {
                     "name": "prettier",
                     "cmd": "npx prettier --check",
                     "fix_cmd": "npx prettier --write",
-                }
+                },
             )
 
         # Rust
@@ -343,18 +386,25 @@ class AutoLintTool(BaseTool):
                     "name": "rustfmt",
                     "cmd": "cargo fmt -- --check",
                     "fix_cmd": "cargo fmt",
-                }
+                },
             )
 
         # Go
         if os.path.exists(os.path.join(path, "go.mod")):
-            linters.append(
-                {"name": "gofmt", "cmd": "gofmt -l .", "fix_cmd": "gofmt -w ."}
-            )
+            linters.append({"name": "gofmt", "cmd": "gofmt -l .", "fix_cmd": "gofmt -w ."})
 
         return linters
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         file_path = kwargs.get("file_path", "")
         fix = kwargs.get("fix", True)
         path = kwargs.get("path", ".")
@@ -386,14 +436,14 @@ class AutoLintTool(BaseTool):
             except subprocess.TimeoutExpired:
                 results.append(f"**{linter['name']}**: ⏱️ Timed out")
             except Exception as e:
+                logger.exception("Unhandled exception")
                 results.append(f"**{linter['name']}**: ❌ Error: {e}")
 
         return "\n\n".join(results)
 
 
 class PRCreationTool(BaseTool):
-    """
-    자동 PR/MR 생성 도구.
+    """자동 PR/MR 생성 도구.
 
     현재 브랜치의 변경 사항을 기반으로 PR을 자동 생성합니다.
     GitHub CLI (gh)를 활용합니다.
@@ -406,6 +456,7 @@ class PRCreationTool(BaseTool):
     tags = ["git", "pr", "pull-request", "automation"]
 
     def __init__(self):
+        """Initialize the PRCreationTool."""
         super().__init__()
         self._name = "create_pr"
         self._description = (
@@ -444,17 +495,44 @@ class PRCreationTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._name
 
     @property
     def description(self) -> str:
+        """Description.
+
+        Returns:
+            str: The str result.
+
+        """
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
+        """Parameters Schema.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return self._schema
 
     def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
         title = kwargs.get("title", "")
         body = kwargs.get("body", "")
         base = kwargs.get("base", "main")
@@ -462,9 +540,7 @@ class PRCreationTool(BaseTool):
         path = kwargs.get("path", ".")
 
         def _git(args):
-            r = subprocess.run(
-                ["git"] + args, cwd=path, capture_output=True, text=True, timeout=15
-            )
+            r = subprocess.run(["git"] + args, cwd=path, capture_output=True, text=True, timeout=15)
             return r.stdout.strip()
 
         # 자동 타이틀 생성
@@ -484,16 +560,13 @@ class PRCreationTool(BaseTool):
             cmd.append("--draft")
 
         try:
-            result = subprocess.run(
-                cmd, cwd=path, capture_output=True, text=True, timeout=30
-            )
+            result = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 return f"✅ PR created successfully!\n{result.stdout}"
             else:
                 return f"❌ PR creation failed:\n{result.stderr}"
         except FileNotFoundError:
-            return (
-                "Error: GitHub CLI (gh) is not installed. Install with: brew install gh"
-            )
+            return "Error: GitHub CLI (gh) is not installed. Install with: brew install gh"
         except Exception as e:
+            logger.exception("Unhandled exception")
             return f"Error: {e}"

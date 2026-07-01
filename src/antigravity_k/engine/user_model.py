@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 사용자 의도 모델러 (UserIntentModeler)
+"""Antigravity-K: 사용자 의도 모델러 (UserIntentModeler).
+
 ====================================================
 E-4: 사용자의 행동 패턴과 선호도를 학습하여 개인화된 응답을 제공합니다.
 """
@@ -9,7 +9,6 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, Optional
 
 from antigravity_k.engine.gbrain import global_gbrain
 
@@ -19,8 +18,7 @@ _PROFILE_FILE = ".antigravity/user_profile.json"
 
 
 class UserIntentModeler:
-    """
-    사용자의 소통 스타일, 기술 수준, 선호도를 학습합니다.
+    """사용자의 소통 스타일, 기술 수준, 선호도를 학습합니다.
 
     학습 항목:
     - 선호 언어 (한국어/영어/혼합)
@@ -31,6 +29,12 @@ class UserIntentModeler:
     """
 
     def __init__(self, project_root: str = "."):
+        """Initialize the UserIntentModeler.
+
+        Args:
+            project_root (str): str project root.
+
+        """
         self.project_root = project_root
         self._profile_path = os.path.join(project_root, _PROFILE_FILE)
         self._profile = self._load_profile()
@@ -44,7 +48,7 @@ class UserIntentModeler:
                 "task_type": task_type,
                 "tools": tools_used or [],
                 "time": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 언어 감지
@@ -177,18 +181,19 @@ class UserIntentModeler:
         counts = self._profile["stats"][key]
         counts[value] = counts.get(value, 0) + 1
 
-    def _get_dominant(self, key: str, stats: dict) -> Optional[str]:
+    def _get_dominant(self, key: str, stats: dict) -> str | None:
         counts = stats.get(key, {})
         if not counts:
             return None
         return max(counts, key=counts.get)
 
-    def _load_profile(self) -> Dict:
+    def _load_profile(self) -> dict:
         if os.path.exists(self._profile_path):
             try:
-                with open(self._profile_path, "r", encoding="utf-8") as f:
+                with open(self._profile_path, encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
         return {
             "stats": {},
@@ -212,5 +217,5 @@ class UserIntentModeler:
             # 파일 폴백 저장
             with open(self._profile_path, "w", encoding="utf-8") as f:
                 json.dump(self._profile, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"[UserModel] Failed to save profile: {e}")
+        except Exception:
+            logger.exception("[UserModel] Failed to save profile")

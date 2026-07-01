@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 도구 호출 파서 (ToolCallParser)
+"""Antigravity-K: 도구 호출 파서 (ToolCallParser).
+
 ==============================================
 스트리밍 LLM 출력에서 <tool_call>...</tool_call> 블록을
 상태머신(State Machine) 방식으로 안정적으로 감지합니다.
@@ -8,14 +8,18 @@ Antigravity-K: 도구 호출 파서 (ToolCallParser)
 import json
 import logging
 import re
-from enum import Enum
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
 class EventType(Enum):
+    """Eventtype.
+
+    Bases: Enum
+    """
+
     TEXT = "TEXT"
     TOOL_CALL_START = "TOOL_CALL_START"
     TOOL_CALL_COMPLETE = "TOOL_CALL_COMPLETE"
@@ -27,21 +31,24 @@ class EventType(Enum):
 
 @dataclass
 class ToolCall:
+    """Toolcall."""
+
     name: str
     arguments: dict = field(default_factory=dict)
 
 
 @dataclass
 class ParseEvent:
+    """Parseevent."""
+
     type: EventType
     data: str = ""
     raw_json: str = ""
-    tool_call: Optional[ToolCall] = None
+    tool_call: ToolCall | None = None
 
 
 class ToolCallParser:
-    """
-    스트리밍 청크를 feed()로 받아 <action_call>...</action_call> 블록을 감지합니다.
+    """스트리밍 청크를 feed()로 받아 <action_call>...</action_call> 블록을 감지합니다.
 
     핵심 설계:
         - <thought>...</thought> 블록 내부에서는 <action_call> 감지를 비활성화합니다.
@@ -65,16 +72,17 @@ class ToolCallParser:
     THOUGHT_CLOSE = "</thought>"
 
     def __init__(self):
+        """Initialize the ToolCallParser."""
         self._buffer = ""
         self._in_tool_call = False
         self._current_close_tag = ""
         self._in_thought = False  # <thought> 블록 추적
         self._tool_buffer = ""
-        self.tool_responses: List[str] = []  # I-10: 명시적 초기화 (hasattr 패턴 제거)
+        self.tool_responses: list[str] = []  # I-10: 명시적 초기화 (hasattr 패턴 제거)
 
-    def feed(self, chunk: str) -> List[ParseEvent]:
+    def feed(self, chunk: str) -> list[ParseEvent]:
         """청크를 받아 이벤트 리스트를 반환합니다."""
-        events: List[ParseEvent] = []
+        events: list[ParseEvent] = []
         self._buffer += chunk
 
         while self._buffer:
@@ -90,9 +98,7 @@ class ToolCallParser:
                 else:
                     # 종료 태그 발견
                     self._tool_buffer += self._buffer[:close_idx]
-                    self._buffer = self._buffer[
-                        close_idx + len(self._current_close_tag) :
-                    ]
+                    self._buffer = self._buffer[close_idx + len(self._current_close_tag) :]
                     self._in_tool_call = False
 
                     # JSON 파싱 시도
@@ -117,14 +123,14 @@ class ToolCallParser:
                                 type=EventType.TOOL_CALL_COMPLETE,
                                 raw_json=raw,
                                 tool_call=tc,
-                            )
+                            ),
                         )
                     except json.JSONDecodeError as e:
                         events.append(
                             ParseEvent(
                                 type=EventType.TOOL_CALL_ERROR,
                                 data=f"JSON parse error: {e} | raw: {raw[:200]}",
-                            )
+                            ),
                         )
 
             elif self._in_thought:
@@ -134,19 +140,13 @@ class ToolCallParser:
                     # </thought> 가 아직 안 왔음 → 전체를 텍스트로 emit (보류분 제외)
                     safe_len = len(self._buffer) - (len(self.THOUGHT_CLOSE) - 1)
                     if safe_len > 0:
-                        events.append(
-                            ParseEvent(
-                                type=EventType.TEXT, data=self._buffer[:safe_len]
-                            )
-                        )
+                        events.append(ParseEvent(type=EventType.TEXT, data=self._buffer[:safe_len]))
                         self._buffer = self._buffer[safe_len:]
                     break
                 else:
                     # </thought> 발견 → thought 블록 종료
                     end_pos = thought_close_idx + len(self.THOUGHT_CLOSE)
-                    events.append(
-                        ParseEvent(type=EventType.TEXT, data=self._buffer[:end_pos])
-                    )
+                    events.append(ParseEvent(type=EventType.TEXT, data=self._buffer[:end_pos]))
                     self._buffer = self._buffer[end_pos:]
                     self._in_thought = False
 
@@ -172,15 +172,13 @@ class ToolCallParser:
                         # 툴콜 이전의 텍스트는 방출
                         if bare_start > 0:
                             events.append(
-                                ParseEvent(
-                                    type=EventType.TEXT, data=self._buffer[:bare_start]
-                                )
+                                ParseEvent(type=EventType.TEXT, data=self._buffer[:bare_start]),
                             )
                             self._buffer = self._buffer[bare_start:]
 
                         # 완전한 툴콜인지 확인
-                        bare_json_events, consumed_len = (
-                            self._detect_bare_tool_call_streaming(self._buffer)
+                        bare_json_events, consumed_len = self._detect_bare_tool_call_streaming(
+                            self._buffer,
                         )
                         if bare_json_events:
                             events.extend(bare_json_events)
@@ -191,17 +189,11 @@ class ToolCallParser:
                             break
 
                     # 부분 매치 가능성을 위해 마지막 max(OPEN_TAG, THOUGHT_OPEN)-1 글자는 보류
-                    max_tag_len = max(
-                        max((len(t) for t in self.OPEN_TAGS)), len(self.THOUGHT_OPEN)
-                    )
+                    max_tag_len = max(max((len(t) for t in self.OPEN_TAGS)), len(self.THOUGHT_OPEN))
                     # {"name" 도 부분 매치될 수 있으므로 보류 길이에 고려 (7글자)
                     safe_len = len(self._buffer) - max(max_tag_len - 1, 6)
                     if safe_len > 0:
-                        events.append(
-                            ParseEvent(
-                                type=EventType.TEXT, data=self._buffer[:safe_len]
-                            )
-                        )
+                        events.append(ParseEvent(type=EventType.TEXT, data=self._buffer[:safe_len]))
                         self._buffer = self._buffer[safe_len:]
                     break
 
@@ -215,41 +207,29 @@ class ToolCallParser:
                     tag_end = tag_start + len(self.THOUGHT_OPEN)
                     if tag_start > 0:
                         events.append(
-                            ParseEvent(
-                                type=EventType.TEXT, data=self._buffer[:tag_start]
-                            )
+                            ParseEvent(type=EventType.TEXT, data=self._buffer[:tag_start]),
                         )
                     # <thought> 태그 자체도 텍스트로 emit (오케스트레이터가 처리)
                     events.append(
-                        ParseEvent(
-                            type=EventType.TEXT, data=self._buffer[tag_start:tag_end]
-                        )
+                        ParseEvent(type=EventType.TEXT, data=self._buffer[tag_start:tag_end]),
                     )
                     self._buffer = self._buffer[tag_end:]
                     self._in_thought = True
                 else:
                     # <action_call> 또는 <tool_call> 이 먼저 → 도구 호출 모드 진입
                     if open_idx > 0:
-                        events.append(
-                            ParseEvent(
-                                type=EventType.TEXT, data=self._buffer[:open_idx]
-                            )
-                        )
+                        events.append(ParseEvent(type=EventType.TEXT, data=self._buffer[:open_idx]))
                     self._buffer = self._buffer[open_idx + len(found_tag) :]
                     self._in_tool_call = True
-                    self._current_close_tag = (
-                        "</action_call>"
-                        if found_tag == "<action_call>"
-                        else "</tool_call>"
-                    )
+                    self._current_close_tag = "</action_call>" if found_tag == "<action_call>" else "</tool_call>"
                     self._tool_buffer = ""
                     events.append(ParseEvent(type=EventType.TOOL_CALL_START))
 
         return events
 
-    def flush(self) -> List[ParseEvent]:
+    def flush(self) -> list[ParseEvent]:
         """스트림 종료 시 남은 버퍼를 처리합니다."""
-        events: List[ParseEvent] = []
+        events: list[ParseEvent] = []
 
         if self._in_tool_call:
             # 닫히지 않은 tool_call 블록
@@ -258,7 +238,7 @@ class ToolCallParser:
                 ParseEvent(
                     type=EventType.TOOL_CALL_ERROR,
                     data=f"Unclosed tool_call block: {remaining[:200]}",
-                )
+                ),
             )
         elif self._buffer:
             # 태그 없이 평문 JSON으로 도구 호출을 출력하는 모델 대응
@@ -276,7 +256,7 @@ class ToolCallParser:
 
         return events
 
-    def _detect_bare_tool_call(self, text: str) -> Optional[List[ParseEvent]]:
+    def _detect_bare_tool_call(self, text: str) -> list[ParseEvent] | None:
         """<tool_call> 태그 없이 평문 JSON으로 출력된 도구 호출을 감지합니다.
 
         일부 모델이 <scratch_pad> 후에 태그 없이 {"name": "...", "arguments": {...}} 형태로
@@ -295,9 +275,7 @@ class ToolCallParser:
             full_match = bare_pattern.group(0)
             parsed = json.loads(full_match)
             if "name" in parsed and "arguments" in parsed:
-                logger.info(
-                    f"[ToolCallParser] Bare JSON tool call detected: {parsed['name']}"
-                )
+                logger.info("[ToolCallParser] Bare JSON tool call detected: %s", parsed["name"])
 
                 # 도구 호출 전의 텍스트
                 pre_text = text[: bare_pattern.start()].strip()
@@ -317,7 +295,7 @@ class ToolCallParser:
                                 else json.loads(parsed["arguments"])
                             ),
                         ),
-                    )
+                    ),
                 )
 
                 # 도구 호출 후의 텍스트
@@ -336,13 +314,12 @@ class ToolCallParser:
 
         return None
 
-    def _detect_bare_tool_call_streaming(
-        self, text: str
-    ) -> Tuple[Optional[List[ParseEvent]], int]:
+    def _detect_bare_tool_call_streaming(self, text: str) -> tuple[list[ParseEvent] | None, int]:
         """스트리밍 중 평문 JSON 도구 호출을 감지합니다.
 
         Returns:
             (events, consumed_len)
+
         """
         # 현재 버퍼 시작부터 완전한 형태의 평문 도구 호출이 있는지 검사합니다.
         # 주의: 부분적으로 입력 중인 경우(예: {"name": "write_file", "arguments": ...)는 무시하고 보류해야 함
@@ -359,7 +336,8 @@ class ToolCallParser:
             parsed = json.loads(full_match)
             if "name" in parsed and "arguments" in parsed:
                 logger.info(
-                    f"[ToolCallParser] Streaming Bare JSON tool call detected: {parsed['name']}"
+                    "[ToolCallParser] Streaming Bare JSON tool call detected: %s",
+                    parsed["name"],
                 )
 
                 events = [

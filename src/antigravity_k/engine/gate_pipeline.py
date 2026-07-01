@@ -1,5 +1,5 @@
-"""
-GatePipeline — 우선순위 기반 다단계 도구 실행 게이트
+"""GatePipeline — 우선순위 기반 다단계 도구 실행 게이트.
+
 ====================================================
 IronClaw approval.rs + Engine V2 gate/pipeline.rs 패턴 이식.
 
@@ -30,9 +30,10 @@ IronClaw approval.rs + Engine V2 gate/pipeline.rs 패턴 이식.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger("antigravity_k.engine.gate_pipeline")
 
@@ -62,23 +63,47 @@ class GateDecision:
     action: GateAction = GateAction.ALLOW
     reason: str = ""
     gate_name: str = ""
-    resume_kind: Optional[ResumeKind] = None
+    resume_kind: ResumeKind | None = None
     allow_always: bool = False  # "항상 허용" 옵션 제공 여부
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_allowed(self) -> bool:
+        """Check if allowed.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return self.action == GateAction.ALLOW
 
     @property
     def is_paused(self) -> bool:
+        """Check if paused.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return self.action == GateAction.PAUSE
 
     @property
     def is_denied(self) -> bool:
+        """Check if denied.
+
+        Returns:
+            bool: The bool result.
+
+        """
         return self.action == GateAction.DENY
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "action": self.action.value,
             "reason": self.reason,
@@ -137,15 +162,42 @@ class RateLimitGate:
     """
 
     def __init__(self, guardrails=None):
+        """Initialize the RateLimitGate.
+
+        Args:
+            guardrails: guardrails.
+
+        """
         self._guardrails = guardrails
 
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "rate_limit"
 
     def priority(self) -> int:
+        """Priority.
+
+        Returns:
+            int: The int result.
+
+        """
         return 50
 
     def evaluate(self, ctx: GateContext) -> GateDecision:
+        """Evaluate.
+
+        Args:
+            ctx (GateContext): GateContext ctx.
+
+        Returns:
+            GateDecision: The gatedecision result.
+
+        """
         if self._guardrails is None:
             return GateDecision(gate_name=self.name())
 
@@ -168,15 +220,42 @@ class CostBudgetGate:
     """
 
     def __init__(self, cost_guard=None):
+        """Initialize the CostBudgetGate.
+
+        Args:
+            cost_guard: cost guard.
+
+        """
         self._cost_guard = cost_guard
 
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "cost_budget"
 
     def priority(self) -> int:
+        """Priority.
+
+        Returns:
+            int: The int result.
+
+        """
         return 80
 
     def evaluate(self, ctx: GateContext) -> GateDecision:
+        """Evaluate.
+
+        Args:
+            ctx (GateContext): GateContext ctx.
+
+        Returns:
+            GateDecision: The gatedecision result.
+
+        """
         if self._cost_guard is None:
             return GateDecision(gate_name=self.name())
 
@@ -204,7 +283,7 @@ class ApprovalGate:
             "create_pr",
             "git_push",
             "payment",
-        }
+        },
     )
 
     # 자동 승인 제외 시 승인 필요 (IronClaw ApprovalRequirement::UnlessAutoApproved)
@@ -219,16 +298,37 @@ class ApprovalGate:
             "git_commit",
             "agent_spawn",
             "computer_use",
-        }
+        },
     )
 
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "approval"
 
     def priority(self) -> int:
+        """Priority.
+
+        Returns:
+            int: The int result.
+
+        """
         return 100
 
     def evaluate(self, ctx: GateContext) -> GateDecision:
+        """Evaluate.
+
+        Args:
+            ctx (GateContext): GateContext ctx.
+
+        Returns:
+            GateDecision: The gatedecision result.
+
+        """
         tool = ctx.tool_name
 
         # Container 모드: 모두 허용
@@ -283,15 +383,42 @@ class SecurityPolicyGate:
     """
 
     def __init__(self, policy_engine=None):
+        """Initialize the SecurityPolicyGate.
+
+        Args:
+            policy_engine: policy engine.
+
+        """
         self._policy_engine = policy_engine
 
     def name(self) -> str:
+        """Name.
+
+        Returns:
+            str: The str result.
+
+        """
         return "security_policy"
 
     def priority(self) -> int:
+        """Priority.
+
+        Returns:
+            int: The int result.
+
+        """
         return 150
 
     def evaluate(self, ctx: GateContext) -> GateDecision:
+        """Evaluate.
+
+        Args:
+            ctx (GateContext): GateContext ctx.
+
+        Returns:
+            GateDecision: The gatedecision result.
+
+        """
         if self._policy_engine is None:
             return GateDecision(gate_name=self.name())
 
@@ -329,7 +456,8 @@ class GatePipeline:
     """
 
     def __init__(self):
-        self._gates: List[Any] = []  # ExecutionGate instances
+        """Initialize the GatePipeline."""
+        self._gates: list[Any] = []  # ExecutionGate instances
         self._sorted = False
 
     def add_gate(self, gate) -> "GatePipeline":
@@ -356,20 +484,21 @@ class GatePipeline:
                 decision = gate.evaluate(ctx)
                 if not decision.is_allowed:
                     logger.info(
-                        f"GatePipeline: {gate.name()} → {decision.action.value} "
-                        f"for '{ctx.tool_name}': {decision.reason}"
+                        "GatePipeline: %s → %s for '%s': %s",
+                        gate.name(),
+                        decision.action.value,
+                        ctx.tool_name,
+                        decision.reason,
                     )
                     return decision
-            except Exception as e:
+            except Exception:
                 # IronClaw 패턴: 게이트 에러는 fail-open (보수적으로 허용)
-                logger.warning(
-                    f"GatePipeline: gate '{gate.name()}' error (fail-open): {e}"
-                )
+                logger.exception("GatePipeline: gate '%s' error (fail-open)", gate.name())
                 continue
 
         return GateDecision(gate_name="pipeline", reason="all_gates_passed")
 
-    def list_gates(self) -> List[Dict[str, Any]]:
+    def list_gates(self) -> list[dict[str, Any]]:
         """등록된 게이트 목록을 반환합니다."""
         self._ensure_sorted()
         return [{"name": g.name(), "priority": g.priority()} for g in self._gates]

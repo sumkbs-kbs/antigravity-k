@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 스킬 자동 생성기 (Skill Generator)
+"""Antigravity-K: 스킬 자동 생성기 (Skill Generator).
+
 ==================================================
 에이전트가 새로운 도구(auto_skill)를 자동으로 생성하는 메타-도구입니다.
 
@@ -9,14 +9,16 @@ Antigravity-K: 스킬 자동 생성기 (Skill Generator)
   3. 사용자 승인 시 tools/auto_skill_*.py로 이동
   4. ToolExecutor._load_auto_skills()가 런타임에 핫 로드
 """
+
 import ast
-import os
 import json
 import logging
+import os
 import re
 import urllib.request
 from datetime import datetime
-from typing import Optional
+
+from antigravity_k.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 # BaseTool 코드 생성용 템플릿
 _SKILL_TEMPLATE = '''"""
 Auto-generated skill: {skill_name}
+
 Generated at: {timestamp}
 Goal: {goal}
 """
@@ -36,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 class {class_name}(BaseTool):
     """{description}"""
-    
+
     category = ToolCategory.CODE_EXEC
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.MEDIUM
@@ -66,28 +69,33 @@ class {class_name}(BaseTool):
 
 
 class SkillGenerator:
-    """
-    에이전트가 필요로 하는 새로운 도구를 자동으로 생성하고,
+    """에이전트가 필요로 하는 새로운 도구를 자동으로 생성하고,.
+
     안전한 승인 프로세스를 거쳐 시스템에 통합합니다.
     """
 
     def __init__(self, project_root: str = ".", model_manager=None):
+        """Initialize the SkillGenerator.
+
+        Args:
+            project_root (str): str project root.
+            model_manager: model manager.
+
+        """
         self.project_root = project_root
         self.manager = model_manager
         self._drafts_dir = os.path.join(project_root, "_drafts", "auto_skills")
-        self._tools_dir = os.path.join(
-            project_root, "src", "antigravity_k", "tools"
-        )
+        self._tools_dir = os.path.join(project_root, "src", "antigravity_k", "tools")
 
     def generate_skill(self, requirement: str) -> dict:
-        """
-        요구사항을 분석하여 새로운 BaseTool 서브클래스를 생성합니다.
-        
+        """요구사항을 분석하여 새로운 BaseTool 서브클래스를 생성합니다.
+
         Args:
             requirement: 어떤 도구가 필요한지 자연어로 설명
-            
+
         Returns:
             dict with keys: success, file_path, class_name, tool_name, message
+
         """
         try:
             # 1. LLM으로 도구 스펙 생성
@@ -95,39 +103,41 @@ class SkillGenerator:
             if not spec:
                 return {
                     "success": False,
-                    "message": "Failed to generate tool specification from LLM"
+                    "message": "Failed to generate tool specification from LLM",
                 }
 
             # 2. 코드 생성
             code = self._render_code(spec)
-            
+
             # 3. AST 검증
             try:
                 ast.parse(code)
             except SyntaxError as e:
-                return {
-                    "success": False,
-                    "message": f"Generated code has syntax error: {e}"
-                }
+                return {"success": False, "message": f"Generated code has syntax error: {e}"}
 
             # 4. _drafts/에 저장 (HITL 패턴)
             os.makedirs(self._drafts_dir, exist_ok=True)
             filename = f"auto_skill_{spec['tool_name']}.py"
             draft_path = os.path.join(self._drafts_dir, filename)
-            
+
             with open(draft_path, "w", encoding="utf-8") as f:
                 f.write(code)
 
             # 메타데이터 저장
             meta_path = draft_path + ".meta.json"
             with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump({
-                    "requirement": requirement,
-                    "spec": spec,
-                    "generated_at": datetime.now().isoformat(),
-                    "status": "pending_review",
-                    "file": filename,
-                }, f, ensure_ascii=False, indent=2)
+                json.dump(
+                    {
+                        "requirement": requirement,
+                        "spec": spec,
+                        "generated_at": datetime.now().isoformat(),
+                        "status": "pending_review",
+                        "file": filename,
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
 
             return {
                 "success": True,
@@ -139,10 +149,10 @@ class SkillGenerator:
                     f"📁 위치: {draft_path}\n"
                     f"⚠️ 사용자 승인 후 tools/ 디렉토리로 이동됩니다.\n"
                     f"'/approve_skill {spec['tool_name']}' 명령으로 승인할 수 있습니다."
-                )
+                ),
             }
         except Exception as e:
-            logger.error(f"Skill generation failed: {e}", exc_info=True)
+            logger.error("Skill generation failed: %s", e, exc_info=True)
             return {"success": False, "message": f"Generation error: {e}"}
 
     def approve_skill(self, tool_name: str) -> dict:
@@ -156,7 +166,7 @@ class SkillGenerator:
 
         # 최종 AST 검증
         try:
-            with open(draft_path, "r", encoding="utf-8") as f:
+            with open(draft_path, encoding="utf-8") as f:
                 code = f.read()
             ast.parse(code)
         except SyntaxError as e:
@@ -164,8 +174,9 @@ class SkillGenerator:
 
         # 이동
         import shutil
+
         shutil.move(draft_path, target_path)
-        
+
         # 메타데이터 업데이트
         meta_path = os.path.join(self._drafts_dir, filename + ".meta.json")
         if os.path.exists(meta_path):
@@ -179,22 +190,19 @@ class SkillGenerator:
                     json.dump(meta, f, ensure_ascii=False, indent=2)
                 os.remove(meta_path)
             except Exception:
+                logger.exception("Unhandled exception")
                 pass
 
         return {
             "success": True,
-            "message": (
-                f"✅ 스킬 '{tool_name}' 승인 완료!\n"
-                f"📁 {target_path}\n"
-                f"🔄 다음 요청부터 자동 로드됩니다."
-            )
+            "message": (f"✅ 스킬 '{tool_name}' 승인 완료!\n📁 {target_path}\n🔄 다음 요청부터 자동 로드됩니다."),
         }
 
     def list_pending(self) -> list:
         """승인 대기 중인 스킬 목록을 반환합니다."""
         if not os.path.exists(self._drafts_dir):
             return []
-        
+
         pending = []
         for f in os.listdir(self._drafts_dir):
             if f.endswith(".meta.json"):
@@ -204,10 +212,11 @@ class SkillGenerator:
                     if meta.get("status") == "pending_review":
                         pending.append(meta)
                 except Exception:
+                    logger.exception("Unhandled exception")
                     pass
         return pending
 
-    def _generate_spec(self, requirement: str) -> Optional[dict]:
+    def _generate_spec(self, requirement: str) -> dict | None:
         """LLM에게 도구 스펙 생성을 요청합니다."""
         prompt = (
             "You are a tool specification generator for the Antigravity-K AI agent framework.\n"
@@ -230,42 +239,42 @@ class SkillGenerator:
                 "model": "qwen3.6:latest",
                 "prompt": prompt,
                 "stream": False,
-                "options": {"num_predict": 1024, "temperature": 0.4}
+                "options": {"num_predict": 1024, "temperature": 0.4},
             }
             req = urllib.request.Request(
                 f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
                 data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=60) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 text = result.get("response", "")
 
             # <think> 태그 제거
-            text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-            
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
             # JSON 추출
             decoder = json.JSONDecoder()
             for i, ch in enumerate(text):
-                if ch == '{':
+                if ch == "{":
                     try:
                         obj, _ = decoder.raw_decode(text, i)
-                        if isinstance(obj, dict) and 'tool_name' in obj:
+                        if isinstance(obj, dict) and "tool_name" in obj:
                             return obj
                     except json.JSONDecodeError:
                         continue
-            
+
             logger.warning("[SkillGen] No valid JSON in LLM response")
             return None
 
-        except Exception as e:
-            logger.error(f"[SkillGen] LLM spec generation failed: {e}")
+        except Exception:
+            logger.exception("[SkillGen] LLM spec generation failed")
             return None
 
     def _render_code(self, spec: dict) -> str:
         """스펙 딕셔너리를 Python 코드로 렌더링합니다."""
         execute_body = spec.get("execute_body", "        return 'Not implemented'")
-        
+
         # execute_body 들여쓰기 정규화
         lines = execute_body.split("\n")
         normalized = []
@@ -276,7 +285,7 @@ class SkillGenerator:
             else:
                 normalized.append("")
         execute_body = "\n".join(normalized) if normalized else "        return 'Not implemented'"
-        
+
         return _SKILL_TEMPLATE.format(
             skill_name=spec.get("tool_name", "unknown"),
             timestamp=datetime.now().isoformat(),

@@ -1,5 +1,5 @@
-"""
-ClaudeDenyPatterns — 선언적 위험 명령 deny 패턴 시스템
+"""ClaudeDenyPatterns — 선언적 위험 명령 deny 패턴 시스템.
+
 ========================================================
 Sidabari의 claude_safety.rs 패턴을 Python으로 이식.
 
@@ -19,7 +19,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.claude_deny_patterns")
 
@@ -29,7 +29,7 @@ RULES_MARKER_KEY = "_antigravity_managed"
 LEGACY_MARKER_KEYS = {"_sidabari_managed"}
 
 
-def deny_patterns() -> List[str]:
+def deny_patterns() -> list[str]:
     """위험 명령 deny 패턴 목록을 반환합니다.
 
     Sidabari claude_safety.rs의 deny_patterns() 전체 이식 +
@@ -133,7 +133,7 @@ def deny_patterns() -> List[str]:
 
 
 # 코드 변경으로 삭제된 레거시 패턴 — 매 install 시 자동 제거
-LEGACY_REMOVED_PATTERNS: List[str] = [
+LEGACY_REMOVED_PATTERNS: list[str] = [
     "Bash(*sidabari*)",
     "Bash(*antigravity*)",  # 너무 broad — 진단 명령까지 차단
 ]
@@ -148,15 +148,30 @@ class DenyInstallReport:
         self,
         installed_path: str,
         created: bool,
-        backed_up_path: Optional[str],
+        backed_up_path: str | None,
         deny_count: int,
     ):
+        """Initialize the DenyInstallReport.
+
+        Args:
+            installed_path (str): str installed path.
+            created (bool): bool created.
+            backed_up_path (str | None): str | None backed up path.
+            deny_count (int): int deny count.
+
+        """
         self.installed_path = installed_path
         self.created = created
         self.backed_up_path = backed_up_path
         self.deny_count = deny_count
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "installed_path": self.installed_path,
             "created": self.created,
@@ -180,7 +195,7 @@ def validate_directory(directory: str) -> Path:
     return path
 
 
-def _merge_deny(existing: Dict[str, Any], new_patterns: List[str]) -> int:
+def _merge_deny(existing: dict[str, Any], new_patterns: list[str]) -> int:
     """기존 설정에 deny 패턴을 병합합니다.
 
     Sidabari의 merge_deny 로직 이식:
@@ -191,6 +206,7 @@ def _merge_deny(existing: Dict[str, Any], new_patterns: List[str]) -> int:
 
     Returns:
         새로 추가된 패턴 수
+
     """
     permissions = existing.setdefault("permissions", {})
     if not isinstance(permissions, dict):
@@ -198,7 +214,7 @@ def _merge_deny(existing: Dict[str, Any], new_patterns: List[str]) -> int:
         existing["permissions"] = permissions
 
     # 1) 이전 marker의 installed_patterns 회수
-    prev_installed: Set[str] = set()
+    prev_installed: set[str] = set()
     for marker_key in [RULES_MARKER_KEY] + list(LEGACY_MARKER_KEYS):
         marker = permissions.get(marker_key, {})
         if isinstance(marker, dict):
@@ -213,23 +229,17 @@ def _merge_deny(existing: Dict[str, Any], new_patterns: List[str]) -> int:
 
     # 1a) 이전 _antigravity 패턴 제거
     if prev_installed:
-        deny_list[:] = [
-            d for d in deny_list if not (isinstance(d, str) and d in prev_installed)
-        ]
+        deny_list[:] = [d for d in deny_list if not (isinstance(d, str) and d in prev_installed)]
 
     # 1b) 레거시 마커 키 제거
     for legacy_key in LEGACY_MARKER_KEYS:
         permissions.pop(legacy_key, None)
 
     # 2) 코드 변경으로 삭제된 레거시 패턴 제거
-    deny_list[:] = [
-        d
-        for d in deny_list
-        if not (isinstance(d, str) and d in LEGACY_REMOVED_PATTERNS)
-    ]
+    deny_list[:] = [d for d in deny_list if not (isinstance(d, str) and d in LEGACY_REMOVED_PATTERNS)]
 
     # 3) 새 패턴 추가 (중복 방지)
-    existing_set: Set[str] = {d for d in deny_list if isinstance(d, str)}
+    existing_set: set[str] = {d for d in deny_list if isinstance(d, str)}
     added = 0
     for pat in new_patterns:
         if pat not in existing_set:
@@ -247,7 +257,7 @@ def _merge_deny(existing: Dict[str, Any], new_patterns: List[str]) -> int:
     return added
 
 
-def _write_with_backup(path: Path, content: bytes) -> Optional[str]:
+def _write_with_backup(path: Path, content: bytes) -> str | None:
     """파일을 쓰면서 기존 파일은 백업합니다."""
     backup_path = None
     if path.exists():
@@ -270,6 +280,7 @@ def install_deny_rules(directory: str) -> DenyInstallReport:
 
     Raises:
         ValueError: 디렉토리 검증 실패
+
     """
     work_dir = validate_directory(directory)
     claude_dir = work_dir / ".claude"
@@ -280,7 +291,7 @@ def install_deny_rules(directory: str) -> DenyInstallReport:
     if settings_path.exists():
         raw = settings_path.read_text(encoding="utf-8").strip()
         if not raw:
-            root: Dict[str, Any] = {}
+            root: dict[str, Any] = {}
             created = True
         else:
             root = json.loads(raw)
@@ -305,11 +316,12 @@ def install_deny_rules(directory: str) -> DenyInstallReport:
     )
 
 
-def get_deny_rules_status(directory: str) -> Optional[DenyInstallReport]:
+def get_deny_rules_status(directory: str) -> DenyInstallReport | None:
     """현재 deny 패턴 설치 상태를 확인합니다.
 
     Returns:
         DenyInstallReport 또는 None (미설치)
+
     """
     work_dir = validate_directory(directory)
     path = work_dir / ".claude" / "settings.local.json"
@@ -341,7 +353,7 @@ def get_deny_rules_status(directory: str) -> Optional[DenyInstallReport]:
     )
 
 
-def get_blocked_patterns_for_runtime() -> List[str]:
+def get_blocked_patterns_for_runtime() -> list[str]:
     """런타임 도구 가드레일에서 사용할 Bash glob 패턴 목록을 반환합니다.
 
     deny 패턴에서 Bash() 접두사를 제거한 순수 glob 패턴.

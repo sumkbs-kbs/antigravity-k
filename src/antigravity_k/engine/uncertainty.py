@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 불확실성 인식기 (UncertaintyEstimator)
+"""Antigravity-K: 불확실성 인식기 (UncertaintyEstimator).
+
 ====================================================
 E-2: 에이전트가 자신의 확신도를 평가하는 메타인지 모듈.
 """
@@ -8,12 +8,16 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import List
 
 logger = logging.getLogger(__name__)
 
 
 class ConfidenceLevel(Enum):
+    """Confidencelevel.
+
+    Bases: Enum
+    """
+
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
@@ -21,15 +25,16 @@ class ConfidenceLevel(Enum):
 
 @dataclass
 class UncertaintyResult:
+    """Uncertaintyresult."""
+
     confidence: ConfidenceLevel
-    uncertainties: List[str]
+    uncertainties: list[str]
     should_ask_user: bool
     clarification: str  # 사용자에게 할 확인 질문
 
 
 class UncertaintyEstimator:
-    """
-    에이전트가 '나는 이것을 확실히 알고 있는가?'를 판단합니다.
+    """에이전트가 '나는 이것을 확실히 알고 있는가?'를 판단합니다.
 
     판단 기준:
     1. CEO 분석의 confidence 필드
@@ -39,6 +44,7 @@ class UncertaintyEstimator:
     """
 
     def __init__(self):
+        """Initialize the UncertaintyEstimator."""
         self._ambiguity_patterns_ko = [
             r"잘\s*모르겠",
             r"아마",
@@ -100,9 +106,7 @@ class UncertaintyEstimator:
         # 5. 정보 부족 감지
         if self._has_missing_info(user_message):
             confidence_score *= 0.6
-            uncertainties.append(
-                "필수 정보(파일 경로, 버전 등)가 누락되었을 수 있습니다"
-            )
+            uncertainties.append("필수 정보(파일 경로, 버전 등)가 누락되었을 수 있습니다")
 
         # 확신도 레벨 결정
         if confidence_score >= 0.7:
@@ -113,9 +117,7 @@ class UncertaintyEstimator:
             level = ConfidenceLevel.LOW
 
         should_ask = level == ConfidenceLevel.LOW
-        clarification = (
-            self._build_clarification(user_message, uncertainties) if should_ask else ""
-        )
+        clarification = self._build_clarification(user_message, uncertainties) if should_ask else ""
 
         return UncertaintyResult(
             confidence=level,
@@ -143,9 +145,7 @@ class UncertaintyEstimator:
     def _check_ambiguity(self, text: str) -> float:
         """텍스트의 모호성 수준 (0.0~1.0)."""
         matches = 0
-        total_patterns = len(self._ambiguity_patterns_ko) + len(
-            self._ambiguity_patterns_en
-        )
+        total_patterns = len(self._ambiguity_patterns_ko) + len(self._ambiguity_patterns_en)
 
         for pat in self._ambiguity_patterns_ko:
             if re.search(pat, text):
@@ -206,7 +206,7 @@ class UncertaintyEstimator:
                 return True
         return False
 
-    def _build_clarification(self, user_message: str, uncertainties: List[str]) -> str:
+    def _build_clarification(self, user_message: str, uncertainties: list[str]) -> str:
         """사용자에게 할 확인 질문을 생성합니다."""
         questions = []
 
@@ -217,9 +217,7 @@ class UncertaintyEstimator:
         if "복잡" in str(uncertainties):
             questions.append("가장 우선순위가 높은 부분은 어떤 것인가요?")
         if "경험" in str(uncertainties):
-            questions.append(
-                "이전에 비슷한 작업을 하신 적이 있나요? 참고할 만한 예시가 있나요?"
-            )
+            questions.append("이전에 비슷한 작업을 하신 적이 있나요? 참고할 만한 예시가 있나요?")
 
         if not questions:
             questions.append("요청을 좀 더 구체적으로 설명해 주시겠어요?")

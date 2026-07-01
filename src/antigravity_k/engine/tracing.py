@@ -1,5 +1,5 @@
-"""
-Antigravity-K: 에이전트 트레이싱 시스템 (Agent Tracing)
+"""Antigravity-K: 에이전트 트레이싱 시스템 (Agent Tracing).
+
 =======================================================
 에이전트의 추론 경로, 도구 호출, 성능 메트릭을 구조화된 트레이스로 기록합니다.
 
@@ -31,11 +31,12 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.tracing")
 
@@ -52,7 +53,7 @@ class Span:
 
     span_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     trace_id: str = ""
-    parent_span_id: Optional[str] = None
+    parent_span_id: str | None = None
     name: str = ""
     span_type: str = "generic"  # tool_call, llm_inference, validation, planning, search
 
@@ -62,11 +63,11 @@ class Span:
     duration_ms: float = 0.0
 
     # 입출력
-    input_data: Dict[str, Any] = field(default_factory=dict)
-    output_data: Dict[str, Any] = field(default_factory=dict)
+    input_data: dict[str, Any] = field(default_factory=dict)
+    output_data: dict[str, Any] = field(default_factory=dict)
 
     # 메타데이터
-    attributes: Dict[str, Any] = field(default_factory=dict)
+    attributes: dict[str, Any] = field(default_factory=dict)
     status: str = "ok"  # ok, error
     error_message: str = ""
 
@@ -92,7 +93,7 @@ class Span:
         self.end_time = time.time()
         self.duration_ms = round((self.end_time - self.start_time) * 1000, 1)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """JSON 직렬화 가능한 딕셔너리로 변환합니다."""
         return {
             "span_id": self.span_id,
@@ -100,11 +101,7 @@ class Span:
             "parent_span_id": self.parent_span_id,
             "name": self.name,
             "type": self.span_type,
-            "start_time": (
-                datetime.fromtimestamp(self.start_time).isoformat()
-                if self.start_time
-                else ""
-            ),
+            "start_time": (datetime.fromtimestamp(self.start_time).isoformat() if self.start_time else ""),
             "duration_ms": self.duration_ms,
             "status": self.status,
             "error": self.error_message,
@@ -123,8 +120,8 @@ class Trace:
     """하나의 요청 처리 전체를 나타내는 트레이스."""
 
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
-    root_span_id: Optional[str] = None
-    spans: List[Span] = field(default_factory=list)
+    root_span_id: str | None = None
+    spans: list[Span] = field(default_factory=list)
 
     # 메타
     query: str = ""
@@ -155,15 +152,17 @@ class Trace:
         if self.started_at:
             self.total_duration_ms = round((self.ended_at - self.started_at) * 1000, 1)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        """To Dict.
+
+        Returns:
+            dict[str, Any]: The dict[str, any] result.
+
+        """
         return {
             "trace_id": self.trace_id,
             "query": self.query[:200],
-            "started_at": (
-                datetime.fromtimestamp(self.started_at).isoformat()
-                if self.started_at
-                else ""
-            ),
+            "started_at": (datetime.fromtimestamp(self.started_at).isoformat() if self.started_at else ""),
             "total_duration_ms": self.total_duration_ms,
             "total_tokens": self.total_tokens,
             "tool_calls": self.tool_calls,
@@ -195,9 +194,16 @@ class AgentTracer:
     """
 
     def __init__(self, persist_dir: str = None, max_traces: int = 100):
-        self._traces: List[Trace] = []
-        self._active_trace: Optional[Trace] = None
-        self._span_stack: List[Span] = []
+        """Initialize the AgentTracer.
+
+        Args:
+            persist_dir (str): str persist dir.
+            max_traces (int): int max traces.
+
+        """
+        self._traces: list[Trace] = []
+        self._active_trace: Trace | None = None
+        self._span_stack: list[Span] = []
         self._max_traces = max_traces
         self._persist_dir = persist_dir
 
@@ -212,7 +218,7 @@ class AgentTracer:
         self._active_trace = trace
         return trace
 
-    def end_trace(self) -> Optional[Trace]:
+    def end_trace(self) -> Trace | None:
         """현재 트레이스를 종료하고 저장합니다."""
         if not self._active_trace:
             return None
@@ -232,15 +238,13 @@ class AgentTracer:
         self._active_trace = None
         self._span_stack.clear()
 
-        logger.debug(f"[Tracer] Trace 완료: {trace.summary()}")
+        logger.debug("[Tracer] Trace 완료: %s", trace.summary())
         return trace
 
     # ─── Span 컨텍스트 매니저 ────────────────────────────────
 
     @contextmanager
-    def span(
-        self, name: str, attributes: Dict[str, Any] = None, span_type: str = "generic"
-    ):
+    def span(self, name: str, attributes: dict[str, Any] = None, span_type: str = "generic"):
         """Span을 컨텍스트 매니저로 생성합니다.
 
         Usage:
@@ -270,30 +274,27 @@ class AgentTracer:
 
     # ─── 조회 ────────────────────────────────────────────────
 
-    def get_recent_traces(self, n: int = 10) -> List[Dict[str, Any]]:
+    def get_recent_traces(self, n: int = 10) -> list[dict[str, Any]]:
         """최근 N개 트레이스를 반환합니다."""
         return [t.to_dict() for t in self._traces[-n:]]
 
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         """성능 통계를 반환합니다."""
         if not self._traces:
             return {"message": "트레이스 없음"}
 
-        durations = [
-            t.total_duration_ms for t in self._traces if t.total_duration_ms > 0
-        ]
+        durations = [t.total_duration_ms for t in self._traces if t.total_duration_ms > 0]
         error_traces = [t for t in self._traces if t.errors > 0]
 
         return {
             "total_traces": len(self._traces),
             "avg_duration_ms": round(sum(durations) / max(len(durations), 1), 1),
             "p95_duration_ms": round(
-                sorted(durations)[int(len(durations) * 0.95)] if durations else 0, 1
+                sorted(durations)[int(len(durations) * 0.95)] if durations else 0,
+                1,
             ),
-            "error_rate": f"{len(error_traces)/len(self._traces)*100:.1f}%",
-            "avg_tool_calls": round(
-                sum(t.tool_calls for t in self._traces) / len(self._traces), 1
-            ),
+            "error_rate": f"{len(error_traces) / len(self._traces) * 100:.1f}%",
+            "avg_tool_calls": round(sum(t.tool_calls for t in self._traces) / len(self._traces), 1),
             "total_tokens": sum(t.total_tokens for t in self._traces),
         }
 
@@ -304,7 +305,7 @@ class AgentTracer:
         with open(filepath, "w", encoding="utf-8") as f:
             for trace in self._traces:
                 f.write(json.dumps(trace.to_dict(), ensure_ascii=False) + "\n")
-        logger.info(f"[Tracer] {len(self._traces)}개 트레이스 내보내기: {filepath}")
+        logger.info("[Tracer] %s개 트레이스 내보내기: %s", len(self._traces), filepath)
 
     def _persist_trace(self, trace: Trace):
         """트레이스를 디스크에 저장합니다."""
@@ -314,8 +315,8 @@ class AgentTracer:
             filepath = os.path.join(self._persist_dir, f"trace_{trace.trace_id}.json")
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(trace.to_dict(), f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"[Tracer] 트레이스 저장 실패: {e}")
+        except Exception:
+            logger.exception("[Tracer] 트레이스 저장 실패")
 
 
 # ─── @traced 데코레이터 ──────────────────────────────────────────
@@ -339,18 +340,14 @@ def traced(tracer: AgentTracer, span_type: str = "generic", name: str = None):
 
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
-            with tracer.span(
-                span_name, {"args_count": len(args)}, span_type=span_type
-            ) as s:
+            with tracer.span(span_name, {"args_count": len(args)}, span_type=span_type) as s:
                 result = func(*args, **kwargs)
                 s.set_output(result)
                 return result
 
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
-            with tracer.span(
-                span_name, {"args_count": len(args)}, span_type=span_type
-            ) as s:
+            with tracer.span(span_name, {"args_count": len(args)}, span_type=span_type) as s:
                 result = await func(*args, **kwargs)
                 s.set_output(result)
                 return result
@@ -366,7 +363,7 @@ def traced(tracer: AgentTracer, span_type: str = "generic", name: str = None):
 
 # ─── 글로벌 트레이서 인스턴스 ─────────────────────────────────────
 
-_global_tracer: Optional[AgentTracer] = None
+_global_tracer: AgentTracer | None = None
 
 
 def get_tracer(persist_dir: str = None) -> AgentTracer:

@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Self-Improvement Feedback Loop
+"""Antigravity-K: Self-Improvement Feedback Loop.
+
 ===============================================
 매 턴의 QualityGate 점수를 누적 기록하고, 반복적으로 낮은 점수를 받는
 패턴에 대해 프롬프트를 자동 보강하는 자기 개선 시스템.
@@ -59,9 +59,7 @@ class SelfImprovementLoop:
             "⚠️ [언어 순수성] 한국어 응답에 중국어/일본어를 혼입하지 마세요. "
             "모든 외래 기술 용어는 영어 원문을 사용하고, 설명은 순수 한국어로 작성하세요."
         ),
-        "일본어": (
-            "⚠️ [언어 순수성] 일본어 혼입이 감지됩니다. " "한국어와 영어만 사용하세요."
-        ),
+        "일본어": ("⚠️ [언어 순수성] 일본어 혼입이 감지됩니다. 한국어와 영어만 사용하세요."),
         "구조": (
             "⚠️ [구조 가이드] 응답이 800자를 넘는 경우 반드시 heading(##), "
             "목록(-), 코드 블록(```)을 사용하여 구조화하세요."
@@ -70,10 +68,7 @@ class SelfImprovementLoop:
             "⚠️ [중복 방지] 같은 내용을 반복하지 마세요. "
             "핵심 포인트를 한 번만 명확히 설명하고, 각 섹션은 새로운 정보를 제공해야 합니다."
         ),
-        "밀도": (
-            "⚠️ [정보 밀도] 장황한 설명 대신 핵심 개념에 집중하세요. "
-            "구체적인 예시, 수치, 코드를 통해 설명하세요."
-        ),
+        "밀도": ("⚠️ [정보 밀도] 장황한 설명 대신 핵심 개념에 집중하세요. 구체적인 예시, 수치, 코드를 통해 설명하세요."),
     }
 
     def __init__(
@@ -82,8 +77,20 @@ class SelfImprovementLoop:
         window_size: int = 50,
         pattern_threshold: int = 3,
     ):
+        """Initialize the SelfImprovementLoop.
+
+        Args:
+            data_dir (str | None): str | None data dir.
+            window_size (int): int window size.
+            pattern_threshold (int): int pattern threshold.
+
+        """
         self._data_dir = data_dir or os.path.join(
-            os.path.dirname(__file__), "..", "..", "..", "data"
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "data",
         )
         self._records: list[TurnRecord] = []
         self._window_size = window_size
@@ -134,18 +141,12 @@ class SelfImprovementLoop:
     def get_insights(self) -> list[PatternInsight]:
         """반복 패턴 분석 결과를 반환합니다."""
         insights = []
-        for pattern, count in sorted(
-            self._issue_counter.items(), key=lambda x: x[1], reverse=True
-        ):
+        for pattern, count in sorted(self._issue_counter.items(), key=lambda x: x[1], reverse=True):
             if count < 2:
                 continue
             # 해당 패턴이 포함된 턴의 평균 점수 계산
-            matching = [
-                r for r in self._records if any(pattern in issue for issue in r.issues)
-            ]
-            avg_score = (
-                sum(r.score for r in matching) / len(matching) if matching else 0.0
-            )
+            matching = [r for r in self._records if any(pattern in issue for issue in r.issues)]
+            avg_score = sum(r.score for r in matching) / len(matching) if matching else 0.0
             insights.append(
                 PatternInsight(
                     pattern_name=pattern,
@@ -153,7 +154,7 @@ class SelfImprovementLoop:
                     avg_score=round(avg_score, 3),
                     common_issues=[pattern],
                     recommended_prompt=self._REINFORCEMENT_PROMPTS.get(pattern, ""),
-                )
+                ),
             )
         return insights
 
@@ -195,12 +196,12 @@ class SelfImprovementLoop:
                     "### 반복 패턴 분석",
                     "| 패턴 | 발생 횟수 | 평균 점수 | 권장 조치 |",
                     "|------|----------|----------|----------|",
-                ]
+                ],
             )
             for insight in insights:
                 lines.append(
                     f"| {insight.pattern_name} | {insight.occurrence_count} | "
-                    f"{insight.avg_score:.3f} | {insight.recommended_prompt[:50]}... |"
+                    f"{insight.avg_score:.3f} | {insight.recommended_prompt[:50]}... |",
                 )
 
         reinforcement = self.get_reinforcement_prompt()
@@ -212,7 +213,7 @@ class SelfImprovementLoop:
                     "```",
                     reinforcement,
                     "```",
-                ]
+                ],
             )
 
         return "\n".join(lines)
@@ -239,7 +240,8 @@ class SelfImprovementLoop:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.debug(f"Failed to save improvement history: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Failed to save improvement history: %s", e)
 
     def _load_history(self) -> None:
         """기록을 파일에서 복원합니다."""
@@ -251,4 +253,5 @@ class SelfImprovementLoop:
                 self._records = [TurnRecord(**r) for r in data.get("records", [])]
                 self._issue_counter = defaultdict(int, data.get("issue_counter", {}))
         except Exception as e:
-            logger.debug(f"Failed to load improvement history: {e}")
+            logger.exception("Unhandled exception")
+            logger.debug("Failed to load improvement history: %s", e)

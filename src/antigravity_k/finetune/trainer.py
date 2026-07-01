@@ -1,5 +1,5 @@
-"""
-Antigravity-K: MLX LoRA/QLoRA 파인튜닝 엔진
+"""Antigravity-K: MLX LoRA/QLoRA 파인튜닝 엔진.
+
 =============================================
 Apple Silicon 128GB Unified Memory에서 로컬 파인튜닝 실행.
 
@@ -14,12 +14,11 @@ Apple Silicon 128GB Unified Memory에서 로컬 파인튜닝 실행.
 """
 
 import json
-import time
 import logging
 import os
+import time
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Optional
 
 logger = logging.getLogger("agk.finetune")
 
@@ -41,7 +40,7 @@ class LoRAConfig:
             "gate_proj",
             "up_proj",
             "down_proj",
-        ]
+        ],
     )
 
 
@@ -77,8 +76,7 @@ class TrainingConfig:
 
 # ─── 데이터 준비 도구 ────────────────────────────────────────────────
 class DatasetPreparer:
-    """
-    다양한 소스 데이터를 MLX 파인튜닝용 JSONL로 변환.
+    """다양한 소스 데이터를 MLX 파인튜닝용 JSONL로 변환.
 
     지원 포맷:
         1. ChatML: {"messages": [{"role": "system", ...}, {"role": "user", ...}, {"role": "assistant", ...}]}
@@ -97,17 +95,16 @@ class DatasetPreparer:
     def from_instruction(
         input_path: str,
         output_path: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
     ) -> int:
         """Instruction 포맷 → ChatML JSONL 변환."""
         system = system_prompt or DatasetPreparer.SYSTEM_PROMPT
         count = 0
 
         with (
-            open(input_path, "r", encoding="utf-8") as fin,
+            open(input_path, encoding="utf-8") as fin,
             open(output_path, "w", encoding="utf-8") as fout,
         ):
-
             for line in fin:
                 line = line.strip()
                 if not line:
@@ -116,7 +113,7 @@ class DatasetPreparer:
                 try:
                     item = json.loads(line)
                 except json.JSONDecodeError:
-                    logger.warning(f"JSON 파싱 실패, 건너뜀: {line[:80]}")
+                    logger.warning("JSON 파싱 실패, 건너뜀: %s", line[:80])
                     continue
 
                 # Instruction 포맷
@@ -139,14 +136,12 @@ class DatasetPreparer:
 
                 # Raw text
                 elif "text" in item:
-                    fout.write(
-                        json.dumps({"text": item["text"]}, ensure_ascii=False) + "\n"
-                    )
+                    fout.write(json.dumps({"text": item["text"]}, ensure_ascii=False) + "\n")
                     count += 1
                     continue
 
                 else:
-                    logger.warning(f"알 수 없는 포맷, 건너뜀: {list(item.keys())}")
+                    logger.warning("알 수 없는 포맷, 건너뜀: %s", list(item.keys()))
                     continue
 
                 chatml = {
@@ -154,12 +149,12 @@ class DatasetPreparer:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_content},
                         {"role": "assistant", "content": assistant_content},
-                    ]
+                    ],
                 }
                 fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
                 count += 1
 
-        logger.info(f"변환 완료: {count}개 → {output_path}")
+        logger.info("변환 완료: %s개 → %s", count, output_path)
         return count
 
     @staticmethod
@@ -180,9 +175,10 @@ class DatasetPreparer:
 
                     fpath = os.path.join(root, fname)
                     try:
-                        with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                        with open(fpath, encoding="utf-8", errors="ignore") as f:
                             code = f.read()
                     except Exception:
+                        logger.exception("Unhandled exception")
                         continue
 
                     lines = code.strip().split("\n")
@@ -200,18 +196,18 @@ class DatasetPreparer:
                             },
                             {
                                 "role": "user",
-                                "content": f"다음 {ext} 파일을 분석하고 핵심 기능을 설명해주세요:\n\n파일: {rel_path}\n```{ext[1:]}\n{code[:3000]}\n```",
+                                "content": f"다음 {ext} 파일을 분석하고 핵심 기능을 설명해주세요:\n\n파일: {rel_path}\n```{ext[1:]}\n{code[:3000]}\n```",  # noqa: E501
                             },
                             {
                                 "role": "assistant",
                                 "content": f"## {rel_path} 분석\n\n이 파일은 {len(lines)}줄의 {ext} 코드입니다.",
                             },
-                        ]
+                        ],
                     }
                     fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
                     count += 1
 
-        logger.info(f"코드 파일 변환: {count}개 → {output_path}")
+        logger.info("코드 파일 변환: %s개 → %s", count, output_path)
         return count
 
     @staticmethod
@@ -225,7 +221,7 @@ class DatasetPreparer:
 
         random.seed(seed)
 
-        with open(input_path, "r", encoding="utf-8") as f:
+        with open(input_path, encoding="utf-8") as f:
             lines = [line for line in f if line.strip()]
 
         random.shuffle(lines)
@@ -239,7 +235,7 @@ class DatasetPreparer:
         with open(valid_path, "w", encoding="utf-8") as f:
             f.writelines(lines[split_idx:])
 
-        logger.info(f"분할 완료: train={split_idx}, valid={len(lines)-split_idx}")
+        logger.info("분할 완료: train=%s, valid=%s", split_idx, len(lines) - split_idx)
         return train_path, valid_path
 
 
@@ -248,6 +244,12 @@ class FineTuneEngine:
     """MLX LoRA 파인튜닝 엔진."""
 
     def __init__(self, config: TrainingConfig):
+        """Initialize the FineTuneEngine.
+
+        Args:
+            config (TrainingConfig): TrainingConfig config.
+
+        """
         self.config = config
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -266,13 +268,13 @@ class FineTuneEngine:
         logger.info("=" * 60)
         logger.info("Antigravity-K LoRA 파인튜닝 시작")
         logger.info("=" * 60)
-        logger.info(f"  베이스 모델: {self.config.base_model}")
-        logger.info(f"  학습 데이터: {self.config.train_data}")
-        logger.info(f"  LoRA Rank:   {self.config.lora.rank}")
-        logger.info(f"  Epochs:      {self.config.num_epochs}")
-        logger.info(f"  Batch Size:  {self.config.batch_size}")
-        logger.info(f"  LR:          {self.config.learning_rate}")
-        logger.info(f"  출력 경로:   {self.output_dir}")
+        logger.info("  베이스 모델: %s", self.config.base_model)
+        logger.info("  학습 데이터: %s", self.config.train_data)
+        logger.info("  LoRA Rank:   %s", self.config.lora.rank)
+        logger.info("  Epochs:      %s", self.config.num_epochs)
+        logger.info("  Batch Size:  %s", self.config.batch_size)
+        logger.info("  LR:          %s", self.config.learning_rate)
+        logger.info("  출력 경로:   %s", self.output_dir)
         logger.info("=" * 60)
 
         start_time = time.time()
@@ -306,7 +308,7 @@ class FineTuneEngine:
         if self.config.valid_data:
             cmd.extend(["--val-batches", "25"])
 
-        logger.info(f"실행 명령: {' '.join(cmd)}")
+        logger.info("실행 명령: %s", " ".join(cmd))
 
         try:
             process = subprocess.Popen(
@@ -321,7 +323,7 @@ class FineTuneEngine:
             for line in iter(process.stdout.readline, ""):
                 line = line.rstrip()
                 if line:
-                    logger.info(f"  [MLX] {line}")
+                    logger.info("  [MLX] %s", line)
                     self.training_log.append(line)
 
                     # 진행 상황 파싱
@@ -337,24 +339,22 @@ class FineTuneEngine:
                 "elapsed_seconds": round(elapsed, 1),
                 "adapter_path": str(self.output_dir / "adapters"),
                 "total_steps": self.current_step,
-                "best_val_loss": (
-                    self.best_val_loss if self.best_val_loss < float("inf") else None
-                ),
+                "best_val_loss": (self.best_val_loss if self.best_val_loss < float("inf") else None),
             }
 
             if process.returncode == 0:
-                logger.info(f"✓ 파인튜닝 완료! ({elapsed:.0f}초)")
+                logger.info("✓ 파인튜닝 완료! (%s초)", elapsed)
                 self._save_training_info(result)
             else:
-                logger.error(f"✗ 파인튜닝 실패 (exit code: {process.returncode})")
+                logger.error("✗ 파인튜닝 실패 (exit code: %s)", process.returncode)
 
             return result
 
         except Exception as e:
-            logger.error(f"파인튜닝 오류: {e}")
+            logger.exception("파인튜닝 오류")
             return {"status": "error", "error": str(e)}
 
-    def merge_and_export(self, export_name: Optional[str] = None) -> str:
+    def merge_and_export(self, export_name: str | None = None) -> str:
         """LoRA 어댑터를 베이스 모델에 병합하여 독립 모델 생성."""
         import subprocess
         import sys
@@ -363,7 +363,7 @@ class FineTuneEngine:
         name = export_name or f"finetuned-{int(time.time())}"
         export_path = Path(self.config.base_model).parent.parent / "finetuned" / name
 
-        logger.info(f"모델 병합: {adapter_path} → {export_path}")
+        logger.info("모델 병합: %s → %s", adapter_path, export_path)
 
         cmd = [
             sys.executable,
@@ -380,7 +380,7 @@ class FineTuneEngine:
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode == 0:
-            logger.info(f"✓ 병합 완료: {export_path}")
+            logger.info("✓ 병합 완료: %s", export_path)
 
             # api_forwarder 자동 등록을 위한 메타데이터 저장
             meta = {
@@ -397,21 +397,21 @@ class FineTuneEngine:
 
             return str(export_path)
         else:
-            logger.error(f"병합 실패: {result.stderr}")
+            logger.error("병합 실패: %s", result.stderr)
             raise RuntimeError(result.stderr)
 
     def _calculate_total_iters(self) -> int:
         """전체 학습 스텝 수 계산."""
         try:
-            with open(self.config.train_data, "r") as f:
+            with open(self.config.train_data) as f:
                 num_samples = sum(1 for _ in f)
         except Exception:
+            logger.exception("Unhandled exception")
             num_samples = 1000  # 기본값
 
         steps_per_epoch = max(
             1,
-            num_samples
-            // (self.config.batch_size * self.config.gradient_accumulation_steps),
+            num_samples // (self.config.batch_size * self.config.gradient_accumulation_steps),
         )
         return steps_per_epoch * self.config.num_epochs
 
@@ -442,11 +442,12 @@ class FineTuneEngine:
         info_path = self.output_dir / "training_info.json"
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(info, f, ensure_ascii=False, indent=2)
-        logger.info(f"학습 정보 저장: {info_path}")
+        logger.info("학습 정보 저장: %s", info_path)
 
 
 # ─── CLI 진입점 ──────────────────────────────────────────────────────
 def main():
+    """Run the main program."""
     import argparse
 
     logging.basicConfig(
@@ -472,9 +473,7 @@ def main():
     prep_p = sub.add_parser("prepare", help="데이터 준비")
     prep_p.add_argument("--input", required=True, help="입력 데이터 경로")
     prep_p.add_argument("--output", required=True, help="출력 JSONL 경로")
-    prep_p.add_argument(
-        "--format", choices=["instruction", "code"], default="instruction"
-    )
+    prep_p.add_argument("--format", choices=["instruction", "code"], default="instruction")
     prep_p.add_argument("--split", type=float, default=0.9, help="train/valid 비율")
 
     # merge
@@ -512,15 +511,11 @@ def main():
         print(f"✓ {count}개 샘플 변환 완료: {args.output}")
 
         if args.split < 1.0:
-            train_path, valid_path = DatasetPreparer.split_dataset(
-                args.output, args.split
-            )
+            train_path, valid_path = DatasetPreparer.split_dataset(args.output, args.split)
             print(f"✓ 분할 완료: {train_path}, {valid_path}")
 
     elif args.command == "merge":
-        config = TrainingConfig(
-            base_model=args.model, output_dir=os.path.dirname(args.adapter)
-        )
+        config = TrainingConfig(base_model=args.model, output_dir=os.path.dirname(args.adapter))
         engine = FineTuneEngine(config)
         export_path = engine.merge_and_export(args.name)
         print(f"✓ 병합 완료: {export_path}")

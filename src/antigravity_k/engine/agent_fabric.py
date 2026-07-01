@@ -1,5 +1,5 @@
-"""
-Antigravity-K: Agent Fabric (Hybrid Multi-Agent Framework)
+"""Antigravity-K: Agent Fabric (Hybrid Multi-Agent Framework).
+
 ==========================================================
 CrewAI의 팀 관리 + AutoGen의 통신 + LangGraph의 상태 그래프를 융합한
 통합 멀티에이전트 실행 계층입니다.
@@ -20,19 +20,18 @@ CrewAI의 팀 관리 + AutoGen의 통신 + LangGraph의 상태 그래프를 융�
 import logging
 import time
 import uuid
-from typing import Dict, Generator, List
+from collections.abc import Generator
 
 from antigravity_k.agents.base_agent import BaseAgent
-from antigravity_k.agents.personas import get_persona
 from antigravity_k.agents.kanban import KanbanBoard
 from antigravity_k.agents.message_bus import MessageBus
+from antigravity_k.agents.personas import get_persona
 
 logger = logging.getLogger("antigravity_k.engine.agent_fabric")
 
 
 class AgentFabric:
-    """
-    Hybrid Multi-Agent Fabric.
+    """Hybrid Multi-Agent Fabric.
 
     CrewAI + AutoGen + LangGraph 패턴을 융합한 에이전트 라이프사이클 관리자.
     orchestrator.py의 에이전트 관리 로직과 agents/team_manager.py를 통합합니다.
@@ -45,11 +44,18 @@ class AgentFabric:
     """
 
     def __init__(self, model_manager=None, tool_registry=None):
+        """Initialize the AgentFabric.
+
+        Args:
+            model_manager: model manager.
+            tool_registry: tool registry.
+
+        """
         self.model_manager = model_manager
         self.tool_registry = tool_registry
 
         # CrewAI: 역할 기반 에이전트 레지스트리
-        self._agent_registry: Dict[str, BaseAgent] = {}
+        self._agent_registry: dict[str, BaseAgent] = {}
 
         # 태스크 추적 (KanbanBoard + MessageBus)
         self.kanban = KanbanBoard()
@@ -99,8 +105,10 @@ class AgentFabric:
 
         self._agent_registry[role_upper] = agent
         logger.info(
-            f"[AgentFabric] Agent '{role_upper}' 생성 "
-            f"(goal: {persona.get('goal', 'N/A')[:40]}..., model: {model_id})"
+            "[AgentFabric] Agent '%s' 생성 (goal: %s..., model: %s)",
+            role_upper,
+            persona.get("goal", "N/A")[:40],
+            model_id,
         )
         return agent
 
@@ -144,13 +152,12 @@ class AgentFabric:
     def execute_single(
         self,
         role: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         orchestrator=None,
         task_type: str = "simple_chat",
         max_steps: int = 15,
     ) -> Generator[str, None, None]:
-        """
-        단일 에이전트 스트리밍 실행.
+        """단일 에이전트 스트리밍 실행.
 
         orchestrator가 제공되면 기존 _run_single_agent() 도구 루프를 사용하고,
         없으면 BaseAgent.run()으로 폴백합니다.
@@ -161,6 +168,7 @@ class AgentFabric:
             orchestrator: OrchestratorAgent 인스턴스 (도구 루프 사용)
             task_type: 태스크 유형
             max_steps: 최대 도구 호출 스텝
+
         """
         agent = self.get_or_create(role)
         task_id = self.kanban.create_task(
@@ -182,9 +190,7 @@ class AgentFabric:
         try:
             if orchestrator and hasattr(orchestrator, "_run_single_agent"):
                 # 기존 orchestrator의 도구 루프 사용 (Phase 1: 래핑)
-                yield from orchestrator._run_single_agent(
-                    messages, role, task_type, max_steps
-                )
+                yield from orchestrator._run_single_agent(messages, role, task_type, max_steps)
             else:
                 # BaseAgent 직접 실행 (폴백)
                 user_msg = messages[-1].get("content", "") if messages else ""
@@ -194,7 +200,9 @@ class AgentFabric:
             # 성공 → Kanban 업데이트
             elapsed = time.time() - start_time
             self.kanban.move_task(
-                task_id, "REVIEW", verification_note=f"Completed in {elapsed:.1f}s"
+                task_id,
+                "REVIEW",
+                verification_note=f"Completed in {elapsed:.1f}s",
             )
 
             # 결과를 MessageBus에 발행 (다른 에이전트가 참조 가능)
@@ -206,7 +214,7 @@ class AgentFabric:
             )
 
         except Exception as e:
-            logger.error(f"[AgentFabric] execute_single({role}) failed: {e}")
+            logger.exception("[AgentFabric] execute_single(%s) failed", role)
             self.kanban.move_task(task_id, "BACKLOG")
             yield f"\n❌ **[Agent Error]** {role} 실행 실패: {e}\n"
 
@@ -218,14 +226,13 @@ class AgentFabric:
 
     def execute_crew(
         self,
-        steps: List[Dict],
-        messages: List[Dict[str, str]],
+        steps: list[dict],
+        messages: list[dict[str, str]],
         orchestrator=None,
         max_steps: int = 15,
         process: str = "sequential",
     ) -> Generator[str, None, None]:
-        """
-        CrewAI의 Crew 패턴: 멀티 에이전트 순차/계층 파이프라인.
+        """CrewAI의 Crew 패턴: 멀티 에이전트 순차/계층 파이프라인.
 
         sequential: step1의 output → step2의 input → step3의 input
         hierarchical: CEO가 각 단계를 모니터링하며 동적 재할당
@@ -236,6 +243,7 @@ class AgentFabric:
             orchestrator: OrchestratorAgent
             max_steps: 도구 호출 스텝 제한
             process: "sequential" 또는 "hierarchical"
+
         """
         # 파이프라인 전용 채널 생성
         channel = f"crew_{uuid.uuid4().hex[:8]}"
@@ -280,7 +288,10 @@ class AgentFabric:
             try:
                 if orchestrator and hasattr(orchestrator, "_run_single_agent"):
                     for chunk in orchestrator._run_single_agent(
-                        step_messages, agent_role, "pipeline_step", max_steps
+                        step_messages,
+                        agent_role,
+                        "pipeline_step",
+                        max_steps,
                     ):
                         step_output_parts.append(chunk)
                         yield chunk
@@ -310,9 +321,7 @@ class AgentFabric:
                 )
 
             except Exception as e:
-                logger.error(
-                    f"[AgentFabric] Pipeline step {i} ({agent_role}) failed: {e}"
-                )
+                logger.exception("[AgentFabric] Pipeline step %s (%s) failed", i, agent_role)
                 self.kanban.move_task(task_id, "BACKLOG")
                 yield f"\n❌ **Step {i} ({agent_role})** 실행 실패: {e}\n"
                 break
@@ -326,14 +335,13 @@ class AgentFabric:
     def execute_debate(
         self,
         topic: str,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         orchestrator=None,
         rounds: int = 2,
         num_critics: int = 2,
         max_steps: int = 10,
     ) -> Generator[str, None, None]:
-        """
-        AutoGen의 GroupChat 패턴: N:N 토론.
+        """AutoGen의 GroupChat 패턴: N:N 토론.
 
         PROPOSER → N명 CRITIC → PROPOSER(수정) → ... → ARBITER(최종)
         MessageBus 채널 기반으로 피드백을 교환합니다.
@@ -344,6 +352,7 @@ class AgentFabric:
             orchestrator: OrchestratorAgent
             rounds: 토론 라운드 수
             num_critics: 비평가 수
+
         """
         # 토론 전용 채널
         channel = f"debate_{uuid.uuid4().hex[:8]}"
@@ -370,22 +379,15 @@ class AgentFabric:
 
             # 1. Proposer 제안
             if round_num == 1:
-                prompt = (
-                    f"다음 주제에 대해 최적의 해결책을 제안하세요.\n\n주제: {topic}"
-                )
+                prompt = f"다음 주제에 대해 최적의 해결책을 제안하세요.\n\n주제: {topic}"
             else:
-                prompt = (
-                    f"CRITIC들의 피드백을 반영하여 제안을 개선하세요.\n\n"
-                    f"이전 제안: {current_proposal[:500]}..."
-                )
+                prompt = f"CRITIC들의 피드백을 반영하여 제안을 개선하세요.\n\n이전 제안: {current_proposal[:500]}..."
 
             yield "### 💡 PROPOSER\n"
             proposal_parts = []
             if orchestrator and hasattr(orchestrator, "_generate_for_role"):
                 # orchestrator의 모델 생성 사용
-                for chunk in orchestrator._generate_for_role(
-                    "PROPOSER", prompt, messages
-                ):
+                for chunk in orchestrator._generate_for_role("PROPOSER", prompt, messages):
                     proposal_parts.append(chunk)
                     yield chunk
             else:
@@ -413,14 +415,14 @@ class AgentFabric:
                 critique_parts = []
                 if orchestrator and hasattr(orchestrator, "_generate_for_role"):
                     for chunk in orchestrator._generate_for_role(
-                        "CRITIC", critique_prompt, messages
+                        "CRITIC",
+                        critique_prompt,
+                        messages,
                     ):
                         critique_parts.append(chunk)
                         yield chunk
                 else:
-                    result = critic.run(
-                        critique_prompt, model_manager=self.model_manager
-                    )
+                    result = critic.run(critique_prompt, model_manager=self.model_manager)
                     critique_parts.append(result)
                     yield result
 
@@ -441,9 +443,7 @@ class AgentFabric:
         )
 
         if orchestrator and hasattr(orchestrator, "_generate_for_role"):
-            for chunk in orchestrator._generate_for_role(
-                "ARBITER", arbiter_prompt, messages
-            ):
+            for chunk in orchestrator._generate_for_role("ARBITER", arbiter_prompt, messages):
                 yield chunk
         else:
             result = arbiter.run(arbiter_prompt, model_manager=self.model_manager)
@@ -453,7 +453,7 @@ class AgentFabric:
 
     # ─── 유틸리티 ─────────────────────────────────────────────────
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         """Fabric 상태 요약."""
         return {
             "active_agents": list(self._agent_registry.keys()),
@@ -468,4 +468,4 @@ class AgentFabric:
         for key in temp_keys:
             del self._agent_registry[key]
         if temp_keys:
-            logger.info(f"[AgentFabric] Cleaned up {len(temp_keys)} temp agents")
+            logger.info("[AgentFabric] Cleaned up %s temp agents", len(temp_keys))

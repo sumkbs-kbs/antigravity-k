@@ -1,5 +1,4 @@
-"""
-MCP capability and safety advisor.
+"""MCP capability and safety advisor.
 
 This module keeps MCP adoption inside Antigravity-K evidence-driven: it can
 inspect MCP server configuration, map it to the latest protocol capabilities,
@@ -10,14 +9,17 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
 class MCPFinding:
+    """Mcpfinding."""
+
     server: str
     severity: str
     code: str
@@ -27,6 +29,8 @@ class MCPFinding:
 
 @dataclass(frozen=True)
 class MCPCapability:
+    """Mcpcapability."""
+
     name: str
     why_it_matters: str
     antigravity_action: str
@@ -36,6 +40,8 @@ class MCPCapability:
 
 @dataclass(frozen=True)
 class MCPAuditReport:
+    """Mcpauditreport."""
+
     source: str
     servers_total: int
     servers_ready: int
@@ -44,10 +50,22 @@ class MCPAuditReport:
 
     @property
     def blocking_count(self) -> int:
+        """Blocking Count.
+
+        Returns:
+            int: The int result.
+
+        """
         return sum(1 for finding in self.findings if finding.severity == "error")
 
     @property
     def warning_count(self) -> int:
+        """Warning Count.
+
+        Returns:
+            int: The int result.
+
+        """
         return sum(1 for finding in self.findings if finding.severity == "warning")
 
 
@@ -55,6 +73,12 @@ class MCPCapabilityAdvisor:
     """Audit MCP configs and render latest-technology upgrade guidance."""
 
     def latest_capabilities(self) -> list[MCPCapability]:
+        """Latest Capabilities.
+
+        Returns:
+            list[MCPCapability]: The list[mcpcapability] result.
+
+        """
         return [
             MCPCapability(
                 name="Streamable HTTP transport",
@@ -72,12 +96,10 @@ class MCPCapabilityAdvisor:
             MCPCapability(
                 name="OAuth 2.1 authorization",
                 why_it_matters=(
-                    "Remote MCP servers should authenticate clients rather than "
-                    "depending on ambient API keys."
+                    "Remote MCP servers should authenticate clients rather than depending on ambient API keys."
                 ),
                 antigravity_action=(
-                    "Flag non-local HTTP MCP servers without Authorization headers "
-                    "or an auth profile before import."
+                    "Flag non-local HTTP MCP servers without Authorization headers or an auth profile before import."
                 ),
                 priority="P0",
                 evidence_url="https://modelcontextprotocol.io/specification/2025-03-26/changelog",
@@ -88,21 +110,17 @@ class MCPCapabilityAdvisor:
                     "Annotations such as read-only or destructive help clients apply "
                     "permission gates and avoid accidental side effects."
                 ),
-                antigravity_action=(
-                    "Map MCP annotations to BaseTool risk levels and dashboard metadata."
-                ),
+                antigravity_action=("Map MCP annotations to BaseTool risk levels and dashboard metadata."),
                 priority="P0",
                 evidence_url="https://modelcontextprotocol.io/specification/2025-03-26/changelog",
             ),
             MCPCapability(
                 name="JSON-RPC batching and completions",
                 why_it_matters=(
-                    "Batching reduces round trips; completions improve parameter entry "
-                    "and tool-call accuracy."
+                    "Batching reduces round trips; completions improve parameter entry and tool-call accuracy."
                 ),
                 antigravity_action=(
-                    "Expose batching/completions as optional server capabilities in "
-                    "the MCP audit report."
+                    "Expose batching/completions as optional server capabilities in the MCP audit report."
                 ),
                 priority="P1",
                 evidence_url="https://modelcontextprotocol.io/specification/2025-03-26/changelog",
@@ -136,14 +154,35 @@ class MCPCapabilityAdvisor:
         ]
 
     def load_config(self, path: str | Path) -> Mapping[str, Any]:
+        """Load config.
+
+        Args:
+            path (str | Path): str | Path path.
+
+        Returns:
+            Mapping[str, Any]: The mapping[str, any] result.
+
+        """
         config_path = Path(path)
         if not config_path.exists():
             return {}
         return json.loads(config_path.read_text(encoding="utf-8"))
 
     def audit_config(
-        self, config: Mapping[str, Any] | None, source: str = "inline"
+        self,
+        config: Mapping[str, Any] | None,
+        source: str = "inline",
     ) -> MCPAuditReport:
+        """Audit Config.
+
+        Args:
+            config (Mapping[str, Any] | None): Mapping[str, Any] | None config.
+            source (str): str source.
+
+        Returns:
+            MCPAuditReport: The mcpauditreport result.
+
+        """
         config = config or {}
         servers = config.get("mcpServers", {})
         if not isinstance(servers, Mapping):
@@ -158,7 +197,7 @@ class MCPCapabilityAdvisor:
                         "invalid_config",
                         "`mcpServers` must be an object.",
                         "Use a Claude/HF-compatible MCP config with `mcpServers`.",
-                    )
+                    ),
                 ],
                 capabilities=self.latest_capabilities(),
             )
@@ -180,7 +219,7 @@ class MCPCapabilityAdvisor:
                     "no_servers",
                     "No MCP servers are configured.",
                     "Use `/mcp template` to start with a guarded local/remote setup.",
-                )
+                ),
             )
 
         return MCPAuditReport(
@@ -203,7 +242,7 @@ class MCPCapabilityAdvisor:
                     "unknown_transport",
                     f"Unknown MCP transport `{transport}`.",
                     "Use `stdio`, `http`/`streamable-http`, or legacy `sse`.",
-                )
+                ),
             )
             return findings
 
@@ -217,7 +256,7 @@ class MCPCapabilityAdvisor:
                         "missing_command",
                         "stdio MCP server is missing `command`.",
                         "Set a fixed executable command and args.",
-                    )
+                    ),
                 )
             args = [str(arg) for arg in server.get("args", []) or []]
             if _uses_unpinned_npx(command, args):
@@ -228,7 +267,7 @@ class MCPCapabilityAdvisor:
                         "unpinned_npx_package",
                         "npx MCP server package is not pinned.",
                         "Pin package versions instead of using `@latest` or floating package names.",
-                    )
+                    ),
                 )
         else:
             url = str(server.get("url", "") or server.get("endpoint", "")).strip()
@@ -240,7 +279,7 @@ class MCPCapabilityAdvisor:
                         "missing_url",
                         "Remote MCP server is missing `url`.",
                         "Set a single MCP endpoint URL such as `https://host/mcp`.",
-                    )
+                    ),
                 )
             elif transport == "sse":
                 findings.append(
@@ -250,7 +289,7 @@ class MCPCapabilityAdvisor:
                         "legacy_sse",
                         "SSE is supported for compatibility but is no longer the preferred transport.",
                         "Prefer Streamable HTTP (`type: http`) for new remote MCP servers.",
-                    )
+                    ),
                 )
 
             if url and not _is_local_url(url) and not _has_auth(server):
@@ -261,7 +300,7 @@ class MCPCapabilityAdvisor:
                         "remote_without_auth",
                         "Remote MCP server has no auth profile or Authorization header.",
                         "Use OAuth/API auth metadata before enabling remote tool execution.",
-                    )
+                    ),
                 )
 
         if not server.get("trust_level"):
@@ -272,7 +311,7 @@ class MCPCapabilityAdvisor:
                     "missing_trust_level",
                     "MCP server has no trust label.",
                     "Set `trust_level` to local, verified, partner, or experimental.",
-                )
+                ),
             )
 
         if not server.get("timeout_ms") and not server.get("timeout"):
@@ -283,7 +322,7 @@ class MCPCapabilityAdvisor:
                     "missing_timeout",
                     "MCP server has no timeout.",
                     "Set `timeout_ms` to prevent hung tool calls.",
-                )
+                ),
             )
 
         if not server.get("tool_annotations") and not server.get("annotations"):
@@ -294,12 +333,21 @@ class MCPCapabilityAdvisor:
                     "missing_tool_annotations",
                     "No declared tool annotation policy was found.",
                     "Prefer MCP tools that provide read-only/destructive/open-world annotations.",
-                )
+                ),
             )
 
         return findings
 
     def render_markdown(self, report: MCPAuditReport) -> str:
+        """Render markdown.
+
+        Args:
+            report (MCPAuditReport): MCPAuditReport report.
+
+        Returns:
+            str: The str result.
+
+        """
         lines = [
             "# MCP Upgrade Radar",
             "",
@@ -321,9 +369,9 @@ class MCPCapabilityAdvisor:
                         capability.why_it_matters,
                         capability.antigravity_action,
                         capability.priority,
-                    ]
+                    ],
                 )
-                + " |"
+                + " |",
             )
 
         lines.extend(["", "## Findings", ""])
@@ -333,7 +381,7 @@ class MCPCapabilityAdvisor:
             for finding in report.findings:
                 lines.append(
                     f"- **{finding.severity.upper()} `{finding.code}`** "
-                    f"({finding.server}): {finding.message} → {finding.recommendation}"
+                    f"({finding.server}): {finding.message} → {finding.recommendation}",
                 )
 
         lines.extend(["", "## Evidence Sources", ""])
@@ -343,6 +391,12 @@ class MCPCapabilityAdvisor:
         return "\n".join(lines)
 
     def render_template(self) -> str:
+        """Render template.
+
+        Returns:
+            str: The str result.
+
+        """
         template = {
             "mcpServers": {
                 "playwright-local": {
@@ -369,7 +423,7 @@ class MCPCapabilityAdvisor:
                     "timeout_ms": 60000,
                     "tool_annotations": "read-only",
                 },
-            }
+            },
         }
         return json.dumps(template, ensure_ascii=False, indent=2)
 

@@ -1,5 +1,5 @@
-"""
-SecretScanner & Redactor — 에이전트 출력/메모리에서 시크릿 자동 감지 & 마스킹
+"""SecretScanner & Redactor — 에이전트 출력/메모리에서 시크릿 자동 감지 & 마스킹.
+
 ==========================================================================
 NemoClaw의 secret-scanner.ts + redact.ts + credential-filter.ts 패턴을 이식.
 
@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, List, Optional, Set
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.secret_scanner")
 
@@ -55,7 +55,7 @@ class SecretMatch:
 
 
 # 토큰 접두어 기반 패턴 (독립 매칭 — 컨텍스트 불필요)
-TOKEN_PREFIX_PATTERNS: List[SecretPattern] = [
+TOKEN_PREFIX_PATTERNS: list[SecretPattern] = [
     # NVIDIA
     SecretPattern("NVIDIA API key", re.compile(r"\bnvapi-[A-Za-z0-9_-]{10,}\b")),
     SecretPattern("NVIDIA Cloud key", re.compile(r"\bnvcf-[A-Za-z0-9_-]{10,}\b")),
@@ -76,9 +76,7 @@ TOKEN_PREFIX_PATTERNS: List[SecretPattern] = [
     # Groq
     SecretPattern("Groq API key", re.compile(r"\bgsk_[A-Za-z0-9]{10,}\b")),
     # Slack
-    SecretPattern(
-        "Slack token", re.compile(r"\b(?:xox[bpas]|xapp)-[A-Za-z0-9-]{10,}\b")
-    ),
+    SecretPattern("Slack token", re.compile(r"\b(?:xox[bpas]|xapp)-[A-Za-z0-9-]{10,}\b")),
     # Google
     SecretPattern("Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     # npm
@@ -97,10 +95,8 @@ TOKEN_PREFIX_PATTERNS: List[SecretPattern] = [
 
 # 컨텍스트 기반 패턴 (KEY=, Bearer 등 접두어 필요)
 # Python re는 가변 폭 lookbehind를 지원하지 않으므로, 전체 매치 후 그룹 추출 방식 사용
-CONTEXT_PATTERNS: List[SecretPattern] = [
-    SecretPattern(
-        "Bearer token", re.compile(r"Bearer\s+([A-Za-z0-9_.+/=-]{10,})", re.IGNORECASE)
-    ),
+CONTEXT_PATTERNS: list[SecretPattern] = [
+    SecretPattern("Bearer token", re.compile(r"Bearer\s+([A-Za-z0-9_.+/=-]{10,})", re.IGNORECASE)),
     SecretPattern(
         "Environment credential",
         re.compile(
@@ -112,17 +108,17 @@ CONTEXT_PATTERNS: List[SecretPattern] = [
         "Discord bot token",
         re.compile(
             r"(?:discord|bot|DISCORD_TOKEN|BOT_TOKEN|token)\s*[=:]\s*[\"']?"
-            r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,})"
+            r"([A-Za-z0-9]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,})",
         ),
     ),
 ]
 
-ALL_PATTERNS: List[SecretPattern] = TOKEN_PREFIX_PATTERNS + CONTEXT_PATTERNS
+ALL_PATTERNS: list[SecretPattern] = TOKEN_PREFIX_PATTERNS + CONTEXT_PATTERNS
 
 
 # ── 설정 필드 기반 민감 감지 ──
 
-CREDENTIAL_FIELDS: Set[str] = {
+CREDENTIAL_FIELDS: set[str] = {
     "apiKey",
     "api_key",
     "token",
@@ -138,13 +134,13 @@ CREDENTIAL_FIELDS: Set[str] = {
 
 CREDENTIAL_FIELD_PATTERN = re.compile(
     r"(?:access|refresh|client|bearer|auth|api|private|public|signing|session)"
-    r"(?:Token|Key|Secret|Password)$"
+    r"(?:Token|Key|Secret|Password)$",
 )
 
 CREDENTIAL_PLACEHOLDER = "[STRIPPED_BY_SCANNER]"
 
 # 민감 파일 basename 세트 (전체 제외 대상)
-CREDENTIAL_SENSITIVE_BASENAMES: Set[str] = {
+CREDENTIAL_SENSITIVE_BASENAMES: set[str] = {
     "auth-profiles.json",
     ".env.local",
     ".env.production",
@@ -167,26 +163,23 @@ MEMORY_PATH_SEGMENTS = [
 # ── 핵심 API ──
 
 
-def scan_for_secrets(content: str) -> List[SecretMatch]:
+def scan_for_secrets(content: str) -> list[SecretMatch]:
     """텍스트에서 시크릿 패턴을 스캔합니다.
 
     Returns:
         감지된 시크릿 목록 (패턴 이름 + 마스킹된 값).
+
     """
     if not isinstance(content, str) or not content:
         return []
 
-    matches: List[SecretMatch] = []
-    seen: Set[str] = set()
+    matches: list[SecretMatch] = []
+    seen: set[str] = set()
 
     for pattern in ALL_PATTERNS:
         for match in pattern.regex.finditer(content):
             # 컨텍스트 패턴은 그룹(1)이 실제 시크릿
-            value = (
-                match.group(1)
-                if match.lastindex and match.lastindex >= 1
-                else match.group(0)
-            )
+            value = match.group(1) if match.lastindex and match.lastindex >= 1 else match.group(0)
             key = f"{pattern.name}:{value}"
             if key in seen:
                 continue
@@ -202,7 +195,7 @@ def scan_for_secrets(content: str) -> List[SecretMatch]:
                     pattern=pattern.name,
                     redacted=redacted,
                     original_length=len(value),
-                )
+                ),
             )
 
     return matches
@@ -213,6 +206,7 @@ def redact(text: str) -> str:
 
     Example:
         "sk-proj-abc123xyz" → "sk-p****************"
+
     """
     if not isinstance(text, str):
         return text
@@ -251,12 +245,12 @@ def redact_full(text: str) -> str:
     return result
 
 
-def redact_url(url: str) -> Optional[str]:
+def redact_url(url: str) -> str | None:
     """URL에서 인증 정보를 제거합니다."""
     if not isinstance(url, str) or not url:
         return None
     try:
-        from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+        from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
         parsed = urlparse(url)
 
@@ -289,9 +283,10 @@ def redact_url(url: str) -> Optional[str]:
                 parsed.params,
                 clean_query,
                 "",  # fragment 제거
-            )
+            ),
         )
     except Exception:
+        logger.exception("Unhandled exception")
         return redact(url)[:240] if url else None
 
 
@@ -305,6 +300,7 @@ def strip_credentials(obj: Any) -> Any:
 
     Returns:
         민감 값이 CREDENTIAL_PLACEHOLDER로 대체된 새 딕셔너리.
+
     """
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
@@ -361,8 +357,9 @@ def _redact_url_partial(match: re.Match) -> str:
                     parsed.params,
                     parsed.query,
                     parsed.fragment,
-                )
+                ),
             )
     except Exception:
+        logger.exception("Unhandled exception")
         pass
     return url
