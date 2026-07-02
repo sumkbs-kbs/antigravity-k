@@ -26,9 +26,10 @@ logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
 def init_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     """초기화: 사용자 메시지 추출 + Watchdog 알림 확인."""
     # 사용자 메시지 추출
+    ctx.user_message = ""
     for msg in reversed(ctx.messages):
         if msg.get("role") == "user":
-            ctx.user_message = msg.get("content", "")
+            ctx.user_message = msg.get("content", "") or ""
             break
 
     if not ctx.user_message.strip():
@@ -49,7 +50,7 @@ def init_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
 
 def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
-    """RAG + KI + 벡터 스토어 + AST-RAGIndexer 컨텍스트 주입."""
+    """RAG + KI + 벡터 스토어 + AST-RAGIndexer + 코드 트리 컨텍스트 주입."""
     rag_context = ""
 
     # KIs 주입
@@ -67,10 +68,34 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
         code_context = indexer.format_context(ctx.user_message)
         if code_context:
             rag_context += "\n" + code_context
-            logger.info(f"[RAGIndexer] Code context injected for: {ctx.user_message[:50]}...")
+            logger.info("[RAGIndexer] Code context injected for: %s...", ctx.user_message[:50])
     except Exception as e:
-        logger.exception("Unhandled exception")
-        logger.debug(f"RAGIndexer enrichment skipped: {e}")
+        logger.exception("RAGIndexer enrichment failed")
+        logger.debug("RAGIndexer enrichment skipped: %s", e)        # ─── Freebuff-Style: Code Tree 기반 자동 파일 컨텍스트 (P1+P2) ───
+    try:
+        code_tree = getattr(orch, "code_tree_indexer", None)
+        if code_tree:
+            # 1. 코드 트리 구축 (최초 1회, 이후 캐시)
+            code_tree.build_tree()
+
+            # 2. 사용자 메시지와 관련된 파일 검색
+            related_files = code_tree.search(ctx.user_message, max_files=8)
+
+            if related_files:
+                from antigravity_k.engine.file_summarizer import FileSummarizer
+
+                summarizer = FileSummarizer(model_manager=getattr(orch, "manager", None))
+                file_context = summarizer.summarize_files(related_files, orch.project_root, ctx.user_message)
+
+                if file_context:
+                    rag_context += "\n" + file_context
+                    logger.info(
+                        "[CodeTree] Auto-injected %s files for: %s",
+                        len(related_files),
+                        ctx.user_message[:50],
+                    )
+    except Exception as e:
+        logger.debug("Code tree auto-context skipped: %s", e)
 
     # 벡터 스토어 검색 (과거 메모리)
     if orch.vault_engine and orch.vault_engine.sync_rag:
@@ -255,7 +280,7 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
 
 def route_decision(ctx: StateContext) -> AgentState:
-    """태스크 유형에 따라 다음 상태를 결정합니다."""
+    """태스크 유형에 따라 다음 상태를 결정합니다. (MAX 모드 포함)"""
     task_type = ctx.task_type
 
     if task_type == "agi_core":
@@ -263,11 +288,36 @@ def route_decision(ctx: StateContext) -> AgentState:
     elif task_type == "hardware_report":
         return AgentState.AGI_CORE  # 같은 핸들러 재사용
     elif task_type == "complex" or ctx.analysis.get("pipeline"):
-        return AgentState.PIPELINE_EXECUTE
+        # 복잡 태스크: 파이프라인이 명시된 경우만 PIPELINE, 나머지는 MAX
+        if ctx.analysis.get("pipeline"):
+            return AgentState.PIPELINE_EXECUTE
+        return AgentState.MAX_EXECUTE
     elif task_type == "debate":
         return AgentState.DEBATE_EXECUTE
+    elif task_type in ("coding", "reasoning") and _is_max_mode_candidate(ctx):
+        return AgentState.MAX_EXECUTE
     else:
         return AgentState.AGENT_EXECUTE
+
+
+def _is_max_mode_candidate(ctx: StateContext) -> bool:
+    """MAX 모드 사용 조건을 판단합니다.
+
+    - complex 태스크는 자동 MAX 모드
+    - coding 태스크 중 대규모/아키텍처급
+    - CEO 분석에서 max_mode가 True로 설정된 경우
+    """
+    if ctx.analysis and ctx.analysis.get("max_mode", False):
+        return True
+
+    import re
+    request_text = (ctx.user_message or "").lower()
+    return bool(
+        re.search(
+            r"(대규모|전면|아키텍처|마이그레이션|refactor|architecture|migrate|redesign|리팩토링|구조개선)",
+            request_text,
+        ),
+    )
 
 
 def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
@@ -292,12 +342,204 @@ def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         yield "**[CEO]** 태스크 분석 완료 → 🖥️ **하드웨어 컨설턴트** 호출\n\n"
     elif ctx.task_type == "complex" or ctx.analysis.get("pipeline"):
         pipeline = ctx.analysis.get("pipeline", [])
-        yield f"**[CEO]** 태스크 분석 완료 → 🚀 **다단계 파이프라인({len(pipeline)}단계)** 시작\n\n"
+        if pipeline:
+            yield f"**[CEO]** 태스크 분석 완료 → 🚀 **다단계 파이프라인({len(pipeline)}단계)** 시작\n\n"
+        else:
+            yield "**[CEO]** 태스크 분석 완료 → ⚡ **MAX 모드 병렬 편집** 시작\n\n"
+    elif ctx.task_type == "max_execute":
+        yield "**[CEO]** 태스크 분석 완료 → ⚡ **MAX 모드** — 다중 워커 병렬 실행\n\n"
     elif ctx.task_type == "debate":
         yield "**[CEO]** 태스크 분석 완료 → ⚖️ **토론(Debate) 파이프라인** 시작\n\n"
     elif ctx.delegate_to != "SELF":
         delegate_model = orch._get_model_for_role(ctx.delegate_to)
         yield f"**[CEO]** 태스크 분석 완료 → {emoji} **{ctx.delegate_to}** 에이전트에게 위임 (모델: `{delegate_model}`)\n\n"  # noqa: E501
+
+
+# ─── CODE_REVIEW 핸들러 (Freebuff-Style Auto Reviewer, P3) ──────
+
+
+def code_review_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
+    """코드 변경 사항을 자동 리뷰합니다. (After CoV)
+
+    COV_VERIFY 완료 후 호출되어:
+    1. Git diff 확인
+    2. LLM 리뷰 요청 (버그/타입/품질)
+    3. 심각한 문제 발견 시 retry 루프백 (validation_passed=False)
+    """
+    if not ctx.agent_output or len(ctx.agent_output.strip()) < 100:
+        return
+
+    # coding/debug 태스크만 리뷰
+    if ctx.task_type not in ("coding", "complex"):
+        return
+
+    try:
+        # Git diff 확인
+        import subprocess
+
+        diff_result = subprocess.run(
+            ["git", "diff", "--stat"],
+            cwd=orch.project_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        diff_stat = diff_result.stdout.strip()
+
+        if not diff_stat:
+            return  # 변경 사항 없으면 스킵
+
+        # 변경된 파일이 적을 때만 상세 diff 확인
+        changed_lines = diff_stat.count("\n")
+        if changed_lines > 15:
+            yield "\n\n📋 **변경된 파일**: {}\n".format(diff_stat[:300])
+            return  # 너무 많은 변경은 스킵
+
+        # 상세 diff 가져오기
+        diff_detail = subprocess.run(
+            ["git", "diff"],
+            cwd=orch.project_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        diff_content = diff_detail.stdout
+
+        if len(diff_content) > 8000:
+            diff_content = diff_content[:8000] + "\n... (diff truncated)"
+
+        # LLM 리뷰 요청
+        if hasattr(orch, "manager") and orch.manager:
+            review_prompt = f"""Review the following code changes for bugs or issues.
+
+Original user request: {ctx.user_message[:200]}
+
+```diff
+{diff_content}
+```
+
+Respond in EXACTLY this format (one line per category, 'None' if none):
+BUGS: <brief description or None>
+TYPES: <type error description or None>
+QUALITY: <quality concern or None>
+"""
+            try:
+                review_response = orch.manager.generate(
+                    prompt=review_prompt,
+                    target=orch._get_model_for_role("QA"),
+                    max_tokens=256,
+                )
+                review_response = review_response.strip()
+
+                # 결과 파싱
+                has_bugs = "BUGS:" in review_response and "None" not in review_response.split("BUGS:")[1][:20]
+                has_types = "TYPES:" in review_response and "None" not in review_response.split("TYPES:")[1][:20]
+
+                if has_bugs or has_types:
+                    yield "\n\n🔍 **[Auto Review]** 잠재적 이슈 발견:\n"
+                    for line in review_response.split("\n"):
+                        line = line.strip()
+                        if line and not line.startswith("Respond"):
+                            yield f"> {line}\n"
+
+                    # 심각한 버그 감지 시 루프백 플래그 (quality_check_handler와 충돌 방지)
+                    if has_bugs and ctx.retry_count < ctx.max_retries:
+                        yield "> ⚠️ 버그가 감지되어 자가 수정을 시도합니다...\n"
+                        ctx.validation_passed = False
+                        ctx.retry_count += 1
+                else:
+                    logger.debug("[AutoReview] Code review passed — no issues")
+            except Exception as e:
+                logger.debug("Auto review LLM call failed: %s", e)
+    except Exception:
+        logger.debug("Auto review skipped (non-critical)")
+
+
+# ─── MAX_EXECUTE 핸들러 (P4: MAX 모드 병렬 편집) ───────────────────
+
+
+def max_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
+    """MAX 모드: 여러 워커를 병렬로 실행하고 Selector가 최적 선정.
+
+    Codebuff MAX Mode 방식:
+    1. N개 워커를 서로 다른 모델/전략으로 동시 실행
+    2. Selector 엔진이 모든 결과 검토
+    3. 최적 결과 선정 또는 합성
+    """
+    # refined_prompt 주입
+    if ctx.refined_prompt and ctx.refined_prompt != ctx.user_message:
+        ctx.custom_messages[-1] = {
+            "role": "user",
+            "content": ctx.refined_prompt + ctx.rag_context,
+        }
+
+    yield "⚡ **[MAX Mode]** 다중 워커 병렬 실행 중...\n"
+
+    try:
+        max_engine = getattr(orch, "max_engine", None)
+        if max_engine is None:
+            # 폴백: 싱글 에이전트
+            yield "ℹ️ MAX Engine not available, falling back to single agent.\n"
+            from antigravity_k.engine.tool_loop import ToolLoopEngine
+
+            tool_loop = ToolLoopEngine(orch)
+            yield from tool_loop.run_loop(
+                ctx.custom_messages, ctx.delegate_to, ctx.task_type,
+                ctx.max_steps, ctx.target_model,
+            )
+            ctx.agent_output = getattr(orch, "_last_agent_output", "")
+            return
+
+        # MAX 모드 태스크 명세 구성
+        task_spec = {
+            "prompt": ctx.refined_prompt or ctx.user_message,
+            "messages": ctx.custom_messages,
+            "task_type": ctx.task_type,
+            "delegate_to": ctx.delegate_to,
+            "max_steps": ctx.max_steps,
+            "target_model": ctx.target_model,
+        }
+
+        result = max_engine.run(task_spec, orchestrator=orch)
+
+        if result.final_output:
+            # 결과가 이미 trace를 포함하므로 바로 yield
+            if result.selected_idx >= 0 and result.results:
+                selected = result.results[result.selected_idx]
+                ctx.agent_output = selected.output
+
+                # 결과 프레임 출력
+                worker_summary = (
+                    f"\n\n🏆 **[MAX Selector]** Worker {result.selected_idx + 1} 선정 "
+                    f"({selected.model}, {selected.strategy}, {selected.elapsed_sec}s)\n"
+                )
+                yield worker_summary
+            else:
+                ctx.agent_output = result.final_output
+        else:
+            error_msg = result.error or "All workers failed"
+            yield f"\n\n❌ **[MAX Error]** {error_msg}\n"
+            ctx.agent_output = f"[MAX Error] {error_msg}"
+
+        # 워커 상세 정보 표시 (성공한 워커만)
+        if result.results:
+            for i, r in enumerate(result.results):
+                status = "✅" if r.error is None and r.output.strip() else "❌"
+                yield f"{status} Worker {i + 1}: {r.model} [{r.strategy}] — {r.elapsed_sec}s\n"
+
+    except Exception as e:
+        logger.exception("[MAX] Max execute handler failed")
+        yield f"\n\n❌ **[MAX Error]** 병렬 실행 실패: {e}\n"
+        # 폴백: 싱글 에이전트
+        yield "🔄 싱글 에이전트로 폴백합니다...\n\n"
+        from antigravity_k.engine.tool_loop import ToolLoopEngine
+
+        tool_loop = ToolLoopEngine(orch)
+        yield from tool_loop.run_loop(
+            ctx.custom_messages, ctx.delegate_to, ctx.task_type,
+            ctx.max_steps, ctx.target_model,
+        )
+        ctx.agent_output = getattr(orch, "_last_agent_output", "")
 
 
 # ─── AGENT_EXECUTE 핸들러 ────────────────────────────────────────
@@ -501,7 +743,7 @@ def quality_check_decision(ctx: StateContext):
 
 
 def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
-    """메모리 저장 + 토큰 사용량 추적."""
+    """메모리 저장 + 토큰 사용량 추적 + Hermes Self-Evolution."""
     from antigravity_k.engine.tokenizer import TokenEstimator
 
     # 메모리 저장
@@ -520,8 +762,58 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         logger.exception("Unhandled exception")
         pass
 
+    # ─── Hermes Self-Evolution (QualityGate C/F 등급 시 자동 진화) ───
+    try:
+        sec = getattr(orch, '_evolution_coordinator', None)
+        if sec is not None and ctx.agent_output and len(ctx.agent_output.strip()) > 50:
+            # QualityGate 평가 수행
+            quality = orch.ctx.quality_gate.evaluate(
+                task_type=ctx.task_type,
+                user_request=ctx.user_message,
+                agent_output=ctx.agent_output,
+            )
 
-# ─── 그래프 조립 ──────────────────────────────────────────────────
+            # C/F 등급일 때만 SEC 동작
+            if quality.grade.value in ("retry", "fail"):
+                logger.info(
+                    "[SEC] 품질 기준 미달 감지 (grade=%s, score=%s) — Hermes Self-Evolution 시작",
+                    quality.grade.value,
+                    quality.score,
+                )
+
+                # 도구 호출 기록 수집
+                tool_calls = []
+                if hasattr(orch.ctx, 'tool_executor'):
+                    try:
+                        history = getattr(orch.ctx.tool_executor, 'tool_call_history', [])
+                        if hasattr(history, '__iter__'):
+                            tool_calls = list(history)
+                    except Exception:
+                        pass
+
+                from antigravity_k.engine.self_evolution_coordinator import (
+                    PerformanceSnapshot,
+                )
+
+                snapshot = PerformanceSnapshot(
+                    user_message=ctx.user_message,
+                    agent_output=ctx.agent_output[:500],
+                    task_type=ctx.task_type,
+                    quality_grade=quality.grade.value,
+                    quality_score=quality.score,
+                    quality_issues=quality.issues,
+                    tool_calls=tool_calls,
+                )
+
+                evolution_result = sec.auto_evolve(snapshot)
+
+                if evolution_result.success:
+                    yield f"\n\n🧬 **[Self-Evolution]** {evolution_result.summary}\n"
+                elif evolution_result.rolled_back:
+                    logger.info("[SEC] Evolution rolled back: %s", evolution_result.error_message)
+    except Exception as e:
+        # SEC 실패가 메인 플로우를 막지 않도록 최소 로깅
+        logger.debug("[SEC] Self-evolution skipped: %s", e)    # ─── 그래프 조립 ──────────────────────────────────────────────────
 
 
 def build_orchestrator_graph():
@@ -543,6 +835,8 @@ def build_orchestrator_graph():
     graph.add_node(AgentState.PRE_ROUTE, pre_route_handler)
     graph.add_node(AgentState.ROUTE, route_handler)
     graph.add_node(AgentState.AGENT_EXECUTE, agent_execute_handler)
+    graph.add_node(AgentState.CODE_REVIEW, code_review_handler)
+    graph.add_node(AgentState.MAX_EXECUTE, max_execute_handler)
     graph.add_node(AgentState.PIPELINE_EXECUTE, pipeline_execute_handler)
     graph.add_node(AgentState.DEBATE_EXECUTE, debate_execute_handler)
     graph.add_node(AgentState.AGI_CORE, agi_core_handler)

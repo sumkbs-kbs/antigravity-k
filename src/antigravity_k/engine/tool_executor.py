@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import Any
 
 from antigravity_k.engine.immune_system import ImmuneSystem
@@ -57,12 +58,15 @@ class ToolExecutor:
         self._consecutive_errors = 0
         self.current_objective = ""
 
+        # Hermes Self-Evolution: 도구 호출 이력 (SEC가 패턴 감지용으로 사용)
+        self.tool_call_history: list[dict] = []
+
         # Singleton instantiation to avoid lazy init costs during active error recovery
+        self._immune_system: ImmuneSystem | None = None
         try:
             self._immune_system = ImmuneSystem(self.project_root, self.manager, self.vault_engine)
         except Exception:
             logger.exception("Failed to initialize ImmuneSystem in ToolExecutor")
-            self._immune_system = None
 
     def set_objective(self, objective: str) -> None:
         """현재 턴 목표를 capability policy 판단에 제공합니다."""
@@ -142,6 +146,17 @@ class ToolExecutor:
                     f"Please stop executing tools immediately and ask the user for permission. "
                     f"Wait for their 'Yes' before retrying."
                 )
+
+            # ─── Hermes Self-Evolution: 도구 호출 이력 기록 ───
+            self.tool_call_history.append({
+                "name": name,
+                "arguments": args,
+                "success": not (isinstance(result, str) and result.strip().startswith("Error")),
+                "timestamp": time.time(),
+            })
+            # 최대 20개만 유지
+            if len(self.tool_call_history) > 20:
+                self.tool_call_history = self.tool_call_history[-20:]
 
             if isinstance(result, str) and result.strip().startswith("Error"):
                 self._consecutive_errors += 1

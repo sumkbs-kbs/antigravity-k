@@ -53,8 +53,10 @@ class AgentState(Enum):
     PRE_ROUTE = "pre_route"  # 불확실성 + 사용자 모델
     ROUTE = "route"  # 태스크 유형 라우팅
     AGENT_EXECUTE = "agent_execute"  # 단일 에이전트 실행
+    CODE_REVIEW = "code_review"  # Freebuff-Style 코드 자동 리뷰
     COV_VERIFY = "cov_verify"  # Chain-of-Verification 자기검증
     PIPELINE_EXECUTE = "pipeline_execute"  # 멀티 스텝 파이프라인
+    MAX_EXECUTE = "max_execute"  # MAX 모드 병렬 실행
     DEBATE_EXECUTE = "debate_execute"  # 토론 파이프라인
     AGI_CORE = "agi_core"  # AGI 코어 작업
     QUALITY_CHECK = "quality_check"  # 품질 게이트
@@ -103,6 +105,7 @@ class StateContext:
     retry_count: int = 0
     max_retries: int = 3
     validation_passed: bool = True
+    _loop_back: bool = False
 
     # 메타
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -174,7 +177,7 @@ class AgentStateGraph:
     - 실행 궤적 기록
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the AgentStateGraph."""
         self._nodes: dict[AgentState, NodeHandler] = {}
         self._edges: dict[AgentState, AgentState] = {}  # 고정 전이
@@ -342,15 +345,17 @@ def build_default_graph() -> AgentStateGraph:
     graph.add_edge(AgentState.PRE_ROUTE, AgentState.ROUTE)
 
     # ROUTE → 조건부 전이 (핸들러에서 등록)
-    # AGENT_EXECUTE, PIPELINE_EXECUTE, DEBATE_EXECUTE → MEMORY_SAVE
+    # AGENT_EXECUTE, PIPELINE_EXECUTE, DEBATE_EXECUTE, MAX_EXECUTE → MEMORY_SAVE
     graph.add_edge(AgentState.AGENT_EXECUTE, AgentState.COV_VERIFY)
+    graph.add_edge(AgentState.COV_VERIFY, AgentState.CODE_REVIEW)
 
     # Phase 5: COV_VERIFY 이후 바로 메모리 저장하지 않고 QUALITY_CHECK로 진행
-    graph.add_edge(AgentState.COV_VERIFY, AgentState.QUALITY_CHECK)
+    graph.add_edge(AgentState.CODE_REVIEW, AgentState.QUALITY_CHECK)
 
     # QUALITY_CHECK 이후 조건부 전이(실패시 AGENT_EXECUTE 루프백, 성공시 MEMORY_SAVE)를
     # 핸들러 레벨(build_orchestrator_graph)에서 add_conditional_edge로 등록함
 
+    graph.add_edge(AgentState.MAX_EXECUTE, AgentState.COV_VERIFY)
     graph.add_edge(AgentState.PIPELINE_EXECUTE, AgentState.MEMORY_SAVE)
     graph.add_edge(AgentState.DEBATE_EXECUTE, AgentState.MEMORY_SAVE)
     graph.add_edge(AgentState.AGI_CORE, AgentState.COMPLETE)
