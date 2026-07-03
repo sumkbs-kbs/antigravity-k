@@ -61,6 +61,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "benchmark: 성능 회귀 테스트 (latency 임계값 검증)",
+    "slow: 실행 시간이 긴 느린 테스트 (CI에서 -m 'not slow'로 제외 가능)",
+]
 
 [tool.ruff]
 target-version = "py312"

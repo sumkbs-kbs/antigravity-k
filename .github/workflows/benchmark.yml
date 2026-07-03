@@ -1,0 +1,325 @@
+# Freebuff-Style Proactive Pipeline — Benchmark CI
+#
+# PR마다 자동 실행:
+#   1. PR HEAD에서 벤치마크 실행 (4개 스테이지)
+#   2. 시각화 차트 생성 (8개 차트)
+#   3. main 브랜치로 전체 전환 후 동일 벤치마크 실행 (= 정확한 baseline)
+#   4. PR 코멘트로 latency diff 보고
+
+name: "Benchmark: Proactive Pipeline"
+
+on:
+  pull_request:
+    paths:
+      - "src/antigravity_k/engine/code_tree_indexer.py"
+      - "src/antigravity_k/engine/file_summarizer.py"
+      - "src/antigravity_k/engine/max_engine.py"
+      - "src/antigravity_k/engine/orchestrator_handlers.py"
+      - "src/antigravity_k/engine/orchestrator/agent.py"
+      - "src/antigravity_k/engine/state_graph.py"
+      - "src/antigravity_k/engine/rag_indexer.py"
+      - "src/antigravity_k/engine/vector_store.py"
+      - "src/antigravity_k/engine/embeddings.py"
+      - "scripts/benchmark_proactive_pipeline.py"
+      - "scripts/benchmark_viz.py"
+      - ".github/workflows/benchmark.yml"
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: "3.12"
+  ITERATIONS: 5
+  JSON_PR: benchmark_pr.json
+  JSON_MAIN: benchmark_main.json
+  REPORT: benchmark_report.md
+  CHARTS_DIR: charts
+
+jobs:
+  benchmark:
+    name: "Run & Compare"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # Step 1: Checkout (full history for git diff)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: Python setup
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,rag]"
+          pip install matplotlib numpy
+
+      # Step 3: PR HEAD benchmark
+      - name: Benchmark (PR HEAD)
+        id: head
+        run: |
+          python scripts/benchmark_proactive_pipeline.py \
+            --iterations ${{ env.ITERATIONS }} \
+            --no-warmup \
+            --json ${{ env.JSON_PR }}
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      # Step 3b: Performance regression tests
+      # Runs the pytest benchmark tests that assert latency thresholds.
+      # If any threshold is exceeded, this step fails and blocks the PR.
+      - name: Performance Regression Tests
+        id: regression
+        if: steps.head.outputs.exit_code == '0'
+        run: |
+          python -m pytest tests/test_benchmark_performance.py \
+            -v --tb=short --no-header -m "benchmark"
+        env:
+          BENCHMARK_THRESHOLD_CONTEXT_ENRICH: "500"
+          BENCHMARK_THRESHOLD_CODE_REVIEW: "1000"
+          BENCHMARK_THRESHOLD_MAX_ENGINE: "50"
+
+      # Step 3c: JUnit Test Report
+      # Runs benchmark tests with JUnit XML output for GitHub Actions test result visualization.
+      # Runs independently of step 3b for CI reporting purposes.
+      - name: JUnit Test Report
+        id: junit
+        if: steps.head.outputs.exit_code == '0'
+        continue-on-error: true  # Keep going even if tests fail (JUnit report still useful)
+        run: |
+          python -m pytest tests/test_benchmark_performance.py \
+            --tb=short --no-header -m "benchmark" \
+            --junit-xml=benchmark-results.xml \
+            --junit-prefix=benchmark
+
+      - name: Upload JUnit Report
+        if: steps.head.outputs.exit_code == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-junit-results
+          path: benchmark-results.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+      # Step 4: Generate charts + upload artifacts
+      - name: Generate Charts
+        if: steps.head.outputs.exit_code == '0'
+        run: |
+          python scripts/benchmark_viz.py ${{ env.JSON_PR }} \
+            --output-dir ${{ env.CHARTS_DIR }} \
+            --format png
+
+      - name: Upload Charts
+        if: steps.head.outputs.exit_code == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-charts
+          path: ${{ env.CHARTS_DIR }}/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload PR Results
+        if: steps.head.outputs.exit_code == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-pr-results
+          path: ${{ env.JSON_PR }}
+          retention-days: 30
+
+      # Step 5: Main branch baseline
+      # Tries artifact cache first, falls back to running benchmark on main
+      - name: Benchmark (main branch baseline)
+        id: main
+        run: |
+          PREV_JSON="${{ env.JSON_MAIN }}"
+          gh run download \
+            --repo "${{ github.repository }}" \
+            --branch main \
+            --name benchmark-main-results \
+            --dir ./main_artifacts/ \
+            2>/dev/null || true
+
+          if [ -f "./main_artifacts/${{ env.JSON_MAIN }}" ]; then
+            cp "./main_artifacts/${{ env.JSON_MAIN }}" "$PREV_JSON"
+            echo "Restored main branch results from artifact"
+            echo "source=artifact" >> "$GITHUB_OUTPUT"
+          else
+            echo "No cached results. Running benchmark on main branch..."
+            git stash --include-untracked 2>/dev/null || true
+            git checkout main
+            pip install -e ".[dev,rag]"
+            python scripts/benchmark_proactive_pipeline.py \
+              --iterations ${{ env.ITERATIONS }} \
+              --no-warmup \
+              --json "$PREV_JSON"
+            echo "Main branch benchmark complete"
+            echo "source=run" >> "$GITHUB_OUTPUT"
+            git checkout ${{ github.head_ref }}
+            pip install -e ".[dev,rag]"
+          fi
+
+          if [ -f "$PREV_JSON" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Step 6: Generate Markdown report
+      - name: Generate Report
+        id: report
+        run: |
+          if [ ! -f "${{ env.JSON_PR }}" ]; then
+            echo "PR benchmark failed, writing failure report"
+            cat > "${{ env.REPORT }}" << 'HEREDOC_FAIL'
+          ## Proactive Pipeline Benchmark Report
+
+          **PR benchmark execution failed.** Check workflow logs.
+
+          Possible causes:
+          - Import errors or missing dependencies
+          - Syntax error in benchmark scripts
+          - Unexpected source code changes
+          HEREDOC_FAIL
+            echo "path=${{ env.REPORT }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python3 << 'PYEOF_SCRIPT'
+          import json
+
+          with open("${{ env.JSON_PR }}") as f:
+              pr_data = json.load(f)
+
+          main_data = None
+          if "${{ steps.main.outputs.found }}" == "true":
+              with open("${{ env.JSON_MAIN }}") as f:
+                  main_data = json.load(f)
+
+          lines = []
+          lines.append("## Proactive Pipeline Benchmark Report")
+          lines.append("")
+          lines.append("### Stage Latency (ms)")
+          lines.append("")
+          hdr = "| Stage | Avg | Median | Min | Max | P95 | StdDev | n |"
+          sep = "|---|---|---|---|---|---|---|---|"
+          lines.append(hdr)
+          lines.append(sep)
+
+          for stage, info in pr_data.items():
+              s = info["stats"]
+              lines.append(
+                  f"| **{stage}** | {s['avg_ms']:.1f} | {s['median_ms']:.1f} | "
+                  f"{s['min_ms']:.1f} | {s['max_ms']:.1f} | {s['p95_ms']:.1f} | "
+                  f"{s['stddev_ms']:.2f} | {s['n']} |"
+              )
+
+          lines.append("")
+          if pr_data.get("context_enrich"):
+              m = pr_data["context_enrich"]["samples"][0]["metadata"]
+              lines.append(
+                  f"- context_enrich: {m.get('files_indexed','?')} files, "
+                  f"{m.get('tree_size_kb','?')} KB tree"
+              )
+          if pr_data.get("code_review"):
+              m = pr_data["code_review"]["samples"][0]["metadata"]
+              lines.append(
+                  f"- code_review: {m.get('changed_files','?')} files changed, "
+                  f"{m.get('diff_size_bytes','?')} bytes diff"
+              )
+          if pr_data.get("max_engine"):
+              m = pr_data["max_engine"]["samples"][0]["metadata"]
+              lines.append(
+                  f"- max_engine: {m.get('total_workers','?')} workers, "
+                  f"{m.get('run_total_ms',0):.2f} ms total"
+              )
+
+          lines.append("")
+
+          if main_data:
+              src = "${{ steps.main.outputs.source }}"
+              lines.append("<details>")
+              lines.append(f"<summary><strong>Diff vs main branch (source: {src})</strong></summary>")
+              lines.append("")
+              lines.append("| Stage | Main (ms) | PR (ms) | Diff |")
+              lines.append("|---|---|---|---|")
+              for stage, info in pr_data.items():
+                  if stage in main_data:
+                      p = main_data[stage].get("stats", {})
+                      c = info["stats"]
+                      prev_avg = p.get("avg_ms", 0)
+                      curr_avg = c.get("avg_ms", 0)
+                      diff_val = curr_avg - prev_avg
+                      pct = (diff_val / prev_avg * 100) if prev_avg else 0
+                      lines.append(
+                          f"| **{stage}** | {prev_avg:.1f} | {curr_avg:.1f} | "
+                          f"{diff_val:+.1f} ({pct:+.1f}%) |"
+                      )
+              lines.append("")
+              lines.append("</details>")
+          else:
+              lines.append("No previous baseline found. This run establishes the benchmark baseline.")
+
+          with open("${{ env.REPORT }}", "w") as f:
+              f.write("\n".join(lines) + "\n")
+          print("Report generated")
+          PYEOF_SCRIPT
+          echo "path=${{ env.REPORT }}" >> "$GITHUB_OUTPUT"
+
+      # Step 7: Post or update PR comment
+      - name: Post PR Comment
+        if: steps.report.outputs.path != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('${{ steps.report.outputs.path }}', 'utf-8');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.body.includes('Proactive Pipeline Benchmark Report')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: report,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report,
+              });
+            }
+
+      # Step 8: Fallback comment on failure
+      - name: Fallback Comment on Failure
+        if: failure() || steps.head.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "## Proactive Pipeline Benchmark Report\\n\\nBenchmark execution failed. See workflow logs for details."
+            });

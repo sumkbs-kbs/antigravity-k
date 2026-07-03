@@ -1,0 +1,124 @@
+# Deploy Benchmark Dashboard to GitHub Pages
+#
+# Triggers:
+#   - On demand (workflow_dispatch)
+#   - On push to main (when benchmark files change)
+#   - After benchmark workflow completes (workflow_run)
+#
+# Generates benchmark charts and deploys the HTML gallery to GitHub Pages.
+
+name: "Deploy: Benchmark Pages"
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Number of benchmark iterations"
+        required: true
+        default: "10"
+        type: number
+  push:
+    branches: [main]
+    paths:
+      - "src/antigravity_k/engine/rag_indexer.py"
+      - "src/antigravity_k/engine/vector_store.py"
+      - "src/antigravity_k/engine/embeddings.py"
+      - "src/antigravity_k/engine/code_tree_indexer.py"
+      - "src/antigravity_k/engine/file_summarizer.py"
+      - "src/antigravity_k/engine/max_engine.py"
+      - "src/antigravity_k/engine/orchestrator_handlers.py"
+      - "scripts/benchmark_proactive_pipeline.py"
+      - "scripts/benchmark_viz.py"
+
+# Allow one concurrent deployment
+concurrency:
+  group: pages-benchmark
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: "3.12"
+  # Use workflow_dispatch input if available, otherwise default to 10
+  ITERATIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.iterations || '10' }}
+
+jobs:
+  build-and-deploy:
+    name: "Build & Deploy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Set up job for GitHub Pages deployment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # Step 1: Checkout
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: Python setup
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,rag]"
+          pip install matplotlib numpy
+
+      # Step 3: Run benchmark
+      - name: Run Benchmark (${{ env.ITERATIONS }} iterations)
+        id: benchmark
+        continue-on-error: true
+        run: |
+          python scripts/benchmark_proactive_pipeline.py \
+            --iterations ${{ env.ITERATIONS }} \
+            --no-warmup \
+            --json benchmark_data.json
+
+      # Step 4: Generate charts
+      - name: Generate Charts
+        run: |
+          python scripts/benchmark_viz.py benchmark_data.json \
+            --output-dir docs/benchmark \
+            --format png
+
+      # Step 5: Update index.html with benchmark meta
+      - name: Update Gallery Meta
+        run: |
+          # Inject iteration count into index.html
+          sed -i "s/id=\"iterations\">[^<]*</id=\"iterations\">${{ env.ITERATIONS }}</" docs/benchmark/index.html
+          # Inject today's date
+          TODAY=$(date +%Y-%m-%d)
+          sed -i "s/id=\"date\">[^<]*</id=\"date\">$TODAY</" docs/benchmark/index.html
+          # Copy benchmark JSON as downloadable artifact
+          cp benchmark_data.json docs/benchmark/benchmark_data.json 2>/dev/null || true
+          # Copy insights report if exists
+          cp benchmark_insights_report.md docs/benchmark/ 2>/dev/null || true
+          echo "Gallery meta updated"
+
+      # Step 6: Upload as Pages artifact
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/benchmark
+          if-no-files-found: warn
+
+      # Step 7: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
