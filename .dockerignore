@@ -1,0 +1,44 @@
+# Git
+.git/
+.gitattributes
+.gitignore
+.gitmodules
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+dashboard/node_modules/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Data & Logs
+vault_data/
+logs/
+data/
+coverage_html/
+.chroma/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large binaries
+.agent/skills/gstack/bin/*.exe

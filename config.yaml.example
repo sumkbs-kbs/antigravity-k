@@ -1,0 +1,69 @@
+# Antigravity-K Configuration Example
+# ====================================
+# Copy this file to config.yaml and customize for your environment.
+# Environment variables override these values (see .env.example).
+#
+# cp config.yaml.example config.yaml
+
+# ─── Model Configuration ────────────────────────────────────────
+model:
+  main_model: "mlx-community/Qwen3-72B-4bit"
+  code_model: "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit"
+  embedding_model: "mlx-community/bge-m3-4bit"
+  vision_model: "mlx-community/Qwen2-VL-7B-Instruct-4bit"
+
+  # Inference engine: "ollama" or "lm_studio"
+  api_engine: "ollama"
+
+  # Generation defaults
+  max_tokens: 4096
+  temperature: 0.7
+  top_p: 0.9
+
+# ─── Server Configuration ──────────────────────────────────────
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+# ─── Security Configuration ────────────────────────────────────
+security:
+  # Access PIN for API authentication (empty = disabled)
+  access_pin: "0000"
+
+  # Docker sandbox for code execution
+  sandbox_enabled: true
+  sandbox_network: "none"
+
+  # Max execution timeout in seconds
+  max_execution_time: 30
+
+  # Audit logging
+  audit_log_enabled: true
+
+# ─── Paths ─────────────────────────────────────────────────────
+paths:
+  models_dir: "models"
+  data_dir: "data"
+  logs_dir: "logs"
+
+# ─── Workflow ──────────────────────────────────────────────────
+workflow:
+  autopilot: false
+  auto_commit: false
+  auto_artifacts: false
+
+# ─── i18n ──────────────────────────────────────────────────────
+i18n:
+  locale: "auto"  # auto, ko, en, ja
+  fallback_locale: "en"
+
+# ─── Router ────────────────────────────────────────────────────
+router:
+  default_strategy: "fallback"
+  max_retries: 3
+  usage_tracking: true
+
+# ─── Computer Use ──────────────────────────────────────────────
+computer_use:
+  enabled: true
+  hitl_required: true  # Human-in-the-loop for dangerous actions

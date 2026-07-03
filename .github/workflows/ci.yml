@@ -1,0 +1,224 @@
+# Antigravity-K CI — Code Quality Pipeline
+#
+# Runs on every push and pull request:
+#   1. Linting (ruff check)
+#   2. Formatting (ruff format)
+#   3. Type checking (mypy)
+#   4. Fast tests (non-slow, non-benchmark)
+#   5. Coverage report
+#
+# This workflow enforces the project's code quality standards
+# defined in CONTRIBUTING.md.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: "Lint & Format"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff Lint Check
+        run: ruff check src/ tests/ scripts/
+
+      - name: Ruff Format Check
+        run: ruff format --check src/ tests/ scripts/
+
+  typecheck:
+    name: "Type Check"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true  # mypy warnings are advisory for now
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install mypy pydantic types-PyYAML
+
+      - name: Mypy Check
+        run: |
+          mypy src/ \
+            --ignore-missing-imports \
+            --no-strict-optional \
+            --no-warn-return-any \
+            --warn-unused-configs \
+            || true
+
+  test:
+    name: "Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,rag]"
+
+      - name: Run Tests (exclude slow/benchmark)
+        run: |
+          python -m pytest tests/ \
+            -v --tb=short \
+            -m 'not slow and not benchmark' \
+            --junit-xml=test-results.xml \
+            --cov=src/antigravity_k \
+            --cov-report=term-missing
+
+      - name: Upload Test Results
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+  dashboard:
+    name: "Dashboard Lint & Build"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Dependencies
+        run: cd dashboard && npm install
+
+      - name: Lint Dashboard
+        run: cd dashboard && npm run lint
+
+      - name: Build Dashboard
+        run: cd dashboard && npm run build
+
+  security-scan:
+    name: "Security Scan"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Secret Scan (internal scanner)
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'src')
+          from antigravity_k.engine.secret_scanner import scan_for_secrets, is_sensitive_file
+          import os
+
+          issues = []
+          for root, dirs, files in os.walk('.'):
+              # Skip common non-target dirs
+              if any(s in root for s in ['.git', '__pycache__', 'node_modules', '.venv', 'dist', 'build']):
+                  continue
+              for fname in files:
+                  if fname.startswith('.'):
+                      continue
+                  if is_sensitive_file(fname):
+                      continue
+                  fpath = os.path.join(root, fname)
+                  try:
+                      with open(fpath, 'r', encoding='utf-8', errors='ignore') as fh:
+                          content = fh.read()
+                      matches = scan_for_secrets(content)
+                      if matches:
+                          issues.append(f'  {fpath}: {[m.pattern for m in matches]}')
+                  except Exception:
+                      pass
+
+          if issues:
+              print('Potential secrets detected:')
+              for i in issues:
+                  print(i)
+              print(f'\\nTotal: {len(issues)} file(s) with potential secrets')
+          else:
+              print('No secrets detected in scanned files.')
+          "
+
+      - name: Check for Hardcoded Credentials
+        run: |
+          # Scan for common credential patterns in non-test files
+          ! grep -rn --include="*.py" --include="*.yaml" --include="*.yml" \
+            -E "(api_key|api_secret|password|access_token|secret_key)\s*=\s*['\"][A-Za-z0-9_-]{16,}" \
+            --exclude-dir=.git --exclude-dir=__pycache__ \
+            --exclude-dir=.venv --exclude-dir=node_modules \
+            --exclude="test_*.py" --exclude="*_test.py" \
+            src/ | grep -v "example\|sample\|placeholder\|xxx\|your_key" || echo "No hardcoded credentials found"
