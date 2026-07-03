@@ -1,5 +1,7 @@
 # Antigravity-K — Local Engine for SHI
 
+[![Benchmark Dashboard](https://img.shields.io/badge/📊_Benchmark_Dashboard-GitHub_Pages-9C27B0?style=for-the-badge)](https://sumkbs-kbs.github.io/antigravity-k/benchmark/)
+
 > 인터넷 의존 없이 완벽히 로컬로 동작하는 자율형 엔지니어링 에이전트
 
 ## 개요
