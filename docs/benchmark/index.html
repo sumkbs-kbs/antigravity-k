@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proactive Pipeline Benchmark Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem; }
+    header {
+      text-align: center;
+      padding: 2rem 0 1rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #f0f6fc;
+    }
+    header p {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-top: 0.5rem;
+    }
+    header .nav-links {
+      margin-top: 0.75rem;
+      display: flex;
+      justify-content: center;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+    }
+    header .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.2rem 0.5rem;
+      transition: color 0.15s;
+    }
+    header .nav-links a:hover { color: var(--accent); }
+    header .nav-links .sep { color: var(--border); user-select: none; }
+    header .meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+    }
+    header .meta span { margin: 0 0.5rem; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.75rem;
+      margin: 1rem 0 2rem;
+    }
+    .toolbar a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.55rem 1.1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .toolbar a:hover {
+      border-color: var(--accent);
+      background: #1f6feb15;
+    }
+    .toolbar a.primary {
+      background: #1f6feb22;
+      border-color: #1f6feb44;
+      color: var(--accent);
+    }
+    .toolbar a.primary:hover {
+      background: #1f6feb33;
+      border-color: var(--accent);
+    }
+    .toolbar a .icon { font-size: 1rem; }
+    .sticky-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+    .sticky-nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .sticky-nav a:hover {
+      color: var(--text);
+      background: var(--card-bg);
+    }
+    .badge {
+      display: inline-block;
+      background: #1f6feb22;
+      color: var(--accent);
+      border: 1px solid #1f6feb44;
+      border-radius: 999px;
+      padding: 0.15rem 0.75rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .summary-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+    .summary-card .stage { font-size: 0.85rem; color: var(--text-muted); }
+    .summary-card .value { font-size: 1.75rem; font-weight: 700; color: #f0f6fc; }
+    .summary-card .unit { font-size: 0.8rem; color: var(--text-muted); }
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 1.5rem;
+    }
+    .chart-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .chart-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px rgba(88,166,255,0.1);
+    }
+    .chart-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-card .caption {
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .chart-card .caption .title { font-weight: 600; font-size: 0.9rem; }
+    .chart-card .caption .desc { color: var(--text-muted); font-size: 0.8rem; }
+    .chart-card .caption .link a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.8rem;
+    }
+    .chart-card .caption .link a:hover { text-decoration: underline; }
+    .footer {
+      text-align: center;
+      padding: 2rem 0;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      margin-top: 2rem;
+    }
+    @media (max-width: 600px) {
+      .chart-grid { grid-template-columns: 1fr; }
+      .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Proactive Pipeline Benchmark</h1>
+      <p>Freebuff-Style Pipeline Latency Visualization Dashboard</p>
+      <div class="meta">
+        <span>🔄 <span id="iterations">10</span> iterations</span>
+        <span>📊 <span id="stages">4</span> stages</span>
+        <span>📅 <span id="date">Loading...</span></span>
+      </div>
+      <div class="nav-links">
+        <a href="#charts">📊 Charts</a>
+        <span class="sep">|</span>
+        <a href="benchmark_insights_report.md" target="_blank">📄 Report</a>
+        <span class="sep">|</span>
+        <a href="benchmark_data.json" download>⬇️ Data</a>
+      </div>
+    </header>
+
+    <!-- Summary cards -->
+    <div class="summary-grid" id="summary">
+      <div class="summary-card"><div class="stage">context_enrich</div><div class="value">111</div><div class="unit">ms avg</div></div>
+      <div class="summary-card"><div class="stage">code_review</div><div class="value">242</div><div class="unit">ms avg</div></div>
+      <div class="summary-card"><div class="stage">rag_indexing</div><div class="value">649</div><div class="unit">ms avg</div></div>
+      <div class="summary-card"><div class="stage">max_engine</div><div class="value">0.2</div><div class="unit">ms avg</div></div>
+    </div>
+
+    <!-- Toolbar: Download links -->
+    <div class="toolbar">
+      <a href="benchmark_insights_report.md" target="_blank" class="primary">
+        <span class="icon">📄</span> Insights Report
+      </a>
+      <a href="benchmark_data.json" download>
+        <span class="icon">⬇️</span> Raw Data (JSON)
+      </a>
+      <a href="https://github.com/mr.k/antigravity-k/tree/main/scripts" target="_blank" title="View benchmark scripts on GitHub">
+        <span class="icon">🔧</span> Benchmark Scripts
+      </a>
+    </div>
+
+    <!-- Sticky chart navigation -->
+    <nav class="sticky-nav">
+      <a href="#chart-overview">01 Overview</a>
+      <a href="#chart-trends">02 Trends</a>
+      <a href="#chart-ce">03a Context</a>
+      <a href="#chart-cr">03b Review</a>
+      <a href="#chart-me">03c MAX</a>
+      <a href="#chart-rag">03d RAG</a>
+      <a href="#chart-heat">04 Heatmap</a>
+      <a href="#chart-sub">05 Sub-comp</a>
+    </nav>
+
+    <!-- Chart gallery -->
+    <div class="chart-grid" id="charts">
+      <div class="chart-card" id="chart-overview">
+        <img src="01_overview.png" alt="Overview Dashboard" loading="lazy">
+        <div class="caption">
+          <div><div class="title">01 — Overview</div><div class="desc">Stage comparison bar chart</div></div>
+          <div class="link"><a href="01_overview.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-trends">
+        <img src="02_trends.png" alt="Latency Trends" loading="lazy">
+        <div class="caption">
+          <div><div class="title">02 — Trends</div><div class="desc">Per-stage latency over iterations</div></div>
+          <div class="link"><a href="02_trends.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-ce">
+        <img src="03a_breakdown_context_enrich.png" alt="Context Enrich Breakdown" loading="lazy">
+        <div class="caption">
+          <div><div class="title">03a — Context Enrich</div><div class="desc">build_tree / search / summarize</div></div>
+          <div class="link"><a href="03a_breakdown_context_enrich.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-cr">
+        <img src="03b_breakdown_code_review.png" alt="Code Review Breakdown" loading="lazy">
+        <div class="caption">
+          <div><div class="title">03b — Code Review</div><div class="desc">git diff / LLM mock breakdown</div></div>
+          <div class="link"><a href="03b_breakdown_code_review.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-me">
+        <img src="03c_breakdown_max_engine.png" alt="MAX Engine Breakdown" loading="lazy">
+        <div class="caption">
+          <div><div class="title">03c — MAX Engine</div><div class="desc">Config / Prompt / Selector</div></div>
+          <div class="link"><a href="03c_breakdown_max_engine.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-rag">
+        <img src="03d_breakdown_rag_indexing.png" alt="RAG Indexing Breakdown" loading="lazy">
+        <div class="caption">
+          <div><div class="title">03d — RAG Indexing</div><div class="desc">Pipeline stages + search modes</div></div>
+          <div class="link"><a href="03d_breakdown_rag_indexing.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-heat">
+        <img src="04_heatmap.png" alt="Statistics Heatmap" loading="lazy">
+        <div class="caption">
+          <div><div class="title">04 — Heatmap</div><div class="desc">Log-scale latency matrix</div></div>
+          <div class="link"><a href="04_heatmap.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+      <div class="chart-card" id="chart-sub">
+        <img src="05_subcomponent_comparison.png" alt="Sub-component Comparison" loading="lazy">
+        <div class="caption">
+          <div><div class="title">05 — Sub-components</div><div class="desc">Cross-stage grouped comparison</div></div>
+          <div class="link"><a href="05_subcomponent_comparison.png" target="_blank">🔗</a></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div style="margin-bottom: 0.5rem;">
+        <a href="benchmark_insights_report.md" target="_blank" style="color: var(--accent); text-decoration: none; margin: 0 0.5rem;">📄 Insights Report</a>
+        <span style="color: var(--border);">|</span>
+        <a href="benchmark_data.json" download style="color: var(--accent); text-decoration: none; margin: 0 0.5rem;">⬇️ Raw Data</a>
+        <span style="color: var(--border);">|</span>
+        <a href="#" style="color: var(--accent); text-decoration: none; margin: 0 0.5rem;" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;">⬆️ Top</a>
+      </div>
+      Generated by <strong>Antigravity-K Benchmark CI</strong> &mdash;
+      Updates automatically on each PR merge
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('date').textContent = new Date().toISOString().slice(0, 10);
+
+    // Load benchmark data and update summary cards dynamically
+    fetch('benchmark_data.json')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var cards = document.querySelectorAll('.summary-card');
+        var i = 0;
+        for (var s in data) {
+          if (i >= cards.length) break;
+          var stats = data[s].stats;
+          var avg = stats.avg_ms;
+          cards[i].querySelector('.value').textContent = avg < 1 ? avg.toFixed(1) : Math.round(avg);
+          cards[i].querySelector('.unit').textContent = 'ms avg';
+          i++;
+        }
+      })
+      .catch(function() {
+        console.log('benchmark_data.json not found, using static values');
+      });
+  </script>
+</body>
+</html>
