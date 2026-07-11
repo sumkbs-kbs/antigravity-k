@@ -96,9 +96,9 @@ omit = [
 ]
 
 [tool.coverage.report]
-# Minimum coverage threshold (increasing over time)
-# Current: 40% — aim to increase to 60%+ with each major release
-fail_under = 40
+# Minimum coverage threshold (increasing over time).
+# Measured at ~50-55% with the full suite (2026-07). Target: 60% by next release.
+fail_under = 50
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
