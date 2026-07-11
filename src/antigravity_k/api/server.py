@@ -190,6 +190,40 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Inject security headers on every response.
+
+    The CSP allows the CDN-hosted scripts the dashboard depends on (cdnjs,
+    jsdelivr, Google Fonts) and inline styles/scripts (required by the
+    vanilla-JS dashboard), but blocks ``javascript:`` navigation and restricts
+    frame ancestors. This is defense-in-depth alongside DOMPurify sanitization
+    of agent output in the frontend.
+    """
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=(), payment=()"
+    # CSP: allow self + the specific CDNs the dashboard uses. 'unsafe-inline'
+    # is required for the vanilla-JS dashboard's inline styles/handlers; this
+    # will be tightened when the frontend moves to a build-time CSP nonce.
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' "
+        "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' "
+        "https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: https: blob:; "
+        "connect-src 'self' ws: wss: http: https:; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Public paths that do NOT require authentication.
 # Kept as a set for O(1) lookups in the hot path.

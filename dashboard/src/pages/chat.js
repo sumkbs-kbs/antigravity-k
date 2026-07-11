@@ -1471,6 +1471,29 @@ export const ChatPage = {
         '<details class="think-block generating" open><summary>🧠 Thinking<span class="typing-indicator" style="margin-left: 8px; height: 12px;"><span></span><span></span><span></span></span></summary><div class="think-content">$1</div></details>'
       );
 
+      // ── 최종 단계: DOMPurify 새니타이제이션 (XSS 방어) ──
+      // 에이전트/도구 출력에서 주입될 수 있는 악성 스크립트, 이벤트 핸들러,
+      // javascript: URL 등을 제거. 허용되는 태그/속성만 남긴다.
+      if (typeof DOMPurify !== 'undefined') {
+        text = DOMPurify.sanitize(text, {
+          ALLOWED_TAGS: [
+            'details', 'summary', 'div', 'section', 'span', 'p', 'br', 'hr',
+            'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+            'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+            'a', 'img', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'mark',
+            'table', 'thead', 'tbody', 'tr', 'th', 'td',
+            'sup', 'sub', 'figure', 'figcaption',
+          ],
+          ALLOWED_ATTR: [
+            'href', 'src', 'alt', 'title', 'class', 'id', 'style',
+            'target', 'rel', 'width', 'height', 'colspan', 'rowspan',
+            'open', 'loading',
+          ],
+          ALLOW_DATA_ATTR: false,
+          FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+        });
+      }
+
       return text;
     }
 

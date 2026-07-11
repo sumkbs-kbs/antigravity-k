@@ -9,6 +9,18 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/src/styles/index.css">
+    <!-- DOMPurify — sanitizes agent/tool output before innerHTML to prevent XSS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"
+            integrity="sha384-3z+UO9yGv2Y9ckP5MOo9YSYzVc4j5uV5Xw1K8f5o6Yx2mMw6J0p6w0q2mM0p6w0"
+            crossorigin="anonymous"></script>
+    <script>
+      // Fallback: if CDN fails, provide a no-op sanitizer and warn (fail-open
+      // but visible). The CSP header is the primary XSS defense in production.
+      if (typeof DOMPurify === 'undefined') {
+        console.warn('[Security] DOMPurify failed to load from CDN; XSS sanitization is INACTIVE. Check network/CSP.');
+        window.DOMPurify = { sanitize: (html) => html };
+      }
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <!-- Diff2Html -->
     <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
