@@ -5,15 +5,57 @@
 Apple Silicon M5 Max (128GB) 기준 기본값이 설정되어 있습니다.
 """
 
+import logging
 import os
 from pathlib import Path
 
 import yaml
-from pydantic import ConfigDict, Field, model_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 프로젝트 루트 경로 자동 감지
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# 모듈 레벨 로거 (config 검증 및 .env 로드 메시지용)
+logger = logging.getLogger("antigravity_k.config")
+
+
+def _load_dotenv_once() -> None:
+    """프로젝트 루트의 .env 파일을 환경변수로 로드합니다.
+
+    python-dotenv가 설치되어 있으면 사용하고, 없으면 경량 파서로 폴백합니다.
+    이미 환경변수에 설정된 값은 덮어쓰지 않습니다(override=False).
+    모든 엔트리포인트(CLI, 직접 실행, 서버)에서 API 키를 일관되게 로드하기 위해
+    config 모듈 로드 시점에 한 번만 실행됩니다.
+    """
+    env_path = Path(os.environ.get("AGK_ENV_FILE", PROJECT_ROOT / ".env"))
+    if not env_path.exists():
+        return
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(env_path, override=False)
+        return
+    except ImportError:
+        logger.debug("python-dotenv 미설치 — 경량 폴백 파서 사용")
+
+    # 경량 폴백 파서 — python-dotenv 미설치 환경 지원
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+    except OSError:
+        logger.warning(".env 파일 읽기 실패 (non-critical)", exc_info=True)
+
+
+# config 모듈 import 시점에 .env를 로드 — server.py의 load_dotenv()보다 먼저 실행됨
+_load_dotenv_once()
 
 
 def _load_yaml_config() -> dict:
@@ -75,17 +117,17 @@ class ModelConfig(BaseSettings):
     # 구동 엔진 선택 (ollama, lm_studio 등)
     api_engine: str = Field(
         default="ollama",
-        description="구동 엔진 선택 (ollama, lm_studio)",
+        description="구동 엔진 선택 (ollama, lm_studio, openrouter)",
     )
 
-    # 로컬/외부 OpenAI 호환 API 주소 (LM Studio, Ollama, vLLM 등)
+    # 로컬/외부 OpenAI 호환 API 주소 (LM Studio, Ollama, vLLM, OpenRouter 등)
     api_base: str = Field(
         default="",  # 엔진에 따라 자동 설정됨
         description="로컬/원격 호환 API 베이스 주소 (예: http://localhost:11434/v1)",
     )
     api_key: str = Field(
         default="",  # 엔진에 따라 자동 설정됨
-        description="API 키",
+        description="API 키 (OpenRouter의 경우 AGK_API_KEY 또는 OPENROUTER_API_KEY 환경변수)",
     )
     force_api: bool = Field(
         default=True,
@@ -94,22 +136,75 @@ class ModelConfig(BaseSettings):
 
     @model_validator(mode="after")
     def set_defaults_by_engine(self):
-        """Set defaults by engine."""
+        """Set defaults by engine.
+
+        엔진(openrouter/ollama/lm_studio)에 따라 api_base, api_key 기본값을 설정합니다.
+        API 키는 다음 순서로 해석합니다 (env_prefix와 무관하게 널리 쓰이는 변수명들을 인식):
+          OpenRouter: OPENROUTER_API_KEY → AGK_OPENROUTER_KEY → AGK_API_KEY
+          Ollama:    "ollama" (또는 OLLAMA_API_KEY가 있으면 사용)
+        """
         engine = self.api_engine.lower()
+
+        # ─── .env에서 provider/engine을 덮어쓰기 위해 환경변수 인식 ───
+        # AGK_PROVIDER / AGK_MODEL_API_ENGINE / AGK_API_ENGINE 모두 허용
+        env_provider = (
+            os.environ.get("AGK_PROVIDER") or os.environ.get("AGK_API_ENGINE") or os.environ.get("AGK_MODEL_API_ENGINE")
+        )
+        if env_provider:
+            engine = env_provider.lower()
+            self.api_engine = engine
+
         if not self.api_base:
             if engine == "ollama":
                 self.api_base = "http://localhost:11434/v1"
             elif engine == "lm_studio":
                 self.api_base = "http://localhost:1234/v1"
+            elif engine == "openrouter":
+                self.api_base = "https://openrouter.ai/api/v1"
+            elif engine == "openai":
+                self.api_base = "https://api.openai.com/v1"
+            elif engine == "gemini":
+                self.api_base = "https://generativelanguage.googleapis.com/v1beta/openai"
+            elif engine == "zai":
+                self.api_base = "https://open.bigmodel.cn/api/paas/v4"
+            elif engine == "nim":
+                self.api_base = "https://integrate.api.nvidia.com/v1"
             else:
                 self.api_base = "http://localhost:11434/v1"  # fallback
-        if not self.api_key:
+
+        if not self.api_key or self.api_key == "none":
             if engine == "ollama":
-                self.api_key = "ollama"
+                self.api_key = os.environ.get("OLLAMA_API_KEY", "") or "ollama"
             elif engine == "lm_studio":
                 self.api_key = "lm-studio"
+            elif engine == "openrouter":
+                # OPENROUTER_API_KEY → AGK_OPENROUTER_KEY → AGK_API_KEY → OPENAI_API_KEY 순서
+                self.api_key = (
+                    os.environ.get("OPENROUTER_API_KEY")
+                    or os.environ.get("AGK_OPENROUTER_KEY")
+                    or os.environ.get("AGK_API_KEY")
+                    or os.environ.get("OPENAI_API_KEY", "")
+                )
+            elif engine == "openai":
+                self.api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("AGK_OPENAI_KEY", "")
+            elif engine == "gemini":
+                self.api_key = os.environ.get("GEMINI_API_KEY", "")
+            elif engine == "zai":
+                self.api_key = os.environ.get("ZAI_API_KEY", "")
+            elif engine == "nim":
+                self.api_key = os.environ.get("NVIDIA_API_KEY", "")
             else:
-                self.api_key = "none"
+                self.api_key = os.environ.get("AGK_API_KEY", "") or "none"
+
+        # OpenRouter 사용 시 키 누락 경고 (설정 검증 강화)
+        if engine == "openrouter" and (not self.api_key or self.api_key == "none"):
+            import logging
+
+            logging.getLogger("antigravity_k.config").warning(
+                "OpenRouter 엔진이 선택되었지만 API 키가 설정되지 않았습니다. "
+                "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 확인하세요.",
+            )
+
         return self
 
     # KV 캐시 양자화 (메모리 절약)
@@ -121,7 +216,7 @@ class ModelConfig(BaseSettings):
     temperature: float = Field(default=0.7, description="생성 온도")
     top_p: float = Field(default=0.9, description="top-p 샘플링")
 
-    model_config = ConfigDict(env_prefix="AGK_MODEL_")
+    model_config = SettingsConfigDict(env_prefix="AGK_MODEL_")
 
 
 class ServerConfig(BaseSettings):
@@ -131,7 +226,7 @@ class ServerConfig(BaseSettings):
     port: int = Field(default=8400, description="API 서버 포트")
     inference_port: int = Field(default=8401, description="추론 엔진 포트")
 
-    model_config = ConfigDict(env_prefix="AGK_SERVER_")
+    model_config = SettingsConfigDict(env_prefix="AGK_SERVER_")
 
 
 class PathConfig(BaseSettings):
@@ -148,7 +243,7 @@ class PathConfig(BaseSettings):
         description="마크다운 위키 저장 경로",
     )
 
-    model_config = ConfigDict(env_prefix="AGK_PATH_")
+    model_config = SettingsConfigDict(env_prefix="AGK_PATH_")
 
 
 class SecurityConfig(BaseSettings):
@@ -171,10 +266,30 @@ class SecurityConfig(BaseSettings):
     # 추가: 외부 접속 보호용 PIN
     access_pin: str = Field(
         default="0000",
-        description="외부(또는 로컬) 프론트엔드 접속용 보안 PIN",
+        description="외부(또는 로컬) 프론트엔드 접속용 보안 PIN (부트스트랩용; 해시화 후 auth_hash_file에 저장)",
+    )
+    # 인증 토큰 수명(시간)
+    token_ttl_hours: int = Field(
+        default=12,
+        description="발급된 액세스 토큰의 수명(시간)",
+    )
+    # PIN 무차별 대입 방지용 로그인 레이트리밋
+    login_rate_limit: str = Field(
+        default="5/minute",
+        description="/api/auth/login 엔드포인트의 레이트리밋 (PIN 무차별 대입 방지)",
+    )
+    # PIN 해시 저장 파일 경로
+    pin_hash_file: str = Field(
+        default="data/auth_hash",
+        description="PIN 해시가 저장되는 파일 경로",
+    )
+    # JWT 서명 비밀키 저장 파일 경로
+    token_secret_file: str = Field(
+        default="data/token_secret",
+        description="JWT 서명 비밀키가 저장되는 파일 경로",
     )
 
-    model_config = ConfigDict(env_prefix="AGK_SEC_")
+    model_config = SettingsConfigDict(env_prefix="AGK_SEC_")
 
 
 class WorkflowConfig(BaseSettings):
@@ -184,7 +299,7 @@ class WorkflowConfig(BaseSettings):
     auto_commit: bool = Field(default=False, description="자동 Git 커밋 활성화")
     auto_artifacts: bool = Field(default=False, description="산출물 자동 생성")
 
-    model_config = ConfigDict(env_prefix="AGK_WORKFLOW_")
+    model_config = SettingsConfigDict(env_prefix="AGK_WORKFLOW_")
 
 
 class I18nConfig(BaseSettings):
@@ -193,7 +308,7 @@ class I18nConfig(BaseSettings):
     locale: str = Field(default="auto", description="언어 설정 (auto/ko/en/ja)")
     fallback_locale: str = Field(default="en", description="폴백 언어")
 
-    model_config = ConfigDict(env_prefix="AGK_I18N_")
+    model_config = SettingsConfigDict(env_prefix="AGK_I18N_")
 
 
 class RouterConfig(BaseSettings):
@@ -209,7 +324,7 @@ class RouterConfig(BaseSettings):
     usage_tracking: bool = Field(default=True, description="사용량 추적 활성화")
     usage_db_path: str = Field(default="", description="사용량 DB 경로 (빈 문자열=자동)")
 
-    model_config = ConfigDict(env_prefix="AGK_ROUTER_")
+    model_config = SettingsConfigDict(env_prefix="AGK_ROUTER_")
 
 
 class ComputerUseConfig(BaseSettings):
@@ -227,7 +342,7 @@ class ComputerUseConfig(BaseSettings):
         description="액션 감사 로그 파일 경로",
     )
 
-    model_config = ConfigDict(env_prefix="AGK_CU_")
+    model_config = SettingsConfigDict(env_prefix="AGK_CU_")
 
 
 class AppConfig:
@@ -236,6 +351,7 @@ class AppConfig:
     def __init__(self):
         """Initialize the AppConfig."""
         raw_config = _load_yaml_config()
+        self._raw = raw_config
         self.model = ModelConfig(**_section_overrides(raw_config, "model", ModelConfig))
         self.server = ServerConfig(**_section_overrides(raw_config, "server", ServerConfig))
         self.paths = PathConfig(**_section_overrides(raw_config, "paths", PathConfig))
@@ -257,6 +373,82 @@ class AppConfig:
             self.paths.logs_dir,
         ]:
             path.mkdir(parents=True, exist_ok=True)
+
+    def validate(self) -> list[str]:
+        """시작 시 설정을 검증하고 문제 목록을 반환합니다 (fail-fast, 작업 D).
+
+        빈 리스트 = 문제 없음. 문제가 있으면 서버 시작 전에 로깅/표시하여
+        "왜 안 되지?" 디버깅 시간을 줄입니다.
+
+        검증 항목:
+          - API 엔진별 필수 API 키 존재 여부
+          - 핵심 디렉토리 쓰기 권한
+          - 모델 레지스트리 로드 가능 여부
+          - 포트 충돌 위험 (포트가 0 이하인지)
+          - 비용 예산 양수 여부
+        """
+        problems: list[str] = []
+        log = logging.getLogger("antigravity_k.config")
+
+        # 1. API 엔진별 필수 키
+        engine = (self.model.api_engine or "").lower()
+        if engine == "openrouter":
+            if not self.model.api_key or self.model.api_key == "none":
+                problems.append(
+                    "OpenRouter 엔진이 선택되었지만 API 키가 없습니다. "
+                    "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 설정하세요."
+                )
+        elif engine == "nim" or engine == "nvidia":
+            if not os.environ.get("NVIDIA_API_KEY"):
+                problems.append(
+                    "NIM 엔진이 선택되었지만 NVIDIA_API_KEY가 없습니다. "
+                    "build.nvidia.com에서 무료 키를 발급받아 설정하세요."
+                )
+
+        # 2. 포트 유효성
+        if self.server.port <= 0 or self.server.port > 65535:
+            problems.append(f"잘못된 서버 포트: {self.server.port} (1-65535 범위여야 함)")
+        if self.server.inference_port <= 0 or self.server.inference_port > 65535:
+            problems.append(f"잘못된 추론 포트: {self.server.inference_port}")
+
+        # 3. 핵심 디렉토리 쓰기 권한
+        for label, path in [
+            ("data_dir", self.paths.data_dir),
+            ("logs_dir", self.paths.logs_dir),
+        ]:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                test_file = path / ".agk_write_test"
+                test_file.write_text("test", encoding="utf-8")
+                test_file.unlink()
+            except OSError as e:
+                problems.append(f"{label}({path})에 쓰기 권한이 없습니다: {e}")
+
+        # 4. config.yaml 모델 레지스트리 로드 확인
+        try:
+            from antigravity_k.engine.model_registry import ModelRegistry
+
+            registry = ModelRegistry()
+            if not registry.list_models():
+                problems.append("config.yaml에 등록된 모델이 없습니다.")
+        except Exception as e:
+            problems.append(f"모델 레지스트리 로드 실패: {e}")
+
+        # 5. 비용 예산 양수
+        raw = getattr(self, "_raw", {})
+        cost_cfg = raw.get("cost", {}) if isinstance(raw, dict) else {}
+        budget = float(cost_cfg.get("daily_budget_usd", 50.0))
+        if budget <= 0:
+            problems.append(f"일일 비용 예산이 {budget}입니다 (양수여야 함)")
+
+        if problems:
+            log.warning("설정 검증 %d개 문제 발견:", len(problems))
+            for p in problems:
+                log.warning("  - %s", p)
+        else:
+            log.info("설정 검증 통과: 문제 없음")
+
+        return problems
 
     def summary(self) -> str:
         """설정 요약을 문자열로 반환합니다."""

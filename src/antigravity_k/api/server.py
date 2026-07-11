@@ -4,16 +4,27 @@ import asyncio
 import logging
 import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
 
 from antigravity_k.config import config
 
 logger = logging.getLogger("antigravity_k.api.server")
 
 from contextlib import asynccontextmanager
+
+# ---------------------------------------------------------------------------
+# Rate limiter (slowapi) — single shared Limiter instance.
+# ---------------------------------------------------------------------------
+limiter = Limiter(key_func=get_remote_address, default_limits=["300/minute"])
 
 
 @asynccontextmanager
@@ -27,6 +38,16 @@ async def lifespan(app: FastAPI):
     # Startup — Sidabari 패턴 기반 서브시스템 초기화
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     vault_data_dir = os.path.join(project_root, "vault_data")
+
+    # 0) 시작 시 config 검증 (fail-fast, 작업 D) — 잘못된 설정을 런타임 전에 발견
+    try:
+        problems = config.validate()
+        if problems:
+            logger.warning("[Startup] 설정 검증 %d개 문제 — 계속 시작하지만 확인 필요:", len(problems))
+            for p in problems:
+                logger.warning("  ⚠️  %s", p)
+    except Exception:
+        logger.exception("[Startup] config 검증 중 예외 (non-critical)")
 
     # 1) HookEventBus 초기화 (파일 기반 실시간 이벤트 IPC)
     try:
@@ -141,38 +162,181 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS origins from config or environment (AGK_CORS_ORIGINS)
+# Comma-separated list of allowed origins. Default: dashboard dev server + production
+_cors_env = os.environ.get("AGK_CORS_ORIGINS", "")
+if _cors_env:
+    cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    cors_origins = [
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:8000",  # Production uvicorn
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# slowapi state + middleware registration
+# ---------------------------------------------------------------------------
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ---------------------------------------------------------------------------
+# Public paths that do NOT require authentication.
+# Kept as a set for O(1) lookups in the hot path.
+# ---------------------------------------------------------------------------
+_PUBLIC_EXACT_PATHS = frozenset(
+    {
+        "/api/auth/login",
+        "/health",
+        "/v1/health",
+        "/api/health/deep",
+        "/metrics",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    }
+)
+
+# Path prefixes that require authentication.
+_PROTECTED_PREFIXES = ("/api/", "/v1/", "/ws/", "/ide/")
+
+
+def _is_protected_path(path: str) -> bool:
+    """Return True if the request path requires authentication.
+
+    A path is protected if it falls under one of the protected prefixes
+    (``/api/``, ``/v1/``, ``/ws/``, ``/ide/``) and is not in the explicit
+    public allowlist.
+    """
+    if path in _PUBLIC_EXACT_PATHS:
+        return False
+    return path.startswith(_PROTECTED_PREFIXES)
+
 
 @app.middleware("http")
-async def verify_access_pin(request: Request, call_next):
-    """API 접근 시 설정된 보안 PIN을 검증하세요.
+async def verify_access_token(request: Request, call_next):
+    """Authenticate requests to protected paths via bearer token (or legacy PIN).
 
-    Header(X-Access-Pin) 또는 Cookie(ag_access_pin)를 통해 검사합니다.
+    Coverage is widened from the previous ``/api/``-only guard to also include
+    ``/v1/*`` (LLM inference), ``/ws/*`` (terminal/events), and ``/ide/*``.
+    Health checks, docs, and the login endpoint remain public.
+
+    Credentials are accepted in two forms:
+      1. ``Authorization: Bearer <jwt>``  — primary, issued by /api/auth/login.
+      2. ``X-Access-Pin`` header / ``ag_access_pin`` cookie — legacy fallback
+         for existing dashboard clients during the migration window. Compared
+         constant-time via PBKDF2 verification.
     """
-    if request.url.path.startswith("/api/"):
-        required_pin = config.security.access_pin
-        if required_pin:
-            pin_from_header = request.headers.get("X-Access-Pin")
-            pin_from_cookie = request.cookies.get("ag_access_pin")
+    if _is_protected_path(request.url.path):
+        from antigravity_k.api.auth_routes import authenticate_request
 
-            if pin_from_header != required_pin and pin_from_cookie != required_pin:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Invalid or missing Access PIN", "ok": False},
-                )
+        if not authenticate_request(request):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing credentials", "ok": False},
+            )
     return await call_next(request)
 
 
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """Collect RED (Rate, Errors, Duration) metrics for every HTTP request.
+
+    Records request count (by method/path/status), latency histogram, and an
+    in-flight gauge. Runs after auth so that 401 responses are also counted.
+    """
+    from antigravity_k.engine.metrics import (
+        request_counter,
+        request_latency,
+        requests_in_flight,
+    )
+
+    # Short-circuit: skip collection for the metrics endpoint itself to avoid
+    # a feedback loop (scraping /metrics would increment its own counters).
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    requests_in_flight().inc()
+    start = asyncio.get_event_loop().time()
+    status_code = "500"
+    try:
+        response = await call_next(request)
+        status_code = str(response.status_code)
+        return response
+    finally:
+        elapsed = asyncio.get_event_loop().time() - start
+        requests_in_flight().dec()
+        # Normalize path templates to avoid high-cardinality label explosion.
+        # Use the raw path with query stripped; route templating would be ideal
+        # but the middleware runs before route resolution.
+        path = request.url.path
+        request_counter().labels(method=request.method, path=path, status=status_code).inc()
+        request_latency().labels(method=request.method, path=path).observe(elapsed)
+
+
+from antigravity_k.api.auth_routes import router as auth_router
 from antigravity_k.api.routes import api_router
 
+app.include_router(auth_router)
 app.include_router(api_router)
+
+# Prometheus metrics endpoint (public — Prometheus scrapers need access).
+# We expose a plain GET route at exactly /metrics (the ASGI mount from
+# make_asgi_app only serves /metrics/ with a trailing slash, which Prometheus
+# does not send by default).
+from fastapi import Response  # noqa: E402
+
+from antigravity_k.engine.metrics import render_metrics  # noqa: E402
+
+
+@app.get("/metrics")
+def metrics_endpoint() -> Response:
+    """Prometheus exposition endpoint."""
+    return Response(content=render_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Correlation-ID middleware + global exception handler registration.
+# ---------------------------------------------------------------------------
+import uuid  # noqa: E402
+
+from antigravity_k.api.error_handler import (  # noqa: E402
+    correlation_id_var,
+    global_exception_handler,
+)
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Assign or propagate a correlation id for every request.
+
+    Reads an inbound ``X-Request-Id`` header if present (so callers can trace
+    a request across services), otherwise generates one. The id is stored in a
+    ``ContextVar`` so log records can include it, and echoed back in the
+    ``X-Request-Id`` response header.
+    """
+    cid = request.headers.get("X-Request-Id") or uuid.uuid4().hex[:12]
+    token = correlation_id_var.set(cid)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = cid
+        return response
+    finally:
+        correlation_id_var.reset(token)
+
+
+# Register the catch-all exception handler so 500s never leak str(exc).
+app.add_exception_handler(Exception, global_exception_handler)
 
 import httpx
 from fastapi.responses import StreamingResponse

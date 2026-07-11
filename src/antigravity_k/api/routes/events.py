@@ -5,6 +5,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from antigravity_k.api.routes.legacy import close_unauthorized_ws
 from antigravity_k.engine.event_bus import global_event_bus
 
 logger = logging.getLogger("antigravity_k.api.events")
@@ -20,8 +21,9 @@ async def websocket_events(websocket: WebSocket):
         websocket (WebSocket): WebSocket websocket.
 
     """
-    await websocket.accept()
-    queue = asyncio.Queue()
+    if await close_unauthorized_ws(websocket):
+        return
+    queue: asyncio.Queue = asyncio.Queue()
 
     def make_callback(e_name):
         def _cb(**kwargs):
@@ -47,6 +49,7 @@ async def websocket_events(websocket: WebSocket):
         "AntiPatternsDetected",
         "FileOpened",
         "FileModified",
+        "ModeChanged",  # Phase 1 D7: Dashboard 모드 인디케이터 실시간 업데이트
     ]
 
     callbacks = {e: make_callback(e) for e in events_to_track}
@@ -71,5 +74,5 @@ async def websocket_events(websocket: WebSocket):
     except Exception as e:
         logger.exception("WebSocket /v1/ws/events unexpected error")
     finally:
-        for e, cb in callbacks.items():
-            global_event_bus.unsubscribe(e, cb)
+        for ev_name, cb in callbacks.items():
+            global_event_bus.unsubscribe(ev_name, cb)
