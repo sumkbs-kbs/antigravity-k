@@ -1,4 +1,3 @@
-import asyncio
 from src.antigravity_k.engine.stream_processor import StreamProcessor
 
 processor = StreamProcessor()
@@ -31,9 +30,7 @@ for chunk in chunks:
             start_idx = processor._buffer.lower().find("<scratch_pad>")
             if start_idx != -1:
                 output_parts.append(processor._buffer[:start_idx])
-                processor._buffer = processor._buffer[
-                    start_idx + len("<scratch_pad>") :
-                ]
+                processor._buffer = processor._buffer[start_idx + len("<scratch_pad>") :]
                 processor._state.in_scratch_pad = True
             else:
                 last_lt = processor._buffer.rfind("<")

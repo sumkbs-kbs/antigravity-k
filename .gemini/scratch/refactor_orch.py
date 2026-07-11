@@ -1,5 +1,4 @@
 import re
-import sys
 
 
 def main():
@@ -139,9 +138,7 @@ logger = logging.getLogger("antigravity_k.orchestrator")""",
             result.append(chunk)
         return "".join(result)
 """
-    content = re.sub(
-        run_stream_target, run_stream_replacement, content, flags=re.DOTALL
-    )
+    content = re.sub(run_stream_target, run_stream_replacement, content, flags=re.DOTALL)
 
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(content)

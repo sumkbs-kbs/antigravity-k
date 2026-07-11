@@ -237,12 +237,8 @@ class KtxBookingTests(unittest.TestCase):
             has_general_seat=False,
             label="soldout-first",
         )
-        user_selected = FakeTrain(
-            train_no="009", dep_time="090000", arr_time="113000", label="user-selected"
-        )
-        other_train = FakeTrain(
-            train_no="011", dep_time="093000", arr_time="120000", label="other-train"
-        )
+        user_selected = FakeTrain(train_no="009", dep_time="090000", arr_time="113000", label="user-selected")
+        other_train = FakeTrain(train_no="011", dep_time="093000", arr_time="120000", label="other-train")
         train_id = ktx_booking.normalize_train(user_selected, index=2)["train_id"]
         client = FakeClient([other_train, sold_out_first, user_selected])
 
@@ -253,12 +249,8 @@ class KtxBookingTests(unittest.TestCase):
         self.assertIs(client.reserved_train, user_selected)
 
     def test_command_reserve_fails_if_selected_train_is_no_longer_available(self):
-        user_selected = FakeTrain(
-            train_no="009", dep_time="090000", arr_time="113000", label="user-selected"
-        )
-        other_train = FakeTrain(
-            train_no="011", dep_time="093000", arr_time="120000", label="other-train"
-        )
+        user_selected = FakeTrain(train_no="009", dep_time="090000", arr_time="113000", label="user-selected")
+        other_train = FakeTrain(train_no="011", dep_time="093000", arr_time="120000", label="other-train")
         train_id = ktx_booking.normalize_train(user_selected, index=2)["train_id"]
         client = FakeClient([other_train])
 
@@ -270,9 +262,7 @@ class KtxBookingTests(unittest.TestCase):
         self.assertIn("train_id", str(exc.exception))
 
     def test_command_reserve_replays_selected_train_type(self):
-        selected = FakeTrain(
-            train_no="009", dep_time="090000", arr_time="113000", label="selected"
-        )
+        selected = FakeTrain(train_no="009", dep_time="090000", arr_time="113000", label="selected")
         train_id = ktx_booking.normalize_train(selected, index=1)["train_id"]
         client = FakeClient([selected])
         args = self.make_args(train_id)
@@ -301,9 +291,7 @@ class KtxBookingTests(unittest.TestCase):
         train_id = ktx_booking.normalize_train(waiting_only, index=1)["train_id"]
         client = FakeClient(
             [],
-            search_handler=lambda *args, **kwargs: (
-                [waiting_only] if kwargs.get("include_waiting_list") else []
-            ),
+            search_handler=lambda *args, **kwargs: ([waiting_only] if kwargs.get("include_waiting_list") else []),
         )
         args = self.make_args(train_id)
         args.try_waiting = True

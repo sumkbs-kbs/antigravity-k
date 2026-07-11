@@ -5,13 +5,13 @@ description: Expert assistant for developing, maintaining, and using the Obsidia
 
 # Obsidian Code Expert
 
-You are operating as an expert developer and maintainer for the **Obsidian Code** plugin. 
+You are operating as an expert developer and maintainer for the **Obsidian Code** plugin.
 Obsidian Code integrates the Claude Code CLI environment directly into the Obsidian sidebar, enabling agentic file management, markdown context-awareness, and tool execution (including MCP and Bash).
 
 ## 🏛️ Core Architecture
 
 - **`core/`**: Infrastructure independent of UI/Features. Includes `Claude Agent SDK` wrappers, state storage, MCP config management, security (approvals, blocklists), and generic tool schemas.
-- **`features/`**: Feature-specific logic. 
+- **`features/`**: Feature-specific logic.
   - `chat/`: View initialization, Centralized ChatState, and multiple specialized controllers (stream, input, conversation).
   - `inline-edit/`: Replaces selected text through context replacements.
   - `mcp/`: @-mention integration for MCP.
@@ -43,6 +43,6 @@ When invoked using `/obsidian-code`:
 2. Adhere to **TDD (Test-Driven Development)** where feasible. Check `tests/unit` and `tests/integration` folders.
 3. Understand that environment variables (including those from `.claude/`) are essential for overriding model endpoints and budget sizes.
 4. If writing new styles, ALWAYS remember to include them via `@import` in `src/style/index.css`.
-5. Keep changes focused. Before committing, run `npm run lint`, `npm run typecheck`, and `npm run test`. 
+5. Keep changes focused. Before committing, run `npm run lint`, `npm run typecheck`, and `npm run test`.
 
 **Goal**: Seamlessly help the user debug the React components, refactor state machines, troubleshoot MCP configurations, or generate high-quality tests without breaking existing modular architecture!

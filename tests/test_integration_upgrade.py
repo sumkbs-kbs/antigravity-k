@@ -1,5 +1,4 @@
-"""
-시스템 통합 업그레이드 테스트
+"""시스템 통합 업그레이드 테스트.
 ================================
 이전 세션(tiptap-vuetify 패턴)에서 만든 모듈들이
 실제 핵심 시스템(AppConfig, TeamManager, BaseAgent, SkillsRegistry)에
@@ -13,17 +12,17 @@
   E) ComputerUseTool — 메타데이터 적용 확인
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from antigravity_k.config import AppConfig, I18nConfig
-from antigravity_k.tools.base_tool import ToolCategory, RenderIn, RiskLevel
-from antigravity_k.tools.tool_registry import ToolRegistry
 from antigravity_k.i18n import I18n, set_locale
-
+from antigravity_k.tools.base_tool import RenderIn, RiskLevel, ToolCategory
+from antigravity_k.tools.tool_registry import ToolRegistry
 
 # ═══════════════ A) AppConfig 통합 테스트 ═══════════════
 
@@ -208,7 +207,7 @@ class TestSkillsRegistryIntegration:
 
     def test_validate_skill_tools_finds_missing(self):
         """존재하지 않는 도구를 참조하는 스킬을 감지하는지 확인."""
-        from antigravity_k.agents.skills_registry import SkillsRegistry, SkillProfile
+        from antigravity_k.agents.skills_registry import SkillProfile, SkillsRegistry
 
         registry = SkillsRegistry.__new__(SkillsRegistry)
         registry.profiles = {}
@@ -235,7 +234,7 @@ class TestSkillsRegistryIntegration:
 
     def test_validate_skill_tools_no_missing(self):
         """모든 도구가 존재하면 빈 딕셔너리를 반환하는지 확인."""
-        from antigravity_k.agents.skills_registry import SkillsRegistry, SkillProfile
+        from antigravity_k.agents.skills_registry import SkillProfile, SkillsRegistry
 
         registry = SkillsRegistry.__new__(SkillsRegistry)
         registry.profiles = {}
@@ -296,8 +295,8 @@ class TestRiskBasedFiltering:
     def test_critical_tools_filtered_out_by_default(self):
         """기본 설정(max_risk=high)에서 CRITICAL 도구가 제외되는지 확인."""
         reg = ToolRegistry()
-        from antigravity_k.tools.system_tools import ReadFileTool, RunBashCommandTool
         from antigravity_k.tools.computer_use import ComputerUseTool
+        from antigravity_k.tools.system_tools import ReadFileTool, RunBashCommandTool
 
         reg.install_many(ReadFileTool, RunBashCommandTool)
         reg.install(ComputerUseTool, force_stub=True)
@@ -311,8 +310,8 @@ class TestRiskBasedFiltering:
     def test_all_tools_with_critical_risk(self):
         """max_risk=critical이면 모든 도구가 포함되는지 확인."""
         reg = ToolRegistry()
-        from antigravity_k.tools.system_tools import ReadFileTool
         from antigravity_k.tools.computer_use import ComputerUseTool
+        from antigravity_k.tools.system_tools import ReadFileTool
 
         reg.install_many(ReadFileTool)
         reg.install(ComputerUseTool, force_stub=True)

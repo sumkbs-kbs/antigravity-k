@@ -81,9 +81,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if args.upstream_args and args.upstream_args[0] == "--":
         args.upstream_args = args.upstream_args[1:]
     if not args.upstream_args:
-        parser.error(
-            "missing upstream command; try: tools, init, search <keyword>, rocket <keyword>, budget <keyword>"
-        )
+        parser.error("missing upstream command; try: tools, init, search <keyword>, rocket <keyword>, budget <keyword>")
     return args
 
 
@@ -91,9 +89,7 @@ def upstream_cli_path(repo_dir: pathlib.Path) -> pathlib.Path:
     return repo_dir / UPSTREAM_CLI
 
 
-def ensure_repo(
-    repo_dir: pathlib.Path, *, clone: bool = True, update: bool = False
-) -> pathlib.Path:
+def ensure_repo(repo_dir: pathlib.Path, *, clone: bool = True, update: bool = False) -> pathlib.Path:
     cli_path = upstream_cli_path(repo_dir)
     if cli_path.exists():
         if update:
@@ -121,9 +117,7 @@ def ensure_repo(
         "failed to clone upstream checkout",
     )
     if not cli_path.exists():
-        raise BootstrapError(
-            f"Cloned {UPSTREAM_REPO_URL}, but {UPSTREAM_CLI} was not found in {repo_dir}"
-        )
+        raise BootstrapError(f"Cloned {UPSTREAM_REPO_URL}, but {UPSTREAM_CLI} was not found in {repo_dir}")
     return cli_path
 
 
@@ -131,9 +125,7 @@ def run_checked(command: Sequence[str], context: str) -> None:
     try:
         subprocess.run(command, check=True)
     except FileNotFoundError as exc:
-        raise BootstrapError(
-            f"{context}: required executable not found: {command[0]}"
-        ) from exc
+        raise BootstrapError(f"{context}: required executable not found: {command[0]}") from exc
     except subprocess.CalledProcessError as exc:
         raise BootstrapError(f"{context}: {exc}") from exc
 

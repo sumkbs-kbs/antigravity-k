@@ -88,7 +88,7 @@ class MetaEvolutionAgent:
         self.backup_manager = BackupManager(project_root)
         self.max_retries = 3
 
-    def evolve(self, requirement: str, target_files: list[str] = None) -> Generator[str, None, str]:
+    def evolve(self, requirement: str, target_files: list[str] | None = None) -> Generator[str, None, str]:
         """요구사항에 맞춰 코드를 수정하고 검증하는 메인 루프 (Generator로 스트리밍)."""
         yield "🧬 **[Meta-Evolution]** 자율 진화 시퀀스 시작...\n"
 

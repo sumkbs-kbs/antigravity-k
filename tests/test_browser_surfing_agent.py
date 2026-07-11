@@ -1,5 +1,7 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+
 from antigravity_k.agents.browser_surfing_agent import (
     BrowserSurfingAgent,
 )
@@ -45,7 +47,5 @@ async def test_surf_with_mock_playwright(mock_async_playwright, mock_model_manag
     assert result == "Found the info"
 
     # Verify page navigation
-    mock_page.goto.assert_called_once_with(
-        "http://example.com", wait_until="networkidle", timeout=15000
-    )
+    mock_page.goto.assert_called_once_with("http://example.com", wait_until="networkidle", timeout=15000)
     mock_model_manager.generate.assert_called_once()

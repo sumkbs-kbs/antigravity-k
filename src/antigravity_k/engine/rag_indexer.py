@@ -309,7 +309,7 @@ class RAGIndexer:
                 chunk_map[cid] = result
 
         # RRF 점수 기준 정렬
-        sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)
+        sorted_ids = sorted(rrf_scores, key=lambda k: rrf_scores.get(k, 0.0), reverse=True)
         return [chunk_map[cid] for cid in sorted_ids[:n_results] if cid in chunk_map]
 
     def format_context(self, query: str, n_results: int = 5, max_chars: int = 6000) -> str:

@@ -1,6 +1,3 @@
-from typing import Generator
-
-
 class DummyOrch:
     def _ceo_analyze(self, msg, model):
         yield "abc"

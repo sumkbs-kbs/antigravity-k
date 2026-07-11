@@ -1,12 +1,11 @@
-"""
-Computer Use 통합 테스트
+"""Computer Use 통합 테스트.
 ========================
 ComputerUseTool, ActionGuard, OS Drivers, YAML Frontmatter 파싱을
 종합적으로 검증합니다.
 """
 
-import sys
 import os
+import sys
 
 # 프로젝트 src를 Python 경로에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -177,7 +176,7 @@ class TestComputerUseTool:
         assert "action" in schema["input_schema"]["properties"]
 
     def test_screenshot_action(self):
-        """screenshot 액션이 base64 이미지를 반환해야 합니다."""
+        """Screenshot 액션이 base64 이미지를 반환해야 합니다."""
         tool = self._make_tool()
         result = tool.execute(action="screenshot")
         assert "image_base64" in result
@@ -197,21 +196,21 @@ class TestComputerUseTool:
         assert result["status"] == "ok"
 
     def test_type_action(self):
-        """type 액션이 텍스트 길이를 반환해야 합니다."""
+        """Type 액션이 텍스트 길이를 반환해야 합니다."""
         tool = self._make_tool()
         result = tool.execute(action="type", text="Hello World")
         assert result["status"] == "ok"
         assert result["text_length"] == 11
 
     def test_key_combo_action(self):
-        """key 액션이 조합 키를 처리해야 합니다."""
+        """Key 액션이 조합 키를 처리해야 합니다."""
         tool = self._make_tool()
         result = tool.execute(action="key", key_combo="ctrl+c")
         assert result["status"] == "ok"
         assert result["key_combo"] == "ctrl+c"
 
     def test_scroll_action(self):
-        """scroll 액션이 성공해야 합니다."""
+        """Scroll 액션이 성공해야 합니다."""
         tool = self._make_tool()
         result = tool.execute(action="scroll", x=500, y=500, direction="down", amount=5)
         assert result["status"] == "ok"

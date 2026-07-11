@@ -129,7 +129,7 @@ class AutonomousCapabilityPolicy:
 
     def decide_tool(
         self,
-        tool: MetadataTool,
+        tool: Any,
         args: Mapping[str, Any] | None = None,
         objective: str = "",
     ) -> CapabilityDecision:
@@ -144,10 +144,10 @@ class AutonomousCapabilityPolicy:
             CapabilityDecision: The capabilitydecision result.
 
         """
-        metadata = tool.to_metadata()
+        metadata = tool.to_metadata() or {}
         risk = str(metadata.get("risk_level") or "medium")
         mcp = metadata.get("mcp") if isinstance(metadata.get("mcp"), Mapping) else {}
-        trust = str(mcp.get("trust_level") or metadata.get("trust_level") or "builtin")
+        trust = str(mcp.get("trust_level") or metadata.get("trust_level") or "builtin")  # type: ignore[union-attr]
         capability_id = str(metadata.get("name") or getattr(tool, "name", "tool"))
 
         if mcp and mcp.get("remote") and not mcp.get("authenticated"):

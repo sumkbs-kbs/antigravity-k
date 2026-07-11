@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import os
-import sys
 import platform
-import subprocess
-import urllib.request
 import stat
+import subprocess
+import sys
 import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -102,7 +102,7 @@ def run_login():
             print("[+] Certificate successfully acquired!")
             try:
                 process.terminate()
-            except:
+            except Exception:
                 pass
             return
         time.sleep(2)
@@ -132,14 +132,12 @@ def setup_tunnel(domain):
 
     print("\n[================================================]")
     print("[✅] Tunnel Setup Complete!")
-    print(f"[+] Your local server is now globally exposed at:")
+    print("[+] Your local server is now globally exposed at:")
     print(f"[+] https://{domain}")
     print("[================================================]\n")
 
     print("To run the tunnel in the background, you can use the following command:")
-    print(
-        f"nohup {CLOUDFLARED_BIN} tunnel run --url http://localhost:5173 {TUNNEL_NAME} > cloudflared.log 2>&1 &\n"
-    )
+    print(f"nohup {CLOUDFLARED_BIN} tunnel run --url http://localhost:5173 {TUNNEL_NAME} > cloudflared.log 2>&1 &\n")
 
 
 if __name__ == "__main__":

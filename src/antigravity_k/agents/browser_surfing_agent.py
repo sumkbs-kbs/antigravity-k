@@ -15,7 +15,7 @@ from dataclasses import dataclass
 try:
     from playwright.async_api import Browser, Page, async_playwright
 except ImportError:
-    async_playwright = None
+    async_playwright = None  # type: ignore[assignment]
 
 logger = logging.getLogger("browser_agent")
 
@@ -47,13 +47,13 @@ class BrowserSurfingAgent:
         self._playwright = None
 
     async def _init_browser(self):
-        if not async_playwright:
+        if async_playwright is None:
             raise ImportError("playwright is not installed. Run `pip install playwright`")
 
-        if not self._playwright:
+        if self._playwright is None:
             self._playwright = await async_playwright().start()
 
-        if not self._browser:
+        if self._browser is None and self._playwright is not None:
             self._browser = await self._playwright.chromium.launch(headless=True)
 
     async def _close_browser(self):
@@ -79,7 +79,10 @@ class BrowserSurfingAgent:
         await self._init_browser()
         final_result = ""
 
+        page = None
         try:
+            if self._browser is None:
+                return "Error: Browser not initialized"
             page = await self._browser.new_page()
             await page.goto(url, wait_until="networkidle", timeout=15000)
 
@@ -130,7 +133,7 @@ class BrowserSurfingAgent:
             logger.exception("Browser surfing error on %s", url)
             final_result = f"Error during surfing: {e}"
         finally:
-            if page:
+            if page is not None:
                 await page.close()
             await self._close_browser()
 

@@ -71,7 +71,9 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
             logger.info("[RAGIndexer] Code context injected for: %s...", ctx.user_message[:50])
     except Exception as e:
         logger.exception("RAGIndexer enrichment failed")
-        logger.debug("RAGIndexer enrichment skipped: %s", e)        # ─── Freebuff-Style: Code Tree 기반 자동 파일 컨텍스트 (P1+P2) ───
+        logger.debug(
+            "RAGIndexer enrichment skipped: %s", e
+        )  # ─── Freebuff-Style: Code Tree 기반 자동 파일 컨텍스트 (P1+P2) ───
     try:
         code_tree = getattr(orch, "code_tree_indexer", None)
         if code_tree:
@@ -95,7 +97,7 @@ def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None
                         ctx.user_message[:50],
                     )
     except Exception as e:
-        logger.debug("Code tree auto-context skipped: %s", e)
+        logger.warning("[CodeTree] 컨텍스트 자동 주입 실패 (non-critical): %s", e, exc_info=True)
 
     # 벡터 스토어 검색 (과거 메모리)
     if orch.vault_engine and orch.vault_engine.sync_rag:
@@ -311,6 +313,7 @@ def _is_max_mode_candidate(ctx: StateContext) -> bool:
         return True
 
     import re
+
     request_text = (ctx.user_message or "").lower()
     return bool(
         re.search(
@@ -321,7 +324,7 @@ def _is_max_mode_candidate(ctx: StateContext) -> bool:
 
 
 def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
-    """라우팅 UI 표시."""
+    """라우팅 UI 표시 (P4: simple_chat은 메시지 생략, 이모지 중복 제거)."""
     role_emoji = {
         "WORKER": "👨‍💻",
         "ENG_MANAGER": "🏗️",
@@ -335,24 +338,28 @@ def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     }
     emoji = role_emoji.get(ctx.delegate_to, "🤖")
 
+    # P4: simple_chat (SELF 위임)은 CEO 메시지 생략 — 단순 질문에 방해가 됨
+    if ctx.delegate_to == "SELF" and ctx.task_type in ("simple_chat", "reasoning"):
+        return
+
     if ctx.task_type == "agi_core":
         sub_type = ctx.analysis.get("sub_type", "scout")
-        yield f"**[CEO]** 태스크 분석 완료 → 🧬 **AGI Core ({sub_type})** 파이프라인 시작\n\n"
+        yield f"**[CEO]** 🧬 **AGI Core ({sub_type})** 파이프라인 시작\n\n"
     elif ctx.task_type == "hardware_report":
-        yield "**[CEO]** 태스크 분석 완료 → 🖥️ **하드웨어 컨설턴트** 호출\n\n"
+        yield "**[CEO]** 🖥️ **하드웨어 컨설턴트** 호출\n\n"
     elif ctx.task_type == "complex" or ctx.analysis.get("pipeline"):
         pipeline = ctx.analysis.get("pipeline", [])
         if pipeline:
-            yield f"**[CEO]** 태스크 분석 완료 → 🚀 **다단계 파이프라인({len(pipeline)}단계)** 시작\n\n"
+            yield f"**[CEO]** 🚀 **다단계 파이프라인({len(pipeline)}단계)** 시작\n\n"
         else:
-            yield "**[CEO]** 태스크 분석 완료 → ⚡ **MAX 모드 병렬 편집** 시작\n\n"
+            yield "**[CEO]** ⚡ **MAX 모드 병렬 편집** 시작\n\n"
     elif ctx.task_type == "max_execute":
-        yield "**[CEO]** 태스크 분석 완료 → ⚡ **MAX 모드** — 다중 워커 병렬 실행\n\n"
+        yield "**[CEO]** ⚡ **MAX 모드** — 다중 워커 병렬 실행\n\n"
     elif ctx.task_type == "debate":
-        yield "**[CEO]** 태스크 분석 완료 → ⚖️ **토론(Debate) 파이프라인** 시작\n\n"
+        yield "**[CEO]** ⚖️ **토론(Debate) 파이프라인** 시작\n\n"
     elif ctx.delegate_to != "SELF":
         delegate_model = orch._get_model_for_role(ctx.delegate_to)
-        yield f"**[CEO]** 태스크 분석 완료 → {emoji} **{ctx.delegate_to}** 에이전트에게 위임 (모델: `{delegate_model}`)\n\n"  # noqa: E501
+        yield f"**[CEO]** {emoji} **{ctx.delegate_to}** 위임 (`{delegate_model}`)\n\n"
 
 
 # ─── CODE_REVIEW 핸들러 (Freebuff-Style Auto Reviewer, P3) ──────
@@ -450,9 +457,9 @@ QUALITY: <quality concern or None>
                 else:
                     logger.debug("[AutoReview] Code review passed — no issues")
             except Exception as e:
-                logger.debug("Auto review LLM call failed: %s", e)
+                logger.warning("[AutoReview] 코드 리뷰 LLM 호출 실패 (non-critical): %s", e, exc_info=True)
     except Exception:
-        logger.debug("Auto review skipped (non-critical)")
+        logger.warning("[AutoReview] git diff 조회 실패 (non-critical)", exc_info=True)
 
 
 # ─── MAX_EXECUTE 핸들러 (P4: MAX 모드 병렬 편집) ───────────────────
@@ -484,8 +491,11 @@ def max_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
             tool_loop = ToolLoopEngine(orch)
             yield from tool_loop.run_loop(
-                ctx.custom_messages, ctx.delegate_to, ctx.task_type,
-                ctx.max_steps, ctx.target_model,
+                ctx.custom_messages,
+                ctx.delegate_to,
+                ctx.task_type,
+                ctx.max_steps,
+                ctx.target_model,
             )
             ctx.agent_output = getattr(orch, "_last_agent_output", "")
             return
@@ -536,8 +546,11 @@ def max_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
         tool_loop = ToolLoopEngine(orch)
         yield from tool_loop.run_loop(
-            ctx.custom_messages, ctx.delegate_to, ctx.task_type,
-            ctx.max_steps, ctx.target_model,
+            ctx.custom_messages,
+            ctx.delegate_to,
+            ctx.task_type,
+            ctx.max_steps,
+            ctx.target_model,
         )
         ctx.agent_output = getattr(orch, "_last_agent_output", "")
 
@@ -763,14 +776,24 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         pass
 
     # ─── Hermes Self-Evolution (QualityGate C/F 등급 시 자동 진화) ───
+    # P2: config에서 self_evolution.auto_modify가 true일 때만 동작 (기본 false)
+    # 질문 응답 중 스킬 파일이 자동 수정되어 diff가 응답에 섞이는 것을 방지
     try:
-        sec = getattr(orch, '_evolution_coordinator', None)
-        if sec is not None and ctx.agent_output and len(ctx.agent_output.strip()) > 50:
-            # QualityGate 평가 수행
+        _raw_cfg = getattr(orch, "config", {}) or {}
+        _sec_enabled = (
+            _raw_cfg.get("self_evolution", {}).get("auto_modify", False) if isinstance(_raw_cfg, dict) else False
+        )
+        sec = getattr(orch, "_evolution_coordinator", None)
+        if sec is not None and _sec_enabled and ctx.agent_output and len(ctx.agent_output.strip()) > 50:
+            # QualityGate 평가 수행 (execution_mode 전달 — Phase 1 D5)
+            exec_mode = (
+                orch.mode_manager.current_mode.value if hasattr(orch, "mode_manager") and orch.mode_manager else None
+            )
             quality = orch.ctx.quality_gate.evaluate(
                 task_type=ctx.task_type,
                 user_request=ctx.user_message,
                 agent_output=ctx.agent_output,
+                execution_mode=exec_mode,
             )
 
             # C/F 등급일 때만 SEC 동작
@@ -783,13 +806,13 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
                 # 도구 호출 기록 수집
                 tool_calls = []
-                if hasattr(orch.ctx, 'tool_executor'):
+                if hasattr(orch.ctx, "tool_executor"):
                     try:
-                        history = getattr(orch.ctx.tool_executor, 'tool_call_history', [])
-                        if hasattr(history, '__iter__'):
+                        history = getattr(orch.ctx.tool_executor, "tool_call_history", [])
+                        if hasattr(history, "__iter__"):
                             tool_calls = list(history)
                     except Exception:
-                        pass
+                        logger.warning("[SEC] tool_call_history 조회 실패 (non-critical)", exc_info=True)
 
                 from antigravity_k.engine.self_evolution_coordinator import (
                     PerformanceSnapshot,
@@ -813,7 +836,7 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
                     logger.info("[SEC] Evolution rolled back: %s", evolution_result.error_message)
     except Exception as e:
         # SEC 실패가 메인 플로우를 막지 않도록 최소 로깅
-        logger.debug("[SEC] Self-evolution skipped: %s", e)    # ─── 그래프 조립 ──────────────────────────────────────────────────
+        logger.warning("[SEC] Self-Evolution 실행 실패 (non-critical): %s", e, exc_info=True)
 
 
 def build_orchestrator_graph():

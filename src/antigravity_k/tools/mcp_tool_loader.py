@@ -146,22 +146,31 @@ class MCPTool(BaseTool):
 
 
 class MCPToolLoader:
-    """설정된 MCP 서버들로부터 도구 목록을 가져와서 BaseTool 객체 리스트로 변환하는 로더."""
+    """설정된 MCP 서버들로부터 도구 목록을 가져와서 BaseTool 객체 리스트로 변환하는 로더.
+
+    Phase 1 D11: MCPServerRegistry를 통해 스킬이 등록한 MCP 서버도 로드.
+    """
 
     def __init__(
         self,
         config_path: str | None = ".mcp.json",
         include_system_tools: bool = True,
+        load_skill_servers: bool = True,
+        project_root: str | None = None,
     ):
         """Initialize the MCPToolLoader.
 
         Args:
             config_path (str | None): str | None config path.
             include_system_tools (bool): bool include system tools.
+            load_skill_servers (bool): Phase 1 D11 — 스킬이 등록한 MCP 서버도 로드할지 여부.
+            project_root (str | None): Phase 1 D11 — 프로젝트 루트 (스킬 메타데이터 스캔용).
 
         """
         self.config_path = config_path
         self.include_system_tools = include_system_tools
+        self.load_skill_servers = load_skill_servers
+        self.project_root = project_root or os.getcwd()
         self.tools: list[BaseTool] = []
         self.session_manager = MCPSessionManager()
 
@@ -169,6 +178,7 @@ class MCPToolLoader:
         """MCP 서버와 통신하여 사용 가능한 도구 목록을 조회하고 로드합니다.
 
         동기 방식으로 호출되며, 내부는 asyncio.run으로 비동기 초기화를 래핑합니다.
+        Phase 1 D11: MCPServerRegistry의 스킬 등록 서버를 추가로 로드합니다.
         """
         logger.info("Loading tools from MCP servers...")
 
@@ -176,30 +186,81 @@ class MCPToolLoader:
         if self.include_system_tools:
             self.tools.extend([ReadFileTool(), ReplaceFileContentTool(), RunBashCommandTool()])
 
-        if not self.config_path or not os.path.exists(self.config_path):
-            logger.warning(
-                "MCP config not found at %s. Skipping dynamic MCP servers.",
-                self.config_path,
-            )
-            return self.tools
-
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        loop.run_until_complete(self._load_mcp_servers())
+        # Phase 1 D11: 표준 .mcp.json에서 서버 로드
+        if self.config_path and os.path.exists(self.config_path):
+            loop.run_until_complete(self._load_mcp_servers(self.config_path))
+        else:
+            logger.warning(
+                "MCP config not found at %s. Skipping dynamic MCP servers.",
+                self.config_path,
+            )
+
+        # Phase 1 D11: 스킬이 등록한 MCP 서버 로드
+        if self.load_skill_servers:
+            loop.run_until_complete(self._load_skill_mcp_servers())
 
         return self.tools
 
-    async def _load_mcp_servers(self):
-        with open(self.config_path, encoding="utf-8") as f:
-            config = json.load(f)
+    async def _load_mcp_servers(self, config_path: str):
+        with open(config_path, encoding="utf-8") as f:
+            config: dict[str, Any] = json.load(f)
 
         mcp_servers = config.get("mcpServers", {})
+        await self._connect_and_load_servers(mcp_servers, config_path)
+
+    async def _load_skill_mcp_servers(self):
+        """Phase 1 D11: MCPServerRegistry에서 스킬 등록 MCP 서버를 로드합니다."""
+        try:
+            registry = MCPServerRegistry()
+            skill_servers = registry.get_skill_mcp_servers()
+
+            if not skill_servers:
+                return
+
+            logger.info(
+                "[MCPToolLoader] Loading %s skill-registered MCP servers...",
+                len(skill_servers),
+            )
+
+            # 스킬 등록 서버를 .mcp.json 형식의 dict로 변환
+            mcp_servers: dict[str, dict[str, Any]] = {}
+            for sid, cfg in skill_servers.items():
+                server_config: dict[str, Any] = {
+                    "command": cfg.get("command", ""),
+                    "args": list(cfg.get("args", [])),
+                }
+                if cfg.get("env"):
+                    server_config["env"] = dict(cfg["env"])
+                mcp_servers[sid] = server_config
+
+            await self._connect_and_load_servers(mcp_servers, "skill-registry")
+
+        except ImportError:
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+        except Exception:
+            logger.exception("[MCPToolLoader] Failed to load skill MCP servers")
+
+    async def _connect_and_load_servers(
+        self,
+        mcp_servers: dict[str, dict[str, Any]],
+        source: str,
+    ):
+        """MCP 서버 목록을 연결하고 도구를 로드합니다.
+
+        Phase 1 D11: _load_mcp_servers와 _load_skill_mcp_servers에서 공통 사용.
+
+        Args:
+            mcp_servers: 서버 이름 → 설정 매핑
+            source: 로그용 출처 식별자 (파일 경로 또는 "skill-registry")
+        """
         advisor = MCPCapabilityAdvisor()
-        audit = advisor.audit_config({"mcpServers": mcp_servers}, source=self.config_path)
+        audit = advisor.audit_config({"mcpServers": mcp_servers}, source=source)
         blocked_servers = {finding.server for finding in audit.findings if finding.severity == "error"}
 
         for finding in audit.findings:
@@ -443,20 +504,123 @@ class MCPServerRegistry:
         },
     }
 
+    # Phase 1 D11: 스킬이 등록한 MCP 서버 저장소 (클래스 레벨 — 모든 인스턴스 공유)
+    _skill_servers: dict[str, dict[str, Any]] = {}
+
     def get_all(self) -> dict[str, dict]:
-        """전체 카탈로그를 반환합니다."""
-        return self.CATALOG.copy()
+        """전체 카탈로그를 반환합니다. (카탈로그 + 스킬 등록 서버 병합)"""
+        merged = self.CATALOG.copy()
+        for sid, config in self._skill_servers.items():
+            merged[sid] = config
+        return merged
 
     def get_by_category(self, category: str) -> dict[str, dict]:
-        """카테고리별 서버를 반환합니다."""
-        return {k: v for k, v in self.CATALOG.items() if v.get("category") == category}
+        """카테고리별 서버를 반환합니다. (스킬 등록 서버 포함)"""
+        result = {k: v for k, v in self.CATALOG.items() if v.get("category") == category}
+        result.update({k: v for k, v in self._skill_servers.items() if v.get("category") == category})
+        return result
 
     def get_recommended(self) -> list[str]:
         """에이전트 기능 강화에 추천하는 서버 목록을 반환합니다."""
         return ["filesystem", "fetch", "memory", "sequential-thinking", "gitnexus"]
 
-    def generate_config(self, output_path: str, server_ids: list[str] = None) -> str:
+    # ─── Phase 1 D11: Skill-MCP 연동 API ────────────────────────────
+
+    def register_skill_mcp(self, skill_name: str, mcp_config: dict[str, Any]) -> bool:
+        """스킬의 MCP 서버를 레지스트리에 등록합니다.
+
+        SkillInstaller가 스킬 설치 시 호출하여, 해당 스킬이 제공하는 MCP 서버를
+        MCPServerRegistry에 등록합니다. 이후 MCPToolLoader가 이 서버에서 도구를 로드할 수 있습니다.
+
+        Args:
+            skill_name: 스킬 이름 (예: "code-review")
+            mcp_config: MCP 서버 설정 (command, args, env 등)
+
+        Returns:
+            등록 성공 여부
+        """
+        server_id = mcp_config.get("serverId", f"skill-{skill_name}")
+        if server_id in self.CATALOG:
+            logger.warning(
+                "[MCPRegistry] Server '%s' already exists in catalog — skill '%s' registration skipped",
+                server_id,
+                skill_name,
+            )
+            return False
+
+        # skill server config 저장
+        self._skill_servers[server_id] = {
+            "name": mcp_config.get("name", skill_name),
+            "description": mcp_config.get("description", f"MCP server from skill '{skill_name}'"),
+            "command": mcp_config.get("command", ""),
+            "args": list(mcp_config.get("args", [])),
+            "env": dict(mcp_config.get("env", {})),
+            "category": "skill",
+            "free": True,
+            "skill_name": skill_name,
+            "source": "skill",
+        }
+
+        logger.info(
+            "[MCPRegistry] Skill MCP server registered: %s (skill=%s)",
+            server_id,
+            skill_name,
+        )
+        return True
+
+    def unregister_skill_mcp(self, skill_name: str) -> bool:
+        """스킬 제거 시 연결된 MCP 서버 등록을 해제합니다.
+
+        Args:
+            skill_name: 스킬 이름
+
+        Returns:
+            해제 성공 여부
+        """
+        removed = False
+        for sid in list(self._skill_servers.keys()):
+            if self._skill_servers[sid].get("skill_name") == skill_name:
+                del self._skill_servers[sid]
+                logger.info(
+                    "[MCPRegistry] Skill MCP server unregistered: %s (skill=%s)",
+                    sid,
+                    skill_name,
+                )
+                removed = True
+        if not removed:
+            logger.debug("[MCPRegistry] No MCP servers found for skill '%s'", skill_name)
+        return removed
+
+    def get_skill_mcp_servers(self, skill_name: str | None = None) -> dict[str, dict]:
+        """스킬이 등록한 MCP 서버 목록을 반환합니다.
+
+        Args:
+            skill_name: 특정 스킬 이름 (None이면 모든 스킬 서버)
+
+        Returns:
+            server_id → config 매핑
+        """
+        if skill_name:
+            return {sid: cfg for sid, cfg in self._skill_servers.items() if cfg.get("skill_name") == skill_name}
+        return dict(self._skill_servers)
+
+    def list_skills_with_mcp(self) -> list[dict[str, Any]]:
+        """MCP 서버를 등록한 스킬 목록을 반환합니다.
+
+        Returns:
+            스킬 이름 + MCP 서버 ID 목록
+        """
+        result: dict[str, list[str]] = {}
+        for sid, cfg in self._skill_servers.items():
+            skill_name = cfg.get("skill_name", "")
+            if skill_name:
+                result.setdefault(skill_name, []).append(sid)
+        return [{"skill": skill, "servers": servers} for skill, servers in sorted(result.items())]
+
+    def generate_config(self, output_path: str, server_ids: list[str] | None = None) -> str:
         """.mcp.json 설정 파일을 자동 생성합니다.
+
+        Phase 1 D11: 스킬 등록 서버도 포함할 수 있습니다.
 
         Args:
             output_path: 출력 경로 (예: ".mcp.json")
@@ -469,14 +633,15 @@ class MCPServerRegistry:
         if server_ids is None:
             server_ids = self.get_recommended()
 
-        config = {"mcpServers": {}}
+        config: dict[str, Any] = {"mcpServers": {}}
+        all_servers = self.get_all()
 
         for sid in server_ids:
-            if sid not in self.CATALOG:
+            if sid not in all_servers:
                 logger.warning("Unknown MCP server: %s", sid)
                 continue
 
-            entry = self.CATALOG[sid]
+            entry = all_servers[sid]
             server_config = {
                 "command": entry["command"],
                 "args": entry["args"],
@@ -490,23 +655,49 @@ class MCPServerRegistry:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
         logger.info(
-            "[MCPRegistry] 설정 생성: %s (%s개 서버)",
+            "[MCPRegistry] 설정 생성: %s (%s개 서버, %s개 스킬 서버)",
             output_path,
             len(config["mcpServers"]),
+            len(self._skill_servers),
         )
         return output_path
 
+    def generate_config_with_skills(self, output_path: str, server_ids: list[str] | None = None) -> str:
+        """.mcp.json 설정 파일을 생성합니다. (스킬 등록 서버 포함)
+
+        Phase 1 D11: 추천 서버 + 스킬이 등록한 MCP 서버를 모두 포함한 설정 생성.
+
+        Args:
+            output_path: 출력 경로 (예: ".mcp.json")
+            server_ids: 포함할 추가 서버 ID 목록 (None이면 추천 목록)
+
+        Returns:
+            생성된 파일 경로
+
+        """
+        if server_ids is None:
+            server_ids = self.get_recommended()
+
+        # 추천 서버 + 스킬 등록 서버 ID 모두 포함
+        skill_server_ids = list(self._skill_servers.keys())
+        all_ids = list(dict.fromkeys(server_ids + skill_server_ids))  # 중복 제거, 순서 유지
+
+        return self.generate_config(output_path, all_ids)
+
     def get_catalog_summary(self) -> str:
-        """카탈로그 요약을 사람이 읽기 쉬운 형식으로 반환합니다."""
+        """카탈로그 요약을 사람이 읽기 쉬운 형식으로 반환합니다. (스킬 서버 포함)"""
         lines = ["📦 MCP 서버 카탈로그 (무료)", ""]
-        by_category = {}
-        for sid, info in self.CATALOG.items():
+        by_category: dict[str, list] = {}
+
+        all_servers = self.get_all()
+        for sid, info in all_servers.items():
             cat = info.get("category", "other")
-            by_category.setdefault(cat, []).append((sid, info))
+            by_category.setdefault(str(cat), []).append((sid, info))
 
         for cat, servers in sorted(by_category.items()):
             lines.append(f"  [{cat}]")
             for sid, info in servers:
-                lines.append(f"    - {sid}: {info['description']}")
+                skill_tag = f" (skill: {info.get('skill_name', '')})" if info.get("source") == "skill" else ""
+                lines.append(f"    - {sid}: {info['description']}{skill_tag}")
 
         return "\n".join(lines)

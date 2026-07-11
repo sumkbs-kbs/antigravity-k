@@ -4,6 +4,7 @@ import base64
 import logging
 import os
 import subprocess
+from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from playwright.async_api import Browser, BrowserContext, Error, Page, async_playwright
@@ -19,7 +20,7 @@ router = APIRouter()
 class BrowserState:
     """Browserstate."""
 
-    playwright = None
+    playwright: Any = None
     browser: Browser | None = None
     context: BrowserContext | None = None
     page: Page | None = None
@@ -150,6 +151,7 @@ async def browser_action(req: BrowserActionRequest):
         if req.action == "launch":
             if not browser_state.playwright:
                 browser_state.playwright = await async_playwright().start()
+            assert browser_state.playwright is not None
             if not browser_state.browser:
                 browser_state.browser = await browser_state.playwright.chromium.launch(
                     headless=True,
@@ -218,7 +220,7 @@ async def browser_action(req: BrowserActionRequest):
             # Accessibility Tree (compact text representation for LLM)
             a11y_tree = None
             try:
-                a11y_snapshot = await browser_state.page.accessibility.snapshot()
+                a11y_snapshot = await browser_state.page.accessibility.snapshot()  # type: ignore[attr-defined]
                 a11y_tree = _flatten_a11y_tree(a11y_snapshot) if a11y_snapshot else None
             except Exception:
                 logger.exception("Unhandled exception")
@@ -529,9 +531,11 @@ async def tdd_generate(req: TDDGenerateRequest):
     코드와 테스트를 생성하고, 실패 시 에러 로그를 분석하여 코드를 자동 수정합니다.
     """
     try:
+        from antigravity_k.api.dependencies import get_model_manager
         from antigravity_k.engine.tdd_engine import OmniTDDEngine
 
         engine = OmniTDDEngine(
+            model_manager=get_model_manager(),
             coding_model=req.coding_model,
             max_iterations=req.max_iterations,
         )

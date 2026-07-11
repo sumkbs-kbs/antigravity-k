@@ -56,7 +56,7 @@ class KanbanBoard:
                 try:
                     conn.execute("ALTER TABLE tasks ADD COLUMN worktree_branch TEXT")
                 except sqlite3.OperationalError:
-                    pass  # 이미 컬럼이 존재함
+                    logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS task_history (
@@ -82,7 +82,7 @@ class KanbanBoard:
                     try:
                         return int(row["id"].split("-")[1]) + 1
                     except (IndexError, TypeError, ValueError):
-                        pass
+                        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
                 return 1
 
     def create_task(self, description: str, assignee: Optional[str] = None) -> str:
@@ -219,7 +219,7 @@ class KanbanBoard:
 
     def get_board_state(self) -> Dict[str, List[dict]]:
         """전체 칸반 보드 상태를 UI 렌더링에 적합한 형태로 반환합니다."""
-        columns = {
+        columns: dict[str, list[dict]] = {
             "BACKLOG": [],
             "TODO": [],
             "IN_PROGRESS": [],

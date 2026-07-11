@@ -1,6 +1,7 @@
 """Message Bus module."""
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -20,7 +21,7 @@ class MessageBus:
             "general": [],  # 기본 채널
         }
         self.subscribers: dict[str, list[Any]] = {"general": []}
-        self.callbacks: dict[str, list[callable]] = {"general": []}
+        self.callbacks: dict[str, list[Callable[[dict[str, Any]], None]]] = {"general": []}
 
     def create_channel(self, channel_name: str):
         """Create channel.
@@ -49,7 +50,7 @@ class MessageBus:
             self.subscribers[channel_name].append(agent)
             logger.info("Agent '%s' subscribed to '%s'.", agent.name, channel_name)
 
-    def subscribe_callback(self, channel_name: str, callback: callable):
+    def subscribe_callback(self, channel_name: str, callback: Callable[[dict[str, Any]], None]):
         """특정 채널에 콜백 함수를 등록하여 이벤트 기반 처리를 지원합니다."""
         if channel_name not in self.callbacks:
             self.create_channel(channel_name)
@@ -57,7 +58,7 @@ class MessageBus:
             self.callbacks[channel_name].append(callback)
             logger.info("Callback registered for channel '%s'.", channel_name)
 
-    def publish(self, channel_name: str, sender: str, message: str, meta: dict[str, Any] = None):
+    def publish(self, channel_name: str, sender: str, message: str, meta: dict[str, Any] | None = None):
         """특정 채널에 메시지를 발행합니다."""
         if channel_name not in self.channels:
             logger.warning("Channel '%s' does not exist.", channel_name)

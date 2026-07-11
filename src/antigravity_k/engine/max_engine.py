@@ -79,6 +79,71 @@ class MaxModeEngine:
         """최대 병렬 워커 수를 설정합니다."""
         self._max_workers = max(1, min(n, 8))  # 1~8 범위
 
+    def _check_budget_before_spawn(
+        self,
+        orchestrator,
+        worker_count: int,
+        messages: list,
+        prompt: str,
+    ) -> str:
+        """N개 워커 spawn 전에 비용 예산을 사전 검사합니다.
+
+        MAX 모드는 (worker_count + selector 1)회의 LLM 호출을 유발하므로,
+        병렬 실행 시작 전에 CostGuard로 예산이 충분한지 확인합니다.
+        예산 부족 시 에러 메시지를 반환하면, max_execute_handler가
+        싱글 에이전트로 폴백합니다.
+
+        Args:
+            orchestrator: OrchestratorAgent (orch.ctx.cost_guard 접근용)
+            worker_count: 실행할 워커 수
+            messages: 대화 메시지 (토큰 추정용)
+            prompt: 프롬프트 (토큰 추정용)
+
+        Returns:
+            str: 에러 메시지 (차단 시), 빈 문자열 (허용 시)
+        """
+        cost_guard = getattr(getattr(orchestrator, "ctx", None), "cost_guard", None)
+        if cost_guard is None:
+            return ""  # CostGuard 미설치 — 통과 (하위 호환)
+
+        # 토큰 추정: 입력 토큰 + 워커당 출력 토큰 * worker_count
+        # 각 워커는 동일한 입력을 받고 도구 루프를 돌므로 입력은 대략 동일.
+        # 보수적 추정을 위해 입력 토큰은 전체 메시지, 출력은 워커당 2k 토큰으로 가정.
+        try:
+            input_text = prompt
+            for msg in messages:
+                content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
+                if isinstance(content, list):
+                    content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+                input_text += " " + str(content)
+            # 라틴 4자/토큰, CJK 1.5자/토큰 근사
+            tokens_in_est = max(1, len(input_text) // 4)
+            tokens_out_per_worker = 2000
+
+            # N개 워커 + 1개 selector의 총 비용을 단일 check_budget로 사전 예약.
+            # check_budget가 rate-limit 슬롯 1개를 소비하므로, 워커 수만큼의
+            # 예상 비용을 합산하여 한 번에 검사합니다.
+            total_tokens_in = tokens_in_est * worker_count
+            total_tokens_out = tokens_out_per_worker * worker_count + 512  # selector
+
+            decision = cost_guard.check_budget(
+                model="max_mode",  # 가격표에 없으면 $0 추정 → rate limit으로 보호
+                tokens_in=total_tokens_in,
+                tokens_out=total_tokens_out,
+            )
+            if not decision.allowed:
+                logger.warning(
+                    "[MAX] 비용 게이트 차단: %s (잔여 예산 $%.4f)",
+                    decision.reason,
+                    decision.remaining_budget_usd,
+                )
+                return f"비용 예산 부족으로 MAX 모드 차단: {decision.reason}. " f"싱글 에이전트로 폴백합니다."
+        except Exception:
+            logger.debug("MAX budget check 실패 — 통과 (non-critical)", exc_info=True)
+            return ""
+
+        return ""
+
     def run(
         self,
         task_spec: dict[str, Any],
@@ -131,6 +196,17 @@ class MaxModeEngine:
             effective_workers,
         )
 
+        # 1.5 비용 사전 검사 — N배 비용 폭증 방지 (CostGuard 연동)
+        # MAX 모드는 N개 워커 + 1개 selector = (N+1)회 LLM 호출을 유발하므로
+        # spawn 전에 예산을 확인하여 무제한 과금을 방지합니다.
+        budget_error = self._check_budget_before_spawn(orchestrator, effective_workers, messages, prompt)
+        if budget_error:
+            return MaxRunResult(
+                total_workers=0,
+                successful=0,
+                error=budget_error,
+            )
+
         # 2. 병렬 실행
         results: list[WorkerResult | None] = [None] * effective_workers
 
@@ -179,15 +255,15 @@ class MaxModeEngine:
         if selected >= 0:
             final_output = successful[selected].output
             selector_reasoning = self._format_trace(
-                successful, selected, worker_configs,
+                successful,
+                selected,
+                worker_configs,
             )
         elif successful:
             # Selector 실패 시 첫 번째 성공 결과 사용
             selected = 0
             final_output = successful[0].output
-            selector_reasoning = (
-                "> MAX Mode: Selector unavailable, using first successful result.\n\n"
-            )
+            selector_reasoning = "> MAX Mode: Selector unavailable, using first successful result.\n\n"
         else:
             final_output = ""
             selector_reasoning = ""
@@ -206,7 +282,9 @@ class MaxModeEngine:
         )
 
     def _build_worker_configs(
-        self, delegate_to: str, target_model: str,
+        self,
+        delegate_to: str,
+        target_model: str,
     ) -> list[dict[str, str]]:
         """워커 구성을 생성합니다. (다양한 모델 + 전략 조합).
 
@@ -232,36 +310,42 @@ class MaxModeEngine:
 
         # Worker 1: 기본 모델 + 기본 전략
         primary = available[0] if available else target_model
-        configs.append({
-            "model": primary,
-            "strategy": "default",
-            "temperature": 0.2,
-            "description": "정밀 실행",
-        })
+        configs.append(
+            {
+                "model": primary,
+                "strategy": "default",
+                "temperature": 0.2,
+                "description": "정밀 실행",
+            }
+        )
 
         # Worker 2: 다른 모델 + 창의 전략 (최대 2개까지만)
         if len(available) > 1:
-            configs.append({
-                "model": available[1],
-                "strategy": "creative",
-                "temperature": 0.7,
-                "description": "창의적 접근",
-            })
+            configs.append(
+                {
+                    "model": available[1],
+                    "strategy": "creative",
+                    "temperature": 0.7,
+                    "description": "창의적 접근",
+                }
+            )
 
         # Worker 3: 세 번째 모델 + 안전 전략
         if len(available) > 2:
-            configs.append({
-                "model": available[2],
-                "strategy": "safe",
-                "temperature": 0.1,
-                "description": "안정적 접근",
-            })
+            configs.append(
+                {
+                    "model": available[2],
+                    "strategy": "safe",
+                    "temperature": 0.1,
+                    "description": "안정적 접근",
+                }
+            )
 
         # Worker 4: 첫 번째 모델로 균형 전략 (워커가 최소 2개는 되도록)
         if len(configs) >= 2:
             pass  # 이미 충분
 
-        return configs[:self._max_workers]
+        return configs[: self._max_workers]
 
     def _get_available_models(self) -> list[str]:
         """실제 가용 모델 목록을 조회합니다.
@@ -276,15 +360,15 @@ class MaxModeEngine:
 
         try:
             # 1. 실제 로드된 모델 우선
-            loaded = getattr(self.manager, '_loaded_models', None) or getattr(self.manager, 'loaded_models', None)
+            loaded = getattr(self.manager, "_loaded_models", None) or getattr(self.manager, "loaded_models", None)
             if loaded and isinstance(loaded, dict):
                 models = list(loaded.keys())[:4]
             elif loaded and isinstance(loaded, list):
-                models = [m.get('name', str(m)) if isinstance(m, dict) else str(m) for m in loaded[:4]]
+                models = [m.get("name", str(m)) if isinstance(m, dict) else str(m) for m in loaded[:4]]
 
             # 실제 로드된 모델이 2개 이상 있으면 바로 반환
             if len(models) >= 2:
-                return models[:self._max_workers]
+                return models[: self._max_workers]
 
             # 2. 로드된 모델 부족 시 config에서 추가
             config = getattr(self.manager, "config", {})
@@ -309,13 +393,13 @@ class MaxModeEngine:
                     if model and model not in models:
                         models.append(str(model))
         except Exception:
-            logger.debug("[MAX] Error loading model config", exc_info=True)
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         # 최소 1개는 보장 (loaded or config에서 찾은 것)
         if not models:
             models = ["default"]
 
-        return models[:self._max_workers]
+        return models[: self._max_workers]
 
     def _run_worker(
         self,
@@ -365,7 +449,11 @@ class MaxModeEngine:
 
             logger.info(
                 "[MAX] Worker %s (%s, %s) done in %.1fs, %s chars",
-                worker_id, model, strategy, elapsed, len(output),
+                worker_id,
+                model,
+                strategy,
+                elapsed,
+                len(output),
             )
 
             return WorkerResult(
@@ -396,9 +484,7 @@ class MaxModeEngine:
     ) -> str:
         """워커별 전략이 반영된 프롬프트를 생성합니다."""
         strategy_intro = {
-            "default": (
-                "Execute the following task precisely. Focus on correctness and completeness."
-            ),
+            "default": ("Execute the following task precisely. Focus on correctness and completeness."),
             "creative": (
                 "Approach the following task with creative problem-solving. "
                 "Consider unconventional approaches, edge cases, and elegant solutions. "
@@ -418,11 +504,7 @@ class MaxModeEngine:
 
         intro = strategy_intro.get(strategy, strategy_intro["default"])
 
-        return (
-            f"[MAX Mode Worker - {model}, {strategy}]\n\n"
-            f"{intro}\n\n"
-            f"---\n{original_prompt}"
-        )
+        return f"[MAX Mode Worker - {model}, {strategy}]\n\n{intro}\n\n---\n{original_prompt}"
 
     def _select_best(
         self,
@@ -470,6 +552,26 @@ class MaxModeEngine:
         try:
             # QA 모델로 Selector 실행
             qa_model = self._get_qa_model(delegate_to, orchestrator)
+
+            # 비용 게이트: selector LLM 호출 전 예산 확인 (추가 비용 보호)
+            cost_guard = getattr(getattr(orchestrator, "ctx", None), "cost_guard", None)
+            if cost_guard is not None:
+                sel_decision = cost_guard.check_budget(
+                    model=qa_model,
+                    tokens_in=len(selector_prompt) // 4,
+                    tokens_out=256,
+                )
+                if not sel_decision.allowed:
+                    logger.warning(
+                        "[MAX] Selector 비용 게이트 차단: %s — 후보 1번으로 폴백",
+                        sel_decision.reason,
+                    )
+                    # selector 없이 첫 번째 성공 후보 선택
+                    successful = [(i, r) for i, r in enumerate(results) if r and r.error is None and r.output.strip()]
+                    if successful:
+                        return successful[0][0]
+                    return -1
+
             response = orchestrator.manager.generate(
                 prompt=selector_prompt,
                 target=qa_model,
@@ -487,7 +589,7 @@ class MaxModeEngine:
                         if 0 <= selected < len(results):
                             return selected
                     except ValueError:
-                        pass
+                        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
             # SELECTED를 찾지 못하면 첫 번째 결과 사용
             return 0
@@ -512,13 +614,10 @@ class MaxModeEngine:
         for i, r in enumerate(results):
             marker = "← SELECTED" if i == selected_idx else ""
             worker_details.append(
-                f"  Worker {i + 1}: {r.model} [{r.strategy}] — "
-                f"{len(r.output)} chars in {r.elapsed_sec}s {marker}"
+                f"  Worker {i + 1}: {r.model} [{r.strategy}] — {len(r.output)} chars in {r.elapsed_sec}s {marker}"
             )
 
         return (
             "⚡ **[MAX Mode]** "
-            f"{len(results)}개 워커 병렬 실행 → Selector 선정 완료\n"
-            + "\n".join(worker_details)
-            + "\n\n"
+            f"{len(results)}개 워커 병렬 실행 → Selector 선정 완료\n" + "\n".join(worker_details) + "\n\n"
         )

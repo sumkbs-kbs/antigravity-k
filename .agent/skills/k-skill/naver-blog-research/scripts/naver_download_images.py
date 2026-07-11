@@ -44,9 +44,7 @@ _MAGIC_BYTES = (
 )
 
 
-def guess_extension(
-    url: str, content_type: str | None = None, data: bytes | None = None
-) -> str:
+def guess_extension(url: str, content_type: str | None = None, data: bytes | None = None) -> str:
     if content_type:
         ct = content_type.split(";")[0].strip().lower()
         if ct in CONTENT_TYPE_TO_EXT:
@@ -134,9 +132,7 @@ def download_images(
         for i, url in enumerate(targets, start=1):
             filename = f"{i:03d}"
             output_path = os.path.join(output_dir, filename)
-            future = executor.submit(
-                download_image, url, output_path, output_dir, timeout, insecure=insecure
-            )
+            future = executor.submit(download_image, url, output_path, output_dir, timeout, insecure=insecure)
             future_to_index[future] = i
 
         for future in as_completed(future_to_index):
@@ -162,9 +158,7 @@ def download_images(
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Download images from Naver blog CDN URLs."
-    )
+    parser = argparse.ArgumentParser(description="Download images from Naver blog CDN URLs.")
     parser.add_argument(
         "--urls",
         type=str,
@@ -201,17 +195,9 @@ def read_urls_from_stdin() -> list[str]:
     try:
         data = json.load(sys.stdin)
         if isinstance(data, dict) and "images" in data:
-            return [
-                img["url"]
-                for img in data["images"]
-                if isinstance(img, dict) and img.get("url")
-            ]
+            return [img["url"] for img in data["images"] if isinstance(img, dict) and img.get("url")]
         if isinstance(data, list):
-            return [
-                u
-                for item in data
-                if (u := (item if isinstance(item, str) else item.get("url", "")))
-            ]
+            return [u for item in data if (u := (item if isinstance(item, str) else item.get("url", "")))]
         if isinstance(data, dict):
             print(
                 "[warn] stdin JSON에 'images' 키가 없습니다. "
@@ -238,9 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     if not urls:
         print(
             json.dumps(
-                {
-                    "error": "No image URLs provided. Use --urls or pipe naver_read.py output via stdin."
-                },
+                {"error": "No image URLs provided. Use --urls or pipe naver_read.py output via stdin."},
                 ensure_ascii=False,
             ),
             file=sys.stderr,

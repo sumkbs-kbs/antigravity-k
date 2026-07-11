@@ -71,7 +71,7 @@ class ToolCallParser:
     THOUGHT_OPEN = "<thought>"
     THOUGHT_CLOSE = "</thought>"
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the ToolCallParser."""
         self._buffer = ""
         self._in_tool_call = False
@@ -310,7 +310,7 @@ class ToolCallParser:
 
                 return events
         except (json.JSONDecodeError, KeyError):
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return None
 
@@ -356,6 +356,6 @@ class ToolCallParser:
                 ]
                 return events, bare_pattern.end()
         except (json.JSONDecodeError, KeyError):
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return None, 0

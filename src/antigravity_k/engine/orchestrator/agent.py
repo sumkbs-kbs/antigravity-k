@@ -21,6 +21,7 @@ from antigravity_k.engine.orchestrator.setup import (
     create_watchdog,
     load_agent_models,
 )
+
 logger = logging.getLogger("antigravity_k.orchestrator")
 
 
@@ -34,7 +35,7 @@ class OrchestratorAgent:
     4. 결과 스트리밍 → 대시보드 표시
     """
 
-    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None):
+    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None, session_manager=None):
         """Initialize the OrchestratorAgent.
 
         Args:
@@ -42,6 +43,7 @@ class OrchestratorAgent:
             vault_engine: vault engine.
             project_root: project root.
             tool_registry: tool registry.
+            session_manager: 외부 SessionManager (작업 1: chat.py와 인스턴스 통일).
 
         """
         self.manager = model_manager
@@ -53,6 +55,7 @@ class OrchestratorAgent:
             vault_engine=vault_engine,
             project_root=self.project_root,
             tool_registry=tool_registry,
+            session_manager=session_manager,
         )
 
         # Shortcut references
@@ -71,9 +74,15 @@ class OrchestratorAgent:
         # Capacity Flow 가드레일
         self._capacity_checkpoint = CapacityCheckpoint()
 
+        # ─── Mode Manager (Plan/Build/Interactive) ───
+        self.mode_manager = self.ctx.mode_manager
+
         # ─── Setup: Optional Components ───
         self.watchdog = create_watchdog(
-            self.config, self.project_root, self.manager, self.vault_engine,
+            self.config,
+            self.project_root,
+            self.manager,
+            self.vault_engine,
         )
         self._state_graph = create_state_graph()
         self.artifact_engine = create_artifact_engine(self.project_root)
@@ -96,11 +105,16 @@ class OrchestratorAgent:
         # ─── P4: MAX Mode Parallel Engine (지연 초기화) ───
         self._max_engine = None
 
+        # ─── P1-2: 통합 위임 엔진 (지연 초기화) ───
+        self._delegation_engine = None
+
         # Lazy-init Heavy Components
         self._skill_auto_learner_initialized = False
         self._skill_auto_learner_instance = None
         self._trajectory_compressor_initialized = False
         self._trajectory_compressor_instance = None
+        self._context_compressor_initialized = False
+        self._context_compressor_instance = None
 
         # 세션 자동 시작
         try:
@@ -110,6 +124,7 @@ class OrchestratorAgent:
 
     def _init_evolution_coordinator(self):
         """Self-Evolution Coordinator를 초기화합니다. (self 참조 필요)"""
+
         def _sec_verify_fn(prompt: str) -> str:
             if self.manager:
                 try:
@@ -164,12 +179,14 @@ class OrchestratorAgent:
 
                 summarize_fn = None
                 if self.manager:
+                    # self.manager.config 는 존재하지 않음 — OrchestratorAgent.config
+                    # (= self.ctx.config, config.yaml raw dict)에서 기본 reasoning 모델 조회
+                    raw_cfg = getattr(self, "config", {}) or {}
+                    default_m = (
+                        raw_cfg.get("defaults", {}).get("reasoning") if isinstance(raw_cfg, dict) else None
+                    ) or "qwen3.6:latest"
 
                     def _summarize(prompt: str) -> str:
-                        default_m = self.manager.config.get("defaults", {}).get(
-                            "reasoning",
-                            "qwen3.6:latest",
-                        )
                         return self.manager.generate(
                             prompt=prompt,
                             target=default_m,
@@ -185,6 +202,76 @@ class OrchestratorAgent:
                 logger.exception("TrajectoryCompressor init failed")
                 self._trajectory_compressor_instance = None
         return self._trajectory_compressor_instance
+
+    @property
+    def context_compressor(self):
+        """ContextCompressor 지연 초기화 (토큰 예산 기반 적응형 압축).
+
+        TrajectoryCompressor(메시지 수 기반)보다 정교한 토큰 예산 기반 압축을 수행합니다.
+        작업 유형별로 keep_last_n과 max_tool_chars를 다르게 적용하며,
+        pruned 메시지를 장기 기억 JSON으로 영속화합니다.
+        summarize_fn이 없으면 휴리스틱 폴백으로 동작합니다 (LLM 호출 없음).
+        """
+        if not self._context_compressor_initialized:
+            self._context_compressor_initialized = True
+            try:
+                from antigravity_k.engine.context_compressor import ContextCompressor
+
+                # TrajectoryCompressor와 동일한 summarize_fn 패턴 재사용
+                summarize_fn = None
+                if self.manager:
+                    raw_cfg = getattr(self, "config", {}) or {}
+                    default_m = (
+                        raw_cfg.get("defaults", {}).get("reasoning") if isinstance(raw_cfg, dict) else None
+                    ) or "qwen3.6:latest"
+
+                    def _ctx_summarize(prompt: str) -> str:
+                        return self.manager.generate(
+                            prompt=prompt,
+                            target=default_m,
+                            max_tokens=512,
+                        )
+
+                    summarize_fn = _ctx_summarize
+
+                # 토큰 한도: config의 router 또는 기본 8000
+                raw_cfg = getattr(self, "config", {}) or {}
+                token_limit = int(
+                    raw_cfg.get("router", {}).get("context_token_limit", 8000) if isinstance(raw_cfg, dict) else 8000
+                )
+
+                self._context_compressor_instance = ContextCompressor(
+                    token_limit=token_limit,
+                    keep_last_n=10,
+                    summarize_fn=summarize_fn,
+                    persistence_dir=os.path.join(self.project_root, "data", "context_memory"),
+                )
+                logger.info(
+                    "[Orchestrator] ContextCompressor 활성화 완료 (token_limit=%s)",
+                    token_limit,
+                )
+            except Exception:
+                logger.exception("ContextCompressor init failed")
+                self._context_compressor_instance = None
+        return self._context_compressor_instance
+
+    @property
+    def delegation_engine(self):
+        """통합 위임 엔진 (P1-2) — 5개 위임 메커니즘을 단일 인터페이스로.
+
+        기존 MAX/Pipeline/Debate/SubagentSpawner/single을 전략 패턴으로 통합.
+        recommend_strategy()로 결정적 전략 선택, delegate()로 단일 진입점.
+        """
+        if self._delegation_engine is None:
+            try:
+                from antigravity_k.engine.delegation_engine import DelegationEngine
+
+                self._delegation_engine = DelegationEngine(self)
+                logger.info("[Orchestrator] DelegationEngine 활성화 완료")
+            except Exception:
+                logger.warning("DelegationEngine init failed", exc_info=True)
+                self._delegation_engine = None
+        return self._delegation_engine
 
     # ─── 툴 프롬프트 ─────────────────────────────────────────────────
 
@@ -237,7 +324,7 @@ class OrchestratorAgent:
 
             tool_section += "\n" + CodexTransferEngine().render_prompt_contract() + "\n"
         except ImportError:
-            logger.debug("CodexTransferEngine not installed — skipping prompt contract")
+            logger.debug("CodexTransferEngine 미설치 — prompt contract 생략")
         except (AttributeError, RuntimeError) as e:
             logger.warning("Codex operating contract unavailable: %s", e)
         try:
@@ -253,7 +340,7 @@ class OrchestratorAgent:
             )
             tool_section += "\n" + engine.render_prompt_contract(snapshot) + "\n"
         except ImportError:
-            logger.debug("SelfCapabilityEngine not installed — skipping")
+            logger.debug("SelfCapabilityEngine 미설치 — prompt contract 생략")
         except (AttributeError, RuntimeError, ValueError) as e:
             logger.warning("Self-capability contract unavailable: %s", e)
         for schema in self.tool_registry.to_llm_schemas():
@@ -271,12 +358,19 @@ class OrchestratorAgent:
         return tool_section
 
     def _requires_planning_mode(self, task_type: str, messages: list[dict[str, str]]) -> bool:
-        """복잡한 구조 변경에만 Planning Mode를 강제합니다."""
+        """복잡한 구조 변경에만 Planning Mode를 강제합니다.
+
+        ModeManager의 should_enforce_plan_mode()에 위임합니다.
+        """
+        if hasattr(self, "mode_manager") and self.mode_manager:
+            user_text = self._latest_user_text(messages)
+            return self.mode_manager.should_enforce_plan_mode(task_type, user_text)
+
+        # Fallback (ModeManager 미연결 시 레거시 로직)
         if task_type == "complex":
             return True
         if task_type != "coding":
             return False
-
         request_text = "\n".join(str(msg.get("content", "")) for msg in messages if msg.get("role") == "user").lower()
         return bool(
             re.search(
@@ -287,8 +381,86 @@ class OrchestratorAgent:
         )
 
     def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
-        """ToolExecutor에 위임합니다."""
-        return self.ctx.tool_executor.execute(name, args)
+        """ToolExecutor에 위임합니다. (Phase 1 D3: execution_mode 전달)"""
+        mode = self._get_execution_mode()
+        return self.ctx.tool_executor.execute(name, args, execution_mode=mode)
+
+    def _get_execution_mode(self) -> str:
+        """현재 실행 모드 문자열을 반환합니다. ("plan", "build", "interactive")
+
+        ModeManager가 없으면 기본값 "interactive" 반환.
+        PlanGuard, GatePipeline, QualityGate에 execution_mode를 전달하는 소스 역할.
+        """
+        if hasattr(self, "mode_manager") and self.mode_manager:
+            try:
+                return self.mode_manager.current_mode.value
+            except Exception:
+                logger.debug("mode_manager.current_mode 조회 실패 — interactive로 폴백")
+        return "interactive"
+
+    def _inject_mode_prompt(
+        self,
+        system_prompt: str,
+        task_type: str,
+        messages: list[dict[str, str]],
+        delegate_to: str,
+    ) -> str:
+        """현재 실행 모드에 따라 system prompt에 모드별 지시사항을 주입합니다.
+
+        PLAN 모드:
+          - ArtifactEngine.inject_planning_prompt() 또는 PLANNING_MODE_BLOCK 추가
+          - 읽기 전용 도구만 사용하도록 강제
+
+        BUILD 모드:
+          - Plan이 검증되었음을 명시
+          - Plan 태스크를 실행할 것을 지시
+          - 모든 도구 사용 가능
+
+        INTERACTIVE 모드:
+          - 기존 동작 유지 (추가 주입 없음)
+
+        Args:
+            system_prompt: 원본 system prompt
+            task_type: 태스크 유형
+            messages: 대화 메시지
+            delegate_to: 위임 대상 역할
+
+        Returns:
+            모드별 지시사항이 추가된 system prompt
+        """
+        mode = self._get_execution_mode()
+
+        if mode == "plan" and delegate_to != "CEO":
+            # PLAN 모드: 계획 수립 프롬프트 주입
+            if hasattr(self, "artifact_engine") and self.artifact_engine:
+                planning_mode_enforcement = self.artifact_engine.inject_planning_prompt()
+            else:
+                planning_mode_enforcement = PLANNING_MODE_BLOCK
+            system_prompt += planning_mode_enforcement
+
+        elif mode == "build" and delegate_to != "CEO":
+            # BUILD 모드: 실행 중심 프롬프트 주입
+            plan_path = ""
+            if hasattr(self.mode_manager, "plan_artifact_path") and self.mode_manager.plan_artifact_path:
+                plan_path = self.mode_manager.plan_artifact_path
+
+            build_prompt = (
+                "\n\n[EXECUTION MODE: BUILD]\n"
+                "You are now in BUILD MODE. The plan has been validated and approved.\n"
+                "1. Execute the tasks defined in the plan using all available tools.\n"
+                "2. You have full access to all tools — read, write, execute, and manage files.\n"
+                "3. Follow the plan's implementation steps in order.\n"
+                "4. After completing each task, update the task status in the Kanban board.\n"
+                "5. If you encounter unexpected issues, document them and adjust the approach.\n"
+            )
+            if plan_path:
+                build_prompt += f"\nReference Plan: `{plan_path}`\n"
+
+            system_prompt += build_prompt
+
+        # INTERACTIVE 모드와 CEO 역할은 추가 주입 없음
+
+        return system_prompt
 
     def _latest_user_text(self, messages: list[dict[str, str]]) -> str:
         """최근 user 메시지의 텍스트만 반환합니다."""
@@ -372,13 +544,8 @@ class OrchestratorAgent:
         delegate_model = self._get_model_for_role(delegate_to)
         system_prompt = get_orchestrator_prompt(delegate_to)
 
-        # 복합/대규모 태스크인 경우 Planning Mode 주입
-        if self._requires_planning_mode(task_type, messages) and delegate_to != "CEO":
-            if hasattr(self, "artifact_engine") and self.artifact_engine:
-                planning_mode_enforcement = self.artifact_engine.inject_planning_prompt()
-            else:
-                planning_mode_enforcement = PLANNING_MODE_BLOCK
-            system_prompt += planning_mode_enforcement
+        # 실행 모드에 따라 system prompt 분기 (Phase 1 D5)
+        system_prompt = self._inject_mode_prompt(system_prompt, task_type, messages, delegate_to)
 
         tool_prompt = self._build_tool_prompt() if delegate_to != "CEO" else ""
 
@@ -468,7 +635,7 @@ class OrchestratorAgent:
                         stats["tree_size_kb"],
                     )
                 except Exception:
-                    logger.debug("Initial code tree build failed (non-critical)")
+                    logger.debug("CodeTree 초기 빌드 실패 (non-critical)")
 
         return self._code_tree_indexer
 
@@ -489,9 +656,14 @@ class OrchestratorAgent:
                 )
 
                 # 워커 수 설정 (config에서 또는 기본값)
-                max_workers = getattr(self.ctx, "config", {}).get(
-                    "max_mode", {},
-                ).get("max_workers", 3)
+                max_workers = (
+                    getattr(self.ctx, "config", {})
+                    .get(
+                        "max_mode",
+                        {},
+                    )
+                    .get("max_workers", 3)
+                )
                 self._max_engine.set_max_workers(max_workers)
 
                 logger.info("[MAX] MaxModeEngine 활성화 완료 (%s workers)", max_workers)

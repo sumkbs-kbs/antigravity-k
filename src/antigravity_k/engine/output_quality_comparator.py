@@ -239,7 +239,7 @@ class OutputQualityComparator:
                 compile(block.strip(), "<test>", "exec")
                 valid += 1
             except SyntaxError:
-                pass
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             except Exception:
                 logger.exception("Unhandled exception")
                 valid += 1  # 비-Python 코드는 통과로 간주

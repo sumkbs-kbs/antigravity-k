@@ -103,7 +103,7 @@ class PanelActivityTracker:
     clearPanelCurrentTool 패턴을 서버 사이드로 이식.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the PanelActivityTracker."""
         self._activities: dict[str, PanelActivity] = {}
         self._current_tools: dict[str, PanelCurrentTool] = {}
@@ -296,7 +296,7 @@ def init_panel_activity_tracker() -> PanelActivityTracker:
             hook_bus.subscribe_all(tracker.handle_hook_event)
             logger.info("[PanelActivityTracker] HookEventBus에 연결 완료")
     except ImportError:
-        logger.debug("[PanelActivityTracker] HookEventBus 미사용")
+        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
     except Exception:
         logger.exception("[PanelActivityTracker] HookEventBus 연결 실패")
 

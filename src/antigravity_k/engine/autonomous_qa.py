@@ -223,7 +223,11 @@ class AutonomousQAEngine:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(viewport=self.VIEWPORTS["desktop"])
+            from typing import cast
+
+            from playwright.async_api import ViewportSize
+
+            context = await browser.new_context(viewport=cast(ViewportSize, self.VIEWPORTS["desktop"]))
             page = await context.new_page()
 
             # 콘솔 에러 수집

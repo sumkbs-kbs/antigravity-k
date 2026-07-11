@@ -329,6 +329,29 @@ class ToolRegistry:
         tools = self.get_by_names(names) if names else self.get_all()
         return [t.to_tool_call_schema() for t in tools]
 
+    def to_openai_schemas(self, names: list[str] | None = None) -> list[dict]:
+        """OpenAI function calling 포맷 도구 스키마 목록 (P1-1).
+
+        OpenAI 호환 provider(OpenRouter, NIM, Ollama OpenAI mode)의 네이티브
+        function calling을 사용할 때 전송합니다.
+        Anthropic 포맷(input_schema)을 OpenAI 포맷(function.parameters)으로 변환.
+        """
+        tools = self.get_by_names(names) if names else self.get_all()
+        result = []
+        for t in tools:
+            schema = t.to_tool_call_schema()
+            result.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": schema["name"],
+                        "description": schema["description"],
+                        "parameters": schema.get("input_schema", {"type": "object", "properties": {}}),
+                    },
+                }
+            )
+        return result
+
     def to_metadata_list(self) -> list[dict]:
         """UI 대시보드용 도구 메타데이터 목록."""
         return [t.to_metadata() for t in self._tools.values()]

@@ -17,7 +17,7 @@ class DatabaseMigrationTool(BaseTool):
 
     category = ToolCategory.DANGEROUS
     render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.DANGEROUS
+    risk_level = RiskLevel.CRITICAL
     icon = "🗄️"
     tags = ["database", "db", "sql", "alembic", "migration"]
 

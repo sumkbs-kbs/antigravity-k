@@ -186,7 +186,7 @@ class SelfEvolutionTool(BaseTool):
             proposal = architect.analyze_and_propose({"weaknesses": [goal]})
             if proposal:
                 architect.execute_proposal(proposal)
-                return f"✅ Meta-Architect가 제안을 성공적으로 실행했습니다.\n\n목표: {goal}\n개요: {proposal[:300]}..."
+                return f"✅ Meta-Architect가 제안을 성공적으로 실행했습니다.\n\n목표: {goal}\n개요: {str(proposal)[:300]}..."
             return "⚠️ Meta-Architect가 적절한 개선 제안을 생성하지 못했습니다."
         except Exception as e:
             logger.error("Meta-Architect error: %s", e, exc_info=True)
@@ -594,7 +594,7 @@ class MetacognitiveTracker:
         tracker.record_evolution_cycle(task, before_score, after_score, improvement_applied)
     """
 
-    def __init__(self, persist_path: str = None):
+    def __init__(self, persist_path: str | None = None):
         """Initialize the MetacognitiveTracker.
 
         Args:

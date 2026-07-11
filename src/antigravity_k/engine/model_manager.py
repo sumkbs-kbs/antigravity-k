@@ -270,7 +270,7 @@ class ModelManager:
                 # 라우팅된 모델의 fallback_depth (라우터 내부에서 인덱스로 추적하려면 라우터를 직접 사용해야 하므로 대략적으로 계산하거나 생략 가능.  # noqa: E501
                 # ModelRouter의 combo를 확인하여 인덱스를 fallback depth로 추정)
                 combo = self.router.get_combo(target)
-                if used_model in combo.models:
+                if combo is not None and used_model in combo.models:
                     fallback_depth = combo.models.index(used_model)
             else:
                 # 단일 모델 직접 지정인 경우
@@ -300,8 +300,18 @@ class ModelManager:
                 tokens_out=tokens_out,
                 latency_ms=latency_ms,
                 success=True,
-                combo_name=combo_name,
+                combo_name=combo_name or "",
                 fallback_depth=fallback_depth,
+            )
+
+            # Tracing: LLM 추론 span 기록 (작업 E — 관측가능성)
+            self._trace_llm_call(
+                model=used_model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=latency_ms,
+                success=True,
+                combo=combo_name,
             )
 
             # 콤보 라우팅 중 성공했으므로 해당 모델을 복구 상태로 마킹 (UnavailabilityTracker)
@@ -319,8 +329,17 @@ class ModelManager:
                 latency_ms=latency_ms,
                 success=False,
                 error=error_msg,
-                combo_name=combo_name,
+                combo_name=combo_name or "",
                 fallback_depth=fallback_depth,
+            )
+
+            # Tracing: 실패 span 기록
+            self._trace_llm_call(
+                model=used_model,
+                latency_ms=latency_ms,
+                success=False,
+                error=error_msg,
+                combo=combo_name,
             )
 
             # 라우터에 실패 보고 (쿨다운 적용)
@@ -422,7 +441,7 @@ class ModelManager:
                 profile = self.router.route(target)
                 used_model = profile.name
                 combo = self.router.get_combo(target)
-                if used_model in combo.models:
+                if combo is not None and used_model in combo.models:
                     fallback_depth = combo.models.index(used_model)
             else:
                 profile = self.router.route_single(target)
@@ -450,7 +469,7 @@ class ModelManager:
                 tokens_out=tokens_out,
                 latency_ms=latency_ms,
                 success=True,
-                combo_name=combo_name,
+                combo_name=combo_name or "",
                 fallback_depth=fallback_depth,
             )
             self.router.mark_recovered(used_model)
@@ -464,7 +483,7 @@ class ModelManager:
                 latency_ms=latency_ms,
                 success=False,
                 error=error_msg,
-                combo_name=combo_name,
+                combo_name=combo_name or "",
                 fallback_depth=fallback_depth,
             )
             self.router.mark_failure(used_model, reason=error_msg)
@@ -500,70 +519,160 @@ class ModelManager:
                 logger.exception("비판 콤보 조회 실패: %s", combo_name)
         return fallback_models
 
-    def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
-        """내부 텍스트 생성 로직 분리."""
-        import platform
+    @staticmethod
+    def _uses_anthropic_direct(loaded: LoadedModel) -> bool:
+        """Anthropic SDK 직접 호출 경로를 사용할지 결정합니다.
 
+        Anthropic 직접 호출은 다음 조건을 *모두* 만족할 때만 활성화됩니다:
+          1. 모델 이름/레포가 Claude/Anthropic 계열이고, **OpenRouter 경유가 아닌** 경우
+          2. config.yaml의 api_keys.anthropic 에 유효한 키가 설정된 경우
+
+        OpenRouter(api_base에 'openrouter' 포함)를 통한 Claude 호출은
+        OpenAI 호환 엔드포인트로 처리되어야 합니다 (Anthropic SDK 우회 금지).
+        """
         from ..config import config
 
-        if loaded.profile.name.startswith("claude"):
+        name = (loaded.profile.name or "").lower()
+        repo = (loaded.profile.repo or "").lower()
+        is_claude_family = name.startswith("claude") or "anthropic/claude" in repo
+
+        if not is_claude_family:
+            return False
+
+        # OpenRouter를 경유하는 Claude는 Anthropic 직접 호출에서 제외
+        if "openrouter" in config.model.api_base.lower():
+            return False
+
+        # 유효한 Anthropic API 키가 있을 때만 직접 호출
+        raw = getattr(config, "_raw", {}) or {}
+        api_key = raw.get("api_keys", {}).get("anthropic", "") if isinstance(raw, dict) else ""
+        return bool(api_key) and api_key != "sk-ant-your-key-here"
+
+    @staticmethod
+    def _is_openrouter() -> bool:
+        """현재 구성이 OpenRouter를 가리키는지 판단합니다.
+
+        api_engine이 'openrouter'이거나 api_base 호스트에 'openrouter'가 포함된 경우 True.
+        URL 문자열 단독 판단의 취약점(포트/경로 변형)을 보완하기 위해 engine 값도 함께 검사합니다.
+        """
+        from ..config import config
+
+        engine = (config.model.api_engine or "").lower()
+        base = (config.model.api_base or "").lower()
+        return engine == "openrouter" or "openrouter" in base
+
+    @staticmethod
+    def _ollama_native_base(api_base: str) -> str:
+        """Ollama Native API(/api/chat)용 베이스 URL을 정규화합니다.
+
+        OpenAI 호환 접미사(/v1)가 붙은 경우 이를 제거하여 Ollama Native 엔드포인트로 변환합니다.
+        예: http://localhost:11434/v1 → http://localhost:11434
+        """
+        base = (api_base or "").rstrip("/")
+        # /v1 (또는 /v2 등) 버전 접미사 제거
+        import re
+
+        base = re.sub(r"/v\d+$", "", base)
+        return base
+
+    def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
+        """내부 텍스트 생성 로직 — per-model provider 위임 (작업 2).
+
+        멀티 프로바이더 지원: loaded.profile.provider에 따라 적절한 프로바이더로 위임.
+        Anthropic 직접 SDK 호출은 _uses_anthropic_direct가 True일 때만 유지.
+        """
+        # Anthropic 직접 SDK 호출 (OpenRouter 경유가 아닌 Claude 전용)
+        if self._uses_anthropic_direct(loaded):
             result = ""
             for chunk in self._do_anthropic_stream(loaded, prompt, **kwargs):
                 result += chunk
             return result
 
-        if config.model.force_api or platform.system() != "Darwin" or isinstance(loaded.model, _OllamaModel):
-            # 외부 API (Ollama/LM Studio) 기반 추론
-            return self._do_ollama_generate(loaded, prompt, **kwargs)
+        # per-model provider 기반 위임 (ollama/openrouter/nim/mlx)
+        provider = self._get_provider(loaded)
+        if provider is not None:
+            return provider.generate(loaded, prompt, **kwargs)
 
-        # Mac 실제 MLX 환경 (추후 mlx_lm.generate 구현)
-        try:
-            from mlx_lm import generate as mlx_generate
-
-            # 기본 파라미터
-            max_tokens = kwargs.get("max_tokens", 1024)
-
-            return mlx_generate(
-                model=loaded.model,
-                tokenizer=loaded.tokenizer,
-                prompt=prompt,
-                max_tokens=max_tokens,
-            )
-        except ImportError:
-            return f"[Simulated MLX] {loaded.profile.name} processed: {prompt[:30]}"
+        # 폴백: 레거시 인라인 경로 (provider 결정 실패 시)
+        return self._do_ollama_generate(loaded, prompt, **kwargs)
 
     def _do_stream_generate(self, loaded: LoadedModel, prompt: str, **kwargs):
-        """내부 텍스트 생성 로직 분리 (스트리밍)."""
-        import platform
-
-        from ..config import config
-
-        if loaded.profile.name.startswith("claude"):
+        """내부 텍스트 생성 로직 (스트리밍) — per-model provider 위임 (작업 2)."""
+        if self._uses_anthropic_direct(loaded):
             yield from self._do_anthropic_stream(loaded, prompt, **kwargs)
             return
 
-        if config.model.force_api or platform.system() != "Darwin" or isinstance(loaded.model, _OllamaModel):
-            # 외부 API (Ollama/LM Studio) 스트리밍 추론
-            yield from self._do_ollama_stream(loaded, prompt, **kwargs)
+        provider = self._get_provider(loaded)
+        if provider is not None:
+            yield from provider.stream_generate(loaded, prompt, **kwargs)
             return
 
-        # Mac 실제 MLX 환경 (추후 mlx_lm.stream_generate 구현)
+        # 폴백: 레거시 인라인 경로
+        yield from self._do_ollama_stream(loaded, prompt, **kwargs)
+
+    def _trace_llm_call(
+        self,
+        model: str,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        latency_ms: float = 0.0,
+        success: bool = True,
+        error: str = "",
+        combo: str | None = None,
+    ) -> None:
+        """LLM 호출을 tracing span으로 기록합니다 (작업 E).
+
+        ModelManager의 generate/stream_generate에서 호출됩니다.
+        tracing 모듈이 없거나 실패해도 메인 플로우에 영향을 주지 않습니다.
+        """
         try:
-            from mlx_lm import stream_generate as mlx_stream_generate
+            from .tracing import get_tracer
 
-            max_tokens = kwargs.get("max_tokens", 1024)
+            tracer = get_tracer()
+            # 컨텍스트 매니저 대신 직접 Span 생성 후 finalize (이미 측정 완료된 값)
+            from .tracing import Span
 
-            yield from mlx_stream_generate(
-                model=loaded.model,
-                tokenizer=loaded.tokenizer,
-                prompt=prompt,
-                max_tokens=max_tokens,
+            span = Span(
+                name=f"llm:{model}",
+                span_type="llm_inference",
+                start_time=time.time() - (latency_ms / 1000),
+                end_time=time.time(),
+                duration_ms=latency_ms,
+                token_count=tokens_in + tokens_out,
+                status="ok" if success else "error",
+                error_message=error[:200] if error else "",
+                attributes={"model": model, "combo": combo or ""},
+                input_data={"tokens_in": tokens_in} if tokens_in else {},
+                output_data={"tokens_out": tokens_out} if tokens_out else {},
             )
-        except ImportError:
-            words = f"[Simulated MLX Stream] {loaded.profile.name} processed: {prompt[:30]}".split()
-            for word in words:
-                time.sleep(0.05)
-                yield word + " "
+            # 활성 trace가 있으면 span 추가
+            if tracer._active_trace:
+                tracer._active_trace.add_span(span)
+            elif tracer._span_stack:
+                tracer._span_stack[-1].add_span(span)
+        except Exception:
+            pass  # tracing 실패는 non-critical
+
+    def _get_provider(self, loaded: LoadedModel):
+        """loaded.profile.provider 기반으로 추론 프로바이더를 반환합니다.
+
+        provider가 명시적이지 않으면(빈 문자열) None을 반환하여 레거시 경로로 폴백.
+        어댑터 위임은 inference_providers.py의 get_inference_provider를 사용.
+        """
+        profile = loaded.profile
+        provider_name = (getattr(profile, "provider", "") or "").lower()
+
+        # provider가 명시된 경우에만 위임 (빈 값이면 레거시 _do_ollama_stream 사용)
+        if not provider_name:
+            return None
+
+        try:
+            from .provider_adapters.inference_providers import get_inference_provider
+
+            return get_inference_provider(loaded)
+        except Exception:
+            logger.debug("provider adapter 로드 실패 — 레거시 경로로 폴백", exc_info=True)
+            return None
 
     def _do_ollama_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
         """OpenAI 호환 HTTP API (LM Studio, Ollama 등)를 통한 생성 로직."""
@@ -620,13 +729,19 @@ class ModelManager:
             data["messages"],
         )
 
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+        # OpenRouter 전용 헤더 (식별용)
+        if self._is_openrouter():
+            headers["HTTP-Referer"] = "https://github.com/sumkbs-kbs/antigravity-k"
+            headers["X-Title"] = "Antigravity-K"
+
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(req, timeout=300) as response:
@@ -719,7 +834,7 @@ class ModelManager:
 
         from ..config import config
 
-        api_key = config.config.get("api_keys", {}).get("anthropic")
+        api_key = config._raw.get("api_keys", {}).get("anthropic", "")
         if not api_key or api_key == "sk-ant-your-key-here":
             yield "[Error] Anthropic API Key not found in config.yaml"
             return
@@ -806,16 +921,20 @@ class ModelManager:
             yield f"[API Error for {model_name}] {e}"
 
     def _do_ollama_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
-        """Ollama Native API를 통한 스트리밍 생성 로직 (num_ctx 제어 및 reasoning 지원)."""
+        """스트리밍 생성 로직.
+
+        Ollama Native API(/api/chat)와 OpenAI 호환 SSE(/v1/chat/completions)를
+        api_base에 따라 자동 선택합니다.
+        """
         import json
         import urllib.request
 
         from ..config import config
 
         base_url = config.model.api_base.rstrip("/")
-        # OpenAI 호환(/v1/chat/completions) 대신 Ollama Native API 사용
-        url = f"{base_url.replace('/v1', '')}/api/chat"
         api_key = config.model.api_key
+
+        is_openrouter = self._is_openrouter()
 
         if "raw_messages" in kwargs:
             sys_msg = kwargs.get("system_prompt", "")
@@ -829,7 +948,7 @@ class ModelManager:
             else:
                 api_msgs = [{"role": "user", "content": prompt}]
 
-        # Normalize messages for Ollama (it strictly requires string content)
+        # Normalize messages (string content 보장)
         normalized_msgs = []
         for msg in api_msgs:
             content = msg.get("content", "")
@@ -857,45 +976,88 @@ class ModelManager:
                 "content": api_msgs[0]["content"] + f"\n{attribution}",
             }
 
-        data = {
-            "model": model_name,
-            "stream": True,
-            "keep_alive": "30m",
-            "options": {
-                "num_ctx": 32768,
-                "num_predict": kwargs.get("max_tokens", 4096),
-                "temperature": temperature,
-                "repeat_penalty": 1.3,
-            },
-            "messages": api_msgs,
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
         }
+        # OpenRouter 전용 헤더 (식별용)
+        if is_openrouter:
+            headers["HTTP-Referer"] = "https://github.com/sumkbs-kbs/antigravity-k"
+            headers["X-Title"] = "Antigravity-K"
+
+        if is_openrouter:
+            # OpenAI 호환 SSE 스트리밍 (/v1/chat/completions)
+            url = f"{base_url}/chat/completions"
+            data = {
+                "model": model_name,
+                "stream": True,
+                "temperature": temperature,
+                "max_tokens": kwargs.get("max_tokens", 4096),
+                "messages": api_msgs,
+            }
+        else:
+            # Ollama Native API 스트리밍 (/api/chat) — /v1 접미사 정규화
+            native_base = self._ollama_native_base(config.model.api_base)
+            url = f"{native_base}/api/chat"
+            data = {
+                "model": model_name,
+                "stream": True,
+                "keep_alive": "30m",
+                "options": {
+                    "num_ctx": 32768,
+                    "num_predict": kwargs.get("max_tokens", 4096),
+                    "temperature": temperature,
+                    "repeat_penalty": 1.3,
+                },
+                "messages": api_msgs,
+            }
 
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
+            headers=headers,
         )
         try:
-            in_reasoning = False
-            with urllib.request.urlopen(req, timeout=300) as response:
-                for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                        if "message" in chunk:
-                            msg = chunk["message"]
-
-                            if "content" in msg and msg["content"]:
-                                if in_reasoning:
-                                    in_reasoning = False
-                                yield msg["content"]
-                    except json.JSONDecodeError:
-                        continue
+            if is_openrouter:
+                # OpenAI 호환 SSE 스트리밍 파싱 (data: {...} \n\n)
+                with urllib.request.urlopen(req, timeout=300) as response:
+                    buffer = ""
+                    for byte_chunk in response:
+                        buffer += byte_chunk.decode("utf-8")
+                        while "\n\n" in buffer:
+                            line, buffer = buffer.split("\n\n", 1)
+                            line = line.strip()
+                            if not line or not line.startswith("data: "):
+                                continue
+                            payload = line[6:].strip()
+                            if payload == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(payload)
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                continue
+            else:
+                # Ollama Native API 스트리밍 파싱 (줄 단위 JSON)
+                with urllib.request.urlopen(req, timeout=300) as response:
+                    in_reasoning = False
+                    for line in response:
+                        line = line.decode("utf-8").strip()
+                        if not line:
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                            if "message" in chunk:
+                                msg = chunk["message"]
+                                if "content" in msg and msg["content"]:
+                                    if in_reasoning:
+                                        in_reasoning = False
+                                    yield msg["content"]
+                        except json.JSONDecodeError:
+                            continue
         except urllib.error.HTTPError as e:
             try:
                 error_body = e.read().decode("utf-8")
@@ -939,6 +1101,14 @@ class ModelManager:
         """현재 로드된 모델 이름 목록."""
         return list(self._loaded.keys())
 
+    def get_model_info(self) -> dict:
+        """모델 정보를 반환합니다 (status()의 별칭 — slash_commands/self_capability 호환).
+
+        Returns:
+            status()와 동일한 구조의 모델 상태 dict.
+        """
+        return self.status()
+
     def is_loaded(self, name: str) -> bool:
         """Check if loaded.
 
@@ -953,26 +1123,25 @@ class ModelManager:
 
         if name in self._loaded:
             return True
-        # Check Ollama active models dynamically
-        profile = self._registry.get_model(name)
-        if profile and getattr(profile, "backend", "ollama") == "ollama":
-            try:
-                import json
-                import urllib.request
+        # Check Ollama active models dynamically (Ollama 엔진일 때만 — OpenRouter는 원격이므로 로컬 tags 조회 무의미)
+        if (config.model.api_engine or "").lower() == "ollama":
+            profile = self._registry.get_model(name)
+            if profile and getattr(profile, "backend", "ollama") == "ollama":
+                try:
+                    import json
+                    import urllib.request
 
-                req = urllib.request.Request(
-                    f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/tags",
-                )
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    for m in data.get("models", []):
-                        m_name = m.get("name", "")
-                        # e.g. "deepseek-r1:70b" or "deepseek-r1" match
-                        if m_name == name or m_name.startswith(name + ":") or name.startswith(m_name + ":"):
-                            return True
-            except Exception:
-                logger.exception("Unhandled exception")
-                pass
+                    native_base = self._ollama_native_base(config.model.api_base)
+                    req = urllib.request.Request(f"{native_base}/api/tags")
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        for m in data.get("models", []):
+                            m_name = m.get("name", "")
+                            # e.g. "deepseek-r1:70b" or "deepseek-r1" match
+                            if m_name == name or m_name.startswith(name + ":") or name.startswith(m_name + ":"):
+                                return True
+                except Exception:
+                    logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return False
 
     # ─── 내부 메서드 ─────────────────────────────────────────────────
@@ -1001,7 +1170,7 @@ class ModelManager:
         try:
             from mlx_lm import load
 
-            model, tokenizer = load(profile.repo)
+            model, tokenizer, *_ = load(profile.repo)
             return model, tokenizer
         except ImportError:
             logger.warning("mlx_lm 미설치. Ollama 어댑터 반환.")
@@ -1074,9 +1243,8 @@ class _OllamaTokenizer:
                 text = str(text)
 
         cjk_count = 0
-        latin_parts = []
-        current_word = []
-
+        latin_parts: list[str] = []
+        current_word: list[str] = []
         for ch in text:
             if self._is_cjk(ch):
                 cjk_count += 1

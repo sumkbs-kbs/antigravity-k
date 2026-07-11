@@ -1,8 +1,8 @@
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
 
 from antigravity_k.api.server import app
 from antigravity_k.config import config
@@ -15,6 +15,8 @@ def mock_manager():
     manager = MagicMock(spec=ModelManager)
     # generate 메서드가 성공적으로 문자열을 반환하도록 설정
     manager.generate.return_value = "This is a mock response from the LLM."
+    # status()가 딕셔너리를 반환하도록 설정 (health check 등에서 사용)
+    manager.status.return_value = {"loaded_models": []}
     return manager
 
 
@@ -26,16 +28,24 @@ def mock_translator():
 
 @pytest.fixture
 def client(mock_manager, mock_translator):
-    # Dependency Injection 덮어쓰기
+    """FastAPI DI + legacy module의 get_model_manager를 함께 오버라이드.
+
+    _get_slash_registry()가 get_model_manager()를 직접 호출할 때도
+    mock_manager가 반환되도록 legacy 모듈에도 패치를 적용합니다.
+    """
     from antigravity_k.api import dependencies
 
     app.dependency_overrides[dependencies.get_model_manager] = lambda: mock_manager
     app.dependency_overrides[dependencies.get_translator] = lambda: mock_translator
 
-    with TestClient(app) as c:
-        if config.security.access_pin:
-            c.headers.update({"X-Access-Pin": config.security.access_pin})
-        yield c
+    # legacy._get_slash_registry()가 직접 호출하는 get_model_manager도 오버라이드
+    with patch("antigravity_k.api.routes.legacy.get_model_manager", return_value=mock_manager):
+        with TestClient(app) as c:
+            if config.security.access_pin:
+                c.headers.update({"X-Access-Pin": config.security.access_pin})
+            # Fixture 멤버 초기화 중 발생한 호출 기록 제거
+            mock_manager.reset_mock()
+            yield c
 
     app.dependency_overrides.clear()
 
@@ -65,9 +75,7 @@ def test_api_routes_require_access_pin_without_auth_header():
         pytest.skip("Access PIN is disabled for this environment")
 
     with TestClient(app) as unauthenticated_client:
-        response = unauthenticated_client.post(
-            "/api/slash", json={"input": "/goal test"}
-        )
+        response = unauthenticated_client.post("/api/slash", json={"input": "/goal test"})
 
     assert response.status_code == 401
     assert response.json()["ok"] is False
@@ -104,9 +112,7 @@ def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
         assert alpha.json()["project_name"] == "antigravity-alpha"
         assert beta.json()["project_name"] == "antigravity-beta"
 
-        scoped = client.get(
-            "/api/kanban/tasks", params={"workspace": "/tmp/antigravity-alpha"}
-        )
+        scoped = client.get("/api/kanban/tasks", params={"workspace": "/tmp/antigravity-alpha"})
         assert scoped.status_code == 200
         scoped_tasks = scoped.json()["data"]
         assert [task["title"] for task in scoped_tasks] == ["Alpha project task"]
@@ -119,9 +125,7 @@ def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
         assert remove.status_code == 200
         assert remove.json()["ok"] is True
 
-        scoped_after_remove = client.get(
-            "/api/kanban/tasks", params={"workspace": "/tmp/antigravity-alpha"}
-        )
+        scoped_after_remove = client.get("/api/kanban/tasks", params={"workspace": "/tmp/antigravity-alpha"})
         assert scoped_after_remove.status_code == 200
         assert scoped_after_remove.json()["data"] == []
     finally:
@@ -177,15 +181,13 @@ def test_chat_completions_openai_format(client, mock_manager):
     assert data["object"] == "chat.completion"
     assert len(data["choices"]) > 0
     assert data["choices"][0]["message"]["role"] == "assistant"
-    assert (
-        data["choices"][0]["message"]["content"]
-        == "This is a mock response from the LLM."
-    )
+    assert data["choices"][0]["message"]["content"] == "This is a mock response from the LLM."
     assert "usage" in data
 
-    # ModelManager.generate 호출 확인
-    mock_manager.generate.assert_called_once()
-    kwargs = mock_manager.generate.call_args.kwargs
+    # ModelManager.generate 호출 확인 (intent classifier 1회 + 실제 생성 1회)
+    assert mock_manager.generate.call_count == 2
+    # 실제 생성 호출(두 번째 호출)의 kwargs 검증
+    kwargs = mock_manager.generate.call_args_list[1].kwargs
     assert kwargs["target"] == "test-combo"
     assert kwargs["temperature"] == 0.8
     # Prompt string 확인 (간단하게 포함 여부만)
@@ -198,9 +200,7 @@ def test_chat_completions_routes_slash_goal(client, mock_manager):
     legacy._slash_registry = None
     payload = {
         "model": "test-combo",
-        "messages": [
-            {"role": "user", "content": "/goal DOM 기능을 테스트하고 리포트를 작성해줘"}
-        ],
+        "messages": [{"role": "user", "content": "/goal DOM 기능을 테스트하고 리포트를 작성해줘"}],
     }
 
     response = client.post("/v1/chat/completions", json=payload)

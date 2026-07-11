@@ -101,6 +101,7 @@ class MetricsCollector:
     """
 
     _instance: MetricsCollector | None = None
+    _initialized: bool = False
     _lock = threading.Lock()
 
     def __new__(cls, log_dir: str | None = None) -> MetricsCollector:
@@ -116,7 +117,6 @@ class MetricsCollector:
         with cls._lock:
             if cls._instance is None:
                 instance = super().__new__(cls)
-                instance._initialized = False
                 cls._instance = instance
             return cls._instance
 

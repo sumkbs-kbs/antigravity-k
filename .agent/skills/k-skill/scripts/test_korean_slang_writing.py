@@ -11,7 +11,6 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-
 SKILL_ROOT = pathlib.Path(__file__).resolve().parents[1] / "korean-slang-writing"
 SCRIPTS_DIR = SKILL_ROOT / "scripts"
 DATA_DIR = SKILL_ROOT / "data"
@@ -167,9 +166,7 @@ class SearchQueryMatchingTest(unittest.TestCase):
     def setUp(self) -> None:
         self.index = make_index(
             [
-                make_entry(
-                    term="중꺾마", aliases=["중요한 건 꺾이지 않는 마음"], era="2022"
-                ),
+                make_entry(term="중꺾마", aliases=["중요한 건 꺾이지 않는 마음"], era="2022"),
                 make_entry(term="갓생", aliases=["갓생러"], era="2021"),
                 make_entry(term="럭키비키", aliases=["Lucky Vicky"], era="2024"),
                 make_entry(term="중꺾그마", aliases=[], era="2023"),
@@ -183,9 +180,7 @@ class SearchQueryMatchingTest(unittest.TestCase):
         self.assertEqual(result["candidates"][0]["match_reason"], "exact")
 
     def test_alias_match_is_reported_as_alias(self) -> None:
-        result = slang_search.search(
-            query="중요한 건 꺾이지 않는 마음", index=self.index
-        )
+        result = slang_search.search(query="중요한 건 꺾이지 않는 마음", index=self.index)
         self.assertEqual(result["candidates"][0]["term"], "중꺾마")
         self.assertEqual(result["candidates"][0]["match_reason"], "alias")
 
@@ -293,9 +288,7 @@ class SearchFilterTest(unittest.TestCase):
         self.assertEqual(terms, {"B부정"})
 
     def test_include_deprecated_flag_brings_back_legacy_entries(self) -> None:
-        result = slang_search.search(
-            mood=["긍정"], index=self.index, include_deprecated=True
-        )
+        result = slang_search.search(mood=["긍정"], index=self.index, include_deprecated=True)
         terms = {c["term"] for c in result["candidates"]}
         self.assertIn("D옛것", terms)
 
@@ -316,9 +309,7 @@ class SearchFilterTest(unittest.TestCase):
         self.assertEqual(terms, {"A긍정"})
 
     def test_filters_applied_summary_is_reported(self) -> None:
-        result = slang_search.search(
-            mood=["긍정"], safety="safe", limit=5, index=self.index
-        )
+        result = slang_search.search(mood=["긍정"], safety="safe", limit=5, index=self.index)
         self.assertEqual(result["filters_applied"]["mood"], ["긍정"])
         self.assertEqual(result["filters_applied"]["safety"], ["safe"])
         self.assertEqual(result["filters_applied"]["limit"], 5)
@@ -327,21 +318,15 @@ class SearchFilterTest(unittest.TestCase):
 
 class SearchCliTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture_path = (
-            pathlib.Path(__file__).resolve().parent / "fixtures" / "slang-fixture.json"
-        )
+        self.fixture_path = pathlib.Path(__file__).resolve().parent / "fixtures" / "slang-fixture.json"
         self.fixture_path.parent.mkdir(parents=True, exist_ok=True)
         fixture = make_index(
             [
-                make_entry(
-                    term="갓생", aliases=["갓생러"], mood_tags=["긍정"], era="2021"
-                ),
+                make_entry(term="갓생", aliases=["갓생러"], mood_tags=["긍정"], era="2021"),
                 make_entry(term="현타", mood_tags=["부정"], era="2015"),
             ]
         )
-        self.fixture_path.write_text(
-            json.dumps(fixture, ensure_ascii=False), encoding="utf-8"
-        )
+        self.fixture_path.write_text(json.dumps(fixture, ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self) -> None:
         if self.fixture_path.exists():
@@ -470,26 +455,20 @@ class LookupParsingTest(unittest.TestCase):
         self.assertNotIn("<b>", summary)
 
     def test_extract_summary_truncates_to_max_length(self) -> None:
-        long_html = (
-            "<html><body><article><p>" + ("가" * 5000) + "</p></article></body></html>"
-        )
+        long_html = "<html><body><article><p>" + ("가" * 5000) + "</p></article></body></html>"
         summary = slang_lookup.extract_summary(long_html, max_length=100)
         # Summary is capped at max_length + 3 chars for the "..." suffix.
         self.assertLessEqual(len(summary), 103)
 
     def test_extract_summary_returns_empty_on_unknown_structure(self) -> None:
-        summary = slang_lookup.extract_summary(
-            "<html><body></body></html>", max_length=1500
-        )
+        summary = slang_lookup.extract_summary("<html><body></body></html>", max_length=1500)
         self.assertEqual(summary, "")
 
     def test_extract_summary_uses_h2_section_boundaries_on_current_namuwiki_layout(
         self,
     ) -> None:
         """Must use numbered-h2 anchors when Namu Wiki class names are obfuscated."""
-        summary = slang_lookup.extract_summary(
-            self.HTML_CURRENT_NAMUWIKI, max_length=2000
-        )
+        summary = slang_lookup.extract_summary(self.HTML_CURRENT_NAMUWIKI, max_length=2000)
         self.assertIn("중요한 것은 꺾이지 않는 마음", summary)
         self.assertIn("DRX", summary)
         self.assertIn("포기하지 않는 불굴의 의지", summary)
@@ -500,9 +479,7 @@ class LookupParsingTest(unittest.TestCase):
 
     def test_extract_summary_strips_section_heading_edit_affordances(self) -> None:
         """[편집] edit affordances and N. section numbering must not leak through."""
-        summary = slang_lookup.extract_summary(
-            self.HTML_CURRENT_NAMUWIKI, max_length=2000
-        )
+        summary = slang_lookup.extract_summary(self.HTML_CURRENT_NAMUWIKI, max_length=2000)
         self.assertNotIn("[편집]", summary)
         self.assertNotIn("1. 개요", summary)
 
@@ -744,9 +721,7 @@ class LookupNetworkTest(unittest.TestCase):
             raise slang_http.BlockedError("HTTP 403 (possibly Cloudflare)")
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
-            result = slang_lookup.lookup(
-                term_or_url="https://namu.wiki/w/test", timeout=5, max_length=1500
-            )
+            result = slang_lookup.lookup(term_or_url="https://namu.wiki/w/test", timeout=5, max_length=1500)
 
         self.assertFalse(result["fetched"])
         self.assertEqual(result["block_reason"], "blocked")
@@ -758,9 +733,7 @@ class LookupNetworkTest(unittest.TestCase):
             raise slang_http.NotFoundError("HTTP 404: page not found")
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
-            result = slang_lookup.lookup(
-                term_or_url="https://namu.wiki/w/test", timeout=5, max_length=1500
-            )
+            result = slang_lookup.lookup(term_or_url="https://namu.wiki/w/test", timeout=5, max_length=1500)
 
         self.assertFalse(result["fetched"])
         self.assertEqual(result["block_reason"], "not_found")
@@ -773,9 +746,7 @@ class LookupNetworkTest(unittest.TestCase):
             return LookupParsingTest.HTML_SAMPLE
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
-            result = slang_lookup.lookup(
-                term_or_url="중꺾마", timeout=10, max_length=500
-            )
+            result = slang_lookup.lookup(term_or_url="중꺾마", timeout=10, max_length=500)
 
         self.assertTrue(captured["url"].startswith("https://namu.wiki/w/"))
         # Korean multi-byte title must be percent-encoded for namuwiki URL safety.
@@ -803,9 +774,7 @@ class HttpUtilitiesTest(unittest.TestCase):
 
 class LookupCliTest(unittest.TestCase):
     def test_cli_json_output(self) -> None:
-        with mock.patch.object(
-            slang_lookup, "fetch_page", return_value=LookupParsingTest.HTML_SAMPLE
-        ):
+        with mock.patch.object(slang_lookup, "fetch_page", return_value=LookupParsingTest.HTML_SAMPLE):
             argv = [
                 "중꺾마",
                 "--format",

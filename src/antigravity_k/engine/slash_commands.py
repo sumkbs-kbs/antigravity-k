@@ -60,7 +60,8 @@ class SlashCommandRegistry:
         context_shaper=None,
         model_manager=None,
         skill_loader=None,
-    ):
+        mode_manager=None,
+    ) -> None:
         """Initialize the SlashCommandRegistry.
 
         Args:
@@ -69,6 +70,7 @@ class SlashCommandRegistry:
             context_shaper: context shaper.
             model_manager: model manager.
             skill_loader: skill loader.
+            mode_manager: mode manager (Plan/Build/Interactive).
 
         """
         self._commands: dict[str, SlashCommand] = {}
@@ -77,6 +79,7 @@ class SlashCommandRegistry:
         self._context_shaper = context_shaper
         self._model_manager = model_manager
         self._skill_loader = skill_loader
+        self._mode_manager = mode_manager
 
         # 기본 커맨드 등록
         self._register_defaults()
@@ -270,6 +273,46 @@ class SlashCommandRegistry:
                 handler=self._cmd_mcp,
                 usage="/mcp [radar|audit <path>|template]",
                 category="tools",
+            ),
+        )
+
+        self.register(
+            SlashCommand(
+                name="market",
+                description="Skill Marketplace: search, install, remove, list, info, update skills.",
+                handler=self._cmd_market,
+                usage="/market [search|install|remove|list|info|update]",
+                category="tools",
+            ),
+        )
+
+        self.register(
+            SlashCommand(
+                name="mode",
+                description="현재 실행 모드(Plan/Build/Interactive) 상태를 표시하거나 변경합니다.",
+                handler=self._cmd_mode,
+                usage="/mode [plan|build|interactive|status]",
+                category="system",
+            ),
+        )
+
+        self.register(
+            SlashCommand(
+                name="plan",
+                description="Plan 모드로 전환합니다. 읽기 전용 도구만 허용됩니다.",
+                handler=self._cmd_plan,
+                usage="/plan [이유]",
+                category="system",
+            ),
+        )
+
+        self.register(
+            SlashCommand(
+                name="build",
+                description="Build 모드로 전환합니다. 모든 도구 실행이 허용됩니다.",
+                handler=self._cmd_build,
+                usage="/build [plan_artifact_path]",
+                category="system",
             ),
         )
 
@@ -630,9 +673,9 @@ class SlashCommandRegistry:
 
         # AgentTracer Readiness Score 연결
         try:
-            from antigravity_k.engine.logging_util import AgentTracer
+            from antigravity_k.engine.tracing import AgentTracer
 
-            readiness = AgentTracer.get_readiness_score()
+            readiness = AgentTracer.get_readiness_score()  # type: ignore[attr-defined]
             status_emoji = (
                 "🟢" if readiness["status"] == "ready" else "🟡" if readiness["status"] == "degraded" else "🔴"
             )
@@ -925,6 +968,126 @@ class SlashCommandRegistry:
 
         return "Usage: `/mcp [radar|audit <path>|template]`"
 
+    def _cmd_market(self, args: list) -> str:
+        """Skill Marketplace 명령어."""
+        try:
+            from antigravity_k.engine.skill_market_client import SkillMarketClient
+            from antigravity_k.engine.skill_market_registry import SkillMarketRegistry
+        except ImportError as e:
+            return f"❌ Market dependencies not available: {e}"
+
+        market_client = SkillMarketClient()
+        registry = SkillMarketRegistry(
+            project_root=".",
+            market_client=market_client,
+            skill_loader=self._skill_loader,
+        )
+
+        if not args:
+            return (
+                "📦 **Skill Marketplace**\n\n"
+                "Usage: `/market <subcommand>`\n\n"
+                "`/market search <query>` — Search for skills\n"
+                "`/market install <package>` — Install a skill\n"
+                "`/market remove <name>` — Remove an installed skill\n"
+                "`/market list` — List installed skills\n"
+                "`/market info <name>` — Show skill details\n"
+                "`/market update [name]` — Update a skill (or all if name omitted)"
+            )
+
+        sub = args[0].lower()
+        rest = args[1:]
+
+        if sub == "search":
+            query = " ".join(rest).strip()
+            if not query:
+                return "Usage: `/market search <query>`"
+            results = registry.search(query)
+            if isinstance(results, list) and results and "error" not in results[0]:
+                return market_client.format_search_results(results)
+            return "🔍 검색 결과가 없습니다."
+
+        elif sub == "install":
+            if not rest:
+                return "Usage: `/market install <package>`"
+            package = rest[0]
+            result = registry.install(package)
+            if result.get("success"):
+                return f"✅ **Install complete**\n\n{result.get('summary', '')}"
+            error = result.get("error", "Unknown error")
+            warnings = result.get("warnings", [])
+            msg = f"❌ Install failed: {error}"
+            if warnings:
+                msg += "\n\n**Warnings:**\n" + "\n".join(f"- {w}" for w in warnings)
+            return msg
+
+        elif sub == "remove":
+            if not rest:
+                return "Usage: `/market remove <name>`"
+            name = rest[0]
+            result = registry.remove(name)
+            if result.get("success"):
+                return f"✅ **Removed**\n\n{result.get('summary', '')}"
+            return f"❌ Remove failed: {result.get('error', 'Unknown error')}"
+
+        elif sub in ("list", "ls"):
+            installed = registry.list_installed()
+            return registry.format_list(installed)
+
+        elif sub == "info":
+            if not rest:
+                return "Usage: `/market info <name>`"
+            name = rest[0]
+            skill_info = registry.get_info(name)
+            if skill_info:
+                return registry.format_info(skill_info)
+            # 패키지명으로 직접 조회
+            if name.startswith("@antigravity-k/skill-"):
+                detail = market_client.get_detail(name)
+                if detail:
+                    lines = [
+                        f"📦 **{detail.name}** `v{detail.version}`",
+                        "",
+                        f"설명: {detail.description}",
+                        f"키워드: {', '.join(detail.keywords)}" if detail.keywords else "",
+                        f"라이선스: {detail.license}" if detail.license else "",
+                        f"npm: {detail.npm_url}" if detail.npm_url else "",
+                    ]
+                    if detail.is_agk_skill:
+                        lines.extend(
+                            [
+                                "",
+                                "**AGK 메타데이터:**",
+                                f"  - 위험도: `{detail.agk_risk_level}`",
+                                f"  - 신뢰수준: `{detail.agk_trust_level}`",
+                                f"  - 승인필요: {'✅' if detail.agk_requires_approval else '❌'}",
+                            ]
+                        )
+                        if detail.agk_mcp_server_id:
+                            lines.append(f"  - MCP 서버: `{detail.agk_mcp_server_id}`")
+                    return "\n".join(line for line in lines if line)
+                return f"📦 `{name}`을(를) 찾을 수 없습니다."
+            return f"❌ Skill `{name}`이(가) 설치되지 않았습니다."
+
+        elif sub == "update":
+            if rest:
+                name = rest[0]
+                result = registry.update(name)
+                if result.get("success"):
+                    return f"✅ **Updated**\n\n{result.get('summary', '')}"
+                return f"❌ Update failed: {result.get('error', 'Unknown error')}"
+            # name 생략 시 전체 업데이트
+            results = registry.update_all()
+            updated = [r for r in results if r.get("success")]
+            if updated:
+                lines = ["✅ **업데이트 완료**", ""]
+                for r in updated:
+                    lines.append(f"  - `{r.get('skill_name', '?')}` → `{r.get('version', '?')}`")
+                return "\n".join(lines)
+            return "✅ 모든 스킬이 최신 상태입니다."
+
+        return f"❓ 알 수 없는 하위 명령: `{sub}`.\n" "사용 가능: search, install, remove, list, info, update"
+
     def _cmd_capabilities(self, args: list) -> str:
         """현재 등록된 capabilities의 자율 사용 가능성 표시."""
         objective = " ".join(args).strip()
@@ -999,6 +1162,92 @@ class SlashCommandRegistry:
             known_skills=known_skills,
         )
         return engine.render_markdown(report)
+
+    def _cmd_mode(self, args: list) -> str:
+        """/mode 명령어: 실행 모드 상태 표시 및 변경."""
+        if not args:
+            return self._mode_status()
+
+        sub = args[0].lower()
+
+        if sub == "status" or sub == "info":
+            return self._mode_status()
+
+        if sub == "plan":
+            return self._mode_switch_plan(args[1:])
+
+        if sub == "build":
+            return self._mode_switch_build(args[1:])
+
+        if sub == "interactive":
+            return self._mode_switch_interactive()
+
+        return "Usage: /mode [plan|build|interactive|status]"
+
+    def _cmd_plan(self, args: list) -> str:
+        """/plan 명령어: Plan 모드로 전환."""
+        reason = " ".join(args).strip() if args else "사용자 요청 (/plan)"
+        return self._mode_switch_plan(args if args else [reason])
+
+    def _cmd_build(self, args: list) -> str:
+        """/build 명령어: Build 모드로 전환."""
+        return self._mode_switch_build(args)
+
+    def _mode_status(self) -> str:
+        """현재 모드 상태를 반환합니다."""
+        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+            # 모드 매니저가 없으면 engine_context에서 찾기
+            return "ModeManager not connected. Use the main session to access mode control."
+
+        return self._mode_manager.format_status()
+
+    def _mode_switch_plan(self, args: list) -> str:
+        """Plan 모드로 전환합니다."""
+        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+            return "ModeManager not connected."
+
+        reason = " ".join(args).strip() if args else "사용자 요청 (/plan)"
+        if self._mode_manager.switch_to_plan(reason):
+            return f"✅ **PLAN 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
+        return "❌ PLAN 모드 전환에 실패했습니다."
+
+    def _mode_switch_build(self, args: list) -> str:
+        """Build 모드로 전환합니다."""
+        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+            return "ModeManager not connected."
+
+        plan_path = args[0] if args else None
+        reason = "사용자 요청 (/build)"
+
+        if plan_path:
+            self._mode_manager.set_plan_artifact(plan_path)
+            self._mode_manager.set_plan_quality_passed(True)
+            reason = f"Plan 아티팩트 '{plan_path}' 기반 Build 모드 전환"
+
+        if self._mode_manager.switch_to_build(plan_artifact_path=plan_path, reason=reason):
+            return f"✅ **BUILD 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
+
+        # 자동 전환 조건 불충족 시 안내
+        if self._mode_manager.is_plan:
+            msg = (
+                "❌ BUILD 모드 전환에 실패했습니다.\n\n"
+                "Plan → Build 자동 전환 조건이 충족되지 않았습니다:\n"
+                "1. Plan 아티팩트(`implementation_plan.md`)가 생성되었는지 확인하세요.\n"
+                "2. Plan 품질 검증(QualityGate)이 통과되어야 합니다.\n"
+                "3. 강제 전환: `/build <plan_artifact_path>` 로 경로를 직접 지정할 수 있습니다."
+            )
+            return msg
+
+        return "❌ BUILD 모드 전환에 실패했습니다."
+
+    def _mode_switch_interactive(self) -> str:
+        """Interactive 모드로 전환합니다."""
+        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+            return "ModeManager not connected."
+
+        if self._mode_manager.switch_to_interactive("사용자 요청 (/mode interactive)"):
+            return f"✅ **INTERACTIVE 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
+        return "❌ INTERACTIVE 모드 전환에 실패했습니다."
 
     def _cmd_approve(self, args: list) -> str:
         return "System command: /approve is managed by the orchestrator."

@@ -43,12 +43,8 @@ class SearchPlan:
         return {
             "query": {
                 **asdict(self.query),
-                "start_date": (
-                    self.query.start_date.isoformat() if self.query.start_date else None
-                ),
-                "end_date": (
-                    self.query.end_date.isoformat() if self.query.end_date else None
-                ),
+                "start_date": (self.query.start_date.isoformat() if self.query.start_date else None),
+                "end_date": (self.query.end_date.isoformat() if self.query.end_date else None),
             },
             "payload": self.payload,
             "suggested_keywords": self.suggested_keywords,
@@ -100,9 +96,7 @@ def build_search_payload(query: SearchQuery) -> dict[str, str]:
     return payload
 
 
-def _base_curl_command(
-    url: str | None, max_time: int, *, follow_redirects: bool = True
-) -> list[str]:
+def _base_curl_command(url: str | None, max_time: int, *, follow_redirects: bool = True) -> list[str]:
     command = [
         "curl",
         "-fsS",
@@ -134,9 +128,7 @@ def build_curl_command(payload: dict[str, str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
-def probe_source(
-    name: str, url: str, runner: Runner = subprocess.run
-) -> dict[str, str]:
+def probe_source(name: str, url: str, runner: Runner = subprocess.run) -> dict[str, str]:
     command = _base_curl_command(url, 15)
     try:
         completed = runner(command, capture_output=True, text=True, check=True)
@@ -148,11 +140,7 @@ def probe_source(
         }
     except subprocess.CalledProcessError as error:
         detail = (error.stderr or error.stdout or str(error)).strip() or "unknown error"
-        status = (
-            "timeout"
-            if error.returncode == 28 or "timed out" in detail.lower()
-            else "error"
-        )
+        status = "timeout" if error.returncode == 28 or "timed out" in detail.lower() else "error"
         return {"name": name, "url": url, "status": status, "detail": detail}
 
 
@@ -202,8 +190,7 @@ def build_search_plan(
     if verify_live:
         probe = probe or probe_source
         default_sources = [
-            {**probe(source["name"], source["url"]), "purpose": source["purpose"]}
-            for source in default_sources
+            {**probe(source["name"], source["url"]), "purpose": source["purpose"]} for source in default_sources
         ]
 
     item_hint = query.item or "분실물"
@@ -231,9 +218,7 @@ def build_search_plan(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Generate official subway lost-property search guidance."
-    )
+    parser = argparse.ArgumentParser(description="Generate official subway lost-property search guidance.")
     parser.add_argument("--station", required=True, help="역명 또는 보관장소 키워드")
     parser.add_argument("--item", help="예: 지갑, 이어폰")
     parser.add_argument("--line", help="예: 2호선")

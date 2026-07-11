@@ -118,7 +118,7 @@ class BrowserSubagentTool(BaseTool):
         """실제 Orchestrator 루프를 통한 Browser Sub-Agent 실행."""
         start_time = time.time()
 
-        from antigravity_k.api.server import get_vault_engine
+        from antigravity_k.api.dependencies import get_vault_engine
         from antigravity_k.engine.orchestrator import OrchestratorAgent
 
         # 메인 에이전트와 ToolRegistry를 공유하지만,

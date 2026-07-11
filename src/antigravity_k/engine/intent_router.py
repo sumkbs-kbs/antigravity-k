@@ -52,7 +52,7 @@ class IntentRouter:
                     scores[category] += 1
 
         # Find the category with the highest score
-        best_category = max(scores, key=scores.get)
+        best_category = max(scores, key=lambda k: scores.get(k, 0))
 
         # Default to 'deep' if no clear category is found
         if scores[best_category] == 0:

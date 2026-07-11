@@ -22,6 +22,7 @@ from antigravity_k.engine.memory_provider import (
     MemoryManager,
     WorkingMemoryBuffer,
 )
+from antigravity_k.engine.mode_manager import ModeManager
 from antigravity_k.engine.prompt_builder import PromptBuilder
 from antigravity_k.engine.quality_gate import QualityGate
 from antigravity_k.engine.session_manager import SessionManager
@@ -43,7 +44,7 @@ logger = logging.getLogger("antigravity_k.engine_context")
 class EngineContext:
     """Enginecontext."""
 
-    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None):
+    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None, session_manager=None):
         """Initialize the EngineContext.
 
         Args:
@@ -51,6 +52,9 @@ class EngineContext:
             vault_engine: vault engine.
             project_root: project root.
             tool_registry: tool registry.
+            session_manager: 외부에서 주입받은 SessionManager (작업 1: 인스턴스 통일).
+                            None이면 내부에서 새로 생성. chat.py와 동일한 인스턴스를
+                            공유해야 단기기억이 끊기지 않음.
 
         """
         self.model_manager = model_manager
@@ -97,13 +101,19 @@ class EngineContext:
         # Context & Modeling
         self.user_model = UserIntentModeler(project_root=self.project_root)
         self.context_shaper = ContextShaper()
-        self.session_manager = SessionManager()
+        # 작업 1: 외부 주입 SessionManager 우선 사용 — chat.py와 동일 인스턴스 공유
+        self.session_manager = session_manager or SessionManager()
 
-        # 4-Tier Cognitive Memory System
+        # 4-Tier Cognitive Memory System + 글로벌 메모리 (P2-3)
+        from antigravity_k.engine.memory_provider import GlobalMemoryProvider
+
         self.memory_manager = MemoryManager()
         self.memory_manager.add_provider(BuiltinMemoryProvider(self.session_manager))
         self.memory_manager.add_provider(EpisodicMemoryProvider(max_episodes=200))
         self.memory_manager.add_provider(WorkingMemoryBuffer(max_turns=20))
+        # Cross-Project 글로벌 메모리 — 사용자 선호/패턴 영속화
+        self.global_memory = GlobalMemoryProvider()
+        self.memory_manager.add_provider(self.global_memory)
 
         self.skill_loader = SkillLoader(
             project_root=self.project_root,
@@ -112,12 +122,41 @@ class EngineContext:
         self.ide_manager = IDEContextManager()
         self.prompt_builder = PromptBuilder()
 
+        # ─── Mode Manager (Plan/Build/Interactive) ───
+        self.mode_manager = ModeManager()
+
+        # ─── Phase 1 D3: PlanGuard + GatePipeline ───
+        from antigravity_k.engine.cost_guard import CostGuard
+        from antigravity_k.engine.gate_pipeline import GatePipeline, create_default_pipeline
+        from antigravity_k.engine.plan_guard import PlanGuard
+
+        self.plan_guard = PlanGuard()
+
+        # CostGuard 인스턴스화 (작업 4: 비용 게이트 활성화)
+        # config의 cost 섹션 → 환경변수(.env의 AGK_DAILY_BUDGET_USD 등) 순서로 초기화
+        cost_cfg = self.config.get("cost", {}) if isinstance(self.config, dict) else {}
+
+        daily_budget = float(cost_cfg.get("daily_budget_usd") or os.environ.get("AGK_DAILY_BUDGET_USD", "50.0"))
+        hourly_limit = int(cost_cfg.get("hourly_action_limit") or os.environ.get("AGK_HOURLY_ACTION_LIMIT", "100"))
+        cost_enabled = bool(cost_cfg.get("enabled", True))
+        self.cost_guard = CostGuard(
+            daily_budget_usd=daily_budget,
+            hourly_action_limit=hourly_limit,
+            enabled=cost_enabled,
+        )
+
+        self.gate_pipeline: GatePipeline = create_default_pipeline(
+            guardrails=self.tool_guardrail,
+            cost_guard=self.cost_guard,
+        )
+
         self.slash_commands = SlashCommandRegistry(
             tool_registry=self.tool_registry,
             session_manager=self.session_manager,
             context_shaper=self.context_shaper,
             model_manager=model_manager,
             skill_loader=self.skill_loader,
+            mode_manager=self.mode_manager,
         )
 
         self.tool_executor = ToolExecutor(
@@ -127,6 +166,8 @@ class EngineContext:
             vault_engine=vault_engine,
             project_root=self.project_root,
             capability_policy_config=capability_policy_config,
+            plan_guard=self.plan_guard,
+            gate_pipeline=self.gate_pipeline,
         )
 
         if not self.shared_tool_registry:

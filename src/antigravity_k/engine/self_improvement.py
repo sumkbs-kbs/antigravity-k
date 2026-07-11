@@ -166,7 +166,7 @@ class SelfImprovementLoop:
         recent = self._records[-self._window_size :]
         total = len(recent)
         avg_score = sum(r.score for r in recent) / total
-        grade_dist = defaultdict(int)
+        grade_dist: defaultdict[str, int] = defaultdict(int)
         for r in recent:
             grade_dist[r.grade] += 1
 

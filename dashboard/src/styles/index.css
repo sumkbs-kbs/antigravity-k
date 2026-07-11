@@ -2223,6 +2223,150 @@ body {
   }
 }
 
+/* ─── Skills Browser (D16) ─── */
+.skills-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--glass-border);
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.skills-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.skills-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.skills-tab.active {
+  color: var(--accent-color);
+  border-bottom-color: var(--accent-color);
+  background: var(--accent-subtle);
+}
+
+.skills-count {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.skills-tab.active .skills-count {
+  background: rgba(124, 106, 239, 0.2);
+  color: var(--accent-color);
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.skill-card {
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.skill-card:hover {
+  border-color: var(--glass-border-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.skills-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  gap: 8px;
+}
+
+.tool-chip {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  transition: background 0.15s;
+}
+
+.tool-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.source-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Skills Source Group */
+.skills-source-group {
+  margin-bottom: 24px;
+}
+
+.skills-source-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.skills-source-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ─── Mode Indicator Enhanced (D16) ─── */
+.mode-indicator {
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
+}
+
+.mode-indicator:hover {
+  transform: scale(1.02);
+  filter: brightness(1.2);
+}
+
+.mode-indicator.plan:hover {
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.3);
+}
+
+.mode-indicator.build:hover {
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+}
+
+.mode-indicator.interactive:hover {
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+}
+
 /* Safe area (노치 있는 폰) */
 @supports (padding: env(safe-area-inset-bottom)) {
   .chat-input-wrapper {
@@ -2277,4 +2421,196 @@ body {
   display: flex;
   justify-content: center;
   overflow-x: auto;
+}
+
+/* ═══ P0-1: highlight.js 코드 블록 스타일 오버라이드 ═══ */
+pre.code-block {
+  background: #1a1b26 !important;
+  padding: 14px 16px !important;
+  border-radius: 0 0 8px 8px !important;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 !important;
+}
+pre.code-block code {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* ═══ P0-3: 메시지 액션 버튼 ═══ */
+.message-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.message:hover .message-actions {
+  opacity: 1;
+}
+.msg-action-btn {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: var(--text-secondary, #a9b1d6);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.msg-action-btn:hover {
+  background: rgba(124,106,239,0.15);
+  border-color: rgba(124,106,239,0.3);
+  color: var(--text-primary, #c0caf5);
+}
+
+/* ═══ P0-4: 스크롤 투 버튼 ═══ */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--glass-bg, rgba(18,20,28,0.85));
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.1));
+  color: var(--text-primary, #c0caf5);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s ease;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.scroll-to-bottom-btn.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.scroll-to-bottom-btn:hover {
+  background: rgba(124,106,239,0.2);
+  border-color: rgba(124,106,239,0.4);
+}
+
+/* ═══ P1-1: 빈 상태 시작 화면 ═══ */
+.empty-state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 40px 20px;
+  text-align: center;
+}
+.empty-state-logo {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.empty-state-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary, #c0caf5);
+  margin-bottom: 8px;
+}
+.empty-state-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary, #a9b1d6);
+  margin-bottom: 28px;
+  max-width: 400px;
+  line-height: 1.6;
+}
+.empty-state-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  max-width: 500px;
+}
+.example-chip {
+  background: var(--glass-bg, rgba(18,20,28,0.6));
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.08));
+  color: var(--text-secondary, #a9b1d6);
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+.example-chip:hover {
+  background: rgba(124,106,239,0.12);
+  border-color: rgba(124,106,239,0.3);
+  color: var(--text-primary, #c0caf5);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(124,106,239,0.15);
+}
+
+/* ═══ P2-1: 프로바이더 상태 패널 ═══ */
+.provider-status-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.provider-badge.active {
+  background: rgba(16,185,129,0.1);
+  border-color: rgba(16,185,129,0.2);
+  color: #10b981;
+}
+.provider-badge.inactive {
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted, #565f89);
+}
+.provider-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.provider-badge.active .dot { background: #10b981; }
+.provider-badge.inactive .dot { background: #565f89; }
+
+/* ═══ P2-2: 비용 게이지 ═══ */
+.cost-gauge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-secondary, #a9b1d6);
+}
+.cost-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cost-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #f59e0b);
+  border-radius: 2px;
+  transition: width 0.5s ease;
 }

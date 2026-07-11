@@ -1,5 +1,4 @@
-"""
-Google Skills 패턴 통합 테스트.
+"""Google Skills 패턴 통합 테스트.
 
 google/skills 저장소(https://github.com/google/skills)의 핵심 패턴을 검증:
 1. SKILL.md + references/ 폴더 구조
@@ -11,10 +10,10 @@ google/skills 저장소(https://github.com/google/skills)의 핵심 패턴을 �
 """
 
 import pytest
+
 from antigravity_k.agents.skills_registry import (
     SkillsRegistry,
 )
-
 
 # ── 픽스처: Google Skills 스타일 스킬 폴더 생성 ──────────────────────
 

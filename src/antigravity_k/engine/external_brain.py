@@ -136,7 +136,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
             text=True,
             timeout=5,
         )
-        win_count = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
+        win_count: float = int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0.0
         if win_count == 0:
             logger.info("Gemini 창이 없으므로 새 대화 창을 엽니다.")
             subprocess.run(
@@ -243,7 +243,7 @@ class GeminiAppAdapter(ExternalBrainAdapter):
         """
         max_wait = self.timeout_sec
         poll_interval = 2.0
-        elapsed = 0
+        elapsed: float = 0.0
         last_text = ""
         stable_count = 0
 
@@ -423,7 +423,7 @@ class ChatGPTWebAdapter(ExternalBrainAdapter):
         """ChatGPT 응답이 완료될 때까지 DOM을 polling합니다."""
         max_wait = self.timeout_sec
         poll_interval = 2.0
-        elapsed = 0
+        elapsed: float = 0.0
         last_text = ""
         stable_count = 0
 
@@ -633,7 +633,7 @@ class ExternalBrainRouter:
     - compare: 여러 두뇌에 동시 전송, 결과 비교
     """
 
-    def __init__(self, adapters: list[ExternalBrainAdapter] = None):
+    def __init__(self, adapters: list[ExternalBrainAdapter] | None = None):
         """Initialize the ExternalBrainRouter.
 
         Args:

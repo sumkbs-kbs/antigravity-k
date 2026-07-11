@@ -26,7 +26,7 @@ You are an expert in the **Evolver** project (evomap.ai). This is a GEP-powered 
 ## Security & Execution Model
 
 - **Safe Validation**: Evolver validates patches using commands within a Gene's `validation`. Only `node`, `npm`, `npx` prefixes are permitted. Shell characters (`|`, `>`, `&`, substitution) are explicitly blocked.
-- **Staging / Promotion**: A2A assets ingested externally undergo required validation checks prior to local promotion (`a2a_promote.js`). 
+- **Staging / Promotion**: A2A assets ingested externally undergo required validation checks prior to local promotion (`a2a_promote.js`).
 
 ## Typical Workflow Assistant Rules
 

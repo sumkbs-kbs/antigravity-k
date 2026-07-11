@@ -16,9 +16,7 @@ DEFAULT_PROXY_BASE_URL = "https://k-skill-proxy.nomadamas.org"
 
 
 class ApiError(RuntimeError):
-    def __init__(
-        self, message: str, *, status_code: int | None = None, url: str | None = None
-    ):
+    def __init__(self, message: str, *, status_code: int | None = None, url: str | None = None):
         super().__init__(message)
         self.status_code = status_code
         self.url = url
@@ -33,9 +31,7 @@ def summarize_text(value: Any) -> str:
     return text
 
 
-def resolve_proxy_base_url(
-    explicit_base_url: str | None = None, env: dict[str, str] | None = None
-) -> str:
+def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, str] | None = None) -> str:
     env = env or os.environ
     candidate = summarize_text(explicit_base_url or env.get(PROXY_BASE_URL_ENV_VAR))
     if candidate.casefold() in {"off", "false", "0", "disable", "disabled", "none"}:
@@ -45,9 +41,7 @@ def resolve_proxy_base_url(
     return DEFAULT_PROXY_BASE_URL
 
 
-def build_food_interview(
-    question: str | None = None, symptoms: str | None = None
-) -> dict[str, Any]:
+def build_food_interview(question: str | None = None, symptoms: str | None = None) -> dict[str, Any]:
     return {
         "domain": "food",
         "question": summarize_text(question),
@@ -73,20 +67,12 @@ def build_food_interview(
 def normalize_food_recall_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "source": "foodsafetykorea_recall",
-        "product_name": summarize_text(
-            row.get("product_name") or row.get("PRDLST_NM") or row.get("PRDTNM")
-        ),
-        "company_name": summarize_text(
-            row.get("company_name") or row.get("BSSH_NM") or row.get("BSSHNM")
-        ),
+        "product_name": summarize_text(row.get("product_name") or row.get("PRDLST_NM") or row.get("PRDTNM")),
+        "company_name": summarize_text(row.get("company_name") or row.get("BSSH_NM") or row.get("BSSHNM")),
         "reason": summarize_text(row.get("reason") or row.get("RTRVLPRVNS")),
         "created_at": summarize_text(row.get("created_at") or row.get("CRET_DTM")),
-        "distribution_deadline": summarize_text(
-            row.get("distribution_deadline") or row.get("DISTBTMLMT")
-        ),
-        "category": summarize_text(
-            row.get("category") or row.get("PRDLST_TYPE") or row.get("PRDLST_CD_NM")
-        ),
+        "distribution_deadline": summarize_text(row.get("distribution_deadline") or row.get("DISTBTMLMT")),
+        "category": summarize_text(row.get("category") or row.get("PRDLST_TYPE") or row.get("PRDLST_CD_NM")),
     }
 
 
@@ -110,27 +96,15 @@ def filter_food_items(items: list[dict[str, Any]], query: str) -> list[dict[str,
     if not needle:
         return items
 
-    product_matches = [
-        item
-        for item in items
-        if needle in summarize_text(item.get("product_name")).casefold()
-    ]
+    product_matches = [item for item in items if needle in summarize_text(item.get("product_name")).casefold()]
     if product_matches:
         return product_matches
 
-    company_matches = [
-        item
-        for item in items
-        if needle in summarize_text(item.get("company_name")).casefold()
-    ]
+    company_matches = [item for item in items if needle in summarize_text(item.get("company_name")).casefold()]
     if company_matches:
         return company_matches
 
-    return [
-        item
-        for item in items
-        if needle in summarize_text(item.get("reason")).casefold()
-    ]
+    return [item for item in items if needle in summarize_text(item.get("reason")).casefold()]
 
 
 def read_json_response(request: urllib.request.Request | str) -> dict[str, Any]:
@@ -231,22 +205,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MFDS food-safety helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    interview = subparsers.add_parser(
-        "interview", help="print the mandatory symptom follow-up interview"
-    )
+    interview = subparsers.add_parser("interview", help="print the mandatory symptom follow-up interview")
     interview.add_argument("--question", default="")
     interview.add_argument("--symptoms", default="")
 
-    search = subparsers.add_parser(
-        "search", help="search official food-safety records through k-skill-proxy"
-    )
+    search = subparsers.add_parser("search", help="search official food-safety records through k-skill-proxy")
     search.add_argument("--query", required=True)
     search.add_argument("--limit", type=int, default=10)
     search.add_argument("--proxy-base-url")
 
-    product_report = subparsers.add_parser(
-        "product-report", help="search health food product manufacturing reports"
-    )
+    product_report = subparsers.add_parser("product-report", help="search health food product manufacturing reports")
     product_report.add_argument("--query", required=True)
     product_report.add_argument("--limit", type=int, default=10)
     product_report.add_argument("--proxy-base-url")
@@ -259,9 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingredient.add_argument("--limit", type=int, default=10)
     ingredient.add_argument("--proxy-base-url")
 
-    inspection = subparsers.add_parser(
-        "inspection-fail", help="search domestic inspection failure records"
-    )
+    inspection = subparsers.add_parser("inspection-fail", help="search domestic inspection failure records")
     inspection.add_argument("--query", required=True)
     inspection.add_argument("--limit", type=int, default=10)
     inspection.add_argument("--proxy-base-url")
@@ -283,9 +249,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "search":
         try:
-            payload = search_food_safety(
-                args.query, limit=args.limit, base_url=args.proxy_base_url
-            )
+            payload = search_food_safety(args.query, limit=args.limit, base_url=args.proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:
@@ -297,9 +261,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "product-report":
         try:
-            payload = search_product_report(
-                args.query, limit=args.limit, base_url=args.proxy_base_url
-            )
+            payload = search_product_report(args.query, limit=args.limit, base_url=args.proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:
@@ -311,9 +273,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "health-food-ingredient":
         try:
-            payload = search_health_food_ingredient(
-                args.query, limit=args.limit, base_url=args.proxy_base_url
-            )
+            payload = search_health_food_ingredient(args.query, limit=args.limit, base_url=args.proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:
@@ -325,9 +285,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "inspection-fail":
         try:
-            payload = search_inspection_fail(
-                args.query, limit=args.limit, base_url=args.proxy_base_url
-            )
+            payload = search_inspection_fail(args.query, limit=args.limit, base_url=args.proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:

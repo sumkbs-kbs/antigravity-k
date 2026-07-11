@@ -1,16 +1,16 @@
-"""
-테스트: 모델 매니저 추론 및 라우팅 연동
+"""테스트: 모델 매니저 추론 및 라우팅 연동.
 ======================================
 ModelManager.generate() 가 ModelRouter의 폴백 전략과 UsageTracker의 통계 기록을 정상적으로 처리하는지 검증.
 """
 
-import pytest
 from unittest.mock import MagicMock
 
-from antigravity_k.engine.model_registry import ModelRegistry, ModelProfile
-from antigravity_k.engine.model_router import ModelRouter, ModelCombo, RouteStrategy
-from antigravity_k.engine.usage_tracker import UsageTracker
+import pytest
+
 from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
+from antigravity_k.engine.model_router import ModelCombo, ModelRouter, RouteStrategy
+from antigravity_k.engine.usage_tracker import UsageTracker
 
 
 @pytest.fixture
@@ -22,15 +22,9 @@ def mock_registry():
     registry.memory_config.auto_unload = False
 
     profiles = {
-        "model-a": ModelProfile(
-            name="model-a", repo="test", role="test", estimated_memory_gb=1
-        ),
-        "model-b": ModelProfile(
-            name="model-b", repo="test", role="test", estimated_memory_gb=1
-        ),
-        "model-c": ModelProfile(
-            name="model-c", repo="test", role="test", estimated_memory_gb=1
-        ),
+        "model-a": ModelProfile(name="model-a", repo="test", role="test", estimated_memory_gb=1),
+        "model-b": ModelProfile(name="model-b", repo="test", role="test", estimated_memory_gb=1),
+        "model-c": ModelProfile(name="model-c", repo="test", role="test", estimated_memory_gb=1),
     }
     registry.get_model.side_effect = lambda x: profiles.get(x)
     registry.list_models.return_value = list(profiles.values())
@@ -71,7 +65,7 @@ def test_generate_single_model(setup_manager):
     assert len(recent) == 1
     assert recent[0].model_name == "model-a"
     assert recent[0].success is True
-    assert recent[0].combo_name is None
+    assert recent[0].combo_name == ""
 
 
 def test_generate_fallback_combo_success(setup_manager):
@@ -183,9 +177,7 @@ def test_get_target_for_role_prefers_agent_model_combo(setup_manager):
         }
     }
 
-    assert (
-        manager.get_target_for_role("WORKER", default_role="coding") == "coding-swarm"
-    )
+    assert manager.get_target_for_role("WORKER", default_role="coding") == "coding-swarm"
     assert manager.get_target_for_role("QA") == "collective-council"
 
 
@@ -213,9 +205,7 @@ def test_non_qwen3_messages_are_unchanged(setup_manager):
 
 def test_generate_strips_hidden_reasoning_blocks(setup_manager):
     manager = setup_manager
-    manager._do_generate.return_value = (
-        "<think>private reasoning</think>\n최종 답변입니다."
-    )
+    manager._do_generate.return_value = "<think>private reasoning</think>\n최종 답변입니다."
 
     res = manager.generate("Hello", "model-a")
 
@@ -224,11 +214,6 @@ def test_generate_strips_hidden_reasoning_blocks(setup_manager):
 
 def test_strip_legacy_thinking_process_block(setup_manager):
     manager = setup_manager
-    text = (
-        "--- Thinking Process ---\n"
-        "private plan\n"
-        "--- End of Thinking* ---\n"
-        "공개 답변"
-    )
+    text = "--- Thinking Process ---\nprivate plan\n--- End of Thinking* ---\n공개 답변"
 
     assert manager._strip_hidden_reasoning(text) == "공개 답변"

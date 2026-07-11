@@ -51,7 +51,7 @@
     "or_free_model": "openrouter/free",
     "or_paid_model": "google/gemini-2.5-pro-preview-05-14",
     "or_paid_cost_limit": 10.0,
-    "or_api_key": "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",
+    "or_api_key": "",
     "max_retries": 3,
     "retry_delay": 2.0,
     "local_timeout": 60,

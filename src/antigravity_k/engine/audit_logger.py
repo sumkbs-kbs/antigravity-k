@@ -62,7 +62,7 @@ class OCSFEventBuilder:
             class_name (str): str class name.
 
         """
-        self.event = {
+        self.event: dict[str, Any] = {
             "metadata": {
                 "version": "1.1.0",
                 "product": {"name": "Antigravity-K", "vendor_name": "Antigravity"},
@@ -249,7 +249,7 @@ class AuditLogger:
             if db._initialized:
                 db.insert_from_dict(event_dict)
         except ImportError:
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         except Exception as e:
             logger.exception("Unhandled exception")
             # SQLite 실패는 JSONL 적재를 막지 않음

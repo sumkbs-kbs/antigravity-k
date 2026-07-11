@@ -30,9 +30,11 @@ from antigravity_k.api.models import (
     EmbeddingData,
     EmbeddingRequest,
     EmbeddingResponse,
+    UsageStats,
+)
+from antigravity_k.api.routes.legacy import (
     EvolveRequest,
     EvolveSystemPromptRequest,
-    UsageStats,
     WakeRequest,
     _active_session,
 )
@@ -428,12 +430,87 @@ async def get_settings():
     try:
         with open(config_file, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
-        if "api_keys" in cfg:
-            for k in cfg["api_keys"]:
-                val = cfg["api_keys"][k]
-                if val and len(val) > 4:
-                    cfg["api_keys"][k] = val[:4] + "*" * (len(val) - 4)
+
+        # .env에서 API 키 상태 확인 (마스킹하여 표시)
+        import os as _os
+
+        env_keys = [
+            "OPENROUTER_API_KEY",
+            "NVIDIA_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "ZAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+        ]
+        api_keys = {}
+        for k in env_keys:
+            val = _os.environ.get(k, "")
+            if val and len(val) > 4:
+                api_keys[k] = val[:4] + "*" * (len(val) - 4)
+            elif val:
+                api_keys[k] = "****"
+            else:
+                api_keys[k] = ""
+        cfg["api_keys"] = api_keys
+        cfg.setdefault("model", {})
+        cfg["model"]["name"] = cfg.get("defaults", {}).get("reasoning", "")
+        cfg["model"]["provider"] = cfg.get("model", {}).get("api_engine", "")
         return {"settings": cfg}
     except Exception as e:
         logger.exception("Unhandled exception")
         return {"settings": {"error": str(e)}}
+
+
+@router.post("/api/settings/env")
+async def save_env_settings(request: Request):
+    """사용자가 설정한 API 키 등을 .env 파일에 저장합니다."""
+    import os as _os
+
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "Invalid JSON"}
+
+    project_root = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(__file__)))))
+    env_path = _os.path.join(project_root, ".env")
+
+    # 기존 .env 읽기
+    existing_lines = []
+    existing_keys: dict[str, int] = {}
+    if _os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                existing_lines.append(line.rstrip("\n"))
+                if "=" in line and not line.startswith("#"):
+                    key = line.split("=", 1)[0].strip()
+                    existing_keys[key] = i
+
+    # API 키와 설정값 업데이트
+    env_var_keys = [
+        "OPENROUTER_API_KEY",
+        "NVIDIA_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "ZAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "AGK_DAILY_BUDGET_USD",
+        "AGK_HOURLY_ACTION_LIMIT",
+    ]
+    updated_count = 0
+    for key, value in body.items():
+        if not value:
+            continue
+        if key in env_var_keys or key.endswith("_API_KEY"):
+            if key in existing_keys:
+                # 기존 라인 업데이트
+                existing_lines[existing_keys[key]] = f"{key}={value}"
+            else:
+                # 새 라인 추가
+                existing_lines.append(f"{key}={value}")
+            updated_count += 1
+
+    # .env 파일에 쓰기
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(existing_lines) + "\n")
+
+    return {"ok": True, "updated": updated_count, "message": "설정이 .env에 저장되었습니다. 서버 재시작 후 적용됩니다."}

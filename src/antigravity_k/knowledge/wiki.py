@@ -230,7 +230,7 @@ class LLMWiki:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (title, content, category, tags_json, source, source_url, now, now),
         )
-        entry_id = cursor.lastrowid
+        entry_id = cursor.lastrowid or 0
         conn.commit()
         conn.close()
 
@@ -353,7 +353,8 @@ class LLMWiki:
 
         # 접근 이력 기록
         for hit in results:
-            self._log_access(conn, hit.entry.id, query)
+            if hit.entry.id is not None:
+                self._log_access(conn, hit.entry.id, query)
 
         conn.commit()
         conn.close()
@@ -433,7 +434,9 @@ class LLMWiki:
                 # 중복 체크
                 existing = self.search(title, limit=1)
                 if existing and existing[0].entry.title == title:
-                    self.update_entry(existing[0].entry.id, content=content, tags=tags)
+                    existing_id = existing[0].entry.id
+                    if existing_id is not None:
+                        self.update_entry(existing_id, content=content, tags=tags)
                 else:
                     self.add_entry(
                         title=title,
@@ -578,7 +581,7 @@ class LLMWiki:
 
     def _save_markdown(
         self,
-        entry_id: int,
+        entry_id: int | None,
         title: str,
         content: str,
         category: str,

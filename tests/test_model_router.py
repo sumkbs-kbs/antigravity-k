@@ -1,13 +1,14 @@
-"""
-테스트: 스마트 모델 라우터
+"""테스트: 스마트 모델 라우터.
 ========================
 9Router 패턴의 폴백/라운드로빈/로드밸런싱 전략 테스트.
 """
 
 import time
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
+from antigravity_k.engine.model_registry import ModelProfile
 from antigravity_k.engine.model_router import (
     AllModelsUnavailableError,
     ComboNotFoundError,
@@ -16,15 +17,13 @@ from antigravity_k.engine.model_router import (
     RouteStrategy,
     UnavailabilityTracker,
 )
-from antigravity_k.engine.model_registry import ModelProfile
-
 
 # ─── 픽스처 ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def mock_registry():
-    """모델 3개가 등록된 Mock 레지스트리"""
+    """모델 3개가 등록된 Mock 레지스트리."""
     registry = MagicMock()
     registry._raw = {}  # combos 섹션 없음 (수동 등록 테스트)
 
@@ -96,7 +95,7 @@ def router(mock_registry, combo_fallback, combo_roundrobin, combo_loadbalance):
 
 
 class TestUnavailabilityTracker:
-    """비가용 추적기 테스트"""
+    """비가용 추적기 테스트."""
 
     def test_initially_available(self):
         tracker = UnavailabilityTracker()
@@ -156,7 +155,7 @@ class TestUnavailabilityTracker:
 
 
 class TestModelCombo:
-    """모델 콤보 데이터 클래스 테스트"""
+    """모델 콤보 데이터 클래스 테스트."""
 
     def test_from_dict(self):
         combo = ModelCombo.from_dict(
@@ -207,7 +206,7 @@ class TestModelCombo:
 
 
 class TestFallbackRouting:
-    """폴백 전략 테스트"""
+    """폴백 전략 테스트."""
 
     def test_selects_first_available(self, router):
         profile = router.route("coding-stack")
@@ -237,7 +236,7 @@ class TestFallbackRouting:
 
 
 class TestRoundRobinRouting:
-    """라운드로빈 전략 테스트"""
+    """라운드로빈 전략 테스트."""
 
     def test_cycles_through_models(self, router):
         p1 = router.route("fast-response")
@@ -257,7 +256,7 @@ class TestRoundRobinRouting:
 
 
 class TestLoadBalanceRouting:
-    """로드밸런싱 전략 테스트"""
+    """로드밸런싱 전략 테스트."""
 
     def test_selects_lightest_model(self, router):
         profile = router.route("reasoning-balanced")
@@ -275,7 +274,7 @@ class TestLoadBalanceRouting:
 
 
 class TestRouterManagement:
-    """라우터 관리 API 테스트"""
+    """라우터 관리 API 테스트."""
 
     def test_combo_not_found(self, router):
         with pytest.raises(ComboNotFoundError):
@@ -337,7 +336,7 @@ class TestRouterManagement:
 
 
 class TestComboAutoLoad:
-    """config.yaml에서 콤보 자동 로드 테스트"""
+    """config.yaml에서 콤보 자동 로드 테스트."""
 
     def test_loads_from_raw_config(self):
         registry = MagicMock()

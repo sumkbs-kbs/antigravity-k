@@ -222,7 +222,6 @@ async function askClaude(queueEntry: any): Promise<void> {
   const tid = tabId ?? 0;
 
   processingTabs.add(tid);
-  await sendEvent({ type: 'agent_start' }, tid);
 
   return new Promise((resolve) => {
     // Use args from queue entry (server sets --model, --allowedTools, prompt framing).
@@ -249,6 +248,8 @@ async function askClaude(queueEntry: any): Promise<void> {
     });
 
     proc.stdin.end();
+
+    sendEvent({ type: 'agent_start', pid: proc.pid }, tid).catch(() => {});
 
     let buffer = '';
 

@@ -1,11 +1,12 @@
 import json
 import logging
-import uuid
 import time
-from typing import List, Dict, Any, Optional
+import uuid
+from typing import Any, Dict, List
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("team_coordinator")
+
 
 class AgentRole:
     CEO = "CEO"
@@ -13,11 +14,13 @@ class AgentRole:
     DEVELOPER = "Developer"
     QA = "QA"
 
+
 class TaskStatus:
     BACKLOG = "BACKLOG"
     IN_PROGRESS = "IN_PROGRESS"
     REVIEW = "REVIEW"
     DONE = "DONE"
+
 
 class AgentTask:
     def __init__(self, title: str, description: str, assigned_to: str):
@@ -44,13 +47,13 @@ class AgentTask:
             "status": self.status,
             "history": self.history,
             "created_at": self.created_at,
-            "tokens_used": self.tokens_used
+            "tokens_used": self.tokens_used,
         }
 
+
 class TeamCoordinator:
-    """
-    gstack 및 claude_agent_teams_ui에서 영감을 받은 멀티 에이전트 코디네이터.
-    """
+    """gstack 및 claude_agent_teams_ui에서 영감을 받은 멀티 에이전트 코디네이터."""
+
     def __init__(self):
         self.tasks: Dict[str, AgentTask] = {}
         self.agents = [AgentRole.CEO, AgentRole.DESIGNER, AgentRole.DEVELOPER, AgentRole.QA]
@@ -58,7 +61,7 @@ class TeamCoordinator:
     def create_task(self, title: str, description: str, role: str) -> str:
         if role not in self.agents:
             role = AgentRole.DEVELOPER
-            
+
         task = AgentTask(title, description, role)
         self.tasks[task.id] = task
         logger.info(f"New task created: {title} assigned to {role}")
@@ -71,18 +74,22 @@ class TeamCoordinator:
         """에이전트가 작업을 수행하는 시뮬레이션 (상태 전이)"""
         if task_id not in self.tasks:
             return None
-            
+
         task = self.tasks[task_id]
         task.tokens_used += tokens
-        
+
         if task.status == TaskStatus.BACKLOG:
             task.update_status(TaskStatus.IN_PROGRESS, f"{task.assigned_to} started working on the task.")
         elif task.status == TaskStatus.IN_PROGRESS:
-            task.update_status(TaskStatus.REVIEW, f"{task.assigned_to} finished the implementation. Pending Peer Review.")
+            task.update_status(
+                TaskStatus.REVIEW,
+                f"{task.assigned_to} finished the implementation. Pending Peer Review.",
+            )
         elif task.status == TaskStatus.REVIEW:
-            task.update_status(TaskStatus.DONE, f"Review approved. Changes merged.")
-            
+            task.update_status(TaskStatus.DONE, "Review approved. Changes merged.")
+
         return task.to_dict()
+
 
 # 싱글톤 인스턴스
 coordinator = TeamCoordinator()

@@ -43,8 +43,8 @@ class ComputerUseTool(BaseTool):
 
     def __init__(
         self,
-        driver_set: DriverSet = None,
-        guard: ActionGuard = None,
+        driver_set: DriverSet | None = None,
+        guard: ActionGuard | None = None,
         force_stub: bool = False,
     ):
         """Initialize the ComputerUseTool.

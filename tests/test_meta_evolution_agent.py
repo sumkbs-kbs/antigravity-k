@@ -1,6 +1,8 @@
-import pytest
 from unittest.mock import MagicMock
-from antigravity_k.agents.meta_evolution_agent import MetaEvolutionAgent, BackupManager
+
+import pytest
+
+from antigravity_k.agents.meta_evolution_agent import BackupManager, MetaEvolutionAgent
 
 
 @pytest.fixture
@@ -68,9 +70,7 @@ def test_meta_evolution_agent_failure_rollback(setup_test_env):
 
     # 파일 변조 전 스냅샷 뜰 것
     # 실행! 실패해야 함
-    list_of_yields = list(
-        agent.evolve("고장내봐", target_files=["src/antigravity_k/target.py"])
-    )
+    list_of_yields = list(agent.evolve("고장내봐", target_files=["src/antigravity_k/target.py"]))
 
     full_output = "".join(list_of_yields)
 

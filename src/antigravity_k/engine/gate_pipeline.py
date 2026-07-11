@@ -198,6 +198,39 @@ class RateLimitGate:
             GateDecision: The gatedecision result.
 
         """
+        # PLAN 모드: 읽기 전용 도구가 아니면 모두 차단 (Phase 1 D5: ctx.execution_mode는 OrchestratorAgent가 GateContext 생성 시 설정)
+        if ctx.execution_mode == "plan":
+            from antigravity_k.engine.execution_mode import PLAN_ALLOWED_TOOLS
+
+            if ctx.tool_name not in PLAN_ALLOWED_TOOLS:
+                return GateDecision(
+                    action=GateAction.DENY,
+                    reason=(
+                        f"[PLAN MODE] '{ctx.tool_name}' 도구는 계획 수립 모드에서 실행할 수 없습니다. "
+                        f"읽기 전용 도구만 허용됩니다."
+                    ),
+                    gate_name=self.name(),
+                )
+
+        # BUILD 모드: restricted 도구만 승인 필요
+        if ctx.execution_mode == "build":
+            from antigravity_k.engine.execution_mode import BUILD_RESTRICTED_TOOLS
+
+            if ctx.tool_name in BUILD_RESTRICTED_TOOLS:
+                if ctx.execution_mode == "autonomous":
+                    return GateDecision(
+                        action=GateAction.DENY,
+                        reason=f"도구 '{ctx.tool_name}'은(는) BUILD 모드에서 명시적 승인이 필요합니다.",
+                        gate_name=self.name(),
+                    )
+                return GateDecision(
+                    action=GateAction.PAUSE,
+                    reason=f"도구 '{ctx.tool_name}'은(는) BUILD 모드에서 승인이 필요합니다.",
+                    gate_name=self.name(),
+                    resume_kind=ResumeKind.APPROVAL,
+                    allow_always=True,
+                )
+
         if self._guardrails is None:
             return GateDecision(gate_name=self.name())
 
@@ -249,6 +282,9 @@ class CostBudgetGate:
     def evaluate(self, ctx: GateContext) -> GateDecision:
         """Evaluate.
 
+        비용 게이트는 LLM 호출을 동반하는 도구에 대해 예산과 rate limit을 검사합니다.
+        CostGuard가 None이면 게이트를 통과시킵니다(하위 호환).
+
         Args:
             ctx (GateContext): GateContext ctx.
 
@@ -259,9 +295,59 @@ class CostBudgetGate:
         if self._cost_guard is None:
             return GateDecision(gate_name=self.name())
 
-        # 비용 게이트는 LLM 호출 도구에만 적용
-        # (도구 자체는 비용이 없으므로 기본 Allow)
+        # 비용 게이트는 LLM 호출을 유발하는 도구에만 적용.
+        # 대부분의 도구는 비용이 없으므로 바로 Allow.
+        if not self._is_llm_incurring_tool(ctx.tool_name):
+            return GateDecision(gate_name=self.name())
+
+        # ctx.args에서 토큰 추정 정보 추출 (있으면 사용, 없으면 기본값)
+        tokens_in = int(ctx.args.get("_estimated_tokens_in", 0))
+        tokens_out = int(ctx.args.get("_estimated_tokens_out", 0))
+        model = str(ctx.args.get("model", ctx.args.get("target", "default")))
+
+        try:
+            decision = self._cost_guard.check_budget(
+                model=model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                user_id=ctx.user_id,
+            )
+        except Exception:
+            logger.exception("CostBudgetGate check_budget 실패 — Allow로 폴백")
+            return GateDecision(gate_name=self.name())
+
+        if not decision.allowed:
+            return GateDecision(
+                action=GateAction.DENY,
+                reason=f"비용 예산 초과: {decision.reason}",
+                gate_name=self.name(),
+                metadata={
+                    "estimated_cost_usd": decision.estimated_cost_usd,
+                    "remaining_budget_usd": decision.remaining_budget_usd,
+                    "daily_spend_usd": decision.daily_spend_usd,
+                },
+            )
+
         return GateDecision(gate_name=self.name())
+
+    @staticmethod
+    def _is_llm_incurring_tool(tool_name: str) -> bool:
+        """LLM 호출을 유발하는 도구인지 판별.
+
+        에이전트 루프 자체(generate/stream)는 ModelManager가 추적하므로,
+        여기서는 추가 LLM 호출을 만드는 메타 도구들만 비용 게이트 대상으로 봅니다.
+        일반 도구(file edit, bash 등)는 Allow.
+        """
+        llm_tools = {
+            "generate",
+            "stream_generate",
+            "max_execute",  # 병렬 워커 N배 비용
+            "debate",
+            "collective_review",
+            "self_evolve",
+            "prompt_evolve",
+        }
+        return tool_name in llm_tools
 
 
 class ApprovalGate:
@@ -455,7 +541,7 @@ class GatePipeline:
     게이트를 우선순위순으로 정렬하고, 첫 번째 비-Allow 결과에서 즉시 반환합니다.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the GatePipeline."""
         self._gates: list[Any] = []  # ExecutionGate instances
         self._sorted = False

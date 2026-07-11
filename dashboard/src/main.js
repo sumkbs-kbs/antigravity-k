@@ -8,6 +8,7 @@ import { ChatPage } from './pages/chat.js';
 import { WikiPage } from './pages/wiki.js';
 import { AgentPage } from './pages/agent.js';
 import { SettingsPage } from './pages/settings.js';
+import { SkillsPage } from './pages/skills.js';
 
 import { initTerminal } from './terminal.js';
 import './command_palette.js';
@@ -18,6 +19,284 @@ const state = {
   backendStatus: { healthy: false, backends: {} },
   chatHistory: [],
 };
+
+// ─── 프로젝트 관리 ────────────────────────────────────────────────
+const PROJECTS_KEY = 'agk_projects';
+const ACTIVE_PROJECT_KEY = 'agk_active_project';
+
+function getProjects() {
+  return JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]');
+}
+
+function saveProjects(projects) {
+  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
+}
+
+function getActiveProject() {
+  return localStorage.getItem(ACTIVE_PROJECT_KEY) || null;
+}
+
+function setActiveProject(path) {
+  localStorage.setItem(ACTIVE_PROJECT_KEY, path);
+}
+
+async function switchToProject(path) {
+  try {
+    const res = await fetch('/api/fs/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setActiveProject(path);
+      updateProjectSelector();
+      // 페이지 새로고침하여 파일 트리/채팅/Wiki 모두 갱신
+      if (window.showToast) window.showToast('프로젝트 전환: ' + path.split('/').pop(), 'success');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      alert('프로젝트 전환 실패: ' + (data.detail || '알 수 없음'));
+    }
+  } catch (err) {
+    alert('서버 오류: ' + err.message);
+  }
+}
+
+function updateProjectSelector() {
+  const nameEl = document.getElementById('project-name');
+  const dropdown = document.getElementById('project-dropdown');
+  if (!nameEl || !dropdown) return;
+
+  const projects = getProjects();
+  const active = getActiveProject();
+
+  // 현재 활성 프로젝트 이름 표시
+  if (active) {
+    nameEl.textContent = active.split('/').pop();
+    nameEl.title = active;
+  } else {
+    nameEl.textContent = '기본 프로젝트';
+  }
+
+  // 드롭다운 구성
+  let html = '';
+  for (const p of projects) {
+    const isActive = p.path === active;
+    html += `
+      <div class="project-item" data-path="${p.path}" style="
+        display:flex; align-items:center; gap:8px;
+        padding:8px 10px; border-radius:6px; cursor:pointer;
+        font-size:12px; transition:background 0.15s ease;
+        ${isActive ? 'background:rgba(124,106,239,0.12);' : ''}
+      " onmouseover="this.style.background='rgba(255,255,255,0.06)';"
+         onmouseout="this.style.background='${isActive ? 'rgba(124,106,239,0.12)' : 'transparent'}';">
+        <span style="font-size:14px;">📁</span>
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.name}</span>
+        ${isActive ? '<span style="color:#10b981; font-size:14px;">●</span>' : ''}
+        <button class="project-remove" data-path="${p.path}" style="
+          background:none; border:none; color:#565f89; cursor:pointer;
+          font-size:14px; padding:0 4px; opacity:0.5;
+        " onmouseover="this.style.opacity='1';this.style.color='#ef4444';"
+           onmouseout="this.style.opacity='0.5';this.style.color='#565f89';">✕</button>
+      </div>
+    `;
+  }
+  html += `
+    <div id="project-add-btn" style="
+      display:flex; align-items:center; gap:8px;
+      padding:8px 10px; border-radius:6px; cursor:pointer;
+      font-size:12px; color:var(--text-secondary,#a9b1d6);
+      border-top:1px solid rgba(255,255,255,0.05); margin-top:4px;
+    " onmouseover="this.style.background='rgba(124,106,239,0.08)';"
+       onmouseout="this.style.background='transparent';">
+      <span style="font-size:14px;">➕</span> 프로젝트 추가
+    </div>
+  `;
+  dropdown.innerHTML = html;
+
+  // 프로젝트 항목 클릭
+  dropdown.querySelectorAll('.project-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.classList.contains('project-remove')) return;
+      const path = item.dataset.path;
+      switchToProject(path);
+      dropdown.style.display = 'none';
+    });
+  });
+
+  // 프로젝트 제거
+  dropdown.querySelectorAll('.project-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const path = btn.dataset.path;
+      const projects = getProjects().filter(p => p.path !== path);
+      saveProjects(projects);
+      updateProjectSelector();
+    });
+  });
+
+  // 프로젝트 추가 — 폴더 브라우저 모달 사용
+  const addBtn = dropdown.querySelector('#project-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      dropdown.style.display = 'none';
+      openFolderBrowser();
+    });
+  }
+}
+
+// ─── 글로벌 폴더 브라우저 ──────────────────────────────────────
+
+let _gfbCurrentPath = '/';
+let _gfbOnSelect = null; // 콜백
+
+async function browseFolder(path) {
+  _gfbCurrentPath = path;
+  const listEl = document.getElementById('gfb-list');
+  const pathEl = document.getElementById('gfb-path');
+  if (!listEl) return;
+
+  pathEl.textContent = path;
+  listEl.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted);">로딩 중...</div>';
+
+  try {
+    const res = await fetch('/api/fs/browse?dir=' + encodeURIComponent(path));
+    const data = await res.json();
+    if (!data.ok) { listEl.innerHTML = '<div style="padding:16px; color:#ef4444;">폴더를 읽을 수 없습니다.</div>'; return; }
+
+    let html = '';
+    const items = data.items || [];
+    if (items.length === 0) {
+      html = '<div style="padding:20px; text-align:center; color:var(--text-muted); font-size:13px;">하위 폴더가 없습니다.</div>';
+    } else {
+      for (const item of items) {
+        if (!item.is_dir) continue;
+        html += `
+          <div class="gfb-item" data-path="${item.path}" style="
+            display:flex; align-items:center; gap:8px;
+            padding:8px 14px; cursor:pointer; font-size:13px;
+            color:var(--text-secondary); transition:all 0.15s ease;
+            border-radius:6px; margin:0 6px;
+          " onmouseover="this.style.background='rgba(124,106,239,0.1)'; this.style.color='var(--text-primary,#c0caf5)';"
+             onmouseout="this.style.background='transparent'; this.style.color='var(--text-secondary,#a9b1d6)';">
+            <span style="font-size:16px;">📁</span>
+            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.name}</span>
+          </div>
+        `;
+      }
+    }
+    listEl.innerHTML = html;
+
+    // 폴더 더블클릭 시 진입, 클릭 시 선택
+    listEl.querySelectorAll('.gfb-item').forEach(item => {
+      let clickTimer = null;
+      item.addEventListener('click', () => {
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+          // 더블클릭 — 진입
+          browseFolder(item.dataset.path);
+        } else {
+          clickTimer = setTimeout(() => {
+            clickTimer = null;
+            // 단일 클릭 — 선택 하이라이트
+            listEl.querySelectorAll('.gfb-item').forEach(i => i.style.background = 'transparent');
+            item.style.background = 'rgba(124,106,239,0.12)';
+            _gfbCurrentPath = item.dataset.path;
+            pathEl.textContent = item.dataset.path;
+          }, 200);
+        }
+      });
+    });
+
+    // 상위 폴더 버튼
+    const upBtn = document.getElementById('gfb-up');
+    if (upBtn) {
+      upBtn.onclick = () => {
+        const parent = data.parent;
+        if (parent) browseFolder(parent);
+      };
+    }
+  } catch (err) {
+    listEl.innerHTML = '<div style="padding:16px; color:#ef4444;">오류: ' + err.message + '</div>';
+  }
+}
+
+function openFolderBrowser(onSelect) {
+  _gfbOnSelect = onSelect || null;
+  const modal = document.getElementById('global-folder-browser');
+  if (!modal) return;
+
+  // 시작 경로: 홈 디렉토리
+  _gfbCurrentPath = '/';
+  browseFolder('/');
+  modal.style.display = 'flex';
+
+  // 닫기 버튼
+  document.getElementById('gfb-close').onclick = () => { modal.style.display = 'none'; };
+  document.getElementById('gfb-cancel').onclick = () => { modal.style.display = 'none'; };
+
+  // 확인 버튼 — 현재 경로 선택
+  document.getElementById('gfb-confirm').onclick = () => {
+    modal.style.display = 'none';
+    const selectedPath = document.getElementById('gfb-path').textContent;
+    if (_gfbOnSelect) {
+      _gfbOnSelect(selectedPath);
+    } else {
+      // 기본 동작: 프로젝트로 추가
+      addProjectFromPath(selectedPath);
+    }
+  };
+}
+
+function addProjectFromPath(path) {
+  const name = path.split('/').pop() || 'Unnamed';
+  const projects = getProjects();
+  if (!projects.find(p => p.path === path)) {
+    projects.push({ name, path });
+    saveProjects(projects);
+  }
+  updateProjectSelector();
+  switchToProject(path);
+}
+
+// 프로젝트 셀렉터 초기화 (DOM 로드 후)
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const selector = document.getElementById('project-selector');
+    const dropdown = document.getElementById('project-dropdown');
+    if (!selector || !dropdown) return;
+
+    // 첫 로드 시 현재 workspace를 기본 프로젝트로 등록
+    fetch('/api/fs/workspace')
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.workspace) {
+          const ws = data.workspace;
+          const name = ws.split('/').pop() || 'Root';
+          const projects = getProjects();
+          if (!projects.find(p => p.path === ws)) {
+            projects.unshift({ name, path: ws });
+            saveProjects(projects);
+          }
+          if (!getActiveProject()) setActiveProject(ws);
+        }
+        updateProjectSelector();
+      })
+      .catch(() => updateProjectSelector());
+
+    // 드롭다운 토글
+    selector.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // 외부 클릭 시 닫기
+    document.addEventListener('click', () => {
+      dropdown.style.display = 'none';
+    });
+  }, 500);
+});
 
 // ─── API 클라이언트 ────────────────────────────────────────────────
 const API_BASE = '/v1';
@@ -198,6 +477,11 @@ function renderPage(page) {
         main.appendChild(container);
         AgentPage.init();
         break;
+      case 'skills':
+        container.innerHTML = SkillsPage.render();
+        main.appendChild(container);
+        SkillsPage.init();
+        break;
       case 'settings':
         container.innerHTML = SettingsPage.render();
         main.appendChild(container);
@@ -257,6 +541,11 @@ async function checkSystemStatus() {
             document.getElementById('sys-cov').style.color = '#10b981'; // green
         }
       }
+
+      // P2-1: 프로바이더 상태 패널 업데이트
+      updateProviderStatusPanel(data);
+      // P2-2: 비용 게이지 업데이트
+      updateCostGauge(data);
     } else {
       statusDot.className = 'status-dot offline';
       statusText.textContent = '추론 엔진 없음';
@@ -445,6 +734,7 @@ function init() {
   initServerRestart();
   initAntigravity();
   initTerminal();
+  initModeTooltip();
 
   // 창 비율 조절 (Split.js)
   let sidebarSplit;
@@ -502,6 +792,311 @@ function init() {
 
   // 10초마다 시스템 상태 갱신 (더 빈번하게)
   setInterval(checkSystemStatus, 10000);
+
+  // Phase 1 D7: WebSocket 연결 + 모드 인디케이터 초기화
+  initModeIndicator();
+  connectModeWebSocket();
+}
+
+// ─── 모드 인디케이터 ────────────────────────────────────────────────
+// Phase 1 D7: 실행 모드(Plan/Build/Interactive) 표시 및 WebSocket 연동
+
+const MODE_STYLES = {
+  plan: {
+    icon: '📋',
+    label: 'PLAN',
+    color: '#fbbf24',      // yellow/amber
+    bg: 'rgba(251, 191, 36, 0.12)',
+    border: '1px solid rgba(251, 191, 36, 0.3)',
+    description: '읽기 전용 도구만 허용'
+  },
+  build: {
+    icon: '🔨',
+    label: 'BUILD',
+    color: '#10b981',      // green/emerald
+    bg: 'rgba(16, 185, 129, 0.12)',
+    border: '1px solid rgba(16, 185, 129, 0.3)',
+    description: '모든 도구 실행 허용'
+  },
+  interactive: {
+    icon: '💬',
+    label: 'INTERACTIVE',
+    color: '#06b6d4',      // cyan
+    bg: 'rgba(6, 182, 212, 0.12)',
+    border: '1px solid rgba(6, 182, 212, 0.3)',
+    description: '기본 대화형 모드'
+  }
+};
+
+function initModeIndicator() {
+  const indicator = document.getElementById('mode-indicator');
+  if (!indicator) return;
+  // 초기값: interactive (서버 상태 확인 후 업데이트)
+  updateModeDisplay('interactive');
+
+  // 클릭 시 모드 전환 드롭다운
+  const modes = ['interactive', 'plan', 'build'];
+  const currentDisplay = () => document.getElementById('mode-label')?.textContent?.toLowerCase() || 'interactive';
+  let currentModeIdx = 0;
+
+  indicator.addEventListener('click', async (e) => {
+    e.stopPropagation();
+
+    // 간단한 사이클: 클릭할 때마다 다음 모드로 전환
+    currentModeIdx = (currentModeIdx + 1) % modes.length;
+    const nextMode = modes[currentModeIdx];
+
+    // 서버에 모드 전환 요청
+    const pin = localStorage.getItem('ag_access_pin') || '0000';
+    try {
+      const res = await fetch('/api/system/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Access-Pin': pin },
+        body: JSON.stringify({ mode: nextMode, reason: '대시보드 클릭' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        updateModeDisplay(nextMode);
+        if (window.showToast) {
+          const labels = { interactive: '💬 Interactive (대화형)', plan: '📋 Plan (계획)', build: '🔨 Build (실행)' };
+          window.showToast('모드 전환: ' + (labels[nextMode] || nextMode), 'success');
+        }
+      } else {
+        if (window.showToast) window.showToast('모드 전환 실패: ' + (data.error || ''), 'error');
+        // 실패 시 인덱스 되돌리기
+        currentModeIdx = (currentModeIdx - 1 + modes.length) % modes.length;
+      }
+    } catch (err) {
+      if (window.showToast) window.showToast('서버 오류: ' + err.message, 'error');
+      currentModeIdx = (currentModeIdx - 1 + modes.length) % modes.length;
+    }
+  });
+}
+
+function updateModeDisplay(mode) {
+  const indicator = document.getElementById('mode-indicator');
+  const iconEl = document.getElementById('mode-icon');
+  const labelEl = document.getElementById('mode-label');
+  const dotEl = document.getElementById('mode-dot');
+  if (!indicator || !iconEl || !labelEl) return;
+
+  const style = MODE_STYLES[mode] || MODE_STYLES.interactive;
+
+  // Update content
+  iconEl.textContent = style.icon;
+  labelEl.textContent = style.label;
+
+  // Update styling
+  indicator.style.background = style.bg;
+  indicator.style.borderColor = style.color;
+  indicator.style.border = style.border;
+  labelEl.style.color = style.color;
+
+  // Update class for CSS transitions
+  indicator.className = indicator.className.replace(/\b(plan|build|interactive)\b/g, '');
+  indicator.classList.add(mode);
+
+  // Title tooltip
+  indicator.title = `${style.label} 모드 — ${style.description}`;
+
+  // Dot color
+  if (dotEl) {
+    dotEl.style.background = style.color;
+    dotEl.style.boxShadow = `0 0 6px ${style.color}`;
+  }
+}
+
+function connectModeWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/v1/ws/events`;
+
+  let ws = null;
+  let reconnectTimer = null;
+  let pingInterval = null;
+
+  function connect() {
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      console.warn('[ModeWS] Connection failed, retrying in 10s...');
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      console.log('[ModeWS] Connected to event stream');
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      // Send initial status request
+      fetchCurrentMode();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'ModeChanged') {
+          const newMode = msg.data?.to_mode;
+          if (newMode && MODE_STYLES[newMode]) {
+            updateModeDisplay(newMode);
+            window.showToast(`🔄 모드 전환: ${newMode.toUpperCase()}`, 'info');
+          }
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('[ModeWS] Disconnected');
+      stopPing();
+      scheduleReconnect();
+    };
+
+    ws.onerror = () => {
+      console.warn('[ModeWS] Error');
+      ws.close();
+    };
+
+    // Start periodic ping
+    startPing();
+  }
+
+  function startPing() {
+    stopPing();
+    pingInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30000);
+  }
+
+  function stopPing() {
+    if (pingInterval) {
+      clearInterval(pingInterval);
+      pingInterval = null;
+    }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, 10000);
+  }
+
+  async function fetchCurrentMode() {
+    try {
+      const resp = await fetch('/api/system/mode', { skipPinModal: true });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.mode && MODE_STYLES[data.mode]) {
+          updateModeDisplay(data.mode);
+        }
+      }
+    } catch (e) {
+      console.debug('[ModeWS] Could not fetch initial mode');
+    }
+  }
+
+  connect();
+
+  // Store reference for cleanup
+  window.__modeWS = ws;
+  window.__modeReconnectTimer = reconnectTimer;
+  window.__modePingInterval = pingInterval;
+}
+
+// ─── Mode Indicator Enhanced (D16) ───────────────────────────────
+// Phase 1 D16: 모드 인디케이터 호버 시 상세 히스토리 툴팁 표시
+
+function initModeTooltip() {
+  const indicator = document.getElementById('mode-indicator');
+  if (!indicator) return;
+
+  // 호버 시 모드 히스토리 fetch
+  indicator.addEventListener('mouseenter', async () => {
+    try {
+      const res = await fetch('/api/system/mode/history', { skipPinModal: true });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.ok || !data.history?.length) return;
+
+      // 최근 5개만 표시
+      const recent = data.history.slice(-5).reverse();
+      const lines = recent.map(h => {
+        const time = h.timestamp ? new Date(h.timestamp).toLocaleTimeString() : '';
+        return `${time} ${h.from} → ${h.to}${h.reason ? ': ' + h.reason : ''}`;
+      });
+      indicator.title = `📋 최근 모드 전환 히스토리:\n${lines.join('\n')}`;
+    } catch (e) {
+      // Silent
+    }
+  });
+}
+
+// ═══ P2-1: 프로바이더 상태 패널 ═══
+function updateProviderStatusPanel(healthData) {
+  const panel = document.getElementById('provider-status-panel');
+  if (!panel) return;
+
+  // config.yaml의 providers 정보는 백엔드에서 직접 가져오기 어려우므로
+  // healthData의 backends에서 활성 모델을 추출하여 표시
+  const backends = healthData.backends || [];
+  const activeModels = Array.isArray(backends) ? backends : Object.values(backends);
+
+  // 알려진 프로바이더 목록 (정적)
+  const knownProviders = [
+    { name: 'Ollama', key: 'ollama', icon: '🏠' },
+    { name: 'OpenRouter', key: 'openrouter', icon: '🌐' },
+    { name: 'NIM', key: 'nim', icon: '🟢' },
+    { name: 'OpenAI', key: 'openai', icon: '🔵' },
+    { name: 'Gemini', key: 'gemini', icon: '✨' },
+    { name: 'ZAI', key: 'zai', icon: '🧠' },
+  ];
+
+  // 활성 모델 이름에서 프로바이더 추론
+  const activeProviders = new Set();
+  activeModels.forEach(m => {
+    const name = (m.name || m.model || '').toLowerCase();
+    if (name.includes('ollama') || name.includes(':latest') || name.includes(':')) activeProviders.add('ollama');
+    if (name.includes('openrouter') || name.includes('/') && !name.startsWith('gpt') && !name.startsWith('claude')) activeProviders.add('openrouter');
+    if (name.startsWith('deepseek-ai/') || name.startsWith('meta/') || name.startsWith('nvidia/')) activeProviders.add('nim');
+    if (name.startsWith('gpt') || name.startsWith('o3')) activeProviders.add('openai');
+    if (name.startsWith('gemini')) activeProviders.add('gemini');
+    if (name.startsWith('glm')) activeProviders.add('zai');
+  });
+
+  const badges = knownProviders.map(p => {
+    const active = activeProviders.has(p.key);
+    return `<span class="provider-badge ${active ? 'active' : 'inactive'}" title="${p.name}">
+      <span class="dot"></span>${p.icon} ${p.name}
+    </span>`;
+  }).join('');
+
+  panel.innerHTML = badges;
+  panel.style.display = 'flex';
+}
+
+// ═══ P2-2: 비용 게이지 ═══
+function updateCostGauge(healthData) {
+  const gauge = document.getElementById('cost-gauge');
+  const fill = document.getElementById('cost-bar-fill');
+  const text = document.getElementById('cost-text');
+  if (!gauge || !fill || !text) return;
+
+  // healthData에서 비용 정보가 오면 표시 (향후 백엔드 확장 시)
+  // 현재는 사용량 추적 데이터가 없으므로 숨김 유지
+  if (healthData.daily_spend_usd !== undefined) {
+    const spent = healthData.daily_spend_usd || 0;
+    const budget = healthData.daily_budget_usd || 50;
+    const pct = Math.min(100, (spent / budget) * 100);
+    fill.style.width = pct + '%';
+    text.textContent = `$${spent.toFixed(2)} / $${budget.toFixed(0)}`;
+    gauge.style.display = 'flex';
+  }
 }
 
 // DOM 로드 후 초기화

@@ -188,7 +188,8 @@ class TeamManager:
                         from ..engine.worktree_manager import WorktreeManager
 
                         wt_manager = WorktreeManager()
-                        wt_path = wt_manager.get_worktree_path(task_id)
+                        # worktree_branch 컬럼(ag-task-{task_id})으로 경로 조회
+                        wt_path = wt_manager.get_worktree_path(row["worktree_branch"])
 
                         reflector = ReflectionAgent(
                             project_root=os.getcwd(),
@@ -217,12 +218,14 @@ class TeamManager:
             from ..engine.worktree_manager import WorktreeManager
 
             wt_manager = WorktreeManager()
-            wt_path = wt_manager.create_worktree(task_id)
+            # 브랜치명 규칙: ag-task-{task_id} (DB 저장값과 일치, get_worktree_path 조회용)
+            branch_name = f"ag-task-{task_id}"
+            wt_path = wt_manager.create_worktree(branch_name)
             logger.info("Worktree sandboxed for task %s at %s", task_id, wt_path)
 
             # DB에 worktree_branch 업데이트 (Task 3 마이그레이션 이후 지원)
             if hasattr(self.kanban_board, "update_task_worktree"):
-                self.kanban_board.update_task_worktree(task_id, f"ag-task-{task_id}")
+                self.kanban_board.update_task_worktree(task_id, branch_name)
         except Exception:
             logger.exception("Failed to create worktree sandbox for task %s", task_id)
 

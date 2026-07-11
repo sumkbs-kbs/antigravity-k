@@ -1,0 +1,17 @@
+# CODEOWNERS — GitHub uses this file to automatically request review.
+# Format: <path-pattern> @<github-username or team>
+#
+# Replace the placeholder below with the actual maintainer(s).
+
+# Default owner for the entire repository.
+*       @mr-k
+
+# Security-sensitive areas — require explicit review.
+/.github/                        @mr-k
+/SECURITY.md                     @mr-k
+/src/antigravity_k/engine/auth.py @mr-k
+/src/antigravity_k/api/auth_routes.py @mr-k
+/src/antigravity_k/engine/vault.py @mr-k
+/Dockerfile                      @mr-k
+/docker-compose*.yml             @mr-k
+/pyproject.toml                  @mr-k

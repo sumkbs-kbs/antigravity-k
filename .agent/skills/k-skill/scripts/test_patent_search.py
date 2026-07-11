@@ -19,7 +19,6 @@ from scripts.patent_search import (
     search_patents,
 )
 
-
 SAMPLE_SEARCH_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <response>
   <header>
@@ -115,9 +114,7 @@ class ParsePatentSearchResponseTest(unittest.TestCase):
         self.assertIsInstance(report.items[0], PatentSearchResult)
         self.assertEqual(report.items[0].application_number, "1020240001234")
         self.assertEqual(report.items[0].invention_title, "이차 전지 배터리 팩")
-        self.assertEqual(
-            report.items[0].abstract_text, "배터리 수명 향상을 위한 열 관리 구조."
-        )
+        self.assertEqual(report.items[0].abstract_text, "배터리 수명 향상을 위한 열 관리 구조.")
         self.assertEqual(report.items[0].applicant_name, "주식회사 오픈에이아이코리아")
 
 
@@ -153,13 +150,9 @@ class RequestBuilderTest(unittest.TestCase):
         self.assertEqual(params["ServiceKey"], "test-key")
 
     def test_build_detail_params_only_requires_application_number_and_service_key(self):
-        params = build_detail_params(
-            application_number="1020240001234", service_key="test-key"
-        )
+        params = build_detail_params(application_number="1020240001234", service_key="test-key")
 
-        self.assertEqual(
-            params, {"applicationNumber": "1020240001234", "ServiceKey": "test-key"}
-        )
+        self.assertEqual(params, {"applicationNumber": "1020240001234", "ServiceKey": "test-key"})
 
     def test_build_search_params_requires_at_least_one_document_type(self):
         with self.assertRaisesRegex(ValueError, "At least one of patent or utility"):
@@ -194,9 +187,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
                 return False
 
             def read(self):
-                return (
-                    b"<response><header><resultCode>00</resultCode></header></response>"
-                )
+                return b"<response><header><resultCode>00</resultCode></header></response>"
 
         def fake_urlopen(request, timeout):
             captured["url"] = request.full_url
@@ -206,9 +197,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
             fetch_xml(
                 "https://example.test/patent",
-                build_search_params(
-                    query="배터리", service_key=resolve_service_key("abc%2Bdef%3D%3D")
-                ),
+                build_search_params(query="배터리", service_key=resolve_service_key("abc%2Bdef%3D%3D")),
                 timeout=7,
             )
 
@@ -219,7 +208,8 @@ class ServiceKeyEncodingTest(unittest.TestCase):
 
     def test_build_search_params_decodes_percent_encoded_service_key(self):
         """Callers passing a raw percent-encoded key directly into build_search_params
-        must not trigger double-encoding when urlencode serializes the dict."""
+        must not trigger double-encoding when urlencode serializes the dict.
+        """
         captured = {}
 
         class FakeResponse:
@@ -230,9 +220,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
                 return False
 
             def read(self):
-                return (
-                    b"<response><header><resultCode>00</resultCode></header></response>"
-                )
+                return b"<response><header><resultCode>00</resultCode></header></response>"
 
         def fake_urlopen(request, timeout):
             captured["url"] = request.full_url
@@ -260,9 +248,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
                 return False
 
             def read(self):
-                return (
-                    b"<response><header><resultCode>00</resultCode></header></response>"
-                )
+                return b"<response><header><resultCode>00</resultCode></header></response>"
 
         def fake_urlopen(request, timeout):
             captured["url"] = request.full_url
@@ -271,9 +257,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
             fetch_xml(
                 "https://example.test/patent",
-                build_detail_params(
-                    application_number="1020240001234", service_key="abc%2Bdef%3D%3D"
-                ),
+                build_detail_params(application_number="1020240001234", service_key="abc%2Bdef%3D%3D"),
             )
 
         self.assertIn("ServiceKey=abc%2Bdef%3D%3D", captured["url"])
@@ -311,18 +295,14 @@ class PatentSearchWorkflowTest(unittest.TestCase):
             calls.append((url, params, timeout))
             return SAMPLE_DETAIL_XML
 
-        detail = get_patent_detail(
-            "1020240001234", service_key="test-key", fetcher=fake_fetcher
-        )
+        detail = get_patent_detail("1020240001234", service_key="test-key", fetcher=fake_fetcher)
 
         self.assertEqual(detail.application_number, "1020240001234")
         self.assertTrue(calls[0][0].endswith("/getBibliographyDetailInfoSearch"))
         self.assertEqual(calls[0][1]["applicationNumber"], "1020240001234")
 
     def test_search_patents_surfaces_api_auth_errors_cleanly(self):
-        with self.assertRaisesRegex(
-            RuntimeError, "SERVICE KEY IS NOT REGISTERED ERROR"
-        ):
+        with self.assertRaisesRegex(RuntimeError, "SERVICE KEY IS NOT REGISTERED ERROR"):
             search_patents(
                 "배터리",
                 service_key="bad-key",

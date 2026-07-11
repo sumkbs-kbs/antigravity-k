@@ -30,7 +30,7 @@ class ArtifactService:
             self.artifacts_dir = artifacts_dir
             Path(self.artifacts_dir).mkdir(parents=True, exist_ok=True)
 
-        self._task_dirs = {}
+        self._task_dirs: dict[str, str] = {}
 
     def create_artifact(self, name: str, content: str, extension: str = "md") -> str:
         """새로운 아티팩트 생성 (파일 이름이 겹치면 타임스탬프로 구분)."""

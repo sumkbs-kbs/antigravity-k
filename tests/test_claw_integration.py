@@ -1,5 +1,4 @@
-"""
-Claw Code 아키텍처 통합 테스트 — Phase 1~3 전체 검증
+"""Claw Code 아키텍처 통합 테스트 — Phase 1~3 전체 검증.
 =====================================================
 테스트 범위:
   1. PermissionGate     : 3-Tier 권한 결정 로직
@@ -9,10 +8,10 @@ Claw Code 아키텍처 통합 테스트 — Phase 1~3 전체 검증
   5. ToolRegistry 연동  : 권한 게이트 통과 후 도구 실행
 """
 
-import os
-import sys
 import json
+import os
 import shutil
+import sys
 import tempfile
 import unittest
 
@@ -42,14 +41,14 @@ class TestPermissionGate(unittest.TestCase):
         self.assertEqual(result, Permission.ALLOW)
 
     def test_prompt_medium_risk(self):
-        """medium 위험도는 PROMPT."""
+        """Medium 위험도는 PROMPT."""
         from antigravity_k.tools.permission_gate import Permission
 
         result = self.gate.check("write_file", {"path": "test.py"}, risk_level="medium")
         self.assertEqual(result, Permission.PROMPT)
 
     def test_deny_dangerous_command(self):
-        """rm -rf / 같은 위험 명령은 DENY."""
+        """Rm -rf / 같은 위험 명령은 DENY."""
         from antigravity_k.tools.permission_gate import Permission
 
         result = self.gate.check(
@@ -60,7 +59,7 @@ class TestPermissionGate(unittest.TestCase):
         self.assertEqual(result, Permission.DENY)
 
     def test_deny_protected_path(self):
-        """보호 경로(C:\\Windows 등) 접근은 DENY."""
+        r"""보호 경로(C:\\Windows 등) 접근은 DENY."""
         from antigravity_k.tools.permission_gate import Permission
 
         result = self.gate.check(
@@ -343,22 +342,16 @@ class TestSlashCommands(unittest.TestCase):
     def test_memory_without_session(self):
         """/memory — 세션 없을 때 안전하게 동작."""
         result = self.registry.execute("/memory")
-        self.assertIn(
-            "not connected", result.lower() if isinstance(result, str) else ""
-        )
+        self.assertIn("not connected", result.lower() if isinstance(result, str) else "")
 
     def test_context_without_shaper(self):
         """/context — 셰이퍼 없을 때 안전하게 동작."""
         result = self.registry.execute("/context")
-        self.assertIn(
-            "not connected", result.lower() if isinstance(result, str) else ""
-        )
+        self.assertIn("not connected", result.lower() if isinstance(result, str) else "")
 
     def test_goal_command(self):
         """/goal — 목표를 자율 실행 계약으로 변환."""
-        result = self.registry.execute(
-            "/goal 테스트 리포트를 만들고 DOM 기능을 검증해줘"
-        )
+        result = self.registry.execute("/goal 테스트 리포트를 만들고 DOM 기능을 검증해줘")
         self.assertIn("/goal Autonomous Goal Contract", result)
         self.assertIn("Success Criteria", result)
         self.assertIn("Autonomous Judgment Policy", result)
@@ -399,8 +392,8 @@ class TestE2EWorkflow(unittest.TestCase):
 
     def test_session_context_slash_integration(self):
         """세션 생성 → 메시지 추가 → 압축 → 슬래시 커맨드 조회."""
-        from antigravity_k.engine.session_manager import SessionManager
         from antigravity_k.engine.context_shaper import ContextShaper
+        from antigravity_k.engine.session_manager import SessionManager
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         # 1. 세션 생성
@@ -439,7 +432,7 @@ class TestE2EWorkflow(unittest.TestCase):
 
     def test_permission_gate_path_sandbox(self):
         """경로 샌드박싱: 프로젝트 내부 vs 외부."""
-        from antigravity_k.tools.permission_gate import PermissionGate, Permission
+        from antigravity_k.tools.permission_gate import Permission, PermissionGate
 
         project = os.path.join(self.tmp_dir, "myproject")
         os.makedirs(project, exist_ok=True)

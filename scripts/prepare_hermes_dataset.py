@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Hermes Agent Reasoning Traces 데이터셋 변환기
+"""Hermes Agent Reasoning Traces 데이터셋 변환기
 ==================================================
 허깅페이스의 `lambda/hermes-agent-reasoning-traces` 데이터셋을
 Ollama / mlx-lm 파인튜닝용 ChatML 형식으로 변환합니다.
@@ -9,14 +8,13 @@ Usage:
     python scripts/prepare_hermes_dataset.py --input raw_data.json --output train.jsonl
 """
 
-import json
 import argparse
+import json
 from pathlib import Path
 
+
 def convert_to_chatml(entry):
-    """
-    원본 Hermes 데이터셋 포맷을 ChatML로 변환
-    """
+    """원본 Hermes 데이터셋 포맷을 ChatML로 변환"""
     chatml = []
     for msg in entry.get("conversations", []):
         role = msg.get("from", "user")
@@ -24,12 +22,13 @@ def convert_to_chatml(entry):
             role = "user"
         elif role == "gpt":
             role = "assistant"
-            
+
         value = msg.get("value", "")
         # 시스템 프롬프트 등 기타 처리 가능
         chatml.append({"role": role, "content": value})
-    
+
     return {"messages": chatml}
+
 
 def main():
     parser = argparse.ArgumentParser(description="Convert Hermes Agent dataset to ChatML")
@@ -49,7 +48,7 @@ def main():
         data = json.load(f)
 
     print(f"Converting {len(data)} records...")
-    
+
     converted_count = 0
     with open(output_path, "w", encoding="utf-8") as f:
         for entry in data:
@@ -61,6 +60,7 @@ def main():
                 print(f"Skipping entry due to error: {e}")
 
     print(f"Successfully converted {converted_count} records to {output_path}")
+
 
 if __name__ == "__main__":
     main()

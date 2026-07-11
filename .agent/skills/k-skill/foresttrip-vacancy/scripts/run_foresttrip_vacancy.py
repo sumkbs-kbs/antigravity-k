@@ -8,6 +8,7 @@ queries the read-only monthly availability JSON endpoint.
 It intentionally does not click booking buttons, submit reservation forms,
 handle payment, solve captcha, or bypass queues.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,9 +26,7 @@ from typing import Any
 
 LOGIN_URL = "https://www.foresttrip.go.kr/com/login.do"
 RSRVT_PAGE = "https://www.foresttrip.go.kr/rep/or/sssn/monthRsrvtSmplStatus.do"
-POST_URL = (
-    "https://www.foresttrip.go.kr/rep/or/selectRsrvtAvailInfoListForMonthRsrvtSmpl.do"
-)
+POST_URL = "https://www.foresttrip.go.kr/rep/or/selectRsrvtAvailInfoListForMonthRsrvtSmpl.do"
 DEFAULT_CONCURRENCY = 4
 MAX_CONCURRENCY = 5
 DEFAULT_WEEK_RANGE = 1
@@ -54,9 +53,7 @@ def parse_categories(value: str) -> tuple[str, ...]:
     invalid = [category for category in categories if category not in CATEGORY_CODES]
     if invalid:
         raise argparse.ArgumentTypeError(
-            "unknown category code(s): "
-            + ", ".join(invalid)
-            + " (allowed: 01=lodging, 02=camping)"
+            "unknown category code(s): " + ", ".join(invalid) + " (allowed: 01=lodging, 02=camping)"
         )
     return tuple(dict.fromkeys(categories))
 
@@ -72,9 +69,7 @@ def parse_dates(value: str) -> tuple[str, ...]:
         try:
             parsed = datetime.strptime(raw_date, "%Y%m%d").date()
         except ValueError as exc:
-            raise argparse.ArgumentTypeError(
-                f"invalid YYYYMMDD date: {raw_date}"
-            ) from exc
+            raise argparse.ArgumentTypeError(f"invalid YYYYMMDD date: {raw_date}") from exc
         if parsed.strftime("%Y%m%d") != raw_date:
             raise argparse.ArgumentTypeError(f"invalid YYYYMMDD date: {raw_date}")
         if parsed < today:
@@ -108,9 +103,7 @@ def parse_args() -> argparse.Namespace:
         description="Read-only foresttrip.go.kr vacancy lookup.",
     )
     target = parser.add_argument_group("target selection")
-    target.add_argument(
-        "--all", action="store_true", help="Scan all extracted forest IDs."
-    )
+    target.add_argument("--all", action="store_true", help="Scan all extracted forest IDs.")
     target.add_argument(
         "--forest-id",
         action="append",
@@ -124,12 +117,8 @@ def parse_args() -> argparse.Namespace:
 
     output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true", help="Print JSON output.")
-    output.add_argument(
-        "--text", action="store_true", help="Print human-readable output."
-    )
-    parser.add_argument(
-        "--dates", type=parse_dates, help="Comma-separated YYYYMMDD dates."
-    )
+    output.add_argument("--text", action="store_true", help="Print human-readable output.")
+    parser.add_argument("--dates", type=parse_dates, help="Comma-separated YYYYMMDD dates.")
     parser.add_argument(
         "--categories",
         type=parse_categories,
@@ -147,9 +136,7 @@ def parse_args() -> argparse.Namespace:
         type=parse_week_range,
         help="Weeks ahead to scan when --dates is omitted.",
     )
-    parser.add_argument(
-        "--refresh-session", action="store_true", help="Ignore session cache."
-    )
+    parser.add_argument("--refresh-session", action="store_true", help="Ignore session cache.")
     parser.add_argument(
         "--check-deps",
         action="store_true",
@@ -164,9 +151,7 @@ def parse_args() -> argparse.Namespace:
     if args.all and (args.forest_id or args.forest_name):
         parser.error("--all cannot be combined with --forest-id or --forest-name")
     if args.dates and args.week_range is not None:
-        parser.error(
-            "--week-range cannot be combined with --dates; the lookup range is derived from --dates"
-        )
+        parser.error("--week-range cannot be combined with --dates; the lookup range is derived from --dates")
     return args
 
 
@@ -184,9 +169,7 @@ def check_dependencies(*, launch_browser: bool = True) -> None:
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
-        raise SystemExit(
-            "playwright is required. Install with: python3 -m pip install playwright"
-        ) from exc
+        raise SystemExit("playwright is required. Install with: python3 -m pip install playwright") from exc
 
     if not launch_browser:
         return
@@ -197,8 +180,7 @@ def check_dependencies(*, launch_browser: bool = True) -> None:
             browser.close()
     except PlaywrightError as exc:
         raise SystemExit(
-            "playwright chromium browser is required. Install with: "
-            "python3 -m playwright install chromium"
+            "playwright chromium browser is required. Install with: python3 -m playwright install chromium"
         ) from exc
 
 
@@ -244,8 +226,7 @@ def bootstrap_session(*, forest_id: str, forest_pw: str, ttl_sec: int = 600) -> 
             browser = p.chromium.launch(headless=True)
         except PlaywrightError as exc:
             raise SystemExit(
-                "playwright chromium browser is required. Install with: "
-                "python3 -m playwright install chromium"
+                "playwright chromium browser is required. Install with: python3 -m playwright install chromium"
             ) from exc
         page = browser.new_page()
         page.goto(LOGIN_URL)
@@ -327,9 +308,7 @@ def split_csv(values: list[str] | None) -> list[str]:
     return out
 
 
-def resolve_targets(
-    args: argparse.Namespace, forests: dict[str, str]
-) -> dict[str, str]:
+def resolve_targets(args: argparse.Namespace, forests: dict[str, str]) -> dict[str, str]:
     if args.all:
         return dict(sorted(forests.items(), key=lambda item: item[1]))
 
@@ -339,11 +318,7 @@ def resolve_targets(
     for fid in requested_ids:
         targets[fid] = forests.get(fid, fid)
     for needle in requested_names:
-        matches = {
-            fid: name
-            for fid, name in forests.items()
-            if needle.replace(" ", "") in name.replace(" ", "")
-        }
+        matches = {fid: name for fid, name in forests.items() if needle.replace(" ", "") in name.replace(" ", "")}
         targets.update(matches)
 
     if not targets:
@@ -433,13 +408,7 @@ def collect_results(
 ) -> dict[str, Any]:
     now = datetime.now()
     today = now.strftime("%Y%m%d")
-    last_day = (
-        max(dates)
-        if dates
-        else (now + timedelta(weeks=week_range or DEFAULT_WEEK_RANGE)).strftime(
-            "%Y%m%d"
-        )
-    )
+    last_day = max(dates) if dates else (now + timedelta(weeks=week_range or DEFAULT_WEEK_RANGE)).strftime("%Y%m%d")
     date_filter = set(dates) if dates else None
     failures: list[dict[str, str]] = []
     rows: list[dict[str, Any]] = []
@@ -477,9 +446,7 @@ def collect_results(
                 rows.append(normalized)
 
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for row in sorted(
-        rows, key=lambda item: (item["forest"], item["use_dt"], item["name"])
-    ):
+    for row in sorted(rows, key=lambda item: (item["forest"], item["use_dt"], item["name"])):
         grouped.setdefault(row["forest"], {}).setdefault(row["use_dt"], []).append(row)
 
     return {
@@ -492,10 +459,7 @@ def collect_results(
         "results": [
             {
                 "forest": forest_name,
-                "dates": [
-                    {"use_dt": use_dt, "rooms": rooms}
-                    for use_dt, rooms in sorted(rows_by_date.items())
-                ],
+                "dates": [{"use_dt": use_dt, "rooms": rooms} for use_dt, rooms in sorted(rows_by_date.items())],
             }
             for forest_name, rows_by_date in sorted(grouped.items())
         ],
@@ -520,9 +484,7 @@ def print_text(payload: dict[str, Any]) -> None:
             for room in rooms[:8]:
                 capacity = room["capacity"] if room["capacity"] is not None else "?"
                 area = room["area"] if room["area"] is not None else "?"
-                print(
-                    f"    - {room['name']} / {room['category']} / {area}sqm / max {capacity}"
-                )
+                print(f"    - {room['name']} / {room['category']} / {area}sqm / max {capacity}")
 
 
 def main() -> int:

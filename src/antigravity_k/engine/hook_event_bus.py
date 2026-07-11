@@ -493,7 +493,7 @@ class HookEventBus:
                     try:
                         entry.unlink()
                     except OSError:
-                        pass
+                        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         except Exception:
             logger.exception("Unhandled exception")
             pass

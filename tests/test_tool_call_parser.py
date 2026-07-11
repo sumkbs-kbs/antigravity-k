@@ -1,21 +1,20 @@
-"""
-tool_call_parser.py 단위 테스트
+"""tool_call_parser.py 단위 테스트.
 ================================
 - <thought> 내부의 <action_call> 텍스트가 도구 호출로 오인되지 않는지 확인
 - 정상적인 도구 호출은 여전히 동작하는지 확인
 - thought 뒤에 오는 진짜 도구 호출이 정상 감지되는지 확인
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from antigravity_k.engine.tool_call_parser import ToolCallParser, EventType
+from antigravity_k.engine.tool_call_parser import EventType, ToolCallParser
 
 
 def test_normal_tool_call():
-    """정상적인 도구 호출이 올바르게 파싱되는지"""
+    """정상적인 도구 호출이 올바르게 파싱되는지."""
     parser = ToolCallParser()
     text = '<action_call>\n{"name": "web_search", "arguments": {"query": "test"}}\n</action_call>'
     events = parser.feed(text)
@@ -32,33 +31,22 @@ def test_normal_tool_call():
 
 
 def test_thought_blocks_ignored():
-    """<thought> 내부의 <action_call> 텍스트가 도구 호출로 오인되지 않는지"""
+    """<thought> 내부의 <action_call> 텍스트가 도구 호출로 오인되지 않는지."""
     parser = ToolCallParser()
-    text = (
-        "<thought>\n"
-        "Single <action_call>? Yes.\n"
-        "No extra text after <action_call>? Yes.\n"
-        "</thought>\n"
-    )
+    text = "<thought>\nSingle <action_call>? Yes.\nNo extra text after <action_call>? Yes.\n</thought>\n"
     events = parser.feed(text)
     events += parser.flush()
 
     types = [e.type for e in events]
-    assert (
-        EventType.TOOL_CALL_START not in types
-    ), f"False TOOL_CALL_START detected inside thought! {types}"
-    assert (
-        EventType.TOOL_CALL_ERROR not in types
-    ), f"False TOOL_CALL_ERROR detected inside thought! {types}"
+    assert EventType.TOOL_CALL_START not in types, f"False TOOL_CALL_START detected inside thought! {types}"
+    assert EventType.TOOL_CALL_ERROR not in types, f"False TOOL_CALL_ERROR detected inside thought! {types}"
     # 모두 TEXT 이벤트여야 함
-    assert all(
-        e.type == EventType.TEXT for e in events
-    ), f"Non-TEXT events found: {types}"
+    assert all(e.type == EventType.TEXT for e in events), f"Non-TEXT events found: {types}"
     print("✅ test_thought_blocks_ignored PASSED")
 
 
 def test_thought_then_real_tool_call():
-    """<thought> 블록 후에 오는 진짜 <action_call>이 정상 감지되는지"""
+    """<thought> 블록 후에 오는 진짜 <action_call>이 정상 감지되는지."""
     parser = ToolCallParser()
     text = (
         "<thought>\n"
@@ -72,16 +60,10 @@ def test_thought_then_real_tool_call():
     events += parser.flush()
 
     types = [e.type for e in events]
-    assert (
-        EventType.TOOL_CALL_START in types
-    ), f"Real TOOL_CALL_START not detected: {types}"
-    assert (
-        EventType.TOOL_CALL_COMPLETE in types
-    ), f"Real TOOL_CALL_COMPLETE not detected: {types}"
+    assert EventType.TOOL_CALL_START in types, f"Real TOOL_CALL_START not detected: {types}"
+    assert EventType.TOOL_CALL_COMPLETE in types, f"Real TOOL_CALL_COMPLETE not detected: {types}"
     # TOOL_CALL_ERROR는 없어야 함
-    assert (
-        EventType.TOOL_CALL_ERROR not in types
-    ), f"Unexpected TOOL_CALL_ERROR: {types}"
+    assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected TOOL_CALL_ERROR: {types}"
 
     complete_event = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE][0]
     assert complete_event.tool_call.name == "web_search"
@@ -90,7 +72,7 @@ def test_thought_then_real_tool_call():
 
 
 def test_streaming_chunks():
-    """스트리밍 청크 단위로 들어와도 정상 동작하는지"""
+    """스트리밍 청크 단위로 들어와도 정상 동작하는지."""
     parser = ToolCallParser()
     chunks = [
         "<thou",
@@ -108,33 +90,27 @@ def test_streaming_chunks():
     types = [e.type for e in all_events]
     # thought 안의 <action_call>은 무시, 진짜만 감지
     complete_events = [e for e in all_events if e.type == EventType.TOOL_CALL_COMPLETE]
-    assert (
-        len(complete_events) == 1
-    ), f"Expected exactly 1 TOOL_CALL_COMPLETE, got {len(complete_events)}: {types}"
+    assert len(complete_events) == 1, f"Expected exactly 1 TOOL_CALL_COMPLETE, got {len(complete_events)}: {types}"
     assert complete_events[0].tool_call.name == "web_search"
-    assert (
-        EventType.TOOL_CALL_ERROR not in types
-    ), f"Unexpected TOOL_CALL_ERROR: {types}"
+    assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected TOOL_CALL_ERROR: {types}"
     print("✅ test_streaming_chunks PASSED")
 
 
 def test_text_without_any_tags():
-    """태그가 없는 순수 텍스트"""
+    """태그가 없는 순수 텍스트."""
     parser = ToolCallParser()
     events = parser.feed("Hello, this is plain text without any tags.")
     events += parser.flush()
 
     types = [e.type for e in events]
-    assert all(
-        e.type == EventType.TEXT for e in events
-    ), f"Non-TEXT events found: {types}"
+    assert all(e.type == EventType.TEXT for e in events), f"Non-TEXT events found: {types}"
     full_text = "".join(e.data for e in events)
     assert "Hello, this is plain text without any tags." == full_text
     print("✅ test_text_without_any_tags PASSED")
 
 
 def test_multiple_thought_blocks():
-    """여러 개의 <thought> 블록이 있을 때"""
+    """여러 개의 <thought> 블록이 있을 때."""
     parser = ToolCallParser()
     text = (
         "<thought>First thought with <action_call> mention</thought>\n"
@@ -149,9 +125,7 @@ def test_multiple_thought_blocks():
 
     types = [e.type for e in events]
     complete_events = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE]
-    assert (
-        len(complete_events) == 1
-    ), f"Expected 1 TOOL_CALL_COMPLETE, got {len(complete_events)}"
+    assert len(complete_events) == 1, f"Expected 1 TOOL_CALL_COMPLETE, got {len(complete_events)}"
     assert complete_events[0].tool_call.name == "test_tool"
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected errors: {types}"
     print("✅ test_multiple_thought_blocks PASSED")

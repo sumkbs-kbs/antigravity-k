@@ -8,7 +8,7 @@ logger = logging.getLogger("antigravity_k.integrations.discord")
 try:
     import discord
 except ImportError:
-    discord = None
+    discord = None  # type: ignore[assignment]
 
 
 class DiscordBotClient:

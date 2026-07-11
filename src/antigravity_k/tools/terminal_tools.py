@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class PersistentTerminalManager:
     _instance = None
+    terminals: dict[str, Any] = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -31,6 +32,8 @@ class PersistentTerminalManager:
             bufsize=1,
         )
         # Using non-blocking IO for stdout/stderr would be better, but for simplicity:
+        assert process.stdout is not None
+        assert process.stderr is not None
         os.set_blocking(process.stdout.fileno(), False)
         os.set_blocking(process.stderr.fileno(), False)
 
@@ -238,6 +241,10 @@ class InteractivePTYTool(BaseTool):
     icon = "📟"
     tags = ["pty", "interactive", "gdb", "shell"]
 
+    # Class-level state for simplicity. In a real system, use a manager.
+    _active_pid: int | None = None
+    _active_fd: int | None = None
+
     def __init__(self):
         super().__init__()
         self._name = "interactive_pty"
@@ -264,10 +271,6 @@ class InteractivePTYTool(BaseTool):
                 },
             },
         }
-        # Class-level state for simplicity. In a real system, use a manager.
-        if not hasattr(InteractivePTYTool, "_active_pid"):
-            InteractivePTYTool._active_pid = None
-            InteractivePTYTool._active_fd = None
 
     @property
     def name(self) -> str:
@@ -318,7 +321,7 @@ class InteractivePTYTool(BaseTool):
 
         # Interact with existing session
         if input_text:
-            if not InteractivePTYTool._active_pid or not InteractivePTYTool._active_fd:
+            if not InteractivePTYTool._active_pid or InteractivePTYTool._active_fd is None:
                 return "Error: No active PTY session. Start one by providing a 'command'."
 
             try:
@@ -337,6 +340,8 @@ class InteractivePTYTool(BaseTool):
         start_time = time.time()
 
         while True:
+            if InteractivePTYTool._active_fd is None:
+                break
             r, _, _ = select.select([InteractivePTYTool._active_fd], [], [], timeout)
             if not r:
                 break
@@ -366,12 +371,12 @@ class InteractivePTYTool(BaseTool):
         if InteractivePTYTool._active_pid:
             try:
                 os.kill(InteractivePTYTool._active_pid, 9)
-            except OSError as e:
-                logger.debug(f"Failed to kill pid: {e}")
+            except OSError:
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             InteractivePTYTool._active_pid = None
         if InteractivePTYTool._active_fd:
             try:
                 os.close(InteractivePTYTool._active_fd)
-            except OSError as e:
-                logger.debug(f"Failed to close fd: {e}")
+            except OSError:
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             InteractivePTYTool._active_fd = None

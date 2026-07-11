@@ -37,15 +37,17 @@ logger = logging.getLogger("antigravity_k.self_evolution_coordinator")
 
 class EvolutionTrigger(str, Enum):
     """자기 진화 트리거 유형."""
-    QUALITY_FAILURE = "quality_failure"       # QualityGate C/F
-    REPETITIVE_FAILURE = "repetitive_failure" # 동일 패턴 반복 실패
-    PATTERN_DETECTED = "pattern_detected"     # SkillAutoLearner 패턴 감지
-    SCHEDULED = "scheduled"                    # 정기 진화 사이클
-    MANUAL = "manual"                          # 사용자 요청
+
+    QUALITY_FAILURE = "quality_failure"  # QualityGate C/F
+    REPETITIVE_FAILURE = "repetitive_failure"  # 동일 패턴 반복 실패
+    PATTERN_DETECTED = "pattern_detected"  # SkillAutoLearner 패턴 감지
+    SCHEDULED = "scheduled"  # 정기 진화 사이클
+    MANUAL = "manual"  # 사용자 요청
 
 
 class MutationDomain(str, Enum):
     """변이 대상 도메인."""
+
     SYSTEM_PROMPT = "system_prompt"
     SKILL = "skill"
     CODE = "code"
@@ -57,6 +59,7 @@ class MutationDomain(str, Enum):
 @dataclass
 class PerformanceSnapshot:
     """단일 태스크 완료 후 성능 스냅샷."""
+
     user_message: str = ""
     agent_output: str = ""
     task_type: str = "simple_chat"
@@ -72,6 +75,7 @@ class PerformanceSnapshot:
 @dataclass
 class EvolutionDecision:
     """진화 결정 — 무엇을 어떻게 개선할지."""
+
     trigger: EvolutionTrigger = EvolutionTrigger.QUALITY_FAILURE
     domain: MutationDomain = MutationDomain.SYSTEM_PROMPT
     weakness_description: str = ""
@@ -84,6 +88,7 @@ class EvolutionDecision:
 @dataclass
 class EvolutionResult:
     """단일 진화 사이클의 결과."""
+
     success: bool = False
     skipped: bool = False
     rolled_back: bool = False
@@ -104,16 +109,14 @@ class EvolutionResult:
         if self.rolled_back:
             return f"🔄 진화 롤백됨 ({self.error_message})"
         if self.success:
-            return (
-                f"✅ [{self.mutation_domain.value}] 개선 완료 "
-                f"(Δ{self.improvement:+.2f})"
-            )
+            return f"✅ [{self.mutation_domain.value}] 개선 완료 (Δ{self.improvement:+.2f})"
         return f"❌ 진화 실패: {self.error_message}"
 
 
 @dataclass
 class EvolutionHistory:
     """진화 이력 (영속 저장용)."""
+
     cycle_id: str = ""
     timestamp: float = 0.0
     result: EvolutionResult = field(default_factory=EvolutionResult)
@@ -182,46 +185,53 @@ class SelfEvolutionCoordinator:
 
         try:
             from antigravity_k.engine.rsi_engine import RSIEngine
+
             self._rsi_engine = RSIEngine(project_root=self._root)
         except Exception:
-            logger.debug("RSIEngine lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.prompt_evolver import PromptEvolver
+
             self._prompt_evolver = PromptEvolver()
         except Exception:
-            logger.debug("PromptEvolver lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.meta_architect import MetaArchitect
+
             self._meta_architect = MetaArchitect(project_root=self._root)
         except Exception:
-            logger.debug("MetaArchitect lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.rsi_sandbox import RSISandbox
+
             self._sandbox = RSISandbox(
                 project_root=self._root,
                 verify_fn=self._verify_fn,
             )
         except Exception:
-            logger.debug("RSISandbox lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.self_improvement import SelfImprovementLoop
+
             self._self_improvement = SelfImprovementLoop(data_dir=self._root)
         except Exception:
-            logger.debug("SelfImprovementLoop lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.self_repair import SelfRepairEngine
+
             self._self_repair = SelfRepairEngine()
         except Exception:
-            logger.debug("SelfRepairEngine lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.evolution import EvolutionManager
             from antigravity_k.engine.vault import VaultEngine
+
             vault_path = f"{self._root}/vault_data"
             vault = VaultEngine(vault_path, sync_rag=False)
             if self._manager:
@@ -230,7 +240,7 @@ class SelfEvolutionCoordinator:
                     vault_engine=vault,
                 )
         except Exception:
-            logger.debug("EvolutionManager lazy-init failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
     # ─── 메인 API ────────────────────────────────────────────────
 
@@ -250,7 +260,7 @@ class SelfEvolutionCoordinator:
 
         # 최대 크기 유지
         if len(self._history) > self.MAX_HISTORY_SIZE:
-            self._history = self._history[-self.MAX_HISTORY_SIZE:]
+            self._history = self._history[-self.MAX_HISTORY_SIZE :]
 
         # SelfImprovementLoop에도 기록
         if self._self_improvement:
@@ -262,7 +272,7 @@ class SelfEvolutionCoordinator:
                     issues=snapshot.quality_issues,
                 )
             except Exception:
-                logger.debug("SelfImprovement record failed (non-critical)")
+                logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         self._turns_since_last_evolution += 1
 
@@ -345,17 +355,13 @@ class SelfEvolutionCoordinator:
             # 3. 샌드박스 내 변이 실행
             mutation_payload = {}
             if self._sandbox:
-                with self._sandbox.safe_mutation(
-                    f"sec_{decision.domain.value}_{int(time.time())}"
-                ):
+                with self._sandbox.safe_mutation(f"sec_{decision.domain.value}_{int(time.time())}"):
                     mutation_payload = self._execute_mutation(decision, snapshot)
                     if mutation_payload.get("applied"):
                         # 4. 검증
                         validation = self._validate(decision, mutation_payload)
                         if not validation.get("passed", False):
-                            raise RuntimeError(
-                                f"Validation failed: {validation.get('reason', 'unknown')}"
-                            )
+                            raise RuntimeError(f"Validation failed: {validation.get('reason', 'unknown')}")
             else:
                 mutation_payload = self._execute_mutation(decision, snapshot)
 
@@ -436,7 +442,7 @@ class SelfEvolutionCoordinator:
                         )
                     )
         except Exception:
-            logger.debug("[SEC] RSI diagnose failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 진단 소스 2: SelfImprovementLoop 패턴 분석
         try:
@@ -451,13 +457,11 @@ class SelfEvolutionCoordinator:
                                 f"({insight.occurrence_count}회, 평균 {insight.avg_score:.2f})"
                             ),
                             confidence=min(0.9, 0.3 + insight.occurrence_count * 0.15),
-                            expected_improvement=min(
-                                0.15, 0.05 + (1.0 - insight.avg_score) * 0.1
-                            ),
+                            expected_improvement=min(0.15, 0.05 + (1.0 - insight.avg_score) * 0.1),
                         )
                     )
         except Exception:
-            logger.debug("[SEC] SelfImprovement analyze failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 진단 소스 3: 품질 이슈 직접 분석
         for issue in snapshot.quality_issues[:3]:
@@ -608,7 +612,7 @@ class SelfEvolutionCoordinator:
                     logger.info("[SEC] PromptEvolver: 새 프롬프트 점수 %.2f", score)
                     return result
             except Exception:
-                logger.debug("[SEC] PromptEvolver failed, trying EvolutionManager")
+                logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 방법 2: EvolutionManager (Hermes 스타일, Vault 실패 기반)
         if self._evolution_manager:
@@ -621,7 +625,7 @@ class SelfEvolutionCoordinator:
                     result["draft_path"] = draft_path
                     return result
             except Exception:
-                logger.debug("[SEC] EvolutionManager failed")
+                logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 방법 3: SelfImprovementLoop 보강 프롬프트 (패턴 기반)
         if self._self_improvement:
@@ -629,12 +633,12 @@ class SelfEvolutionCoordinator:
                 reinforcement = self._self_improvement.get_reinforcement_prompt()
                 if reinforcement:
                     result["applied"] = True
-                    result["message"] = f"보강 프롬프트 생성 완료"
+                    result["message"] = "보강 프롬프트 생성 완료"
                     result["method"] = "self_improvement"
                     result["reinforcement"] = reinforcement
                     return result
             except Exception:
-                logger.debug("[SEC] SelfImprovement failed")
+                logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
 
@@ -689,6 +693,7 @@ class SelfEvolutionCoordinator:
         if not self._skill_learner:
             try:
                 from antigravity_k.engine.skill_auto_learner import SkillAutoLearner
+
                 self._skill_learner = SkillAutoLearner(
                     project_root=self._root,
                     model_manager=self._manager,
@@ -710,15 +715,13 @@ class SelfEvolutionCoordinator:
 
         # 패턴 감지 및 스킬 생성
         try:
-            skill_path = self._skill_learner.on_task_complete(
-                user_message=snapshot.user_message
-            )
+            skill_path = self._skill_learner.on_task_complete(user_message=snapshot.user_message)
             if skill_path:
                 result["applied"] = True
                 result["message"] = f"새 스킬 생성됨: {skill_path}"
                 result["skill_path"] = skill_path
         except Exception:
-            logger.debug("[SEC] Skill auto-learn failed")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
 
@@ -745,16 +748,14 @@ class SelfEvolutionCoordinator:
                 executed = self._meta_architect.execute_proposal(proposal)
                 if executed:
                     result["applied"] = True
-                    result["message"] = (
-                        f"아키텍처 리팩터링 완료: {proposal.title}"
-                    )
+                    result["message"] = f"아키텍처 리팩터링 완료: {proposal.title}"
                     result["proposal"] = {
                         "title": proposal.title,
                         "description": proposal.description,
                         "target_files": proposal.target_files,
                     }
         except Exception:
-            logger.debug("[SEC] MetaArchitect mutation failed")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
 
@@ -770,9 +771,7 @@ class SelfEvolutionCoordinator:
             return result
 
         try:
-            current_examples = [
-                {"input": "사용자 질문", "output": "AI 응답"}
-            ]
+            current_examples = [{"input": "사용자 질문", "output": "AI 응답"}]
             new_examples = self._prompt_evolver.evolve_few_shots(
                 current_examples=current_examples,
                 task_type=snapshot.task_type,
@@ -782,7 +781,7 @@ class SelfEvolutionCoordinator:
                 result["message"] = f"Few-shot 예시 {len(new_examples)}개 진화 완료"
                 result["examples"] = new_examples
         except Exception:
-            logger.debug("[SEC] Few-shot mutation failed")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
 
@@ -808,9 +807,7 @@ class SelfEvolutionCoordinator:
         """샘플링 프로파일 진화 — temperature/min_p 조정."""
         result: dict[str, Any] = {"applied": False, "message": ""}
         result["message"] = (
-            f"샘플링 프로파일 조정 제안: "
-            f"품질 점수 {snapshot.quality_score:.2f}에 따라 "
-            f"temperature ±0.05 조정"
+            f"샘플링 프로파일 조정 제안: 품질 점수 {snapshot.quality_score:.2f}에 따라 temperature ±0.05 조정"
         )
         return result
 
@@ -823,14 +820,14 @@ class SelfEvolutionCoordinator:
     ) -> dict[str, Any]:
         """변이 결과를 검증합니다.
 
-        RSISandbox의 3중 검증(AST → 테스트 → 벤치마크)을 활용합니다.
+        P2-2 강화: 결정적 검증(AST/문법)을 sandbox와 무관하게 항상 수행.
+        1단계: 결정적 검증 (AST 파싱, 린트) — LLM 없이 항상 실행
+        2단계: RSISandbox 3중 검증 (sandbox 사용 가능 시)
+        3단계: LLM 이중 감사 (보조 — 최종 결정은 결정적 검증이 우선)
 
         Returns:
             {"passed": bool, "reason": str, "details": dict}
         """
-        if not self._sandbox:
-            return {"passed": True, "reason": "no_sandbox"}
-
         target_file = decision.target_file
         if not target_file or not mutation_payload.get("applied"):
             return {"passed": True, "reason": "no_file_to_validate"}
@@ -839,26 +836,29 @@ class SelfEvolutionCoordinator:
         if not new_content:
             return {"passed": True, "reason": "no_content_to_validate"}
 
-        # 3중 검증
-        validation = self._sandbox.validate_mutation(
-            filepath=target_file,
-            new_content=new_content,
-        )
+        # 1단계: 결정적 검증 (P2-2) — 항상 수행, LLM 의존 없음
+        deterministic_result = self._deterministic_validate(target_file, new_content)
+        if not deterministic_result["passed"]:
+            return deterministic_result
 
-        failed = [
-            k for k, v in validation.items()
-            if hasattr(v, "value") and v.value == "fail"
-        ]
+        # 2단계: RSISandbox 3중 검증 (sandbox 사용 가능 시)
+        if self._sandbox:
+            validation = self._sandbox.validate_mutation(
+                filepath=target_file,
+                new_content=new_content,
+            )
 
-        if failed:
-            return {
-                "passed": False,
-                "reason": f"검증 실패: {', '.join(failed)}",
-                "details": {k: str(v) for k, v in validation.items()},
-            }
+            failed = [k for k, v in validation.items() if hasattr(v, "value") and v.value == "fail"]
 
-        # 이중 감사 (Dual-Audit)
-        if self._verify_fn:
+            if failed:
+                return {
+                    "passed": False,
+                    "reason": f"검증 실패: {', '.join(failed)}",
+                    "details": {k: str(v) for k, v in validation.items()},
+                }
+
+        # 3단계: LLM 이중 감사 (보조 — 결정적 검증 통과 후에만)
+        if self._sandbox and self._verify_fn:
             audit = self._sandbox.dual_audit(
                 filepath=target_file,
                 original="",
@@ -878,6 +878,79 @@ class SelfEvolutionCoordinator:
             "details": validation,
         }
 
+    @staticmethod
+    def _deterministic_validate(filepath: str, content: str) -> dict[str, Any]:
+        """결정적 검증 — LLM 없이 항상 수행 (P2-2).
+
+        파일 유형에 따라:
+          - Python: AST 파싱으로 문법 오류 검출
+          - YAML: yaml.safe_load로 파싱 검증
+          - JSON: json.loads로 파싱 검증
+          - 기타: 빈 content 검사만
+
+        Returns:
+            {"passed": bool, "reason": str, "details": dict}
+        """
+        import ast
+        import json
+
+        details: dict[str, Any] = {"filepath": filepath}
+
+        if not content or not content.strip():
+            return {
+                "passed": False,
+                "reason": "변이 후 content가 비어 있음",
+                "details": details,
+            }
+
+        ext = filepath.lower().rsplit(".", 1)[-1] if "." in filepath else ""
+
+        # Python: AST 파싱
+        if ext == "py":
+            try:
+                ast.parse(content)
+                details["ast_valid"] = True
+            except SyntaxError as e:
+                details["ast_valid"] = False
+                details["syntax_error"] = str(e)
+                return {
+                    "passed": False,
+                    "reason": f"Python 문법 오류 (line {e.lineno}): {e.msg}",
+                    "details": details,
+                }
+
+        # YAML 파싱
+        elif ext in ("yaml", "yml"):
+            try:
+                import yaml
+
+                parsed = yaml.safe_load(content)
+                if parsed is None and content.strip():
+                    details["yaml_warning"] = "content가 있지만 파싱 결과가 None"
+                details["yaml_valid"] = True
+            except Exception as e:
+                details["yaml_valid"] = False
+                return {
+                    "passed": False,
+                    "reason": f"YAML 파싱 오류: {e}",
+                    "details": details,
+                }
+
+        # JSON 파싱
+        elif ext == "json":
+            try:
+                json.loads(content)
+                details["json_valid"] = True
+            except json.JSONDecodeError as e:
+                details["json_valid"] = False
+                return {
+                    "passed": False,
+                    "reason": f"JSON 파싱 오류: {e}",
+                    "details": details,
+                }
+
+        return {"passed": True, "reason": "결정적 검증 통과", "details": details}
+
     # ─── 이력 관리 ───────────────────────────────────────────────
 
     def _save_evolution_history(self, entry: EvolutionHistory) -> None:
@@ -889,9 +962,7 @@ class SelfEvolutionCoordinator:
             import json
             import os
 
-            history_path = os.path.join(
-                self._root, "data", "evolution_history.json"
-            )
+            history_path = os.path.join(self._root, "data", "evolution_history.json")
             os.makedirs(os.path.dirname(history_path), exist_ok=True)
 
             existing = []
@@ -902,18 +973,20 @@ class SelfEvolutionCoordinator:
                     except json.JSONDecodeError:
                         existing = []
 
-            existing.append({
-                "cycle_id": entry.cycle_id,
-                "timestamp": entry.timestamp,
-                "success": entry.result.success,
-                "skipped": entry.result.skipped,
-                "rolled_back": entry.result.rolled_back,
-                "domain": entry.result.mutation_domain.value,
-                "improvement": entry.result.improvement,
-                "error": entry.result.error_message,
-                "quality_grade": entry.snapshot.quality_grade,
-                "quality_score": entry.snapshot.quality_score,
-            })
+            existing.append(
+                {
+                    "cycle_id": entry.cycle_id,
+                    "timestamp": entry.timestamp,
+                    "success": entry.result.success,
+                    "skipped": entry.result.skipped,
+                    "rolled_back": entry.result.rolled_back,
+                    "domain": entry.result.mutation_domain.value,
+                    "improvement": entry.result.improvement,
+                    "error": entry.result.error_message,
+                    "quality_grade": entry.snapshot.quality_grade,
+                    "quality_score": entry.snapshot.quality_score,
+                }
+            )
 
             # 최근 100건만 유지
             if len(existing) > 100:
@@ -923,7 +996,7 @@ class SelfEvolutionCoordinator:
                 json.dump(existing, f, ensure_ascii=False, indent=2)
 
         except Exception:
-            logger.debug("[SEC] Evolution history save failed (non-critical)")
+            logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
     # ─── 보고 및 통계 ────────────────────────────────────────────
 

@@ -1,380 +1,387 @@
-security:
-  access_pin: "1935"
-integrations:
-  slack:
-    enabled: false
-    bot_token: xoxb-your-slack-bot-token
-    app_token: xapp-your-slack-app-token
-  discord:
-    enabled: false
-    token: your-discord-bot-token
+model:
+  main_model: mlx-community/Qwen3-72B-4bit
+  code_model: mlx-community/Qwen2.5-Coder-32B-Instruct-4bit
+  embedding_model: mlx-community/bge-m3-4bit
+  vision_model: mlx-community/Qwen2-VL-7B-Instruct-4bit
+  api_engine: openrouter
+  max_tokens: 4096
+  temperature: 0.7
+  top_p: 0.9
 models:
   reasoning:
-  - name: deepseek-r1:32b
-    repo: deepseek-r1:32b
-    role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 20
-    context_length: 32768
-    description: DeepSeek R1 32B — 미들급 아키텍트 모델
-  - name: deepseek-v4
-    repo: deepseek-v4
-    role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 40
-    context_length: 128000
-    description: DeepSeek V4 — 교차 검증 및 모순 탐지 특화 (최상위 추론)
-
   - name: qwen3.6:latest
     repo: qwen3.6:latest
     role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 23
+    estimated_memory_gb: 35.0
     context_length: 32768
-    description: Qwen 3.6 — 고성능 미들급 (CEO, 라우팅용)
+    description: Qwen3.6 35B MoE (Ollama 로컬)
   - name: deepseek-r1:70b
     repo: deepseek-r1:70b
     role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 38
-    context_length: 65536
-    description: DeepSeek R1 — 고급 추론
-  - name: llama4:latest
-    repo: mlx-community/Llama-4-Scout-17B-4bit
+    estimated_memory_gb: 70.0
+    context_length: 32768
+    description: DeepSeek R1 70B (Ollama 로컬)
+  - name: openai/gpt-4o
+    repo: openai/gpt-4o
     role: reasoning
-    quantization: 4bit
-    estimated_memory_gb: 10
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: OpenAI GPT-4o (OpenRouter)
+  - name: openai/gpt-4o-mini
+    repo: openai/gpt-4o-mini
+    role: reasoning
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: OpenAI GPT-4o-mini (OpenRouter)
+  - name: qwen/qwen3-next-80b-a3b-instruct:free
+    repo: qwen/qwen3-next-80b-a3b-instruct:free
+    role: reasoning
+    estimated_memory_gb: 0.0
     context_length: 131072
-    description: Llama 4 Scout — 경량, 빠른 테스트용
-  - name: claude-3-5-sonnet-20241022
-    repo: anthropic
+    description: Qwen3 Next 80B (OpenRouter 무료)
+  - name: qwen/qwen3-next-80b-a3b-instruct
+    repo: qwen/qwen3-next-80b-a3b-instruct
     role: reasoning
-    quantization: api
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Qwen3 Next 80B (OpenRouter, 기본 선택)
+  - name: nvidia/nemotron-3-super-120b-a12b:free
+    repo: nvidia/nemotron-3-super-120b-a12b:free
+    role: reasoning
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Nemotron 3 Super 120B (OpenRouter 무료)
+  - name: nvidia/nemotron-3-ultra-550b-a55b:free
+    repo: nvidia/nemotron-3-ultra-550b-a55b:free
+    role: reasoning
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Nemotron 3 Ultra 550B (OpenRouter 무료)
+  - name: google/gemma-4-26b-a4b-it:free
+    repo: google/gemma-4-26b-a4b-it:free
+    role: reasoning
+    estimated_memory_gb: 0.0
+    context_length: 262144
+    description: Gemma 4 26B (OpenRouter 무료, 빠름)
+  - name: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+    repo: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+    role: reasoning
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Nemotron 3 Nano Omni 30B (OpenRouter 무료, 추론)
+  - name: anthropic/claude-3.5-sonnet
+    repo: anthropic/claude-3.5-sonnet
+    role: reasoning
     estimated_memory_gb: 0.0
     context_length: 200000
-    description: Claude 3.5 Sonnet API (Cloud)
-  - name: hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest
-    repo: hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF
+    description: Claude 3.5 Sonnet (OpenRouter)
+  - name: anthropic/claude-opus-4
+    repo: anthropic/claude-opus-4
     role: reasoning
-    quantization: gguf
-    estimated_memory_gb: 20
-    context_length: 32768
-    description: SuperGemma4 31B Abliterated (HuggingFace GGUF)
-  - name: hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M
-    repo: hf.co/Qwen/Qwen3-30B-A3B-GGUF
+    estimated_memory_gb: 0.0
+    context_length: 200000
+    description: Claude Opus 4 (OpenRouter)
+  - name: google/gemini-2.0-flash-001
+    repo: google/gemini-2.0-flash-001
     role: reasoning
-    quantization: gguf-q5_k_m
-    estimated_memory_gb: 21
-    context_length: 32768
-    description: Qwen3 30B-A3B Q5_K_M — HF 공식 GGUF, 3.3B active MoE, 한국어/에이전트/일반 추론 기본 후보
-  - name: hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    repo: hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF
+    estimated_memory_gb: 0.0
+    context_length: 1000000
+    description: Gemini 2.0 Flash (OpenRouter)
+  - name: qwen/qwen3-72b
+    repo: qwen/qwen3-72b
     role: reasoning
-    quantization: gguf-q5_k_m
-    estimated_memory_gb: 16
-    context_length: 32768
-    description: Mistral Small 3.2 24B Instruct Q5_K_M — 프랑스 Mistral 계열, Qwen/DeepSeek 편중을 완화하는 균형 추론 및 QA 후보
-  - name: hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF:Q4_K_M
-    repo: hf.co/bartowski/Llama-3.3-70B-Instruct-GGUF
-    role: reasoning
-    quantization: gguf-q4_k_m
-    estimated_memory_gb: 42
-    context_length: 131072
-    description: Llama 3.3 70B Instruct Q4_K_M — Meta Llama 계열, 고난도 비평/최종 판정용 후보
-  - name: hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    repo: hf.co/unsloth/gemma-4-31B-it-GGUF
-    role: reasoning
-    quantization: gguf-q5_k_m
-    estimated_memory_gb: 22
-    context_length: 32768
-    description: Gemma 4 31B IT (unsloth Q5_K_M) — Google Gemma 계열, 에이전틱 코딩/추론 최강 후보, 집단지성 핵심 참여자
-  - name: gemini-2.0-flash-exp:free
-    repo: openrouter/google/gemini-2.0-flash-exp:free
-    role: reasoning
-    quantization: api
     estimated_memory_gb: 0.0
     context_length: 32768
-    description: OpenRouter Gemini 2.0 Flash (Free)
-  - name: llama-3.3-70b-instruct:free
-    repo: openrouter/meta-llama/llama-3.3-70b-instruct:free
+    description: Qwen3 72B (OpenRouter)
+  - name: qwen/qwen3-235b-a35b
+    repo: qwen/qwen3-235b-a35b
     role: reasoning
-    quantization: api
+    estimated_memory_gb: 0.0
+    context_length: 32768
+    description: Qwen3 235B MoE (OpenRouter)
+  - name: nvidia/nemotron-3.5-content-safety:free
+    repo: nvidia/nemotron-3.5-content-safety:free
+    role: reasoning
     estimated_memory_gb: 0.0
     context_length: 131072
-    description: OpenRouter Llama 3.3 70B Instruct (Free)
-  - name: deepseek-chat:free
-    repo: openrouter/deepseek/deepseek-chat:free
+    description: Nemotron 3.5 Content Safety (OpenRouter 무료)
+  - name: deepseek-ai/deepseek-r1
+    repo: deepseek-ai/deepseek-r1
     role: reasoning
-    quantization: api
+    provider: nim
     estimated_memory_gb: 0.0
-    context_length: 65536
-    description: OpenRouter DeepSeek V3 (Free)
+    context_length: 128000
+    description: DeepSeek-R1 (NIM 무료, 강력 추론)
+  - name: meta/llama-3.1-405b-instruct
+    repo: meta/llama-3.1-405b-instruct
+    role: reasoning
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: Llama 3.1 405B Instruct (NIM 무료, 최대 규모)
+  - name: meta/llama-3.3-70b-instruct
+    repo: meta/llama-3.3-70b-instruct
+    role: reasoning
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: Llama 3.3 70B Instruct (NIM 무료, 균형)
+  - name: nvidia/llama-3.1-nemotron-70b-instruct
+    repo: nvidia/llama-3.1-nemotron-70b-instruct
+    role: reasoning
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: Nemotron 70B Instruct (NVIDIA 자체, NIM 무료)
+  - name: nvidia/nemotron-4-340b-instruct
+    repo: nvidia/nemotron-4-340b-instruct
+    role: reasoning
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 48000
+    description: Nemotron-4 340B Instruct (NVIDIA 자체, NIM 무료)
+  - name: o3-mini
+    repo: o3-mini
+    role: reasoning
+    provider: openai
+    estimated_memory_gb: 0.0
+    context_length: 200000
+    description: o3-mini (OpenAI 직접, 추론 특화)
+  - name: gemini-2.5-pro
+    repo: gemini-2.5-pro
+    role: reasoning
+    provider: gemini
+    estimated_memory_gb: 0.0
+    context_length: 1000000
+    description: Gemini 2.5 Pro (Google 직접, 대규모 컨텍스트)
+  - name: glm-4-air
+    repo: glm-4-air
+    role: reasoning
+    provider: zai
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: GLM-4-Air (ZAI 직접, 경제적 추론)
   coding:
-
-  - name: qwen2.5-coder:32b
-    repo: qwen2.5-coder:32b
+  - name: qwen3-coder-next:latest
+    repo: qwen3-coder-next:latest
     role: coding
-    quantization: 4bit
-    estimated_memory_gb: 18
+    estimated_memory_gb: 35.0
     context_length: 32768
-    description: Qwen 코더 32B — 메인 워커용 미들급 코더
-  - name: hf.co/Qwen/Qwen3-Coder-Next-GGUF:Q4_K_M
-    repo: hf.co/Qwen/Qwen3-Coder-Next-GGUF
+    description: Qwen3 Coder Next (Ollama 로컬)
+  - name: openai/gpt-4o
+    repo: openai/gpt-4o
     role: coding
-    quantization: gguf-q4_k_m
-    estimated_memory_gb: 49
-    context_length: 262144
-    description: Qwen3-Coder-Next Q4_K_M — HF 공식 GGUF, 80B total/3B active, agentic coding 및 long-horizon tool use 전담
-
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: OpenAI GPT-4o (OpenRouter)
+  - name: anthropic/claude-3.5-sonnet
+    repo: anthropic/claude-3.5-sonnet
+    role: coding
+    estimated_memory_gb: 0.0
+    context_length: 200000
+    description: Claude 3.5 Sonnet (OpenRouter)
+  - name: cohere/north-mini-code:free
+    repo: cohere/north-mini-code:free
+    role: coding
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Cohere North Mini Code (OpenRouter 무료)
+  - name: poolside/laguna-m.1:free
+    repo: poolside/laguna-m.1:free
+    role: coding
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Laguna M.1 (OpenRouter 무료)
+  - name: qwen/qwen2.5-coder-32b-instruct
+    repo: qwen/qwen2.5-coder-32b-instruct
+    role: coding
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: Qwen2.5 Coder 32B (NIM 무료, 코드 특화)
+  - name: meta/llama-3.3-70b-instruct
+    repo: meta/llama-3.3-70b-instruct
+    role: coding
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: Llama 3.3 70B (NIM 무료, 범용 코딩)
+  - name: gpt-4o
+    repo: gpt-4o
+    role: coding
+    provider: openai
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: GPT-4o (OpenAI 직접)
+  - name: gpt-4o-mini
+    repo: gpt-4o-mini
+    role: coding
+    provider: openai
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: GPT-4o-mini (OpenAI 직접, 경제적)
+  - name: gemini-2.0-flash
+    repo: gemini-2.0-flash
+    role: coding
+    provider: gemini
+    estimated_memory_gb: 0.0
+    context_length: 1000000
+    description: Gemini 2.0 Flash (Google 직접, 빠름)
+  - name: glm-4-plus
+    repo: glm-4-plus
+    role: coding
+    provider: zai
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: GLM-4-Plus (ZAI 직접, 한국어 강점)
   embedding:
-  - name: bge-m3:latest
-    repo: bge-m3:latest
-    role: embedding
-    estimated_memory_gb: 1.0
-    dimensions: 1024
-    description: BGE-M3 — 다국어 임베딩, 한국어 지원
   - name: nomic-embed-text:latest
     repo: nomic-embed-text:latest
     role: embedding
     estimated_memory_gb: 0.5
-    dimensions: 768
-    description: Nomic Embed — 경량 임베딩
+    context_length: 8192
+    description: Nomic Embed Text (Ollama)
   vision:
-  - name: qwen3.5-omni
-    repo: qwen3.5-omni
+  - name: llama3.2-vision:11b
+    repo: llama3.2-vision:11b
     role: vision
-    quantization: 4bit
-    estimated_memory_gb: 24
-    context_length: 32768
-    description: Qwen 3.5 Omni — 스크린샷 이해 기반 DOM 제어 및 브라우징 전담
-  - name: qwen2.5vl:32b
-    repo: qwen2.5vl:32b
+    estimated_memory_gb: 11.0
+    context_length: 16384
+    description: Llama 3.2 Vision 11B (Ollama)
+  - name: openai/gpt-4o
+    repo: openai/gpt-4o
     role: vision
-    quantization: 4bit
-    estimated_memory_gb: 19
-    context_length: 32768
-    description: Qwen2.5-VL 32B — 최강 시각 추론 (UI/차트/레이아웃 분석)
-  - name: llava:13b
-    repo: llava:13b
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: GPT-4o Vision (OpenRouter)
+  - name: meta/llama-3.2-90b-vision-instruct
+    repo: meta/llama-3.2-90b-vision-instruct
     role: vision
-    quantization: 4bit
-    estimated_memory_gb: 8
-    description: LLaVA 13B — 경량 멀티모달 비전 (폴백)
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 128000
+    description: Llama 3.2 90B Vision (NIM 무료, 이미지 분석)
+  - name: microsoft/phi-3.5-vision-instruct
+    repo: microsoft/phi-3.5-vision-instruct
+    role: vision
+    provider: nim
+    estimated_memory_gb: 0.0
+    context_length: 131072
+    description: Phi-3.5 Vision (NIM 무료, 경량 비전)
 defaults:
-  reasoning: hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M
-  coding: qwen2.5-coder:32b
-  embedding: bge-m3:latest
-  vision: qwen2.5vl:32b
-memory:
-  total_system_gb: 128
-  max_loaded_gb: 100
-  system_reserve_gb: 16
-  auto_unload: true
-  unload_cooldown_sec: 30
+  reasoning: qwen3.6:latest
+  coding: qwen3-coder-next:latest
+  embedding: nomic-embed-text:latest
+  vision: llama3.2-vision:11b
+providers:
+  ollama:
+    base_url: http://localhost:11434
+    api_key_env: OLLAMA_API_KEY
+    description: 로컬 Ollama (무제한, 프라이버시 보장)
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    description: OpenRouter (다중 모델聚合, 유료/무료 혼합)
+  nim:
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+    rate_limit: 40
+    description: NVIDIA NIM (build.nvidia.com 무료, 80+ 모델, 40rpm/1000req-day)
+  anthropic:
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+    description: Anthropic 직접 SDK (Claude 전용)
+  openai:
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    description: OpenAI 직접 (GPT-4o, GPT-4o-mini, o1 등)
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key_env: GEMINI_API_KEY
+    description: Google Gemini 직접 (OpenAI 호환 엔드포인트)
+  zai:
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    api_key_env: ZAI_API_KEY
+    description: ZAI/Zhipu 직접 (GLM-4, GLM-5 시리즈)
+agent_models:
+  default: orchestrator-swarm
+  CEO: orchestrator-swarm
+  WORKER: coding-swarm
+  QA: reasoning-swarm
+  ENG_MANAGER: reasoning-swarm
+  DESIGNER: reasoning-swarm
+combos:
+  orchestrator-swarm:
+    description: CEO 분석/단순 대화 — 빠른 응답 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
+    strategy: fallback
+    models:
+    - qwen3.6:latest
+    - qwen/qwen3-next-80b-a3b-instruct:free
+    - google/gemma-4-26b-a4b-it:free
+    - meta/llama-3.3-70b-instruct
+    - openai/gpt-4o-mini
+  reasoning-swarm:
+    description: 추론/QA/분석 — 대형 모델 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
+    strategy: fallback
+    models:
+    - nvidia/nemotron-3-ultra-550b-a55b:free
+    - qwen/qwen3-next-80b-a3b-instruct:free
+    - qwen3.6:latest
+    - meta/llama-3.1-405b-instruct
+    - deepseek-ai/deepseek-r1
+    - qwen/qwen3-235b-a35b
+    - google/gemini-2.0-flash-001
+  coding-swarm:
+    description: 코딩 — 로컬 코더 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
+    strategy: fallback
+    models:
+    - qwen3-coder-next:latest
+    - qwen/qwen2.5-coder-32b-instruct
+    - qwen/qwen3-next-80b-a3b-instruct
+    - anthropic/claude-3.5-sonnet
+    - meta/llama-3.3-70b-instruct
+    - openai/gpt-4o
+    - cohere/north-mini-code:free
+  vision-swarm:
+    description: 비전/이미지 — 로컬 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
+    strategy: fallback
+    models:
+    - llama3.2-vision:11b
+    - meta/llama-3.2-90b-vision-instruct
+    - openai/gpt-4o
+    - microsoft/phi-3.5-vision-instruct
 server:
   host: 127.0.0.1
   port: 8000
-  workers: 1
-  log_level: info
+security:
+  access_pin: '0000'
+  sandbox_enabled: true
+  sandbox_network: none
+  max_execution_time: 30
+  audit_log_enabled: true
 paths:
-  model_cache: ~/.cache/antigravity-k/models
-  logs: ./logs
-  wiki_dir: /Users/mr.k/wiki/AI_Learnings
+  models_dir: models
+  data_dir: data
+  logs_dir: logs
 workflow:
-  autopilot: true
-  auto_commit: true
-  auto_artifacts: true
-
-collective_intelligence:
-  enabled: true
-  default_target: collective-council
-  min_participants: 2
-  max_proposers: 3
-  max_critics: 2
-  critic_combo: critic-swarm
-  arbiter_combo: supreme-court
-  expose_trace: true
-  philosophy: "여러 중급 이상 모델이 독립 제안, 상호 비판, 최종 합성을 수행해 단일 거대 모델 의존을 줄인다."
-
-autonomous_capabilities:
-  enabled: true
-  max_autonomous_risk: high          # safe | low | medium | high | critical
-  allow_critical_autonomy: false     # desktop/computer control 등 critical 기능은 승인 요청
-  auto_match_skills: true
-  auto_load_mcp: true
-  deny_unauthenticated_remote_mcp: true
-
-agent_models:
-  CEO: orchestrator-swarm
-  ENG_MANAGER: manager-swarm
-  ARCHITECT: architect-swarm
-  WORKER: coding-swarm
-  QA: qa-swarm
-  CRITIC: critic-swarm
-  DESIGNER: creative-swarm
-  PROPOSER: ideation-swarm
-  ARBITER: supreme-court
-  default: collective-council
-combos:
-  collective-council:
-    models:
-    - qwen3.6:latest
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    strategy: collective
-    description: 차세대 집단지성 평의회 (Qwen3.6-27B Dense 코딩최강 + Gemma4-31B-unsloth 에이전틱최강 + Mistral 한국어균형)
-  orchestrator-swarm:
-    models:
-    - qwen3.6:latest
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    strategy: collective
-    description: CEO/관리자 역할 집단 (Qwen3.6 추론 + Gemma4-unsloth 에이전틱 + Mistral 균형 의사결정)
-  manager-swarm:
-    models:
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - qwen3.6:latest
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    strategy: collective
-    description: 실무 매니징 집단 (Mistral 균형 판단 + Qwen3.6 추론 + Gemma4 에이전틱)
-  architect-swarm:
-    models:
-    - qwen3.6:latest
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - deepseek-r1:32b
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    strategy: collective
-    description: 구조 설계 특화 집단 (Qwen3.6 기획 + Mistral 균형 + DeepSeek 논리 + Gemma4 비평)
-  coding-swarm:
-    models:
-    - qwen3.6:latest
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    strategy: collective
-    description: 코딩 워커 집단 (Qwen3.6-27B SWE-bench 77.2 코딩최강 + Gemma4 에이전틱 + Mistral 한국어검증)
-  qa-swarm:
-    models:
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    - qwen3.6:latest
-    strategy: collective
-    description: QA 테스트 집단 (Mistral QA + Gemma4 비전/에이전틱 + Qwen3.6 추론)
-  critic-swarm:
-    models:
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - deepseek-r1:32b
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    strategy: fallback
-    description: 코드 및 논리 비판 전담 (Mistral/DeepSeek 우선, Gemma4 폴백)
-  creative-swarm:
-    models:
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    - qwen3.6:latest
-    strategy: collective
-    description: 디자인/기획 집단 (Mistral 창작 + Gemma4-unsloth 비전 + Qwen3.6 구조)
-  ideation-swarm:
-    models:
-    - qwen3.6:latest
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    strategy: collective
-    description: 아이디어 제안 집단 (Qwen3.6-35B MoE 초고속 + Gemma4-unsloth + Mistral)
-  supreme-court:
-    models:
-    - mistral-medium-3.5:128b
-    - deepseek-r1:70b
-    - deepseek-r1:32b
-    strategy: fallback
-    description: 최종 판결 집단 (Mistral-Medium-128B 최고품질 + DeepSeek-70B 논리 + DeepSeek-32B 경량폴백)
-  fast-response:
-    models:
-    - qwen3.6:latest
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    strategy: load-balance
-    description: 일반 응답용 로드밸런싱 (Qwen3.6-35B MoE 초고속3B활성 + Mistral 한국어 + Gemma4 비전)
-  reasoning-balanced:
-    models:
-    - qwen3.6:latest
-    - hf.co/bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q5_K_M
-    - hf.co/unsloth/gemma-4-31B-it-GGUF:Q5_K_M
-    strategy: collective
-    description: 균형 잡힌 추론 집단 (Qwen3.6-27B Dense + Mistral + Gemma4 교차 검증)
+  autopilot: false
+  auto_commit: false
+  auto_artifacts: false
+i18n:
+  locale: auto
+  fallback_locale: en
 router:
   default_strategy: fallback
-  cooldown_base_sec: 60
-  max_cooldown_sec: 3600
   max_retries: 3
   usage_tracking: true
-  usage_db_path: ./data/usage.json
-# ─── API Keys (보안: config.yaml은 fallback, 환경변수/.env/vault 우선) ───
-# API 키는 다음과 같은 방법으로 설정 가능합니다 (4단계 우선순위):
-#   1. 환경변수: AGK_ANTHROPIC_KEY, AGK_OPENAI_KEY, AGK_OPENROUTER_KEY
-#   2. .env 파일: 프로젝트 루트의 .env 파일
-#   3. 이 config.yaml (fallback)
-#   4. Vault 암호화 저장소: `agk key set` CLI 명령어
-#
-# 실제 키는 절대 이 파일에 직접 입력하지 마세요!
-api_keys:
-  anthropic: ""
-  openai: ""
-  openrouter: ""
-
-# ─── NemoClaw-ported Security Settings ───
-secret_scanner:
+tool_loop:
+  native_function_calling: false
+self_evolution:
+  auto_modify: false
+cost:
   enabled: true
-  block_on_memory_write: true    # 메모리에 시크릿 감지 시 차단
-  redact_agent_output: true      # 에이전트 출력에서 시크릿 자동 마스킹
-  redact_mode: partial           # partial | full
-  custom_patterns: []            # 추가 regex 패턴 (선택)
-
-shields:
-  default_timeout_seconds: 300   # 기본 5분
-  max_timeout_seconds: 3600      # 최대 1시간
-  default_mode: safe             # 기본 toolset (shields UP 시)
-  auto_restore_on_crash: true    # 비정상 종료 시 자동 UP 복원
-
-guardrails:
-  warnings_enabled: true
-  hard_stop_enabled: false
-  max_consecutive_failures: 5    # 연속 실패 시 경고
-  max_tool_loop_count: 10        # 비진행성 루프 탐지 임계값
-  stall_detection: true          # 비진행성 루프 자동 탐지
-
-ambient_partner:
-  watchdog_enabled: true         # Phase 3: Proactive Watchdog 백그라운드 활성화
-
-# ─── External Brain (외부 AI 두뇌 간접 연동) ───
-external_brains:
+  daily_budget_usd: 50.0
+  hourly_action_limit: 100
+computer_use:
   enabled: true
-  strategy: fallback              # fallback | round-robin | compare
-  adapters:
-    gemini_app:
-      enabled: true
-      type: applescript            # macOS 네이티브 앱 제어
-      app_name: Gemini
-      timeout_sec: 120
-    chatgpt_web:
-      enabled: true
-      type: playwright             # 웹 브라우저 제어
-      url: https://chatgpt.com
-      timeout_sec: 120
-    gemini_web:
-      enabled: true
-      type: playwright
-      url: https://gemini.google.com
-      timeout_sec: 120
-
-media_generation:
-  text_to_image:
-    enabled: true
-    model: "schnell" # FLUX.1-schnell via mflux
-    quantize: "q4"
-  text_to_audio:
-    enabled: true
-    model: "kokoro-v0_19.onnx"
-  text_to_video:
-    enabled: true
-    model: "Lightricks/LTX-Video"
-    backend: "mps"
+  hitl_required: true

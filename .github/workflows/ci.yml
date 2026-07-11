@@ -1,14 +1,17 @@
 # Antigravity-K CI — Code Quality Pipeline
 #
-# Runs on every push and pull request:
+# Runs on every push and pull request (and nightly at midnight):
 #   1. Linting (ruff check)
 #   2. Formatting (ruff format)
 #   3. Type checking (mypy)
 #   4. Fast tests (non-slow, non-benchmark)
-#   5. Coverage report
+#   5. Package build verification (wheel/sdist)
+#   6. Security scan (secrets + hardcoded credentials)
+#   7. Dashboard lint & build
+#   8. Coverage report + PR comment
 #
-# This workflow enforces the project's code quality standards
-# defined in CONTRIBUTING.md.
+# Phase 1 D3: 추가된 build job, coverage PR comment, scheduled trigger, improved caching.
+# Phase 1 D5: Plan/Build/Interactive 모드 검증 시나리오 포함 (test-plan-mode).
 
 name: CI
 
@@ -23,6 +26,12 @@ on:
     paths-ignore:
       - "docs/**"
       - "**.md"
+  schedule:
+    # Nightly build at 00:00 UTC — catch regressions early
+    - cron: "0 0 * * *"
+  workflow_call:
+    # Reusable workflow for other CI pipelines (benchmark, deploy, etc.)
+    # Example: jobs: { ci: { uses: ./.github/workflows/ci.yml } }
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -34,6 +43,8 @@ defaults:
 
 env:
   PYTHON_VERSION: "3.12"
+  # Shared pip cache key — 변경 시 모든 job에서 캐시 무효화
+  CACHE_VERSION: "v1"
 
 jobs:
   lint:
@@ -50,6 +61,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            setup.py
 
       - name: Install Dependencies
         run: |
@@ -77,6 +91,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            setup.py
 
       - name: Install Dependencies
         run: |
@@ -94,9 +111,15 @@ jobs:
             || true
 
   test:
-    name: "Tests"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: "Tests (${{ matrix.os }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        # Run on both Linux and macOS so the Apple-Silicon / MLX code path is
+        # exercised in CI (the product's primary platform).
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -107,6 +130,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
+          cache-dependency-path: pyproject.toml
 
       - name: Install Dependencies
         run: |
@@ -120,15 +144,66 @@ jobs:
             -m 'not slow and not benchmark' \
             --junit-xml=test-results.xml \
             --cov=src/antigravity_k \
-            --cov-report=term-missing
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
 
       - name: Upload Test Results
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-${{ matrix.os }}
           path: test-results.xml
           retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Coverage Report (XML)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-${{ matrix.os }}
+          path: coverage.xml
+          retention-days: 30
+          if-no-files-found: warn
+
+  build:
+    name: "Build Package"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [lint]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            setup.py
+
+      - name: Install Build Tools
+        run: |
+          python -m pip install --upgrade pip build
+
+      - name: Build wheel + sdist
+        run: |
+          python -m build
+
+      - name: Verify wheel installs cleanly
+        run: |
+          pip install dist/*.whl
+          python -c "from antigravity_k import __version__; print(f'Package version: {__version__}')" 2>/dev/null || \
+          python -c "import antigravity_k; print('Package imported successfully')"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
           if-no-files-found: warn
 
   dashboard:
@@ -159,25 +234,58 @@ jobs:
   security-scan:
     name: "Security Scan"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── 1. Secret scanning (gitleaks) ──────────────────────────
+      - name: Secret Scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: true
+
+      # ── 2. Python dependency audit (pip-audit) ─────────────────
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
+          cache-dependency-path: pyproject.toml
 
-      - name: Install Dependencies
+      - name: Dependency Audit (pip-audit)
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install --upgrade pip pip-audit
+          # Audit the resolved environment against the PyPI advisory database.
+          # Uses pyproject.toml + uv.lock/requirements.txt as the source.
+          pip-audit --strict --desc
 
+      # ── 3. SAST (bandit) ───────────────────────────────────────
+      - name: SAST Scan (bandit)
+        run: |
+          python -m pip install bandit
+          # Scan src/ for common security issues; fail on MEDIUM+ severity.
+          bandit -r src/antigravity_k -ll -ii -ii -x src/antigravity_k/engine/secret_scanner.py \
+            -f sarif -o bandit-results.sarif || true
+          # Re-run to get a pass/fail exit code for the gate (level MEDIUM+).
+          bandit -r src/antigravity_k -ll -x src/antigravity_k/engine/secret_scanner.py
+
+      - name: Upload Bandit SARIF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-results
+          path: bandit-results.sarif
+
+      # ── 4. Internal secret scanner (legacy, kept for coverage) ─
       - name: Secret Scan (internal scanner)
         run: |
+          python -m pip install -e ".[dev]"
           python -c "
           import sys
           sys.path.insert(0, 'src')
@@ -186,8 +294,7 @@ jobs:
 
           issues = []
           for root, dirs, files in os.walk('.'):
-              # Skip common non-target dirs
-              if any(s in root for s in ['.git', '__pycache__', 'node_modules', '.venv', 'dist', 'build']):
+              if any(s in root for s in ['.git', '__pycache__', 'node_modules', '.venv', 'dist', 'build', '.antigravity']):
                   continue
               for fname in files:
                   if fname.startswith('.'):
@@ -208,17 +315,148 @@ jobs:
               print('Potential secrets detected:')
               for i in issues:
                   print(i)
-              print(f'\\nTotal: {len(issues)} file(s) with potential secrets')
+              print(f'\nTotal: {len(issues)} file(s) with potential secrets')
+              sys.exit(1)
           else:
               print('No secrets detected in scanned files.')
           "
 
-      - name: Check for Hardcoded Credentials
+  dependency-sbom:
+    name: "SBOM Generation"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Generate SBOM (CycloneDX)
         run: |
-          # Scan for common credential patterns in non-test files
-          ! grep -rn --include="*.py" --include="*.yaml" --include="*.yml" \
-            -E "(api_key|api_secret|password|access_token|secret_key)\s*=\s*['\"][A-Za-z0-9_-]{16,}" \
-            --exclude-dir=.git --exclude-dir=__pycache__ \
-            --exclude-dir=.venv --exclude-dir=node_modules \
-            --exclude="test_*.py" --exclude="*_test.py" \
-            src/ | grep -v "example\|sample\|placeholder\|xxx\|your_key" || echo "No hardcoded credentials found"
+          python -m pip install --upgrade pip cyclonedx-bom
+          # Generate a CycloneDX SBOM from the dependency manifest.
+          cyclonedx-py environment -o sbom.cdx.json --schema-version 1.5
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
+
+  coverage-report:
+    name: "Coverage Report"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [test]
+    if: github.event_name == 'pull_request' && !cancelled()
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Coverage XML
+        uses: actions/download-artifact@v4
+        with:
+          # After adding the OS matrix, the artifact name includes the OS.
+          name: coverage-xml-ubuntu-latest
+          path: ./
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+
+      - name: Generate Coverage Summary
+        id: coverage-summary
+        run: |
+          if [ ! -f coverage.xml ]; then
+            echo "No coverage.xml found — skipping"
+            echo "has-report=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Extract coverage percentage from Cobertura XML
+          COVER_PCT=$(python3 -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          line_rate = float(root.attrib.get('line-rate', 0))
+          print(f'{line_rate * 100:.1f}')
+          ")
+
+          echo "coverage-pct=$COVER_PCT" >> "$GITHUB_OUTPUT"
+          echo "has-report=true" >> "$GITHUB_OUTPUT"
+          echo "Coverage: $COVER_PCT%"
+
+          # Generate markdown summary
+          cat > coverage-summary.md << EOF
+          ## 📊 Coverage Report
+
+          **Total coverage:** ${COVER_PCT}%
+
+          | Metric | Value |
+          |:---|---:|
+          | Line Coverage | ${COVER_PCT}% |
+          | Threshold | 40% |
+
+          > See [coverage_html](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/coverage/) for full report.
+          EOF
+
+          echo "Summary generated"
+
+      - name: Upload Coverage Summary
+        if: steps.coverage-summary.outputs.has-report == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage-summary.md
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Post PR Comment
+        if: steps.coverage-summary.outputs.has-report == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'coverage-summary.md';
+
+            if (!fs.existsSync(reportPath)) {
+              console.log('No coverage summary found — skipping PR comment');
+              return;
+            }
+
+            const body = fs.readFileSync(reportPath, 'utf-8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c =>
+              c.body && c.body.includes('Coverage Report')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+              console.log('Updated existing coverage comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+              console.log('Created new coverage comment');
+            }

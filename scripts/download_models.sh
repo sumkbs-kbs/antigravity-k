@@ -83,14 +83,14 @@ declare -A OLLAMA_MODELS=(
 # ─── 사전 검사 ──────────────────────────────────────────────────────
 check_prerequisites() {
     log_step "사전 검사"
-    
+
     # Python + pip 확인
     if ! command -v python3 &>/dev/null; then
         log_error "Python3이 설치되지 않았습니다. setup_env.sh를 먼저 실행하세요."
         exit 1
     fi
     log_ok "Python3: $(python3 --version)"
-    
+
     # 가상환경 확인
     if [[ -z "${VIRTUAL_ENV:-}" ]]; then
         if [[ -d "${PROJECT_DIR}/.venv" ]]; then
@@ -102,26 +102,26 @@ check_prerequisites() {
         fi
     fi
     log_ok "가상환경: ${VIRTUAL_ENV}"
-    
+
     # huggingface-cli 확인
     if ! command -v huggingface-cli &>/dev/null; then
         log_info "huggingface-cli 설치 중..."
         pip install -q huggingface_hub[cli]
     fi
     log_ok "huggingface-cli 사용 가능"
-    
+
     # mlx-lm 확인
     if ! python3 -c "import mlx_lm" &>/dev/null; then
         log_warn "mlx-lm이 설치되지 않았습니다. 설치 중..."
         pip install -q mlx-lm
     fi
     log_ok "mlx-lm 사용 가능"
-    
+
     # 디스크 여유 공간 확인
     local free_gb
     free_gb=$(df -g "${MODELS_DIR}" 2>/dev/null | awk 'NR==2 {print $4}' || echo "?")
     log_info "디스크 여유 공간: ${free_gb}GB (models/ 디렉토리)"
-    
+
     if [[ "${free_gb}" != "?" ]] && (( free_gb < 50 )); then
         log_warn "⚠ 디스크 공간이 부족할 수 있습니다 (최소 100GB 권장)"
     fi
@@ -134,28 +134,28 @@ download_mlx_model() {
     local desc="${MODEL_DESCRIPTIONS[$key]}"
     local size="${MODEL_SIZES[$key]}"
     local target_dir="${MODELS_DIR}/${key}"
-    
+
     log_step "${desc}"
     log_info "모델: ${model_id}"
     log_info "예상 크기: ${size}"
     log_info "저장 경로: ${target_dir}"
-    
+
     # 이미 다운로드됨?
     if [[ -d "${target_dir}" ]] && [[ -f "${target_dir}/config.json" ]]; then
         log_ok "이미 다운로드됨: ${target_dir}"
         return 0
     fi
-    
+
     echo ""
     log_info "다운로드 시작... (크기에 따라 수십 분 소요될 수 있습니다)"
-    
+
     # huggingface-cli로 다운로드 (resume 지원)
     huggingface-cli download "${model_id}" \
         --local-dir "${target_dir}" \
         --local-dir-use-symlinks False \
         --resume-download \
         2>&1 | tail -5
-    
+
     if [[ -f "${target_dir}/config.json" ]]; then
         log_ok "다운로드 완료: ${key}"
     else
@@ -168,14 +168,14 @@ download_mlx_model() {
 download_ollama_model() {
     local key="$1"
     local model_name="${OLLAMA_MODELS[$key]}"
-    
+
     log_info "Ollama 모델 다운로드: ${model_name}"
-    
+
     if ! command -v ollama &>/dev/null; then
         log_warn "Ollama가 설치되지 않았습니다. MLX 모드로만 진행합니다."
         return 0
     fi
-    
+
     ollama pull "${model_name}" 2>&1 | tail -3
     log_ok "Ollama 모델 준비 완료: ${model_name}"
 }
@@ -184,9 +184,9 @@ download_ollama_model() {
 verify_model() {
     local key="$1"
     local target_dir="${MODELS_DIR}/${key}"
-    
+
     log_info "모델 검증: ${key}"
-    
+
     python3 << PYEOF
 import json, os, sys
 
@@ -236,7 +236,7 @@ list_models() {
             "${key}" "${MODEL_NAMES[$key]}" "${MODEL_SIZES[$key]}" "${MODEL_DESCRIPTIONS[$key]}"
     done
     echo ""
-    
+
     # 파인튜닝 모델
     if [[ -d "${FINETUNE_DIR}" ]] && [[ "$(ls -A "${FINETUNE_DIR}" 2>/dev/null)" ]]; then
         log_info "파인튜닝 모델:"
@@ -252,9 +252,9 @@ list_models() {
 quick_test() {
     local key="$1"
     local target_dir="${MODELS_DIR}/${key}"
-    
+
     log_step "빠른 추론 테스트: ${key}"
-    
+
     python3 << PYEOF
 from mlx_lm import load, generate
 
@@ -265,8 +265,8 @@ print("  ✓ 모델 로드 완료")
 prompt = "다음 Python 함수의 버그를 찾아주세요:\ndef fibonacci(n):\n    if n <= 1:\n        return n\n    return fibonacci(n-1) + fibonacci(n-2)"
 
 response = generate(
-    model, 
-    tokenizer, 
+    model,
+    tokenizer,
     prompt=prompt,
     max_tokens=200,
     temp=0.7,
@@ -284,9 +284,9 @@ main() {
     echo "  ║   Phase 2, Step 3                        ║"
     echo "  ╚══════════════════════════════════════════╝"
     echo -e "${NC}"
-    
+
     local target_model="${1:-all}"
-    
+
     case "${target_model}" in
         --list|-l)
             list_models
@@ -317,9 +317,9 @@ main() {
             fi
             ;;
     esac
-    
+
     check_prerequisites
-    
+
     if [[ "${target_model}" == "all" ]]; then
         # 전체 다운로드 (권장 순서: 작은 것부터)
         for key in vision glm coder deepseek; do
@@ -330,10 +330,10 @@ main() {
         download_mlx_model "${target_model}"
         verify_model "${target_model}"
     fi
-    
+
     echo ""
     list_models
-    
+
     log_step "완료"
     log_ok "모든 모델이 준비되었습니다!"
     log_info ""

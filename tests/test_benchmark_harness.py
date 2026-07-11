@@ -1,5 +1,4 @@
-"""
-Antigravity-K: BenchmarkHarness 단위 테스트
+"""Antigravity-K: BenchmarkHarness 단위 테스트.
 ============================================
 mock ModelManager로 BenchmarkHarness 실행 플로우를 검증합니다.
 """
@@ -12,13 +11,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from antigravity_k.engine.benchmark_cases import get_suite, BUILTIN_CASES
+from antigravity_k.engine.benchmark_cases import BUILTIN_CASES, get_suite
 from antigravity_k.engine.benchmark_harness import (
     BenchmarkHarness,
     BenchmarkReport,
 )
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
-
 
 # ─── Fixtures ─────────────────────────────────────────────────────
 
@@ -49,9 +47,7 @@ def mock_model_manager():
     )
     # _registry._raw for _default_targets()
     manager._registry = MagicMock()
-    manager._registry._raw = {
-        "combos": {"collective-council": {"models": ["model-a", "model-b", "model-c"]}}
-    }
+    manager._registry._raw = {"combos": {"collective-council": {"models": ["model-a", "model-b", "model-c"]}}}
     return manager
 
 
@@ -197,9 +193,7 @@ class TestBenchmarkSlashCommand:
             finished_at=time.time(),
         )
 
-        with patch(
-            "antigravity_k.engine.benchmark_harness.BenchmarkHarness"
-        ) as harness_cls:
+        with patch("antigravity_k.engine.benchmark_harness.BenchmarkHarness") as harness_cls:
             harness = harness_cls.return_value
             harness.run_suite.return_value = fake_report
             harness.comparison_table.return_value = "## mock table"
@@ -224,17 +218,13 @@ class TestBenchmarkSlashCommand:
 
 class TestPersistence:
     def test_save_and_load(self, mock_model_manager, tmp_db_path):
-        harness1 = BenchmarkHarness(
-            model_manager=mock_model_manager, db_path=tmp_db_path
-        )
+        harness1 = BenchmarkHarness(model_manager=mock_model_manager, db_path=tmp_db_path)
         harness1.run_suite("simple", targets=["test-model"])
         count = len(harness1._history)
         assert count > 0
 
         # 새 인스턴스에서 로드
-        harness2 = BenchmarkHarness(
-            model_manager=mock_model_manager, db_path=tmp_db_path
-        )
+        harness2 = BenchmarkHarness(model_manager=mock_model_manager, db_path=tmp_db_path)
         assert len(harness2._history) == count
 
     def test_clear_history(self, harness, tmp_db_path):
@@ -270,9 +260,7 @@ class TestPersistence:
             assert "keyword_coverage" in result
             assert "latency_ms" in result
 
-    def test_loads_legacy_results_without_composite_fields(
-        self, mock_model_manager, tmp_db_path
-    ):
+    def test_loads_legacy_results_without_composite_fields(self, mock_model_manager, tmp_db_path):
         legacy = {
             "version": 1,
             "results": [

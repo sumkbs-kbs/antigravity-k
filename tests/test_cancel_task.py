@@ -4,8 +4,8 @@ import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
-from antigravity_k.engine.task_runner import get_task_runner
 from antigravity_k.engine.orchestrator import OrchestratorAgent
+from antigravity_k.engine.task_runner import get_task_runner
 
 
 def test_cancel_task():
@@ -21,9 +21,7 @@ def test_cancel_task():
 
     # We will submit a task that takes some time
     prompt = "Please count from 1 to 100 very slowly."
-    task_id = runner.submit_task(
-        prompt, context={"use_worktree": True}, orchestrator=orchestrator
-    )
+    task_id = runner.submit_task(prompt, context={"use_worktree": True}, orchestrator=orchestrator)
 
     print(f"Submitted task: {task_id}")
     time.sleep(1)  # Let it start running

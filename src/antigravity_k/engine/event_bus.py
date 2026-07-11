@@ -17,7 +17,7 @@ class EventBus:
     다양한 모듈(인지, 로깅, UI)이 이벤트 기반으로 통신할 수 있게 합니다.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the EventBus."""
         self._subscribers: dict[str, list[CallbackType]] = {}
 
@@ -123,6 +123,6 @@ def bridge_to_hook_event_bus():
 
         logger.info("[EventBus] HookEventBus 듀얼 싱크 브릿지 설정 완료")
     except ImportError:
-        logger.debug("[EventBus] HookEventBus 미설치 — 듀얼 싱크 비활성")
+        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
     except Exception:
         logger.exception("[EventBus] HookEventBus 브릿지 설정 실패")

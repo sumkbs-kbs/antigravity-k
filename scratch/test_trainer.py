@@ -1,7 +1,8 @@
 import asyncio
-from antigravity_k.engine.model_registry import ModelRegistry
-from antigravity_k.engine.model_manager import ModelManager
+
 from antigravity_k.agents.trainer_agent import TrainerAgent
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_registry import ModelRegistry
 
 
 async def main():

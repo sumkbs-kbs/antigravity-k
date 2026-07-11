@@ -54,7 +54,7 @@ class BackgroundTask:
         self.status = TaskStatus.PENDING
         self.progress = 0.0
         self.output = ""
-        self.error = None
+        self.error: str | None = None
         self.created_at = datetime.now().isoformat()
         self.updated_at = self.created_at
         self.cancel_event = threading.Event()
@@ -528,7 +528,7 @@ class BackgroundTaskRunner:
         logger.info(f"Task resumed from checkpoint: {task_id} at step {checkpoint['step']}")
         return True
 
-    def _update_db_status(self, task_id: str, status: str, output: str = None, error: str = None):
+    def _update_db_status(self, task_id: str, status: str, output: str | None = None, error: str | None = None):
         """DB에 태스크 상태를 업데이트합니다."""
         try:
             with self._get_connection() as conn:

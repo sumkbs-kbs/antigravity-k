@@ -102,7 +102,7 @@ class ConfigEditorTool(BaseTool):
         """
         action = kwargs.get("action")
         category = kwargs.get("model_category")
-        model_data = kwargs.get("model_data")
+        model_data = kwargs.get("model_data") or {}
 
         project_root = os.getcwd()
         config_path = os.path.join(project_root, "config.yaml")

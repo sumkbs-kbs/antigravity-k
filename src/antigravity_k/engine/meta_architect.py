@@ -187,7 +187,11 @@ class MetaArchitect:
                 # 2. 샌드박스 일괄 검증
                 for filename, new_code in proposal.modifications.items():
                     val_result = sandbox.validate_mutation(filename, new_code)
-                    if val_result.get("ast", "").value == "fail" or val_result.get("tests", "").value == "fail":
+                    ast_val = val_result.get("ast")
+                    tests_val = val_result.get("tests")
+                    if (ast_val is not None and ast_val.value == "fail") or (
+                        tests_val is not None and tests_val.value == "fail"
+                    ):
                         all_passed = False
                         logger.error(
                             "[Meta-Architect] 샌드박스 검증 실패: %s -> %s",
@@ -360,5 +364,5 @@ class MetaArchitect:
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
-                pass
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return None

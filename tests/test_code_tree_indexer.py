@@ -8,29 +8,22 @@ Tests cover:
 - Edge cases (empty files, empty dirs, hidden dirs)
 """
 
-import os
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from antigravity_k.engine.code_tree_indexer import (
-    IGNORE_DIRS,
-    CodeTreeIndexer,
-    RE_PY_FUNCTION,
-    RE_PY_CLASS,
-    RE_PY_IMPORT,
-    _RE_JS_FN,
-    _RE_JS_ARROW,
     _RE_GO_FN,
-    _RE_RS_FN,
+    _RE_JS_ARROW,
+    _RE_JS_FN,
     _RE_OO_FN,
     _RE_PHP_FN,
     _RE_RB_FN,
+    _RE_RS_FN,
+    IGNORE_DIRS,
     RE_COMMON_CLASS,
     RE_INTERFACE,
+    CodeTreeIndexer,
 )
-
 
 # ─── Helper ──────────────────────────────────────────────────────
 
@@ -263,11 +256,7 @@ class TestCodeTreeIndexer:
 
     def test_rust_function_extraction(self):
         """Rust 함수가 올바르게 추출되는지 검증."""
-        content = (
-            "fn main() {\n}\n"
-            "pub fn process() -> Result<()> {\n}\n"
-            "pub async fn fetch_data() -> String {\n}\n"
-        )
+        content = "fn main() {\n}\npub fn process() -> Result<()> {\n}\npub async fn fetch_data() -> String {\n}\n"
 
         matches = [m.group(1) for m in _RE_RS_FN.finditer(content)]
         assert "main" in matches
@@ -276,12 +265,7 @@ class TestCodeTreeIndexer:
 
     def test_php_function_extraction(self):
         """PHP 함수가 올바르게 추출되는지 검증."""
-        content = (
-            "<?php\n"
-            "function helper() {}\n"
-            "function process() {}\n"
-            "public function validate() {}\n"
-        )
+        content = "<?php\nfunction helper() {}\nfunction process() {}\npublic function validate() {}\n"
 
         matches = [m.group(1) for m in _RE_PHP_FN.finditer(content)]
         assert "helper" in matches
@@ -290,11 +274,7 @@ class TestCodeTreeIndexer:
 
     def test_ruby_function_extraction(self):
         """Ruby 함수가 올바르게 추출되는지 검증."""
-        content = (
-            "def hello\nend\n"
-            "def self.greet\nend\n"
-            "def process_data!\nend\n"
-        )
+        content = "def hello\nend\ndef self.greet\nend\ndef process_data!\nend\n"
 
         matches = [m.group(1) for m in _RE_RB_FN.finditer(content)]
         assert "hello" in matches
@@ -303,11 +283,7 @@ class TestCodeTreeIndexer:
 
     def test_class_extraction(self):
         """클래스/인터페이스가 올바르게 추출되는지 검증."""
-        content = (
-            "class UserModel { }\n"
-            "export class ApiService { }\n"
-            "abstract class BaseProvider { }\n"
-        )
+        content = "class UserModel { }\nexport class ApiService { }\nabstract class BaseProvider { }\n"
 
         matches = [m.group(1) for m in RE_COMMON_CLASS.finditer(content)]
         assert "UserModel" in matches
@@ -316,11 +292,7 @@ class TestCodeTreeIndexer:
 
     def test_interface_extraction(self):
         """인터페이스/트레이트가 올바르게 추출되는지 검증."""
-        content = (
-            "interface UserRepository { }\n"
-            "trait Loggable { }\n"
-            "protocol DataSource { }\n"
-        )
+        content = "interface UserRepository { }\ntrait Loggable { }\nprotocol DataSource { }\n"
 
         matches = [m.group(1) for m in RE_INTERFACE.finditer(content)]
         assert "UserRepository" in matches
@@ -329,11 +301,7 @@ class TestCodeTreeIndexer:
 
     def test_java_function_extraction(self):
         """Java/Kotlin 함수가 올바르게 추출되는지 검증."""
-        content = (
-            "public void process() { }\n"
-            "private String getData() { }\n"
-            "protected int calculate() { }\n"
-        )
+        content = "public void process() { }\nprivate String getData() { }\nprotected int calculate() { }\n"
 
         matches = [m.group(1) for m in _RE_OO_FN.finditer(content)]
         assert "process" in matches
@@ -349,11 +317,7 @@ class TestCodeTreeIndexer:
 
     def test_arrow_regex_matches_function_expression(self):
         """화살표 함수 정규식이 실제 함수 표현식만 매칭하는지 검증."""
-        content = (
-            "const fn1 = function() { }\n"
-            "const fn2 = (x) => x * 2\n"
-            "const fn3 = async () => { }\n"
-        )
+        content = "const fn1 = function() { }\nconst fn2 = (x) => x * 2\nconst fn3 = async () => { }\n"
 
         matches = [m.group(1) for m in _RE_JS_ARROW.finditer(content)]
         assert "fn1" in matches

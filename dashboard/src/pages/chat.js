@@ -342,34 +342,13 @@ export const ChatPage = {
     }
 
     async function loadChatHistory() {
-      // 1. Fetch from Backend (Global Single Session)
-      try {
-        const res = await fetch('/api/session/messages');
-        const data = await res.json();
-        if (data.ok && data.messages && data.messages.length > 0) {
-          activeSessionId = "backend_session";
-          chatMessages = data.messages;
-          chatSessions = [{
-            id: activeSessionId,
-            title: "Current Active Session",
-            updatedAt: new Date().toISOString(),
-            messages: chatMessages
-          }];
-          saveChatHistory(); // Sync to localStorage
-          renderChatMessages();
-          return; // 성공적으로 로드됨
-        }
-      } catch (e) {
-        console.error("Failed to fetch backend session:", e);
-      }
-
-      // 2. Fallback to LocalStorage (if backend is empty or fails)
+      // 1. localStorage 다중 세션 우선 로드 (세션별 대화 보존)
       const saved = localStorage.getItem('antigravity_chat_' + currentWorkspacePath);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            // Migration from single array to multi-session
+            // 구버전 마이그레이션 (단일 배열 → 다중 세션)
             activeSessionId = generateSessionId();
             chatMessages = parsed;
             chatSessions = [{
@@ -379,11 +358,15 @@ export const ChatPage = {
               messages: chatMessages
             }];
             saveChatHistory();
-          } else {
-            chatSessions = parsed.sessions || [];
-            activeSessionId = parsed.activeSessionId;
+          } else if (parsed.sessions && parsed.sessions.length > 0) {
+            // 다중 세션 복원
+            chatSessions = parsed.sessions;
+            activeSessionId = parsed.activeSessionId || chatSessions[0].id;
             const session = chatSessions.find(s => s.id === activeSessionId);
             chatMessages = session ? session.messages : [];
+          } else {
+            // 백엔드에서 초기 로드 (최초 1회만)
+            await loadFromBackend();
           }
         } catch(e) {
           console.error("Failed to parse chat history:", e);
@@ -391,20 +374,46 @@ export const ChatPage = {
           createNewSession();
         }
       } else {
-        chatSessions = [];
-        createNewSession();
+        // localStorage가 비어있으면 백엔드에서 로드
+        await loadFromBackend();
       }
-      if (!activeSessionId) {
+
+      if (!activeSessionId || chatSessions.length === 0) {
         createNewSession();
       } else {
         renderChatMessages();
       }
     }
 
+    // 백엔드에서 세션 로드 (최초 1회 또는 localStorage 비어있을 때)
+    async function loadFromBackend() {
+      try {
+        const res = await fetch('/api/session/messages');
+        const data = await res.json();
+        if (data.ok && data.messages && data.messages.length > 0) {
+          activeSessionId = generateSessionId();
+          chatMessages = data.messages;
+          chatSessions = [{
+            id: activeSessionId,
+            title: chatMessages[0].content.substring(0, 20) + (chatMessages[0].content.length > 20 ? '...' : ''),
+            updatedAt: new Date().toISOString(),
+            messages: chatMessages
+          }];
+          saveChatHistory();
+        } else {
+          chatSessions = [];
+        }
+      } catch (e) {
+        console.error("Failed to fetch backend session:", e);
+        chatSessions = [];
+      }
+    }
+
     function renderChatMessages() {
       history.innerHTML = '';
       if (chatMessages.length === 0) {
-        appendMessage('assistant', 'Welcome to Vibe Coding Agent! I am ready to help you with your project. What would you like to build?', true);
+        // P1-1: 빈 상태 시작 화면 — 예시 질문 칩 + 온보딩
+        renderEmptyState();
       } else {
         chatMessages.forEach(msg => {
           appendMessage(msg.role, msg.role === 'assistant' ? formatContent(msg.content) : msg.content, true);
@@ -416,6 +425,27 @@ export const ChatPage = {
            try { window.mermaid.init(undefined, document.querySelectorAll('.mermaid')); } catch(e){}
         }
       }, 100);
+    }
+
+    // P1-1: 빈 상태 시작 화면 렌더링
+    function renderEmptyState() {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'empty-state-container';
+      emptyDiv.innerHTML = `
+        <div class="empty-state-logo">🚀</div>
+        <div class="empty-state-title">Antigravity-K에 오신 것을 환영합니다</div>
+        <div class="empty-state-subtitle">
+          로컬 AI 엔지니어링 에이전트입니다. 코드 작성, 파일 편집, 웹 검색,
+          날씨/주가 조회 등 다양한 작업을 도와드릴 수 있습니다.
+        </div>
+        <div class="empty-state-chips">
+          <button class="example-chip" onclick="document.getElementById('chat-input').value='파일 목록 보여줘'; document.getElementById('chat-input').focus();">📁 파일 목록 보여줘</button>
+          <button class="example-chip" onclick="document.getElementById('chat-input').value='오늘 서울 날씨 알려줘'; document.getElementById('chat-input').focus();">🌤️ 오늘 날씨 알려줘</button>
+          <button class="example-chip" onclick="document.getElementById('chat-input').value='니가 할 수 있는 게 뭐야?'; document.getElementById('chat-input').focus();">🤖 무엇을 할 수 있어?</button>
+          <button class="example-chip" onclick="document.getElementById('chat-input').value='이 프로젝트 코드 리뷰해줘'; document.getElementById('chat-input').focus();">🔍 코드 리뷰해줘</button>
+        </div>
+      `;
+      history.appendChild(emptyDiv);
     }
 
     function saveChatHistory() {
@@ -459,20 +489,72 @@ export const ChatPage = {
       chatSessions.forEach(session => {
         const div = document.createElement('div');
         div.className = 'history-item' + (session.id === activeSessionId ? ' active' : '');
+        div.style.display = 'flex';
+        div.style.alignItems = 'center';
+        div.style.padding = '10px 12px';
+        div.style.borderRadius = '8px';
+        div.style.cursor = 'pointer';
+        div.style.transition = 'background 0.15s ease';
+        div.style.position = 'relative';
 
         const dateStr = new Date(session.updatedAt).toLocaleString();
 
         div.innerHTML = `
-          <div class="history-title">${escapeHTML(session.title)}</div>
-          <div class="history-date">${dateStr}</div>
+          <div style="flex:1; min-width:0; overflow:hidden;">
+            <div class="history-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px; font-weight:500;">${escapeHTML(session.title)}</div>
+            <div class="history-date" style="font-size:11px; color:var(--text-muted,#565f89); margin-top:2px;">${dateStr}</div>
+          </div>
+          <button class="delete-session-btn" title="삭제" style="
+            flex-shrink:0;
+            margin-left:auto;
+            background:transparent; border:none; color:#565f89;
+            font-size:16px; padding:4px 8px; cursor:pointer;
+            opacity:0; transition:opacity 0.2s ease, color 0.2s ease;
+            border-radius:6px;
+            align-self:center;
+          ">🗑️</button>
         `;
 
-        div.addEventListener('click', () => {
+        // hover 시 삭제 버튼 표시
+        div.addEventListener('mouseenter', () => {
+          div.style.background = 'rgba(255,255,255,0.04)';
+          div.querySelector('.delete-session-btn').style.opacity = '1';
+        });
+        div.addEventListener('mouseleave', () => {
+          div.style.background = '';
+          div.querySelector('.delete-session-btn').style.opacity = '0';
+        });
+
+        // 전체 행 클릭 시 (히스토리 로드)
+        div.addEventListener('click', (e) => {
+          // 삭제 버튼 클릭 이벤트가 전달되지 않도록 방어 로직 추가
+          if (e.target.closest('.delete-session-btn')) return;
+
           activeSessionId = session.id;
           chatMessages = session.messages;
           saveChatHistory();
           renderChatMessages();
           historyModal.style.display = 'none';
+        });
+
+        // 삭제 버튼 클릭 시 이벤트
+        const deleteBtn = div.querySelector('.delete-session-btn');
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (confirm('정말 이 대화 기록을 삭제하시겠습니까?')) {
+            // chatSessions 배열에서 제거
+            chatSessions = chatSessions.filter(s => s.id !== session.id);
+
+            // 삭제한 세션이 현재 열려있는 세션인 경우
+            if (activeSessionId === session.id) {
+              createNewSession();
+            } else {
+              saveChatHistory();
+            }
+
+            // 모달 리렌더링
+            renderHistoryModal();
+          }
         });
 
         chatHistoryList.appendChild(div);
@@ -595,20 +677,109 @@ export const ChatPage = {
 
     connectEventStream();
 
-    fetch('/v1/models')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.data && data.data.length > 0) {
-          modelSelect.innerHTML = '';
-          data.data.forEach(model => {
+    // ─── 모델 목록 + 기본 모델 로드 ───
+    function loadModels() {
+      Promise.all([
+        fetch('/v1/models').then(r => r.json()),
+        fetch('/api/settings', { skipPinModal: true }).then(r => r.json()).catch(() => ({ settings: {} }))
+      ]).then(([modelsData, settingsData]) => {
+        if (!modelsData || !modelsData.data || modelsData.data.length === 0) return;
+
+        const defaults = settingsData.settings?.defaults || {};
+        const models = modelsData.data;
+
+        // 역할별 그룹핑
+        const roleOrder = ['reasoning', 'coding', 'vision', 'embedding'];
+        const roleLabels = { reasoning: '🧠 Reasoning', coding: '💻 Coding', vision: '👁️ Vision', embedding: '📐 Embedding' };
+        const grouped = {};
+        models.forEach(m => {
+          const role = m.role || 'other';
+          if (!grouped[role]) grouped[role] = [];
+          grouped[role].push(m);
+        });
+
+        modelSelect.innerHTML = '';
+
+        roleOrder.forEach(role => {
+          const list = grouped[role];
+          if (!list || list.length === 0) return;
+
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = roleLabels[role] || role;
+
+          list.forEach(model => {
             const option = document.createElement('option');
             option.value = model.id;
-            option.textContent = model.id;
-            modelSelect.appendChild(option);
+            const isDefault = defaults[role] === model.id;
+            option.textContent = isDefault ? `⭐ ${model.id}` : model.id;
+            option.title = model.description || model.id;
+            if (isDefault) option.dataset.default = 'true';
+            optgroup.appendChild(option);
           });
+          modelSelect.appendChild(optgroup);
+        });
+
+        // 기본 모델 자동 선택
+        const defaultModel = defaults.reasoning || (models[0] && models[0].id);
+        if (defaultModel) {
+          for (const option of modelSelect.options) {
+            if (option.value === defaultModel || option.textContent.includes(defaultModel)) {
+              option.selected = true;
+              break;
+            }
+          }
         }
-      })
-      .catch(err => console.error("Failed to load models:", err));
+
+        // ⚙️ Set as Default 버튼 (모델 선택 옆)
+        const wrap = modelSelect.closest('.model-selector-wrap');
+        if (wrap && !document.getElementById('set-default-model-btn')) {
+          const setBtn = document.createElement('button');
+          setBtn.id = 'set-default-model-btn';
+          setBtn.className = 'icon-btn';
+          setBtn.title = '현재 선택한 모델을 기본값으로 설정';
+          setBtn.innerHTML = '⭐';
+          setBtn.style.fontSize = '14px';
+          setBtn.style.opacity = '0.6';
+          setBtn.style.transition = 'opacity 0.2s';
+          setBtn.addEventListener('mouseenter', () => setBtn.style.opacity = '1');
+          setBtn.addEventListener('mouseleave', () => setBtn.style.opacity = '0.6');
+          setBtn.addEventListener('click', async () => {
+            const selectedModel = modelSelect.value;
+            if (!selectedModel || selectedModel === 'default') return;
+            setBtn.disabled = true;
+            setBtn.innerHTML = '⏳';
+            try {
+              const res = await fetch('/api/models/default', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: selectedModel })
+              });
+              const data = await res.json();
+              if (data.ok) {
+                window.showToast?.(`✅ 기본 모델 변경: ${selectedModel}`, 'success');
+                loadModels(); // Reload to update stars
+              } else {
+                window.showToast?.(`❌ 설정 실패: ${data.detail || '오류'}`, 'error');
+              }
+            } catch (err) {
+              window.showToast?.(`❌ 오류: ${err.message}`, 'error');
+            } finally {
+              setBtn.disabled = false;
+              setBtn.innerHTML = '⭐';
+            }
+          });
+          // Insert before new-chat-btn
+          const refBtn = wrap.querySelector('#new-chat-btn');
+          if (refBtn) {
+            wrap.insertBefore(setBtn, refBtn);
+          } else {
+            wrap.appendChild(setBtn);
+          }
+        }
+      }).catch(err => console.error("Failed to load models:", err));
+    }
+
+    loadModels();
 
     input.addEventListener('input', function() {
       this.style.height = 'auto';
@@ -681,6 +852,7 @@ export const ChatPage = {
 
       const assistantMsgDiv = appendMessage('assistant', thinkingBadgeHTML, false);
       let assistantContent = '';
+      let assistantMsgObj = null;
 
       currentAbortController = new AbortController();
       sendBtn.innerHTML = stopIconHTML;
@@ -726,7 +898,7 @@ export const ChatPage = {
         if (!response.ok) throw new Error('Network response was not ok: ' + response.status);
 
         // 빈 어시스턴트 메시지를 미리 저장하여, 새로고침 시에도 마지막 메시지가 assistant가 되게 보장
-        const assistantMsgObj = {role: "assistant", content: ""};
+        assistantMsgObj = {role: "assistant", content: ""};
         chatMessages.push(assistantMsgObj);
         saveChatHistory();
 
@@ -752,8 +924,8 @@ export const ChatPage = {
         let buffer = '';
         let isFirstChunk = true;
         let lastSaveTime = Date.now();
-
-
+        let _streamRenderPending = false; // P0-2: 디바운스 렌더링 플래그
+        let _rafId = null;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -798,8 +970,15 @@ export const ChatPage = {
                     if (window.showToast) window.showToast('Folder Generated', 'success');
                   }
 
-                  contentSpan.innerHTML = formatContent(assistantContent) + generatingBadgeHTML;
-                  history.scrollTop = history.scrollHeight;
+                  // P0-2: 디바운스 렌더링 — 매 토큰마다가 아닌 requestAnimationFrame으로 제한
+                  if (!_streamRenderPending) {
+                    _streamRenderPending = true;
+                    _rafId = requestAnimationFrame(() => {
+                      contentSpan.innerHTML = formatContent(assistantContent) + generatingBadgeHTML;
+                      history.scrollTop = history.scrollHeight;
+                      _streamRenderPending = false;
+                    });
+                  }
 
                   // 주기적으로 로컬스토리지에 저장 (1초 간격)
                   if (Date.now() - lastSaveTime > 1000) {
@@ -815,12 +994,12 @@ export const ChatPage = {
       } catch (err) {
         if (err.name === 'AbortError') {
           console.log('Generation stopped by user');
-          if (assistantContent) {
-            chatMessages[assistantMsgIndex].content = assistantContent + '\n\n*(중단됨)*';
+          if (assistantContent && assistantMsgObj) {
+            assistantMsgObj.content = assistantContent + '\n\n*(중단됨)*';
             saveChatHistory();
             assistantMsgDiv.querySelector('.bubble').innerHTML = formatContent(assistantContent) + '<br><span style="color:var(--text-muted); font-size:12px;">*(중단됨)*</span>';
           } else {
-            chatMessages.pop(); // Remove the empty message
+            if (assistantMsgObj) chatMessages.pop(); // Remove the empty message
             saveChatHistory();
             assistantMsgDiv.remove();
           }
@@ -835,6 +1014,21 @@ export const ChatPage = {
         if (input.value.trim() === '') {
           sendBtn.classList.remove('active');
         }
+
+        // P0-2: 디바운스 rAF 취소 + pending 리셋 (지연 콜백이 배지를 다시 붙이지 않도록)
+        if (_rafId) cancelAnimationFrame(_rafId);
+        _streamRenderPending = false;
+
+        // 스트리밍 완료 후 Generating 배지/커서 제거 및 최종 렌더링
+        if (assistantMsgDiv) {
+          const contentSpan = assistantMsgDiv.querySelector('.bubble');
+          if (contentSpan) {
+            // generatingBadgeHTML, blinking-cursor, generating-badge 모두 제거
+            contentSpan.innerHTML = formatContent(assistantContent);
+          }
+          highlightCodeBlocks(assistantMsgDiv);
+          addMessageActions(assistantMsgDiv, assistantContent);
+        }
       }
     }
 
@@ -847,7 +1041,52 @@ export const ChatPage = {
       history.appendChild(msgDiv);
       history.scrollTop = history.scrollHeight;
       setTimeout(() => msgDiv.classList.add('visible'), 10);
+      // P0-1: 코드 블록 문법 강조 적용
+      if (role === 'assistant') {
+        highlightCodeBlocks(msgDiv);
+        addMessageActions(msgDiv, content);
+      }
       return msgDiv;
+    }
+
+    // P0-1: 코드 블록에 highlight.js 적용
+    function highlightCodeBlocks(container) {
+      if (!window.hljs) return;
+      container.querySelectorAll('pre.code-block').forEach(pre => {
+        // 이미 처리된 블록은 스킵
+        if (pre.dataset.highlighted) return;
+        // code 요소로 감싸서 highlight.js 적용
+        const code = pre.querySelector('code') || pre;
+        const text = code.textContent;
+        // 언어 추출 (header에서)
+        const header = pre.previousElementSibling;
+        const lang = header && header.className.includes('code-block-header')
+          ? header.textContent.trim().split(/\s+/)[0].toLowerCase()
+          : '';
+        try {
+          if (lang && window.hljs.getLanguage(lang)) {
+            code.innerHTML = window.hljs.highlight(text, { language: lang }).value;
+          } else {
+            code.innerHTML = window.hljs.highlightAuto(text).value;
+          }
+          pre.dataset.highlighted = 'true';
+        } catch (e) { /* highlight 실패 시 무시 */ }
+      });
+    }
+
+    // P0-3: 메시지 액션 버튼 (복사, 재생성)
+    function addMessageActions(msgDiv, rawContent) {
+      const bubble = msgDiv.querySelector('.bubble');
+      if (!bubble) return;
+      const actionBar = document.createElement('div');
+      actionBar.className = 'message-actions';
+      actionBar.innerHTML = `
+        <button class="msg-action-btn" title="복사" onclick="
+          navigator.clipboard.writeText(this.closest('.message').querySelector('.bubble').innerText)
+            .then(() => { this.textContent='✓ 복사됨'; setTimeout(() => this.textContent='📋 복사', 1500); })
+        ">📋 복사</button>
+      `;
+      bubble.appendChild(actionBar);
     }
 
     function escapeHTML(str) {
@@ -949,6 +1188,22 @@ export const ChatPage = {
       text = text.replace(/🔄 \*\*품질 미달 \(([\d]+)%\)\*\* — 자동 개선 중\.\.\./g,
         '<div class="tool-timeline-badge warning"><span class="icon">🔄</span> <span class="text"><b>Quality Retry:</b> Score $1% - Auto improving...</span></div>'
       );
+      // ✋ [APPROVAL REQUIRED] ...
+      text = text.replace(/\[APPROVAL REQUIRED\]\s*([^<]*)(<br>|\n)?[^\n]*Wait for their 'Yes' before retrying\./g, (match, msg) => {
+        return `<div class="tool-timeline-badge approval-box" style="border: 2px solid var(--accent-color); background: rgba(0, 122, 204, 0.1); padding: 12px; margin-top: 8px; border-radius: 8px;">
+          <div style="display:flex; align-items:center; margin-bottom: 8px;">
+            <span class="icon" style="font-size:20px; margin-right:12px;">✋</span>
+            <div style="display:flex; flex-direction:column;">
+              <span class="text" style="font-weight:bold; color:var(--text-primary); font-size:14px;">APPROVAL REQUIRED</span>
+              <span style="font-size:12px; color:var(--text-secondary); margin-top:4px;">${msg.trim()}</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="glow-btn" onclick="document.getElementById('chat-input').value='승인합니다'; document.getElementById('send-btn').click();" style="flex:1; background:var(--accent-color); border:none; border-radius:4px; padding:8px; color:#fff; cursor:pointer;">승인 (Approve)</button>
+            <button class="btn" onclick="document.getElementById('chat-input').value='거절합니다'; document.getElementById('send-btn').click();" style="flex:1; background:transparent; border:1px solid var(--glass-border); border-radius:4px; padding:8px; color:var(--text-primary); cursor:pointer;">거절 (Reject)</button>
+          </div>
+        </div>`;
+      });
       // 🎨 **[ARTIFACT GENERATED]** ...
       // format: [ARTIFACT GENERATED: filename.html (Type: html)]\nSuccessfully saved to /path/to/file
       text = text.replace(/\[ARTIFACT GENERATED: (.*?) \(Type: (.*?)\)\]\nSuccessfully saved to (.*?)\.?/g, (match, fname, type, path) => {

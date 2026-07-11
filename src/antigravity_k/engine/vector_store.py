@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import chromadb
+from chromadb.api.client import SharedSystemClient
 from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class VectorStore:
 
         self.persist_directory = persist_directory
         os.makedirs(persist_directory, exist_ok=True)
+        self._closed = False
 
         try:
             self.client = chromadb.PersistentClient(path=self.persist_directory)
@@ -53,7 +55,33 @@ class VectorStore:
             collection_name,
         )
 
-    def upsert_chunks(self, chunks: list[dict[str, Any]]):
+    def close(self):
+        """ChromaDB 클라이언트 연결을 정리합니다."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if hasattr(self, "client") and self.client is not None:
+                self.client.close()
+        except Exception:
+            logger.exception("VectorStore: chromadb client close 실패")
+        finally:
+            try:
+                SharedSystemClient.clear_system_cache()
+            except Exception:
+                logger.exception("VectorStore: clear_system_cache 실패")
+            self.client = None
+
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def upsert_chunks(self, chunks: list[dict[str, Any]]) -> None:
         """Upsert a list of chunk dictionaries into ChromaDB.
 
         Each chunk should have 'id', 'text', and 'metadata'.
@@ -79,7 +107,7 @@ class VectorStore:
                     safe_meta[k] = str(v)
             metadatas.append(safe_meta)
 
-        self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[arg-type]
         logger.info("Upserted %s chunks into ChromaDB.", len(chunks))
 
     def delete_file_chunks(self, file_path: str):
@@ -98,15 +126,29 @@ class VectorStore:
         results = self.collection.query(query_texts=[query], n_results=n_results)
 
         # Format results
-        formatted_results = []
+        formatted_results: list[dict[str, Any]] = []
         if results and results.get("ids") and len(results["ids"]) > 0:
             for i in range(len(results["ids"][0])):
+                metadatas = results.get("metadatas")
+                metadata_val: dict[str, Any] = {}
+                if metadatas:
+                    try:
+                        metadata_val = metadatas[0][i]  # type: ignore[assignment]
+                    except (IndexError, TypeError):
+                        metadata_val = {}
+                distances = results.get("distances")
+                distance_val: float | None = None
+                if distances:
+                    try:
+                        distance_val = distances[0][i]
+                    except (IndexError, TypeError):
+                        distance_val = None
                 formatted_results.append(
                     {
                         "id": results["ids"][0][i],
-                        "text": results["documents"][0][i],
-                        "metadata": (results["metadatas"][0][i] if results["metadatas"] else {}),
-                        "distance": (results["distances"][0][i] if results["distances"] else None),
+                        "text": results["documents"][0][i],  # type: ignore[index]
+                        "metadata": metadata_val,
+                        "distance": distance_val,
                     },
                 )
         return formatted_results

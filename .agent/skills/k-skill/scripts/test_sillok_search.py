@@ -11,8 +11,8 @@ from scripts.sillok_search import (
     SearchResult,
     build_http_client,
     build_opener,
-    filter_results,
     fetch_text,
+    filter_results,
     parse_args,
     parse_detail_page,
     parse_result_title_metadata,
@@ -140,29 +140,21 @@ class ParseResultTitleMetadataTest(unittest.TestCase):
 
 class ParseSearchResultsTest(unittest.TestCase):
     def test_extracts_categories_and_result_items(self):
-        report = parse_search_results(
-            SAMPLE_SEARCH_HTML, query="훈민정음", search_type="k"
-        )
+        report = parse_search_results(SAMPLE_SEARCH_HTML, query="훈민정음", search_type="k")
 
         self.assertEqual(report.total_results, 21)
         self.assertEqual(report.type_count, 11)
-        self.assertEqual(
-            [item.label for item in report.categories], ["전체", "세종", "정조"]
-        )
+        self.assertEqual([item.label for item in report.categories], ["전체", "세종", "정조"])
         self.assertEqual(report.categories[1].count, 5)
         self.assertEqual(len(report.items), 2)
         self.assertEqual(report.items[0].article_id, "kda_12512030_002")
-        self.assertEqual(
-            report.items[0].url, "https://sillok.history.go.kr/id/kda_12512030_002"
-        )
+        self.assertEqual(report.items[0].url, "https://sillok.history.go.kr/id/kda_12512030_002")
         self.assertEqual(report.items[0].king, "세종")
         self.assertEqual(report.items[0].gregorian_year, 1443)
         self.assertIn("언문", report.items[0].summary)
 
     def test_filters_by_king_and_year(self):
-        report = parse_search_results(
-            SAMPLE_SEARCH_HTML, query="훈민정음", search_type="k"
-        )
+        report = parse_search_results(SAMPLE_SEARCH_HTML, query="훈민정음", search_type="k")
 
         filtered = filter_results(report.items, king="세종", year=1443)
 
@@ -179,20 +171,14 @@ class ParseDetailPageTest(unittest.TestCase):
             detail.header,
             "세종실록102권, 세종 25년 12월 30일 경술 2/2 기사 / 1443년 명 정통(正統) 8년",
         )
-        self.assertEqual(
-            detail.translated_text, "이달에 임금이 친히 언문(諺文) 28자를 지었다."
-        )
+        self.assertEqual(detail.translated_text, "이달에 임금이 친히 언문(諺文) 28자를 지었다.")
         self.assertEqual(detail.original_text, "○是月, 上親制諺文二十八字。")
         self.assertEqual(detail.classification, "어문학-어학(語學)")
 
     def test_strips_bibliographic_and_copyright_footer_from_article_text(self):
-        detail = parse_detail_page(
-            SAMPLE_DETAIL_WITH_FOOTER_HTML, article_id="kda_12512030_002"
-        )
+        detail = parse_detail_page(SAMPLE_DETAIL_WITH_FOOTER_HTML, article_id="kda_12512030_002")
 
-        self.assertEqual(
-            detail.translated_text, "이달에 임금이 친히 언문(諺文) 28자를 지었다."
-        )
+        self.assertEqual(detail.translated_text, "이달에 임금이 친히 언문(諺文) 28자를 지었다.")
         self.assertEqual(
             detail.original_text,
             "○是月, 上親制諺文二十八字。 世宗莊憲大王實錄卷第一百二終",
@@ -208,9 +194,7 @@ class NetworkingRegressionTest(unittest.TestCase):
 
         with (
             mock.patch("scripts.sillok_search.requests", fake_requests),
-            mock.patch(
-                "scripts.sillok_search.build_opener", return_value="opener"
-            ) as build_opener_mock,
+            mock.patch("scripts.sillok_search.build_opener", return_value="opener") as build_opener_mock,
         ):
             opener = build_http_client()
 
@@ -245,9 +229,7 @@ class NetworkingRegressionTest(unittest.TestCase):
         self.assertEqual(opener, "opener")
         self.assertTrue(fake_context.check_hostname)
         self.assertEqual(fake_context.verify_mode, ssl.CERT_REQUIRED)
-        build_opener_mock.assert_called_once_with(
-            "cookie-processor", ("https-handler", fake_context)
-        )
+        build_opener_mock.assert_called_once_with("cookie-processor", ("https-handler", fake_context))
 
     def test_fetch_text_keeps_requests_tls_verification_enabled(self):
         response = mock.Mock()
@@ -281,9 +263,7 @@ class NetworkingRegressionTest(unittest.TestCase):
 
         fake_requests = mock.Mock()
         fake_requests.post.side_effect = TransportError("Connection aborted")
-        fake_requests.exceptions = types.SimpleNamespace(
-            RequestException=TransportError, HTTPError=HttpError
-        )
+        fake_requests.exceptions = types.SimpleNamespace(RequestException=TransportError, HTTPError=HttpError)
 
         with mock.patch("scripts.sillok_search.requests", fake_requests):
             html_text = fetch_text(
@@ -359,35 +339,25 @@ class SearchSillokRegressionTest(unittest.TestCase):
             return reports_by_page[page_index]
 
         with (
-            mock.patch(
-                "scripts.sillok_search.build_http_client", return_value=object()
-            ),
+            mock.patch("scripts.sillok_search.build_http_client", return_value=object()),
             mock.patch(
                 "scripts.sillok_search.fetch_search_page",
                 side_effect=fake_fetch_search_page,
             ),
-            mock.patch(
-                "scripts.sillok_search.fetch_detail_page", return_value=detail
-            ) as fetch_detail_page_mock,
+            mock.patch("scripts.sillok_search.fetch_detail_page", return_value=detail) as fetch_detail_page_mock,
         ):
-            report = search_sillok(
-                "훈민정음", king="세종", year=1443, limit=1, timeout=7
-            )
+            report = search_sillok("훈민정음", king="세종", year=1443, limit=1, timeout=7)
 
         self.assertEqual(page_calls, [1, 2])
         self.assertEqual(report["returned_count"], 1)
         self.assertEqual(report["items"][0]["article_id"], "kda_12512030_002")
-        self.assertEqual(
-            report["items"][0]["detail"]["classification"], "어문학-어학(語學)"
-        )
+        self.assertEqual(report["items"][0]["detail"]["classification"], "어문학-어학(語學)")
         fetch_detail_page_mock.assert_called_once()
 
 
 class ParseArgsTest(unittest.TestCase):
     def test_accepts_keyword_and_optional_filters(self):
-        args = parse_args(
-            ["--query", "훈민정음", "--king", "세종", "--year", "1443", "--limit", "3"]
-        )
+        args = parse_args(["--query", "훈민정음", "--king", "세종", "--year", "1443", "--limit", "3"])
 
         self.assertEqual(args.query, "훈민정음")
         self.assertEqual(args.king, "세종")

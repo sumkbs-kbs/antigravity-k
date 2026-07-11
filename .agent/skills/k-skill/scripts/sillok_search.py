@@ -2,13 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-_BUNDLED_HELPER = (
-    Path(__file__).resolve().parent.parent
-    / "joseon-sillok-search"
-    / "scripts"
-    / "sillok_search.py"
-)
+_BUNDLED_HELPER = Path(__file__).resolve().parent.parent / "joseon-sillok-search" / "scripts" / "sillok_search.py"
 
 if not _BUNDLED_HELPER.exists():  # pragma: no cover - defensive import guard
     raise FileNotFoundError(f"Bundled sillok helper not found: {_BUNDLED_HELPER}")

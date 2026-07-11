@@ -16,7 +16,7 @@ class WikiExportTool(BaseTool):
     사용자의 로컬 지식베이스(Wiki)에 마크다운 파일로 내보냅니다.
     """
 
-    category = ToolCategory.FILE_SYSTEM
+    category = ToolCategory.FILE_IO
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.LOW
     icon = "📝"
@@ -94,7 +94,7 @@ class WikiExportTool(BaseTool):
             Any: The any result.
 
         """
-        title = kwargs.get("title")
+        title = kwargs.get("title") or ""
         tags = kwargs.get("tags", [])
         content = kwargs.get("content")
         filename_raw = kwargs.get("filename")
@@ -144,7 +144,7 @@ class WikiExportTool(BaseTool):
             frontmatter += f"tags: [{tags_str}]\n"
         frontmatter += f"date: {date_str}\n---\n\n"
 
-        full_content = frontmatter + content
+        full_content = frontmatter + (content or "")
 
         try:
             with open(target_path, "w", encoding="utf-8") as f:

@@ -140,7 +140,7 @@ class SystemControlTool(BaseTool):
 
     def _action_get_system_info(self, **kwargs) -> dict[str, Any]:
         """CPU, 메모리, 디스크, GPU 등 시스템 정보를 수집합니다."""
-        info = {
+        info: dict[str, Any] = {
             "platform": platform.platform(),
             "architecture": platform.machine(),
             "processor": platform.processor(),
@@ -235,7 +235,7 @@ class SystemControlTool(BaseTool):
     def _action_get_env_status(self, **kwargs) -> dict[str, Any]:
         """현재 Antigravity-K 환경 설정 상태를 조회합니다."""
         config_path = self._find_config_path()
-        status = {"config_path": config_path, "settings": {}}
+        status: dict[str, Any] = {"config_path": config_path, "settings": {}}
 
         if config_path and os.path.exists(config_path):
             import yaml
@@ -280,7 +280,7 @@ class SystemControlTool(BaseTool):
                     apps.append(proc.info["name"])
                 apps = list(set(apps))[:50]
             except ImportError:
-                pass
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return {"status": "ok", "running_apps": sorted(apps)}
 
@@ -447,7 +447,7 @@ class SystemControlTool(BaseTool):
 
         # 2. 최적 설정 계산
         optimizations = []
-        recommended = {}
+        recommended: dict[str, Any] = {}
 
         # 메모리 기반 컨텍스트 크기 결정
         total_mem = sys_info.get("memory", {}).get("total_gb", 8)

@@ -188,6 +188,7 @@ class DatasetIngestor:
                 return None
 
         # 무작위 샘플링
+        assert self.dataset is not None  # load() 성공 후에는 None이 아님
         idx = random.randint(0, len(self.dataset) - 1)
         item = self.dataset[idx]
 
@@ -291,6 +292,7 @@ class CurriculumGenerator:
         logger.info(f"[Curriculum] Self-Play 시작: {task.task_id}")
 
         try:
+            from antigravity_k.api.dependencies import get_model_manager
             from antigravity_k.engine.tdd_engine import OmniTDDEngine
 
             # 임시 테스트 파일 저장
@@ -299,7 +301,9 @@ class CurriculumGenerator:
                 f.write(task.generated_test_code)
 
             # TDD 엔진 구동
-            engine = OmniTDDEngine(workspace_dir=os.path.join(self.benchmark_dir, "workspace"))
+            engine = OmniTDDEngine(
+                model_manager=get_model_manager(), workspace_dir=os.path.join(self.benchmark_dir, "workspace")
+            )
             # OmniTDDEngine.run_tdd_loop 내부에 target_file_path가 없으면 결과만 리포트
 
             # TODO: OmniTDDEngine이 외부 test_file_path를 인자로 받도록 구조 확장 필요
@@ -378,5 +382,5 @@ class CurriculumGenerator:
             try:
                 return json.loads(match.group())
             except json.JSONDecodeError:
-                pass
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return None

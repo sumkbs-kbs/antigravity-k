@@ -36,6 +36,122 @@ def _latest_user_text(messages: list[dict]) -> str:
     return ""
 
 
+# P0 환각 방지: LLM intent 분류 실패 시 한국어/영어 키워드 기반 폴백
+# rate limit 등으로 SEARCH 분류가 안 되면 모델이 날씨/주가 데이터를 지어내는 것을 방지
+#
+# 설계 원칙: 키워드는 "명확한 도메인"만 등록 (날씨, 주가, 뉴스).
+# 광범위한 단어("현재", "알려", "오늘")는 false positive를 만들므로 제외.
+# 자가 인식 질문("모델이 뭐야", "능력")은 is_self_capability_request()가
+# 정규식으로 처리하므로 여기서 다룰 필요 없음.
+_SEARCH_KEYWORDS = [
+    # 날씨 (명확)
+    "날씨",
+    "기온",
+    "비 오",
+    "맑음",
+    "흐림",
+    "눈 오",
+    "태풍",
+    "미세먼지",
+    "weather",
+    "temperature",
+    "forecast",
+    # 주가/경제 (명확)
+    "주가",
+    "주식",
+    "시세",
+    "코스피",
+    "코스닥",
+    "상장",
+    "공시",
+    "환율",
+    "stock",
+    "price",
+    "market",
+    # 뉴스/실시간 (명확)
+    "뉴스",
+    "속보",
+    "실시간",
+    "news",
+    "latest",
+    # 검색 명확 (동사)
+    "검색",
+    "찾아줘",
+    "조회해",
+]
+
+# TDD 트리거 — 명확한 "작성/수정" 동사 + 코딩 명사 조합만 매칭
+# 단순히 "코드", "함수"가 포함되었다고 TDD가 되지 않도록 조합 패턴 사용
+_TDD_ACTION_KEYWORDS = [
+    "작성",
+    "구현",
+    "수정",
+    "만들",
+    "생성",
+    "개발",
+    "코딩",
+    "프로그래밍",
+    "write",
+    "create",
+    "implement",
+    "fix",
+    "build",
+    "develop",
+    "code",
+]
+_TDD_TARGET_KEYWORDS = [
+    "함수",
+    "클래스",
+    "메서드",
+    "모듈",
+    "스크립트",
+    "알고리즘",
+    "버그",
+    "에러",
+    "오류",
+    "리팩토링",
+    "function",
+    "class",
+    "method",
+    "script",
+    "bug",
+    "error",
+    "refactor",
+]
+
+
+def _keyword_intent_fallback(text: str) -> str:
+    """LLM intent 분류 실패 시 키워드 기반으로 SEARCH/TDD/GENERAL을 판별.
+
+    환각 방지 핵심: "거제도 날씨", "한화 주가" 등의 질문이
+    LLM 없이도 SEARCH로 분류되어 실제 웹검색을 수행하도록 보장.
+
+    TDD 판별 원칙: 동사(작성/구현/수정) + 명사(함수/클래스/버그) 조합으로
+    실제 코드 생성 의도가 있을 때만 TDD로 분류.
+    "코드 설명해줘", "이 함수가 뭐야?" 같은 질문은 GENERAL로 처리.
+
+    주의: 자가 인식 질문("모델이 뭐야", "니가 할 수 있는 것")은
+    is_self_capability_request()가 chat_completions() 상단에서 먼저 처리하므로
+    이 함수까지 도달하지 않음. 여기서는 순수 SEARCH/TDD만 판별.
+    """
+    text_lower = text.lower()
+
+    # SEARCH 키워드 매칭 (환각 방지)
+    for kw in _SEARCH_KEYWORDS:
+        if kw in text_lower:
+            return "SEARCH"
+
+    # TDD: 동사 + 명사 조합이 있을 때만 (단일 키워드로는 TDD 아님)
+    has_action = any(kw in text_lower for kw in _TDD_ACTION_KEYWORDS)
+    has_target = any(kw in text_lower for kw in _TDD_TARGET_KEYWORDS)
+    # 파일 확장자가 있으면 강제 TDD
+    has_file_ext = any(ext in text_lower for ext in [".py", ".js", ".ts", ".java", ".go", ".rs"])
+    if (has_action and has_target) or (has_action and has_file_ext):
+        return "TDD"
+
+    return "GENERAL"
+
+
 def _stream_text_response(text: str, model: str):
     async def event_generator():
         data = {
@@ -117,7 +233,8 @@ async def chat_completions(
     session_manager.start_session(resume=True)
 
     # Auto-restore context for new conversations (UI sends few messages)
-    if len(messages) <= 2:
+    # 작업 2: 임계값 완화 (<= 4) — 더 많은 새 대화에서 이전 기억 복원
+    if len(messages) <= 4:
         restored_context = session_manager.auto_restore()
         if restored_context:
             messages.insert(0, {"role": "system", "content": restored_context})
@@ -127,60 +244,93 @@ async def chat_completions(
     is_plan_mode = body.get("plan_mode", False)
 
     # [AUTONOMY] 사용자의 TDD 모드 자동 판단 요구사항 반영
-    # [AUTONOMY] 사용자의 TDD 모드 자동 판단 요구사항 반영 (옵션 2: 소형 LLM 기반 자율 의도 파악)
     is_tdd_mode = body.get("tdd_mode", False)
     slash_text = _latest_user_text(messages)
+
+    # 작업 4: 모든 경로에서 사용자 학습 — UserIntentModeler.observe() 호출
+    try:
+        from antigravity_k.engine.user_model import UserIntentModeler
+
+        _user_model = UserIntentModeler()
+        if slash_text:
+            _user_model.observe(slash_text, "general")
+    except Exception:
+        pass
 
     import logging
 
     logger_auto = logging.getLogger(__name__)
 
+    # Self-capability 및 슬래시 명령어는 Intent 분류 생략 (LLM 호출 절약)
+    from antigravity_k.engine.self_capability import is_self_capability_request
+
     is_fast_search = False
+
     if not is_tdd_mode and slash_text:
-        # 매우 단순한 인사말 등은 LLM 호출 없이 빠른 패스
-        fast_bypass = ["안녕", "고마워", "누구야", "뭐해"]
-        if len(slash_text) < 15 and any(k in slash_text for k in fast_bypass):
-            pass
+        _skip_intent_classification = False
+        if slash_text.startswith("/") or is_self_capability_request(slash_text):
+            _skip_intent_classification = True
         else:
+            # 매우 단순한 인사말 등은 LLM 호출 없이 빠른 패스
+            fast_bypass = ["안녕", "고마워", "누구야", "뭐해"]
+            if len(slash_text) < 15 and any(k in slash_text for k in fast_bypass):
+                _skip_intent_classification = True
 
-            def _classify_intent():
-                prompt = (
-                    "You are an autonomous intent router. Analyze the user request and categorize it into ONE of these exactly:\n"  # noqa: E501
-                    "1. 'TDD' - requires writing new code, fixing bugs, or implementing software features.\n"
-                    "2. 'SEARCH' - simple web search for information (e.g. stock price, weather, news).\n"
-                    "3. 'GENERAL' - simple question, explanation, general chat.\n\n"
-                    "Reply EXACTLY with the category name.\n\n"
-                    f"User Request: {slash_text[:500]}"
-                )
-                try:
-                    # 최대한 빠르고 결정론적인 판단을 위해 온도(temperature) 0.0 설정
-                    res = manager.generate(
-                        prompt=prompt,
-                        target=target_model,
-                        max_tokens=10,
-                        temperature=0.0,
-                    )
-                    r = res.lower()
-                    if "tdd" in r:
-                        return "TDD"
-                    if "search" in r:
-                        return "SEARCH"
-                    return "GENERAL"
-                except Exception as e:
-                    logger.exception("Unhandled exception")
-                    logger_auto.warning(f"Auto-Intent LLM classification failed: {e}")
-                    return "GENERAL"
+        if not _skip_intent_classification:
+            # P0 환각 방지: LLM 호출 전에 키워드 기반 사전 분류
+            # 날씨/주가/뉴스 등 명확한 검색 의도는 LLM 없이 SEARCH로 확정 — 환각 방지
+            _pre_intent = _keyword_intent_fallback(slash_text)
 
-            from starlette.concurrency import run_in_threadpool
+            logger_auto.info(f"[DEBUG] slash_text={repr(slash_text[:60])} pre_intent={_pre_intent}")
 
-            intent = await run_in_threadpool(_classify_intent)
-
-            if intent == "TDD":
-                logger_auto.info(f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}")
-                is_tdd_mode = True
-            elif intent == "SEARCH":
-                logger_auto.info(f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}")
+            if _pre_intent == "SEARCH":
+                # 키워드로 SEARCH가 확정되면 LLM 호출 생략
+                logger_auto.info(f"Auto-Intent (키워드): SEARCH 모드 — '{slash_text[:40]}'")
                 is_fast_search = True
+
+            elif _pre_intent == "TDD":
+                logger_auto.info(f"Auto-Intent (키워드): TDD 모드 — '{slash_text[:40]}'")
+                is_tdd_mode = True
+            else:
+                # 키워드로 판별 불가한 경우에만 LLM 분류 사용
+
+                def _classify_intent():
+                    prompt = (
+                        "You are an autonomous intent router. Analyze the user request and categorize it into ONE of these exactly:\n"  # noqa: E501
+                        "1. 'TDD' - requires writing new code, fixing bugs, or implementing software features.\n"
+                        "2. 'SEARCH' - simple web search for information (e.g. stock price, weather, news).\n"
+                        "3. 'GENERAL' - simple question, explanation, general chat.\n\n"
+                        "Reply EXACTLY with the category name.\n\n"
+                        f"User Request: {slash_text[:500]}"
+                    )
+                    try:
+                        # 최대한 빠르고 결정론적인 판단을 위해 온도(temperature) 0.0 설정
+                        res = manager.generate(
+                            prompt=prompt,
+                            target=target_model,
+                            max_tokens=10,
+                            temperature=0.0,
+                        )
+                        r = res.lower()
+                        if "tdd" in r:
+                            return "TDD"
+                        if "search" in r:
+                            return "SEARCH"
+                        return "GENERAL"
+                    except Exception as e:
+                        logger_auto.warning(f"Auto-Intent LLM classification failed: {e}")
+                        return _keyword_intent_fallback(slash_text)
+
+                from starlette.concurrency import run_in_threadpool
+
+                intent = await run_in_threadpool(_classify_intent)
+
+                if intent == "TDD":
+                    logger_auto.info(f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}")
+                    is_tdd_mode = True
+                elif intent == "SEARCH":
+                    logger_auto.info(f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}")
+                    is_fast_search = True
 
     if is_fast_search:
         try:
@@ -260,6 +410,7 @@ async def chat_completions(
         except Exception as e:
             logger.exception("Unhandled exception")
             logger_auto.error(f"Fast search failed: {e}. Falling back to normal mode.")
+
             is_fast_search = False
 
     from antigravity_k.engine.self_capability import (
@@ -369,10 +520,11 @@ async def chat_completions(
         target_path_match = re.search(r"([a-zA-Z0-9_\-\./]+\.py)", prompt)
         target_file_path = target_path_match.group(1) if target_path_match else None
         if target_file_path and not target_file_path.startswith("/"):
-            # 기본 작업 공간 기준 경로
+            # 동적 프로젝트 루트 기준 경로 (하드코딩 제거)
             import os
 
-            target_file_path = os.path.join("/Users/mr.k/program/coding/ssak_comp/antigravity-k", target_file_path)
+            _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            target_file_path = os.path.join(_project_root, target_file_path)
 
         async def tdd_event_generator():
             def yield_chunk(text):
@@ -388,7 +540,7 @@ async def chat_completions(
                 yield yield_chunk("🧪 **Omni-TDD Mode Activated**\n\nStarting multi-model racing engine...\n\n")
                 yield yield_chunk("⏳ Sandboxed generation and testing in progress... (This may take 1-2 minutes)\n\n")
 
-                engine = OmniTDDEngine(coding_model=target_model)
+                engine = OmniTDDEngine(model_manager=manager, coding_model=target_model)
                 report = await engine.run_tdd_loop(prompt, target_file_path=target_file_path)
 
                 if report.status == "passed":
@@ -501,8 +653,10 @@ async def chat_completions(
 
         async def event_generator():
             full_response = ""
+            stream_aiter = None
             try:
-                async for chunk in iterate_in_threadpool(orchestrator.run_stream(messages, target_model=target_model)):
+                stream_aiter = iterate_in_threadpool(orchestrator.run_stream(messages, target_model=target_model))
+                async for chunk in stream_aiter:
                     full_response += chunk
                     active_session.history.append(chunk)
                     data = {
@@ -531,8 +685,21 @@ async def chat_completions(
                 active_session.done = True
                 yield "data: [DONE]\n\n"
             except asyncio.CancelledError:
-                # Client disconnected, but the background thread might still continue!
-                logger.warning("SSE client disconnected from chat completions.")
+                # 클라이언트 단절 — 백그라운드 LLM 스트림을 명시적으로 취소하여
+                # 좀비 작업과 불필요한 토큰 비용을 방지 (작업 C).
+                logger.warning(
+                    "SSE 클라이언트 단절 — 백그라운드 스트림 취소 중 (부분 응답 %d chars)",
+                    len(full_response),
+                )
+                # 부분 응답이라도 세션에 저장 (재연결 시 복구 가능)
+                if full_response:
+                    user_msg = _latest_user_text(messages)
+                    session_manager.add_turn(
+                        [
+                            {"role": "user", "content": user_msg},
+                            {"role": "assistant", "content": full_response + "\n\n[클라이언트 단절로 중단]"},
+                        ]
+                    )
                 raise
             except Exception as e:
                 logger.error(f"Stream error: {e}", exc_info=True)
@@ -549,6 +716,14 @@ async def chat_completions(
                 yield f"data: {json.dumps(data)}\n\n"
                 yield "data: [DONE]\n\n"
             finally:
+                # 백그라운드 이터레이터 명시적 종료 (스레드 풀 작업 정리)
+                if stream_aiter is not None:
+                    aclose = getattr(stream_aiter, "aclose", None)
+                    if aclose:
+                        try:
+                            await aclose()
+                        except Exception:
+                            pass
                 active_session.is_active = False
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -1,5 +1,4 @@
-"""
-테스트: 사용량 추적기
+"""테스트: 사용량 추적기.
 ====================
 UsageTracker의 기록/조회/통계/영속화 테스트.
 """
@@ -14,19 +13,18 @@ from antigravity_k.engine.usage_tracker import (
     UsageTracker,
 )
 
-
 # ─── 픽스처 ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def tracker():
-    """메모리 전용 추적기 (DB 파일 없음)"""
+    """메모리 전용 추적기 (DB 파일 없음)."""
     return UsageTracker(db_path=None, max_records=100)
 
 
 @pytest.fixture
 def tracker_with_db(tmp_path):
-    """임시 DB 파일 사용 추적기"""
+    """임시 DB 파일 사용 추적기."""
     db_path = tmp_path / "test_usage.json"
     return UsageTracker(db_path=str(db_path), auto_save_interval=5)
 
@@ -35,7 +33,7 @@ def tracker_with_db(tmp_path):
 
 
 class TestRecord:
-    """기록 API 테스트"""
+    """기록 API 테스트."""
 
     def test_basic_record(self, tracker):
         entry = tracker.record(
@@ -86,7 +84,7 @@ class TestRecord:
 
 
 class TestStats:
-    """통계 조회 테스트"""
+    """통계 조회 테스트."""
 
     def test_empty_stats(self, tracker):
         stats = tracker.get_stats()
@@ -94,9 +92,7 @@ class TestStats:
 
     def test_daily_stats(self, tracker):
         for _ in range(5):
-            tracker.record(
-                "qwen3-72b", tokens_in=10, tokens_out=50, latency_ms=100, success=True
-            )
+            tracker.record("qwen3-72b", tokens_in=10, tokens_out=50, latency_ms=100, success=True)
         tracker.record("qwen3-72b", success=False, error="fail")
 
         stats = tracker.get_stats("qwen3-72b", period="daily")

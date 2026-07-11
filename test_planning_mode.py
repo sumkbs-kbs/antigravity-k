@@ -1,6 +1,5 @@
-import urllib.request
 import json
-import ssl
+import urllib.request
 
 data = {
     "model": "orchestrator-swarm",

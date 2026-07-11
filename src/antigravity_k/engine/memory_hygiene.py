@@ -235,7 +235,7 @@ class MemoryHygiene:
                 try:
                     os.unlink(tmp_path)
                 except OSError:
-                    pass
+                    logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
                 raise
         except Exception:
             logger.exception("MemoryHygiene: 상태 저장 실패")

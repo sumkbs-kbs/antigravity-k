@@ -105,3 +105,37 @@ class WorktreeManager:
                     "[Worktree] Force deleted directory %s due to git failure.",
                     worktree_path,
                 )
+
+    def get_worktree_path(self, branch_name: str) -> str | None:
+        """주어진 branch_name에 해당하는 worktree 경로를 반환합니다.
+
+        worktree가 존재하면 경로를, 없으면 None을 반환합니다.
+        team_manager.py 등에서 task_id로 worktree를 조회할 때 사용됩니다.
+
+        Args:
+            branch_name: 브랜치명 (또는 task_id)
+
+        Returns:
+            worktree 경로 (존재 시), None (미존재 시)
+        """
+        worktree_path = os.path.join(self.worktrees_dir, branch_name)
+        if os.path.exists(worktree_path):
+            return worktree_path
+
+        # git worktree list로 실제 등록된 worktree 확인 (브랜치명이 경로와 다를 수 있음)
+        try:
+            result = subprocess.run(
+                ["git", "-C", self.base_repo_path, "worktree", "list", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("worktree "):
+                    path = line[len("worktree ") :]
+                    if branch_name in path:
+                        return path
+        except Exception:
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+
+        return None

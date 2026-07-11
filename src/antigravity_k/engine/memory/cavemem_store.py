@@ -110,7 +110,7 @@ class CavememStore:
             )
             obs_id = cursor.lastrowid
             conn.commit()
-            return obs_id
+            return obs_id or 0
 
     def search_observations(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         """Search for observations.

@@ -15,6 +15,7 @@ Sidabari의 audit_log.rs 패턴을 Python SQLite로 이식.
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -111,9 +112,11 @@ class AuditDb:
                 self._conn.close()
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
             self._conn = None
         self._initialized = False
+
+    def __del__(self):
+        self.close()
 
     def insert(
         self,
@@ -291,3 +294,17 @@ def init_audit_db(vault_data_dir: str | None = None) -> AuditDb:
     db = get_audit_db()
     db.init(vault_data_dir)
     return db
+
+
+def _close_global_audit_db():
+    """프로세스 종료 시 전역 AuditDb의 DB 연결을 정리합니다."""
+    global _global_audit_db
+    if _global_audit_db is not None:
+        try:
+            _global_audit_db.close()
+        except Exception:
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+        _global_audit_db = None
+
+
+atexit.register(_close_global_audit_db)

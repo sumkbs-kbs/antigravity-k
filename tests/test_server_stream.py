@@ -25,9 +25,7 @@ def test_orchestrator_stream_chunks_can_be_serialized(monkeypatch):
     orchestrator = OrchestratorAgent(model_manager=FakeManager(), vault_engine=None)
     messages = [{"role": "user", "content": "간단히 응답해줘"}]
 
-    chunks = list(
-        orchestrator.run_stream(messages, target_model="test-model", max_steps=1)
-    )
+    chunks = list(orchestrator.run_stream(messages, target_model="test-model", max_steps=1))
 
     assert chunks
     sse_payloads = [
@@ -35,9 +33,7 @@ def test_orchestrator_stream_chunks_can_be_serialized(monkeypatch):
             "id": "chatcmpl-stream",
             "object": "chat.completion.chunk",
             "model": "test-model",
-            "choices": [
-                {"delta": {"content": chunk}, "index": 0, "finish_reason": None}
-            ],
+            "choices": [{"delta": {"content": chunk}, "index": 0, "finish_reason": None}],
         }
         for chunk in chunks
     ]

@@ -72,8 +72,8 @@ class CodeIndexPipeline:
             )
 
             try:
-                with open(py_file, encoding="utf-8") as f:
-                    content = f.read()
+                with open(py_file, encoding="utf-8") as fh:
+                    content = fh.read()
                 tree = ast.parse(content)
 
                 for node in ast.walk(tree):

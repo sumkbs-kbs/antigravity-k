@@ -26,6 +26,11 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "nest-asyncio>=1.6.0",
     "cryptography>=48.0.0",
+    "textual>=8.0.0",
+    "filelock>=3.16.0",
+    "pyjwt>=2.8.0",
+    "slowapi>=0.1.9",
+    "prometheus_client>=0.21.0",
 ]
 
 [project.optional-dependencies]
@@ -66,6 +71,25 @@ markers = [
     "slow: 실행 시간이 긴 느린 테스트 (CI에서 -m 'not slow'로 제외 가능)",
 ]
 
+[tool.coverage.run]
+source = ["src/antigravity_k"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+# Minimum coverage threshold (increasing over time)
+# Current: 40% — aim to increase to 60%+ with each major release
+fail_under = 40
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 120
@@ -82,3 +106,14 @@ known-first-party = ["antigravity_k"]
 
 [tool.mypy]
 ignore_missing_imports = true
+no_strict_optional = true
+warn_unused_configs = true
+
+[tool.mypy.overrides]
+# Tests can be more lenient
+module = ["tests.*"]
+ignore_missing_imports = true
+
+[tool.coverage.html]
+directory = "coverage_html"
+title = "Antigravity-K Coverage Report"

@@ -1,8 +1,10 @@
-import pytest
 import tempfile
+
+import pytest
+
 from antigravity_k.engine.chunker import MarkdownChunker
-from antigravity_k.engine.vector_store import VectorStore
 from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.engine.vector_store import VectorStore
 
 
 def test_markdown_chunker():
@@ -28,9 +30,7 @@ def temp_chroma():
 
 
 def test_vector_store(temp_chroma):
-    store = VectorStore(
-        persist_directory=temp_chroma, collection_name="test_collection"
-    )
+    store = VectorStore(persist_directory=temp_chroma, collection_name="test_collection")
     chunks = [
         {"id": "test1_0", "text": "Apple is a fruit", "metadata": {"source": "test1"}},
         {

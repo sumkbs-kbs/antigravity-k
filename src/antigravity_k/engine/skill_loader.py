@@ -1,4 +1,9 @@
-"""Skill Loader module."""
+"""Skill Loader module.
+
+Phase 1 D13: .agent/skills/market/ 디렉토리 연동.
+SkillLoader가 글로벌 → 로컬 베이스 → 마켓 순서로
+3개 소스에서 스킬을 로드합니다.
+"""
 
 import logging
 import os
@@ -14,33 +19,45 @@ from antigravity_k.engine.capability_policy import (
 
 logger = logging.getLogger(__name__)
 
+# ─── 상수 ─────────────────────────────────────────────────────────────
+
+MARKET_DIR_NAME = "market"
+"""마켓 스킬이 설치되는 서브디렉토리 이름."""
+
 
 class SkillLoader:
     """동적 스킬 로더.
 
-    프로젝트의 .agent/skills/ 폴더에 있는 Markdown 지침서(Skills)를 파싱하고 로드합니다.
+    3개 소스에서 Markdown 지침서(Skills)를 로드합니다:
+      1. 글로벌 (~/.agents/skills/)
+      2. 로컬 (.agent/skills/)
+      3. 마켓 (.agent/skills/market/)  ← Phase 1 D13
+
+    로드 우선순위: 글로벌 → 로컬 → 마켓 (뒤쪽이 앞쪽을 덮어씀).
     """
 
     def __init__(
         self,
         project_root: str | None = None,
         include_global: bool = True,
+        include_market: bool = True,
         capability_policy_config: dict[str, Any] | None = None,
     ):
         """Initialize the SkillLoader.
 
         Args:
-            project_root (str | None): str | None project root.
-            include_global (bool): bool include global.
-            capability_policy_config (dict[str, Any] | None): dict[str, Any] | None capability policy config.
-
+            project_root: 프로젝트 루트.
+            include_global: 글로벌 스킬 디렉토리 포함 여부.
+            include_market: 마켓 스킬 디렉토리 포함 여부 (Phase 1 D13).
+            capability_policy_config: 자율 정책 설정.
         """
         self.project_root = Path(project_root) if project_root else Path(os.getcwd())
         self.skills_dir = self.project_root / ".agent" / "skills"
+        self.market_dir = self.skills_dir / MARKET_DIR_NAME
         self.include_global = include_global
+        self.include_market = include_market
 
-        # 글로벌 스킬 디렉토리 추가 (사용자 요청: mr.k/program/coding/.agents/skills)
-        # 추가로 기본 홈 디렉토리의 .agents/skills 도 지원
+        # 글로벌 스킬 디렉토리
         home_dir = Path.home()
         self.global_skills_dirs = [
             Path("/Users/mr.k/program/coding/.agents/skills"),
@@ -61,7 +78,13 @@ class SkillLoader:
         self.refresh()
 
     def refresh(self):
-        """디렉토리를 스캔하여 스킬 목록을 캐시합니다. (전역 -> 로컬 순서로 오버라이드)."""
+        """3개 소스에서 스킬 목록을 스캔하여 캐시합니다.
+
+        로드 순서 (뒤쪽이 앞쪽을 덮어씀):
+          1. 글로벌 (~/.agents/skills/)
+          2. 로컬 (.agent/skills/, market/ 제외)
+          3. 마켓 (.agent/skills/market/)  ← Phase 1 D13
+        """
         self._skills.clear()
 
         # 1. 글로벌 스킬 로드
@@ -70,13 +93,27 @@ class SkillLoader:
                 if global_dir.exists():
                     self._load_from_dir(global_dir, is_global=True)
 
-        # 2. 로컬 프로젝트 스킬 로드 (글로벌을 덮어씀)
+        # 2. 로컬 프로젝트 스킬 로드 (market/ 디렉토리 제외)
         if self.skills_dir.exists():
-            self._load_from_dir(self.skills_dir, is_global=False)
+            self._load_from_dir(self.skills_dir, is_global=False, skip_dir=MARKET_DIR_NAME)
 
-    def _load_from_dir(self, directory: Path, is_global: bool = False):
-        """지정된 디렉토리에서 스킬을 로드합니다."""
+        # 3. 마켓 스킬 로드 (Phase 1 D13)
+        if self.include_market and self.market_dir.exists():
+            self._load_market_skills()
+
+    def _load_from_dir(self, directory: Path, is_global: bool = False, skip_dir: str | None = None):
+        """지정된 디렉토리에서 스킬을 로드합니다.
+
+        Args:
+            directory: 스캔할 디렉토리 경로
+            is_global: 글로벌 소스 여부
+            skip_dir: 건너뛸 서브디렉토리 이름 (로컬 스캔 시 market/ 제외용)
+        """
         for root, dirs, files in os.walk(directory):
+            # skip_dir이 지정된 서브디렉토리는 탐색에서 제외
+            if skip_dir and skip_dir in dirs:
+                dirs.remove(skip_dir)
+
             for file in files:
                 if file.endswith(".md"):
                     file_path = Path(root) / file
@@ -88,12 +125,39 @@ class SkillLoader:
                     parsed = self._parse_markdown(file_path)
                     if parsed:
                         parsed["is_global"] = is_global
+                        source = "global" if is_global else "local"
+                        parsed["source"] = source
                         self._skills[skill_id] = parsed
                         logger.debug(
                             "Loaded %s skill: %s",
-                            "global" if is_global else "local",
+                            source,
                             skill_id,
                         )
+
+    def _load_market_skills(self):
+        """마켓 디렉토리(.agent/skills/market/)에서 스킬을 로드합니다.
+
+        각 마켓 스킬은 서브디렉토리로 구성되며 SKILL.md 파일을 포함합니다.
+        마켓 스킬은 source="market"으로 태깅됩니다.
+        """
+        if not self.market_dir.exists():
+            return
+
+        for skill_dir in sorted(self.market_dir.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.exists():
+                continue
+
+            skill_id = skill_dir.name
+            parsed = self._parse_markdown(skill_md)
+            if parsed:
+                parsed["is_global"] = False
+                parsed["source"] = "market"
+                self._skills[skill_id] = parsed
+                logger.debug("Loaded market skill: %s", skill_id)
 
     def _parse_markdown(self, path: Path) -> dict[str, Any] | None:
         """마크다운 파일에서 YAML Frontmatter와 Body를 추출합니다."""
@@ -101,7 +165,7 @@ class SkillLoader:
             with open(path, encoding="utf-8") as f:
                 content = f.read()
 
-            metadata = {}
+            metadata: dict[str, Any] = {}
             body = content
 
             if content.startswith("---\n"):
@@ -110,7 +174,7 @@ class SkillLoader:
                     try:
                         metadata = yaml.safe_load(parts[1]) or {}
                     except yaml.YAMLError:
-                        pass
+                        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
                     body = parts[2]
 
             # YAML에 이름이나 설명이 없으면 파일 이름 사용
@@ -138,7 +202,7 @@ class SkillLoader:
         return self._skills.get(skill_id)
 
     def list_skills(self) -> list[dict[str, Any]]:
-        """모든 스킬 메타데이터를 반환합니다."""
+        """모든 스킬 메타데이터를 반환합니다 (source 정보 포함)."""
         return [
             {
                 "id": k,
@@ -146,9 +210,29 @@ class SkillLoader:
                 "description": v["description"],
                 "risk_level": v.get("risk_level", "safe"),
                 "trust_level": v.get("trust_level", "local"),
+                "source": v.get("source", "local"),
             }
             for k, v in self._skills.items()
         ]
+
+    def list_skills_by_source(self, source: str) -> list[dict[str, Any]]:
+        """특정 소스에서 로드된 스킬만 필터링하여 반환합니다.
+
+        Args:
+            source: 필터링할 소스 ("global", "local", "market")
+
+        Returns:
+            해당 소스의 스킬 메타데이터 리스트
+        """
+        return [s for s in self.list_skills() if s.get("source") == source]
+
+    def get_market_skills(self) -> list[dict[str, Any]]:
+        """마켓에서 설치된 스킬 목록을 반환합니다.
+
+        Returns:
+            소스가 "market"인 스킬 메타데이터 리스트
+        """
+        return self.list_skills_by_source("market")
 
     def activate_skill(self, skill_id: str) -> bool:
         """활성 스킬 목록에 추가합니다."""

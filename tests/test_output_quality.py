@@ -168,9 +168,7 @@ graph TD
     result = gate.evaluate("reasoning", "마크다운 테스트", output)
 
     assert result.should_retry is True
-    assert any(
-        "Mermaid 다이어그램 내 HTML 태그 포함" in issue for issue in result.issues
-    )
+    assert any("Mermaid 다이어그램 내 HTML 태그 포함" in issue for issue in result.issues)
     assert any("Carousel 마크다운 문법 오류" in issue for issue in result.issues)
     assert any("파일 링크 텍스트에 백틱 사용" in issue for issue in result.issues)
     assert any("구형 경고 블록 감지" in issue for issue in result.issues)

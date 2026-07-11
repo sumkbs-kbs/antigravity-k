@@ -59,5 +59,37 @@ demo_artifacts/
 .tox/
 node_modules/
 
+# Coverage reports
+coverage_html/
+.coverage
+.coverage.*
+nosetests.xml
+*.cover
+*.py,cover
+
+# Docker
+docker-compose*.yml
+*.pid
+
+# Ruff cache
+.ruff_cache/
+
+# Dashboard build
+dashboard/dist/
+dashboard/node_modules/
+
+# Vault/secret storage
+.agk_vault/
+
 # LFS large file (will be migrated)
 .agent/skills/gstack/bin/gstack-global-discover.exe
+
+# Config files with secrets (copy from .example files)
+config.yaml
+
+# Editor temp files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

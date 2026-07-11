@@ -68,7 +68,7 @@ class KnowledgeGraph:
             dict: The dict result.
 
         """
-        node_types = {}
+        node_types: dict[NodeType, int] = {}
         for node in self.nodes.values():
             nt = node["node_type"]
             node_types[nt] = node_types.get(nt, 0) + 1

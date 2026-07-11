@@ -289,7 +289,7 @@ class VisionDOMHybrid:
     3. 융합 분석: 텍스트 + 시각적 맥락 통합
     """
 
-    def __init__(self, dom_parser: SemanticDOMParser = None):
+    def __init__(self, dom_parser: SemanticDOMParser | None = None):
         """Initialize the VisionDOMHybrid.
 
         Args:
@@ -300,7 +300,7 @@ class VisionDOMHybrid:
 
     # ─── 메인 분석 ────────────────────────────────────────────
 
-    async def analyze_async(self, page, snapshot: SemanticSnapshot = None) -> HybridAnalysis:
+    async def analyze_async(self, page, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis:
         """비동기: DOM + Vision 융합 분석."""
         analysis = HybridAnalysis()
 
@@ -333,7 +333,7 @@ class VisionDOMHybrid:
 
         return analysis
 
-    def analyze_sync(self, page, snapshot: SemanticSnapshot = None) -> HybridAnalysis:
+    def analyze_sync(self, page, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis:
         """동기: DOM + Vision 융합 분석."""
         analysis = HybridAnalysis()
 

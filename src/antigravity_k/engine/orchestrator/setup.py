@@ -94,6 +94,19 @@ def create_fact_appender(manager, project_root: str):
         return None
 
 
+def create_mode_manager():
+    """ModeManager를 초기화합니다."""
+    try:
+        from antigravity_k.engine.mode_manager import ModeManager
+
+        mgr = ModeManager()
+        logger.info("[Orchestrator] ModeManager 활성화 완료 (mode=%s)", mgr.current_mode.value)
+        return mgr
+    except Exception:
+        logger.exception("Failed to initialize ModeManager")
+        return None
+
+
 def create_evolution_coordinator(
     project_root: str,
     model_manager,

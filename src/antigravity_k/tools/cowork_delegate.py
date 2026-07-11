@@ -22,7 +22,7 @@ class CoworkDelegateTool(BaseTool):
     icon = "🤝"
     tags = ["cowork", "delegate", "subagent", "background", "worktree"]
 
-    def __init__(self, project_root: str = None, model_manager=None):
+    def __init__(self, project_root: str | None = None, model_manager=None):
         """Initialize the CoworkDelegateTool.
 
         Args:

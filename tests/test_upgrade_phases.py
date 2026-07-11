@@ -1,5 +1,4 @@
-"""
-Tests for RAG Indexer, Chain-of-Verification, Context Compressor upgrade,
+"""Tests for RAG Indexer, Chain-of-Verification, Context Compressor upgrade,
 and External Brain auto-delegation.
 """
 
@@ -44,8 +43,9 @@ class Foo:
 
     def test_format_context_returns_xml_block(self):
         """format_context should produce <relevant_code> XML when results exist."""
-        from antigravity_k.engine.rag_indexer import RAGIndexer
         from unittest.mock import MagicMock
+
+        from antigravity_k.engine.rag_indexer import RAGIndexer
 
         mock_store = MagicMock()
         mock_store.search.return_value = [
@@ -114,7 +114,9 @@ class TestChainOfVerification:
         from antigravity_k.engine.chain_of_verification import ChainOfVerification
 
         cov = ChainOfVerification(min_response_length=10, complexity_threshold=0.0)
-        response = '```python\ndef hello():\n    return "world"\n```\n이 함수는 "world"를 반환합니다. 시간복잡도는 O(1)입니다.'
+        response = (
+            '```python\ndef hello():\n    return "world"\n```\n이 함수는 "world"를 반환합니다. 시간복잡도는 O(1)입니다.'
+        )
         trace = cov.run("함수 작성", response)
         # No generate_fn so no LLM verification, only rule-based
         assert trace.verification_result is not None
@@ -134,9 +136,7 @@ class TestContextCompressorUpgrade:
             summarize_called.append(prompt)
             return "사용자가 아키텍처 변경을 결정하고 새로운 모듈 구조를 적용했습니다"
 
-        cc = ContextCompressor(
-            token_limit=100, keep_last_n=2, summarize_fn=mock_summarize
-        )
+        cc = ContextCompressor(token_limit=100, keep_last_n=2, summarize_fn=mock_summarize)
         messages = [
             {"role": "system", "content": "You are helpful."},
             {"role": "user", "content": "A" * 200},
@@ -171,9 +171,7 @@ class TestContextCompressorUpgrade:
     def test_pruned_summaries_are_preserved(self):
         from antigravity_k.engine.context_compressor import ContextCompressor
 
-        cc = ContextCompressor(
-            token_limit=50, keep_last_n=1, summarize_fn=lambda p: "요약 결과"
-        )
+        cc = ContextCompressor(token_limit=50, keep_last_n=1, summarize_fn=lambda p: "요약 결과")
         messages = [
             {"role": "user", "content": "X" * 200},
             {"role": "assistant", "content": "Y" * 200},
@@ -189,8 +187,9 @@ class TestContextCompressorUpgrade:
 
 class TestExternalBrainAutoDelegation:
     def test_adapt_strategy_triggers_delegation_after_3_failures(self):
-        from antigravity_k.engine.cognitive_loop import CognitiveLoop
         from unittest.mock import MagicMock
+
+        from antigravity_k.engine.cognitive_loop import CognitiveLoop
 
         mock_router = MagicMock()
         loop = CognitiveLoop(

@@ -12,9 +12,7 @@ def test_agentic_radar_prioritizes_durable_mcp_and_code_actions():
     assert "MCP-native tool ecosystem" in capabilities
     assert "Code-action agents with sandboxed execution" in capabilities
     assert report.high_priority_count >= 3
-    assert any(
-        "Persist StateContext checkpoints" in item for item in report.transfer_plan
-    )
+    assert any("Persist StateContext checkpoints" in item for item in report.transfer_plan)
 
 
 def test_agentic_radar_markdown_contains_sources_and_guardrails():

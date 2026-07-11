@@ -87,7 +87,7 @@ class ReadHashFileTool(BaseTool):
 
         """
         file_path = kwargs.get("file_path")
-        if not file_path or not os.path.exists(file_path):
+        if file_path is None or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
 
         try:
@@ -187,8 +187,11 @@ class HashlineEditTool(BaseTool):
         expected_hash = kwargs.get("expected_hash", "").upper()
         replacement_text = kwargs.get("replacement_text", "")
 
-        if not os.path.exists(file_path):
+        if file_path is None or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
+
+        if line_number is None:
+            return "Error: line_number is required."
 
         try:
             with open(file_path, encoding="utf-8") as f:
@@ -301,7 +304,7 @@ class MultiReplaceFileContentTool(BaseTool):
         target_file = kwargs.get("TargetFile")
         chunks = kwargs.get("ReplacementChunks", [])
 
-        if not os.path.exists(target_file):
+        if target_file is None or not os.path.exists(target_file):
             return f"Error: File not found at {target_file}"
 
         try:

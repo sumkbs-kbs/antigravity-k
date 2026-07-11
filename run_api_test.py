@@ -1,6 +1,6 @@
-import requests
 import json
-import time
+
+import requests
 
 url = "http://127.0.0.1:8000/v1/chat/completions"
 headers = {"Content-Type": "application/json"}
@@ -40,7 +40,7 @@ for line in response.iter_lines():
                             print(delta["content"], end="", flush=True)
                         if "tool_calls" in delta:
                             print(f"[TOOL_CALL: {delta['tool_calls']}]", end="")
-        except Exception as e:
+        except Exception:
             pass
 
 print("\n\nDone.")

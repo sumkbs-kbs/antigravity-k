@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 SELF_CAPABILITY_RE = re.compile(
     r"(너를\s*소개|자기\s*소개|너는\s*누구|정체|"
     r"뭘\s*할\s*수|무엇을\s*할\s*수|할\s*수\s*있는\s*일|"
-    r"할\s*수\s*없는\s*일|능력|기능|capabilit|what\s+can\s+you\s+do|who\s+are\s+you)",
+    r"할\s*수\s*없는\s*일|능력|기능|capabilit|what\s+can\s+you\s+do|who\s+are\s+you|"
+    r"사용.*모델|어떤\s*모델|현재\s*모델|니가\s*쓰는|네가\s*쓰는|"
+    r"어떤\s*도구|등록된\s*도구|설정\s*상태|구성\s*상태|"
+    r"your\s+model|which\s+model|current\s+model)",
     re.IGNORECASE,
 )
 
@@ -216,7 +219,7 @@ class SelfCapabilityEngine:
         if slash_commands is None:
             return []
         if isinstance(slash_commands, Mapping):
-            names = slash_commands.keys()
+            names: Iterable[str] = slash_commands.keys()
         else:
             names = slash_commands
         return sorted(str(name) for name in names)

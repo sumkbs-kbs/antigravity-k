@@ -52,11 +52,8 @@ class Multiplexer:
             )
 
             # 2. 독립된 런너 초기화 (Worktree 경로 주입)
-            runner = GoalRunner(
-                task_id=task_id,
-                workspace_dir=worktree_path,
-                instruction=instruction,
-            )
+            runner = GoalRunner(objective=instruction)  # type: ignore[call-arg]
+            runner.project_root = worktree_path  # type: ignore[assignment]
             self.active_runners.append(runner)
 
             # 3. 비동기 실행 태스크 추가

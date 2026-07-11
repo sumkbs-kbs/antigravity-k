@@ -50,7 +50,7 @@ export const VisionPage = {
     let currentFile = null;
 
     dropzone.addEventListener('click', () => fileInput.click());
-    
+
     fileInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
         handleFile(e.target.files[0]);
@@ -67,7 +67,7 @@ export const VisionPage = {
     function handleFile(file) {
       if (!file.type.startsWith('image/')) return;
       currentFile = file;
-      
+
       const reader = new FileReader();
       reader.onload = (e) => {
         preview.src = e.target.result;
@@ -83,10 +83,10 @@ export const VisionPage = {
         return;
       }
       const text = promptInput.value.trim() || "What's in this image?";
-      
+
       resultDiv.style.display = 'block';
       resultDiv.innerHTML = '<div style="display:flex; align-items:center; gap:8px;"><span class="spinner-mini"></span><span>이미지 분석 중... (로컬 Vision 모델이 호출됩니다)</span></div>';
-      
+
       // Simulate API call
       setTimeout(() => {
         resultDiv.innerHTML = `

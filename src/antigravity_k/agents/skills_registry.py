@@ -1,4 +1,8 @@
-"""Skills Registry module."""
+"""Skills Registry module.
+
+Phase 1 D13: .agent/skills/market/ 디렉토리 연동.
+SkillsRegistry도 마켓 스킬을 동적 로드합니다.
+"""
 
 import logging
 import re
@@ -9,6 +13,10 @@ from ..i18n import t as i18n_t
 from ..security.lintai_scanner import LintaiScanner
 
 logger = logging.getLogger(__name__)
+
+# ─── 상수 ─────────────────────────────────────────────────────────────
+
+MARKET_DIR_NAME = "market"
 
 
 def _parse_yaml_frontmatter(content: str) -> dict[str, Any]:
@@ -189,15 +197,30 @@ class SkillsRegistry:
         )
 
     def _load_dynamic_skills(self):
-        """디렉토리에서 동적으로 스킬 파일을 로드합니다."""
+        """디렉토리에서 동적으로 스킬 파일을 로드합니다.
+
+        Phase 1 D13: .agent/skills/market/도 스캔.
+        """
         if not self.skills_dir.exists():
             return
 
         for skill_folder in self.skills_dir.iterdir():
+            # market/ 디렉토리는 별도 처리
+            if skill_folder.name == MARKET_DIR_NAME:
+                continue
             if skill_folder.is_dir():
                 skill_md_path = skill_folder / "SKILL.md"
                 if skill_md_path.exists():
                     self._load_skill_file(skill_md_path, skill_folder.name)
+
+        # 마켓 스킬 로드 (Phase 1 D13)
+        market_dir = self.skills_dir / MARKET_DIR_NAME
+        if market_dir.exists():
+            for skill_folder in market_dir.iterdir():
+                if skill_folder.is_dir():
+                    skill_md_path = skill_folder / "SKILL.md"
+                    if skill_md_path.exists():
+                        self._load_skill_file(skill_md_path, skill_folder.name)
 
     def _load_skill_file(self, file_path: Path, skill_name: str):
         # Lintai 보안 스캔 수행

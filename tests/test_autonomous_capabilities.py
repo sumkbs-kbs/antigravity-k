@@ -38,9 +38,7 @@ def test_tool_registry_applies_autonomous_policy_before_execution():
     registry = ToolRegistry()
     registry.install(DummyTool())
 
-    permission, result = registry.execute_with_permission(
-        "desktop_control", {}, objective="본 PC를 조작해서 테스트"
-    )
+    permission, result = registry.execute_with_permission("desktop_control", {}, objective="본 PC를 조작해서 테스트")
 
     assert permission == Permission.PROMPT
     assert "Critical PC capabilities" in result

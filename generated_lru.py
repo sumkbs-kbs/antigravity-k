@@ -1,19 +1,18 @@
 import asyncio
 from collections import OrderedDict
-from typing import Any, Callable, Generic, TypeVar, Optional
-from weakref import WeakValueDictionary
+from typing import Awaitable, Callable, Generic, TypeVar
 
 T = TypeVar("T")
 K = TypeVar("K")
 
 
 class AsyncLRUCache(Generic[K, T]):
-    """
-    An asynchronous LRU cache with TTL support.
+    """An asynchronous LRU cache with TTL support.
 
     Args:
         max_size (int): Maximum number of items to store in the cache.
         ttl (float): Time-to-live for each item in seconds.
+
     """
 
     def __init__(self, max_size: int, ttl: float):
@@ -47,16 +46,13 @@ class AsyncLRUCache(Generic[K, T]):
             # Remove expired items
             current_time = asyncio.get_running_loop().time()
             to_remove = [
-                k
-                for k, f in self._cache.items()
-                if f.done() and (current_time - f.result_info[1]) > self._ttl
+                k for k, f in self._cache.items() if f.done() and (current_time - f.result_info[1]) > self._ttl
             ]
             for k in to_remove:
                 del self._cache[k]
 
     async def get_or_compute(self, key: K, factory: Callable[[], Awaitable[T]]) -> T:
-        """
-        Retrieves the value associated with the given key from the cache or computes it using the provided factory function.
+        """Retrieves the value associated with the given key from the cache or computes it using the provided factory function.
 
         Args:
             key (K): The key to retrieve or compute a value for.
@@ -64,5 +60,6 @@ class AsyncLRUCache(Generic[K, T]):
 
         Returns:
             T: The value associated with the key.
+
         """
         return await self._get_or_create(key, factory)

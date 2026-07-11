@@ -136,7 +136,7 @@ class AgentSpawnTool(BaseTool):
         start_time = time.time()
 
         try:
-            from antigravity_k.api.server import get_vault_engine
+            from antigravity_k.api.dependencies import get_vault_engine
             from antigravity_k.engine.orchestrator import OrchestratorAgent
 
             sub_orchestrator = OrchestratorAgent(

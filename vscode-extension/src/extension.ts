@@ -11,7 +11,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         const activeFile = editor.document.uri.fsPath;
         const cursorLine = editor.selection.active.line + 1;
-        
+
         // 열린 파일 목록
         const openFiles = vscode.workspace.textDocuments
             .map(doc => doc.uri.fsPath)

@@ -80,13 +80,9 @@ class FoodNormalizationTest(unittest.TestCase):
 
 class ProxyResolutionTest(unittest.TestCase):
     def test_resolve_proxy_base_url_defaults_to_hosted_proxy(self):
+        self.assertEqual(resolve_proxy_base_url(None, env={}), "https://k-skill-proxy.nomadamas.org")
         self.assertEqual(
-            resolve_proxy_base_url(None, env={}), "https://k-skill-proxy.nomadamas.org"
-        )
-        self.assertEqual(
-            resolve_proxy_base_url(
-                None, env={"KSKILL_PROXY_BASE_URL": "https://proxy.example.com/"}
-            ),
+            resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "https://proxy.example.com/"}),
             "https://proxy.example.com",
         )
         with self.assertRaisesRegex(ValueError, "KSKILL_PROXY_BASE_URL"):
@@ -107,9 +103,7 @@ class ProxyResolutionTest(unittest.TestCase):
         )
 
         self.assertEqual(payload, {"items": [], "warnings": []})
-        self.assertIn(
-            "https://proxy.example.com/v1/mfds/food-safety/search", captured["url"]
-        )
+        self.assertIn("https://proxy.example.com/v1/mfds/food-safety/search", captured["url"])
         self.assertIn("query=%EA%B9%80%EB%B0%A5", captured["url"])
         self.assertIn("limit=4", captured["url"])
 

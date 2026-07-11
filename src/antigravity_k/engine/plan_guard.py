@@ -52,8 +52,47 @@ class PlanGuard:
         self.strict_mode = strict_mode
         self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.DESTRUCTIVE_PATTERNS]
 
-    def evaluate_tool_call(self, tool_name: str, tool_args: dict[str, Any]) -> GuardDecision:
-        """도구 호출의 위험도를 평가합니다."""
+    def evaluate_tool_call(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        execution_mode: str | None = None,
+    ) -> GuardDecision:
+        """도구 호출의 위험도를 평가합니다.
+
+        Args:
+            tool_name: 도구 이름
+            tool_args: 도구 인자
+            execution_mode: 실행 모드 ("plan", "build", "interactive", None)
+                           PLAN 모드에서는 읽기 전용 도구 자동 Allow
+        """
+        # 0. PLAN 모드에서는 쓰기/실행 도구 자동 차단 (Phase 1 D5: execution_mode는 OrchestratorAgent._get_execution_mode()에서 전파)
+        if execution_mode == "plan":
+            from antigravity_k.engine.execution_mode import PLAN_ALLOWED_TOOLS
+
+            if tool_name not in PLAN_ALLOWED_TOOLS:
+                return GuardDecision(
+                    allows_execution=False,
+                    requires_approval=False,
+                    message=(
+                        f"[PLAN MODE] '{tool_name}' 도구는 계획 수립 모드에서 실행할 수 없습니다. "
+                        f"읽기 전용 도구(read_file, grep, glob)와 write_artifact만 허용됩니다."
+                    ),
+                    risk_level="MEDIUM",
+                )
+
+        # BUILD 모드: restricted 도구만 승인 필요
+        if execution_mode == "build":
+            from antigravity_k.engine.execution_mode import BUILD_RESTRICTED_TOOLS
+
+            if tool_name in BUILD_RESTRICTED_TOOLS:
+                return GuardDecision(
+                    allows_execution=False,
+                    requires_approval=True,
+                    message=f"[BUILD MODE] '{tool_name}' 도구는 승인이 필요합니다.",
+                    risk_level="HIGH",
+                )
+
         # 1. 터미널/쉘 명령어 분석
         if tool_name in (
             "run_bash_command",

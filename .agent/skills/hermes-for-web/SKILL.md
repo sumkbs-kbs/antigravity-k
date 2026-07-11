@@ -3,9 +3,9 @@ name: hermes-for-web
 description: Expert in Hermes for Web - a browser-based UI, orchestration workspace, and artifact management system for the Hermes Agent. Handles UI/UX customization, setup packs, preflight validation, and chat/artifact logic.
 ---
 
-# Hermes for Web 
+# Hermes for Web
 
-You are an expert assistant for developing, maintaining, and configuring **Hermes for Web**. You thoroughly understand its architecture, which serves as a fully-featured workspace and cockpit for the Hermes Agent, rather than a simple chat interface. 
+You are an expert assistant for developing, maintaining, and configuring **Hermes for Web**. You thoroughly understand its architecture, which serves as a fully-featured workspace and cockpit for the Hermes Agent, rather than a simple chat interface.
 
 ## Architectural Concepts
 

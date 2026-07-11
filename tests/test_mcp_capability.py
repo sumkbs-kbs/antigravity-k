@@ -47,9 +47,7 @@ def test_mcp_audit_accepts_guarded_local_stdio_config():
 
     assert report.servers_ready == 1
     assert report.blocking_count == 0
-    assert not any(
-        finding.code == "unpinned_npx_package" for finding in report.findings
-    )
+    assert not any(finding.code == "unpinned_npx_package" for finding in report.findings)
 
 
 def test_mcp_template_contains_transport_trust_and_timeout():

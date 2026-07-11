@@ -5,7 +5,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-
 NAMUWIKI_BASE = "https://namu.wiki/w/"
 _NAMUWIKI_HOSTS = ("namu.wiki", "en.namu.wiki")
 
@@ -72,18 +71,14 @@ def fetch_html(url: str, timeout: int) -> str:
         raise ValueError(f"not a namuwiki URL: {url}")
     request = urllib.request.Request(url, headers=browser_headers())
     try:
-        with urllib.request.urlopen(
-            request, timeout=timeout, context=_get_ssl_context()
-        ) as response:
+        with urllib.request.urlopen(request, timeout=timeout, context=_get_ssl_context()) as response:
             body = response.read()
     except urllib.error.HTTPError as error:
         status = error.code
         if status == 404:
             raise NotFoundError(f"HTTP 404: {url}") from error
         if status in (401, 403, 429):
-            raise BlockedError(
-                f"HTTP {status} (possibly Cloudflare / rate-limited) for {url}"
-            ) from error
+            raise BlockedError(f"HTTP {status} (possibly Cloudflare / rate-limited) for {url}") from error
         raise UpstreamError(f"HTTP {status} for {url}") from error
     except urllib.error.URLError as error:
         raise UpstreamError(f"URL error for {url}: {error.reason}") from error

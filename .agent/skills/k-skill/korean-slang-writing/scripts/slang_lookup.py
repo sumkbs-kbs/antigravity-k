@@ -18,14 +18,11 @@ from _slang_http import (  # noqa: E402
     fetch_html,
 )
 
-
 DEFAULT_TIMEOUT = 15
 DEFAULT_MAX_LENGTH = 1500
 
 TAG_RE = re.compile(r"<[^>]+>")
-SCRIPT_STYLE_RE = re.compile(
-    r"<(script|style|noscript)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE
-)
+SCRIPT_STYLE_RE = re.compile(r"<(script|style|noscript)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE)
 TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
 NAMUWIKI_TITLE_SUFFIX_RE = re.compile(r"\s*[-|]?\s*나무위키\s*$")
 BLOCK_END_RE = re.compile(r"</(p|div|li|h[1-6])>", re.IGNORECASE)
@@ -38,10 +35,7 @@ SECTION_NUMBER_PREFIX_RE = re.compile(r"^\s*\d+(?:\.\d+)*\.\s+", re.MULTILINE)
 EDIT_AFFORDANCE_RE = re.compile(r"\[\s*편집\s*\]")
 CATEGORY_NAV_RE = re.compile(r"\[\s*펼치기\s*[·・•]\s*접기\s*\][^\n]*")
 DETAILS_PELCHIGI_RE = re.compile(
-    r"<details\b[^>]*>"
-    r"\s*<summary\b[^>]*>[^<]*펼치기[^<]*</summary>"
-    r".*?"
-    r"</details>",
+    r"<details\b[^>]*>" r"\s*<summary\b[^>]*>[^<]*펼치기[^<]*</summary>" r".*?" r"</details>",
     re.DOTALL | re.IGNORECASE,
 )
 OG_DESCRIPTION_RE = re.compile(

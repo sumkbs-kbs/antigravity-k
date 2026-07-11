@@ -8,9 +8,7 @@ import tempfile
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-WRAPPER_PATH = (
-    REPO_ROOT / "coupang-product-search" / "scripts" / "coupang_partners_mcp.py"
-)
+WRAPPER_PATH = REPO_ROOT / "coupang-product-search" / "scripts" / "coupang_partners_mcp.py"
 
 
 def load_wrapper_module():
@@ -38,9 +36,7 @@ class CoupangPartnersMcpWrapperTests(unittest.TestCase):
             bin_dir.mkdir(parents=True)
             upstream = bin_dir / "coupang_mcp.py"
             upstream.write_text(
-                "#!/usr/bin/env python3\n"
-                "import json, sys\n"
-                "print(json.dumps({'argv': sys.argv[1:]}))\n",
+                "#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps({'argv': sys.argv[1:]}))\n",
                 encoding="utf-8",
             )
             upstream.chmod(0o755)
@@ -140,10 +136,7 @@ class CoupangPartnersMcpWrapperTests(unittest.TestCase):
             bin_dir.mkdir(parents=True)
             upstream = bin_dir / "coupang_mcp.py"
             upstream.write_text(
-                "#!/usr/bin/env python3\n"
-                "import sys\n"
-                "print('upstream failed', file=sys.stderr)\n"
-                "raise SystemExit(7)\n",
+                "#!/usr/bin/env python3\nimport sys\nprint('upstream failed', file=sys.stderr)\nraise SystemExit(7)\n",
                 encoding="utf-8",
             )
             upstream.chmod(0o755)
@@ -246,9 +239,7 @@ class CoupangPartnersMcpWrapperTests(unittest.TestCase):
             payload = json.loads(completed.stdout)
             self.assertEqual(payload["OPENCLAW_SHOPPING_CLIENT_ID"], "openclaw-skill")
             self.assertEqual(payload["OPENCLAW_SHOPPING_FORCE_HOSTED"], "1")
-            self.assertEqual(
-                payload["OPENCLAW_SHOPPING_BASE_URL"], "https://staging.example.com"
-            )
+            self.assertEqual(payload["OPENCLAW_SHOPPING_BASE_URL"], "https://staging.example.com")
 
     def test_help_epilog_documents_credentialless_hosted_fallback(self):
         completed = subprocess.run(
@@ -305,11 +296,7 @@ class CoupangPartnersMcpHostedFallbackSmokeTests(unittest.TestCase):
             "COUPANG_PARTNERS_REPO_DIR",
             str(pathlib.Path.home() / ".cache/k-skill/coupang_partners"),
         )
-        env = {
-            k: v
-            for k, v in os.environ.items()
-            if k not in {"COUPANG_ACCESS_KEY", "COUPANG_SECRET_KEY"}
-        }
+        env = {k: v for k, v in os.environ.items() if k not in {"COUPANG_ACCESS_KEY", "COUPANG_SECRET_KEY"}}
 
         completed = subprocess.run(
             [

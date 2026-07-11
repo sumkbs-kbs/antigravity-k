@@ -133,6 +133,86 @@ class ContextShaper:
 
         return shaped
 
+    def clear_old_tool_results(self, messages: list[dict[str, str]], keep_last: int = 3) -> list[dict[str, str]]:
+        """오래된 도구 실행 결과(tool_response/tool_result)를 정리합니다.
+
+        연속된 tool 결과 메시지 중 최근 keep_last개만 유지하고,
+        나머지는 요약된 참조로 축약하여 컨텍스트를 정리합니다.
+
+        Args:
+            messages: 메시지 리스트
+            keep_last: 유지할 최근 tool 결과 수
+
+        Returns:
+            정리된 메시지 리스트
+        """
+        if not messages:
+            return messages
+
+        # tool 결과 역할 식별 (role이 tool/function이거나 content가 <tool_response> 포함)
+        tool_result_indices = []
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "")
+            content = str(msg.get("content", ""))
+            if role in ("tool", "function", "tool_result"):
+                tool_result_indices.append(i)
+            elif "<tool_response>" in content or "<tool_result>" in content:
+                tool_result_indices.append(i)
+
+        # 유지할 최근 결과를 제외한 나머지가 너무 많으면 축약
+        if len(tool_result_indices) <= keep_last:
+            return messages
+
+        to_compact = tool_result_indices[:-keep_last] if keep_last > 0 else tool_result_indices
+        result = []
+        for i, msg in enumerate(messages):
+            if i in to_compact:
+                content = str(msg.get("content", ""))
+                # 긴 tool 결과는 요약된 참조로 축약
+                if len(content) > 200:
+                    result.append(
+                        {
+                            **msg,
+                            "content": f"[이전 도구 결과 축약 — {len(content)} chars]",
+                        }
+                    )
+                else:
+                    result.append(msg)
+            else:
+                result.append(msg)
+        return result
+
+    def inject_budget_awareness(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+        """시스템 메시지에 비용/예산 인식 지시문을 주입합니다.
+
+        에이전트가 비용을 의식하며 동작하도록 유도합니다.
+        (CostGuard 연동을 위한 컨텍스트 프라이밍)
+
+        Args:
+            messages: 메시지 리스트
+
+        Returns:
+            예산 인식 지시문이 주입된 메시지 리스트
+        """
+        if not messages:
+            return messages
+
+        budget_directive = (
+            "[Budget Awareness] 비용 효율적으로 동작하세요: "
+            "불필요한 반복 호출을 피하고, 한 번에 정확한 결과를 산출하세요."
+        )
+
+        result = list(messages)
+        # 첫 번째 시스템 메시지에 주입
+        if result and result[0].get("role") == "system":
+            content = str(result[0].get("content", ""))
+            if "[Budget Awareness]" not in content:
+                result[0] = {**result[0], "content": f"{content}\n\n{budget_directive}"}
+        else:
+            result.insert(0, {"role": "system", "content": budget_directive})
+
+        return result
+
     # ─────────── Stage 1: Budget Reducer ───────────
 
     def _budget_reduce(self, current: int, budget: int) -> int:

@@ -19,7 +19,7 @@ class StoreKnowledgeTool(BaseTool):
     icon = "💾"
     tags = ["memory", "knowledge", "save", "store"]
 
-    def __init__(self, project_root: str = None):
+    def __init__(self, project_root: str | None = None):
         """Initialize the StoreKnowledgeTool.
 
         Args:
@@ -125,7 +125,7 @@ class SearchKnowledgeTool(BaseTool):
     icon = "🧠"
     tags = ["memory", "knowledge", "search", "retrieve"]
 
-    def __init__(self, project_root: str = None):
+    def __init__(self, project_root: str | None = None):
         """Initialize the SearchKnowledgeTool.
 
         Args:

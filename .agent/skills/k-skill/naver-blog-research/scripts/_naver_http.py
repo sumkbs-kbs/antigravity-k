@@ -9,7 +9,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-
 TAG_RE = re.compile(r"<[^>]+>")
 
 _ssl_ctx_secure: ssl.SSLContext | None = None
@@ -39,7 +38,7 @@ def is_naver_url(url: str) -> bool:
 
 
 def urlopen(request: urllib.request.Request, timeout: int, *, insecure: bool = False):
-    """urlopen with explicit SSL insecure mode for Naver domains.
+    """Urlopen with explicit SSL insecure mode for Naver domains.
 
     When *insecure* is True and the target is a Naver domain, SSL certificate
     verification is skipped.  A warning is printed to stderr on every call so

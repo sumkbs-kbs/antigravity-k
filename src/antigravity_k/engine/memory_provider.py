@@ -185,7 +185,7 @@ class MemoryManager:
 
     MAX_EXTERNAL_PROVIDERS = 1
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the MemoryManager."""
         self._providers: list[MemoryProvider] = []
         self._external_count = 0
@@ -319,18 +319,26 @@ class EpisodicMemoryProvider(MemoryProvider):
         manager.add_provider(episodic)
     """
 
-    def __init__(self, max_episodes: int = 200, decay_threshold: float = 0.3):
+    def __init__(self, max_episodes: int = 200, decay_threshold: float = 0.3, persist_dir: str | None = None):
         """Initialize the EpisodicMemoryProvider.
 
         Args:
             max_episodes (int): int max episodes.
             decay_threshold (float): float decay threshold.
+            persist_dir: 디스크 영속화 디렉토리 (작업 3). None이면 ~/.antigravity-k/memory.
 
         """
+        import os
+
         self._episodes: list[dict[str, Any]] = []
         self._max_episodes = max_episodes
         self._decay_threshold = decay_threshold
         self._access_counts: dict[int, int] = {}  # episode_id → access count
+        # 작업 3: 디스크 영속화 — 재시작 후에도 에피소드 유지
+        self._persist_dir = persist_dir or os.path.join(os.path.expanduser("~"), ".antigravity-k", "memory")
+        self._persist_path = os.path.join(self._persist_dir, "episodes.json")
+        os.makedirs(self._persist_dir, exist_ok=True)
+        self._load()
 
     @property
     def name(self) -> str:
@@ -415,6 +423,8 @@ class EpisodicMemoryProvider(MemoryProvider):
         # 용량 초과 시 오래된 저관련 에피소드 감쇠
         if len(self._episodes) > self._max_episodes:
             self._consolidate()
+        else:
+            self._save()  # 작업 3: 디스크 영속화
 
     def _consolidate(self):
         """메모리 통합: 오래되고 접근 빈도 낮은 에피소드 제거."""
@@ -451,6 +461,33 @@ class EpisodicMemoryProvider(MemoryProvider):
             remove_count,
             len(self._episodes),
         )
+        self._save()
+
+    def _load(self):
+        """디스크에서 에피소드를 로드합니다 (작업 3)."""
+        import json
+        import os
+
+        if not os.path.exists(self._persist_path):
+            return
+        try:
+            with open(self._persist_path, encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    self._episodes = data[-self._max_episodes :]
+                    logger.info("[EpisodicMemory] 디스크에서 %s개 에피소드 로드", len(self._episodes))
+        except Exception:
+            logger.warning("[EpisodicMemory] 로드 실패 (non-critical)", exc_info=True)
+
+    def _save(self):
+        """에피소드를 디스크에 저장합니다 (작업 3)."""
+        import json
+
+        try:
+            with open(self._persist_path, "w", encoding="utf-8") as f:
+                json.dump(self._episodes, f, ensure_ascii=False, indent=2)
+        except Exception:
+            logger.warning("[EpisodicMemory] 저장 실패 (non-critical)", exc_info=True)
 
     def get_stats(self) -> dict[str, Any]:
         """Retrieve stats.
@@ -547,3 +584,152 @@ class WorkingMemoryBuffer(MemoryProvider):
         """워킹 메모리를 초기화합니다."""
         self._turns.clear()
         self._pinned.clear()
+
+
+# ── Cross-Project 글로벌 메모리 제공자 (P2-3) ──
+
+
+class GlobalMemoryProvider(MemoryProvider):
+    """사용자 단위 글로벌 메모리 — 모든 프로젝트에 걸쳐 공유 (P2-3).
+
+    ~/.antigravity-k/memory/ 에 저장되는 사용자 코딩 스타일, 선호 라이브러리,
+    반복 패턴, 자주 하는 요청 등을 영속화합니다. Cursor Memory / Claude Projects 대응.
+
+    다른 MemoryProvider(세션/프로젝트 단위)와 달리, 이 제공자는 사용자 홈 디렉토리에
+    저장되므로 프로젝트를 바꿔도 동일한 선호도가 유지됩니다.
+
+    저장 카테고리:
+      - preferences: 사용자 선호 (예: "tabs 사용", "한국어 응답 선호")
+      - patterns: 반복 코딩 패턴 (예: "항상 type hints 추가")
+      - facts: 학습한 사실 (예: "이 사용자는 React 선호")
+    """
+
+    def __init__(self, memory_dir: str | None = None, max_entries: int = 200):
+        """Initialize the GlobalMemoryProvider.
+
+        Args:
+            memory_dir: 메모리 저장 디렉토리 (기본: ~/.antigravity-k/memory)
+            max_entries: 카테고리당 최대 항목 수
+
+        """
+        import os
+
+        self._memory_dir = memory_dir or os.path.join(os.path.expanduser("~"), ".antigravity-k", "memory")
+        self._max_entries = max_entries
+        os.makedirs(self._memory_dir, exist_ok=True)
+        self._memory: dict[str, list[str]] = self._load()
+
+    @property
+    def name(self) -> str:
+        return "global"
+
+    def _load(self) -> dict[str, list[str]]:
+        """디스크에서 글로벌 메모리를 로드합니다."""
+        import json
+        import os
+
+        result: dict[str, list[str]] = {"preferences": [], "patterns": [], "facts": []}
+        for category in result:
+            path = os.path.join(self._memory_dir, f"{category}.json")
+            if os.path.exists(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            result[category] = data[-self._max_entries :]
+                except Exception:
+                    logger.warning("[GlobalMemory] %s 로드 실패", category, exc_info=True)
+        return result
+
+    def _save_category(self, category: str) -> None:
+        """특정 카테고리를 디스크에 저장합니다."""
+        import json
+        import os
+
+        path = os.path.join(self._memory_dir, f"{category}.json")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._memory.get(category, []), f, ensure_ascii=False, indent=2)
+        except Exception:
+            logger.warning("[GlobalMemory] %s 저장 실패", category, exc_info=True)
+
+    def prefetch(self, query: str, session_id: str | None = None) -> str:
+        """쿼리와 관련된 글로벌 기억을 회상합니다.
+
+        단순 키워드 매칭으로 관련 항목을 찾아 컨텍스트로 반환합니다.
+        """
+        if not any(self._memory.values()):
+            return ""
+
+        query_lower = query.lower()
+        relevant: list[str] = []
+
+        for category, entries in self._memory.items():
+            for entry in entries:
+                # 쿼리 키워드가 항목에 포함되면 관련성 있다고 판단
+                entry_lower = entry.lower()
+                words = query_lower.split()
+                if any(w in entry_lower for w in words if len(w) > 2):
+                    relevant.append(f"[{category}] {entry}")
+
+        if not relevant:
+            # 관련 항목이 없으면 상위 선호도만 표시
+            prefs = self._memory.get("preferences", [])[:3]
+            if prefs:
+                relevant = [f"[preferences] {p}" for p in prefs]
+
+        if relevant:
+            return "[Global User Memory]\n" + "\n".join(relevant[:10])
+        return ""
+
+    def sync_turn(
+        self,
+        user_message: str,
+        assistant_response: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """대화 턴에서 학습 가능한 패턴을 추출하여 글로벌 메모리에 저장합니다.
+
+        현재는 메타데이터로 명시적으로 전달된 preference/pattern만 저장.
+        향후 LLM 기반 자동 추출 확장 가능.
+        """
+        if not metadata:
+            return
+
+        # 명시적 preference 추가
+        new_prefs = metadata.get("learned_preferences", [])
+        for pref in new_prefs:
+            if pref and pref not in self._memory["preferences"]:
+                self._memory["preferences"].append(pref)
+                if len(self._memory["preferences"]) > self._max_entries:
+                    self._memory["preferences"] = self._memory["preferences"][-self._max_entries :]
+                self._save_category("preferences")
+
+        # 명시적 pattern 추가
+        new_patterns = metadata.get("learned_patterns", [])
+        for pattern in new_patterns:
+            if pattern and pattern not in self._memory["patterns"]:
+                self._memory["patterns"].append(pattern)
+                self._save_category("patterns")
+
+    def add_preference(self, preference: str) -> None:
+        """사용자 선호를 직접 추가합니다 (API/슬래시 명령어용)."""
+        if preference and preference not in self._memory["preferences"]:
+            self._memory["preferences"].append(preference)
+            if len(self._memory["preferences"]) > self._max_entries:
+                self._memory["preferences"] = self._memory["preferences"][-self._max_entries :]
+            self._save_category("preferences")
+            logger.info("[GlobalMemory] 선호도 추가: %s", preference[:50])
+
+    def add_fact(self, fact: str) -> None:
+        """학습한 사실을 추가합니다."""
+        if fact and fact not in self._memory["facts"]:
+            self._memory["facts"].append(fact)
+            if len(self._memory["facts"]) > self._max_entries:
+                self._memory["facts"] = self._memory["facts"][-self._max_entries :]
+            self._save_category("facts")
+
+    def get_all(self) -> dict[str, list[str]]:
+        """전체 글로벌 메모리를 반환합니다 (디버그/API용)."""
+        return dict(self._memory)

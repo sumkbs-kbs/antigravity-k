@@ -71,9 +71,7 @@ RIGHT_VIEW_PATTERN = re.compile(
     r"<div\s+class=\"view-item\s+right\">.*?<div\s+class=\"view-text\">(.*?)</div>",
     re.S,
 )
-CLASSIFICATION_PATTERN = re.compile(
-    r"<li\s+class=\"view_font02\">\s*[【〖]분류[】〗]\s*(.*?)</li>", re.S
-)
+CLASSIFICATION_PATTERN = re.compile(r"<li\s+class=\"view_font02\">\s*[【〖]분류[】〗]\s*(.*?)</li>", re.S)
 TOTAL_COUNT_PATTERN = re.compile(r"검색결과\s*<strong>(\d+)</strong>개")
 HIDDEN_VALUE_TEMPLATE = '<input[^>]+id="{field}"[^>]+value="([^"]*)"'
 
@@ -281,35 +279,25 @@ def fetch_text(
     if requests is not None:
         try:
             if data is not None:
-                response = requests.post(
-                    url, data=data, timeout=timeout, headers=headers
-                )
+                response = requests.post(url, data=data, timeout=timeout, headers=headers)
             else:
                 response = requests.get(url, timeout=timeout, headers=headers)
             response.raise_for_status()
             return response.text
         except Exception as error:  # noqa: BLE001
             if opener is None or not should_fallback_to_opener(error):
-                raise RuntimeError(
-                    f"Sillok request failed for {url}: {error}"
-                ) from error
+                raise RuntimeError(f"Sillok request failed for {url}: {error}") from error
 
     body = urllib.parse.urlencode(data).encode("utf-8") if data is not None else None
-    request = urllib.request.Request(
-        url, data=body, headers=headers, method="POST" if body else "GET"
-    )
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST" if body else "GET")
 
     try:
         with opener.open(request, timeout=timeout) as response:
             return response.read().decode("utf-8", "ignore")
     except urllib.error.HTTPError as error:  # type: ignore[attr-defined]
-        raise RuntimeError(
-            f"Sillok request failed with HTTP {error.code} for {url}"
-        ) from error
+        raise RuntimeError(f"Sillok request failed with HTTP {error.code} for {url}") from error
     except urllib.error.URLError as error:  # type: ignore[attr-defined]
-        raise RuntimeError(
-            f"Sillok request failed for {url}: {error.reason}"
-        ) from error
+        raise RuntimeError(f"Sillok request failed for {url}: {error.reason}") from error
 
 
 def extract_hidden_int(html_text: str, field: str) -> int | None:
@@ -323,11 +311,7 @@ def extract_hidden_int(html_text: str, field: str) -> int | None:
 
 def parse_result_title_metadata(title: str) -> ResultTitleMetadata:
     cleaned_title = clean_text(title)
-    article_title = (
-        cleaned_title.split("/", 1)[1].strip()
-        if "/" in cleaned_title
-        else cleaned_title
-    )
+    article_title = cleaned_title.split("/", 1)[1].strip() if "/" in cleaned_title else cleaned_title
     metadata_match = re.search(r",\s*([^,]+?)\s+(즉위년|\d+년)\b", cleaned_title)
 
     if not metadata_match:
@@ -347,17 +331,13 @@ def parse_result_title_metadata(title: str) -> ResultTitleMetadata:
     return ResultTitleMetadata(king, regnal_year, gregorian_year, article_title)
 
 
-def parse_search_results(
-    html_text: str, *, query: str, search_type: str
-) -> SearchReport:
+def parse_search_results(html_text: str, *, query: str, search_type: str) -> SearchReport:
     total_results = extract_hidden_int(html_text, "totalCount")
     if total_results is None:
         total_match = TOTAL_COUNT_PATTERN.search(html_text)
         total_results = int(total_match.group(1)) if total_match else 0
 
-    count_field = {"k": "countK", "w": "countW", "m": "countM", "c": "countC"}.get(
-        search_type, ""
-    )
+    count_field = {"k": "countK", "w": "countW", "m": "countM", "c": "countC"}.get(search_type, "")
     type_count = extract_hidden_int(html_text, count_field) if count_field else None
     if type_count is None:
         type_count = total_results
@@ -368,9 +348,7 @@ def parse_search_results(
         match = re.match(r"(.+?)\s*\((\d+)\)", label)
         if not match:
             continue
-        categories.append(
-            SearchCategory(label=match.group(1), count=int(match.group(2)), token=token)
-        )
+        categories.append(SearchCategory(label=match.group(1), count=int(match.group(2)), token=token))
 
     items: list[SearchResult] = []
     for article_id, subject_html, summary_html in RESULT_PATTERN.findall(html_text):
@@ -427,9 +405,7 @@ def parse_detail_page(html_text: str, *, article_id: str) -> ArticleDetail:
     translated_match = LEFT_VIEW_PATTERN.search(html_text)
     original_match = RIGHT_VIEW_PATTERN.search(html_text)
     if not translated_match or not original_match:
-        raise ValueError(
-            "Unable to find translated/original article text on the detail page."
-        )
+        raise ValueError("Unable to find translated/original article text on the detail page.")
 
     classification_match = CLASSIFICATION_PATTERN.search(html_text)
 
@@ -440,15 +416,11 @@ def parse_detail_page(html_text: str, *, article_id: str) -> ArticleDetail:
         title=clean_text(title_head.group(2)),
         translated_text=clean_article_text(translated_match.group(1)),
         original_text=clean_article_text(original_match.group(1)),
-        classification=(
-            clean_text(classification_match.group(1)) if classification_match else None
-        ),
+        classification=(clean_text(classification_match.group(1)) if classification_match else None),
     )
 
 
-def build_search_payload(
-    *, query: str, search_type: str, page_index: int
-) -> dict[str, str]:
+def build_search_payload(*, query: str, search_type: str, page_index: int) -> dict[str, str]:
     return {
         "topSearchWord": query,
         "pageIndex": str(page_index),
@@ -467,9 +439,7 @@ def fetch_search_page(
     page_index: int,
     timeout: int,
 ) -> SearchReport:
-    payload = build_search_payload(
-        query=query, search_type=search_type, page_index=page_index
-    )
+    payload = build_search_payload(query=query, search_type=search_type, page_index=page_index)
     html_text = fetch_text(
         opener,
         SEARCH_URL,
@@ -528,14 +498,9 @@ def search_sillok(
             break
         page_index += 1
 
-    first_report = (
-        reports[0] if reports else SearchReport(query, search_type, 0, 0, [], [])
-    )
+    first_report = reports[0] if reports else SearchReport(query, search_type, 0, 0, [], [])
     limited_results = filtered_results[:limit]
-    details = [
-        fetch_detail_page(opener, article_id=item.article_id, timeout=timeout)
-        for item in limited_results
-    ]
+    details = [fetch_detail_page(opener, article_id=item.article_id, timeout=timeout) for item in limited_results]
     detail_map = {detail.article_id: detail for detail in details}
 
     serialized_items = []
@@ -545,11 +510,7 @@ def search_sillok(
             {
                 **asdict(item),
                 "detail": asdict(detail) if detail else None,
-                "excerpt": (
-                    detail.translated_text[:280]
-                    if detail and detail.translated_text
-                    else item.summary[:280]
-                ),
+                "excerpt": (detail.translated_text[:280] if detail and detail.translated_text else item.summary[:280]),
             }
         )
 
@@ -566,18 +527,14 @@ def search_sillok(
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Search Joseon Sillok records from sillok.history.go.kr"
-    )
+    parser = argparse.ArgumentParser(description="Search Joseon Sillok records from sillok.history.go.kr")
     parser.add_argument(
         "--query",
         required=True,
         help="Search keyword to send to the Joseon Sillok site",
     )
     parser.add_argument("--king", help="Optional king filter, e.g. 세종 or 세종실록")
-    parser.add_argument(
-        "--year", type=positive_int, help="Optional Gregorian year filter, e.g. 1443"
-    )
+    parser.add_argument("--year", type=positive_int, help="Optional Gregorian year filter, e.g. 1443")
     parser.add_argument(
         "--limit",
         type=positive_int,

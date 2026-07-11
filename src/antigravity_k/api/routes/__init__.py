@@ -4,9 +4,11 @@ from fastapi import APIRouter
 
 from .agent_activity import router as agent_activity_router
 from .agent_tools import router as agent_tools_router
+from .approval_api import router as approval_router
 from .chat import router as chat_router
 from .events import router as events_router
 from .legacy import router as legacy_router
+from .system_api import router as system_api_router
 from .workspace_links import router as workspace_links_router
 
 api_router = APIRouter()
@@ -17,3 +19,5 @@ api_router.include_router(legacy_router, tags=["legacy"])
 api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])
 api_router.include_router(workspace_links_router, tags=["workspaces"])
+api_router.include_router(approval_router, tags=["approval"])
+api_router.include_router(system_api_router, tags=["system"])

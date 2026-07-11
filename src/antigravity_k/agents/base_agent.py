@@ -110,6 +110,8 @@ class BaseAgent:
                     # Fallback if generate not fully compatible with raw_messages
                     from mlx_lm import generate
 
+                    if loaded_model is None or loaded_model.tokenizer is None or loaded_model.model is None:
+                        return "Error: Model not initialized"
                     prompt = loaded_model.tokenizer.apply_chat_template(
                         messages, tokenize=False, add_generation_prompt=True
                     )

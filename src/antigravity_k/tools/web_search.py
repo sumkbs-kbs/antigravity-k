@@ -26,6 +26,7 @@ Antigravity-K: Multi-Engine 웹 서칭 엔진 (Web Search Tool)
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -63,7 +64,7 @@ class SearchResponse:
     results: list[SearchResult] = field(default_factory=list)
     total_results: int = 0
     search_time_ms: float = 0.0
-    engine: str = "duckduckgo"
+    engine: str = "searxng"
     cached: bool = False
 
 
@@ -75,7 +76,7 @@ CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "sea
 class SearchCache:
     """검색 결과 로컬 캐시 (디스크 기반)."""
 
-    def __init__(self, ttl_hours: int = 24):
+    def __init__(self, ttl_hours: int = 24) -> None:
         self.ttl_hours = ttl_hours
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -193,7 +194,7 @@ class WebSearchEngine:
         searxng_url: Optional[str] = None,
         max_results: int = 8,
         cache_ttl_hours: int = 24,
-    ):
+    ) -> None:
         import os
 
         self.searxng_url = searxng_url or os.environ.get("SEARXNG_URL", "http://localhost:8080")
@@ -345,7 +346,7 @@ class WebSearchEngine:
                 "language": "ko-KR",
                 "safesearch": 0,
             }
-            resp = await client.get(url, params=params)
+            resp = await client.get(url, params=dict(params))  # type: ignore[arg-type]
 
             if resp.status_code != 200:
                 logger.warning(f"SearXNG 응답 실패: {resp.status_code}")
@@ -400,7 +401,7 @@ class WebSearchEngine:
                         SearchResult(
                             title=item.get("title", ""),
                             url=item.get("url", ""),
-                            snippet=item.get("description", item.get("content", ""))[:300],
+                            snippet=str(item.get("description", item.get("content", "")) or "")[:300],
                             source="Jina Search",
                             timestamp=datetime.now().isoformat(),
                             relevance_score=1.0 - (i * 0.08),
@@ -441,11 +442,12 @@ class WebSearchEngine:
         """
         Multi-Engine 통합 웹 검색.
 
-        엔진 우선순위 (무료 기술 조합):
+        엔진 우선순위 (정확도 높은 순):
             1. 캐시 조회
-            2. Jina Search (시맨틱 그라운딩, 무료)
-            3. SearXNG (자체 호스팅, 설정 시)
-            4. DuckDuckGo HTML (최종 폴백)
+            2. Tavily AI (LLM 친화적, 키 설정 시)
+            3. SearXNG (메타 검색 — Google+Bing+DDG 집계, 기본 엔진)
+            4. Jina Search (시맨틱 그라운딩, 무료)
+            5. DuckDuckGo HTML (최종 폴백)
         결과를 병합하고 신뢰 도메인 기반 재정렬합니다.
         """
         start = time.time()
@@ -461,7 +463,7 @@ class WebSearchEngine:
         all_results: list[SearchResult] = []
         engines_used: list[str] = []
 
-        # 2a. Tavily AI (우선 적용: LLM 친화적 결과)
+        # 2a. Tavily AI (최우선: LLM 친화적 결과, 키 필요)
         if self.tavily_api_key:
             tavily_results = await self._search_tavily(query)
             if tavily_results:
@@ -469,7 +471,8 @@ class WebSearchEngine:
                 engines_used.append("tavily")
                 logger.info(f"Tavily AI: {len(tavily_results)}개 결과")
 
-        # 2b. SearXNG (자체 호스팅 메타 검색 우선)
+        # 2b. SearXNG (기본 메타 검색 — Google/Bing/DDG 집계, 정확도 최고)
+        # SearxNG는 다중 엔진 집계이므로 단일 DDG보다 결과 품질이 월등함
         if self.searxng_url and len(all_results) < self.max_results:
             searxng_results = await self._search_searxng(query)
             if searxng_results:
@@ -477,7 +480,7 @@ class WebSearchEngine:
                 engines_used.append("searxng")
                 logger.info(f"SearXNG: {len(searxng_results)}개 결과")
 
-        # 2c. Jina Search (무료 시맨틱 검색)
+        # 2c. Jina Search (무료 시맨틱 검색, SearxNG 결과 부족 시 보완)
         if len(all_results) < self.max_results:
             jina_results = await self._search_jina(query)
             if jina_results:
@@ -485,8 +488,8 @@ class WebSearchEngine:
                 engines_used.append("jina")
                 logger.info(f"Jina Search: {len(jina_results)}개 결과")
 
-        # 2d. DuckDuckGo (최종 폴백)
-        if len(all_results) < 3:
+        # 2d. DuckDuckGo (폴백 — SearxNG/Jina 결과가 충분하지 않을 때)
+        if len(all_results) < self.max_results:
             ddg_results = await self._search_duckduckgo(query)
             if ddg_results:
                 all_results.extend(ddg_results)
@@ -581,7 +584,7 @@ class PageScraper:
     (requests/BeautifulSoup 없이 순수 httpx + 정규식)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -646,14 +649,20 @@ class WebSearchTool(BaseTool):
     icon = "🔍"
     tags = ["search", "web", "jina", "duckduckgo", "multi-engine", "realtime"]
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self._name = "web_search"
         self._description = (
-            "Performs a real-time web search using multiple free search engines "
-            "(Jina AI + DuckDuckGo) to find current information. Automatically "
+            "Performs a real-time web search using multiple search engines "
+            "(SearxNG + Jina AI + DuckDuckGo) to find current information. Automatically "
             "extracts page content from top results for deep analysis."
         )
+        # WebSearchEngine 인스턴스 — 비동기 검색용
+        self._engine = WebSearchEngine()
+        # 동기식 검색용 속성 (_sync_search_* 메서드에서 사용)
+        self.searxng_url = os.environ.get("SEARXNG_URL", "http://localhost:8080")
+        self.tavily_api_key = os.environ.get("TAVILY_API_KEY")
+        self.max_results = 8
         self._schema = {
             "type": "object",
             "properties": {
@@ -688,14 +697,21 @@ class WebSearchTool(BaseTool):
             all_results = []
             engines_used = []
 
-            # 1차: Jina Search (무료 시맨틱 검색)
-            jina_results = self._sync_search_jina(query)
-            if jina_results:
-                all_results.extend(jina_results)
-                engines_used.append("Jina")
+            # 1차: SearxNG (기본 — 다중 엔진 집계, 정확도 최고)
+            searxng_results = self._sync_search_searxng(query)
+            if searxng_results:
+                all_results.extend(searxng_results)
+                engines_used.append("SearxNG")
 
-            # 2차: DuckDuckGo (보완 또는 폴백)
-            if len(all_results) < 3:
+            # 2차: Jina Search (시맨틱 보완)
+            if len(all_results) < self.max_results:
+                jina_results = self._sync_search_jina(query)
+                if jina_results:
+                    all_results.extend(jina_results)
+                    engines_used.append("Jina")
+
+            # 3차: DuckDuckGo (최종 폴백)
+            if len(all_results) < self.max_results:
                 ddg_results = self._sync_search_duckduckgo(query)
                 if ddg_results:
                     all_results.extend(ddg_results)
@@ -828,7 +844,7 @@ class WebSearchTool(BaseTool):
                     if isinstance(item, dict):
                         title = item.get("title", "")
                         url = item.get("url", "")
-                        snippet = item.get("description", item.get("content", ""))[:300]
+                        snippet = str(item.get("description", item.get("content", "")) or "")[:300]
                         if title and url:
                             results.append((title, url, snippet))
                 return results
@@ -837,6 +853,35 @@ class WebSearchTool(BaseTool):
             return []
 
     # ─── 동기 DuckDuckGo ───────────────────────────────────────
+
+    def _sync_search_searxng(self, query: str) -> list:
+        """동기 SearxNG 메타 검색 (스레드 안전, 기본 엔진).
+
+        SearxNG는 Google/Bing/DuckDuckGo 등 다중 엔진을 집계하므로
+        단일 DuckDuckGo보다 정확도가 높음.
+        """
+        if not self.searxng_url:
+            return []
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.get(
+                    f"{self.searxng_url}/search",
+                    params={"q": query, "format": "json", "language": "ko-KR", "safesearch": 0},
+                )
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                results = []
+                for item in data.get("results", [])[: self.max_results]:
+                    title = item.get("title", "")
+                    url = item.get("url", "")
+                    snippet = item.get("content", "")
+                    if title and url:
+                        results.append((title, url, snippet))
+                return results
+        except Exception:
+            logger.debug("SearxNG 동기 검색 실패 (non-critical)", exc_info=True)
+            return []
 
     def _sync_search_duckduckgo(self, query: str) -> list:
         """동기 DuckDuckGo HTML 검색 (스레드 안전)."""

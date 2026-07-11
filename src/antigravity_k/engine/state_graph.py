@@ -260,7 +260,7 @@ class AgentStateGraph:
                         # (Generator의 return value는 StopIteration.value)
 
             except StopIteration:
-                pass
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             except Exception as e:
                 logger.error("[StateGraph] Error in %s: %s", current.value, e, exc_info=True)
                 ctx.error = str(e)

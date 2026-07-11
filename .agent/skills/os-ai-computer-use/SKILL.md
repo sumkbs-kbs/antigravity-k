@@ -8,8 +8,8 @@ tools:
 
 # OS AI Computer Use — 아키텍처 분석 및 통합 스킬
 
-**저장소**: https://github.com/777genius/os-ai-computer-use  
-**라이선스**: Apache 2.0  
+**저장소**: https://github.com/777genius/os-ai-computer-use
+**라이선스**: Apache 2.0
 **벤치마크**: OSWorld 75.0% (인간 수준 초과)
 
 ## 1. 프로젝트 개요

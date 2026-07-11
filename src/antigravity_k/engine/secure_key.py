@@ -41,6 +41,9 @@ _ENV_VAR_MAP = {
     "anthropic": "AGK_ANTHROPIC_KEY",
     "openai": "AGK_OPENAI_KEY",
     "openrouter": "AGK_OPENROUTER_KEY",
+    "nvidia": "NVIDIA_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "zai": "ZAI_API_KEY",
 }
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -372,7 +375,7 @@ def _get_cipher() -> Fernet:
 
 def _load_dotenv() -> dict:
     """간단한 .env 파서 (python-dotenv 의존성 없이)."""
-    env_vars = {}
+    env_vars: dict[str, str] = {}
     if not _DOTENV_PATH.exists():
         return env_vars
 
@@ -478,7 +481,7 @@ def get_api_key(service: str) -> str | None:
             return value
 
     # 2단계: .env 파일
-    dotenv = _load_dotenv()
+    dotenv: dict[str, str] = _load_dotenv()
     if env_var and env_var in dotenv:
         value = dotenv[env_var]
         if value and not _is_placeholder(value):

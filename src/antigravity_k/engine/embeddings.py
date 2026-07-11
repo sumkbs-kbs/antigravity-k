@@ -20,6 +20,10 @@ class EmbeddingEngine:
         self.model = None
         self.tokenizer = None
 
+    def initialize(self) -> None:
+        """Initialize the engine. Prepares the model for embedding."""
+        pass
+
     def load_model(self, model_name: str):
         """Load an embedding model via sentence-transformers."""
         # Use a sensible cross-platform default if not provided
@@ -76,7 +80,7 @@ class EmbeddingEngine:
     def _fallback_embedding(self, text: str) -> list[float]:
         """Deterministic local embedding used when sentence-transformers is unavailable."""
         seed = hashlib.sha256(text.encode("utf-8")).digest()
-        chunks = []
+        chunks: list[float] = []
         counter = 0
         while len(chunks) < self.fallback_dimensions:
             digest = hashlib.sha256(seed + counter.to_bytes(4, "big")).digest()

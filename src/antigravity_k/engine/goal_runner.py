@@ -224,14 +224,26 @@ class GoalRunner:
         "테스트",
     }
 
-    def __init__(self, max_iterations: int = 3):
+    def __init__(
+        self,
+        max_iterations: int = 3,
+        task_id: str = "",
+        workspace_dir: str = "",
+        instruction: str = "",
+    ):
         """Initialize the GoalRunner.
 
         Args:
             max_iterations (int): int max iterations.
+            task_id (str): str task id for the multiplexer.
+            workspace_dir (str): str workspace directory path.
+            instruction (str): str instruction for the goal.
 
         """
         self.max_iterations = max(1, max_iterations)
+        self.task_id = task_id
+        self.workspace_dir = workspace_dir
+        self.instruction = instruction
 
     def run(
         self,
@@ -351,7 +363,7 @@ class GoalRunner:
             domain: sum(1 for keyword in keywords if keyword in lowered)
             for domain, keywords in self._DOMAIN_KEYWORDS.items()
         }
-        domain = max(domain_scores, key=domain_scores.get)
+        domain = max(domain_scores, key=lambda k: domain_scores.get(k, 0))
         if domain_scores[domain] == 0:
             domain = "general"
 

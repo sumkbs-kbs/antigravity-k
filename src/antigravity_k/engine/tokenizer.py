@@ -55,12 +55,14 @@ class TokenEstimator:
         total = 0
         for msg in messages:
             if use_cache and "_tokens" in msg:
-                total += msg["_tokens"]
+                _t = msg["_tokens"]
+                if isinstance(_t, (int, float)):
+                    total += int(_t)
             else:
                 content = msg.get("content", "")
                 tokens = TokenEstimator.estimate_text(content)
                 if use_cache:
-                    msg["_tokens"] = tokens
+                    msg["_tokens"] = tokens  # type: ignore[dict-item]
                 total += tokens
         return total
 

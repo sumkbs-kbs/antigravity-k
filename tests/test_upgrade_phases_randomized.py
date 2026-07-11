@@ -1,14 +1,13 @@
-"""
-Antigravity-K: Randomized Upgrade Phase Tests
+"""Antigravity-K: Randomized Upgrade Phase Tests.
 =============================================
 매번 다른 입력/시나리오로 테스트하여 과적합을 방지합니다.
 동일 테스트를 반복 실행해도 입력값이 달라집니다.
 """
 
+import os
 import random
 import string
 import textwrap
-import os
 
 # ─── 랜덤 테스트 재현성 보장 ──────────────────────────────────────
 
@@ -129,9 +128,7 @@ def _rand_complex_query():
     ]
     dbs = ["PostgreSQL", "MongoDB", "Redis", "DynamoDB"]
     patterns = ["CQRS", "Event Sourcing", "Saga", "Circuit Breaker"]
-    return random.choice(templates).format(
-        db=random.choice(dbs), pattern=random.choice(patterns)
-    )
+    return random.choice(templates).format(db=random.choice(dbs), pattern=random.choice(patterns))
 
 
 def _rand_broken_code():
@@ -165,10 +162,7 @@ def _rand_messages(count=7):
     for i in range(count - 1):
         role = "user" if i % 2 == 0 else "assistant"
         topic = random.choice(topics)
-        content = (
-            f"{topic} 관련 {'질문' if role == 'user' else '답변'}: "
-            + "X" * random.randint(100, 300)
-        )
+        content = f"{topic} 관련 {'질문' if role == 'user' else '답변'}: " + "X" * random.randint(100, 300)
         msgs.append({"role": role, "content": content})
     return msgs
 
@@ -206,15 +200,12 @@ class TestRAGIndexerRandomized:
         indexer = RAGIndexer(project_root="/tmp")
         line_count = random.randint(80, 200)
         content = "\n".join(
-            f"line_{i}: {''.join(random.choices(string.ascii_lowercase, k=20))}"
-            for i in range(line_count)
+            f"line_{i}: {''.join(random.choices(string.ascii_lowercase, k=20))}" for i in range(line_count)
         )
         chunks = indexer._chunk_generic("rand.txt", content)
         assert len(chunks) >= 2
         # 모든 원본 라인이 청크에 포함되어야 함
-        total_lines_in_chunks = sum(
-            c.end_line - c.start_line + 1 for c in chunks if c.content.strip()
-        )
+        total_lines_in_chunks = sum(c.end_line - c.start_line + 1 for c in chunks if c.content.strip())
         assert total_lines_in_chunks >= line_count * 0.8
 
     def test_hash_change_detection(self):
@@ -222,7 +213,7 @@ class TestRAGIndexerRandomized:
 
         indexer = RAGIndexer(project_root="/tmp")
         # 첫 번째 인덱싱
-        code1 = f"def rand_{random.randint(1000,9999)}(): pass"
+        code1 = f"def rand_{random.randint(1000, 9999)}(): pass"
         _chunks1 = indexer._chunk_python("hash_test.py", code1)  # noqa: F841
         indexer._file_hashes["hash_test.py"] = "abc123"
         # 해시가 같으면 스킵하는지 확인 (index_file은 파일 시스템 의존이라 해시만 확인)
@@ -319,18 +310,14 @@ class TestContextCompressorRandomized:
         ]
         enriched = cc.enrich_with_rag(base, fn)
         assert len(enriched) == len(base) + 1
-        rag_content = [
-            m["content"] for m in enriched if "코드베이스 컨텍스트" in m["content"]
-        ]
+        rag_content = [m["content"] for m in enriched if "코드베이스 컨텍스트" in m["content"]]
         assert len(rag_content) == 1
         assert fn in rag_content[0]
 
     def test_memory_injection_after_random_pruning(self):
         from antigravity_k.engine.context_compressor import ContextCompressor
 
-        keyword = random.choice(
-            ["마이크로서비스", "모놀리식", "서버리스", "이벤트 드리븐"]
-        )
+        keyword = random.choice(["마이크로서비스", "모놀리식", "서버리스", "이벤트 드리븐"])
         cc = ContextCompressor(
             token_limit=50,
             keep_last_n=1,

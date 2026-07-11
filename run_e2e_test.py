@@ -1,10 +1,13 @@
-import sys
-import json
-import httpx
 import asyncio
+import json
+import sys
+
+import httpx
 
 API_URL = "http://localhost:8000/v1/chat/completions"
-TARGET_MODEL = "gemini-3.1-pro"  # or whatever is available, let's just pass "gemini" or let the API route it. I'll use default.
+TARGET_MODEL = (
+    "gemini-3.1-pro"  # or whatever is available, let's just pass "gemini" or let the API route it. I'll use default.
+)
 
 
 async def stream_chat(messages, plan_mode=True):
@@ -35,11 +38,7 @@ async def stream_chat(messages, plan_mode=True):
                             break
                         try:
                             data = json.loads(data_str)
-                            chunk = (
-                                data.get("choices", [{}])[0]
-                                .get("delta", {})
-                                .get("content", "")
-                            )
+                            chunk = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
                             assistant_response += chunk
                             sys.stdout.write(chunk)
                             sys.stdout.flush()

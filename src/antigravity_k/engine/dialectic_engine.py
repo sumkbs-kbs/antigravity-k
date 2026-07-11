@@ -325,7 +325,7 @@ Begin now."""
         for i, match in enumerate(matches):
             heading = match.group(1).strip().upper()
             for key in ("THESIS", "ANTITHESIS", "SYNTHESIS"):
-                if key in heading:
+                if heading.strip() == key:
                     heading = key
                     break
             start = match.end()

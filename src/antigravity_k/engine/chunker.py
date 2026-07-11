@@ -26,7 +26,7 @@ class MarkdownChunker:
 
         Returns a list of chunk dictionaries with metadata.
         """
-        chunks = []
+        chunks: list[dict[str, Any]] = []
         # Split by markdown headers (e.g. ## Header)
         # Using a regex that captures the header to keep it with the content
         parts = re.split(r"(^#{1,6}\s+.*$)", content, flags=re.MULTILINE)

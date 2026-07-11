@@ -53,13 +53,17 @@ class QualityGate:
         self._retry_count = 0
         self._verify_fn = verify_fn
 
-    def evaluate(self, task_type: str, user_request: str, agent_output: str) -> QualityScore:
+    def evaluate(
+        self, task_type: str, user_request: str, agent_output: str, execution_mode: str | None = None
+    ) -> QualityScore:
         """Evaluate.
 
         Args:
             task_type (str): str task type.
             user_request (str): str user request.
             agent_output (str): str agent output.
+            execution_mode (str | None): 실행 모드 ("plan", "build", "interactive", None)
+                                         BUILD 모드에서는 plan 체크를 건너뜁니다.
 
         Returns:
             QualityScore: The qualityscore result.
@@ -75,7 +79,7 @@ class QualityGate:
                 ["empty"],
             )
 
-        issues = []
+        issues: list[str] = []
         score = 1.0
 
         if task_type in ("coding", "complex", "complex_step"):
@@ -87,7 +91,7 @@ class QualityGate:
         score *= s
         issues.extend(i)
 
-        s, i = self._check_output_contract(user_request, agent_output, task_type)
+        s, i = self._check_output_contract(user_request, agent_output, task_type, execution_mode)
         score *= s
         issues.extend(i)
 
@@ -95,7 +99,7 @@ class QualityGate:
         score *= s
         issues.extend(i)
 
-        s, i = self._check_planning_mode(user_request, agent_output, task_type)
+        s, i = self._check_planning_mode(user_request, agent_output, task_type, execution_mode)
         score *= s
         issues.extend(i)
 
@@ -213,7 +217,8 @@ class QualityGate:
             return 1.0, []  # 검증 실패 시 패스스루
 
     def _check_code(self, output: str) -> tuple:
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         blocks = re.findall(r"```python\n(.*?)```", output, re.DOTALL)
         for i, block in enumerate(blocks):
             try:
@@ -227,7 +232,8 @@ class QualityGate:
         return score, issues
 
     def _check_completeness(self, request: str, output: str, task_type: str) -> tuple:
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         if task_type in ("coding", "complex", "reasoning") and len(output) < 100:
             score *= 0.5
             issues.append("응답이 너무 짧음")
@@ -238,15 +244,30 @@ class QualityGate:
             issues.append("요청과 관련성 낮음")
         return score, issues
 
-    def _check_output_contract(self, request: str, output: str, task_type: str) -> tuple:
-        """Codex/Claude 수준 응답 형식 계약을 휴리스틱으로 검증합니다."""
-        score, issues = 1.0, []
+    def _check_output_contract(
+        self, request: str, output: str, task_type: str, execution_mode: str | None = None
+    ) -> tuple:
+        """Codex/Claude 수준 응답 형식 계약을 휴리스틱으로 검증합니다.
+
+        Args:
+            request: 사용자 요청
+            output: 에이전트 출력
+            task_type: 태스크 유형
+            execution_mode: 실행 모드 ("plan", "build", "interactive", None)
+                           PLAN 모드에서는 코드 블록 체크를 건너뜁니다.
+        """
+        score = 1.0
+        issues: list[str] = []
+
+        # PLAN 모드: 코드 블록 체크 건너뜀 (Phase 1 D5)
+        if execution_mode == "plan":
+            return score, issues
+
         request_lower = request.lower()
 
         asks_for_code = task_type in ("coding", "complex", "complex_step") or bool(
             re.search(
-                r"(코드|구현|작성|함수|알고리즘|python|javascript|typescript|"
-                r"function|implement|write|code)",
+                r"(코드|구현|작성|함수|알고리즘|python|javascript|typescript|" r"function|implement|write|code)",
                 request_lower,
             ),
         )
@@ -269,8 +290,7 @@ class QualityGate:
 
         complexity_requested = bool(
             re.search(
-                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|"
-                r"time complexity|space complexity)",
+                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|" r"time complexity|space complexity)",
                 request_lower,
             ),
         )
@@ -296,12 +316,27 @@ class QualityGate:
 
         return score, issues
 
-    def _check_planning_mode(self, request: str, output: str, task_type: str) -> tuple:
-        """대규모/복잡한 아키텍처 변경 요청 시 Planning Mode (Artifacts) 작동 여부 검증."""
-        score, issues = 1.0, []
+    def _check_planning_mode(
+        self, request: str, output: str, task_type: str, execution_mode: str | None = None
+    ) -> tuple:
+        """대규모/복잡한 아키텍처 변경 요청 시 Planning Mode (Artifacts) 작동 여부 검증.
+
+        Args:
+            request: 사용자 요청
+            output: 에이전트 출력
+            task_type: 태스크 유형
+            execution_mode: 실행 모드 ("plan", "build", "interactive", None)
+                           BUILD 모드에서는 Plan 체크를 건너뜁니다.
+        """
+        score = 1.0
+        issues: list[str] = []
+
+        # BUILD 모드에서는 Plan 체크 건너뜀 (Phase 1 D5)
+        if execution_mode == "build":
+            return score, issues
+
         request_lower = request.lower()
 
-        # 복잡한 변경을 요구하는 단어들
         is_complex_request = task_type == "complex" or bool(
             re.search(
                 r"(아키텍처|구조|전면|대규모|마이그레이션|프레임워크|리팩토링|architecture|refactor|migrate|framework)",
@@ -322,7 +357,8 @@ class QualityGate:
         return score, issues
 
     def _check_safety(self, output: str) -> tuple:
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         for pattern, desc in [
             (r"rm\s+-rf\s+/", "루트삭제"),
             (r":(){ :\|:& };:", "포크폭탄"),
@@ -335,12 +371,13 @@ class QualityGate:
 
     def _check_repetition(self, output: str) -> tuple:
         """동일 문단이 3회 이상 반복되면 품질 감점."""
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         # 4줄 이상의 블록 단위로 반복 탐지
         lines = output.split("\n")
         if len(lines) > 20:
             block_size = 4
-            seen_blocks = {}
+            seen_blocks: dict[str, int] = {}
             for i in range(len(lines) - block_size + 1):
                 block = "\n".join(lines[i : i + block_size]).strip()
                 if len(block) < 40:  # 너무 짧은 블록은 무시
@@ -357,7 +394,8 @@ class QualityGate:
 
     def _check_internal_tag_leak(self, output: str) -> tuple:
         """내부 태그/추론 흔적이 사용자에게 유출되면 강하게 감점."""
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         leak_patterns = [
             (r"%%THINK_START%%", "%%THINK_START%% 태그 유출"),
             (r"%%THINK_END%%", "%%THINK_END%% 태그 유출"),
@@ -384,7 +422,8 @@ class QualityGate:
         """한국어 응답에 중국어/일본어 문자가 혼입되면 감점.
         코드 블록 내부는 제외합니다.
         """
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         # 코드 블록 제거 후 산문(prose)만 검사
         prose = re.sub(r"```(?:\w+)?\s*.*?```", "", output, flags=re.DOTALL).strip()
         # 중국어 간체/번체 (한국어 한자 범위 밖)
@@ -418,7 +457,8 @@ class QualityGate:
 
     def _check_korean_readability(self, output: str) -> tuple:
         """한국어 산문의 띄어쓰기/문장 경계 붕괴를 탐지합니다."""
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         prose = re.sub(r"```(?:\w+)?\s*.*?```", "", output, flags=re.DOTALL).strip()
         if not re.search(r"[가-힣]{2,}", prose):
             return score, issues
@@ -452,12 +492,12 @@ class QualityGate:
 
     def _check_current_info_grounding(self, request: str, output: str) -> tuple:
         """최신/현재 정보 요청에서 cutoff 핑계나 미검증 답변을 감점합니다."""
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         request_lower = request.lower()
         asks_current_info = bool(
             re.search(
-                r"(최신|최근|동향|실시간|현재|오늘|이번\s*주|latest|recent|"
-                r"current|trend|news|today)",
+                r"(최신|최근|동향|실시간|현재|오늘|이번\s*주|latest|recent|" r"current|trend|news|today)",
                 request_lower,
             ),
         )
@@ -475,8 +515,7 @@ class QualityGate:
         )
         has_date_or_source = bool(
             re.search(
-                r"(20\d{2}[년./-]\s*\d{1,2}|출처|source|검색|확인|"
-                r"https?://|github|hugging\s*face)",
+                r"(20\d{2}[년./-]\s*\d{1,2}|출처|source|검색|확인|" r"https?://|github|hugging\s*face)",
                 output_lower,
             ),
         )
@@ -492,7 +531,8 @@ class QualityGate:
         """비교 요청 시 Markdown 테이블이 포함되지 않으면 감점.
         Codex/Claude Code 수준의 구조화된 비교를 강제합니다.
         """
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         request_lower = request.lower()
         comparison_requested = bool(
             re.search(
@@ -513,7 +553,8 @@ class QualityGate:
         """출력물의 정보 밀도를 검증합니다.
         장황하지만 정보가 없는 답변(filler)을 감점합니다.
         """
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
         if len(output) < 300:
             return score, issues
 
@@ -562,7 +603,8 @@ class QualityGate:
 
     def _check_antigravity_markdown_standards(self, output: str) -> tuple:
         """Antigravity 모델 수준의 마크다운 규약(Mermaid, Carousel, 파일 링크 등) 준수 여부 검증."""
-        score, issues = 1.0, []
+        score = 1.0
+        issues: list[str] = []
 
         # 1. Mermaid 블록에 HTML 태그 포함 여부 (에러 유발)
         mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)

@@ -1,8 +1,8 @@
-"""
-테스트: 프로토콜 변환기
+"""테스트: 프로토콜 변환기.
 ======================
 ProtocolTranslator의 OpenAI/Anthropic ↔ 내부 형식 상호 변환 기능 테스트.
 """
+
 import pytest
 
 from antigravity_k.engine.protocol_translator import (
@@ -10,18 +10,20 @@ from antigravity_k.engine.protocol_translator import (
     ProtocolTranslator,
 )
 
+
 @pytest.fixture
 def translator():
     return ProtocolTranslator()
+
 
 class TestProtocolTranslator:
     def test_detect_format(self, translator):
         openai_req = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
         assert translator.detect_format(openai_req) == APIFormat.OPENAI
-        
+
         anthropic_req = {"anthropic_version": "2023-06-01", "messages": []}
         assert translator.detect_format(anthropic_req) == APIFormat.ANTHROPIC
-        
+
         internal_req = {"prompt": "Hello", "model": "local"}
         assert translator.detect_format(internal_req) == APIFormat.INTERNAL
 
@@ -30,11 +32,11 @@ class TestProtocolTranslator:
             "model": "gpt-4",
             "messages": [
                 {"role": "system", "content": "You are a bot"},
-                {"role": "user", "content": "Hello"}
+                {"role": "user", "content": "Hello"},
             ],
-            "temperature": 0.5
+            "temperature": 0.5,
         }
-        
+
         internal = translator.translate_request(openai_req, APIFormat.OPENAI, APIFormat.INTERNAL)
         assert internal["system"] == "You are a bot"
         assert len(internal["messages"]) == 1
@@ -46,11 +48,9 @@ class TestProtocolTranslator:
         anthropic_req = {
             "model": "claude-3-opus",
             "system": "You are a bot",
-            "messages": [
-                {"role": "user", "content": "Hello"}
-            ]
+            "messages": [{"role": "user", "content": "Hello"}],
         }
-        
+
         internal = translator.translate_request(anthropic_req, APIFormat.ANTHROPIC, APIFormat.INTERNAL)
         assert internal["system"] == "You are a bot"
         assert len(internal["messages"]) == 1
@@ -62,9 +62,9 @@ class TestProtocolTranslator:
             "model": "local-model",
             "system": "You are a bot",
             "messages": [{"role": "user", "content": "Hello"}],
-            "temperature": 0.8
+            "temperature": 0.8,
         }
-        
+
         openai = translator.translate_request(internal_req, APIFormat.INTERNAL, APIFormat.OPENAI)
         assert openai["model"] == "local-model"
         assert len(openai["messages"]) == 2
@@ -78,9 +78,9 @@ class TestProtocolTranslator:
             "model": "local-model",
             "finish_reason": "stop",
             "tokens_in": 10,
-            "tokens_out": 20
+            "tokens_out": 20,
         }
-        
+
         openai = translator.translate_response(internal_resp, APIFormat.OPENAI, APIFormat.INTERNAL)
         assert "choices" in openai
         assert openai["choices"][0]["message"]["content"] == "Hi there"
@@ -92,9 +92,9 @@ class TestProtocolTranslator:
             "model": "local-model",
             "finish_reason": "stop",
             "tokens_in": 10,
-            "tokens_out": 20
+            "tokens_out": 20,
         }
-        
+
         anthropic = translator.translate_response(internal_resp, APIFormat.ANTHROPIC, APIFormat.INTERNAL)
         assert anthropic["type"] == "message"
         assert anthropic["content"][0]["text"] == "Hi there"

@@ -12,7 +12,7 @@ You have access to the **UI Expert MCP Server**, which provides UI/UX design exp
 1. **`analyze_ui`**
    - Analyzes current UI/UX and provides comprehensive improvement recommendations.
    - Arguments: `framework` (required, e.g., 'react', 'vue'), `currentIssues` (array of strings), `targetAudience` (optional), `designStyle` (optional).
-   
+
 2. **`generate_design_tokens`**
    - Generates a complete design token system (colors, typography, spacing).
    - Arguments: `style` (required: "modern", "minimal", "corporate", "playful", "elegant"), `primaryColor` (optional hex), `darkMode` (boolean).

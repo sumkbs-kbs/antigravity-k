@@ -193,7 +193,7 @@ class AgentTracer:
     대시보드 연동 및 외부 옵저버빌리티 도구 내보내기를 지원합니다.
     """
 
-    def __init__(self, persist_dir: str = None, max_traces: int = 100):
+    def __init__(self, persist_dir: str | None = None, max_traces: int = 100):
         """Initialize the AgentTracer.
 
         Args:
@@ -244,7 +244,7 @@ class AgentTracer:
     # ─── Span 컨텍스트 매니저 ────────────────────────────────
 
     @contextmanager
-    def span(self, name: str, attributes: dict[str, Any] = None, span_type: str = "generic"):
+    def span(self, name: str, attributes: dict[str, Any] | None = None, span_type: str = "generic"):
         """Span을 컨텍스트 매니저로 생성합니다.
 
         Usage:
@@ -271,6 +271,28 @@ class AgentTracer:
             self._span_stack.pop()
             if self._active_trace:
                 self._active_trace.add_span(s)
+
+    # ─── Span 수동 시작/종료 ────────────────────────────
+
+    def start_span(self, name: str, attributes: dict[str, Any] | None = None, span_type: str = "generic") -> Span:
+        """Create and start a span manually."""
+        s = Span(
+            name=name,
+            span_type=span_type,
+            start_time=time.time(),
+            attributes=attributes or {},
+            parent_span_id=self._span_stack[-1].span_id if self._span_stack else None,
+        )
+        self._span_stack.append(s)
+        return s
+
+    def end_span(self, span: Span):
+        """Finish a manually started span."""
+        span.finish()
+        if span in self._span_stack:
+            self._span_stack.remove(span)
+        if self._active_trace:
+            self._active_trace.add_span(span)
 
     # ─── 조회 ────────────────────────────────────────────────
 
@@ -322,7 +344,7 @@ class AgentTracer:
 # ─── @traced 데코레이터 ──────────────────────────────────────────
 
 
-def traced(tracer: AgentTracer, span_type: str = "generic", name: str = None):
+def traced(tracer: AgentTracer, span_type: str = "generic", name: str | None = None):
     """함수에 자동 트레이싱을 부여하는 데코레이터.
 
     Usage:
@@ -366,7 +388,7 @@ def traced(tracer: AgentTracer, span_type: str = "generic", name: str = None):
 _global_tracer: AgentTracer | None = None
 
 
-def get_tracer(persist_dir: str = None) -> AgentTracer:
+def get_tracer(persist_dir: str | None = None) -> AgentTracer:
     """글로벌 트레이서 인스턴스를 반환합니다."""
     global _global_tracer
     if _global_tracer is None:

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""
-실전 벤치마크 실행 스크립트.
+"""실전 벤치마크 실행 스크립트.
 collective-council vs 개별 모델 A/B 비교를 수행합니다.
 """
-import sys
-import os
+
 import logging
+import os
+import sys
 
 # 프로젝트 루트를 path에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -18,10 +18,10 @@ logger = logging.getLogger("benchmark_runner")
 
 
 def main():
-    from antigravity_k.engine.model_registry import ModelRegistry
-    from antigravity_k.engine.model_manager import ModelManager
-    from antigravity_k.engine.benchmark_harness import BenchmarkHarness
     from antigravity_k.engine.benchmark_cases import get_suite
+    from antigravity_k.engine.benchmark_harness import BenchmarkHarness
+    from antigravity_k.engine.model_manager import ModelManager
+    from antigravity_k.engine.model_registry import ModelRegistry
 
     # 1. 모델 매니저 초기화
     logger.info("=== ModelManager 초기화 ===")
@@ -57,7 +57,7 @@ def main():
             logger.info(
                 f"  {grade_icon} {r.target}: "
                 f"품질={r.quality_score:.0%} ({r.quality_grade}), "
-                f"시간={r.latency_ms/1000:.1f}s, "
+                f"시간={r.latency_ms / 1000:.1f}s, "
                 f"토큰(out)={r.tokens_out}"
             )
             if r.error:

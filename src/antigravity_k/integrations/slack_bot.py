@@ -9,7 +9,7 @@ try:
     from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
     from slack_bolt.async_app import AsyncApp
 except ImportError:
-    AsyncApp = None
+    AsyncApp = None  # type: ignore
 
 
 class SlackBotClient:
@@ -31,13 +31,16 @@ class SlackBotClient:
         self.app_token = app_token
         self.registry = registry
 
+    def _init_app(self):
+        """Slack 앱을 초기화합니다 (slack_bolt가 설치된 경우에만)."""
+        # type: ignore[truthy-function]
         if AsyncApp is None:
             logger.error("slack_bolt or slack_sdk is not installed.")
-            return
+            return None
 
-        self.app = AsyncApp(token=self.bot_token)
+        app = AsyncApp(token=self.bot_token)
 
-        @self.app.event("app_mention")
+        @app.event("app_mention")
         async def handle_app_mention(event, say):
             text = event.get("text", "")
             # Remove mention format like <@U012345>
@@ -56,12 +59,17 @@ class SlackBotClient:
                 logger.exception("Error handling slack mention")
                 await say(f"❌ 오류가 발생했습니다: {str(e)}")
 
+        return app
+
     async def run_async(self):
         """Run async."""
         if not AsyncApp:
             print("Please install slack_bolt and slack_sdk")
             return
-        handler = AsyncSocketModeHandler(self.app, self.app_token)
+        app = self._init_app()
+        if app is None:
+            return
+        handler = AsyncSocketModeHandler(app, self.app_token)
         await handler.start_async()
 
     def run(self):

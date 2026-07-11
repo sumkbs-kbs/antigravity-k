@@ -12,7 +12,6 @@ from scripts.korean_spell_check import (
     split_text_into_chunks,
 )
 
-
 SAMPLE_RESULTS_HTML = """<!DOCTYPE html>
 <html>
 <head></head>
@@ -51,9 +50,7 @@ class SplitTextIntoChunksTest(unittest.TestCase):
 
         chunks = split_text_into_chunks(text, max_chars=15)
 
-        self.assertEqual(
-            chunks, ["첫 문단입니다.\n\n", "둘째 문단입니다.\n\n", "셋째 문단입니다."]
-        )
+        self.assertEqual(chunks, ["첫 문단입니다.\n\n", "둘째 문단입니다.\n\n", "셋째 문단입니다."])
         self.assertEqual("".join(chunks), text)
 
     def test_preserves_exact_blank_runs_and_indentation_when_rejoined(self):
@@ -182,9 +179,7 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(
-            report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요."
-        )
+        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요.")
         self.assertEqual(
             report["chunks"][0]["corrected_text"],
             "아버지가 방에 들어가신다.\n\n왠지 안 돼요.",
@@ -215,9 +210,7 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(
-            report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요."
-        )
+        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요.")
 
     def test_check_text_preserves_indent_and_triple_blank_lines_for_file_style_input(
         self,
@@ -243,9 +236,7 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(
-            report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요."
-        )
+        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요.")
 
     def test_check_text_keeps_separator_layout_when_service_merges_spacing_across_boundary(
         self,
@@ -271,9 +262,7 @@ pageIdx = 0;
             throttle_seconds=0,
         )
 
-        self.assertEqual(
-            report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요."
-        )
+        self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n\n  왠지 안 돼요.")
 
     def test_check_text_accepts_no_issue_chunks_before_a_later_corrected_chunk(self):
         error_html = """<!DOCTYPE html>

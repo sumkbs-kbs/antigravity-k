@@ -115,9 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate exhaustive official scholarship search queries for a Korean university or for nationwide university coverage.",
     )
     parser.add_argument("--school-name", help="University name, e.g. 서울대학교.")
-    parser.add_argument(
-        "--school-domain", help="Official university domain, e.g. snu.ac.kr."
-    )
+    parser.add_argument("--school-domain", help="Official university domain, e.g. snu.ac.kr.")
     parser.add_argument(
         "--department",
         action="append",

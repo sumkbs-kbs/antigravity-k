@@ -11,8 +11,6 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
-import httpx
-
 from antigravity_k.engine.external_brain import ExternalBrainRouter
 from antigravity_k.engine.quality_gate import QualityGate, QualityGrade
 
@@ -118,7 +116,7 @@ class OmniTDDEngine:
 
     def __init__(
         self,
-        ollama_url: str = "http://127.0.0.1:11434",
+        model_manager,
         coding_model: str = "deepseek-r1:70b",
         max_iterations: int = 3,
         workspace_dir: str = "",
@@ -126,13 +124,13 @@ class OmniTDDEngine:
         """Initialize the OmniTDDEngine.
 
         Args:
-            ollama_url (str): str ollama url.
+            model_manager: ModelManager instance.
             coding_model (str): str coding model.
             max_iterations (int): int max iterations.
             workspace_dir (str): str workspace dir.
 
         """
-        self.ollama_url = ollama_url
+        self.model_manager = model_manager
         self.coding_model = coding_model
         self.max_iterations = max_iterations
         self.workspace_dir = workspace_dir or os.path.join(
@@ -169,7 +167,7 @@ class OmniTDDEngine:
         # 30토큰 미만 + 단순 지시어 → 레이싱 불필요
         return token_count < 30 and has_simple
 
-    async def run_tdd_loop(self, prompt: str, target_file_path: str = None) -> TDDReport:
+    async def run_tdd_loop(self, prompt: str, target_file_path: str | None = None) -> TDDReport:
         """Run tdd loop.
 
         Args:
@@ -327,7 +325,7 @@ class OmniTDDEngine:
             stdout_bytes, stderr_bytes = await process.communicate()
             cand.stdout = stdout_bytes.decode("utf-8", errors="replace")
             cand.stderr = stderr_bytes.decode("utf-8", errors="replace")
-            cand.exit_code = process.returncode
+            cand.exit_code = process.returncode if process.returncode is not None else -1
             cand.passed = cand.exit_code == 0
         except Exception as e:
             logger.exception("Unhandled exception")
@@ -393,9 +391,10 @@ class OmniTDDEngine:
 
         # 2. 외부 두뇌 (ChatGPT, Gemini 등)
         ext_prompt = (
-            "You are an expert Python engineer. Implement the following requirement. Provide only the raw python code"  # type: ignore
+            "You are an expert Python engineer. Implement the following requirement. "
+            "Provide only the raw python code without markdown formatting or explanations.\n\n"
+            f"Requirement:\n{prompt}"
         )
-        "without markdown formatting or explanations.\n\nRequirement:\n{prompt}"
 
         async def external_task():
             try:
@@ -447,11 +446,13 @@ class OmniTDDEngine:
 
             async def local_fix():
                 sys = (
-                    "You are an expert Python engineer. The previous code failed the tests. Provide only the raw fixed"  # type: ignore
+                    "You are an expert Python engineer. The previous code failed the tests. "
+                    "Provide only the raw fixed python code. No markdown formatting."
                 )
-                "python code. No markdown formatting."
-                user = f"Requirement:\n{prompt}\n\nTests:\n{test_code}\n\nMy Previous Attempt &"  # type: ignore
-                "Error:\n{error_logs[local_source]}\n\nPlease fix the code."
+                user = (
+                    f"Requirement:\n{prompt}\n\nTests:\n{test_code}\n\n"
+                    f"My Previous Attempt & Error:\n{error_logs[local_source]}\n\nPlease fix the code."
+                )
                 res = await self._call_llm(sys, user)
                 return TDDCandidate(source=local_source, code=self._extract_python_code(res))
 
@@ -463,8 +464,12 @@ class OmniTDDEngine:
                 continue
 
             async def ext_fix(src=source, err=error):
-                ext_prompt = "You are an expert Python engineer. The previous code failed. Provide only the raw fixed python code. No markdown"  # type: ignore  # noqa: E501
-                "formatting.\n\nRequirement:\n{prompt}\n\nTests:\n{test_code}\n\nMy Previous Attempt & Error:\n{err}"
+                ext_prompt = (
+                    "You are an expert Python engineer. The previous code failed. "
+                    "Provide only the raw fixed python code. No markdown formatting.\n\n"
+                    f"Requirement:\n{prompt}\n\nTests:\n{test_code}\n\n"
+                    f"My Previous Attempt & Error:\n{err}"
+                )
                 resp = await self.brain_router.send(ext_prompt, target=src)
                 if resp.success:
                     return TDDCandidate(source=src, code=self._extract_python_code(resp.text))
@@ -558,8 +563,7 @@ class OmniTDDEngine:
         prompt_lower = original_prompt.lower()
         complexity_requested = bool(
             re.search(
-                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|"
-                r"time complexity|space complexity)",
+                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|" r"time complexity|space complexity)",
                 prompt_lower,
             ),
         )
@@ -623,21 +627,12 @@ class OmniTDDEngine:
         return text.strip()
 
     async def _call_llm(self, sys_prompt: str, user_prompt: str) -> str:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                f"{self.ollama_url}/api/chat",
-                json={
-                    "model": self.coding_model,
-                    "messages": [
-                        {"role": "system", "content": sys_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "stream": False,
-                    "options": {"temperature": 0.1},
-                },
+        """ModelManager를 사용하여 메인 코디네이터(로컬/Gemini 등) 모델을 호출합니다."""
+        combined_prompt = f"{sys_prompt}\n\n{user_prompt}"
+        try:
+            return await asyncio.to_thread(
+                self.model_manager.generate, prompt=combined_prompt, target=self.coding_model, temperature=0.1
             )
-            if resp.status_code == 200:
-                return resp.json().get("message", {}).get("content", "")
-            else:
-                logger.error("LLM API error: %s", resp.status_code)
-                return ""
+        except Exception as e:
+            logger.error("LLM Generation error in OmniTDD: %s", str(e))
+            return ""

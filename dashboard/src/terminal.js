@@ -11,7 +11,7 @@ export function initTerminal() {
     terminalContainer = document.getElementById('terminal-container');
     const rightContainer = document.getElementById('right-container');
     const mainContent = document.getElementById('main-content');
-    
+
     if (!toggleBtn || !terminalContainer || typeof Terminal === 'undefined') {
         console.error("Terminal dependencies not loaded");
         return;
@@ -22,7 +22,7 @@ export function initTerminal() {
             // Open terminal
             terminalContainer.style.display = 'block';
             toggleBtn.innerHTML = '💻 터미널 닫기';
-            
+
             // Setup vertical split between main-content and terminal
             if (!rightSplit) {
                 rightSplit = Split(['#main-content', '#terminal-container'], {
@@ -46,7 +46,7 @@ export function initTerminal() {
             // Close terminal
             terminalContainer.style.display = 'none';
             toggleBtn.innerHTML = '💻 터미널 토글';
-            
+
             // Reset split
             if (rightSplit) {
                 rightSplit.destroy();
@@ -67,7 +67,7 @@ function setupTerminal() {
         fontSize: 13,
         cursorBlink: true
     });
-    
+
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById('terminal'));
@@ -76,7 +76,7 @@ function setupTerminal() {
     // Connect WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/terminal`;
-    
+
     connectWebSocket(wsUrl);
 
     window.addEventListener('resize', () => {
@@ -88,10 +88,10 @@ function setupTerminal() {
 
 function connectWebSocket(url) {
     ws = new WebSocket(url);
-    
+
     ws.onopen = () => {
         term.writeln('\x1b[32m[Antigravity-K] Terminal connected.\x1b[0m');
-        
+
         term.onData(data => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(data);
@@ -108,7 +108,7 @@ function connectWebSocket(url) {
                 }));
             }
         });
-        
+
         fitAddon.fit();
     };
 
@@ -121,7 +121,7 @@ function connectWebSocket(url) {
         // Reconnect after 3s
         setTimeout(() => connectWebSocket(url), 3000);
     };
-    
+
     ws.onerror = (err) => {
         console.error("Terminal WebSocket error:", err);
     };

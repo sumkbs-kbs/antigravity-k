@@ -3,7 +3,8 @@
 # Commercial-grade task runner for development, testing, and deployment
 
 .PHONY: help install dev test lint format clean build docker-build \
-        docker-run coverage check ci-setup pre-commit
+        docker-run coverage check ci-setup pre-commit install-script \
+        security audit sbom
 
 SHELL := /bin/bash
 PYTHON := python3
@@ -22,6 +23,16 @@ install: ## Install the package in development mode
 venv: ## Create virtual environment
 	$(PYTHON) -m venv $(VENV)
 	@echo "Virtual environment created. Activate with: source $(VENV)/bin/activate"
+
+install-script: ## Run the one-click installation script (dry-run first)
+	@echo "Running Antigravity-K installer in dry-run mode..."
+	@bash scripts/install.sh --dry-run
+	@echo ""
+	@echo "To run the actual installation:"
+	@echo "  bash scripts/install.sh"
+	@echo ""
+	@echo "For remote installation:"
+	@echo "  curl -fsSL https://agk.sh | bash"
 
 # ─── Development ──────────────────────────────────────────────────
 
@@ -120,3 +131,18 @@ docker-down: ## Stop all services
 
 docker-logs: ## Follow logs
 	docker compose logs -f
+
+# ─── Security ───────────────────────────────────────────────────
+security: audit sbom ## Run all security checks (dependency audit + SAST + SBOM)
+
+audit: ## Audit dependencies for known CVEs (pip-audit) and run SAST (bandit)
+	@echo "── pip-audit (dependency vulnerabilities) ──"
+	pip-audit --strict --desc || true
+	@echo ""
+	@echo "── bandit (SAST, MEDIUM+ severity) ──"
+	bandit -r src/antigravity_k -ll -x src/antigravity_k/engine/secret_scanner.py || true
+
+sbom: ## Generate a CycloneDX SBOM from the dependency manifest
+	@command -v cyclonedx-py >/dev/null 2>&1 || pip install cyclonedx-bom
+	cyclonedx-py environment -o sbom.cdx.json --schema-version 1.5
+	@echo "SBOM written to sbom.cdx.json"

@@ -284,16 +284,15 @@ def classify_api_error(
             if body_msg and body_msg not in error_msg:
                 error_msg = f"{error_msg} {body_msg}"
 
-    def _result(reason: FailoverReason, **overrides) -> ClassifiedError:
-        defaults = {
-            "reason": reason,
-            "status_code": status_code,
-            "provider": provider,
-            "model": model,
-            "message": str(error)[:500],
-        }
-        defaults.update(overrides)
-        return ClassifiedError(**defaults)
+    def _result(reason: FailoverReason, **overrides: Any) -> ClassifiedError:
+        return ClassifiedError(
+            reason=reason,
+            status_code=status_code,
+            provider=provider,
+            model=model,
+            message=str(error)[:500],
+            **overrides,
+        )
 
     # ── 1. 프로바이더 특수 패턴 ──
 
@@ -512,7 +511,7 @@ def _extract_error_body(error: Exception) -> dict | None:
     if text:
         try:
             return json.loads(text)
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.debug("Failed to parse error body JSON: %s", e)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
     return None

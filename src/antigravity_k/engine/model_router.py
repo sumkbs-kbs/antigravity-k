@@ -626,6 +626,10 @@ class ModelRouter:
         """모델 복구 시 호출 — 쿨다운 해제."""
         self._tracker.mark_available(model_name)
 
+    def get_temperature_boost(self, model_name: str) -> float:
+        """Return a temperature boost for the given model (0.0 = no boost)."""
+        return 0.0
+
     # ─── 상태 조회 ───────────────────────────────────────────────────
 
     def status(self) -> dict:

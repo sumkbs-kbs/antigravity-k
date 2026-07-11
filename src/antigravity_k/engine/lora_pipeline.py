@@ -391,7 +391,7 @@ model.save_pretrained("{output_dir}/lora_model")
             return {"total": 0, "message": "수확 데이터 없음"}
 
         scores = [e.quality_score for e in self._entries]
-        task_types = {}
+        task_types: dict[str, int] = {}
         for e in self._entries:
             task_types[e.task_type] = task_types.get(e.task_type, 0) + 1
 

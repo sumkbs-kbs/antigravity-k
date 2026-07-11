@@ -107,6 +107,7 @@ interface ChatEntry {
   input?: string;
   text?: string;
   error?: string;
+  tabId?: number;
 }
 
 interface SidebarSession {
@@ -129,14 +130,16 @@ interface TabAgentState {
   startTime: number | null;
   currentMessage: string | null;
   queue: Array<{message: string, ts: string, extensionUrl?: string | null}>;
+  pid?: number;
 }
 const tabAgents = new Map<number, TabAgentState>();
 // Legacy globals kept for backward compat with health check and kill
-let agentProcess: ChildProcess | null = null;
+let agentProcess: any = null;
 let agentStatus: 'idle' | 'processing' | 'hung' = 'idle';
 let agentStartTime: number | null = null;
 let messageQueue: Array<{message: string, ts: string, extensionUrl?: string | null}> = [];
 let currentMessage: string | null = null;
+let agentPid: number | null = null;
 // Per-tab chat buffers — each browser tab gets its own conversation
 const chatBuffers = new Map<number, ChatEntry[]>(); // tabId -> entries
 let chatNextId = 0;
@@ -197,7 +200,7 @@ function findClaudeBin(): string | null {
   ];
   // Also check if 'claude' is in current PATH
   try {
-    const proc = Bun.spawnSync(['which', 'claude'], { stdout: 'pipe', stderr: 'pipe', timeout: 2000 });
+    const proc = Bun.spawnSync(['which', 'claude'], { stdout: 'pipe', stderr: 'pipe', timeout: 2000 } as any);
     if (proc.exitCode === 0) {
       const p = proc.stdout.toString().trim();
       if (p) candidates.unshift(p);
@@ -292,7 +295,7 @@ function createWorktree(sessionId: string): string | null {
     // Check if we're in a git repo
     const gitCheck = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], {
       stdout: 'pipe', stderr: 'pipe', timeout: 3000,
-    });
+    } as any);
     if (gitCheck.exitCode !== 0) return null;
     const repoRoot = gitCheck.stdout.toString().trim();
 
@@ -302,7 +305,7 @@ function createWorktree(sessionId: string): string | null {
     if (fs.existsSync(worktreeDir)) {
       Bun.spawnSync(['git', 'worktree', 'remove', '--force', worktreeDir], {
         cwd: repoRoot, stdout: 'pipe', stderr: 'pipe', timeout: 5000,
-      });
+      } as any);
       try { fs.rmSync(worktreeDir, { recursive: true, force: true }); } catch {}
     }
 
@@ -377,15 +380,15 @@ function saveSession(): void {
 
 function listSessions(): Array<SidebarSession & { chatLines: number }> {
   try {
-    const dirs = fs.readdirSync(SESSIONS_DIR).filter(d => d !== 'active.json');
-    return dirs.map(d => {
+    const dirs = fs.readdirSync(SESSIONS_DIR).filter((d: string) => d !== 'active.json');
+    return dirs.map((d: string) => {
       try {
         const session = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, d, 'session.json'), 'utf-8'));
         let chatLines = 0;
         try { chatLines = fs.readFileSync(path.join(SESSIONS_DIR, d, 'chat.jsonl'), 'utf-8').split('\n').filter(Boolean).length; } catch {}
-        return { ...session, chatLines };
+        return { ...session, chatLines } as SidebarSession & { chatLines: number };
       } catch { return null; }
-    }).filter(Boolean);
+    }).filter((s: any): s is SidebarSession & { chatLines: number } => Boolean(s));
   } catch { return []; }
 }
 
@@ -520,6 +523,20 @@ function spawnClaude(userMessage: string, extensionUrl?: string | null, forTabId
 }
 
 function killAgent(): void {
+  for (const [tid, state] of tabAgents) {
+    if (state.pid) {
+      const pid = state.pid;
+      try { process.kill(pid, 'SIGTERM'); } catch {}
+      setTimeout(() => { try { process.kill(pid, 'SIGKILL'); } catch {} }, 3000);
+      state.pid = undefined;
+    }
+  }
+  if (agentPid) {
+    const pid = agentPid;
+    try { process.kill(pid, 'SIGTERM'); } catch {}
+    setTimeout(() => { try { process.kill(pid, 'SIGKILL'); } catch {} }, 3000);
+    agentPid = null;
+  }
   if (agentProcess) {
     try { agentProcess.kill('SIGTERM'); } catch {}
     setTimeout(() => { try { agentProcess?.kill('SIGKILL'); } catch {} }, 3000);
@@ -904,8 +921,8 @@ function emergencyCleanup() {
   }
   try { fs.unlinkSync(config.stateFile); } catch {}
 }
-process.on('uncaughtException', (err) => {
-  console.error('[browse] FATAL uncaught exception:', err.message);
+process.on('uncaughtException', (err: any) => {
+  console.error('[browse] FATAL uncaught exception:', err?.message || err);
   emergencyCleanup();
   process.exit(1);
 });
@@ -941,7 +958,7 @@ async function start() {
   const server = Bun.serve({
     port,
     hostname: '127.0.0.1',
-    fetch: async (req) => {
+    fetch: async (req: Request) => {
       const url = new URL(req.url);
 
       // Cookie picker routes — HTML page unauthenticated, data/action routes require auth
@@ -1281,8 +1298,14 @@ async function start() {
         const eventTabId = body.tabId ?? agentTabId ?? 0;
         processAgentEvent(body);
         // Handle agent lifecycle events
+        if (body.type === 'agent_start') {
+          const tabState = getTabAgent(eventTabId);
+          tabState.pid = body.pid;
+          agentPid = body.pid;
+        }
         if (body.type === 'agent_done' || body.type === 'agent_error') {
           agentProcess = null;
+          agentPid = null;
           agentStartTime = null;
           currentMessage = null;
           if (body.type === 'agent_done') {
@@ -1481,7 +1504,7 @@ async function start() {
     port,
     token: AUTH_TOKEN,
     startedAt: new Date().toISOString(),
-    serverPath: path.resolve(import.meta.dir, 'server.ts'),
+    serverPath: path.resolve((import.meta as any).dir, 'server.ts'),
     binaryVersion: readVersionHash() || undefined,
     mode: browserManager.getConnectionMode(),
   };

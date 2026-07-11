@@ -1,8 +1,8 @@
 # BLE001 Complete Report — 37→0 전면 정리
 
-> **커밋:** `4fd6c51` (2026-07-01)
-> **변경:** 10 files, +46 / -43 lines
-> **상태:** `ruff check src/ --select=BLE001 --statistics = 0건` ✅
+> **커밋:** `4fd6c51` (BLE001 37→0) + `88ad8f0` (보고서) + `1b02e3a` (I001 0건)
+> **변경:** 11 files, +220 / -43 lines
+> **상태:** `ruff check src/ --statistics = 0건` ✅ (BLE001 + I001 모두 0)
 
 ---
 
@@ -174,6 +174,8 @@ BLE001 (blind `except Exception`) 규칙 위반 37건을 모두 구체적 예외
 ## Git 히스토리
 
 ```
+1b02e3a chore: BLE001 보고서 I001 0건 반영 + orchestrator.py import 정렬 (ruff ALL=0)
+88ad8f0 chore: BLE001 완료 보고서 추가 + orchestrator.py I001 import 정렬 시도
 4fd6c51 refactor: BLE001 전면 정리 완료 — 37건 → 0건 (P0-P4 통합)
 f76ac8a chore: ruff ALL 0건 달성 — BLE001/E501/TRY401/F841/F541/RUF100/F821/F401/I001 전면 정리
 ```
@@ -187,26 +189,30 @@ $ ruff check src/ --select=BLE001 --statistics --exit-zero
 # (출력 없음 = 0건) ✅
 
 $ ruff check src/ --statistics --exit-zero
-I001 1건 (기존) — BLE001과 무관
+# (출력 없음 = 0건) ✅ — BLE001 + I001 + ALL = 0!
 ```
 
 | 메트릭 | 값 |
 |:-------|:----:|
 | BLE001 해결 | **37 → 0** (100%) |
-| 수정 파일 | 10개 |
-| 순수 변경 | +46 / -43 lines |
+| I001 해결 | **2 → 0** (100%) |
+| ruff ALL | **전체 0건** 🎉 |
+| 수정 파일 | 11개 |
+| 순수 변경 | +220 / -43 lines |
 | pre-commit | ✅ 6개 hook 통과 |
 | ruff-format | ✅ 통과 |
 
 ---
 
-## 잔여 ALL 위반 (BLE001 외)
+## 부록: I001 0건 달성
 
-| 규칙 | 건수 | 파일 | 설명 |
-|:-----|:----:|:-----|:------|
-| I001 | 1 | `orchestrator.py` | `from ui.prompts` import 정렬 (이전 분석 완료) |
+BLE001 정리 완료 후 잔여 I001(unsorted-imports) 1건을 추가 해결하여 **`ruff check src/ --statistics = 0건`** 을 달성했습니다.
 
-BLE001과 무관한 기존 사항입니다.
+| 변경 파일 | 내용 |
+|:----------|:------|
+| `engine/orchestrator.py` | `from ui.prompts import PLANNING_MODE_BLOCK` import 위치를 stdlib 그룹 아래로 이동 (ruff --fix --select=I001) |
+
+이로써 `ruff check src/` 명령어가 **어떤 규칙 위반도 0건**으로 출력됩니다.
 
 ---
 

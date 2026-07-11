@@ -258,7 +258,7 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
                 if exit_code is not None and exit_code != 0:
                     return True, f" [exit {exit_code}]"
         except (json.JSONDecodeError, TypeError):
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return False, ""
 
     # 일반: 에러 패턴 매칭
@@ -343,7 +343,7 @@ class ToolCallGuardrailController:
                         signature=signature,
                     )
             except ImportError:
-                pass
+                logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         if tool_name in ["web_search", "web_scrape", "fetch_dom"] and args:
             url = args.get("url", "") or args.get("query", "")

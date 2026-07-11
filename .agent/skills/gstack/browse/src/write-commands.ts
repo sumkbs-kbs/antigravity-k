@@ -181,7 +181,7 @@ export async function handleWriteCommand(
       if (role === 'option') {
         const resolved = await bm.resolveRef(selector);
         if ('locator' in resolved) {
-          const optionInfo = await resolved.locator.evaluate(el => {
+          const optionInfo = await resolved.locator.evaluate((el: any) => {
             if (el.tagName !== 'OPTION') return null; // custom [role=option], not real <option>
             const option = el as HTMLOptionElement;
             const select = option.closest('select');
@@ -206,9 +206,9 @@ export async function handleWriteCommand(
       } catch (err: any) {
         // Enhanced error guidance: clicking <option> elements always fails (not visible / timeout)
         const isOption = 'locator' in resolved
-          ? await resolved.locator.evaluate(el => el.tagName === 'OPTION').catch(() => false)
+          ? await resolved.locator.evaluate((el: any) => el.tagName === 'OPTION').catch(() => false)
           : await target.locator(resolved.selector).evaluate(
-              el => el.tagName === 'OPTION'
+              (el: any) => el.tagName === 'OPTION'
             ).catch(() => false);
         if (isOption) {
           throw new Error(
@@ -370,9 +370,10 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Validate all files exist before upload
+      // Validate all files exist and are in safe directories before upload
       for (const fp of filePaths) {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
+        validateOutputPath(fp); // reusing the safe directory check
       }
 
       const resolved = await bm.resolveRef(selector);

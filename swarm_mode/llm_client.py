@@ -1,5 +1,4 @@
-"""\
-Swarm LLM Client - Three-tier fallback strategy.
+"""Swarm LLM Client - Three-tier fallback strategy.
 
 Priority:
   Tier 1: Local model (Ollama) — 보안 민감 데이터 전용
@@ -13,6 +12,7 @@ Cost management:
 
 import json
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -28,13 +28,25 @@ DEFAULTS = {
     "or_free_model": "openrouter/free",
     "or_paid_model": "google/gemini-2.5-pro-preview-05-14",
     "or_paid_cost_limit": 10.0,
-    "or_api_key": "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",
+    "or_api_key": "",
     "max_retries": 3,
     "retry_delay": 2.0,
     "local_timeout": 60,
     "or_free_timeout": 120,
     "or_paid_timeout": 180,
 }
+
+
+def _openrouter_api_key_from_env() -> str:
+    return os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OR_API_KEY") or ""
+
+
+def _with_env_overrides(config: dict) -> dict:
+    merged = dict(config)
+    env_key = _openrouter_api_key_from_env()
+    if env_key:
+        merged["or_api_key"] = env_key
+    return merged
 
 
 def load_llm_config(config_path: Optional[str] = None) -> dict:
@@ -46,9 +58,9 @@ def load_llm_config(config_path: Optional[str] = None) -> dict:
         if lm:
             merged = {**DEFAULTS, **lm}
             log.info(f"Loaded LLM config from {config_file}: {list(merged.keys())}")
-            return merged
+            return _with_env_overrides(merged)
         log.info("No lm section in config.json — using defaults")
-    return DEFAULTS
+    return _with_env_overrides(DEFAULTS)
 
 
 def call_llm(
@@ -61,8 +73,7 @@ def call_llm(
     paid: bool = False,  # True = tier3 직접 지정
     complex: bool = False,  # True = tier3 요청 (복잡도 자동 판단)
 ) -> str:
-    """
-    Call LLM with three-tier fallback chain:
+    """Call LLM with three-tier fallback chain:
       Tier 1: Local (Ollama) — 항상 먼저 시도
       Tier 2: OpenRouter free — 로컬 실패 시
       Tier 3: OpenRouter paid — paid=True 또는 complex=True 명시적 요청 시만
@@ -79,6 +90,7 @@ def call_llm(
 
     Returns:
         LLM response text
+
     """
     if config is None:
         config = load_llm_config()
@@ -119,9 +131,7 @@ def call_llm(
     return "LLM unavailable: all tiers failed."
 
 
-def _call_tier1_local(
-    prompt: str, system: str, config: dict, timeout: int
-) -> Optional[str]:
+def _call_tier1_local(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
     """Tier 1: Local Ollama — 보안 민감 데이터."""
     url = config.get("local_base_url", DEFAULTS["local_base_url"])
     local_timeout = config.get("local_timeout", DEFAULTS["local_timeout"])
@@ -166,29 +176,29 @@ def _call_tier1_local(
         return None
 
 
-def _call_tier2_free(
-    prompt: str, system: str, config: dict, timeout: int
-) -> Optional[str]:
+def _call_tier2_free(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
     """Tier 2: OpenRouter free model — 일반 작업."""
     or_timeout = config.get("or_free_timeout", DEFAULTS["or_free_timeout"])
     or_model = config.get("or_free_model", DEFAULTS["or_free_model"])
     url = config.get("or_base_url", DEFAULTS["or_base_url"])
     or_api_key = config.get("or_api_key", "")
+    if not or_api_key:
+        log.debug("Tier2 OpenRouter skipped: OPENROUTER_API_KEY is not set")
+        return None
 
-    return _call_openrouter(
-        prompt, system, or_model, config, url, or_api_key, or_timeout, free=True
-    )
+    return _call_openrouter(prompt, system, or_model, config, url, or_api_key, or_timeout, free=True)
 
 
-def _call_tier3_paid(
-    prompt: str, system: str, config: dict, timeout: int
-) -> Optional[str]:
+def _call_tier3_paid(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
     """Tier 3: OpenRouter paid model — 복잡/정교 작업 전용."""
     or_timeout = config.get("or_paid_timeout", DEFAULTS["or_paid_timeout"])
     or_model = config.get("or_paid_model", DEFAULTS["or_paid_model"])
     cost_limit = config.get("or_paid_cost_limit", DEFAULTS["or_paid_cost_limit"])
     or_base_url = config.get("or_base_url", DEFAULTS["or_base_url"])
     or_api_key = config.get("or_api_key", "")
+    if not or_api_key:
+        log.debug("Tier3 OpenRouter skipped: OPENROUTER_API_KEY is not set")
+        return None
 
     # Check cost alert threshold
     cost_alert = config.get("three_tier", {}).get("cost_alert_threshold", 8.0)
@@ -218,8 +228,8 @@ def _call_openrouter(
     free: bool,
 ) -> Optional[str]:
     """Internal OpenRouter call with free/paid model."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     messages = []
     if system:
@@ -247,9 +257,7 @@ def _call_openrouter(
         headers["X-Title"] += f" (cost_limit=${cost_limit})"
 
     try:
-        req = urllib.request.Request(
-            url + "/chat/completions", data=data, headers=headers
-        )
+        req = urllib.request.Request(url + "/chat/completions", data=data, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8")
             data_resp = json.loads(body)

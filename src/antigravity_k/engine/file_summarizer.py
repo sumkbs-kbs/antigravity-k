@@ -77,7 +77,10 @@ class FileSummarizer:
 
             # 요약 생성
             summary = self._summarize_single_file(
-                rel_path, content, entry.get("functions", []), entry.get("classes", []),
+                rel_path,
+                content,
+                entry.get("functions", []),
+                entry.get("classes", []),
             )
 
             entry_str = f"\n📄 **{rel_path}**\n{summary}\n"
@@ -94,7 +97,7 @@ class FileSummarizer:
 
         # 전체가 너무 길면 자르기
         if len(result) > MAX_SUMMARY_CHARS * 2:
-            result = result[:MAX_SUMMARY_CHARS * 2] + "\n\n... _(context truncated)_\n</auto_context>"
+            result = result[: MAX_SUMMARY_CHARS * 2] + "\n\n... _(context truncated)_\n</auto_context>"
 
         return result
 
@@ -131,7 +134,12 @@ class FileSummarizer:
 
         # 200줄 이상 → 심볼 기반 요약
         return self._summarize_large_file(
-            content, lines, ext, known_functions, known_classes, total_lines,
+            content,
+            lines,
+            ext,
+            known_functions,
+            known_classes,
+            total_lines,
         )
 
     def _extract_key_structure(
@@ -240,7 +248,7 @@ class FileSummarizer:
         # 내용이 너무 길면 앞뒤로 자름
         max_chars = 8000
         if len(content) > max_chars:
-            content = content[:max_chars // 2] + "\n\n... (중간 생략) ...\n\n" + content[-max_chars // 2:]
+            content = content[: max_chars // 2] + "\n\n... (중간 생략) ...\n\n" + content[-max_chars // 2 :]
 
         prompt = f"""Summarize this source file for an AI coding agent that needs to understand it for context.
 

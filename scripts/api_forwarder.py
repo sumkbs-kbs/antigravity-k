@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Antigravity-K: OpenAI 호환 API 통합 포워더 (Unified Proxy)
+"""Antigravity-K: OpenAI 호환 API 통합 포워더 (Unified Proxy)
 ===========================================================
 모든 로컬 추론 엔진(mlx-lm, Ollama, vLLM, LM Studio)을
 단일 엔드포인트 http://localhost:1234/v1 로 통합합니다.
@@ -17,7 +16,6 @@ Antigravity-K: OpenAI 호환 API 통합 포워더 (Unified Proxy)
 """
 
 import asyncio
-import glob
 import json
 import logging
 import sys
@@ -28,16 +26,17 @@ from typing import Optional
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 # ─── 프로젝트 모듈 임포트 ────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 try:
-    from antigravity_k.tools.web_search import WebSearchEngine
-    from antigravity_k.knowledge.wiki import LLMWiki
     from antigravity_k.agents.kanban import KanbanBoard
+    from antigravity_k.knowledge.wiki import LLMWiki
+    from antigravity_k.tools.web_search import WebSearchEngine
+
     HAS_TOOLS = True
 except ImportError:
     HAS_TOOLS = False
@@ -135,6 +134,7 @@ def scan_finetuned_models():
         except Exception as e:
             logger.warning(f"파인튜닝 모델 로드 실패: {meta_file} — {e}")
 
+
 # ─── FastAPI 앱 ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Antigravity-K API Forwarder",
@@ -190,7 +190,6 @@ async def refresh_all_backends():
 # ─── 라우팅 로직 ─────────────────────────────────────────────────────────────
 def resolve_backend(model: str) -> Optional[Backend]:
     """모델 이름에 따라 적절한 백엔드를 선택합니다."""
-
     # 1. 명시적 라우팅 규칙 확인
     for prefix, backend_name in MODEL_ROUTES.items():
         if prefix in model.lower():
@@ -240,18 +239,19 @@ def log_request(method: str, path: str, model: str, backend_name: str):
 kanban_board: Optional[KanbanBoard] = None
 active_websockets: list[WebSocket] = []
 
+
 async def kanban_broadcaster():
     """배경에서 Kanban 보드 상태를 주기적으로 확인하고 변경사항이 있으면 웹소켓으로 브로드캐스트합니다."""
     if not kanban_board:
         return
-    
+
     last_state_str = ""
     while True:
         try:
             # 보드 상태 쿼리
             board_state = kanban_board.get_board_state()
             current_state_str = json.dumps(board_state, sort_keys=True)
-            
+
             # 상태 변경 시 모든 연결된 클라이언트에게 전송
             if current_state_str != last_state_str and active_websockets:
                 last_state_str = current_state_str
@@ -261,15 +261,16 @@ async def kanban_broadcaster():
                         await ws.send_json(board_state)
                     except Exception:
                         disconnected.append(ws)
-                
+
                 # 끊긴 웹소켓 정리
                 for ws in disconnected:
                     if ws in active_websockets:
                         active_websockets.remove(ws)
         except Exception as e:
             logger.error(f"Kanban broadcaster error: {e}")
-        
+
         await asyncio.sleep(1.0)  # 1초마다 폴링 (SQLite WAL 모드이므로 부하 적음)
+
 
 @app.on_event("startup")
 async def startup():
@@ -278,13 +279,13 @@ async def startup():
     http_client = httpx.AsyncClient(timeout=120.0)
     load_system_prompt()
     scan_finetuned_models()
-    
+
     # Kanban 보드 초기화 및 브로드캐스터 시작
     if HAS_TOOLS and KanbanBoard:
         kanban_board = KanbanBoard()
         asyncio.create_task(kanban_broadcaster())
         logger.info("Kanban 보드 및 웹소켓 브로드캐스터 시작됨")
-        
+
     await refresh_all_backends()
     logger.info("API Forwarder 시작됨 — http://localhost:1234/v1")
 
@@ -310,11 +311,13 @@ async def list_models():
             for model_id in backend.models:
                 if model_id not in seen:
                     seen.add(model_id)
-                    all_models.append({
-                        "id": model_id,
-                        "object": "model",
-                        "owned_by": backend.name,
-                    })
+                    all_models.append(
+                        {
+                            "id": model_id,
+                            "object": "model",
+                            "owned_by": backend.name,
+                        }
+                    )
 
     return {"object": "list", "data": all_models}
 
@@ -354,8 +357,7 @@ async def chat_completions(request: Request):
     if not backend:
         raise HTTPException(
             status_code=503,
-            detail="사용 가능한 추론 백엔드가 없습니다. "
-                   "Ollama, mlx_lm.server, 또는 LM Studio를 시작해 주세요.",
+            detail="사용 가능한 추론 백엔드가 없습니다. Ollama, mlx_lm.server, 또는 LM Studio를 시작해 주세요.",
         )
 
     log_request("POST", "/v1/chat/completions", model, backend.name)
@@ -457,13 +459,14 @@ async def root():
             "wiki": "/api/wiki",
             "wiki_stats": "/api/wiki/stats",
             "kanban_api": "/api/kanban",
-            "kanban_ws": "/ws/kanban"
+            "kanban_ws": "/ws/kanban",
         },
         "docs": "/docs",
     }
 
 
 # ─── Kanban API & WebSocket ──────────────────────────────────────────────────
+
 
 @app.get("/api/kanban")
 async def get_kanban_state():
@@ -472,9 +475,11 @@ async def get_kanban_state():
         raise HTTPException(status_code=503, detail="KanbanBoard가 초기화되지 않았습니다.")
     return kanban_board.get_board_state()
 
+
 class TaskCreateRequest(BaseModel):
     description: str
     assignee: Optional[str] = None
+
 
 @app.post("/api/kanban/tasks")
 async def create_kanban_task(req: TaskCreateRequest):
@@ -484,8 +489,10 @@ async def create_kanban_task(req: TaskCreateRequest):
     task_id = kanban_board.create_task(req.description, req.assignee)
     return {"id": task_id, "status": "success"}
 
+
 class TaskMoveRequest(BaseModel):
     status: str
+
 
 @app.put("/api/kanban/tasks/{task_id}/status")
 async def move_kanban_task(task_id: str, req: TaskMoveRequest):
@@ -505,12 +512,12 @@ async def websocket_kanban(websocket: WebSocket):
     await websocket.accept()
     active_websockets.append(websocket)
     logger.info(f"Kanban 웹소켓 클라이언트 연결됨. 현재 접속: {len(active_websockets)}명")
-    
+
     try:
         # 최초 연결 시 현재 상태 1회 전송
         if kanban_board:
             await websocket.send_json(kanban_board.get_board_state())
-            
+
         # 클라이언트 연결 유지용 무한 루프
         while True:
             await websocket.receive_text()
@@ -526,8 +533,10 @@ async def websocket_kanban(websocket: WebSocket):
 search_engine: Optional[WebSearchEngine] = None
 wiki: Optional[LLMWiki] = None
 
+
 class AgentExecutor:
     """Hermes Agent Reasoning Traces 형식의 도구 호출을 처리하는 실행기"""
+
     def __init__(self, search_engine, wiki):
         self.search_engine = search_engine
         self.wiki = wiki
@@ -540,7 +549,7 @@ class AgentExecutor:
                 logger.info(f"[MCP] 외부 도구 호출 위임: {tool_name}")
                 # TODO: 추후 mcp-python-sdk 등을 활용해 실제 서버로 JSON-RPC 요청 전달
                 return f"MCP Error: 외부 MCP 서버 연동이 구성되지 않았습니다. (요청: {tool_name})"
-                
+
             if tool_name == "web_search":
                 query = arguments.get("query", "")
                 if self.search_engine:
@@ -561,20 +570,21 @@ class AgentExecutor:
     async def run_agent_stream(self, client: httpx.AsyncClient, target_url: str, body: dict):
         """Tool execution loop 처리. 클라이언트에는 SSE 형식으로 스트리밍"""
         import re
+
         max_loops = 5
-        
+
         for loop in range(max_loops):
             full_content = ""
-            
+
             async with client.stream(
                 "POST", target_url, json=body, headers={"Content-Type": "application/json"}
             ) as resp:
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
-                        
+
                     yield line + "\n"
-                    
+
                     if line.startswith("data: "):
                         data_str = line[6:]
                         if data_str == "[DONE]":
@@ -587,38 +597,46 @@ class AgentExecutor:
                                 full_content += content
                         except Exception:
                             pass
-            
+
             # 스트림 완료 후 <tool_call> 확인
             tool_call_matches = re.finditer(r"<tool_call>(.*?)</tool_call>", full_content, re.DOTALL)
             calls = list(tool_call_matches)
-            
+
             if not calls:
                 break
-                
+
             body["messages"].append({"role": "assistant", "content": full_content})
-            
+
             tool_responses = []
             for match in calls:
                 try:
                     tool_data = json.loads(match.group(1))
                     t_name = tool_data.get("name")
                     t_args = tool_data.get("arguments", {})
-                    
+
                     logger.info(f"[{loop}] 도구 실행 감지: {t_name}")
-                    
+
                     # 실행 알림 스트림 전송
                     msg = f"\n\n> 🛠️ 도구 실행 중: {t_name}...\n\n"
-                    chunk = json.dumps({"id": "tool", "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": msg}}]})
+                    chunk = json.dumps(
+                        {
+                            "id": "tool",
+                            "object": "chat.completion.chunk",
+                            "choices": [{"index": 0, "delta": {"content": msg}}],
+                        }
+                    )
                     yield f"data: {chunk}\n\n"
-                    
+
                     res = await self.execute_tool(t_name, t_args)
                     tool_responses.append(f"<tool_response>\n{res}\n</tool_response>")
                 except Exception as e:
                     tool_responses.append(f"<tool_response>\nError: {e}\n</tool_response>")
-            
+
             body["messages"].append({"role": "user", "content": "\n".join(tool_responses)})
 
+
 agent_executor: Optional[AgentExecutor] = None
+
 
 @app.on_event("startup")
 async def init_tools():
@@ -661,13 +679,13 @@ async def web_search(req: SearchRequest):
         "search_time_ms": response.search_time_ms,
         "total": response.total_results,
         "results": [
-            {"title": r.title, "url": r.url, "snippet": r.snippet, "source": r.source}
-            for r in response.results
+            {"title": r.title, "url": r.url, "snippet": r.snippet, "source": r.source} for r in response.results
         ],
     }
 
 
 # ─── Wiki API ────────────────────────────────────────────────────────────────
+
 
 class WikiAddRequest(BaseModel):
     title: str

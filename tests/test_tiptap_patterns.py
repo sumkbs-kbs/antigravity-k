@@ -1,5 +1,4 @@
-"""
-tiptap-vuetify 패턴 기반 업그레이드 통합 테스트
+"""tiptap-vuetify 패턴 기반 업그레이드 통합 테스트.
 =================================================
 테스트 대상:
   A) BaseTool 메타데이터 (ToolCategory/RenderIn/RiskLevel)
@@ -7,17 +6,17 @@ tiptap-vuetify 패턴 기반 업그레이드 통합 테스트
   C) I18n 에이전트 다국어 시스템
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from antigravity_k.tools.base_tool import BaseTool, ToolCategory, RenderIn, RiskLevel
+from antigravity_k.i18n import I18n, set_locale, t
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from antigravity_k.tools.tool_registry import ToolRegistry
-from antigravity_k.i18n import I18n, t, set_locale
-
 
 # ─────────────────── Mock Tools ───────────────────
 

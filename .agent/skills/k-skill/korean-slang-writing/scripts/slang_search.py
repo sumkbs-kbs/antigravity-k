@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import pathlib
 import sys
 from typing import Any, Iterable
-
 
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
@@ -175,9 +173,7 @@ def _format_text(result: dict) -> str:
     lines: list[str] = []
     query = result.get("query") or "(no query)"
     lines.append(f"Query: {query}")
-    lines.append(
-        f"Matched: {result['matched_before_limit']} -> showing {result['total_candidates']}"
-    )
+    lines.append(f"Matched: {result['matched_before_limit']} -> showing {result['total_candidates']}")
     lines.append("")
     for idx, entry in enumerate(result["candidates"], start=1):
         mood = ", ".join(entry.get("mood_tags") or []) or "-"
@@ -211,9 +207,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "Returns candidates the calling agent can use when writing text with slang."
         )
     )
-    parser.add_argument(
-        "--query", default=None, help="Keyword to match against term/aliases."
-    )
+    parser.add_argument("--query", default=None, help="Keyword to match against term/aliases.")
     parser.add_argument(
         "--mood",
         default="",

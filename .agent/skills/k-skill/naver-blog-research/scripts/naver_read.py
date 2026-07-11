@@ -28,9 +28,7 @@ BLOCK_END_RE = re.compile(r"</(p|div|li)>", re.IGNORECASE)
 WHITESPACE_RE = re.compile(r"[ \t]+")
 BLANK_LINES_RE = re.compile(r"\n{3,}")
 
-_IMG_CDN_HOSTS = (
-    r"(?:blogfiles\.naver\.net|postfiles\.pstatic\.net|mblogthumb-phinf\.pstatic\.net)"
-)
+_IMG_CDN_HOSTS = r"(?:blogfiles\.naver\.net|postfiles\.pstatic\.net|mblogthumb-phinf\.pstatic\.net)"
 
 IMAGE_LAZY_PATTERN = re.compile(rf'data-lazy-src="(https?://{_IMG_CDN_HOSTS}[^"]+)"')
 IMAGE_SRC_PATTERN = re.compile(rf'src="(https?://{_IMG_CDN_HOSTS}[^"]+)"')
@@ -38,9 +36,7 @@ IMAGE_ALT_PATTERN = re.compile(r'alt="([^"]*)"')
 
 TITLE_PATTERN = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
 
-SCRIPT_STYLE_RE = re.compile(
-    r"<(script|style|noscript)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE
-)
+SCRIPT_STYLE_RE = re.compile(r"<(script|style|noscript)[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE)
 
 PC_BLOG_RE = re.compile(r"^https?://blog\.naver\.com/")
 BLOG_ID_RE = re.compile(r"blog\.naver\.com/([a-zA-Z0-9_]+)/(\d+)")
@@ -96,9 +92,7 @@ def _extract_div_block(html: str, start_pos: int) -> str:
             end = html.find("-->", pos + 4)
             pos = end + 3 if end >= 0 else length
             continue
-        if html[pos : pos + 4] == "<div" and (
-            pos + 4 >= length or html[pos + 4] in (" ", ">", "\t", "\n", "/")
-        ):
+        if html[pos : pos + 4] == "<div" and (pos + 4 >= length or html[pos + 4] in (" ", ">", "\t", "\n", "/")):
             depth += 1
             started = True
         elif html[pos : pos + 6] == "</div>":
@@ -206,9 +200,7 @@ def read_blog(
     }
 
     if not content:
-        result["warning"] = (
-            "본문 영역을 찾지 못했습니다. 네이버 HTML 구조가 변경되었을 수 있습니다."
-        )
+        result["warning"] = "본문 영역을 찾지 못했습니다. 네이버 HTML 구조가 변경되었을 수 있습니다."
 
     if include_images:
         result["images"] = extract_images(content_area)
@@ -217,9 +209,7 @@ def read_blog(
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Read a Naver blog post and extract text content and images."
-    )
+    parser = argparse.ArgumentParser(description="Read a Naver blog post and extract text content and images.")
     parser.add_argument("url", help="Naver blog post URL (PC or mobile).")
     parser.add_argument(
         "--no-images",

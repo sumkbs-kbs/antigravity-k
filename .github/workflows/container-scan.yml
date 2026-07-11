@@ -1,0 +1,80 @@
+# Container image security scanning with Trivy.
+# Builds the production Docker image and scans it for known vulnerabilities
+# in both OS packages and Python libraries.
+name: "Container Scan"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "docker-compose*.yml"
+      - "pyproject.toml"
+      - "src/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "docker-compose*.yml"
+      - "pyproject.toml"
+      - "src/**"
+  schedule:
+    # Nightly at 02:00 UTC — catches newly-disclosed CVEs.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: container-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy-scan:
+    name: "Trivy Image Scan"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: antigravity-k:scan
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: antigravity-k:scan
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Upload Trivy results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif

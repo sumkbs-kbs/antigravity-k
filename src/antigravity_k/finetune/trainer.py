@@ -258,7 +258,7 @@ class FineTuneEngine:
         self.current_step = 0
         self.current_epoch = 0
         self.best_val_loss = float("inf")
-        self.training_log = []
+        self.training_log: list[str] = []
 
     def train(self) -> dict:
         """파인튜닝 실행."""
@@ -320,6 +320,7 @@ class FineTuneEngine:
             )
 
             # 실시간 로그 출력 + 수집
+            assert process.stdout is not None
             for line in iter(process.stdout.readline, ""):
                 line = line.rstrip()
                 if line:
@@ -430,7 +431,7 @@ class FineTuneEngine:
                         if "val" in line.lower() and loss_val < self.best_val_loss:
                             self.best_val_loss = loss_val
         except (IndexError, ValueError):
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
     def _save_training_info(self, result: dict):
         """학습 결과 메타데이터 저장."""

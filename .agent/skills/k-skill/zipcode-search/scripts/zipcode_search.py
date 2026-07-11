@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import subprocess
 from dataclasses import asdict, dataclass
-import re
 from typing import Callable, Sequence
 
 SEARCH_URL = "https://www.epost.kr/search.RetrieveIntegrationNewZipCdList.comm"

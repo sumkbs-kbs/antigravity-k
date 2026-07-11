@@ -24,6 +24,28 @@ dashboard/node_modules/
 .env
 .env.local
 .env.production
+.env.template
+
+# Test / scratch / analysis artifacts (not needed in production image)
+tests/
+scripts/
+analysis/
+artifacts/
+scratch/
+scratch_*.py
+run_*.py
+test_*.py
+*.bak
+*.backup
+.tmp/
+.ag_worktrees/
+transcript.json
+coverage_report*.txt
+*.log
+
+# CI / docs / meta (not needed at runtime)
+.github/
+docs/
 
 # Data & Logs
 vault_data/

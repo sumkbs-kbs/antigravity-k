@@ -316,6 +316,9 @@ class ChainOfVerification:
 
     def _llm_verify(self, task: str, response: str) -> VerificationResult | None:
         """LLM을 호출하여 심층 검증합니다."""
+        if not self._generate_fn:
+            return None
+
         verify_prompt = (
             "당신은 엄격한 테크니컬 리뷰어입니다. 아래 답변에서 다음 사항들을 검증해주세요:\n"
             "1. 사실 오류 (부정확한 정보)\n"

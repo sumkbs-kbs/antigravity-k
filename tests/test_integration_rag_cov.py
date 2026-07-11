@@ -1,6 +1,4 @@
-"""
-통합 테스트: Orchestrator에 RAG/CoV 파이프라인이 연결되었는지 검증합니다.
-"""
+"""통합 테스트: Orchestrator에 RAG/CoV 파이프라인이 연결되었는지 검증합니다."""
 
 from unittest.mock import MagicMock
 
@@ -10,8 +8,8 @@ class TestOrchestratorRAGIntegration:
 
     def test_context_enrich_calls_rag_indexer(self):
         """context_enrich_handler가 RAGIndexer.format_context를 호출하는지 확인."""
-        from antigravity_k.engine.state_graph import StateContext
         from antigravity_k.engine.orchestrator_handlers import context_enrich_handler
+        from antigravity_k.engine.state_graph import StateContext
 
         user_msg = "cognitive_loop 함수 구조 알려줘"
         msgs = [{"role": "user", "content": user_msg}]
@@ -22,7 +20,7 @@ class TestOrchestratorRAGIntegration:
         )
 
         orch = MagicMock()
-        orch.ki_engine.build_ki_prompt.return_value = ""
+        orch.ctx.ki_engine.build_ki_prompt.return_value = ""
         orch.vault_engine = None
         orch.project_root = "/tmp"
 
@@ -38,8 +36,8 @@ class TestOrchestratorRAGIntegration:
 
     def test_context_enrich_injects_rag_context(self):
         """RAGIndexer가 결과를 반환하면 rag_context에 포함되는지 확인."""
-        from antigravity_k.engine.state_graph import StateContext
         from antigravity_k.engine.orchestrator_handlers import context_enrich_handler
+        from antigravity_k.engine.state_graph import StateContext
 
         user_msg = "vault engine 구조 분석"
         msgs = [{"role": "user", "content": user_msg}]
@@ -50,12 +48,10 @@ class TestOrchestratorRAGIntegration:
         )
 
         mock_indexer = MagicMock()
-        mock_indexer.format_context.return_value = (
-            "<relevant_code>\ndef vault_init(): pass\n</relevant_code>"
-        )
+        mock_indexer.format_context.return_value = "<relevant_code>\ndef vault_init(): pass\n</relevant_code>"
 
         orch = MagicMock()
-        orch.ki_engine.build_ki_prompt.return_value = ""
+        orch.ctx.ki_engine.build_ki_prompt.return_value = ""
         orch.vault_engine = None
         orch.project_root = "/tmp"
         orch._rag_indexer = mock_indexer
@@ -68,7 +64,7 @@ class TestOrchestratorRAGIntegration:
 
     def test_rag_recall_benchmark(self):
         """RAG 인덱서가 관련된 코드를 상위 5개(recall@5) 이내에 반환하는지 벤치마크 테스트합니다."""
-        from antigravity_k.engine.rag_indexer import RAGIndexer, CodeChunk
+        from antigravity_k.engine.rag_indexer import CodeChunk, RAGIndexer
 
         # 1. 100개의 더미 청크와 1개의 타겟 청크 생성
         chunks = []
@@ -150,8 +146,8 @@ class TestOrchestratorCoVIntegration:
 
     def test_cov_verify_skips_short_output(self):
         """짧은 agent_output은 CoV를 스킵하는지 확인."""
-        from antigravity_k.engine.state_graph import StateContext
         from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
+        from antigravity_k.engine.state_graph import StateContext
 
         ctx = StateContext(
             messages=[{"role": "user", "content": "hello"}],
@@ -165,8 +161,8 @@ class TestOrchestratorCoVIntegration:
 
     def test_cov_verify_detects_syntax_error(self):
         """구문 오류가 있는 코드 응답에서 자기검증이 작동하는지 확인."""
-        from antigravity_k.engine.state_graph import StateContext
         from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
+        from antigravity_k.engine.state_graph import StateContext
 
         broken_code = (
             "아래 코드를 참고하세요:\n"
@@ -195,8 +191,8 @@ class TestOrchestratorCoVIntegration:
 
     def test_cov_verify_passes_clean_code(self):
         """유효한 코드 응답은 검증을 통과하는지 확인."""
-        from antigravity_k.engine.state_graph import StateContext
         from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
+        from antigravity_k.engine.state_graph import StateContext
 
         valid_response = (
             "다음은 요청하신 함수입니다:\n\n"
@@ -235,7 +231,7 @@ class TestStateGraphCoVWiring:
         assert AgentState.COV_VERIFY.value == "cov_verify"
 
     def test_agent_execute_routes_to_cov_verify(self):
-        """AGENT_EXECUTE → COV_VERIFY → QUALITY_CHECK 경로가 설정되었는지 확인."""
+        """AGENT_EXECUTE → COV_VERIFY → CODE_REVIEW → QUALITY_CHECK 경로가 설정되었는지 확인."""
         from antigravity_k.engine.orchestrator_handlers import (
             build_orchestrator_graph,
         )
@@ -244,8 +240,10 @@ class TestStateGraphCoVWiring:
         graph = build_orchestrator_graph()
         # AGENT_EXECUTE의 다음 상태가 COV_VERIFY인지 확인
         assert graph._edges.get(AgentState.AGENT_EXECUTE) == AgentState.COV_VERIFY
-        # COV_VERIFY의 다음 상태가 QUALITY_CHECK인지 확인
-        assert graph._edges.get(AgentState.COV_VERIFY) == AgentState.QUALITY_CHECK
+        # COV_VERIFY → CODE_REVIEW
+        assert graph._edges.get(AgentState.COV_VERIFY) == AgentState.CODE_REVIEW
+        # CODE_REVIEW → QUALITY_CHECK
+        assert graph._edges.get(AgentState.CODE_REVIEW) == AgentState.QUALITY_CHECK
 
         # QUALITY_CHECK가 조건부 엣지를 가지는지 확인
         assert AgentState.QUALITY_CHECK in graph._conditional_edges
@@ -267,7 +265,7 @@ class TestStateGraphCoVWiring:
         from antigravity_k.engine.orchestrator_handlers import (
             build_orchestrator_graph,
         )
-        from antigravity_k.engine.state_graph import StateContext, AgentState
+        from antigravity_k.engine.state_graph import AgentState, StateContext
 
         # 1. 초기 컨텍스트 설정 (에러 상황 가정)
         ctx = StateContext(

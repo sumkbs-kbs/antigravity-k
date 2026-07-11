@@ -25,19 +25,59 @@ logger = logging.getLogger("antigravity_k.code_tree_indexer")
 
 # 인덱싱 대상 확장자
 INDEXABLE_EXTENSIONS = {
-    ".py", ".js", ".ts", ".jsx", ".tsx",
-    ".go", ".rs", ".java", ".kt", ".swift",
-    ".rb", ".php", ".c", ".cpp", ".h", ".hpp", ".scala",
-    ".css", ".scss", ".html", ".md", ".yaml", ".yml", ".json",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".go",
+    ".rs",
+    ".java",
+    ".kt",
+    ".swift",
+    ".rb",
+    ".php",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".scala",
+    ".css",
+    ".scss",
+    ".html",
+    ".md",
+    ".yaml",
+    ".yml",
+    ".json",
 }
 
 # 무시할 디렉토리
 IGNORE_DIRS = {
-    "__pycache__", ".git", "node_modules", ".venv", "venv",
-    "dist", "build", ".egg-info", ".pytest_cache", ".ruff_cache",
-    ".mypy_cache", ".hypothesis", ".tox", "coverage", ".coverage", ".next",
-    "out", ".turbo", ".cache", ".output",
-    "public", "static", "assets", "images", "fonts",
+    "__pycache__",
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".egg-info",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".hypothesis",
+    ".tox",
+    "coverage",
+    ".coverage",
+    ".next",
+    "out",
+    ".turbo",
+    ".cache",
+    ".output",
+    "public",
+    "static",
+    "assets",
+    "images",
+    "fonts",
     ".agent",  # 에이전트 스킬/메타데이터는 제외
 }
 
@@ -45,7 +85,8 @@ IGNORE_DIRS = {
 RE_PY_FUNCTION = re.compile(r"^(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*\(", re.MULTILINE)
 RE_PY_CLASS = re.compile(r"^class\s+([a-zA-Z_]\w*)\s*", re.MULTILINE)
 RE_PY_IMPORT = re.compile(
-    r"^(?:from\s+([.\w]+)\s+)?import\s+(.+)$", re.MULTILINE,
+    r"^(?:from\s+([.\w]+)\s+)?import\s+(.+)$",
+    re.MULTILINE,
 )
 
 # ─── 언어별 함수/메서드 추출 정규식 ───
@@ -99,7 +140,6 @@ RE_COMMON_CLASS = re.compile(
 RE_INTERFACE = re.compile(
     r"(?:^|\n)\s*(?:export\s+)?(?:interface|trait|protocol)\s+([a-zA-Z_$]\w*)",
 )
-
 
 
 @dataclass
@@ -202,9 +242,7 @@ class CodeTreeIndexer:
                 parts.append(f"fn:{fn}")
             # 임포트 (요약)
             if sym.imports:
-                imports_short = ", ".join(
-                    imp.split(".")[0] for imp in sym.imports[:5]
-                )
+                imports_short = ", ".join(imp.split(".")[0] for imp in sym.imports[:5])
                 if len(sym.imports) > 5:
                     imports_short += f" (+{len(sym.imports) - 5})"
                 parts.append(f"import:{imports_short}")
@@ -302,19 +340,19 @@ class CodeTreeIndexer:
 
         results = []
         for score, rel_path, sym in scored[:max_files]:
-            results.append({
-                "file": rel_path,
-                "score": round(score, 1),
-                "functions": sym.functions[:5],
-                "classes": sym.classes[:5],
-                "line_count": sym.line_count,
-            })
+            results.append(
+                {
+                    "file": rel_path,
+                    "score": round(score, 1),
+                    "functions": sym.functions[:5],
+                    "classes": sym.classes[:5],
+                    "line_count": sym.line_count,
+                }
+            )
 
         return results
 
-    def _extract_symbols(
-        self, rel_path: str, content: str, ext: str
-    ) -> FileSymbols | None:
+    def _extract_symbols(self, rel_path: str, content: str, ext: str) -> FileSymbols | None:
         """파일 확장자에 따라 심볼을 추출합니다."""
         lines = content.split("\n")
         symbols = FileSymbols(
@@ -409,12 +447,44 @@ class CodeTreeIndexer:
 
     # 언어별 키워드 블랙리스트 (false positive 방지)
     _FN_BLACKLIST = {
-        "if", "for", "while", "switch", "catch", "return",
-        "throw", "else", "do", "try", "finally", "case", "default",
-        "break", "continue", "new", "delete", "typeof", "instanceof",
-        "import", "export", "yield", "await", "async",
-        "this", "super", "null", "undefined", "true", "false",
-        "int", "void", "float", "double", "char", "bool", "long", "short",
+        "if",
+        "for",
+        "while",
+        "switch",
+        "catch",
+        "return",
+        "throw",
+        "else",
+        "do",
+        "try",
+        "finally",
+        "case",
+        "default",
+        "break",
+        "continue",
+        "new",
+        "delete",
+        "typeof",
+        "instanceof",
+        "import",
+        "export",
+        "yield",
+        "await",
+        "async",
+        "this",
+        "super",
+        "null",
+        "undefined",
+        "true",
+        "false",
+        "int",
+        "void",
+        "float",
+        "double",
+        "char",
+        "bool",
+        "long",
+        "short",
     }
 
     def _extract_common_symbols(self, content: str, symbols: FileSymbols, ext: str = ""):
@@ -428,8 +498,13 @@ class CodeTreeIndexer:
         else:
             # 매칭되는 언어 없음 → 모든 패턴 시도 (기존 호환)
             patterns = [
-                _RE_JS_FN, _RE_GO_FN, _RE_RS_FN,
-                _RE_OO_FN, _RE_SWIFT_FN, _RE_PHP_FN, _RE_RB_FN,
+                _RE_JS_FN,
+                _RE_GO_FN,
+                _RE_RS_FN,
+                _RE_OO_FN,
+                _RE_SWIFT_FN,
+                _RE_PHP_FN,
+                _RE_RB_FN,
             ]
 
         for pattern in patterns:

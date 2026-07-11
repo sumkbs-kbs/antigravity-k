@@ -1,17 +1,18 @@
 """Tool Loop module."""
 
 import asyncio
+import logging
 from collections.abc import Generator
+from typing import Any
 
 from antigravity_k.engine.error_classifier import classify_api_error
-from antigravity_k.engine.logging_util import get_structured_logger
 from antigravity_k.engine.tool_call_parser import EventType
 from antigravity_k.engine.tool_guardrails import (
     append_guardrail_guidance,
     guardrail_synthetic_result,
 )
 
-logger = get_structured_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class ToolLoopEngine:
@@ -32,13 +33,42 @@ class ToolLoopEngine:
         """
         self.orch = orchestrator
 
+    def _native_tools_kwargs(self, delegate_model: str) -> dict:
+        """네이티브 function calling 지원 provider에 tools 스키마를 전달 (P1-1).
+
+        OpenAI 호환 provider(OpenRouter, NIM)는 네이티브 function calling을 지원.
+        로컬 Ollama 모델은 기존 XML 파싱 경로 유지 (네이티브 미지원 모델 다수).
+        config의 native_function_calling 플래그로 전역 제어 (기본 False — 점진적 도입).
+        """
+        # config에서 네이티브 function calling 활성화 여부
+        raw_cfg = getattr(self.orch, "config", {}) or {}
+        native_fc_enabled = (
+            raw_cfg.get("tool_loop", {}).get("native_function_calling", False) if isinstance(raw_cfg, dict) else False
+        )
+        if not native_fc_enabled:
+            return {}
+
+        # 모델의 provider 확인 — OpenAI 호환 provider만 네이티브 지원
+        try:
+            registry = self.orch.manager._registry
+            profile = registry.get_model(delegate_model)
+            if profile and profile.provider in ("openrouter", "nim"):
+                tool_registry = getattr(self.orch, "tool_registry", None)
+                if tool_registry and hasattr(tool_registry, "to_openai_schemas"):
+                    schemas = tool_registry.to_openai_schemas()
+                    if schemas:
+                        return {"tools": schemas, "tool_choice": "auto"}
+        except Exception:
+            logger.debug("네이티브 tools 스키마 준비 실패 — XML 파싱 폴백", exc_info=True)
+        return {}
+
     def run_loop(
         self,
         messages: list[dict[str, str]],
         delegate_to: str,
         task_type: str,
         max_steps: int = 15,
-        target_model: str = None,
+        target_model: str | None = None,
     ) -> Generator[str, None, None]:
         """Run loop.
 
@@ -79,7 +109,10 @@ class ToolLoopEngine:
 
         while step < max_steps:
             step += 1
-            if not self.orch.manager.is_loaded(delegate_model):
+            # 콤보 이름(coding-swarm 등)은 is_loaded 체크를 건너뜀 —
+            # 라우터가 폴백 체인에서 실제 가용 모델을 선택함
+            is_combo = self.orch.manager.router.get_combo(delegate_model) is not None
+            if not is_combo and not self.orch.manager.is_loaded(delegate_model):
                 logger.error("No model %s is loaded to execute.", delegate_model)
                 yield f"\n❌ **모델({delegate_model})이 로드되지 않았습니다.**\n"
                 return
@@ -102,6 +135,7 @@ class ToolLoopEngine:
                 prompt=prompt_str,
                 target=delegate_model,
                 task_type=task_type,
+                **self._native_tools_kwargs(delegate_model),
             )
 
             from antigravity_k.engine.stream_processor import StreamProcessor
@@ -129,6 +163,7 @@ class ToolLoopEngine:
                                 yield cleaned_text
                                 full_output += cleaned_text
                         elif event.type == EventType.TOOL_CALL_COMPLETE:
+                            assert event.tool_call is not None
                             tool_name = event.tool_call.name
                             tool_args = event.tool_call.arguments
 
@@ -148,7 +183,8 @@ class ToolLoopEngine:
                             if not pre_decision.allows_execution:
                                 yield f"\n\n🛡️ **[Guardrail]** {pre_decision.message}\n"
 
-                            pending_tool_calls.append(event.tool_call)
+                            if event.tool_call is not None:
+                                pending_tool_calls.append(event.tool_call)
 
                 # Flush parser and stream
                 events = tool_parser.flush()
@@ -159,7 +195,8 @@ class ToolLoopEngine:
                             yield cleaned_text
                             full_output += cleaned_text
                     elif event.type == EventType.TOOL_CALL_COMPLETE:
-                        pending_tool_calls.append(event.tool_call)
+                        if event.tool_call is not None:
+                            pending_tool_calls.append(event.tool_call)
 
                 processed = stream_proc.process_flush_text("")
                 if processed and processed.strip():
@@ -262,8 +299,10 @@ class ToolLoopEngine:
 
                 # DAG 기반 도구 실행 그룹화 (waitForPreviousTools 처리)
                 execution_batches = []
-                current_batch = []
+                current_batch: list[Any] = []
                 for tc in pending_tool_calls:
+                    if tc is None:
+                        continue
                     wait_for_previous = False
                     if isinstance(tc.arguments, dict):
                         wait_for_previous = tc.arguments.get("waitForPreviousTools", False)
@@ -288,7 +327,7 @@ class ToolLoopEngine:
 
                     # Error handling inside batch results
                     for idx, res in enumerate(batch_results):
-                        if isinstance(res, Exception):
+                        if isinstance(res, BaseException):
                             tc = batch[idx]
                             results_collected.append((tc, None, None, f"Exception: {res}", True))
                         else:
@@ -301,6 +340,8 @@ class ToolLoopEngine:
                 parser.tool_responses = []
 
                 for tc, pre_decision, post_decision, tool_result, blocked in results_collected:
+                    if tc is None:
+                        continue
                     tool_name = tc.name
                     if blocked:
                         yield f"\n> 🛡️ **[Tool Blocked]** {pre_decision.message if pre_decision else tool_result}\n"

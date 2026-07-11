@@ -16,9 +16,7 @@ DEFAULT_PROXY_BASE_URL = "https://k-skill-proxy.nomadamas.org"
 
 
 class ApiError(RuntimeError):
-    def __init__(
-        self, message: str, *, status_code: int | None = None, url: str | None = None
-    ):
+    def __init__(self, message: str, *, status_code: int | None = None, url: str | None = None):
         super().__init__(message)
         self.status_code = status_code
         self.url = url
@@ -33,9 +31,7 @@ def summarize_text(value: Any) -> str:
     return text
 
 
-def resolve_proxy_base_url(
-    explicit_base_url: str | None = None, env: dict[str, str] | None = None
-) -> str:
+def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, str] | None = None) -> str:
     env = env or os.environ
     candidate = summarize_text(explicit_base_url or env.get(PROXY_BASE_URL_ENV_VAR))
     if candidate.casefold() in {"off", "false", "0", "disable", "disabled", "none"}:
@@ -45,9 +41,7 @@ def resolve_proxy_base_url(
     return DEFAULT_PROXY_BASE_URL
 
 
-def build_drug_interview(
-    question: str | None = None, symptoms: str | None = None
-) -> dict[str, Any]:
+def build_drug_interview(question: str | None = None, symptoms: str | None = None) -> dict[str, Any]:
     return {
         "domain": "drug",
         "question": summarize_text(question),
@@ -96,19 +90,13 @@ SAFE_STAD_FIELD_MAP = {
 
 
 def normalize_easy_drug_item(item: dict[str, Any]) -> dict[str, Any]:
-    normalized = {
-        key: summarize_text(item.get(source_key))
-        for key, source_key in EASY_FIELD_MAP.items()
-    }
+    normalized = {key: summarize_text(item.get(source_key)) for key, source_key in EASY_FIELD_MAP.items()}
     normalized["source"] = "drug_easy_info"
     return normalized
 
 
 def normalize_safe_stad_item(item: dict[str, Any]) -> dict[str, Any]:
-    normalized = {
-        key: summarize_text(item.get(source_key))
-        for key, source_key in SAFE_STAD_FIELD_MAP.items()
-    }
+    normalized = {key: summarize_text(item.get(source_key)) for key, source_key in SAFE_STAD_FIELD_MAP.items()}
     normalized["source"] = "safe_standby_medicine"
     return normalized
 
@@ -148,9 +136,7 @@ def lookup_drugs(
 ) -> dict[str, Any]:
     resolved_base_url = resolve_proxy_base_url(base_url)
     url = f"{resolved_base_url}/v1/mfds/drug-safety/lookup"
-    params: list[tuple[str, str]] = [
-        ("itemName", item_name) for item_name in item_names
-    ]
+    params: list[tuple[str, str]] = [("itemName", item_name) for item_name in item_names]
     params.append(("limit", str(limit)))
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(
@@ -164,15 +150,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="MFDS drug-safety helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    interview = subparsers.add_parser(
-        "interview", help="print the mandatory symptom follow-up interview"
-    )
+    interview = subparsers.add_parser("interview", help="print the mandatory symptom follow-up interview")
     interview.add_argument("--question", default="")
     interview.add_argument("--symptoms", default="")
 
-    lookup = subparsers.add_parser(
-        "lookup", help="look up official MFDS drug safety records through k-skill-proxy"
-    )
+    lookup = subparsers.add_parser("lookup", help="look up official MFDS drug safety records through k-skill-proxy")
     lookup.add_argument("--item-name", action="append", required=True)
     lookup.add_argument("--limit", type=int, default=5)
     lookup.add_argument("--proxy-base-url")
@@ -194,9 +176,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "lookup":
         try:
-            payload = lookup_drugs(
-                args.item_name, limit=args.limit, base_url=args.proxy_base_url
-            )
+            payload = lookup_drugs(args.item_name, limit=args.limit, base_url=args.proxy_base_url)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return 0
         except (ValueError, ApiError) as error:

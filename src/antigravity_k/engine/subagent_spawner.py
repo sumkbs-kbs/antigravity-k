@@ -89,10 +89,10 @@ class SubagentSpawner:
         # Format results
         formatted_results = []
         for res in results:
-            if isinstance(res, Exception):
+            if isinstance(res, BaseException):
                 formatted_results.append(f"Exception: {res}")
             else:
-                formatted_results.append(res)
+                formatted_results.append(str(res))
 
         return formatted_results
 

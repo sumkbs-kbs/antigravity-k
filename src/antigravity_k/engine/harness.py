@@ -453,7 +453,7 @@ class FeedbackCollector:
     하네스 엔지니어링의 'Agent-Legible Feedback' 구현.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the FeedbackCollector."""
         self.history: list[HarnessReport] = []
 

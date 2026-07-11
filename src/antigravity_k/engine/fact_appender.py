@@ -37,3 +37,17 @@ class FactAppender:
 
         facts = "\n".join(f"- {fact}" for fact in self.session_facts)
         return f"\n[Learned Facts in Current Session]\n{facts}\n"
+
+
+def initialize_fact_appender(manager, project_root: str) -> FactAppender:
+    """Initialize a FactAppender with the given manager and project root.
+
+    Args:
+        manager: model manager.
+        project_root: project root path.
+
+    Returns:
+        FactAppender instance
+
+    """
+    return FactAppender()

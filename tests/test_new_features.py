@@ -4,9 +4,9 @@ import sys
 # 프로젝트 루트 경로 추가
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
+from antigravity_k.engine.task_runner import get_task_runner
 from antigravity_k.tools.artifact_tools import WriteArtifactTool
 from antigravity_k.tools.cowork_delegate import CoworkDelegateTool
-from antigravity_k.engine.task_runner import get_task_runner
 
 
 def test_write_artifact():
@@ -33,9 +33,7 @@ def test_cowork_delegate():
 
     # It requires the database to be initialized by BackgroundTaskRunner
     tool = CoworkDelegateTool(project_root=os.getcwd(), model_manager=manager)
-    result = tool.execute(
-        prompt="Please write a quick summary of what you are.", use_worktree=True
-    )
+    result = tool.execute(prompt="Please write a quick summary of what you are.", use_worktree=True)
     print("Result:", result)
     assert "[COWORK DELEGATED]" in result
 

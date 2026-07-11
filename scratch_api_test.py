@@ -1,5 +1,5 @@
-import urllib.request
 import json
+import urllib.request
 
 url = "http://localhost:8000/v1/chat/completions"
 data = {

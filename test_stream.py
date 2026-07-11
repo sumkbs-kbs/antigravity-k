@@ -1,4 +1,3 @@
-import asyncio
 from src.antigravity_k.engine.stream_processor import StreamProcessor
 
 processor = StreamProcessor()

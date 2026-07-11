@@ -12,7 +12,7 @@ class ProviderManager:
     Ensures that secrets are not leaked into disk states or logs.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the ProviderManager."""
         self._providers: dict[str, dict[str, str]] = {}
         # Auto-discover common API keys from environment

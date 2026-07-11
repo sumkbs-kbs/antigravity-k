@@ -39,15 +39,100 @@ logger = logging.getLogger("antigravity_k.engine.cost_guard")
 # 로컬 모델은 전력 비용 기반 추정, 클라우드는 공시 가격
 
 MODEL_PRICING: dict[str, dict[str, float]] = {
-    # 로컬 모델 (전력 비용 기반 추정)
+    # 로컬 모델 (전력 비용 기반 추정) — Ollama 로컬
     "default": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
     "local": {"input": 0.001, "output": 0.002, "cached_input": 0.0005},
-    # 클라우드 모델 (참고용)
+    # ─── NVIDIA NIM (build.nvidia.com 무료 — $0, rate limit으로만 보호) ───
+    "nim": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
+    "deepseek-ai/deepseek-r1": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
+    "meta/llama-3.1-405b-instruct": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
+    "meta/llama-3.3-70b-instruct": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
+    "nvidia/llama-3.1-nemotron-70b-instruct": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
+    # ─── OpenAI (OpenRouter 경유 시 동일 가격) ───
     "gpt-4o": {"input": 2.50, "output": 10.00, "cached_input": 1.25},
+    "openai/gpt-4o": {"input": 2.50, "output": 10.00, "cached_input": 1.25},
     "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached_input": 0.075},
+    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached_input": 0.075},
+    # ─── Anthropic ───
     "claude-3.5-sonnet": {"input": 3.00, "output": 15.00, "cached_input": 1.50},
+    "anthropic/claude-3.5-sonnet": {"input": 3.00, "output": 15.00, "cached_input": 1.50},
     "claude-3-haiku": {"input": 0.25, "output": 1.25, "cached_input": 0.125},
+    "anthropic/claude-opus-4": {"input": 15.00, "output": 75.00, "cached_input": 7.50},
+    # ─── Google ───
+    "google/gemini-2.0-flash-001": {"input": 0.10, "output": 0.40, "cached_input": 0.05},
+    "gemini-2.0-flash": {"input": 0.10, "output": 0.40, "cached_input": 0.05},
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.00, "cached_input": 0.625},
+    # ─── ZAI/Zhipu GLM ───
+    "glm-4-plus": {"input": 0.70, "output": 0.70, "cached_input": 0.35},
+    "glm-4-air": {"input": 0.10, "output": 0.10, "cached_input": 0.05},
+    # ─── OpenAI 직접 (o1/o3 시리즈) ───
+    "o3-mini": {"input": 1.10, "output": 4.40, "cached_input": 0.55},
+    # ─── Qwen (OpenRouter) ───
+    "qwen/qwen3-next-80b-a3b-instruct": {"input": 0.30, "output": 0.90, "cached_input": 0.15},
+    "qwen/qwen3-72b": {"input": 0.50, "output": 1.50, "cached_input": 0.25},
+    "qwen/qwen3-235b-a35b": {"input": 0.80, "output": 2.40, "cached_input": 0.40},
+    # ─── 무료 모델 (OpenRouter :free 접미사) ───
+    ":free": {"input": 0.0, "output": 0.0, "cached_input": 0.0},
 }
+
+
+def resolve_pricing(model: str) -> dict[str, float]:
+    """모델명에서 가격표를 해석합니다 (접두사/접미사 매칭 지원).
+
+    우선순위:
+      1. 정확한 모델명 매칭
+      2. ':free' 접미사 → 무료
+      3. provider 접두사 기반 추론 (openai/, anthropic/, meta/, nvidia/, deepseek-ai/)
+      4. 'default' (로컬/무료)
+    """
+    if not model:
+        return MODEL_PRICING["default"]
+
+    # 1. 정확한 매칭
+    if model in MODEL_PRICING:
+        return MODEL_PRICING[model]
+
+    model_lower = model.lower()
+
+    # 2. :free 접미사
+    if model_lower.endswith(":free"):
+        return MODEL_PRICING[":free"]
+
+    # 3. provider 접두사 / 키워드 기반 추론
+    if "deepseek-ai/" in model_lower or "meta/llama" in model_lower or model_lower.startswith("nvidia/"):
+        return MODEL_PRICING["nim"]  # NIM 무료
+    if "openai/gpt-4o-mini" in model_lower or "gpt-4o-mini" in model_lower:
+        return MODEL_PRICING["openai/gpt-4o-mini"]
+    if "gpt-4o" in model_lower:
+        return MODEL_PRICING["gpt-4o"]
+    if "claude-opus" in model_lower:
+        return MODEL_PRICING["anthropic/claude-opus-4"]
+    if "claude-3.5-sonnet" in model_lower or "claude-3-5-sonnet" in model_lower:
+        return MODEL_PRICING["anthropic/claude-3.5-sonnet"]
+    if "gemini-2.5-pro" in model_lower:
+        return MODEL_PRICING["gemini-2.5-pro"]
+    if "gemini" in model_lower:
+        return MODEL_PRICING["gemini-2.0-flash"]
+    if "glm-4-plus" in model_lower:
+        return MODEL_PRICING["glm-4-plus"]
+    if "glm-4-air" in model_lower or "glm" in model_lower:
+        return MODEL_PRICING["glm-4-air"]
+    if "o3-mini" in model_lower or "o1-mini" in model_lower:
+        return MODEL_PRICING["o3-mini"]
+    if "qwen3-next" in model_lower:
+        return MODEL_PRICING["qwen/qwen3-next-80b-a3b-instruct"]
+    if "qwen3-72b" in model_lower:
+        return MODEL_PRICING["qwen/qwen3-72b"]
+    if "qwen3-235b" in model_lower:
+        return MODEL_PRICING["qwen/qwen3-235b-a35b"]
+    # 로컬 Ollama 모델 (:tag 형식)
+    if ":" in model and "/" not in model:
+        return MODEL_PRICING["local"]
+    # MAX 모드 가드용 가상 모델명
+    if model == "max_mode":
+        return MODEL_PRICING["default"]
+
+    return MODEL_PRICING["default"]
 
 
 # ── 데이터 클래스 ──
@@ -156,27 +241,31 @@ class CostGuard:
             # 1. 비용 추정
             estimated = self._estimate_cost(model, tokens_in, tokens_out, cached_in)
 
-            # 2. 글로벌 일일 예산 확인
+            # 2. 글로벌 일일 예산 확인 — 추정 비용이 남은 예산을 초과하면 차단
             remaining_global = self.daily_budget_usd - self._global_daily_spend
-            if estimated > remaining_global and remaining_global < estimated:
-                if remaining_global <= 0:
-                    return CostDecision(
-                        allowed=False,
-                        reason=(
-                            f"글로벌 일일 예산 소진 (${self._global_daily_spend:.4f}/${self.daily_budget_usd:.2f})"
-                        ),
-                        estimated_cost_usd=estimated,
-                        remaining_budget_usd=max(0, remaining_global),
-                        daily_spend_usd=self._global_daily_spend,
-                    )
+            if estimated > remaining_global:
+                return CostDecision(
+                    allowed=False,
+                    reason=(
+                        f"글로벌 일일 예산 초과 "
+                        f"(추정 ${estimated:.4f} > 잔여 ${max(0, remaining_global):.4f}, "
+                        f"일일 한도 ${self.daily_budget_usd:.2f})"
+                    ),
+                    estimated_cost_usd=estimated,
+                    remaining_budget_usd=max(0, remaining_global),
+                    daily_spend_usd=self._global_daily_spend,
+                )
 
             # 3. 사용자별 일일 예산 확인
             user_spend = self._user_daily_spend.get(user_id, 0.0)
             remaining_user = self.user_daily_budget_usd - user_spend
-            if estimated > remaining_user and remaining_user <= 0:
+            if estimated > remaining_user:
                 return CostDecision(
                     allowed=False,
-                    reason=(f"사용자 '{user_id}' 일일 예산 소진 (${user_spend:.4f}/${self.user_daily_budget_usd:.2f})"),
+                    reason=(
+                        f"사용자 '{user_id}' 일일 예산 초과 "
+                        f"(추정 ${estimated:.4f} > 잔여 ${max(0, remaining_user):.4f})"
+                    ),
                     estimated_cost_usd=estimated,
                     remaining_budget_usd=max(0, remaining_user),
                     daily_spend_usd=user_spend,
@@ -199,6 +288,11 @@ class CostGuard:
                     hourly_actions=hourly_count,
                     hourly_limit=self.hourly_action_limit,
                 )
+
+            # 승인 시 이 액션을 rate-limit 윈도우에 사전 예약 (check_budget가
+            # record_spend와 쌍이 아닌 단독 호출에서도 rate limit이 동작하도록).
+            self._action_timestamps.append(now)
+            hourly_count = len(self._action_timestamps)
 
             return CostDecision(
                 allowed=True,
@@ -310,7 +404,7 @@ class CostGuard:
         - 일반 입력: 정가
         - 출력: 별도 가격 (일반적으로 입력의 3-4x)
         """
-        pricing = MODEL_PRICING.get(model, MODEL_PRICING.get("default", {}))
+        pricing = resolve_pricing(model)
         if not pricing:
             return 0.0
 

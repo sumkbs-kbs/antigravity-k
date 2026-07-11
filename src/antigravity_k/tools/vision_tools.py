@@ -18,7 +18,7 @@ class GenerateImageTool(BaseTool):
     icon = "🎨"
     tags = ["image", "vision", "generate", "design"]
 
-    def __init__(self, project_root: str = None):
+    def __init__(self, project_root: str | None = None):
         """Initialize the GenerateImageTool.
 
         Args:

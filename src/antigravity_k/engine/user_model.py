@@ -40,7 +40,7 @@ class UserIntentModeler:
         self._profile = self._load_profile()
         self._session_interactions: list = []
 
-    def observe(self, user_message: str, task_type: str, tools_used: list = None):
+    def observe(self, user_message: str, task_type: str, tools_used: list | None = None):
         """사용자 인터랙션을 관찰하고 프로필을 업데이트합니다."""
         self._session_interactions.append(
             {

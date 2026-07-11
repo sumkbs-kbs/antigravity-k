@@ -38,17 +38,13 @@ def strip_html(text: str) -> str:
     return unescape(TAG_RE.sub("", text)).strip()
 
 
-def build_search_params(
-    query: str, start: int = FIRST_PAGE_START, sort: str = "sim"
-) -> dict[str, str]:
+def build_search_params(query: str, start: int = FIRST_PAGE_START, sort: str = "sim") -> dict[str, str]:
     return {
         "query": query,
         "ssc": "tab.blog.all",
         "sm": "tab_jum" if start <= FIRST_PAGE_START else "tab_pge",
         "start": str(start),
-        "nso": {"sim": "so:r,p:all,a:all", "date": "so:dd,p:all,a:all"}.get(
-            sort, "so:r,p:all,a:all"
-        ),
+        "nso": {"sim": "so:r,p:all,a:all", "date": "so:dd,p:all,a:all"}.get(sort, "so:r,p:all,a:all"),
     }
 
 
@@ -134,9 +130,7 @@ def search(
         if page_num > 0:
             time.sleep(0.5)
 
-        html = fetch_search_page(
-            query, start=start, sort=sort, timeout=timeout, insecure=insecure
-        )
+        html = fetch_search_page(query, start=start, sort=sort, timeout=timeout, insecure=insecure)
         page_results = parse_search_results(html)[:RESULTS_PER_PAGE]
 
         if not page_results:
@@ -169,9 +163,7 @@ def search(
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Search Naver blogs and return structured JSON results."
-    )
+    parser = argparse.ArgumentParser(description="Search Naver blogs and return structured JSON results.")
     parser.add_argument("query", help="Search query string.")
     parser.add_argument(
         "--count",

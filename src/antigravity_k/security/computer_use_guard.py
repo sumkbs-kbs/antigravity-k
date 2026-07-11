@@ -55,7 +55,7 @@ class ActionGuard:
 
     # P1 수정: 비율 기반 위험 영역 — 해상도 독립적 (런타임 계산)
     # 각 값은 0.0 ~ 1.0 비율로, 실제 해상도에 곱하여 사용
-    DANGER_ZONE_RATIOS = [
+    DANGER_ZONE_RATIOS: list[dict[str, str | float]] = [
         {
             "name": "taskbar",
             "y_min_ratio": 0.963,
@@ -73,17 +73,21 @@ class ActionGuard:
     ]
 
     @classmethod
-    def get_danger_zones(cls, screen_width: int = 1920, screen_height: int = 1080):
+    def get_danger_zones(cls, screen_width: int = 1920, screen_height: int = 1080) -> list[dict[str, str | int]]:
         """화면 해상도에 맞게 위험 영역 좌표를 계산합니다."""
-        zones = []
+        zones: list[dict[str, str | int]] = []
         for zone in cls.DANGER_ZONE_RATIOS:
+            y_min_r = zone["y_min_ratio"]
+            y_max_r = zone["y_max_ratio"]
+            x_min_r = zone["x_min_ratio"]
+            x_max_r = zone["x_max_ratio"]
             zones.append(
                 {
-                    "name": zone["name"],
-                    "y_min": int(zone["y_min_ratio"] * screen_height),
-                    "y_max": int(zone["y_max_ratio"] * screen_height),
-                    "x_min": int(zone["x_min_ratio"] * screen_width),
-                    "x_max": int(zone["x_max_ratio"] * screen_width),
+                    "name": str(zone["name"]),
+                    "y_min": int(float(y_min_r) * screen_height) if isinstance(y_min_r, (int, float)) else 0,
+                    "y_max": int(float(y_max_r) * screen_height) if isinstance(y_max_r, (int, float)) else 0,
+                    "x_min": int(float(x_min_r) * screen_width) if isinstance(x_min_r, (int, float)) else 0,
+                    "x_max": int(float(x_max_r) * screen_width) if isinstance(x_max_r, (int, float)) else 0,
                 },
             )
         return zones
@@ -108,14 +112,13 @@ class ActionGuard:
         self.hitl_required = hitl_required
         self._audit_log: list[dict[str, Any]] = []
 
+        self._audit_file: Path | None = None
         if audit_log_path:
             self._audit_file = Path(audit_log_path)
             self._audit_file.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            self._audit_file = None
 
         if custom_blocked_actions:
-            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions)
+            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions)  # type: ignore[assignment]
 
     def validate_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """액션을 검증합니다.

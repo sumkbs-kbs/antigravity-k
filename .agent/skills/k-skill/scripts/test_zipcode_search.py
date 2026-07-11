@@ -1,7 +1,7 @@
 import json
 import os
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from scripts.zipcode_search import (
@@ -91,13 +91,9 @@ class ZipcodeSearchCliShapeTest(unittest.TestCase):
             repo_root / "zipcode-search" / "scripts" / "zipcode_search.py",
         ):
             with self.subTest(helper=helper):
+                self.assertTrue(os.access(helper, os.X_OK), f"{helper} should be executable")
                 self.assertTrue(
-                    os.access(helper, os.X_OK), f"{helper} should be executable"
-                )
-                self.assertTrue(
-                    helper.read_text(encoding="utf-8").startswith(
-                        "#!/usr/bin/env python3\n"
-                    ),
+                    helper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3\n"),
                     f"{helper} should start with a Python shebang",
                 )
 

@@ -87,14 +87,11 @@ def resolve_skills_root(root: Path | str) -> Path:
     the parent directory. Treat that self-skill root as shorthand for its parent
     so the advertised standalone command scans the installed skill bundle.
     """
-
     root_path = Path(root).expanduser().resolve()
     if (root_path / "SKILL.md").is_file():
         parent = root_path.parent
         if any(
-            child.is_dir()
-            and child.name not in EXCLUDED_ROOT_DIRS
-            and (child / "SKILL.md").is_file()
+            child.is_dir() and child.name not in EXCLUDED_ROOT_DIRS and (child / "SKILL.md").is_file()
             for child in parent.iterdir()
         ):
             return parent
@@ -103,7 +100,6 @@ def resolve_skills_root(root: Path | str) -> Path:
 
 def find_skill_dirs(root: Path | str) -> list[str]:
     """Return root-level directories that look like installable skills."""
-
     root_path = resolve_skills_root(root)
     skills: list[str] = []
     for child in root_path.iterdir():
@@ -114,9 +110,7 @@ def find_skill_dirs(root: Path | str) -> list[str]:
     return sorted(skills)
 
 
-def _walk_strings(
-    value: Any, key_hint: str | None = None
-) -> Iterable[tuple[str | None, str]]:
+def _walk_strings(value: Any, key_hint: str | None = None) -> Iterable[tuple[str | None, str]]:
     if isinstance(value, str):
         yield key_hint, value
     elif isinstance(value, Mapping):
@@ -217,9 +211,7 @@ def _mtime_datetime(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
 
 
-def _line_is_in_window(
-    path: Path, line: str, parsed: Any | None, since: datetime | None
-) -> bool:
+def _line_is_in_window(path: Path, line: str, parsed: Any | None, since: datetime | None) -> bool:
     if since is None:
         return True
     line_dt = _line_datetime_from_json(parsed) if parsed is not None else None
@@ -242,7 +234,6 @@ def collect_skill_usage(
     which keeps the selected interview window enforceable even for mixed log
     formats.
     """
-
     since_dt = _parse_datetime(since)
     skills = sorted(set(skill_names))
     counts = {skill: 0 for skill in skills}
@@ -261,9 +252,9 @@ def collect_skill_usage(
                     if not _line_is_in_window(path, line, parsed, since_dt):
                         continue
                     for skill in skills:
-                        if (
-                            parsed is not None and _json_mentions_skill(parsed, skill)
-                        ) or _line_mentions_skill(line, skill):
+                        if (parsed is not None and _json_mentions_skill(parsed, skill)) or _line_mentions_skill(
+                            line, skill
+                        ):
                             counts[skill] += 1
         except OSError:
             continue
@@ -293,7 +284,6 @@ def rank_cleanup_candidates(
     low_usage_threshold: int = 1,
 ) -> list[dict[str, Any]]:
     """Rank deletion/review candidates without touching the filesystem."""
-
     counts = usage_counts or {}
     never = set(never_use or [])
     protected = set(keep or [])
@@ -353,9 +343,7 @@ def parse_csv(value: str | None) -> set[str]:
     return {item.strip() for item in value.split(",") if item.strip()}
 
 
-def _resolve_since(
-    days: int | None, since: str | None, now: datetime | None = None
-) -> datetime | None:
+def _resolve_since(days: int | None, since: str | None, now: datetime | None = None) -> datetime | None:
     explicit_since = _parse_datetime(since)
     if explicit_since is not None:
         return explicit_since
@@ -372,9 +360,7 @@ def _resolve_since(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Suggest K-skill cleanup candidates from interviews and usage logs."
-    )
+    parser = argparse.ArgumentParser(description="Suggest K-skill cleanup candidates from interviews and usage logs.")
     parser.add_argument(
         "--skills-root",
         default=".",
@@ -384,9 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--usage-json",
         help="Optional JSON object mapping skill names to trigger counts",
     )
-    parser.add_argument(
-        "--log", action="append", default=[], help="Agent log file to scan; repeatable"
-    )
+    parser.add_argument("--log", action="append", default=[], help="Agent log file to scan; repeatable")
     parser.add_argument(
         "--scan-default-logs",
         action="store_true",
@@ -397,9 +381,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Comma-separated skills the user says they never use",
     )
-    parser.add_argument(
-        "--keep", default="", help="Comma-separated skills to protect from suggestions"
-    )
+    parser.add_argument("--keep", default="", help="Comma-separated skills to protect from suggestions")
     parser.add_argument(
         "--low-usage-threshold",
         type=int,
@@ -428,9 +410,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.scan_default_logs:
         log_paths.extend(expand_default_log_paths())
     since = _resolve_since(args.days, args.since)
-    scanned_log_paths = sorted(
-        {str(path.expanduser()) for path in log_paths if path.expanduser().is_file()}
-    )
+    scanned_log_paths = sorted({str(path.expanduser()) for path in log_paths if path.expanduser().is_file()})
     log_counts = collect_skill_usage(log_paths, skill_names, since=since)
     for skill, count in log_counts.items():
         usage_counts[skill] = usage_counts.get(skill, 0) + count

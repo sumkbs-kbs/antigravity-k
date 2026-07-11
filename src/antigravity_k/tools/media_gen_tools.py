@@ -46,7 +46,10 @@ class GenerateImageTool(BaseTool):
             "required": ["prompt", "output_path"],
         }
 
-    def execute(self, prompt: str, output_path: str, aspect_ratio: str = "1:1") -> str:
+    def execute(self, **kwargs: Any) -> str:
+        prompt = kwargs.get("prompt", "")
+        output_path = kwargs.get("output_path", "")
+        aspect_ratio = kwargs.get("aspect_ratio", "1:1")
         dims = {
             "1:1": "1024x1024",
             "16:9": "1365x768",
@@ -118,7 +121,10 @@ class GenerateAudioTool(BaseTool):
             "required": ["text", "output_path"],
         }
 
-    def execute(self, text: str, output_path: str, voice: str = "af_heart") -> str:
+    def execute(self, **kwargs: Any) -> str:
+        text = kwargs.get("text", "")
+        output_path = kwargs.get("output_path", "")
+        voice = kwargs.get("voice", "af_heart")
         try:
             import soundfile as sf
             from kokoro_onnx import Kokoro
@@ -186,7 +192,9 @@ class GenerateVideoTool(BaseTool):
             "required": ["prompt", "output_path"],
         }
 
-    def execute(self, prompt: str, output_path: str) -> str:
+    def execute(self, **kwargs: Any) -> str:
+        prompt = kwargs.get("prompt", "")
+        output_path = kwargs.get("output_path", "")
         script_content = f"""import torch
 from diffusers import LTXPipeline
 from diffusers.utils import export_to_video

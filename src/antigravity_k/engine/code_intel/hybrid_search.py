@@ -35,6 +35,9 @@ class HybridSearchEngine:
             list[dict]: The list[dict] result.
 
         """
+        if not query or not query.strip():
+            return []
+
         if not self.index_built:
             self.build_index()
 

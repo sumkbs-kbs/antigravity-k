@@ -79,7 +79,7 @@ class MemoryService:
             """)
             conn.commit()
 
-    def add_knowledge(self, topic: str, content: str, tags: list[str] = None):
+    def add_knowledge(self, topic: str, content: str, tags: list[str] | None = None):
         """새로운 지식 항목을 저장하고 벡터 임베딩을 자동 생성합니다."""
         now = datetime.now().isoformat()
         tags_str = json.dumps(tags) if tags else "[]"

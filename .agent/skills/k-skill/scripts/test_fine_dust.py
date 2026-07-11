@@ -7,7 +7,6 @@ from unittest import mock
 
 import fine_dust
 
-
 FIXTURES = pathlib.Path(__file__).with_name("fixtures")
 
 
@@ -119,20 +118,10 @@ class FineDustTests(unittest.TestCase):
 
         def fake_fetch_json(url, params):
             recorded_calls.append((url, params))
-            return {
-                "response": {
-                    "body": {
-                        "items": [
-                            {"stationName": "중구", "addr": "서울 중구 서소문로 124"}
-                        ]
-                    }
-                }
-            }
+            return {"response": {"body": {"items": [{"stationName": "중구", "addr": "서울 중구 서소문로 124"}]}}}
 
         with (
-            mock.patch.object(
-                fine_dust, "get_required_secret", return_value="test-secret"
-            ),
+            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             payload = fine_dust.fetch_station_payload(args)
@@ -184,9 +173,7 @@ class FineDustTests(unittest.TestCase):
             raise AssertionError(f"unexpected URL: {url}")
 
         with (
-            mock.patch.object(
-                fine_dust, "get_required_secret", return_value="test-secret"
-            ),
+            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             payload = fine_dust.fetch_station_payload(args)
@@ -241,12 +228,8 @@ class FineDustTests(unittest.TestCase):
 
         with (
             redirect_stdout(stdout),
-            mock.patch.dict(
-                fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False
-            ),
-            mock.patch.object(
-                fine_dust, "get_required_secret", return_value="test-secret"
-            ),
+            mock.patch.dict(fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False),
+            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             fine_dust.main(
@@ -298,12 +281,8 @@ class FineDustTests(unittest.TestCase):
 
         with (
             redirect_stdout(stdout),
-            mock.patch.dict(
-                fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False
-            ),
-            mock.patch.object(
-                fine_dust, "get_required_secret", return_value="test-secret"
-            ),
+            mock.patch.dict(fine_dust.os.environ, {"KSKILL_PROXY_BASE_URL": "off"}, clear=False),
+            mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
             fine_dust.main(["report", "--station-name", "중구", "--json"])
@@ -337,9 +316,7 @@ class FineDustTests(unittest.TestCase):
                 fine_dust.os.environ,
                 {"KSKILL_PROXY_BASE_URL": "https://k-skill-proxy.nomadamas.org"},
             ),
-            mock.patch.object(
-                fine_dust, "fetch_proxy_report", return_value=proxy_report
-            ),
+            mock.patch.object(fine_dust, "fetch_proxy_report", return_value=proxy_report),
             mock.patch.object(
                 fine_dust,
                 "fetch_station_lookup",

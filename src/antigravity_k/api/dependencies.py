@@ -2,6 +2,7 @@
 
 import logging
 import os
+from typing import Any
 
 from antigravity_k.engine.context_shaper import ContextShaper
 from antigravity_k.engine.embeddings import EmbeddingEngine
@@ -26,6 +27,22 @@ _skill_loader: SkillLoader | None = None
 _context_shaper: ContextShaper | None = None
 _session_manager: SessionManager | None = None
 _orchestrator: OrchestratorAgent | None = None
+_mode_manager: Any | None = None
+
+
+def get_mode_manager():
+    """ModeManager 싱글톤을 반환합니다.
+
+    Phase 1 D7: Dashboard WebSocket이 실제 실행 모드를 조회하기 위해 사용.
+    EngineContext.mode_manager와 동일한 인스턴스를 공유합니다.
+    """
+    global _mode_manager
+    if _mode_manager is None:
+        from antigravity_k.engine.mode_manager import ModeManager
+
+        _mode_manager = ModeManager()
+        logger.info("Lazy initializing ModeManager (singleton)...")
+    return _mode_manager
 
 
 def _get_session_manager() -> SessionManager:
@@ -110,6 +127,7 @@ def get_orchestrator() -> OrchestratorAgent:
         _orchestrator = OrchestratorAgent(
             model_manager=get_model_manager(),
             vault_engine=get_vault_engine(),
+            session_manager=_get_session_manager(),  # 작업 1: 인스턴스 통일
         )
     return _orchestrator
 

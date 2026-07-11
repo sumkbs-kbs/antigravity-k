@@ -1,8 +1,9 @@
-from antigravity_k.engine.model_registry import ModelRegistry
-from antigravity_k.engine.model_manager import ModelManager
-from antigravity_k.tools.tool_registry import ToolRegistry
-from antigravity_k.engine.orchestrator import OrchestratorAgent
 import asyncio
+
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_registry import ModelRegistry
+from antigravity_k.engine.orchestrator import OrchestratorAgent
+from antigravity_k.tools.tool_registry import ToolRegistry
 
 
 async def main():
@@ -19,11 +20,9 @@ async def main():
     ]
 
     try:
-        for chunk in orch.run_stream(
-            messages, target_model="qwen3.6:latest", max_steps=15
-        ):
+        for chunk in orch.run_stream(messages, target_model="qwen3.6:latest", max_steps=15):
             print(chunk, end="", flush=True)
-    except Exception as e:
+    except Exception:
         print("\n\nEXCEPTION CAUGHT IN SCRIPT:\n")
         import traceback
 

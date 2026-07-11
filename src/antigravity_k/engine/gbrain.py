@@ -1,13 +1,15 @@
 """Gbrain module."""
 
+import atexit
 import concurrent.futures
 import logging
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import chromadb
 import networkx as nx
+from chromadb.api.client import SharedSystemClient
 from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,33 @@ class GBrain:
         # 비동기 백그라운드 저장을 위한 스레드 풀
         self._save_lock = threading.Lock()
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._closed = False
+
+    def close(self):
+        """ChromaDB 클라이언트 연결과 스레드 풀을 정리합니다."""
+        if self._closed:
+            return
+        self._closed = True
+        # 스레드 풀 먼저 종료
+        try:
+            self._executor.shutdown(wait=False)
+        except Exception:
+            logger.exception("[GBrain] executor shutdown 실패")
+        # ChromaDB 클라이언트 정리
+        try:
+            if hasattr(self, "chroma_client") and self.chroma_client is not None:
+                self.chroma_client.close()
+        except Exception:
+            logger.exception("[GBrain] chromadb client close 실패")
+        finally:
+            try:
+                SharedSystemClient.clear_system_cache()
+            except Exception:
+                logger.exception("[GBrain] clear_system_cache 실패")
+            self.chroma_client = None
+
+    def __del__(self):
+        self.close()
 
     def _save_graph(self):
         """그래프를 백그라운드 스레드에서 디스크에 저장합니다."""
@@ -83,8 +112,9 @@ class GBrain:
         metadata = metadata or {}
         metadata["label"] = label
 
-        # 1. 그래프에 추가
-        self.graph.add_node(node_id, label=label, content=content, **metadata)
+        # 1. 그래프에 추가 (label이 metadata에도 있으므로 중복 키 방지)
+        graph_meta = {k: v for k, v in metadata.items() if k not in ("label", "content")}
+        self.graph.add_node(node_id, label=label, content=content, **graph_meta)
 
         # 2. 벡터DB에 추가
         # ChromaDB metadata values must be str, int, float or bool
@@ -118,12 +148,12 @@ class GBrain:
         if self.collection.count() == 0:
             return []
 
-        where = {"label": filter_label} if filter_label else None
+        where: dict[str, str] | None = {"label": filter_label} if filter_label else None
 
         results = self.collection.query(
             query_texts=[query],
             n_results=min(limit, self.collection.count()),
-            where=where,
+            where=cast(Any, where),
         )
 
         matched_nodes = []
@@ -158,3 +188,14 @@ class GBrain:
 
 # 전역 싱글톤 인스턴스
 global_gbrain = GBrain()
+
+
+def _close_global_gbrain():
+    """프로세스 종료 시 전역 GBrain의 리소스를 정리합니다."""
+    try:
+        global_gbrain.close()
+    except Exception:
+        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+
+
+atexit.register(_close_global_gbrain)

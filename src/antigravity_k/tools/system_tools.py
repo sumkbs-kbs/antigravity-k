@@ -204,6 +204,8 @@ class ReplaceFileContentTool(BaseTool):
         target_text = kwargs.get("target_text", "")
         replacement_text = kwargs.get("replacement_text", "")
 
+        if not file_path:
+            return "Error: No file_path provided."
         if not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
 
@@ -310,6 +312,12 @@ class RunBashCommandTool(BaseTool):
             env_vars = os.environ.copy()
             env_vars.update(pm.get_provider_env())
 
+            # P2-1: 샌드박스 적용 — config의 sandbox_enabled가 true면 OS 수준 격리
+            sandbox_result = self._run_with_sandbox(command, env_vars)
+            if sandbox_result is not None:
+                return sandbox_result
+
+            # 폴백: 일반 subprocess (샌드박스 비활성화 시)
             result = subprocess.run(
                 command,
                 shell=True,
@@ -327,6 +335,38 @@ class RunBashCommandTool(BaseTool):
         except Exception as e:
             logger.exception("Unhandled exception")
             return f"Error executing command: {e}"
+
+    def _run_with_sandbox(self, command: str, env_vars: dict) -> str | None:
+        """샌드박스가 활성화된 경우 SandboxRunner로 실행 (P2-1).
+
+        Returns:
+            결과 문자열 (샌드박스 적용 시), None (비활성화 시 — 호출자가 폴백)
+        """
+        try:
+            from ..config import config as app_config
+            from ..engine.sandbox import SandboxRunner
+
+            sandbox_enabled = getattr(app_config.security, "sandbox_enabled", False)
+            if not sandbox_enabled:
+                return None  # 샌드박스 비활성 — 폴백
+
+            runner = SandboxRunner(
+                project_root=str(app_config.paths.project_root),
+                enabled=True,
+                network=getattr(app_config.security, "sandbox_network", "none"),
+                timeout=60,
+            )
+            result = runner.execute(command, env=env_vars)
+            output = result.stdout
+            if result.stderr:
+                output += f"\nSTDERR:\n{result.stderr}"
+            if result.timed_out:
+                return f"Error: {result.error}"
+            tag = " [sandboxed]" if result.sandboxed else ""
+            return (output if output else "Command executed successfully.") + tag
+        except Exception:
+            logger.debug("샌드박스 실행 실패 — raw subprocess로 폴백", exc_info=True)
+            return None
 
 
 class ListDirectoryTool(BaseTool):
@@ -574,15 +614,11 @@ class NaturalLanguageBashTool(BaseTool):
                 model_manager = ModelManager()
                 orchestrator = OrchestratorAgent(model_manager=model_manager)
 
-                info = model_manager.get_model_info()
-                target_model = (
-                    info.get("active_model", "default")
-                    if isinstance(info, dict)
-                    else getattr(info, "active_model", "default")
-                )
-                if target_model == "default" or not target_model:
-                    models = model_manager.list_models()
-                    target_model = models[0].get("id") if models else "local-model"
+                try:
+                    info = model_manager._registry.list_models()  # type: ignore[union-attr]
+                    target_model = info[0].name if info else "qwen3.6:latest"
+                except Exception:
+                    target_model = "qwen3.6:latest"
 
                 messages = [{"role": "user", "content": prompt}]
                 command = orchestrator.run_sync(messages, target_model=target_model).strip()

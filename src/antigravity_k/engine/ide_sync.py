@@ -14,6 +14,7 @@ class IDEContextManager:
 
     _instance = None
     _lock = threading.Lock()
+    _state: dict[str, Any]
 
     def __new__(cls):
         """Create a new instance."""

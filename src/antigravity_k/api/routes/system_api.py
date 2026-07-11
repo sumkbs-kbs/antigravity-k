@@ -24,7 +24,7 @@ from antigravity_k.api.dependencies import (
     _get_session_manager,
     get_model_manager,
 )
-from antigravity_k.api.models import _active_session
+from antigravity_k.api.routes.legacy import _active_session
 
 logger = logging.getLogger("antigravity_k.api.system_api")
 router = APIRouter()
@@ -275,9 +275,267 @@ async def harness_trend():
     return {"ok": True, "trend": trend}
 
 
+# ─── Skills API (D16: Dashboard Skills Browser) ─────────────────
+
+
+@router.get("/api/system/skills")
+async def system_skills():
+    """SkillLoader.list_skills() 결과를 JSON으로 반환합니다.
+
+    Phase 1 D16: Dashboard Skills Browser에서 사용.
+    각 스킬의 source(global/local/market), id, name, description, version 정보 포함.
+    """
+    try:
+        sl = __get_skill_loader()
+        skills = sl.list_skills()
+        return {"ok": True, "skills": skills}
+    except Exception as e:
+        logger.error("Skills list error: %s", e)
+        return {"ok": False, "skills": [], "error": str(e)}
+
+
+@router.get("/api/system/skills/installed")
+async def system_skills_installed():
+    """SkillMarketRegistry.list_installed() 결과를 JSON으로 반환합니다.
+
+    Phase 1 D16: Dashboard Skills Browser — Marketplace 탭에서 사용.
+    설치된 스킬의 상세 정보 (name, version, is_loaded, mcp_server_id 등) 포함.
+    """
+    try:
+        from antigravity_k.engine.skill_installer import SkillInstaller
+        from antigravity_k.engine.skill_market_client import SkillMarketClient
+        from antigravity_k.engine.skill_market_registry import SkillMarketRegistry
+
+        sl = __get_skill_loader()
+        installer = SkillInstaller(project_root=os.getcwd(), skill_loader=sl)
+        client = SkillMarketClient(
+            project_root=os.getcwd(),
+            install_dir=".agent/skills/market",
+        )
+        registry = SkillMarketRegistry(
+            project_root=os.getcwd(),
+            market_client=client,
+            installer=installer,
+            skill_loader=sl,
+        )
+        installed = registry.list_installed()
+        result = []
+        for skill in installed:
+            s = {
+                "name": skill.name,
+                "version": skill.version,
+                "is_loaded": skill.is_loaded,
+                "mcp_server_id": skill.mcp_server_id,
+                "security_issues": skill.security_issues,
+            }
+            result.append(s)
+        return {"ok": True, "installed": result}
+    except Exception as e:
+        logger.error("Installed skills error: %s", e)
+        return {"ok": False, "installed": [], "error": str(e)}
+
+
+@router.get("/api/system/skills/mcp")
+async def system_skills_mcp():
+    """MCPServerRegistry.list_skills_with_mcp() 결과를 JSON으로 반환합니다.
+
+    Phase 1 D16: Dashboard Skills Browser — MCP Servers 탭에서 사용.
+    각 스킬별 MCP 서버 정보 (name, status, tools) 포함.
+    """
+    try:
+        from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
+
+        mcp = MCPServerRegistry()
+        servers = mcp.list_skills_with_mcp()
+        return {"ok": True, "servers": servers}
+    except Exception as e:
+        logger.error("MCP skills error: %s", e)
+        return {"ok": False, "servers": [], "error": str(e)}
+
+
+@router.get("/api/system/skills/search")
+async def system_skills_search(
+    q: str = Query("", description="Search query for npm skill packages"),
+    limit: int = Query(15, ge=1, le=50, description="Max results"),
+):
+    """npm 레지스트리에서 @antigravity-k/skill-* 패키지를 검색합니다.
+
+    Phase 1 D20: Dashboard Skills Browser — Search tab에서 실시간 검색.
+    """
+    try:
+        from antigravity_k.engine.skill_market_client import SkillMarketClient
+
+        client = SkillMarketClient()
+        results = client.search(q, limit=limit)
+        formatted = [r.to_dict() for r in results]
+        return {"ok": True, "results": formatted, "count": len(formatted)}
+    except Exception as e:
+        logger.error("Skills search error: %s", e)
+        return {"ok": False, "results": [], "count": 0, "error": str(e)}
+
+
+@router.post("/api/system/skills/install")
+async def system_skills_install(request: Request):
+    """npm 패키지를 설치합니다.
+
+    Phase 1 D20: Dashboard Skills Browser — Install 버튼.
+    """
+    try:
+        body = await request.json()
+        package_name = body.get("package_name", "")
+        if not package_name:
+            return {"ok": False, "error": "package_name is required"}
+
+        from antigravity_k.engine.skill_installer import SkillInstaller
+        from antigravity_k.engine.skill_market_client import SkillMarketClient
+        from antigravity_k.engine.skill_market_registry import SkillMarketRegistry
+
+        sl = __get_skill_loader()
+        installer = SkillInstaller(project_root=os.getcwd(), skill_loader=sl)
+        client = SkillMarketClient(project_root=os.getcwd())
+        registry = SkillMarketRegistry(
+            project_root=os.getcwd(),
+            market_client=client,
+            installer=installer,
+            skill_loader=sl,
+        )
+        result = registry.install(package_name)
+        return {"ok": result.get("success", False), "result": result}
+    except Exception as e:
+        logger.error("Skill install error: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/api/system/skills/remove")
+async def system_skills_remove(request: Request):
+    """설치된 스킬을 제거합니다.
+
+    Phase 1 D20: Dashboard Skills Browser — Remove 버튼.
+    """
+    try:
+        body = await request.json()
+        skill_name = body.get("skill_name", "")
+        if not skill_name:
+            return {"ok": False, "error": "skill_name is required"}
+
+        from antigravity_k.engine.skill_installer import SkillInstaller
+        from antigravity_k.engine.skill_market_client import SkillMarketClient
+        from antigravity_k.engine.skill_market_registry import SkillMarketRegistry
+
+        sl = __get_skill_loader()
+        installer = SkillInstaller(project_root=os.getcwd(), skill_loader=sl)
+        client = SkillMarketClient(project_root=os.getcwd())
+        registry = SkillMarketRegistry(
+            project_root=os.getcwd(),
+            market_client=client,
+            installer=installer,
+            skill_loader=sl,
+        )
+        result = registry.remove(skill_name)
+        return {"ok": result.get("success", False), "result": result}
+    except Exception as e:
+        logger.error("Skill remove error: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+@router.get("/api/system/mode/history")
+async def system_mode_history():
+    """ModeManager의 전체 모드 히스토리를 반환합니다.
+
+    Phase 1 D16: Dashboard Mode Indicator 확장 — 히스토리 렌더링용.
+    """
+    try:
+        from antigravity_k.api.dependencies import get_mode_manager
+
+        mgr = get_mode_manager()
+        history = [
+            {
+                "from": h.from_mode,
+                "to": h.to_mode,
+                "reason": h.reason,
+                "timestamp": h.timestamp,
+            }
+            for h in mgr.mode_history
+        ]
+        return {"ok": True, "history": history}
+    except Exception as e:
+        logger.error("Mode history error: %s", e)
+        return {"ok": False, "history": [], "error": str(e)}
+
+
 # ─── System API ─────────────────────────────────────────────────
 
 START_TIME = time.time()
+
+
+@router.get("/api/system/mode")
+async def system_mode():
+    """현재 실행 모드(Plan/Build/Interactive)를 반환합니다.
+
+    Phase 1 D7: Dashboard WebSocket이 초기 연결 시 현재 모드를 가져오기 위해 사용.
+    depends에 ModeManager 싱글톤을 조회하여 실제 실행 모드 반환.
+    """
+    try:
+        from antigravity_k.api.dependencies import get_mode_manager
+
+        mgr = get_mode_manager()
+        return {
+            "ok": True,
+            "mode": mgr.current_mode.value,
+            "is_plan": mgr.is_plan,
+            "is_build": mgr.is_build,
+            "is_interactive": mgr.is_interactive,
+            "plan_artifact_path": mgr.plan_artifact_path,
+            "history_count": len(mgr.mode_history),
+            "last_transition": (
+                {
+                    "from": mgr.mode_history[-1].from_mode,
+                    "to": mgr.mode_history[-1].to_mode,
+                    "reason": mgr.mode_history[-1].reason,
+                    "timestamp": mgr.mode_history[-1].timestamp,
+                }
+                if mgr.mode_history
+                else None
+            ),
+        }
+    except Exception as e:
+        logger.error("Mode status error: %s", e)
+        return {"ok": False, "mode": "interactive", "error": str(e)}
+
+
+@router.post("/api/system/mode")
+async def set_system_mode(request: Request):
+    """실행 모드를 전환합니다 (Interactive/Plan/Build).
+
+    대시보드의 모드 인디케이터 클릭 시 호출됩니다.
+    """
+    try:
+        body = await request.json()
+        target_mode = body.get("mode", "").lower()
+        reason = body.get("reason", "사용자 수동 전환")
+
+        if target_mode not in ("interactive", "plan", "build"):
+            return {"ok": False, "error": f"알 수 없는 모드: {target_mode}. interactive/plan/build 중 하나."}
+
+        from antigravity_k.api.dependencies import get_mode_manager
+
+        mgr = get_mode_manager()
+        if target_mode == "plan":
+            mgr.switch_to_plan(reason=reason)
+        elif target_mode == "build":
+            mgr.switch_to_build(reason=reason)
+        else:
+            mgr.switch_to_interactive(reason=reason)
+
+        logger.info("모드 전환 (수동): %s → %s", target_mode, reason)
+        return {
+            "ok": True,
+            "mode": mgr.current_mode.value,
+            "message": f"모드가 {mgr.current_mode.value}(으)로 전환되었습니다.",
+        }
+    except Exception as e:
+        logger.error("Mode switch error: %s", e)
+        return {"ok": False, "error": str(e)}
 
 
 @router.get("/api/system/status")
@@ -354,7 +612,7 @@ import termios
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from antigravity_k.api.models import close_unauthorized_ws
+from antigravity_k.api.routes.legacy import close_unauthorized_ws
 
 
 @router.websocket("/ws/terminal")
@@ -412,7 +670,7 @@ async def websocket_terminal(websocket: WebSocket):
         try:
             os.close(master)
         except OSError:
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         import signal
         import time
 
@@ -429,7 +687,7 @@ async def websocket_terminal(websocket: WebSocket):
             else:
                 os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
     try:
         while True:

@@ -1,5 +1,4 @@
-"""
-Antigravity-K: External Brain E2E Integration Test
+"""Antigravity-K: External Brain E2E Integration Test.
 ==================================================
 ExternalBrainRouter의 엔드투엔드 위임 동작을 검증합니다.
 """
@@ -7,19 +6,18 @@ ExternalBrainRouter의 엔드투엔드 위임 동작을 검증합니다.
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from antigravity_k.engine.cognitive_loop import CognitiveLoop
-from antigravity_k.engine.external_brain import ExternalBrainRouter, BrainResponse
+from antigravity_k.engine.external_brain import BrainResponse, ExternalBrainRouter
 
 
 @pytest.mark.asyncio
 async def test_external_brain_e2e_delegation():
-    """External Brain 라우터 위임 프로세스의 End-to-End 동작 검증"""
+    """External Brain 라우터 위임 프로세스의 End-to-End 동작 검증."""
     router = ExternalBrainRouter()
 
     # Mock adapter response
-    mock_response = BrainResponse(
-        text="외부 두뇌에서 해결한 결과입니다.", source="chatgpt_web", success=True
-    )
+    mock_response = BrainResponse(text="외부 두뇌에서 해결한 결과입니다.", source="chatgpt_web", success=True)
 
     with patch(
         "antigravity_k.engine.external_brain.ChatGPTWebAdapter.send",
@@ -41,13 +39,11 @@ async def test_external_brain_e2e_delegation():
 
 @pytest.mark.asyncio
 async def test_external_brain_timeout_handling():
-    """External Brain 라우터의 타임아웃 예외 처리 검증"""
+    """External Brain 라우터의 타임아웃 예외 처리 검증."""
     router = ExternalBrainRouter()
 
     # Adapter itself returns BrainResponse with error on exception
-    mock_response = BrainResponse(
-        text="", source="chatgpt_web", success=False, error="Connection timeout"
-    )
+    mock_response = BrainResponse(text="", source="chatgpt_web", success=False, error="Connection timeout")
 
     with patch(
         "antigravity_k.engine.external_brain.ChatGPTWebAdapter.send",

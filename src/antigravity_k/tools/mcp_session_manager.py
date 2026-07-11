@@ -19,7 +19,7 @@ class MCPSessionManager:
     Streamable HTTP, and legacy SSE transports.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the MCPSessionManager."""
         self.sessions: dict[str, ClientSession] = {}
         self.exit_stacks: dict[str, AsyncExitStack] = {}

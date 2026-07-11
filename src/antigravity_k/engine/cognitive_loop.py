@@ -99,7 +99,7 @@ class CognitiveLoop:
 
     # ─── Phase 1: PLAN ─────────────────────────────────────
 
-    def create_plan_prompt(self, task: str, available_tools: list[str]) -> str:
+    def create_plan_prompt(self, task: str, available_tools: list[str] | None = None) -> str:
         """에이전트에게 계획을 세우도록 하는 프롬프트를 생성합니다."""
         failure_context = ""
         if self.failure_memory:
@@ -142,7 +142,7 @@ class CognitiveLoop:
         return (
             "<scratch_pad>\n"
             f"Goal: {task}\n"
-            f"Available Tools: {', '.join(available_tools[:20])}\n"
+            f"Available Tools: {', '.join((available_tools or [])[:20])}\n"
             f"{failure_context}"
             f"{cavemem_context}"
             f"{caveman_instruction}"
@@ -274,15 +274,17 @@ class CognitiveLoop:
         SurfSense의 memory_extraction.py 패턴을 적용하여,
         대화 턴마다 fire-and-forget으로 호출합니다.
         """
+        # 기억 추출 실패가 메인 루프를 막지 않도록 모든 예외를 안전하게 처리
         try:
             self.cavemem_store.extract_memory(
                 user_message=user_message,
                 session_id="cognitive_loop",
                 model_fn=model_fn,
             )
-        except Exception:
-            logger.exception("Unhandled exception")
-            pass  # 기억 추출 실패가 메인 루프를 막지 않음
+        except (IOError, OSError, ValueError) as e:
+            logger.warning("Memory extraction I/O or data error: %s", e, exc_info=True)
+        except RuntimeError as e:
+            logger.error("Memory extraction runtime error: %s", e, exc_info=True)
 
     # ─── Phase 3: REFLECT ─────────────────────────────────────
 
@@ -517,7 +519,7 @@ class PlannerExecutor:
         self._replan_count = 0
         self._execution_trace: list[dict[str, Any]] = []
 
-    def decompose_task(self, task: str, available_tools: list[str] = None) -> ExecutionPlan:
+    def decompose_task(self, task: str, available_tools: list[str] | None = None) -> ExecutionPlan:
         """작업을 실행 계획으로 분해합니다 (동기, LLM 호출 없이 휴리스틱).
 
         복잡한 작업을 식별하여 병렬 실행 가능한 그룹으로 나눕니다.

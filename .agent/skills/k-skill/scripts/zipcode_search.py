@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-_BUNDLED_HELPER = (
-    Path(__file__).resolve().parent.parent
-    / "zipcode-search"
-    / "scripts"
-    / "zipcode_search.py"
-)
+_BUNDLED_HELPER = Path(__file__).resolve().parent.parent / "zipcode-search" / "scripts" / "zipcode_search.py"
 
 if not _BUNDLED_HELPER.exists():  # pragma: no cover - defensive import guard
     raise FileNotFoundError(f"Bundled zipcode helper not found: {_BUNDLED_HELPER}")

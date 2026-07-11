@@ -18,9 +18,7 @@ DEFAULT_MAX_CHARS = 1500
 DEFAULT_TIMEOUT = 30
 DEFAULT_THROTTLE_SECONDS = 1.2
 RESULT_PAYLOAD_PATTERN = re.compile(r"data\s*=\s*(\[[\s\S]*?\]);\s*pageIdx\s*=")
-NO_ISSUES_PATTERN = re.compile(
-    r"맞춤법과\s*문법\s*오류를\s*찾지\s*못했습니다", re.MULTILINE
-)
+NO_ISSUES_PATTERN = re.compile(r"맞춤법과\s*문법\s*오류를\s*찾지\s*못했습니다", re.MULTILINE)
 TAG_PATTERN = re.compile(r"<[^>]+>")
 LINE_BREAK_PATTERN = re.compile(r"<br\s*/?>", re.IGNORECASE)
 SENTENCE_BOUNDARY_PATTERN = re.compile(r"(?<=[.!?。！？])\s+")
@@ -61,11 +59,7 @@ def strip_html(value: str | None) -> str:
 
 
 def split_candidates(value: str | None) -> list[str]:
-    return [
-        candidate.strip()
-        for candidate in str(value or "").split("|")
-        if candidate.strip()
-    ]
+    return [candidate.strip() for candidate in str(value or "").split("|") if candidate.strip()]
 
 
 def parse_positive_int(raw_value: str) -> int:
@@ -222,9 +216,7 @@ def fetch_spell_check_html(
                 "Retry later with lower request volume or from a browser-friendly network."
             ) from error
 
-        raise RuntimeError(
-            f"The spell-check service returned HTTP {error.code}."
-        ) from error
+        raise RuntimeError(f"The spell-check service returned HTTP {error.code}.") from error
 
 
 def extract_result_payload(html: str) -> list[dict]:
@@ -267,9 +259,7 @@ def apply_page_corrections(page: dict) -> str:
         slice_end = end + 1
         if original:
             while (
-                slice_end > start
-                and source[start:slice_end] != original
-                and source[start : slice_end - 1] == original
+                slice_end > start and source[start:slice_end] != original and source[start : slice_end - 1] == original
             ):
                 slice_end -= 1
 
@@ -300,9 +290,7 @@ def preserve_original_layout(original: str, suggestion: str) -> str:
         return suggestion
 
     original_visible, original_visible_indices, _ = build_visible_text_index(original)
-    suggestion_visible, suggestion_visible_indices, _ = build_visible_text_index(
-        suggestion
-    )
+    suggestion_visible, suggestion_visible_indices, _ = build_visible_text_index(suggestion)
 
     if original_visible != suggestion_visible:
         return suggestion
@@ -313,22 +301,16 @@ def preserve_original_layout(original: str, suggestion: str) -> str:
     merged: list[str] = []
     leading_original = original[: original_visible_indices[0]]
     leading_suggestion = suggestion[: suggestion_visible_indices[0]]
-    merged.append(
-        leading_original if leading_original.isspace() else leading_suggestion
-    )
+    merged.append(leading_original if leading_original.isspace() else leading_suggestion)
 
     for ordinal, suggestion_index in enumerate(suggestion_visible_indices):
         merged.append(suggestion[suggestion_index])
 
         next_original_index = (
-            original_visible_indices[ordinal + 1]
-            if ordinal + 1 < len(original_visible_indices)
-            else None
+            original_visible_indices[ordinal + 1] if ordinal + 1 < len(original_visible_indices) else None
         )
         next_suggestion_index = (
-            suggestion_visible_indices[ordinal + 1]
-            if ordinal + 1 < len(suggestion_visible_indices)
-            else None
+            suggestion_visible_indices[ordinal + 1] if ordinal + 1 < len(suggestion_visible_indices) else None
         )
 
         original_gap = (
@@ -405,9 +387,7 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
 
     corrected = chunk
 
-    for start, end, suggestion, original in sorted(
-        replacements, key=lambda item: item[0], reverse=True
-    ):
+    for start, end, suggestion, original in sorted(replacements, key=lambda item: item[0], reverse=True):
         slice_end = end + 1
         if original:
             while (
@@ -424,9 +404,7 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
     return corrected
 
 
-def build_issue(
-    chunk_index: int, page_index: int, issue_index: int, page: dict, error: dict
-) -> SpellCheckIssue:
+def build_issue(chunk_index: int, page_index: int, issue_index: int, page: dict, error: dict) -> SpellCheckIssue:
     return SpellCheckIssue(
         chunk_index=chunk_index,
         page_index=page_index,
@@ -437,11 +415,7 @@ def build_issue(
         reason=strip_html(error.get("help")) or strip_html(error.get("errMsg")),
         start=int(error["start"]) if str(error.get("start", "")).strip() else None,
         end=int(error["end"]) if str(error.get("end", "")).strip() else None,
-        correct_method=(
-            int(error["correctMethod"])
-            if str(error.get("correctMethod", "")).strip()
-            else None
-        ),
+        correct_method=(int(error["correctMethod"]) if str(error.get("correctMethod", "")).strip() else None),
         error_message=strip_html(error.get("errMsg")),
     )
 
@@ -481,9 +455,7 @@ def check_text(
 
         for page_index, page in enumerate(pages):
             for issue_index, error in enumerate(page.get("errInfo", [])):
-                issues.append(
-                    build_issue(chunk_index, page_index, issue_index, page, error)
-                )
+                issues.append(build_issue(chunk_index, page_index, issue_index, page, error))
 
     return {
         "original_text": str(text or ""),
@@ -499,21 +471,13 @@ def check_text(
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run the official Nara/PNU Korean spell checker."
-    )
+    parser = argparse.ArgumentParser(description="Run the official Nara/PNU Korean spell checker.")
     parser.add_argument("--text", help="Inline Korean text to inspect.")
     parser.add_argument("--file", help="UTF-8 text/markdown file to inspect.")
-    parser.add_argument(
-        "--max-chars", type=parse_positive_int, default=DEFAULT_MAX_CHARS
-    )
+    parser.add_argument("--max-chars", type=parse_positive_int, default=DEFAULT_MAX_CHARS)
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
-    parser.add_argument(
-        "--throttle-seconds", type=float, default=DEFAULT_THROTTLE_SECONDS
-    )
-    parser.add_argument(
-        "--weak-rules", action="store_true", help="Disable the strong-rules checkbox."
-    )
+    parser.add_argument("--throttle-seconds", type=float, default=DEFAULT_THROTTLE_SECONDS)
+    parser.add_argument("--weak-rules", action="store_true", help="Disable the strong-rules checkbox.")
     parser.add_argument("--format", choices=["json", "text"], default="json")
     args = parser.parse_args(argv)
 
@@ -544,13 +508,9 @@ def print_text_report(report: dict) -> None:
     print("# issues")
 
     for issue in report["issues"]:
-        print(
-            f"- chunk={issue.chunk_index} page={issue.page_index} issue={issue.issue_index}"
-        )
+        print(f"- chunk={issue.chunk_index} page={issue.page_index} issue={issue.issue_index}")
         print(f"  original: {issue.original}")
-        print(
-            f"  suggestions: {', '.join(issue.suggestions) if issue.suggestions else '(없음)'}"
-        )
+        print(f"  suggestions: {', '.join(issue.suggestions) if issue.suggestions else '(없음)'}")
         print(f"  reason: {issue.reason or '(없음)'}")
 
 

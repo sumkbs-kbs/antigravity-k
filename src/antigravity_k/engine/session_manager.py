@@ -119,10 +119,24 @@ class SessionManager:
 
     # ─────────── Turn Memory ───────────
 
-    def add_turn(self, messages: list[dict[str, str]]):
-        """턴(사용자 입력 + 어시스턴트 응답)을 세션에 추가합니다."""
+    def add_turn(
+        self, messages: list[dict[str, str]] | None = None, *, role: str | None = None, content: str | None = None
+    ):
+        """턴(사용자 입력 + 어시스턴트 응답)을 세션에 추가합니다.
+
+        두 가지 호출 패턴을 지원:
+          1. add_turn([{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}])
+          2. add_turn(role="user", content="...")  (단일 메시지, BuiltinMemoryProvider 호환)
+        """
         if not self._current_session:
             self.start_session()
+            assert self._current_session is not None
+
+        # role/content 키워드 인자로 단일 메시지 추가 (호환성)
+        if role is not None and content is not None:
+            messages = [{"role": role, "content": content}]
+        elif messages is None:
+            return
 
         self._current_session["messages"].extend(messages)
         self._current_session["turn_count"] += 1
@@ -149,6 +163,7 @@ class SessionManager:
         """Working Memory에 값을 저장합니다."""
         if not self._current_session:
             self.start_session()
+            assert self._current_session is not None
         self._current_session["working_memory"][key] = {
             "value": value,
             "last_accessed": time.time(),
@@ -182,6 +197,10 @@ class SessionManager:
             else:
                 result[k] = v
         return result
+
+    def get_working_memory(self) -> dict[str, Any]:
+        """Working Memory를 반환합니다 (get_all_memory의 별칭 — BuiltinMemoryProvider 호환)."""
+        return self.get_all_memory()
 
     # ─────────── 메타데이터 추적 ───────────
 
@@ -238,16 +257,16 @@ class SessionManager:
             return True
         return False
 
-    def get_session_info(self) -> dict | None:
+    def get_session_info(self) -> dict[str, Any] | None:
         """현재 세션 정보를 반환합니다."""
         if not self._current_session:
             return None
         return {
-            "id": self._session_id,
-            "project_path": self._current_session.get("project_path"),
+            "id": self._session_id or "",
+            "project_path": self._current_session.get("project_path", ""),
             "turn_count": self._current_session.get("turn_count", 0),
-            "created_at": self._current_session.get("created_at"),
-            "updated_at": self._current_session.get("updated_at"),
+            "created_at": self._current_session.get("created_at", 0.0),
+            "updated_at": self._current_session.get("updated_at", 0.0),
             "message_count": len(self._current_session.get("messages", [])),
             "memory_keys": list(self._current_session.get("working_memory", {}).keys()),
             "metadata": self._current_session.get("metadata", {}),
@@ -279,7 +298,7 @@ class SessionManager:
 
     def _find_latest_session(self, project_hash: str) -> str | None:
         """프로젝트 해시로 최근 세션 파일을 찾습니다."""
-        candidates = []
+        candidates: list[tuple[str, float]] = []
         for fname in os.listdir(self.base_dir):
             if fname.startswith(project_hash) and fname.endswith(".json"):
                 fpath = os.path.join(self.base_dir, fname)
@@ -288,7 +307,10 @@ class SessionManager:
 
         if candidates:
             candidates.sort(key=lambda x: x[1], reverse=True)
-            return candidates[0][0]
+            fpath = candidates[0][0]
+            if fpath is None:
+                return None
+            return str(fpath)
         return None
 
     # ─────────── 자동 컨텍스트 복원 (P1-5) ───────────
@@ -341,6 +363,16 @@ class SessionManager:
             parts.append("Recent topics:")
             for msg in recent_user_msgs:
                 parts.append(f"  - {msg}")
+
+        # 작업 2: 실제 최근 대화 내용 복원 — 에이전트가 이전 대화를 "기억"하도록
+        recent_msgs = messages[-10:] if len(messages) > 10 else messages
+        if recent_msgs:
+            parts.append("\nRecent conversation:")
+            for msg in recent_msgs:
+                role = msg.get("role", "?")
+                content = str(msg.get("content", ""))[:300]
+                if role in ("user", "assistant") and content.strip():
+                    parts.append(f"  {role}: {content}")
 
         if files_modified:
             parts.append(f"Modified files: {', '.join(files_modified[-10:])}")

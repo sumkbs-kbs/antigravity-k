@@ -43,7 +43,7 @@ class AgentFabric:
     - MessageBus: 에이전트 간 결과 전달
     """
 
-    def __init__(self, model_manager=None, tool_registry=None):
+    def __init__(self, model_manager=None, tool_registry=None) -> None:
         """Initialize the AgentFabric.
 
         Args:
@@ -67,7 +67,7 @@ class AgentFabric:
 
             self.tracer = AgentTracer()
         except ImportError:
-            self.tracer = None
+            self.tracer = None  # type: ignore[assignment]
 
         logger.info("[AgentFabric] Hybrid Fabric 초기화 완료")
 

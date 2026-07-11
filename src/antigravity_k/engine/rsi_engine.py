@@ -15,6 +15,10 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
+from antigravity_k.engine.agent_archive import AgentArchive
+from antigravity_k.engine.prompt_evolver import PromptEvolver
+from antigravity_k.engine.rsi_sandbox import RSISandbox
+
 logger = logging.getLogger("antigravity_k.rsi_engine")
 
 
@@ -126,9 +130,9 @@ class RSIEngine:
         self._generation = 0
 
         # 지연 초기화 (의존성 주입 가능)
-        self._sandbox = None
-        self._archive = None
-        self._evolver = None
+        self._sandbox: RSISandbox | None = None
+        self._archive: AgentArchive | None = None
+        self._evolver: PromptEvolver | None = None
         self._quality_gate = None
         self._metacognitive = None
         self._lora = None
@@ -277,7 +281,9 @@ class RSIEngine:
         result.phase_results["observe"] = {
             "score": score,
             "archive_best": (
-                self._archive.get_best().benchmark_score if self._archive and self._archive.get_best() else None
+                self._archive.get_best().benchmark_score
+                if self._archive and self._archive.get_best() is not None
+                else None
             ),
         }
         logger.info("[RSI:OBSERVE] 현재 성능: %s", score)
@@ -385,6 +391,7 @@ class RSIEngine:
                 if not current_prompt:
                     current_prompt = "You are Antigravity-K, an autonomous AI agent."
 
+                assert self._evolver is not None
                 new_prompt, score = self._evolver.evolve_system_prompt(
                     current_prompt=current_prompt,
                     performance_data={"weaknesses": [hypothesis.evidence]},
@@ -452,6 +459,7 @@ class RSIEngine:
             try:
                 from .agent_archive import AgentVariant
 
+                assert self._archive is not None
                 variant = AgentVariant(
                     variant_id=result.cycle_id,
                     generation=result.generation,

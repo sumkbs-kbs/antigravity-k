@@ -277,15 +277,18 @@ class EditFileTool(BaseTool):
             with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
+            # 1단계: 정확 매치 (기존 동작 유지)
             count = content.count(old_str)
-            if count == 0:
-                # 부분 매치 힌트 제공
-                lines = old_str.strip().split("\n")
-                hint_line = lines[0][:60] if lines else ""
+            if count == 1:
+                new_content = content.replace(old_str, new_str, 1)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                old_lines = old_str.count("\n") + 1
+                new_lines = new_str.count("\n") + 1
                 return (
-                    f"Error: old_str not found in {file_path}. "
-                    f"No match for: '{hint_line}...'. "
-                    f"Verify whitespace/indentation matches exactly."
+                    f"Successfully edited {file_path}: "
+                    f"replaced {old_lines} lines with {new_lines} lines "
+                    f"({len(old_str)} → {len(new_str)} chars)"
                 )
             if count > 1:
                 return (
@@ -293,22 +296,163 @@ class EditFileTool(BaseTool):
                     f"Please provide a more unique match to avoid ambiguity."
                 )
 
-            new_content = content.replace(old_str, new_str, 1)
+            # 2단계: 퍼지 매치 (정확 매치 실패 시 — 작업 5)
+            # 공백/들여쓰기 차이를 무시하고 매칭 시도
+            matched_content, match_info = self._fuzzy_replace(content, old_str, new_str)
+            if matched_content is not None:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(matched_content)
+                return (
+                    f"Successfully edited {file_path} (fuzzy match): "
+                    f"{match_info}. "
+                    f"({len(old_str)} → {len(new_str)} chars)"
+                )
 
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            # 3단계: 매치 실패 — 유사 라인 제안으로 힌트 개선
+            hint = self._build_no_match_hint(content, old_str)
+            return hint
 
-            # 변경 요약 생성
-            old_lines = old_str.count("\n") + 1
-            new_lines = new_str.count("\n") + 1
-            return (
-                f"Successfully edited {file_path}: "
-                f"replaced {old_lines} lines with {new_lines} lines "
-                f"({len(old_str)} → {len(new_str)} chars)"
-            )
         except Exception as e:
             logger.exception("Unhandled exception")
             return f"Error editing file: {e}"
+
+    @staticmethod
+    def _fuzzy_replace(content: str, old_str: str, new_str: str) -> tuple[str | None, str]:
+        """공백 정규화 기반 퍼지 매치로 교체를 시도합니다.
+
+        정확 매치가 실패했을 때 호출됩니다:
+          1. 라인별 앞뒤 공백 + 연속 공백 축소 정규화로 매칭
+          2. 라인 기반 폴백 (첫/마지막 라인으로 블록 특정)
+
+        Returns:
+            (new_content, match_description) — 매치 실패 시 (None, "").
+        """
+        import re
+
+        def normalize(text: str) -> str:
+            # 각 라인 trim + 연속 공백을 단일 공백으로 + 빈 라인 제거
+            lines = [re.sub(r"\s+", " ", line.strip()) for line in text.splitlines()]
+            return "\n".join(line for line in lines if line)
+
+        norm_old = normalize(old_str)
+
+        # 방법 A: 정규화된 old_str을 정규화된 content에서 찾아 원본 위치 역추적
+        content_lines = content.splitlines(keepends=True)
+        norm_content_lines = [re.sub(r"\s+", " ", line.strip()) for line in content_lines]
+
+        # 정규화된 old_str의 라인 수
+        norm_old_lines = [ln for ln in norm_old.split("\n") if ln]
+        if not norm_old_lines:
+            return None, ""
+
+        # 슬라이딩 윈도우로 정규화된 content에서 매칭
+        old_len = len(norm_old_lines)
+        matches = []
+        for i in range(len(norm_content_lines) - old_len + 1):
+            window = norm_content_lines[i : i + old_len]
+            if window == norm_old_lines:
+                matches.append(i)
+
+        if len(matches) == 1:
+            # 단일 매치 — 원본 라인 교체 (들여쓰기 보존)
+            start_idx = matches[0]
+            end_idx = start_idx + old_len
+            original_block = "".join(content_lines[start_idx:end_idx])
+
+            # 기준 들여쓰기: 원본 첫 라인의 들여쓰기
+            orig_first_line = content_lines[start_idx]
+            base_indent_match = re.match(r"(\s*)", orig_first_line)
+            base_indent = base_indent_match.group(1) if base_indent_match else ""
+
+            # new_str의 들여쓰기 정규화 후 원본 기준 들여쓰기 재적용.
+            # new_str의 첫 라인에서 상대적 들여쓰기를 추출하고 base_indent에 더함.
+            new_raw_lines = new_str.splitlines()
+            if new_raw_lines:
+                first_new = new_raw_lines[0]
+                first_new_indent_match = re.match(r"(\s*)", first_new)
+                first_new_indent = first_new_indent_match.group(1) if first_new_indent_match else ""
+                # 첫 라인이 base_indent와 같거나 더 깊으면 상대 들여쓰기 계산
+                new_lines_adjusted = []
+                for j, line in enumerate(new_raw_lines):
+                    line_indent_match = re.match(r"(\s*)", line)
+                    line_indent = line_indent_match.group(1) if line_indent_match else ""
+                    content_part = line[len(line_indent) :]
+                    # new_str의 들여쓰기가 없거나 첫 라인과 같으면 base_indent 적용,
+                    # 그 외에는 new_str의 원래 들여쓰기 유지 (상대적 깊이 보존)
+                    if not line_indent or j > 0 and line_indent == first_new_indent:
+                        new_lines_adjusted.append(base_indent + content_part)
+                    else:
+                        new_lines_adjusted.append(line)
+                replacement = "\n".join(new_lines_adjusted)
+            else:
+                replacement = new_str
+
+            # 줄바꿈 보존 (원본 라인이 keepends이므로)
+            if original_block.endswith("\n") and not replacement.endswith("\n"):
+                replacement += "\n"
+            offset = sum(len(ln) for ln in content_lines[:start_idx])
+            end_offset = sum(len(ln) for ln in content_lines[:end_idx])
+            new_content = content[:offset] + replacement + content[end_offset:]
+            return new_content, f"normalized {old_len} lines (whitespace-tolerant, indent preserved)"
+
+        # 방법 B: 단일 라인 old_str인 경우 부분 문자열 유사도
+        if "\n" not in old_str.strip():
+            import difflib
+
+            # content에서 old_str과 가장 유사한 라인 찾기
+            target = normalize(old_str)
+            candidates = []
+            for i, nline in enumerate(norm_content_lines):
+                if nline and target:
+                    ratio = difflib.SequenceMatcher(None, target, nline).ratio()
+                    if ratio >= 0.85:
+                        candidates.append((ratio, i))
+
+            if len(candidates) == 1:
+                _, idx = candidates[0]
+                original_line = content_lines[idx]
+                # 원본 들여쓰기 보존
+                indent = re.match(r"(\s*)", original_line)
+                indent_str = indent.group(1) if indent else ""
+                replacement = indent_str + new_str.strip() + ("\n" if original_line.endswith("\n") else "")
+                start_off = sum(len(ln) for ln in content_lines[:idx])
+                end_off = sum(len(ln) for ln in content_lines[: idx + 1])
+                new_content = content[:start_off] + replacement + content[end_off:]
+                return new_content, f"similar line at {idx + 1} (similarity match)"
+
+        return None, ""
+
+    @staticmethod
+    def _build_no_match_hint(content: str, old_str: str) -> str:
+        """매치 실패 시 유사 라인을 제안하는 개선된 힌트를 생성합니다."""
+        import difflib
+        import re
+
+        lines = old_str.strip().split("\n")
+        hint_line = lines[0][:60] if lines else ""
+        base_msg = f"Error: old_str not found in file. " f"No exact or fuzzy match for: '{hint_line}...'. "
+
+        # content에서 old_str 첫 라인과 가장 유사한 라인 3개 제안
+        if not lines or not lines[0].strip():
+            return base_msg + "Verify whitespace/indentation matches exactly."
+
+        target = re.sub(r"\s+", " ", lines[0].strip())
+        content_lines = content.splitlines()
+        scored = []
+        for i, cline in enumerate(content_lines):
+            norm = re.sub(r"\s+", " ", cline.strip())
+            if norm and target:
+                ratio = difflib.SequenceMatcher(None, target, norm).ratio()
+                if ratio >= 0.5:
+                    scored.append((ratio, i + 1, cline.strip()[:70]))
+
+        if scored:
+            scored.sort(reverse=True)
+            suggestions = scored[:3]
+            sugg_str = "; ".join(f"L{n}: '{t}'" for _, n, t in suggestions)
+            return base_msg + f"Did you mean one of these? {sugg_str}"
+
+        return base_msg + "Verify whitespace/indentation matches exactly."
 
 
 class MultiReplaceFileContentTool(BaseTool):
@@ -456,6 +600,133 @@ class MultiReplaceFileContentTool(BaseTool):
             return f"Error applying multi-replace: {e}"
 
 
+class ApplyPatchTool(BaseTool):
+    """apply_patch 포맷을 파싱하여 다중 파일에 정밀 패치 적용 (P0-1).
+
+    Aider/Codex 스타일의 structured patch를 지원합니다.
+    컨텍스트 라인 기반 정확 매칭 + 퍼지 폴백으로 신뢰성 높은 코드 수정.
+    단일 호출로 여러 파일의 여러 hunk를 한번에 적용할 수 있습니다.
+    """
+
+    category = ToolCategory.FILE_IO
+    render_in = RenderIn.CONTEXTUAL
+    risk_level = RiskLevel.MEDIUM
+    icon = "🔧"
+    tags = ["file", "edit", "patch", "diff", "multi-file"]
+
+    def __init__(self):
+        """Initialize the ApplyPatchTool."""
+        super().__init__()
+        self._name = "apply_patch"
+        self._description = (
+            "Apply a structured patch (apply_patch format) to one or more files. "
+            "Supports adding new files, updating existing files with context-based hunks, "
+            "and deleting files. More reliable than edit_file for complex multi-line changes. "
+            "Format:\\n"
+            "*** Begin Patch\\n"
+            "*** Update File: path/to/file.py\\n"
+            "@@ context line\\n"
+            "-old line\\n"
+            "+new line\\n"
+            "*** End Patch"
+        )
+        self._schema = {
+            "type": "object",
+            "properties": {
+                "patch": {
+                    "type": "string",
+                    "description": "The full apply_patch format text to apply.",
+                },
+            },
+            "required": ["patch"],
+        }
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def description(self) -> str:
+        return self._description
+
+    @property
+    def parameters_schema(self) -> dict[str, Any]:
+        return self._schema
+
+    def execute(self, **kwargs) -> Any:
+        """Execute.
+
+        Args:
+            **kwargs: kwargs.
+
+        Returns:
+            Any: The any result.
+
+        """
+        patch_text = kwargs.get("patch", "")
+        if not patch_text.strip():
+            return "Error: patch is empty"
+
+        from antigravity_k.engine.diff_engine import DiffApplyEngine
+
+        engine = DiffApplyEngine()
+
+        try:
+            patches = engine.parse_apply_patch(patch_text)
+        except Exception as e:
+            logger.exception("Patch parsing failed")
+            return f"Error parsing patch: {e}"
+
+        if not patches:
+            return "Error: no file patches found in input"
+
+        results: list[str] = []
+        for patch in patches:
+            if patch.is_new_file:
+                # 신규 파일 생성
+                if os.path.exists(patch.file_path):
+                    results.append(f"SKIP {patch.file_path}: 이미 존재함")
+                    continue
+                os.makedirs(os.path.dirname(patch.file_path) or ".", exist_ok=True)
+                with open(patch.file_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(patch.new_file_content))
+                results.append(f"CREATED {patch.file_path}")
+                continue
+
+            if patch.is_delete_file:
+                if os.path.exists(patch.file_path):
+                    os.remove(patch.file_path)
+                    results.append(f"DELETED {patch.file_path}")
+                else:
+                    results.append(f"SKIP {patch.file_path}: 없음")
+                continue
+
+            # 기존 파일 업데이트
+            if not os.path.exists(patch.file_path):
+                results.append(f"ERROR {patch.file_path}: 파일 없음")
+                continue
+
+            with open(patch.file_path, encoding="utf-8") as f:
+                content = f.read()
+
+            result = engine.apply_patch(patch, content)
+            if result.success:
+                with open(patch.file_path, "w", encoding="utf-8") as f:
+                    f.write(result.new_content)
+                fuzzy_tag = f" (fuzzy: {result.fuzzy_matches})" if result.is_fuzzy else ""
+                results.append(f"OK {patch.file_path}: {result.hunks_applied}/{result.hunks_total} hunks{fuzzy_tag}")
+            else:
+                results.append(f"FAIL {patch.file_path}: {result.error}")
+
+        # 요약
+        ok = sum(1 for r in results if r.startswith(("OK", "CREATED", "DELETED")))
+        failed = [r for r in results if r.startswith(("FAIL", "ERROR"))]
+        summary = f"Applied {ok}/{len(results)} operations."
+        if failed:
+            summary += f" {len(failed)} failed: " + "; ".join(failed[:3])
+        return summary + "\n" + "\n".join(results)
+
+
 class GlobSearchTool(BaseTool):
     """파일 패턴 검색 (수정 시간순 정렬).
 
@@ -579,7 +850,7 @@ class GlobSearchTool(BaseTool):
             return f"Error searching files: {e}"
 
     @staticmethod
-    def _human_size(size: int) -> str:
+    def _human_size(size: int | float) -> str:
         for unit in ["B", "KB", "MB", "GB"]:
             if size < 1024:
                 return f"{size:.0f}{unit}"

@@ -66,18 +66,58 @@ async def get_workspace():
 
 @router.post("/api/fs/workspace")
 async def set_workspace(req: WorkspaceRequest):
-    """Set workspace.
+    """Set workspace — 프로젝트 전환 시 PermissionGate와 config를 함께 업데이트.
 
-    Args:
-        req (WorkspaceRequest): WorkspaceRequest req.
-
+    에이전트가 새 프로젝트 폴더 내에서만 작업하도록 격리합니다.
     """
     global WORKSPACE_ROOT
     target = os.path.abspath(req.path)
-    if os.path.exists(target) and os.path.isdir(target):
-        WORKSPACE_ROOT = target
-        return {"ok": True, "workspace": WORKSPACE_ROOT}
-    raise HTTPException(status_code=400, detail="Invalid directory path")
+    if not (os.path.exists(target) and os.path.isdir(target)):
+        # 디렉토리가 없으면 생성
+        try:
+            os.makedirs(target, exist_ok=True)
+        except OSError:
+            raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
+
+    WORKSPACE_ROOT = target
+
+    # PermissionGate 업데이트 — 에이전트 파일 접근을 새 프로젝트로 제한
+    try:
+        import antigravity_k.api.dependencies as deps
+
+        if deps._orchestrator and hasattr(deps._orchestrator, "ctx"):
+            tool_executor = getattr(deps._orchestrator.ctx, "tool_executor", None)
+            if tool_executor and hasattr(tool_executor, "permission_gate"):
+                tool_executor.permission_gate.set_project_root(target)
+                logger.info("PermissionGate project_root 업데이트: %s", target)
+    except Exception:
+        logger.warning("PermissionGate 업데이트 실패 (non-critical)", exc_info=True)
+
+    # config의 project_root 업데이트
+    try:
+        from antigravity_k.config import config
+
+        config.paths.project_root = target
+    except Exception:
+        pass
+
+    logger.info("Workspace 변경: %s", target)
+    return {"ok": True, "workspace": WORKSPACE_ROOT}
+
+
+# ─── 프로젝트 관리 API ──────────────────────────────────────────
+
+
+@router.get("/api/projects")
+async def list_projects():
+    """등록된 프로젝트 목록을 반환합니다. localStorage 기반 (프론트엔드에서 관리)."""
+    return {"ok": True, "workspace": WORKSPACE_ROOT}
+
+
+@router.post("/api/projects/switch")
+async def switch_project(req: WorkspaceRequest):
+    """프로젝트를 전환합니다 — workspace, PermissionGate, config를 모두 업데이트."""
+    return await set_workspace(req)
 
 
 def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine):
@@ -101,7 +141,7 @@ async def ingest_workspace(
         path (str | None): str | None path.
 
     """
-    from antigravity_k.api.server import get_vault_engine
+    from antigravity_k.api.dependencies import get_vault_engine
 
     vault = get_vault_engine()
     if not vault:
@@ -132,11 +172,11 @@ async def fs_browse(dir: str = "/"):
                 if entry.is_dir():
                     items.append({"name": entry.name, "path": entry.path, "is_dir": True})
         except PermissionError:
-            pass
+            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
-        items.sort(key=lambda x: x["name"].lower())
+        items.sort(key=lambda x: x["name"].lower())  # type: ignore[attr-defined]
 
-        parent_dir = os.path.dirname(target_dir)
+        parent_dir: str | None = os.path.dirname(target_dir)
         if target_dir == parent_dir:
             parent_dir = None
 
@@ -227,7 +267,7 @@ async def fs_list(dir: str = "."):
                 },
             )
 
-        items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+        items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))  # type: ignore[attr-defined]
         return {"ok": True, "items": items}
     except HTTPException:
         raise

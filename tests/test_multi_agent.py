@@ -1,15 +1,15 @@
-import logging
 import json
+import logging
 
 # 테스트 로깅 설정
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-from src.antigravity_k.agents.team_manager import TeamManager
 from src.antigravity_k.agents.commands import CommandHandler
 from src.antigravity_k.agents.message_bus import MessageBus
-from src.antigravity_k.knowledge.memory_service import MemoryService
-from src.antigravity_k.engine.model_registry import ModelRegistry
+from src.antigravity_k.agents.team_manager import TeamManager
 from src.antigravity_k.engine.model_manager import ModelManager
+from src.antigravity_k.engine.model_registry import ModelRegistry
+from src.antigravity_k.knowledge.memory_service import MemoryService
 
 
 def run_test():
@@ -41,11 +41,7 @@ def run_test():
     print(cmd_handler.execute("/tasks"))
 
     print("\n[User Command] /review 'Implement dynamic model loading with MLX backend'")
-    print(
-        cmd_handler.execute(
-            "/review 'Implement dynamic model loading with MLX backend'"
-        )
-    )
+    print(cmd_handler.execute("/review 'Implement dynamic model loading with MLX backend'"))
 
     print("\n[User Command] /tasks (After review command)")
     print(cmd_handler.execute("/tasks"))
@@ -61,9 +57,7 @@ def run_test():
     print(cmd_handler.execute("/tasks"))
 
     print("\n=== Testing Subagent Spawn ===")
-    task_id = manager.spawn_subagent(
-        "Write a unit test for memory service", {"framework": "pytest"}
-    )
+    task_id = manager.spawn_subagent("Write a unit test for memory service", {"framework": "pytest"})
     print(f"Spawned subagent for task: {task_id}")
     import time
 
@@ -81,9 +75,7 @@ def run_test():
 
     try:
         # 우회하여 kanban board에 직접 접근
-        manager.kanban_board.move_task(
-            task_id, "DONE", verification_note="All tests passed successfully."
-        )
+        manager.kanban_board.move_task(task_id, "DONE", verification_note="All tests passed successfully.")
         print("Successfully moved task to DONE with verification_note.")
     except Exception as e:
         print(f"ERROR: Verification gate failed despite note: {e}")

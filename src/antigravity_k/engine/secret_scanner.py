@@ -133,8 +133,7 @@ CREDENTIAL_FIELDS: set[str] = {
 }
 
 CREDENTIAL_FIELD_PATTERN = re.compile(
-    r"(?:access|refresh|client|bearer|auth|api|private|public|signing|session)"
-    r"(?:Token|Key|Secret|Password)$",
+    r"(?:access|refresh|client|bearer|auth|api|private|public|signing|session)" r"(?:Token|Key|Secret|Password)$",
 )
 
 CREDENTIAL_PLACEHOLDER = "[STRIPPED_BY_SCANNER]"

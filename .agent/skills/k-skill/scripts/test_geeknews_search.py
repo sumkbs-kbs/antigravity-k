@@ -2,8 +2,8 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 from scripts.geeknews_search import (
     GeekNewsFeed,
@@ -61,9 +61,7 @@ class GeekNewsFeedParseTest(unittest.TestCase):
         ai_matches = search_items(feed, query="agent", limit=5)
         author_matches = search_items(feed, query="WORKDRIVER", limit=5)
 
-        self.assertEqual(
-            [item.id for item in ai_matches], ["https://news.hada.io/topic?id=28440"]
-        )
+        self.assertEqual([item.id for item in ai_matches], ["https://news.hada.io/topic?id=28440"])
         self.assertEqual(
             [item.id for item in author_matches],
             ["https://news.hada.io/topic?id=28439"],
@@ -96,9 +94,7 @@ class GeekNewsPayloadShapeTest(unittest.TestCase):
         self.assertEqual(list_payload["count"], 2)
         self.assertEqual(search_payload["query"], "claude")
         self.assertEqual(search_payload["count"], 1)
-        self.assertEqual(
-            detail_payload["item"]["id"], "https://news.hada.io/topic?id=28439"
-        )
+        self.assertEqual(detail_payload["item"]["id"], "https://news.hada.io/topic?id=28439")
         self.assertIn("summary", detail_payload["item"])
         self.assertIn("content_html", detail_payload["item"])
 
@@ -130,13 +126,9 @@ class GeekNewsCliShapeTest(unittest.TestCase):
             repo_root / "geeknews-search" / "scripts" / "geeknews_search.py",
         ):
             with self.subTest(helper=helper):
+                self.assertTrue(os.access(helper, os.X_OK), f"{helper} should be executable")
                 self.assertTrue(
-                    os.access(helper, os.X_OK), f"{helper} should be executable"
-                )
-                self.assertTrue(
-                    helper.read_text(encoding="utf-8").startswith(
-                        "#!/usr/bin/env python3\n"
-                    ),
+                    helper.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3\n"),
                     f"{helper} should start with a Python shebang",
                 )
 
