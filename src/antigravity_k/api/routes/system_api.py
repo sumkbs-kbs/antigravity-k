@@ -17,6 +17,7 @@ import psutil
 import yaml
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
+from antigravity_k import __version__
 from antigravity_k.api.dependencies import (
     __get_skill_loader,
     __get_tool_registry,
@@ -553,7 +554,7 @@ async def system_status():
             "cpu_percent": psutil.cpu_percent(interval=0.1),
             "total_tokens": total_tokens,
             "uptime_seconds": uptime_seconds,
-            "version": "v0.2.0",
+            "version": __version__,
         }
     except (psutil.Error, OSError, RuntimeError) as e:
         logger.error("Status error: %s", e)

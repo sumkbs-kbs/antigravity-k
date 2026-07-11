@@ -155,10 +155,12 @@ async def lifespan(app: FastAPI):
     logger.info("Shutdown complete: %s tasks cancelled.", len(tasks))
 
 
+from antigravity_k import __version__
+
 app = FastAPI(
     title="Antigravity-K API",
     description="OpenAI-compatible API for Antigravity-K Local Engine",
-    version="1.0.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

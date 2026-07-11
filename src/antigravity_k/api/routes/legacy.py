@@ -19,6 +19,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from antigravity_k import __version__
 from antigravity_k.api.dependencies import (
     __get_skill_loader,
     __get_tool_registry,
@@ -960,7 +961,7 @@ async def system_status():
             "cpu_percent": psutil.cpu_percent(interval=0.1),
             "total_tokens": total_tokens,
             "uptime_seconds": uptime_seconds,
-            "version": "v0.2.0",
+            "version": __version__,
         }
     except (psutil.Error, OSError, RuntimeError) as e:
         logger.error("Status error: %s", e)
