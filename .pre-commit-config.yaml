@@ -43,5 +43,10 @@ repos:
             src/antigravity_k/engine/legacy_.*|
             src/antigravity_k/demo/.*
           )$
-        # Don't fail CI for mypy warnings - just inform
+        # Mypy is advisory (matches CI's continue-on-error). It surfaces type
+        # issues on staged files but does not block commits, since the legacy
+        # codebase still has pre-existing errors that are being worked down.
         verbose: true
+        # Report-only: exit zero even if type errors are found.
+        pass_filenames: false
+        entry: bash -c 'mypy --ignore-missing-imports --no-strict-optional --exclude "tests/|legacy_|demo/" src/antigravity_k || true'
