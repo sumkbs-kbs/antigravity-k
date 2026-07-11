@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CompressionResult:
-    """Compressionresult."""
+    """Result of compressing an agent trajectory (ratio, summary, retained steps)."""
 
     compressed_messages: list[dict]
     user_message: str = ""

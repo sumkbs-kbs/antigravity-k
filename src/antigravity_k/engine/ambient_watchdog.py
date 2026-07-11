@@ -54,7 +54,7 @@ class AmbientWatchdog:
         self.notification_queue: list[str] = []
 
     def start(self):
-        """Start."""
+        """Start the ambient watchdog background monitor."""
         if self._running:
             return
         self._running = True
@@ -67,7 +67,7 @@ class AmbientWatchdog:
         logger.info("Ambient Watchdog daemon started. Watching for background changes...")
 
     def stop(self):
-        """Stop."""
+        """Stop the ambient watchdog and clean up resources."""
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)

@@ -1,4 +1,4 @@
-"""Embeddings module."""
+"""Embedding generation (sentence-transformers with hash fallback)."""
 
 import hashlib
 import logging
@@ -10,7 +10,7 @@ logger = logging.getLogger("antigravity_k.engine.embeddings")
 
 
 class EmbeddingEngine:
-    """Embeddingengine."""
+    """Generates vector embeddings for text (sentence-transformers or hash fallback)."""
 
     fallback_dimensions = 1536
 

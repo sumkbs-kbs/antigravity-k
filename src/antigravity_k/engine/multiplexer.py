@@ -1,4 +1,4 @@
-"""Multiplexer module."""
+"""Token-stream multiplexer for merging parallel model outputs."""
 
 import asyncio
 import logging

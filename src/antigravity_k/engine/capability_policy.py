@@ -55,7 +55,7 @@ class MetadataTool(Protocol):
 
 @dataclass(frozen=True)
 class CapabilityDecision:
-    """Capabilitydecision."""
+    """A single autonomous-use decision for a capability."""
 
     capability_id: str
     capability_type: str

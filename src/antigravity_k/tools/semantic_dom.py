@@ -310,7 +310,7 @@ class SemanticDOMParser:
         return f"@ref{self._ref_counter}"
 
     def reset(self):
-        """Reset."""
+        """Reset the semantic DOM parser state for a new page."""
         self._ref_counter = 0
 
     # ─── 메인 스냅샷 ──────────────────────────────────────────

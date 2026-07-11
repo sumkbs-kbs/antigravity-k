@@ -1,11 +1,11 @@
-"""Chunker module."""
+"""Markdown chunker for splitting documents into RAG-indexable units."""
 
 import re
 from typing import Any
 
 
 class MarkdownChunker:
-    """Markdownchunker."""
+    """Splits markdown documents into RAG-indexable chunks by headers."""
 
     def __init__(self, max_chunk_size: int = 1000):
         """Initialize the MarkdownChunker.

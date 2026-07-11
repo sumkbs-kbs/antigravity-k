@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GuardDecision:
-    """Guarddecision."""
+    """A plan-guard verdict (allow, deny, or require-modification) with reasoning."""
 
     allows_execution: bool
     requires_approval: bool

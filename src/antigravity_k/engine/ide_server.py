@@ -25,7 +25,7 @@ class IDEServer:
         self._lock = threading.Lock()
 
     def start(self):
-        """Start."""
+        """Start the embedded code-server (IDE) process."""
         with self._lock:
             if self.process and self.process.poll() is None:
                 logger.info("IDE Server is already running on port %s.", self.port)
@@ -60,7 +60,7 @@ class IDEServer:
                 self.process = None
 
     def stop(self):
-        """Stop."""
+        """Stop the embedded code-server and release resources."""
         with self._lock:
             if self.process and self.process.poll() is None:
                 logger.info("Stopping IDE Server...")

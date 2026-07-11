@@ -1,4 +1,4 @@
-"""Models module."""
+"""Pydantic request/response models for the API layer."""
 
 from typing import Union
 

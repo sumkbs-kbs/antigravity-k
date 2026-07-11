@@ -57,12 +57,13 @@ class SkillLoader:
         self.include_global = include_global
         self.include_market = include_market
 
-        # 글로벌 스킬 디렉토리
+        # 글로벌 스킬 디렉토리 — AGK_GLOBAL_SKILLS_DIR 환경변수로 확장 가능.
         home_dir = Path.home()
-        self.global_skills_dirs = [
-            Path("/Users/mr.k/program/coding/.agents/skills"),
-            home_dir / ".agents" / "skills",
-        ]
+        global_skills_dirs = [home_dir / ".agents" / "skills"]
+        env_global = os.environ.get("AGK_GLOBAL_SKILLS_DIR", "")
+        if env_global:
+            global_skills_dirs.insert(0, Path(env_global))
+        self.global_skills_dirs = global_skills_dirs
 
         self._skills: dict[str, dict[str, Any]] = {}
         self.active_skills: list[str] = []

@@ -1,7 +1,5 @@
 class StalenessDetector:
-    """Stalenessdetector."""
-
-    """Stalenessdetector."""
+    """Detects stale indexed content by comparing file mtimes/hashes to the graph."""
 
     def __init__(self, repo_manager=None):
         """Initialize the StalenessDetector.

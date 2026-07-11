@@ -1,4 +1,4 @@
-"""Cli module."""
+"""Antigravity-K command-line interface (Typer-based)."""
 
 from __future__ import annotations
 

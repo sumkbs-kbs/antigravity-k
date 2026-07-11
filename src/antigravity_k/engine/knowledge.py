@@ -1,4 +1,4 @@
-"""Knowledge module."""
+"""Knowledge base management and retrieval utilities."""
 
 import json
 import logging

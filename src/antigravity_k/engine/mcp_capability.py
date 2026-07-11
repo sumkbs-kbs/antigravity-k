@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 @dataclass(frozen=True)
 class MCPFinding:
-    """Mcpfinding."""
+    """A single MCP capability radar finding (feature, status, recommendation)."""
 
     server: str
     severity: str
@@ -29,7 +29,7 @@ class MCPFinding:
 
 @dataclass(frozen=True)
 class MCPCapability:
-    """Mcpcapability."""
+    """Describes a supported or recommended MCP capability."""
 
     name: str
     why_it_matters: str
@@ -40,7 +40,7 @@ class MCPCapability:
 
 @dataclass(frozen=True)
 class MCPAuditReport:
-    """Mcpauditreport."""
+    """Aggregated audit report for an MCP server configuration."""
 
     source: str
     servers_total: int

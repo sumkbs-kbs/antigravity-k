@@ -28,7 +28,7 @@ class QualityGrade(Enum):
 
 @dataclass
 class QualityScore:
-    """Qualityscore."""
+    """Multi-axis quality assessment score (correctness, clarity, completeness, etc.)."""
 
     grade: QualityGrade
     score: float
@@ -164,7 +164,7 @@ class QualityGate:
         self._retry_count += 1
 
     def reset(self):
-        """Reset."""
+        """Reset accumulated quality gate statistics."""
         self._retry_count = 0
 
     def _llm_self_verify(self, user_request: str, agent_output: str, task_type: str) -> tuple:

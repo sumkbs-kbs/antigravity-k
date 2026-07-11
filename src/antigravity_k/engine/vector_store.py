@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class VectorStore:
-    """Vectorstore."""
+    """ChromaDB-backed vector store for RAG chunk storage and retrieval."""
 
     def __init__(self, persist_directory: str, collection_name: str = "vault_notes"):
         """Initialize the VectorStore.

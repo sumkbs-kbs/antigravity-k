@@ -260,7 +260,7 @@ class MemoryConfig:
 
 @dataclass
 class ServerConfig:
-    """Serverconfig."""
+    """Server runtime configuration (host, port, workers)."""
 
     host: str = "127.0.0.1"
     port: int = 8000

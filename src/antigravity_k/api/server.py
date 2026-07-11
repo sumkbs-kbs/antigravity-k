@@ -1,4 +1,4 @@
-"""Server module."""
+"""FastAPI application factory, middleware, and lifespan for the Antigravity-K API."""
 
 import asyncio
 import logging

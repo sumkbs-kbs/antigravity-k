@@ -73,7 +73,7 @@ class SlackBotClient:
         await handler.start_async()
 
     def run(self):
-        """Run."""
+        """Start the Slack bot and block until stopped."""
         asyncio.run(self.run_async())
 
 

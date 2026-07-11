@@ -72,7 +72,7 @@ class DiscordBotClient:
                         await message.reply(f"❌ 오류가 발생했습니다: {str(e)}")
 
     def run(self):
-        """Run."""
+        """Start the Discord bot and block until stopped."""
         if not discord:
             print("Please install discord.py")
             return

@@ -1,4 +1,4 @@
-"""Reflection module."""
+"""Self-reflection engine for post-action quality assessment."""
 
 import ast
 import json

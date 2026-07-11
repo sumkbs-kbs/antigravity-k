@@ -144,7 +144,7 @@ class NudgeDetector:
         return self._count
 
     def reset(self):
-        """Reset."""
+        """Reset the agent loop to its initial state, clearing history."""
         self._count = 0
 
 

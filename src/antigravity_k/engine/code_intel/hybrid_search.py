@@ -6,7 +6,7 @@ logger = logging.getLogger("antigravity_k.engine.code_intel.hybrid_search")
 
 
 class HybridSearchEngine:
-    """Hybridsearchengine."""
+    """Combines semantic vector search and keyword (BM25) search for code retrieval."""
 
     def __init__(self, graph):
         """Initialize the HybridSearchEngine.

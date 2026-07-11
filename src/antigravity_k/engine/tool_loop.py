@@ -1,4 +1,4 @@
-"""Tool Loop module."""
+"""Tool Loop engine — LLM stream parsing, tool dispatch, and result merging."""
 
 import asyncio
 import logging
@@ -70,17 +70,23 @@ class ToolLoopEngine:
         max_steps: int = 15,
         target_model: str | None = None,
     ) -> Generator[str, None, None]:
-        """Run loop.
+        """Run the agentic tool-execution loop, yielding output chunks.
+
+        Streams the model response, detects tool calls, executes them in async
+        batches (respecting ``waitForPreviousTools`` ordering), and appends
+        results to the conversation context. Loops until no more tool calls
+        are produced or ``max_steps`` is reached. Post-loop quality/reflection
+        checks are delegated to :meth:`_post_loop_checks`.
 
         Args:
-            messages (list[dict[str, str]]): list[dict[str, str]] messages.
-            delegate_to (str): str delegate to.
-            task_type (str): str task type.
-            max_steps (int): int max steps.
-            target_model (str): str target model.
+            messages: The conversation messages so far.
+            delegate_to: The agent role to delegate to (e.g. ``"CODER"``).
+            task_type: The task classification (e.g. ``"code"``, ``"chat"``).
+            max_steps: Maximum number of tool-call rounds.
+            target_model: Override model name; if ``None`` the role default is used.
 
-        Returns:
-            Generator[str, None, None]: The generator[str, none, none] result.
+        Yields:
+            Streaming text chunks and tool-execution status messages.
 
         """
         # 내부 상태 및 의존성 복사
@@ -239,64 +245,6 @@ class ToolLoopEngine:
                 # Phase 2: Async Execution Batching
                 results_collected = []
 
-                async def _run_tool_task_async(tc):
-                    tool_name = tc.name
-                    tool_args = tc.arguments
-
-                    try:
-                        from antigravity_k.engine.event_bus import global_event_bus
-
-                        global_event_bus.publish("ToolExecutionStarted", name=tool_name)
-                    except Exception:
-                        logger.exception("Unhandled exception")
-                        pass
-
-                    pre_decision = self.orch.ctx.tool_guardrail.before_call(tool_name, tool_args)
-                    if not pre_decision.allows_execution:
-                        synthetic = guardrail_synthetic_result(pre_decision)
-                        try:
-                            from antigravity_k.engine.event_bus import global_event_bus
-
-                            global_event_bus.publish("ToolExecutionFinished", name=tool_name)
-                        except Exception:
-                            logger.exception("Unhandled exception")
-                            pass
-                        return tc, pre_decision, None, synthetic, True
-
-                    # Execute tool asynchronously via ToolExecutor
-                    tool_result = await self.orch.ctx.tool_executor.execute_async(
-                        tool_name,
-                        tool_args,
-                    )
-
-                    try:
-                        from antigravity_k.engine.event_bus import global_event_bus
-
-                        global_event_bus.publish("ToolExecutionFinished", name=tool_name)
-                    except Exception:
-                        logger.exception("Unhandled exception")
-                        pass
-
-                    # CognitiveLoop Verify
-                    try:
-                        if hasattr(self.orch, "cognitive_loop") and self.orch.ctx.cognitive_loop:
-                            self.orch.ctx.cognitive_loop.verify_tool_result(
-                                tool_name,
-                                tool_args,
-                                str(tool_result),
-                            )
-                    except Exception as ve:
-                        logger.exception("Unhandled exception")
-                        logger.debug("Cognitive verification error: %s", ve)
-
-                    post_decision = self.orch.ctx.tool_guardrail.after_call(
-                        tool_name,
-                        tool_args,
-                        tool_result,
-                        failed=(isinstance(tool_result, str) and tool_result.strip().startswith("Error")),
-                    )
-                    return tc, pre_decision, post_decision, tool_result, False
-
                 # DAG 기반 도구 실행 그룹화 (waitForPreviousTools 처리)
                 execution_batches = []
                 current_batch: list[Any] = []
@@ -318,7 +266,7 @@ class ToolLoopEngine:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        tasks = [_run_tool_task_async(tc) for tc in batch]
+                        tasks = [self._run_tool_task_async(tc) for tc in batch]
                         batch_results = loop.run_until_complete(
                             asyncio.gather(*tasks, return_exceptions=True),
                         )
@@ -422,8 +370,22 @@ class ToolLoopEngine:
         self.orch._last_agent_output = full_output
 
         # Post-loop checks (Cognitive, QualityGate, DecisionAnchor, ALDA)
+        user_task = messages[-1].get("content", "") if messages else ""
+        yield from self._post_loop_checks(messages, task_type, full_output, user_task)
+
+    def _post_loop_checks(
+        self,
+        messages: list[dict[str, str]],
+        task_type: str,
+        full_output: str,
+        user_task: str,
+    ) -> Generator[str, None, None]:
+        """Run post-loop quality, reflection, and event hooks.
+
+        Extracted from ``run_loop`` to reduce its size. Yields any user-facing
+        messages from the quality gate.
+        """
         try:
-            user_task = messages[-1].get("content", "") if messages else ""
             if hasattr(self.orch, "cognitive_loop") and self.orch.ctx.cognitive_loop:
                 self.orch.ctx.cognitive_loop.reflect(user_task, full_output)
         except Exception as e:
@@ -437,7 +399,6 @@ class ToolLoopEngine:
                     yield f"\n{quality.user_message}\n"
                 if quality.should_retry and quality.feedback:
                     self.orch.ctx.quality_gate.mark_retry()
-                    # For simplicity, we skip inner retry here, deferring it to orchestrator handlers or quality gate loop  # noqa: E501
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("QualityGate error: %s", e)
@@ -468,3 +429,57 @@ class ToolLoopEngine:
         except Exception:
             logger.exception("Unhandled exception")
             pass
+
+    async def _run_tool_task_async(self, tc):
+        """Execute a single tool call with guardrails and cognitive verification.
+
+        Extracted from ``run_loop`` as a top-level async method so it can be
+        unit-tested independently. Returns a tuple of
+        ``(tool_call, pre_decision, post_decision, result, blocked)``.
+        """
+        tool_name = tc.name
+        tool_args = tc.arguments
+
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish("ToolExecutionStarted", name=tool_name)
+        except Exception:
+            logger.exception("Unhandled exception")
+            pass
+
+        pre_decision = self.orch.ctx.tool_guardrail.before_call(tool_name, tool_args)
+        if not pre_decision.allows_execution:
+            synthetic = guardrail_synthetic_result(pre_decision)
+            try:
+                from antigravity_k.engine.event_bus import global_event_bus
+
+                global_event_bus.publish("ToolExecutionFinished", name=tool_name)
+            except Exception:
+                logger.exception("Unhandled exception")
+            return tc, pre_decision, None, synthetic, True
+
+        tool_result = await self.orch.ctx.tool_executor.execute_async(tool_name, tool_args)
+
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish("ToolExecutionFinished", name=tool_name)
+        except Exception:
+            logger.exception("Unhandled exception")
+            pass
+
+        try:
+            if hasattr(self.orch, "cognitive_loop") and self.orch.ctx.cognitive_loop:
+                self.orch.ctx.cognitive_loop.verify_tool_result(tool_name, tool_args, str(tool_result))
+        except Exception as ve:
+            logger.exception("Unhandled exception")
+            logger.debug("Cognitive verification error: %s", ve)
+
+        post_decision = self.orch.ctx.tool_guardrail.after_call(
+            tool_name,
+            tool_args,
+            tool_result,
+            failed=(isinstance(tool_result, str) and tool_result.strip().startswith("Error")),
+        )
+        return tc, pre_decision, post_decision, tool_result, False

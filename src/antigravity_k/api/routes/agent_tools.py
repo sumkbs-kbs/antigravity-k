@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 class BrowserState:
-    """Browserstate."""
+    """Tracks browser session state (active page, URL, cookies)."""
 
     playwright: Any = None
     browser: Browser | None = None

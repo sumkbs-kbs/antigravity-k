@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Observation:
-    """Observation."""
+    """A single episodic memory observation (caveman-style short-term store)."""
 
     id: int
     session_id: str

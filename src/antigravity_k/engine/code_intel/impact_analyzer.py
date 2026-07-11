@@ -4,7 +4,7 @@ from typing import Any
 
 
 class ImpactAnalyzer:
-    """Impactanalyzer."""
+    """Analyzes the blast radius of code changes via the knowledge graph."""
 
     def __init__(self, graph):
         """Initialize the ImpactAnalyzer.

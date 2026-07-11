@@ -12,7 +12,7 @@ logger = logging.getLogger("antigravity_k.engine.audit_logger")
 
 # OCSF Enums and Constants
 class ActivityId:
-    """Activityid."""
+    """Enumeration of auditable activity types."""
 
     UNKNOWN = 0
     OPEN = 1
@@ -23,7 +23,7 @@ class ActivityId:
 
 
 class ActionId:
-    """Actionid."""
+    """Enumeration of auditable action types."""
 
     UNKNOWN = 0
     ALLOWED = 1
@@ -32,7 +32,7 @@ class ActionId:
 
 
 class SeverityId:
-    """Severityid."""
+    """Enumeration of audit event severity levels."""
 
     UNKNOWN = 0
     INFORMATIONAL = 1
@@ -44,7 +44,7 @@ class SeverityId:
 
 
 class StatusId:
-    """Statusid."""
+    """Enumeration of audit event outcome statuses."""
 
     UNKNOWN = 0
     SUCCESS = 1
@@ -52,7 +52,7 @@ class StatusId:
 
 
 class OCSFEventBuilder:
-    """Ocsfeventbuilder."""
+    """Builds OCSF-format audit event dictionaries."""
 
     def __init__(self, class_uid: int, class_name: str):
         """Initialize the OCSFEventBuilder.

@@ -1,4 +1,4 @@
-"""Legacy module."""
+"""Primary API routes: vault, chat, tasks, kanban, code-intel, slash commands, shields."""
 
 import asyncio
 import json
@@ -1033,7 +1033,7 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
 
 
 class ActiveAgentSession:
-    """Activeagentsession."""
+    """Holds the currently active agent session state for streaming."""
 
     def __init__(self):
         """Initialize the ActiveAgentSession."""

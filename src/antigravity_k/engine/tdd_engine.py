@@ -33,7 +33,7 @@ class TDDStatus(str, Enum):
 
 @dataclass
 class TDDCandidate:
-    """Tddcandidate."""
+    """A candidate code snippet to be validated via TDD (red-green-refactor)."""
 
     source: str
     code: str
@@ -46,7 +46,7 @@ class TDDCandidate:
 
 @dataclass
 class TDDAttempt:
-    """Tddattempt."""
+    """A single TDD attempt (test run result + generated code)."""
 
     iteration: int
     test_code: str
@@ -57,7 +57,7 @@ class TDDAttempt:
 
 @dataclass
 class TDDReport:
-    """Tddreport."""
+    """Aggregated TDD cycle report (attempts, pass/fail, final code)."""
 
     prompt: str
     status: TDDStatus = TDDStatus.PENDING

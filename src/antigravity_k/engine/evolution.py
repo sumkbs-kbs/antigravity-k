@@ -36,7 +36,7 @@ Return ONLY the fully evolved text (including frontmatter if it had one), with n
 
 
 class EvolutionManager:
-    """Evolutionmanager."""
+    """Manages self-directed code evolution cycles with validation gates."""
 
     def __init__(self, model_manager: ModelManager, vault_engine: VaultEngine):
         """Initialize the EvolutionManager.

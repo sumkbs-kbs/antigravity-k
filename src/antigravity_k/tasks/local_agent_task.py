@@ -40,7 +40,7 @@ class LocalAgentTask(threading.Thread):
         self.status: str = "PENDING"  # PENDING, RUNNING, COMPLETED, FAILED
 
     def run(self) -> None:
-        """Run."""
+        """Execute the local agent task and return the result."""
         self.status = "RUNNING"
         try:
             self.result = self.target(*self.args, **self.kwargs)

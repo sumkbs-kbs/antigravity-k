@@ -42,7 +42,7 @@ logger = logging.getLogger("antigravity_k.engine_context")
 
 
 class EngineContext:
-    """Enginecontext."""
+    """Central context object wiring together all engine subsystems for a session."""
 
     def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None, session_manager=None):
         """Initialize the EngineContext.

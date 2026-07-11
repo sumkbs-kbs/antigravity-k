@@ -31,7 +31,7 @@ class EventType(Enum):
 
 @dataclass
 class ToolCall:
-    """Toolcall."""
+    """A parsed tool invocation (name, arguments, raw text)."""
 
     name: str
     arguments: dict = field(default_factory=dict)
@@ -39,7 +39,7 @@ class ToolCall:
 
 @dataclass
 class ParseEvent:
-    """Parseevent."""
+    """A streaming parse event from incremental tool-call text parsing."""
 
     type: EventType
     data: str = ""

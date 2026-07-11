@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class SubagentSpawner:
-    """Subagentspawner."""
+    """Spawns isolated sub-agent processes for parallel task execution."""
 
     def __init__(self, model_manager, tool_registry):
         """Initialize the SubagentSpawner.

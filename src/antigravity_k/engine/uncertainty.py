@@ -25,7 +25,7 @@ class ConfidenceLevel(Enum):
 
 @dataclass
 class UncertaintyResult:
-    """Uncertaintyresult."""
+    """Quantified uncertainty assessment for an agent output."""
 
     confidence: ConfidenceLevel
     uncertainties: list[str]

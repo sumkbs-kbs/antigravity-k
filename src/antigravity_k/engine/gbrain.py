@@ -1,4 +1,4 @@
-"""Gbrain module."""
+"""Global brain — persistent cross-session memory and knowledge synthesis."""
 
 import atexit
 import concurrent.futures

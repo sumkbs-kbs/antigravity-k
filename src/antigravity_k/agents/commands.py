@@ -1,4 +1,4 @@
-"""Commands module."""
+"""Agent command definitions and dispatch helpers."""
 
 import logging
 from collections.abc import Callable

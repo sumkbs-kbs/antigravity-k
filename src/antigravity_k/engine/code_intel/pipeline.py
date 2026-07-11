@@ -1,4 +1,4 @@
-"""Pipeline module."""
+"""Code intelligence pipeline: tree indexing, summarization, and graph building."""
 
 import ast
 import logging
@@ -12,7 +12,7 @@ logger = logging.getLogger("antigravity_k.engine.code_intel.pipeline")
 
 
 class CodeIndexPipeline:
-    """Codeindexpipeline."""
+    """Orchestrates tree indexing, summarization, and graph building for a project."""
 
     def __init__(self):
         """Initialize the CodeIndexPipeline."""

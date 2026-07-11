@@ -1,4 +1,4 @@
-"""Coordinator module."""
+"""Multi-agent coordinator for orchestrating concurrent agent teams."""
 
 import json
 import logging

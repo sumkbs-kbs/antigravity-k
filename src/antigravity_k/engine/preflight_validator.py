@@ -11,7 +11,7 @@ from antigravity_k.engine.engine_profile import EngineProfile
 
 @dataclass(frozen=True)
 class PreflightRule:
-    """Preflightrule."""
+    """A single pre-flight validation rule with a check function and severity."""
 
     pattern: Pattern[str]
     reason: str

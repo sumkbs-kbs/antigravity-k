@@ -17,7 +17,7 @@ logger = logging.getLogger("antigravity_k.context_compressor")
 
 
 class ContextCompressor:
-    """Contextcompressor."""
+    """Compresses conversation context to fit within token budgets."""
 
     def __init__(
         self,

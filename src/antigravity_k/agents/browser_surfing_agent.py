@@ -22,7 +22,7 @@ logger = logging.getLogger("browser_agent")
 
 @dataclass
 class BrowserAction:
-    """Browseraction."""
+    """Represents a single browser navigation or interaction action."""
 
     action: str  # "click", "scroll_down", "extract", "done"
     target_selector: str = ""

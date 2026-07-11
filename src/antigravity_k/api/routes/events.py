@@ -1,4 +1,4 @@
-"""Events module."""
+"""WebSocket event streaming endpoint for real-time agent activity."""
 
 import asyncio
 import logging

@@ -1,4 +1,4 @@
-"""Vault module."""
+"""Git-first markdown vault with concurrent-safe writes, RAG sync, and YAML frontmatter parsing."""
 
 import logging
 import os
@@ -446,7 +446,7 @@ class VaultEngine:
             except Exception:
                 logger.exception("Failed to sync RAG for %s", relative_path)
 
-        # LLM Wiki 동기화 — 모든 Vault 기록을 /Users/mr.k/wiki에 통합
+        # LLM Wiki 동기화 — 모든 Vault 기록을 LLM Wiki(config.paths.wiki_dir)에 통합
         self._sync_to_wiki(relative_path, metadata, content)
 
         # 지식 진화 트리거 (Agentic GraphRAG)

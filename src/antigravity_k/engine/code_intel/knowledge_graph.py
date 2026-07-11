@@ -18,7 +18,7 @@ class NodeType(str, Enum):
 
 
 class KnowledgeGraph:
-    """Knowledgegraph."""
+    """Code-structure graph (modules, functions, call edges) for impact analysis."""
 
     def __init__(self):
         """Initialize the KnowledgeGraph."""

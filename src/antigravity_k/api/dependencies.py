@@ -1,4 +1,4 @@
-"""Dependencies module."""
+"""FastAPI dependency injection providers (singletons and getters)."""
 
 import logging
 import os

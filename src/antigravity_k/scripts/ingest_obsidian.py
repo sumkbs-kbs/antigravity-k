@@ -13,7 +13,10 @@ from antigravity_k.knowledge.wiki import LLMWiki
 
 def main():
     """Run the main program."""
-    obsidian_path = "/Users/mr.k/wiki"
+    if len(sys.argv) < 2:
+        print("Usage: python -m antigravity_k.scripts.ingest_obsidian <obsidian_vault_path>")
+        sys.exit(1)
+    obsidian_path = sys.argv[1]
     print(f"Starting ingestion of Obsidian Vault from: {obsidian_path}")
     print(f"Target LLMWiki DB: {config.paths.wiki_dir.parent / 'wiki.db'}")
 
