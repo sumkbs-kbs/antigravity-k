@@ -1,0 +1,24 @@
+# Antigravity-K Kubernetes deployment manifests.
+#
+# Apply with: kubectl apply -f deploy/k8s/
+#
+# These manifests provide a production-ready baseline: non-root security
+# context, resource requests/limits, liveness/readiness probes, a ClusterIP
+# service, and an Ingress. Secrets (JWT signing secret, PIN hash) should be
+# provided via a Kubernetes Secret — not encoded in these manifests.
+#
+# Before applying:
+#   1. Create the namespace (this file does it).
+#   2. Create a Secret with the auth credentials:
+#        kubectl create secret generic antigravity-k-auth \
+#          --namespace=antigravity-k \
+#          --from-literal=AGK_SEC_ACCESS_PIN='<your-pin>'
+#   3. Create a Secret for provider API keys as needed.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: antigravity-k
+  labels:
+    app.kubernetes.io/name: antigravity-k
+    app.kubernetes.io/part-of: antigravity-k

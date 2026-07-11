@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antigravity-k
+  namespace: antigravity-k
+  labels:
+    app.kubernetes.io/name: antigravity-k
+spec:
+  replicas: 1  # Single replica — the vault uses file-based locking; scale cautiously.
+  strategy:
+    type: Recreate  # Avoid two pods competing for the same vault volume.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: antigravity-k
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: antigravity-k
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: antigravity-k
+          # Replace with your registry/image. Tag follows the git tag.
+          image: ghcr.io/mr-k/antigravity-k:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: AGK_ENV
+              value: "production"
+            # Auth — from Secret.
+            - name: AGK_SEC_ACCESS_PIN
+              valueFrom:
+                secretKeyRef:
+                  name: antigravity-k-auth
+                  key: AGK_SEC_ACCESS_PIN
+            - name: AGK_PATH_VAULT
+              value: /app/vault_data
+            - name: AGK_PATH_LOGS
+              value: /app/logs
+          volumeMounts:
+            - name: vault-data
+              mountPath: /app/vault_data
+            - name: logs
+              mountPath: /app/logs
+            - name: app-data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+          # Liveness: is the server process alive?
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness: is the server ready to serve traffic?
+          # Uses /health (public, no auth) so the probe does not need credentials.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Startup probe — allow generous time for model/ subsystem init.
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 30  # up to 5 minutes
+      volumes:
+        - name: vault-data
+          persistentVolumeClaim:
+            claimName: antigravity-k-vault
+        - name: logs
+          emptyDir: {}
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: antigravity-k-data

@@ -1,0 +1,127 @@
+---
+# Service — exposes the deployment within the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: antigravity-k
+  namespace: antigravity-k
+  labels:
+    app.kubernetes.io/name: antigravity-k
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: antigravity-k
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+# Ingress — routes external traffic. Adjust the host and TLS secret to match
+# your environment. Requires an ingress controller (nginx-ingress, traefik, etc.).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: antigravity-k
+  namespace: antigravity-k
+  labels:
+    app.kubernetes.io/name: antigravity-k
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket support (for /ws/terminal, /ws/kanban, /v1/ws/events).
+    nginx.ingress.kubernetes.io/websocket-services: "antigravity-k"
+    # HSTS — enforce HTTPS for one year.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - antigravity-k.example.com
+      secretName: antigravity-k-tls
+  rules:
+    - host: antigravity-k.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: antigravity-k
+                port:
+                  name: http
+---
+# PersistentVolumeClaim — vault data (the markdown knowledge base).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: antigravity-k-vault
+  namespace: antigravity-k
+  labels:
+    app.kubernetes.io/name: antigravity-k
+spec:
+  accessModes:
+    - ReadWriteOnce  # The deployment uses strategy: Recreate for this reason.
+  resources:
+    requests:
+      storage: 10Gi
+---
+# PersistentVolumeClaim — app data (auth hash, token secret).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: antigravity-k-data
+  namespace: antigravity-k
+  labels:
+    app.kubernetes.io/name: antigravity-k
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# NetworkPolicy — restrict ingress to the app namespace only (deny by default).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: antigravity-k-deny-ingress
+  namespace: antigravity-k
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: antigravity-k
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from the ingress controller namespace (adjust label as needed).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow health checks from the kube-system namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# PodDisruptionBudget — ensure voluntary disruptions keep at least 1 pod
+# (relevant if replicas is increased beyond 1 in the future).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: antigravity-k
+  namespace: antigravity-k
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: antigravity-k
