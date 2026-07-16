@@ -920,11 +920,44 @@ class ModelManager:
             logger.exception("Anthropic API generation failed")
             yield f"[API Error for {model_name}] {e}"
 
-    def _do_ollama_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
-        """스트리밍 생성 로직.
+    def _prepare_stream_messages(self, loaded, prompt: str, kwargs: dict) -> list[dict]:
+        """Build and normalize the message list for an Ollama/OpenRouter stream request."""
+        if "raw_messages" in kwargs:
+            sys_msg = kwargs.get("system_prompt", "")
+            if sys_msg:
+                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
+            else:
+                api_msgs = kwargs["raw_messages"]
+        else:
+            api_msgs = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
 
-        Ollama Native API(/api/chat)와 OpenAI 호환 SSE(/v1/chat/completions)를
-        api_base에 따라 자동 선택합니다.
+        # Normalize: ensure content is a string (flatten list-of-parts).
+        normalized = []
+        for msg in api_msgs:
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                parts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        parts.append(part.get("text", ""))
+                    elif isinstance(part, str):
+                        parts.append(part)
+                content = " ".join(parts)
+            normalized.append({**msg, "content": content})
+
+        normalized = self._suppress_model_thinking(loaded.profile.name, normalized)
+        _, _, _, attribution = self._apply_dynamic_inference_config(loaded.profile, normalized, kwargs)
+
+        if normalized and isinstance(normalized[0].get("content"), str):
+            normalized = list(normalized)
+            normalized[0] = {**normalized[0], "content": normalized[0]["content"] + f"\n{attribution}"}
+
+        return normalized
+
+    def _build_stream_request(self, loaded, api_msgs: list[dict], kwargs: dict, is_openrouter: bool):
+        """Construct the HTTP request (URL + body + headers) for streaming.
+
+        Returns ``(request, model_name)``.
         """
         import json
         import urllib.request
@@ -934,59 +967,12 @@ class ModelManager:
         base_url = config.model.api_base.rstrip("/")
         api_key = config.model.api_key
 
-        is_openrouter = self._is_openrouter()
+        model_name, temperature, _, _ = self._apply_dynamic_inference_config(loaded.profile, api_msgs, kwargs)
 
-        if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
-            if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
-            else:
-                api_msgs = kwargs["raw_messages"]
-        else:
-            if isinstance(prompt, list):
-                api_msgs = prompt
-            else:
-                api_msgs = [{"role": "user", "content": prompt}]
-
-        # Normalize messages (string content 보장)
-        normalized_msgs = []
-        for msg in api_msgs:
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                str_content = []
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        str_content.append(part.get("text", ""))
-                    elif isinstance(part, str):
-                        str_content.append(part)
-                content = " ".join(str_content)
-            normalized_msgs.append({**msg, "content": content})
-        api_msgs = normalized_msgs
-
-        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
-
-        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
-            loaded.profile, api_msgs, kwargs
-        )
-
-        if api_msgs and isinstance(api_msgs[0].get("content"), str):
-            api_msgs = list(api_msgs)
-            api_msgs[0] = {
-                **api_msgs[0],
-                "content": api_msgs[0]["content"] + f"\n{attribution}",
-            }
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-        # OpenRouter 전용 헤더 (식별용)
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
         if is_openrouter:
             headers["HTTP-Referer"] = "https://github.com/sumkbs-kbs/antigravity-k"
             headers["X-Title"] = "Antigravity-K"
-
-        if is_openrouter:
-            # OpenAI 호환 SSE 스트리밍 (/v1/chat/completions)
             url = f"{base_url}/chat/completions"
             data = {
                 "model": model_name,
@@ -996,7 +982,6 @@ class ModelManager:
                 "messages": api_msgs,
             }
         else:
-            # Ollama Native API 스트리밍 (/api/chat) — /v1 접미사 정규화
             native_base = self._ollama_native_base(config.model.api_base)
             url = f"{native_base}/api/chat"
             data = {
@@ -1012,11 +997,22 @@ class ModelManager:
                 "messages": api_msgs,
             }
 
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(data).encode("utf-8"),
-            headers=headers,
-        )
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers)
+        return req, model_name
+
+    def _do_ollama_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
+        """스트리밍 생성 로직.
+
+        Ollama Native API(/api/chat)와 OpenAI 호환 SSE(/v1/chat/completions)를
+        api_base에 따라 자동 선택합니다.
+        """
+        import json
+        import urllib.request
+
+        is_openrouter = self._is_openrouter()
+        api_msgs = self._prepare_stream_messages(loaded, prompt, kwargs)
+        req, model_name = self._build_stream_request(loaded, api_msgs, kwargs, is_openrouter)
+
         try:
             if is_openrouter:
                 # OpenAI 호환 SSE 스트리밍 파싱 (data: {...} \n\n)
@@ -1043,7 +1039,6 @@ class ModelManager:
             else:
                 # Ollama Native API 스트리밍 파싱 (줄 단위 JSON)
                 with urllib.request.urlopen(req, timeout=300) as response:
-                    in_reasoning = False
                     for line in response:
                         line = line.decode("utf-8").strip()
                         if not line:
@@ -1053,8 +1048,6 @@ class ModelManager:
                             if "message" in chunk:
                                 msg = chunk["message"]
                                 if "content" in msg and msg["content"]:
-                                    if in_reasoning:
-                                        in_reasoning = False
                                     yield msg["content"]
                         except json.JSONDecodeError:
                             continue
