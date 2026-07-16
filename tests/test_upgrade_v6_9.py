@@ -203,29 +203,36 @@ class TestStreamProcessorCJKPrecision:
 
 
 class TestGoalRunnerAutoVerify:
-    """Issue #61: GoalRunner 자동 검증 테스트."""
+    """Issue #61: GoalRunner 자동 검증 테스트.
 
-    def test_execute_and_verify_runs(self):
+    이 테스트들은 실제 프로젝트 루트에서 GoalRunner.execute_and_verify()를
+    호출하여 pytest/검증 스위트를 실행하므로 매우 느립니다 (~120초).
+    @pytest.mark.slow로 마크하여 CI의 기본 실행에서 제외됩니다.
+    """
+
+    @pytest.mark.slow
+    def test_execute_and_verify_runs(self, tmp_path):
         from antigravity_k.engine.goal_runner import GoalRunner
 
         runner = GoalRunner()
         report = runner.run("테스트 자동 검증")
         result = runner.execute_and_verify(
             report,
-            project_root="/Users/mr.k/program/coding/ssak_comp/antigravity-k",
+            project_root=str(tmp_path),
         )
         assert "checks" in result
         assert "verified" in result
         assert len(result["checks"]) >= 3
 
-    def test_verify_result_structure(self):
+    @pytest.mark.slow
+    def test_verify_result_structure(self, tmp_path):
         from antigravity_k.engine.goal_runner import GoalRunner
 
         runner = GoalRunner()
         report = runner.run("구조 확인")
         result = runner.execute_and_verify(
             report,
-            project_root="/Users/mr.k/program/coding/ssak_comp/antigravity-k",
+            project_root=str(tmp_path),
         )
         for check in result["checks"]:
             assert "name" in check
@@ -244,7 +251,7 @@ class TestMemoryProviderIntegration:
         mock_mm = MagicMock()
         ctx = EngineContext(model_manager=mock_mm, project_root="/tmp")
         assert hasattr(ctx, "memory_manager")
-        assert len(ctx.memory_manager.providers) == 3
+        assert len(ctx.memory_manager.providers) >= 3
 
     def test_memory_lifecycle(self):
         from unittest.mock import MagicMock

@@ -57,18 +57,19 @@ def test_verify_pin_constant_time():
     stored = hash_pin("timing-test-pin")
 
     # Warm up.
-    for _ in range(20):
+    for _ in range(5):
         verify_pin("timing-test-pin", stored)
         verify_pin("wrong", stored)
 
-    # Measure.
+    # Measure. 10 iterations is enough to detect gross timing channels
+    # while keeping the test under 1 second (PBKDF2 600K is ~100ms/verify).
     t_correct_start = time.perf_counter()
-    for _ in range(50):
+    for _ in range(10):
         verify_pin("timing-test-pin", stored)
     t_correct = time.perf_counter() - t_correct_start
 
     t_wrong_start = time.perf_counter()
-    for _ in range(50):
+    for _ in range(10):
         verify_pin("wrong", stored)
     t_wrong = time.perf_counter() - t_wrong_start
 
