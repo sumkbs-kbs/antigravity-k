@@ -548,6 +548,178 @@ def tui(
 
 
 @app.command()
+def _market_search(registry, market_client, query: str) -> None:
+    """Search the marketplace for skills."""
+    console.print(f"[bold]🔍 Searching for '{query}'...[/bold]\n")
+    results = registry.search(query)
+    if isinstance(results, list) and results and "error" not in results[0]:
+        console.print(market_client.format_search_results(results))
+    else:
+        console.print("[yellow]No results found or marketplace unreachable.[/yellow]")
+        if results and isinstance(results[0], dict) and "error" in results[0]:
+            console.print(f"[red]  Error: {results[0]['error']}[/red]")
+
+
+def _market_install(registry, package: str) -> None:
+    """Install a skill package."""
+    console.print(f"[bold]📦 Installing '{package}'...[/bold]")
+    result = registry.install(package)
+    if result.get("success"):
+        console.print(f"[green]✅ {result.get('summary', 'Install complete')}[/green]")
+    else:
+        console.print(f"[red]❌ Install failed: {result.get('error', 'Unknown error')}[/red]")
+    if result.get("warnings"):
+        for w in result["warnings"]:
+            console.print(f"[yellow]⚠️  {w}[/yellow]")
+
+
+def _market_remove(registry, name: str) -> None:
+    """Remove an installed skill."""
+    console.print(f"[bold]🗑️  Removing '{name}'...[/bold]")
+    result = registry.remove(name)
+    if result.get("success"):
+        console.print(f"[green]✅ {result.get('summary', 'Removed')}[/green]")
+    else:
+        console.print(f"[red]❌ Remove failed: {result.get('error', 'Unknown error')}[/red]")
+
+
+def _market_info(registry, market_client, name: str) -> None:
+    """Show detailed skill information."""
+    skill_info = registry.get_info(name)
+    if skill_info:
+        console.print(registry.format_info(skill_info))
+        return
+    # Try searching the package directly.
+    if name.startswith("@antigravity-k/skill-"):
+        detail = market_client.get_detail(name)
+        if detail:
+            from rich.panel import Panel
+
+            lines = [
+                f"📦 **{detail.name}** `v{detail.version}`",
+                "",
+                f"설명: {detail.description}",
+                f"키워드: {', '.join(detail.keywords)}",
+                f"라이선스: {detail.license}",
+                f"홈페이지: {detail.homepage}",
+                f"npm: {detail.npm_url}",
+            ]
+            if detail.is_agk_skill:
+                lines.extend(
+                    [
+                        "",
+                        "**AGK 메타데이터:**",
+                        f"  - 위험도: `{detail.agk_risk_level}`",
+                        f"  - 신뢰수준: `{detail.agk_trust_level}`",
+                        f"  - 승인필요: {'✅' if detail.agk_requires_approval else '❌'}",
+                    ]
+                )
+                if detail.agk_mcp_server_id:
+                    lines.append(f"  - MCP 서버: `{detail.agk_mcp_server_id}`")
+            console.print(Panel.fit("\n".join(lines), title="Skill Detail"))
+        else:
+            console.print(f"[yellow]⚠️  '{name}' not found in marketplace.[/yellow]")
+    else:
+        console.print(f"[yellow]⚠️  Skill '{name}' is not installed.[/yellow]")
+        console.print(f"   Search: [bold]agk market --search {name}[/bold]")
+
+
+def _market_list(registry) -> None:
+    """List installed skills."""
+    installed = registry.list_installed()
+    console.print(registry.format_list(installed))
+
+
+def _market_update(registry, name: str) -> None:
+    """Update a specific skill."""
+    console.print(f"[bold]⬆️  Updating '{name}'...[/bold]")
+    result = registry.update(name)
+    if result.get("success"):
+        console.print(f"[green]✅ {result.get('summary', 'Update complete')}[/green]")
+    else:
+        console.print(f"[red]❌ Update failed: {result.get('error', 'Unknown error')}[/red]")
+
+
+def _market_update_all(registry) -> None:
+    """Update all outdated skills."""
+    console.print("[bold]⬆️  Checking for updates across all skills...[/bold]")
+    results = registry.update_all()
+    updated = [r for r in results if r.get("success")]
+    if updated:
+        for r in updated:
+            console.print(f"[green]  ✅ {r.get('skill_name', '?')} → {r.get('version', '?')}[/green]")
+    else:
+        console.print("[green]✅ All skills are up to date.[/green]")
+
+
+def _market_publish_npm(skill_name: str, dry_run: bool) -> None:
+    """Publish a local skill to npm."""
+    console.print(f"[bold]📦 Publishing '{skill_name}' to npm...[/bold]")
+    try:
+        from antigravity_k.engine.skill_publisher import SkillPublisher
+
+        publisher = SkillPublisher(project_root=".")
+        result = publisher.publish_to_npm(skill_name, dry_run=dry_run)
+        if result.success:
+            console.print(f"[green]{result.summary()}[/green]")
+        else:
+            console.print(f"[red]❌ Publish failed: {'; '.join(result.errors)}[/red]")
+        for w in result.warnings:
+            console.print(f"[yellow]⚠️  {w}[/yellow]")
+    except ImportError as e:
+        console.print(f"[red]❌ Publisher not available: {e}[/red]")
+
+
+def _market_publish_github(skill_name: str, repo: str, dry_run: bool) -> None:
+    """Publish a local skill via GitHub PR."""
+    console.print(f"[bold]🔀 Creating PR for '{skill_name}' → {repo}...[/bold]")
+    try:
+        from antigravity_k.engine.skill_publisher import SkillPublisher
+
+        publisher = SkillPublisher(project_root=".")
+        result = publisher.publish_to_github(skill_name, repo=repo, dry_run=dry_run)
+        if result.success:
+            console.print(f"[green]{result.summary()}[/green]")
+            if result.pr_url:
+                console.print(f"   🔗 {result.pr_url}")
+        else:
+            console.print(f"[red]❌ PR failed: {'; '.join(result.errors)}[/red]")
+        for w in result.warnings:
+            console.print(f"[yellow]⚠️  {w}[/yellow]")
+    except ImportError as e:
+        console.print(f"[red]❌ Publisher not available: {e}[/red]")
+
+
+def _market_show_help() -> None:
+    """Print the marketplace command help."""
+    from rich.panel import Panel
+
+    help_lines = [
+        "[bold]Marketplace Commands[/bold]",
+        "",
+        "  [cyan]--search, -s[/cyan]    <query>          Search for skills",
+        "  [cyan]--install, -i[/cyan]   <package>        Install a skill",
+        "  [cyan]--remove, -r[/cyan]    <name>           Remove an installed skill",
+        "  [cyan]--list, -l[/cyan]                        List installed skills",
+        "  [cyan]--info[/cyan]          <name>           Show skill details",
+        "  [cyan]--update, -u[/cyan]    <name>           Update a skill",
+        "  [cyan]--update-all, -U[/cyan]                  Update all outdated skills",
+        "  [cyan]--publish-npm[/cyan]   <name>           Publish local skill to npm",
+        "  [cyan]--publish-github[/cyan] <name>          Publish local skill via GitHub PR",
+        "  [cyan]--publish-repo[/cyan]  <org/repo>       Target repo for --publish-github",
+        "  [cyan]--dry-run[/cyan]                         Validate without publishing",
+        "",
+        "Examples:",
+        '  [dim]agk market --search "code review"[/dim]',
+        "  [dim]agk market --install @antigravity-k/skill-code-review[/dim]",
+        "  [dim]agk market --list[/dim]",
+        "  [dim]agk market --publish-npm my-skill[/dim]",
+        "  [dim]agk market --publish-npm my-skill --dry-run[/dim]",
+        "  [dim]agk market --publish-github my-skill --publish-repo org/skills-repo[/dim]",
+    ]
+    console.print(Panel.fit("\n".join(help_lines), title="agk market"))
+
+
 def market(
     search: str | None = typer.Option(None, "--search", "-s", help="Search for skills in the marketplace"),
     install: str | None = typer.Option(None, "--install", "-i", help="Install a skill package"),
@@ -594,178 +766,30 @@ def market(
     market_client = SkillMarketClient()
     registry = SkillMarketRegistry(project_root=".", market_client=market_client)
 
-    # ── Search ───────────────────────────────────────────────────
+    # ── Dispatch to sub-command handlers ──────────────────────────
     if search:
-        console.print(f"[bold]🔍 Searching for '{search}'...[/bold]\n")
-        results = registry.search(search)
-        if isinstance(results, list) and results and "error" not in results[0]:
-            console.print(market_client.format_search_results(results))
-        else:
-            console.print("[yellow]No results found or marketplace unreachable.[/yellow]")
-            if results and isinstance(results[0], dict) and "error" in results[0]:
-                console.print(f"[red]  Error: {results[0]['error']}[/red]")
-        return
-
-    # ── Install ───────────────────────────────────────────────────
-    if install:
-        console.print(f"[bold]📦 Installing '{install}'...[/bold]")
-        result = registry.install(install)
-        if result.get("success"):
-            console.print(f"[green]✅ {result.get('summary', 'Install complete')}[/green]")
-        else:
-            console.print(f"[red]❌ Install failed: {result.get('error', 'Unknown error')}[/red]")
-        if result.get("warnings"):
-            for w in result["warnings"]:
-                console.print(f"[yellow]⚠️  {w}[/yellow]")
-        return
-
-    # ── Remove ────────────────────────────────────────────────────
-    if remove:
-        console.print(f"[bold]🗑️  Removing '{remove}'...[/bold]")
-        result = registry.remove(remove)
-        if result.get("success"):
-            console.print(f"[green]✅ {result.get('summary', 'Removed')}[/green]")
-        else:
-            console.print(f"[red]❌ Remove failed: {result.get('error', 'Unknown error')}[/red]")
-        return
-
-    # ── Info ──────────────────────────────────────────────────────
-    if info:
-        skill_info = registry.get_info(info)
-        if skill_info:
-            console.print(registry.format_info(skill_info))
-        else:
-            # Try searching the package directly
-            if info.startswith("@antigravity-k/skill-"):
-                detail = market_client.get_detail(info)
-                if detail:
-                    from rich.panel import Panel
-
-                    lines = [
-                        f"📦 **{detail.name}** `v{detail.version}`",
-                        "",
-                        f"설명: {detail.description}",
-                        f"키워드: {', '.join(detail.keywords)}",
-                        f"라이선스: {detail.license}",
-                        f"홈페이지: {detail.homepage}",
-                        f"npm: {detail.npm_url}",
-                    ]
-                    if detail.is_agk_skill:
-                        lines.extend(
-                            [
-                                "",
-                                "**AGK 메타데이터:**",
-                                f"  - 위험도: `{detail.agk_risk_level}`",
-                                f"  - 신뢰수준: `{detail.agk_trust_level}`",
-                                f"  - 승인필요: {'✅' if detail.agk_requires_approval else '❌'}",
-                            ]
-                        )
-                        if detail.agk_mcp_server_id:
-                            lines.append(f"  - MCP 서버: `{detail.agk_mcp_server_id}`")
-                    console.print(Panel.fit("\n".join(lines), title="Skill Detail"))
-                else:
-                    console.print(f"[yellow]⚠️  '{info}' not found in marketplace.[/yellow]")
-            else:
-                console.print(f"[yellow]⚠️  Skill '{info}' is not installed.[/yellow]")
-                console.print(f"   Search: [bold]agk market --search {info}[/bold]")
-        return
-
-    # ── List ──────────────────────────────────────────────────────
-    if list_skills:
-        installed = registry.list_installed()
-        console.print(registry.format_list(installed))
-        return
-
-    # ── Update ────────────────────────────────────────────────────
-    if update:
-        console.print(f"[bold]⬆️  Updating '{update}'...[/bold]")
-        result = registry.update(update)
-        if result.get("success"):
-            console.print(f"[green]✅ {result.get('summary', 'Update complete')}[/green]")
-        else:
-            console.print(f"[red]❌ Update failed: {result.get('error', 'Unknown error')}[/red]")
-        return
-
-    # ── Update All ────────────────────────────────────────────────
-    if update_all:
-        console.print("[bold]⬆️  Checking for updates across all skills...[/bold]")
-        results = registry.update_all()
-        updated = [r for r in results if r.get("success")]
-        if updated:
-            for r in updated:
-                console.print(f"[green]  ✅ {r.get('skill_name', '?')} → {r.get('version', '?')}[/green]")
-        else:
-            console.print("[green]✅ All skills are up to date.[/green]")
-        return
-
-    # ── Publish to npm ────────────────────────────────────────────
-    if publish_npm:
-        console.print(f"[bold]📦 Publishing '{publish_npm}' to npm...[/bold]")
-        try:
-            from antigravity_k.engine.skill_publisher import SkillPublisher
-
-            publisher = SkillPublisher(project_root=".")
-            result = publisher.publish_to_npm(publish_npm, dry_run=dry_run)
-            if result.success:
-                console.print(f"[green]{result.summary()}[/green]")
-            else:
-                console.print(f"[red]❌ Publish failed: {'; '.join(result.errors)}[/red]")
-            for w in result.warnings:
-                console.print(f"[yellow]⚠️  {w}[/yellow]")
-        except ImportError as e:
-            console.print(f"[red]❌ Publisher not available: {e}[/red]")
-        return
-
-    # ── Publish to GitHub PR ───────────────────────────────────────
-    if publish_github:
+        _market_search(registry, market_client, search)
+    elif install:
+        _market_install(registry, install)
+    elif remove:
+        _market_remove(registry, remove)
+    elif info:
+        _market_info(registry, market_client, info)
+    elif list_skills:
+        _market_list(registry)
+    elif update:
+        _market_update(registry, update)
+    elif update_all:
+        _market_update_all(registry)
+    elif publish_npm:
+        _market_publish_npm(publish_npm, dry_run)
+    elif publish_github:
         if not publish_repo:
             console.print("[red]❌ --publish-repo <org/repo> is required for --publish-github[/red]")
             raise typer.Exit(code=1)
-        console.print(f"[bold]🔀 Creating PR for '{publish_github}' → {publish_repo}...[/bold]")
-        try:
-            from antigravity_k.engine.skill_publisher import SkillPublisher
-
-            publisher = SkillPublisher(project_root=".")
-            result = publisher.publish_to_github(publish_github, repo=publish_repo, dry_run=dry_run)
-            if result.success:
-                console.print(f"[green]{result.summary()}[/green]")
-                if result.pr_url:
-                    console.print(f"   🔗 {result.pr_url}")
-            else:
-                console.print(f"[red]❌ PR failed: {'; '.join(result.errors)}[/red]")
-            for w in result.warnings:
-                console.print(f"[yellow]⚠️  {w}[/yellow]")
-        except ImportError as e:
-            console.print(f"[red]❌ Publisher not available: {e}[/red]")
-        return
-
-    # ── No option → show help ─────────────────────────────────────
-    from rich.panel import Panel
-
-    help_lines = [
-        "[bold]Marketplace Commands[/bold]",
-        "",
-        "  [cyan]--search, -s[/cyan]    <query>          Search for skills",
-        "  [cyan]--install, -i[/cyan]   <package>        Install a skill",
-        "  [cyan]--remove, -r[/cyan]    <name>           Remove an installed skill",
-        "  [cyan]--list, -l[/cyan]                        List installed skills",
-        "  [cyan]--info[/cyan]          <name>           Show skill details",
-        "  [cyan]--update, -u[/cyan]    <name>           Update a skill",
-        "  [cyan]--update-all, -U[/cyan]                  Update all outdated skills",
-        "  [cyan]--publish-npm[/cyan]   <name>           Publish local skill to npm",
-        "  [cyan]--publish-github[/cyan] <name>          Publish local skill via GitHub PR",
-        "  [cyan]--publish-repo[/cyan]  <org/repo>       Target repo for --publish-github",
-        "  [cyan]--dry-run[/cyan]                         Validate without publishing",
-        "",
-        "Examples:",
-        '  [dim]agk market --search "code review"[/dim]',
-        "  [dim]agk market --install @antigravity-k/skill-code-review[/dim]",
-        "  [dim]agk market --list[/dim]",
-        "  [dim]agk market --publish-npm my-skill[/dim]",
-        "  [dim]agk market --publish-npm my-skill --dry-run[/dim]",
-        "  [dim]agk market --publish-github my-skill --publish-repo org/skills-repo[/dim]",
-    ]
-    console.print(Panel.fit("\n".join(help_lines), title="agk market"))
+        _market_publish_github(publish_github, publish_repo, dry_run)
+    else:
+        _market_show_help()
 
 
 if __name__ == "__main__":
