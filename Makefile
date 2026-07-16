@@ -4,7 +4,7 @@
 
 .PHONY: help install dev test lint format clean build docker-build \
         docker-run coverage check ci-setup pre-commit install-script \
-        security audit sbom
+        security audit sbom doctor
 
 SHELL := /bin/bash
 PYTHON := python3
@@ -38,6 +38,9 @@ install-script: ## Run the one-click installation script (dry-run first)
 
 dev: ## Start the development server with hot reload
 	uvicorn antigravity_k.api.server:app --reload --host 0.0.0.0 --port 8000
+
+doctor: ## Run environment diagnostic (checks deps, config, ports, vault)
+	@$(PYTHON) -m antigravity_k.cli doctor
 
 dev-dashboard: ## Start the dashboard dev server
 	cd dashboard && npm run dev

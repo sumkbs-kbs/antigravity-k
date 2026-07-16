@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -109,6 +111,155 @@ def status() -> None:
             "api_base": config.model.api_base,
         },
     )
+
+
+@app.command()
+def doctor() -> None:
+    """Run a full environment diagnostic — check dependencies, config, and connectivity.
+
+    Use this when something is not working. It checks:
+    - Python version and required system tools (git, node)
+    - Configuration validity and API key availability
+    - Model registry and provider connectivity
+    - Port availability and vault directory writability
+    """
+    from rich.panel import Panel
+    from rich.table import Table
+
+    results: list[tuple[str, str, str]] = []  # (check, status, detail)
+    passed = 0
+    warnings = 0
+    failed = 0
+
+    def check(name: str, ok: bool, detail: str = "", is_warning: bool = False):
+        nonlocal passed, warnings, failed
+        if ok:
+            status = "[green]✅ PASS[/green]"
+            passed += 1
+        elif is_warning:
+            status = "[yellow]⚠️  WARN[/yellow]"
+            warnings += 1
+        else:
+            status = "[red]❌ FAIL[/red]"
+            failed += 1
+        results.append((name, status, detail))
+
+    # ── 1. Python & System Tools ──
+    import sys
+
+    check(
+        "Python version",
+        sys.version_info >= (3, 12),
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} (requires ≥3.12)",
+    )
+
+    import shutil
+
+    for tool in ("git", "node"):
+        path = shutil.which(tool)
+        check(f"{tool} in PATH", path is not None, path or "not found")
+
+    # ── 2. Configuration ──
+    check(
+        "config.yaml exists",
+        config.paths.project_root and (config.paths.project_root / "config.yaml").exists(),
+        str(config.paths.project_root / "config.yaml"),
+    )
+
+    problems = config.validate()
+    check(
+        "Config validation",
+        len(problems) == 0,
+        f"{len(problems)} problem(s)" if problems else "all checks passed",
+        is_warning=bool(problems),
+    )
+
+    # ── 3. API Keys ──
+    for service in ("openrouter", "anthropic", "nvidia"):
+        key = get_api_key(service)
+        check(
+            f"API key: {service}",
+            key is not None,
+            get_key_source(service) if key else "not set (optional)",
+            is_warning=key is None,
+        )
+
+    # ── 4. Model Registry ──
+    try:
+        registry = ModelRegistry()
+        models = registry.list_models()
+        check(
+            "Model registry loaded",
+            len(models) > 0,
+            f"{len(models)} model(s) registered",
+        )
+    except Exception as e:
+        check("Model registry loaded", False, str(e))
+
+    # ── 5. Port Availability ──
+    import socket
+
+    port = config.server.port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    try:
+        result = sock.connect_ex(("127.0.0.1", port))
+        check(
+            f"Port {port} available",
+            result != 0,
+            f"port {'in use' if result == 0 else 'free'}",
+            is_warning=result == 0,
+        )
+    finally:
+        sock.close()
+
+    # ── 6. Data Directories ──
+    import os
+
+    vault_env = os.environ.get("ANTIGRAVITY_VAULT_PATH", "vault_data")
+    vault_path = Path(vault_env)
+    try:
+        vault_path.mkdir(parents=True, exist_ok=True)
+        test_file = vault_path / ".doctor_write_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+        check("Vault directory writable", True, str(vault_path.resolve()))
+    except Exception as e:
+        check("Vault directory writable", False, str(e))
+
+    logs_dir = Path(config.paths.logs_dir)
+    try:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        check("Logs directory writable", True, str(logs_dir.resolve()))
+    except Exception as e:
+        check("Logs directory writable", False, str(e), is_warning=True)
+
+    # ── Output ──
+    table = Table(title="🩺 Antigravity-K Doctor", show_header=True, header_style="bold cyan")
+    table.add_column("Check", style="bold")
+    table.add_column("Status", justify="center")
+    table.add_column("Detail", style="dim")
+
+    for name, status_text, detail in results:
+        table.add_row(name, status_text, detail)
+
+    console.print(table)
+    console.print()
+
+    summary_color = "red" if failed else ("yellow" if warnings else "green")
+    console.print(
+        Panel.fit(
+            f"[bold]{passed} passed[/bold] · [yellow]{warnings} warnings[/yellow] · [red]{failed} failed[/red]",
+            title=f"[{summary_color}]Diagnostic Summary[/{summary_color}]",
+            border_style=summary_color,
+        ),
+    )
+
+    if failed > 0:
+        console.print("\n[red]❌ Issues detected. Fix the failing checks above before proceeding.[/red]")
+        raise typer.Exit(code=1)
+    elif warnings > 0:
+        console.print("\n[yellow]⚠️  Some warnings detected. The app may work but check the items above.[/yellow]")
 
 
 # ─── Key Management Commands ──────────────────────────────────────
@@ -363,7 +514,7 @@ def model_list() -> None:
 
     console.print(
         Panel.fit(
-            "[dim]⭐ = 현재 기본 모델\n" "사용법: [bold]agk model set <모델명>[/bold] — 기본 모델 변경",
+            "[dim]⭐ = 현재 기본 모델\n사용법: [bold]agk model set <모델명>[/bold] — 기본 모델 변경",
             border_style="dim",
         )
     )
