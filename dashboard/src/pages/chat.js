@@ -101,7 +101,7 @@ export const ChatPage = {
           <button id="close-preview-btn" class="icon-btn" style="color: #666;">✕</button>
         </div>
         <div style="flex: 1; position: relative;">
-          <iframe id="preview-iframe" style="width: 100%; height: 100%; border: none; background: #fff;" sandbox="allow-scripts allow-forms allow-popups allow-same-origin"></iframe>
+          <iframe id="preview-iframe" style="width: 100%; height: 100%; border: none; background: #fff;" sandbox="allow-scripts allow-forms allow-popups"></iframe>
         </div>
       </div>
 

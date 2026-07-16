@@ -384,7 +384,9 @@ function showPinModal() {
   document.getElementById('pin-submit-btn').addEventListener('click', async () => {
     const pin = document.getElementById('pin-input').value;
     localStorage.setItem('ag_access_pin', pin);
-    document.cookie = "ag_access_pin=" + pin + "; path=/; max-age=31536000";
+    // SameSite=Strict prevents CSRF; Secure added when on HTTPS.
+    const isHttps = window.location.protocol === 'https:';
+    document.cookie = "ag_access_pin=" + pin + "; path=/; max-age=31536000; SameSite=Strict" + (isHttps ? "; Secure" : "");
 
     try {
       const res = await originalFetch('/api/session/info', {
