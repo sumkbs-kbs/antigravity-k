@@ -99,7 +99,7 @@ async def set_workspace(req: WorkspaceRequest):
 
         config.paths.project_root = target
     except Exception:
-        pass
+        logger.warning("config.paths.project_root 업데이트 실패 (non-critical)", exc_info=True)
 
     logger.info("Workspace 변경: %s", target)
     return {"ok": True, "workspace": WORKSPACE_ROOT}

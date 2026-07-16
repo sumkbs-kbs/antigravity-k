@@ -255,7 +255,7 @@ async def chat_completions(
         if slash_text:
             _user_model.observe(slash_text, "general")
     except Exception:
-        pass
+        logger.warning("UserIntentModeler.observe 실패 (non-critical)", exc_info=True)
 
     import logging
 
@@ -723,7 +723,7 @@ async def chat_completions(
                         try:
                             await aclose()
                         except Exception:
-                            pass
+                            logger.debug("Stream iterator cleanup failed", exc_info=True)
                 active_session.is_active = False
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")

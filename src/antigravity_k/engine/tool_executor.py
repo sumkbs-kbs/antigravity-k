@@ -144,16 +144,7 @@ class ToolExecutor:
             if name in self._auto_approved_readonly:
                 tool = self.tool_registry.get(name)
                 result = tool(**args) if tool else f"Error: Tool '{name}' not found."
-                self.tool_call_history.append(
-                    {
-                        "name": name,
-                        "arguments": args,
-                        "success": not (isinstance(result, str) and result.strip().startswith("Error")),
-                        "timestamp": time.time(),
-                    }
-                )
-                if len(self.tool_call_history) > 20:
-                    self.tool_call_history = self.tool_call_history[-20:]
+                self._record_tool_call(name, args, result)
                 return result
 
             # ─── Phase 1 D3: GatePipeline 우선순위 게이트 평가 ───
@@ -186,49 +177,10 @@ class ToolExecutor:
                         f"Wait for their 'Yes' before retrying."
                     )
 
-            # ─── Pre-Execution Validation (스키마 사전 검증) ───
-            tool_obj = self.tool_registry.get(name)
-            if tool_obj:
-                try:
-                    schema = tool_obj.parameters_schema
-                    required_args = schema.get("required", [])
-                    missing = [arg for arg in required_args if arg not in args]
-                    if missing:
-                        self._consecutive_errors += 1
-                        return (
-                            f"There was an error when executing the function: {name}\n"
-                            f"Here's the error traceback: Missing required arguments: {', '.join(missing)}\n"
-                            f"Please call this function again with correct arguments within XML tags"
-                            f"<tool_call></tool_call>"
-                        )
-                except Exception:
-                    logger.exception("Validation check failed for %s", name)
-
-            # ─── Preflight Validator (Hermes 차용) ───
-            # 파일 읽기, 편집 도구 실행 전 경로가 존재하는지 확인하고,
-            # 파일 쓰기 도구의 경우 대상 디렉토리가 없으면 자율적으로 생성합니다.
-            file_path = args.get("file_path") or args.get("path") or args.get("target")
-            if file_path:
-                abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
-                if name in (
-                    "write_file",
-                    "write_to_file",
-                    "edit_file",
-                    "replace_file_content",
-                ):
-                    parent_dir = os.path.dirname(abs_path)
-                    if parent_dir and not os.path.exists(parent_dir):
-                        try:
-                            os.makedirs(parent_dir, exist_ok=True)
-                            logger.info(
-                                "Preflight Validator: Auto-created missing directory %s",
-                                parent_dir,
-                            )
-                        except Exception:
-                            logger.exception(
-                                "Preflight Validator failed to create dir %s",
-                                parent_dir,
-                            )
+            # ─── Pre-Execution Validation + Preflight ───
+            error_msg = self._validate_and_preflight(name, args)
+            if error_msg:
+                return error_msg
 
             perm, result = self.tool_registry.execute_with_permission(
                 name,
@@ -250,51 +202,8 @@ class ToolExecutor:
                     f"Wait for their 'Yes' before retrying."
                 )
 
-            # ─── Hermes Self-Evolution: 도구 호출 이력 기록 ───
-            self.tool_call_history.append(
-                {
-                    "name": name,
-                    "arguments": args,
-                    "success": not (isinstance(result, str) and result.strip().startswith("Error")),
-                    "timestamp": time.time(),
-                }
-            )
-            # 최대 20개만 유지
-            if len(self.tool_call_history) > 20:
-                self.tool_call_history = self.tool_call_history[-20:]
-
-            if isinstance(result, str) and result.strip().startswith("Error"):
-                self._consecutive_errors += 1
-            else:
-                self._consecutive_errors = 0  # Reset on success
-
-                # Broadcast FileOpened / FileModified events to dashboard
-                if name in (
-                    "read_file",
-                    "write_file",
-                    "edit_file",
-                    "replace_file_content",
-                    "multi_replace_file_content",
-                ):
-                    file_path = args.get("file_path") or args.get("path")
-                    if file_path:
-                        abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
-                        if os.path.exists(abs_path):
-                            try:
-                                with open(abs_path, encoding="utf-8") as f:
-                                    content = f.read()
-                                from antigravity_k.engine.event_bus import (
-                                    global_event_bus,
-                                )
-
-                                evt_type = "FileOpened" if name == "read_file" else "FileModified"
-                                global_event_bus.publish(
-                                    evt_type,
-                                    filepath=abs_path,
-                                    content=content,
-                                )
-                            except Exception:
-                                logger.exception("Failed to read file for event broadcast")
+            # ─── Post-Execution: history, events, error tracking ───
+            self._post_execute(name, args, result)
 
             # Auto-Rollback & Self-Healing logic
             if self._consecutive_errors >= 3:
@@ -309,6 +218,86 @@ class ToolExecutor:
                 f"Here's the error traceback: {str(e)}\n"
                 f"Please call this function again with correct arguments within XML tags <tool_call></tool_call>"
             )
+
+    def _validate_and_preflight(self, name: str, args: dict[str, Any]) -> str | None:
+        """Validate required arguments and run preflight directory checks.
+
+        Returns an error message string if validation fails, or None to proceed.
+        """
+        # ─── Pre-Execution Validation (스키마 사전 검증) ───
+        tool_obj = self.tool_registry.get(name)
+        if tool_obj:
+            try:
+                schema = tool_obj.parameters_schema
+                required_args = schema.get("required", [])
+                missing = [arg for arg in required_args if arg not in args]
+                if missing:
+                    self._consecutive_errors += 1
+                    return (
+                        f"There was an error when executing the function: {name}\n"
+                        f"Here's the error traceback: Missing required arguments: {', '.join(missing)}\n"
+                        f"Please call this function again with correct arguments within XML tags"
+                        f"<tool_call></tool_call>"
+                    )
+            except Exception:
+                logger.exception("Validation check failed for %s", name)
+
+        # ─── Preflight Validator (Hermes 차용) ───
+        file_path = args.get("file_path") or args.get("path") or args.get("target")
+        if file_path:
+            abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
+            if name in ("write_file", "write_to_file", "edit_file", "replace_file_content"):
+                parent_dir = os.path.dirname(abs_path)
+                if parent_dir and not os.path.exists(parent_dir):
+                    try:
+                        os.makedirs(parent_dir, exist_ok=True)
+                        logger.info("Preflight Validator: Auto-created missing directory %s", parent_dir)
+                    except Exception:
+                        logger.exception("Preflight Validator failed to create dir %s", parent_dir)
+        return None
+
+    def _record_tool_call(self, name: str, args: dict[str, Any], result) -> None:
+        """Record a tool call in history (capped at 20 entries)."""
+        self.tool_call_history.append(
+            {
+                "name": name,
+                "arguments": args,
+                "success": not (isinstance(result, str) and result.strip().startswith("Error")),
+                "timestamp": time.time(),
+            }
+        )
+        if len(self.tool_call_history) > 20:
+            self.tool_call_history = self.tool_call_history[-20:]
+
+    def _post_execute(self, name: str, args: dict[str, Any], result) -> None:
+        """Post-execution: record history, broadcast file events, track errors."""
+        self._record_tool_call(name, args, result)
+
+        if isinstance(result, str) and result.strip().startswith("Error"):
+            self._consecutive_errors += 1
+        else:
+            self._consecutive_errors = 0  # Reset on success
+            self._broadcast_file_event(name, args)
+
+    def _broadcast_file_event(self, name: str, args: dict[str, Any]) -> None:
+        """Broadcast FileOpened / FileModified events to the dashboard."""
+        if name not in ("read_file", "write_file", "edit_file", "replace_file_content", "multi_replace_file_content"):
+            return
+        file_path = args.get("file_path") or args.get("path")
+        if not file_path:
+            return
+        abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
+        if not os.path.exists(abs_path):
+            return
+        try:
+            with open(abs_path, encoding="utf-8") as f:
+                content = f.read()
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            evt_type = "FileOpened" if name == "read_file" else "FileModified"
+            global_event_bus.publish(evt_type, filepath=abs_path, content=content)
+        except Exception:
+            logger.exception("Failed to read file for event broadcast")
 
     async def execute_async(self, name: str, args: dict[str, Any], execution_mode: str = "interactive") -> str:
         """비동기 스레드 풀에서 도구를 실행하여 메인 이벤트 루프를 블로킹하지 않습니다."""

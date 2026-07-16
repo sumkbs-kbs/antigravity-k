@@ -651,7 +651,7 @@ class ModelManager:
             elif tracer._span_stack:
                 tracer._span_stack[-1].add_span(span)
         except Exception:
-            pass  # tracing 실패는 non-critical
+            logger.debug("Tracing span add failed (non-critical)", exc_info=True)
 
     def _get_provider(self, loaded: LoadedModel):
         """loaded.profile.provider 기반으로 추론 프로바이더를 반환합니다.
