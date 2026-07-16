@@ -97,8 +97,8 @@ omit = [
 
 [tool.coverage.report]
 # Minimum coverage threshold (increasing over time).
-# Measured at ~50-55% with the full suite (2026-07). Target: 60% by next release.
-fail_under = 50
+# Core modules now at 58-98% (2026-07). Target: 60% overall by next release.
+fail_under = 55
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

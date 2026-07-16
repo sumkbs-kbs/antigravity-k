@@ -152,7 +152,13 @@ def test_kanban_websocket_sends_flat_tasks_payload(client):
     )
 
     try:
-        with client.websocket_connect("/ws/kanban") as websocket:
+        # WebSocket requires auth via query param (browsers can't set WS headers).
+        # The client fixture sets X-Access-Pin for HTTP, but WS needs ?pin=.
+        ws_url = "/ws/kanban"
+        pin = config.security.access_pin
+        if pin:
+            ws_url += f"?pin={pin}"
+        with client.websocket_connect(ws_url) as websocket:
             payload = json.loads(websocket.receive_text())
 
         assert "tasks" in payload

@@ -329,6 +329,134 @@ class TeamManager:
 
         return task_id
 
+    def _setup_debate_agents(self, num_critics: int, console) -> tuple:
+        """Create temporary proposer, critics, and a shared message channel.
+
+        Returns ``(proposer, proposer_name, critic_names, channel_name)``.
+        """
+        proposer_name = f"TEMP_PROPOSER_{id(self)}"
+        self.create_agent("PROPOSER", custom_name=proposer_name)
+        proposer = self.agents[proposer_name]
+
+        critic_names = []
+        for i in range(num_critics):
+            critic_name = f"TEMP_CRITIC_{id(self)}_{i + 1}"
+            self.create_agent("CRITIC", custom_name=critic_name)
+            critic_names.append(critic_name)
+
+        channel_name = f"debate_{id(self)}"
+        self.message_bus.create_channel(channel_name)
+        self.message_bus.subscribe(channel_name, proposer)
+        for c_name in critic_names:
+            self.message_bus.subscribe(channel_name, self.agents[c_name])
+
+        return proposer, proposer_name, critic_names, channel_name
+
+    def _run_debate_rounds(
+        self,
+        proposer,
+        proposer_name: str,
+        critic_names: list[str],
+        channel_name: str,
+        topic: str,
+        rounds: int,
+        context: dict | None,
+        console,
+    ) -> list[str]:
+        """Run the proposer-critic debate for the specified number of rounds.
+
+        Returns the accumulated debate log lines.
+        """
+        debate_log = [f"# Debate Log: {topic}\n"]
+        critique_prompt = (
+            "Please analyze the latest proposal from PROPOSER critically and provide constructive feedback."
+        )
+
+        for i in range(1, rounds + 1):
+            debate_log.append(f"## Round {i}\n")
+            console.print(f"\n[bold magenta]--- Debate Round {i} ---[/bold magenta]")
+            logger.info("--- Debate Round %s ---", i)
+
+            # Proposer
+            if i == 1:
+                prompt = f"Please provide your initial optimal solution for the following topic.\nTopic: {topic}"
+                if context:
+                    prompt += f"\nContext: {context}"
+            else:
+                prompt = (
+                    "Please revise your previous proposal based on the CRITICS' feedback provided in the channel."
+                    "Consolidate their feedback and improve your proposal."
+                )
+
+            with console.status(f"[cyan]PROPOSER is thinking (Round {i})..."):
+                current_proposal = proposer.run(prompt, model_manager=self.model_manager)
+
+            self.message_bus.publish(channel_name, proposer_name, current_proposal)
+            debate_log.append(f"### PROPOSER\n{current_proposal}\n")
+            logger.info("Proposer completed round %s.", i)
+            console.print(Panel(Markdown(current_proposal), title="[blue]PROPOSER[/blue]", border_style="blue"))
+
+            # Critics
+            for idx, c_name in enumerate(critic_names):
+                critic = self.agents[c_name]
+                with console.status(f"[yellow]CRITIC {idx + 1} is analyzing..."):
+                    critic_feedback = critic.run(critique_prompt, model_manager=self.model_manager)
+
+                self.message_bus.publish(channel_name, c_name, critic_feedback)
+                debate_log.append(f"### CRITIC {idx + 1}\n{critic_feedback}\n")
+                logger.info("Critic %s (%s) completed round %s.", idx + 1, c_name, i)
+                console.print(
+                    Panel(Markdown(critic_feedback), title=f"[yellow]CRITIC {idx + 1}[/yellow]", border_style="yellow")
+                )
+
+        return debate_log
+
+    def _finalize_debate(self, debate_log: list[str], topic: str, console) -> str:
+        """Run the ARBITER agent to produce the final consensus, save log, clean up."""
+        arbiter_name = f"TEMP_ARBITER_{id(self)}"
+        self.create_agent("ARBITER", custom_name=arbiter_name)
+        arbiter = self.agents[arbiter_name]
+
+        with console.status("[green]ARBITER is finalizing the consensus..."):
+            final_summary_prompt = (
+                "Based on the debate above, objectively weigh the arguments, resolve any conflicts, "
+                "and provide the final, fully refined and optimal consensus solution. "
+                "Do not include the debate history, only the final result."
+            )
+            full_debate_context = "\n".join(debate_log)
+            final_result = arbiter.run(
+                f"Debate History:\n{full_debate_context}\n\nTask: {final_summary_prompt}",
+                model_manager=self.model_manager,
+            )
+
+        debate_log.append(f"## Final Optimal Solution (by ARBITER)\n{final_result}\n")
+        console.print(
+            Panel(
+                Markdown(final_result),
+                title="[bold green]Final Optimal Solution (by ARBITER)[/bold green]",
+                border_style="green",
+            ),
+        )
+
+        # Save debate log via ArtifactService.
+        try:
+            from ..knowledge.artifact_service import ArtifactService
+
+            artifact_service = ArtifactService()
+            artifact_path = artifact_service.create_artifact(
+                name=f"debate_log_{int(time.time())}",
+                content="\n".join(debate_log),
+                extension="md",
+            )
+            logger.info("Debate log saved to %s", artifact_path)
+            console.print("[dim]Debate log saved to artifacts.[/dim]")
+        except Exception:
+            logger.exception("Failed to save debate log")
+
+        # Clean up the arbiter agent.
+        self.agents.pop(arbiter_name, None)
+        return final_result
+
     def run_debate(
         self,
         topic: str,
@@ -359,122 +487,21 @@ class TeamManager:
             if default_reasoning:
                 self.model_manager.prefetch(default_reasoning.name)
 
-        # 임시 토론용 에이전트 생성
-        proposer_name = f"TEMP_PROPOSER_{id(self)}"
-        self.create_agent("PROPOSER", custom_name=proposer_name)
-        proposer = self.agents[proposer_name]
+        # 1. 에이전트 및 채널 설정
+        proposer, proposer_name, critic_names, channel_name = self._setup_debate_agents(num_critics, console)
 
-        critic_names = []
-        for i in range(num_critics):
-            critic_name = f"TEMP_CRITIC_{id(self)}_{i + 1}"
-            self.create_agent("CRITIC", custom_name=critic_name)
-            critic_names.append(critic_name)
-
-        # 토론 전용 채널 개설 및 구독
-        channel_name = f"debate_{id(self)}"
-        self.message_bus.create_channel(channel_name)
-        self.message_bus.subscribe(channel_name, proposer)
-        for c_name in critic_names:
-            self.message_bus.subscribe(channel_name, self.agents[c_name])
-
-        debate_log = [f"# Debate Log: {topic}\n"]
-        current_proposal = ""
-
-        for i in range(1, rounds + 1):
-            debate_log.append(f"## Round {i}\n")
-            console.print(f"\n[bold magenta]--- Debate Round {i} ---[/bold magenta]")
-            logger.info("--- Debate Round %s ---", i)
-
-            # 1. Proposer의 제안/수정
-            if i == 1:
-                prompt = f"Please provide your initial optimal solution for the following topic.\nTopic: {topic}"
-                if context:
-                    prompt += f"\nContext: {context}"
-            else:
-                prompt = "Please revise your previous proposal based on the CRITICS' feedback provided in the channel."  # type: ignore
-                "Consolidate their feedback and improve your proposal."
-
-            with console.status(f"[cyan]PROPOSER is thinking (Round {i})..."):
-                current_proposal = proposer.run(prompt, model_manager=self.model_manager)
-
-            self.message_bus.publish(channel_name, proposer_name, current_proposal)
-            debate_log.append(f"### PROPOSER\n{current_proposal}\n")
-            logger.info("Proposer completed round %s.", i)
-            console.print(
-                Panel(
-                    Markdown(current_proposal),
-                    title="[blue]PROPOSER[/blue]",
-                    border_style="blue",
-                ),
-            )
-
-            # 2. 다수 Critic의 비판
-            critique_prompt = (
-                "Please analyze the latest proposal from PROPOSER critically and provide constructive feedback."
-            )
-            for idx, c_name in enumerate(critic_names):
-                critic = self.agents[c_name]
-                with console.status(f"[yellow]CRITIC {idx + 1} is analyzing..."):
-                    critic_feedback = critic.run(critique_prompt, model_manager=self.model_manager)
-
-                self.message_bus.publish(channel_name, c_name, critic_feedback)
-                debate_log.append(f"### CRITIC {idx + 1}\n{critic_feedback}\n")
-                logger.info("Critic %s (%s) completed round %s.", idx + 1, c_name, i)
-                console.print(
-                    Panel(
-                        Markdown(critic_feedback),
-                        title=f"[yellow]CRITIC {idx + 1}[/yellow]",
-                        border_style="yellow",
-                    ),
-                )
-
-        # 최종 산출물 정리 (ARBITER 중재)
-        arbiter_name = f"TEMP_ARBITER_{id(self)}"
-        self.create_agent("ARBITER", custom_name=arbiter_name)
-        arbiter = self.agents[arbiter_name]
-
-        with console.status("[green]ARBITER is finalizing the consensus..."):
-            final_summary_prompt = "Based on the debate above, objectively weigh the arguments, resolve any conflicts, and provide the final, fully refined"  # type: ignore  # noqa: E501
-            "and optimal consensus solution. Do not include the debate history, only the final result."
-
-            # 토론 기록을 Context로 전달
-            full_debate_context = "\n".join(debate_log)
-            final_result = arbiter.run(
-                f"Debate History:\n{full_debate_context}\n\nTask: {final_summary_prompt}",
-                model_manager=self.model_manager,
-            )
-
-        debate_log.append(f"## Final Optimal Solution (by ARBITER)\n{final_result}\n")
-        console.print(
-            Panel(
-                Markdown(final_result),
-                title="[bold green]Final Optimal Solution (by ARBITER)[/bold green]",
-                border_style="green",
-            ),
+        # 2. 라운드 실행
+        debate_log = self._run_debate_rounds(
+            proposer, proposer_name, critic_names, channel_name, topic, rounds, context, console
         )
 
-        # ArtifactService를 이용해 토론 기록 저장
-        try:
-            from ..knowledge.artifact_service import ArtifactService
-
-            artifact_service = ArtifactService()
-            log_content = "\n".join(debate_log)
-            artifact_path = artifact_service.create_artifact(
-                name=f"debate_log_{int(time.time())}",
-                content=log_content,
-                extension="md",
-            )
-            logger.info("Debate log saved to %s", artifact_path)
-            console.print("[dim]Debate log saved to artifacts.[/dim]")
-        except Exception:
-            logger.exception("Failed to save debate log")
+        # 3. 최종 중재
+        final_result = self._finalize_debate(debate_log, topic, console)
 
         # 임시 에이전트 자원 정리
-        del self.agents[proposer_name]
+        self.agents.pop(proposer_name, None)
         for c_name in critic_names:
-            del self.agents[c_name]
-        if arbiter_name in self.agents:
-            del self.agents[arbiter_name]
+            self.agents.pop(c_name, None)
 
         # Autopilot: 커밋 (Debate 완료)
         self._auto_commit(f"Complete Debate - {topic[:20]}")

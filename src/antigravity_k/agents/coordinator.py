@@ -30,18 +30,12 @@ class CoordinatorManager:
         self.active_tasks: list[LocalAgentTask] = []
         self.console = Console()
 
-    def analyze_and_delegate(self, user_prompt: str, context: dict | None = None) -> str:
-        """문제를 분석하여 병렬로 실행할 수 있는 하위 태스크로 분할하고, 다중 에이전트 토론/협력을 유도합니다."""
-        self.console.print(
-            Panel(f"[bold cyan]Coordinator is analyzing the task...[/bold cyan]\n{user_prompt}"),
-        )
-        logger.info("Coordinator started analyzing the task.")
+    def _analyze_task(self, coordinator, user_prompt: str) -> dict:
+        """Run the Coordinator agent to break the task into proposer/critic sub-tasks.
 
-        # 1. 문제 분석 및 역할 결정 (임시 Coordinator 에이전트 활용)
-        coordinator_agent_name = f"COORDINATOR_{int(time.time())}"
-        self.team_manager.create_agent("CEO", custom_name=coordinator_agent_name)
-        coordinator = self.team_manager.agents[coordinator_agent_name]
-
+        Returns a dict with 'proposer_task' and 'critic_task' strings. Falls back
+        to a default split if the model output cannot be parsed as JSON.
+        """
         analysis_prompt = (
             f"Task: {user_prompt}\n"
             f"Analyze this task and break it down into exactly two distinct sub-perspectives for a robust solution.\n"
@@ -76,13 +70,15 @@ class CoordinatorManager:
                 "critic_task": f"Analyze the requirements for edge cases and security regarding: {user_prompt}",
             }
 
-        proposer_instruction = task_breakdown.get("proposer_task", "Implement the feature.")
-        critic_instruction = task_breakdown.get(
-            "critic_task",
-            "Review for security and performance.",
-        )
+        task_breakdown.setdefault("proposer_task", "Implement the feature.")
+        task_breakdown.setdefault("critic_task", "Review for security and performance.")
+        return task_breakdown
 
-        # 2. 동적 팀 생성
+    def _create_debate_team(self) -> tuple:
+        """Create Proposer and Critic agents with a shared message channel.
+
+        Returns ``(proposer_agent, critic_agent)``.
+        """
         proposer_name = f"DYN_PROPOSER_{int(time.time())}"
         critic_name = f"DYN_CRITIC_{int(time.time())}"
 
@@ -92,15 +88,19 @@ class CoordinatorManager:
         proposer_agent = self.team_manager.agents[proposer_name]
         critic_agent = self.team_manager.agents[critic_name]
 
-        # 채널 생성 (메시지 버스 연동)
         channel_name = f"coord_debate_{int(time.time())}"
         self.team_manager.message_bus.create_channel(channel_name)
         self.team_manager.message_bus.subscribe(channel_name, proposer_agent)
         self.team_manager.message_bus.subscribe(channel_name, critic_agent)
 
-        self.console.print("[dim]Dynamically generated tasks for Proposer and Critic...[/dim]")
+        return proposer_agent, critic_agent
 
-        # 3. 병렬 태스크(LocalAgentTask) 실행
+    def _run_parallel_agents(self, proposer_agent, critic_agent, proposer_instruction, critic_instruction) -> tuple:
+        """Run the proposer and critic agents in parallel threads.
+
+        Returns ``(proposer_result, critic_result)``.
+        """
+
         def run_agent(agent, instruction):
             return agent.run(instruction, model_manager=self.team_manager.model_manager)
 
@@ -120,22 +120,19 @@ class CoordinatorManager:
         with self.console.status("[bold yellow]Parallel agents are working...[/bold yellow]"):
             task_p.start()
             task_c.start()
-
             task_p.join()
             task_c.join()
 
-        # 4. 결과 취합
         p_result = task_p.result if task_p.status == "COMPLETED" else f"Proposer Failed: {task_p.error}"
         c_result = task_c.result if task_c.status == "COMPLETED" else f"Critic Failed: {task_c.error}"
 
-        self.console.print(
-            Panel(p_result, title="[blue]PROPOSER RESULT[/blue]", border_style="blue"),
-        )
-        self.console.print(
-            Panel(c_result, title="[yellow]CRITIC RESULT[/yellow]", border_style="yellow"),
-        )
+        self.console.print(Panel(p_result, title="[blue]PROPOSER RESULT[/blue]", border_style="blue"))
+        self.console.print(Panel(c_result, title="[yellow]CRITIC RESULT[/yellow]", border_style="yellow"))
 
-        # 5. 최종 종합 (Reviewer/Coordinator 병합)
+        return p_result, c_result
+
+    def _finalize_and_cleanup(self, coordinator, user_prompt, p_result, c_result, agent_names: list[str]) -> str:
+        """Merge the two perspectives into a final result, save artifacts, and clean up."""
         merge_prompt = (
             f"Here are two perspectives on the original task.\n"
             f"Original Task: {user_prompt}\n\n"
@@ -145,9 +142,7 @@ class CoordinatorManager:
             f"Do not include the raw debate history, just output the final comprehensive response."
         )
 
-        with self.console.status(
-            "[bold green]Coordinator is finalizing the result...[/bold green]",
-        ):
+        with self.console.status("[bold green]Coordinator is finalizing the result...[/bold green]"):
             final_result = coordinator.run(
                 merge_prompt,
                 model_manager=self.team_manager.model_manager,
@@ -162,9 +157,8 @@ class CoordinatorManager:
         )
 
         # 정리
-        del self.team_manager.agents[coordinator_agent_name]
-        del self.team_manager.agents[proposer_name]
-        del self.team_manager.agents[critic_name]
+        for name in agent_names:
+            self.team_manager.agents.pop(name, None)
         self.active_tasks.clear()
 
         # ArtifactService를 통한 자동 문서화(Debate Log 저장)
@@ -182,5 +176,40 @@ class CoordinatorManager:
 
         # Autopilot 자동 커밋
         self.team_manager._auto_commit("Coordinator Parallel Execution Complete")
+        return final_result
+
+    def analyze_and_delegate(self, user_prompt: str, context: dict | None = None) -> str:
+        """문제를 분석하여 병렬로 실행할 수 있는 하위 태스크로 분할하고, 다중 에이전트 토론/협력을 유도합니다."""
+        self.console.print(
+            Panel(f"[bold cyan]Coordinator is analyzing the task...[/bold cyan]\n{user_prompt}"),
+        )
+        logger.info("Coordinator started analyzing the task.")
+
+        # 1. 문제 분석 및 역할 결정 (임시 Coordinator 에이전트 활용)
+        coordinator_agent_name = f"COORDINATOR_{int(time.time())}"
+        self.team_manager.create_agent("CEO", custom_name=coordinator_agent_name)
+        coordinator = self.team_manager.agents[coordinator_agent_name]
+
+        task_breakdown = self._analyze_task(coordinator, user_prompt)
+        proposer_instruction = task_breakdown["proposer_task"]
+        critic_instruction = task_breakdown["critic_task"]
+
+        # 2. 동적 팀 생성
+        proposer_agent, critic_agent = self._create_debate_team()
+        self.console.print("[dim]Dynamically generated tasks for Proposer and Critic...[/dim]")
+
+        # 3. 병렬 실행
+        p_result, c_result = self._run_parallel_agents(
+            proposer_agent, critic_agent, proposer_instruction, critic_instruction
+        )
+
+        # 4. 최종 종합 + 정리
+        final_result = self._finalize_and_cleanup(
+            coordinator,
+            user_prompt,
+            p_result,
+            c_result,
+            [coordinator_agent_name, proposer_agent.name, critic_agent.name],
+        )
 
         return final_result
