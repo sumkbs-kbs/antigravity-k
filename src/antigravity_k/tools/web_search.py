@@ -884,18 +884,31 @@ class WebSearchTool(BaseTool):
             return []
 
     def _sync_search_duckduckgo(self, query: str) -> list:
-        """동기 DuckDuckGo HTML 검색 (스레드 안전)."""
+        """동기 DuckDuckGo HTML 검색 (스레드 안전).
+
+        DDG html.duckduckgo.com 엔드포인트는 User-Agent가 브라우저와
+        정확히 일치하지 않으면 403 Forbidden을 반환합니다.
+        """
         import re as _re
         from urllib.parse import quote_plus, unquote
 
         with httpx.Client(
             timeout=15.0,
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+            },
             follow_redirects=True,
         ) as client:
             url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
             resp = client.get(url)
             if resp.status_code != 200:
+                logger.warning("DuckDuckGo returned HTTP %s", resp.status_code)
                 return []
 
             html = resp.text
@@ -922,34 +935,12 @@ class WebSearchTool(BaseTool):
                         actual_url = unquote(match.group(1))
 
                 if title and actual_url:
-                    results.append(
-                        {
-                            "title": title,
-                            "url": actual_url,
-                            "snippet": snippet,
-                            "score": 1.0,
-                        }
-                    )
+                    # Return as tuple (title, url, snippet) for consistency
+                    # with _sync_search_jina and _sync_search_searxng.
+                    results.append((title, actual_url, snippet[:300]))
 
-            # 신뢰 도메인 가중치 부여 (Sync 모드)
-            trusted_domains = [
-                "naver.com",
-                "google.com",
-                "daum.net",
-                "kma.go.kr",
-                "wikipedia.org",
-                "namu.wiki",
-            ]
-            for r in results:
-                if any(domain in r["url"] for domain in trusted_domains):
-                    r["score"] += 5.0
-                if "weather" in query or "날씨" in query:
-                    if "weather.naver.com" in r["url"] or "kma.go.kr" in r["url"]:
-                        r["score"] += 15.0
-
-            # 점수순 내림차순 정렬 후 튜플 형태로 변환
-            results.sort(key=lambda x: x["score"], reverse=True)
-            return [(r["title"], r["url"], r["snippet"]) for r in results]
+            logger.info("DuckDuckGo returned %d results for '%s'", len(results), query[:40])
+            return results
 
 
 # ─── CLI 테스트 ──────────────────────────────────────────────────

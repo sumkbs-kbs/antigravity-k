@@ -341,15 +341,19 @@ async def chat_completions(
             search_res = tool.execute(query=slash_text)
 
             # 계층형 프롬프트 + Few-Shot 예시 + 적응형 샘플링
+            from datetime import datetime as _dt
+
+            today_str = _dt.now().strftime("%Y년 %m월 %d일")
             pb = PromptBuilder()
             fast_prompt = pb.structured_prompt(
                 role="정보 조회 전문가",
                 task=f"사용자의 질문에 가장 간결하고 정확하게 한국어로 답변하세요.\n질문: {slash_text}",
                 context=search_res,
                 constraints=[
+                    f"현재 날짜는 {today_str}입니다. 사용자가 '어제', '오늘' 등 상대적 날짜를 말하면 이 날짜를 기준으로 계산하세요.",
                     "반드시 한국어로 답변하세요.",
                     "검색 결과의 출처 번호를 [1], [2] 형식으로 인용하세요.",
-                    "확인 불가한 정보는 명확히 표시하세요.",
+                    "검색 결과에 명시된 데이터가 없으면 추측하지 말고 '해당 정보를 찾을 수 없습니다'라고 명확히 말하세요.",
                     "불필요한 서론 없이 핵심 데이터부터 시작하세요.",
                 ],
                 output_format="마크다운 테이블과 핵심 수치를 우선 표시하세요.",
