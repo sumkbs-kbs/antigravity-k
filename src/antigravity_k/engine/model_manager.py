@@ -236,6 +236,63 @@ class ModelManager:
 
     # ─── 추론 API (9Router 연동) ─────────────────────────────────────
 
+    def _record_successful_call(
+        self,
+        model: str,
+        prompt: str,
+        response: str,
+        latency_ms: float,
+        combo_name: str,
+        fallback_depth: int,
+    ) -> None:
+        """Record usage + tracing for a successful inference call."""
+        tokens_in = len(prompt) // 4
+        tokens_out = len(response) // 4
+        self.tracker.record(
+            model_name=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=latency_ms,
+            success=True,
+            combo_name=combo_name,
+            fallback_depth=fallback_depth,
+        )
+        self._trace_llm_call(
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            latency_ms=latency_ms,
+            success=True,
+            combo=combo_name,
+        )
+        self.router.mark_recovered(model)
+
+    def _record_failed_call(
+        self,
+        model: str,
+        error: str,
+        latency_ms: float,
+        combo_name: str,
+        fallback_depth: int,
+    ) -> None:
+        """Record usage + tracing for a failed inference call."""
+        self.tracker.record(
+            model_name=model,
+            latency_ms=latency_ms,
+            success=False,
+            error=error,
+            combo_name=combo_name,
+            fallback_depth=fallback_depth,
+        )
+        self._trace_llm_call(
+            model=model,
+            latency_ms=latency_ms,
+            success=False,
+            error=error,
+            combo=combo_name,
+        )
+        self.router.mark_failure(model, reason=error)
+
     def generate(self, prompt: str, target: str, **kwargs) -> str:
         """텍스트 생성 수행.
 
@@ -260,20 +317,14 @@ class ModelManager:
 
         # 타겟이 콤보인지 확인
         try:
-            # 콤보 라우팅 시도
             if self.router.get_combo(target):
                 combo_name = target
-                # 라우터에서 사용 가능한 모델 프로필 가져오기 (폴백/라운드로빈 적용)
                 profile = self.router.route(target)
                 used_model = profile.name
-
-                # 라우팅된 모델의 fallback_depth (라우터 내부에서 인덱스로 추적하려면 라우터를 직접 사용해야 하므로 대략적으로 계산하거나 생략 가능.  # noqa: E501
-                # ModelRouter의 combo를 확인하여 인덱스를 fallback depth로 추정)
                 combo = self.router.get_combo(target)
                 if combo is not None and used_model in combo.models:
                     fallback_depth = combo.models.index(used_model)
             else:
-                # 단일 모델 직접 지정인 경우
                 profile = self.router.route_single(target)
                 used_model = profile.name
         except AllModelsUnavailableError as e:
@@ -281,69 +332,31 @@ class ModelManager:
             raise
 
         try:
-            # 모델 로드 (메모리 관리 포함)
             loaded = self.get(used_model)
-
-            # 실제 추론 수행 (Mac MLX 또는 Windows 더미)
             response_text = self._do_generate(loaded, prompt, **kwargs)
             response_text = self._strip_hidden_reasoning(response_text)
 
-            # 토큰 수 대략적 계산 (실제로는 토크나이저 사용)
-            tokens_in = len(loaded.tokenizer.encode(prompt)) if loaded.tokenizer else len(prompt) // 4
-            tokens_out = len(loaded.tokenizer.encode(response_text)) if loaded.tokenizer else len(response_text) // 4
             latency_ms = (time.time() - start_time) * 1000
-
-            # 사용량 기록 (성공)
-            self.tracker.record(
-                model_name=used_model,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                latency_ms=latency_ms,
-                success=True,
-                combo_name=combo_name or "",
-                fallback_depth=fallback_depth,
+            self._record_successful_call(
+                used_model,
+                prompt,
+                response_text,
+                latency_ms,
+                combo_name or "",
+                fallback_depth,
             )
-
-            # Tracing: LLM 추론 span 기록 (작업 E — 관측가능성)
-            self._trace_llm_call(
-                model=used_model,
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                latency_ms=latency_ms,
-                success=True,
-                combo=combo_name,
-            )
-
-            # 콤보 라우팅 중 성공했으므로 해당 모델을 복구 상태로 마킹 (UnavailabilityTracker)
-            self.router.mark_recovered(used_model)
-
             return response_text
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
             error_msg = str(e)
-
-            # 사용량 기록 (실패)
-            self.tracker.record(
-                model_name=used_model,
-                latency_ms=latency_ms,
-                success=False,
-                error=error_msg,
-                combo_name=combo_name or "",
-                fallback_depth=fallback_depth,
+            self._record_failed_call(
+                used_model,
+                error_msg,
+                latency_ms,
+                combo_name or "",
+                fallback_depth,
             )
-
-            # Tracing: 실패 span 기록
-            self._trace_llm_call(
-                model=used_model,
-                latency_ms=latency_ms,
-                success=False,
-                error=error_msg,
-                combo=combo_name,
-            )
-
-            # 라우터에 실패 보고 (쿨다운 적용)
-            self.router.mark_failure(used_model, reason=error_msg)
 
             # 콤보 라우팅인 경우 재귀적으로 다음 모델 시도
             if combo_name:
@@ -844,22 +857,51 @@ class ModelManager:
         system_prompt = kwargs.get("system_prompt", "")
         raw_messages = kwargs.get("raw_messages", [{"role": "user", "content": prompt}])
 
-        # 1. Apply Dynamic Inference Config (Not-Claude-Code-Emulator Pattern)
         model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile, raw_messages, kwargs
         )
 
-        # Format messages for anthropic
-        anthropic_msgs = []
-        for msg in raw_messages:
-            if msg["role"] in ["user", "assistant"]:
-                anthropic_msgs.append({"role": msg["role"], "content": msg["content"]})
+        request_params = self._build_anthropic_request_params(
+            raw_messages,
+            system_prompt,
+            attribution,
+            model_name,
+            temperature,
+            thinking_config,
+            kwargs,
+        )
 
-        # 2. Intelligent Context Cache Limit Manager
-        # Anthropic allows max 4 cache_control blocks. We keep the first and the last 3.
+        try:
+            with client.messages.stream(**request_params) as stream:
+                for text in stream.text_stream:
+                    yield text
+        except Exception as e:
+            logger.exception("Anthropic API generation failed")
+            yield f"[API Error for {model_name}] {e}"
+
+    def _build_anthropic_request_params(
+        self,
+        raw_messages: list,
+        system_prompt: str,
+        attribution: str,
+        model_name: str,
+        temperature: float,
+        thinking_config,
+        kwargs: dict,
+    ) -> dict:
+        """Format messages, manage cache_control blocks, and build API request params.
+
+        Extracted from _do_anthropic_stream for testability.
+        """
+        # Format messages for Anthropic (only user/assistant roles).
+        anthropic_msgs = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in raw_messages
+            if msg["role"] in ("user", "assistant")
+        ]
+
+        # Intelligent Context Cache: Anthropic allows max 4 cache_control blocks.
         cache_blocks = []
-
-        # Convert system prompt to block format for caching
         system_blocks = []
         if system_prompt:
             system_blocks.append(
@@ -867,7 +909,7 @@ class ModelManager:
                     "type": "text",
                     "text": system_prompt,
                     "cache_control": {"type": "ephemeral"},
-                },
+                }
             )
             cache_blocks.append(system_blocks[0])
 
@@ -876,20 +918,16 @@ class ModelManager:
                 for block in msg["content"]:
                     if isinstance(block, dict) and "cache_control" in block:
                         cache_blocks.append(block)
-            elif isinstance(msg["content"], str) and msg["role"] == "user":
-                # Automatically add cache_control to recent long user messages if we wanted to
-                pass
 
         if len(cache_blocks) > 4:
             keep_first = cache_blocks[0]
             keep_last = cache_blocks[-3:]
-            to_keep = set([id(keep_first)] + [id(b) for b in keep_last])
-
+            to_keep = {id(keep_first)} | {id(b) for b in keep_last}
             for block in cache_blocks:
                 if id(block) not in to_keep:
-                    del block["cache_control"]
+                    block.pop("cache_control", None)
 
-        # 3. Agent Footprint & Fingerprinting
+        # Agent Footprint & Fingerprinting.
         if system_blocks:
             system_blocks[0]["text"] += attribution
         else:
@@ -898,7 +936,7 @@ class ModelManager:
                     "type": "text",
                     "text": attribution,
                     "cache_control": {"type": "ephemeral"},
-                },
+                }
             )
 
         request_params = {
@@ -908,17 +946,9 @@ class ModelManager:
             "model": model_name,
             "temperature": temperature,
         }
-
         if thinking_config:
             request_params["thinking"] = thinking_config
-
-        try:
-            with client.messages.stream(**request_params) as stream:
-                for text in stream.text_stream:
-                    yield text
-        except Exception as e:
-            logger.exception("Anthropic API generation failed")
-            yield f"[API Error for {model_name}] {e}"
+        return request_params
 
     def _prepare_stream_messages(self, loaded, prompt: str, kwargs: dict) -> list[dict]:
         """Build and normalize the message list for an Ollama/OpenRouter stream request."""
