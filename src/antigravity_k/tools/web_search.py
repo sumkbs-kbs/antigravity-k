@@ -693,15 +693,22 @@ class WebSearchTool(BaseTool):
             return "Error: Missing query"
 
         try:
-            # Multi-Engine 동기 검색: Jina → DuckDuckGo 폴백
+            # Multi-Engine 동기 검색: Self-Hosted → SearxNG → Jina → DuckDuckGo 폴백
             all_results = []
             engines_used = []
 
-            # 1차: SearxNG (기본 — 다중 엔진 집계, 정확도 최고)
-            searxng_results = self._sync_search_searxng(query)
-            if searxng_results:
-                all_results.extend(searxng_results)
-                engines_used.append("SearxNG")
+            # 0차: Self-Hosted Search Engine (우선 — 한국어/금융 특화, 캐싱, 다중엔진 집계)
+            self_hosted_results = self._sync_search_self_hosted(query)
+            if self_hosted_results:
+                all_results.extend(self_hosted_results)
+                engines_used.append("SelfHosted")
+
+            # 1차: SearxNG (보완 — 다중 엔진 집계)
+            if len(all_results) < self.max_results:
+                searxng_results = self._sync_search_searxng(query)
+                if searxng_results:
+                    all_results.extend(searxng_results)
+                    engines_used.append("SearxNG")
 
             # 2차: Jina Search (시맨틱 보완)
             if len(all_results) < self.max_results:
@@ -818,6 +825,82 @@ class WebSearchTool(BaseTool):
         except Exception as e:
             logger.exception("Unhandled exception")
             return f"Search Error: {e}"
+
+    # ─── 동기 Self-Hosted Search Engine ─────────────────────────
+
+    def _sync_search_self_hosted(self, query: str) -> list:
+        """자체 검색 엔진 (Cloudflare Pages 배포)을 통한 검색.
+
+        한국어/금융 특화, 캐싱, 다중 엔진 집계(Naver+Bing+Wikipedia)를 제공.
+        AGK_SEARCH_ENGINE_URL 환경변수로 엔드포인트 설정 (기본값: 공개 배포).
+        """
+        import os
+
+        base_url = os.environ.get(
+            "AGK_SEARCH_ENGINE_URL",
+            "https://main.search-engine-api.pages.dev",
+        ).rstrip("/")
+
+        try:
+            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+                resp = client.post(
+                    f"{base_url}/api/search",
+                    json={
+                        "query": query,
+                        "max_results": self.max_results,
+                        "include_answer": True,
+                        "include_raw_content": False,
+                    },
+                    headers={"Content-Type": "application/json"},
+                )
+                if resp.status_code != 200:
+                    logger.warning("Self-hosted search returned HTTP %s", resp.status_code)
+                    return []
+
+                data = resp.json()
+                results = []
+
+                # 답변이 있으면 최상단에 추가
+                answer = data.get("answer")
+                if answer and answer.get("text"):
+                    results.append(
+                        (
+                            "💡 AI Answer",
+                            f"{base_url}/api/search?query={query}",
+                            answer["text"][:500],
+                        )
+                    )
+
+                # 검색 결과 변환 (dict → tuple)
+                for item in data.get("results", [])[: self.max_results]:
+                    title = item.get("title", "")
+                    url = item.get("url", "")
+                    snippet = item.get("content", "")[:300]
+
+                    # 구조화 금융 데이터가 있으면 스니펫에 추가
+                    stock = item.get("stock_data")
+                    if stock:
+                        snippet = (
+                            f"📊 {stock.get('name', '')} ({stock.get('ticker', '')}) "
+                            f"{stock.get('price', 0):,}원 "
+                            f"{stock.get('change_percent', 0):+.2f}% "
+                            f"({stock.get('direction', '')})\n{snippet}"
+                        )
+
+                    if title and url:
+                        results.append((title, url, snippet))
+
+                logger.info(
+                    "Self-hosted search returned %d results for '%s' (backend: %s)",
+                    len(results),
+                    query[:40],
+                    data.get("backend", "?"),
+                )
+                return results
+
+        except Exception:
+            logger.exception("Self-hosted search 동기 오류")
+            return []
 
     # ─── 동기 Jina Search ──────────────────────────────────────
 
