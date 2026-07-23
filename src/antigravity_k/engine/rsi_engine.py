@@ -281,8 +281,8 @@ class RSIEngine:
         result.phase_results["observe"] = {
             "score": score,
             "archive_best": (
-                self._archive.get_best().benchmark_score
-                if self._archive and self._archive.get_best() is not None
+                best.benchmark_score
+                if (best := self._archive.get_best() if self._archive else None) is not None
                 else None
             ),
         }

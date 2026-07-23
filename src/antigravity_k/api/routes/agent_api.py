@@ -38,6 +38,7 @@ from antigravity_k.api.routes.legacy import (
     WakeRequest,
     _active_session,
 )
+from antigravity_k.engine.api_cache import TAG_AGENT, TAG_MODELS, TAG_SETTINGS, TAG_TASKS, cached
 from antigravity_k.engine.embeddings import EmbeddingEngine
 from antigravity_k.engine.model_manager import ModelManager
 
@@ -65,8 +66,11 @@ def health_check():
         if getattr(orchestrator, "_cov_engine", None):
             cov_active = True
 
+    from antigravity_k import __version__
+
     return {
         "status": "ok",
+        "version": __version__,
         "backends": backends,
         "rag_index_files": rag_files,
         "cov_active": cov_active,
@@ -77,6 +81,7 @@ def health_check():
 
 
 @router.get("/v1/models")
+@cached(ttl=60, tags=[TAG_MODELS])
 def list_models(manager: ModelManager = Depends(get_model_manager)):
     """List Models.
 
@@ -245,6 +250,7 @@ async def evolve_system_prompt_api(
 
 
 @router.get("/api/agent/active")
+@cached(ttl=30, tags=[TAG_AGENT])
 async def get_active_agent():
     """Retrieve active agent."""
     if _active_session.is_active:
@@ -359,6 +365,7 @@ async def get_task_status(task_id: str):
 
 
 @router.get("/api/tasks")
+@cached(ttl=15, tags=[TAG_TASKS])
 async def list_tasks(limit: int = Query(default=20)):
     """List Tasks.
 
@@ -395,6 +402,7 @@ async def resume_task(task_id: str):
 
 
 @router.get("/api/logs")
+@cached(ttl=15, tags=[TAG_TASKS])
 async def get_logs(lines: int = 100):
     """Retrieve logs.
 
@@ -419,6 +427,7 @@ async def get_logs(lines: int = 100):
 
 
 @router.get("/api/settings")
+@cached(ttl=30, tags=[TAG_SETTINGS])
 async def get_settings():
     """Retrieve settings."""
     config_file = os.path.join(

@@ -455,7 +455,7 @@ class ArtifactEngine:
                 "success": True,
                 "board": board,
                 "task_count": registered,
-                "message": (f"✅ Plan에서 {registered}개 태스크를 Kanban에 등록했습니다.\n" f"{board.to_markdown()}"),
+                "message": (f"✅ Plan에서 {registered}개 태스크를 Kanban에 등록했습니다.\n{board.to_markdown()}"),
             }
 
         except ImportError:
@@ -572,7 +572,7 @@ class ArtifactEngine:
             "## 📋 Plan Summary",
             "",
             f"**File:** `{target_file}`",
-            f"**Validation:** {'✅ Pass' if validation.is_complete else '❌ Fail'} " f"(score: {validation.score})",
+            f"**Validation:** {'✅ Pass' if validation.is_complete else '❌ Fail'} (score: {validation.score})",
             "",
         ]
 
@@ -659,12 +659,10 @@ def register_artifact_tool(tool_registry, project_root: str):
                 "required": ["target_file", "code_content"],
             }
 
-        def execute(  # type: ignore[override]
-            self,
-            target_file: str,
-            code_content: str,
-            metadata: dict[str, Any] | None = None,
-        ) -> Any:
+        def execute(self, **kwargs) -> Any:
+            target_file = kwargs.get("target_file", "")
+            code_content = kwargs.get("code_content", "")
+            metadata: dict[str, Any] | None = kwargs.get("metadata")
             meta_obj = None
             if metadata:
                 meta_obj = ArtifactMetadata(

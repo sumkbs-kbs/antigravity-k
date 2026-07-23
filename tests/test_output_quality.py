@@ -189,7 +189,9 @@ def test_prompt_builder_includes_output_quality_contract():
 
 @pytest.mark.asyncio
 async def test_tdd_reconstructor_falls_back_when_llm_returns_code_only():
-    engine = OmniTDDEngine(coding_model="unused")
+    from unittest.mock import MagicMock
+
+    engine = OmniTDDEngine(model_manager=MagicMock(), coding_model="unused")
 
     async def fake_call_llm(sys_prompt: str, user_prompt: str) -> str:
         return """```python

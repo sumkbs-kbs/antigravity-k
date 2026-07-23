@@ -59,7 +59,7 @@ class SelfEvolutionTool(BaseTool):
                         "meta_architect",
                         "self_play",
                     ],
-                    "description": "Evolution mode: 'evolve' (improve code), 'generate_skill' (create tool), 'rsi_cycle' (full RSI),"  # type: ignore  # noqa: E501
+                    "description": "Evolution mode: 'evolve' (improve code), 'generate_skill' (create tool), 'rsi_cycle' (full RSI),"  # noqa: E501
                     "'meta_architect' (system-wide refactor), 'self_play' (autonomous dataset learning).",
                 },
                 "target_files": {

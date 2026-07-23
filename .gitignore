@@ -93,3 +93,9 @@ config.yaml
 *~
 .DS_Store
 Thumbs.db
+### Stryker mutation testing ###
+dashboard/stryker-tmp/
+dashboard/reports/
+
+### Vitest coverage report ###
+dashboard/coverage/

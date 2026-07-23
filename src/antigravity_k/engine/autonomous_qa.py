@@ -379,8 +379,8 @@ class AutonomousQAEngine:
                 ]
             return []
 
-        except Exception:
-            logger.exception("Vision analysis failed")
+        except (httpx.RequestError, json.JSONDecodeError, KeyError):
+            logger.warning("Vision analysis failed", exc_info=True)
             return []
 
     # ─── 코드 수정 생성 ───────────────────────────────────────
@@ -423,8 +423,8 @@ class AutonomousQAEngine:
                 return json.loads(json_match.group())
             return []
 
-        except Exception:
-            logger.exception("Code fix generation failed")
+        except (httpx.RequestError, json.JSONDecodeError, KeyError):
+            logger.warning("Code fix generation failed", exc_info=True)
             return []
 
     # ─── 패치 적용 ─────────────────────────────────────────────
@@ -454,8 +454,8 @@ class AutonomousQAEngine:
             logger.info("[AutonomousQA] Patch applied: %s", file_path)
             return True
 
-        except Exception:
-            logger.exception("Patch apply failed")
+        except (OSError, IOError, ValueError):
+            logger.warning("Patch apply failed", exc_info=True)
             return False
 
     # ─── Visual Regression ─────────────────────────────────────
@@ -503,9 +503,8 @@ class AutonomousQAEngine:
             }""",
             )
             return metrics
-        except Exception as e:
-            logger.exception("Unhandled exception")
-            logger.debug("Performance collection failed: %s", e)
+        except (TimeoutError, AttributeError, TypeError, ValueError) as e:
+            logger.warning("Performance collection failed: %s", e, exc_info=True)
             return {}
 
     # ─── 반응형 테스트 ─────────────────────────────────────────
@@ -538,8 +537,8 @@ class AutonomousQAEngine:
                         else "App not visible"
                     ),
                 }
-            except Exception as e:
-                logger.exception("Unhandled exception")
+            except (TimeoutError, ConnectionError, AttributeError, ValueError) as e:
+                logger.warning("Viewport test failed for %s: %s", name, e, exc_info=True)
                 results[name] = {"pass": False, "summary": str(e)}
 
         return results

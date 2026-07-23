@@ -156,9 +156,10 @@ class ProtocolTranslator:
 
         for msg in messages:
             role = msg.get("role", "")
-            content = self._extract_content(msg.get("content", ""))  # type: ignore[assignment]
+            raw_content = self._extract_content(msg.get("content", ""))
+            content: str = raw_content if isinstance(raw_content, str) else ""
             if role == "system":
-                system_msg = content  # type: ignore[assignment]
+                system_msg = content
             else:
                 chat_messages.append({"role": role, "content": content})
 
@@ -184,7 +185,8 @@ class ProtocolTranslator:
         chat_messages = []
         for msg in messages:
             role = msg.get("role", "")
-            content = self._extract_content(msg.get("content", ""))  # type: ignore[assignment]
+            raw_content = self._extract_content(msg.get("content", ""))
+            content: str = raw_content if isinstance(raw_content, str) else ""
             chat_messages.append({"role": role, "content": content})
 
         return {

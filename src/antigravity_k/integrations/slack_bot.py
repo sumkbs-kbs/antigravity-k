@@ -9,7 +9,8 @@ try:
     from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
     from slack_bolt.async_app import AsyncApp
 except ImportError:
-    AsyncApp = None  # type: ignore
+    AsyncApp = None  # type: ignore[assignment,misc]
+    AsyncSocketModeHandler = None  # type: ignore[assignment,misc]
 
 
 class SlackBotClient:
@@ -33,7 +34,6 @@ class SlackBotClient:
 
     def _init_app(self):
         """Slack 앱을 초기화합니다 (slack_bolt가 설치된 경우에만)."""
-        # type: ignore[truthy-function]
         if AsyncApp is None:
             logger.error("slack_bolt or slack_sdk is not installed.")
             return None
@@ -63,7 +63,7 @@ class SlackBotClient:
 
     async def run_async(self):
         """Run async."""
-        if not AsyncApp:
+        if AsyncApp is None:
             print("Please install slack_bolt and slack_sdk")
             return
         app = self._init_app()

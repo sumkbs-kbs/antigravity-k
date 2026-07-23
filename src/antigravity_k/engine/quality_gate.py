@@ -135,6 +135,14 @@ class QualityGate:
         score *= s
         issues.extend(i)
 
+        s, i = self._check_github_alerts(agent_output)
+        score *= s
+        issues.extend(i)
+
+        s, i = self._check_artifact_format(agent_output)
+        score *= s
+        issues.extend(i)
+
         # ─── LLM 기반 자가 검증 (Semantic Self-Verification) ───
         # 정규식 기반 점수가 통과권(B 이상)일 때만 LLM 검증 실행하여 비용 절약
         if self._verify_fn and score >= 0.6 and len(agent_output) > 100:
@@ -628,5 +636,135 @@ class QualityGate:
         if re.search(r"\*\*(Note|Warning|Important)\*\*:", output, re.IGNORECASE):
             score *= 0.9  # 경고성 감점
             issues.append("구형 경고 블록 감지 (GitHub Alerts `> [!NOTE]` 스타일 권장)")
+
+        return score, issues
+
+    def _check_github_alerts(self, output: str) -> tuple:
+        """GitHub-Style Alert 블록의 문법 정확성을 검증합니다.
+
+        올바른 형식:
+        > [!NOTE]
+        > content
+
+        잘못된 형식:
+        >[!NOTE]  (공백 누락)
+        > [!NOTE] content (빈 줄 없이 바로 내용)
+
+        Returns:
+            (score_multiplier: float, issues: list[str])
+
+        """
+        score = 1.0
+        issues: list[str] = []
+
+        # GitHub Alert 찾기
+        alerts_found = list(re.finditer(r">\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]", output, re.IGNORECASE))
+
+        if not alerts_found:
+            # 구형 경고 블록 사용 감지 (GitHub Alerts로 전환 권장)
+            old_style = re.findall(
+                r"\*\*(?:Note|Warning|Important|Tip|Caution)\*\*:\s*(.+?)(?:\n\n|$)",
+                output,
+                re.IGNORECASE | re.DOTALL,
+            )
+            if old_style:
+                score *= 0.85
+                issues.append(
+                    f"GitHub Alert 미사용: {len(old_style)}개의 구형 경고 블록을 `> [!NOTE]` 스타일로 전환하세요"
+                )
+            return score, issues
+
+        for match in alerts_found:
+            start = match.start()
+            alert_type = match.group(1)
+            after_alert = output[start : start + 200]
+            lines = after_alert.split("\n")
+
+            # 첫 번째 라인: "> [!TYPE]" 만 있어야 함 (내용이 바로 오면 안 됨)
+            first_line = lines[0] if lines else ""
+            if re.search(r"\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s+\S", first_line, re.IGNORECASE):
+                score *= 0.7
+                issues.append(f"GitHub Alert `{alert_type}`: 내용이 Alert 헤더와 같은 라인에 있음")
+
+            # 두 번째 라인: "> content" 형식이어야 함
+            if len(lines) > 1:
+                second_line = lines[1].strip()
+                if second_line and not second_line.startswith(">"):
+                    score *= 0.8
+                    issues.append(f"GitHub Alert `{alert_type}`: Alert 내용이 `>` 블록으로 시작하지 않음")
+
+        return score, issues
+
+    def _check_artifact_format(self, output: str) -> tuple:
+        """Artifact 파일(implementation_plan.md, task.md 등)의 포맷을 검증합니다.
+
+        Plan 모드에서 생성된 출력물이 아티팩트 규칙을 준수하는지 확인합니다.
+
+        Returns:
+            (score_multiplier: float, issues: list[str])
+
+        """
+        score = 1.0
+        issues: list[str] = []
+
+        # 1. Plan 아티팩트 필수 섹션 검증
+        plan_sections = [
+            (r"#+\s*(?:개요|목표|Overview|Goal)", "Overview"),
+            (r"#+\s*(?:기술\s*접근|설계|아키텍처|Technical Approach|Architecture|Design)", "Technical Approach"),
+            (r"#+\s*(?:구현\s*단계|작업\s*계획|Implementation Steps|Plan|Steps|Tasks)", "Implementation Steps"),
+            (r"[-*]\s*\[[\sx]\]", "Task List (checkbox)"),
+            (r"#+\s*(?:일정|우선순위|Timeline|Priority)", "Timeline/Priority"),
+        ]
+
+        is_plan_context = bool(
+            re.search(r"implementation_plan\.md|\bplanning\b|\bplan\s+mode\b", output, re.IGNORECASE)
+        )
+
+        if is_plan_context:
+            found_sections = []
+            missing_sections = []
+            for pattern, name in plan_sections:
+                if re.search(pattern, output, re.IGNORECASE | re.MULTILINE):
+                    found_sections.append(name)
+                else:
+                    missing_sections.append(name)
+
+            if missing_sections:
+                section_penalty = len(missing_sections) * 0.1
+                score *= max(0.5, 1.0 - section_penalty)
+                issues.append(f"Plan 아티팩트 필수 섹션 누락: {', '.join(missing_sections)}")
+
+        # 2. [APPROVAL REQUIRED] 마커 검증
+        has_approval = bool(re.search(r"\[APPROVAL REQUIRED\]", output))
+        is_pending_approval = bool(
+            re.search(r"implementation_plan\.md|\bplanning\b", output, re.IGNORECASE)
+            and not re.search(r"승인|approve|build\s+mode|executing", output, re.IGNORECASE)
+        )
+        if is_pending_approval and not has_approval:
+            score *= 0.75
+            issues.append("Plan 작성 후 `[APPROVAL REQUIRED]` 마커 누락")
+
+        # 3. Task.md 형식 검증 (체크박스 태스크 존재 여부)
+        has_task_context = bool(re.search(r"task\.md|tasks?:|할\s*일|TODO", output, re.IGNORECASE))
+        if has_task_context:
+            checkbox_count = len(re.findall(r"[-*]\s*\[[\sx]\]", output))
+            if checkbox_count == 0:
+                score *= 0.7
+                issues.append("Task.md 컨텍스트에서 체크박스 태스크(`- [ ]`) 없음")
+            elif checkbox_count > 20:
+                score *= 0.9
+                issues.append(f"체크박스 태스크가 {checkbox_count}개로 과도하게 많음 — 그룹화 필요")
+
+        # 4. Mermaid 블록 검증
+        mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
+        mermaid_keywords = r"(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitGraph|journey|mindmap|timeline|xychart|block|quadrantChart)"
+        for block in mermaid_blocks:
+            if not re.search(
+                rf"[A-Za-z_]+\(?\s*--[>-]\s*[A-Za-z_]+\(?|[A-Za-z_]+\[|{mermaid_keywords}",
+                block,
+            ):
+                score *= 0.85
+                issues.append("Mermaid 블록에 유효한 다이어그램 문법 없음")
+                break
 
         return score, issues

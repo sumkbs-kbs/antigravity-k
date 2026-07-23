@@ -662,7 +662,7 @@ class ModelManager:
             if tracer._active_trace:
                 tracer._active_trace.add_span(span)
             elif tracer._span_stack:
-                tracer._span_stack[-1].add_span(span)
+                tracer._span_stack[-1].add_span(span)  # type: ignore[attr-defined]
         except Exception:
             logger.debug("Tracing span add failed (non-critical)", exc_info=True)
 
@@ -929,7 +929,7 @@ class ModelManager:
 
         # Agent Footprint & Fingerprinting.
         if system_blocks:
-            system_blocks[0]["text"] += attribution
+            system_blocks[0]["text"] += attribution  # type: ignore[operator]
         else:
             system_blocks.append(
                 {

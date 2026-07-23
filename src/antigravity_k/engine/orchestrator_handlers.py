@@ -49,7 +49,7 @@ def init_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 # ─── CONTEXT_ENRICH 핸들러 ────────────────────────────────────────
 
 
-def context_enrich_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
+def context_enrich_handler(ctx: StateContext, orch) -> None:
     """RAG + KI + 벡터 스토어 + AST-RAGIndexer + 코드 트리 컨텍스트 주입."""
     rag_context = ""
 

@@ -640,11 +640,15 @@ class ExternalBrainRouter:
             adapters (list[ExternalBrainAdapter]): list[ExternalBrainAdapter] adapters.
 
         """
-        self.adapters = adapters or [
-            GeminiAppAdapter(),
-            ChatGPTWebAdapter(),
-            GeminiWebAdapter(),
-        ]
+        self.adapters = (
+            adapters
+            if adapters is not None
+            else [
+                GeminiAppAdapter(),
+                ChatGPTWebAdapter(),
+                GeminiWebAdapter(),
+            ]
+        )
         self._round_robin_idx = 0
 
     async def send(

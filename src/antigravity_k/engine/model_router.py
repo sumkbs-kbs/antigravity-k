@@ -456,8 +456,10 @@ class ModelRouter:
         self._rr_index[combo.name] = idx + 1
 
         profile = self._registry.get_model(selected)
+        if profile is None:
+            raise AllModelsUnavailableError(combo.name, [selected])
         logger.info("[%s] 라우팅 → %s (round-robin, idx=%s)", combo.name, selected, idx)
-        return profile  # type: ignore
+        return profile
 
     def _route_load_balance(self, combo: ModelCombo) -> ModelProfile:
         """로드밸런싱 전략: 메모리 사용량이 적은 모델 우선."""

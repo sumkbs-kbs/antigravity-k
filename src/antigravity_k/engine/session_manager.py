@@ -78,7 +78,7 @@ class SessionManager:
             if existing:
                 self._load_session(existing)
                 logger.info("Resumed session: %s", self._session_id)
-                return self._session_id
+                return self._session_id or ""
 
         # 새 세션 생성
         self._session_id = f"{project_hash}_{int(time.time())}"

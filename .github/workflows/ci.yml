@@ -231,6 +231,48 @@ jobs:
       - name: Build Dashboard
         run: cd dashboard && npm run build
 
+  mutation-test:
+    name: "Mutation Test (Stryker)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Run only on push/PR to main (not on schedule) — Stryker is resource-intensive
+    if: github.event_name != 'schedule'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Dependencies
+        run: cd dashboard && npm install
+
+      - name: Run Stryker Mutation Testing
+        run: |
+          cd dashboard && npx stryker run \
+            --mutate 'src/stores/terminalStore.ts' \
+            --mutate 'src/stores/outputStore.ts' \
+            --mutate 'src/stores/localHistoryStore.ts' \
+            --mutate 'src/stores/agentMonitorStore.ts' \
+            --mutate 'src/plugin/pluginRegistry.ts'
+        env:
+          # Headless mode — no TTY interaction needed
+          CI: true
+
+      - name: Upload Stryker Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-report
+          path: dashboard/reports/
+          retention-days: 30
+          if-no-files-found: ignore
+
   security-scan:
     name: "Security Scan"
     runs-on: ubuntu-latest
@@ -321,6 +363,136 @@ jobs:
               print('No secrets detected in scanned files.')
           "
 
+  e2e-test:
+    name: "E2E Tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Run only on push/PR to main (not on schedule) — requires backend server
+    if: github.event_name != 'schedule'
+    env:
+      AGK_BACKEND_URL: http://127.0.0.1:8000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install Dashboard Dependencies
+        run: cd dashboard && npm install
+
+      - name: Install Playwright Browsers
+        run: cd dashboard && npx playwright install chromium
+
+      - name: Build Dashboard (static)
+        run: cd dashboard && npm run build
+
+      - name: Start Backend Server
+        run: |
+          PYTHONPATH=src python -m uvicorn antigravity_k.api.server:app \
+            --host 127.0.0.1 --port 8000 &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          echo "SERVER_PID=$SERVER_PID" >> "$GITHUB_ENV"
+          # Wait for server to be ready
+          for i in $(seq 1 10); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/health 2>/dev/null)
+            if [ "$status" = "200" ]; then
+              echo "Backend server ready (HTTP $status)"
+              break
+            fi
+            echo "Waiting for backend... attempt $i"
+            sleep 2
+          done
+
+      - name: Run Python E2E Smoke Tests
+        run: |
+          python -m pytest tests/test_e2e_smoke.py -v --tb=short 2>&1 | tee e2e-smoke-results.txt
+
+      - name: Run Accessibility E2E Tests (Playwright)
+        # Accessibility is the hard gate — all 12 tests must pass.
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: a11y-test-results
+        run: |
+          cd dashboard && npx playwright test \
+            e2e/tests/accessibility.spec.ts \
+            --project=chromium --reporter=list 2>&1 | tee ../e2e-a11y-results.txt
+
+      - name: Run Full Playwright E2E Suite
+        # Full suite is informational (continue-on-error) — accessibility is the hard gate.
+        continue-on-error: true
+        env:
+          PLAYWRIGHT_OUTPUT_DIR: test-results-full
+        run: |
+          cd dashboard && npx playwright test --project=chromium --reporter=list 2>&1 | tee ../e2e-full-results.txt
+
+      - name: Upload E2E Smoke Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-results
+          path: e2e-smoke-results.txt
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload Accessibility E2E Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-a11y-results
+          path: e2e-a11y-results.txt
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload Accessibility E2E Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-a11y-artifacts
+          path: dashboard/a11y-test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload Full E2E Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: dashboard/e2e-report/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload Full E2E Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-full-artifacts
+          path: dashboard/test-results-full/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Stop Backend Server
+        if: always()
+        run: |
+          pkill -f "uvicorn antigravity_k.api.server:app" || true
+
   dependency-sbom:
     name: "SBOM Generation"
     runs-on: ubuntu-latest
@@ -402,7 +574,9 @@ jobs:
           | Metric | Value |
           |:---|---:|
           | Line Coverage | ${COVER_PCT}% |
-          | Threshold | 40% |
+          | Threshold | 55% |
+
+          > The actual coverage as of 2026-07 is 46.5%. Run `pytest --cov=src/antigravity_k` locally to check current status.
 
           > See [coverage_html](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/coverage/) for full report.
           EOF

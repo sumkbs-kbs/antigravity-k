@@ -1,204 +1,39 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
-    <meta name="description" content="Antigravity-K — 로컬 AI 엔지니어링 에이전트 대시보드">
-    <title>Antigravity-K</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/src/styles/index.css">
-    <!-- DOMPurify — sanitizes agent/tool output before innerHTML to prevent XSS -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js"
-            integrity="sha384-3z+UO9yGv2Y9ckP5MOo9YSYzVc4j5uV5Xw1K8f5o6Yx2mMw6J0p6w0q2mM0p6w0"
-            crossorigin="anonymous"></script>
-    <script>
-      // Fallback: if CDN fails, provide a no-op sanitizer and warn (fail-open
-      // but visible). The CSP header is the primary XSS defense in production.
-      if (typeof DOMPurify === 'undefined') {
-        console.warn('[Security] DOMPurify failed to load from CDN; XSS sanitization is INACTIVE. Check network/CSP.');
-        window.DOMPurify = { sanitize: (html) => html };
-      }
-    </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
-    <!-- Diff2Html -->
-    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Antigravity-K — 로컬 AI 엔지니어링 에이전트 대시보드" />
+  <title>Antigravity-K</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#7c6aef" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
 
-    <!-- Split.js for resizable panes -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.5/split.min.js"></script>
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
-    <!-- xterm.js for Terminal -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <!-- highlight.js for code syntax highlighting -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/tokyo-night-dark.min.css" />
 
-    <!-- Monaco Editor Loader -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+  <!-- Mermaid -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    });
+  </script>
 
-    <!-- Mermaid.js for Diagrams -->
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.mermaid) {
-                window.mermaid.initialize({ startOnLoad: false, theme: 'dark' });
-            }
-        });
-    </script>
-
-    <!-- highlight.js for code syntax highlighting (P0-1) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/tokyo-night-dark.min.css">
-    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <!-- Diff2Html -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
 </head>
 <body>
-    <div id="app">
-        <!-- 사이드바 -->
-        <aside id="sidebar" class="sidebar">
-            <div class="sidebar-header" style="flex-direction: column; align-items: flex-start; gap: 6px;">
-                <div style="display: flex; justify-content: flex-start; gap: 8px; width: 100%; align-items: center;">
-                    <span class="logo-icon" style="font-size: 18px;">🚀</span>
-                    <span class="version-badge">v0.2.0</span>
-                </div>
-                <div class="logo" id="antigravity-trigger" style="cursor: pointer; width: 100%;">
-                    <span class="logo-text" style="margin-left: 0;">Antigravity-K</span>
-                </div>
-                <!-- 프로젝트 전환 드롭다운 -->
-                <div id="project-selector-container" style="width: 100%; margin-top: 4px;">
-                    <div id="project-selector" style="
-                        display: flex; align-items: center; gap: 6px;
-                        padding: 6px 10px; border-radius: 8px;
-                        background: rgba(255,255,255,0.05);
-                        border: 1px solid rgba(255,255,255,0.08);
-                        cursor: pointer; font-size: 12px;
-                        transition: all 0.2s ease;
-                    " onmouseover="this.style.background='rgba(124,106,239,0.1)';"
-                       onmouseout="this.style.background='rgba(255,255,255,0.05)';">
-                        <span style="font-size:14px;">📂</span>
-                        <span id="project-name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-secondary);">기본 프로젝트</span>
-                        <span style="font-size:10px; opacity:0.5;">▼</span>
-                    </div>
-                    <div id="project-dropdown" style="
-                        display:none; position:absolute; margin-top:4px;
-                        background: var(--glass-bg, rgba(18,20,28,0.95));
-                        backdrop-filter: blur(16px);
-                        border: 1px solid var(--glass-border, rgba(255,255,255,0.1));
-                        border-radius: 10px; padding: 6px; z-index: 1000;
-                        min-width: 200px; max-height: 300px; overflow-y: auto;
-                        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-                    "></div>
-                </div>
-            </div>
-
-            <nav class="sidebar-nav">
-                <a href="#" class="nav-item active" data-page="chat">
-                    <span class="nav-icon">💬</span>
-                    <span class="nav-label">AI 채팅</span>
-                </a>
-                <a href="#" class="nav-item" data-page="wiki">
-                    <span class="nav-icon">📚</span>
-                    <span class="nav-label">LLM Wiki</span>
-                </a>
-                <a href="#" class="nav-item" data-page="agent">
-                    <span class="nav-icon">🤖</span>
-                    <span class="nav-label">에이전트</span>
-                </a>
-                <a href="#" class="nav-item" data-page="skills">
-                    <span class="nav-icon">🧰</span>
-                    <span class="nav-label">스킬</span>
-                </a>
-                <a href="#" class="nav-item" data-page="settings">
-                    <span class="nav-icon">⚙️</span>
-                    <span class="nav-label">설정</span>
-                </a>
-            </nav>
-
-            <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 10px;">
-                <!-- P2-1: 프로바이더 상태 패널 -->
-                <div id="provider-status-panel" class="provider-status-panel" style="display:none;"></div>
-                <!-- P2-2: 비용 게이지 -->
-                <div id="cost-gauge" class="cost-gauge" style="display:none;">
-                    <span>💰</span>
-                    <div class="cost-bar"><div class="cost-bar-fill" id="cost-bar-fill" style="width:0%"></div></div>
-                    <span id="cost-text">$0.00 / $50</span>
-                </div>
-                <!-- Phase 1 D7: 실행 모드 인디케이터 -->
-                <div id="mode-indicator" class="mode-indicator interactive" style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; border: 1px solid rgba(255,255,255,0.1); transition: all 0.3s ease;">
-                    <span id="mode-icon" style="font-size: 16px;">💬</span>
-                    <span id="mode-label" style="flex: 1;">INTERACTIVE</span>
-                    <span id="mode-dot" class="status-dot online" style="width: 8px; height: 8px; border-radius: 50%;"></span>
-                </div>
-                <div id="system-status" class="status-indicator">
-                    <span class="status-dot offline"></span>
-                    <span class="status-text">연결 확인 중...</span>
-                </div>
-                <div id="system-metrics" style="font-size: 11px; color: var(--text-secondary); display: none;">
-                    RAM: <span id="sys-mem">--</span>% | CPU: <span id="sys-cpu">--</span>% | Tokens: <span id="sys-tokens">0</span>
-                </div>
-                <div id="system-agent-metrics" style="font-size: 11px; color: var(--text-secondary); display: none; margin-top: 4px;">
-                    RAG: <span id="sys-rag">0</span> files | CoV: <span id="sys-cov">Off</span>
-                </div>
-                <button id="toggle-terminal-btn" class="icon-btn" style="text-align: left; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                    💻 터미널 토글
-                </button>
-                <button id="open-command-palette-btn" class="icon-btn" style="text-align: left; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                    🔎 명령 팔레트
-                </button>
-                <button id="restart-server-btn" class="icon-btn" style="text-align: left; background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 6px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);">
-                    🔄 서버 재시작
-                </button>
-            </div>
-        </aside>
-
-        <!-- 우측 컨테이너 (메인 + 터미널) -->
-        <div id="right-container" style="flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden;">
-            <!-- 메인 콘텐츠 -->
-            <main id="main-content" class="main-content" style="flex: 1; height: 100%; overflow: auto;">
-                <!-- 각 페이지는 JS로 동적 렌더링 -->
-            </main>
-
-            <!-- 터미널 패널 -->
-            <div id="terminal-container" style="display: none; height: 30%; background: #000; border-top: 1px solid var(--glass-border); padding: 4px;">
-                <div id="terminal" style="width: 100%; height: 100%;"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 커맨드 팔레트 (Omnibox) -->
-    <div id="command-palette-overlay" class="command-palette-overlay" style="display: none;">
-        <div class="command-palette">
-            <div class="cmd-header">
-                <span class="cmd-icon">🔍</span>
-                <input type="text" id="cmd-input" placeholder="Search notes or run commands... (Use ↑↓ to navigate)" autocomplete="off" spellcheck="false">
-                <span class="cmd-shortcut">ESC</span>
-            </div>
-            <div class="cmd-results" id="cmd-results">
-                <!-- Results will be injected here via JS -->
-            </div>
-        </div>
-    </div>
-
-    <div id="toast-container"></div>
-
-    <!-- 글로벌 폴더 브라우저 모달 (프로젝트 추가용) -->
-    <div id="global-folder-browser" class="modal-overlay" style="display:none; z-index:9998;">
-      <div class="modal-content glass-panel" style="width:520px; max-height:70vh; display:flex; flex-direction:column;">
-        <div style="padding:14px 16px; border-bottom:1px solid var(--glass-border); display:flex; justify-content:space-between; align-items:center;">
-          <h3 style="margin:0; font-size:14px;">📂 프로젝트 폴더 선택</h3>
-          <button id="gfb-close" class="icon-btn" style="color:var(--text-secondary);">✕</button>
-        </div>
-        <div id="gfb-path" style="padding:8px 16px; background:rgba(0,0,0,0.2); font-size:12px; color:var(--text-secondary); word-break:break-all; border-bottom:1px solid var(--glass-border);">/</div>
-        <div id="gfb-list" style="flex:1; overflow-y:auto; padding:8px 0;"></div>
-        <div style="padding:12px 16px; border-top:1px solid var(--glass-border); display:flex; justify-content:space-between; align-items:center;">
-          <button id="gfb-up" class="glass-btn small" title="상위 폴더">⬆️</button>
-          <div style="display:flex; gap:8px;">
-            <button id="gfb-cancel" class="glass-btn small">취소</button>
-            <button id="gfb-confirm" class="glass-btn small primary">이 폴더 선택</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <script type="module" src="/src/main.js"></script>
-    <script type="module" src="/src/command_palette.js"></script>
+  <div id="root"></div>
+  <div id="toast-container"></div>
+  <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

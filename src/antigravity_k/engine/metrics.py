@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import Callable, TypeVar, cast
 
 from prometheus_client import (
     CollectorRegistry,
@@ -24,8 +24,7 @@ from prometheus_client import (
 )
 from prometheus_client.metrics import MetricWrapperBase
 
-if TYPE_CHECKING:
-    pass
+_T = TypeVar("_T", bound=MetricWrapperBase)
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +45,11 @@ _metrics: dict[str, MetricWrapperBase] = {}
 _START_TIME = time.time()
 
 
-def _get_or_create(name: str, factory):  # type: ignore[no-untyped-def]
+def _get_or_create(name: str, factory: Callable[[], _T]) -> _T:
     """Lazily create a metric on first access, caching it in ``_metrics``."""
     if name not in _metrics:
         _metrics[name] = factory()
-    return _metrics[name]
+    return cast(_T, _metrics[name])
 
 
 def request_counter() -> Counter:
@@ -64,7 +63,7 @@ def request_counter() -> Counter:
             registry=REGISTRY,
         )
 
-    return _get_or_create(_REQUEST_COUNT, _make)  # type: ignore[return-value]
+    return _get_or_create(_REQUEST_COUNT, _make)
 
 
 def request_latency() -> Histogram:
@@ -92,7 +91,7 @@ def request_latency() -> Histogram:
             registry=REGISTRY,
         )
 
-    return _get_or_create(_REQUEST_LATENCY, _make)  # type: ignore[return-value]
+    return _get_or_create(_REQUEST_LATENCY, _make)
 
 
 def requests_in_flight() -> Gauge:
@@ -105,7 +104,7 @@ def requests_in_flight() -> Gauge:
             registry=REGISTRY,
         )
 
-    return _get_or_create(_REQUESTS_IN_FLIGHT, _make)  # type: ignore[return-value]
+    return _get_or_create(_REQUESTS_IN_FLIGHT, _make)
 
 
 def llm_call_counter() -> Counter:
@@ -119,7 +118,7 @@ def llm_call_counter() -> Counter:
             registry=REGISTRY,
         )
 
-    return _get_or_create(_LLM_CALL_COUNT, _make)  # type: ignore[return-value]
+    return _get_or_create(_LLM_CALL_COUNT, _make)
 
 
 def llm_error_counter() -> Counter:
@@ -133,7 +132,7 @@ def llm_error_counter() -> Counter:
             registry=REGISTRY,
         )
 
-    return _get_or_create(_LLM_ERROR_COUNT, _make)  # type: ignore[return-value]
+    return _get_or_create(_LLM_ERROR_COUNT, _make)
 
 
 def vault_write_counter() -> Counter:
@@ -147,7 +146,7 @@ def vault_write_counter() -> Counter:
             registry=REGISTRY,
         )
 
-    return _get_or_create(_VAULT_WRITE_COUNT, _make)  # type: ignore[return-value]
+    return _get_or_create(_VAULT_WRITE_COUNT, _make)
 
 
 def uptime_gauge() -> Gauge:
@@ -156,7 +155,7 @@ def uptime_gauge() -> Gauge:
     def _make() -> Gauge:
         return Gauge(_UPTIME, "Process uptime in seconds.", registry=REGISTRY)
 
-    return _get_or_create(_UPTIME, _make)  # type: ignore[return-value]
+    return _get_or_create(_UPTIME, _make)
 
 
 def render_metrics() -> bytes:

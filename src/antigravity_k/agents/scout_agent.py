@@ -108,10 +108,10 @@ Generate ONLY a JSON response in the following format:
                 artifact_content += f"## 🗑 해고 제안: {data['propose_remove']}\n"
                 artifact_content += "- **사유:** 디스크 및 메모리 최적화를 위해 제거합니다.\n\n"
 
-            artifact_content += "\n> [!CAUTION]\n> 이 기안서를 승인(Approve)하시면, 시스템이 백그라운드에서 기가바이트 단위의 모델 다운로드 및 삭제를 진행하며 `config.yaml`"  # type: ignore  # noqa: E501
+            artifact_content += "\n> [!CAUTION]\n> 이 기안서를 승인(Approve)하시면, 시스템이 백그라운드에서 기가바이트 단위의 모델 다운로드 및 삭제를 진행하며 `config.yaml`"  # noqa: E501
             "코어를 수정합니다. 승인하시겠습니까?\n"
 
-            return f"ScoutAgent가 인터넷을 분석하여 모델 영입 기안서를 작성했습니다. 기안서 내용:\n\n{artifact_content}\n\n[APPROVAL REQUIRED] 사용자의"  # type: ignore  # noqa: E501
+            return f"ScoutAgent가 인터넷을 분석하여 모델 영입 기안서를 작성했습니다. 기안서 내용:\n\n{artifact_content}\n\n[APPROVAL REQUIRED] 사용자의"  # noqa: E501
             "승인이 필요합니다. 승인 시 Auto-Roster Manager가 작동합니다."
 
         except Exception as e:

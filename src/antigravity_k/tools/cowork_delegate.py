@@ -32,7 +32,7 @@ class CoworkDelegateTool(BaseTool):
         """
         super().__init__()
         self._name = "cowork_delegate"
-        self._description = "Delegate a complex, multi-step task (like research, mass file reading, or refactoring) to an autonomous Sub-Agent. The"  # type: ignore  # noqa: E501
+        self._description = "Delegate a complex, multi-step task (like research, mass file reading, or refactoring) to an autonomous Sub-Agent. The"  # noqa: E501
         "Sub-Agent will run in the background in an isolated Git Worktree so it won't block the main chat or conflict with current files. Returns a background Task ID."  # noqa: E501
         self._schema = {
             "type": "object",
@@ -114,7 +114,7 @@ class CoworkDelegateTool(BaseTool):
             context = {"cowork_mode": True, "project_root": self.project_root}
 
             task_id = runner.submit_task(
-                prompt=f"[Coworker Sub-Agent] You are a delegated background agent. Goal:\n{prompt}\n\nPlease complete this task autonomously"  # type: ignore  # noqa: E501
+                prompt=f"[Coworker Sub-Agent] You are a delegated background agent. Goal:\n{prompt}\n\nPlease complete this task autonomously"  # noqa: E501
                 "using your tools. When done, create an artifact with your final report so the main user can see it.",
                 context=context,
                 orchestrator=sub_orchestrator,

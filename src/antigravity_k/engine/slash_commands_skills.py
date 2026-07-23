@@ -10,12 +10,23 @@ These handlers access ``self._tool_registry``, ``self._skill_loader``, and
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class SlashCommandSkillsMixin:
-    """Skills, capabilities, and agent-related command handlers."""
+    """Skills, capabilities, and agent-related command handlers.
+
+    Note: The following attributes are provided by ``SlashCommandRegistryBase``
+    via cooperative multiple inheritance (MRO).
+    """
+
+    # Mixin-required attributes (resolved via MRO at runtime)
+    _tool_registry: Any
+    _skill_loader: Any
+    _model_manager: Any
+    _commands: dict[str, Any]
 
     def _cmd_self(self, args: list) -> str:
         """런타임 기반 자기 능력 보고서."""
@@ -99,7 +110,7 @@ class SlashCommandSkillsMixin:
                 return "Usage: `/market search <query>`"
             results = registry.search(query)
             if isinstance(results, list) and results and "error" not in results[0]:
-                return market_client.format_search_results(results)
+                return market_client.format_search_results(results)  # type: ignore[arg-type]
             return "🔍 검색 결과가 없습니다."
 
         elif sub == "install":

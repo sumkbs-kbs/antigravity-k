@@ -686,7 +686,7 @@ def tui(
     Interactive terminal interface with chat, slash commands, and system monitoring.
     """
     try:
-        from antigravity_k.tui import run_tui
+        from antigravity_k.tui import run_tui  # type: ignore[attr-defined]
 
         run_tui()
     except ImportError as e:

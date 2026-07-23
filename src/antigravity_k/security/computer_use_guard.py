@@ -118,7 +118,7 @@ class ActionGuard:
             self._audit_file.parent.mkdir(parents=True, exist_ok=True)
 
         if custom_blocked_actions:
-            self.BLOCKED_ACTIONS = self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions)  # type: ignore[assignment]
+            self.BLOCKED_ACTIONS = frozenset(self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions))
 
     def validate_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """액션을 검증합니다.

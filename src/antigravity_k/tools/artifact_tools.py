@@ -27,7 +27,7 @@ class WriteArtifactTool(BaseTool):
         """
         super().__init__()
         self._name = "write_artifact"
-        self._description = "Write a structured markdown artifact (like an implementation plan, review report, or task list). This will save the"  # type: ignore  # noqa: E501
+        self._description = "Write a structured markdown artifact (like an implementation plan, review report, or task list). This will save the"  # noqa: E501
         "artifact directly into the 'artifacts/' directory of the current project. When in Planning Mode, set RequestFeedback to true to pause and ask for user approval."  # noqa: E501
         self._schema = {
             "type": "object",

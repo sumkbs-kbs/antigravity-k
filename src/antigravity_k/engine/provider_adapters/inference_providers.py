@@ -338,9 +338,9 @@ class OpenRouterProvider(BaseInferenceProvider):
                                     tc = pending_tool_calls[idx]
                                     # 표준 XML 도구 호출 포맷으로 변환하여 ToolCallParser가 처리하도록
                                     tool_event = (
-                                        f'\n<tool_call>\n'
-                                        f'{json.dumps({"name": tc["function"]["name"], "arguments": json.loads(tc["function"]["arguments"] or "{}")}, ensure_ascii=False)}\n'
-                                        f'</tool_call>\n'
+                                        f"\n<tool_call>\n"
+                                        f"{json.dumps({'name': tc['function']['name'], 'arguments': json.loads(tc['function']['arguments'] or '{}')}, ensure_ascii=False)}\n"
+                                        f"</tool_call>\n"
                                     )
                                     yield tool_event
                                 pending_tool_calls.clear()
@@ -744,9 +744,9 @@ class NimProvider(BaseInferenceProvider):
                                 for idx in sorted(pending_tool_calls):
                                     tc = pending_tool_calls[idx]
                                     tool_event = (
-                                        f'\n<tool_call>\n'
-                                        f'{json.dumps({"name": tc["function"]["name"], "arguments": json.loads(tc["function"]["arguments"] or "{}")}, ensure_ascii=False)}\n'
-                                        f'</tool_call>\n'
+                                        f"\n<tool_call>\n"
+                                        f"{json.dumps({'name': tc['function']['name'], 'arguments': json.loads(tc['function']['arguments'] or '{}')}, ensure_ascii=False)}\n"
+                                        f"</tool_call>\n"
                                     )
                                     yield tool_event
                                 pending_tool_calls.clear()
@@ -868,7 +868,7 @@ class OpenAIDirectProvider(OpenRouterProvider):
                             if finish_reason == "tool_calls" and pending_tool_calls:
                                 for idx in sorted(pending_tool_calls):
                                     tc = pending_tool_calls[idx]
-                                    yield f'\n<tool_call>\n{json.dumps({"name": tc["function"]["name"], "arguments": json.loads(tc["function"]["arguments"] or "{}")}, ensure_ascii=False)}\n</tool_call>\n'
+                                    yield f"\n<tool_call>\n{json.dumps({'name': tc['function']['name'], 'arguments': json.loads(tc['function']['arguments'] or '{}')}, ensure_ascii=False)}\n</tool_call>\n"
                                 pending_tool_calls.clear()
                     except json.JSONDecodeError:
                         continue

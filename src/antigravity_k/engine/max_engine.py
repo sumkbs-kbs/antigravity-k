@@ -137,7 +137,7 @@ class MaxModeEngine:
                     decision.reason,
                     decision.remaining_budget_usd,
                 )
-                return f"비용 예산 부족으로 MAX 모드 차단: {decision.reason}. " f"싱글 에이전트로 폴백합니다."
+                return f"비용 예산 부족으로 MAX 모드 차단: {decision.reason}. 싱글 에이전트로 폴백합니다."
         except Exception:
             logger.debug("MAX budget check 실패 — 통과 (non-critical)", exc_info=True)
             return ""
@@ -285,7 +285,7 @@ class MaxModeEngine:
         self,
         delegate_to: str,
         target_model: str,
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, Any]]:
         """워커 구성을 생성합니다. (다양한 모델 + 전략 조합).
 
         최대 4개 워커:
@@ -294,7 +294,7 @@ class MaxModeEngine:
         - Worker 3: 대상 역할의 또 다른 모델 (safe strategy, temperature 0.1)
         - Worker 4: fallback 모델 (balanced strategy, temperature 0.4)
         """
-        configs = []
+        configs: list[dict[str, Any]] = []
 
         if not self.manager:
             return configs

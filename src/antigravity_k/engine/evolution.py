@@ -121,7 +121,7 @@ class EvolutionManager:
         # For Antigravity-K, we use config.yaml or orchestrator.py directly.
         # Let's save the evolved system prompt to the vault root for review.
         original_text = (
-            "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team"  # type: ignore
+            "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team"
         )
         "working on Advanced Agentic Coding."
 

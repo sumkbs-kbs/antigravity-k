@@ -11,12 +11,24 @@ These handlers access ``self._session_manager``, ``self._context_shaper``,
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class SlashCommandSessionMixin:
-    """Session and context management command handlers."""
+    """Session and context management command handlers.
+
+    Note: The following attributes are provided by ``SlashCommandRegistryBase``
+    via cooperative multiple inheritance (MRO).
+    """
+
+    # Mixin-required attributes (resolved via MRO at runtime)
+    _commands: dict[str, Any]
+    _tool_registry: Any
+    _session_manager: Any
+    _context_shaper: Any
+    _model_manager: Any
 
     def _cmd_help(self, args: list) -> str:
         """도움말 표시."""

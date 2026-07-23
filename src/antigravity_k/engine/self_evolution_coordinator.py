@@ -187,21 +187,21 @@ class SelfEvolutionCoordinator:
             from antigravity_k.engine.rsi_engine import RSIEngine
 
             self._rsi_engine = RSIEngine(project_root=self._root)
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.prompt_evolver import PromptEvolver
 
             self._prompt_evolver = PromptEvolver()
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.meta_architect import MetaArchitect
 
             self._meta_architect = MetaArchitect(project_root=self._root)
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
@@ -211,21 +211,21 @@ class SelfEvolutionCoordinator:
                 project_root=self._root,
                 verify_fn=self._verify_fn,
             )
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.self_improvement import SelfImprovementLoop
 
             self._self_improvement = SelfImprovementLoop(data_dir=self._root)
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.self_repair import SelfRepairEngine
 
             self._self_repair = SelfRepairEngine()
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
@@ -239,7 +239,7 @@ class SelfEvolutionCoordinator:
                     model_manager=self._manager,
                     vault_engine=vault,
                 )
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
     # ─── 메인 API ────────────────────────────────────────────────
@@ -271,7 +271,7 @@ class SelfEvolutionCoordinator:
                     score=snapshot.quality_score,
                     issues=snapshot.quality_issues,
                 )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         self._turns_since_last_evolution += 1
@@ -397,7 +397,7 @@ class SelfEvolutionCoordinator:
         except Exception as e:
             result.success = False
             result.error_message = str(e)
-            logger.exception("[SEC] ❌ 진화 실패")
+            logger.exception("[SEC] ❌ 진화 실패 (최상위 안전망)")
 
         result.duration_sec = time.time() - start_time
         return result
@@ -441,7 +441,7 @@ class SelfEvolutionCoordinator:
                             expected_improvement=0.05,
                         )
                     )
-        except Exception:
+        except (RuntimeError, AttributeError, ValueError, KeyError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 진단 소스 2: SelfImprovementLoop 패턴 분석
@@ -460,7 +460,7 @@ class SelfEvolutionCoordinator:
                             expected_improvement=min(0.15, 0.05 + (1.0 - insight.avg_score) * 0.1),
                         )
                     )
-        except Exception:
+        except (RuntimeError, AttributeError, ValueError, KeyError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 진단 소스 3: 품질 이슈 직접 분석
@@ -611,7 +611,7 @@ class SelfEvolutionCoordinator:
                     result["new_prompt_snippet"] = new_prompt[:200]
                     logger.info("[SEC] PromptEvolver: 새 프롬프트 점수 %.2f", score)
                     return result
-            except Exception:
+            except (RuntimeError, AttributeError, ValueError, KeyError):
                 logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 방법 2: EvolutionManager (Hermes 스타일, Vault 실패 기반)
@@ -624,7 +624,7 @@ class SelfEvolutionCoordinator:
                     result["method"] = "evolution_manager"
                     result["draft_path"] = draft_path
                     return result
-            except Exception:
+            except (RuntimeError, AttributeError, KeyError, ValueError):
                 logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         # 방법 3: SelfImprovementLoop 보강 프롬프트 (패턴 기반)
@@ -637,7 +637,7 @@ class SelfEvolutionCoordinator:
                     result["method"] = "self_improvement"
                     result["reinforcement"] = reinforcement
                     return result
-            except Exception:
+            except (RuntimeError, AttributeError, KeyError, ValueError):
                 logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
@@ -670,7 +670,7 @@ class SelfEvolutionCoordinator:
                         content = f.read().strip()
                         if content:
                             return content
-            except Exception:
+            except (OSError, IOError, UnicodeDecodeError):
                 continue
 
         # 최종 폴백: 프로젝트 구조 기반 설명
@@ -698,7 +698,7 @@ class SelfEvolutionCoordinator:
                     project_root=self._root,
                     model_manager=self._manager,
                 )
-            except Exception:
+            except (ImportError, RuntimeError, AttributeError):
                 logger.debug("[SEC] SkillAutoLearner init failed")
                 return result
 
@@ -710,7 +710,7 @@ class SelfEvolutionCoordinator:
                     arguments=tc.get("arguments", {}),
                     success=tc.get("success", True),
                 )
-            except Exception:
+            except (AttributeError, TypeError, KeyError):
                 continue
 
         # 패턴 감지 및 스킬 생성
@@ -720,7 +720,7 @@ class SelfEvolutionCoordinator:
                 result["applied"] = True
                 result["message"] = f"새 스킬 생성됨: {skill_path}"
                 result["skill_path"] = skill_path
-        except Exception:
+        except (RuntimeError, AttributeError, ValueError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
@@ -754,7 +754,7 @@ class SelfEvolutionCoordinator:
                         "description": proposal.description,
                         "target_files": proposal.target_files,
                     }
-        except Exception:
+        except (RuntimeError, AttributeError, KeyError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
@@ -780,7 +780,7 @@ class SelfEvolutionCoordinator:
                 result["applied"] = True
                 result["message"] = f"Few-shot 예시 {len(new_examples)}개 진화 완료"
                 result["examples"] = new_examples
-        except Exception:
+        except (RuntimeError, AttributeError, ValueError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         return result
@@ -928,7 +928,7 @@ class SelfEvolutionCoordinator:
                 if parsed is None and content.strip():
                     details["yaml_warning"] = "content가 있지만 파싱 결과가 None"
                 details["yaml_valid"] = True
-            except Exception as e:
+            except (yaml.YAMLError, AttributeError, ValueError) as e:
                 details["yaml_valid"] = False
                 return {
                     "passed": False,
@@ -995,7 +995,7 @@ class SelfEvolutionCoordinator:
             with open(history_path, "w", encoding="utf-8") as f:
                 json.dump(existing, f, ensure_ascii=False, indent=2)
 
-        except Exception:
+        except (OSError, IOError, json.JSONDecodeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
     # ─── 보고 및 통계 ────────────────────────────────────────────

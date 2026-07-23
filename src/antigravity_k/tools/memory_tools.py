@@ -29,7 +29,7 @@ class StoreKnowledgeTool(BaseTool):
         super().__init__()
         self._name = "store_knowledge"
         self._description = (
-            "Store a piece of knowledge permanently in the project's long-term memory (Vector Store). Useful for"  # type: ignore
+            "Store a piece of knowledge permanently in the project's long-term memory (Vector Store). Useful for"
         )
         "remembering user preferences, architectural decisions, or bugs across sessions."
         self._schema = {

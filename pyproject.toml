@@ -110,6 +110,8 @@ exclude_lines = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
+# JavaScript 파일은 ruff가 Python linter이므로 제외
+exclude = ["dashboard/", "*.js", "*.jsx", "*.mjs"]
 
 [tool.ruff.lint]
 # The current codebase still contains legacy route modules and compact helper
@@ -123,13 +125,27 @@ known-first-party = ["antigravity_k"]
 
 [tool.mypy]
 ignore_missing_imports = true
-no_strict_optional = true
+# 점진적 타입 안전성 강화 — 단계적으로 활성화
+strict_optional = true
 warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+# 향후 활성화 목표:
+# disallow_untyped_defs = true
+# disallow_any_unimported = true
 
-[tool.mypy.overrides]
+[[tool.mypy.overrides]]
 # Tests can be more lenient
 module = ["tests.*"]
 ignore_missing_imports = true
+
+# [[tool.mypy.overrides]]
+# Core engine modules — strictness 증가 대상
+# 향후 활성화 (주석 처리된 상태로 유지):
+# module = ["antigravity_k.engine.config", "antigravity_k.engine.vault"]
+# strict_optional = true
+# disallow_untyped_defs = true
 
 [tool.coverage.html]
 directory = "coverage_html"

@@ -114,13 +114,13 @@ Format as ONLY a JSON object:
             )
             artifact_content += f"## 📈 투자 대비 효과 (ROI Analysis)\n{data.get('roi_justification')}\n\n"
 
-            artifact_content += "\n> [!TIP]\n> 이 제안서는 시스템 스스로 자신의 물리적 한계를 인지하고 돌파하기 위해 작성한 메타-인지(Meta-Cognitive) 보고서입니다. 장비 업그레이드가"  # type: ignore  # noqa: E501
+            artifact_content += "\n> [!TIP]\n> 이 제안서는 시스템 스스로 자신의 물리적 한계를 인지하고 돌파하기 위해 작성한 메타-인지(Meta-Cognitive) 보고서입니다. 장비 업그레이드가"  # noqa: E501
             "완료되면 `config.yaml`의 메모리 제한을 해제해 주십시오.\n"
 
             return (
                 f"HardwareAnalystAgent가 시스템의 한계를 분석하여 인프라 투자 기안서를"
                 f" 작성했습니다. 보고서 내용:\n\n{artifact_content}\n\n사용자님, 시스템의"
-            )  # type: ignore
+            )
             "지능을 더 확장하시려면 이 제안을 고려해 주십시오."
 
         except json.JSONDecodeError as e:

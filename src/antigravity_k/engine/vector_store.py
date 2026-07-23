@@ -106,7 +106,6 @@ class VectorStore:
                 else:
                     safe_meta[k] = str(v)
             metadatas.append(safe_meta)
-
         self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[arg-type]
         logger.info("Upserted %s chunks into ChromaDB.", len(chunks))
 
@@ -129,11 +128,13 @@ class VectorStore:
         formatted_results: list[dict[str, Any]] = []
         if results and results.get("ids") and len(results["ids"]) > 0:
             for i in range(len(results["ids"][0])):
+                ids_val = results.get("ids")
+                docs_val = results.get("documents")
                 metadatas = results.get("metadatas")
                 metadata_val: dict[str, Any] = {}
                 if metadatas:
                     try:
-                        metadata_val = metadatas[0][i]  # type: ignore[assignment]
+                        metadata_val = dict(metadatas[0][i]) if len(metadatas) > 0 else {}
                     except (IndexError, TypeError):
                         metadata_val = {}
                 distances = results.get("distances")
@@ -145,8 +146,8 @@ class VectorStore:
                         distance_val = None
                 formatted_results.append(
                     {
-                        "id": results["ids"][0][i],
-                        "text": results["documents"][0][i],  # type: ignore[index]
+                        "id": ids_val[0][i] if ids_val else "",
+                        "text": docs_val[0][i] if docs_val else "",
                         "metadata": metadata_val,
                         "distance": distance_val,
                     },

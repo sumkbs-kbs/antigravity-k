@@ -183,3 +183,208 @@ class TestClassifyFallback:
         err = Exception("detailed error message")
         result = classify_api_error(err)
         assert "detailed error message" in result.message
+
+
+# ---------------------------------------------------------------------------
+# classify_api_error — status code 4xx/5xx fallback ranges
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyByStatusFallback:
+    """Edge-case status codes that fall to fallback branches."""
+
+    def test_402_with_transient_signal_is_rate_limit(self):
+        err = Exception("402 try again later")
+        err.status_code = 402  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.rate_limit
+        assert result.retryable is True
+
+    def test_402_without_transient_is_billing(self):
+        err = Exception("402 payment required")
+        err.status_code = 402  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.billing
+        assert result.retryable is False
+
+    def test_403_key_limit_exceeded_is_billing(self):
+        err = Exception("key limit exceeded for your plan")
+        err.status_code = 403  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.billing
+
+    def test_404_without_model_pattern_is_unknown(self):
+        err = Exception("Not Found")
+        err.status_code = 404  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.unknown
+        assert result.retryable is True
+
+    def test_400_unknown_is_format_error(self):
+        err = Exception("Bad Request")
+        err.status_code = 400  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.format_error
+
+    def test_400_with_large_context_is_context_overflow(self):
+        err = Exception("Bad Request")
+        err.status_code = 400  # type: ignore[attr-defined]
+        result = classify_api_error(err, approx_tokens=100_000, context_length=200_000)
+        assert result.reason == FailoverReason.context_overflow
+
+    def test_4xx_range_is_format_error(self):
+        err = Exception("Method Not Allowed")
+        err.status_code = 405  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.format_error
+        assert result.retryable is False
+
+    def test_5xx_range_is_server_error(self):
+        err = Exception("Web server error")
+        err.status_code = 521  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.server_error
+        assert result.retryable is True
+
+    def test_chinese_context_overflow_detected(self):
+        err = Exception("超过最大长度")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.context_overflow
+
+    def test_chinese_context_window_detected(self):
+        err = Exception("上下文长度限制")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.context_overflow
+
+
+# ---------------------------------------------------------------------------
+# classify_api_error — transport / disconnect patterns
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyTransport:
+    """Transport and disconnect error patterns."""
+
+    def test_timeout_error_type(self):
+        err = TimeoutError("timed out")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.timeout
+
+    def test_connection_error_type(self):
+        err = ConnectionError("connection refused")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.timeout
+
+    def test_os_error_type(self):
+        err = OSError("socket error")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.timeout
+
+    def test_server_disconnect_small_session_is_timeout(self):
+        err = Exception("server disconnected")
+        result = classify_api_error(err, approx_tokens=1000, context_length=200_000)
+        assert result.reason == FailoverReason.timeout
+
+    def test_server_disconnect_large_session_is_context_overflow(self):
+        err = Exception("peer closed connection")
+        result = classify_api_error(err, approx_tokens=150_000, context_length=200_000)
+        assert result.reason == FailoverReason.context_overflow
+
+    def test_connection_reset_by_peer(self):
+        err = Exception("connection reset by peer")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.timeout
+
+    def test_network_connection_lost(self):
+        err = Exception("network connection lost")
+        result = classify_api_error(err, approx_tokens=1000)
+        assert result.reason == FailoverReason.timeout
+
+
+# ---------------------------------------------------------------------------
+# _extract_status_code / _extract_error_body coverage
+# ---------------------------------------------------------------------------
+
+
+class TestExtractUtils:
+    """Internal extraction utilities — status code and error body."""
+
+    def test_extract_status_code_from_status_attr(self):
+        err = Exception("error")
+        err.status = 418  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.format_error
+
+    def test_extract_status_code_from_code_attr(self):
+        err = Exception("error")
+        err.code = 429  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.rate_limit
+
+    def test_extract_status_code_from_response_obj(self):
+        class MockResponse:
+            status_code = 503
+
+        err = Exception("error")
+        err.response = MockResponse()  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.overloaded
+
+    def test_status_code_none_fallback(self):
+        err = Exception("generic error no pattern match")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.unknown
+
+    def test_model_not_found_via_400(self):
+        err = Exception("model not found")
+        err.status_code = 400  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.model_not_found
+
+    def test_rate_limit_via_400(self):
+        err = Exception("rate limit exceeded via 400")
+        err.status_code = 400  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.rate_limit
+
+    def test_auth_via_message_pattern(self):
+        err = Exception("invalid api key provided")
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.auth
+
+    def test_extract_error_body_with_response_json(self):
+        class MockResponse:
+            status_code = 400
+
+            def json(self):
+                return {"error": {"message": "context length exceeded"}}
+
+        err = Exception("error")
+        err.response = MockResponse()  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.context_overflow
+
+    def test_extract_error_body_with_text_fallback(self):
+        class MockResponse:
+            status_code = 401
+            text = '{"error": "unauthorized"}'
+
+            def json(self):
+                raise Exception("no json")
+
+        err = Exception("error")
+        err.response = MockResponse()  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.auth
+
+    def test_spending_limit_403_is_billing(self):
+        err = Exception("spending limit reached for this month")
+        err.status_code = 403  # type: ignore[attr-defined]
+        result = classify_api_error(err)
+        assert result.reason == FailoverReason.billing
+
+    def test_400_with_many_messages_is_context_overflow(self):
+        err = Exception("Bad Request")
+        err.status_code = 400  # type: ignore[attr-defined]
+        result = classify_api_error(err, num_messages=100)
+        assert result.reason == FailoverReason.context_overflow

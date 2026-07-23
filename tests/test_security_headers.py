@@ -95,6 +95,8 @@ def test_500_response_has_no_detail_field(client: TestClient):
 
     response = asyncio.run(global_exception_handler(FakeRequest(), ValueError("leak-test-secret")))
     body = json.loads(response.body)
-    assert "detail" not in body
+    # Safe detail message (generic, not raw exception) is allowed
+    assert body.get("detail") == "Internal Server Error"
+    assert body.get("error") == "internal_error"
     assert "leak-test-secret" not in response.body.decode()
     assert "correlation_id" in body

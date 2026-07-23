@@ -71,7 +71,7 @@ Generate ONLY a JSON response:
 
             artifact_content += "\n> [!CAUTION]\n> 이 훈련은 막대한 GPU 메모리와 시간을 소모합니다. 또한 훈련 스크립트가 로컬에 생성되어 자동으로 실행됩니다.\n> 승인(Approve)하시겠습니까?\n"  # noqa: E501
 
-            return f"TrainerAgent가 훈련 기안서를 작성했습니다. 기안서 내용:\n\n{artifact_content}\n\n[APPROVAL REQUIRED] 사용자의 승인이 필요합니다."  # type: ignore  # noqa: E501
+            return f"TrainerAgent가 훈련 기안서를 작성했습니다. 기안서 내용:\n\n{artifact_content}\n\n[APPROVAL REQUIRED] 사용자의 승인이 필요합니다."  # noqa: E501
             "승인 시 TrainerAgent가 훈련 스크립트를 생성하고 실행합니다."
 
         except Exception as e:

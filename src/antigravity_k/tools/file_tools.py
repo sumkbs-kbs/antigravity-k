@@ -430,7 +430,7 @@ class EditFileTool(BaseTool):
 
         lines = old_str.strip().split("\n")
         hint_line = lines[0][:60] if lines else ""
-        base_msg = f"Error: old_str not found in file. " f"No exact or fuzzy match for: '{hint_line}...'. "
+        base_msg = f"Error: old_str not found in file. No exact or fuzzy match for: '{hint_line}...'. "
 
         # content에서 old_str 첫 라인과 가장 유사한 라인 3개 제안
         if not lines or not lines[0].strip():
@@ -470,7 +470,7 @@ class MultiReplaceFileContentTool(BaseTool):
         self._name = "multi_replace_file_content"
         self._description = (
             "Edit a file by replacing multiple non-contiguous blocks of text at once. "
-            "Pass an array of 'ReplacementChunks'. For each chunk, specify StartLine, EndLine, TargetContent,"  # type: ignore
+            "Pass an array of 'ReplacementChunks'. For each chunk, specify StartLine, EndLine, TargetContent,"
             "and ReplacementContent. "
             "This ensures exact matching and avoids ambiguous replacements."
         )

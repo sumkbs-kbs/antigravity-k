@@ -15,6 +15,7 @@
 """
 
 import re
+from typing import Any
 
 # 한글, 한자, 일본어(히라가나/가타카나) 정규식
 CJK_PATTERN = re.compile(r"[\uac00-\ud7a3\u4e00-\u9fff\u3040-\u30ff]")
@@ -62,7 +63,8 @@ class TokenEstimator:
                 content = msg.get("content", "")
                 tokens = TokenEstimator.estimate_text(content)
                 if use_cache:
-                    msg["_tokens"] = tokens  # type: ignore[dict-item]
+                    typed_msg: dict[str, Any] = msg  # widen for _tokens
+                    typed_msg["_tokens"] = tokens
                 total += tokens
         return total
 

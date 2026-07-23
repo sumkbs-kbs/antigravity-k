@@ -119,8 +119,8 @@ class OrchestratorAgent:
         # 세션 자동 시작
         try:
             self.session_manager.start_session(project_path=self.project_root)
-        except Exception:
-            logger.exception("Session start failed")
+        except (RuntimeError, ConnectionError, AttributeError):
+            logger.warning("Session start failed (non-critical)", exc_info=True)
 
     def _init_evolution_coordinator(self):
         """Self-Evolution Coordinator를 초기화합니다. (self 참조 필요)"""
@@ -133,7 +133,7 @@ class OrchestratorAgent:
                         target=self._get_model_for_role("QA"),
                         max_tokens=256,
                     )
-                except Exception:
+                except (RuntimeError, ValueError):
                     return ""
             return ""
 
@@ -162,8 +162,8 @@ class OrchestratorAgent:
                     self.manager,
                 )
                 logger.info("[Orchestrator] SkillAutoLearner (Closed Learning Loop) 활성화 완료")
-            except Exception:
-                logger.exception("SkillAutoLearner init failed")
+            except (ImportError, RuntimeError, AttributeError):
+                logger.warning("SkillAutoLearner init failed", exc_info=True)
                 self._skill_auto_learner_instance = None
         return self._skill_auto_learner_instance
 
@@ -198,8 +198,8 @@ class OrchestratorAgent:
                     summarize_fn=summarize_fn,
                 )
                 logger.info("[Orchestrator] TrajectoryCompressor 활성화 완료")
-            except Exception:
-                logger.exception("TrajectoryCompressor init failed")
+            except (ImportError, RuntimeError, AttributeError, ValueError):
+                logger.warning("TrajectoryCompressor init failed", exc_info=True)
                 self._trajectory_compressor_instance = None
         return self._trajectory_compressor_instance
 
@@ -250,8 +250,8 @@ class OrchestratorAgent:
                     "[Orchestrator] ContextCompressor 활성화 완료 (token_limit=%s)",
                     token_limit,
                 )
-            except Exception:
-                logger.exception("ContextCompressor init failed")
+            except (ImportError, RuntimeError, AttributeError, ValueError):
+                logger.warning("ContextCompressor init failed", exc_info=True)
                 self._context_compressor_instance = None
         return self._context_compressor_instance
 
@@ -268,7 +268,7 @@ class OrchestratorAgent:
 
                 self._delegation_engine = DelegationEngine(self)
                 logger.info("[Orchestrator] DelegationEngine 활성화 완료")
-            except Exception:
+            except (ImportError, RuntimeError, AttributeError):
                 logger.warning("DelegationEngine init failed", exc_info=True)
                 self._delegation_engine = None
         return self._delegation_engine
@@ -394,7 +394,7 @@ class OrchestratorAgent:
         if hasattr(self, "mode_manager") and self.mode_manager:
             try:
                 return self.mode_manager.current_mode.value
-            except Exception:
+            except (AttributeError, ValueError):
                 logger.debug("mode_manager.current_mode 조회 실패 — interactive로 폴백")
         return "interactive"
 
@@ -620,7 +620,7 @@ class OrchestratorAgent:
 
                 self._code_tree_indexer = CodeTreeIndexer(project_root=self.project_root)
                 logger.info("[Proactive] CodeTreeIndexer 활성화 완료")
-            except Exception:
+            except (ImportError, RuntimeError, AttributeError):
                 logger.debug("CodeTreeIndexer init failed (non-critical)")
                 self._code_tree_indexer = None
 
@@ -634,7 +634,7 @@ class OrchestratorAgent:
                         stats["files_indexed"],
                         stats["tree_size_kb"],
                     )
-                except Exception:
+                except (RuntimeError, KeyError):
                     logger.debug("CodeTree 초기 빌드 실패 (non-critical)")
 
         return self._code_tree_indexer
@@ -667,7 +667,7 @@ class OrchestratorAgent:
                 self._max_engine.set_max_workers(max_workers)
 
                 logger.info("[MAX] MaxModeEngine 활성화 완료 (%s workers)", max_workers)
-            except Exception:
+            except (ImportError, RuntimeError, AttributeError):
                 logger.debug("MaxModeEngine init failed (non-critical)")
                 self._max_engine = None
 

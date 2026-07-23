@@ -1,0 +1,22 @@
+Sending prompt to /v1/chat/completions...
+Response: {
+  "id": "chatcmpl-5d5ef2ee4d3a",
+  "object": "chat.completion",
+  "created": 1778238644,
+  "model": "deepseek-r1:32b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "물론입니다! 아래 단계에 따라 데이터셋을 다운로드하고 학습을 진행하는 방법을 안내해 드리겠습니다.\n\n### 단계 1: 데이터셋 다운로드\nHugging Face_datasets 라이브러리를 사용하여 데이터셋을 다운로드할 수 있습니다. 먼저, 라이브러리를 설치합니다:\n\n```bash\npip install datasets\n```\n\n그런 다음, Python 스크립트에서 데이터셋을 로드 및 다운로드할 수 있습니다.\n\n### 단계 2: 데이터 준비 및 전처리\nGLM-5.1 모델에 맞는 형식으로 데이터를 준비해야 합니다. 텍스트를 모델이 이해할 수 있도록 토큰화하는 작업이 필요합니다.\n\n### 단계 3: 학습 설정\n학습을 위한 환경을 구성하고, 모델과 최적화기를 설정합니다. `trigger_self_evolution` 도구를 사용하여 self-play 모드로 학습을 진행합니다.\n\n### 단계 4: 학습 실행\n모든 준비가 완료되면 학습을 시작할 수 있습니다.\n\n### 예제 코드\n아래는 이러한 단계들을 구현한 예제입니다:\n\n```python\nfrom datasets import load_dataset\nimport torch\nfrom torch.utils.data import DataLoader\nfrom transformers import (\n    AutoTokenizer,\n    AutoModelForCausalLM,\n    TrainingArguments,\n    Trainer\n)\nfrom trigger_self_evolution import TriggerSelfEvolution\n\n# 데이터셋 다운로드\ndataset = load_dataset(\"Jackrong/GLM-5.1-Reasoning-1M-Cleaned\")\n\n# 토크나이저 로드\ntokenizer = AutoTokenizer.from_pretrained(\"THUDM/glm-5.1b\")\nmodel = AutoModelForCausalLM.from_pretrained(\"THUDM/glm-5.1b\")\n\n# 데이터셋 전처리 함수\ndef preprocess_function(examples):\n    texts = examples['text']\n    inputs = tokenizer(texts, return_token_type_ids=False)\n    input_ids = inputs.input_ids\n    attention_mask = inputs.attention_mask\n    labels = [i[1:] for i in input_ids]  # 다음 단어 예측을 위한 라벨 생성\n    input_ids = [i[:-1] for i in input_ids]\n    return {'input_ids': input_ids, 'attention_mask': attention_mask, 'labels': labels}\n\n# 데이터셋 전처리\ntokenized_datasets = dataset.map(preprocess_function, batched=True)\n\n# 데이터로더 설정\ntrain_loader = DataLoader(\n    tokenized_datasets['train'], \n    batch_size=8,\n    shuffle=True,\n    collate_fn=lambda x: {\n        'input_ids': torch.stack([x[i]['input_ids'] for i in range(len(x))]),\n        'attention_mask': torch.stack([x[i]['attention_mask'] for i in range(len(x))]),\n        'labels': torch.stack([x[i]['labels'] for i in range(len(x))])\n    }\n)\n\n# 학습 설정\ntraining_args = TrainingArguments(\n    output_dir='./results',\n    num_train_epochs=3,\n    per_device_train_batch_size=8,\n    warmup_steps=500,\n    weight_decay=0.01,\n    logging_dir='./logs',\n    logging_steps=10\n)\n\n# 모델 학습\ntrainer = Trainer(\n    model=model,\n    args=training_args,\n    train_dataset=tokenized_datasets['train'],\n    data_collator=lambda x: {\n        'input_ids': torch.stack([x[i]['input_ids'] for i in range(len(x))]),\n        'attention_mask': torch.stack([x[i]['attention_mask'] for i in range(len(x))]),\n        'labels': torch.stack([x[i]['labels'] for i in range(len(x))])\n    }\n)\n\n# Self-play 모드로 학습 진행\ntrigger = TriggerSelfEvolution(mode='self_play')\ntrainer.add_callback(trigger)\ntrainer.train()\n\nprint(\"학습이 완료되었습니다!\")\n```\n\n### 주의사항\n- **데이터셋 크기**: 1M 데이터는 큰 양의 데이터이므로, GPU를 사용하는 것이 좋습니다.\n- **메모리 관리**: 토크나이징 및 배치 처리시 메모리를 효율적으로 사용해야 합니다.\n- **학습 설정调剂**: 하이퍼파라미터를 조절하여 최상의 성능을引き出す 것이 중요합니다.\n\n이 예제 코드를 통해 데이터셋을 다운로드하고 GLM-5.1 모델을 학습할 수 있습니다. `trigger_self_evolution` 도구를 사용하여 모델의 자기진화 기능을 활성화시켜 더 나은 성능을 달성할 수 있을 것입니다!"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 43,
+    "completion_tokens": 727,
+    "total_tokens": 770
+  }
+}

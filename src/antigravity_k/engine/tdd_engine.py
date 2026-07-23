@@ -343,7 +343,7 @@ class OmniTDDEngine:
             "Output ONLY a single raw JSON object (no markdown fences, no explanations before or after). "
             'The JSON must have exactly two keys: "code" (the implementation) and "test_code" (the pytest tests). '
             "The test_code must import from 'solution' module (e.g. 'from solution import ...'). "
-            'Example output format: {"code": "def add(a,b):\\n    return a+b", "test_code": "from solution'  # type: ignore
+            'Example output format: {"code": "def add(a,b):\\n    return a+b", "test_code": "from solution'
             'import add\\n\\ndef test_add():\\n    assert add(1,2)==3"}'
         )
         user_prompt = f"Requirement:\n{prompt}\n\nReturn only the JSON object:"

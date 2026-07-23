@@ -63,8 +63,11 @@ def health_check():
         if getattr(orchestrator, "_cov_engine", None):
             cov_active = True
 
+    from antigravity_k import __version__
+
     return {
         "status": "ok",
+        "version": __version__,
         "backends": backends,
         "rag_index_files": rag_files,
         "cov_active": cov_active,

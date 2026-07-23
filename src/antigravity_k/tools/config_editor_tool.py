@@ -53,7 +53,7 @@ class ConfigEditorTool(BaseTool):
                 },
                 "model_data": {
                     "type": "object",
-                    "description": "For add/remove, provide the model dict. For update_agent_map, provide {'combo_name': '...'}. For"  # type: ignore  # noqa: E501
+                    "description": "For add/remove, provide the model dict. For update_agent_map, provide {'combo_name': '...'}. For"  # noqa: E501
                     "update_swarm, provide {'models': [...], 'strategy': '...'}",
                 },
             },

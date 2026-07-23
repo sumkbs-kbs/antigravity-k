@@ -17,7 +17,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -160,15 +161,53 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
     return TokenResponse(access_token=token, expires_in=get_token_service().ttl_seconds)
 
 
+@router.post("/token", response_model=TokenResponse)
+@_limiter.limit("5/minute")
+def token_login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
+    """OAuth2-compatible token endpoint (password grant type).
+
+    Swagger UI의 Authorize 버튼에서 사용됩니다.
+    `username` 필드에 액세스 PIN을 입력하면 JWT 토큰을 반환합니다.
+    `password` 필드는 무시됩니다 (자리 채움용).
+
+    Returns:
+        표준 OAuth2 token response: ``{"access_token": "...", "token_type": "bearer", "expires_in": ...}``
+    """
+    stored = get_current_pin_hash()
+    if stored is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is not configured on this server.",
+        )
+
+    if not verify_pin(form_data.username, stored):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid PIN.",
+        )
+
+    token = get_token_service().issue_token(subject="user")
+    return TokenResponse(
+        access_token=token,
+        expires_in=get_token_service().ttl_seconds,
+    )
+
+
 @router.post("/verify", response_model=VerifyResponse)
-def verify(request: Request) -> VerifyResponse:
-    """Verify whether the bearer token in the request is valid."""
+def verify_token(request: Request) -> VerifyResponse:
+    """Verify a bearer token is still valid.
+
+    Extracts the token from the Authorization header and checks its signature
+    and expiration. Returns the validation result and the token subject.
+    """
     token = _extract_bearer(request)
     if token is None:
-        return VerifyResponse(valid=False)
+        return VerifyResponse(valid=False, subject=None)
+
     claims = get_token_service().verify_token(token)
     if claims is None:
-        return VerifyResponse(valid=False)
+        return VerifyResponse(valid=False, subject=None)
+
     return VerifyResponse(valid=True, subject=claims.get("sub"))
 
 

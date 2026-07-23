@@ -119,7 +119,32 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[Startup] IDE Server init skipped")
 
+    # 7) API Cache 주기적 cleanup (5분 간격)
+    _cache_cleanup_task: asyncio.Task | None = None
+
+    try:
+        from antigravity_k.engine.api_cache import api_cache
+
+        async def _cache_cleanup_loop():
+            while True:
+                await asyncio.sleep(300)  # 5분
+                try:
+                    removed = await api_cache.clear_expired()
+                    if removed:
+                        logger.debug("[Cache] Periodic cleanup: %d expired entries removed", removed)
+                except Exception:
+                    logger.debug("[Cache] Cleanup error (non-critical)", exc_info=True)
+
+        _cache_cleanup_task = asyncio.create_task(_cache_cleanup_loop())
+        logger.info("[Startup] API Cache periodic cleanup started (interval=300s)")
+    except Exception:
+        logger.exception("[Startup] API Cache cleanup init skipped")
+
     yield
+
+    # Cancel cache cleanup
+    if _cache_cleanup_task is not None and not _cache_cleanup_task.done():
+        _cache_cleanup_task.cancel()
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")
     tasks = [task for task in getattr(app.state, "background_tasks", set()) if not task.done()]
@@ -159,9 +184,68 @@ from antigravity_k import __version__
 
 app = FastAPI(
     title="Antigravity-K API",
-    description="OpenAI-compatible API for Antigravity-K Local Engine",
+    description=(
+        "OpenAI-compatible API for Antigravity-K Local Engine — "
+        "로컬 AI 엔지니어링 에이전트. 채팅, 웹 검색, 파일 조작, "
+        "코드 생성/분석, Git 연동, 워크스페이스 관리 등 다양한 작업을 지원합니다.\n\n"
+        "## 주요 기능\n"
+        "- **채팅/LLM 추론**: OpenAI 호환 `/v1/chat/completions` 엔드포인트\n"
+        "- **웹 검색**: 다중 엔진(SearxNG, Jina, DuckDuckGo) 기반 실시간 검색\n"
+        "- **파일 시스템**: 워크스페이스 파일 읽기/쓰기/검색/관리\n"
+        "- **Git**: status, diff, commit, branch 등 전체 Git 워크플로우\n"
+        "- **에이전트**: 자율 태스크 실행, 도구 호출, 진화 학습\n"
+        "- **실시간**: WebSocket 기반 이벤트 스트리밍 및 터미널\n\n"
+        "## 인증\n"
+        "보호된 엔드포인트는 `Authorization: Bearer <token>` 또는 "
+        "`X-Access-Pin` 헤더로 인증합니다. `/api/auth/login`에서 토큰 발급 가능.\n"
+        "공개 엔드포인트: `/health`, `/docs`, `/openapi.json`, `/metrics`"
+    ),
     version=__version__,
     lifespan=lifespan,
+    contact={
+        "name": "Antigravity-K Team",
+        "url": "https://github.com/antigravity-k/antigravity-k",
+        "email": "team@antigravity-k.dev",
+    },
+    license_info={
+        "name": "MIT",
+        "identifier": "MIT",
+    },
+    servers=[
+        {"url": "http://localhost:8000", "description": "로컬 개발 서버"},
+        {"url": "https://api.antigravity-k.dev", "description": "프로덕션 서버"},
+    ],
+    externalDocs={
+        "description": "온보딩 가이드",
+        "url": "https://github.com/antigravity-k/antigravity-k/blob/main/ONBOARDING.md",
+    },
+    # 태그 메타데이터 — Swagger UI에서 그룹 설명 표시
+    openapi_tags=[
+        {"name": "chat", "description": "채팅 및 LLM 추론 엔드포인트 (OpenAI 호환)"},
+        {"name": "auth", "description": "인증 및 토큰 관리"},
+        {"name": "system", "description": "시스템 상태, 모드 전환, 설정 관리"},
+        {"name": "events", "description": "실시간 이벤트 스트리밍 (WebSocket)"},
+        {"name": "agent_tools", "description": "에이전트 도구 실행 및 관리"},
+        {"name": "agent_activity", "description": "에이전트 활동 로그 및 모니터링"},
+        {"name": "workspaces", "description": "워크스페이스 및 프로젝트 관리"},
+        {"name": "approval", "description": "에이전트 작업 승인 관리"},
+        {"name": "filesystem", "description": "파일 시스템 읽기/쓰기/검색"},
+        {"name": "git", "description": "Git 저장소 상태 및 작업"},
+        {"name": "code", "description": "코드 분석 및 인라인 제안"},
+        {"name": "legacy", "description": "이전 버전 호환 라우트"},
+    ],
+    # Swagger UI 접두사
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    swagger_ui_parameters={
+        "docExpansion": "list",  # 모든 엔드포인트 펼쳐서 표시
+        "defaultModelsExpandDepth": -1,  # 스키마 모델 접기
+        "tryItOutEnabled": True,  # Try it out 기본 활성화
+        "filter": True,  # 필터 검색창 표시
+        "syntaxHighlight.theme": "monokai",
+        "displayRequestDuration": True,  # 요청 시간 표시
+    },
 )
 
 # CORS origins from config or environment (AGK_CORS_ORIGINS)
@@ -189,7 +273,7 @@ app.add_middleware(
 # slowapi state + middleware registration
 # ---------------------------------------------------------------------------
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
 @app.middleware("http")
@@ -233,6 +317,7 @@ async def security_headers_middleware(request: Request, call_next):
 _PUBLIC_EXACT_PATHS = frozenset(
     {
         "/api/auth/login",
+        "/api/auth/token",
         "/health",
         "/v1/health",
         "/api/health/deep",
@@ -273,6 +358,11 @@ async def verify_access_token(request: Request, call_next):
          for existing dashboard clients during the migration window. Compared
          constant-time via PBKDF2 verification.
     """
+    # CORS preflight (OPTIONS) requests must bypass auth so that the
+    # CORSMiddleware can handle them with proper CORS headers.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     if _is_protected_path(request.url.path):
         from antigravity_k.api.auth_routes import authenticate_request
 
@@ -326,6 +416,72 @@ from antigravity_k.api.routes import api_router
 app.include_router(auth_router)
 app.include_router(api_router)
 
+
+# ---------------------------------------------------------------------------
+# OpenAPI OAuth2 Security Scheme — Swagger Authorize 버튼 활성화
+# ---------------------------------------------------------------------------
+from fastapi.openapi.utils import get_openapi  # noqa: E402
+
+
+def _custom_openapi():
+    """Generate OpenAPI schema with OAuth2 password flow security scheme.
+
+    Swagger UI의 Authorize 버튼에 OAuth2 password flow를 등록하여
+    사용자가 브라우저에서 바로 PIN을 입력하고 API를 테스트할 수 있게 합니다.
+    실제 인증은 ``verify_access_token`` 미들웨어에서 처리하며,
+    여기서는 OpenAPI 메타데이터만 추가합니다.
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=str(app.version),
+        openapi_version=app.openapi_version,
+        description=app.description,
+        terms_of_service=app.terms_of_service,
+        contact=app.contact,
+        license_info=app.license_info,
+        routes=app.routes,
+        tags=app.openapi_tags,
+        servers=app.servers,
+    )
+
+    # OAuth2 Password Flow 등록 — Swagger Authorize 버튼용
+    openapi_schema.setdefault("components", {})
+    openapi_schema["components"]["securitySchemes"] = {
+        "OAuth2Password": {
+            "type": "oauth2",
+            "flows": {
+                "password": {
+                    "tokenUrl": "/api/auth/token",
+                    "scopes": {},
+                }
+            },
+            "description": (
+                "액세스 PIN을 **username** 필드에 입력하세요. "
+                "(password 필드는 비워둬도 됩니다.) "
+                "토큰이 자동 발급되어 모든 요청에 포함됩니다."
+            ),
+        },
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": (
+                "발급받은 JWT 토큰을 그대로 입력하세요. "
+                "토큰은 POST /api/auth/login 또는 POST /api/auth/token 에서 발급받을 수 있습니다."
+            ),
+        },
+    }
+    openapi_schema["security"] = [{"OAuth2Password": []}]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = _custom_openapi  # type: ignore[assignment]
+
 # Prometheus metrics endpoint (public — Prometheus scrapers need access).
 # We expose a plain GET route at exactly /metrics (the ASGI mount from
 # make_asgi_app only serves /metrics/ with a trailing slash, which Prometheus
@@ -335,7 +491,10 @@ from fastapi import Response  # noqa: E402
 from antigravity_k.engine.metrics import render_metrics  # noqa: E402
 
 
-@app.get("/metrics")
+@app.get(
+    "/metrics",
+    include_in_schema=False,  # Prometheus scraper 전용 — Swagger UI 비노출
+)
 def metrics_endpoint() -> Response:
     """Prometheus exposition endpoint."""
     return Response(content=render_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
@@ -349,6 +508,8 @@ import uuid  # noqa: E402
 from antigravity_k.api.error_handler import (  # noqa: E402
     correlation_id_var,
     global_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
 )
 
 
@@ -371,7 +532,12 @@ async def correlation_id_middleware(request: Request, call_next):
         correlation_id_var.reset(token)
 
 
-# Register the catch-all exception handler so 500s never leak str(exc).
+# Register structured exception handlers so errors never leak internal details.
+from fastapi import HTTPException  # noqa: E402
+from fastapi.exceptions import RequestValidationError  # noqa: E402
+
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
 import httpx

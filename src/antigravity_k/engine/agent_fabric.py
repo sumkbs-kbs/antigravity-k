@@ -62,12 +62,13 @@ class AgentFabric:
         self.message_bus = MessageBus()
 
         # 관찰성
+        self.tracer = None
         try:
             from antigravity_k.engine.tracing import AgentTracer
 
             self.tracer = AgentTracer()
         except ImportError:
-            self.tracer = None  # type: ignore[assignment]
+            pass
 
         logger.info("[AgentFabric] Hybrid Fabric 초기화 완료")
 

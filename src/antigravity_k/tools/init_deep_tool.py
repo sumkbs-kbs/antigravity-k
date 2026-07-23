@@ -27,7 +27,7 @@ class InitDeepContextTool(BaseTool):
         super().__init__()
         self._name = "init_deep_context"
         self._description = (
-            "Generates hierarchical AGENTS.md files across the project directories to provide localized context"  # type: ignore
+            "Generates hierarchical AGENTS.md files across the project directories to provide localized context"
         )
         "for AI agents, preventing context bloat."
         self._schema = {

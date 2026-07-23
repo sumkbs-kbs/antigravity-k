@@ -10,12 +10,25 @@ These handlers access ``self._model_manager``, ``self._tool_registry``,
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class SlashCommandWorkflowMixin:
-    """Workflow, mode, and heavy-computation command handlers."""
+    """Workflow, mode, and heavy-computation command handlers.
+
+    Note: The following attributes are provided by ``SlashCommandRegistryBase``
+    via cooperative multiple inheritance (MRO).
+    """
+
+    # Mixin-required attributes (resolved via MRO at runtime)
+    _tool_registry: Any
+    _model_manager: Any
+    _session_manager: Any
+    _mode_manager: Any
+    _skill_loader: Any
+    _execute_natural_language: Any
 
     def _cmd_qa(self, args: list) -> str:
         """대시보드 DOM 기반 자가 점검."""

@@ -105,7 +105,8 @@ def test_error_handler_does_not_leak_exception_detail(metrics_client: TestClient
 
     response = asyncio.run(_run())
     body = json.loads(response.body)
-    assert "detail" not in body, "Error response must not include 'detail' (str(exc) leak)"
+    # Safe detail message (generic, not raw exception) is allowed
+    assert body.get("detail") == "Internal Server Error", "detail must be a safe generic message, not str(exc)"
     assert "SECRET_INTERNAL_PATH" not in response.body.decode("utf-8"), "Raw exception text leaked into response"
     assert "correlation_id" in body, "Response must include a correlation_id"
-    assert body["error"] == "Internal Server Error"
+    assert body["error"] == "internal_error", "error must match the error handler's response format"

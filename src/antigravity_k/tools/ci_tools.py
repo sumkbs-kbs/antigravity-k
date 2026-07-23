@@ -19,6 +19,8 @@ class TestRunnerTool(BaseTool):
     - auto_detect=true 시 커맨드 없이도 실행 가능
     """
 
+    __test__ = False  # pytest 수집 충돌 방지 (클래스명이 Test로 시작)
+
     category = ToolCategory.CODE_EXEC
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.MEDIUM
@@ -157,7 +159,11 @@ class TestRunnerTool(BaseTool):
         jest_fail = re.search(r"Tests:\s+(\d+) failed", output)
         if jest_fail:
             result["failed_count"] = int(jest_fail.group(1))
-        result["total"] = int(result["passed_count"]) + int(result["failed_count"]) + int(result["error_count"])  # type: ignore[arg-type]
+        from typing import cast
+
+        result["total"] = (
+            cast(int, result["passed_count"]) + cast(int, result["failed_count"]) + cast(int, result["error_count"])
+        )
 
         # 에러 메시지 추출
         if not result["passed"]:

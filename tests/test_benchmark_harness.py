@@ -207,10 +207,10 @@ class TestBenchmarkSlashCommand:
         assert "## mock table" in rendered
 
     def test_command_palette_exposes_benchmark_report(self):
-        js = Path("dashboard/src/command_palette.js").read_text(encoding="utf-8")
+        tsx = Path("dashboard/src/components/UI/CommandPalette.tsx").read_text(encoding="utf-8")
 
-        assert "Collective Benchmark Report (/benchmark)" in js
-        assert "chatInput.value = '/benchmark report'" in js
+        assert "Collective Benchmark Report (/benchmark)" in tsx
+        assert "text: '/benchmark report'" in tsx
 
 
 # ─── 영속화 테스트 ────────────────────────────────────────────────

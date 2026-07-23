@@ -6,6 +6,8 @@ rate limiting, daily reset, and dashboard data.
 
 from __future__ import annotations
 
+import pytest
+
 from antigravity_k.engine.cost_guard import (
     CostDecision,
     CostGuard,
@@ -213,3 +215,221 @@ class TestStatsAndDashboard:
         guard = CostGuard(daily_budget_usd=100, user_daily_budget_usd=100)
         remaining = guard.get_remaining_budget()
         assert remaining == 100.0
+
+
+# ---------------------------------------------------------------------------
+# resolve_pricing — model name → pricing lookup
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePricing:
+    """resolve_pricing() maps model names to pricing tiers."""
+
+    def test_exact_match(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("gpt-4o")
+        assert p["input"] == 2.50
+        assert p["output"] == 10.00
+
+    def test_free_suffix(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("anthropic/claude-3.5-sonnet:free")
+        assert p["input"] == 0.0
+
+    def test_deepseek_prefix(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("deepseek-ai/deepseek-r1")
+        assert p["input"] == 0.0  # NIM free
+
+    def test_meta_llama_nim(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("meta/llama-3.1-405b-instruct")
+        assert p["input"] == 0.0
+
+    def test_nvidia_prefix(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("nvidia/nemotron-4-ultra")
+        assert p["input"] == 0.0  # NIM
+
+    def test_unknown_model_defaults(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("completely-unknown-model")
+        assert p["input"] == 0.0
+        assert p["output"] == 0.0
+
+    def test_empty_model_returns_default(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("")
+        assert p["input"] == 0.0
+
+    def test_local_ollama_model(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("qwen3:72b")
+        assert p["input"] == 0.001  # local pricing
+
+    def test_max_mode(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("max_mode")
+        assert p["input"] == 0.0
+
+    def test_gpt4o_mini_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("gpt-4o-mini")
+        assert p["input"] == 0.15
+
+    def test_gpt4o_variant_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("openai/gpt-4o-2024-11-20")
+        assert p["input"] == 2.50
+
+    def test_claude_opus_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("anthropic/claude-opus-4-20250514")
+        assert p["input"] == 15.00
+
+    def test_claude_sonnet_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("claude-3-5-sonnet-20241022")
+        assert p["input"] == 3.00
+
+    def test_gemini_25_pro_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("gemini-2.5-pro-exp-03-25")
+        assert p["input"] == 1.25
+
+    def test_gemini_flash_fallback(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("gemini-2.0-flash-lite")
+        assert p["input"] == 0.10
+
+    def test_glm4_plus_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("glm-4-plus")
+        assert p["input"] == 0.70
+
+    def test_glm4_air_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("glm-4-air")
+        assert p["input"] == 0.10
+
+    def test_glm_generic_fallback(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("glm-4-flash")
+        assert p["input"] == 0.10  # glm-4-air pricing
+
+    def test_o3_mini_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("o3-mini")
+        assert p["input"] == 1.10
+
+    def test_o1_mini_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("o1-mini")
+        assert p["input"] == 1.10
+
+    def test_qwen3_next_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("qwen/qwen3-next-80b-a3b-instruct")
+        assert p["input"] == 0.30
+
+    def test_qwen3_72b_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("qwen/qwen3-72b")
+        assert p["input"] == 0.50
+
+    def test_qwen3_235b_matches(self):
+        from antigravity_k.engine.cost_guard import resolve_pricing
+
+        p = resolve_pricing("qwen3-235b-a35b")
+        assert p["input"] == 0.80
+
+
+# ---------------------------------------------------------------------------
+# _estimate_cost — precise cost calculation
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateCost:
+    """_estimate_cost() with various token/cache configurations."""
+
+    def test_estimate_with_cached_tokens(self):
+        guard = CostGuard()
+        cost = guard._estimate_cost(model="gpt-4o", tokens_in=2000, tokens_out=1000, cached_in=500)
+        # fresh=1500, cached=500
+        # (1500/1M * 2.5) + (500/1M * 1.25) + (1000/1M * 10)
+        # = 0.00375 + 0.000625 + 0.01 = 0.014375
+        assert cost == pytest.approx(0.014375, abs=1e-6)
+
+    def test_estimate_zero_tokens(self):
+        guard = CostGuard()
+        cost = guard._estimate_cost(model="gpt-4o", tokens_in=0, tokens_out=0)
+        assert cost == 0.0
+
+    def test_estimate_free_model_no_cost(self):
+        guard = CostGuard()
+        cost = guard._estimate_cost(model=":free", tokens_in=100000, tokens_out=50000)
+        assert cost == 0.0
+
+    def test_estimate_local_model(self):
+        guard = CostGuard()
+        cost = guard._estimate_cost(model="local", tokens_in=1000, tokens_out=500)
+        assert cost > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Daily reset
+# ---------------------------------------------------------------------------
+
+
+class TestDailyReset:
+    """_maybe_reset_daily() resets counters at UTC midnight."""
+
+    def test_no_reset_same_day(self):
+        guard = CostGuard()
+        guard.record_spend(10.0)
+        guard._maybe_reset_daily()
+        assert guard._global_daily_spend == 10.0
+
+    def test_stats_after_spend(self):
+        guard = CostGuard(daily_budget_usd=100)
+        guard.record_spend(25.0)
+        stats = guard.get_daily_stats()
+        assert stats["global_daily_spend_usd"] == 25.0
+        assert stats["remaining_usd"] == 75.0
+
+    def test_dashboard_data_contains_enabled(self):
+        guard = CostGuard(daily_budget_usd=100, hourly_action_limit=50, enabled=True)
+        guard.record_spend(5.0, model="gpt-4o", tokens_in=500, tokens_out=200)
+        data = guard.to_dashboard_data()
+        assert data["enabled"] is True
+        assert len(data["recent_spends"]) == 1
+        assert data["recent_spends"][0]["model"] == "gpt-4o"
+        assert data["recent_spends"][0]["tokens_in"] == 500
+
+    def test_usage_percent(self):
+        guard = CostGuard(daily_budget_usd=200)
+        guard.record_spend(50.0)
+        stats = guard.get_daily_stats()
+        assert stats["usage_percent"] == 25.0

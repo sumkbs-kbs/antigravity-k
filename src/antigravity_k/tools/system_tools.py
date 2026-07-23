@@ -606,17 +606,25 @@ class NaturalLanguageBashTool(BaseTool):
             from ..engine.model_manager import ModelManager
             from ..engine.orchestrator import OrchestratorAgent
 
-            prompt = "Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the"  # type: ignore  # noqa: E501
-            "command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
+            prompt = (
+                "Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the"  # noqa: E501
+                "command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
+            )
 
             try:
                 # Use default ModelManager and Orchestrator
-                model_manager = ModelManager()
+                from ..engine.model_registry import ModelRegistry
+
+                model_manager = ModelManager(registry=ModelRegistry())
                 orchestrator = OrchestratorAgent(model_manager=model_manager)
 
                 try:
-                    info = model_manager._registry.list_models()  # type: ignore[union-attr]
-                    target_model = info[0].name if info else "qwen3.6:latest"
+                    registry = model_manager._registry
+                    if registry is not None:
+                        info = registry.list_models()
+                        target_model = info[0].name if info else "qwen3.6:latest"
+                    else:
+                        target_model = "qwen3.6:latest"
                 except Exception:
                     target_model = "qwen3.6:latest"
 

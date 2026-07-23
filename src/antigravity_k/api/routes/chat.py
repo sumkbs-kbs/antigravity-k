@@ -335,28 +335,94 @@ async def chat_completions(
     if is_fast_search:
         try:
             from antigravity_k.engine.prompt_builder import PromptBuilder
+            from antigravity_k.engine.stock_code_validator import (
+                format_code_correction,
+                validate_query_stock_codes,
+            )
             from antigravity_k.tools.web_search import WebSearchTool
 
             tool = WebSearchTool()
-            search_res = tool.execute(query=slash_text)
+
+            # 종목코드 검증 및 쿼리 보강
+            stock_validation = validate_query_stock_codes(slash_text)
+            search_query = slash_text
+            stock_correction_note = ""
+            if stock_validation.needs_correction:
+                search_query = stock_validation.corrected_query
+                stock_correction_note = format_code_correction(stock_validation)
+                logger_auto.info(
+                    f"종목코드 교정: '{slash_text}' → '{search_query}' "
+                    f"(잘못된 코드: {[v.original_code for v in stock_validation.codes_found if v.needs_correction]})"
+                )
+
+            search_res = tool.execute(query=search_query)
 
             # 계층형 프롬프트 + Few-Shot 예시 + 적응형 샘플링
             from datetime import datetime as _dt
+            from datetime import timedelta as _td
 
-            today_str = _dt.now().strftime("%Y년 %m월 %d일")
+            now = _dt.now()
+            today_str = now.strftime("%Y년 %m월 %d일")
+            yesterday_str = (now - _td(days=1)).strftime("%Y년 %m월 %d일")
             pb = PromptBuilder()
+
+            # 종목코드 교정 노트를 컨텍스트에 추가 (있을 경우에만)
+            context_with_correction = search_res
+            if stock_correction_note:
+                context_with_correction = f"[종목코드 자동 교정 정보]\n{stock_correction_note}\n\n{search_res}"
+
+            # ─── 구조화 데이터 추출 (검색 결과에서 숫자/가격/날짜 자동 추출) ───
+            try:
+                from antigravity_k.engine.data_extractor import extract_structured_data
+
+                # search_res에서 구조화 데이터 추출
+                structured = extract_structured_data([search_res], query=slash_text)
+                if structured:
+                    context_with_correction = (
+                        f"{context_with_correction}\n\n"
+                        f"📊 **[구조화 데이터 추출] (검색 결과에서 자동 추출된 정확한 수치):**\n"
+                        f"{structured}\n\n"
+                        f"[중요] 위 데이터는 검색 결과에서 자동 추출된 값입니다. "
+                        f"답변 시 반드시 이 값을 우선적으로 사용하고 [N] 출처 번호도 함께 표기하세요."
+                    )
+            except Exception:
+                logger_auto.debug("구조화 데이터 추출 실패 (non-critical)", exc_info=True)
+            # ────────────────────────────────────────────────────────────────
+
             fast_prompt = pb.structured_prompt(
-                role="정보 조회 전문가",
+                role="정보 조회 전문가 — 검증된 데이터만 인용하고 추측을 절대 금지",
                 task=f"사용자의 질문에 가장 간결하고 정확하게 한국어로 답변하세요.\n질문: {slash_text}",
-                context=search_res,
+                context=context_with_correction,
                 constraints=[
-                    f"현재 날짜는 {today_str}입니다. 사용자가 '어제', '오늘' 등 상대적 날짜를 말하면 이 날짜를 기준으로 계산하세요.",
+                    f"현재 날짜는 {today_str}입니다. '어제'는 {yesterday_str}을 의미합니다.",
                     "반드시 한국어로 답변하세요.",
-                    "검색 결과의 출처 번호를 [1], [2] 형식으로 인용하세요.",
-                    "검색 결과에 명시된 데이터가 없으면 추측하지 말고 '해당 정보를 찾을 수 없습니다'라고 명확히 말하세요.",
-                    "불필요한 서론 없이 핵심 데이터부터 시작하세요.",
+                    "",
+                    "[필수 규칙]",
+                    "1. 검색 결과 본문의 모든 구체적 수치(종가, 시가, 고가, 저가, 거래량, 변동률, 기온 등)를 반드시 답변에 포함하세요. 검색 결과 [TOP 1 심층 분석] 데이터를 최우선으로 신뢰하세요.",
+                    "2. 검색 결과에 없는 수치는 절대 생성하지 마세요. 모르는 값은 '해당 정보는 검색 결과에 없습니다'라고만 답변하세요.",
+                    "3. 모든 수치 데이터 뒤에 반드시 출처 번호를 [N] 형식으로 표기하세요 (예: '종가 943,000원 [1]').",
+                    "4. 검색 결과에 명시된 기업명, 종목코드, 지명 등 고유명사를 원문 그대로 사용하세요. 사용자가 짧은 이름(예: '한화')을 써도 검색 결과의 공식 명칭('한화에어로스페이스')을 사용하세요.",
+                    "",
+                    "[금지 사항]",
+                    "5. '~할 수 있습니다', '~것으로 보입니다', '~예상됩니다', '~추정됩니다' 등 추측 표현을 절대 사용하지 마세요.",
+                    "6. '약', '대략', '정도', '가량' 등 불확실한 수치 표현을 절대 사용하지 마세요.",
+                    "7. 불필요한 서론, 일반적 맥락 설명 없이 핵심 데이터부터 즉시 시작하세요. 첫 문장은 반드시 가장 중요한 수치로 시작하세요.",
                 ],
-                output_format="마크다운 테이블과 핵심 수치를 우선 표시하세요.",
+                output_format="""
+**첫 줄:** 가장 중요한 수치를 굵게 + 출처 [N]
+**표:** 관련 데이터를 마크다운 테이블로 제시
+**설명:** 1-2줄 (필요시만)
+
+예: **한화에어로스페이스: 943,000원** (+1.51%) [1]
+
+| 구분 | 금액 |
+| :--- | :--- |
+| **종가** | **943,000원** [1] |
+| 시가 | 930,000원 [1] |
+| 고가 | 970,000원 [1] |
+| 저가 | 905,000원 [1] |
+| 거래량 | 142,859주 [1] |
+""",
                 few_shot=pb.get_task_few_shots("SEARCH"),
             )
 

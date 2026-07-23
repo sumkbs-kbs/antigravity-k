@@ -301,3 +301,67 @@ class TestStripCredentials:
     def test_handles_non_dict(self):
         assert strip_credentials("string") == "string"
         assert strip_credentials(123) == 123
+
+    def test_handles_list(self):
+        data = [{"api_key": "secret123"}, {"name": "test"}]
+        result = strip_credentials(data)
+        assert result[0]["api_key"] != "secret123"
+        assert result[1]["name"] == "test"
+
+    def test_handles_none_and_bool(self):
+        assert strip_credentials(None) is None
+        assert strip_credentials(True) is True
+        assert strip_credentials(False) is False
+
+    def test_detects_gitlab_token(self):
+        matches = scan_for_secrets("glpat-abcdef1234567890abcdef")
+        assert len(matches) >= 1
+        assert "GitLab" in matches[0].pattern
+
+    def test_detects_npm_token(self):
+        matches = scan_for_secrets("npm_" + "a" * 36)
+        assert len(matches) >= 1
+        assert "npm" in matches[0].pattern
+
+    def test_detects_groq_key(self):
+        matches = scan_for_secrets("gsk_abcdefghij1234567890")
+        assert len(matches) >= 1
+        assert "Groq" in matches[0].pattern
+
+    def test_detects_telegram_bot_token(self):
+        # Telegram bot token: 8-10 digits + colon + exactly 35 alphanumeric chars
+        matches = scan_for_secrets("1234567890:ABCdefGHIjklMNOpqrsTUVwxyzABCDEFGHI")
+        assert len(matches) >= 1
+        assert "Telegram" in matches[0].pattern
+
+    def test_detects_discord_bot_token_context(self):
+        matches = scan_for_secrets("DISCORD_TOKEN=MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Ng")
+        assert len(matches) >= 1
+        # May match as Environment credential or Discord depending on regex ordering
+        assert any("Discord" in m.pattern or "credential" in m.pattern.lower() for m in matches)
+
+    def test_detects_github_pat(self):
+        matches = scan_for_secrets("github_pat_" + "a" * 30)
+        assert len(matches) >= 1
+        assert "GitHub" in matches[0].pattern
+
+    def test_credential_field_pattern_matches(self):
+        assert is_credential_field("accessToken") is True
+        assert is_credential_field("apiKey") is True
+        assert is_credential_field("client_secret") is True
+        assert is_credential_field("refresh_token") is True
+
+    def test_credential_field_case_sensitivity(self):
+        assert is_credential_field("API_KEY") is False  # case-sensitive set lookup
+        assert is_credential_field("ApiKey") is False
+
+    def test_is_memory_path_multiple_segments(self):
+        assert is_memory_path("/working_memory/cache.txt") is True
+        assert is_memory_path("/session_data/active.json") is True
+        assert is_memory_path("/credentials/db.txt") is True
+        assert is_memory_path("/api_keys/openai.key") is True
+        assert is_memory_path("/var/log/app.log") is False
+
+    def test_non_string_input_scan(self):
+        assert scan_for_secrets(12345) == []
+        assert scan_for_secrets(None) == []

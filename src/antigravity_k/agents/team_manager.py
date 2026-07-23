@@ -269,8 +269,10 @@ class TeamManager:
                         plan_prompt += f"\nContext: {context}"
                     plan_content = agent.run(plan_prompt, model_manager=self.model_manager)
 
-                    checklist_prompt = "Based on this implementation plan, generate a concise checklist of steps to execute. Provide only the items, one"  # type: ignore  # noqa: E501
-                    "per line, with no introductory text or bullet points.\nPlan:\n{plan_content}"
+                    checklist_prompt = (
+                        "Based on this implementation plan, generate a concise checklist of steps to execute. Provide only the items, one"  # noqa: E501
+                        "per line, with no introductory text or bullet points.\nPlan:\n{plan_content}"
+                    )
                     checklist_content = agent.run(
                         checklist_prompt,
                         model_manager=self.model_manager,

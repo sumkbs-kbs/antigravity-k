@@ -27,7 +27,7 @@ class GenerateImageTool(BaseTool):
         """
         super().__init__()
         self._name = "generate_image"
-        self._description = "Generate an image or edit existing images based on a text prompt. The resulting image will be saved to the artifacts"  # type: ignore  # noqa: E501
+        self._description = "Generate an image or edit existing images based on a text prompt. The resulting image will be saved to the artifacts"  # noqa: E501
         "directory. You can use this tool to generate user interfaces, mockups, or design assets."
         self._schema = {
             "type": "object",

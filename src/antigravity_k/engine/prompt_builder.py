@@ -212,6 +212,8 @@ class PromptBuilder:
         constraints: list[str] | None = None,
         output_format: str = "",
         few_shot: list[dict[str, str]] | None = None,
+        planning_mode: bool = False,
+        artifact_formatting: bool = False,
     ) -> str:
         """계층화된 섹션으로 구성된 프롬프트를 생성합니다.
 
@@ -225,6 +227,8 @@ class PromptBuilder:
             constraints: 지켜야 할 제약 조건 목록
             output_format: 출력 형식 지정
             few_shot: 입출력 예시 목록 [{"input": "...", "output": "..."}]
+            planning_mode: Planning Mode 지침 포함 여부
+            artifact_formatting: Artifact 포맷팅 규칙 포함 여부
 
         Returns:
             섹션으로 구분된 구조화 프롬프트
@@ -251,6 +255,14 @@ class PromptBuilder:
         if context:
             sections.append(f"[CONTEXT]\n{context}")
 
+        # [ARTIFACTS] 아티팩트 포맷팅 규칙
+        if artifact_formatting:
+            sections.append(f"[ARTIFACTS]\n{self.artifact_formatting_rules()}")
+
+        # [PLANNING_MODE] Planning Mode 지침
+        if planning_mode:
+            sections.append(f"[PLANNING_MODE]\n{self.planning_mode_instructions()}")
+
         # [EXAMPLES] Few-Shot 예시
         if few_shot:
             examples = []
@@ -266,6 +278,84 @@ class PromptBuilder:
         sections.append(f"[TASK]\n{task}")
 
         return "\n\n".join(sections)
+
+    # ─── Artifact Formatting Rules ─────────────────────────────────
+
+    def artifact_formatting_rules(self) -> str:
+        """Artifact 마크다운 포맷팅 규칙을 반환합니다.
+
+        Google Tolaria Architecture 스타일의 아티팩트 작성을 위한
+        템플릿 구조, GitHub Alerts, render_diffs() 표기법을 포함합니다.
+
+        Returns:
+            아티팩트 포맷팅 규칙 문자열
+
+        """
+        return (
+            "## 📑 Artifact Formatting Rules (Google Tolaria Architecture)\n\n"
+            "When creating architecture changes or complex feature implementations, "
+            "you MUST write formal artifacts using the following structure.\n\n"
+            "### 1. implementation_plan.md — Architecture & Plan\n"
+            "Write to `artifacts/implementation_plan.md` using `write_file` tool.\n"
+            "Required sections:\n"
+            "- **Overview**: 목표와 범위 설명\n"
+            "- **Technical Approach**: 기술 설계 및 아키텍처 다이어그램 (Mermaid 권장)\n"
+            "- **Implementation Steps**: 단계별 구현 계획\n"
+            "- **Task List**: 실행 가능한 체크박스 태스크 목록 (`- [ ] task`)\n"
+            "- **Timeline / Priority**: 일정 및 우선순위\n\n"
+            "### 2. task.md — Task Tracking\n"
+            "Write to `artifacts/task.md` after plan approval.\n"
+            "Format:\n"
+            "- `- [ ] task description` — 할 일\n"
+            "- `- [x] completed task` — 완료된 작업\n"
+            "- Group tasks under `## Section Title` headings\n\n"
+            "### 3. walkthrough.md — Summary & Learning\n"
+            "Write to `artifacts/walkthrough.md` after build completion.\n"
+            "Include: What was done, key decisions, lessons learned.\n\n"
+            "### 4. GitHub-Style Alerts\n"
+            "Use these alert blocks for emphasis:\n"
+            "> [!NOTE]\n> Useful information that users should know, even when skimming.\n\n"
+            "> [!TIP]\n> Helpful advice for doing things better or more easily.\n\n"
+            "> [!IMPORTANT]\n> Key information users need to know to achieve their goal.\n\n"
+            "> [!WARNING]\n> Urgent info that needs immediate user attention to avoid problems.\n\n"
+            "> [!CAUTION]\n> Advises about risks or negative outcomes of certain actions.\n\n"
+            "### 5. render_diffs() Notation\n"
+            "When showing file changes, use the render_diffs() format:\n"
+            "`render_diffs(src/antigravity_k/engine/prompt_builder.py)`\n"
+            "This helps visualize what changed in each file.\n\n"
+            "### 6. Mermaid Diagrams\n"
+            "Use mermaid for architecture visualization:\n"
+            "```mermaid\n"
+            "graph TD\n"
+            "    A[Component A] --> B[Component B]\n"
+            "```\n"
+            "Supported diagram types: graph, flowchart, sequenceDiagram, classDiagram, stateDiagram\n"
+        )
+
+    def planning_mode_instructions(self) -> str:
+        """Planning Mode 실행 지침을 반환합니다.
+
+        복잡한 아키텍처 변경이나 다중 파일 수정이 필요한 작업에서
+        Plan → Approval → Build → Review 사이클을 강제합니다.
+
+        Returns:
+            Planning Mode 명령어 문자열
+
+        """
+        return (
+            "## 🎯 Planning Mode Instructions\n\n"
+            "When the task involves architecture changes, refactoring, or complex feature implementation:\n\n"
+            "1. **STOP** — Do NOT write code immediately.\n"
+            "2. **PLAN** — Create `artifacts/implementation_plan.md` with the structure above.\n"
+            "3. **APPROVAL** — Include `[APPROVAL REQUIRED]` in your response and wait.\n"
+            "4. **BUILD** — After approval, create `artifacts/task.md` and execute tasks.\n"
+            "5. **REVIEW** — Update `artifacts/walkthrough.md` with outcomes and lessons.\n\n"
+            "**CRITICAL RULES:**\n"
+            "- Never skip to code before writing a plan for complex tasks.\n"
+            "- Each artifact MUST contain the `[APPROVAL REQUIRED]` marker when awaiting feedback.\n"
+            "- Use `write_file` tool to create artifact files in the `artifacts/` directory.\n"
+            "- After writing a plan, output `[APPROVAL REQUIRED]` and stop generating.\n"
+        )
 
     def get_task_few_shots(self, task_type: str) -> list[dict[str, str]]:
         """작업 유형별 기본 Few-Shot 예시를 반환합니다.

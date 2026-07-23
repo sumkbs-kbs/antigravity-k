@@ -109,7 +109,7 @@ class ElementInfo:
             return self.placeholder[:60]
         return self.tag
 
-    def to_compact_line(self) -> str:
+    def to_compact_line(self, include_bbox: bool = True) -> str:
         """LLM 컨텍스트용 한 줄 표현."""
         parts = [self.ref, f"[{self.role.value}]"]
 
@@ -126,7 +126,7 @@ class ElementInfo:
         if self.is_disabled:
             parts.append("(disabled)")
 
-        if self.bbox:
+        if include_bbox and self.bbox:
             parts.append(self.bbox.to_compact())
 
         return " ".join(parts)
@@ -470,7 +470,7 @@ class SemanticDOMParser:
             elements = [e for e in elements if e.is_interactable]
 
         for el in elements[:max_elements]:
-            lines.append(el.to_compact_line())
+            lines.append(el.to_compact_line(include_bbox=include_bbox))
 
         if len(elements) > max_elements:
             lines.append(f"... and {len(elements) - max_elements} more elements")

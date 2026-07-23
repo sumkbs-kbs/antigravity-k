@@ -146,8 +146,10 @@ class AutonomousCapabilityPolicy:
         """
         metadata = tool.to_metadata() or {}
         risk = str(metadata.get("risk_level") or "medium")
-        mcp = metadata.get("mcp") if isinstance(metadata.get("mcp"), Mapping) else {}
-        trust = str(mcp.get("trust_level") or metadata.get("trust_level") or "builtin")  # type: ignore[union-attr]
+        mcp_raw = metadata.get("mcp")
+        mcp: dict[str, Any] = dict(mcp_raw) if isinstance(mcp_raw, Mapping) else {}
+        mcp_trust = mcp.get("trust_level")
+        trust = str(mcp_trust or metadata.get("trust_level") or "builtin")
         capability_id = str(metadata.get("name") or getattr(tool, "name", "tool"))
 
         if mcp and mcp.get("remote") and not mcp.get("authenticated"):
@@ -321,7 +323,7 @@ class AutonomousCapabilityPolicy:
             "high capabilities when they directly advance the task.\n"
             "- Use MCP tools only after config audit has accepted the server and tool annotations are mapped to risk.\n"
             "- Auto-activate relevant local or verified skills; do not inject irrelevant skills into context.\n"
-            "- Ask approval before critical desktop/computer control, irreversible operations, deployment,"  # type: ignore
+            "- Ask approval before critical desktop/computer control, irreversible operations, deployment,"
             "deletion, payment, or protected-path access.\n"
             "- Deny unauthenticated remote MCP capabilities and dangerous shell patterns.\n"
         )
