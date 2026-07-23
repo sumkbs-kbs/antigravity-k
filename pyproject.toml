@@ -38,7 +38,7 @@ dependencies = [
 mlx = [
     "mlx>=0.22.0,<1.0",
     "mlx-lm>=0.31.0,<1.0",
-    "mlx-vlm>=0.2.0,<0.3",
+    "mlx-vlm>=0.2.0,<0.7",
 ]
 # RAG / 문서 파싱
 rag = [
