@@ -46,7 +46,7 @@ class SessionManager:
         )
         os.makedirs(self.base_dir, exist_ok=True)
 
-        self._current_session: dict | None = None
+        self._current_session: dict[str, Any] | None = None
         self._session_id: str | None = None
 
     # ─────────── 세션 라이프사이클 ───────────
@@ -120,7 +120,11 @@ class SessionManager:
     # ─────────── Turn Memory ───────────
 
     def add_turn(
-        self, messages: list[dict[str, str]] | None = None, *, role: str | None = None, content: str | None = None
+        self,
+        messages: list[dict[str, str]] | None = None,
+        *,
+        role: str | None = None,
+        content: str | None = None,
     ):
         """턴(사용자 입력 + 어시스턴트 응답)을 세션에 추가합니다.
 
@@ -202,6 +206,138 @@ class SessionManager:
         """Working Memory를 반환합니다 (get_all_memory의 별칭 — BuiltinMemoryProvider 호환)."""
         return self.get_all_memory()
 
+    def clear_memory(self, scope: str = "all") -> int:
+        if scope not in {"session", "working", "project", "global", "all"}:
+            raise ValueError(f"Unsupported memory scope: {scope}")
+        if scope in {"project", "global"}:
+            return 0
+        if scope == "all":
+            deleted = 0
+            current_path = Path(self.base_dir) / f"{self._session_id}.json"
+            if self._current_session:
+                deleted += len(self._current_session.get("messages", []))
+                deleted += len(self._current_session.get("working_memory", {}))
+            for session_path in Path(self.base_dir).glob("*.json"):
+                if session_path != current_path:
+                    try:
+                        with session_path.open(encoding="utf-8") as session_file:
+                            data = json.load(session_file)
+                    except (OSError, json.JSONDecodeError):
+                        data = {}
+                    if isinstance(data, dict):
+                        deleted += len(data.get("messages", []))
+                        deleted += len(data.get("working_memory", {}))
+                session_path.unlink()
+            self._current_session = None
+            self._session_id = None
+            return deleted
+
+        if not self._current_session:
+            return 0
+
+        deleted = 0
+        if scope == "session":
+            messages = self._current_session.get("messages", [])
+            deleted += len(messages)
+            self._current_session["messages"] = []
+            self._current_session["turn_count"] = 0
+            self._current_session["metadata"] = {
+                "total_tokens_used": 0,
+                "tools_used": [],
+                "files_modified": [],
+            }
+        if scope == "working":
+            deleted += len(self._current_session.get("working_memory", {}))
+            self._current_session["working_memory"] = {}
+
+        self.save()
+        return deleted
+
+    def export_memory(self, scope: str = "all") -> list[dict[str, Any]]:
+        if scope not in {"session", "working", "project", "global", "all"}:
+            raise ValueError(f"Unsupported memory scope: {scope}")
+        if scope in {"project", "global"}:
+            return []
+        if scope == "all":
+            records = []
+            current_path = Path(self.base_dir) / f"{self._session_id}.json"
+            for session_path in Path(self.base_dir).glob("*.json"):
+                if session_path == current_path and self._current_session is not None:
+                    records.append({"session_id": session_path.stem, "data": self._current_session})
+                    continue
+                try:
+                    data = json.loads(session_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                records.append({"session_id": session_path.stem, "data": data})
+            return records
+        if not self._current_session:
+            return []
+        key = "messages" if scope == "session" else "working_memory"
+        return [{"session_id": self._session_id, "scope": scope, "data": self._current_session.get(key, {})}]
+
+    def redact_memory(self, scope: str = "all") -> int:
+        records = self.export_memory(scope)
+        if scope in {"project", "global"}:
+            return 0
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        def redact_value(value):
+            if isinstance(value, str):
+                redacted = redact_full(value)
+                return redacted, int(redacted != value)
+            if isinstance(value, dict):
+                changed = 0
+                result = {}
+                for key, item in value.items():
+                    result[key], count = redact_value(item)
+                    changed += count
+                return result, changed
+            if isinstance(value, list):
+                changed = 0
+                result = []
+                for item in value:
+                    redacted, count = redact_value(item)
+                    result.append(redacted)
+                    changed += count
+                return result, changed
+            return value, 0
+
+        changed = 0
+        if scope == "all":
+            for record in records:
+                data, count = redact_value(record["data"])
+                changed += count
+                path = Path(self.base_dir) / f"{record['session_id']}.json"
+                if path == Path(self.base_dir) / f"{self._session_id}.json" and isinstance(data, dict):
+                    self._current_session = data
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        elif self._current_session:
+            data = dict(self._current_session)
+            key = "messages" if scope == "session" else "working_memory"
+            data[key], count = redact_value(data.get(key, {}))
+            self._current_session = data
+            changed += count
+            self.save()
+        return changed
+
+    def apply_retention(self, max_age_days: int) -> int:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        cutoff = time.time() - (max_age_days * 86400)
+        current_path = Path(self.base_dir) / f"{self._session_id}.json"
+        deleted = 0
+        for session_path in Path(self.base_dir).glob("*.json"):
+            if session_path == current_path:
+                continue
+            try:
+                if session_path.stat().st_mtime < cutoff:
+                    session_path.unlink()
+                    deleted += 1
+            except OSError:
+                continue
+        return deleted
+
     # ─────────── 메타데이터 추적 ───────────
 
     def record_tool_use(self, tool_name: str):
@@ -225,7 +361,7 @@ class SessionManager:
 
     # ─────────── 세션 조회 ───────────
 
-    def list_sessions(self, limit: int = 10) -> list[dict]:
+    def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
         """최근 세션 목록을 반환합니다."""
         sessions = []
         for fname in os.listdir(self.base_dir):
@@ -289,8 +425,12 @@ class SessionManager:
         """디스크에서 세션을 로드합니다."""
         try:
             with open(fpath, encoding="utf-8") as f:
-                self._current_session = json.load(f)
-            self._session_id = self._current_session.get("id")
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise TypeError("Session file must contain a JSON object")
+            self._current_session = data
+            session_id = data.get("id")
+            self._session_id = session_id if isinstance(session_id, str) else None
         except Exception:
             logger.exception("Failed to load session")
             self._current_session = None

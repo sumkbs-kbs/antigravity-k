@@ -3,6 +3,7 @@
 import json
 import logging
 import platform
+from typing import Any
 
 import psutil
 
@@ -27,7 +28,7 @@ class HardwareAnalystAgent:
         """
         self.model_manager = model_manager
 
-    def _get_system_specs(self) -> dict:
+    def _get_system_specs(self) -> dict[str, Any]:
         """현재 시스템의 물리적 스펙을 수집합니다."""
         specs = {
             "os": platform.system(),
@@ -70,6 +71,7 @@ Format as ONLY a JSON object:
     "roi_justification": "Why this investment is worth it in terms of developer hours saved"
 }}
 """
+        response = ""
         try:
             response = self.model_manager.generate(
                 prompt,

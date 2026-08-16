@@ -113,11 +113,11 @@ class ToolCallGuardrailConfig:
     no_progress_warn_after: int = 2
     no_progress_block_after: int = 5
 
-    idempotent_tools: frozenset = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
-    mutating_tools: frozenset = field(default_factory=lambda: MUTATING_TOOL_NAMES)
+    idempotent_tools: frozenset[str] = field(default_factory=lambda: IDEMPOTENT_TOOL_NAMES)
+    mutating_tools: frozenset[str] = field(default_factory=lambda: MUTATING_TOOL_NAMES)
 
     @classmethod
-    def from_config(cls, data: Mapping[str, Any] | None = None) -> "ToolCallGuardrailConfig":
+    def from_config(cls, data: Mapping[str, Any] | None = None) -> ToolCallGuardrailConfig:
         """config.yaml의 `tool_loop_guardrails` 섹션에서 설정 로드."""
         if not isinstance(data, Mapping):
             return cls()
@@ -171,7 +171,7 @@ class ToolCallSignature:
     args_hash: str
 
     @classmethod
-    def from_call(cls, tool_name: str, args: Mapping[str, Any]) -> "ToolCallSignature":
+    def from_call(cls, tool_name: str, args: Mapping[str, Any]) -> ToolCallSignature:
         """From Call.
 
         Args:
@@ -226,7 +226,7 @@ class ToolGuardrailDecision:
             dict[str, Any]: The dict[str, any] result.
 
         """
-        data = {
+        data: dict[str, Any] = {
             "action": self.action,
             "code": self.code,
             "message": self.message,
@@ -248,6 +248,15 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
     """
     if result is None:
         return False, ""
+
+    # run_bash_command surfaces [exit_code=N] for non-zero exits.
+    stripped = result.strip()
+    if (
+        tool_name == "run_bash_command"
+        and stripped.startswith("[exit_code=")
+        and not stripped.startswith("[exit_code=0]")
+    ):
+        return True, " [non-zero exit]"
 
     # 터미널: exit_code 기반
     if tool_name == "terminal":

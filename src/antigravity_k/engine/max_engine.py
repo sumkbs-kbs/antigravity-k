@@ -83,7 +83,7 @@ class MaxModeEngine:
         self,
         orchestrator,
         worker_count: int,
-        messages: list,
+        messages: list[dict[str, Any]],
         prompt: str,
     ) -> str:
         """N개 워커 spawn 전에 비용 예산을 사전 검사합니다.
@@ -316,7 +316,7 @@ class MaxModeEngine:
                 "strategy": "default",
                 "temperature": 0.2,
                 "description": "정밀 실행",
-            }
+            },
         )
 
         # Worker 2: 다른 모델 + 창의 전략 (최대 2개까지만)
@@ -327,7 +327,7 @@ class MaxModeEngine:
                     "strategy": "creative",
                     "temperature": 0.7,
                     "description": "창의적 접근",
-                }
+                },
             )
 
         # Worker 3: 세 번째 모델 + 안전 전략
@@ -338,7 +338,7 @@ class MaxModeEngine:
                     "strategy": "safe",
                     "temperature": 0.1,
                     "description": "안정적 접근",
-                }
+                },
             )
 
         # Worker 4: 첫 번째 모델로 균형 전략 (워커가 최소 2개는 되도록)
@@ -528,7 +528,7 @@ class MaxModeEngine:
             candidates.append(
                 f"[Candidate {i + 1}] — Model: {r.model}, Strategy: {r.strategy}\n"
                 f"Time: {r.elapsed_sec}s, Length: {len(r.output)} chars\n"
-                f"---\n{output_preview}\n---\n"
+                f"---\n{output_preview}\n---\n",
             )
 
         candidate_text = "\n\n".join(candidates)
@@ -554,7 +554,8 @@ class MaxModeEngine:
             qa_model = self._get_qa_model(delegate_to, orchestrator)
 
             # 비용 게이트: selector LLM 호출 전 예산 확인 (추가 비용 보호)
-            cost_guard = getattr(getattr(orchestrator, "ctx", None), "cost_guard", None)
+            context = vars(orchestrator).get("ctx") if hasattr(orchestrator, "__dict__") else None
+            cost_guard = getattr(context, "cost_guard", None)
             if cost_guard is not None:
                 sel_decision = cost_guard.check_budget(
                     model=qa_model,
@@ -614,7 +615,7 @@ class MaxModeEngine:
         for i, r in enumerate(results):
             marker = "← SELECTED" if i == selected_idx else ""
             worker_details.append(
-                f"  Worker {i + 1}: {r.model} [{r.strategy}] — {len(r.output)} chars in {r.elapsed_sec}s {marker}"
+                f"  Worker {i + 1}: {r.model} [{r.strategy}] — {len(r.output)} chars in {r.elapsed_sec}s {marker}",
             )
 
         return (

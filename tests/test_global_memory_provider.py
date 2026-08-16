@@ -8,6 +8,7 @@ import pytest
 from antigravity_k.engine.memory_provider import (
     GlobalMemoryProvider,
     MemoryManager,
+    WorkingMemoryBuffer,
 )
 
 
@@ -140,3 +141,77 @@ class TestMemoryManagerIntegration:
         manager.add_provider(provider)
         result = manager.prefetch_all("한국어")
         assert "한국어" in result
+
+
+class TestIdentityFactExtraction:
+    def test_sync_turn_extracts_user_name_into_durable_identity_facts(self, provider):
+        # Given: a turn where the user states their name in natural Korean.
+        provider.sync_turn("내 이름은 김철수야", "안녕하세요!")
+
+        # When / Then: the name is extracted into keyed identity facts (not a decaying
+        # episode) so it survives consolidation and persists across projects.
+        assert provider.get_identity_fact("name") == "김철수"
+
+    def test_identity_facts_persist_across_instances(self, provider, tmp_path):
+        # Given: one instance learns the name.
+        provider.sync_turn("my name is Alice", "hello Alice")
+
+        # When: a fresh instance loads the same memory dir.
+        provider2 = GlobalMemoryProvider(memory_dir=str(tmp_path))
+
+        # Then: the identity fact is durable across process restarts.
+        assert provider2.get_identity_fact("name") == "Alice"
+
+    def test_name_conflict_resolves_to_latest_value(self, provider):
+        # Given: the user corrects their name in a later turn.
+        provider.sync_turn("내 이름은 김철수야", "ok")
+        provider.sync_turn("내 이름은 이영희로 바꿨어", "ok")
+
+        # Then: conflict resolution keeps the latest stated value, not both.
+        assert provider.get_identity_fact("name") == "이영희"
+
+    def test_prefetch_always_includes_identity_facts(self, provider):
+        # Given: a name was learned but the current query shares no keywords.
+        provider.sync_turn("내 이름은 김철수야", "ok")
+
+        # When: an unrelated query is prefetched.
+        recall = provider.prefetch("날씨 어때")
+
+        # Then: the identity fact surfaces regardless, because personalization context
+        # is high-importance and relevant to every personalized response.
+        assert "김철수" in recall
+
+    def test_no_false_positive_on_unrelated_message(self, provider):
+        # Given: a message that does not state an identity fact.
+        provider.sync_turn("오늘 날씨 정말 좋다", "네, 맑네요.")
+
+        # Then: nothing is extracted.
+        assert provider.get_identity_fact("name") is None
+
+
+class TestWorkingMemoryBuffer:
+    def test_pinned_turn_survives_non_pinned_evictions(self):
+        # Given: an early assistant instruction is pinned in a small buffer.
+        buffer = WorkingMemoryBuffer(max_turns=2)
+        buffer.sync_turn("discard user", "retain assistant")
+        buffer.pin_turn(1)
+        buffer.sync_turn("middle user", "middle assistant")
+
+        # When: a later turn requires two non-pinned evictions.
+        buffer.sync_turn("latest user", "latest assistant")
+
+        # Then: the pinned instruction remains available to the next model call.
+        assert "retain assistant" in [turn["content"] for turn in buffer.get_recent(3)]
+
+    def test_prefetch_marks_pinned_turn_in_recent_slice(self):
+        # Given: the pinned turn is inside the recent context slice but not at index zero.
+        buffer = WorkingMemoryBuffer(max_turns=6)
+        for index in range(6):
+            buffer.sync_turn(f"user {index}", f"assistant {index}")
+        buffer.pin_turn(11)
+
+        # When: working memory is formatted for model-context injection.
+        recalled = buffer.prefetch("anything")
+
+        # Then: the pin signal stays attached to its absolute turn index.
+        assert "📌 assistant: assistant 5" in recalled

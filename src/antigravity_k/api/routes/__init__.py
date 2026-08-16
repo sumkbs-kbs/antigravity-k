@@ -15,6 +15,7 @@ from .filesystem import router as filesystem_router
 from .git_api import router as git_router
 from .legacy import router as legacy_router
 from .system_api import router as system_api_router
+from .vault_privacy import router as vault_privacy_router
 from .workspace_links import router as workspace_links_router
 
 api_router = APIRouter()
@@ -25,6 +26,7 @@ api_router.include_router(chat_router, tags=["chat"])
 api_router.include_router(events_router, tags=["events"])
 api_router.include_router(filesystem_router, tags=["filesystem"])
 api_router.include_router(system_api_router, tags=["system"])
+api_router.include_router(vault_privacy_router, tags=["memory"])
 api_router.include_router(legacy_router, tags=["legacy"])
 api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])

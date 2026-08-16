@@ -1,7 +1,7 @@
-# DOM 기반 정밀 기능 테스트 프로시저 (v7.1 - Antigravity Infusion)
+# DOM 기반 정밀 기능 테스트 프로시저 (v7.2 - Phase 18 확장 검증)
 
-> **최종 검증일**: 2026-05-08 14:46 KST
-> **최종 결과**: 45/45 Phase PASS, pytest 통과 (Antigravity 고유 마크다운 규칙 및 Artifact 자율 계획 모드 검증 완료)
+> **최종 검증일**: 2026-07-21 13:00 KST
+> **최종 결과**: 46/46 Phase PASS, 341/341 Dashboard Vitest PASS, pytest 통과 (Phase 18 Markdown UI 렌더링 컴포넌트 검증 완료)
 > **최종 리포트**: `test_report.md`
 > **적용 엔진**: `TestHarness`, `GoalRunner` (Auto-Verify), `OrchestratorAgent` (Memory-Integrated), `OmniTDDEngine`, `QualityGate` (Antigravity Markdown/Information Density), `SelfCapabilityEngine`, `StreamProcessor` (CJK Precision & Advanced Markdown Rendering), `ArtifactEngine` (Planning Mode Override), `AutonomousCapabilityPolicy`, `MCPCapabilityAdvisor`, `CodexTransferEngine`, `CollectiveIntelligenceEngine`, `ModelRouter`, `RAGIndexer` (Hybrid Search + RRF), `ChainOfVerification`, `WebSearchEngine`, `BrowserSurfingAgent`, `ExternalBrainRouter`, `MemoryManager` (4-Tier Cognitive + Auto-Extract), `OutputQualityComparator`, `SelfImprovementLoop`, `CavemanCompressor`, `CavekitBackprop`, `GitNexusArchitect`, `CostGuard`, `HeartbeatMonitor`, `SkillLoader`
 
@@ -324,7 +324,7 @@ PASS — Vite build 112ms
 
 ### Phase 18: Advanced Markdown UI Rendering
 
-**목적**: Mermaid, Carousel, 일반 Markdown 링크 등 고급 출력물이 DOM을 깨지 않고 안전하게 렌더링되는지 검증합니다.
+**목적**: Mermaid, Carousel, GitHub Alerts, Markdown Table 등 고급 출력물이 DOM을 깨지 않고 안전하게 렌더링되는지 검증합니다.
 
 **통과 조건**
 - Mermaid block은 HTML escape 후 `.mermaid` 컨테이너에 삽입
@@ -334,8 +334,24 @@ PASS — Vite build 112ms
 - `javascript:` 등 위험 URL은 `href="#"`로 강등
 - 외부 링크에는 `rel="noopener noreferrer"` 적용
 - Mermaid 전역 객체가 없을 때 console.error가 발생하지 않음
+- GitHub Alerts CSS: 5종 모두 스타일링 완료 (NOTE, TIP, IMPORTANT, WARNING, CAUTION)
+- Markdown Table: 가로 스크롤 + 스트라이프 행 스타일링
 
-**최신 결과**: PASS — DOM에서 bad link `#`, good link `https://example.com`; 브라우저 reload 후 신규 console.error/warning 0건
+**통과 조건**
+- ChatMessage 컴포넌트 18개 테스트 통과
+- Dashboard Vitest 341/341 통과
+- 브라우저 DOM 렌더링: GitHub Alert CSS 클래스 존재, Mermaid 컨테이너 정상, Carousel 내비게이션 동작
+- 신규 console.error/warning 0건
+
+**적용 구현**
+- `ChatMessage.tsx` — `GitHubAlert`, `MermaidDiagram`, `CarouselView` 컴포넌트
+- `formatContent.ts` — GitHub Alert 정규식 변환 (5종)
+- `index.css` — Phase 18 전용 CSS 섹션 (GitHub Alert, Mermaid, Carousel, Table)
+- `QualityGate._check_github_alerts()` — GitHub Alert 문법 검증
+- `QualityGate._check_artifact_format()` — Plan/Mermaid/체크박스 포맷 검증
+- `QualityGate._check_antigravity_markdown_standards()` — Mermaid/Carousel/파일 링크 검증
+
+**최신 결과**: PASS — 18/18 ChatMessage 테스트, 341/341 전체 Dashboard 테스트; 브라우저 DOM 정상 로드; GitHub Alert/Mermaid/Carousel CSS 정상 적용
 
 ### Phase 19: MCP Capability Upgrade
 

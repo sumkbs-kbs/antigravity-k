@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from antigravity_k.config import config
@@ -32,6 +32,7 @@ from antigravity_k.engine.harness_models import (
     TestStatus,
 )
 from antigravity_k.engine.healing_loop import HealingLoop, HealingLoopV2
+from antigravity_k.tools.egress_policy import safe_urlopen
 
 # Re-export all public symbols so downstream `from .harness import X` keeps working.
 __all__ = [
@@ -102,8 +103,10 @@ class TestHarness:
     결과를 수집하여 에이전트에게 피드백합니다.
     """
 
+    __test__ = False
+
     # Antigravity-K 대시보드 기본 테스트 시나리오
-    DEFAULT_INTENTS = [
+    DEFAULT_INTENTS: ClassVar[list[TestIntent]] = [
         TestIntent(
             id="health_api",
             intent="백엔드 API 헬스체크가 정상 응답한다",
@@ -214,7 +217,7 @@ class TestHarness:
         netloc = parsed.netloc or "localhost:8000"
         return f"{scheme}://{netloc}/ws/terminal"
 
-    def _request_headers(self, extra: dict | None = None) -> dict:
+    def _request_headers(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = dict(extra or {})
         if self.access_pin:
             headers["X-Access-Pin"] = self.access_pin
@@ -266,7 +269,7 @@ class TestHarness:
         try:
             if intent.id == "health_api":
                 req = urllib.request.Request(f"{self.base_url}/v1/health")
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                with safe_urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read().decode())
                     if data.get("status") == "ok":
                         elapsed = (time.time() - start) * 1000
@@ -282,7 +285,7 @@ class TestHarness:
 
             elif intent.id == "models_api":
                 req = urllib.request.Request(f"{self.base_url}/v1/models")
-                with urllib.request.urlopen(req, timeout=5) as resp:
+                with safe_urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read().decode())
                     models = data.get("data", [])
                     if len(models) > 0:
@@ -311,7 +314,7 @@ class TestHarness:
                     method="POST",
                 )
                 try:
-                    with urllib.request.urlopen(req, timeout=10) as resp:
+                    with safe_urlopen(req, timeout=10) as resp:
                         elapsed = (time.time() - start) * 1000
                         return TestResult(
                             intent.id,
@@ -350,7 +353,7 @@ class TestHarness:
                     f"{self.base_url}/api/agent/tools/external-brain/list",
                     headers=self._request_headers(),
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with safe_urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode())
                     brains = data.get("brains", [])
                     elapsed = (time.time() - start) * 1000
@@ -481,7 +484,7 @@ class TestHarness:
                 # Healing: placeholder 텍스트로 찾기
                 input_el = await pg.query_selector("input[placeholder], textarea[placeholder]")
             if not input_el:
-                raise Exception("채팅 입력란을 찾을 수 없습니다")
+                raise RuntimeError("채팅 입력란을 찾을 수 없습니다")
 
             assistant_selector = ".message.assistant .bubble"
             assistant_before = await pg.locator(assistant_selector).count()
@@ -553,7 +556,7 @@ class TestHarness:
                     headers=self._request_headers({"Content-Type": "application/json"}),
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=5) as _resp:
+                with safe_urlopen(req, timeout=5) as _resp:
                     elapsed = (time.time() - start) * 1000
                     return TestResult(
                         intent.id,
@@ -589,7 +592,7 @@ class TestHarness:
                 response = await asyncio.wait_for(ws.recv(), timeout=3.0)
                 elapsed = (time.time() - start) * 1000
 
-                if "harness_test_ok" in response or response:
+                if response:
                     return TestResult(intent.id, TestStatus.PASSED, elapsed, "WebSocket 연결 성공")
                 else:
                     return TestResult(intent.id, TestStatus.FAILED, elapsed, "응답 없음")

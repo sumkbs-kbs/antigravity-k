@@ -13,14 +13,22 @@ v2 업그레이드:
 - detect_obstacles: 팝업/모달/쿠키 배너 자동 감지
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger("antigravity_k.tools.browser")
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, BrowserContext, Page, Playwright
+
+Params = dict[str, Any]
+A11yNode = dict[str, Any]
 
 
 class BrowserTool(BaseTool):
@@ -40,10 +48,10 @@ class BrowserTool(BaseTool):
 
     def __init__(self):
         """Initialize the BrowserTool."""
-        self.page = None
-        self.context = None
-        self.browser = None
-        self.playwright = None
+        self.page: Page | None = None
+        self.context: BrowserContext | None = None
+        self.browser: Browser | None = None
+        self.playwright: Playwright | None = None
         self.is_running = False
         # v2: 시맨틱 DOM + Vision 엔진
         self._dom_parser = None
@@ -168,14 +176,18 @@ class BrowserTool(BaseTool):
         if not self.is_running:
             import os
 
-            self.playwright = sync_playwright().start()
-            self.browser = self.playwright.chromium.launch(headless=True)
+            playwright = sync_playwright().start()
+            browser = playwright.chromium.launch(headless=True)
 
             # 컨텍스트 기반으로 변경하여 record_video_dir 지원
             video_dir = os.path.abspath(".gstack/qa-reports/videos")
             os.makedirs(video_dir, exist_ok=True)
-            self.context = self.browser.new_context(record_video_dir=video_dir)
-            self.page = self.context.new_page()
+            context = browser.new_context(record_video_dir=video_dir)
+            page = context.new_page()
+            self.playwright = playwright
+            self.browser = browser
+            self.context = context
+            self.page = page
             self.is_running = True
 
         try:
@@ -215,62 +227,75 @@ class BrowserTool(BaseTool):
             logger.exception("Browser action '%s' failed", action)
             return f"Error: {str(e)}"
 
-    def _action_goto(self, params: dict) -> str:
+    def _require_page(self) -> Page:
+        page = self.page
+        if page is None:
+            raise RuntimeError("browser is not running")
+        return page
+
+    def _action_goto(self, params: Params) -> str:
+        page = self._require_page()
         url = params.get("url")
         timeout = params.get("timeout", 15000)
-        self.page.goto(url, wait_until="networkidle", timeout=timeout)
-        title = self.page.title()
+        if not isinstance(url, str) or not url:
+            return "Error: 'url' 파라미터가 필요합니다"
+        page.goto(url, wait_until="networkidle", timeout=timeout)
+        title = page.title()
         return f"Navigated to {url}. Title: {title}"
 
-    def _action_click(self, params: dict) -> str:
+    def _action_click(self, params: Params) -> str:
+        page = self._require_page()
         selector = params.get("selector")
         text = params.get("text")
         timeout = params.get("timeout", 5000)
 
         if text and not selector:
             # Intent 기반 클릭: 텍스트로 요소 찾기 (Self-Healing 패턴)
-            el = self.page.get_by_text(text, exact=False)
+            el = page.get_by_text(text, exact=False)
             el.click(timeout=timeout)
             return f"Clicked element with text '{text}'"
         elif selector:
             # 기존 CSS 셀렉터 클릭
             try:
-                self.page.click(selector, timeout=timeout)
+                page.click(selector, timeout=timeout)
                 return f"Clicked on {selector}"
             except Exception:
                 # Self-Healing: CSS 실패 시 텍스트 기반으로 폴백
                 if text:
-                    el = self.page.get_by_text(text, exact=False)
+                    el = page.get_by_text(text, exact=False)
                     el.click(timeout=timeout)
                     return f"[Healed] CSS '{selector}' failed → clicked by text '{text}'"
                 raise
         else:
             return "Error: selector 또는 text 중 하나를 지정해야 합니다"
 
-    def _action_type(self, params: dict) -> str:
+    def _action_type(self, params: Params) -> str:
+        page = self._require_page()
         selector = params.get("selector")
         text = params.get("text", "")
         timeout = params.get("timeout", 5000)
 
         if selector:
-            self.page.fill(selector, text, timeout=timeout)
+            page.fill(selector, text, timeout=timeout)
             return f"Typed '{text}' into {selector}"
         else:
             # 현재 포커스된 요소에 타이핑
-            self.page.keyboard.type(text)
+            page.keyboard.type(text)
             return f"Typed '{text}' via keyboard"
 
-    def _action_screenshot(self, params: dict) -> str:
+    def _action_screenshot(self, params: Params) -> str:
+        page = self._require_page()
         path = params.get("path", f"screenshot_{int(time.time())}.png")
-        self.page.screenshot(path=path, full_page=True)
+        page.screenshot(path=path, full_page=True)
         return f"Screenshot saved to {path}"
 
-    def _action_read_dom(self, params: dict) -> str:
+    def _action_read_dom(self, params: Params) -> str:
+        page = self._require_page()
         """현재 페이지의 주요 DOM 구조를 읽습니다 (에이전트가 이해하기 쉬운 형태)."""
         selector = params.get("selector", "body")
 
         # 주요 인터랙티브 요소만 추출
-        result = self.page.evaluate(
+        result = page.evaluate(
             f"""() => {{
 
             const el = document.querySelector('{selector}');
@@ -294,48 +319,60 @@ class BrowserTool(BaseTool):
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 
-    def _action_accessibility(self, params: dict) -> str:
+    def _action_accessibility(self, params: Params) -> str:
         """Accessibility Tree 스냅샷을 생성합니다 (하네스 엔지니어링 핵심)."""
-        snapshot = self.page.accessibility.snapshot()
+        page = self._require_page()
+        accessibility = getattr(page, "accessibility", None)
+        if accessibility is None:
+            return "Accessibility snapshot unavailable in this Playwright runtime"
+        snapshot = accessibility.snapshot()
         if not snapshot:
             return "Accessibility snapshot unavailable"
 
         # 트리를 간결하게 포맷
         return self._format_a11y_tree(snapshot, max_depth=3)
 
-    def _action_wait(self, params: dict) -> str:
+    def _action_wait(self, params: Params) -> str:
+        page = self._require_page()
         selector = params.get("selector")
         timeout = params.get("timeout", 5000)
 
         if selector:
-            self.page.wait_for_selector(selector, timeout=timeout)
+            page.wait_for_selector(selector, timeout=timeout)
             return f"Element '{selector}' appeared"
         else:
-            self.page.wait_for_timeout(timeout)
+            page.wait_for_timeout(timeout)
             return f"Waited {timeout}ms"
 
-    def _action_evaluate(self, params: dict) -> str:
+    def _action_evaluate(self, params: Params) -> str:
+        page = self._require_page()
         script = params.get("script", "")
-        result = self.page.evaluate(script)
+        result = page.evaluate(script)
         return json.dumps(result, ensure_ascii=False, default=str)
 
     def _action_close(self) -> str:
         if self.is_running:
             video_path = None
-            if self.page and self.page.video:
-                video_path = self.page.video.path()
+            page = self.page
+            context = self.context
+            browser = self.browser
+            playwright = self.playwright
+            if page and page.video:
+                video_path = page.video.path()
 
-            if self.context:
-                self.context.close()
-            self.browser.close()
-            self.playwright.stop()
+            if context:
+                context.close()
+            if browser:
+                browser.close()
+            if playwright:
+                playwright.stop()
             self.is_running = False
 
             if video_path:
                 return f"Browser closed. Video recorded at: {video_path}"
         return "Browser closed."
 
-    def _format_a11y_tree(self, node: dict, depth: int = 0, max_depth: int = 3) -> str:
+    def _format_a11y_tree(self, node: A11yNode, depth: int = 0, max_depth: int = 3) -> str:
         """Accessibility Tree를 읽기 쉬운 텍스트로 포맷합니다."""
         if depth > max_depth:
             return ""
@@ -374,28 +411,30 @@ class BrowserTool(BaseTool):
             self._vision_hybrid = VisionDOMHybrid(self._ensure_dom_parser())
         return self._vision_hybrid
 
-    def _action_semantic_snapshot(self, params: dict) -> str:
+    def _action_semantic_snapshot(self, params: Params) -> str:
         """시맨틱 DOM 스냅샷: @ref 인덱싱된 페이지 구조 반환.
 
         LLM이 요소를 '@ref3 클릭' 같은 방식으로 정밀 참조할 수 있게 합니다.
         토큰 효율이 기존 read_dom 대비 약 70% 향상됩니다.
         """
+        page = self._require_page()
         parser = self._ensure_dom_parser()
         max_elements = params.get("max_elements", 50)
 
-        snapshot = parser.snapshot_sync(self.page)
-        snapshot = parser.enrich_with_a11y_sync(self.page, snapshot)
+        snapshot = parser.snapshot_sync(page)
+        snapshot = parser.enrich_with_a11y_sync(page, snapshot)
         self._last_snapshot = snapshot
 
         context = parser.to_llm_context(snapshot, max_elements=max_elements, include_bbox=True)
         return context
 
-    def _action_click_by_intent(self, params: dict) -> str:
+    def _action_click_by_intent(self, params: Params) -> str:
         """자연어 의도 기반 클릭.
 
         CSS 셀렉터 없이 '로그인 버튼', '검색 입력란' 같은 의도로 클릭합니다.
         내부적으로 @ref → CSS → BBox → 텍스트 순서로 폴백합니다.
         """
+        page = self._require_page()
         parser = self._ensure_dom_parser()
         intent = params.get("intent") or params.get("text", "")
         ref = params.get("ref", "")
@@ -405,12 +444,12 @@ class BrowserTool(BaseTool):
 
         # 마지막 스냅샷이 없으면 새로 생성
         if self._last_snapshot is None:
-            self._last_snapshot = parser.snapshot_sync(self.page)
+            self._last_snapshot = parser.snapshot_sync(page)
 
         target = ref or intent
-        return parser.click_element_sync(self.page, self._last_snapshot, target)
+        return parser.click_element_sync(page, self._last_snapshot, target)
 
-    def _action_vision_analyze(self, params: dict) -> str:
+    def _action_vision_analyze(self, params: Params) -> str:
         """Vision + DOM 융합 분석.
 
         DOM 구조와 스크린샷을 동시에 분석하여:
@@ -419,8 +458,9 @@ class BrowserTool(BaseTool):
         - 인터랙티브 요소 수
         를 반환합니다.
         """
+        page = self._require_page()
         hybrid = self._ensure_vision_hybrid()
-        analysis = hybrid.analyze_sync(self.page, self._last_snapshot)
+        analysis = hybrid.analyze_sync(page, self._last_snapshot)
         self._last_snapshot = analysis.snapshot
 
         summary = analysis.to_llm_summary()
@@ -435,19 +475,20 @@ class BrowserTool(BaseTool):
 
         return summary
 
-    def _action_som_screenshot(self, params: dict) -> str:
+    def _action_som_screenshot(self, params: Params) -> str:
         """Set-of-Mark 스크린샷.
 
         인터랙티브 요소 위에 @ref 번호를 빨간색 오버레이로 마킹한
         스크린샷을 생성합니다. Vision LLM에 전달하면 시각적 그라운딩이 가능합니다.
         """
+        page = self._require_page()
         hybrid = self._ensure_vision_hybrid()
         parser = self._ensure_dom_parser()
 
         if self._last_snapshot is None:
-            self._last_snapshot = parser.snapshot_sync(self.page)
+            self._last_snapshot = parser.snapshot_sync(page)
 
-        som_b64 = hybrid.render_som_sync(self.page, self._last_snapshot)
+        som_b64 = hybrid.render_som_sync(page, self._last_snapshot)
 
         # 파일로 저장 (선택)
         path = params.get("path")
@@ -465,19 +506,20 @@ class BrowserTool(BaseTool):
             f"Use semantic_snapshot to see @ref mappings."
         )
 
-    def _action_detect_obstacles(self, params: dict) -> str:
+    def _action_detect_obstacles(self, params: Params) -> str:
         """장애물 자동 감지.
 
         현재 페이지의 팝업, 모달, 쿠키 배너 등 장애물을 감지하고,
         각 장애물의 닫기 버튼 @ref를 함께 반환합니다.
         """
+        page = self._require_page()
         hybrid = self._ensure_vision_hybrid()
         parser = self._ensure_dom_parser()
 
         if self._last_snapshot is None:
-            self._last_snapshot = parser.snapshot_sync(self.page)
+            self._last_snapshot = parser.snapshot_sync(page)
 
-        analysis = hybrid.analyze_sync(self.page, self._last_snapshot)
+        analysis = hybrid.analyze_sync(page, self._last_snapshot)
 
         if not analysis.obstacles:
             return "✅ 장애물 없음 — 페이지가 정상 상태입니다."

@@ -10,6 +10,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class ToolCall:
     """A parsed tool invocation (name, arguments, raw text)."""
 
     name: str
-    arguments: dict = field(default_factory=dict)
+    arguments: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

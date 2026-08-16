@@ -10,12 +10,32 @@ OpenClaw의 'sessions_spawn' 로직을 내재화하여 메인 컨텍스트 오�
 import asyncio
 import logging
 import time
+from collections.abc import Iterator
+from importlib import import_module
 from typing import Any
 
-from antigravity_k.api.dependencies import get_vault_engine
-from antigravity_k.engine.orchestrator import OrchestratorAgent
+from antigravity_k.engine.subagent_execution import start_subagent_stream
+from antigravity_k.engine.task_runner import get_task_runner
 
 logger = logging.getLogger(__name__)
+
+
+class OrchestratorAgent:
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        implementation = import_module("antigravity_k.engine.orchestrator").__dict__["OrchestratorAgent"]
+        return implementation(*args, **kwargs)
+
+    def _get_model_for_role(self, role: str) -> Any:
+        raise NotImplementedError
+
+    def run_stream(
+        self,
+        messages: list[dict[str, str]],
+        target_model: str,
+        max_steps: int = 15,
+        ephemeral_message: str | None = None,
+    ) -> Iterator[str]:
+        raise NotImplementedError
 
 
 class SubagentSpawner:
@@ -31,7 +51,8 @@ class SubagentSpawner:
         """
         self.model_manager = model_manager
         self.tool_registry = tool_registry
-        self.vault_engine = get_vault_engine()
+        dependencies = import_module("antigravity_k.api.dependencies")
+        self.vault_engine = dependencies.__dict__["get_vault_engine"]()
 
     async def spawn_parallel(
         self,
@@ -70,9 +91,14 @@ class SubagentSpawner:
 
                 # run_stream is synchronous generator, we need to run it in a thread to not block async
                 def run_sync_stream():
-                    output_parts = []
-                    for chunk in sub_orch.run_stream(messages, target_model=target_model):
-                        output_parts.append(chunk)
+                    tracked_stream = start_subagent_stream(
+                        sub_orch,
+                        task_runner=get_task_runner(),
+                        messages=messages,
+                        target_model=target_model,
+                        subagent_kind="parallel_spawn",
+                    )
+                    output_parts = list(tracked_stream.chunks)
                     return "".join(output_parts)
 
                 result = await asyncio.to_thread(run_sync_stream)
@@ -80,7 +106,7 @@ class SubagentSpawner:
                 return f"[Sub-Agent #{index} Result] (in {elapsed:.1f}s)\n{result}"
 
             except Exception as e:
-                logger.error("Subagent #%s failed: %s", index, e, exc_info=True)
+                logger.exception("Subagent #%s failed", index)
                 return f"[Sub-Agent #{index} Error] {e}"
 
         coroutines = [_run_subagent(task, i) for i, task in enumerate(tasks)]
@@ -98,12 +124,13 @@ class SubagentSpawner:
 
     def spawn(self, task: str, tools: list[str], max_tokens: int = 4096) -> str:
         """단일 서브 태스크를 스폰하는 동기 진입점 (기존 AgentSpawnTool 하위호환)."""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
         tasks = [{"task": task, "tools": tools}]
-        results = loop.run_until_complete(self.spawn_parallel(tasks, max_tokens))
-        return results[0]
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            results = asyncio.run(self.spawn_parallel(tasks, max_tokens))
+            return results[0]
+
+        raise RuntimeError(
+            "SubagentSpawner.spawn cannot run inside an active event loop; await spawn_parallel instead.",
+        )

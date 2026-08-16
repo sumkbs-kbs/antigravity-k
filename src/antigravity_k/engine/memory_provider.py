@@ -26,68 +26,101 @@ from __future__ import annotations
 
 import logging
 import time
-from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
+
+from antigravity_k.engine.memory_conflicts import (
+    MemoryRecallFragment,
+    resolve_memory_conflicts,
+    resolve_memory_fact_winners,
+)
+from antigravity_k.engine.memory_contracts import (
+    MemoryFact as MemoryFact,
+)
+from antigravity_k.engine.memory_contracts import (
+    MemoryProvider as MemoryProvider,
+)
+from antigravity_k.engine.memory_contracts import (
+    MemoryScope as MemoryScope,
+)
+from antigravity_k.engine.memory_contracts import ProjectMemoryBindingError
+from antigravity_k.engine.memory_contracts import (
+    normalize_memory_scope as normalize_memory_scope,
+)
+from antigravity_k.engine.project_memory import ProjectMemoryProvider
 
 logger = logging.getLogger("antigravity_k.engine.memory_provider")
 
 
-# ── 메모리 제공자 인터페이스 ──
+def _ko_stems(text: str) -> set[str]:
+    """Split text on whitespace and strip trailing Korean particles from each token.
 
-
-class MemoryProvider(ABC):
-    """메모리 제공자 추상 인터페이스.
-
-    모든 제공자는 이 인터페이스를 구현해야 합니다.
-    - prefetch: 쿼리 기반 관련 기억 회상
-    - sync_turn: 턴 종료 시 기억 저장
-    - get_tool_schemas: 제공자가 노출하는 도구 스키마
+    Korean case particles attach to a stem, so stripping them lets recall match a
+    concept across particle variation (이름은/이름이/이름을 all reduce to 이름), which
+    exact-substring keyword matching misses. Longest-first so "으로" strips before "로".
     """
+    particles = (
+        "으로서",
+        "으로써",
+        "으로",
+        "에서",
+        "에게",
+        "한테",
+        "처럼",
+        "까지",
+        "부터",
+        "보다",
+        "마다",
+        "로서",
+        "로써",
+        "은",
+        "는",
+        "이",
+        "가",
+        "을",
+        "를",
+        "의",
+        "도",
+        "만",
+        "와",
+        "과",
+        "로",
+        "에",
+        "께",
+    )
+    stems: set[str] = set()
+    for token in text.split():
+        if len(token) <= 1:
+            continue
+        stripped = token
+        for particle in particles:
+            if stripped.endswith(particle) and len(stripped) - len(particle) >= 1:
+                stripped = stripped[: -len(particle)]
+                break
+        if len(stripped) > 1:
+            stems.add(stripped)
+    return stems
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """제공자 이름 (예: 'builtin', 'vector', 'rag')."""
-        ...
 
-    @property
-    def is_external(self) -> bool:
-        """외부 제공자인지 여부. True이면 1개만 등록 가능."""
-        return False
+def _is_durable_fact_statement(text: str) -> bool:
+    """Detect statements encoding durable user knowledge (preferences, facts).
 
-    @abstractmethod
-    def prefetch(self, query: str, session_id: str | None = None) -> str:
-        """쿼리에 관련된 기억을 회상합니다.
+    Such episodes should be importance-protected from consolidation decay — a stated
+    preference ("나는 탭을 써") is durable knowledge even when stated once with zero
+    re-access, unlike transient filler. Conservative cues keep false positives low.
+    """
+    import re
 
-        Returns:
-            시스템 프롬프트에 주입할 컨텍스트 문자열.
-            빈 문자열이면 관련 기억 없음.
-
-        """
-        ...
-
-    @abstractmethod
-    def sync_turn(
-        self,
-        user_message: str,
-        assistant_response: str,
-        *,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """대화 턴을 기억에 동기화합니다."""
-        ...
-
-    def get_tool_schemas(self) -> list[dict[str, Any]]:
-        """제공자가 노출하는 도구 스키마.
-
-        기본값은 빈 리스트 (도구 없음).
-        외부 메모리 제공자가 memory_store/memory_recall 등을 노출할 때 오버라이드.
-        """
-        return []
-
-    def on_session_switch(self, new_session_id: str) -> None:
-        """세션 전환 시 호출됩니다. 기본값은 no-op."""
-        pass
+    durable_cues = [
+        r"나는\s*.{0,12}?(?:좋아|싫어|사용|선호|쓰|선호해)",
+        r"내가\s*.{0,12}?(?:좋아|싫어|사용|선호|쓰)",
+        r"(?:저는|전)\s*.{0,12}?(?:좋아|싫어|사용|선호)",
+        r"\b(?:i\s+(?:prefer|like|use|hate|always|usually))\b",
+        r"\b(?:my\s+(?:preference|favorite|stack))\b",
+        r"(?:항상|보통|주로)\s",
+    ]
+    text_lower = text.lower()
+    return any(re.search(cue, text_lower) or re.search(cue, text) for cue in durable_cues)
 
 
 # ── 내장 메모리 제공자 (SessionManager 래핑) ──
@@ -169,6 +202,27 @@ class BuiltinMemoryProvider(MemoryProvider):
             logger.exception("Unhandled exception")
             logger.debug("BuiltinMemoryProvider.on_session_switch error: %s", e)
 
+    def clear(self, scope: MemoryScope = "all") -> int:
+        scope = normalize_memory_scope(scope)
+        if scope in ("session", "working", "all"):
+            return self._session_manager.clear_memory(scope)
+        return 0
+
+    def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
+        normalized = normalize_memory_scope(scope)
+        if normalized == "project":
+            return []
+        return self._session_manager.export_memory(normalized)
+
+    def redact(self, scope: MemoryScope = "all") -> int:
+        normalized = normalize_memory_scope(scope)
+        if normalized == "project":
+            return 0
+        return self._session_manager.redact_memory(normalized)
+
+    def apply_retention(self, max_age_days: int) -> int:
+        return self._session_manager.apply_retention(max_age_days)
+
 
 # ── 메모리 매니저 (오케스트레이터) ──
 
@@ -185,10 +239,21 @@ class MemoryManager:
 
     MAX_EXTERNAL_PROVIDERS = 1
 
-    def __init__(self) -> None:
+    def __init__(self, project_root: str | None = None) -> None:
         """Initialize the MemoryManager."""
         self._providers: list[MemoryProvider] = []
         self._external_count = 0
+        self._project_root = Path(project_root).resolve() if project_root is not None else None
+
+    @property
+    def project_root(self) -> Path | None:
+        return self._project_root
+
+    def bind_project_root(self, project_root: str | Path) -> None:
+        requested = Path(project_root).resolve()
+        if self._project_root is not None and self._project_root != requested:
+            raise ProjectMemoryBindingError(self._project_root, requested)
+        self._project_root = requested
 
     @property
     def providers(self) -> list[MemoryProvider]:
@@ -209,6 +274,8 @@ class MemoryManager:
             ValueError: 외부 제공자 한도 초과 시
 
         """
+        if isinstance(provider, ProjectMemoryProvider):
+            self.bind_project_root(provider.project_root)
         if provider.is_external:
             if self._external_count >= self.MAX_EXTERNAL_PROVIDERS:
                 raise ValueError(
@@ -243,14 +310,15 @@ class MemoryManager:
         if not self._providers:
             return ""
 
-        parts = []
+        fragments: list[MemoryRecallFragment] = []
+        facts: list[MemoryFact] = []
         for provider in self._providers:
             try:
                 start = time.time()
                 result = provider.prefetch(query, session_id)
                 elapsed = time.time() - start
                 if result and result.strip():
-                    parts.append(result.strip())
+                    fragments.append(MemoryRecallFragment(provider=provider.name, content=result.strip()))
                     logger.debug(
                         "Memory prefetch [%s]: %s chars in %ss",
                         provider.name,
@@ -259,8 +327,60 @@ class MemoryManager:
                     )
             except Exception:
                 logger.exception("Memory prefetch error [%s]", provider.name)
+            try:
+                facts.extend(provider.authoritative_facts())
+            except Exception:
+                logger.exception("Memory fact error [%s]", provider.name)
 
-        return "\n\n".join(parts) if parts else ""
+        if not fragments:
+            return ""
+        project_provider = self._project_provider()
+        resolution_query = query
+        if project_provider is not None:
+            resolution_query = project_provider.canonicalize_context(query)
+            fragments = [
+                MemoryRecallFragment(
+                    provider=fragment.provider,
+                    content=project_provider.canonicalize_context(fragment.content),
+                )
+                for fragment in fragments
+            ]
+        resolution = resolve_memory_conflicts(resolution_query, tuple(fragments), tuple(facts))
+        if resolution.conflicts:
+            logger.info(
+                "Memory conflicts resolved: %s",
+                ", ".join(conflict.key for conflict in resolution.conflicts),
+            )
+        return resolution.context
+
+    def authoritative_project_fact_for_query(self, query: str) -> MemoryFact | None:
+        project_provider = self._project_provider()
+        if project_provider is None:
+            return None
+        target = project_provider.read_query_target(query)
+        if target is None:
+            return None
+        kind, key = target
+        candidates = tuple(
+            fact
+            for fact in project_provider.authoritative_facts()
+            if fact.scope == "project"
+            and fact.key.startswith("project:")
+            and fact.key.partition(":")[2].partition(":")[2] == key
+            and (kind is None or fact.key == f"project:{kind}:{key}")
+        )
+        if len(candidates) != 1:
+            return None
+        candidate = candidates[0]
+        if len(candidate.value) > 120 or "\n" in candidate.value:
+            return None
+        return candidate
+
+    def _project_provider(self) -> ProjectMemoryProvider | None:
+        return next(
+            (provider for provider in self._providers if isinstance(provider, ProjectMemoryProvider)),
+            None,
+        )
 
     def sync_all(
         self,
@@ -276,6 +396,20 @@ class MemoryManager:
             except Exception:
                 logger.exception("Memory sync error [%s]", provider.name)
 
+    def resolved_preferences(self, query: str) -> dict[str, str]:
+        facts: list[MemoryFact] = []
+        for provider in self._providers:
+            try:
+                facts.extend(provider.authoritative_facts())
+            except Exception:
+                logger.exception("Memory fact error [%s]", provider.name)
+        winners = resolve_memory_fact_winners(query, tuple(facts))
+        return {
+            key.removeprefix("preference:"): fact.value
+            for key, fact in winners.items()
+            if key.startswith("preference:")
+        }
+
     def on_session_switch(self, new_session_id: str) -> None:
         """세션 전환을 모든 제공자에 전파합니다."""
         for provider in self._providers:
@@ -283,6 +417,42 @@ class MemoryManager:
                 provider.on_session_switch(new_session_id)
             except Exception:
                 logger.exception("Session switch error [%s]", provider.name)
+
+    def clear(self, scope: str = "all") -> dict[str, int]:
+        normalized_scope = normalize_memory_scope(scope)
+        return {provider.name: provider.clear(normalized_scope) for provider in self._providers}
+
+    def export(self, scope: str = "all") -> dict[str, Any]:
+        normalized_scope = normalize_memory_scope(scope)
+        from datetime import UTC, datetime
+
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        def redact_value(value):
+            if isinstance(value, str):
+                return redact_full(value)
+            if isinstance(value, dict):
+                return {key: redact_value(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [redact_value(item) for item in value]
+            return value
+
+        return {
+            "scope": normalized_scope,
+            "exported_at": datetime.now(UTC).isoformat(),
+            "providers": {
+                provider.name: redact_value(provider.export(normalized_scope)) for provider in self._providers
+            },
+        }
+
+    def redact(self, scope: str = "all") -> dict[str, int]:
+        normalized_scope = normalize_memory_scope(scope)
+        return {provider.name: provider.redact(normalized_scope) for provider in self._providers}
+
+    def apply_retention(self, max_age_days: int) -> dict[str, int]:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        return {provider.name: provider.apply_retention(max_age_days) for provider in self._providers}
 
     def get_all_tool_schemas(self) -> list[dict[str, Any]]:
         """모든 제공자의 도구 스키마를 수집합니다."""
@@ -362,11 +532,17 @@ class EpisodicMemoryProvider(MemoryProvider):
             score = 0.0
             content = (ep.get("user", "") + " " + ep.get("assistant", "")).lower()
 
-            # 키워드 매칭 점수
+            # 키워드 매칭 점수 (한국어 조사 변형을 흡수한 어간 매칭 포함)
+            content_stems = _ko_stems(content)
             query_words = query_lower.split()
             for word in query_words:
                 if len(word) > 1 and word in content:
                     score += 1.0
+            for stem in _ko_stems(query_lower):
+                if stem in content_stems:
+                    score += 1.0
+                elif stem in content:
+                    score += 0.5
 
             # 시간 감쇠 (최근 에피소드일수록 높은 점수)
             recency = (i + 1) / len(self._episodes)  # 0~1, 최근이 1에 가까움
@@ -426,6 +602,71 @@ class EpisodicMemoryProvider(MemoryProvider):
         else:
             self._save()  # 작업 3: 디스크 영속화
 
+    def clear(self, scope: MemoryScope = "all") -> int:
+        scope = normalize_memory_scope(scope)
+        if scope not in ("session", "all"):
+            return 0
+        deleted = len(self._episodes)
+        self._episodes.clear()
+        self._access_counts.clear()
+        self._save()
+        return deleted
+
+    def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
+        scope = normalize_memory_scope(scope)
+        if scope not in ("session", "all"):
+            return []
+        return list(self._episodes)
+
+    def redact(self, scope: MemoryScope = "all") -> int:
+        scope = normalize_memory_scope(scope)
+        if scope not in ("session", "all"):
+            return 0
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        changed = 0
+
+        def redact_value(value):
+            nonlocal changed
+            if isinstance(value, str):
+                redacted = redact_full(value)
+                changed += int(redacted != value)
+                return redacted
+            if isinstance(value, dict):
+                return {key: redact_value(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [redact_value(item) for item in value]
+            return value
+
+        self._episodes = redact_value(self._episodes)
+        self._save()
+        return changed
+
+    def apply_retention(self, max_age_days: int) -> int:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+        kept = []
+        deleted = 0
+        for episode in self._episodes:
+            try:
+                timestamp = datetime.fromisoformat(str(episode.get("timestamp", "")))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=UTC)
+            except (TypeError, ValueError):
+                kept.append(episode)
+                continue
+            if timestamp < cutoff:
+                deleted += 1
+            else:
+                kept.append(episode)
+        self._episodes = kept
+        if deleted:
+            self._save()
+        return deleted
+
     def _consolidate(self):
         """메모리 통합: 오래되고 접근 빈도 낮은 에피소드 제거."""
         if len(self._episodes) <= self._max_episodes:
@@ -437,6 +678,11 @@ class EpisodicMemoryProvider(MemoryProvider):
             access = self._access_counts.get(i, 0)
             recency = (i + 1) / len(self._episodes)
             importance = access * 0.5 + recency * 0.5
+            # durable-fact episodes carry knowledge that should not decay with recency
+            # alone, so boost them above the eviction floor.
+            ep = self._episodes[i]
+            if _is_durable_fact_statement(ep.get("user", "")) or _is_durable_fact_statement(ep.get("assistant", "")):
+                importance += 10.0
             scored_indices.append((importance, i))
 
         scored_indices.sort(key=lambda x: x[0])
@@ -525,7 +771,7 @@ class WorkingMemoryBuffer(MemoryProvider):
 
         """
         self._turns: list[dict[str, str]] = []
-        self._pinned: set = set()  # 고정된 턴 인덱스
+        self._pinned: set[int] = set()  # 고정된 턴 인덱스
         self._max_turns = max_turns
 
     @property
@@ -544,7 +790,8 @@ class WorkingMemoryBuffer(MemoryProvider):
             return ""
 
         lines = ["[Working Memory — 최근 대화 컨텍스트]"]
-        for i, turn in enumerate(self._turns[-10:]):  # 최근 10턴만
+        start_index = max(len(self._turns) - 10, 0)
+        for i, turn in enumerate(self._turns[start_index:], start=start_index):
             prefix = "📌 " if i in self._pinned else ""
             lines.append(f"  {prefix}{turn['role']}: {turn['content'][:100]}")
 
@@ -566,11 +813,15 @@ class WorkingMemoryBuffer(MemoryProvider):
             # 고정되지 않은 가장 오래된 턴 제거
             for i in range(len(self._turns)):
                 if i not in self._pinned:
-                    self._turns.pop(i)
+                    self._remove_turn(i)
                     break
             else:
                 # 모두 고정이면 가장 오래된 것 강제 제거
-                self._turns.pop(0)
+                self._remove_turn(0)
+
+    def _remove_turn(self, turn_index: int) -> None:
+        self._turns.pop(turn_index)
+        self._pinned = {index - 1 if index > turn_index else index for index in self._pinned if index != turn_index}
 
     def pin_turn(self, turn_index: int):
         """특정 턴을 고정하여 감쇠되지 않도록 합니다."""
@@ -580,156 +831,39 @@ class WorkingMemoryBuffer(MemoryProvider):
         """최근 N개 턴을 반환합니다."""
         return self._turns[-n * 2 :]
 
-    def clear(self):
-        """워킹 메모리를 초기화합니다."""
+    def clear(self, scope: MemoryScope = "working") -> int:
+        scope = normalize_memory_scope(scope)
+        if scope not in ("working", "all"):
+            return 0
+        deleted = len(self._turns)
         self._turns.clear()
         self._pinned.clear()
+        return deleted
+
+    def export(self, scope: MemoryScope = "working") -> list[dict[str, Any]]:
+        scope = normalize_memory_scope(scope)
+        if scope not in ("working", "all"):
+            return []
+        return list(self._turns)
+
+    def redact(self, scope: MemoryScope = "working") -> int:
+        scope = normalize_memory_scope(scope)
+        if scope not in ("working", "all"):
+            return 0
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        changed = 0
+        for turn in self._turns:
+            content = turn.get("content", "")
+            redacted = redact_full(content)
+            changed += int(redacted != content)
+            turn["content"] = redacted
+        return changed
 
 
-# ── Cross-Project 글로벌 메모리 제공자 (P2-3) ──
-
-
-class GlobalMemoryProvider(MemoryProvider):
-    """사용자 단위 글로벌 메모리 — 모든 프로젝트에 걸쳐 공유 (P2-3).
-
-    ~/.antigravity-k/memory/ 에 저장되는 사용자 코딩 스타일, 선호 라이브러리,
-    반복 패턴, 자주 하는 요청 등을 영속화합니다. Cursor Memory / Claude Projects 대응.
-
-    다른 MemoryProvider(세션/프로젝트 단위)와 달리, 이 제공자는 사용자 홈 디렉토리에
-    저장되므로 프로젝트를 바꿔도 동일한 선호도가 유지됩니다.
-
-    저장 카테고리:
-      - preferences: 사용자 선호 (예: "tabs 사용", "한국어 응답 선호")
-      - patterns: 반복 코딩 패턴 (예: "항상 type hints 추가")
-      - facts: 학습한 사실 (예: "이 사용자는 React 선호")
-    """
-
-    def __init__(self, memory_dir: str | None = None, max_entries: int = 200):
-        """Initialize the GlobalMemoryProvider.
-
-        Args:
-            memory_dir: 메모리 저장 디렉토리 (기본: ~/.antigravity-k/memory)
-            max_entries: 카테고리당 최대 항목 수
-
-        """
-        import os
-
-        self._memory_dir = memory_dir or os.path.join(os.path.expanduser("~"), ".antigravity-k", "memory")
-        self._max_entries = max_entries
-        os.makedirs(self._memory_dir, exist_ok=True)
-        self._memory: dict[str, list[str]] = self._load()
-
-    @property
-    def name(self) -> str:
-        return "global"
-
-    def _load(self) -> dict[str, list[str]]:
-        """디스크에서 글로벌 메모리를 로드합니다."""
-        import json
-        import os
-
-        result: dict[str, list[str]] = {"preferences": [], "patterns": [], "facts": []}
-        for category in result:
-            path = os.path.join(self._memory_dir, f"{category}.json")
-            if os.path.exists(path):
-                try:
-                    with open(path, encoding="utf-8") as f:
-                        data = json.load(f)
-                        if isinstance(data, list):
-                            result[category] = data[-self._max_entries :]
-                except Exception:
-                    logger.warning("[GlobalMemory] %s 로드 실패", category, exc_info=True)
-        return result
-
-    def _save_category(self, category: str) -> None:
-        """특정 카테고리를 디스크에 저장합니다."""
-        import json
-        import os
-
-        path = os.path.join(self._memory_dir, f"{category}.json")
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self._memory.get(category, []), f, ensure_ascii=False, indent=2)
-        except Exception:
-            logger.warning("[GlobalMemory] %s 저장 실패", category, exc_info=True)
-
-    def prefetch(self, query: str, session_id: str | None = None) -> str:
-        """쿼리와 관련된 글로벌 기억을 회상합니다.
-
-        단순 키워드 매칭으로 관련 항목을 찾아 컨텍스트로 반환합니다.
-        """
-        if not any(self._memory.values()):
-            return ""
-
-        query_lower = query.lower()
-        relevant: list[str] = []
-
-        for category, entries in self._memory.items():
-            for entry in entries:
-                # 쿼리 키워드가 항목에 포함되면 관련성 있다고 판단
-                entry_lower = entry.lower()
-                words = query_lower.split()
-                if any(w in entry_lower for w in words if len(w) > 2):
-                    relevant.append(f"[{category}] {entry}")
-
-        if not relevant:
-            # 관련 항목이 없으면 상위 선호도만 표시
-            prefs = self._memory.get("preferences", [])[:3]
-            if prefs:
-                relevant = [f"[preferences] {p}" for p in prefs]
-
-        if relevant:
-            return "[Global User Memory]\n" + "\n".join(relevant[:10])
-        return ""
-
-    def sync_turn(
-        self,
-        user_message: str,
-        assistant_response: str,
-        *,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """대화 턴에서 학습 가능한 패턴을 추출하여 글로벌 메모리에 저장합니다.
-
-        현재는 메타데이터로 명시적으로 전달된 preference/pattern만 저장.
-        향후 LLM 기반 자동 추출 확장 가능.
-        """
-        if not metadata:
-            return
-
-        # 명시적 preference 추가
-        new_prefs = metadata.get("learned_preferences", [])
-        for pref in new_prefs:
-            if pref and pref not in self._memory["preferences"]:
-                self._memory["preferences"].append(pref)
-                if len(self._memory["preferences"]) > self._max_entries:
-                    self._memory["preferences"] = self._memory["preferences"][-self._max_entries :]
-                self._save_category("preferences")
-
-        # 명시적 pattern 추가
-        new_patterns = metadata.get("learned_patterns", [])
-        for pattern in new_patterns:
-            if pattern and pattern not in self._memory["patterns"]:
-                self._memory["patterns"].append(pattern)
-                self._save_category("patterns")
-
-    def add_preference(self, preference: str) -> None:
-        """사용자 선호를 직접 추가합니다 (API/슬래시 명령어용)."""
-        if preference and preference not in self._memory["preferences"]:
-            self._memory["preferences"].append(preference)
-            if len(self._memory["preferences"]) > self._max_entries:
-                self._memory["preferences"] = self._memory["preferences"][-self._max_entries :]
-            self._save_category("preferences")
-            logger.info("[GlobalMemory] 선호도 추가: %s", preference[:50])
-
-    def add_fact(self, fact: str) -> None:
-        """학습한 사실을 추가합니다."""
-        if fact and fact not in self._memory["facts"]:
-            self._memory["facts"].append(fact)
-            if len(self._memory["facts"]) > self._max_entries:
-                self._memory["facts"] = self._memory["facts"][-self._max_entries :]
-            self._save_category("facts")
-
-    def get_all(self) -> dict[str, list[str]]:
-        """전체 글로벌 메모리를 반환합니다 (디버그/API용)."""
-        return dict(self._memory)
+from antigravity_k.engine.global_memory_provider import (
+    GlobalMemoryProvider as GlobalMemoryProvider,
+)
+from antigravity_k.engine.global_memory_provider import (
+    extract_identity_facts as extract_identity_facts,
+)

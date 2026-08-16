@@ -3,6 +3,8 @@
 ModelManager.generate() 가 ModelRouter의 폴백 전략과 UsageTracker의 통계 기록을 정상적으로 처리하는지 검증.
 """
 
+import platform
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +12,7 @@ import pytest
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.model_router import ModelCombo, ModelRouter, RouteStrategy
+from antigravity_k.engine.tracing import AgentTracer
 from antigravity_k.engine.usage_tracker import UsageTracker
 
 
@@ -79,6 +82,80 @@ def test_generate_fallback_combo_success(setup_manager):
     assert recent[0].model_name == "model-a"
     assert recent[0].combo_name == "fallback-combo"
     assert recent[0].fallback_depth == 0
+
+
+def test_stream_generate_records_local_qwen_capability_trace(setup_manager, mock_registry, monkeypatch):
+    manager = setup_manager
+    qwen = ModelProfile(
+        name="qwen3.6:latest",
+        repo="qwen3.6:latest",
+        role="reasoning",
+        provider="ollama",
+        parameter_count_b=36.0,
+        estimated_memory_gb=24.0,
+    )
+    mock_registry.get_model.side_effect = lambda name: qwen if name == qwen.name else None
+    manager._capability_probe.observe = MagicMock(
+        return_value={
+            "model": qwen.name,
+            "provider": "ollama",
+            "is_local": True,
+            "native_tool_calling": "supported",
+            "runtime_status": "available",
+            "source": "ollama:/api/show",
+            "detail": "test",
+            "reported_capabilities": ["tools"],
+            "reported_model_count": 0,
+        },
+    )
+    tracer = AgentTracer()
+    monkeypatch.setattr("antigravity_k.engine.tracing.get_tracer", lambda: tracer)
+    manager._do_stream_generate = MagicMock(return_value=iter(["streamed ", "answer"]))
+
+    tracer.start_trace("stream qwen")
+    response = "".join(manager.stream_generate("local prompt", qwen.name))
+    trace = tracer.end_trace()
+
+    assert response == "streamed answer"
+    assert trace is not None
+    span = next(span for span in trace.spans if span.name == f"llm:{qwen.name}")
+    assert span.status == "ok"
+    assert span.attributes["provider"] == "ollama"
+    assert span.attributes["is_local"] is True
+    assert span.attributes["parameter_count_b"] == 36.0
+    assert span.attributes["fallback_depth"] == 0
+    assert span.attributes["native_tool_calling"] == "supported"
+    assert span.attributes["provider_runtime_status"] == "available"
+
+
+def test_stream_generate_records_local_qwen_failure_trace(setup_manager, mock_registry, monkeypatch):
+    manager = setup_manager
+    qwen = ModelProfile(
+        name="qwen3.6:latest",
+        repo="qwen3.6:latest",
+        role="reasoning",
+        provider="ollama",
+        parameter_count_b=36.0,
+        estimated_memory_gb=24.0,
+    )
+    mock_registry.get_model.side_effect = lambda name: qwen if name == qwen.name else None
+    tracer = AgentTracer()
+    monkeypatch.setattr("antigravity_k.engine.tracing.get_tracer", lambda: tracer)
+    manager._do_stream_generate = MagicMock(side_effect=RuntimeError("stream outage"))
+
+    tracer.start_trace("failed stream qwen")
+    with pytest.raises(RuntimeError, match="stream outage"):
+        list(manager.stream_generate("local prompt", qwen.name))
+    trace = tracer.end_trace()
+
+    assert trace is not None
+    span = next(span for span in trace.spans if span.name == f"llm:{qwen.name}")
+    assert span.status == "error"
+    assert span.error_message == "stream outage"
+    assert span.attributes["provider"] == "ollama"
+    assert span.attributes["is_local"] is True
+    assert span.attributes["parameter_count_b"] == 36.0
+    assert span.attributes["fallback_depth"] == 0
 
 
 def test_generate_fallback_on_failure(setup_manager):
@@ -217,3 +294,48 @@ def test_strip_legacy_thinking_process_block(setup_manager):
     text = "--- Thinking Process ---\nprivate plan\n--- End of Thinking* ---\n공개 답변"
 
     assert manager._strip_hidden_reasoning(text) == "공개 답변"
+
+
+def test_explicit_mlx_profile_bypasses_global_api_mode(setup_manager, monkeypatch):
+    manager = setup_manager
+    profile = ModelProfile(
+        name="mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+        repo="mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+        role="coding",
+        provider="mlx",
+    )
+    model = object()
+    tokenizer = object()
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        "antigravity_k.engine.model_manager.import_module",
+        lambda _name: SimpleNamespace(load=lambda _repo: (model, tokenizer)),
+    )
+
+    loaded_model, loaded_tokenizer = ModelManager._load_mlx_model(manager, profile)
+
+    assert loaded_model is model
+    assert loaded_tokenizer is tokenizer
+
+
+def test_lmstudio_profile_never_loads_direct_mlx_weights(setup_manager, monkeypatch):
+    from antigravity_k.config import config
+    from antigravity_k.engine.provider_adapters.dev_shims import _OllamaModel, _OllamaTokenizer
+
+    manager = setup_manager
+    profile = ModelProfile(
+        name="lmstudio/qwen3.6",
+        repo="qwen3.6:latest",
+        role="reasoning",
+        provider="lmstudio",
+    )
+    mlx_loader = MagicMock()
+    monkeypatch.setattr(config.model, "force_api", False)
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr("antigravity_k.engine.model_manager.import_module", mlx_loader)
+
+    model, tokenizer = ModelManager._load_mlx_model(manager, profile)
+
+    assert isinstance(model, _OllamaModel)
+    assert isinstance(tokenizer, _OllamaTokenizer)
+    mlx_loader.assert_not_called()

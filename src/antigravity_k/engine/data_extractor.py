@@ -472,7 +472,7 @@ class DataExtractor:
 
     # ─── TOP 1 JSON 블록 추출 ──────────────────────────────────
 
-    def _extract_top1_json(self, text: str) -> Optional[dict]:
+    def _extract_top1_json(self, text: str) -> Optional[dict[str, Any]]:
         """검색 결과 텍스트에서 TOP 1 심층 분석의 JSON 블록을 추출합니다.
 
         웹 검색 결과의 'Markdown Content:' 섹션에 포함된
@@ -562,7 +562,7 @@ class DataExtractor:
 
         return None
 
-    def _extract_answer_texts(self, data: dict) -> list[str]:
+    def _extract_answer_texts(self, data: dict[str, Any]) -> list[str]:
         """TOP 1 JSON에서 answer.text와 results content를 텍스트 리스트로 추출합니다.
 
         Args:
@@ -685,7 +685,7 @@ class DataExtractor:
                     continue
 
     def _extract_from_top1_json(
-        self, data: dict, source_index: int = 0, raw_text: str = ""
+        self, data: dict[str, Any], source_index: int = 0, raw_text: str = ""
     ) -> Optional[ExtractedStockPrice]:
         """TOP 1 JSON의 answer.text에서 주식 가격 데이터를 추출합니다.
 

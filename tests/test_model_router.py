@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from antigravity_k.engine.model_registry import ModelProfile
+from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.model_router import (
     AllModelsUnavailableError,
     ComboNotFoundError,
@@ -355,5 +355,142 @@ class TestComboAutoLoad:
         )
 
         router = ModelRouter(registry)
-        assert router.get_combo("auto-combo") is not None
-        assert len(router.get_combo("auto-combo").models) == 2
+        combo = router.get_combo("auto-combo")
+        assert combo is not None
+        assert len(combo.models) == 2
+
+
+def test_local_quality_combo_prefers_qwen_and_cascades():
+    registry = ModelRegistry("config.yaml")
+    router = ModelRouter(registry)
+
+    combo = router.get_combo("reasoning-swarm")
+    assert combo is not None
+    assert combo.strategy == RouteStrategy.CASCADING
+    assert combo.models[:2] == ["qwen3.6:latest", "deepseek-r1:70b"]
+    assert router.route("reasoning-swarm").name == "qwen3.6:latest"
+    assert router.cascade_on_low_confidence is True
+    assert router.cascade_confidence_threshold == 0.6
+
+
+def test_qwen_local_profile_preserves_ollama_runtime_capabilities():
+    registry = ModelRegistry("config.yaml")
+
+    profile = registry.get_model("qwen3.6:latest")
+
+    assert profile is not None
+    assert profile.parameter_count_b == 36.0
+    assert profile.estimated_memory_gb == 24.0
+    assert profile.context_length == 262144
+    assert profile.provider == "ollama"
+
+
+def test_enabled_model_policy_prefers_local_20b_qwen_and_excludes_known_out_of_range_candidates():
+    profiles = {
+        "remote-30b": ModelProfile(
+            name="remote-30b",
+            repo="remote-30b",
+            role="reasoning",
+            provider="openrouter",
+            parameter_count_b=30.0,
+        ),
+        "local-14b": ModelProfile(
+            name="local-14b",
+            repo="local-14b",
+            role="reasoning",
+            provider="ollama",
+            parameter_count_b=14.0,
+        ),
+        "remote-80b": ModelProfile(
+            name="remote-80b",
+            repo="remote-80b",
+            role="reasoning",
+            provider="openrouter",
+            parameter_count_b=80.0,
+        ),
+        "qwen3.6:latest": ModelProfile(
+            name="qwen3.6:latest",
+            repo="qwen3.6:latest",
+            role="reasoning",
+            provider="ollama",
+            parameter_count_b=36.0,
+        ),
+    }
+    registry = MagicMock()
+    registry._raw = {
+        "router": {
+            "model_policy": {
+                "enabled": True,
+                "prefer_local": True,
+                "max_parameter_count_b": 70.0,
+                "min_local_parameter_count_b": 20.0,
+            }
+        }
+    }
+    registry.get_model.side_effect = profiles.get
+    registry.list_models.return_value = list(profiles.values())
+    router = ModelRouter(registry)
+    router.register_combo(
+        ModelCombo(
+            name="policy-combo",
+            models=["remote-30b", "remote-80b", "local-14b", "qwen3.6:latest"],
+        )
+    )
+
+    selected = router.route("policy-combo")
+
+    assert selected.name == "qwen3.6:latest"
+    assert router.available_model_names("policy-combo") == ["qwen3.6:latest", "remote-30b"]
+
+
+def test_expected_model_policy_exclusions_are_debug_not_warning(caplog):
+    profile = ModelProfile(
+        name="remote-80b",
+        repo="remote-80b",
+        role="reasoning",
+        provider="openrouter",
+        parameter_count_b=80.0,
+    )
+    registry = MagicMock()
+    registry._raw = {
+        "router": {
+            "model_policy": {
+                "enabled": True,
+                "max_parameter_count_b": 70.0,
+            }
+        }
+    }
+    registry.get_model.return_value = profile
+    registry.list_models.return_value = [profile]
+    router = ModelRouter(registry)
+
+    with caplog.at_level("DEBUG", logger="antigravity_k.model_router"):
+        router._available_profile("remote-80b")
+
+    record = next(record for record in caplog.records if "parameter_cap_exceeded" in record.message)
+    assert record.levelname == "DEBUG"
+
+
+def test_enabled_model_policy_rejects_direct_model_above_parameter_cap():
+    profile = ModelProfile(
+        name="remote-80b",
+        repo="remote-80b",
+        role="reasoning",
+        provider="openrouter",
+        parameter_count_b=80.0,
+    )
+    registry = MagicMock()
+    registry._raw = {
+        "router": {
+            "model_policy": {
+                "enabled": True,
+                "max_parameter_count_b": 70.0,
+            }
+        }
+    }
+    registry.get_model.return_value = profile
+    registry.list_models.return_value = [profile]
+    router = ModelRouter(registry)
+
+    with pytest.raises(ValueError):
+        router.route_single("remote-80b")

@@ -11,8 +11,14 @@ import io
 import logging
 import sys
 from abc import ABC, abstractmethod
+from importlib import import_module
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _load_optional_module(name: str) -> Any:
+    return import_module(name)
 
 
 # ───────────────────────── 추상 인터페이스 ──────────────────────────
@@ -106,7 +112,7 @@ class WindowsMouseDriver(MouseDriver):
 
     def __init__(self):
         """Initialize the WindowsMouseDriver."""
-        import pyautogui
+        pyautogui = _load_optional_module("pyautogui")
 
         pyautogui.FAILSAFE = True  # 좌상단 이동 시 비상 중지
         pyautogui.PAUSE = 0.05
@@ -188,7 +194,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
 
     def __init__(self):
         """Initialize the WindowsKeyboardDriver."""
-        import pyautogui
+        pyautogui = _load_optional_module("pyautogui")
 
         self._pag = pyautogui
 
@@ -240,7 +246,7 @@ class WindowsScreenDriver(ScreenDriver):
 
     def __init__(self):
         """Initialize the WindowsScreenDriver."""
-        import pyautogui
+        pyautogui = _load_optional_module("pyautogui")
 
         self._pag = pyautogui
 
@@ -427,7 +433,7 @@ class MacOSMouseDriver(MouseDriver):
             duration (float): float duration.
 
         """
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         event = Quartz.CGEventCreateMouseEvent(
             None,
@@ -446,7 +452,7 @@ class MacOSMouseDriver(MouseDriver):
             button (str): str button.
 
         """
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         btn = Quartz.kCGMouseButtonLeft if button == "left" else Quartz.kCGMouseButtonRight
         down_type = Quartz.kCGEventLeftMouseDown if button == "left" else Quartz.kCGEventRightMouseDown
@@ -471,7 +477,7 @@ class MacOSMouseDriver(MouseDriver):
         """
         import time
 
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         point = Quartz.CGPointMake(x, y)
         btn = Quartz.kCGMouseButtonLeft
@@ -505,7 +511,7 @@ class MacOSMouseDriver(MouseDriver):
         """
         import time
 
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         btn = Quartz.kCGMouseButtonLeft
         start = Quartz.CGPointMake(start_x, start_y)
@@ -541,7 +547,7 @@ class MacOSMouseDriver(MouseDriver):
             amount (int): int amount.
 
         """
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         self.move(x, y, duration=0)
         dy = -amount if direction == "down" else amount if direction == "up" else 0
@@ -619,7 +625,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
         """
         import time
 
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         for char in text:
             event_down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
@@ -638,7 +644,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
             key (str): str key.
 
         """
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         keycode = self._get_keycode(key)
         down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
@@ -655,7 +661,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
         """
         import time
 
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         # 수정 키와 일반 키 분리
         mod_flags = 0
@@ -688,7 +694,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
         """
         import time
 
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         keycode = self._get_keycode(key)
         down = Quartz.CGEventCreateKeyboardEvent(None, keycode, True)
@@ -703,7 +709,7 @@ class MacOSScreenDriver(ScreenDriver):
 
     def screenshot(self, region: tuple[int, int, int, int] | None = None) -> str:
         """CGWindowListCreateImage로 화면을 캡처하고 base64 PNG로 반환합니다."""
-        import Quartz
+        Quartz = _load_optional_module("Quartz")
 
         if region:
             rect = Quartz.CGRectMake(*region)
@@ -760,7 +766,7 @@ class MacOSScreenDriver(ScreenDriver):
 
         """
         try:
-            import Quartz
+            Quartz = _load_optional_module("Quartz")
 
             main_display = Quartz.CGMainDisplayID()
             w = Quartz.CGDisplayPixelsWide(main_display)
@@ -810,7 +816,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
     if sys.platform == "darwin":
         # macOS: Quartz 네이티브 드라이버 시도
         try:
-            import Quartz  # noqa: F401 — availability guard
+            _load_optional_module("Quartz")
 
             logger.info("Using macOS Quartz native drivers")
             return DriverSet(

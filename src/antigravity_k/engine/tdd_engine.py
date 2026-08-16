@@ -10,6 +10,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from antigravity_k.engine.external_brain import ExternalBrainRouter
 from antigravity_k.engine.quality_gate import QualityGate, QualityGrade
@@ -70,7 +71,7 @@ class TDDReport:
     error: str = ""
     skipped_racing: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -117,7 +118,7 @@ class OmniTDDEngine:
     def __init__(
         self,
         model_manager,
-        coding_model: str = "deepseek-r1:70b",
+        coding_model: str = "qwen3.6:latest",
         max_iterations: int = 3,
         workspace_dir: str = "",
     ):

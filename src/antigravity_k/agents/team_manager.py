@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import time
+from typing import Any
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -12,7 +13,7 @@ from rich.panel import Panel
 from ..config import config
 from ..i18n import I18n, get_i18n
 from ..knowledge.artifact_service import ArtifactService
-from ..tools.base_tool import RiskLevel
+from ..tools.base_tool import BaseTool, RiskLevel
 from ..tools.tool_registry import ToolRegistry
 from .base_agent import BaseAgent
 from .coordinator import CoordinatorManager
@@ -29,7 +30,7 @@ class TeamManager:
     하위 에이전트들을 관리하고, 상태(Kanban)를 추적하며 메시지를 라우팅합니다.
     """
 
-    def __init__(self, model_manager=None):
+    def __init__(self, model_manager: Any = None):
         """Initialize the TeamManager.
 
         Args:
@@ -109,7 +110,7 @@ class TeamManager:
             self.tool_registry.install(ComputerUseTool, force_stub=config.computer_use.force_stub)
         logger.info(self.tool_registry.summary())
 
-    def get_tools_for_role(self, role_name: str) -> list:
+    def get_tools_for_role(self, role_name: str) -> list[BaseTool]:
         """역할(role)에 맞는 도구 목록을 ToolRegistry에서 필터링하여 반환합니다.
 
         위험도가 config.security.max_tool_risk를 초과하는 도구는 자동 제외됩니다.
@@ -231,7 +232,7 @@ class TeamManager:
 
         logger.info("Task %s delegated to %s", task_id, agent_name)
 
-    def spawn_subagent(self, task_description: str, context: dict | None = None) -> str:
+    def spawn_subagent(self, task_description: str, context: dict[str, Any] | None = None) -> str:
         """독립적인 서브에이전트(Worker)를 스레드로 스폰하여 병렬 작업을 수행합니다.
 
         (Subagent-Driven Development 아키텍처)
@@ -270,7 +271,7 @@ class TeamManager:
                     plan_content = agent.run(plan_prompt, model_manager=self.model_manager)
 
                     checklist_prompt = (
-                        "Based on this implementation plan, generate a concise checklist of steps to execute. Provide only the items, one"  # noqa: E501
+                        "Based on this implementation plan, generate a concise checklist of steps to execute. Provide only the items, one"
                         "per line, with no introductory text or bullet points.\nPlan:\n{plan_content}"
                     )
                     checklist_content = agent.run(
@@ -316,9 +317,8 @@ class TeamManager:
                 logger.exception("Subagent %s failed on %s", subagent_name, task_id)
                 # 실패 시 BACKLOG로 상태 원복
                 self.move_task(task_id, "BACKLOG")
-                if config.workflow.auto_artifacts:
-                    if hasattr(self.artifact_service, "generate_error_report"):
-                        self.artifact_service.generate_error_report(task_id, str(e))
+                if config.workflow.auto_artifacts and hasattr(self.artifact_service, "generate_error_report"):
+                    self.artifact_service.generate_error_report(task_id, str(e))
                 self._auto_commit(f"Fail Subagent Task {task_id}")
             finally:
                 # 임시 에이전트 자원 정리
@@ -331,7 +331,11 @@ class TeamManager:
 
         return task_id
 
-    def _setup_debate_agents(self, num_critics: int, console) -> tuple:
+    def _setup_debate_agents(
+        self,
+        num_critics: int,
+        console: Any,
+    ) -> tuple[BaseAgent, str, list[str], str]:
         """Create temporary proposer, critics, and a shared message channel.
 
         Returns ``(proposer, proposer_name, critic_names, channel_name)``.
@@ -362,8 +366,8 @@ class TeamManager:
         channel_name: str,
         topic: str,
         rounds: int,
-        context: dict | None,
-        console,
+        context: dict[str, Any] | None,
+        console: Any,
     ) -> list[str]:
         """Run the proposer-critic debate for the specified number of rounds.
 
@@ -464,7 +468,7 @@ class TeamManager:
         topic: str,
         rounds: int = 2,
         num_critics: int = 2,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> str:
         """주어진 주제(topic)에 대해 PROPOSER와 다수의 CRITIC 에이전트가 상호 토론(Debate)하여 최적의 결과를 도출합니다.
 
@@ -518,7 +522,7 @@ class TeamManager:
         logger.info("Running team collaboration cycle...")
 
         # 1. 할당되지 않은 작업들을 에이전트들이 자율적으로 Pull하도록 시도
-        for agent_name, agent in self.agents.items():
+        for agent_name in self.agents:
             if hasattr(self.kanban_board, "pull_task"):
                 pulled_task_id = self.kanban_board.pull_task(agent_name)
                 if pulled_task_id:
@@ -532,7 +536,7 @@ class TeamManager:
         # 2. 메시지 버스의 알림을 처리 (추후 구현)
         logger.info("Team cycle completed.")
 
-    def run_coordinator_task(self, user_prompt: str, context: dict | None = None) -> str:
+    def run_coordinator_task(self, user_prompt: str, context: dict[str, Any] | None = None) -> str:
         """CoordinatorManager를 이용해 태스크를 동적으로 분석하고 다중 에이전트 병렬 실행을 수행합니다.
 
         (Antigravity-K 2단계 고도화 아키텍처)

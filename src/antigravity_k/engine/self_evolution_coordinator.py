@@ -20,12 +20,16 @@ Orchestrator의 태스크 완료 후 QualityGate 점수가 C 이하일 때 자�
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
+
+import yaml
 
 from antigravity_k.engine.model_manager import ModelManager
 
@@ -670,7 +674,7 @@ class SelfEvolutionCoordinator:
                         content = f.read().strip()
                         if content:
                             return content
-            except (OSError, IOError, UnicodeDecodeError):
+            except (OSError, UnicodeDecodeError):
                 continue
 
         # 최종 폴백: 프로젝트 구조 기반 설명
@@ -840,6 +844,7 @@ class SelfEvolutionCoordinator:
         deterministic_result = self._deterministic_validate(target_file, new_content)
         if not deterministic_result["passed"]:
             return deterministic_result
+        validation: dict[str, Any] = dict(deterministic_result.get("details", {}))
 
         # 2단계: RSISandbox 3중 검증 (sandbox 사용 가능 시)
         if self._sandbox:
@@ -892,7 +897,6 @@ class SelfEvolutionCoordinator:
             {"passed": bool, "reason": str, "details": dict}
         """
         import ast
-        import json
 
         details: dict[str, Any] = {"filepath": filepath}
 
@@ -922,8 +926,6 @@ class SelfEvolutionCoordinator:
         # YAML 파싱
         elif ext in ("yaml", "yml"):
             try:
-                import yaml
-
                 parsed = yaml.safe_load(content)
                 if parsed is None and content.strip():
                     details["yaml_warning"] = "content가 있지만 파싱 결과가 None"
@@ -959,7 +961,6 @@ class SelfEvolutionCoordinator:
 
         # JSON 파일로 영속 저장
         try:
-            import json
             import os
 
             history_path = os.path.join(self._root, "data", "evolution_history.json")
@@ -995,7 +996,7 @@ class SelfEvolutionCoordinator:
             with open(history_path, "w", encoding="utf-8") as f:
                 json.dump(existing, f, ensure_ascii=False, indent=2)
 
-        except (OSError, IOError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
     # ─── 보고 및 통계 ────────────────────────────────────────────
@@ -1016,7 +1017,7 @@ class SelfEvolutionCoordinator:
             "recent_window": len(recent),
             "turns_since_last": self._turns_since_last_evolution,
             "last_evolution": (
-                datetime.fromtimestamp(self._last_evolution_time).isoformat()
+                datetime.fromtimestamp(self._last_evolution_time).astimezone().replace(tzinfo=None).isoformat()
                 if self._last_evolution_time > 0
                 else "never"
             ),
@@ -1030,8 +1031,10 @@ class SelfEvolutionCoordinator:
             "## 🧬 Self-Evolution Coordinator Report",
             "",
             f"**총 진화 횟수**: {report['total_evolutions']}",
-            f"**최근 성공/롤백/스킵**: "
-            f"{report['recent_successes']}/{report['recent_rollbacks']}/{report['recent_skips']}",
+            (
+                f"**최근 성공/롤백/스킵**: "
+                f"{report['recent_successes']}/{report['recent_rollbacks']}/{report['recent_skips']}"
+            ),
             f"**마지막 진화**: {report['last_evolution']}",
             f"**마지막 진화 이후 턴 수**: {report['turns_since_last']}",
             "",
@@ -1040,7 +1043,7 @@ class SelfEvolutionCoordinator:
         if self._history:
             lines.extend(["### 최근 진화 이력", "", "| 시간 | 도메인 | 결과 | 개선도 |", "|---|---|---|:---:|"])
             for h in self._history[-5:]:
-                ts = datetime.fromtimestamp(h.timestamp).strftime("%H:%M:%S")
+                ts = datetime.fromtimestamp(h.timestamp).astimezone().replace(tzinfo=None).strftime("%H:%M:%S")
                 domain = h.result.mutation_domain.value
                 if h.result.skipped:
                     status = "⏭ 스킵"

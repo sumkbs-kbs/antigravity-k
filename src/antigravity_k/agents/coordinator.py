@@ -3,11 +3,13 @@
 import json
 import logging
 import time
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
 
 from ..tasks.local_agent_task import LocalAgentTask
+from .base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class CoordinatorManager:
         self.active_tasks: list[LocalAgentTask] = []
         self.console = Console()
 
-    def _analyze_task(self, coordinator, user_prompt: str) -> dict:
+    def _analyze_task(self, coordinator: BaseAgent, user_prompt: str) -> dict[str, str]:
         """Run the Coordinator agent to break the task into proposer/critic sub-tasks.
 
         Returns a dict with 'proposer_task' and 'critic_task' strings. Falls back
@@ -74,7 +76,7 @@ class CoordinatorManager:
         task_breakdown.setdefault("critic_task", "Review for security and performance.")
         return task_breakdown
 
-    def _create_debate_team(self) -> tuple:
+    def _create_debate_team(self) -> tuple[BaseAgent, BaseAgent]:
         """Create Proposer and Critic agents with a shared message channel.
 
         Returns ``(proposer_agent, critic_agent)``.
@@ -95,7 +97,13 @@ class CoordinatorManager:
 
         return proposer_agent, critic_agent
 
-    def _run_parallel_agents(self, proposer_agent, critic_agent, proposer_instruction, critic_instruction) -> tuple:
+    def _run_parallel_agents(
+        self,
+        proposer_agent: BaseAgent,
+        critic_agent: BaseAgent,
+        proposer_instruction: str,
+        critic_instruction: str,
+    ) -> tuple[str, str]:
         """Run the proposer and critic agents in parallel threads.
 
         Returns ``(proposer_result, critic_result)``.
@@ -178,7 +186,7 @@ class CoordinatorManager:
         self.team_manager._auto_commit("Coordinator Parallel Execution Complete")
         return final_result
 
-    def analyze_and_delegate(self, user_prompt: str, context: dict | None = None) -> str:
+    def analyze_and_delegate(self, user_prompt: str, context: dict[str, Any] | None = None) -> str:
         """문제를 분석하여 병렬로 실행할 수 있는 하위 태스크로 분할하고, 다중 에이전트 토론/협력을 유도합니다."""
         self.console.print(
             Panel(f"[bold cyan]Coordinator is analyzing the task...[/bold cyan]\n{user_prompt}"),

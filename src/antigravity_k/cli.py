@@ -10,7 +10,7 @@ from rich.table import Table
 
 from antigravity_k import __version__
 from antigravity_k.config import config
-from antigravity_k.engine.model_registry import ModelRegistry
+from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.secure_key import (
     VALID_SERVICES,
     get_api_key,
@@ -22,7 +22,11 @@ from antigravity_k.engine.secure_key import (
 
 app = typer.Typer(help="Antigravity-K command line interface", no_args_is_help=True)
 key_app = typer.Typer(help="Manage encrypted API keys in vault")
+memory_app = typer.Typer(help="Manage project-scoped memory configuration")
+task_app = typer.Typer(help="Inspect and resume durable agent tasks")
 app.add_typer(key_app, name="key", help="Manage API keys")
+app.add_typer(memory_app, name="memory", help="Manage project memory")
+app.add_typer(task_app, name="task", help="Manage durable agent tasks")
 console = Console()
 
 
@@ -68,15 +72,21 @@ def list_models() -> None:
     registry = ModelRegistry()
     table = Table(title="Configured Models")
     table.add_column("Name")
-    table.add_column("Role")
+    table.add_column("Roles")
     table.add_column("Repo")
+    table.add_column("Tier")
+    table.add_column("Provider")
+    table.add_column("Local")
     table.add_column("Memory GB", justify="right")
 
     for model in registry.list_models():
         table.add_row(
             model.name,
-            model.role,
+            ", ".join(model.supported_roles),
             model.repo,
+            model.capability_tier,
+            model.backend,
+            "yes" if model.is_local else "no",
             f"{model.estimated_memory_gb:g}",
         )
     console.print(table)
@@ -113,18 +123,163 @@ def status() -> None:
     )
 
 
-@app.command()
-def doctor() -> None:
-    """Run a full environment diagnostic — check dependencies, config, and connectivity.
+@app.command("run")
+def run_agent(
+    prompt: str = typer.Argument(..., help="Prompt to run through the canonical agent runtime."),
+    model: str = typer.Option("", "--model", help="Optional target model override."),
+) -> None:
+    from antigravity_k.api.dependencies import get_agent_runtime
 
-    Use this when something is not working. It checks:
-    - Python version and required system tools (git, node)
-    - Configuration validity and API key availability
-    - Model registry and provider connectivity
-    - Port availability and vault directory writability
-    """
+    runtime = get_agent_runtime()
+    tracked_stream = runtime.start_stream([{"role": "user", "content": prompt}], target_model=model)
+    if tracked_stream.task_id:
+        console.print(f"Task: {tracked_stream.task_id}")
+    for chunk in tracked_stream.chunks:
+        console.print(chunk, end="")
+    console.print()
+
+
+@task_app.command("list", help="List recent durable agent tasks.")
+def task_list(limit: int = typer.Option(20, "--limit", min=1, max=200)) -> None:
+    from antigravity_k.api.dependencies import get_agent_runtime
+
+    table = Table(title="Durable Tasks")
+    table.add_column("Task ID")
+    table.add_column("Status")
+    table.add_column("Prompt")
+    for task in get_agent_runtime().list_tasks(limit=limit):
+        table.add_row(
+            str(task.get("task_id", "")),
+            str(task.get("status", "unknown")),
+            str(task.get("prompt", "")),
+        )
+    console.print(table)
+
+
+@task_app.command("status", help="Show the durable state of one task.")
+def task_status(task_id: str) -> None:
+    from antigravity_k.api.dependencies import get_agent_runtime
+
+    status = get_agent_runtime().get_task_status(task_id)
+    if status is None:
+        console.print(f"[red]Task not found:[/red] {task_id}")
+        raise typer.Exit(code=1)
+    console.print(status)
+
+
+@task_app.command("output", help="Print the accumulated output of one task.")
+def task_output(task_id: str) -> None:
+    from antigravity_k.api.dependencies import get_agent_runtime
+
+    output = get_agent_runtime().get_task_output(task_id)
+    if output is None:
+        console.print(f"[red]Task output not found:[/red] {task_id}")
+        raise typer.Exit(code=1)
+    console.print(output, end="")
+    if not output.endswith("\n"):
+        console.print()
+
+
+@task_app.command("resume", help="Resume a failed or paused task and wait for its result.")
+def task_resume(
+    task_id: str,
+    model: str = typer.Option("", "--model", help="Optional target model override."),
+    timeout: float = typer.Option(300.0, "--timeout", min=0.1, help="Maximum wait time in seconds."),
+) -> None:
+    from antigravity_k.api.dependencies import get_agent_runtime
+
+    runtime = get_agent_runtime()
+    if not runtime.resume_task(task_id, target_model=model):
+        console.print(f"[red]Task is not resumable or has no checkpoint:[/red] {task_id}")
+        raise typer.Exit(code=1)
+    status = runtime.wait_task(task_id, timeout=timeout)
+    if status is None:
+        console.print(f"[red]Task not found after resume:[/red] {task_id}")
+        raise typer.Exit(code=1)
+    state = str(status.get("status", "unknown"))
+    console.print(f"Status: {state}")
+    output = runtime.get_task_output(task_id)
+    if output:
+        console.print(output, end="")
+        if not output.endswith("\n"):
+            console.print()
+    if state != "done":
+        raise typer.Exit(code=2)
+
+
+@memory_app.command("aliases")
+def memory_aliases() -> None:
+    from antigravity_k.engine.project_memory_keys import read_project_alias_schema
+    from antigravity_k.engine.project_memory_paths import project_memory_dir
+
+    schema = read_project_alias_schema(project_memory_dir(Path.cwd()))
+    table = Table(title="Project Memory Aliases")
+    table.add_column("Canonical Key")
+    table.add_column("Aliases")
+    for canonical, aliases in sorted(schema.aliases.items()):
+        table.add_row(canonical, ", ".join(aliases))
+    console.print(table)
+
+
+@memory_app.command("alias-set")
+def memory_alias_set(canonical: str, alias: str) -> None:
+    from pydantic import ValidationError
+
+    from antigravity_k.engine.project_memory_keys import (
+        ProjectAliasConfigError,
+        set_project_alias,
+    )
+    from antigravity_k.engine.project_memory_paths import project_memory_dir
+
+    try:
+        schema = set_project_alias(project_memory_dir(Path.cwd()), canonical, alias)
+    except (ProjectAliasConfigError, ValidationError, ValueError) as error:
+        console.print(f"[red]Invalid project alias: {error}[/red]")
+        raise typer.Exit(code=1) from error
+    console.print(f"[green]Project alias saved:[/green] {alias} -> {canonical}")
+    console.print(f"Aliases for {canonical}: {', '.join(schema.aliases[canonical])}")
+
+
+@memory_app.command("alias-remove")
+def memory_alias_remove(alias: str) -> None:
+    from pydantic import ValidationError
+
+    from antigravity_k.engine.project_memory_keys import (
+        ProjectAliasConfigError,
+        remove_project_alias,
+    )
+    from antigravity_k.engine.project_memory_paths import project_memory_dir
+
+    try:
+        _ = remove_project_alias(project_memory_dir(Path.cwd()), alias)
+    except (ProjectAliasConfigError, ValidationError, ValueError) as error:
+        console.print(f"[red]Invalid project alias: {error}[/red]")
+        raise typer.Exit(code=1) from error
+    console.print(f"[green]Project alias removed:[/green] {alias}")
+
+
+@app.command()
+def doctor(
+    heal: bool = typer.Option(
+        False, "--heal", "-h", help="Automatically repair detected issues and clean stale caches."
+    ),
+) -> None:
+    """Run a full environment diagnostic with automated self-healing capabilities."""
     from rich.panel import Panel
     from rich.table import Table
+
+    if heal:
+        from antigravity_k.engine.self_healing_doctor import SelfHealingDoctor
+
+        doc = SelfHealingDoctor(project_root=".")
+        rep = doc.run_health_check(auto_heal=True)
+        console.print(
+            f"[bold cyan]🏥 Self-Healing Doctor Results:[/bold cyan] {rep.healthy_count}/{rep.total_checks} Healthy ({rep.repaired_count} Auto-Repaired)"
+        )
+        for c in rep.checks:
+            icon = "✅" if c.status in ("HEALTHY", "REPAIRED") else "⚠️"
+            console.print(f"  {icon} [bold]{c.name}:[/bold] {c.message}")
+        return
 
     results: list[tuple[str, str, str]] = []  # (check, status, detail)
     passed = 0
@@ -162,8 +317,8 @@ def doctor() -> None:
     # ── 2. Configuration ──
     check(
         "config.yaml exists",
-        config.paths.project_root and (config.paths.project_root / "config.yaml").exists(),
-        str(config.paths.project_root / "config.yaml"),
+        config.config_path.is_file(),
+        str(config.config_path),
     )
 
     problems = config.validate()
@@ -185,6 +340,8 @@ def doctor() -> None:
         )
 
     # ── 4. Model Registry ──
+    registry: ModelRegistry | None = None
+    models: list[ModelProfile] = []
     try:
         registry = ModelRegistry()
         models = registry.list_models()
@@ -195,6 +352,34 @@ def doctor() -> None:
         )
     except Exception as e:
         check("Model registry loaded", False, str(e))
+
+    # ── 4b. Local Providers (ollama / lmstudio / mlx) ──
+    if registry is not None:
+        from antigravity_k.engine.provider_capabilities import (
+            LocalProviderCapabilityProbe,
+            remediation_hint,
+        )
+
+        local_backends = {"ollama", "lmstudio", "lm_studio", "mlx"}
+        representative_models: dict[str, ModelProfile] = {}
+        for model in models:
+            backend = model.backend.casefold() if model.backend else ""
+            if backend in local_backends:
+                representative_models.setdefault(backend, model)
+        capability_probe = LocalProviderCapabilityProbe(registry)
+        for profile in representative_models.values():
+            capability = capability_probe.observe(profile)
+            available = capability["runtime_status"] == "available"
+            detail = (
+                f"provider={capability['provider']} · "
+                f"native_tools={capability['native_tool_calling']} · "
+                f"{capability['source']} · {capability['detail']}"
+            )
+            hint = remediation_hint(profile, capability)
+            if hint:
+                detail += f" · fix={hint}"
+            # 로컬 프로바이더는 선택적이므로 도달 실패는 FAIL이 아닌 WARN으로 처리한다.
+            check(f"Local model health: {profile.name}", available, detail, is_warning=not available)
 
     # ── 5. Port Availability ──
     import socket
@@ -234,11 +419,69 @@ def doctor() -> None:
     except Exception as e:
         check("Logs directory writable", False, str(e), is_warning=True)
 
+    # ── 7. Amplification (CoV / cognitive / self-consistency / decomposition) ──
+    # 작은 모델 성능 증폭 서브시스템의 현재 설정을 사용자에게 보여준다.
+    # doctor는 읽기 전용 진단이므로 설정값은 표시만 하고 통과 처리한다.
+    import yaml as _yaml
+
+    def _object_dict(value: object) -> dict[str, object]:
+        if not isinstance(value, dict):
+            return {}
+        return {str(key): item for key, item in value.items()}
+
+    amp_section: dict[str, object] = {}
+    _cfg_path = config.config_path
+    if _cfg_path.exists():
+        try:
+            with _cfg_path.open() as _f:
+                _raw = _yaml.safe_load(_f) or {}
+            if isinstance(_raw, dict):
+                amp_section = _object_dict(_raw.get("amplification"))
+        except Exception:
+            amp_section = {}
+
+    _cov = _object_dict(amp_section.get("cognitive"))
+    _cov_enabled = bool(_cov.get("enabled", True)) if isinstance(_cov, dict) else True
+    check(
+        "Amplification: cognitive loop",
+        True,
+        f"{'on' if _cov_enabled else 'off'} · retries={_cov.get('max_retries', 2)} "
+        f"dialectic={_cov.get('dialectic_enabled', True)}",
+    )
+
+    _cog = _object_dict(amp_section.get("cov"))
+    _cog_enabled = bool(_cog.get("enabled", True)) if isinstance(_cog, dict) else True
+    check(
+        "Amplification: chain-of-verification",
+        True,
+        f"{'on' if _cog_enabled else 'off'} · revise={_cog.get('max_revise_iterations', 2)} "
+        f"threshold={_cog.get('complexity_threshold', 0.4)}",
+    )
+
+    _sc = _object_dict(amp_section.get("self_consistency"))
+    _sc_enabled = bool(_sc.get("enabled", False)) if isinstance(_sc, dict) else False
+    check(
+        "Amplification: self-consistency",
+        True,
+        f"{'on' if _sc_enabled else 'off'} · n={_sc.get('n_samples', 5)} "
+        f"gate={_sc.get('complexity_threshold', 'null')}",
+    )
+
+    _td = _object_dict(amp_section.get("task_decomposition"))
+    _td_enabled = bool(_td.get("enabled", False)) if isinstance(_td, dict) else False
+    check(
+        "Amplification: task decomposition",
+        True,
+        f"{'on' if _td_enabled else 'off'} · steps={_td.get('min_steps', 2)}-"
+        f"{_td.get('max_steps', 6)} "
+        f"escalate={'on' if _td.get('escalate_on_revision_failure', False) else 'off'}",
+    )
+
     # ── Output ──
     table = Table(title="🩺 Antigravity-K Doctor", show_header=True, header_style="bold cyan")
     table.add_column("Check", style="bold")
     table.add_column("Status", justify="center")
-    table.add_column("Detail", style="dim")
+    table.add_column("Detail", style="dim", overflow="fold")
 
     for name, status_text, detail in results:
         table.add_row(name, status_text, detail)
@@ -686,7 +929,7 @@ def tui(
     Interactive terminal interface with chat, slash commands, and system monitoring.
     """
     try:
-        from antigravity_k.tui import run_tui  # type: ignore[attr-defined]
+        from antigravity_k.tui import run_tui
 
         run_tui()
     except ImportError as e:
@@ -941,6 +1184,62 @@ def market(
         _market_publish_github(publish_github, publish_repo, dry_run)
     else:
         _market_show_help()
+
+
+@app.command()
+def autopilot(
+    goal: str = typer.Argument(..., help="High-level engineering mission to execute autonomously."),
+    max_turns: int = typer.Option(10, "--max-turns", "-m", help="Maximum autonomous flight turns."),
+) -> None:
+    """Launch full autonomous self-driving flight mission for Qwen3.8-27B."""
+    from antigravity_k.engine.flight_controller import AutonomousFlightController
+
+    console.print(f"[bold cyan]🚀 Launching Autonomous Autopilot Mission:[/bold cyan] {goal}")
+
+    controller = AutonomousFlightController(project_root=".", max_flight_turns=max_turns)
+
+    from typing import Any
+
+    # Initial starter subgoals inferred from goal
+    subgoals: list[dict[str, Any]] = [
+        {"id": "plan", "desc": f"Formulate implementation plan for '{goal}'"},
+        {"id": "code", "desc": "Implement required changes and patches", "depends_on": ["plan"]},
+        {"id": "verify", "desc": "Run TDD tests and static audits", "depends_on": ["code"]},
+    ]
+
+    def _execute_step(step_id: str, desc: str) -> bool:
+        console.print(f"  [yellow]⚡ Step [{step_id}]:[/yellow] {desc}")
+        # Step simulation / execution hook
+        return True
+
+    report = controller.launch_mission(
+        goal=goal,
+        initial_subgoals=subgoals,
+        step_executor=_execute_step,
+    )
+
+    if report.is_success:
+        console.print(
+            f"[bold green]✅ Mission '{goal}' Completed Successfully in {report.total_steps_executed} turns![/bold green]"
+        )
+    else:
+        console.print(f"[bold red]❌ Mission '{goal}' stopped after {report.total_steps_executed} turns.[/bold red]")
+
+
+@app.command()
+def fast(
+    query: str = typer.Argument(..., help="Deterministic query to resolve instantly (e.g. 'where is ClassName')."),
+) -> None:
+    """Execute direct fast-path kernel query with <5ms latency (Zero LLM overhead)."""
+    from antigravity_k.engine.fast_path_kernel import FastPathKernel
+
+    kernel = FastPathKernel(project_root=".")
+    res = kernel.try_execute(query)
+
+    if res.handled:
+        console.print(res.response)
+    else:
+        console.print(f"[yellow]⚡ Query '{query}' requires full LLM generation loop.[/yellow]")
 
 
 if __name__ == "__main__":

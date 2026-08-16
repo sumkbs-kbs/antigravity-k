@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 import urllib.request
+from importlib import import_module
 from typing import Any, Dict
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
@@ -126,8 +127,8 @@ class GenerateAudioTool(BaseTool):
         output_path = kwargs.get("output_path", "")
         voice = kwargs.get("voice", "af_heart")
         try:
-            import soundfile as sf
-            from kokoro_onnx import Kokoro
+            sf = import_module("soundfile")
+            Kokoro = import_module("kokoro_onnx").__dict__["Kokoro"]
 
             model_path = os.path.join(os.getcwd(), "data", "kokoro-v0_19.onnx")
             voices_path = os.path.join(os.getcwd(), "data", "voices.json")

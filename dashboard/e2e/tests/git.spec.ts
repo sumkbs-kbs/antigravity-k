@@ -22,8 +22,8 @@ test.describe('Git Integration', () => {
     dashboard = new DashboardPage(page);
     await dashboard.goto();
     await dashboard.handlePinModal();
-    // Navigate to Git page via direct route
-    await dashboard.gotoPage('git');
+    // Navigate to Git page by clicking sidebar link (SPA-friendly)
+    await dashboard.goToGit();
   });
 
   test('should render the git page header', async () => {

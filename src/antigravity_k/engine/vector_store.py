@@ -3,9 +3,22 @@
 import logging
 from typing import Any
 
-import chromadb
-from chromadb.api.client import SharedSystemClient
-from chromadb.config import Settings
+# 선택적 의존성. import 실패 시 전체 런타임 부팅을 막지 않도록 방어 로드.
+# chromadb는 VectorStore 인스턴스 생성 시점에만 필요하다.
+chromadb: Any = None
+SharedSystemClient: Any = None
+Settings: Any = None
+_chroma_available = False
+_chroma_import_error: BaseException | None = None
+
+try:
+    import chromadb
+    from chromadb.api.client import SharedSystemClient
+    from chromadb.config import Settings
+
+    _chroma_available = True
+except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존성 로드 실패  # noqa: BLE001
+    _chroma_import_error = _chroma_exc
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +39,14 @@ class VectorStore:
         self.persist_directory = persist_directory
         os.makedirs(persist_directory, exist_ok=True)
         self._closed = False
+        self.client: Any = None
+        self.collection: Any = None
+
+        if not _chroma_available:
+            raise RuntimeError(
+                "VectorStore requires chromadb but it is unavailable: "
+                f"{type(_chroma_import_error).__name__}: {_chroma_import_error}",
+            )
 
         try:
             self.client = chromadb.PersistentClient(path=self.persist_directory)
@@ -57,17 +78,20 @@ class VectorStore:
 
     def close(self):
         """ChromaDB 클라이언트 연결을 정리합니다."""
-        if self._closed:
+        if getattr(self, "_closed", True):
             return
         self._closed = True
         try:
-            if hasattr(self, "client") and self.client is not None:
-                self.client.close()
+            close = getattr(self.client, "close", None)
+            if callable(close):
+                close()
         except Exception:
             logger.exception("VectorStore: chromadb client close 실패")
         finally:
             try:
-                SharedSystemClient.clear_system_cache()
+                clear_system_cache = getattr(SharedSystemClient, "clear_system_cache", None)
+                if callable(clear_system_cache):
+                    clear_system_cache()
             except Exception:
                 logger.exception("VectorStore: clear_system_cache 실패")
             self.client = None
@@ -109,16 +133,102 @@ class VectorStore:
         self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[arg-type]
         logger.info("Upserted %s chunks into ChromaDB.", len(chunks))
 
+    def store_embedding(self, source_table: str, source_id: int, text: str) -> bool:
+        self.upsert_chunks(
+            [
+                {
+                    "id": f"{source_table}:{source_id}",
+                    "text": text,
+                    "metadata": {"source_table": source_table, "source_id": source_id},
+                },
+            ],
+        )
+        return True
+
+    def search_similar(
+        self,
+        query: str,
+        source_table: str,
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        matches = self.search(query, n_results=top_k)
+        results: list[dict[str, Any]] = []
+        for match in matches:
+            metadata = match.get("metadata", {})
+            if metadata.get("source_table") != source_table:
+                continue
+            distance = match.get("distance")
+            similarity = 1.0 / (1.0 + float(distance)) if distance is not None else 0.0
+            results.append(
+                {
+                    "source_id": metadata.get("source_id"),
+                    "similarity": similarity,
+                },
+            )
+        return results
+
+    def fit_tfidf(self, documents: list[str]) -> None:
+        return None
+
+    def get_stats(self) -> dict[str, Any]:
+        count = self.collection.count() if self.collection is not None else 0
+        return {"available": True, "persist_directory": self.persist_directory, "count": count}
+
     def delete_file_chunks(self, file_path: str):
         """Delete all chunks belonging to a specific file.
 
         Useful when a file is deleted or completely rewritten.
         """
         try:
-            self.collection.delete(where={"source": file_path})
+            self.delete_file_chunks_strict(file_path)
             logger.info("Deleted chunks for file: %s", file_path)
         except Exception:
             logger.exception("Error deleting chunks for %s", file_path)
+
+    def delete_file_chunks_strict(self, file_path: str) -> None:
+        self.collection.delete(where={"source": file_path})
+
+    def clear(self) -> int:
+        ids = self.collection.get().get("ids") or []
+        if ids:
+            self.collection.delete(ids=ids)
+        return len(ids)
+
+    def export_all(self) -> list[dict[str, Any]]:
+        payload = self.collection.get(include=["documents", "metadatas"])
+        ids = payload.get("ids") or []
+        documents = payload.get("documents") or []
+        metadatas = payload.get("metadatas") or []
+        return [
+            {
+                "id": node_id,
+                "document": documents[index] if index < len(documents) else "",
+                "metadata": metadatas[index] if index < len(metadatas) else {},
+            }
+            for index, node_id in enumerate(ids)
+        ]
+
+    def redact_all(self) -> int:
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        payload = self.collection.get(include=["documents", "metadatas"])
+        ids = payload.get("ids") or []
+        documents = payload.get("documents") or []
+        metadatas = payload.get("metadatas") or []
+        safe_documents = [redact_full(document or "") for document in documents]
+        safe_metadatas = [
+            {key: redact_full(value) if isinstance(value, str) else value for key, value in (metadata or {}).items()}
+            for metadata in metadatas
+        ]
+        changed = sum(old != new for old, new in zip(documents, safe_documents, strict=False))
+        if ids:
+            self.collection.upsert(ids=ids, documents=safe_documents, metadatas=safe_metadatas)
+        return changed
+
+    def apply_retention(self, max_age_days: int) -> int:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        return 0
 
     def search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
         """Search for the most relevant chunks given a query string."""

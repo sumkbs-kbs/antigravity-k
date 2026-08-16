@@ -25,7 +25,11 @@ class BenchmarkCase:
     prompt: str
     difficulty: int  # 1-5
     expected_keywords: tuple[str, ...] = ()
+    expected_tools: tuple[str, ...] = ()
     description: str = ""
+    # verified_code cases: when set, the harness executes the model's generated
+    # code and compares stdout to this value. Measures executed output, not keywords.
+    expected_output: str = ""
 
 
 # ─── 내장 과제 세트 ─────────────────────────────────────────────────
@@ -162,6 +166,20 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
         ),
         expected_keywords=("Event", "Command", "class", "append"),
     ),
+    BenchmarkCase(
+        id="lh-001",
+        category="long_horizon",
+        difficulty=5,
+        description="체크포인트 기반 장기 작업 복구",
+        prompt=(
+            "여러 단계로 구성된 코드 마이그레이션 작업을 계획하고 실행하는 에이전트 워크플로를 설계하세요.\n"
+            "- 먼저 저장소를 분석하고, 변경 계획과 의존성 순서를 checkpoint에 저장하세요.\n"
+            "- 각 단계에서 사용할 도구와 성공 조건을 명시하고, 중간 실패 시 마지막 checkpoint에서 recovery 하세요.\n"
+            "- 재시작 후 이미 완료된 단계는 idempotency로 건너뛰고, 최종 검증과 rollback 절차를 포함하세요.\n"
+            "- 단계별 task outcome에 성공 여부, 재시도 횟수, latency, 사용 도구를 기록하세요."
+        ),
+        expected_keywords=("checkpoint", "recovery", "idempotency", "rollback", "retry"),
+    ),
     # ── search (난이도 1~2, Phase 1 검증) ─────────────────────────
     BenchmarkCase(
         id="srch-001",
@@ -174,6 +192,7 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
             "- 출처를 명시해줘."
         ),
         expected_keywords=("한화에어로스페이스", "종가", "|", "출처"),
+        expected_tools=("web_search",),
     ),
     BenchmarkCase(
         id="srch-002",
@@ -186,6 +205,7 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
             "- 마크다운 리스트 형식으로 작성해줘."
         ),
         expected_keywords=("반도체", "AI", "출처"),
+        expected_tools=("web_search",),
     ),
     # ── analysis (난이도 3, Phase 2 검증) ─────────────────────────
     BenchmarkCase(
@@ -253,20 +273,80 @@ BUILTIN_CASES: tuple[BenchmarkCase, ...] = (
         prompt="너를 소개하고 니가 할 수 있는 일과 할 수 없는 일을 알려줘.",
         expected_keywords=("할 수 있", "할 수 없"),
     ),
+    # ── verified_code (난이도 1~2, 실행 결과 검증) ─────────────────
+    BenchmarkCase(
+        id="verf-001",
+        category="verified_code",
+        difficulty=1,
+        description="코드 실행 결과 검증 (함수형 합계)",
+        prompt=(
+            "Python으로 1부터 n까지의 합을 구하는 함수 sum_to(n)을 작성하고, "
+            "sum_to(100)의 결과를 print로 출력하는 실행 가능한 코드를 제출하세요.\n"
+            "- 반드시 실행 가능한 단일 Python 코드 블록을 포함하세요.\n"
+            "- 실행하면 5050이 출력되어야 합니다."
+        ),
+        expected_output="5050",
+    ),
+    BenchmarkCase(
+        id="verf-002",
+        category="verified_code",
+        difficulty=2,
+        description="코드 실행 결과 검증 (리스트 컴프리헨션)",
+        prompt=(
+            "1부터 20까지의 숫자 중 3의 배수만 골라 그 합을 구하는 Python 코드를 작성하고 "
+            "결과를 print로 출력하세요.\n"
+            "- 실행 가능한 단일 Python 코드 블록을 포함하세요."
+        ),
+        expected_output="63",
+    ),
+    BenchmarkCase(
+        id="verf-003",
+        category="verified_code",
+        difficulty=3,
+        description="코드 실행 결과 검증 (알고리즘: FizzBuzz)",
+        prompt=(
+            "FizzBuzz를 구현하는 Python 코드를 작성하고 실행하세요.\n"
+            "- 1부터 15까지 숫자에 대해:\n"
+            "  - 3의 배수는 Fizz, 5의 배수는 Buzz, 15의 배수는 FizzBuzz, "
+            "그 외는 숫자 자체를 출력합니다.\n"
+            "- 각 결과를 한 줄씩 print로 출력하세요 (총 15줄).\n"
+            "- 반드시 실행 가능한 단일 Python 코드 블록을 포함하세요."
+        ),
+        expected_output=("1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz"),
+    ),
+    BenchmarkCase(
+        id="verf-004",
+        category="verified_code",
+        difficulty=3,
+        description="코드 실행 결과 검증 (알고리즘: 소수 판별 합계)",
+        prompt=(
+            "1부터 20까지의 숫자 중 소수(prime number)만 찾아 그 합을 구하는 Python 코드를 작성하고 실행하세요.\n"
+            "- 소수는 1과 자기 자신만 약수로 갖는 1보다 큰 정수입니다.\n"
+            "- 합계를 print로 출력하세요.\n"
+            "- 실행 가능한 단일 Python 코드 블록을 포함하세요."
+        ),
+        expected_output="77",
+    ),
 )
+
+_FRONTIER_CASE_IDS = ("sim-001", "alg-001", "srch-002", "anl-001", "lh-001")
 
 
 def get_suite(name: str = "all") -> list[BenchmarkCase]:
     """과제 세트를 반환합니다.
 
     Args:
-        name: "all", "simple", "algorithm", "architecture", "korean", "refactor",
-              "search", "analysis", "creative", "regression",
-              또는 개별 case id (예: "sim-001")
+       name: "all", "frontier", "simple", "algorithm", "architecture", "korean", "refactor",
+             "search", "analysis", "creative", "regression", "long_horizon",
+             또는 개별 case id (예: "sim-001")
 
     """
     if name == "all":
         return list(BUILTIN_CASES)
+
+    if name == "frontier":
+        cases_by_id = {case.id: case for case in BUILTIN_CASES}
+        return [cases_by_id[case_id] for case_id in _FRONTIER_CASE_IDS]
 
     # 개별 ID 매칭
     for case in BUILTIN_CASES:

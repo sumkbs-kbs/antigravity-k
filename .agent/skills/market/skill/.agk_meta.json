@@ -1,0 +1,13 @@
+{
+  "name": "skill",
+  "version": "1.0.2",
+  "description": "",
+  "installed_at": "2026-07-11T10:24:44.763589",
+  "updated_at": "2026-07-11T10:24:44.763589",
+  "risk_level": "safe",
+  "trust_level": "experimental",
+  "requires_approval": false,
+  "mcp_server_id": "",
+  "security_passed": true,
+  "findings": []
+}

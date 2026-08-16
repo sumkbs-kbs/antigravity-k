@@ -301,7 +301,7 @@ Begin now."""
             expected_format="text with markers",
         )
 
-    def _council_prompt(self, query: str, thesis: str, member: dict) -> DialecticalPrompt:
+    def _council_prompt(self, query: str, thesis: str, member: dict[str, str]) -> DialecticalPrompt:
         return DialecticalPrompt(
             phase=f"council_{member['name'].lower().replace(' ', '_')}",
             prompt=f"You are {member['name']}.\nQUERY: {query}\nTHESIS: {thesis}\nFocus: {member['focus']}",

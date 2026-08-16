@@ -3,13 +3,17 @@
 import logging
 import os
 import re
-from collections.abc import Generator
-from typing import Any, Union
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any
 
 from antigravity_k.agents.personas import get_orchestrator_prompt
 from antigravity_k.engine.capacity_flow import CapacityCheckpoint
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
+from antigravity_k.engine.context_budget import context_budget_for_model
 from antigravity_k.engine.engine_context import EngineContext
+from antigravity_k.engine.memory_provider import MemoryManager
 from antigravity_k.engine.memory_recorder import MemoryRecorder
 from antigravity_k.engine.orchestrator.setup import (
     PLANNING_MODE_BLOCK,
@@ -20,6 +24,11 @@ from antigravity_k.engine.orchestrator.setup import (
     create_state_graph,
     create_watchdog,
     load_agent_models,
+)
+from antigravity_k.engine.task_state_store import (
+    TaskExecutionContext,
+    TaskStateStore,
+    bind_task_execution_context,
 )
 
 logger = logging.getLogger("antigravity_k.orchestrator")
@@ -35,7 +44,15 @@ class OrchestratorAgent:
     4. 결과 스트리밍 → 대시보드 표시
     """
 
-    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None, session_manager=None):
+    def __init__(
+        self,
+        model_manager,
+        vault_engine=None,
+        project_root=None,
+        tool_registry=None,
+        session_manager=None,
+        memory_manager: MemoryManager | None = None,
+    ):
         """Initialize the OrchestratorAgent.
 
         Args:
@@ -56,6 +73,7 @@ class OrchestratorAgent:
             project_root=self.project_root,
             tool_registry=tool_registry,
             session_manager=session_manager,
+            memory_manager=memory_manager,
         )
 
         # Shortcut references
@@ -98,6 +116,10 @@ class OrchestratorAgent:
 
         # 상태 추적
         self._last_agent_output = ""
+        self._task_execution_context: ContextVar[TaskExecutionContext | None] = ContextVar(
+            "task_execution_context",
+            default=None,
+        )
 
         # ─── Freebuff-Style Proactive: Code Tree Indexer (P0) ───
         self._code_tree_indexer = None
@@ -145,9 +167,76 @@ class OrchestratorAgent:
 
     def _get_model_for_role(self, role: str) -> str:
         """역할에 맞는 모델을 반환합니다. config.yaml 매핑 우선."""
-        return self.agent_models.get(role, self.agent_models.get("default", "qwen3.6:latest"))
+        return self.agent_models.get(role, self.agent_models.get("default", "qwen3.8-27b"))
+
+    def get_model_for_role(self, role: str) -> str:
+        return self._get_model_for_role(role)
+
+    @property
+    def task_execution_context(self) -> TaskExecutionContext | None:
+        return self._task_execution_context.get()
+
+    @contextmanager
+    def bind_task_execution(self, task_id: str, state_store: TaskStateStore) -> Iterator[None]:
+        execution_context = TaskExecutionContext(task_id, state_store)
+        token = self._task_execution_context.set(execution_context)
+        try:
+            with bind_task_execution_context(execution_context):
+                yield
+        finally:
+            self._task_execution_context.reset(token)
 
     # ─── Lazy Properties ─────────────────────────────────────────────
+
+    def _default_reasoning_model(self) -> str:
+        raw_cfg = getattr(self, "config", {}) or {}
+        if isinstance(raw_cfg, dict):
+            defaults = raw_cfg.get("defaults", {})
+            if isinstance(defaults, dict):
+                model_name = defaults.get("reasoning")
+                if isinstance(model_name, str) and model_name:
+                    return model_name
+        return "qwen3.6:latest"
+
+    def _compression_budget(self, target_model: str | None = None):
+        raw_cfg = getattr(self, "config", {}) or {}
+        config = raw_cfg if isinstance(raw_cfg, dict) else {}
+        return context_budget_for_model(config, target_model or self._default_reasoning_model())
+
+    def _compression_summarize_fn(self):
+        if not self.manager:
+            return None
+        model_name = self._default_reasoning_model()
+
+        def _summarize(prompt: str) -> str:
+            return self.manager.generate(
+                prompt=prompt,
+                target=model_name,
+                max_tokens=512,
+            )
+
+        return _summarize
+
+    def _build_trajectory_compressor(self, target_model: str | None = None):
+        from antigravity_k.engine.trajectory_compressor import TrajectoryCompressor
+
+        budget = self._compression_budget(target_model)
+        return TrajectoryCompressor(
+            summarize_fn=self._compression_summarize_fn(),
+            max_messages=budget.trajectory_max_messages,
+            max_chars=budget.trajectory_max_chars,
+        )
+
+    def _build_context_compressor(self, target_model: str | None = None):
+        from antigravity_k.engine.context_compressor import ContextCompressor
+
+        budget = self._compression_budget(target_model)
+        return ContextCompressor(
+            token_limit=budget.token_limit,
+            keep_last_n=10,
+            summarize_fn=self._compression_summarize_fn(),
+            persistence_dir=os.path.join(self.project_root, "data", "context_memory"),
+        )
 
     @property
     def skill_auto_learner(self):
@@ -173,35 +262,21 @@ class OrchestratorAgent:
         if not self._trajectory_compressor_initialized:
             self._trajectory_compressor_initialized = True
             try:
-                from antigravity_k.engine.trajectory_compressor import (
-                    TrajectoryCompressor,
-                )
-
-                summarize_fn = None
-                if self.manager:
-                    # self.manager.config 는 존재하지 않음 — OrchestratorAgent.config
-                    # (= self.ctx.config, config.yaml raw dict)에서 기본 reasoning 모델 조회
-                    raw_cfg = getattr(self, "config", {}) or {}
-                    default_m = (
-                        raw_cfg.get("defaults", {}).get("reasoning") if isinstance(raw_cfg, dict) else None
-                    ) or "qwen3.6:latest"
-
-                    def _summarize(prompt: str) -> str:
-                        return self.manager.generate(
-                            prompt=prompt,
-                            target=default_m,
-                            max_tokens=512,
-                        )
-
-                    summarize_fn = _summarize
-                self._trajectory_compressor_instance = TrajectoryCompressor(
-                    summarize_fn=summarize_fn,
-                )
+                self._trajectory_compressor_instance = self._build_trajectory_compressor()
                 logger.info("[Orchestrator] TrajectoryCompressor 활성화 완료")
             except (ImportError, RuntimeError, AttributeError, ValueError):
                 logger.warning("TrajectoryCompressor init failed", exc_info=True)
                 self._trajectory_compressor_instance = None
         return self._trajectory_compressor_instance
+
+    def trajectory_compressor_for(self, target_model: str):
+        if target_model == self._default_reasoning_model():
+            return self.trajectory_compressor
+        try:
+            return self._build_trajectory_compressor(target_model)
+        except (ImportError, RuntimeError, AttributeError, ValueError):
+            logger.warning("TrajectoryCompressor init failed", exc_info=True)
+            return None
 
     @property
     def context_compressor(self):
@@ -215,45 +290,24 @@ class OrchestratorAgent:
         if not self._context_compressor_initialized:
             self._context_compressor_initialized = True
             try:
-                from antigravity_k.engine.context_compressor import ContextCompressor
-
-                # TrajectoryCompressor와 동일한 summarize_fn 패턴 재사용
-                summarize_fn = None
-                if self.manager:
-                    raw_cfg = getattr(self, "config", {}) or {}
-                    default_m = (
-                        raw_cfg.get("defaults", {}).get("reasoning") if isinstance(raw_cfg, dict) else None
-                    ) or "qwen3.6:latest"
-
-                    def _ctx_summarize(prompt: str) -> str:
-                        return self.manager.generate(
-                            prompt=prompt,
-                            target=default_m,
-                            max_tokens=512,
-                        )
-
-                    summarize_fn = _ctx_summarize
-
-                # 토큰 한도: config의 router 또는 기본 8000
-                raw_cfg = getattr(self, "config", {}) or {}
-                token_limit = int(
-                    raw_cfg.get("router", {}).get("context_token_limit", 8000) if isinstance(raw_cfg, dict) else 8000
-                )
-
-                self._context_compressor_instance = ContextCompressor(
-                    token_limit=token_limit,
-                    keep_last_n=10,
-                    summarize_fn=summarize_fn,
-                    persistence_dir=os.path.join(self.project_root, "data", "context_memory"),
-                )
+                self._context_compressor_instance = self._build_context_compressor()
                 logger.info(
                     "[Orchestrator] ContextCompressor 활성화 완료 (token_limit=%s)",
-                    token_limit,
+                    self._context_compressor_instance.token_limit,
                 )
             except (ImportError, RuntimeError, AttributeError, ValueError):
                 logger.warning("ContextCompressor init failed", exc_info=True)
                 self._context_compressor_instance = None
         return self._context_compressor_instance
+
+    def context_compressor_for(self, target_model: str):
+        if target_model == self._default_reasoning_model():
+            return self.context_compressor
+        try:
+            return self._build_context_compressor(target_model)
+        except (ImportError, RuntimeError, AttributeError, ValueError):
+            logger.warning("ContextCompressor init failed", exc_info=True)
+            return None
 
     @property
     def delegation_engine(self):
@@ -317,6 +371,7 @@ class OrchestratorAgent:
             "</tool_call>\n\n"
             "## Available Tools\n"
         )
+        tool_section += "\n" + self.ctx.prompt_builder.response_contract() + "\n"
         if hasattr(self.tool_registry, "render_autonomous_policy"):
             tool_section += "\n" + self.tool_registry.render_autonomous_policy() + "\n"
         try:
@@ -343,7 +398,17 @@ class OrchestratorAgent:
             logger.debug("SelfCapabilityEngine 미설치 — prompt contract 생략")
         except (AttributeError, RuntimeError, ValueError) as e:
             logger.warning("Self-capability contract unavailable: %s", e)
-        for schema in self.tool_registry.to_llm_schemas():
+        # ── 30B Model Amplification: Dynamic Tool Masking ──
+        raw_schemas = self.tool_registry.to_llm_schemas()
+        try:
+            from antigravity_k.engine.tool_masker import ActiveToolMasker
+
+            masker = ActiveToolMasker(mode=getattr(self.mode_manager, "current_mode", None))
+            schemas_to_render = masker.filter_tools(raw_schemas)
+        except Exception:
+            schemas_to_render = raw_schemas
+
+        for schema in schemas_to_render:
             params = schema.get("input_schema", {})
             required = params.get("required") or []
             tool_section += f"- **{schema['name']}**: {schema['description']}\n"
@@ -462,7 +527,7 @@ class OrchestratorAgent:
 
         return system_prompt
 
-    def _latest_user_text(self, messages: list[dict[str, str]]) -> str:
+    def _latest_user_text(self, messages: list[dict[str, Any]]) -> str:
         """최근 user 메시지의 텍스트만 반환합니다."""
         for msg in reversed(messages):
             if msg.get("role") != "user":
@@ -502,7 +567,7 @@ class OrchestratorAgent:
         self,
         user_message: str,
         target_model: str,
-    ) -> Generator[Union[str, dict], None, None]:
+    ) -> Generator[str | dict[str, Any], None, None]:
         """CEO 분석을 ceo_analyzer 모듈에 위임합니다."""
         yield from _ceo_analyze_fn(
             user_message=user_message,
@@ -530,10 +595,10 @@ class OrchestratorAgent:
 
     def _prepare_agent_prompt(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         delegate_to: str,
         task_type: str,
-    ) -> tuple:
+    ) -> tuple[str, str, str, str, str, list[dict[str, Any]]]:
         """에이전트 실행에 필요한 프롬프트와 컨텍스트를 준비합니다.
 
         Returns:
@@ -574,7 +639,21 @@ class OrchestratorAgent:
         if ide_prompt:
             skill_prompts += "\n" + ide_prompt
 
-        prompt = f"System: {system_prompt}\n{skill_prompts}\n"
+        # ── 30B Model Amplification: Deterministic Structural Context & Working Memory ──
+        pinned_context = ""
+        try:
+            from antigravity_k.engine.structural_snapshot import StructuralSnapshotBuilder
+            from antigravity_k.engine.working_memory_compactor import WorkingMemoryCompactor
+
+            snapshot = StructuralSnapshotBuilder.build(self.project_root)
+            working_mem = WorkingMemoryCompactor.compact(messages)
+            pinned_context = (
+                snapshot.format_pinned_block() + "\n\n" + working_mem.format_pinned_working_memory() + "\n\n"
+            )
+        except Exception as se:
+            logger.debug("StructuralSnapshot/WorkingMemory build skipped: %s", se)
+
+        prompt = f"System: {pinned_context}{system_prompt}\n{skill_prompts}\n"
         if failure_context:
             prompt += f"\n{failure_context}\n"
         if tool_prompt:
@@ -586,8 +665,9 @@ class OrchestratorAgent:
         shaped_messages = self.context_shaper.clear_old_tool_results(shaped_messages)
 
         # Decision Anchor 주입
-        if hasattr(self.ctx, "decision_anchor") and self.ctx.decision_anchor:
-            shaped_messages = self.ctx.decision_anchor.inject_into_messages(shaped_messages)
+        decision_anchor = getattr(self.ctx, "decision_anchor", None)
+        if decision_anchor:
+            shaped_messages = decision_anchor.inject_into_messages(shaped_messages)
 
         # Budget Awareness 주입
         shaped_messages = self.context_shaper.inject_budget_awareness(shaped_messages)

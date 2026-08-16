@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from antigravity_k.config import config
+from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger("antigravity_k.meta_architect")
 
@@ -353,12 +354,12 @@ class MetaArchitect:
             data=json.dumps(data).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with safe_urlopen(req, timeout=180) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             content = result.get("response", "")
             return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-    def _extract_json(self, text: str) -> dict | None:
+    def _extract_json(self, text: str) -> dict[str, Any] | None:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:

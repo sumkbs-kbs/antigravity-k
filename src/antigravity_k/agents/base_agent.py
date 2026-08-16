@@ -1,4 +1,5 @@
 import logging
+from importlib import import_module
 from typing import Any, Dict, List, Optional
 
 from ..i18n import get_i18n
@@ -108,7 +109,7 @@ class BaseAgent:
                     )
                 else:
                     # Fallback if generate not fully compatible with raw_messages
-                    from mlx_lm import generate
+                    generate = import_module("mlx_lm").__dict__["generate"]
 
                     if loaded_model is None or loaded_model.tokenizer is None or loaded_model.model is None:
                         return "Error: Model not initialized"

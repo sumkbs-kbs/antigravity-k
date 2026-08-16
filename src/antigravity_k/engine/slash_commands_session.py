@@ -11,7 +11,7 @@ These handlers access ``self._session_manager``, ``self._context_shaper``,
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +24,17 @@ class SlashCommandSessionMixin:
     """
 
     # Mixin-required attributes (resolved via MRO at runtime)
-    _commands: dict[str, Any]
-    _tool_registry: Any
-    _session_manager: Any
-    _context_shaper: Any
-    _model_manager: Any
+    _commands: ClassVar[dict[str, Any]]
+    _tool_registry: ClassVar[Any]
+    _session_manager: ClassVar[Any]
+    _context_shaper: ClassVar[Any]
+    _model_manager: ClassVar[Any]
 
-    def _cmd_help(self, args: list) -> str:
+    def _cmd_help(self, args: list[str]) -> str:
         """도움말 표시."""
         lines = ["📚 **Antigravity-K 슬래시 커맨드**", ""]
 
-        categories: dict[str, list] = {}
+        categories: dict[str, list[Any]] = {}
         for cmd in self._commands.values():
             categories.setdefault(cmd.category, []).append(cmd)
 
@@ -46,7 +46,7 @@ class SlashCommandSessionMixin:
 
         return "\n".join(lines)
 
-    def _cmd_tools(self, args: list) -> str:
+    def _cmd_tools(self, args: list[str]) -> str:
         """도구 목록 표시."""
         if not self._tool_registry:
             return "Tool registry not connected."
@@ -70,7 +70,7 @@ class SlashCommandSessionMixin:
         lines.append(f"\n총 {len(tools)}개 도구 등록됨")
         return "\n".join(lines)
 
-    def _cmd_context(self, args: list) -> str:
+    def _cmd_context(self, args: list[str]) -> str:
         """컨텍스트 토큰 사용량 분석."""
         if not self._context_shaper:
             return "Context shaper not connected."
@@ -108,7 +108,7 @@ class SlashCommandSessionMixin:
         )
         return "\n".join(lines)
 
-    def _cmd_memory(self, args: list) -> str:
+    def _cmd_memory(self, args: list[str]) -> str:
         """Working Memory 조회."""
         if not self._session_manager:
             return "Session manager not connected."
@@ -129,7 +129,7 @@ class SlashCommandSessionMixin:
             lines.append(f"  `{key}`: {val_str}")
         return "\n".join(lines)
 
-    def _cmd_model(self, args: list) -> str:
+    def _cmd_model(self, args: list[str]) -> str:
         """모델 정보/변경."""
         if not self._model_manager:
             return "Model manager not connected."
@@ -149,7 +149,7 @@ class SlashCommandSessionMixin:
             logger.exception("Unhandled exception")
             return "모델 정보를 가져올 수 없습니다."
 
-    def _cmd_status(self, args: list) -> str:
+    def _cmd_status(self, args: list[str]) -> str:
         """전체 상태 요약."""
         lines = ["⚡ **Antigravity-K 상태**", ""]
 
@@ -177,19 +177,22 @@ class SlashCommandSessionMixin:
         try:
             from antigravity_k.engine.tracing import AgentTracer
 
-            readiness = AgentTracer.get_readiness_score()  # type: ignore[attr-defined]
-            status_emoji = (
-                "🟢" if readiness["status"] == "ready" else "🟡" if readiness["status"] == "degraded" else "🔴"
-            )
-            lines.append(
-                f"  {status_emoji} **시스템 준비도(Readiness):** {readiness['score']}/100 ({readiness['status']})",
-            )
+            readiness_fn = getattr(AgentTracer, "get_readiness_score", None)
+            if callable(readiness_fn):
+                readiness = readiness_fn()
+                if isinstance(readiness, dict):
+                    status = str(readiness.get("status", "unknown"))
+                    score = readiness.get("score", 0)
+                    status_emoji = "🟢" if status == "ready" else "🟡" if status == "degraded" else "🔴"
+                    lines.append(
+                        f"  {status_emoji} **시스템 준비도(Readiness):** {score}/100 ({status})",
+                    )
         except Exception:
             logger.exception("Unhandled exception")
 
         return "\n".join(lines)
 
-    def _cmd_compact(self, args: list) -> str:
+    def _cmd_compact(self, args: list[str]) -> str:
         """수동 컨텍스트 압축."""
         if not self._context_shaper or not self._session_manager:
             return "Context shaper or session manager not connected."
@@ -207,7 +210,7 @@ class SlashCommandSessionMixin:
             f"{self._context_shaper._estimate_tokens(shaped)}"
         )
 
-    def _cmd_session(self, args: list) -> str:
+    def _cmd_session(self, args: list[str]) -> str:
         """세션 관리."""
         if not self._session_manager:
             return "Session manager not connected."
@@ -241,7 +244,7 @@ class SlashCommandSessionMixin:
             return "\n".join(lines)
         return f"알 수 없는 세션 명령: {sub}"
 
-    def _cmd_resume(self, args: list) -> str:
+    def _cmd_resume(self, args: list[str]) -> str:
         """Durable Checkpoint 기반 상태 복구 및 재개."""
         import json
         import sqlite3
@@ -288,7 +291,7 @@ class SlashCommandSessionMixin:
             logger.exception("Unhandled exception")
             return f"❌ 체크포인트 복구 중 오류 발생: {str(e)}"
 
-    def _cmd_project(self, args: list) -> str:
+    def _cmd_project(self, args: list[str]) -> str:
         """프로젝트 초기화 및 샌드박싱."""
         import os
 

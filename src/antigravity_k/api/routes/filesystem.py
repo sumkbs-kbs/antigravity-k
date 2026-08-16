@@ -4,15 +4,21 @@
 I-6 리팩터링: server.py에서 분리된 /api/fs/* 및 /api/workspace/* 라우트.
 """
 
+import asyncio
 import logging
 import os
 import shutil
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
+from antigravity_k.config import config
 from antigravity_k.engine.api_cache import TAG_FILESYSTEM, api_cache, cached
 from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +36,29 @@ def get_workspace_root() -> str:
 
     """
     return WORKSPACE_ROOT
+
+
+def _permission_gate() -> PermissionGate:
+    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+
+
+def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+    decision = _permission_gate().decide(
+        ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
+    )
+    if decision.permission != Permission.ALLOW:
+        raise HTTPException(status_code=403, detail=f"Permission denied for {tool_name}: {decision.permission.value}")
+
+
+def _resolve_workspace_path(path: str) -> str:
+    root = Path(WORKSPACE_ROOT).resolve()
+    raw_path = Path(path).expanduser()
+    candidate = (raw_path if raw_path.is_absolute() else root / raw_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Access denied outside of workspace root.") from exc
+    return str(candidate)
 
 
 class WorkspaceRequest(BaseModel):
@@ -101,8 +130,8 @@ async def set_workspace(req: WorkspaceRequest):
 
     에이전트가 새 프로젝트 폴더 내에서만 작업하도록 격리합니다.
     """
-    global WORKSPACE_ROOT
     target = os.path.abspath(req.path)
+    _require_allowed("set_workspace", {"path": target}, "critical")
     if not (os.path.exists(target) and os.path.isdir(target)):
         # 디렉토리가 없으면 생성
         try:
@@ -110,7 +139,7 @@ async def set_workspace(req: WorkspaceRequest):
         except OSError:
             raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
 
-    WORKSPACE_ROOT = target
+    globals()["WORKSPACE_ROOT"] = target
 
     # PermissionGate 업데이트 — 에이전트 파일 접근을 새 프로젝트로 제한
     try:
@@ -128,7 +157,7 @@ async def set_workspace(req: WorkspaceRequest):
     try:
         from antigravity_k.config import config
 
-        config.paths.project_root = target
+        config.paths.project_root = Path(target)
     except Exception:
         logger.warning("config.paths.project_root 업데이트 실패 (non-critical)", exc_info=True)
 
@@ -189,12 +218,13 @@ async def ingest_workspace(
 
 @router.get("/api/fs/browse")
 @cached(ttl=15, tags=[TAG_FILESYSTEM])
-async def fs_browse(dir: str = "/"):
+async def fs_browse(dir: str = "."):
     """시스템 전체를 브라우징하는 전용 API (보안 제한 없음, 로컬 구동 전제)."""
     try:
-        target_dir = os.path.abspath(dir)
+        target_dir = _resolve_workspace_path(dir)
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
-            target_dir = os.path.abspath("/")
+            raise HTTPException(status_code=404, detail="Directory not found")
+        _require_allowed("fs_browse", {"path": target_dir}, "safe")
 
         items: list[dict[str, str | bool]] = []
         try:
@@ -222,14 +252,11 @@ async def fs_browse(dir: str = "/"):
 async def fs_mkdir(req: MkdirRequest):
     """지정된 경로에 새 디렉토리를 생성합니다."""
     try:
-        clean_path = req.path.lstrip("/\\")
-        if clean_path == "." or clean_path == "":
+        if req.path in {".", ""}:
             raise HTTPException(status_code=400, detail="Invalid path for folder creation")
 
-        target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
-
-        if not target_dir.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+        target_dir = _resolve_workspace_path(req.path)
+        _require_allowed("fs_mkdir", {"path": target_dir}, "medium")
 
         if os.path.exists(target_dir):
             return {"ok": False, "detail": "Folder already exists"}
@@ -249,14 +276,11 @@ async def fs_mkdir(req: MkdirRequest):
 async def fs_delete(req: DeleteRequest):
     """지정된 파일 또는 디렉토리를 삭제합니다."""
     try:
-        clean_path = req.path.lstrip("/\\")
-        if clean_path == "." or clean_path == "":
+        if req.path in {".", ""}:
             raise HTTPException(status_code=400, detail="Cannot delete workspace root")
 
-        target_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
-
-        if not target_path.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+        target_path = _resolve_workspace_path(req.path)
+        _require_allowed("fs_delete", {"path": target_path}, "high")
 
         if not os.path.exists(target_path):
             return {"ok": False, "detail": "Path does not exist"}
@@ -281,13 +305,8 @@ async def fs_delete(req: DeleteRequest):
 async def fs_list(dir: str = "."):
     """디렉토리 목록을 반환합니다 (WORKSPACE_ROOT로 제한)."""
     try:
-        if dir == ".":
-            target_dir = WORKSPACE_ROOT
-        else:
-            target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, dir))
-
-        if not target_dir.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+        target_dir = _resolve_workspace_path(dir)
+        _require_allowed("fs_list", {"path": target_dir}, "safe")
 
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
             return {"ok": False, "items": []}
@@ -317,15 +336,17 @@ async def fs_list(dir: str = "."):
 async def fs_write(req: WriteFileRequest):
     """파일 내용을 저장합니다 (POST /api/fs/write)."""
     try:
-        target_file = os.path.abspath(os.path.join(WORKSPACE_ROOT, req.path))
-        if not target_file.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+        target_file = _resolve_workspace_path(req.path)
+        _require_allowed("fs_write", {"path": target_file}, "medium")
 
         target_dir = os.path.dirname(target_file)
         os.makedirs(target_dir, exist_ok=True)
 
-        with open(target_file, "w", encoding="utf-8") as f:
-            f.write(req.content)
+        await asyncio.to_thread(
+            Path(target_file).write_text,
+            req.content,
+            encoding="utf-8",
+        )
 
         logger.info("파일 저장 완료: %s", req.path)
         # Invalidate filesystem cache on write
@@ -340,17 +361,12 @@ async def fs_write(req: WriteFileRequest):
 async def fs_rename(req: RenameRequest):
     """파일/폴더 이름을 변경합니다 (POST /api/fs/rename)."""
     try:
-        clean_path = req.path.lstrip("/\\")
-        target_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, clean_path))
-
-        if not target_path.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+        target_path = _resolve_workspace_path(req.path)
+        new_path = _resolve_workspace_path(os.path.join(os.path.dirname(target_path), req.new_name))
+        _require_allowed("fs_rename", {"path": target_path, "new_path": new_path}, "medium")
 
         if not os.path.exists(target_path):
             raise HTTPException(status_code=404, detail="Path does not exist")
-
-        parent_dir = os.path.dirname(target_path)
-        new_path = os.path.join(parent_dir, req.new_name)
 
         if os.path.exists(new_path):
             return {"ok": False, "detail": "A file or folder with that name already exists"}
@@ -443,12 +459,10 @@ def _should_ignore(path: str) -> bool:
     if any(p in _IGNORE_DIRS for p in parts):
         return True
     ext = os.path.splitext(name)[1].lower()
-    if ext in _IGNORE_EXTS:
-        return True
-    return False
+    return ext in _IGNORE_EXTS
 
 
-def _search_in_file(file_path: str, query: str, max_matches: int = 50) -> list[dict]:
+def _search_in_file(file_path: str, query: str, max_matches: int = 50) -> list[dict[str, Any]]:
     """Search for query in a single file. Returns list of {line, content}."""
     matches = []
     try:
@@ -471,7 +485,7 @@ def _search_in_file(file_path: str, query: str, max_matches: int = 50) -> list[d
     return matches
 
 
-def _walk_and_search(root: str, query: str, max_results: int = 100) -> list[dict]:
+def _walk_and_search(root: str, query: str, max_results: int = 100) -> list[dict[str, Any]]:
     """Walk directory tree and search files. Returns list of {file_path, file_name, matches}."""
     results = []
     matched_files = 0
@@ -525,7 +539,7 @@ async def fs_search(req: SearchRequest):
             "total_files": len(results),
             "total_matches": total_matches,
         }
-    except Exception as e:
+    except OSError as e:
         logger.error("FS search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -535,15 +549,13 @@ async def fs_search(req: SearchRequest):
 async def fs_read(file: str):
     """파일 내용을 반환합니다."""
     try:
-        target_file = os.path.abspath(os.path.join(WORKSPACE_ROOT, file))
-        if not target_file.startswith(WORKSPACE_ROOT):
-            raise HTTPException(status_code=403, detail="Access denied outside of workspace root.")
+        target_file = _resolve_workspace_path(file)
+        _require_allowed("fs_read", {"path": target_file}, "safe")
 
         if not os.path.exists(target_file) or not os.path.isfile(target_file):
             raise HTTPException(status_code=404, detail="File not found.")
 
-        with open(target_file, encoding="utf-8") as f:
-            content = f.read()
+        content = await asyncio.to_thread(Path(target_file).read_text, encoding="utf-8")
 
         return {"ok": True, "content": content}
     except UnicodeDecodeError:

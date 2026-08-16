@@ -357,7 +357,7 @@ def traced(tracer: AgentTracer, span_type: str = "generic", name: str | None = N
             ...
     """
 
-    def decorator(func: Callable):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         span_name = name or func.__name__
 
         @wraps(func)

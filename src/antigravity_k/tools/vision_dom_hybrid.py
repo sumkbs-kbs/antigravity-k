@@ -19,6 +19,7 @@
 import base64
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from .semantic_dom import BoundingBox, SemanticDOMParser, SemanticSnapshot
 
@@ -435,7 +436,7 @@ class VisionDOMHybrid:
             logger.debug("[VisionDOM] Obstacle detection failed: %s", e)
             return []
 
-    def _parse_obstacles(self, raw_list: list, snapshot: SemanticSnapshot) -> list[Obstacle]:
+    def _parse_obstacles(self, raw_list: list[dict[str, Any]], snapshot: SemanticSnapshot) -> list[Obstacle]:
         """JS 결과를 Obstacle 객체로 변환."""
         obstacles = []
         for raw in raw_list:

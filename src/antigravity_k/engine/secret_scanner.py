@@ -42,7 +42,7 @@ class SecretPattern:
     """시크릿 감지 패턴."""
 
     name: str
-    regex: re.Pattern
+    regex: re.Pattern[str]
 
 
 @dataclass
@@ -329,7 +329,7 @@ def is_memory_path(file_path: str) -> bool:
 # ── 내부 헬퍼 ──
 
 
-def _redact_match_partial(match: re.Match) -> str:
+def _redact_match_partial(match: re.Match[str]) -> str:
     """매치된 시크릿을 부분 마스킹합니다."""
     value = match.group(0)
     if len(value) <= 4:
@@ -337,7 +337,7 @@ def _redact_match_partial(match: re.Match) -> str:
     return value[:4] + "*" * min(len(value) - 4, 20)
 
 
-def _redact_url_partial(match: re.Match) -> str:
+def _redact_url_partial(match: re.Match[str]) -> str:
     """URL에서 인증 정보를 부분 마스킹합니다."""
     url = match.group(0)
     try:
@@ -360,5 +360,4 @@ def _redact_url_partial(match: re.Match) -> str:
             )
     except Exception:
         logger.exception("Unhandled exception")
-        pass
     return url

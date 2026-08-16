@@ -1,5 +1,6 @@
 """Tests for the SubagentSpawner module."""
 
+import asyncio
 from unittest import mock
 
 import pytest
@@ -139,28 +140,61 @@ class TestSubagentSpawner:
 
     def test_spawn_sync(self, spawner):
         """동기 spawn() 메서드가 단일 결과를 반환해야 함."""
-        with mock.patch.object(spawner, "spawn_parallel", return_value=["sync result"]):
+        with mock.patch.object(
+            spawner,
+            "spawn_parallel",
+            new_callable=mock.AsyncMock,
+            return_value=["sync result"],
+        ) as spawn_parallel:
             result = spawner.spawn("test task", ["read_file"])
             assert result == "sync result"
+            spawn_parallel.assert_awaited_once_with(
+                [{"task": "test task", "tools": ["read_file"]}],
+                4096,
+            )
 
     def test_spawn_sync_empty_tools(self, spawner):
         """spawn()에 빈 tools 리스트를 전달할 수 있어야 함."""
-        with mock.patch.object(spawner, "spawn_parallel", return_value=["result"]):
+        with mock.patch.object(
+            spawner,
+            "spawn_parallel",
+            new_callable=mock.AsyncMock,
+            return_value=["result"],
+        ) as spawn_parallel:
             result = spawner.spawn("task", [])
             assert result == "result"
+            spawn_parallel.assert_awaited_once_with(
+                [{"task": "task", "tools": []}],
+                4096,
+            )
 
-    def test_spawn_sync_with_new_event_loop(self, spawner):
-        """spawn()이 새 이벤트 루프를 생성할 수 있어야 함."""
+    def test_spawn_sync_uses_a_fresh_asyncio_run_boundary(self, spawner):
+        def close_and_return(awaitable):
+            awaitable.close()
+            return ["loop result"]
+
         with (
-            mock.patch(
-                "antigravity_k.engine.subagent_spawner.asyncio.get_event_loop", side_effect=RuntimeError("no loop")
+            mock.patch.object(
+                spawner,
+                "spawn_parallel",
+                new_callable=mock.AsyncMock,
+                return_value=["loop result"],
             ),
-            mock.patch("antigravity_k.engine.subagent_spawner.asyncio.new_event_loop") as mock_new_loop,
-            mock.patch("antigravity_k.engine.subagent_spawner.asyncio.set_event_loop"),
+            mock.patch(
+                "antigravity_k.engine.subagent_spawner.asyncio.run",
+                side_effect=close_and_return,
+            ) as run,
         ):
-            mock_loop = mock.MagicMock()
-            mock_new_loop.return_value = mock_loop
-            mock_loop.run_until_complete.return_value = ["loop result"]
-
             result = spawner.spawn("task", ["tool"])
-            assert result == "loop result"
+
+        assert result == "loop result"
+        run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_spawn_sync_rejects_a_running_event_loop_before_creating_work(self, spawner):
+        current_loop = asyncio.get_running_loop()
+        with mock.patch.object(spawner, "spawn_parallel", return_value=current_loop.create_future()) as spawn_parallel:
+            with pytest.raises(RuntimeError, match="await spawn_parallel"):
+                spawner.spawn("task", ["tool"])
+
+        spawn_parallel.assert_not_called()

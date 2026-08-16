@@ -9,7 +9,7 @@ import json
 import logging
 import re
 from collections.abc import Generator
-from typing import Union
+from typing import Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def ceo_analyze(
     target_model: str,
     ceo_prompt_template: str,
     model_manager,
-) -> Generator[Union[str, dict], None, None]:
+) -> Generator[Union[str, dict[str, Any]], None, None]:
     """CEO가 사용자 메시지를 분석하여 태스크 유형과 위임 대상을 결정합니다.
 
     스트리밍으로 분석 과정을 출력하며, 마지막에 결과를 dict로 yield합니다.
@@ -82,7 +82,7 @@ def ceo_analyze(
     }
 
 
-def _extract_task_json(raw_text: str) -> dict | None:
+def _extract_task_json(raw_text: str) -> dict[str, Any] | None:
     """Raw 텍스트에서 task_type이 포함된 JSON 객체를 추출합니다."""
     # 1차: JSONDecoder.raw_decode — 중첩 {} 처리 가능
     decoder = json.JSONDecoder()
@@ -132,7 +132,7 @@ _KEYWORD_MAP = [
 ]
 
 
-def _keyword_fallback(raw_text: str, user_message: str) -> dict | None:
+def _keyword_fallback(raw_text: str, user_message: str) -> dict[str, Any] | None:
     """키워드 기반 의도 감지 — JSON 파싱 실패 시 사용."""
     lower = raw_text.lower()
     for keywords, task_type, delegate in _KEYWORD_MAP:

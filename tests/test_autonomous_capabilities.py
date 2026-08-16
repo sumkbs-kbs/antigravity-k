@@ -90,6 +90,28 @@ Reset system settings and delete generated files.
     assert loader.get_last_decisions()[0].decision == "prompt"
 
 
+def test_skill_loader_recovers_scalar_metadata_from_invalid_yaml(tmp_path):
+    skill_dir = tmp_path / ".agent" / "skills" / "recovered"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: Recovered Skill\n"
+        "description: Use this skill when the input contains: a colon\n"
+        "tags: [recovery, local]\n"
+        "---\n"
+        "Skill body.\n",
+        encoding="utf-8",
+    )
+
+    loader = SkillLoader(project_root=str(tmp_path), include_global=False)
+    skill = loader.get_skill("recovered")
+
+    assert skill is not None
+    assert skill["name"] == "Recovered Skill"
+    assert "contains: a colon" in skill["description"]
+    assert skill["tags"] == ["recovery", "local"]
+
+
 def test_capabilities_slash_command_reports_tool_and_skill_decisions(tmp_path):
     skill_dir = tmp_path / ".agent" / "skills" / "browser-qa"
     skill_dir.mkdir(parents=True)

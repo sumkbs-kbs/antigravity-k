@@ -19,6 +19,7 @@ import subprocess
 from typing import Any
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +218,7 @@ class SystemControlTool(BaseTool):
             import urllib.request
 
             req = urllib.request.Request("http://localhost:11434/api/tags")
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with safe_urlopen(req, timeout=5) as resp:
                 models = json.loads(resp.read().decode("utf-8"))
                 info["ollama_models"] = [
                     {

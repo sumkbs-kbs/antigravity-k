@@ -9,6 +9,9 @@ import logging
 import time
 from typing import Any
 
+from antigravity_k.engine.subagent_execution import start_subagent_stream
+from antigravity_k.engine.task_runner import get_task_runner
+
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
@@ -157,10 +160,14 @@ class BrowserSubagentTool(BaseTool):
 
         logger.info("Starting autonomous Browser Sub-Agent for task: %s...", task[:50])
 
-        output_parts = []
-        # 스트리밍 청크 수집
-        for chunk in sub_orchestrator.run_stream(messages, target_model=target_model):
-            output_parts.append(chunk)
+        tracked_stream = start_subagent_stream(
+            sub_orchestrator,
+            task_runner=get_task_runner(),
+            messages=messages,
+            target_model=target_model,
+            subagent_kind="browser_subagent",
+        )
+        output_parts = list(tracked_stream.chunks)
 
         elapsed = time.time() - start_time
         result = "".join(output_parts)

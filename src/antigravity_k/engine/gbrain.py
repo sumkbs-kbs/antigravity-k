@@ -7,12 +7,25 @@ import threading
 from pathlib import Path
 from typing import Any, cast
 
-import chromadb
 import networkx as nx
-from chromadb.api.client import SharedSystemClient
-from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
+
+# 선택적 의존성. import 실패 시 전체 런타임 부팅을 막지 않도록 방어 로드 (graceful degradation).
+chromadb: Any = None
+SharedSystemClient: Any = None
+Settings: Any = None
+_chroma_available = False
+_chroma_import_error: BaseException | None = None
+
+try:
+    import chromadb
+    from chromadb.api.client import SharedSystemClient
+    from chromadb.config import Settings
+
+    _chroma_available = True
+except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존성 로드 실패  # noqa: BLE001
+    _chroma_import_error = _chroma_exc
 
 
 class GBrain:
@@ -43,14 +56,26 @@ class GBrain:
         else:
             self.graph = nx.DiGraph()
 
-        # 벡터 데이터베이스 (ChromaDB)
         db_path = self.storage_dir / "chroma"
         db_path.mkdir(exist_ok=True)
-        self.chroma_client = chromadb.PersistentClient(
-            path=str(db_path),
-            settings=Settings(anonymized_telemetry=False),
-        )
-        self.collection = self.chroma_client.get_or_create_collection(name="gbrain_nodes")
+
+        self.chroma_client: Any = None
+        self.collection: Any = None
+
+        if _chroma_available:
+            try:
+                self.chroma_client = chromadb.PersistentClient(
+                    path=str(db_path),
+                    settings=Settings(anonymized_telemetry=False),
+                )
+                self.collection = self.chroma_client.get_or_create_collection(name="gbrain_nodes")
+            except Exception:
+                logger.exception("[GBrain] chromadb 초기화 실패, 벡터 검색을 비활성화합니다.")
+        else:
+            logger.warning(
+                "[GBrain] chromadb 비활성화 (%s). 벡터 검색 없이 그래프 메모리만 동작합니다.",
+                type(_chroma_import_error).__name__,
+            )
 
         # 비동기 백그라운드 저장을 위한 스레드 풀
         self._save_lock = threading.Lock()
@@ -69,13 +94,16 @@ class GBrain:
             logger.exception("[GBrain] executor shutdown 실패")
         # ChromaDB 클라이언트 정리
         try:
-            if hasattr(self, "chroma_client") and self.chroma_client is not None:
-                self.chroma_client.close()
+            close = getattr(self.chroma_client, "close", None)
+            if callable(close):
+                close()
         except Exception:
             logger.exception("[GBrain] chromadb client close 실패")
         finally:
             try:
-                SharedSystemClient.clear_system_cache()
+                clear_system_cache = getattr(SharedSystemClient, "clear_system_cache", None)
+                if callable(clear_system_cache):
+                    clear_system_cache()
             except Exception:
                 logger.exception("[GBrain] clear_system_cache 실패")
             self.chroma_client = None
@@ -120,7 +148,8 @@ class GBrain:
         # ChromaDB metadata values must be str, int, float or bool
         chroma_meta = {k: v for k, v in metadata.items() if isinstance(v, (str, int, float, bool))}
 
-        self.collection.upsert(documents=[content], metadatas=[chroma_meta], ids=[node_id])
+        if self.collection is not None:
+            self.collection.upsert(documents=[content], metadatas=cast(Any, [chroma_meta]), ids=[node_id])
 
         self._save_graph()
         logger.debug("[GBrain] Added node: %s (%s)", node_id, label)
@@ -145,7 +174,7 @@ class GBrain:
         filter_label: str | None = None,
     ) -> list[dict[str, Any]]:
         """의미론적 검색을 통해 노드를 찾습니다."""
-        if self.collection.count() == 0:
+        if self.collection is None or self.collection.count() == 0:
             return []
 
         where: dict[str, str] | None = {"label": filter_label} if filter_label else None
@@ -162,9 +191,7 @@ class GBrain:
                 if self.graph.has_node(doc_id):
                     node_data = self.graph.nodes[doc_id].copy()
                     node_data["id"] = doc_id
-                    node_data["distance"] = (
-                        results["distances"][0][i] if "distances" in results and results["distances"] else 0
-                    )
+                    node_data["distance"] = results["distances"][0][i] if results.get("distances") else 0
                     matched_nodes.append(node_data)
 
         return matched_nodes
@@ -184,6 +211,53 @@ class GBrain:
             related.append(node_data)
 
         return related
+
+    def clear_all(self) -> int:
+        deleted = self.graph.number_of_nodes()
+        if self.collection is not None:
+            ids = self.collection.get().get("ids", [])
+            if ids:
+                self.collection.delete(ids=ids)
+        self.graph.clear()
+        self._save_graph()
+        return deleted
+
+    def export_all(self) -> list[dict[str, Any]]:
+        return [{"id": node_id, **dict(data)} for node_id, data in self.graph.nodes(data=True)]
+
+    def redact_all(self) -> int:
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        changed = 0
+        for node_id, data in self.graph.nodes(data=True):
+            for key, value in list(data.items()):
+                if isinstance(value, str):
+                    redacted = redact_full(value)
+                    changed += int(redacted != value)
+                    data[key] = redacted
+        if self.collection is not None:
+            payload = self.collection.get(include=["documents", "metadatas"])
+            ids = payload.get("ids", [])
+            documents = payload.get("documents", [])
+            metadatas = payload.get("metadatas", [])
+            if ids:
+                safe_documents = [redact_full(document or "") for document in documents]
+                safe_metadatas = [
+                    {
+                        key: redact_full(value) if isinstance(value, str) else value
+                        for key, value in (metadata or {}).items()
+                    }
+                    for metadata in metadatas
+                ]
+                self.collection.upsert(ids=ids, documents=safe_documents, metadatas=safe_metadatas)
+        if changed:
+            self._save_graph()
+        return changed
+
+    def apply_retention(self, max_age_days: int) -> int:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        return 0
 
 
 # 전역 싱글톤 인스턴스

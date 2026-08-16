@@ -122,7 +122,7 @@ class DatabaseMigrationTool(BaseTool):
 
         return f"Unknown action: {action}"
 
-    def _run_subprocess(self, cmd: list) -> str:
+    def _run_subprocess(self, cmd: list[str]) -> str:
         try:
             logger.info("Running command: %s", " ".join(cmd))
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)

@@ -19,6 +19,7 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("agk.finetune")
 
@@ -31,7 +32,7 @@ class LoRAConfig:
     rank: int = 16  # LoRA rank (8, 16, 32, 64)
     alpha: float = 32.0  # LoRA alpha (보통 rank * 2)
     dropout: float = 0.05  # 드롭아웃 확률
-    target_modules: list = field(
+    target_modules: list[str] = field(
         default_factory=lambda: [
             "q_proj",
             "v_proj",
@@ -161,7 +162,7 @@ class DatasetPreparer:
     def from_code_files(
         source_dir: str,
         output_path: str,
-        extensions: tuple = (".py", ".js", ".ts", ".dart", ".java"),
+        extensions: tuple[str, ...] = (".py", ".js", ".ts", ".dart", ".java"),
         min_lines: int = 10,
     ) -> int:
         """소스코드 파일 → 코드 이해/생성 학습 데이터로 변환."""
@@ -196,7 +197,7 @@ class DatasetPreparer:
                             },
                             {
                                 "role": "user",
-                                "content": f"다음 {ext} 파일을 분석하고 핵심 기능을 설명해주세요:\n\n파일: {rel_path}\n```{ext[1:]}\n{code[:3000]}\n```",  # noqa: E501
+                                "content": f"다음 {ext} 파일을 분석하고 핵심 기능을 설명해주세요:\n\n파일: {rel_path}\n```{ext[1:]}\n{code[:3000]}\n```",
                             },
                             {
                                 "role": "assistant",
@@ -215,7 +216,7 @@ class DatasetPreparer:
         input_path: str,
         train_ratio: float = 0.9,
         seed: int = 42,
-    ) -> tuple:
+    ) -> tuple[str, str]:
         """데이터셋을 train/valid로 분할."""
         import random
 
@@ -260,7 +261,7 @@ class FineTuneEngine:
         self.best_val_loss = float("inf")
         self.training_log: list[str] = []
 
-    def train(self) -> dict:
+    def train(self) -> dict[str, Any]:
         """파인튜닝 실행."""
         import subprocess
         import sys
@@ -378,7 +379,7 @@ class FineTuneEngine:
             str(export_path),
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
         if result.returncode == 0:
             logger.info("✓ 병합 완료: %s", export_path)
@@ -433,7 +434,7 @@ class FineTuneEngine:
         except (IndexError, ValueError):
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
-    def _save_training_info(self, result: dict):
+    def _save_training_info(self, result: dict[str, Any]) -> None:
         """학습 결과 메타데이터 저장."""
         info = {
             **result,

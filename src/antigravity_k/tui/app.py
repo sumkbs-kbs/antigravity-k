@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import ClassVar
 
 from textual import work
 from textual.app import App, ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import (
@@ -38,10 +39,10 @@ from .widgets import (
 logger = logging.getLogger("antigravity_k.tui")
 
 
-class HelpScreen(Screen):
+class HelpScreen(Screen[None]):
     """Modal screen showing available slash commands and keyboard shortcuts."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "dismiss", "Close"),
         Binding("q", "dismiss", "Quit"),
     ]
@@ -51,8 +52,8 @@ class HelpScreen(Screen):
             Label("[bold]Antigravity-K TUI Help[/bold]", id="help-title"),
             Static(
                 "\n".join(
-                    [
-                        "",
+                    line
+                    for line in (
                         "[bold]Keyboard Shortcuts[/bold]",
                         "  [dim]Ctrl+Space[/dim]    Show slash command completions",
                         "  [dim]Tab[/dim]            Cycle through completions",
@@ -80,7 +81,7 @@ class HelpScreen(Screen):
                         "  • Type a message directly for natural conversation",
                         "  • Use /commands for quick actions",
                         "  • Click follow-up suggestions after responses",
-                    ]
+                    )
                 ),
                 id="help-content",
             ),
@@ -99,10 +100,10 @@ class HelpScreen(Screen):
         self.dismiss()
 
 
-class ChatScreen(Screen):
+class ChatScreen(Screen[None]):
     """Main chat screen with message list, input, and status bar."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
         Binding("ctrl+p", "open_help", "Help"),
@@ -117,6 +118,17 @@ class ChatScreen(Screen):
         self._mode_manager = ModeManager()
         self.slash_registry = SlashCommandRegistry(mode_manager=self._mode_manager)
         self._processing = False
+        self.chat_log = RichLog(
+            id="chat-log",
+            highlight=True,
+            markup=True,
+            wrap=True,
+            min_width=80,
+        )
+        self.suggestion_bar = SuggestionBar()
+        self.input = SlashInput()
+        self.send_btn = Button("Send", variant="primary", id="send-btn")
+        self.send_btn.styles.width = 10
 
     def compose(self) -> ComposeResult:
         """Create the main chat layout."""
@@ -124,25 +136,14 @@ class ChatScreen(Screen):
 
         with Container(id="main-container"):
             # Chat message area
-            self.chat_log = RichLog(
-                id="chat-log",
-                highlight=True,
-                markup=True,
-                wrap=True,
-                min_width=80,
-            )
             yield self.chat_log
 
             # Follow-up suggestion bar
-            self.suggestion_bar = SuggestionBar()
             yield self.suggestion_bar
 
         # Input area
         with Horizontal(id="input-area"):
-            self.input = SlashInput()
             yield self.input
-            self.send_btn = Button("Send", variant="primary", id="send-btn")
-            self.send_btn.styles.width = 10
             yield self.send_btn
 
         yield StatusFooter()
@@ -161,11 +162,11 @@ class ChatScreen(Screen):
     def _setup_styles(self) -> None:
         """Apply styling to the layout."""
         main = self.query_one("#main-container")
-        main.styles.flex = "1"  # type: ignore[attr-defined]
-        main.styles.overflow = "hidden"  # type: ignore[attr-defined]
+        main.styles.height = "1fr"
+        main.styles.overflow_y = "hidden"
 
         chat = self.query_one("#chat-log")
-        chat.styles.flex = "1"  # type: ignore[attr-defined]
+        chat.styles.height = "1fr"
         chat.styles.padding = (1, 2)
         chat.styles.background = "#0d1117"
         chat.styles.overflow_y = "auto"
@@ -174,12 +175,12 @@ class ChatScreen(Screen):
         input_area.styles.height = 3
         input_area.styles.padding = (0, 1)
         input_area.styles.background = "#161b22"
-        input_area.styles.align_center = True  # type: ignore[attr-defined]
+        input_area.styles.align_vertical = "middle"
 
     def _print_welcome(self) -> None:
         """Print welcome message."""
         welcome = (
-            f"[bold #00ff87]🚀 Antigravity-K TUI v{__version__}[/bold]\n\n"
+            f"[bold #00ff87]🚀 Antigravity-K TUI v{__version__}[/]\n\n"
             "[dim]Terminal UI for the Local Autonomous Engineering Agent[/dim]\n\n"
             "Type a [bold]message[/bold] for conversation, or use [bold]/commands[/bold]:\n"
             "  [dim]/help[/dim]   — Show available commands\n"
@@ -318,7 +319,8 @@ class ChatScreen(Screen):
         try:
             registry = self.slash_registry
             if registry.is_command(command):
-                return registry.execute(command)
+                result = registry.execute(command)
+                return result if isinstance(result, str) else "".join(result)
             return f"Unknown command: {command}. Use /help to see available commands."
         except Exception as e:
             logger.exception("Slash command error")
@@ -363,7 +365,7 @@ class ChatScreen(Screen):
 # ─── Main App ─────────────────────────────────────────────────────────────────
 
 
-class AgkTUI(App):
+class AgkTUI(App[None]):
     """Antigravity-K Terminal User Interface."""
 
     TITLE = f"Antigravity-K TUI v{__version__}"
@@ -415,7 +417,7 @@ class AgkTUI(App):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+p", "show_help", "Help"),
     ]
@@ -423,6 +425,7 @@ class AgkTUI(App):
     def __init__(self) -> None:
         super().__init__()
         self._model_name = "local"
+        self.dark = True
 
     def on_mount(self) -> None:
         """Set up the app on startup."""

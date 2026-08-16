@@ -70,8 +70,7 @@ pull_test_models() {
 
     # 빠른 테스트용 경량 모델
     local models=(
-        "qwen2.5:7b"          # 범용 7B (빠른 테스트)
-        "qwen2.5-coder:7b"    # 코딩 7B (빠른 테스트)
+        "qwen3.6:latest"
         "nomic-embed-text"     # 임베딩 모델
     )
 
@@ -131,7 +130,7 @@ test_api() {
     response=$(curl -s http://localhost:11434/v1/chat/completions \
         -H "Content-Type: application/json" \
         -d '{
-            "model": "qwen2.5:7b",
+            "model": "qwen3.6:latest",
             "messages": [{"role": "user", "content": "Say hello in Korean"}],
             "max_tokens": 50
         }' 2>/dev/null)
@@ -153,7 +152,7 @@ print_summary() {
     echo -e "${CYAN}║${NC}    ${YELLOW}http://localhost:11434/v1${NC}                                ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  사용법:                                                 ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}    ${YELLOW}ollama run qwen2.5:7b${NC}       # 대화 테스트               ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}    ${YELLOW}ollama run qwen3.6:latest${NC}    # 기본 로컬 모델 테스트      ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}    ${YELLOW}ollama run deepseek-r1:70b${NC}  # 추론 모델                 ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}    ${YELLOW}ollama list${NC}                 # 모델 목록                  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}                                                          ${CYAN}║${NC}"

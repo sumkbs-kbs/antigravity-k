@@ -6,13 +6,16 @@ config.yaml에서 모델 프로필을 읽어 카탈로그로 관리합니다.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
 from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
+from antigravity_k.runtime_paths import default_config_path as _default_config_path
 
 
 @dataclass
@@ -24,6 +27,7 @@ class ModelProfile:
     role: str  # reasoning | coding | embedding | vision
     quantization: str = ""
     estimated_memory_gb: float = 0.0
+    parameter_count_b: float = 0.0
     context_length: int = 0
     dimensions: int = 0
     description: str = ""
@@ -34,9 +38,10 @@ class ModelProfile:
     api_base: str = ""
     # api_key_env: 이 모델이 사용할 환경변수명 (예: "NVIDIA_API_KEY"). 빈 값이면 providers 기본값 사용.
     api_key_env: str = ""
+    roles: tuple[str, ...] = ()
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ModelProfile":
+    def from_dict(cls, data: Mapping[str, Any]) -> ModelProfile:
         """From Dict.
 
         Args:
@@ -46,18 +51,30 @@ class ModelProfile:
             'ModelProfile': The 'modelprofile' result.
 
         """
+        role_value = data.get("role", "")
+        primary_role = role_value.strip() if isinstance(role_value, str) else ""
+        raw_roles = data.get("roles", ())
+        if isinstance(raw_roles, str):
+            role_values = [raw_roles]
+        elif isinstance(raw_roles, (list, tuple)):
+            role_values = [item for item in raw_roles if isinstance(item, str)]
+        else:
+            role_values = []
+        roles = tuple(dict.fromkeys(role for role in (primary_role, *role_values) if role))
         profile = cls(
             name=data.get("name", ""),
             repo=data.get("repo", ""),
-            role=data.get("role", ""),
+            role=primary_role or (roles[0] if roles else ""),
             quantization=data.get("quantization", ""),
             estimated_memory_gb=data.get("estimated_memory_gb", 0.0),
+            parameter_count_b=data.get("parameter_count_b", 0.0),
             context_length=data.get("context_length", 0),
             dimensions=data.get("dimensions", 0),
             description=data.get("description", ""),
             provider=data.get("provider", ""),
             api_base=data.get("api_base", ""),
             api_key_env=data.get("api_key_env", ""),
+            roles=roles,
         )
         # provider가 명시되지 않았으면 이름/repo에서 자동 추론
         if not profile.provider:
@@ -73,18 +90,99 @@ class ModelProfile:
         """
         return self.provider or "ollama"
 
-    def to_dict(self) -> dict:
+    @property
+    def supported_roles(self) -> tuple[str, ...]:
+        """Return every configured role while preserving legacy ``role``."""
+        return self.roles or ((self.role,) if self.role else ())
+
+    @property
+    def effective_parameter_count_b(self) -> float:
+        """Return the best available parameter-count estimate in billions.
+
+        Some remote catalog entries omit an explicit parameter count. Keep the
+        fallback consistent for routing, API discovery, and the CLI instead of
+        letting each caller invent its own model-size heuristic.
+        """
+        try:
+            parameter_count = float(self.parameter_count_b)
+        except (TypeError, ValueError):
+            parameter_count = 0.0
+        if parameter_count > 0:
+            return parameter_count
+
+        model_text = f"{self.name} {self.repo} {self.description}"
+        import re
+
+        size_match = re.search(r"(?<!\d)(\d+(?:\.\d+)?)\s*b\b", model_text, re.IGNORECASE)
+        if size_match:
+            return float(size_match.group(1))
+
+        if self.role != "embedding":
+            try:
+                memory = float(self.estimated_memory_gb)
+            except (TypeError, ValueError):
+                memory = 0.0
+            if memory > 0:
+                return memory
+        return 0.0
+
+    @property
+    def capability_tier(self) -> str:
+        """Return the coarse 7B/14B/30B/70B routing tier."""
+        count = self.effective_parameter_count_b
+        if count <= 0:
+            return "unknown"
+        if count <= 7:
+            return "7B"
+        if count <= 14:
+            return "14B"
+        if count <= 40:
+            return "30B"
+        if count <= 70:
+            return "70B"
+        return ">70B"
+
+    @property
+    def is_local(self) -> bool:
+        """Whether this profile is backed by a local runtime."""
+        provider = (self.provider or "").lower()
+        if provider in {"ollama", "mlx", "llama.cpp", "llamacpp", "lmstudio", "lm_studio", "local"}:
+            return True
+        if provider:
+            return False
+        return ":" in self.name and "/" not in self.name
+
+    @property
+    def is_20b_plus(self) -> bool:
+        """Whether this model is eligible for quality evaluation."""
+        return self.effective_parameter_count_b >= 20.0
+
+    def routing_metadata(self) -> dict[str, Any]:
+        """Return stable capability metadata for routers and user interfaces."""
+        return {
+            "provider": self.backend,
+            "role": self.role,
+            "roles": list(self.supported_roles),
+            "parameter_count_b": self.effective_parameter_count_b,
+            "capability_tier": self.capability_tier,
+            "is_local": self.is_local,
+            "is_20b_plus": self.is_20b_plus,
+            "context_length": self.context_length,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        result = {
+        result: dict[str, Any] = {
             "name": self.name,
             "repo": self.repo,
             "role": self.role,
             "estimated_memory_gb": self.estimated_memory_gb,
+            "parameter_count_b": self.parameter_count_b,
             "provider": self.provider,
         }
         if self.quantization:
@@ -99,6 +197,8 @@ class ModelProfile:
             result["api_base"] = self.api_base
         if self.api_key_env:
             result["api_key_env"] = self.api_key_env
+        if len(self.supported_roles) > 1:
+            result["roles"] = list(self.supported_roles)
         return result
 
 
@@ -154,6 +254,9 @@ def _infer_provider(name: str, repo: str, estimated_memory_gb: float = 0.0) -> s
     name_lower = (name or "").lower()
     repo_lower = (repo or "").lower()
 
+    if repo_lower.startswith(("mlx-community/", "mlx/")):
+        return "mlx"
+
     # 1. 로컬 Ollama 모델: ":tag" 형식이거나 메모리 > 0 (원격 API 모델은 메모리 0)
     # 단, ":free" 접미사는 OpenRouter 무료 모델이므로 제외
     if ":" in name_lower and "/" not in name_lower and not name_lower.endswith(":free"):
@@ -174,15 +277,14 @@ def _infer_provider(name: str, repo: str, estimated_memory_gb: float = 0.0) -> s
         return "gemini"
 
     # 3.6 ZAI/Zhipu 직접 (glm- 접두사)
-    if name_lower.startswith("glm-") or name_lower.startswith("glm"):
+    if name_lower.startswith(("glm-", "glm")):
         return "zai"
 
     # 3.7 OpenAI 직접 (gpt- 접두사, openai/ 프리픽스 없음 → OpenRouter가 아닌 직접)
     if name_lower.startswith("gpt-") and not name_lower.startswith("openai/"):
         return "openai"
-    if name_lower.startswith("o1") or name_lower.startswith("o3") or name_lower.startswith("o4"):
-        if not name_lower.startswith("openai/"):
-            return "openai"
+    if name_lower.startswith(("o1", "o3", "o4")) and not name_lower.startswith("openai/"):
+        return "openai"
 
     # 4. NVIDIA NIM 카탈로그 식별자
     for prefix in _NIM_PREFIXES:
@@ -215,7 +317,7 @@ class DefaultModels:
     vision: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DefaultModels":
+    def from_dict(cls, data: Mapping[str, Any]) -> DefaultModels:
         """From Dict.
 
         Args:
@@ -239,7 +341,7 @@ class MemoryConfig:
     unload_cooldown_sec: int = 30
 
     @classmethod
-    def from_dict(cls, data: dict) -> "MemoryConfig":
+    def from_dict(cls, data: Mapping[str, Any]) -> MemoryConfig:
         """From Dict.
 
         Args:
@@ -269,7 +371,7 @@ class ServerConfig:
     enable_caveman_compression: bool = False
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ServerConfig":
+    def from_dict(cls, data: Mapping[str, Any]) -> ServerConfig:
         """From Dict.
 
         Args:
@@ -302,15 +404,14 @@ class ModelRegistry:
 
         """
         if config_path is None:
-            project_root = Path(__file__).resolve().parents[3]
-            config_path = str(project_root / "config.yaml")
+            config_path = str(_default_config_path())
         self._config_path = config_path
         self._models: dict[str, ModelProfile] = {}
         self._defaults = DefaultModels()
         self._memory = MemoryConfig()
         self._server = ServerConfig()
-        self._providers: dict[str, dict] = {}
-        self._raw: dict = {}
+        self._providers: dict[str, dict[str, Any]] = {}
+        self._raw: dict[str, Any] = {}
         self._load_config()
 
     def _load_config(self) -> None:
@@ -329,10 +430,20 @@ class ModelRegistry:
                     continue
                 item.setdefault("role", role)
                 p = ModelProfile.from_dict(item)
-                if p.name:
+                if not p.name:
+                    continue
+                existing = self._models.get(p.name)
+                if existing is None:
                     self._models[p.name] = p
+                    continue
+                existing.roles = tuple(dict.fromkeys((*existing.supported_roles, *p.supported_roles)))
 
         self._defaults = DefaultModels.from_dict(self._raw.get("defaults", {}))
+        for default_role in ("reasoning", "coding", "embedding", "vision"):
+            default_name = getattr(self._defaults, default_role, None)
+            profile = self._models.get(default_name) if default_name else None
+            if profile is not None:
+                profile.roles = tuple(dict.fromkeys((*profile.supported_roles, default_role)))
         self._memory = MemoryConfig.from_dict(self._raw.get("memory", {}))
         self._server = ServerConfig.from_dict(self._raw.get("server", {}))
         # providers 섹션 로드 (멀티 프로바이더 지원 — 작업 1)
@@ -382,11 +493,11 @@ class ModelRegistry:
     # ─── 멀티 프로바이더 조회 API (작업 1) ──────────────────────────────
 
     @property
-    def providers(self) -> dict[str, dict]:
+    def providers(self) -> dict[str, dict[str, Any]]:
         """providers 섹션 반환 (ollama/openrouter/nim/anthropic/mlx 별 base_url, api_key_env 등)."""
         return self._providers
 
-    def get_provider_config(self, provider: str) -> dict:
+    def get_provider_config(self, provider: str) -> dict[str, Any]:
         """특정 provider의 설정(base_url, api_key_env, rate_limit 등)을 반환합니다.
 
         Args:
@@ -438,6 +549,10 @@ class ModelRegistry:
             api_key = os.environ[key_env]
         elif provider == "ollama":
             api_key = os.environ.get("OLLAMA_API_KEY", "") or "ollama"
+        elif provider in {"lmstudio", "lm_studio"}:
+            api_key = os.environ.get("LM_STUDIO_API_KEY", "")
+            if not api_key and app_config.model.api_engine in {"lm_studio", "lmstudio"}:
+                api_key = app_config.model.api_key if app_config.model.api_key != "lm-studio" else ""
         elif profile and profile.api_key_env and profile.api_key_env in os.environ:
             api_key = os.environ[profile.api_key_env]
         else:
@@ -455,7 +570,7 @@ class ModelRegistry:
             list[ModelProfile]: The list[modelprofile] result.
 
         """
-        return [m for m in self._models.values() if m.role == role]
+        return [m for m in self._models.values() if role in m.supported_roles]
 
     def get_default(self, role: str) -> ModelProfile | None:
         """Retrieve default.

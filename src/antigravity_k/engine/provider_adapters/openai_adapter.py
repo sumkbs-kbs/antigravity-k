@@ -14,7 +14,7 @@ class OpenAIAdapter(BaseProviderAdapter):
 
     def translate_request(self, anthropic_payload: dict[str, Any]) -> dict[str, Any]:
         """Anthropic -> OpenAI 형식 변환 (Tool Use 포함)."""
-        openai_payload = {
+        openai_payload: dict[str, Any] = {
             "model": anthropic_payload.get("model", ""),
             "messages": [],
             "temperature": anthropic_payload.get("temperature", 0.7),
@@ -76,7 +76,7 @@ class OpenAIAdapter(BaseProviderAdapter):
         choice = provider_response["choices"][0]
         message = choice.get("message", {})
 
-        anthropic_response = {
+        anthropic_response: dict[str, Any] = {
             "id": provider_response.get("id", "msg_unknown"),
             "type": "message",
             "role": message.get("role", "assistant"),

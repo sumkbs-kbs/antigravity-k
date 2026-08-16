@@ -30,9 +30,9 @@ vi.mock('../../../stores/uiStore', () => ({
 
 vi.mock('../../../utils/fileIcons', () => ({
   getFileIcon: (name: string) => {
-    if (name.endsWith('.ts')) return '📄';
-    if (name.endsWith('.json')) return '📋';
-    return '📄';
+    if (name.endsWith('.ts')) return '\u{1F4C4}';
+    if (name.endsWith('.json')) return '\u{1F4CB}';
+    return '\u{1F4C4}';
   },
 }));
 
@@ -72,6 +72,10 @@ const emptySearchResponse = {
   total_matches: 0,
 };
 
+function mockFetchResponse(data: any) {
+  return { json: () => Promise.resolve(data) };
+}
+
 /* ─── SearchPanel Rendering ────────────────────────────────── */
 
 describe('SearchPanel rendering', () => {
@@ -92,30 +96,23 @@ describe('SearchPanel rendering', () => {
   });
 
   it('renders search panel when visible is true', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
-    // Should show search input
     const searchInput = screen.getByPlaceholderText('Search files...');
     expect(searchInput).toBeInTheDocument();
 
-    // Should show option buttons
     expect(screen.getByTitle('Use Regular Expression')).toBeInTheDocument();
     expect(screen.getByTitle('Case Sensitive')).toBeInTheDocument();
     expect(screen.getByTitle('Close (Esc)')).toBeInTheDocument();
   });
 
   it('renders search panel with regex placeholder when useRegex is toggled', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
-    // Toggle regex
     const regexBtn = screen.getByTitle('Use Regular Expression');
     await act(async () => { fireEvent.click(regexBtn); });
 
@@ -123,22 +120,16 @@ describe('SearchPanel rendering', () => {
   });
 
   it('clears state when visible changes from true to false', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     const { rerender } = render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
-    // Type a query
     const input = screen.getByPlaceholderText('Search files...');
     await act(async () => {
       fireEvent.change(input, { target: { value: 'test' } });
     });
 
-    // Re-render with visible=false
     rerender(<SearchPanel visible={false} onClose={vi.fn()} />);
-
-    // Re-render with visible=true — should be clean
     rerender(<SearchPanel visible={true} onClose={vi.fn()} />);
 
     const searchInput = screen.getByPlaceholderText('Search files...');
@@ -146,7 +137,6 @@ describe('SearchPanel rendering', () => {
   });
 
   it('shows loading state during search', async () => {
-    // Create a promise that never resolves to keep loading state
     const pendingPromise = new Promise(() => {});
     (global.fetch as any).mockReturnValue(pendingPromise);
 
@@ -157,7 +147,6 @@ describe('SearchPanel rendering', () => {
       fireEvent.change(input, { target: { value: 'test' } });
     });
 
-    // Wait for debounce + fetch — Searching... appears in both summary and results list
     await waitFor(() => {
       const loadingEls = screen.getAllByText('Searching...');
       expect(loadingEls.length).toBeGreaterThan(0);
@@ -165,9 +154,7 @@ describe('SearchPanel rendering', () => {
   });
 
   it('shows no results message when search returns empty', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(emptySearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(emptySearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -192,9 +179,7 @@ describe('SearchPanel search input', () => {
   });
 
   it('calls search API when user types', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -203,18 +188,15 @@ describe('SearchPanel search input', () => {
       fireEvent.change(input, { target: { value: 'function' } });
     });
 
-    // Wait for debounce (300ms) + fetch
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalled();
     }, { timeout: 1000 });
 
-    // Verify the API call
     expect(global.fetch).toHaveBeenCalledWith('/api/fs/search', expect.objectContaining({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     }));
 
-    // Verify request body
     const callArgs = (global.fetch as any).mock.calls.find(
       (c: any[]) => c[0] === '/api/fs/search'
     );
@@ -226,14 +208,11 @@ describe('SearchPanel search input', () => {
   });
 
   it('toggles regex option and re-searches', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(mockSearchResponse));
     vi.stubGlobal('fetch', fetchMock);
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
-    // Type query
     const input = screen.getByPlaceholderText('Search files...');
     await act(async () => {
       fireEvent.change(input, { target: { value: 'func' } });
@@ -245,11 +224,9 @@ describe('SearchPanel search input', () => {
 
     fetchMock.mockClear();
 
-    // Toggle regex
     const regexBtn = screen.getByTitle('Use Regular Expression');
     await act(async () => { fireEvent.click(regexBtn); });
 
-    // Should re-search with regex=true
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     }, { timeout: 1000 });
@@ -262,9 +239,7 @@ describe('SearchPanel search input', () => {
   });
 
   it('toggles case sensitive option and re-searches', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(mockSearchResponse));
     vi.stubGlobal('fetch', fetchMock);
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
@@ -295,9 +270,7 @@ describe('SearchPanel search input', () => {
   });
 
   it('shows match count in summary', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -321,9 +294,7 @@ describe('SearchPanel search results', () => {
   });
 
   it('displays file results with match lines', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -335,16 +306,14 @@ describe('SearchPanel search results', () => {
     await waitFor(() => {
       expect(screen.getByText('app.ts')).toBeInTheDocument();
       expect(screen.getByText('utils.ts')).toBeInTheDocument();
-      expect(screen.getByText('10')).toBeInTheDocument(); // line number
+      expect(screen.getByText('10')).toBeInTheDocument();
       expect(screen.getByText('25')).toBeInTheDocument();
       expect(screen.getByText('5')).toBeInTheDocument();
     }, { timeout: 1000 });
   });
 
   it('shows collapse/expand toggle on file results', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -354,8 +323,7 @@ describe('SearchPanel search results', () => {
     });
 
     await waitFor(() => {
-      // Should show collapse icon ▼ by default (expanded) — one per file group
-      const collapseIcons = screen.getAllByText('▼');
+      const collapseIcons = screen.getAllByText('\u25BC');
       expect(collapseIcons.length).toBeGreaterThanOrEqual(1);
     }, { timeout: 1000 });
   });
@@ -371,7 +339,6 @@ describe('SearchPanel search results', () => {
       fireEvent.change(input, { target: { value: '[invalid' } });
     });
 
-    // Wait for debounce
     await waitFor(() => {
       expect(screen.getByText(/No results/)).toBeInTheDocument();
     }, { timeout: 1000 });
@@ -387,9 +354,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('moves focus down on ArrowDown', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -402,12 +367,10 @@ describe('SearchPanel keyboard navigation', () => {
       expect(screen.getByText(/3 matches in 2 files/)).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Press ArrowDown — focusedIdx becomes 0 (first match)
     await act(async () => {
       fireEvent.keyDown(input, { key: 'ArrowDown' });
     });
 
-    // Navigation counter should show 1/3 (0-indexed focusedIdx=0 → display 1)
     await waitFor(() => {
       const el = screen.getByText(/1\/3/);
       expect(el).toBeInTheDocument();
@@ -415,9 +378,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('moves focus down twice then up — focus stays at first match', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -430,22 +391,18 @@ describe('SearchPanel keyboard navigation', () => {
       expect(screen.getByText(/3 matches in 2 files/)).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // ArrowDown (focusedIdx=0), ArrowDown (focusedIdx=1), ArrowUp (focusedIdx=0)
     await act(async () => { fireEvent.keyDown(input, { key: 'ArrowDown' }); });
     await act(async () => { fireEvent.keyDown(input, { key: 'ArrowDown' }); });
     await act(async () => { fireEvent.keyDown(input, { key: 'ArrowUp' }); });
 
-    // After: focusedIdx=0 → display "1/3"
     await waitFor(() => {
       const el = screen.getByText(/1\/3/);
       expect(el).toBeInTheDocument();
     }, { timeout: 1000 });
   });
 
-  it('shows navigation only when focusedIdx >= 0 (kills EqualityOperator mutant)', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+  it('shows navigation only when focusedIdx >= 0', async () => {
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -458,10 +415,8 @@ describe('SearchPanel keyboard navigation', () => {
       expect(screen.getByText(/3 matches in 2 files/)).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Initially focusedIdx=-1, so navigation counter should NOT appear
     expect(screen.queryByText(/\d+\/3/)).not.toBeInTheDocument();
 
-    // Press ArrowDown — focusedIdx becomes 0, navigation should appear
     await act(async () => {
       fireEvent.keyDown(input, { key: 'ArrowDown' });
     });
@@ -498,9 +453,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('triggers search on Shift+Enter', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -509,10 +462,8 @@ describe('SearchPanel keyboard navigation', () => {
       fireEvent.change(input, { target: { value: 'function' } });
     });
 
-    // Clear debounce calls
     (global.fetch as any).mockClear();
 
-    // Shift+Enter triggers immediate search
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
     });
@@ -523,9 +474,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('tabs from search to replace input', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -538,7 +487,6 @@ describe('SearchPanel keyboard navigation', () => {
       expect(screen.getByPlaceholderText('Replace with...')).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Tab to replace input — just verify no crash
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Tab', shiftKey: false });
     });
@@ -554,9 +502,7 @@ describe('SearchPanel replace', () => {
   });
 
   it('shows replace input after search', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -571,9 +517,7 @@ describe('SearchPanel replace', () => {
   });
 
   it('shows Replace button per match when replace text is entered', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -591,7 +535,6 @@ describe('SearchPanel replace', () => {
       fireEvent.change(replaceInput, { target: { value: 'fn' } });
     });
 
-    // Replace buttons should appear
     await waitFor(() => {
       const replaceBtns = screen.getAllByText('Replace');
       expect(replaceBtns.length).toBeGreaterThan(0);
@@ -599,9 +542,7 @@ describe('SearchPanel replace', () => {
   });
 
   it('shows Replace All button when replace text is entered', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -634,9 +575,7 @@ describe('FileResult expand/collapse', () => {
   });
 
   it('shows matches list by default (expanded)', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -646,16 +585,13 @@ describe('FileResult expand/collapse', () => {
     });
 
     await waitFor(() => {
-      // Matches should be visible (expanded state)
       expect(screen.getByText('10')).toBeInTheDocument();
       expect(screen.getByText('25')).toBeInTheDocument();
     }, { timeout: 1000 });
   });
 
   it('hides matches when file header is clicked (collapse)', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -668,14 +604,12 @@ describe('FileResult expand/collapse', () => {
       expect(screen.getByText('app.ts')).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Click the file header to collapse
     const fileHeader = screen.getByText('app.ts').closest('.search-file-header');
     if (fileHeader) {
       await act(async () => { fireEvent.click(fileHeader); });
     }
 
-    // After collapse, the ▼ icon should become ▶
-    const collapseIcon = screen.getByText('▶');
+    const collapseIcon = screen.getByText('\u25B6');
     expect(collapseIcon).toBeInTheDocument();
   });
 });
@@ -689,9 +623,7 @@ describe('SearchPanel replace edge cases', () => {
   });
 
   it('does not show Replace All button when replaceText is empty', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -704,14 +636,11 @@ describe('SearchPanel replace edge cases', () => {
       expect(screen.getByPlaceholderText('Replace with...')).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Replace All button should NOT be visible when replaceText is empty
     expect(screen.queryByText(/Replace All/)).not.toBeInTheDocument();
   });
 
   it('does not show individual Replace buttons when replaceText is empty', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -724,14 +653,11 @@ describe('SearchPanel replace edge cases', () => {
       expect(screen.getByPlaceholderText('Replace with...')).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    // Individual Replace buttons should NOT be visible
     expect(screen.queryByText('Replace')).not.toBeInTheDocument();
   });
 
-  it('does not show ↻ All per-file replace button when replaceText is empty', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve(mockSearchResponse),
-    });
+  it('does not show per-file replace all button when replaceText is empty', async () => {
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -744,7 +670,7 @@ describe('SearchPanel replace edge cases', () => {
       expect(screen.getByPlaceholderText('Replace with...')).toBeInTheDocument();
     }, { timeout: 1000 });
 
-    expect(screen.queryByText('↻ All')).not.toBeInTheDocument();
+    expect(screen.queryByText('\u21BB All')).not.toBeInTheDocument();
   });
 });
 
@@ -764,5 +690,158 @@ describe('SearchPanel close', () => {
     await act(async () => { fireEvent.click(closeBtn); });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ─── Click to Open Match ──────────────────────────────────── */
+
+describe('SearchPanel open match', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('opens file when clicking a match line', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
+      .mockResolvedValueOnce(mockFetchResponse({ content: 'file content' }));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('10')).toBeInTheDocument();
+    }, { timeout: 1000 });
+
+    // Click the match line to open
+    const matchLine = screen.getByText('10').closest('.search-match-line');
+    if (matchLine) {
+      await act(async () => { fireEvent.click(matchLine); });
+    }
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalled();
+    }, { timeout: 1000 });
+  });
+
+  it('shows error toast when open fails with network error', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
+      .mockRejectedValueOnce(new Error('Network error'));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('10')).toBeInTheDocument();
+    }, { timeout: 1000 });
+
+    const matchLine = screen.getByText('10').closest('.search-match-line');
+    if (matchLine) {
+      await act(async () => { fireEvent.click(matchLine); });
+    }
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.stringContaining('\uC624\uB958'),
+        'error',
+      );
+    }, { timeout: 1000 });
+  });
+});
+
+/* ─── Keyboard Navigation Edge Cases ───────────────────────── */
+
+describe('SearchPanel keyboard edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('handles Escape on replace input to clear replaceText', async () => {
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Replace with...')).toBeInTheDocument();
+    }, { timeout: 1000 });
+
+    const replaceInput = screen.getByPlaceholderText('Replace with...');
+    await act(async () => {
+      fireEvent.change(replaceInput, { target: { value: 'fn' } });
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(replaceInput, { key: 'Escape' });
+    });
+
+    expect(replaceInput).toHaveValue('');
+  });
+
+  it('handles Shift+Tab from replace to search input', async () => {
+    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Replace with...')).toBeInTheDocument();
+    }, { timeout: 1000 });
+
+    const replaceInput = screen.getByPlaceholderText('Replace with...');
+    await act(async () => {
+      fireEvent.keyDown(replaceInput, { key: 'Tab', shiftKey: true });
+    });
+  });
+
+  it('opens focused match on Enter key', async () => {
+    (global.fetch as any)
+      .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
+      .mockResolvedValueOnce(mockFetchResponse({ content: 'file content' }));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/3 matches in 2 files/)).toBeInTheDocument();
+    }, { timeout: 1000 });
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/1\/3/)).toBeInTheDocument();
+    }, { timeout: 1000 });
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' });
+    });
+
+    await waitFor(() => {
+      expect(mockOpenFile).toHaveBeenCalled();
+    }, { timeout: 1000 });
   });
 });

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Antigravity-K: Meta-Evolution Agent (Phase 7).
 
 ==============================================
@@ -14,6 +13,7 @@ import shutil
 import time
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("meta_evolution")
 
@@ -118,7 +118,7 @@ class MetaEvolutionAgent:
             response = self.manager.generate(
                 prompt=prompt,
                 model="hf.co/Jiunsong/SuperGemma4-31b-abliterated-GGUF:latest",  # SuperGemma4를 워커로 사용
-                system_prompt="You are an autonomous AI software engineer. Generate a specific implementation plan and XML tool calls to edit files.",  # noqa: E501
+                system_prompt="You are an autonomous AI software engineer. Generate a specific implementation plan and XML tool calls to edit files.",
             )
 
             yield "🤖 **[SuperGemma4]** 코드 변경사항 도출 완료.\n"
@@ -179,7 +179,6 @@ class MetaEvolutionAgent:
                     contents += f"\n--- {f} ---\n{fp.read()[:2000]}... (truncated)\n"
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
 
         return f"""
         Requirement: {requirement}
@@ -191,7 +190,7 @@ class MetaEvolutionAgent:
         Use <tool_call>{{"name": "write_file", "arguments": {{"file_path": "...", "content": "..."}}}}</tool_call>
         """
 
-    def _extract_tool_calls(self, text: str) -> list[dict]:
+    def _extract_tool_calls(self, text: str) -> list[dict[str, Any]]:
         calls = []
         matches = re.finditer(r"<tool_call>\s*({.*?})\s*</tool_call>", text, re.DOTALL)
         for m in matches:
@@ -199,7 +198,6 @@ class MetaEvolutionAgent:
                 calls.append(json.loads(m.group(1)))
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
         return calls
 
     def _update_documentation(self, requirement: str):

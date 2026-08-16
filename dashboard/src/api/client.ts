@@ -127,6 +127,43 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return data.data || [];
 }
 
+export interface ModelProviderCapability {
+  model: string;
+  provider: string;
+  is_local: boolean;
+  runtime_status: 'available' | 'unavailable' | 'not_required';
+  native_tool_calling: 'supported' | 'unsupported' | 'unknown';
+  source: string;
+  detail?: string;
+  reported_capabilities?: string[];
+}
+
+export interface ModelOperationalMetric {
+  model: string;
+  outcome_count: number;
+  task_success_rate: number | null;
+  tool_accuracy: number | null;
+  retry_rate: number | null;
+}
+
+export interface ModelQualityCalibrationStatus {
+  enabled: boolean;
+  eligible_models: string[];
+  ineligible_models: string[];
+  operational_metrics: ModelOperationalMetric[];
+}
+
+export interface ModelOperationsStatus {
+  provider_capabilities: Record<string, ModelProviderCapability>;
+  quality_calibration: ModelQualityCalibrationStatus;
+}
+
+export async function fetchModelOperations(refresh = false): Promise<ModelOperationsStatus> {
+  return apiRequest<ModelOperationsStatus>(`/models/operations${refresh ? '?refresh=true' : ''}`, {
+    suppressLog: true,
+  });
+}
+
 /**
  * Health check.
  */

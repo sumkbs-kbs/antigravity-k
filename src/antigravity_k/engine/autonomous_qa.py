@@ -6,7 +6,7 @@
 
 흐름:
   1. Playwright로 스크린샷 촬영
-  2. 멀티모달 비전 LLM(qwen2.5vl:32b)에 UI 결함 분석 요청
+  2. 멀티모달 비전 LLM(qwen3.6:latest)에 UI 결함 분석 요청
   3. 코딩 LLM에 코드 수정 패치 생성 요청
   4. fs/write API로 코드 패치 자동 적용
   5. 페이지 리로드 후 재스크린샷 → 비전 재분석
@@ -26,6 +26,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from antigravity_k.tools.egress_policy import validate_httpx_request_async
 
 logger = logging.getLogger("antigravity_k.autonomous_qa")
 
@@ -86,11 +88,11 @@ class AutonomousQAReport:
     attempts: list[FixAttempt] = field(default_factory=list)
     performance_metrics: dict[str, Any] = field(default_factory=dict)
     viewport_results: dict[str, Any] = field(default_factory=dict)
-    console_errors: list[dict] = field(default_factory=list)
+    console_errors: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: float = 0
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -188,8 +190,8 @@ class AutonomousQAEngine:
         self,
         dashboard_url: str = "http://localhost:5173",
         ollama_url: str = "http://127.0.0.1:11434",
-        vision_model: str = "qwen2.5vl:32b",
-        coding_model: str = "qwen2.5-coder:32b",
+        vision_model: str = "qwen3.6:latest",
+        coding_model: str = "qwen3.6:latest",
         max_iterations: int = 3,
         project_root: str = "",
     ):
@@ -227,7 +229,9 @@ class AutonomousQAEngine:
 
             from playwright.async_api import ViewportSize
 
-            context = await browser.new_context(viewport=cast(ViewportSize, self.VIEWPORTS["desktop"]))
+            context = await browser.new_context(
+                viewport=cast(ViewportSize, cast(object, self.VIEWPORTS["desktop"])),
+            )
             page = await context.new_page()
 
             # 콘솔 에러 수집
@@ -339,7 +343,10 @@ class AutonomousQAEngine:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(
+                timeout=120.0,
+                event_hooks={"request": [validate_httpx_request_async]},
+            ) as client:
                 resp = await client.post(
                     f"{self.ollama_url}/api/chat",
                     json={
@@ -401,7 +408,10 @@ class AutonomousQAEngine:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(
+                timeout=120.0,
+                event_hooks={"request": [validate_httpx_request_async]},
+            ) as client:
                 resp = await client.post(
                     f"{self.ollama_url}/api/chat",
                     json={

@@ -11,16 +11,33 @@ import json
 import logging
 import os
 import re
-from typing import Any, Optional
+import time
+from typing import Any, TypeAlias
 from urllib.parse import quote_plus, unquote
 
 import httpx
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .egress_policy import validate_httpx_request
 from .web_search_cache import _generate_fallback_queries
 from .web_search_engine import WebSearchEngine
+from .web_search_models import SearchResult
+from .web_search_quality import (
+    canonicalize_url,
+    has_authoritative_query_result,
+    has_query_relevant_result,
+    is_public_http_url,
+    official_source_hints,
+    rank_search_results,
+    requires_authoritative_sources,
+    sanitize_untrusted_text,
+    source_id_for_url,
+)
 
 logger = logging.getLogger("web_search")
+
+SearchResultTuple: TypeAlias = tuple[str, str, str]
+SearchResults: TypeAlias = list[SearchResultTuple]
 
 
 class WebSearchTool(BaseTool):
@@ -33,10 +50,10 @@ class WebSearchTool(BaseTool):
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.SAFE
     icon = "🔍"
-    tags = ["search", "web", "jina", "duckduckgo", "multi-engine", "realtime"]
 
     def __init__(self) -> None:
         super().__init__()
+        self.tags = ["search", "web", "jina", "duckduckgo", "multi-engine", "realtime"]
         self._name = "web_search"
         self._description = (
             "Performs a real-time web search using multiple search engines "
@@ -100,12 +117,23 @@ class WebSearchTool(BaseTool):
             # 2. Multi-Engine 검색
             all_results, engines_used = self._execute_multi_engine_search(query)
 
-            # 3. Fallback: 결과 0건 → 대체 쿼리
-            if not all_results:
-                all_results, engines_used = self._execute_fallback(query)
+            official_results = official_source_hints(query)
+            if official_results:
+                all_results.extend(_to_result_tuples(official_results))
+                engines_used.append("OfficialRegistry")
+
+            candidate_results = _to_search_results(all_results)
+            fallback_needed = not has_query_relevant_result(query, candidate_results)
+            fallback_needed = fallback_needed or (
+                requires_authoritative_sources(query) and not has_authoritative_query_result(query, candidate_results)
+            )
+            if fallback_needed:
+                fallback_results, fallback_engines = self._execute_fallback(query)
+                all_results.extend(fallback_results)
+                engines_used.extend(fallback_engines)
 
             # 4. 중복 URL 제거
-            results = _deduplicate_results(all_results)
+            results = _rank_results(query, all_results, self.max_results)
 
             # 5. Deep 모드: 추가 결과
             if is_deep:
@@ -147,7 +175,7 @@ class WebSearchTool(BaseTool):
 
     # ─── 2. Multi-Engine 검색 ─────────────────────────────────────
 
-    def _execute_multi_engine_search(self, query: str) -> tuple[list, list[str]]:
+    def _execute_multi_engine_search(self, query: str) -> tuple[SearchResults, list[str]]:
         """4개 엔진을 순차적으로 호출하여 결과를 수집합니다."""
         all_results = []
         engines_used: list[str] = []
@@ -183,21 +211,22 @@ class WebSearchTool(BaseTool):
 
     # ─── 3. Fallback 검색 ─────────────────────────────────────────
 
-    def _execute_fallback(self, query: str) -> tuple[list, list[str]]:
-        """결과 0건 시 대체 쿼리로 재시도합니다."""
+    def _execute_fallback(self, query: str) -> tuple[SearchResults, list[str]]:
         fallback_queries = _generate_fallback_queries(query)
         logger.info(
-            "0건 결과, Fallback 쿼리 %d개 생성: %s",
+            "검색 품질 보강용 fallback 쿼리 %d개 생성: %s",
             len(fallback_queries),
             fallback_queries[:3],
         )
 
         for fb_query in fallback_queries[1:4]:
             fb_results = self._sync_search_self_hosted(fb_query)
-            if not fb_results:
-                fb_results = self._sync_search_searxng(fb_query)
-            if not fb_results:
-                fb_results = self._sync_search_duckduckgo(fb_query)
+            if not has_query_relevant_result(fb_query, _to_search_results(fb_results)):
+                fb_results.extend(self._sync_search_jina(fb_query))
+            if not has_query_relevant_result(fb_query, _to_search_results(fb_results)):
+                fb_results.extend(self._sync_search_searxng(fb_query))
+            if not has_query_relevant_result(fb_query, _to_search_results(fb_results)):
+                fb_results.extend(self._sync_search_duckduckgo(fb_query))
             if fb_results:
                 logger.info("Fallback 성공: '%s' → %d개", fb_query[:40], len(fb_results))
                 return fb_results, ["fallback"]
@@ -205,17 +234,17 @@ class WebSearchTool(BaseTool):
 
     # ─── 4. Deep 모드 검색 ────────────────────────────────────────
 
-    def _execute_deep_search(self, query: str, results: list) -> list:
+    def _execute_deep_search(self, query: str, results: SearchResults) -> SearchResults:
         """Deep 모드: Self-Hosted 추가 결과 요청."""
         logger.info("Deep 모드: 추가 결과 요청 (query=%s)", query[:40])
         extra_results = self._sync_search_self_hosted(query, deep=True)
         if extra_results:
-            seen = {r[1].rstrip("/").lower() for r in results}
+            seen = {canonicalize_url(r[1]) for r in results}
             for r in extra_results:
-                key = r[1].rstrip("/").lower()
+                key = canonicalize_url(r[1])
                 if key not in seen:
                     seen.add(key)
-                    results.append(r)
+                    results.append((r[0], key, r[2]))
             logger.info("Deep 검색 추가 결과: %d개", len(extra_results))
         return results
 
@@ -224,7 +253,7 @@ class WebSearchTool(BaseTool):
     def _format_search_response(
         self,
         query: str,
-        results: list,
+        results: SearchResults,
         engines_used: list[str],
     ) -> str:
         """검색 결과를 LLM 친화적 문자열로 포맷팅합니다.
@@ -254,7 +283,11 @@ class WebSearchTool(BaseTool):
 
         # ── 나머지 결과 ──
         for i, (title, url, snippet) in enumerate(results[1:5], 2):
-            lines.append(f"{i}. **{title}**\n   {snippet}\n   🔗 {url}\n")
+            citation = source_id_for_url(url)
+            lines.append(
+                f"{i}. [citation:{citation}] **{sanitize_untrusted_text(title, 240, wrap=False)}**\n"
+                f"   {sanitize_untrusted_text(snippet)}\n   🔗 {url}\n",
+            )
 
         # ── 구조화 데이터 추출 ──
         self._inject_structured_data(results, content, lines, query=query)
@@ -281,7 +314,11 @@ class WebSearchTool(BaseTool):
             loc_query = "Seoul"
 
         try:
-            with httpx.Client(timeout=5.0, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=5.0,
+                follow_redirects=True,
+                event_hooks={"request": [validate_httpx_request]},
+            ) as client:
                 resp = client.get(f"https://wttr.in/{loc_query}?T&M")
                 if resp.status_code == 200:
                     weather_ascii = re.sub(r"\x1b\[[0-9;]*m", "", resp.text)
@@ -291,49 +328,36 @@ class WebSearchTool(BaseTool):
         except httpx.RequestError:
             logger.warning("wttr.in 날씨 조회 실패 (non-critical)")
 
-    def _inject_top1_analysis(self, top_result: tuple, query: str, lines: list[str]) -> str:
+    def _inject_top1_analysis(self, top_result: SearchResultTuple, query: str, lines: list[str]) -> str:
         """TOP 1 결과의 본문을 분석하여 주입합니다."""
         top_title, top_url, top_snippet = top_result
-        lines.append(f"👑 **[TOP 1 심층 분석] {top_title}**")
+        citation = source_id_for_url(top_url)
+        lines.append(
+            f"1. [citation:{citation}] **{sanitize_untrusted_text(top_title, 240, wrap=False)}**",
+        )
         lines.append(f"🔗 {top_url}")
+
+        if not is_public_http_url(top_url):
+            lines.append("   (본문 스크래핑 차단: public HTTP URL이 아님)")
+            lines.append(f"   {sanitize_untrusted_text(top_snippet)}")
+            return ""
 
         # 1차: Jina Reader
         max_chars = 4000 if any(kw in query for kw in ("주가", "주식", "stock")) else 2000
         content = self.engine._extract_content_jina(top_url, max_chars=max_chars)
         if content:
-            lines.append(f"📄 본문 마크다운 요약 (Jina Reader):\n{content}")
+            lines.append(f"   {sanitize_untrusted_text(content, max_chars=max_chars)}")
             return content
 
-        # 2차: httpx 직접 스크래핑 폴백
-        try:
-            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
-                resp = client.get(top_url)
-                if resp.status_code == 200:
-                    html = resp.text
-                    for tag in ["script", "style", "nav", "footer", "header", "aside"]:
-                        html = re.sub(
-                            rf"<{tag}[^>]*>.*?</{tag}>",
-                            "",
-                            html,
-                            flags=re.DOTALL | re.IGNORECASE,
-                        )
-                    text = re.sub(r"<[^>]+>", " ", html)
-                    text = re.sub(r"\s+", " ", text).strip()
-                    fallback = text[:1500]
-                    lines.append(f"📄 본문 요약 (Fallback): {fallback}...")
-                    return fallback
-                else:
-                    lines.append(f"   (본문 스크래핑 실패: HTTP {resp.status_code}) - 스니펫: {top_snippet}")
-        except httpx.RequestError as e:
-            logger.warning("TOP 1 본문 스크래핑 실패: %s", e)
-            lines.append(f"   (본문 스크래핑 실패: {e}) - 스니펫: {top_snippet}")
+        lines.append("   (본문 스크래핑 실패: PageScraper-backed reader unavailable)")
+        lines.append(f"   {sanitize_untrusted_text(top_snippet)}")
 
         lines.append("")
         return ""
 
     def _inject_structured_data(
         self,
-        results: list,
+        results: SearchResults,
         content: str,
         lines: list[str],
         query: str = "",
@@ -353,7 +377,7 @@ class WebSearchTool(BaseTool):
                 lines.append(
                     "\n[중요] 위 구조화 데이터는 검색 결과에서 자동 추출된 값입니다. "
                     "답변 시 반드시 이 값들을 우선적으로 사용하고, "
-                    "원본 검색 결과의 [N] 출처 번호도 함께 표기하세요.\n"
+                    "원본 검색 결과의 [N] 출처 번호도 함께 표기하세요.\n",
                 )
         except Exception:
             logger.debug("데이터 추출 실패 (non-critical)", exc_info=True)
@@ -368,7 +392,7 @@ class WebSearchTool(BaseTool):
             "1. **교차 검증 (Cross-validation)**: 반드시 여러 출처의 정보를 종합하여 "
             "모순이 없는지 확인하고, 단일 출처에만 의존하지 마세요.\n"
             "2. **인라인 인용구 (Inline Citations)**: 답변의 각 주장이나 팩트 끝에 "
-            "해당 정보를 참조한 출처의 번호를 `[1]`, `[2]` 형식으로 반드시 표기하세요.\n"
+            "해당 정보를 참조한 source id를 `[citation:<source_id>]` 형식으로 반드시 표기하세요.\n"
             "3. 날씨 정보 등 수치가 중요한 경우, 스니펫보다 "
             "**[TOP 1 심층 분석]** 본문의 구체적 수치를 우선적으로 신뢰하세요."
         )
@@ -380,9 +404,9 @@ class WebSearchTool(BaseTool):
     def _sync_search_self_hosted(
         self,
         query: str,
-        max_results: Optional[int] = None,
+        max_results: int | None = None,
         deep: bool = False,
-    ) -> list:
+    ) -> SearchResults:
         """자체 검색 엔진 (Cloudflare Pages 배포)을 통한 검색."""
         base_url = os.environ.get(
             "AGK_SEARCH_ENGINE_URL",
@@ -398,7 +422,11 @@ class WebSearchTool(BaseTool):
         answer_label = "💡 AI Answer (Deep)" if deep else "💡 AI Answer"
 
         try:
-            with httpx.Client(timeout=timeout_sec, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=timeout_sec,
+                follow_redirects=True,
+                event_hooks={"request": [validate_httpx_request]},
+            ) as client:
                 resp = client.post(
                     f"{base_url}/api/search",
                     json={
@@ -422,7 +450,7 @@ class WebSearchTool(BaseTool):
                             answer_label,
                             f"{base_url}/api/search?query={query}",
                             answer["text"][: 1000 if deep else 500],
-                        )
+                        ),
                     )
 
                 for item in data.get("results", [])[:limit]:
@@ -453,7 +481,7 @@ class WebSearchTool(BaseTool):
             logger.warning("Self-hosted search 동기 오류", exc_info=True)
             return []
 
-    def _sync_search_jina(self, query: str) -> list:
+    def _sync_search_jina(self, query: str) -> SearchResults:
         """동기 Jina Search (s.jina.ai)."""
         try:
             headers = {"Accept": "application/json"}
@@ -461,7 +489,11 @@ class WebSearchTool(BaseTool):
             if jina_key:
                 headers["Authorization"] = f"Bearer {jina_key}"
 
-            with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=12.0,
+                follow_redirects=True,
+                event_hooks={"request": [validate_httpx_request]},
+            ) as client:
                 resp = client.get(
                     f"https://s.jina.ai/{quote_plus(query)}",
                     headers=headers,
@@ -486,13 +518,16 @@ class WebSearchTool(BaseTool):
             logger.warning("Jina Search 동기 오류", exc_info=True)
             return []
 
-    def _sync_search_searxng(self, query: str) -> list:
+    def _sync_search_searxng(self, query: str) -> SearchResults:
         """동기 SearxNG 메타 검색."""
         if not self.searxng_url:
             return []
 
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(
+                timeout=10.0,
+                event_hooks={"request": [validate_httpx_request]},
+            ) as client:
                 resp = client.get(
                     f"{self.searxng_url}/search",
                     params={"q": query, "format": "json", "language": "ko-KR", "safesearch": 0},
@@ -514,10 +549,11 @@ class WebSearchTool(BaseTool):
             logger.debug("SearxNG 동기 검색 실패 (non-critical)")
             return []
 
-    def _sync_search_duckduckgo(self, query: str) -> list:
+    def _sync_search_duckduckgo(self, query: str) -> SearchResults:
         """동기 DuckDuckGo HTML 검색."""
         with httpx.Client(
             timeout=15.0,
+            event_hooks={"request": [validate_httpx_request]},
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -530,7 +566,14 @@ class WebSearchTool(BaseTool):
             follow_redirects=True,
         ) as client:
             url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-            resp = client.get(url)
+            resp: httpx.Response | None = None
+            for attempt in range(3):
+                resp = client.get(url, timeout=5.0)
+                if resp.status_code != 202 or attempt == 2:
+                    break
+                time.sleep(0.25 * (attempt + 1))
+            if resp is None:
+                return []
             if resp.status_code != 200:
                 return []
 
@@ -569,7 +612,7 @@ class WebSearchTool(BaseTool):
 # ─── 유틸리티 함수 ──────────────────────────────────────────────
 
 
-def _deduplicate_results(results: list) -> list:
+def _deduplicate_results(results: SearchResults) -> SearchResults:
     """중복 URL을 제거합니다 (먼저 들어온 결과 우선).
 
     Args:
@@ -578,14 +621,29 @@ def _deduplicate_results(results: list) -> list:
     Returns:
         중복 제거된 리스트
     """
-    seen: set[str] = set()
-    deduped: list = []
+    best_by_url: dict[str, SearchResultTuple] = {}
     for r in results:
-        key = r[1].rstrip("/").lower()
-        if key not in seen:
-            seen.add(key)
-            deduped.append(r)
-    return deduped
+        key = canonicalize_url(r[1])
+        if not key:
+            continue
+        candidate = (r[0], key, r[2])
+        current = best_by_url.get(key)
+        if current is None or len(candidate[2]) > len(current[2]):
+            best_by_url[key] = candidate
+    return list(best_by_url.values())
+
+
+def _to_search_results(results: SearchResults) -> list[SearchResult]:
+    return [SearchResult(title=title, url=url, snippet=snippet, relevance_score=1.0) for title, url, snippet in results]
+
+
+def _to_result_tuples(results: list[SearchResult]) -> SearchResults:
+    return [(result.title, result.url, result.snippet) for result in results]
+
+
+def _rank_results(query: str, results: SearchResults, max_results: int) -> SearchResults:
+    ranked = rank_search_results(_to_search_results(results), max_results=max_results, query=query)
+    return _to_result_tuples(ranked)
 
 
 __all__ = [

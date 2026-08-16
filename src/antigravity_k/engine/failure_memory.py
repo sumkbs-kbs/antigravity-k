@@ -9,7 +9,8 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 from antigravity_k.engine.gbrain import global_gbrain
 
@@ -36,7 +37,7 @@ class FailureMemory:
         """
         self.project_root = project_root
         self._log_path = os.path.join(project_root, _DEFAULT_LOG)
-        self._session_failures: list[dict] = []  # 현재 세션 내 실패
+        self._session_failures: list[dict[str, Any]] = []  # 현재 세션 내 실패
         os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
 
     def record(
@@ -55,7 +56,7 @@ class FailureMemory:
             "args_summary": args_summary[:200],
             "fix_applied": fix_applied,
             "success_after_fix": success_after_fix,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
         }
 
         self._session_failures.append(entry)
@@ -100,7 +101,7 @@ class FailureMemory:
             logger.exception("Unhandled exception")
             logger.debug("[FailureMemory] Log rotation failed: %s", e)
 
-    def find_similar(self, task_or_error: str, max_results: int = 3) -> list[dict]:
+    def find_similar(self, task_or_error: str, max_results: int = 3) -> list[dict[str, Any]]:
         """GBrain 의미론적 검색을 사용하여 유사한 과거 실패를 검색합니다."""
         results = []
 
@@ -153,13 +154,13 @@ class FailureMemory:
         lines.append("</failure_memory>")
         return "\n".join(lines)
 
-    def get_session_stats(self) -> dict:
+    def get_session_stats(self) -> dict[str, int]:
         """현재 세션의 실패 통계를 반환합니다."""
         total = len(self._session_failures)
         if total == 0:
             return {"total": 0, "unique_tools": 0, "fixed": 0}
 
-        tools = set(f["tool"] for f in self._session_failures)
+        tools = {f["tool"] for f in self._session_failures}
         fixed = sum(1 for f in self._session_failures if f.get("success_after_fix"))
         return {"total": total, "unique_tools": len(tools), "fixed": fixed}
 
@@ -182,7 +183,7 @@ class FailureMemory:
         first_line = error_text.strip().split("\n")[0]
         return first_line[:100]
 
-    def _is_similar(self, entry: dict, keywords: set) -> bool:
+    def _is_similar(self, entry: dict[str, Any], keywords: set[str]) -> bool:
         """키워드 기반 유사도 판단."""
         entry_text = f"{entry.get('tool', '')} {entry.get('error_pattern', '')} {entry.get('args_summary', '')}".lower()
         entry_words = set(re.findall(r"[a-zA-Z_]{3,}", entry_text))

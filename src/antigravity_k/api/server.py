@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+from typing import Any, cast
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -16,6 +17,7 @@ from slowapi.util import get_remote_address
 load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
 
 from antigravity_k.config import config
+from antigravity_k.tools.egress_policy import validate_httpx_request_async
 
 logger = logging.getLogger("antigravity_k.api.server")
 
@@ -120,7 +122,7 @@ async def lifespan(app: FastAPI):
         logger.exception("[Startup] IDE Server init skipped")
 
     # 7) API Cache 주기적 cleanup (5분 간격)
-    _cache_cleanup_task: asyncio.Task | None = None
+    _cache_cleanup_task: asyncio.Task[None] | None = None
 
     try:
         from antigravity_k.engine.api_cache import api_cache
@@ -273,7 +275,7 @@ app.add_middleware(
 # slowapi state + middleware registration
 # ---------------------------------------------------------------------------
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, cast(Any, _rate_limit_exceeded_handler))
 
 
 @app.middleware("http")
@@ -560,7 +562,7 @@ async def reverse_proxy_ide(request: Request, path: str):
         url += f"?{request.url.query}"
 
     # httpx를 이용해 트래픽 포워딩
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(event_hooks={"request": [validate_httpx_request_async]}) as client:
         # 헤더 조작 시 Host 헤더 등이 충돌할 수 있으므로 필터링 필요
         req_headers = dict(request.headers)
         req_headers.pop("host", None)

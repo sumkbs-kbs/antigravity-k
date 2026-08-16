@@ -14,7 +14,8 @@ and are composed into ``SlashCommandRegistry`` via multiple inheritance in
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class SlashCommand:
         self,
         name: str,
         description: str,
-        handler: Callable,
+        handler: Callable[[list[str]], str | Iterator[str]],
         usage: str = "",
         category: str = "general",
     ):
@@ -217,6 +218,7 @@ class SlashCommandRegistryBase:
         model_manager=None,
         skill_loader=None,
         mode_manager=None,
+        agent_runtime=None,
     ) -> None:
         self._commands: dict[str, SlashCommand] = {}
         self._tool_registry = tool_registry
@@ -225,8 +227,12 @@ class SlashCommandRegistryBase:
         self._model_manager = model_manager
         self._skill_loader = skill_loader
         self._mode_manager = mode_manager
+        self._agent_runtime = agent_runtime
 
         self._register_defaults()
+
+    def bind_runtime(self, runtime: Any) -> None:
+        self._agent_runtime = runtime
 
     def _register_defaults(self):
         """Register all default slash commands from the data table."""
@@ -244,14 +250,15 @@ class SlashCommandRegistryBase:
             # as "plan", "build" etc., which collided — here we use the
             # skill-name as-is but route through _cmd_lifecycle.
             real_name = cmd_name.replace("-lifecycle", "")
+            lifecycle_handler = object.__getattribute__(self, "_cmd_lifecycle")
             self.register(
                 SlashCommand(
                     name=real_name,
                     description=desc,
-                    handler=lambda args, _n=real_name: self._cmd_lifecycle(_n, args),
+                    handler=lambda args, _n=real_name: lifecycle_handler(_n, args),
                     usage=f"/{real_name} [arguments]",
                     category="lifecycle",
-                )
+                ),
             )
 
     def register(self, command: SlashCommand):
@@ -265,7 +272,7 @@ class SlashCommandRegistryBase:
         cmd_name = text.split()[0][1:]  # / 제거
         return cmd_name in self._commands
 
-    def execute(self, text: str) -> str:
+    def execute(self, text: str) -> str | Iterator[str]:
         """슬래시 커맨드를 실행하거나 자연어 의도를 처리합니다."""
         text = (text or "").strip()
         if not text:
@@ -293,8 +300,6 @@ class SlashCommandRegistryBase:
 
     def _execute_natural_language(self, text: str) -> str:
         """슬래시가 없는 자연어를 받아서 로컬 모델을 통해 자율적으로 도구를 실행하고 답변을 반환합니다."""
-        from antigravity_k.engine.orchestrator import OrchestratorAgent
-
         if not self._model_manager:
             return "Error: Model manager is not available for natural language execution."
 
@@ -305,8 +310,6 @@ class SlashCommandRegistryBase:
         if target_model == "default" or not target_model:
             target_model = "local-model"
 
-        orchestrator = OrchestratorAgent(model_manager=self._model_manager)
-
         messages = []
         if self._session_manager:
             session_msgs = self._session_manager.get_messages()
@@ -315,6 +318,11 @@ class SlashCommandRegistryBase:
         messages.append({"role": "user", "content": text})
 
         try:
+            if self._agent_runtime is not None:
+                return self._agent_runtime.complete(messages, target_model=target_model)
+            from antigravity_k.engine.orchestrator import OrchestratorAgent
+
+            orchestrator = OrchestratorAgent(model_manager=self._model_manager)
             return orchestrator.run_sync(messages, target_model=target_model)
         except Exception as e:
             logger.error("Natural language execution error: %s", e, exc_info=True)

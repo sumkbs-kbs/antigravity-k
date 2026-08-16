@@ -387,7 +387,7 @@ class I18n:
         _TRANSLATIONS[locale_code].update(translations)
         logger.info("Added %s translations for locale '%s'", len(translations), locale_code)
 
-    def available_locales(self) -> list:
+    def available_locales(self) -> list[str]:
         """사용 가능한 언어 목록."""
         return list(_TRANSLATIONS.keys())
 

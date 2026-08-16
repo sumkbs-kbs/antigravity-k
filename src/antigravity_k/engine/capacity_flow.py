@@ -279,7 +279,7 @@ class CrashRecovery:
         logger.info("Offline queue entry saved: %s", filepath)
         return str(filepath)
 
-    def list_offline_queue(self) -> list:
+    def list_offline_queue(self) -> list[Path]:
         """List Offline Queue.
 
         Returns:

@@ -219,7 +219,7 @@ def setup_json_logging(
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
-def get_json_logger(name: str, **extra_fields: Any) -> logging.LoggerAdapter:
+def get_json_logger(name: str, **extra_fields: Any) -> logging.LoggerAdapter[Any]:
     """편리한 JSON 로거 어댑터 생성 — extra 필드가 자동으로 포함됩니다.
 
     사용법:

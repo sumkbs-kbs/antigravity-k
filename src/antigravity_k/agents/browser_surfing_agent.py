@@ -1,21 +1,27 @@
-#!/usr/bin/env python3
 """Antigravity-K: Browser Surfing Agent.
 
 ======================================
 Vision-Language 기반 자율 웹 브라우징 에이전트.
 Playwright를 제어하며 화면 스크린샷과 DOM 트리를 바탕으로
-LLM(qwen3.5-omni)이 상호작용(클릭, 스크롤, 추출)을 판단합니다.
+LLM(qwen3.6:latest)이 상호작용(클릭, 스크롤, 추출)을 판단합니다.
 """
 
 import asyncio
 import json
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 try:
-    from playwright.async_api import Browser, Page, async_playwright
+    from playwright.async_api import async_playwright
 except ImportError:
-    async_playwright = None  # type: ignore[assignment]
+    async_playwright = None
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, Page
+else:
+    Browser = Any
+    Page = Any
 
 logger = logging.getLogger("browser_agent")
 
@@ -33,7 +39,7 @@ class BrowserAction:
 class BrowserSurfingAgent:
     """Playwright + Vision LLM 연동 자율 웹 서퍼."""
 
-    def __init__(self, model_manager=None, vision_model_name: str = "qwen3.5-omni"):
+    def __init__(self, model_manager=None, vision_model_name: str = "qwen3.6:latest"):
         """Initialize the BrowserSurfingAgent.
 
         Args:
@@ -44,7 +50,7 @@ class BrowserSurfingAgent:
         self.model_manager = model_manager
         self.vision_model_name = vision_model_name
         self._browser: Browser | None = None
-        self._playwright = None
+        self._playwright: Any = None
 
     async def _init_browser(self):
         if async_playwright is None:
@@ -84,6 +90,7 @@ class BrowserSurfingAgent:
             if self._browser is None:
                 return "Error: Browser not initialized"
             page = await self._browser.new_page()
+            assert page is not None
             await page.goto(url, wait_until="networkidle", timeout=15000)
 
             step = 0

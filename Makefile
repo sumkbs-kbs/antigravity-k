@@ -2,9 +2,9 @@
 # =======================
 # Commercial-grade task runner for development, testing, and deployment
 
-.PHONY: help install dev test lint format clean build docker-build \
+.PHONY: help install dev test test-e2e smoke-cli lint format clean build docker-build \
         docker-run coverage check ci-setup pre-commit install-script \
-        security audit sbom doctor
+        security audit audit-egress sbom doctor search-quality search-quality-extended search-live search-live-extended search-load claim-quality quality-contract local-benchmark local-benchmark-frontier
 
 SHELL := /bin/bash
 PYTHON := python3
@@ -69,11 +69,49 @@ check: lint format-check typecheck ## Run all code quality checks
 test: ## Run all tests
 	$(PYTHON) -m pytest tests/ -v --tb=short
 
+test-e2e: ## Run API E2E smoke tests with automatic local server startup
+	$(PYTHON) -m pytest tests/test_e2e_smoke.py -q
+
+smoke-cli: ## Verify the documented CLI entrypoint and local Qwen profile
+	uv run agk --help
+	uv run agk model list
+	uv run agk doctor
+
 test-quick: ## Run fast tests (exclude slow/benchmark)
 	$(PYTHON) -m pytest tests/ -v --tb=short -m 'not slow and not benchmark'
 
 test-benchmark: ## Run benchmark tests
 	$(PYTHON) -m pytest tests/ -v --tb=short -m benchmark
+
+search-quality: ## Run deterministic search golden-set and citation checks
+	$(VENV)/bin/python -m pytest tests/test_web_search_quality.py -q --tb=short
+
+search-quality-extended: ## Validate the expanded human-labeled search fixture
+	$(VENV)/bin/python -m pytest tests/test_web_search_quality.py -q --tb=short
+
+search-live: ## Run live provider search benchmark against the golden set
+	PYTHONPATH=src $(VENV)/bin/python -m antigravity_k.tools.search_benchmark
+
+search-live-extended: ## Run live provider search benchmark against the expanded fixture
+	PYTHONPATH=src $(VENV)/bin/python -m antigravity_k.tools.search_benchmark --fixture tests/fixtures/search_quality_cases_extended.json --output data/benchmarks/live-search-extended.json
+
+search-load: ## Run repeated/concurrent live search latency and availability benchmark
+	PYTHONPATH=src $(VENV)/bin/python scripts/run_search_load_benchmark.py
+
+claim-quality: ## Run deterministic claim grounding and conflict benchmark
+	PYTHONPATH=src $(VENV)/bin/python scripts/run_claim_grounding_benchmark.py
+
+audit-egress: ## Inventory Python HTTP and URL egress call sites
+	$(VENV)/bin/python scripts/audit_egress.py --root src/antigravity_k --output data/audits/egress-inventory.json
+
+quality-contract: ## Run agent/search quality contract tests
+	$(VENV)/bin/python -m pytest tests/test_web_search_quality.py tests/test_claim_grounding_benchmark.py tests/test_task_benchmark.py tests/test_long_horizon_benchmark.py -q --tb=short
+
+local-benchmark: ## Run the local-first model benchmark (defaults to qwen3.6:latest)
+	$(VENV)/bin/python scripts/run_local_model_benchmark.py
+
+local-benchmark-frontier: ## Run the representative local frontier suite (defaults to qwen3.6:latest)
+	$(VENV)/bin/python scripts/run_local_model_benchmark.py --suite frontier --output data/benchmarks/local-model-frontier.json
 
 coverage: ## Run tests with coverage report
 	$(PYTHON) -m pytest tests/ -v --tb=short \

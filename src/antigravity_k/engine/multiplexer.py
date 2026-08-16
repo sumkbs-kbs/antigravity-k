@@ -16,7 +16,7 @@ class Multiplexer:
     각 에이전트는 자신만의 격리된 Git Worktree 샌드박스에서 실행됩니다.
     """
 
-    def __init__(self, project_root: str):
+    def __init__(self, project_root: str, agent_runtime: Any = None):
         """Initialize the Multiplexer.
 
         Args:
@@ -24,10 +24,15 @@ class Multiplexer:
 
         """
         self.project_root = project_root
+        self.agent_runtime = agent_runtime
         self.worktree_manager = WorktreeManager(base_repo_path=project_root)
         self.active_runners: list[GoalRunner] = []
 
-    async def run_parallel_goals(self, goals: list[dict[str, Any]], base_branch: str = "main"):
+    async def run_parallel_goals(
+        self,
+        goals: list[dict[str, Any]],
+        base_branch: str = "main",
+    ) -> list[dict[str, str] | BaseException]:
         """주어진 여러 목표(Goal)들을 각각 독립된 에이전트(GoalRunner)에게 할당하여.
 
         비동기적으로 동시에 실행합니다.
@@ -51,19 +56,31 @@ class Multiplexer:
                 base_branch=base_branch,
             )
 
-            # 2. 독립된 런너 초기화 (Worktree 경로 주입)
-            runner = GoalRunner(instruction=instruction)
-            runner.workspace_dir = worktree_path
-            self.active_runners.append(runner)
-
-            # 3. 비동기 실행 태스크 추가
-            tasks.append(self._run_single_agent(runner, worktree_path))
+            if self.agent_runtime is None:
+                runner = GoalRunner(instruction=instruction)
+                runner.workspace_dir = worktree_path
+                self.active_runners.append(runner)
+                tasks.append(self._run_single_agent(runner, worktree_path))
+            else:
+                tasks.append(self._run_runtime_goal(task_id, instruction, worktree_path))
 
         # 모든 에이전트 동시 실행 대기
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.info("[Multiplexer] All parallel agents have completed their tasks.")
         return results
+
+    async def _run_runtime_goal(self, task_id: str, instruction: str, worktree_path: str):
+        try:
+            await asyncio.to_thread(
+                self.agent_runtime.goal_contract,
+                instruction,
+                {"task_id": task_id, "workspace_dir": worktree_path},
+            )
+            return {"task_id": task_id, "status": "success"}
+        except Exception as e:
+            logger.exception("[%s] Runtime goal failed", task_id)
+            return {"task_id": task_id, "status": "failed", "error": str(e)}
 
     async def _run_single_agent(self, runner: GoalRunner, worktree_path: str):
         """개별 에이전트 실행 래퍼 로직."""

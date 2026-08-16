@@ -89,29 +89,59 @@ def test_execute_unknown_tool_returns_error(executor):
 
 
 # ---------------------------------------------------------------------------
-# Readonly auto-approval
 # ---------------------------------------------------------------------------
 
 
-def test_readonly_tool_bypasses_gates(executor, tool_registry):
-    """Readonly tools (read_file, web_search, etc.) execute without gate checks."""
-    # Register a readonly tool.
+def test_readonly_tool_uses_permission_boundary(executor, tool_registry):
     readonly_tool = MagicMock()
     readonly_tool.parameters_schema = {"required": []}
     readonly_tool.return_value = "file content"
     tool_registry._tools["read_file"] = readonly_tool
     tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
 
-    # Mock tool_registry.execute_with_permission won't be called for readonly.
     called = []
-    tool_registry.execute_with_permission = lambda n, a, objective="": (
-        called.append(n) or (Permission.ALLOW, "should-not-reach")
-    )
+
+    def execute_with_permission(name, args, objective=""):
+        called.append(name)
+        return Permission.ALLOW, readonly_tool(**args)
+
+    tool_registry.execute_with_permission = execute_with_permission
 
     result = executor.execute("read_file", {"file_path": "/tmp/test.txt"})
     assert result == "file content"
-    # The full execute_with_permission path was NOT used (readonly shortcut).
-    assert called == []
+    assert called == ["read_file"]
+
+
+def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path):
+    from antigravity_k.engine.tool_executor import ToolExecutor
+    from antigravity_k.tools.system_tools import ReadFileTool
+
+    registry = ToolRegistry(project_root=str(tmp_path))
+    registry.install(ReadFileTool())
+    with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
+        executor = ToolExecutor(
+            tool_registry=registry,
+            permission_gate=registry.permission_gate,
+            project_root=str(tmp_path),
+        )
+
+    result = executor.execute("read_file", {"file_path": "/etc/passwd"})
+
+    assert "[DENIED]" in result
+
+
+def test_approved_execution_rechecks_permission_boundary(tmp_path):
+    from antigravity_k.tools.system_tools import ReadFileTool
+
+    target = tmp_path / "protected-by-override.txt"
+    target.write_text("must not be read", encoding="utf-8")
+    registry = ToolRegistry(project_root=str(tmp_path))
+    registry.install(ReadFileTool())
+    registry.permission_gate.set_override("read_file", Permission.DENY)
+
+    result = registry.execute_approved("read_file", {"file_path": str(target)})
+
+    assert "[DENIED]" in result
 
 
 def test_readonly_tool_records_history(executor, tool_registry):
@@ -207,6 +237,7 @@ def test_permission_deny_returns_blocked(executor, tool_registry):
     result = executor.execute("dummy", {"x": 1})
     assert "[DENIED]" in result
     assert executor._consecutive_errors == 1
+    assert executor.tool_call_history[-1]["permission"] == "deny"
 
 
 def test_permission_prompt_returns_approval_required(executor, tool_registry):
@@ -214,6 +245,7 @@ def test_permission_prompt_returns_approval_required(executor, tool_registry):
     tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.PROMPT, "needs approval")
     result = executor.execute("dummy", {"x": 1})
     assert "[APPROVAL REQUIRED]" in result
+    assert executor.tool_call_history[-1]["permission"] == "prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -340,3 +372,83 @@ def test_broadcast_file_event_skips_nonexistent_file(executor):
     """_broadcast_file_event does nothing for a non-existent file path."""
     # Should not raise.
     executor._broadcast_file_event("read_file", {"file_path": "/nonexistent/path/file.txt"})
+
+
+def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
+    # Given: a task whose checkpoint records write_file as a tool the user explicitly requested.
+    from antigravity_k.engine.gate_pipeline import create_default_pipeline
+    from antigravity_k.engine.task_state_store import (
+        TaskExecutionContext,
+        TaskStateStore,
+        bind_task_execution_context,
+    )
+
+    store = TaskStateStore(str(tmp_path / "tasks.db"))
+    store.create_task("task-contract", "write and run", "pending", "2026-08-13T00:00:00+00:00")
+    store.save_checkpoint("task-contract", 0, '{"expected_tools": ["write_file"]}', "")
+
+    reg = MagicMock(spec=ToolRegistry)
+    reg._tools = {}
+    write_tool = _make_tool("write_file", required=["file_path"])
+    write_tool.return_value = "wrote"
+    reg._tools["write_file"] = write_tool
+    reg.get = MagicMock(side_effect=lambda n: reg._tools.get(n))
+    reg.__contains__ = lambda self, name: name in reg._tools
+    reg.execute_with_permission = lambda n, a, objective="": (Permission.ALLOW, "wrote")
+
+    gate = MagicMock(spec=PermissionGate)
+    with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
+        ex = ToolExecutor(
+            tool_registry=reg,
+            permission_gate=gate,
+            project_root=str(tmp_path),
+            gate_pipeline=create_default_pipeline(),
+        )
+    ex._immune_system = None
+
+    # When: write_file executes inside a task that explicitly contracted it.
+    with bind_task_execution_context(TaskExecutionContext("task-contract", store)):
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "out.txt"), "content": "x"})
+
+    # Then: the user's explicit request pre-approves the tool, so the loop runs it
+    # instead of pausing for interactive confirmation.
+    assert result == "wrote"
+    assert "APPROVAL REQUIRED" not in str(result)
+
+
+def test_nonzero_exit_code_result_is_classified_as_failure(executor, tool_registry):
+    # Given: a tool whose result carries the [exit_code=N] failure marker surfaced by
+    # run_bash_command when a command exits non-zero.
+    failing_tool = _make_tool("run_bash_command", required=["command"])
+    failing_tool.return_value = "[exit_code=2]\nSTDERR:\nboom"
+    tool_registry._tools["run_bash_command"] = failing_tool
+    tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
+    tool_registry.execute_with_permission = lambda n, a, objective="": (
+        Permission.ALLOW,
+        "[exit_code=2]\nSTDERR:\nboom",
+    )
+
+    # When: the executor runs the tool and records the outcome.
+    executor.execute("run_bash_command", {"command": "false"})
+
+    # Then: the result is classified as a failure so the consecutive-error counter
+    # advances and the recovery loop can trigger — the exit-code marker must not mask it.
+    assert executor.tool_call_history[-1]["success"] is False
+    assert executor._consecutive_errors == 1
+
+
+def test_dangerous_command_is_denied_even_when_run_bash_is_user_contracted(tmp_path):
+    # Given: a task that explicitly contracted run_bash_command (auto-approved via the
+    # user-contract path), so the ApprovalGate is bypassed.
+    from antigravity_k.tools.permission_gate import PermissionGate
+    from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+
+    # When: a destructive command runs inside the contracted task — the permission gate
+    # must still deny it regardless of the ApprovalGate pre-approval.
+    real_gate = PermissionGate(project_root=str(tmp_path), mode="auto-pilot")
+    spec = ToolSpec(name="run_bash_command", risk_level="high", category="code_exec")
+    decision = real_gate.decide(ToolInvocation(spec=spec, arguments={"command": "rm -rf /"}))
+
+    # Then: the dangerous-command policy denies it — pre-approval authorizes *which tool*
+    # but never *which destructive payload*.
+    assert decision.is_denied

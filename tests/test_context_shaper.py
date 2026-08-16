@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from antigravity_k.engine.context_compressor import ContextCompressor
 from antigravity_k.engine.context_shaper import ContextShaper
 
 
@@ -56,6 +57,35 @@ class TestInit:
 
 
 class TestShape:
+    def test_force_compact_preserves_old_structured_tool_evidence(self, tmp_path):
+        # Given: an overflow retry has old verified evidence followed by a long conversation.
+        old_result = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("x" * 2000)
+            + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": old_result},
+        ]
+        messages.extend(
+            {"role": "assistant" if index % 2 else "user", "content": f"filler-{index} " * 120} for index in range(16)
+        )
+        shaper = ContextShaper(
+            max_tokens=600,
+            reserve_tokens=50,
+            storage_dir=str(tmp_path / "overflow-context"),
+        )
+
+        # When: a context-overflow retry forces aggressive compaction.
+        result = shaper.shape(messages, budget=550, force_compact=True)
+
+        # Then: compacted provenance and the verified tail remain in the next prompt context.
+        content = "\n".join(message["content"] for message in result)
+        assert "[TOOL_EVIDENCE]" in content
+        assert "VERIFIED_RESULT=5050" in content
+
     def test_short_messages_unchanged(self, shaper):
         """Messages within budget are returned unchanged."""
         messages = _make_messages(3, "short")
@@ -151,6 +181,56 @@ class TestStatsAndUsage:
 
 
 class TestClearOldToolResults:
+    def test_compaction_preserves_each_structured_result_in_a_batched_message(self, shaper):
+        # Given: one old message contains two tool responses from a parallel batch.
+        first = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"first.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n" + ("a" * 1000) + "\nFIRST_RESULT=41\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        second = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"read_file","source":"second.txt"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("b" * 1000)
+            + "\nSECOND_RESULT=42\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        messages = [
+            {"role": "user", "content": f"{first}\n{second}"},
+            {"role": "user", "content": "<tool_response>recent</tool_response>"},
+        ]
+
+        # When: the batched message becomes an old tool result.
+        result = shaper.clear_old_tool_results(messages, keep_last=1)
+
+        # Then: both provenance records and both ground-truth tails remain available.
+        compacted = result[0]["content"]
+        assert '"source":"first.py"' in compacted
+        assert '"source":"second.txt"' in compacted
+        assert "FIRST_RESULT=41" in compacted
+        assert "SECOND_RESULT=42" in compacted
+
+    def test_compaction_preserves_structured_provenance_and_verified_result(self, shaper):
+        # Given: an old structured tool response with a verified result at the end.
+        old_result = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("x" * 2000)
+            + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        messages = [
+            {"role": "user", "content": old_result},
+            {"role": "user", "content": "<tool_response>recent</tool_response>"},
+        ]
+
+        # When: old tool results are compacted before the next model turn.
+        result = shaper.clear_old_tool_results(messages, keep_last=1)
+
+        # Then: the compact form retains machine-readable provenance and ground truth.
+        compacted = result[0]["content"]
+        assert len(compacted) < len(old_result)
+        assert "[TOOL_EVIDENCE]" in compacted
+        assert '"tool":"run_bash_command"' in compacted
+        assert "VERIFIED_RESULT=5050" in compacted
+
     def test_removes_old_tool_results(self, shaper):
         """Old tool/function results are removed, keeping only recent ones."""
         messages = [
@@ -177,6 +257,96 @@ class TestClearOldToolResults:
         messages = [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}]
         result = shaper.clear_old_tool_results(messages)
         assert len(result) == len(messages)
+
+
+class TestAdaptiveCompressionEvidence:
+    def test_single_oversized_user_goal_is_bounded_without_losing_its_edges(self):
+        # Given: the current user goal alone is larger than the target model budget.
+        goal = "BEGIN_OBJECTIVE " + ("implementation detail " * 200) + " END_CONSTRAINT"
+        compressor = ContextCompressor(token_limit=100, keep_last_n=6)
+
+        # When: production adaptive compression handles the short trajectory.
+        result = compressor.adaptive_compress([{"role": "user", "content": goal}])
+
+        # Then: the final context fits while retaining both ends of the objective.
+        assert sum(compressor.estimate_tokens(message["content"]) for message in result) <= 100
+        assert "BEGIN_OBJECTIVE" in result[0]["content"]
+        assert "END_CONSTRAINT" in result[0]["content"]
+
+    def test_model_summary_cannot_replace_structured_tool_evidence(self):
+        # Given: the local summarizer returns fluent prose without the verified result.
+        old_result = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("x" * 2000)
+            + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        compressor = ContextCompressor(
+            token_limit=100,
+            keep_last_n=1,
+            summarize_fn=lambda _prompt: "The earlier work completed and the session can continue safely.",
+        )
+        messages = [
+            {"role": "user", "content": old_result},
+            {"role": "assistant", "content": "old filler " * 80},
+            {"role": "user", "content": "recent"},
+        ]
+
+        # When: model-backed compression succeeds.
+        result = compressor.compress(messages)
+
+        # Then: deterministic evidence is attached alongside the model summary.
+        content = "\n".join(message["content"] for message in result)
+        assert "[TOOL_EVIDENCE]" in content
+        assert "VERIFIED_RESULT=5050" in content
+
+    def test_adaptive_compression_preserves_structured_provenance_and_verified_result(self):
+        # Given: verified tool evidence falls outside the recent-message retention window.
+        old_result = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("x" * 2000)
+            + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        messages = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": old_result},
+            {"role": "assistant", "content": "old filler " * 80},
+        ]
+        messages.extend(
+            {"role": "user" if index % 2 == 0 else "assistant", "content": f"recent-{index} " * 8} for index in range(6)
+        )
+        compressor = ContextCompressor(token_limit=350, keep_last_n=6)
+
+        # When: the production token-budget compressor summarizes old messages.
+        result = compressor.adaptive_compress(messages, token_budget=350)
+
+        # Then: the summary still carries provenance and executable ground truth.
+        content = "\n".join(message["content"] for message in result)
+        assert "[TOOL_EVIDENCE]" in content
+        assert '"tool":"run_bash_command"' in content
+        assert "VERIFIED_RESULT=5050" in content
+
+    def test_hard_budget_compacts_structured_evidence_without_mutating_source(self):
+        # Given: one oversized verified result must fit a small final budget.
+        evidence = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\nBEGIN_RESULT\n"
+            + ("detail " * 300)
+            + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        source = [{"role": "tool", "content": evidence}]
+        compressor = ContextCompressor(token_limit=120)
+
+        # When: the final budget enforcer compacts the only message.
+        result = compressor.adaptive_compress(source)
+
+        # Then: provenance and ground truth remain, and caller-owned input stays intact.
+        content = result[0]["content"]
+        assert sum(compressor.estimate_tokens(message["content"]) for message in result) <= 120
+        assert "[TOOL_EVIDENCE]" in content
+        assert "VERIFIED_RESULT=5050" in content
+        assert source[0]["content"] == evidence
 
 
 # ---------------------------------------------------------------------------

@@ -68,12 +68,12 @@ async def inline_suggest(request: Request):
             mm = get_model_manager()
             try:
                 result = mm.generate(
-                    messages=[{"role": "user", "content": prompt}],
-                    model=None,
+                    prompt=prompt,
+                    target="default",
                     max_tokens=2048,
                     temperature=0.3,
                 )
-                suggested = result.get("content", "") or result.get("text", "") or ""
+                suggested = result if isinstance(result, str) else result.get("content", "") or result.get("text", "")
             except Exception:
                 logger.exception("Model generation failed, using fallback")
                 suggested = _fallback_suggestion(original_code, instruction, cursor_line)

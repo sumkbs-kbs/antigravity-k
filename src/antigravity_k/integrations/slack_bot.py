@@ -2,15 +2,21 @@
 
 import asyncio
 import logging
+from importlib import import_module
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.integrations.slack")
 
+AsyncApp: Any = None
+AsyncSocketModeHandler: Any = None
 try:
-    from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-    from slack_bolt.async_app import AsyncApp
-except ImportError:
-    AsyncApp = None  # type: ignore[assignment,misc]
-    AsyncSocketModeHandler = None  # type: ignore[assignment,misc]
+    AsyncSocketModeHandler = import_module(
+        "slack_bolt.adapter.socket_mode.async_handler",
+    ).__dict__["AsyncSocketModeHandler"]
+    AsyncApp = import_module("slack_bolt.async_app").__dict__["AsyncApp"]
+except (ImportError, KeyError):
+    AsyncApp = None
+    AsyncSocketModeHandler = None
 
 
 class SlackBotClient:
@@ -57,7 +63,7 @@ class SlackBotClient:
                 await say(result)
             except Exception as e:
                 logger.exception("Error handling slack mention")
-                await say(f"❌ 오류가 발생했습니다: {str(e)}")
+                await say(f"❌ 오류가 발생했습니다: {e!s}")
 
         return app
 

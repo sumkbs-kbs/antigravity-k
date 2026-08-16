@@ -10,7 +10,8 @@ These handlers access ``self._model_manager``, ``self._tool_registry``,
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +24,15 @@ class SlashCommandWorkflowMixin:
     """
 
     # Mixin-required attributes (resolved via MRO at runtime)
-    _tool_registry: Any
-    _model_manager: Any
-    _session_manager: Any
-    _mode_manager: Any
-    _skill_loader: Any
-    _execute_natural_language: Any
+    _tool_registry: ClassVar[Any]
+    _model_manager: ClassVar[Any]
+    _session_manager: ClassVar[Any]
+    _mode_manager: ClassVar[Any]
+    _skill_loader: ClassVar[Any]
+    _agent_runtime: ClassVar[Any]
+    _execute_natural_language: ClassVar[Any]
 
-    def _cmd_qa(self, args: list) -> str:
+    def _cmd_qa(self, args: list[str]) -> str:
         """대시보드 DOM 기반 자가 점검."""
         if not self._tool_registry or "fetch_dom" not in self._tool_registry._tools:
             return "❌ `fetch_dom` 도구가 레지스트리에 없습니다."
@@ -73,7 +75,7 @@ class SlashCommandWorkflowMixin:
         report.append(f"```text\n{result[:300]}...\n```")
         return "\n".join(report)
 
-    def _cmd_goal(self, args: list) -> str:
+    def _cmd_goal(self, args: list[str]) -> str:
         """자율 목표 계약 생성."""
         objective = " ".join(args).strip()
         if not objective:
@@ -95,11 +97,14 @@ class SlashCommandWorkflowMixin:
 
         from antigravity_k.engine.goal_runner import GoalRunner
 
+        if self._agent_runtime is not None:
+            return self._agent_runtime.goal_contract(objective, context=context)
+
         runner = GoalRunner()
         report = runner.run(objective, context=context)
         return runner.render_markdown(report)
 
-    def _cmd_mode(self, args: list) -> str:
+    def _cmd_mode(self, args: list[str]) -> str:
         """/mode 명령어: 실행 모드 상태 표시 및 변경."""
         if not args:
             return self._mode_status()
@@ -115,12 +120,12 @@ class SlashCommandWorkflowMixin:
             return self._mode_switch_interactive()
         return "Usage: /mode [plan|build|interactive|status]"
 
-    def _cmd_plan(self, args: list) -> str:
+    def _cmd_plan(self, args: list[str]) -> str:
         """/plan 명령어: Plan 모드로 전환."""
         reason = " ".join(args).strip() if args else "사용자 요청 (/plan)"
         return self._mode_switch_plan(args if args else [reason])
 
-    def _cmd_build(self, args: list) -> str:
+    def _cmd_build(self, args: list[str]) -> str:
         """/build 명령어: Build 모드로 전환."""
         return self._mode_switch_build(args)
 
@@ -130,7 +135,7 @@ class SlashCommandWorkflowMixin:
             return "ModeManager not connected. Use the main session to access mode control."
         return self._mode_manager.format_status()
 
-    def _mode_switch_plan(self, args: list) -> str:
+    def _mode_switch_plan(self, args: list[str]) -> str:
         """Plan 모드로 전환합니다."""
         if not hasattr(self, "_mode_manager") or self._mode_manager is None:
             return "ModeManager not connected."
@@ -140,7 +145,7 @@ class SlashCommandWorkflowMixin:
             return f"✅ **PLAN 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
         return "❌ PLAN 모드 전환에 실패했습니다."
 
-    def _mode_switch_build(self, args: list) -> str:
+    def _mode_switch_build(self, args: list[str]) -> str:
         """Build 모드로 전환합니다."""
         if not hasattr(self, "_mode_manager") or self._mode_manager is None:
             return "ModeManager not connected."
@@ -174,7 +179,7 @@ class SlashCommandWorkflowMixin:
             return f"✅ **INTERACTIVE 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
         return "❌ INTERACTIVE 모드 전환에 실패했습니다."
 
-    def _cmd_aishell(self, args: list) -> str:
+    def _cmd_aishell(self, args: list[str]) -> str:
         """자연어 의도를 받아 Bash 코드로 변환 후 실행합니다."""
         if not args:
             return "Usage: `/aishell <자연어 명령어>`"
@@ -227,7 +232,7 @@ class SlashCommandWorkflowMixin:
             f"**실행 결과:**\n```text\n{output}\n```"
         )
 
-    def _cmd_benchmark(self, args: list) -> str:
+    def _cmd_benchmark(self, args: list[str]) -> str | Iterator[str]:
         """벤치마크 실행/보고서 출력."""
         if not self._model_manager:
             return "❌ ModelManager가 필요합니다."
@@ -243,6 +248,8 @@ class SlashCommandWorkflowMixin:
                 "- `/benchmark run sim-001` — 특정 과제만 실행\n"
                 "- `/benchmark run simple` — 카테고리별 실행\n"
                 "- `/benchmark report` — 누적 비교표 출력\n"
+                "- `/benchmark task-report` — 작업 성공률/도구/비용 지표\n"
+                "- `/benchmark task-export <model>` — 모델별 task calibration artifact 저장\n"
                 "- `/benchmark clear` — 누적 결과 초기화"
             )
 
@@ -269,13 +276,25 @@ class SlashCommandWorkflowMixin:
             suite_name = args[1] if len(args) > 1 else "all"
             return harness.comparison_table(suite_name)
 
+        elif sub == "task-report":
+            return harness.task_comparison_table()
+
+        elif sub == "task-export":
+            if len(args) < 2:
+                return "❌ 모델 이름이 필요합니다. 예: `/benchmark task-export qwen3.6:latest`"
+            try:
+                artifact_path = harness.export_task_calibration_artifact(args[1], None)
+            except ValueError as exc:
+                return f"❌ task calibration artifact 생성 실패: {exc}"
+            return f"✅ task calibration artifact 저장: `{artifact_path}`"
+
         elif sub == "clear":
             harness.clear_history()
             return "🗑️ 벤치마크 누적 결과가 초기화되었습니다."
 
         return f"❓ 알 수 없는 하위 명령: `{sub}`. `/benchmark` 로 도움말을 확인하세요."
 
-    def _cmd_dialectic(self, args: list) -> str:
+    def _cmd_dialectic(self, args: list[str]) -> str:
         """변증법적 추론 실행 — Hegelion 패턴."""
         query = " ".join(args).strip()
         if not query:
@@ -323,7 +342,7 @@ class SlashCommandWorkflowMixin:
             f"```\n{prompt}\n```"
         )
 
-    def _cmd_finance(self, args: list) -> str:
+    def _cmd_finance(self, args: list[str]) -> str:
         """금융 어시스턴트 커맨드 라우터 (/finance, /comps, /dcf)."""
         query = " ".join(args).strip()
         return (
@@ -334,7 +353,7 @@ class SlashCommandWorkflowMixin:
             '(예시: "해당 기업의 과거 3년 재무 데이터를 기반으로 DCF 모델을 작성해줘. Base/Bear/Bull 시나리오를 적용해.")'
         )
 
-    def _cmd_lifecycle(self, command_name: str, args: list) -> str:
+    def _cmd_lifecycle(self, command_name: str, args: list[str]) -> str:
         """Lifecycle command handler (e.g. /spec, /build)."""
         prompt = " ".join(args).strip()
 

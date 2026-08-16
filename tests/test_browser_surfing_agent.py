@@ -20,7 +20,7 @@ def mock_model_manager():
 @pytest.mark.asyncio
 async def test_browser_surfing_agent_init(mock_model_manager):
     agent = BrowserSurfingAgent(model_manager=mock_model_manager)
-    assert agent.vision_model_name == "qwen3.5-omni"
+    assert agent.vision_model_name == "qwen3.6:latest"
 
 
 @pytest.mark.asyncio

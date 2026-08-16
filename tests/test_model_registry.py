@@ -6,15 +6,47 @@ DefaultModels, and ModelRegistry core operations (list/get/find_by_role).
 
 from __future__ import annotations
 
+from importlib.resources import files
+from pathlib import Path
+
 from antigravity_k.engine.model_registry import (
     DefaultModels,
     ModelProfile,
+    _default_config_path,
     _infer_provider,
 )
 
 # ---------------------------------------------------------------------------
 # ModelProfile
 # ---------------------------------------------------------------------------
+
+
+def test_default_config_is_packaged_as_runtime_resource():
+    # Given: the wheel is installed outside the source checkout.
+    bundled = files("antigravity_k").joinpath("config.yaml")
+
+    # Then: the default model roster remains available without the repository.
+    assert bundled.is_file()
+
+
+def test_default_config_path_falls_back_to_bundled_resource(tmp_path: Path):
+    # Given: an installed package has no adjacent project config.yaml.
+    missing_project_root = tmp_path / "missing-project"
+
+    # When: the registry resolves its default config.
+    config_path = _default_config_path(missing_project_root)
+
+    # Then: it falls back to the packaged default rather than raising.
+    assert config_path.is_file()
+    assert config_path.name == "config.yaml"
+
+
+def test_bundled_default_config_matches_repository_default():
+    # Given: package data can drift silently when only one copy is edited.
+    repository_config = Path(__file__).resolve().parents[1] / "config.yaml"
+
+    # Then: the packaged default remains byte-identical to the source default.
+    assert Path(str(files("antigravity_k").joinpath("config.yaml"))).read_text() == repository_config.read_text()
 
 
 class TestModelProfile:
@@ -81,6 +113,45 @@ class TestModelProfile:
         p = ModelProfile(name="t", repo="r", role="reasoning", provider="")
         assert p.backend == "ollama"
 
+    def test_capability_metadata_exposes_local_20b_plus_qwen_tier(self):
+        p = ModelProfile.from_dict(
+            {
+                "name": "qwen3.6:latest",
+                "repo": "qwen3.6:latest",
+                "role": "reasoning",
+                "parameter_count_b": 36,
+            },
+        )
+
+        assert p.effective_parameter_count_b == 36
+        assert p.capability_tier == "30B"
+        assert p.is_local is True
+        assert p.is_20b_plus is True
+        assert p.routing_metadata()["provider"] == "ollama"
+        assert p.routing_metadata()["roles"] == ["reasoning"]
+
+    def test_capability_tier_does_not_infer_embedding_size_from_memory(self):
+        p = ModelProfile(
+            name="nomic-embed-text:latest",
+            repo="nomic-embed-text:latest",
+            role="embedding",
+            estimated_memory_gb=0.5,
+        )
+
+        assert p.effective_parameter_count_b == 0
+        assert p.capability_tier == "unknown"
+        assert p.is_20b_plus is False
+
+    def test_registry_merges_duplicate_qwen_roles(self):
+        from antigravity_k.engine.model_registry import ModelRegistry
+
+        profile = ModelRegistry().get_model("qwen3.6:latest")
+
+        assert profile is not None
+        assert profile.role == "reasoning"
+        assert profile.supported_roles == ("reasoning", "vision", "coding")
+        assert profile.routing_metadata()["roles"] == ["reasoning", "vision", "coding"]
+
     def test_from_dict_auto_infers_provider(self):
         """When provider is not specified, _infer_provider is called."""
         p = ModelProfile.from_dict({"name": "qwen:latest", "repo": "", "role": "reasoning"})
@@ -103,6 +174,9 @@ class TestInferProvider:
     def test_ollama_memory_positive(self):
         """Positive estimated_memory_gb without '/' infers ollama."""
         assert _infer_provider("local-model", "", estimated_memory_gb=4.0) == "ollama"
+
+    def test_mlx_community_repo_prefers_mlx_over_local_name_heuristics(self):
+        assert _infer_provider("qwen-mlx-local", "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit") == "mlx"
 
     def test_free_suffix_is_openrouter(self):
         """:free suffix infers openrouter."""
@@ -171,3 +245,12 @@ class TestDefaultModels:
         d = DefaultModels.from_dict({"reasoning": "model-a"})
         assert d.reasoning == "model-a"
         assert d.embedding is None
+
+
+def test_project_defaults_prioritize_qwen36_for_reasoning_and_coding():
+    from antigravity_k.engine.model_registry import ModelRegistry
+
+    registry = ModelRegistry()
+
+    assert registry.defaults.reasoning == "qwen3.6:latest"
+    assert registry.defaults.coding == "qwen3.6:latest"

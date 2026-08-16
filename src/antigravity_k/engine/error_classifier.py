@@ -489,7 +489,7 @@ def _extract_status_code(error: Exception) -> int | None:
     return None
 
 
-def _extract_error_body(error: Exception) -> dict | None:
+def _extract_error_body(error: Exception) -> dict[str, Any] | None:
     """예외에서 응답 body JSON 추출."""
     response = getattr(error, "response", None)
     if response is None:

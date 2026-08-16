@@ -10,15 +10,22 @@ import logging
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 
+from ..tools.egress_policy import safe_urlopen
 from .collective_intelligence import CollectiveIntelligenceEngine
 from .memory_policy import MemoryPolicy
 from .model_registry import ModelProfile, ModelRegistry
 from .model_router import AllModelsUnavailableError, ModelRouter, RouteStrategy
+from .provider_adapters.inference_providers import BaseInferenceProvider
+from .provider_capabilities import LocalProviderCapabilityProbe, ProviderCapability
 from .usage_tracker import UsageTracker
 
 logger = logging.getLogger("antigravity_k.model_manager")
+
+Message = dict[str, Any]
+Payload = dict[str, Any]
 
 
 # ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
@@ -81,12 +88,14 @@ class ModelManager:
         # 9Router 패턴 통합
         self.router = router or ModelRouter(registry)
         self.tracker = tracker or UsageTracker()
+        self._capability_probe = LocalProviderCapabilityProbe(registry)
 
     def reload(self) -> None:
         """설정 파일 변경 후 레지스트리 및 라우터를 핫 리로드합니다."""
         self._registry.reload()
         self.router.reload()
         self._mem_config = self._registry.memory_config
+        self._capability_probe.clear()
         logger.info("ModelManager 핫 리로드 완료")
 
     # ─── 핵심 API ────────────────────────────────────────────────────
@@ -154,7 +163,9 @@ class ModelManager:
 
         # 같은 역할로 로드된 기존 모델 찾아서 언로드
         to_unload = [
-            name for name, loaded in self._loaded.items() if loaded.profile.role == target_role and name != new_name
+            name
+            for name, loaded in self._loaded.items()
+            if target_role in loaded.profile.supported_roles and name != new_name
         ]
         for name in to_unload:
             logger.info("[%s] → [%s] 교체를 위해 언로드", name, new_name)
@@ -173,7 +184,7 @@ class ModelManager:
     def get_by_role(self, role: str) -> LoadedModel | None:
         """역할별로 현재 로드된 모델 반환."""
         for loaded in self._loaded.values():
-            if loaded.profile.role == role:
+            if role in loaded.profile.supported_roles:
                 loaded.touch()
                 return loaded
         # 로드된 게 없으면 기본 모델 로드 시도
@@ -244,14 +255,17 @@ class ModelManager:
         latency_ms: float,
         combo_name: str,
         fallback_depth: int,
+        *,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
     ) -> None:
         """Record usage + tracing for a successful inference call."""
-        tokens_in = len(prompt) // 4
-        tokens_out = len(response) // 4
+        resolved_tokens_in = len(prompt) // 4 if tokens_in is None else tokens_in
+        resolved_tokens_out = len(response) // 4 if tokens_out is None else tokens_out
         self.tracker.record(
             model_name=model,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
+            tokens_in=resolved_tokens_in,
+            tokens_out=resolved_tokens_out,
             latency_ms=latency_ms,
             success=True,
             combo_name=combo_name,
@@ -259,11 +273,12 @@ class ModelManager:
         )
         self._trace_llm_call(
             model=model,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
+            tokens_in=resolved_tokens_in,
+            tokens_out=resolved_tokens_out,
             latency_ms=latency_ms,
             success=True,
             combo=combo_name,
+            fallback_depth=fallback_depth,
         )
         self.router.mark_recovered(model)
 
@@ -290,8 +305,126 @@ class ModelManager:
             success=False,
             error=error,
             combo=combo_name,
+            fallback_depth=fallback_depth,
         )
         self.router.mark_failure(model, reason=error)
+
+    def _maybe_cascade_escalate(
+        self,
+        prompt: str,
+        combo_name: str | None,
+        combo,
+        used_model: str,
+        response_text: str,
+        kwargs: Payload,
+    ) -> str | None:
+        """Cascading 콤보에서 낮은 신뢰도 응답을 상위 티어로 재생성한다.
+
+        self-contained 루프: combo 컨텍스트를 유지하며 최대 cascade_max_escalations
+        만큼 상위 티어를 시도한다. 에스컬레이션이 일어나지 않으면 None을 반환해
+        호출자가 원 응답을 사용한다.
+        """
+        if not getattr(self.router, "cascade_on_low_confidence", False):
+            return None
+        if not combo_name or combo is None or combo.strategy != RouteStrategy.CASCADING:
+            return None
+
+        threshold = self.router.cascade_confidence_threshold
+        current_model = used_model
+        current_text = response_text
+        escalated = False
+        confidence = self._estimate_confidence(prompt, current_text)
+
+        for _ in range(self.router.cascade_max_escalations):
+            if confidence >= threshold:
+                logger.debug(
+                    "[%s] 신뢰도 %.2f >= %.2f, 응답 유지 (%s)",
+                    combo_name,
+                    confidence,
+                    threshold,
+                    current_model,
+                )
+                return current_text if escalated else None
+
+            next_profile = self.router.escalate(combo_name, current_model)
+            if next_profile is None:
+                logger.info(
+                    "[%s] 신뢰도 %.2f 낮으나 상위 티어 없음, 응답 유지 (%s)",
+                    combo_name,
+                    confidence,
+                    current_model,
+                )
+                return current_text if escalated else None
+
+            logger.info(
+                "[%s] 신뢰도 %.2f < %.2f, %s -> %s 에스컬레이션",
+                combo_name,
+                confidence,
+                threshold,
+                current_model,
+                next_profile.name,
+            )
+            try:
+                loaded = self.get(next_profile.name)
+                current_text = self._do_generate(loaded, prompt, **kwargs)
+                current_text = self._strip_hidden_reasoning(current_text)
+                current_model = next_profile.name
+                escalated = True
+                self.router.mark_recovered(current_model)
+                if _ + 1 < self.router.cascade_max_escalations:
+                    confidence = self._estimate_confidence(prompt, current_text)
+            except Exception as e:  # noqa: BLE001  # 상위 티어 호출 실패 시 최선 응답 복귀
+                logger.warning(
+                    "[%s] 에스컬레이션 대상 %s 실패: %s",
+                    combo_name,
+                    next_profile.name,
+                    e,
+                )
+                self.router.mark_failure(next_profile.name, reason=str(e))
+                return current_text if escalated else None
+
+        logger.info(
+            "[%s] max 에스컬레이션 도달 (최종 %s, 신뢰도 %.2f)",
+            combo_name,
+            current_model,
+            confidence,
+        )
+        return current_text
+
+    def _estimate_confidence(self, prompt: str, response_text: str) -> float:
+        heuristic_score = ModelRouter.estimate_confidence(response_text)
+        if not getattr(self.router, "confidence_evaluator_enabled", False):
+            return heuristic_score
+
+        evaluator = self.router.select_confidence_evaluator()
+        if evaluator is None:
+            logger.warning("20B 이상 신뢰도 평가기를 사용할 수 없어 휴리스틱으로 폴백합니다.")
+            return heuristic_score
+
+        evaluation_prompt = (
+            "Evaluate the answer against the question. Return exactly one line as "
+            "score=0.0, where the value is from 0.0 to 1.0. Do not explain.\n"
+            f"Question:\n{prompt[:12000]}\nAnswer:\n{response_text[:12000]}"
+        )
+        try:
+            loaded = self.get(evaluator.name)
+            evaluation_kwargs = {
+                "max_tokens": self.router.confidence_evaluator_max_tokens,
+                "temperature": 0.0,
+            }
+            if evaluator.provider == "ollama":
+                raw_evaluation = "".join(self._do_stream_generate(loaded, evaluation_prompt, **evaluation_kwargs))
+            else:
+                raw_evaluation = self._do_generate(loaded, evaluation_prompt, **evaluation_kwargs)
+        except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            logger.warning("신뢰도 평가기 %s 호출 실패: %s", evaluator.name, exc)
+            return heuristic_score
+
+        score = ModelRouter.parse_confidence_score(raw_evaluation)
+        if score is None:
+            logger.warning("신뢰도 평가기 %s가 유효한 점수를 반환하지 않았습니다.", evaluator.name)
+            return heuristic_score
+        return score
 
     def generate(self, prompt: str, target: str, **kwargs) -> str:
         """텍스트 생성 수행.
@@ -345,6 +478,10 @@ class ModelManager:
                 combo_name or "",
                 fallback_depth,
             )
+
+            escalated = self._maybe_cascade_escalate(prompt, combo_name, combo, used_model, response_text, kwargs)
+            if escalated is not None:
+                return escalated
             return response_text
 
         except Exception as e:
@@ -404,7 +541,7 @@ class ModelManager:
         if not self.router.get_combo(arbiter) and self._registry.get_model(arbiter) is None:
             arbiter = participants[0]
 
-        def generate_fn(model_or_combo: str, phase_prompt: str, phase_kwargs: dict) -> str:
+        def generate_fn(model_or_combo: str, phase_prompt: str, phase_kwargs: Payload) -> str:
             response = self.generate(
                 phase_prompt,
                 model_or_combo,
@@ -476,30 +613,28 @@ class ModelManager:
             tokens_out = len(loaded.tokenizer.encode(full_text)) if loaded.tokenizer else len(full_text) // 4
             latency_ms = (time.time() - start_time) * 1000
 
-            self.tracker.record(
-                model_name=used_model,
+            self._record_successful_call(
+                used_model,
+                prompt,
+                full_text,
+                latency_ms,
+                combo_name or "",
+                fallback_depth,
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
-                latency_ms=latency_ms,
-                success=True,
-                combo_name=combo_name or "",
-                fallback_depth=fallback_depth,
             )
-            self.router.mark_recovered(used_model)
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
             error_msg = str(e)
 
-            self.tracker.record(
-                model_name=used_model,
-                latency_ms=latency_ms,
-                success=False,
-                error=error_msg,
-                combo_name=combo_name or "",
-                fallback_depth=fallback_depth,
+            self._record_failed_call(
+                used_model,
+                error_msg,
+                latency_ms,
+                combo_name or "",
+                fallback_depth,
             )
-            self.router.mark_failure(used_model, reason=error_msg)
 
             if combo_name:
                 logger.warning(
@@ -513,10 +648,100 @@ class ModelManager:
                 logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
                 raise
 
-    def _collective_config(self) -> dict:
+    def _collective_config(self) -> Payload:
         raw = getattr(self._registry, "_raw", {})
         cfg = raw.get("collective_intelligence", {})
         return cfg if isinstance(cfg, dict) else {}
+
+    def _self_consistency_config(self) -> dict:
+        """amplification.self_consistency 섹션을 반환한다."""
+        raw = getattr(self._registry, "_raw", {})
+        amp = raw.get("amplification", {})
+        if not isinstance(amp, dict):
+            return {}
+        cfg = amp.get("self_consistency", {})
+        return cfg if isinstance(cfg, dict) else {}
+
+    def _task_decomposition_config(self) -> dict:
+        """amplification.task_decomposition 섹션을 반환한다."""
+        raw = getattr(self._registry, "_raw", {})
+        amp = raw.get("amplification", {})
+        if not isinstance(amp, dict):
+            return {}
+        cfg = amp.get("task_decomposition", {})
+        return cfg if isinstance(cfg, dict) else {}
+
+    def generate_self_consistent(self, prompt: str, target: str, **kwargs) -> str:
+        """단일 모델 N샘플링 self-consistency 증폭으로 답변을 생성한다.
+
+        amplification.self_consistency.enabled가 false(기본)면 일반 generate로 폴백.
+        켜져 있으면 같은 모델을 다양한 온도로 N회 샘플링해 가장 일관된 답변을 선택한다.
+        로컬 단일 모델(qwen3.6)의 추론/코드 정확도를 구조적으로 보완한다.
+        """
+        cfg = self._self_consistency_config()
+        if not cfg.get("enabled", False):
+            return self.generate(prompt, target, **kwargs)
+        from antigravity_k.engine.self_consistency import (
+            SelfConsistencyEngine,
+            config_to_engine_kwargs,
+        )
+
+        # 샘플링엔 컨텍스트 품질을 위해 max_tokens를 보존하되 temperature는 엔진이 주입
+        sample_kwargs = {k: v for k, v in kwargs.items() if k != "temperature"}
+
+        def _sample(sample_prompt: str, **sample_overrides) -> str:
+            merged = {**sample_kwargs, **sample_overrides}
+            return self.generate(sample_prompt, target, **merged)
+
+        engine = SelfConsistencyEngine(generate_fn=_sample, **config_to_engine_kwargs(cfg))
+        trace = engine.run(prompt)
+        if trace.skipped or not trace.selected:
+            return self.generate(prompt, target, **kwargs)
+        logger.info(
+            "self-consistency selected (confidence=%.2f, clusters=%s)",
+            trace.confidence,
+            trace.cluster_sizes,
+        )
+        return trace.selected
+
+    def generate_decomposed(self, prompt: str, target: str, *, force: bool = False, **kwargs) -> str:
+        """복잡 작업을 단계 분해 후 단계별 실행해 통합 답변을 생성한다.
+
+        amplification.task_decomposition.enabled가 false면
+        generate_self_consistent로 폴백한다. force=True는 revision 실패 후
+        승격 호출처럼 초기 비용 게이트를 이미 통과한 경로에서만 분해를
+        강제한다. 분해는 is_complex_task 게이트를 통과한 멀티스텝 작업에만
+        적용되며, 단순 작업은 즉시 폴백해 호출 비용을 낭비하지 않는다.
+        """
+        cfg = self._task_decomposition_config()
+        if not cfg.get("enabled", False) and not force:
+            return self.generate_self_consistent(prompt, target, **kwargs)
+        from antigravity_k.engine.llm_task_decomposer import LlmTaskDecomposer
+
+        def _gen(p: str) -> str:
+            return self.generate(p, target, **kwargs)
+
+        decomposer = LlmTaskDecomposer(
+            generate_fn=_gen,
+            min_steps=int(cfg.get("min_steps", 2) or 2),
+            max_steps=int(cfg.get("max_steps", 6) or 6),
+        )
+        dec = decomposer.decompose(prompt)
+        if dec.skipped or not dec.steps:
+            return self.generate_self_consistent(prompt, target, **kwargs)
+
+        parts: list[str] = []
+        completed: list[str] = []
+        for idx, step in enumerate(dec.steps, start=1):
+            out = _gen(decomposer.step_prompt(step, prompt, completed))
+            completed.append(out)
+            parts.append(f"## {idx}단계: {step}\n\n{out}".rstrip())
+        logger.info(
+            "task decomposition applied (steps=%d, model=%s)",
+            len(dec.steps),
+            target,
+        )
+        return "\n\n---\n\n".join(parts)
 
     def _available_combo_or_models(
         self,
@@ -632,6 +857,7 @@ class ModelManager:
         success: bool = True,
         error: str = "",
         combo: str | None = None,
+        fallback_depth: int = 0,
     ) -> None:
         """LLM 호출을 tracing span으로 기록합니다 (작업 E).
 
@@ -645,6 +871,28 @@ class ModelManager:
             # 컨텍스트 매니저 대신 직접 Span 생성 후 finalize (이미 측정 완료된 값)
             from .tracing import Span
 
+            attributes: dict[str, Any] = {
+                "model": model,
+                "combo": combo or "",
+                "fallback_depth": fallback_depth,
+            }
+            profile = self._registry.get_model(model)
+            if profile is not None:
+                attributes.update(
+                    {
+                        "provider": profile.provider,
+                        "is_local": profile.is_local,
+                        "parameter_count_b": profile.effective_parameter_count_b,
+                    }
+                )
+                capability = self.provider_capability(model)
+                if capability is not None:
+                    attributes.update(
+                        {
+                            "native_tool_calling": capability["native_tool_calling"],
+                            "provider_runtime_status": capability["runtime_status"],
+                        }
+                    )
             span = Span(
                 name=f"llm:{model}",
                 span_type="llm_inference",
@@ -654,19 +902,17 @@ class ModelManager:
                 token_count=tokens_in + tokens_out,
                 status="ok" if success else "error",
                 error_message=error[:200] if error else "",
-                attributes={"model": model, "combo": combo or ""},
+                attributes=attributes,
                 input_data={"tokens_in": tokens_in} if tokens_in else {},
                 output_data={"tokens_out": tokens_out} if tokens_out else {},
             )
             # 활성 trace가 있으면 span 추가
             if tracer._active_trace:
                 tracer._active_trace.add_span(span)
-            elif tracer._span_stack:
-                tracer._span_stack[-1].add_span(span)  # type: ignore[attr-defined]
         except Exception:
             logger.debug("Tracing span add failed (non-critical)", exc_info=True)
 
-    def _get_provider(self, loaded: LoadedModel):
+    def _get_provider(self, loaded: LoadedModel) -> BaseInferenceProvider | None:
         """loaded.profile.provider 기반으로 추론 프로바이더를 반환합니다.
 
         provider가 명시적이지 않으면(빈 문자열) None을 반환하여 레거시 경로로 폴백.
@@ -757,7 +1003,7 @@ class ModelManager:
             headers=headers,
         )
         try:
-            with urllib.request.urlopen(req, timeout=300) as response:
+            with safe_urlopen(req, timeout=300) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 message = result["choices"][0]["message"]
                 content = message.get("content", "")
@@ -770,7 +1016,7 @@ class ModelManager:
             return f"[API Error for {loaded.profile.name}] {e}"
 
     @staticmethod
-    def _suppress_model_thinking(model_name: str, messages: list[dict]) -> list[dict]:
+    def _suppress_model_thinking(model_name: str, messages: list[Message]) -> list[Message]:
         """Inject direct-answer mode for models that otherwise emit thinking-only output."""
         if "qwen3" not in model_name.lower():
             return messages
@@ -843,7 +1089,7 @@ class ModelManager:
         return model_name, temperature, thinking_config, attribution
 
     def _do_anthropic_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
-        import anthropic
+        anthropic = import_module("anthropic")
 
         from ..config import config
 
@@ -881,14 +1127,14 @@ class ModelManager:
 
     def _build_anthropic_request_params(
         self,
-        raw_messages: list,
+        raw_messages: list[Message],
         system_prompt: str,
         attribution: str,
         model_name: str,
         temperature: float,
         thinking_config,
-        kwargs: dict,
-    ) -> dict:
+        kwargs: Payload,
+    ) -> Payload:
         """Format messages, manage cache_control blocks, and build API request params.
 
         Extracted from _do_anthropic_stream for testability.
@@ -950,19 +1196,19 @@ class ModelManager:
             request_params["thinking"] = thinking_config
         return request_params
 
-    def _prepare_stream_messages(self, loaded, prompt: str, kwargs: dict) -> list[dict]:
+    def _prepare_stream_messages(self, loaded: LoadedModel, prompt: str, kwargs: Payload) -> list[Message]:
         """Build and normalize the message list for an Ollama/OpenRouter stream request."""
-        if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
+        raw_messages = kwargs.get("raw_messages")
+        if isinstance(raw_messages, list):
+            api_msgs = [dict(message) for message in raw_messages if isinstance(message, dict)]
+            sys_msg = str(kwargs.get("system_prompt", ""))
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
-            else:
-                api_msgs = kwargs["raw_messages"]
+                api_msgs.insert(0, {"role": "system", "content": sys_msg})
         else:
-            api_msgs = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
+            api_msgs = [{"role": "user", "content": prompt}]
 
         # Normalize: ensure content is a string (flatten list-of-parts).
-        normalized = []
+        normalized: list[Message] = []
         for msg in api_msgs:
             content = msg.get("content", "")
             if isinstance(content, list):
@@ -984,7 +1230,7 @@ class ModelManager:
 
         return normalized
 
-    def _build_stream_request(self, loaded, api_msgs: list[dict], kwargs: dict, is_openrouter: bool):
+    def _build_stream_request(self, loaded: LoadedModel, api_msgs: list[Message], kwargs: Payload, is_openrouter: bool):
         """Construct the HTTP request (URL + body + headers) for streaming.
 
         Returns ``(request, model_name)``.
@@ -1037,7 +1283,7 @@ class ModelManager:
         api_base에 따라 자동 선택합니다.
         """
         import json
-        import urllib.request
+        from urllib.error import HTTPError
 
         is_openrouter = self._is_openrouter()
         api_msgs = self._prepare_stream_messages(loaded, prompt, kwargs)
@@ -1046,7 +1292,7 @@ class ModelManager:
         try:
             if is_openrouter:
                 # OpenAI 호환 SSE 스트리밍 파싱 (data: {...} \n\n)
-                with urllib.request.urlopen(req, timeout=300) as response:
+                with safe_urlopen(req, timeout=300) as response:
                     buffer = ""
                     for byte_chunk in response:
                         buffer += byte_chunk.decode("utf-8")
@@ -1068,7 +1314,7 @@ class ModelManager:
                                 continue
             else:
                 # Ollama Native API 스트리밍 파싱 (줄 단위 JSON)
-                with urllib.request.urlopen(req, timeout=300) as response:
+                with safe_urlopen(req, timeout=300) as response:
                     for line in response:
                         line = line.decode("utf-8").strip()
                         if not line:
@@ -1081,7 +1327,7 @@ class ModelManager:
                                     yield msg["content"]
                         except json.JSONDecodeError:
                             continue
-        except urllib.error.HTTPError as e:
+        except HTTPError as e:
             try:
                 error_body = e.read().decode("utf-8")
             except Exception:
@@ -1095,10 +1341,11 @@ class ModelManager:
 
     # ─── 상태 조회 ───────────────────────────────────────────────────
 
-    def status(self) -> dict:
+    def status(self) -> Payload:
         """현재 로드 상태 반환."""
         loaded_models = []
         total_memory = 0.0
+        provider_capabilities = self.provider_capabilities()
 
         for name, loaded in self._loaded.items():
             total_memory += loaded.actual_memory_gb
@@ -1118,13 +1365,32 @@ class ModelManager:
             "max_allowed_gb": self._mem_config.max_loaded_gb,
             "available_gb": round(self._mem_config.max_loaded_gb - total_memory, 1),
             "auto_unload": self._mem_config.auto_unload,
+            "provider_capabilities": provider_capabilities,
+            "routing": self.router.status(),
         }
+
+    def provider_capabilities(self, *, refresh: bool = False) -> dict[str, ProviderCapability]:
+        capabilities: dict[str, ProviderCapability] = {}
+        for profile in self._registry.list_models():
+            capabilities[profile.name] = self._provider_capability_for_profile(profile, refresh=refresh)
+        return capabilities
+
+    def provider_capability(self, name: str, *, refresh: bool = False) -> ProviderCapability | None:
+        profile = self._registry.get_model(name)
+        if profile is None:
+            return None
+        return self._provider_capability_for_profile(profile, refresh=refresh)
+
+    def _provider_capability_for_profile(self, profile: ModelProfile, *, refresh: bool) -> ProviderCapability:
+        capability = self._capability_probe.observe(profile, refresh=refresh)
+        self.router.set_provider_capability(profile.name, capability)
+        return capability
 
     def loaded_names(self) -> list[str]:
         """현재 로드된 모델 이름 목록."""
         return list(self._loaded.keys())
 
-    def get_model_info(self) -> dict:
+    def get_model_info(self) -> Payload:
         """모델 정보를 반환합니다 (status()의 별칭 — slash_commands/self_capability 호환).
 
         Returns:
@@ -1146,9 +1412,11 @@ class ModelManager:
 
         if name in self._loaded:
             return True
+        profile = self._registry.get_model(name)
+        if profile and getattr(profile, "provider", "") in {"mlx", "lmstudio", "lm_studio"}:
+            return True
         # Check Ollama active models dynamically (Ollama 엔진일 때만 — OpenRouter는 원격이므로 로컬 tags 조회 무의미)
         if (config.model.api_engine or "").lower() == "ollama":
-            profile = self._registry.get_model(name)
             if profile and getattr(profile, "backend", "ollama") == "ollama":
                 try:
                     import json
@@ -1156,7 +1424,7 @@ class ModelManager:
 
                     native_base = self._ollama_native_base(config.model.api_base)
                     req = urllib.request.Request(f"{native_base}/api/tags")
-                    with urllib.request.urlopen(req, timeout=2) as resp:
+                    with safe_urlopen(req, timeout=2) as resp:
                         data = json.loads(resp.read().decode("utf-8"))
                         for m in data.get("models", []):
                             m_name = m.get("name", "")
@@ -1181,9 +1449,7 @@ class ModelManager:
         """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)."""
         import platform
 
-        from ..config import config
-
-        if config.model.force_api or platform.system() != "Darwin":
+        if profile.provider != "mlx" or platform.system() != "Darwin":
             logger.info("[%s] 외부 API 어댑터 모드를 사용합니다.", profile.name)
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
 
@@ -1191,18 +1457,20 @@ class ModelManager:
             return self._load_embedding_model(profile)
 
         try:
-            from mlx_lm import load
+            load = import_module("mlx_lm").__dict__["load"]
 
             model, tokenizer, *_ = load(profile.repo)
             return model, tokenizer
         except ImportError:
+            if profile.provider == "mlx":
+                raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first")
             logger.warning("mlx_lm 미설치. Ollama 어댑터 반환.")
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
 
     def _load_embedding_model(self, profile: ModelProfile) -> tuple[Any, Any]:
         """임베딩 모델 로드 (Mac 전용)."""
         try:
-            from sentence_transformers import SentenceTransformer
+            SentenceTransformer = import_module("sentence_transformers").__dict__["SentenceTransformer"]
 
             model = SentenceTransformer(profile.repo)
             return model, None

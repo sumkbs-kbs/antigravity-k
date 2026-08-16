@@ -1,11 +1,11 @@
 """Web Scraper module."""
 
+import asyncio
 import logging
 from typing import Any
 
-import requests
-
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .web_search_engine import PageScraper
 
 logger = logging.getLogger(__name__)
 
@@ -80,41 +80,18 @@ class WebScraperTool(BaseTool):
             return "Error: 'url' parameter is required."
 
         try:
-            import markdownify
-            from bs4 import BeautifulSoup
-        except ImportError:
-            return "Error: Required libraries not installed. Run 'pip install beautifulsoup4 markdownify'."
-
-        try:
             logger.info("Scraping URL: %s", url)
-            headers = {
-                "User-Agent": "Mozilla/5.0 (compatible; AntigravityAgent/1.0; +https://example.com)",
-            }
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
 
-            soup = BeautifulSoup(response.text, "html.parser")
+            async def fetch() -> str:
+                scraper = PageScraper()
+                try:
+                    return await scraper.extract_text(url, max_chars=10000)
+                finally:
+                    await scraper.close()
 
-            # Remove script and style elements
-            for script in soup(["script", "style", "noscript", "header", "footer", "nav"]):
-                script.decompose()
-
-            # Try to find main content
-            main_content = soup.find("main") or soup.find("article") or soup.body
-
-            if not main_content:
-                return "Error: Could not find main content on the page."
-
-            markdown_text = markdownify.markdownify(str(main_content), heading_style="ATX")
-
-            # Simple cleanup of excessive newlines
-            import re
-
-            cleaned_md = re.sub(r"\n{3,}", "\n\n", markdown_text).strip()
-
-            return f"Source: {url}\n\n{cleaned_md}"
-
-        except requests.exceptions.RequestException as e:
+            text = asyncio.run(fetch())
+            return f"Source: {url}\n\n{text}"
+        except (OSError, RuntimeError, ValueError) as e:
             return f"Error fetching URL: {str(e)}"
         except Exception as e:
             logger.exception("Unhandled exception")

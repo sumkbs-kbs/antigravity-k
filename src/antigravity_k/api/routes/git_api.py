@@ -7,11 +7,15 @@ status, log, diff, add, commit, branch, stash, and graph.
 import logging
 import subprocess
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from antigravity_k.config import config
 from antigravity_k.engine.api_cache import TAG_GIT, api_cache, cached
+from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
 
 logger = logging.getLogger("antigravity_k.api.git_api")
 router = APIRouter()
@@ -20,17 +24,69 @@ router = APIRouter()
 # ─── Helpers ────────────────────────────────────────────────────
 
 
+def _permission_gate() -> PermissionGate:
+    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+
+
+def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+    decision = _permission_gate().decide(
+        ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
+    )
+    if decision.permission != Permission.ALLOW:
+        raise HTTPException(status_code=403, detail=f"Permission denied for {tool_name}: {decision.permission.value}")
+
+
+def _resolve_repo_file(file_path: str, cwd: str) -> str:
+    project_root = Path(config.paths.project_root).resolve()
+    requested_path = Path(cwd).expanduser()
+    if cwd in ("", "."):
+        base = project_root
+    elif requested_path.is_absolute():
+        base = requested_path.resolve()
+    else:
+        base = (project_root / requested_path).resolve()
+    try:
+        base.relative_to(project_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403, detail="Git working directory must remain inside the project root."
+        ) from exc
+    candidate = (base / file_path).resolve()
+    try:
+        relative = candidate.relative_to(base)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Git file path must remain inside the repository.") from exc
+    return relative.as_posix()
+
+
 def _git(args: list[str], cwd: str = ".", timeout: int = 30) -> str:
     """Run a git command and return stdout."""
+    project_root = Path(config.paths.project_root).resolve()
+    requested_path = Path(cwd).expanduser()
+    if cwd in ("", "."):
+        candidate = project_root
+    elif requested_path.is_absolute():
+        candidate = requested_path.resolve()
+    else:
+        candidate = (project_root / requested_path).resolve()
+    if not candidate.is_dir():
+        raise HTTPException(status_code=400, detail="Git working directory does not exist.")
+    try:
+        candidate.relative_to(project_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403, detail="Git working directory must remain inside the project root."
+        ) from exc
     try:
         result = subprocess.run(
             ["git"] + args,
-            cwd=cwd,
+            cwd=str(candidate),
             capture_output=True,
             text=True,
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip())
@@ -43,7 +99,7 @@ def _git(args: list[str], cwd: str = ".", timeout: int = 30) -> str:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _parse_status_line(line: str) -> Optional[dict]:
+def _parse_status_line(line: str) -> Optional[dict[str, Any]]:
     """Parse a single git status --short line into structured data."""
     line = line.rstrip("\n")
     if not line or line.startswith("#"):
@@ -223,12 +279,13 @@ async def git_diff(request: Request):
         file_path = body.get("file", "")
         staged = body.get("staged", False)
         unified = body.get("unified", 3)
+        safe_file_path = _resolve_repo_file(file_path, path) if file_path else ""
 
         args = ["diff", f"--unified={unified}"]
         if staged:
             args.append("--cached")
-        if file_path:
-            args.extend(["--", file_path])
+        if safe_file_path:
+            args.extend(["--", safe_file_path])
 
         output = _git(args, cwd=path)
 
@@ -236,8 +293,8 @@ async def git_diff(request: Request):
         stat_args = ["diff", "--stat"]
         if staged:
             stat_args.append("--cached")
-        if file_path:
-            stat_args.extend(["--", file_path])
+        if safe_file_path:
+            stat_args.extend(["--", safe_file_path])
         stat_output = _git(stat_args, cwd=path)
 
         return {
@@ -262,6 +319,7 @@ async def git_add(request: Request):
         path = body.get("path", ".")
         files = body.get("files", [])
         all_files = body.get("all", False)
+        _require_allowed("git_add", {"path": path, "files": files, "all": all_files}, "medium")
 
         if all_files:
             _git(["add", "-A"], cwd=path)
@@ -287,6 +345,7 @@ async def git_unstage(request: Request):
         body = await request.json()
         path = body.get("path", ".")
         files = body.get("files", [])
+        _require_allowed("git_unstage", {"path": path, "files": files}, "medium")
 
         if files:
             _git(["restore", "--staged", "--"] + files, cwd=path)
@@ -315,6 +374,7 @@ async def git_commit(request: Request):
 
         if not message.strip():
             return {"ok": False, "error": "Commit message is required."}
+        _require_allowed("git_commit", {"path": path, "message": message}, "critical")
 
         if stage_all:
             _git(["add", "-A"], cwd=path)
@@ -376,6 +436,7 @@ async def git_branch_create(request: Request):
 
         if not name.strip():
             return {"ok": False, "error": "Branch name is required."}
+        _require_allowed("git_branch_create", {"path": path, "name": name}, "medium")
 
         if from_branch:
             _git(["checkout", from_branch], cwd=path)
@@ -400,6 +461,7 @@ async def git_checkout(request: Request):
 
         if not name.strip():
             return {"ok": False, "error": "Branch name is required."}
+        _require_allowed("git_checkout", {"path": path, "name": name}, "high")
 
         _git(["checkout", name], cwd=path)
         await api_cache.invalidate_tag(TAG_GIT)
@@ -422,6 +484,7 @@ async def git_branch_delete(request: Request):
 
         if not name.strip():
             return {"ok": False, "error": "Branch name is required."}
+        _require_allowed("git_branch_delete", {"path": path, "name": name, "force": force}, "critical")
 
         flag = "-D" if force else "-d"
         _git(["branch", flag, name], cwd=path)
@@ -496,7 +559,8 @@ async def git_file_content(
 ):
     """Get file content from a specific git ref."""
     try:
-        output = _git(["show", f"{ref}:{file}"], cwd=path)
+        safe_file_path = _resolve_repo_file(file, path)
+        output = _git(["show", f"{ref}:{safe_file_path}"], cwd=path)
         return {"ok": True, "content": output, "ref": ref, "file": file}
     except HTTPException:
         raise

@@ -132,7 +132,7 @@ class TestPersonaPrompt:
 class TestToolGuide:
     def test_tool_guide_contains_current_time(self):
         builder = PromptBuilder(prompts_dir="/nonexistent")
-        now = datetime.datetime(2026, 7, 18, 10, 30)
+        now = datetime.datetime(2026, 7, 18, 10, 30, tzinfo=datetime.UTC)
         result = builder.tool_guide(tool_schemas=[], current_time=now)
         assert "2026년 07월 18일 10시 30분" in result
 
@@ -302,3 +302,24 @@ class TestClearCache:
         assert len(builder._cache) == 1
         builder.clear_cache()
         assert len(builder._cache) == 0
+
+
+class TestResponseContractFreshness:
+    def test_response_contract_injects_current_date_for_search_category(self):
+        from antigravity_k.engine.prompt_builder import PromptBuilder
+
+        builder = PromptBuilder(prompts_dir="/nonexistent")
+        now = datetime.datetime(2026, 8, 13, 14, 0, tzinfo=datetime.UTC)
+        contract = builder.response_contract(category="search", current_time=now)
+
+        assert "2026년" in contract
+        assert "08월" in contract or "8월" in contract
+
+    def test_response_contract_includes_current_date_by_default(self):
+        from antigravity_k.engine.prompt_builder import PromptBuilder
+
+        builder = PromptBuilder(prompts_dir="/nonexistent")
+        now = datetime.datetime(2026, 8, 13, 14, 0, tzinfo=datetime.UTC)
+        contract = builder.response_contract(current_time=now)
+
+        assert "2026" in contract

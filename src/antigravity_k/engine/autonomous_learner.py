@@ -16,9 +16,11 @@ import logging
 import re
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from antigravity_k.config import config
+from antigravity_k.engine.hook_event_bus import HookEventBus, HookEventEmit, get_hook_event_bus
+from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -149,11 +151,7 @@ class AutonomousLearner:
             return True
 
         # 물음표 + 기술 키워드 2개 이상일 때만 학습 (조건 강화)
-        if "?" in task_description or "어떻게" in lower or "how" in lower:
-            if matches >= 2:
-                return True
-
-        return False
+        return ("?" in task_description or "어떻게" in lower or "how" in lower) and matches >= 2
 
     def analyze_knowledge_gap(self, task_description: str) -> list[KnowledgeGap]:
         """LLM을 사용하여 태스크에 필요한 지식 갭을 분석합니다.
@@ -199,7 +197,7 @@ class AutonomousLearner:
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with safe_urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 response_text = result.get("response", "")
 
@@ -283,18 +281,10 @@ class AutonomousLearner:
         from antigravity_k.agents.browser_surfing_agent import BrowserSurfingAgent
         from antigravity_k.tools.web_search import WebSearchEngine
 
-        try:
-            from antigravity_k.engine.hook_event_bus import (
-                HookEventEmit,
-                get_hook_event_bus,
-            )
-
-            bus = get_hook_event_bus()
-        except ImportError:
-            bus = None
+        bus: HookEventBus | None = get_hook_event_bus()
 
         search_engine = WebSearchEngine()
-        surfer = BrowserSurfingAgent(model_manager=self.manager, vision_model_name="qwen3.5-omni")
+        surfer = BrowserSurfingAgent(model_manager=self.manager, vision_model_name="qwen3.6:latest")
 
         learned = []
 
@@ -366,7 +356,7 @@ class AutonomousLearner:
                             topic=gap.topic,
                             summary=summary,
                             sources=gap.search_queries,
-                            learned_at=datetime.now().isoformat(),
+                            learned_at=datetime.now(UTC).isoformat(),
                             ki_id=ki_id,
                         ),
                     )
@@ -424,7 +414,7 @@ class AutonomousLearner:
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with safe_urlopen(req, timeout=60) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 summary = result.get("response", "")
                 # <think> 태그 제거
@@ -445,7 +435,7 @@ class AutonomousLearner:
                     "title": f"[AutoLearn] {topic}",
                     "summary": summary,
                     "sources": sources,
-                    "learned_at": datetime.now().isoformat(),
+                    "learned_at": datetime.now(UTC).isoformat(),
                     "type": "auto_learned",
                     "artifacts": [],
                 },

@@ -28,13 +28,17 @@
         yield chunk
 """
 
+import json
 import logging
+import sqlite3
 import time
 import uuid
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from antigravity_k.engine.task_state_store import TaskExecutionContext
 
 logger = logging.getLogger("antigravity_k.engine.state_graph")
 
@@ -160,7 +164,7 @@ class StateEdge:
 # 핸들러 시그니처: (ctx: StateContext, orchestrator) -> Generator[str, None, Optional[str]]
 # 반환값의 Generator는 스트리밍 청크를 yield
 # Optional[str] return은 다음 상태 결정용 키 (조건부 전이에 사용)
-NodeHandler = Callable  # type alias for clarity
+NodeHandler = Callable[..., Generator[str, None, None] | None]
 
 
 # ─── 에이전트 상태 그래프 엔진 ─────────────────────────────────────
@@ -181,7 +185,7 @@ class AgentStateGraph:
         """Initialize the AgentStateGraph."""
         self._nodes: dict[AgentState, NodeHandler] = {}
         self._edges: dict[AgentState, AgentState] = {}  # 고정 전이
-        self._conditional_edges: dict[AgentState, Callable] = {}  # 조건부 전이
+        self._conditional_edges: dict[AgentState, Callable[[StateContext], AgentState]] = {}  # 조건부 전이
         self._entry_state: AgentState = AgentState.INIT
 
     # ─── 그래프 정의 API ─────────────────────────────────────
@@ -213,6 +217,58 @@ class AgentStateGraph:
         self._entry_state = state
         return self
 
+    @staticmethod
+    def _task_execution_context(orchestrator) -> TaskExecutionContext | None:
+        execution_context = getattr(orchestrator, "task_execution_context", None)
+        if isinstance(execution_context, TaskExecutionContext):
+            return execution_context
+        return None
+
+    def _record_execution_event(
+        self,
+        ctx: StateContext,
+        orchestrator,
+        event_type: str,
+        from_state: str | None = None,
+        to_state: str | None = None,
+    ) -> None:
+        execution_context = self._task_execution_context(orchestrator)
+        if execution_context is None:
+            return
+
+        payload = {
+            "trace_id": ctx.trace_id,
+            "state": ctx.current_state.value,
+            "task_type": ctx.task_type,
+            "delegate_to": ctx.delegate_to,
+            "retry_count": ctx.retry_count,
+            "error": ctx.error,
+        }
+        if from_state is not None:
+            payload["from_state"] = from_state
+        if to_state is not None:
+            payload["to_state"] = to_state
+
+        try:
+            execution_context.state_store.append_execution_event(
+                execution_context.task_id,
+                event_type,
+                json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            )
+        except sqlite3.Error as exc:
+            logger.warning("[StateGraph] Failed to persist task event: %s", exc)
+
+    def _transition_to(self, ctx: StateContext, orchestrator, new_state: AgentState) -> None:
+        previous_state = ctx.current_state.value
+        ctx.transition_to(new_state)
+        self._record_execution_event(
+            ctx,
+            orchestrator,
+            "state_transition",
+            from_state=previous_state,
+            to_state=new_state.value,
+        )
+
     # ─── 그래프 실행 ─────────────────────────────────────────
 
     def execute(self, ctx: StateContext, orchestrator=None) -> Generator[str, None, None]:
@@ -229,7 +285,7 @@ class AgentStateGraph:
             스트리밍 텍스트 청크
 
         """
-        ctx.transition_to(self._entry_state)
+        self._transition_to(ctx, orchestrator, self._entry_state)
         max_transitions = 50  # 무한 루프 방지
 
         for _ in range(max_transitions):
@@ -243,12 +299,13 @@ class AgentStateGraph:
             handler = self._nodes.get(current)
             if not handler:
                 logger.warning("[StateGraph] No handler for state: %s", current.value)
-                ctx.transition_to(AgentState.ERROR)
                 ctx.error = f"No handler registered for state: {current.value}"
+                self._transition_to(ctx, orchestrator, AgentState.ERROR)
                 break
 
             try:
                 ctx.save_checkpoint()
+                self._record_execution_event(ctx, orchestrator, "state_checkpoint")
 
                 # 핸들러 실행 (Generator → yield 전파)
                 gen = handler(ctx, orchestrator)
@@ -262,9 +319,9 @@ class AgentStateGraph:
             except StopIteration:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             except Exception as e:
-                logger.error("[StateGraph] Error in %s: %s", current.value, e, exc_info=True)
+                logger.exception("[StateGraph] Error in %s", current.value)
                 ctx.error = str(e)
-                ctx.transition_to(AgentState.ERROR)
+                self._transition_to(ctx, orchestrator, AgentState.ERROR)
                 yield f"\n\n❌ **[State Graph Error]** {current.value} 단계에서 오류 발생: {e}\n"
                 break
 
@@ -272,14 +329,14 @@ class AgentStateGraph:
             next_state = self._resolve_next_state(current, ctx)
             if next_state is None:
                 # 전이 정의 없음 → 완료
-                ctx.transition_to(AgentState.COMPLETE)
+                self._transition_to(ctx, orchestrator, AgentState.COMPLETE)
                 break
 
-            ctx.transition_to(next_state)
+            self._transition_to(ctx, orchestrator, next_state)
         else:
             logger.error("[StateGraph] Max transitions (%s) reached!", max_transitions)
-            ctx.transition_to(AgentState.ERROR)
             ctx.error = "Maximum state transitions exceeded"
+            self._transition_to(ctx, orchestrator, AgentState.ERROR)
 
     def _resolve_next_state(self, current: AgentState, ctx: StateContext) -> AgentState | None:
         """현재 상태에서 다음 상태를 결정합니다."""
@@ -304,9 +361,9 @@ class AgentStateGraph:
     def get_graph_definition(self) -> dict[str, Any]:
         """그래프 정의를 JSON 직렬화 가능한 형태로 반환합니다."""
         return {
-            "nodes": [s.value for s in self._nodes.keys()],
+            "nodes": [s.value for s in self._nodes],
             "edges": {s.value: t.value for s, t in self._edges.items()},
-            "conditional_edges": [s.value for s in self._conditional_edges.keys()],
+            "conditional_edges": [s.value for s in self._conditional_edges],
             "entry": self._entry_state.value,
         }
 

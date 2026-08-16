@@ -21,6 +21,7 @@ browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.tools.semantic_dom")
 
@@ -339,7 +340,7 @@ class SemanticDOMParser:
 
         return self._build_snapshot(raw)
 
-    def _build_snapshot(self, raw: dict) -> SemanticSnapshot:
+    def _build_snapshot(self, raw: dict[str, Any]) -> SemanticSnapshot:
         """JS 추출 결과를 SemanticSnapshot으로 변환합니다."""
         snap = SemanticSnapshot(
             url=raw.get("url", ""),
@@ -356,7 +357,7 @@ class SemanticDOMParser:
         snap.total_count = len(snap.elements)
         return snap
 
-    def _parse_element(self, ref: str, raw: dict) -> ElementInfo:
+    def _parse_element(self, ref: str, raw: dict[str, Any]) -> ElementInfo:
         """단일 요소를 ElementInfo로 변환합니다."""
         tag = raw.get("tag", "")
         html_role = raw.get("role", "")
@@ -421,7 +422,7 @@ class SemanticDOMParser:
             logger.debug("[SemanticDOM] A11y enrichment failed: %s", e)
         return snapshot
 
-    def _merge_a11y(self, snapshot: SemanticSnapshot, a11y_node: dict, depth: int = 0):
+    def _merge_a11y(self, snapshot: SemanticSnapshot, a11y_node: dict[str, Any], depth: int = 0):
         """A11y 트리의 정보를 스냅샷 요소와 병합합니다."""
         a11y_name = a11y_node.get("name", "")
 

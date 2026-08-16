@@ -49,7 +49,7 @@ def structured_log(
         생성된 로그 엔트리 딕셔너리
 
     """
-    entry = {
+    entry: dict[str, Any] = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "ts_epoch": time.time(),
         "level": level.upper(),

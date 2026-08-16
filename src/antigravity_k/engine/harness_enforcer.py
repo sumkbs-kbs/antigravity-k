@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass(frozen=True)
@@ -21,8 +21,8 @@ class HarnessFeedbackAction:
 class HarnessEnforcer:
     """Small runtime boundary checker for tool calls inside the agent loop."""
 
-    _BLOCKED_TOOLS = {"terminal_ws"}
-    _DESTRUCTIVE_PATTERNS = (
+    _BLOCKED_TOOLS: ClassVar[set[str]] = {"terminal_ws"}
+    _DESTRUCTIVE_PATTERNS: ClassVar[tuple[re.Pattern[str], ...]] = (
         re.compile(r"\brm\s+-rf\s+/(?:\s|$)", re.IGNORECASE),
         re.compile(r"\b(format|mkfs|diskutil\s+erase|wipe)\b", re.IGNORECASE),
     )
@@ -54,7 +54,11 @@ class HarnessEnforcer:
                 self.guidelines = {}
             return
 
-    def check_tool_boundary(self, tool_name: str, tool_args: dict | None = None) -> dict:
+    def check_tool_boundary(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Check Tool Boundary.
 
         Args:

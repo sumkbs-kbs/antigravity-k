@@ -10,11 +10,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class TestStatus(str, Enum):
     """Test status for a single intent execution."""
 
+    __test__ = False
     PENDING = "pending"
     RUNNING = "running"
     PASSED = "passed"
@@ -27,6 +29,7 @@ class TestStatus(str, Enum):
 class TestIntent:
     """자연어 의도 기반 테스트 케이스."""
 
+    __test__ = False
     id: str
     intent: str  # "채팅에 메시지를 보내면 응답이 온다"
     category: str = "ui"  # ui, api, integration
@@ -40,6 +43,7 @@ class TestIntent:
 class TestResult:
     """테스트 실행 결과."""
 
+    __test__ = False
     intent_id: str
     status: TestStatus
     duration_ms: float
@@ -50,7 +54,7 @@ class TestResult:
     dom_snapshot: str | None = None
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-friendly dict."""
         return {
             "intent_id": self.intent_id,
@@ -77,7 +81,7 @@ class HarnessReport:
     results: list[TestResult] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-friendly dict."""
         return {
             "total": self.total,

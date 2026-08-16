@@ -35,7 +35,7 @@ class ArtifactService:
     def create_artifact(self, name: str, content: str, extension: str = "md") -> str:
         """새로운 아티팩트 생성 (파일 이름이 겹치면 타임스탬프로 구분)."""
         safe_name = "".join([c if c.isalnum() else "_" for c in name]).strip("_")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().astimezone().replace(tzinfo=None).strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_name}_{timestamp}.{extension}"
         filepath = os.path.join(self.artifacts_dir, filename)
 
@@ -61,7 +61,7 @@ class ArtifactService:
             logger.exception("Failed to read artifact %s", filename)
             return None
 
-    def list_artifacts(self) -> list:
+    def list_artifacts(self) -> list[str]:
         """저장된 아티팩트 목록 반환."""
         try:
             return os.listdir(self.artifacts_dir)
@@ -74,7 +74,7 @@ class ArtifactService:
         if task_id in self._task_dirs:
             return self._task_dirs[task_id]
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().astimezone().replace(tzinfo=None).strftime("%Y%m%d_%H%M%S")
         dir_name = f"task_{task_id}_{timestamp}"
         task_dir = os.path.join(self.artifacts_dir, dir_name)
         Path(task_dir).mkdir(parents=True, exist_ok=True)
@@ -116,7 +116,7 @@ class ArtifactService:
         content += f"## Approach\n{approach}\n"
         return self.create_auto_artifact(task_id, "plan", content)
 
-    def generate_checklist(self, task_id: str, steps: list) -> str:
+    def generate_checklist(self, task_id: str, steps: list[str]) -> str:
         """Generate Checklist.
 
         Args:

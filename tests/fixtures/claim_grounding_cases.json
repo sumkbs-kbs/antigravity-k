@@ -1,0 +1,92 @@
+[
+  {
+    "case_id": "grounded-release",
+    "question": "When was Python 3.13 released?",
+    "response": "Python 3.13 was released in 2024. [citation:python-docs]",
+    "sources": [
+      {
+        "source_id": "python-docs",
+        "title": "Python 3.13 release notes",
+        "text": "Python 3.13 was released in 2024."
+      }
+    ],
+    "expected": {
+      "claim_count": 1,
+      "supported_claim_count": 1,
+      "unsupported_claim_count": 0,
+      "conflicted_claim_count": 0,
+      "unacknowledged_conflict_count": 0
+    }
+  },
+  {
+    "case_id": "unknown-and-unsupported",
+    "question": "What can be established about the Python 3.13 release and this library?",
+    "response": "Python 3.13 was released in 2024. [citation:python-docs]\nThis library is the fastest browser. [citation:python-docs]\nPython 3.13 won an award. [citation:missing]",
+    "sources": [
+      {
+        "source_id": "python-docs",
+        "title": "Python 3.13 release notes",
+        "text": "Python 3.13 was released in 2024."
+      }
+    ],
+    "expected": {
+      "claim_count": 3,
+      "supported_claim_count": 1,
+      "unsupported_claim_count": 2,
+      "conflicted_claim_count": 0,
+      "unacknowledged_conflict_count": 0,
+      "unknown_citation_count": 1
+    }
+  },
+  {
+    "case_id": "unacknowledged-conflict",
+    "question": "What is the release date when the sources disagree?",
+    "response": "The release date was 2024. [citation:release-2024][citation:release-2025]",
+    "sources": [
+      {
+        "source_id": "release-2024",
+        "title": "Release date",
+        "text": "The release date was 2024."
+      },
+      {
+        "source_id": "release-2025",
+        "title": "Release date",
+        "text": "The release date was 2025."
+      }
+    ],
+    "conflict_sets": [["release-2024", "release-2025"]],
+    "expected": {
+      "claim_count": 1,
+      "supported_claim_count": 1,
+      "unsupported_claim_count": 0,
+      "conflicted_claim_count": 1,
+      "unacknowledged_conflict_count": 1
+    }
+  },
+  {
+    "case_id": "acknowledged-conflict",
+    "question": "What is the release date when the sources disagree?",
+    "response": "The release date is disputed between 2024 and 2025. [citation:release-2024][citation:release-2025]",
+    "sources": [
+      {
+        "source_id": "release-2024",
+        "title": "Python 3.13 release notes",
+        "text": "Python 3.13 was released in 2024."
+      },
+      {
+        "source_id": "release-2025",
+        "title": "Python 3.13 release archive",
+        "text": "Python 3.13 was released in 2025."
+      }
+    ],
+    "conflict_sets": [["release-2024", "release-2025"]],
+    "min_overlap": 0.3,
+    "expected": {
+      "claim_count": 1,
+      "supported_claim_count": 1,
+      "unsupported_claim_count": 0,
+      "conflicted_claim_count": 1,
+      "unacknowledged_conflict_count": 0
+    }
+  }
+]

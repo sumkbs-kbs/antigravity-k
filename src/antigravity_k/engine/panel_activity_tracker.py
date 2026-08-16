@@ -33,7 +33,7 @@ class PanelActivity:
     Sidabari useAppStore.ts PanelActivity 구조체 이식.
     """
 
-    __slots__ = ("state", "since")
+    __slots__ = ("since", "state")
 
     def __init__(self, state: str, since: float | None = None):
         """Initialize the PanelActivity.
@@ -66,7 +66,7 @@ class PanelCurrentTool:
     Sidabari useAppStore.ts PanelCurrentTool 구조체 이식.
     """
 
-    __slots__ = ("tool", "detail", "since")
+    __slots__ = ("detail", "since", "tool")
 
     def __init__(self, tool: str, detail: str, since: float | None = None):
         """Initialize the PanelCurrentTool.
@@ -108,7 +108,7 @@ class PanelActivityTracker:
         self._activities: dict[str, PanelActivity] = {}
         self._current_tools: dict[str, PanelCurrentTool] = {}
         self._lock = threading.Lock()
-        self._change_callbacks: list[Callable] = []
+        self._change_callbacks: list[Callable[..., Any]] = []
 
     def set_activity(self, panel_id: str, state: str) -> bool:
         """패널 활동 상태를 설정합니다.
@@ -183,7 +183,7 @@ class PanelActivityTracker:
         with self._lock:
             return [pid for pid, act in self._activities.items() if act.state == PanelActivityState.THINKING]
 
-    def on_change(self, callback: Callable) -> None:
+    def on_change(self, callback: Callable[..., Any]) -> None:
         """상태 변경 시 호출할 콜백을 등록합니다."""
         self._change_callbacks.append(callback)
 
@@ -232,12 +232,9 @@ class PanelActivityTracker:
                 detail = self._summarize_tool(payload)
                 self.set_current_tool(panel_id, tool_name, detail)
 
-        elif kind == "posttool" or kind == "tool-exec-finish":
+        elif kind in ("posttool", "tool-exec-finish", "user-prompt"):
             self.set_activity(panel_id, PanelActivityState.THINKING)
             # currentTool은 다음 PreToolUse까지 유지 (깜박임 방지)
-
-        elif kind == "user-prompt":
-            self.set_activity(panel_id, PanelActivityState.THINKING)
 
     @staticmethod
     def _summarize_tool(payload: dict[str, Any]) -> str:

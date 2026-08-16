@@ -106,7 +106,7 @@ class HookEventEmit:
 class GateRequest:
     """양방향 IPC Gate 요청 (Sidabari의 req-/resp- 파일 패턴)."""
 
-    __slots__ = ("request_id", "panel_id", "hook_event_name", "payload")
+    __slots__ = ("hook_event_name", "panel_id", "payload", "request_id")
 
     def __init__(
         self,
@@ -147,13 +147,13 @@ class HookEventBus:
         self._base_dir: Path | None = Path(base_dir) if base_dir else None
         self._events_path: Path | None = None
         self._offset: int = 0
-        self._subscribers: dict[str, list[Callable]] = {}
+        self._subscribers: dict[str, list[Callable[..., Any]]] = {}
         self._watcher_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._initialized = False
 
-    def init(self, vault_data_dir: str | None = None) -> "HookEventBus":
+    def init(self, vault_data_dir: str | None = None) -> HookEventBus:
         """이벤트 버스를 초기화합니다.
 
         디렉토리 생성, 권한 설정, 잔여 파일 sweep, watcher 시작.
@@ -230,7 +230,7 @@ class HookEventBus:
             logger.warning("[HookEventBus] Not initialized, cannot emit")
             return
 
-        event_data = {
+        event_data: dict[str, Any] = {
             "hook_event_name": event_name,
             "timestamp": time.time(),
             **(payload or {}),
@@ -245,9 +245,12 @@ class HookEventBus:
         except Exception:
             logger.exception("[HookEventBus] 이벤트 기록 실패")
 
+    def emit(self, event: HookEventEmit) -> None:
+        self._dispatch(event)
+
     # ── 이벤트 구독 ──
 
-    def subscribe(self, kind: str, callback: Callable):
+    def subscribe(self, kind: str, callback: Callable[..., Any]):
         """특정 종류의 이벤트에 콜백을 등록합니다."""
         with self._lock:
             if kind not in self._subscribers:
@@ -255,11 +258,11 @@ class HookEventBus:
             if callback not in self._subscribers[kind]:
                 self._subscribers[kind].append(callback)
 
-    def subscribe_all(self, callback: Callable):
+    def subscribe_all(self, callback: Callable[..., Any]):
         """모든 이벤트에 콜백을 등록합니다."""
         self.subscribe("*", callback)
 
-    def unsubscribe(self, kind: str, callback: Callable):
+    def unsubscribe(self, kind: str, callback: Callable[..., Any]):
         """이벤트 구독을 해제합니다."""
         with self._lock:
             if kind in self._subscribers and callback in self._subscribers[kind]:
@@ -487,16 +490,13 @@ class HookEventBus:
         try:
             for entry in self._base_dir.iterdir():
                 name = entry.name
-                if (name.startswith("req-") or name.startswith("resp-")) and (
-                    name.endswith(".json") or name.endswith(".tmp")
-                ):
+                if name.startswith(("req-", "resp-")) and name.endswith((".json", ".tmp")):
                     try:
                         entry.unlink()
                     except OSError:
                         logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         except Exception:
             logger.exception("Unhandled exception")
-            pass
 
     @property
     def base_dir(self) -> Path | None:

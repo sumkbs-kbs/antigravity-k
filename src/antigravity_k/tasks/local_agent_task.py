@@ -18,9 +18,9 @@ class LocalAgentTask(threading.Thread):
     def __init__(
         self,
         name: str,
-        target: Callable,
-        args: tuple = (),
-        kwargs: dict | None = None,
+        target: Callable[..., Any],
+        args: tuple[Any, ...] = (),
+        kwargs: dict[str, Any] | None = None,
     ):
         """Initialize the LocalAgentTask.
 
@@ -46,6 +46,6 @@ class LocalAgentTask(threading.Thread):
             self.result = self.target(*self.args, **self.kwargs)
             self.status = "COMPLETED"
         except Exception as e:
-            self.error = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+            self.error = f"{type(e).__name__}: {e!s}\n{traceback.format_exc()}"
             self.status = "FAILED"
             logger.exception("Task '%s' failed: %s", self.name, self.error)

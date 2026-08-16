@@ -18,6 +18,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from .cost_guard import CostGuard
 
@@ -90,7 +91,7 @@ class UsageStats:
         """
         return self.total_tokens_in + self.total_tokens_out
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -254,7 +255,7 @@ class UsageTracker:
 
     # ─── 대시보드 데이터 ─────────────────────────────────────────────
 
-    def to_dashboard_data(self) -> dict:
+    def to_dashboard_data(self) -> dict[str, Any]:
         """대시보드 UI용 전체 통계 데이터."""
         daily_stats = self.get_stats(period="daily")
         total_stats = self.get_stats(period="total")
@@ -285,7 +286,7 @@ class UsageTracker:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 1,
-            "updated_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().astimezone().replace(tzinfo=None).isoformat(),
             "records": [asdict(r) for r in self._records],
         }
 
@@ -356,14 +357,14 @@ class UsageTracker:
             fallback_count=sum(1 for r in records if r.fallback_depth > 0),
         )
 
-    def _compute_hourly_trend(self, hours: int = 24) -> list[dict]:
+    def _compute_hourly_trend(self, hours: int = 24) -> list[dict[str, int]]:
         """시간별 토큰 사용량 추세 (최근 N시간)."""
         now = time.time()
         cutoff = now - hours * 3600
         filtered = [r for r in self._records if r.timestamp >= cutoff]
 
         # 시간별 버킷
-        buckets: dict[int, dict] = {}
+        buckets: dict[int, dict[str, int]] = {}
         for r in filtered:
             hour_key = int((r.timestamp - cutoff) // 3600)
             if hour_key not in buckets:

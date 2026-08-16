@@ -2,6 +2,8 @@
 and External Brain auto-delegation.
 """
 
+import pytest
+
 # ─── Phase A: RAG Indexer Tests ──────────────────────────────────
 
 
@@ -186,7 +188,8 @@ class TestContextCompressorUpgrade:
 
 
 class TestExternalBrainAutoDelegation:
-    def test_adapt_strategy_triggers_delegation_after_3_failures(self):
+    @pytest.mark.asyncio
+    async def test_adapt_strategy_triggers_delegation_after_3_failures(self):
         from unittest.mock import MagicMock
 
         from antigravity_k.engine.cognitive_loop import CognitiveLoop
@@ -222,14 +225,13 @@ class TestExternalBrainAutoDelegation:
             },
         ]
 
-        # auto_delegate_to_external_brain will be called but will return None
-        # because async send can't run in test without event loop
-        result = loop.adapt_strategy("파일 수정 작업", None)
+        result = await loop.adapt_strategy("파일 수정 작업", None)
         # Should at least attempt adaptation (2+ failures)
         assert result is not None
         assert "전략 변경" in result or "External Brain" in result
 
-    def test_no_delegation_without_router(self):
+    @pytest.mark.asyncio
+    async def test_no_delegation_without_router(self):
         from antigravity_k.engine.cognitive_loop import CognitiveLoop
 
         loop = CognitiveLoop(project_root="/tmp")
@@ -243,7 +245,7 @@ class TestExternalBrainAutoDelegation:
             },
         ] * 3
 
-        result = loop.adapt_strategy("task", None)
+        result = await loop.adapt_strategy("task", None)
         # Without external_brain_router, should fall through to normal adaptation
         assert result is not None
         assert "전략 변경" in result

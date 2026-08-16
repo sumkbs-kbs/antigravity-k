@@ -110,6 +110,7 @@ class ActionGuard:
         """
         self.enabled = enabled
         self.hitl_required = hitl_required
+        self._blocked_actions = self.BLOCKED_ACTIONS
         self._audit_log: list[dict[str, Any]] = []
 
         self._audit_file: Path | None = None
@@ -118,7 +119,7 @@ class ActionGuard:
             self._audit_file.parent.mkdir(parents=True, exist_ok=True)
 
         if custom_blocked_actions:
-            self.BLOCKED_ACTIONS = frozenset(self.BLOCKED_ACTIONS | frozenset(custom_blocked_actions))
+            self._blocked_actions = frozenset(self._blocked_actions | frozenset(custom_blocked_actions))
 
     def validate_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         """액션을 검증합니다.
@@ -135,7 +136,7 @@ class ActionGuard:
             return {"allowed": True, "reason": "guard_disabled", "requires_hitl": False}
 
         # 1. 차단 목록 확인
-        if action in self.BLOCKED_ACTIONS:
+        if action in self._blocked_actions:
             self._log_audit(action, params, allowed=False, reason="blocked_action")
             return {
                 "allowed": False,

@@ -141,7 +141,7 @@ class DelegationEngine:
         self,
         task_type: str,
         user_message: str,
-        analysis: dict | None = None,
+        analysis: dict[str, Any] | None = None,
     ) -> DelegationStrategy:
         """태스크 특성에 따라 최적의 위임 전략을 추천합니다.
 

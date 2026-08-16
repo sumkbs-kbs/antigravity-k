@@ -8,6 +8,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class UncertaintyEstimator:
     def estimate(
         self,
         user_message: str,
-        ceo_analysis: dict,
+        ceo_analysis: dict[str, Any],
         ki_matches: int = 0,
     ) -> UncertaintyResult:
         """사용자 요청에 대한 에이전트의 확신도를 평가합니다."""

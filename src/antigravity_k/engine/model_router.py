@@ -11,14 +11,24 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any
 
+from pydantic import ValidationError
+
+from .model_calibration import ModelQualityCalibrationConfig, ModelQualityCalibrationStore, TaskBenchmarkMetrics
+from .model_policy import ModelRoutingPolicy
 from .model_registry import ModelProfile, ModelRegistry
 
 logger = logging.getLogger("antigravity_k.model_router")
+
+_DEFAULT_CONFIDENCE_EVALUATOR = "qwen3.6:latest"
 
 
 # ─── 전략 열거형 ─────────────────────────────────────────────────────
@@ -54,7 +64,7 @@ class ModelCombo:
     description: str = ""
 
     @classmethod
-    def from_dict(cls, name: str, data: dict) -> "ModelCombo":
+    def from_dict(cls, name: str, data: dict[str, Any]) -> ModelCombo:
         """From Dict.
 
         Args:
@@ -193,7 +203,7 @@ class UnavailabilityTracker:
         """비가용 항목 조회."""
         return self._entries.get(model_name)
 
-    def status(self) -> list[dict]:
+    def status(self) -> list[dict[str, Any]]:
         """현재 비가용 모델 목록 반환."""
         result = []
         for name, entry in self._entries.items():
@@ -302,9 +312,45 @@ class ModelRouter:
         self._max_retries = max_retries
         # 라운드로빈 인덱스 추적
         self._rr_index: dict[str, int] = {}
+        self._provider_capabilities: dict[str, dict[str, Any]] = {}
 
         # config.yaml에서 콤보 자동 로드
         self._load_combos_from_registry()
+
+        self._load_router_settings()
+
+    def _load_router_settings(self) -> None:
+        router_raw = getattr(self._registry, "_raw", {}).get("router", {})
+        model_policy_raw = router_raw.get("model_policy", {})
+        self._model_policy = ModelRoutingPolicy.from_mapping(
+            model_policy_raw if isinstance(model_policy_raw, dict) else {},
+        )
+        self.cascade_on_low_confidence: bool = bool(router_raw.get("cascade_on_low_confidence", False))
+        self.cascade_confidence_threshold: float = float(router_raw.get("cascade_confidence_threshold", 0.4))
+        self.cascade_max_escalations: int = int(router_raw.get("cascade_max_escalations", 2))
+        self.confidence_evaluator_enabled: bool = bool(router_raw.get("confidence_evaluator_enabled", False))
+        self.confidence_evaluator_model: str = str(
+            router_raw.get("confidence_evaluator_model", _DEFAULT_CONFIDENCE_EVALUATOR)
+        )
+        self.confidence_evaluator_min_params_b: float = float(router_raw.get("confidence_evaluator_min_params_b", 20.0))
+        self.confidence_evaluator_max_tokens: int = int(router_raw.get("confidence_evaluator_max_tokens", 32))
+        try:
+            calibration_config = ModelQualityCalibrationConfig.model_validate(router_raw.get("quality_calibration", {}))
+        except ValidationError:
+            logger.warning("모델 품질 calibration 설정이 올바르지 않아 비활성화합니다.")
+            calibration_config = ModelQualityCalibrationConfig()
+        registry_path = getattr(self._registry, "_config_path", None)
+        match registry_path:
+            case str() as config_path:
+                config_directory = Path(config_path).resolve().parent
+            case Path() as config_path:
+                config_directory = config_path.resolve().parent
+            case _:
+                config_directory = Path.cwd()
+        self._quality_calibration = ModelQualityCalibrationStore.from_config(
+            calibration_config,
+            config_directory,
+        )
 
     def _load_combos_from_registry(self) -> None:
         """ModelRegistry의 raw config에서 combos 섹션 로드."""
@@ -324,6 +370,7 @@ class ModelRouter:
 
     def reload(self) -> None:
         """레지스트리 변경 후 콤보를 핫 리로드합니다."""
+        self._load_router_settings()
         self._combos.clear()
         self._load_combos_from_registry()
         logger.info("ModelRouter 콤보 핫 리로드 완료")
@@ -400,6 +447,11 @@ class ModelRouter:
         profile = self._registry.get_model(model_name)
         if profile is None:
             raise ValueError(f"모델 '{model_name}'이 레지스트리에 없습니다.")
+        decision = self._model_policy.decide(profile)
+        if not decision.allowed:
+            raise ValueError(
+                f"모델 '{model_name}'이 라우팅 정책에 의해 제외되었습니다: {decision.reason}",
+            )
         return profile
 
     def available_model_names(self, combo_name: str) -> list[str]:
@@ -409,11 +461,28 @@ class ModelRouter:
             raise ComboNotFoundError(combo_name, list(self._combos.keys()))
 
         self._tracker.clear_expired()
-        return [
-            model_name
-            for model_name in combo.models
-            if self._tracker.is_available(model_name) and self._registry.get_model(model_name) is not None
+        return [profile.name for profile in self._candidate_profiles(combo.models)]
+
+    def _available_profile(self, model_name: str) -> ModelProfile | None:
+        if not self._tracker.is_available(model_name):
+            return None
+        profile = self._registry.get_model(model_name)
+        if profile is None:
+            return None
+        decision = self._model_policy.decide(profile)
+        if not decision.allowed:
+            logger.debug("[%s] 라우팅 정책에 의해 제외: %s", model_name, decision.reason)
+            return None
+        if not self._quality_calibration.is_eligible(model_name):
+            logger.warning("[%s] 품질 calibration 기준 미달로 자동 라우팅에서 제외", model_name)
+            return None
+        return profile
+
+    def _candidate_profiles(self, model_names: list[str]) -> list[ModelProfile]:
+        profiles = [
+            profile for model_name in model_names if (profile := self._available_profile(model_name)) is not None
         ]
+        return self._model_policy.prioritize(profiles)
 
     # ─── 전략별 라우팅 구현 ──────────────────────────────────────────
 
@@ -422,31 +491,15 @@ class ModelRouter:
 
         9Router의 handleSingleModelChat → while(true) 폴백 루프 패턴.
         """
-        tried = []
-        for model_name in combo.models:
-            tried.append(model_name)
-
-            if not self._tracker.is_available(model_name):
-                entry = self._tracker.get_entry(model_name)
-                remaining = entry.remaining_sec() if entry else 0
-                logger.debug("[%s] %s 스킵 (쿨다운 %s초 남음)", combo.name, model_name, remaining)
-                continue
-
-            profile = self._registry.get_model(model_name)
-            if profile is None:
-                logger.warning("[%s] %s이 레지스트리에 없음, 스킵", combo.name, model_name)
-                continue
-
-            logger.info("[%s] 라우팅 → %s (fallback)", combo.name, model_name)
+        for profile in self._candidate_profiles(combo.models):
+            logger.info("[%s] 라우팅 → %s (fallback)", combo.name, profile.name)
             return profile
 
-        raise AllModelsUnavailableError(combo.name, tried)
+        raise AllModelsUnavailableError(combo.name, combo.models)
 
     def _route_round_robin(self, combo: ModelCombo) -> ModelProfile:
         """라운드로빈 전략: 사용 가능한 모델을 순환 선택."""
-        available = [
-            m for m in combo.models if self._tracker.is_available(m) and self._registry.get_model(m) is not None
-        ]
+        available = self._candidate_profiles(combo.models)
 
         if not available:
             raise AllModelsUnavailableError(combo.name, combo.models)
@@ -455,21 +508,12 @@ class ModelRouter:
         selected = available[idx]
         self._rr_index[combo.name] = idx + 1
 
-        profile = self._registry.get_model(selected)
-        if profile is None:
-            raise AllModelsUnavailableError(combo.name, [selected])
-        logger.info("[%s] 라우팅 → %s (round-robin, idx=%s)", combo.name, selected, idx)
-        return profile
+        logger.info("[%s] 라우팅 → %s (round-robin, idx=%s)", combo.name, selected.name, idx)
+        return selected
 
     def _route_load_balance(self, combo: ModelCombo) -> ModelProfile:
         """로드밸런싱 전략: 메모리 사용량이 적은 모델 우선."""
-        available = []
-        for model_name in combo.models:
-            if not self._tracker.is_available(model_name):
-                continue
-            profile = self._registry.get_model(model_name)
-            if profile:
-                available.append(profile)
+        available = self._candidate_profiles(combo.models)
 
         if not available:
             raise AllModelsUnavailableError(combo.name, combo.models)
@@ -496,17 +540,12 @@ class ModelRouter:
         실제 에스컬레이션은 ModelManager에서 응답 품질을 평가한 후
         escalate()를 호출하여 다음 티어 모델을 받아옵니다.
         """
-        for model_name in combo.models:
-            if not self._tracker.is_available(model_name):
-                continue
-            profile = self._registry.get_model(model_name)
-            if profile is None:
-                continue
+        for profile in self._candidate_profiles(combo.models):
             logger.info(
                 "[%s] 라우팅 → %s (cascading, Tier %s/%s)",
                 combo.name,
-                model_name,
-                combo.models.index(model_name) + 1,
+                profile.name,
+                combo.models.index(profile.name) + 1,
                 len(combo.models),
             )
             return profile
@@ -528,27 +567,97 @@ class ModelRouter:
         if combo is None:
             return None
 
+        candidates = self._candidate_profiles(combo.models)
+        candidate_names = [profile.name for profile in candidates]
         try:
-            idx = combo.models.index(current_model)
+            idx = candidate_names.index(current_model)
         except ValueError:
             return None
 
         # 다음 티어부터 가용 모델 탐색
-        for next_model in combo.models[idx + 1 :]:
-            if not self._tracker.is_available(next_model):
-                continue
-            profile = self._registry.get_model(next_model)
-            if profile:
-                logger.info(
-                    "[%s] 에스컬레이션: %s → %s (Tier %s)",
-                    combo_name,
-                    current_model,
-                    next_model,
-                    combo.models.index(next_model) + 1,
-                )
-                return profile
+        for profile in candidates[idx + 1 :]:
+            logger.info(
+                "[%s] 에스컬레이션: %s → %s (Tier %s)",
+                combo_name,
+                current_model,
+                profile.name,
+                combo.models.index(profile.name) + 1,
+            )
+            return profile
 
         logger.info("[%s] 에스컬레이션 불가: %s이 최고 티어", combo_name, current_model)
+        return None
+
+    def select_confidence_evaluator(self, preferred_name: str | None = None) -> ModelProfile | None:
+        requested_name = preferred_name or self.confidence_evaluator_model
+        requested_profile = self._registry.get_model(requested_name) if requested_name else None
+
+        if requested_profile is not None:
+            if self._is_large_enough_for_confidence(requested_profile):
+                if self._available_profile(requested_profile.name) is not None:
+                    return requested_profile
+                return None
+            if preferred_name or requested_name != _DEFAULT_CONFIDENCE_EVALUATOR:
+                logger.warning(
+                    "신뢰도 평가기 %s는 %.1fB 미만이라 사용할 수 없습니다.",
+                    requested_profile.name,
+                    self.confidence_evaluator_min_params_b,
+                )
+                return None
+
+        candidates = [
+            profile
+            for profile in self._registry.list_models()
+            if set(profile.supported_roles).intersection({"reasoning", "coding"})
+            and self._is_large_enough_for_confidence(profile)
+            and self._available_profile(profile.name) is not None
+        ]
+        if not candidates:
+            return None
+
+        return min(
+            candidates,
+            key=lambda profile: (
+                0 if profile.name == _DEFAULT_CONFIDENCE_EVALUATOR else 1,
+                profile.parameter_count_b,
+                profile.name,
+            ),
+        )
+
+    def _is_large_enough_for_confidence(self, profile: ModelProfile) -> bool:
+        return profile.effective_parameter_count_b >= self.confidence_evaluator_min_params_b
+
+    @staticmethod
+    def parse_confidence_score(raw: str) -> float | None:
+        import re
+
+        numeric = re.fullmatch(r"\s*(0(?:\.\d+)?|1(?:\.0+)?)\s*", raw)
+        if numeric:
+            return float(numeric.group(1))
+
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+
+        if isinstance(payload, dict):
+            value = payload.get("score", payload.get("confidence"))
+            if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+                try:
+                    score = float(value)
+                except (TypeError, ValueError):
+                    score = -1.0
+                if 0.0 <= score <= 1.0:
+                    return score
+
+        line_pattern = re.compile(
+            r"\s*(?:score|confidence)\s*(?:is|should be|[:=])\s*" r"(0(?:\.\d+)?|1(?:\.0+)?)\s*[.!]?\s*$",
+            re.IGNORECASE,
+        )
+        for line in reversed(raw.splitlines()):
+            match = line_pattern.fullmatch(line)
+            if match:
+                return float(match.group(1))
         return None
 
     @staticmethod
@@ -632,13 +741,19 @@ class ModelRouter:
         """Return a temperature boost for the given model (0.0 = no boost)."""
         return 0.0
 
+    def set_provider_capability(self, model_name: str, capability: Mapping[str, Any]) -> None:
+        self._provider_capabilities[model_name] = dict(capability)
+
+    def set_task_calibration(self, model_name: str, metrics: TaskBenchmarkMetrics | None) -> None:
+        self._quality_calibration.set_task_metrics(model_name, metrics)
+
     # ─── 상태 조회 ───────────────────────────────────────────────────
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         """라우터 전체 상태 반환."""
         combos_info = []
         for combo in self._combos.values():
-            available_models = [m for m in combo.models if self._tracker.is_available(m)]
+            available_models = self.available_model_names(combo.name)
             combos_info.append(
                 {
                     "name": combo.name,
@@ -650,20 +765,47 @@ class ModelRouter:
                 },
             )
 
+        calibration_summaries = self._quality_calibration.summaries()
         return {
             "combos": combos_info,
             "unavailable": self._tracker.status(),
             "max_retries": self._max_retries,
+            "provider_capabilities": dict(self._provider_capabilities),
+            "model_policy": self._model_policy.to_dict(),
+            "quality_calibration": {
+                "enabled": self._quality_calibration.enabled,
+                "eligible_models": [
+                    summary.model_name
+                    for summary in calibration_summaries
+                    if self._quality_calibration.is_eligible(summary.model_name)
+                ],
+                "ineligible_models": [
+                    summary.model_name
+                    for summary in calibration_summaries
+                    if not self._quality_calibration.is_eligible(summary.model_name)
+                ],
+                "operational_metrics": [
+                    {
+                        "model": summary.model_name,
+                        "outcome_count": summary.task_outcome_count,
+                        "task_success_rate": summary.task_success_rate,
+                        "tool_accuracy": summary.task_tool_accuracy,
+                        "retry_rate": summary.task_retry_rate,
+                    }
+                    for summary in calibration_summaries
+                    if summary.task_outcome_count > 0
+                ],
+            },
         }
 
     def summary(self) -> str:
         """사람이 읽기 쉬운 요약."""
         lines = ["=== Model Router ==="]
         for combo in self._combos.values():
-            available = [m for m in combo.models if self._tracker.is_available(m)]
+            available = self.available_model_names(combo.name)
             lines.append(f"\n[{combo.name}] ({combo.strategy.value})")
             for m in combo.models:
-                marker = "✓" if self._tracker.is_available(m) else "✗"
+                marker = "✓" if m in available else "✗"
                 lines.append(f"  {marker} {m}")
             lines.append(f"  → 사용 가능: {len(available)}/{len(combo.models)}")
 

@@ -1,0 +1,18 @@
+[
+  {
+    "case_id": "live-search-python-release",
+    "query": "Python 3.13 release date",
+    "question": "When was Python 3.13 released?",
+    "response": "",
+    "sources": [],
+    "expected": {}
+  },
+  {
+    "case_id": "live-search-python-schedule",
+    "query": "Python 3.13 release schedule PEP 719",
+    "question": "What does the Python 3.13 release schedule describe?",
+    "response": "",
+    "sources": [],
+    "expected": {}
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "name": "build-skill",
+  "version": "1.4.0",
+  "description": "",
+  "installed_at": "2026-07-11T10:24:55.904976",
+  "updated_at": "2026-07-11T10:24:55.904976",
+  "risk_level": "safe",
+  "trust_level": "experimental",
+  "requires_approval": false,
+  "mcp_server_id": "",
+  "security_passed": true,
+  "findings": []
+}

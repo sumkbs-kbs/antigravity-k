@@ -12,6 +12,7 @@ CodeTreeIndexer가 선정한 관련 파일의 핵심 내용을 요약하여
 
 import logging
 import os
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.file_summarizer")
 
@@ -38,7 +39,7 @@ class FileSummarizer:
 
     def summarize_files(
         self,
-        file_list: list[dict],
+        file_list: list[dict[str, Any]],
         project_root: str,
         query: str = "",
     ) -> str:

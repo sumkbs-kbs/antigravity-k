@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class TaskStatus(str, Enum):
 
 
 # ─── Valid transitions (Agent-Teams assertKanbanColumnAllowed 패턴) ───
-_VALID_TRANSITIONS: Dict[TaskStatus, set] = {
+_VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.BACKLOG: {TaskStatus.TODO},
     TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.BACKLOG},
     TaskStatus.IN_PROGRESS: {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.TODO},
@@ -50,13 +50,13 @@ class KanbanTask:
     description: str = ""
     status: TaskStatus = TaskStatus.TODO
     priority: int = 0  # 0=normal, 1=high, 2=critical
-    depends_on: List[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
     assignee: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
             "title": self.title,
@@ -76,8 +76,8 @@ class KanbanBoard:
 
     board_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str = "Autonomous Goal Board"
-    tasks: Dict[str, KanbanTask] = field(default_factory=dict)
-    column_order: Dict[str, List[str]] = field(default_factory=dict)
+    tasks: dict[str, KanbanTask] = field(default_factory=dict)
+    column_order: dict[str, list[str]] = field(default_factory=dict)
 
     # ─── Task CRUD ──────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ class KanbanBoard:
         title: str,
         description: str = "",
         priority: int = 0,
-        depends_on: Optional[List[str]] = None,
+        depends_on: list[str] | None = None,
     ) -> KanbanTask:
         task = KanbanTask(
             task_id=str(uuid.uuid4())[:8],
@@ -101,7 +101,7 @@ class KanbanBoard:
         logger.debug(f"Kanban: added task '{title}' ({task.task_id})")
         return task
 
-    def get_task(self, task_id: str) -> Optional[KanbanTask]:
+    def get_task(self, task_id: str) -> KanbanTask | None:
         return self.tasks.get(task_id)
 
     # ─── State Transitions (Agent-Teams assertKanbanColumnAllowed) ──
@@ -135,7 +135,7 @@ class KanbanBoard:
         task.updated_at = time.time()
         return task
 
-    def _check_dependencies(self, task: KanbanTask) -> List[str]:
+    def _check_dependencies(self, task: KanbanTask) -> list[str]:
         blocked = []
         for dep_id in task.depends_on:
             dep = self.tasks.get(dep_id)
@@ -145,7 +145,7 @@ class KanbanBoard:
 
     # ─── Query ──────────────────────────────────────────────────
 
-    def get_next_actionable(self) -> Optional[KanbanTask]:
+    def get_next_actionable(self) -> KanbanTask | None:
         """의존성이 충족된 다음 실행 가능 태스크 반환."""
         candidates = [t for t in self.tasks.values() if t.status == TaskStatus.TODO and not self._check_dependencies(t)]
         if not candidates:
@@ -153,7 +153,7 @@ class KanbanBoard:
         candidates.sort(key=lambda t: (-t.priority, t.created_at))
         return candidates[0]
 
-    def get_by_status(self, status: TaskStatus) -> List[KanbanTask]:
+    def get_by_status(self, status: TaskStatus) -> list[KanbanTask]:
         return [t for t in self.tasks.values() if t.status == status]
 
     def is_complete(self) -> bool:
@@ -167,9 +167,9 @@ class KanbanBoard:
 
     # ─── GoalRunner Integration ─────────────────────────────────
 
-    def decompose_from_steps(self, steps: list) -> None:
+    def decompose_from_steps(self, steps: list[Any]) -> None:
         """GoalRunner의 GoalStep 리스트를 칸반 태스크로 변환."""
-        prev_id: Optional[str] = None
+        prev_id: str | None = None
         for step in steps:
             title = getattr(step, "title", str(step))
             desc = getattr(step, "purpose", "")
@@ -185,7 +185,7 @@ class KanbanBoard:
     def to_markdown(self) -> str:
         lines = [
             f"# 📋 Kanban Board: {self.name}",
-            f"**Progress:** {self.progress_pct()}% ({sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)}/{len(self.tasks)})",  # noqa: E501
+            f"**Progress:** {self.progress_pct()}% ({sum(1 for t in self.tasks.values() if t.status == TaskStatus.DONE)}/{len(self.tasks)})",
             "",
         ]
 
@@ -212,7 +212,7 @@ class KanbanBoard:
 
         return "\n".join(lines)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "board_id": self.board_id,
             "name": self.name,

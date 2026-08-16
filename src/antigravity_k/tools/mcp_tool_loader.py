@@ -5,7 +5,8 @@ import json
 import logging
 import os
 from collections.abc import Mapping
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
 
 from mcp.client.session import ClientSession
 
@@ -208,8 +209,7 @@ class MCPToolLoader:
         return self.tools
 
     async def _load_mcp_servers(self, config_path: str):
-        with open(config_path, encoding="utf-8") as f:
-            config: dict[str, Any] = json.load(f)
+        config: dict[str, Any] = json.loads(await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8"))
 
         mcp_servers = config.get("mcpServers", {})
         await self._connect_and_load_servers(mcp_servers, config_path)
@@ -427,7 +427,7 @@ class MCPServerRegistry:
     """
 
     # 검증된 무료 MCP 서버 카탈로그
-    CATALOG = {
+    CATALOG: ClassVar[dict[str, dict[str, Any]]] = {
         "filesystem": {
             "name": "Filesystem",
             "description": "로컬 파일시스템 읽기/쓰기/검색",
@@ -505,16 +505,16 @@ class MCPServerRegistry:
     }
 
     # Phase 1 D11: 스킬이 등록한 MCP 서버 저장소 (클래스 레벨 — 모든 인스턴스 공유)
-    _skill_servers: dict[str, dict[str, Any]] = {}
+    _skill_servers: ClassVar[dict[str, dict[str, Any]]] = {}
 
-    def get_all(self) -> dict[str, dict]:
+    def get_all(self) -> dict[str, dict[str, Any]]:
         """전체 카탈로그를 반환합니다. (카탈로그 + 스킬 등록 서버 병합)"""
         merged = self.CATALOG.copy()
         for sid, config in self._skill_servers.items():
             merged[sid] = config
         return merged
 
-    def get_by_category(self, category: str) -> dict[str, dict]:
+    def get_by_category(self, category: str) -> dict[str, dict[str, Any]]:
         """카테고리별 서버를 반환합니다. (스킬 등록 서버 포함)"""
         result = {k: v for k, v in self.CATALOG.items() if v.get("category") == category}
         result.update({k: v for k, v in self._skill_servers.items() if v.get("category") == category})
@@ -591,7 +591,7 @@ class MCPServerRegistry:
             logger.debug("[MCPRegistry] No MCP servers found for skill '%s'", skill_name)
         return removed
 
-    def get_skill_mcp_servers(self, skill_name: str | None = None) -> dict[str, dict]:
+    def get_skill_mcp_servers(self, skill_name: str | None = None) -> dict[str, dict[str, Any]]:
         """스킬이 등록한 MCP 서버 목록을 반환합니다.
 
         Args:
@@ -687,7 +687,7 @@ class MCPServerRegistry:
     def get_catalog_summary(self) -> str:
         """카탈로그 요약을 사람이 읽기 쉬운 형식으로 반환합니다. (스킬 서버 포함)"""
         lines = ["📦 MCP 서버 카탈로그 (무료)", ""]
-        by_category: dict[str, list] = {}
+        by_category: dict[str, list[tuple[str, dict[str, Any]]]] = {}
 
         all_servers = self.get_all()
         for sid, info in all_servers.items():

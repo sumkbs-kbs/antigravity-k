@@ -74,7 +74,7 @@ class ApprovalRequest:
             return False
         return (time.time() - self.created_at) > self.timeout_sec
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """API 응답용 dict."""
         return {
             "request_id": self.request_id,
@@ -112,7 +112,7 @@ class ApprovalManager:
 
         """
         self._pending: dict[str, ApprovalRequest] = {}
-        self._futures: dict[str, asyncio.Future] = {}
+        self._futures: dict[str, asyncio.Future[ApprovalStatus]] = {}
         self._always_allowed: set[str] = set()  # "항상 허용"된 도구들
         self._default_timeout = default_timeout_sec
         self._event_loop: asyncio.AbstractEventLoop | None = None
@@ -240,7 +240,7 @@ class ApprovalManager:
         try:
             # 타임아웃과 함께 대기
             return await asyncio.wait_for(future, timeout=request.timeout_sec)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             request.status = ApprovalStatus.TIMEOUT
             request.resolved_at = time.time()
             logger.warning("[Approval] 타임아웃 자동 거부: %s", request_id)

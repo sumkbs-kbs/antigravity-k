@@ -2,6 +2,7 @@
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .permission_gate import Permission, PermissionGate
+from .tool_contracts import PermissionDecision, ToolInvocation, ToolSpec
 from .tool_registry import ToolRegistry
 
 __all__ = [
@@ -12,4 +13,7 @@ __all__ = [
     "ToolRegistry",
     "PermissionGate",
     "Permission",
+    "PermissionDecision",
+    "ToolInvocation",
+    "ToolSpec",
 ]

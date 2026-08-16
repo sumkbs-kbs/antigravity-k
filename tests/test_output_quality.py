@@ -127,6 +127,33 @@ read_file: 읽기, write_file: 文件 작성, 미래 예측은 정확히 답변�
     assert any("가독성" in issue or "띄어쓰기" in issue for issue in result.issues)
 
 
+def test_quality_gate_retries_plain_thinking_process_preface():
+    output = "Here's a thinking process:\n1. Analyze User Input\n2. List constraints\n\n최종 답변입니다."
+
+    result = QualityGate().evaluate("search", "최신 동향을 조사해줘", output)
+
+    assert result.should_retry is True
+    assert any("사고 과정" in issue or "Thinking Process" in issue for issue in result.issues)
+
+
+def test_quality_gate_retries_simplified_chinese_contamination():
+    output = "AI 반도체 공급망의 产能 확대가 진행되고 있습니다. 출처를 확인해야 합니다."
+
+    result = QualityGate().evaluate("search", "AI 반도체 동향을 조사해줘", output)
+
+    assert result.should_retry is True
+    assert any("외국어 오염" in issue for issue in result.issues)
+
+
+def test_quality_gate_retries_traditional_chinese_contamination():
+    output = "AI 반도체 공급망에서 先進 패키징 기술이 확산되고 있습니다."
+
+    result = QualityGate().evaluate("search", "AI 반도체 동향을 조사해줘", output)
+
+    assert result.should_retry is True
+    assert any("외국어 오염" in issue for issue in result.issues)
+
+
 def test_quality_gate_retries_stale_latest_trend_answer():
     gate = QualityGate()
 
@@ -185,6 +212,65 @@ def test_prompt_builder_includes_output_quality_contract():
     assert "자기소개/능력 설명은 실제 등록된 도구와 Skills만 근거" in guide
     assert "최신/최근/실시간 동향 질문" in guide
     assert "Thinking Process" in guide
+    assert "응답 실행 계약" in guide
+    assert "checkpoint" in guide
+    assert "출처와 근거" in guide
+
+
+def test_quality_gate_does_not_penalize_markdown_technical_tokens():
+    output = """## 계획 및 의존성 순서
+1. 저장소 분석 → 의존성 매핑 → 변경 계획 수립
+
+| 단계 | checkpoint 키 | 도구 | 성공 조건 |
+|---|---|---|---|
+| 1 | `step_1_migration_plan` | `ast-transformer` | 테스트 통과 |
+
+## recovery / retry / rollback
+실패 시 checkpoint에서 recovery하고 retry 후 rollback을 검증합니다.
+"""
+
+    result = QualityGate().evaluate(
+        "long_horizon",
+        "여러 단계의 마이그레이션 workflow를 설계해줘",
+        output,
+    )
+
+    assert "한국어 띄어쓰기/가독성 붕괴" not in result.issues
+
+
+def test_quality_gate_keeps_normal_technical_korean_readable():
+    output = (
+        "대규모 언어 모델(LLM)과 생성형 AI 데이터센터 투자로 GPU 및 TPU 수요가 증가했습니다.\n"
+        "로컬 LLM 모델은 GPU 기술과 양자화 설정에 따라 처리량이 달라집니다."
+    )
+
+    result = QualityGate().evaluate("search", "AI 반도체 동향을 요약해줘", output)
+
+    assert "한국어 띄어쓰기/가독성 붕괴" not in result.issues
+
+
+def test_quality_gate_ignores_markdown_source_urls_for_sentence_boundaries():
+    output = "출처는 [공식 문서](https://example.com/latest-update)입니다. 다음 문장을 확인합니다."
+
+    result = QualityGate().evaluate("search", "최신 동향의 출처를 알려줘", output)
+
+    assert not any("가독성" in issue for issue in result.issues)
+
+
+def test_quality_gate_ignores_dots_inside_technical_identifiers():
+    output = "llama.cpp는 로컬 추론에 사용합니다. 다음으로 API 호환성을 확인합니다."
+
+    result = QualityGate().evaluate("analysis", "llama.cpp를 설명해줘", output)
+
+    assert not any("가독성" in issue for issue in result.issues)
+
+
+def test_quality_gate_still_flags_glued_korean_sentences():
+    output = "이작업은할수있습니다.다음단계도진행할수있습니다."
+
+    result = QualityGate().evaluate("reasoning", "답변을 검토해줘", output)
+
+    assert any("가독성" in issue for issue in result.issues)
 
 
 @pytest.mark.asyncio

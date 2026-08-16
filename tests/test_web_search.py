@@ -129,7 +129,7 @@ class TestGenerateFallbackQueries:
     def test_duplicate_removed(self):
         """중복 제거."""
         queries = _generate_fallback_queries("테스트")
-        assert len(queries) == len(set(q.lower() for q in queries))
+        assert len(queries) == len({q.lower() for q in queries})
 
     def test_min_length_filter(self):
         """2글자 미만 제거."""
@@ -140,6 +140,19 @@ class TestGenerateFallbackQueries:
         """영어 관사 제거."""
         queries = _generate_fallback_queries("the best python tutorial")
         assert any("the" not in q for q in queries)
+
+    def test_technical_query_rewrites_preserve_intent(self):
+        ollama_queries = _generate_fallback_queries("Ollama tool calling official documentation")
+        assert ollama_queries[1] == "site:docs.ollama.com tool calling"
+
+        rfc_queries = _generate_fallback_queries("robots.txt standard RFC 9309")
+        assert "robots exclusion protocol RFC 9309" in rfc_queries
+
+        mdn_queries = _generate_fallback_queries("HTTP 429 Too Many Requests official MDN")
+        assert "429 Too Many Requests MDN Web Docs" in mdn_queries
+
+        docs_queries = _generate_fallback_queries("FastAPI background tasks official documentation")
+        assert "FastAPI background tasks official docs" in docs_queries
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -237,13 +250,33 @@ class TestSearchCache:
         search_cache.set("expired", response)
 
         with patch("antigravity_k.tools.web_search_cache.datetime") as mock_dt:
-            from datetime import datetime, timedelta
+            from datetime import UTC, datetime, timedelta
 
             # 미래 시간으로 설정 (24시간 이상 지난 것으로 만듦)
-            mock_dt.now.return_value = datetime.now() + timedelta(hours=48)
+            mock_dt.now.return_value = datetime.now(UTC) + timedelta(hours=48)
             mock_dt.fromisoformat = datetime.fromisoformat
             cached = search_cache.get("expired")
             assert cached is None
+
+    def test_stale_cache_is_available_with_explicit_marker(self, search_cache):
+        response = SearchResponse(
+            query="expired",
+            results=[SearchResult(title="T", url="https://ex.com", snippet="S")],
+            engine="test",
+        )
+        search_cache.set("expired", response)
+
+        with patch("antigravity_k.tools.web_search_cache.datetime") as mock_dt:
+            from datetime import UTC, datetime, timedelta
+
+            mock_dt.now.return_value = datetime.now(UTC) + timedelta(hours=48)
+            mock_dt.fromisoformat = datetime.fromisoformat
+            stale = search_cache.get_stale("expired")
+
+        assert stale is not None
+        assert stale.cached is True
+        assert stale.stale is True
+        assert stale.results[0].title == "T"
 
     def test_ttl_zero_not_cached(self, search_cache):
         """TTL 0이면 캐시 저장하지 않음."""
@@ -361,12 +394,38 @@ class TestWebSearchEngine:
         engine.tavily_api_key = None
         with (
             patch.object(engine.cache, "get", return_value=None),
+            patch.object(engine.cache, "get_stale", return_value=None),
             patch.object(engine, "_search_searxng", return_value=[]),
             patch.object(engine, "_search_jina", return_value=[]),
             patch.object(engine, "_search_duckduckgo", return_value=[]),
         ):
             response = await engine.search("test", use_cache=True)
             assert response.total_results == 0
+
+    @pytest.mark.asyncio
+    async def test_search_uses_stale_cache_after_provider_failure(self):
+        engine = WebSearchEngine()
+        stale_resp = SearchResponse(
+            query="test",
+            results=[SearchResult(title="Stale", url="https://ex.com", snippet="Old")],
+            engine="searxng",
+            cached=True,
+            stale=True,
+        )
+        engine.tavily_api_key = None
+        with (
+            patch.object(engine.cache, "get", return_value=None),
+            patch.object(engine.cache, "get_stale", return_value=stale_resp),
+            patch.object(engine, "_search_searxng", return_value=[]),
+            patch.object(engine, "_search_jina", return_value=[]),
+            patch.object(engine, "_search_duckduckgo", return_value=[]),
+        ):
+            response = await engine.search("test", use_cache=True)
+
+        assert response.stale is True
+        assert response.cached is True
+        assert response.engine == "stale-cache/searxng"
+        assert response.results[0].title == "Stale"
 
     @pytest.mark.asyncio
     async def test_search_with_searxng_results(self):
@@ -451,7 +510,7 @@ class TestWebSearchTool:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = [
-            {"title": "Jina Result", "url": "https://jina.ex", "description": "Jina desc"}
+            {"title": "Jina Result", "url": "https://jina.ex", "description": "Jina desc"},
         ]
 
         def mock_get(*args, **kwargs):
@@ -571,7 +630,9 @@ class TestWebSearchTool:
 
         # stock_code_validator의 함수가 실패해도 execute는 정상 동작해야 함
         monkeypatch.setattr(
-            scv, "validate_query_stock_codes", lambda q: (_ for _ in ()).throw(RuntimeError("Simulated"))
+            scv,
+            "validate_query_stock_codes",
+            lambda q: (_ for _ in ()).throw(RuntimeError("Simulated")),
         )
 
         # Mock all search methods to return empty
@@ -618,7 +679,9 @@ class TestWebSearchTool:
         results_deep = [("T2", "https://ex.com/2", "S2")]
 
         monkeypatch.setattr(
-            tool, "_sync_search_self_hosted", lambda q, **kw: results_standard if not kw.get("deep") else results_deep
+            tool,
+            "_sync_search_self_hosted",
+            lambda q, **kw: results_standard if not kw.get("deep") else results_deep,
         )
         monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
         monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
@@ -670,7 +733,7 @@ class TestWebSearchTool:
         mock_response.json.return_value = {
             "results": [
                 {"title": "SX Result", "url": "https://sx.ex", "content": "SX content"},
-            ]
+            ],
         }
 
         def mock_get(*args, **kwargs):
@@ -714,7 +777,7 @@ class TestWebSearchTool:
                         "change_percent": 1.51,
                         "direction": "상승",
                     },
-                }
+                },
             ],
             "backend": "mock",
         }

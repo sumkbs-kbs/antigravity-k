@@ -1,0 +1,72 @@
+[
+  {
+    "case_id": "fastapi-background-tasks",
+    "query": "FastAPI background tasks official documentation",
+    "relevant_urls": [
+      "https://fastapi.tiangolo.com/tutorial/background-tasks/",
+      "https://fastapi.tiangolo.com/async/"
+    ],
+    "graded_relevance": {
+      "https://fastapi.tiangolo.com/tutorial/background-tasks/": 3,
+      "https://fastapi.tiangolo.com/async/": 2
+    }
+  },
+  {
+    "case_id": "python-asyncio",
+    "query": "Python asyncio official documentation",
+    "relevant_urls": [
+      "https://docs.python.org/3/library/asyncio.html",
+      "https://docs.python.org/3/library/asyncio-task.html"
+    ],
+    "graded_relevance": {
+      "https://docs.python.org/3/library/asyncio.html": 3,
+      "https://docs.python.org/3/library/asyncio-task.html": 2
+    }
+  },
+  {
+    "case_id": "robots-standard",
+    "query": "robots.txt standard RFC 9309",
+    "relevant_urls": [
+      "https://www.rfc-editor.org/rfc/rfc9309.html"
+    ],
+    "graded_relevance": {
+      "https://www.rfc-editor.org/rfc/rfc9309.html": 3
+    }
+  },
+  {
+    "case_id": "ollama-tool-calling",
+    "query": "Ollama tool calling official documentation",
+    "relevant_urls": [
+      "https://docs.ollama.com/capabilities/tool-calling",
+      "https://github.com/ollama/ollama/blob/main/docs/api.md"
+    ],
+    "graded_relevance": {
+      "https://docs.ollama.com/capabilities/tool-calling": 3,
+      "https://github.com/ollama/ollama/blob/main/docs/api.md": 2
+    }
+  },
+  {
+    "case_id": "http-rate-limit",
+    "query": "HTTP 429 Too Many Requests official MDN",
+    "relevant_urls": [
+      "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/429",
+      "https://www.rfc-editor.org/rfc/rfc6585.html"
+    ],
+    "graded_relevance": {
+      "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/429": 3,
+      "https://www.rfc-editor.org/rfc/rfc6585.html": 2
+    }
+  },
+  {
+    "case_id": "qwen-local-runtime",
+    "query": "Qwen3.6 local model Ollama",
+    "relevant_urls": [
+      "https://github.com/QwenLM/Qwen3.6",
+      "https://ollama.com/library/qwen3.6"
+    ],
+    "graded_relevance": {
+      "https://github.com/QwenLM/Qwen3.6": 3,
+      "https://ollama.com/library/qwen3.6": 3
+    }
+  }
+]

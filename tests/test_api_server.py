@@ -8,6 +8,7 @@ from antigravity_k.api.server import app
 from antigravity_k.config import config
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.protocol_translator import ProtocolTranslator
+from antigravity_k.tools.permission_gate import Permission
 
 
 @pytest.fixture
@@ -81,6 +82,62 @@ def test_api_routes_require_access_pin_without_auth_header():
     assert response.json()["ok"] is False
 
 
+def test_memory_purge_requires_access_pin_without_auth_header():
+    if not config.security.access_pin:
+        pytest.skip("Access PIN is disabled for this environment")
+
+    with TestClient(app) as unauthenticated_client:
+        response = unauthenticated_client.request("DELETE", "/api/memory", json={"scope": "all"})
+
+    assert response.status_code == 401
+
+
+def test_skill_publish_github_honors_permission_denial_before_publisher_start(client, monkeypatch):
+    from antigravity_k.api.routes import system_api
+
+    gate = MagicMock()
+    gate.check.return_value = Permission.DENY
+    monkeypatch.setattr(system_api, "_permission_gate", lambda: gate, raising=False)
+
+    response = client.post(
+        "/api/system/skills/publish-github",
+        json={"skill_name": "demo", "repo": "org/repo"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_skill_publish_npm_honors_permission_denial_before_publisher_start(client, monkeypatch):
+    from antigravity_k.api.routes import system_api
+
+    gate = MagicMock()
+    gate.check.return_value = Permission.DENY
+    monkeypatch.setattr(system_api, "_permission_gate", lambda: gate)
+
+    response = client.post(
+        "/api/system/skills/publish-npm",
+        json={"skill_name": "demo"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_env_settings_honors_permission_denial_before_file_write(client, monkeypatch):
+    from antigravity_k.api.routes import legacy
+
+    gate = MagicMock()
+    gate.check.return_value = Permission.DENY
+    monkeypatch.setattr(legacy, "_permission_gate", lambda: gate, raising=False)
+    monkeypatch.setattr("builtins.open", MagicMock())
+
+    response = client.post(
+        "/api/settings/env",
+        json={"OPENAI_API_KEY": "redacted"},
+    )
+
+    assert response.status_code == 403
+
+
 def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
     from antigravity_k.api.routes import legacy
 
@@ -148,7 +205,7 @@ def test_kanban_websocket_sends_flat_tasks_payload(client):
             "status": "todo",
             "project_path": "/tmp/antigravity-ws",
             "project_name": "antigravity-ws",
-        }
+        },
     )
 
     try:
@@ -252,7 +309,7 @@ def test_chat_completions_routes_slash_codex(client, mock_manager):
             {
                 "role": "user",
                 "content": "/codex DOM 테스트와 제로 오류 정책을 업그레이드해줘",
-            }
+            },
         ],
     }
 
@@ -274,7 +331,7 @@ def test_chat_completions_self_capability_bypasses_llm(client, mock_manager):
             {
                 "role": "user",
                 "content": "너를 소개하고 니가 할 수 있는 일과 할 수 없는 일을 알려줘",
-            }
+            },
         ],
     }
 
@@ -332,6 +389,80 @@ def test_slash_api_benchmark_help_returns_plain_text(client, mock_manager):
     assert isinstance(data["result"], str)
     assert "Benchmark 명령어" in data["result"]
     mock_manager.generate.assert_not_called()
+
+
+def test_task_benchmark_api_submits_a_canonical_scenario(client, monkeypatch):
+    from antigravity_k.api.routes import legacy
+
+    runtime = MagicMock()
+    runtime.submit_task.return_value = "task_benchmark_001"
+    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+
+    response = client.post(
+        "/api/tasks/benchmark/srch-002",
+        json={"model": "qwen3.6:latest", "idempotency_key": "benchmark-srch-002"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["benchmark_case"]["id"] == "srch-002"
+    submitted = runtime.submit_task.call_args.kwargs
+    assert submitted["target_model"] == "qwen3.6:latest"
+    assert submitted["idempotency_key"] == "benchmark-srch-002"
+    assert submitted["context"]["benchmark_case_id"] == "srch-002"
+    assert submitted["context"]["expected_tools"] == ["web_search"]
+    assert submitted["context"]["expected_keywords"]
+    assert submitted["context"]["benchmark_read_only"] is True
+
+
+def test_task_cancel_api_cancels_background_task(client, monkeypatch):
+    from antigravity_k.api.routes import legacy
+
+    runtime = MagicMock()
+    runtime.cancel_task.return_value = True
+    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+
+    response = client.post("/api/tasks/task_123/cancel")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "cancelled", "task_id": "task_123"}
+    runtime.cancel_task.assert_called_once_with("task_123")
+
+
+def test_task_cancel_api_rejects_unknown_or_terminal_task(client, monkeypatch):
+    from antigravity_k.api.routes import legacy
+
+    runtime = MagicMock()
+    runtime.cancel_task.return_value = False
+    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+
+    response = client.post("/api/tasks/task_missing/cancel")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Task is not active"
+
+
+def test_task_api_reads_and_resumes_direct_task_through_canonical_runtime(client, monkeypatch):
+    from antigravity_k.api.routes import legacy
+
+    runtime = MagicMock()
+    runtime.get_task_status.return_value = {"task_id": "direct_001", "status": "failed"}
+    runtime.list_tasks.return_value = [{"task_id": "direct_001", "status": "failed"}]
+    runtime.get_task_output.return_value = "partial-output"
+    runtime.resume_task.return_value = True
+    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+
+    status = client.get("/api/tasks/direct_001/status")
+    tasks = client.get("/api/tasks?limit=1")
+    output = client.get("/api/tasks/direct_001/output")
+    resumed = client.post("/api/tasks/direct_001/resume")
+
+    assert status.json()["data"] == {"task_id": "direct_001", "status": "failed"}
+    assert tasks.json()["data"] == [{"task_id": "direct_001", "status": "failed"}]
+    assert output.json() == {"status": "ok", "task_id": "direct_001", "output": "partial-output"}
+    assert resumed.json() == {"status": "resumed", "task_id": "direct_001"}
+    runtime.get_task_status.assert_called_once_with("direct_001")
+    runtime.list_tasks.assert_called_once_with(limit=1)
+    runtime.get_task_output.assert_called_once_with("direct_001")
 
 
 def test_embeddings_endpoint_uses_local_fallback(client):

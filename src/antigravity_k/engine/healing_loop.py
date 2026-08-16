@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 from antigravity_k.engine.harness_models import TestIntent, TestResult, TestStatus
 
@@ -26,7 +26,7 @@ class HealingLoop:
     """
 
     # 대체 셀렉터 탐색 전략 (우선순위 순)
-    SELECTOR_STRATEGIES = [
+    SELECTOR_STRATEGIES: ClassVar[list[str]] = [
         "role",  # getByRole — Accessibility Tree 기반
         "label",  # getByLabel — aria-label 기반
         "text",  # getByText — 텍스트 내용 기반
@@ -46,7 +46,7 @@ class HealingLoop:
 
     async def try_with_healing(
         self,
-        action_fn: Callable,
+        action_fn: Callable[..., Any],
         page,
         context: dict[str, Any],
         intent: TestIntent,
@@ -126,7 +126,7 @@ class HealingLoop:
 
         return None
 
-    def _find_candidates(self, node: dict, target_text: str, depth: int = 0) -> list[str]:
+    def _find_candidates(self, node: dict[str, Any], target_text: str, depth: int = 0) -> list[str]:
         """Accessibility Tree에서 텍스트가 유사한 노드를 재귀적으로 탐색합니다."""
         candidates = []
         name = node.get("name", "")
@@ -150,7 +150,7 @@ class HealingLoopV2(HealingLoop):
     3. 치유 결과를 학습하여 재발 시 즉시 치유
     """
 
-    SELECTOR_STRATEGIES = [
+    SELECTOR_STRATEGIES: ClassVar[list[str]] = [
         "heal_memory",  # 이전 치유 패턴 재사용 (학습)
         "semantic_intent",  # SemanticDOMParser 의도 매칭 (NEW)
         "role",  # getByRole — Accessibility Tree 기반
@@ -212,7 +212,7 @@ class HealingLoopV2(HealingLoop):
                 element = parser.find_by_intent(snapshot, target_text)
                 if element:
                     heal_info = {
-                        "heal_strategy": f'semantic_intent: {element.ref} [{element.role.value}] "{element.display_name}"',  # noqa: E501
+                        "heal_strategy": f'semantic_intent: {element.ref} [{element.role.value}] "{element.display_name}"',
                         "selector": element.css_selector,
                         "target_text": element.display_name,
                         "healed_ref": element.ref,
@@ -255,7 +255,6 @@ class HealingLoopV2(HealingLoop):
                         return heal_info
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
 
         return None
 
@@ -282,7 +281,7 @@ class HealingLoopV2(HealingLoop):
         return {
             "total_heals": len(self.heal_log),
             "memory_entries": len(self._heal_memory),
-            "strategies_used": list(set(h.get("healed", "").split(":")[0] for h in self.heal_log)),
+            "strategies_used": list({h.get("healed", "").split(":")[0] for h in self.heal_log}),
             "memory": {
                 k: {
                     "healed_to": v["healed"],

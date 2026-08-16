@@ -16,18 +16,11 @@ Claw Code의 PermissionPolicy 아키텍처를 이식.
 import logging
 import os
 import re
-from enum import Enum
 from typing import Any
 
+from .tool_contracts import Permission, PermissionDecision, ToolInvocation, ToolSpec
+
 logger = logging.getLogger(__name__)
-
-
-class Permission(str, Enum):
-    """권한 결정 결과."""
-
-    ALLOW = "allow"  # 자동 실행
-    PROMPT = "prompt"  # 사용자 확인 필요
-    DENY = "deny"  # 차단
 
 
 class PermissionGate:
@@ -116,16 +109,36 @@ class PermissionGate:
             Permission.DENY   — 차단
 
         """
-        # 1. 명시적 오버라이드 우선
+        invocation = ToolInvocation(
+            spec=ToolSpec(name=tool_name, risk_level=risk_level, category="legacy"),
+            arguments=args,
+        )
+        return self.decide(invocation).permission
+
+    def decide(self, invocation: ToolInvocation) -> PermissionDecision:
+        tool_name = invocation.spec.name
+        args = invocation.arguments
+        risk_level = invocation.spec.risk_level
+
         if tool_name in self._overrides:
-            return self._overrides[tool_name]
+            return PermissionDecision(
+                spec=invocation.spec,
+                permission=self._overrides[tool_name],
+                source="override",
+                reason="A tool-specific permission override is configured.",
+            )
 
         # 2. 위험 명령 차단 (Bash/Shell 도구)
         if tool_name in ("run_bash_command", "bash"):
             command = args.get("command", "")
             if self._is_dangerous_command(command):
                 logger.warning("DENIED dangerous command: %s", command[:100])
-                return Permission.DENY
+                return PermissionDecision(
+                    spec=invocation.spec,
+                    permission=Permission.DENY,
+                    source="permission_gate",
+                    reason="The command matches a blocked dangerous-command policy.",
+                )
 
         # 3. 경로 기반 샌드박싱 (파일 쓰기 도구)
         path_decision = None
@@ -133,7 +146,12 @@ class PermissionGate:
         if file_path:
             path_decision = self._check_path(file_path, tool_name)
             if path_decision == Permission.DENY:
-                return Permission.DENY
+                return PermissionDecision(
+                    spec=invocation.spec,
+                    permission=Permission.DENY,
+                    source="permission_gate",
+                    reason="The requested path is outside the permitted project boundary or protected.",
+                )
 
         # 4. risk_level 기반 결정
         risk_map = {
@@ -158,9 +176,19 @@ class PermissionGate:
         cache_key = f"{tool_name}:{risk_level}"
         if decision == Permission.PROMPT and cache_key in self._approval_cache:
             logger.debug("Auto-approved from cache: %s", cache_key)
-            return Permission.ALLOW
+            return PermissionDecision(
+                spec=invocation.spec,
+                permission=Permission.ALLOW,
+                source="approval_cache",
+                reason="A matching approved tool action is cached for this session.",
+            )
 
-        return decision
+        return PermissionDecision(
+            spec=invocation.spec,
+            permission=decision,
+            source="permission_gate",
+            reason="The tool risk and path policy determine this permission.",
+        )
 
     def record_approval(self, tool_name: str, risk_level: str = "safe"):
         """사용자가 승인한 도구를 캐시에 기록합니다."""
@@ -184,11 +212,16 @@ class PermissionGate:
                 logger.warning("DENIED access to protected path: %s", raw_path)
                 return Permission.DENY
 
-        abs_path = os.path.abspath(file_path)
+        abs_path = os.path.realpath(os.path.abspath(file_path))
 
         # 보호 경로 차단
         for protected in self.PROTECTED_PATHS:
-            if abs_path.lower().startswith(protected.lower()):
+            protected_path = os.path.realpath(os.path.abspath(protected))
+            try:
+                inside_protected = os.path.commonpath([abs_path, protected_path]) == protected_path
+            except ValueError:
+                inside_protected = False
+            if inside_protected:
                 logger.warning("DENIED access to protected path: %s", abs_path)
                 return Permission.DENY
 
@@ -197,7 +230,12 @@ class PermissionGate:
             return Permission.ALLOW
 
         # 프로젝트 외부 파일 접근
-        if not os.path.normcase(abs_path).startswith(os.path.normcase(self.project_root)):
+        project_root = os.path.realpath(self.project_root)
+        try:
+            inside_project = os.path.commonpath([abs_path, project_root]) == project_root
+        except ValueError:
+            inside_project = False
+        if not inside_project:
             if self.mode == "strict":
                 return Permission.DENY
             elif self.mode == "auto-pilot":

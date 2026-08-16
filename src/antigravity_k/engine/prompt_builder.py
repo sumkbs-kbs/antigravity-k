@@ -117,7 +117,7 @@ class PromptBuilder:
             current_time: 현재 시간 (None이면 자동)
 
         """
-        now = current_time or datetime.datetime.now()
+        now = current_time or datetime.datetime.now(datetime.UTC)
         now_str = now.strftime("%Y년 %m월 %d일 %H시 %M분")
 
         tool_section = (
@@ -144,25 +144,25 @@ class PromptBuilder:
             "검색어에 포함하세요. 절대 상대적인 단어('내일')로만 검색하지 마세요.\n"
             "9. **`<thought>` 블록 안에서 `<action_call>` 태그를 절대 사용하거나 언급하지 마세요.** "
             "`<action_call>`은 오직 `<thought>` 블록 바깥에서만 사용해야 합니다.\n"
-            "10. **[CRITICAL] 사용자가 파일 생성, 수정, 또는 명령 실행을 요구하면 절대 코드만 텍스트로 보여주지 마세요.** "  # noqa: E501
+            "10. **[CRITICAL] 사용자가 파일 생성, 수정, 또는 명령 실행을 요구하면 절대 코드만 텍스트로 보여주지 마세요.** "
             "당신은 스스로 컴퓨터와 상호작용할 수 있습니다. `write_file`, `run_bash_command` 등의 도구를 직접 호출하여 "
             "**반드시 물리적으로 파일을 생성하고 명령을 실행**해야 합니다.\n"
             "11. **[CRITICAL] 사용자의 명시적인 요구가 없다면, 도구를 실행하기 전에 허락이나 동의를 구하지 마세요.** "
             "스스로 판단하여 도구를 즉시 실행하고, 그 결과를 정리해서 사용자에게 보고하세요. "
             "안전한 파일 생성이나 폴더 생성 작업은 질문 없이 바로 실행해야 합니다.\n\n"
             "### 📊 출력 품질 게이트 (Output Quality Gate):\n"
-            "12. **코드 요청에도 반드시 한국어 설명을 포함하세요.** 코드 블록만 단독으로 응답하는 것은 품질 부족입니다. "  # noqa: E501
+            "12. **코드 요청에도 반드시 한국어 설명을 포함하세요.** 코드 블록만 단독으로 응답하는 것은 품질 부족입니다. "
             "최소한 '왜 이 방법을 선택했는지'와 '동작 원리'를 한국어로 설명하세요.\n"
-            "13. **[CRITICAL] 시간/공간 복잡도(Big-O)는 사용자가 알고리즘이나 성능에 대해 명시적으로 물어볼 때만 포함하세요.** "  # noqa: E501
+            "13. **[CRITICAL] 시간/공간 복잡도(Big-O)는 사용자가 알고리즘이나 성능에 대해 명시적으로 물어볼 때만 포함하세요.** "
             "단순한 폴더 생성, HTML 작성, API 연동 같은 작업에는 절대 Big-O를 설명하지 마세요.\n"
-            "14. **코드 블록 전후로 선택 근거를 제시하세요.** '왜 이 알고리즘/패턴을 선택했는지' 1~2문장으로 설명하세요.\n"  # noqa: E501
+            "14. **코드 블록 전후로 선택 근거를 제시하세요.** '왜 이 알고리즘/패턴을 선택했는지' 1~2문장으로 설명하세요.\n"
             "15. **3개 이상의 방법 비교 요청 시 반드시 비교 표(마크다운 테이블)를 포함하세요.** "
             "| 방법 | 시간복잡도 | 공간복잡도 | 특징 | 형태의 표를 사용하세요.\n"
             "16. **한 응답에서 같은 문단을 2회 이상 반복하지 마세요.** 반복 감지 시 해당 문단을 제거하세요.\n"
             "17. **응답이 지나치게 짧으면(200자 미만) 품질 부족입니다.** 추가 설명, 예시, 팁을 보완하세요.\n\n"
             "18. **[CRITICAL] 자기소개/능력 설명은 실제 등록된 도구와 Skills만 근거로 작성하세요.** "
             "WiFi, 볼륨, 클립보드, OS 제어처럼 현재 도구 목록에 없는 기능을 가진 것처럼 말하지 마세요.\n"
-            "19. **[CRITICAL] 최신/최근/실시간 동향 질문은 반드시 검색 도구로 확인하거나, 검색 도구가 없으면 그 한계를 명확히 말하세요.** "  # noqa: E501
+            "19. **[CRITICAL] 최신/최근/실시간 동향 질문은 반드시 검색 도구로 확인하거나, 검색 도구가 없으면 그 한계를 명확히 말하세요.** "
             "지식 cutoff나 오래된 일반론만으로 최신 정보를 답하지 마세요.\n"
             "20. **[CRITICAL] 내부 추론을 사용자에게 노출하지 마세요.** "
             "`Thinking Process`, `<think>`, `<thought>`, 영어 혼잣말, 계획 독백은 최종 답변에 포함될 수 없습니다.\n"
@@ -170,7 +170,7 @@ class PromptBuilder:
             "### 📑 Artifacts 및 Planning Mode (Google Tolaria Architecture):\n"
             "22. **대규모 아키텍처 변경이나 복잡한 요구사항 시, 코드를 바로 짜지 말고 계획안을 먼저 작성하세요.**\n"
             "  - `write_file` 도구를 사용하여 `artifacts/implementation_plan.md` 파일을 생성하세요.\n"
-            "  - 파일 작성 완료 후 사용자에게 승인을 요청하는 **`[APPROVAL REQUIRED]`** 문자열을 응답에 포함하여 멈추세요.\n"  # noqa: E501
+            "  - 파일 작성 완료 후 사용자에게 승인을 요청하는 **`[APPROVAL REQUIRED]`** 문자열을 응답에 포함하여 멈추세요.\n"
             "23. **승인을 받으면 `artifacts/task.md`를 생성하고 할 일 목록을 기록 및 갱신하며 작업하세요.**\n"
             "24. **Artifact 작성 시 마크다운 요소를 적극 활용하세요.**\n"
             "  - GitHub 스타일 경고 (`> [!NOTE]`, `> [!WARNING]`, `> [!IMPORTANT]`)\n"
@@ -201,7 +201,36 @@ class PromptBuilder:
                     param_strs.append(f"{k} ({p_type}, {p_req})")
                 tool_section += f"  Parameters: {', '.join(param_strs)}\n"
 
+        tool_section += "\n" + self.response_contract() + "\n"
         return tool_section
+
+    def response_contract(self, category: str = "", current_time: datetime.datetime | None = None) -> str:
+        normalized = (category or "").strip().lower()
+        lines = [
+            "## 응답 실행 계약",
+            f"- 현재 시점: {self._format_current_date(current_time)}입니다. '최신'/'오늘' 답변은 이 시점을 기준으로 하고, 검색 결과의 게시일과 비교해 최신성을 판단하세요.",
+            "- 최종 답변은 자연스러운 한국어로 작성하고, 영어 기술 용어는 필요한 경우에만 분리해 사용하세요.",
+            "- 사용자 요구사항을 빠짐없이 점검하고, 확인한 사실·가정·확인 불가 항목을 구분하세요.",
+            "- 최신·조사 답변은 주장별 출처와 근거를 연결하고, 출처가 없으면 확인 불가로 표시하세요.",
+            "- 복잡하거나 장기 작업은 계획, checkpoint, recovery, retry, rollback, 최종 검증을 명시하세요.",
+            "- 내부 추론과 작업 독백은 출력하지 말고, 사용자에게 필요한 결정·근거·결과만 제시하세요.",
+            "- 답변 전 누락된 요구사항, 안전성, 검증 방법을 짧게 자가 점검하세요.",
+        ]
+        if normalized in {"search", "research", "analysis"}:
+            lines.extend(
+                [
+                    "- 조사 결과는 주장별로 출처와 근거를 연결하고, 출처가 없거나 최신성을 확인할 수 없으면 명시하세요.",
+                    "- 여러 출처가 충돌하면 한쪽을 임의로 확정하지 말고 차이, 시점, 불확실성을 설명하세요.",
+                ],
+            )
+        if normalized in {"complex", "architecture", "long_horizon", "long-horizon"}:
+            lines.extend(
+                [
+                    "- 복잡한 작업은 계획, 의존성 순서, 성공 조건을 먼저 제시하세요.",
+                    "- 장기 작업은 checkpoint, idempotency, recovery, retry, rollback, 최종 검증을 명시하세요.",
+                ],
+            )
+        return "\n".join(lines)
 
     # ─── 계층형 프롬프트 아키텍처 (Structured & Segmented Prompts) ───
     def structured_prompt(
@@ -250,6 +279,8 @@ class PromptBuilder:
                 "- 불필요한 서론과 사족을 생략하고 핵심만 전달하세요.\n"
                 "- 확실하지 않은 정보는 명확히 '확인 불가'라고 표시하세요.",
             )
+
+        sections.append(f"[RESPONSE CONTRACT]\n{self.response_contract()}")
 
         # [CONTEXT] 참고 자료 (RAG 문서, 검색 결과 등)
         if context:
@@ -395,6 +426,16 @@ class PromptBuilder:
             ],
         }
         return _EXAMPLES.get(task_type, [])
+
+    @staticmethod
+    def _format_current_date(current_time: datetime.datetime | None) -> str:
+        """Format the current date as 'YYYY년 MM월 DD일' for freshness grounding.
+
+        Injecting the real date lets the model anchor '최신'/'오늘' answers to the
+        actual present instead of hallucinating a stale year from training data.
+        """
+        now = current_time or datetime.datetime.now(datetime.UTC)
+        return f"{now.year}년 {now.month:02d}월 {now.day:02d}일"
 
     def clear_cache(self):
         """캐시를 비웁니다 (프롬프트 파일 수정 후 리로드 시)."""

@@ -3,7 +3,7 @@
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -38,13 +38,13 @@ class MemoryService:
         self._init_db()
 
     @property
-    def vector_store(self):
+    def vector_store(self) -> Any | None:
         """VectorStore를 지연 로드합니다."""
         if self._vector_store is None:
             try:
-                from antigravity_k.knowledge.vector_store import VectorStore
+                from antigravity_k.engine.vector_store import VectorStore
 
-                self._vector_store = VectorStore(db_path=self.db_path)
+                self._vector_store = VectorStore(persist_directory=self.db_path)
                 logger.info("VectorStore initialized for hybrid search")
             except Exception:
                 logger.exception("VectorStore init failed, keyword-only mode")
@@ -81,7 +81,7 @@ class MemoryService:
 
     def add_knowledge(self, topic: str, content: str, tags: list[str] | None = None):
         """새로운 지식 항목을 저장하고 벡터 임베딩을 자동 생성합니다."""
-        now = datetime.now().isoformat()
+        now = datetime.now().astimezone().replace(tzinfo=None).isoformat()
         tags_str = json.dumps(tags) if tags else "[]"
         with self._get_connection() as conn:
             cursor = conn.execute(
@@ -191,7 +191,7 @@ class MemoryService:
             rrf_scores[item_id] = rrf_scores.get(item_id, 0) + 1.0 / (rrf_k + rank + 1)
 
         # 모든 결과를 id 기준으로 병합
-        all_items: dict[int, dict] = {}
+        all_items: dict[int, dict[str, Any]] = {}
         for item in k_results + v_results:
             if item["id"] not in all_items:
                 all_items[item["id"]] = item
@@ -231,7 +231,7 @@ class MemoryService:
 
     def save_snapshot(self, agent_name: str, snapshot_data: dict[str, Any]):
         """에이전트의 현재 상태(컨텍스트) 스냅샷을 저장합니다."""
-        now = datetime.now().isoformat()
+        now = datetime.now().astimezone().replace(tzinfo=None).isoformat()
         data_str = json.dumps(snapshot_data, ensure_ascii=False)
         with self._get_connection() as conn:
             conn.execute(
@@ -252,6 +252,70 @@ class MemoryService:
             if row:
                 return json.loads(row["snapshot_data"])
         return None
+
+    def clear_all(self) -> int:
+        with self._get_connection() as conn:
+            knowledge_count = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0]
+            snapshot_count = conn.execute("SELECT COUNT(*) FROM context_snapshots").fetchone()[0]
+            conn.execute("DELETE FROM knowledge_items")
+            conn.execute("DELETE FROM context_snapshots")
+            conn.commit()
+
+        if self._vector_store is not None:
+            self._vector_store.clear()
+        return knowledge_count + snapshot_count
+
+    def export_all(self) -> list[dict[str, Any]]:
+        with self._get_connection() as conn:
+            knowledge = [
+                dict(row) for row in conn.execute("SELECT * FROM knowledge_items ORDER BY created_at").fetchall()
+            ]
+            snapshots = [
+                dict(row) for row in conn.execute("SELECT * FROM context_snapshots ORDER BY created_at").fetchall()
+            ]
+        return [{"kind": "knowledge", "data": row} for row in knowledge] + [
+            {"kind": "snapshot", "data": row} for row in snapshots
+        ]
+
+    def redact_all(self) -> int:
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        changed = 0
+        with self._get_connection() as conn:
+            for row in conn.execute("SELECT id, topic, content, tags FROM knowledge_items").fetchall():
+                values = [redact_full(row["topic"]), redact_full(row["content"]), redact_full(row["tags"] or "")]
+                if values != [row["topic"], row["content"], row["tags"] or ""]:
+                    conn.execute(
+                        "UPDATE knowledge_items SET topic = ?, content = ?, tags = ? WHERE id = ?",
+                        (*values, row["id"]),
+                    )
+                    changed += 1
+            for row in conn.execute("SELECT id, snapshot_data FROM context_snapshots").fetchall():
+                redacted = redact_full(row["snapshot_data"])
+                if redacted != row["snapshot_data"]:
+                    conn.execute(
+                        "UPDATE context_snapshots SET snapshot_data = ? WHERE id = ?",
+                        (redacted, row["id"]),
+                    )
+                    changed += 1
+            conn.commit()
+        if changed and self._vector_store is not None:
+            self._vector_store.clear()
+            self.rebuild_embeddings()
+        return changed
+
+    def apply_retention(self, max_age_days: int) -> int:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        cutoff = (datetime.now().astimezone().replace(tzinfo=None) - timedelta(days=max_age_days)).isoformat()
+        with self._get_connection() as conn:
+            knowledge = conn.execute("DELETE FROM knowledge_items WHERE created_at < ?", (cutoff,)).rowcount
+            snapshots = conn.execute("DELETE FROM context_snapshots WHERE created_at < ?", (cutoff,)).rowcount
+            conn.commit()
+        if knowledge and self._vector_store is not None:
+            self._vector_store.clear()
+            self.rebuild_embeddings()
+        return knowledge + snapshots
 
     def get_stats(self) -> dict[str, Any]:
         """메모리 서비스 통계."""

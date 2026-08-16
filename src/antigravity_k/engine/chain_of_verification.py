@@ -91,6 +91,24 @@ SIMPLE_INDICATORS = [
 ]
 
 
+def estimate_complexity(task: str) -> float:
+    """작업의 복잡도를 0.0~1.0으로 추정한다 (CoV/self-consistency 공유).
+
+    단순 지표가 2개 이상이면 0.1, 그 외는 복잡 지표·코드 요청·길이로 산정.
+    작은 모델의 증폭 자원을 복잡한 작업에 집중하기 위한 공용 게이트다.
+    """
+    task_lower = (task or "").lower()
+    simple_hits = sum(1 for ind in SIMPLE_INDICATORS if ind in task_lower)
+    if simple_hits >= 2:
+        return 0.1
+    complex_hits = sum(1 for ind in COMPLEX_INDICATORS if ind in task_lower)
+    has_code_request = any(
+        kw in task_lower for kw in ["코드", "code", "함수", "function", "클래스", "class", "구현", "implement"]
+    )
+    length_factor = min(len(task) / 500, 1.0) * 0.2
+    return min((complex_hits * 0.15) + (0.2 if has_code_request else 0.0) + length_factor, 1.0)
+
+
 class ChainOfVerification:
     """Generate → Verify → Revise 3-pass 자기검증 파이프라인.
 
@@ -100,21 +118,24 @@ class ChainOfVerification:
 
     def __init__(
         self,
-        generate_fn: Callable | None = None,
+        generate_fn: Callable[..., str] | None = None,
         min_response_length: int = 200,
         complexity_threshold: float = 0.4,
+        max_revise_iterations: int = 1,
     ):
         """Args:
         generate_fn: 모델 호출 함수 (prompt: str) -> str
         min_response_length: CoV를 적용할 최소 응답 길이
-        complexity_threshold: 복잡도 점수 임계값 (0.0~1.0).
+        complexity_threshold: 복잡도 점수 임계값 (0.0~1.0)
+        max_revise_iterations: revise→verify 폐루프 반복 한계 (기본 1)
 
         """
         self._generate_fn = generate_fn
         self.min_response_length = min_response_length
         self.complexity_threshold = complexity_threshold
+        self.max_revise_iterations = max_revise_iterations
 
-    def set_generate_fn(self, fn: Callable):
+    def set_generate_fn(self, fn: Callable[..., str]) -> None:
         """모델 호출 함수를 설정합니다."""
         self._generate_fn = fn
 
@@ -129,40 +150,8 @@ class ChainOfVerification:
         return score >= self.complexity_threshold
 
     def estimate_complexity(self, task: str) -> float:
-        """작업의 복잡도를 0.0~1.0으로 추정합니다."""
-        task_lower = task.lower()
-
-        # 단순 지표 체크
-        simple_hits = sum(1 for ind in SIMPLE_INDICATORS if ind in task_lower)
-        if simple_hits >= 2:
-            return 0.1
-
-        # 복잡 지표 체크
-        complex_hits = sum(1 for ind in COMPLEX_INDICATORS if ind in task_lower)
-
-        # 코드 블록 포함 여부
-        has_code_request = any(
-            kw in task_lower
-            for kw in [
-                "코드",
-                "code",
-                "함수",
-                "function",
-                "클래스",
-                "class",
-                "구현",
-                "implement",
-            ]
-        )
-
-        # 길이 기반 보정
-        length_factor = min(len(task) / 500, 1.0) * 0.2
-
-        score = min(
-            (complex_hits * 0.15) + (0.2 if has_code_request else 0.0) + length_factor,
-            1.0,
-        )
-        return score
+        """작업의 복잡도를 모듈 수준 estimate_complexity에 위임한다."""
+        return estimate_complexity(task)
 
     def verify(self, task: str, response: str) -> VerificationResult:
         """생성된 응답을 검증합니다 (Pass 2)."""
@@ -252,19 +241,40 @@ class ChainOfVerification:
         trace.verification_result = verification
         trace.total_passes = 2
 
-        # 3. 수정 (Pass 3) — 검증 실패 시에만
+        # 3. 수정 폐루프 (Pass 3+) — 검증 실패 시 revise→verify 반복.
+        # max_revise_iterations=1 이면 단일 revise 후 종료(기존 동작).
+        # 2 이상이면 수정 응답을 재검증하며 통과 또는 한계 도달까지 반복한다.
+        current = response
+        current_verification = verification
         if not verification.passed:
-            trace.revised_response = self.revise(task, response, verification)
-            trace.total_passes = 3
-        else:
-            trace.revised_response = response
+            for it in range(self.max_revise_iterations):
+                revised = self.revise(task, current, current_verification)
+                trace.total_passes += 1
+                if revised == current:
+                    break  # revise가 개선을 만들지 못함 → 조기 종료
+                current = revised
+                if self.max_revise_iterations > 1:
+                    re_verification = self.verify(task, current)
+                    trace.total_passes += 1
+                    if re_verification.passed:
+                        current_verification = re_verification
+                        logger.info("[CoV] revise 루프 %s회차 검증 통과", it + 1)
+                        break
+                    current_verification = re_verification
+                    logger.debug(
+                        "[CoV] revise 루프 %s회차 재검증 실패 (issues=%s)",
+                        it + 1,
+                        len(re_verification.issues_found),
+                    )
+            trace.verification_result = current_verification
+        trace.revised_response = current
 
         trace.total_latency_ms = (time.time() - start) * 1000
         logger.info(
             "[CoV] %s-pass complete. Issues: %s, Severity: %s, Latency: %sms",
             trace.total_passes,
-            len(verification.issues_found),
-            verification.severity,
+            len(current_verification.issues_found),
+            current_verification.severity,
             trace.total_latency_ms,
         )
 

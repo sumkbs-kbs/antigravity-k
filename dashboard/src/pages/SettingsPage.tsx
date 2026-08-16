@@ -9,6 +9,7 @@ import { GlassPanel } from '../components/shared';
 import { useThemeStore } from '../stores/themeStore';
 import { useLocalHistoryStore } from '../stores/localHistoryStore';
 import CacheStatsPanel from '../components/shared/CacheStatsPanel';
+import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
 import { fetchLogLevels, setLogLevel, setAllLogLevels, setDebugMode, type LogLevelInfo } from '../api/client';
 
 interface ServerConfig {
@@ -170,6 +171,8 @@ const SettingsPage: React.FC = () => {
             />
           </div>
         </GlassPanel>
+
+        <ModelOperationsPanel />
 
         {/* 3. Search Engine — Toggle Switch */}
         <GlassPanel title="🔍 웹 검색 엔진" variant="section" className="settings-section">

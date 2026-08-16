@@ -19,6 +19,11 @@ class SearchResult:
     source: str = ""  # 검색 엔진 이름
     timestamp: str = ""  # 검색 시각
     relevance_score: float = 0.0
+    canonical_url: str = ""
+    source_id: str = ""
+    domain: str = ""
+    authority_score: float = 0.0
+    ranking_score: float = 0.0
 
 
 @dataclass
@@ -31,9 +36,10 @@ class SearchResponse:
     search_time_ms: float = 0.0
     engine: str = "searxng"
     cached: bool = False
+    stale: bool = False
 
 
 __all__ = [
-    "SearchResult",
     "SearchResponse",
+    "SearchResult",
 ]

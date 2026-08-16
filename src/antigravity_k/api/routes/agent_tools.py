@@ -3,7 +3,7 @@
 import base64
 import logging
 import os
-import subprocess
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
@@ -11,7 +11,10 @@ from playwright.async_api import Browser, BrowserContext, Error, Page, async_pla
 from pydantic import BaseModel
 
 from antigravity_k.config import config
+from antigravity_k.engine.sandbox import SandboxRunner
+from antigravity_k.tools.egress_policy import validate_httpx_request_async
 from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -24,8 +27,8 @@ class BrowserState:
     browser: Browser | None = None
     context: BrowserContext | None = None
     page: Page | None = None
-    console_errors: list = []
-    console_logs: list = []
+    console_errors: list[Any] = []
+    console_logs: list[Any] = []
 
 
 browser_state = BrowserState()
@@ -35,13 +38,38 @@ def _permission_gate() -> PermissionGate:
     return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict, risk_level: str):
-    decision = _permission_gate().check(tool_name, args, risk_level=risk_level)
-    if decision != Permission.ALLOW:
+def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str):
+    decision = _permission_gate().decide(
+        ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
+    )
+    if decision.permission != Permission.ALLOW:
         raise HTTPException(
             status_code=403,
-            detail=f"Permission denied for {tool_name}: {decision.value}",
+            detail=f"Permission denied for {tool_name}: {decision.permission.value}",
         )
+
+
+def _resolve_project_cwd(cwd: str | None) -> str:
+    project_root = Path(config.paths.project_root).resolve()
+    candidate = (project_root if not cwd else Path(cwd).expanduser()).resolve()
+    try:
+        candidate.relative_to(project_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="Working directory must remain inside the project root") from exc
+    if not candidate.is_dir():
+        raise HTTPException(status_code=400, detail="Working directory does not exist")
+    return str(candidate)
+
+
+def _resolve_project_path(path: str) -> str:
+    project_root = Path(config.paths.project_root).resolve()
+    raw_path = Path(path).expanduser()
+    candidate = (raw_path if raw_path.is_absolute() else project_root / raw_path).resolve()
+    try:
+        candidate.relative_to(project_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail="File path must remain inside the project root") from exc
+    return str(candidate)
 
 
 class FileReadRequest(BaseModel):
@@ -78,11 +106,12 @@ class ShellRunRequest(BaseModel):
 @router.post("/api/agent/tools/fs/read")
 def read_file(req: FileReadRequest):
     """지정된 파일의 내용을 읽어옵니다."""
-    _require_allowed("read_file", {"path": req.path}, "safe")
-    if not os.path.exists(req.path):
+    path = _resolve_project_path(req.path)
+    _require_allowed("read_file", {"path": path}, "safe")
+    if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
     try:
-        with open(req.path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return {"ok": True, "content": f.read()}
     except (OSError, UnicodeDecodeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -91,14 +120,15 @@ def read_file(req: FileReadRequest):
 @router.post("/api/agent/tools/fs/write")
 def write_file(req: FileWriteRequest):
     """파일을 생성하거나 덮어씁니다."""
-    _require_allowed("write_file", {"path": req.path}, "medium")
-    if os.path.exists(req.path) and not req.overwrite:
+    path = _resolve_project_path(req.path)
+    _require_allowed("write_file", {"path": path}, "medium")
+    if os.path.exists(path) and not req.overwrite:
         raise HTTPException(status_code=400, detail="File exists, use overwrite=True")
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(req.path)), exist_ok=True)
-        with open(req.path, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
             f.write(req.content)
-        return {"ok": True, "path": req.path}
+        return {"ok": True, "path": path}
     except OSError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -106,29 +136,36 @@ def write_file(req: FileWriteRequest):
 @router.post("/api/agent/tools/shell/run")
 def run_shell(req: ShellRunRequest):
     """터미널 명령을 샌드박스에서 실행합니다."""
-    _require_allowed("run_bash_command", {"command": req.command}, "high")
-    if req.cwd:
-        _require_allowed("write_file", {"path": req.cwd}, "medium")
+    cwd = _resolve_project_cwd(req.cwd)
+    _require_allowed("run_bash_command", {"command": req.command, "path": cwd}, "high")
+    timeout = max(1, min(req.timeout, int(config.security.max_execution_time)))
     try:
-        result = subprocess.run(
+        result = SandboxRunner(
+            project_root=str(config.paths.project_root),
+            enabled=bool(config.security.sandbox_enabled),
+            network=str(config.security.sandbox_network),
+            timeout=timeout,
+            max_output_bytes=int(config.security.max_output_bytes),
+            max_memory_mb=int(config.security.max_memory_mb),
+            max_processes=int(config.security.max_processes),
+        ).execute(
             req.command,
-            shell=True,
-            cwd=req.cwd,
-            capture_output=True,
-            text=True,
-            timeout=req.timeout,
+            timeout=timeout,
+            cwd=cwd,
         )
+        if result.error:
+            raise HTTPException(status_code=503, detail=result.error)
         return {
-            "ok": True,
+            "ok": result.success,
             "stdout": result.stdout,
             "stderr": result.stderr,
-            "returncode": result.returncode,
+            "returncode": result.return_code,
+            "sandboxed": result.sandboxed,
+            "output_truncated": result.output_truncated,
         }
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=408, detail="Command execution timed out")
     except HTTPException:
         raise
-    except (subprocess.SubprocessError, OSError, ValueError) as e:
+    except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -147,6 +184,14 @@ class BrowserActionRequest(BaseModel):
 @router.post("/api/agent/tools/browser/action")
 async def browser_action(req: BrowserActionRequest):
     """Playwright 기반 브라우저 자동화 엔진 API."""
+    risk_level = "safe" if req.action in {"snapshot", "console_errors"} else "medium"
+    if req.action == "goto":
+        risk_level = "high"
+    _require_allowed(
+        "browser_action",
+        {"action": req.action, "url": req.url, "selector": req.selector},
+        risk_level,
+    )
     try:
         if req.action == "launch":
             if not browser_state.playwright:
@@ -156,7 +201,9 @@ async def browser_action(req: BrowserActionRequest):
                 browser_state.browser = await browser_state.playwright.chromium.launch(
                     headless=True,
                 )
-                browser_state.context = await browser_state.browser.new_context(
+                browser = browser_state.browser
+                assert browser is not None
+                browser_state.context = await browser.new_context(
                     viewport={"width": 1280, "height": 800},
                 )
                 browser_state.page = await browser_state.context.new_page()
@@ -220,7 +267,7 @@ async def browser_action(req: BrowserActionRequest):
             # Accessibility Tree (compact text representation for LLM)
             a11y_tree = None
             try:
-                a11y_snapshot = await browser_state.page.accessibility.snapshot()  # type: ignore[attr-defined]
+                a11y_snapshot = await getattr(browser_state.page, "accessibility").snapshot()
                 a11y_tree = _flatten_a11y_tree(a11y_snapshot) if a11y_snapshot else None
             except Exception:
                 logger.exception("Unhandled exception")
@@ -251,7 +298,7 @@ async def browser_action(req: BrowserActionRequest):
 
 
 # ─── Accessibility Tree Flattener ─────────────────────────────
-def _flatten_a11y_tree(node: dict, depth: int = 0) -> str:
+def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
     """Playwright의 Accessibility Tree를 LLM이 이해할 수 있는.
 
     컴팩트한 텍스트 표현으로 변환합니다.
@@ -347,8 +394,8 @@ class AutonomousQARequest(BaseModel):
 
     url: str = "http://localhost:5173"
     max_iterations: int = 3
-    vision_model: str = "qwen2.5vl:32b"
-    coding_model: str = "qwen2.5-coder:32b"
+    vision_model: str = "qwen3.6:latest"
+    coding_model: str = "qwen3.6:latest"
 
 
 @router.post("/api/agent/tools/browser/autonomous-qa")
@@ -357,12 +404,13 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
 
     이 엔드포인트가 호출되면:
     1. Playwright로 대시보드 스크린샷 촬영
-    2. qwen2.5vl:32b가 UI 결함 분석
-    3. qwen2.5-coder:32b가 코드 수정 패치 생성
+    2. qwen3.6:latest가 UI 결함 분석
+    3. qwen3.6:latest가 코드 수정 패치 생성
     4. 패치 자동 적용 → 리로드 → 재분석
     5. 결함 해소 확인될 때까지 최대 N회 반복
     6. 반응형 테스트(desktop/tablet/mobile) + 성능 메트릭 수집
     """
+    _require_allowed("autonomous_qa", {"url": req.url}, "critical")
     try:
         from antigravity_k.engine.autonomous_qa import AutonomousQAEngine
 
@@ -393,7 +441,7 @@ class VisionAnalyzeRequest(BaseModel):
 
     screenshot_base64: str | None = None
     prompt: str = "이 UI 스크린샷을 분석하세요. 레이아웃 문제, 겹침, 잘림, 정렬 오류가 있으면 모두 지적하고 수정 방법을 제안하세요."  # noqa: E501
-    model: str = "qwen2.5vl:32b"
+    model: str = "qwen3.6:latest"
 
 
 @router.post("/api/agent/tools/browser/vision-analyze")
@@ -401,7 +449,7 @@ async def vision_analyze(req: VisionAnalyzeRequest):
     """멀티모달 비전 LLM을 활용한 UI 스크린샷 자동 분석.
 
     1. screenshot_base64가 없으면 현재 브라우저에서 자동 캡처
-    2. 비전 모델(qwen2.5vl:32b)에 이미지+프롬프트 전달
+    2. 비전 모델(qwen3.6:latest)에 이미지+프롬프트 전달
     3. UI 결함 분석 결과 반환
     """
     import httpx
@@ -420,7 +468,10 @@ async def vision_analyze(req: VisionAnalyzeRequest):
             )
 
         # Ollama 멀티모달 API 호출
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(
+            timeout=120.0,
+            event_hooks={"request": [validate_httpx_request_async]},
+        ) as client:
             response = await client.post(
                 "http://127.0.0.1:11434/api/chat",
                 json={
@@ -473,6 +524,7 @@ class ExternalBrainRequest(BaseModel):
 @router.get("/api/agent/tools/external-brain/list")
 async def external_brain_list():
     """사용 가능한 외부 AI 두뇌 목록을 반환합니다."""
+    _require_allowed("external_brain_list", {}, "safe")
     from antigravity_k.engine.external_brain import ExternalBrainRouter
 
     router_instance = ExternalBrainRouter()
@@ -492,6 +544,11 @@ async def external_brain_send(req: ExternalBrainRequest):
     - round-robin: 순환 사용
     - compare: 여러 두뇌에 동시 전송하여 결과 비교
     """
+    _require_allowed(
+        "external_brain_send",
+        {"target": req.target, "strategy": req.strategy},
+        "critical",
+    )
     from antigravity_k.engine.external_brain import ExternalBrainRouter
 
     router_instance = ExternalBrainRouter()
@@ -521,7 +578,7 @@ class TDDGenerateRequest(BaseModel):
     prompt: str
     target_file_path: str | None = None
     max_iterations: int = 3
-    coding_model: str = "deepseek-r1:70b"
+    coding_model: str = "qwen3.6:latest"
 
 
 @router.post("/api/agent/tools/tdd-generate")
@@ -530,6 +587,11 @@ async def tdd_generate(req: TDDGenerateRequest):
 
     코드와 테스트를 생성하고, 실패 시 에러 로그를 분석하여 코드를 자동 수정합니다.
     """
+    _require_allowed(
+        "tdd_generate",
+        {"target_file_path": req.target_file_path, "max_iterations": req.max_iterations},
+        "critical",
+    )
     try:
         from antigravity_k.api.dependencies import get_model_manager
         from antigravity_k.engine.tdd_engine import OmniTDDEngine

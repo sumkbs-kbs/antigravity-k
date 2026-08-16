@@ -142,10 +142,30 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
   );
 };
 
+/** Extract raw code text from React children that may be wrapped in syntax-highlighting spans. */
+function extractCodeText(children: React.ReactNode): string {
+  if (typeof children === 'string') return children;
+  if (typeof children === 'number') return String(children);
+  if (children && typeof children === 'object' && 'props' in children) {
+    return extractCodeText((children as any).props.children);
+  }
+  if (Array.isArray(children)) {
+    return children.map(extractCodeText).join('');
+  }
+  return '';
+}
+
+/** Extract the language name from a className like 'hljs language-typescript'. */
+function extractLanguage(className?: string): string {
+  if (!className) return '';
+  const match = className.match(/language-(\w+)/);
+  return match ? match[1] : '';
+}
+
 // ─── Code Block ────────────────────────────────────────────────────
 const CodeBlock: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => {
-  const language = className?.replace('language-', '') || '';
-  const code = String(children).replace(/\n$/, '');
+  const language = extractLanguage(className);
+  const code = extractCodeText(children).replace(/\n$/, '');
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code).catch(() => {});
@@ -207,12 +227,12 @@ function ChatMessageComponent({ message }: Props) {
             rehypePlugins={[rehypeHighlight, rehypeRaw]}
             components={{
               code({ className, children, ...props }) {
-                const isInline = !className;
+                const isInline = extractLanguage(className) === '' && !className?.includes('hljs');
                 if (isInline) {
                   return <InlineCode>{children}</InlineCode>;
                 }
-                const lang = className?.replace('language-', '') || '';
-                const code = String(children).replace(/\n$/, '');
+                const lang = extractLanguage(className);
+                const code = extractCodeText(children).replace(/\n$/, '');
 
                 // Mermaid diagram
                 if (lang === 'mermaid') {

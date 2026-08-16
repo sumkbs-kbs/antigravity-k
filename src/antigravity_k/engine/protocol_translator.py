@@ -19,6 +19,8 @@ from typing import Any, Union
 
 logger = logging.getLogger("antigravity_k.protocol_translator")
 
+Payload = dict[str, Any]
+
 
 class APIFormat(Enum):
     """지원하는 API 포맷."""
@@ -48,10 +50,10 @@ class ProtocolTranslator:
 
     def translate_request(
         self,
-        body: dict,
+        body: Payload,
         source: APIFormat,
         target: APIFormat = APIFormat.INTERNAL,
-    ) -> dict:
+    ) -> Payload:
         """요청 포맷을 변환합니다.
 
         Args:
@@ -80,10 +82,10 @@ class ProtocolTranslator:
 
     def translate_response(
         self,
-        body: dict,
+        body: Payload,
         target: APIFormat,
         source: APIFormat = APIFormat.INTERNAL,
-    ) -> dict:
+    ) -> Payload:
         """응답 포맷을 변환합니다.
 
         Args:
@@ -113,7 +115,7 @@ class ProtocolTranslator:
     # ─── 포맷 감지 ───────────────────────────────────────────────────
 
     @staticmethod
-    def detect_format(body: dict) -> APIFormat:
+    def detect_format(body: Payload) -> APIFormat:
         """요청 바디에서 API 포맷을 자동 감지합니다.
 
         - "messages" + "model" → OpenAI
@@ -148,7 +150,7 @@ class ProtocolTranslator:
 
     # ─── OpenAI → 내부 ──────────────────────────────────────────────
 
-    def _openai_to_internal_request(self, body: dict) -> dict:
+    def _openai_to_internal_request(self, body: Payload) -> Payload:
         """OpenAI Chat Completion 요청 → 내부 포맷."""
         messages = body.get("messages", [])
         system_msg = ""
@@ -176,7 +178,7 @@ class ProtocolTranslator:
 
     # ─── Anthropic → 내부 ───────────────────────────────────────────
 
-    def _anthropic_to_internal_request(self, body: dict) -> dict:
+    def _anthropic_to_internal_request(self, body: Payload) -> Payload:
         """Anthropic Messages API 요청 → 내부 포맷."""
         messages = body.get("messages", [])
         system_msg = body.get("system", "")
@@ -202,7 +204,7 @@ class ProtocolTranslator:
 
     # ─── 내부 → OpenAI ──────────────────────────────────────────────
 
-    def _internal_to_openai_response(self, body: dict) -> dict:
+    def _internal_to_openai_response(self, body: Payload) -> Payload:
         """내부 응답 → OpenAI Chat Completion 응답."""
         content = body.get("content", "")
         model = body.get("model", "antigravity-k")
@@ -231,7 +233,7 @@ class ProtocolTranslator:
 
     # ─── 내부 → Anthropic ───────────────────────────────────────────
 
-    def _internal_to_anthropic_response(self, body: dict) -> dict:
+    def _internal_to_anthropic_response(self, body: Payload) -> Payload:
         """내부 응답 → Anthropic Messages API 응답."""
         content = body.get("content", "")
         model = body.get("model", "antigravity-k")
@@ -256,7 +258,7 @@ class ProtocolTranslator:
 
     # ─── 라우팅 메서드 ──────────────────────────────────────────────
 
-    def _to_internal_request(self, body: dict, source: APIFormat) -> dict:
+    def _to_internal_request(self, body: Payload, source: APIFormat) -> Payload:
         """외부 포맷 → 내부 포맷 변환 라우팅."""
         if source == APIFormat.OPENAI:
             return self._openai_to_internal_request(body)
@@ -265,7 +267,7 @@ class ProtocolTranslator:
         else:
             return body.copy()
 
-    def _from_internal_request(self, body: dict, target: APIFormat) -> dict:
+    def _from_internal_request(self, body: Payload, target: APIFormat) -> Payload:
         """내부 포맷 → 외부 포맷 변환 라우팅."""
         if target == APIFormat.OPENAI:
             return self._internal_to_openai_request(body)
@@ -274,7 +276,7 @@ class ProtocolTranslator:
         else:
             return body.copy()
 
-    def _to_internal_response(self, body: dict, source: APIFormat) -> dict:
+    def _to_internal_response(self, body: Payload, source: APIFormat) -> Payload:
         """외부 응답 → 내부 응답 변환 라우팅."""
         if source == APIFormat.OPENAI:
             return self._openai_to_internal_response(body)
@@ -283,7 +285,7 @@ class ProtocolTranslator:
         else:
             return body.copy()
 
-    def _from_internal_response(self, body: dict, target: APIFormat) -> dict:
+    def _from_internal_response(self, body: Payload, target: APIFormat) -> Payload:
         """내부 응답 → 외부 응답 변환 라우팅."""
         if target == APIFormat.OPENAI:
             return self._internal_to_openai_response(body)
@@ -294,7 +296,7 @@ class ProtocolTranslator:
 
     # ─── 추가 변환 헬퍼 ─────────────────────────────────────────────
 
-    def _internal_to_openai_request(self, body: dict) -> dict:
+    def _internal_to_openai_request(self, body: Payload) -> Payload:
         """내부 포맷 → OpenAI 요청."""
         messages = []
         if body.get("system"):
@@ -312,7 +314,7 @@ class ProtocolTranslator:
             result["stop"] = body["stop"]
         return result
 
-    def _internal_to_anthropic_request(self, body: dict) -> dict:
+    def _internal_to_anthropic_request(self, body: Payload) -> Payload:
         """내부 포맷 → Anthropic 요청."""
         result: dict[str, Any] = {
             "model": body.get("model", ""),
@@ -329,7 +331,7 @@ class ProtocolTranslator:
             result["stream"] = True
         return result
 
-    def _openai_to_internal_response(self, body: dict) -> dict:
+    def _openai_to_internal_response(self, body: Payload) -> Payload:
         """OpenAI 응답 → 내부 포맷."""
         choices = body.get("choices", [])
         content = ""
@@ -348,7 +350,7 @@ class ProtocolTranslator:
             "tokens_out": usage.get("completion_tokens", 0),
         }
 
-    def _anthropic_to_internal_response(self, body: dict) -> dict:
+    def _anthropic_to_internal_response(self, body: Payload) -> Payload:
         """Anthropic 응답 → 내부 포맷."""
         content_blocks = body.get("content", [])
         content = ""
@@ -368,7 +370,7 @@ class ProtocolTranslator:
     # ─── 유틸 ────────────────────────────────────────────────────────
 
     @staticmethod
-    def _extract_content(content: Any) -> Union[str, list[dict]]:
+    def _extract_content(content: Any) -> Union[str, list[Payload]]:
         """메시지 content 필드 정규화.
 
         OpenAI는 str 또는 List[dict] (멀티모달) 형식을 지원.

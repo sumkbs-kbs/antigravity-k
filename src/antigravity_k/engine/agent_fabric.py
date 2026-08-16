@@ -21,6 +21,7 @@ import logging
 import time
 import uuid
 from collections.abc import Generator
+from typing import Any
 
 from antigravity_k.agents.base_agent import BaseAgent
 from antigravity_k.agents.kanban import KanbanBoard
@@ -179,6 +180,7 @@ class AgentFabric:
         self.kanban.move_task(task_id, "IN_PROGRESS")
 
         start_time = time.time()
+        span: Any | None = None
 
         # Tracing
         if self.tracer:
@@ -227,7 +229,7 @@ class AgentFabric:
 
     def execute_crew(
         self,
-        steps: list[dict],
+        steps: list[dict[str, Any]],
         messages: list[dict[str, str]],
         orchestrator=None,
         max_steps: int = 15,
@@ -454,7 +456,7 @@ class AgentFabric:
 
     # ─── 유틸리티 ─────────────────────────────────────────────────
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Fabric 상태 요약."""
         return {
             "active_agents": list(self._agent_registry.keys()),

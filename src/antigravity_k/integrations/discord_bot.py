@@ -2,13 +2,16 @@
 
 import asyncio
 import logging
+from importlib import import_module
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.integrations.discord")
 
+discord: Any = None
 try:
-    import discord
+    discord = import_module("discord")
 except ImportError:
-    discord = None  # type: ignore[assignment]
+    discord = None
 
 
 class DiscordBotClient:
@@ -17,7 +20,7 @@ class DiscordBotClient:
     디스코드 채널에서 멘션되면 Orchestrator를 통해 AI 응답을 생성하여 반환합니다.
     """
 
-    def __init__(self, token: str, registry, target_model: str = "deepseek-r1:70b"):
+    def __init__(self, token: str, registry, target_model: str = "qwen3.6:latest"):
         """Initialize the DiscordBotClient.
 
         Args:

@@ -49,7 +49,7 @@ class KnowledgeGraph:
         """
         self.edges.append({"source": source_id, "target": target_id, "relationship": relationship})
 
-    def get_nodes_by_type(self, node_type: NodeType) -> list[dict]:
+    def get_nodes_by_type(self, node_type: NodeType) -> list[dict[str, Any]]:
         """Retrieve nodes by type.
 
         Args:
@@ -61,7 +61,7 @@ class KnowledgeGraph:
         """
         return [n for n in self.nodes.values() if n["node_type"] == node_type]
 
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, Any]:
         """Stats.
 
         Returns:

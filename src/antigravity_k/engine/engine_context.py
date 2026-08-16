@@ -7,6 +7,9 @@ to decouple Orchestrator from direct instantiations.
 
 import logging
 import os
+from importlib import import_module
+from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import yaml
 
@@ -23,28 +26,74 @@ from antigravity_k.engine.memory_provider import (
     WorkingMemoryBuffer,
 )
 from antigravity_k.engine.mode_manager import ModeManager
+from antigravity_k.engine.project_memory import ProjectMemoryProvider, project_memory_dir
 from antigravity_k.engine.prompt_builder import PromptBuilder
 from antigravity_k.engine.quality_gate import QualityGate
 from antigravity_k.engine.session_manager import SessionManager
 from antigravity_k.engine.skill_loader import SkillLoader
-from antigravity_k.engine.slash_commands import SlashCommandRegistry
-from antigravity_k.engine.tool_executor import ToolExecutor
 from antigravity_k.engine.tool_guardrails import (
     ToolCallGuardrailConfig,
     ToolCallGuardrailController,
 )
 from antigravity_k.engine.uncertainty import UncertaintyEstimator
 from antigravity_k.engine.user_model import UserIntentModeler
+from antigravity_k.runtime_paths import default_config_path
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger("antigravity_k.engine_context")
 
 
+class CognitiveKwargs(TypedDict):
+    enable_caveman: NotRequired[bool]
+    max_retries: NotRequired[int | None]
+    dialectic_enabled: NotRequired[bool | None]
+
+
+CognitiveConfig = tuple[bool, CognitiveKwargs]
+
+
+def cognitive_config_from_raw(config: object) -> CognitiveConfig:
+    """config dict의 amplification.cognitive 섹션을 (enabled, kwargs)로 정규화.
+
+    amplification.cognitive.enabled가 false면 (False, {}). 그 외에는
+    CognitiveLoop 생성자에 넘길 kwargs dict를 반환한다. None 값은
+    CognitiveLoop 기본값으로 폴백된다.
+    """
+    amp = config.get("amplification", {}) if isinstance(config, dict) else {}
+    cog_raw = amp.get("cognitive", {}) if isinstance(amp, dict) else {}
+    cog = cog_raw if isinstance(cog_raw, dict) else {}
+    enabled = bool(cog.get("enabled", True))
+    if not enabled:
+        return False, CognitiveKwargs()
+    kwargs: CognitiveKwargs = {
+        "enable_caveman": bool(cog.get("enable_caveman", False)),
+        "max_retries": cog.get("max_retries"),
+        "dialectic_enabled": cog.get("dialectic_enabled"),
+    }
+    return True, kwargs
+
+
+def quality_gate_from_config(config: object) -> QualityGate:
+    """config.yaml의 quality_gate 섹션에서 QualityGate를 생성한다."""
+    section = config.get("quality_gate", {}) if isinstance(config, dict) else {}
+    values = section if isinstance(section, dict) else {}
+    retries = values.get("max_retries", 1)
+    return QualityGate(max_retries=retries if isinstance(retries, int) and retries >= 0 else 1)
+
+
 class EngineContext:
     """Central context object wiring together all engine subsystems for a session."""
 
-    def __init__(self, model_manager, vault_engine=None, project_root=None, tool_registry=None, session_manager=None):
+    def __init__(
+        self,
+        model_manager,
+        vault_engine=None,
+        project_root=None,
+        tool_registry=None,
+        session_manager=None,
+        memory_manager: MemoryManager | None = None,
+    ):
         """Initialize the EngineContext.
 
         Args:
@@ -63,7 +112,7 @@ class EngineContext:
 
         # Load Config
         self.config = {}
-        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "config.yaml")
+        config_path = default_config_path(Path(self.project_root))
         if os.path.exists(config_path):
             with open(config_path) as f:
                 self.config = yaml.safe_load(f) or {}
@@ -87,15 +136,22 @@ class EngineContext:
             ki_engine=self.ki_engine,
             project_root=self.project_root,
         )
-        self.cognitive_loop = CognitiveLoop(
-            project_root=self.project_root,
-            failure_memory=self.failure_memory,
+        # amplification.cognitive: 인지 순환 증폭 (qwen3.6 등 작은 모델 추론 깊이 보완)
+        cog_enabled, cog_kwargs = cognitive_config_from_raw(self.config)
+        self.cognitive_loop = (
+            CognitiveLoop(
+                project_root=self.project_root,
+                failure_memory=self.failure_memory,
+                **cog_kwargs,
+            )
+            if cog_enabled
+            else None
         )
 
         # Guardrails & Quality
         guardrail_cfg = self._load_guardrail_config()
         self.tool_guardrail = ToolCallGuardrailController(config=guardrail_cfg)
-        self.quality_gate = QualityGate()
+        self.quality_gate = quality_gate_from_config(self.config)
         self.uncertainty_estimator = UncertaintyEstimator()
 
         # Context & Modeling
@@ -107,13 +163,23 @@ class EngineContext:
         # 4-Tier Cognitive Memory System + 글로벌 메모리 (P2-3)
         from antigravity_k.engine.memory_provider import GlobalMemoryProvider
 
-        self.memory_manager = MemoryManager()
-        self.memory_manager.add_provider(BuiltinMemoryProvider(self.session_manager))
-        self.memory_manager.add_provider(EpisodicMemoryProvider(max_episodes=200))
-        self.memory_manager.add_provider(WorkingMemoryBuffer(max_turns=20))
-        # Cross-Project 글로벌 메모리 — 사용자 선호/패턴 영속화
-        self.global_memory = GlobalMemoryProvider()
-        self.memory_manager.add_provider(self.global_memory)
+        self.memory_manager = memory_manager if memory_manager is not None else MemoryManager()
+        self.memory_manager.bind_project_root(self.project_root)
+        if memory_manager is None:
+            self.memory_manager.add_provider(BuiltinMemoryProvider(self.session_manager))
+            episodic_dir = project_memory_dir(self.project_root) / "episodic"
+            self.memory_manager.add_provider(EpisodicMemoryProvider(max_episodes=200, persist_dir=str(episodic_dir)))
+            self.memory_manager.add_provider(WorkingMemoryBuffer(max_turns=20))
+            # Cross-Project 글로벌 메모리 — 사용자 선호/패턴 영속화
+            self.global_memory = GlobalMemoryProvider()
+            self.memory_manager.add_provider(self.global_memory)
+        else:
+            self.global_memory = next(
+                (provider for provider in self.memory_manager.providers if provider.name == "global"),
+                None,
+            )
+        if not any(provider.name == "project" for provider in self.memory_manager.providers):
+            self.memory_manager.add_provider(ProjectMemoryProvider(self.project_root))
 
         self.skill_loader = SkillLoader(
             project_root=self.project_root,
@@ -150,6 +216,9 @@ class EngineContext:
             cost_guard=self.cost_guard,
         )
 
+        slash_commands_module = import_module("antigravity_k.engine.slash_commands")
+        SlashCommandRegistry = slash_commands_module.__dict__["SlashCommandRegistry"]
+
         self.slash_commands = SlashCommandRegistry(
             tool_registry=self.tool_registry,
             session_manager=self.session_manager,
@@ -159,6 +228,8 @@ class EngineContext:
             mode_manager=self.mode_manager,
         )
 
+        tool_executor_module = import_module("antigravity_k.engine.tool_executor")
+        ToolExecutor = tool_executor_module.__dict__["ToolExecutor"]
         self.tool_executor = ToolExecutor(
             tool_registry=self.tool_registry,
             permission_gate=self.permission_gate,

@@ -16,9 +16,14 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
+import anyio
+
 from antigravity_k.engine.memory.cavemem_store import CavememStore
+from antigravity_k.engine.project_memory import project_memory_dir
+from antigravity_k.engine.tool_guardrails import classify_tool_failure
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +63,29 @@ class ReflectionResult:
     retry_strategy: str = ""
 
 
+def _split_explicit_steps(task: str) -> list[str]:
+    """Deterministically split a task with explicit numbered or bulleted sub-items.
+
+    Detects "1. ... 2. ..." / "1) ... 2) ..." / "- ... - ..." patterns and returns each
+    item as a separate step. Returns an empty list when no multi-part structure is found,
+    so a single-part task stays a single step. No LLM call — pure structural parsing.
+    """
+    import re
+
+    lines = task.strip().splitlines()
+    # Numbered list: "1." "1)" "①" (optionally preceded by whitespace), each on its own line.
+    numbered = [ln for ln in lines if re.match(r"\s*\d+[.)]\s+\S", ln)]
+    if len(numbered) >= 2:
+        cleaned = [re.sub(r"^\s*\d+[.)]\s+", "", ln).strip() for ln in numbered]
+        return [c for c in cleaned if c]
+    # Bulleted list: "- " or "* " lines (excluding markdown code fences).
+    bulleted = [ln for ln in lines if re.match(r"\s*[-*]\s+\S", ln) and not ln.strip().startswith("```")]
+    if len(bulleted) >= 2:
+        cleaned = [re.sub(r"^\s*[-*]\s+", "", ln).strip() for ln in bulleted]
+        return [c for c in cleaned if c]
+    return []
+
+
 class CognitiveLoop:
     """Plan → Execute → Verify → Reflect → Adapt 인지 순환 엔진.
 
@@ -76,6 +104,8 @@ class CognitiveLoop:
         failure_memory=None,
         external_brain_router=None,
         enable_caveman: bool = False,
+        max_retries: int | None = None,
+        dialectic_enabled: bool | None = None,
     ):
         """Initialize the CognitiveLoop.
 
@@ -84,18 +114,22 @@ class CognitiveLoop:
             failure_memory: failure memory.
             external_brain_router: external brain router.
             enable_caveman (bool): bool enable caveman.
+            max_retries: 실패 시 재시도 한계 (None=기본값 2). 작은 모델은 늘려 추론 깊이 보완.
+            dialectic_enabled: 정반합 자기 비판 적용 여부 (None=기본값 True).
 
         """
-        self.project_root = project_root
+        self.project_root = str(Path(project_root).resolve())
         self.failure_memory = failure_memory
         self._external_brain_router = external_brain_router
         self._current_plan: ExecutionPlan | None = None
         self._step_history: list[dict[str, Any]] = []
         self._retry_count = 0
-        self._max_retries = 2
-        self._dialectic_enabled = True  # 변증법적 자기 비판 활성화 (Hegelion 패턴)
+        self._max_retries = 2 if max_retries is None else max_retries
+        # amplification.cognitive.dialectic_enabled로 오버라이드 가능 (기본 True).
+        self._dialectic_enabled = True if dialectic_enabled is None else dialectic_enabled
         self.enable_caveman = enable_caveman
-        self.cavemem_store = CavememStore()
+        cavemem_path = project_memory_dir(self.project_root) / "cavemem.sqlite3"
+        self.cavemem_store = CavememStore(str(cavemem_path))
 
     # ─── Phase 1: PLAN ─────────────────────────────────────
 
@@ -158,7 +192,7 @@ class CognitiveLoop:
 
     # ─── Phase 2: VERIFY ─────────────────────────────────────
 
-    def verify_tool_result(self, tool_name: str, tool_args: dict, result: str) -> dict[str, Any]:
+    def verify_tool_result(self, tool_name: str, tool_args: dict[str, Any], result: str) -> dict[str, Any]:
         """도구 실행 결과를 자동 검증합니다.
 
         Returns:
@@ -178,7 +212,8 @@ class CognitiveLoop:
             result_lower = result.lower()
 
             # 명시적 에러
-            if result.strip().startswith("Error") or result.strip().startswith(
+            tool_failed, _ = classify_tool_failure(tool_name, result)
+            if tool_failed or result.strip().startswith(
                 "There was an error",
             ):
                 grade = "F"
@@ -254,7 +289,7 @@ class CognitiveLoop:
             "dialectic_applied": not passed and self._dialectic_enabled,
         }
 
-    def _suggest_fix(self, tool_name: str, args: dict, result: str, issues: list[str]) -> str:
+    def _suggest_fix(self, tool_name: str, args: dict[str, Any], result: str, issues: list[str]) -> str:
         """검증 실패 시 수정 제안을 생성합니다."""
         if "구문 오류" in str(issues):
             return "코드를 다시 검토하고, 들여쓰기와 괄호 매칭을 확인하세요."
@@ -314,6 +349,18 @@ class CognitiveLoop:
                     f"일부 단계({len(result.what_failed)}건)에서 문제가 발생했습니다. 해당 패턴을 기억합니다.",
                 )
 
+        # Persist lessons to failure memory so future tasks with the same pattern can
+        # recall them — without this the reflection is computed and thrown away.
+        if result.lessons and self.failure_memory:
+            failed_tools = {step["tool"] for step in self._step_history if not step["passed"]}
+            for lesson in result.lessons:
+                self.failure_memory.record(
+                    tool=",".join(sorted(failed_tools)) if failed_tools else "unknown",
+                    error_text=lesson,
+                    args_summary=task[:200],
+                    fix_applied=result.retry_strategy,
+                )
+
         return result
 
     def format_reflection_prompt(self, reflection: ReflectionResult) -> str:
@@ -336,7 +383,7 @@ class CognitiveLoop:
 
     # ─── Phase 4: ADAPT ──────────────────────────────────────
 
-    def adapt_strategy(self, task: str, step_ctx) -> str | None:
+    async def adapt_strategy(self, task: str, step_ctx) -> str | None:
         """StepContext 상태를 분석하여 반복되는 오류가 있는지 확인하고,.
 
         필요 시 에이전트의 전략을 동적으로 적응(Adapt)시킵니다.
@@ -349,7 +396,7 @@ class CognitiveLoop:
 
         # 최근 3번 모두 실패 → External Brain 자동 위임
         if len(recent_failures) >= 3 and self._external_brain_router:
-            delegation_result = self.auto_delegate_to_external_brain(task, recent_failures)
+            delegation_result = await self.auto_delegate_to_external_brain(task, recent_failures)
             if delegation_result:
                 self._retry_count += 1
                 return delegation_result
@@ -371,7 +418,7 @@ class CognitiveLoop:
 
         return None
 
-    def auto_delegate_to_external_brain(
+    async def auto_delegate_to_external_brain(
         self,
         task: str,
         failures: list[dict[str, Any]],
@@ -400,25 +447,10 @@ class CognitiveLoop:
         )
 
         try:
-            import asyncio
-
-            # 이벤트 루프가 있으면 그 안에서, 없으면 새로 생성
-            try:
-                _loop = asyncio.get_running_loop()
-                # 이미 루프 안에 있으면 동기 폴백 사용
-                logger.info(
-                    "[CognitiveLoop] External Brain delegation (async loop detected, scheduling)",
-                )
-                future = asyncio.ensure_future(
-                    self._external_brain_router.send(delegation_prompt, strategy="fallback"),
-                )
-                # 타임아웃 30초
-                result = asyncio.get_event_loop().run_until_complete(
-                    asyncio.wait_for(future, timeout=30),
-                )
-            except RuntimeError:
-                result = asyncio.run(
-                    self._external_brain_router.send(delegation_prompt, strategy="fallback"),
+            with anyio.fail_after(30):
+                result = await self._external_brain_router.send(
+                    delegation_prompt,
+                    strategy="fallback",
                 )
 
             if result and result.success and result.text:
@@ -431,9 +463,11 @@ class CognitiveLoop:
 
                 # 실패 메모리에 저장
                 if self.failure_memory:
+                    failed_tool = failures[0].get("tool", "unknown")
                     self.failure_memory.record(
-                        task=task,
-                        error_pattern=f"3x_failure_{failures[0].get('tool', 'unknown')}",
+                        tool=failed_tool,
+                        error_text=f"3x_failure_{failed_tool}",
+                        args_summary=task,
                         fix_applied=f"external_brain_delegation_{result.source}",
                     )
 
@@ -529,6 +563,12 @@ class PlannerExecutor:
             created_at=datetime.now().isoformat(),
             reasoning="Task decomposition via PlannerExecutor",
         )
+
+        sub_tasks = _split_explicit_steps(task)
+        if sub_tasks:
+            for idx, desc in enumerate(sub_tasks, start=1):
+                plan.steps.append(PlanStep(step_id=idx, description=desc, status="pending"))
+            return plan
 
         # 기본: 단일 스텝 (외부에서 LLM을 통해 더 정교한 계획 생성 가능)
         plan.steps.append(

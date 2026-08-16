@@ -28,6 +28,10 @@ class IDEContextManager:
                 }
         return cls._instance
 
+    def __init__(self) -> None:
+        if not hasattr(self, "_state"):
+            self._state = {"active_file": None, "cursor_line": None, "open_files": []}
+
     def update_state(self, new_state: dict[str, Any]):
         """Update state.
 

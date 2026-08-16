@@ -1,9 +1,9 @@
 model:
-  main_model: mlx-community/Qwen3-72B-4bit
-  code_model: mlx-community/Qwen2.5-Coder-32B-Instruct-4bit
+  main_model: qwen3.6:latest
+  code_model: qwen3.6:latest
   embedding_model: mlx-community/bge-m3-4bit
-  vision_model: mlx-community/Qwen2-VL-7B-Instruct-4bit
-  api_engine: openrouter
+  vision_model: qwen3.6:latest
+  api_engine: ollama
   max_tokens: 4096
   temperature: 0.7
   top_p: 0.9
@@ -12,12 +12,24 @@ models:
   - name: qwen3.6:latest
     repo: qwen3.6:latest
     role: reasoning
-    estimated_memory_gb: 35.0
-    context_length: 32768
-    description: Qwen3.6 35B MoE (Ollama 로컬)
+    parameter_count_b: 36.0
+    estimated_memory_gb: 24.0
+    context_length: 262144
+    description: Qwen3.6 36B MoE (Ollama 로컬, vision/tools/thinking 지원)
+  - name: lmstudio/qwen3.6
+    repo: qwen3.6:latest
+    role: reasoning
+    provider: lmstudio
+    api_base: http://127.0.0.1:1234/v1
+    api_key_env: LM_STUDIO_API_KEY
+    parameter_count_b: 36.0
+    estimated_memory_gb: 0.0
+    context_length: 262144
+    description: Qwen3.6 36B via LM Studio (repo is the loaded LM Studio model identifier)
   - name: deepseek-r1:70b
     repo: deepseek-r1:70b
     role: reasoning
+    parameter_count_b: 70.0
     estimated_memory_gb: 70.0
     context_length: 32768
     description: DeepSeek R1 70B (Ollama 로컬)
@@ -168,6 +180,14 @@ models:
     estimated_memory_gb: 35.0
     context_length: 32768
     description: Qwen3 Coder Next (Ollama 로컬)
+  - name: mlx-community/Qwen2.5-Coder-32B-Instruct-4bit
+    repo: mlx-community/Qwen2.5-Coder-32B-Instruct-4bit
+    role: coding
+    provider: mlx
+    parameter_count_b: 32.0
+    estimated_memory_gb: 24.0
+    context_length: 32768
+    description: Qwen2.5 Coder 32B direct MLX (Apple Silicon)
   - name: openai/gpt-4o
     repo: openai/gpt-4o
     role: coding
@@ -242,6 +262,13 @@ models:
     context_length: 8192
     description: Nomic Embed Text (Ollama)
   vision:
+  - name: qwen3.6:latest
+    repo: qwen3.6:latest
+    role: vision
+    parameter_count_b: 36.0
+    estimated_memory_gb: 24.0
+    context_length: 262144
+    description: Qwen3.6 36B 로컬 멀티모달 모델 (Ollama)
   - name: llama3.2-vision:11b
     repo: llama3.2-vision:11b
     role: vision
@@ -270,14 +297,20 @@ models:
     description: Phi-3.5 Vision (NIM 무료, 경량 비전)
 defaults:
   reasoning: qwen3.6:latest
-  coding: qwen3-coder-next:latest
+  coding: qwen3.6:latest
   embedding: nomic-embed-text:latest
-  vision: llama3.2-vision:11b
+  vision: qwen3.6:latest
 providers:
   ollama:
     base_url: http://localhost:11434
     api_key_env: OLLAMA_API_KEY
     description: 로컬 Ollama (무제한, 프라이버시 보장)
+  lmstudio:
+    base_url: http://127.0.0.1:1234/v1
+    api_key_env: LM_STUDIO_API_KEY
+    description: LM Studio local OpenAI-compatible server
+  mlx:
+    description: Direct MLX runtime on Apple Silicon
   openrouter:
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
@@ -313,28 +346,29 @@ agent_models:
 combos:
   orchestrator-swarm:
     description: CEO 분석/단순 대화 — 빠른 응답 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
-    strategy: fallback
+    strategy: cascading
     models:
     - qwen3.6:latest
+    - deepseek-r1:70b
     - qwen/qwen3-next-80b-a3b-instruct:free
     - google/gemma-4-26b-a4b-it:free
     - meta/llama-3.3-70b-instruct
     - openai/gpt-4o-mini
   reasoning-swarm:
     description: 추론/QA/분석 — 대형 모델 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
-    strategy: fallback
+    strategy: cascading
     models:
-    - nvidia/nemotron-3-ultra-550b-a55b:free
-    - qwen/qwen3-next-80b-a3b-instruct:free
     - qwen3.6:latest
-    - meta/llama-3.1-405b-instruct
-    - deepseek-ai/deepseek-r1
-    - qwen/qwen3-235b-a35b
+    - deepseek-r1:70b
+    - google/gemma-4-26b-a4b-it:free
+    - qwen/qwen3-next-80b-a3b-instruct:free
+    - nvidia/nemotron-3-ultra-550b-a55b:free
     - google/gemini-2.0-flash-001
   coding-swarm:
     description: 코딩 — 로컬 코더 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
-    strategy: fallback
+    strategy: cascading
     models:
+    - qwen3.6:latest
     - qwen3-coder-next:latest
     - qwen/qwen2.5-coder-32b-instruct
     - qwen/qwen3-next-80b-a3b-instruct
@@ -346,6 +380,7 @@ combos:
     description: 비전/이미지 — 로컬 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
     strategy: fallback
     models:
+    - qwen3.6:latest
     - llama3.2-vision:11b
     - meta/llama-3.2-90b-vision-instruct
     - openai/gpt-4o
@@ -358,6 +393,9 @@ security:
   sandbox_enabled: true
   sandbox_network: none
   max_execution_time: 30
+  max_output_bytes: 1000000
+  max_memory_mb: 2048
+  max_processes: 64
   audit_log_enabled: true
 paths:
   models_dir: models
@@ -374,8 +412,79 @@ router:
   default_strategy: fallback
   max_retries: 3
   usage_tracking: true
+  model_policy:
+    enabled: true
+    prefer_local: true
+    max_parameter_count_b: 70.0
+    min_local_parameter_count_b: 20.0
+  cascade_on_low_confidence: true
+  cascade_confidence_threshold: 0.6
+  cascade_max_escalations: 1
+  confidence_evaluator_enabled: true
+  confidence_evaluator_model: qwen3.6:latest
+  confidence_evaluator_min_params_b: 20.0
+  confidence_evaluator_max_tokens: 32
+  quality_calibration:
+    enabled: true
+    artifact_paths:
+    - data/benchmarks/local-model-stable-simple.json
+    - data/benchmarks/local-model-frontier.json
+    min_mean_benchmark_score: 0.8
+    min_min_benchmark_score: 0.7
+    min_excellent_rate: 0.8
+    min_all_excellent_run_rate: 0.8
+    min_task_outcome_count: 3
+    min_task_success_rate: 0.8
+    min_task_tool_accuracy: 0.8
+    max_task_retry_rate: 0.5
 tool_loop:
-  native_function_calling: false
+  native_function_calling: true
+quality_gate:
+  max_retries: 2
+
+amplification:
+  # 로컬 모델(qwen3.6:latest 등)의 성능 한계를 구조적 증폭으로 보완하는 서브시스템.
+  # 모델 자체 능력이 아닌 검증/자기개선 루프로 프론티어 근접을 목표로 한다.
+  # 각 서브시스템은 개별 토글 + 파라미터로 제어되며, model null이면 model.main_model을 따른다.
+  cov:
+    # Chain-of-Verification 자기검증. 작은 모델의 환각/논리오류를 잡는 1차 방어.
+    enabled: true
+    model: null
+    min_response_length: 50
+    complexity_threshold: 0.4
+    max_revise_iterations: 2
+  self_evolution:
+    # 실행 궤적 기반 자기 개선. 비용/위험도가 높아 기본 off.
+    # 활성화 시 self_evolution.auto_modify보다 우선한다.
+    enabled: null
+  cognitive:
+    # Plan→Execute→Verify→Reflect→Adapt 인지 순환. 작은 모델의 추론 깊이를 보완한다.
+    # dialectic(정반합 자기 비판)과 max_retries를 qwen3.6에 맞춰 조절한다.
+    enabled: true
+    dialectic_enabled: true
+    max_retries: 2
+    enable_caveman: false
+  self_consistency:
+    # 단일 모델 N샘플링 → 유사도 클러스터링 → 다수결 선택. 추론/코드 정확도 보완.
+    # off 시 단일 생성. qwen3.6에서 비용 허용 시 on (N회 호출 증가).
+    enabled: false
+    n_samples: 5
+    base_temperature: 0.7
+    temperature_spread: 0.2
+    similarity_threshold: 0.5
+    selection: majority
+    # 복잡도 게이트: 작업 복잡도가 이 값 미만이면 N샘플링 스킵 (비용 절제).
+    # null=항상 N샘플링. 0.4 정도가 단순 인사/목록을 걸러내는 균형점.
+    complexity_threshold: null
+  task_decomposition:
+    # 순차 멀티스텝 작업(워크플로/마이그레이션/파이프라인)을 단계 분해 후 실행·통합.
+    # revision이 이미 답을 구원하면 품질 이득 없이 지연만 6-8배 증가하므로 기본 off.
+    # revision 없이 순수 생성만 쓰거나, 재생성 후에도 장기 워크플로가 반복 실패할 때 on.
+    enabled: false
+    # 재생성 후에도 점수가 오르지 않은 순차 과제만 분해로 승격 (비용 후발 트리거).
+    escalate_on_revision_failure: true
+    min_steps: 2
+    max_steps: 6
 self_evolution:
   auto_modify: false
 cost:

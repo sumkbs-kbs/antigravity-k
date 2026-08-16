@@ -8,9 +8,12 @@ import json
 import logging
 import os
 import re
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 
 from antigravity_k.engine.gbrain import global_gbrain
+from antigravity_k.engine.preference_memory import extract_explicit_preference_facts
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +41,18 @@ class UserIntentModeler:
         self.project_root = project_root
         self._profile_path = os.path.join(project_root, _PROFILE_FILE)
         self._profile = self._load_profile()
-        self._session_interactions: list = []
+        self._session_interactions: list[dict[str, Any]] = []
+        self._explicit_preferences: dict[str, str] = {}
 
-    def observe(self, user_message: str, task_type: str, tools_used: list | None = None):
+    def observe(self, user_message: str, task_type: str, tools_used: list[str] | None = None) -> None:
         """사용자 인터랙션을 관찰하고 프로필을 업데이트합니다."""
+        self._explicit_preferences.update(extract_explicit_preference_facts(user_message))
         self._session_interactions.append(
             {
                 "message": user_message[:200],
                 "task_type": task_type,
                 "tools": tools_used or [],
-                "time": datetime.now().isoformat(),
+                "time": datetime.now().astimezone().replace(tzinfo=None).isoformat(),
             },
         )
 
@@ -130,7 +135,7 @@ class UserIntentModeler:
         if len(self._session_interactions) % 5 == 0:
             self._save_profile()
 
-    def build_context(self) -> str:
+    def build_context(self, preference_overrides: Mapping[str, str] | None = None) -> str:
         """에이전트 시스템 프롬프트에 주입할 사용자 컨텍스트."""
         p = self._profile
         if not p.get("stats"):
@@ -140,20 +145,30 @@ class UserIntentModeler:
         lines = ["\n<user_profile>"]
 
         # 결정된 프로필 정보만 주입
-        lang = self._get_dominant("language_pref", stats)
-        skill = self._get_dominant("skill_level", stats)
-        style = self._get_dominant("comm_style", stats)
-        domain = self._get_dominant("domain", stats)
+        overrides = dict(self._explicit_preferences)
+        if preference_overrides:
+            overrides.update(preference_overrides)
+        lang = overrides.get("response_language") or self._get_dominant("language_pref", stats)
+        skill = overrides.get("explanation_level") or self._get_dominant("skill_level", stats)
+        style = overrides.get("response_detail") or self._get_dominant("comm_style", stats)
+        domain = overrides.get("task_domain") or self._get_dominant("domain", stats)
 
         if lang:
             lang_map = {
                 "korean": "한국어",
                 "english": "영어",
                 "mixed": "한국어+영어 혼합",
+                "ko": "한국어",
+                "en": "영어",
             }
             lines.append(f"선호 언어: {lang_map.get(lang, lang)}")
         if skill:
-            skill_map = {"expert": "전문가", "intermediate": "중급", "beginner": "초보"}
+            skill_map = {
+                "expert": "전문가",
+                "advanced": "전문가",
+                "intermediate": "중급",
+                "beginner": "초보",
+            }
             lines.append(f"기술 수준: {skill_map.get(skill, skill)}")
         if style:
             style_map = {"concise": "간결한 응답 선호", "detailed": "상세한 응답 선호"}
@@ -181,30 +196,29 @@ class UserIntentModeler:
         counts = self._profile["stats"][key]
         counts[value] = counts.get(value, 0) + 1
 
-    def _get_dominant(self, key: str, stats: dict) -> str | None:
+    def _get_dominant(self, key: str, stats: dict[str, dict[str, int]]) -> str | None:
         counts = stats.get(key, {})
         if not counts:
             return None
-        return max(counts, key=counts.get)
+        return max(counts, key=lambda item: counts[item])
 
-    def _load_profile(self) -> dict:
+    def _load_profile(self) -> dict[str, Any]:
         if os.path.exists(self._profile_path):
             try:
                 with open(self._profile_path, encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
         return {
             "stats": {},
             "tool_preferences": {},
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now().astimezone().replace(tzinfo=None).isoformat(),
         }
 
     def _save_profile(self):
         try:
             os.makedirs(os.path.dirname(self._profile_path), exist_ok=True)
-            self._profile["updated_at"] = datetime.now().isoformat()
+            self._profile["updated_at"] = datetime.now().astimezone().replace(tzinfo=None).isoformat()
 
             # GBrain 동기화
             global_gbrain.add_node(

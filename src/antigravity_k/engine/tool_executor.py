@@ -13,10 +13,25 @@ import time
 from typing import Any
 
 from antigravity_k.engine.immune_system import ImmuneSystem
+from antigravity_k.engine.task_state_store import current_task_execution_context
 from antigravity_k.tools.permission_gate import Permission, PermissionGate
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _result_indicates_failure(result) -> bool:
+    """Classify a tool result string as a failure.
+
+    Recognizes both the legacy "Error:" prefix and the [exit_code=N] marker surfaced by
+    run_bash_command for non-zero exits, so a failed command does not pass as success.
+    """
+    if not isinstance(result, str):
+        return False
+    stripped = result.strip()
+    if stripped.startswith("Error"):
+        return True
+    return stripped.startswith("[exit_code=") and not stripped.startswith("[exit_code=0]")
 
 
 class ToolExecutor:
@@ -35,7 +50,7 @@ class ToolExecutor:
         self,
         tool_registry: ToolRegistry,
         permission_gate: PermissionGate,
-        model_manager=None,
+        model_manager: Any = None,
         vault_engine=None,
         project_root: str = ".",
         capability_policy_config: dict[str, Any] | None = None,
@@ -67,27 +82,7 @@ class ToolExecutor:
         self.current_objective = ""
 
         # Hermes Self-Evolution: 도구 호출 이력 (SEC가 패턴 감지용으로 사용)
-        self.tool_call_history: list[dict] = []
-
-        # P3: 읽기 전용 도구는 항상 자동 승인 (정보 검색 차단 방지)
-        # web_search, read_file, grep 등은 위험도가 없으므로 승인 없이 실행
-        self._auto_approved_readonly = frozenset(
-            {
-                "web_search",
-                "web_scrape",
-                "fetch_dom",
-                "read_file",
-                "glob_search",
-                "grep_search",
-                "list_directory",
-                "git_status",
-                "git_log",
-                "git_diff",
-                "search_knowledge",
-                "impact_analyzer",
-                "hex_dump",
-            }
-        )
+        self.tool_call_history: list[dict[str, Any]] = []
 
         # Singleton instantiation to avoid lazy init costs during active error recovery
         self._immune_system: ImmuneSystem | None = None
@@ -140,13 +135,6 @@ class ToolExecutor:
                         f"Please reconsider your approach."
                     )
 
-            # P3: 읽기 전용 도구는 승인/게이트 없이 즉시 실행 (정보 검색 차단 방지)
-            if name in self._auto_approved_readonly:
-                tool = self.tool_registry.get(name)
-                result = tool(**args) if tool else f"Error: Tool '{name}' not found."
-                self._record_tool_call(name, args, result)
-                return result
-
             # ─── Phase 1 D3: GatePipeline 우선순위 게이트 평가 ───
             if self.gate_pipeline is not None:
                 from antigravity_k.engine.gate_pipeline import GateContext
@@ -155,6 +143,7 @@ class ToolExecutor:
                     tool_name=name,
                     args=args,
                     execution_mode=execution_mode,
+                    auto_approved_tools=self._user_contracted_tools(),
                 )
                 gate_decision = self.gate_pipeline.evaluate(gate_ctx)
                 if gate_decision.is_denied:
@@ -190,12 +179,14 @@ class ToolExecutor:
 
             if perm == Permission.DENY:
                 self._consecutive_errors += 1
+                self._record_tool_call(name, args, result, permission=perm)
                 return (
                     f"There was an error when executing the function: {name}\n"
                     f"Here's the error traceback: [DENIED] Tool execution blocked by permission rules.\n"
                     f"Please reconsider your approach."
                 )
             elif perm == Permission.PROMPT:
+                self._record_tool_call(name, args, result, permission=perm)
                 return (
                     f"[APPROVAL REQUIRED] This tool ({name}) requires user approval to execute. "
                     f"Please stop executing tools immediately and ask the user for permission. "
@@ -203,7 +194,7 @@ class ToolExecutor:
                 )
 
             # ─── Post-Execution: history, events, error tracking ───
-            self._post_execute(name, args, result)
+            self._post_execute(name, args, result, permission=perm)
 
             # Auto-Rollback & Self-Healing logic
             if self._consecutive_errors >= 3:
@@ -215,9 +206,39 @@ class ToolExecutor:
             self._consecutive_errors += 1
             return (
                 f"There was an error when executing the function: {name}\n"
-                f"Here's the error traceback: {str(e)}\n"
+                f"Here's the error traceback: {e!s}\n"
                 f"Please call this function again with correct arguments within XML tags <tool_call></tool_call>"
             )
+
+    def _user_contracted_tools(self) -> frozenset[str]:
+        """Tools the user explicitly named in the active task's prompt.
+
+        These are treated as pre-approved for the ApprovalGate: the act of naming a
+        tool in the request is itself consent, so the loop runs it instead of pausing
+        for interactive confirmation (which would make a local model narrate execution
+        rather than perform it). Tools are still subject to every other gate
+        (security policy, dangerous-command block, path sandbox, PlanGuard).
+        """
+        context = current_task_execution_context()
+        if context is None:
+            return frozenset()
+        checkpoint = context.state_store.get_last_checkpoint(context.task_id)
+        if checkpoint is None:
+            return frozenset()
+        try:
+            payload = json.loads(checkpoint["context_json"])
+        except (json.JSONDecodeError, TypeError, KeyError):
+            return frozenset()
+        expected = payload.get("expected_tools") if isinstance(payload, dict) else None
+        if not isinstance(expected, (list, tuple, set)):
+            return frozenset()
+        named = frozenset(str(tool) for tool in expected if str(tool).strip())
+        # Executing code authorizes materializing it first: a user who asked to run
+        # code via run_bash_command also consents to writing the script to run.
+        # Path sandbox + dangerous-command gates still apply to the writes themselves.
+        if "run_bash_command" in named:
+            named = named | {"write_file", "edit_file", "replace_file_content"}
+        return named
 
     def _validate_and_preflight(self, name: str, args: dict[str, Any]) -> str | None:
         """Validate required arguments and run preflight directory checks.
@@ -256,24 +277,37 @@ class ToolExecutor:
                         logger.exception("Preflight Validator failed to create dir %s", parent_dir)
         return None
 
-    def _record_tool_call(self, name: str, args: dict[str, Any], result) -> None:
+    def _record_tool_call(
+        self,
+        name: str,
+        args: dict[str, Any],
+        result,
+        permission: Permission | None = None,
+    ) -> None:
         """Record a tool call in history (capped at 20 entries)."""
-        self.tool_call_history.append(
-            {
-                "name": name,
-                "arguments": args,
-                "success": not (isinstance(result, str) and result.strip().startswith("Error")),
-                "timestamp": time.time(),
-            }
-        )
+        entry = {
+            "name": name,
+            "arguments": args,
+            "success": not _result_indicates_failure(result),
+            "timestamp": time.time(),
+        }
+        if permission is not None:
+            entry["permission"] = permission.value
+        self.tool_call_history.append(entry)
         if len(self.tool_call_history) > 20:
             self.tool_call_history = self.tool_call_history[-20:]
 
-    def _post_execute(self, name: str, args: dict[str, Any], result) -> None:
+    def _post_execute(
+        self,
+        name: str,
+        args: dict[str, Any],
+        result,
+        permission: Permission | None = None,
+    ) -> None:
         """Post-execution: record history, broadcast file events, track errors."""
-        self._record_tool_call(name, args, result)
+        self._record_tool_call(name, args, result, permission=permission)
 
-        if isinstance(result, str) and result.strip().startswith("Error"):
+        if _result_indicates_failure(result):
             self._consecutive_errors += 1
         else:
             self._consecutive_errors = 0  # Reset on success
@@ -452,6 +486,9 @@ class ToolExecutor:
                     module_name,
                     os.path.join(tools_dir, skill_file),
                 )
+                if spec is None or spec.loader is None:
+                    logger.warning("Unable to load auto-skill metadata: %s", skill_file)
+                    continue
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
 

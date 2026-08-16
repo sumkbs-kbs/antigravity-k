@@ -10,7 +10,8 @@ These handlers access ``self._tool_registry``, ``self._skill_loader``, and
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Iterator
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,12 @@ class SlashCommandSkillsMixin:
     """
 
     # Mixin-required attributes (resolved via MRO at runtime)
-    _tool_registry: Any
-    _skill_loader: Any
-    _model_manager: Any
-    _commands: dict[str, Any]
+    _tool_registry: ClassVar[Any]
+    _skill_loader: ClassVar[Any]
+    _model_manager: ClassVar[Any]
+    _commands: ClassVar[dict[str, Any]]
 
-    def _cmd_self(self, args: list) -> str:
+    def _cmd_self(self, args: list[str]) -> str:
         """런타임 기반 자기 능력 보고서."""
         from antigravity_k.engine.self_capability import SelfCapabilityEngine
 
@@ -41,7 +42,7 @@ class SlashCommandSkillsMixin:
         )
         return engine.render_markdown(snapshot)
 
-    def _cmd_agentic(self, args: list) -> str:
+    def _cmd_agentic(self, args: list[str]) -> str:
         """최신 에이전틱 기술 레이더."""
         objective = " ".join(args).strip()
         from antigravity_k.engine.agentic_tech_radar import AgenticTechRadar
@@ -50,7 +51,7 @@ class SlashCommandSkillsMixin:
         report = radar.evaluate(objective)
         return radar.render_markdown(report)
 
-    def _cmd_mcp(self, args: list) -> str:
+    def _cmd_mcp(self, args: list[str]) -> str:
         """MCP 최신 기능 레이더 및 설정 감사."""
         from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
 
@@ -74,7 +75,7 @@ class SlashCommandSkillsMixin:
 
         return "Usage: `/mcp [radar|audit <path>|template]`"
 
-    def _cmd_market(self, args: list) -> str:
+    def _cmd_market(self, args: list[str]) -> str:
         """Skill Marketplace 명령어."""
         try:
             from antigravity_k.engine.skill_market_client import SkillMarketClient
@@ -110,7 +111,18 @@ class SlashCommandSkillsMixin:
                 return "Usage: `/market search <query>`"
             results = registry.search(query)
             if isinstance(results, list) and results and "error" not in results[0]:
-                return market_client.format_search_results(results)  # type: ignore[arg-type]
+                lines = ["🔍 **Skill Marketplace 검색 결과**", ""]
+                for result in results[:15]:
+                    name = str(result.get("name", "unknown"))
+                    version = str(result.get("version", "0.0.0"))
+                    description = str(result.get("description", ""))
+                    installed_mark = "✅" if result.get("is_installed") else "📦"
+                    if len(description) > 80:
+                        description = description[:80] + "..."
+                    lines.extend([f"  {installed_mark} `{name}@{version}`", f"     {description}", ""])
+                if len(results) > 15:
+                    lines.append(f"  ... 외 {len(results) - 15}개 결과")
+                return "\n".join(lines)
             return "🔍 검색 결과가 없습니다."
 
         elif sub == "install":
@@ -192,7 +204,7 @@ class SlashCommandSkillsMixin:
 
         return f"❓ 알 수 없는 하위 명령: `{sub}`.\n사용 가능: search, install, remove, list, info, update"
 
-    def _cmd_capabilities(self, args: list) -> str:
+    def _cmd_capabilities(self, args: list[str]) -> str:
         """현재 등록된 capabilities의 자율 사용 가능성 표시."""
         objective = " ".join(args).strip()
         lines = [
@@ -247,7 +259,7 @@ class SlashCommandSkillsMixin:
 
         return "\n".join(lines)
 
-    def _cmd_codex(self, args: list) -> str:
+    def _cmd_codex(self, args: list[str]) -> str:
         """Codex식 강점을 Antigravity-K 실행 계약으로 표시합니다."""
         objective = " ".join(args).strip()
         connected_tools = len(self._tool_registry) if self._tool_registry else 0
@@ -265,7 +277,7 @@ class SlashCommandSkillsMixin:
         )
         return engine.render_markdown(report)
 
-    def _cmd_evolve(self, args: list):
+    def _cmd_evolve(self, args: list[str]) -> str | Iterator[str]:
         if not self._model_manager:
             return "Error: Model manager is not connected."
 
@@ -286,11 +298,11 @@ class SlashCommandSkillsMixin:
         )
         return agent.evolve(requirement)
 
-    def _cmd_approve(self, args: list) -> str:
+    def _cmd_approve(self, args: list[str]) -> str:
         return "System command: /approve is managed by the orchestrator."
 
-    def _cmd_browse(self, args: list) -> str:
+    def _cmd_browse(self, args: list[str]) -> str:
         return "System command: /browse is managed by the orchestrator."
 
-    def _cmd_skill(self, args: list) -> str:
+    def _cmd_skill(self, args: list[str]) -> str:
         return "System command: /skill is managed by the orchestrator."

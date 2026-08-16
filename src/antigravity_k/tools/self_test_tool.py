@@ -28,7 +28,10 @@ class SelfTestTool(BaseTool):
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.LOW
     icon = "🧪"
-    tags = ["self-test", "harness", "qa", "browser"]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags = ["self-test", "harness", "qa", "browser"]
 
     @property
     def name(self) -> str:
@@ -137,7 +140,7 @@ class SelfTestTool(BaseTool):
         else:
             return json.dumps(report_dict, ensure_ascii=False, indent=2)
 
-    def _run_sync(self, scope: str) -> dict:
+    def _run_sync(self, scope: str) -> dict[str, Any]:
         """새 이벤트 루프에서 비동기 테스트 실행."""
         loop = asyncio.new_event_loop()
         try:
@@ -145,7 +148,7 @@ class SelfTestTool(BaseTool):
         finally:
             loop.close()
 
-    async def _run_async(self, scope: str) -> dict:
+    async def _run_async(self, scope: str) -> dict[str, Any]:
         """비동기 테스트 실행."""
         from ..engine.harness import TestHarness
 
@@ -162,7 +165,7 @@ class SelfTestTool(BaseTool):
         report = await harness.run_all(use_browser=use_browser)
         return report.to_dict()
 
-    def _format_markdown(self, report: dict) -> str:
+    def _format_markdown(self, report: dict[str, Any]) -> str:
         """리포트를 마크다운으로 포맷."""
         total = report.get("total", 0)
         passed = report.get("passed", 0)
@@ -195,7 +198,7 @@ class SelfTestTool(BaseTool):
                 "> **파일명 충돌 위험 발견!** 프로덕션 폴더(`src/`) 내에 `test_`로 시작하는 파일이 있습니다.",
             )
             lines.append(
-                "> Pytest가 이를 테스트 케이스로 오인하여 무한 루프나 권한 오류를 발생시킬 수 있습니다. 즉시 리네임(Rename) 하십시오.",  # noqa: E501
+                "> Pytest가 이를 테스트 케이스로 오인하여 무한 루프나 권한 오류를 발생시킬 수 있습니다. 즉시 리네임(Rename) 하십시오.",
             )
             for issue in hygiene:
                 lines.append(f"- 🚨 `{issue}`")

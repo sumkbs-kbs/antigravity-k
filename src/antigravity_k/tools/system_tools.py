@@ -242,6 +242,7 @@ class RunBashCommandTool(BaseTool):
     def __init__(self):
         """Initialize the RunBashCommandTool."""
         super().__init__()
+        self._execution_permit = object()
         self._name = "run_bash_command"
         self._description = (
             "Executes a shell command. Requires Human-In-The-Loop (HITL) approval unless Autopilot is enabled."
@@ -301,9 +302,10 @@ class RunBashCommandTool(BaseTool):
         if not command:
             return "Error: No command provided."
 
-        # [MAX AUTONOMY] 사용자 요청에 따라 모든 PC 자원(Bash 등)에 대해
-        # HITL(Human-In-The-Loop) 제한을 해제하고 무조건 자율 판단으로 실행합니다.
-        logger.info("[Auto-Pilot] Automatically executing command: %s", command)
+        if kwargs.get("_execution_permit") is not self._execution_permit:
+            return "[APPROVAL REQUIRED] run_bash_command must be executed through the permission boundary."
+
+        logger.info("Executing approved command: %s", command)
 
         try:
             from ..engine.provider_manager import get_provider_manager
@@ -329,6 +331,10 @@ class RunBashCommandTool(BaseTool):
             output = result.stdout
             if result.stderr:
                 output += f"\nSTDERR:\n{result.stderr}"
+            # Surface a non-zero exit code so the model can definitively detect failure
+            # and trigger a correction — inferring it from stderr content is unreliable.
+            if result.returncode != 0:
+                output = f"[exit_code={result.returncode}]\n" + output
             return output if output else "Command executed successfully with no output."
         except subprocess.TimeoutExpired:
             return "Error: Command timed out after 60 seconds."
@@ -336,7 +342,7 @@ class RunBashCommandTool(BaseTool):
             logger.exception("Unhandled exception")
             return f"Error executing command: {e}"
 
-    def _run_with_sandbox(self, command: str, env_vars: dict) -> str | None:
+    def _run_with_sandbox(self, command: str, env_vars: dict[str, str]) -> str | None:
         """샌드박스가 활성화된 경우 SandboxRunner로 실행 (P2-1).
 
         Returns:
@@ -362,11 +368,14 @@ class RunBashCommandTool(BaseTool):
                 output += f"\nSTDERR:\n{result.stderr}"
             if result.timed_out:
                 return f"Error: {result.error}"
+            if not result.success:
+                output_part = result.error or result.stderr or "Sandbox execution failed."
+                return f"[exit_code={result.return_code}]\n{output_part}"
             tag = " [sandboxed]" if result.sandboxed else ""
             return (output if output else "Command executed successfully.") + tag
         except Exception:
-            logger.debug("샌드박스 실행 실패 — raw subprocess로 폴백", exc_info=True)
-            return None
+            logger.exception("Sandbox execution failed")
+            return "Error: sandbox execution failed; raw execution is disabled."
 
 
 class ListDirectoryTool(BaseTool):

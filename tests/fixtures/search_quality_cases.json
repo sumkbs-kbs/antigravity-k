@@ -1,0 +1,34 @@
+[
+  {
+    "case_id": "python-313-release",
+    "query": "Python 3.13 release date",
+    "relevant_urls": [
+      "https://docs.python.org/3/whatsnew/3.13.html",
+      "https://www.python.org/downloads/release/python-3130/",
+      "https://peps.python.org/pep-0719"
+    ],
+    "graded_relevance": {
+      "https://docs.python.org/3/whatsnew/3.13.html": 3,
+      "https://www.python.org/downloads/release/python-3130/": 2,
+      "https://peps.python.org/pep-0719": 1
+    }
+  },
+  {
+    "case_id": "local-model-priority",
+    "query": "Qwen3.6 local model",
+    "relevant_urls": [
+      "https://github.com/QwenLM/Qwen3.6",
+      "https://ollama.com/library/qwen3.6",
+      "https://unsloth.ai/docs/models/qwen3.6",
+      "https://insiderllm.com/guides/qwen-3-6-local-ai-guide",
+      "https://dev.to/purpledoubled/how-to-run-qwen-36-locally-27b-dense-35b-moe-and-coding-variants-setup-guide-4di"
+    ],
+    "graded_relevance": {
+      "https://github.com/QwenLM/Qwen3.6": 3,
+      "https://ollama.com/library/qwen3.6": 3,
+      "https://unsloth.ai/docs/models/qwen3.6": 2,
+      "https://insiderllm.com/guides/qwen-3-6-local-ai-guide": 1,
+      "https://dev.to/purpledoubled/how-to-run-qwen-36-locally-27b-dense-35b-moe-and-coding-variants-setup-guide-4di": 1
+    }
+  }
+]

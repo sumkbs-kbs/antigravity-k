@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from antigravity_k.api.dependencies import (
     __get_tool_registry,
+    get_agent_runtime,
     get_embedding_engine,
     get_model_manager,
     get_orchestrator,
@@ -61,8 +62,9 @@ def health_check():
     rag_files = 0
     cov_active = False
     if orchestrator:
-        if getattr(orchestrator, "_rag_indexer", None):
-            rag_files = len(getattr(orchestrator._rag_indexer, "_file_hashes", {}))
+        rag_indexer = getattr(orchestrator, "_rag_indexer", None)
+        if rag_indexer:
+            rag_files = len(getattr(rag_indexer, "_file_hashes", {}))
         if getattr(orchestrator, "_cov_engine", None):
             cov_active = True
 
@@ -90,6 +92,7 @@ def list_models(manager: ModelManager = Depends(get_model_manager)):
 
     """
     models = manager._registry.list_models()
+    provider_capabilities = manager.provider_capabilities()
     formatted_data = []
     for m in models:
         formatted_data.append(
@@ -100,6 +103,8 @@ def list_models(manager: ModelManager = Depends(get_model_manager)):
                 "owned_by": "system",
                 "role": m.role,
                 "description": m.description,
+                "provider_capability": provider_capabilities.get(m.name),
+                **m.routing_metadata(),
             },
         )
     return {"object": "list", "data": formatted_data}
@@ -306,19 +311,14 @@ async def stream_agent(
         _active_session.orchestrator = None
 
         try:
-            from antigravity_k.engine.orchestrator import OrchestratorAgent
-
-            manager = get_model_manager()
-            vault = get_vault_engine()
-            orchestrator = OrchestratorAgent(model_manager=manager, vault_engine=vault)
-            _active_session.orchestrator = orchestrator
+            runtime = get_agent_runtime()
+            _active_session.orchestrator = runtime.orchestrator
 
             messages = [{"role": "user", "content": q}]
-            target_model = orchestrator._get_model_for_role("default")
-
-            async for chunk in iterate_in_threadpool(
-                orchestrator.run_stream(messages, target_model=target_model),
-            ):
+            tracked_stream = runtime.start_stream(messages)
+            if tracked_stream.task_id:
+                yield f"data: {json.dumps({'task_id': tracked_stream.task_id})}\n\n"
+            async for chunk in iterate_in_threadpool(tracked_stream.chunks):
                 if chunk:
                     _active_session.history.append(chunk)
                     payload = json.dumps({"text": chunk})
@@ -361,7 +361,10 @@ async def get_task_status(task_id: str):
         task_id (str): str task id.
 
     """
-    return {"status": "ok", "data": {"status": "completed"}}
+    status = get_agent_runtime().get_task_status(task_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"status": "ok", "data": status}
 
 
 @router.get("/api/tasks")
@@ -373,7 +376,7 @@ async def list_tasks(limit: int = Query(default=20)):
         limit (int): int limit.
 
     """
-    return {"status": "ok", "data": []}
+    return {"status": "ok", "data": get_agent_runtime().list_tasks(limit=limit)}
 
 
 @router.get("/api/tasks/{task_id}/output")
@@ -384,17 +387,17 @@ async def get_task_output(task_id: str):
         task_id (str): str task id.
 
     """
-    return {"status": "ok", "output": "Legacy output mock"}
+    output = get_agent_runtime().get_task_output(task_id)
+    if output is None:
+        raise HTTPException(status_code=404, detail="Task output not found")
+    return {"status": "ok", "task_id": task_id, "output": output}
 
 
 @router.post("/api/tasks/{task_id}/resume")
 async def resume_task(task_id: str):
-    """Resume Task.
-
-    Args:
-        task_id (str): str task id.
-
-    """
+    runtime = get_agent_runtime()
+    if not runtime.resume_task(task_id=task_id):
+        raise HTTPException(status_code=404, detail="Task is not resumable or has no checkpoint")
     return {"status": "resumed", "task_id": task_id}
 
 

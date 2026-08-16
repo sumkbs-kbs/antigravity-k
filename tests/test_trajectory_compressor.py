@@ -48,6 +48,18 @@ class TestCompress:
         result = comp.compress([])
         assert result.compressed_messages == []
 
+    def test_single_oversized_message_is_not_duplicated(self):
+        # Given: one message exceeds the trajectory character threshold by itself.
+        comp = TrajectoryCompressor(max_chars=100)
+        messages = [{"role": "user", "content": "x" * 200}]
+
+        # When: the trajectory compressor handles the message.
+        result = comp.compress(messages)
+
+        # Then: head/tail retention does not duplicate the same user objective.
+        assert result.compressed_messages == messages
+        assert result.user_message == ""
+
     def test_head_and_tail_preserved(self):
         """The first message and last 10 messages are always kept."""
         comp = TrajectoryCompressor()
@@ -84,6 +96,28 @@ class TestCompress:
 
         assert len(calls) == 1
         assert "custom summary" in result.compressed_messages[1]["content"]
+
+    def test_model_summary_preserves_structured_tool_evidence_from_middle(self):
+        # Given: verified tool evidence is in the middle that the local model summarizes.
+        old_result = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("x" * 2000)
+            + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        messages = [{"role": "system", "content": "system"}]
+        messages.extend({"role": "user", "content": f"message-{index}"} for index in range(3))
+        messages.append({"role": "user", "content": old_result})
+        messages.extend({"role": "assistant", "content": f"tail-{index}"} for index in range(12))
+        compressor = TrajectoryCompressor(summarize_fn=lambda _text: "Model-generated trajectory summary")
+
+        # When: trajectory compression replaces the middle with a summary.
+        result = compressor.compress(messages)
+
+        # Then: the model summary cannot erase provenance or executable ground truth.
+        content = "\n".join(str(message["content"]) for message in result.compressed_messages)
+        assert "[TOOL_EVIDENCE]" in content
+        assert "VERIFIED_RESULT=5050" in content
 
     def test_no_summarize_fn_truncates(self):
         """Without a summarize_fn, the raw text is truncated to 4000 chars."""

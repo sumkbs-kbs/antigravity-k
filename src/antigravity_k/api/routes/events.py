@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -23,7 +24,7 @@ async def websocket_events(websocket: WebSocket):
     """
     if await close_unauthorized_ws(websocket):
         return
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
     def make_callback(e_name):
         def _cb(**kwargs):

@@ -8,6 +8,7 @@ E-5: 에이전트 출력물의 품질을 자가 평가하고,
 import ast
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -35,13 +36,13 @@ class QualityScore:
     feedback: str
     user_message: str
     should_retry: bool
-    issues: list
+    issues: list[str]
 
 
 class QualityGate:
     """에이전트 출력 품질 자동 평가. A/B는 통과, C/F는 재시도."""
 
-    def __init__(self, max_retries: int = 1, verify_fn=None):
+    def __init__(self, max_retries: int = 1, verify_fn: Callable[[str], str] | None = None):
         """Args:
         max_retries: 최대 재시도 횟수
         verify_fn: LLM 기반 자가검증 함수 (prompt -> str).
@@ -69,6 +70,7 @@ class QualityGate:
             QualityScore: The qualityscore result.
 
         """
+        task_type = task_type.lower()
         if not agent_output or not agent_output.strip():
             return QualityScore(
                 QualityGrade.F,
@@ -82,7 +84,7 @@ class QualityGate:
         issues: list[str] = []
         score = 1.0
 
-        if task_type in ("coding", "complex", "complex_step"):
+        if task_type in ("code", "coding", "complex", "complex_step"):
             s, i = self._check_code(agent_output)
             score *= s
             issues.extend(i)
@@ -145,7 +147,8 @@ class QualityGate:
 
         # ─── LLM 기반 자가 검증 (Semantic Self-Verification) ───
         # 정규식 기반 점수가 통과권(B 이상)일 때만 LLM 검증 실행하여 비용 절약
-        if self._verify_fn and score >= 0.6 and len(agent_output) > 100:
+        verify_fn = self._verify_fn
+        if verify_fn and score >= 0.6 and len(agent_output) > 100:
             llm_score, llm_issues = self._llm_self_verify(user_request, agent_output, task_type)
             score *= llm_score
             issues.extend(llm_issues)
@@ -175,7 +178,7 @@ class QualityGate:
         """Reset accumulated quality gate statistics."""
         self._retry_count = 0
 
-    def _llm_self_verify(self, user_request: str, agent_output: str, task_type: str) -> tuple:
+    def _llm_self_verify(self, user_request: str, agent_output: str, task_type: str) -> tuple[float, list[str]]:
         """경량 LLM으로 응답의 의미론적 품질을 검증합니다.
 
         연구 근거: Self-RAG, Corrective RAG (2024-2025)
@@ -185,6 +188,9 @@ class QualityGate:
 
         """
         try:
+            verify_fn = self._verify_fn
+            if verify_fn is None:
+                return 1.0, []
             verify_prompt = (
                 "[ROLE]\n당신은 AI 응답 품질 검증관입니다.\n\n"
                 "[TASK]\n아래의 사용자 질문과 AI 응답을 비교하여 품질을 평가하세요.\n"
@@ -198,7 +204,7 @@ class QualityGate:
                 "채점:"
             )
 
-            result = self._verify_fn(verify_prompt)
+            result = verify_fn(verify_prompt)
             if not result:
                 return 1.0, []
 
@@ -224,7 +230,7 @@ class QualityGate:
             logger.exception("LLM self-verification failed")
             return 1.0, []  # 검증 실패 시 패스스루
 
-    def _check_code(self, output: str) -> tuple:
+    def _check_code(self, output: str) -> tuple[float, list[str]]:
         score = 1.0
         issues: list[str] = []
         blocks = re.findall(r"```python\n(.*?)```", output, re.DOTALL)
@@ -239,7 +245,7 @@ class QualityGate:
                 issues.append(f"코드블록{i + 1} 미완성")
         return score, issues
 
-    def _check_completeness(self, request: str, output: str, task_type: str) -> tuple:
+    def _check_completeness(self, request: str, output: str, task_type: str) -> tuple[float, list[str]]:
         score = 1.0
         issues: list[str] = []
         if task_type in ("coding", "complex", "reasoning") and len(output) < 100:
@@ -254,7 +260,7 @@ class QualityGate:
 
     def _check_output_contract(
         self, request: str, output: str, task_type: str, execution_mode: str | None = None
-    ) -> tuple:
+    ) -> tuple[float, list[str]]:
         """Codex/Claude 수준 응답 형식 계약을 휴리스틱으로 검증합니다.
 
         Args:
@@ -268,14 +274,14 @@ class QualityGate:
         issues: list[str] = []
 
         # PLAN 모드: 코드 블록 체크 건너뜀 (Phase 1 D5)
-        if execution_mode == "plan":
+        if execution_mode == "plan" or task_type == "search":
             return score, issues
 
         request_lower = request.lower()
 
         asks_for_code = task_type in ("coding", "complex", "complex_step") or bool(
             re.search(
-                r"(코드|구현|작성|함수|알고리즘|python|javascript|typescript|" r"function|implement|write|code)",
+                r"(구현|함수|알고리즘|python|javascript|typescript|" r"function|implement|code)",
                 request_lower,
             ),
         )
@@ -285,14 +291,15 @@ class QualityGate:
         code_blocks = re.findall(r"```(?:\w+)?\s*.*?```", output, re.DOTALL)
         prose = re.sub(r"```(?:\w+)?\s*.*?```", "", output, flags=re.DOTALL).strip()
         has_korean_prose = bool(re.search(r"[가-힣]{2,}", prose))
+        code_only_requested = bool(re.search(r"(코드만|code\s+only|only\s+code)", request_lower))
 
         if not code_blocks:
             score *= 0.3
             issues.append("요청된 코드 블록 누락")
-        elif len(prose) < 80 or not has_korean_prose:
+        elif not code_only_requested and (len(prose) < 80 or not has_korean_prose):
             score *= 0.45
             issues.append("코드-only 응답")
-        elif len(output) < 200:
+        elif not code_only_requested and len(output) < 200:
             score *= 0.75
             issues.append("코딩 응답 설명 부족")
 
@@ -326,7 +333,7 @@ class QualityGate:
 
     def _check_planning_mode(
         self, request: str, output: str, task_type: str, execution_mode: str | None = None
-    ) -> tuple:
+    ) -> tuple[float, list[str]]:
         """대규모/복잡한 아키텍처 변경 요청 시 Planning Mode (Artifacts) 작동 여부 검증.
 
         Args:
@@ -347,7 +354,7 @@ class QualityGate:
 
         is_complex_request = task_type == "complex" or bool(
             re.search(
-                r"(아키텍처|구조|전면|대규모|마이그레이션|프레임워크|리팩토링|architecture|refactor|migrate|framework)",
+                r"(아키텍처|구조|전면|대규모|마이그레이션|리팩토링|architecture|refactor|migrate)",
                 request_lower,
             ),
         )
@@ -355,8 +362,16 @@ class QualityGate:
         if is_complex_request:
             has_plan_artifact = bool(re.search(r"implementation_plan\.md", output, re.IGNORECASE))
             has_approval = bool(re.search(r"\[APPROVAL REQUIRED\]", output))
+            has_structured_plan = bool(
+                re.search(
+                    r"(#{1,3}\s*(계획|plan)|계획\s*(및|/)\s*의존성|checkpoint|implementation_plan\.md)",
+                    output,
+                    re.IGNORECASE,
+                ),
+            )
 
-            if not has_plan_artifact and not has_approval:
+            structured_plan_allowed = task_type not in ("coding", "complex", "complex_step")
+            if not has_plan_artifact and not has_approval and not (structured_plan_allowed and has_structured_plan):
                 score *= 0.4
                 issues.append(
                     "복잡한 태스크에서 Planning Mode(계획안 및 승인 요청) 누락 (재시도 필요)",
@@ -364,7 +379,7 @@ class QualityGate:
 
         return score, issues
 
-    def _check_safety(self, output: str) -> tuple:
+    def _check_safety(self, output: str) -> tuple[float, list[str]]:
         score = 1.0
         issues: list[str] = []
         for pattern, desc in [
@@ -377,12 +392,14 @@ class QualityGate:
                 issues.append(f"위험명령: {desc}")
         return score, issues
 
-    def _check_repetition(self, output: str) -> tuple:
+    def _check_repetition(self, output: str) -> tuple[float, list[str]]:
         """동일 문단이 3회 이상 반복되면 품질 감점."""
         score = 1.0
         issues: list[str] = []
-        # 4줄 이상의 블록 단위로 반복 탐지
-        lines = output.split("\n")
+        # 코드 대안들은 출력/분석 heading 같은 경계 보일러플레이트를 공유한다.
+        # 반복 루프 탐지는 prose만 대상으로 한다.
+        prose = re.sub(r"```.*?```", "", output, flags=re.DOTALL)
+        lines = prose.split("\n")
         if len(lines) > 20:
             block_size = 4
             seen_blocks: dict[str, int] = {}
@@ -400,7 +417,7 @@ class QualityGate:
                 issues.append(f"반복 콘텐츠 탐지 ({max_repeats}회 반복)")
         return score, issues
 
-    def _check_internal_tag_leak(self, output: str) -> tuple:
+    def _check_internal_tag_leak(self, output: str) -> tuple[float, list[str]]:
         """내부 태그/추론 흔적이 사용자에게 유출되면 강하게 감점."""
         score = 1.0
         issues: list[str] = []
@@ -410,6 +427,9 @@ class QualityGate:
             (r"</?think>", "<think> 태그 유출"),
             (r"</?thought>", "<thought> 태그 유출"),
             (r"<algorithm>.*?</algorithm>", "<algorithm> 태그 유출"),
+            (r"\bhere(?:'|’)s\s+a\s+thinking\s+process\b", "영어 내부 사고 과정 서문 유출"),
+            (r"\bthinking\s+process\b", "Thinking Process 문구 유출"),
+            (r"\banalyze\s+user\s+input\b", "영어 내부 분석 절차 유출"),
             (r"---\s*\*?Thinking Process\*?\s*---", "Thinking Process 섹션 유출"),
             (r"---\s*\*?End of Thinking\*?\s*---", "End of Thinking 섹션 유출"),
             (r"The user wants me to", "영어 혼잣말(monologue) 유출"),
@@ -426,7 +446,7 @@ class QualityGate:
                 issues.append(desc)
         return score, issues
 
-    def _check_language_contamination(self, output: str) -> tuple:
+    def _check_language_contamination(self, output: str) -> tuple[float, list[str]]:
         """한국어 응답에 중국어/일본어 문자가 혼입되면 감점.
         코드 블록 내부는 제외합니다.
         """
@@ -441,7 +461,7 @@ class QualityGate:
         # 일본어 히라가나/카타카나 혼입
         japanese_chars = re.findall(r"[\u3040-\u309f\u30a0-\u30ff]", prose)
         suspicious_cjk_terms = re.findall(
-            r"(文件|できません|アップ|アップグレード|グレード|できます)",
+            r"(文件|产能|先进|先進|できません|アップ|アップグレード|グレード|できます)",
             prose,
             flags=re.IGNORECASE,
         )
@@ -463,11 +483,15 @@ class QualityGate:
             issues.append(f"일본어 문자 혼입 ({len(japanese_chars)}자)")
         return score, issues
 
-    def _check_korean_readability(self, output: str) -> tuple:
+    def _check_korean_readability(self, output: str) -> tuple[float, list[str]]:
         """한국어 산문의 띄어쓰기/문장 경계 붕괴를 탐지합니다."""
         score = 1.0
         issues: list[str] = []
         prose = re.sub(r"```(?:\w+)?\s*.*?```", "", output, flags=re.DOTALL).strip()
+        prose = re.sub(r"`[^`\n]+`", " ", prose)
+        prose = re.sub(r"^\s*\|.*\|\s*$", " ", prose, flags=re.MULTILINE)
+        prose = re.sub(r"\[[^\]\n]+\]\([^\n)]+\)", " ", prose)
+        prose = re.sub(r"https?://\S+", " ", prose)
         if not re.search(r"[가-힣]{2,}", prose):
             return score, issues
 
@@ -477,28 +501,28 @@ class QualityGate:
             r"모델의을|내가업|응답でき|업グ레?드)",
             prose,
         )
-        long_glued_hangul = re.findall(r"[가-힣]{13,}", prose)
-        missing_sentence_spaces = re.findall(r"[.!?。][가-힣A-Za-z]", prose)
+        long_glued_hangul = re.findall(r"[가-힣]{20,}", prose)
+        missing_sentence_spaces = re.findall(r"(?<![A-Za-z0-9])[.!?。][가-힣A-Za-z]", prose)
         korean_foreign_glue = re.findall(
-            r"(?:[가-힣][A-Za-z]{3,}[가-힣]|[가-힣]{2,}[A-Za-z]{3,}|[A-Za-z]{3,}[가-힣]{2,})",
+            r"(?:[가-힣][A-Za-z]{3,}[가-힣]|[가-힣]{3,}[A-Za-z]{3,}|[A-Za-z]{3,}[가-힣]{3,})",
             prose,
         )
 
-        defect_count = (
-            len(bad_spacing_terms)
-            + len(long_glued_hangul)
-            + len(missing_sentence_spaces)
+        weighted_defect_count = (
+            (len(bad_spacing_terms) * 3)
+            + (len(long_glued_hangul) * 2)
+            + (len(missing_sentence_spaces) * 2)
             + max(0, len(korean_foreign_glue) - 2)
         )
-        if defect_count >= 6:
+        if weighted_defect_count >= 8:
             score *= 0.35
-            issues.append("한국어 띄어쓰기/가독성 붕괴")
-        elif defect_count >= 3:
+            issues.append(f"한국어 띄어쓰기/가독성 붕괴 (오류 후보 {weighted_defect_count}개)")
+        elif weighted_defect_count >= 4:
             score *= 0.6
-            issues.append("한국어 띄어쓰기/문장 경계 품질 저하")
+            issues.append(f"한국어 띄어쓰기/문장 경계 품질 저하 (오류 후보 {weighted_defect_count}개)")
         return score, issues
 
-    def _check_current_info_grounding(self, request: str, output: str) -> tuple:
+    def _check_current_info_grounding(self, request: str, output: str) -> tuple[float, list[str]]:
         """최신/현재 정보 요청에서 cutoff 핑계나 미검증 답변을 감점합니다."""
         score = 1.0
         issues: list[str] = []
@@ -535,7 +559,7 @@ class QualityGate:
             issues.append("최신 정보 요청에 날짜/출처/검증 근거 부족")
         return score, issues
 
-    def _check_comparison_table(self, request: str, output: str) -> tuple:
+    def _check_comparison_table(self, request: str, output: str) -> tuple[float, list[str]]:
         """비교 요청 시 Markdown 테이블이 포함되지 않으면 감점.
         Codex/Claude Code 수준의 구조화된 비교를 강제합니다.
         """
@@ -557,7 +581,7 @@ class QualityGate:
             issues.append("비교 요청에 Markdown 비교표(table) 누락")
         return score, issues
 
-    def _check_information_density(self, output: str) -> tuple:
+    def _check_information_density(self, output: str) -> tuple[float, list[str]]:
         """출력물의 정보 밀도를 검증합니다.
         장황하지만 정보가 없는 답변(filler)을 감점합니다.
         """
@@ -609,7 +633,7 @@ class QualityGate:
 
         return score, issues
 
-    def _check_antigravity_markdown_standards(self, output: str) -> tuple:
+    def _check_antigravity_markdown_standards(self, output: str) -> tuple[float, list[str]]:
         """Antigravity 모델 수준의 마크다운 규약(Mermaid, Carousel, 파일 링크 등) 준수 여부 검증."""
         score = 1.0
         issues: list[str] = []
@@ -622,10 +646,11 @@ class QualityGate:
                 issues.append("Mermaid 다이어그램 내 HTML 태그 포함 (렌더링 에러 위험)")
 
         # 2. Carousel syntax 오류 (슬라이드 주석은 있으나 백틱 선언이 틀린 경우)
-        if re.search(r"<!--\s*slide\s*-->", output, re.IGNORECASE):
-            if not re.search(r"````carousel", output, re.IGNORECASE):
-                score *= 0.75
-                issues.append("Carousel 마크다운 문법 오류 (백틱 4개 ````carousel 선언 필요)")
+        if re.search(r"<!--\s*slide\s*-->", output, re.IGNORECASE) and not re.search(
+            r"````carousel", output, re.IGNORECASE
+        ):
+            score *= 0.75
+            issues.append("Carousel 마크다운 문법 오류 (백틱 4개 ````carousel 선언 필요)")
 
         # 3. 잘못된 파일 링크 포맷 (링크 텍스트를 백틱으로 감싸면 렌더링 깨짐)
         if re.search(r"\[`[^`]+`\]\(file://", output):
@@ -639,7 +664,7 @@ class QualityGate:
 
         return score, issues
 
-    def _check_github_alerts(self, output: str) -> tuple:
+    def _check_github_alerts(self, output: str) -> tuple[float, list[str]]:
         """GitHub-Style Alert 블록의 문법 정확성을 검증합니다.
 
         올바른 형식:
@@ -695,7 +720,7 @@ class QualityGate:
 
         return score, issues
 
-    def _check_artifact_format(self, output: str) -> tuple:
+    def _check_artifact_format(self, output: str) -> tuple[float, list[str]]:
         """Artifact 파일(implementation_plan.md, task.md 등)의 포맷을 검증합니다.
 
         Plan 모드에서 생성된 출력물이 아티팩트 규칙을 준수하는지 확인합니다.
@@ -745,7 +770,7 @@ class QualityGate:
             issues.append("Plan 작성 후 `[APPROVAL REQUIRED]` 마커 누락")
 
         # 3. Task.md 형식 검증 (체크박스 태스크 존재 여부)
-        has_task_context = bool(re.search(r"task\.md|tasks?:|할\s*일|TODO", output, re.IGNORECASE))
+        has_task_context = bool(re.search(r"\btask\.md\b|\btasks\s*:|할\s*일|\bTODO\b", output, re.IGNORECASE))
         if has_task_context:
             checkbox_count = len(re.findall(r"[-*]\s*\[[\sx]\]", output))
             if checkbox_count == 0:

@@ -195,3 +195,22 @@ class TestMultiplexer:
         mock_runner.run.assert_called_once_with("instruction")
         assert result["task_id"] == "test"
         assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_bound_runtime_path_does_not_construct_goal_runner(self, temp_project_root):
+        runtime = mock.MagicMock()
+        runtime.goal_contract.return_value = "contract"
+        mux = Multiplexer(project_root=temp_project_root, agent_runtime=runtime)
+
+        with mock.patch.object(mux.worktree_manager, "create_worktree", return_value="/tmp/wt/runtime"):
+            with mock.patch("antigravity_k.engine.multiplexer.GoalRunner") as MockRunner:
+                results = await mux.run_parallel_goals(
+                    [{"task_id": "runtime-task", "instruction": "inspect"}],
+                )
+
+        MockRunner.assert_not_called()
+        runtime.goal_contract.assert_called_once_with(
+            "inspect",
+            {"task_id": "runtime-task", "workspace_dir": "/tmp/wt/runtime"},
+        )
+        assert results == [{"task_id": "runtime-task", "status": "success"}]

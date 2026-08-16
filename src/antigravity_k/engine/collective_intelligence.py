@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.collective_intelligence")
 
-GenerateFn = Callable[[str, str, dict], str]
+GenerateFn = Callable[[str, str, dict[str, Any]], str]
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,7 @@ class CollectiveIntelligenceEngine:
         max_critics: int = 2,
         min_participants: int = 2,
         expose_trace: bool = True,
-        generation_kwargs: dict | None = None,
+        generation_kwargs: dict[str, Any] | None = None,
     ) -> str:
         """Execute a collective reasoning run and return the final answer."""
         kwargs = dict(generation_kwargs or {})
@@ -94,7 +95,7 @@ class CollectiveIntelligenceEngine:
         self,
         prompt: str,
         models: list[str],
-        kwargs: dict,
+        kwargs: dict[str, Any],
     ) -> list[CollectiveEntry]:
         proposals: list[CollectiveEntry] = []
         for model in models:
@@ -111,7 +112,7 @@ class CollectiveIntelligenceEngine:
         prompt: str,
         proposals: list[CollectiveEntry],
         models: list[str],
-        kwargs: dict,
+        kwargs: dict[str, Any],
     ) -> list[CollectiveEntry]:
         critiques: list[CollectiveEntry] = []
         critique_context = self._format_entries(proposals, "후보 답변")
@@ -130,7 +131,7 @@ class CollectiveIntelligenceEngine:
         proposals: list[CollectiveEntry],
         critiques: list[CollectiveEntry],
         arbiter: str,
-        kwargs: dict,
+        kwargs: dict[str, Any],
     ) -> str:
         synthesis_prompt = self._synthesis_prompt(
             prompt=prompt,
@@ -143,7 +144,7 @@ class CollectiveIntelligenceEngine:
             return self._fallback_synthesis(proposals, critiques)
         return text
 
-    def _safe_generate(self, target: str, prompt: str, kwargs: dict) -> str:
+    def _safe_generate(self, target: str, prompt: str, kwargs: dict[str, Any]) -> str:
         try:
             phase_kwargs = dict(kwargs)
             phase_kwargs.setdefault("temperature", 0.4)
@@ -254,9 +255,4 @@ class CollectiveIntelligenceEngine:
     def _is_error_response(text: str) -> bool:
         stripped = (text or "").strip()
         lowered = stripped.lower()
-        return (
-            not stripped
-            or lowered.startswith("[api error")
-            or lowered.startswith("[collective error")
-            or lowered.startswith("error:")
-        )
+        return not stripped or lowered.startswith(("[api error", "[collective error", "error:"))

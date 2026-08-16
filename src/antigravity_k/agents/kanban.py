@@ -3,7 +3,7 @@ import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +217,9 @@ class KanbanBoard:
                     return task_id
         return None
 
-    def get_board_state(self) -> Dict[str, List[dict]]:
+    def get_board_state(self) -> Dict[str, List[dict[str, Any]]]:
         """전체 칸반 보드 상태를 UI 렌더링에 적합한 형태로 반환합니다."""
-        columns: dict[str, list[dict]] = {
+        columns: dict[str, list[dict[str, Any]]] = {
             "BACKLOG": [],
             "TODO": [],
             "IN_PROGRESS": [],

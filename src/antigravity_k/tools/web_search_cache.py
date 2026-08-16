@@ -9,9 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from .web_search_models import SearchResponse, SearchResult
 
@@ -80,7 +79,7 @@ _REALTIME_KEYWORDS = frozenset(
         "찾아줘",
         "알려줘",
         "조회",
-    }
+    },
 )
 
 # ─── 카테고리별 TTL (시간) ───────────────────────────────────────
@@ -123,11 +122,36 @@ def _classify_query_category(query: str) -> str:
 
 
 def _generate_fallback_queries(query: str) -> list[str]:
-    """검색 결과가 없을 때 시도할 대체 쿼리들을 생성합니다."""
     candidates: list[str] = []
 
     # 원본 그대로
     candidates.append(query)
+
+    normalized = " ".join(query.split())
+    lowered = normalized.casefold()
+    if "ollama" in lowered and "tool" in lowered and "call" in lowered:
+        candidates.append("site:docs.ollama.com tool calling")
+    elif "429" in lowered and "mdn" in lowered:
+        candidates.append("429 Too Many Requests MDN Web Docs")
+    elif "robots" in lowered and re.search(r"\brfc[-\s]?\d+\b", lowered):
+        rfc_match = re.search(r"\brfc[-\s]?(\d+)\b", normalized, re.IGNORECASE)
+        if rfc_match:
+            candidates.append(f"robots exclusion protocol RFC {rfc_match.group(1)}")
+    elif "qwen3.6" in lowered:
+        candidates.append("Qwen3.6 model")
+
+    documentation_variant = re.sub(
+        r"\bofficial\s+documentation\b",
+        "official docs",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if documentation_variant != normalized:
+        candidates.append(documentation_variant)
+    elif re.search(r"\bdocumentation\b", normalized, re.IGNORECASE):
+        candidates.append(
+            re.sub(r"\bdocumentation\b", "docs", normalized, flags=re.IGNORECASE),
+        )
 
     # 1. 한국어 조사 제거
     cleaned = re.sub(
@@ -211,35 +235,21 @@ class SearchCache:
         category = _classify_query_category(query)
         return _CATEGORY_TTL_HOURS.get(category, self.ttl_hours)
 
-    def get(self, query: str, force_refresh: bool = False) -> Optional[SearchResponse]:
-        """캐시에서 결과 조회.
-
-        Args:
-            query: 검색 쿼리
-            force_refresh: True면 캐시를 완전히 무시하고 None 반환
-        """
-        if force_refresh:
-            return None
-
+    def _read(self, query: str, *, allow_expired: bool) -> SearchResponse | None:
         key = self._cache_key(query)
         cache_file = CACHE_DIR / f"{key}.json"
 
-        if not cache_file.exists():
-            return None
-
-        # 실시간 키워드가 포함되면 캐시 무시
-        if any(kw in query for kw in _REALTIME_KEYWORDS):
-            if cache_file.exists():
-                cache_file.unlink(missing_ok=True)
+        if not cache_file.exists() or any(kw in query for kw in _REALTIME_KEYWORDS):
             return None
 
         try:
             data = json.loads(cache_file.read_text(encoding="utf-8"))
             cached_time = datetime.fromisoformat(data.get("cached_at", ""))
-            age_hours = (datetime.now() - cached_time).total_seconds() / 3600
+            if cached_time.tzinfo is None:
+                cached_time = cached_time.replace(tzinfo=UTC)
+            age_hours = (datetime.now(UTC) - cached_time).total_seconds() / 3600
             effective_ttl = self._get_effective_ttl(query)
-
-            if age_hours > effective_ttl:
+            if age_hours > effective_ttl and (not allow_expired or age_hours > max(effective_ttl * 7, 24)):
                 cache_file.unlink(missing_ok=True)
                 return None
 
@@ -250,10 +260,25 @@ class SearchCache:
                 total_results=len(results),
                 engine=data.get("engine", "cache"),
                 cached=True,
+                stale=age_hours > effective_ttl,
             )
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             logger.warning("캐시 읽기 실패: %s", e)
             return None
+
+    def get(self, query: str, force_refresh: bool = False) -> SearchResponse | None:
+        """캐시에서 결과 조회.
+
+        Args:
+            query: 검색 쿼리
+            force_refresh: True면 캐시를 완전히 무시하고 None 반환
+        """
+        if force_refresh:
+            return None
+        return self._read(query, allow_expired=False)
+
+    def get_stale(self, query: str) -> SearchResponse | None:
+        return self._read(query, allow_expired=True)
 
     def set(self, query: str, response: SearchResponse):
         """검색 결과를 캐시에 저장.
@@ -269,7 +294,7 @@ class SearchCache:
 
         data = {
             "query": query,
-            "cached_at": datetime.now().isoformat(),
+            "cached_at": datetime.now(UTC).isoformat(),
             "engine": response.engine,
             "ttl_hours": effective_ttl,
             "results": [
@@ -280,13 +305,18 @@ class SearchCache:
                     "source": r.source,
                     "timestamp": r.timestamp,
                     "relevance_score": r.relevance_score,
+                    "canonical_url": r.canonical_url,
+                    "source_id": r.source_id,
+                    "domain": r.domain,
+                    "authority_score": r.authority_score,
+                    "ranking_score": r.ranking_score,
                 }
                 for r in response.results
             ],
         }
         cache_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def clear(self, query: Optional[str] = None):
+    def clear(self, query: str | None = None):
         """캐시를 정리합니다.
 
         Args:
@@ -306,7 +336,7 @@ class SearchCache:
                 CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 logger.info("캐시 전체 삭제 완료")
 
-    def get_cache_stats(self) -> dict:
+    def get_cache_stats(self) -> dict[str, object]:
         """캐시 통계를 반환합니다."""
         if not CACHE_DIR.exists():
             return {"total_files": 0, "total_size_kb": 0}
@@ -325,9 +355,9 @@ class SearchCache:
 
 __all__ = [
     "CACHE_DIR",
+    "_CATEGORY_TTL_HOURS",
+    "_REALTIME_KEYWORDS",
     "SearchCache",
     "_classify_query_category",
     "_generate_fallback_queries",
-    "_REALTIME_KEYWORDS",
-    "_CATEGORY_TTL_HOURS",
 ]

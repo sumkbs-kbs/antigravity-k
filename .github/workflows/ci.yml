@@ -110,6 +110,12 @@ jobs:
             --warn-unused-configs \
             || true
 
+      - name: BasedPyright Strict Core Gate
+        run: |
+          basedpyright \
+            src/antigravity_k/engine/sandbox.py \
+            src/antigravity_k/tools/search_benchmark.py
+
   test:
     name: "Tests (${{ matrix.os }})"
     strategy:
@@ -146,6 +152,14 @@ jobs:
             --cov=src/antigravity_k \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml
+
+      - name: Agent, Search Golden, and Citation Contract
+        run: |
+          python -m pytest \
+            tests/test_web_search_quality.py \
+            tests/test_task_benchmark.py \
+            tests/test_long_horizon_benchmark.py \
+            -q --tb=short
 
       - name: Upload Test Results
         if: success() || failure()
@@ -574,9 +588,9 @@ jobs:
           | Metric | Value |
           |:---|---:|
           | Line Coverage | ${COVER_PCT}% |
-          | Threshold | 55% |
+          | Threshold | 동적 측정 |
 
-          > The actual coverage as of 2026-07 is 46.5%. Run `pytest --cov=src/antigravity_k` locally to check current status.
+          > Current coverage as of 2026-07 is 57%. Run `pytest --cov=src/antigravity_k` locally to check current status.
 
           > See [coverage_html](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/coverage/) for full report.
           EOF

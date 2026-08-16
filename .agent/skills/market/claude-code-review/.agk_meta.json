@@ -1,0 +1,13 @@
+{
+  "name": "claude-code-review",
+  "version": "1.0.16",
+  "description": "",
+  "installed_at": "2026-07-11T10:24:23.884187",
+  "updated_at": "2026-07-11T10:24:23.884187",
+  "risk_level": "safe",
+  "trust_level": "experimental",
+  "requires_approval": false,
+  "mcp_server_id": "",
+  "security_passed": true,
+  "findings": []
+}

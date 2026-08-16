@@ -12,6 +12,7 @@ AI가 스스로 새로운 벤치마크(테스트 코드)를 생성하여 자신�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -19,16 +20,23 @@ import random
 import re
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from importlib import import_module
+from pathlib import Path
+from typing import Any
 
 from antigravity_k.config import config
+from antigravity_k.tools.egress_policy import safe_urlopen
 
+load_dataset: Any = None
+_has_datasets = False
 try:
-    from datasets import load_dataset
+    load_dataset = import_module("datasets").__dict__["load_dataset"]
 
-    HAS_DATASETS = True
+    _has_datasets = True
 except ImportError:
-    HAS_DATASETS = False
+    pass
+
+HAS_DATASETS = _has_datasets
 
 logger = logging.getLogger("antigravity_k.curriculum_generator")
 
@@ -43,7 +51,7 @@ class CurriculumTask:
     prompt_requirement: str
     generated_test_code: str
     passed: bool = False
-    ground_truth_code: Optional[str] = None
+    ground_truth_code: str | None = None
     is_hf_dataset: bool = False
 
 
@@ -55,7 +63,7 @@ class SkillLibrary:
         os.makedirs(self.library_dir, exist_ok=True)
         self.index_file = os.path.join(self.library_dir, "skills_index.json")
 
-    def get_known_skills(self) -> List[str]:
+    def get_known_skills(self) -> list[str]:
         if not os.path.exists(self.index_file):
             return []
         try:
@@ -86,20 +94,19 @@ class DatasetIngestor:
     def __init__(self, project_root: str, ollama_url: str):
         self.project_root = project_root
         self.ollama_url = ollama_url
-        self.dataset_name = "openai_humaneval"  # 기본값
+        self.dataset_name = "openai/openai_humaneval"
         self.dataset = None
         self.mappings_file = os.path.join(project_root, "data", "dataset_mappings.json")
         os.makedirs(os.path.dirname(self.mappings_file), exist_ok=True)
         self.mappings = self._load_mappings()
 
-    def _load_mappings(self) -> Dict[str, Dict[str, str]]:
+    def _load_mappings(self) -> dict[str, dict[str, str]]:
         if os.path.exists(self.mappings_file):
             try:
                 with open(self.mappings_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
         return {}
 
     def _save_mappings(self):
@@ -114,7 +121,7 @@ class DatasetIngestor:
         self.dataset = None
 
     def load(self):
-        if not HAS_DATASETS:
+        if not _has_datasets:
             logger.warning("[Curriculum] Hugging Face 'datasets' 라이브러리가 설치되지 않았습니다.")
             return False
         try:
@@ -135,7 +142,7 @@ class DatasetIngestor:
             logger.exception("[Curriculum] 데이터셋 로드 실패")
             return False
 
-    def _analyze_schema_with_llm(self, sample_item: dict) -> Dict[str, str]:
+    def _analyze_schema_with_llm(self, sample_item: dict[str, Any]) -> dict[str, str]:
         """LLM을 사용하여 알 수 없는 데이터셋의 스키마를 자율적으로 분석하고 매핑합니다."""
         logger.info(f"[Curriculum] '{self.dataset_name}' 데이터셋 스키마 자율 분석 중...")
         sample_json = json.dumps(sample_item, ensure_ascii=False, indent=2)
@@ -143,7 +150,7 @@ class DatasetIngestor:
         prompt = (
             "[ROLE] 당신은 데이터 엔지니어입니다.\n"
             "[TASK] 아래는 허깅페이스 데이터셋의 레코드 1개 샘플입니다.\n"
-            "이 구조를 분석하여 코딩 테스트(또는 문제 풀이) 파이프라인에서 사용할 핵심 컬럼 3개의 이름을 찾아내세요.\n\n"  # noqa: E501
+            "이 구조를 분석하여 코딩 테스트(또는 문제 풀이) 파이프라인에서 사용할 핵심 컬럼 3개의 이름을 찾아내세요.\n\n"
             f"--- JSON SAMPLE ---\n{sample_json[:2000]}\n\n"
             "[REQUIREMENTS]\n"
             "1. prompt_col: 문제의 지시사항이나 설명이 들어간 컬럼명 (예: text, prompt, question, instruction)\n"
@@ -166,7 +173,7 @@ class DatasetIngestor:
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with safe_urlopen(req, timeout=60) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 content = result.get("response", "")
                 content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
@@ -182,10 +189,9 @@ class DatasetIngestor:
         # 분석 실패 시 휴리스틱 폴백
         return {"prompt_col": "prompt", "test_col": "test", "ground_truth_col": "canonical_solution"}
 
-    def sample_task(self) -> Optional[CurriculumTask]:
-        if not self.dataset:
-            if not self.load():
-                return None
+    def sample_task(self) -> CurriculumTask | None:
+        if not self.dataset and not self.load():
+            return None
 
         # 무작위 샘플링
         assert self.dataset is not None  # load() 성공 후에는 None이 아님
@@ -230,15 +236,15 @@ class CurriculumGenerator:
         self.dataset_ingestor = DatasetIngestor(project_root, ollama_url)
 
     def generate_new_challenge(
-        self, domain: str = "algorithm", force_synthetic: bool = False, dataset_name: Optional[str] = None
-    ) -> Optional[CurriculumTask]:
+        self, domain: str = "algorithm", force_synthetic: bool = False, dataset_name: str | None = None
+    ) -> CurriculumTask | None:
         """듀얼 모드: HF 데이터셋(Mode B)과 자율 창작(Mode A) 중 하나를 선택해 과제를 생성합니다."""
 
         if dataset_name:
             self.dataset_ingestor.set_dataset(dataset_name)
 
         # 50% 확률로 Hugging Face 데이터셋 활용 (Mode B) 또는 데이터셋 이름이 명시된 경우
-        if dataset_name or (not force_synthetic and HAS_DATASETS and random.random() < 0.5):
+        if dataset_name or (not force_synthetic and _has_datasets and random.random() < 0.5):
             logger.info("[Curriculum] Mode B: Hugging Face 데이터셋에서 샘플링합니다.")
             task = self.dataset_ingestor.sample_task()
             if task:
@@ -254,11 +260,11 @@ class CurriculumGenerator:
 
         prompt = (
             f"[ROLE] 당신은 최고 수준의 AI 트레이너입니다.\n"
-            f"[HARDWARE TARGET] 시스템은 M5 Max (128GB RAM)에서 구동됩니다. 매우 무거운 병렬 연산이나 대규모 메모리를 쓰는 과제도 충분히 소화할 수 있습니다.\n"  # noqa: E501
+            f"[HARDWARE TARGET] 시스템은 M5 Max (128GB RAM)에서 구동됩니다. 매우 무거운 병렬 연산이나 대규모 메모리를 쓰는 과제도 충분히 소화할 수 있습니다.\n"
             f"[TASK] AI 에이전트의 현재 한계(Frontier)를 넓힐 '{domain}' 관련 새로운 파이썬 코딩 과제를 만들어주세요.\n"
             f"에이전트가 최근 성공한 스킬 목록은 다음과 같습니다:\n{skills_text}\n\n"
-            "위 스킬들을 바탕으로 **단 한 단계 더 복잡하거나 새로운 개념이 추가된(Frontier)** 엣지 케이스 과제를 설계하세요.\n"  # noqa: E501
-            "M5 Max 하드웨어의 이점을 살릴 수 있는 대용량 데이터 처리, 멀티스레딩, 극단적 비동기 처리 관련 주제를 권장합니다.\n"  # noqa: E501
+            "위 스킬들을 바탕으로 **단 한 단계 더 복잡하거나 새로운 개념이 추가된(Frontier)** 엣지 케이스 과제를 설계하세요.\n"
+            "M5 Max 하드웨어의 이점을 살릴 수 있는 대용량 데이터 처리, 멀티스레딩, 극단적 비동기 처리 관련 주제를 권장합니다.\n"
             "아래 JSON 형식으로만 응답하세요:\n"
             '{"requirement": "에이전트가 풀어야 할 자연어 요구사항", '
             '"difficulty": 8, '
@@ -292,13 +298,18 @@ class CurriculumGenerator:
         logger.info(f"[Curriculum] Self-Play 시작: {task.task_id}")
 
         try:
-            from antigravity_k.api.dependencies import get_model_manager
             from antigravity_k.engine.tdd_engine import OmniTDDEngine
+
+            dependencies = import_module("antigravity_k.api.dependencies")
+            get_model_manager = dependencies.__dict__["get_model_manager"]
 
             # 임시 테스트 파일 저장
             test_file_path = os.path.join(self.benchmark_dir, f"test_{task.task_id}.py")
-            with open(test_file_path, "w", encoding="utf-8") as f:
-                f.write(task.generated_test_code)
+            await asyncio.to_thread(
+                Path(test_file_path).write_text,
+                task.generated_test_code,
+                encoding="utf-8",
+            )
 
             # TDD 엔진 구동
             engine = OmniTDDEngine(
@@ -344,8 +355,11 @@ class CurriculumGenerator:
                         "tests": task.generated_test_code,
                     }
 
-                with open(fail_log, "w", encoding="utf-8") as f:
-                    json.dump(log_data, f, ensure_ascii=False, indent=2)
+                await asyncio.to_thread(
+                    Path(fail_log).write_text,
+                    json.dumps(log_data, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
 
             return task.passed
 
@@ -371,12 +385,12 @@ class CurriculumGenerator:
             data=json.dumps(data).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with safe_urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             content = result.get("response", "")
             return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-    def _extract_json(self, text: str) -> Optional[Dict]:
+    def _extract_json(self, text: str) -> dict[str, Any] | None:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:

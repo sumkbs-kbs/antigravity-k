@@ -17,7 +17,7 @@ from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 logger = logging.getLogger(__name__)
 
 
-def _run_git(args: list, cwd: str = ".", timeout: int = 30) -> str:
+def _run_git(args: list[str], cwd: str = ".", timeout: int = 30) -> str:
     """Git 명령 실행 헬퍼."""
     try:
         result = subprocess.run(

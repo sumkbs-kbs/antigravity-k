@@ -6,19 +6,43 @@ web_search.py에서 분리됨 (Phase 23 리팩토링).
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
 import re
 import time
-from datetime import datetime
-from typing import Optional
-from urllib.parse import quote_plus
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
+from urllib.parse import parse_qs, quote_plus, urljoin, urlsplit
 
+import anyio
+import httpcore
 import httpx
+from httpcore._backends.auto import AutoBackend
 
-from .web_search_cache import SearchCache, _generate_fallback_queries  # noqa: F811
+from .crawler_policy import LegalTermsPolicy, RobotsRateLimitPolicy
+from .egress_policy import validate_httpx_request, validate_httpx_request_async
+from .search_conflicts import source_conflict_sets
+from .search_quality_evaluator import (
+    CitationEvaluationReport,
+    citation_sources_from_results,
+    evaluate_citations,
+)
+from .web_search_cache import SearchCache, _generate_fallback_queries
 from .web_search_models import SearchResponse, SearchResult
+from .web_search_quality import (
+    has_authoritative_query_result,
+    has_query_relevant_result,
+    is_public_http_url,
+    official_source_hints,
+    rank_search_results,
+    requires_authoritative_sources,
+    resolve_public_http_url,
+    resolve_public_http_url_sync,
+    sanitize_untrusted_text,
+    source_id_for_url,
+)
 
 logger = logging.getLogger("web_search")
 
@@ -41,20 +65,37 @@ class WebSearchEngine:
 
     def __init__(
         self,
-        searxng_url: Optional[str] = None,
+        searxng_url: str | None = None,
         max_results: int = 8,
         cache_ttl_hours: int = 24,
     ) -> None:
         self.searxng_url = searxng_url or os.environ.get("SEARXNG_URL", "http://localhost:8080")
         self.tavily_api_key = os.environ.get("TAVILY_API_KEY")
+        self.self_hosted_url = os.environ.get("AGK_SEARCH_ENGINE_URL", "").strip().rstrip("/") or None
+        try:
+            self.fallback_budget_ms = float(os.environ.get("AGK_SEARCH_FALLBACK_BUDGET_MS", "1500"))
+        except ValueError:
+            self.fallback_budget_ms = 1500.0
         self.max_results = max_results
+        self.fetch_results = max(max_results, min(max_results * 3, 24))
         self.cache: SearchCache = SearchCache(ttl_hours=cache_ttl_hours)
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
+        self._provider_cooldowns: dict[str, float] = {}
+
+    def _provider_available(self, provider: str) -> bool:
+        return time.monotonic() >= self._provider_cooldowns.get(provider, 0.0)
+
+    def _provider_succeeded(self, provider: str) -> None:
+        self._provider_cooldowns.pop(provider, None)
+
+    def _provider_failed(self, provider: str) -> None:
+        self._provider_cooldowns[provider] = time.monotonic() + 30.0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 timeout=15.0,
+                event_hooks={"request": [validate_httpx_request_async]},
                 headers={
                     "User-Agent": (
                         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -75,16 +116,27 @@ class WebSearchEngine:
 
     async def _search_duckduckgo(self, query: str) -> list[SearchResult]:
         """DuckDuckGo HTML 검색 (API 키 불필요)."""
+        if not self._provider_available("duckduckgo"):
+            return await self._search_duckduckgo_lite(query)
         client = await self._get_client()
         results: list[SearchResult] = []
 
         try:
             url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-            resp = await client.get(url)
+            resp: httpx.Response | None = None
+            for attempt in range(3):
+                resp = await client.get(url, timeout=5.0)
+                if resp.status_code != 202 or attempt == 2:
+                    break
+                await anyio.sleep(0.25 * (attempt + 1))
 
-            if resp.status_code != 200:
-                logger.warning("DuckDuckGo 응답 실패: %s", resp.status_code)
+            if resp is None:
                 return results
+            if resp.status_code != 200:
+                self._provider_failed("duckduckgo")
+                logger.warning("DuckDuckGo 응답 실패: %s", resp.status_code)
+                return await self._search_duckduckgo_lite(query)
+            self._provider_succeeded("duckduckgo")
 
             html = resp.text
             title_pattern = re.compile(
@@ -99,7 +151,7 @@ class WebSearchEngine:
             titles = title_pattern.findall(html)
             snippets = snippet_pattern.findall(html)
 
-            for i, (url_raw, title_html) in enumerate(titles[: self.max_results]):
+            for i, (url_raw, title_html) in enumerate(titles[: self.fetch_results]):
                 title = re.sub(r"<[^>]+>", "", title_html).strip()
                 snippet = ""
                 if i < len(snippets):
@@ -120,20 +172,83 @@ class WebSearchEngine:
                             url=actual_url,
                             snippet=snippet,
                             source="DuckDuckGo",
-                            timestamp=datetime.now().isoformat(),
+                            timestamp=datetime.now(UTC).isoformat(),
                             relevance_score=1.0 - (i * 0.1),
-                        )
+                        ),
                     )
+            if not results:
+                return await self._search_duckduckgo_lite(query)
         except httpx.RequestError:
+            self._provider_failed("duckduckgo")
             logger.warning("DuckDuckGo 검색 오류")
+            return await self._search_duckduckgo_lite(query)
 
         return results
+
+    async def _search_duckduckgo_lite(self, query: str) -> list[SearchResult]:
+        if not self._provider_available("duckduckgo_lite"):
+            return []
+
+        client = await self._get_client()
+        try:
+            response = await client.get(
+                f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}",
+                timeout=8.0,
+            )
+            if response.status_code != 200:
+                self._provider_failed("duckduckgo_lite")
+                return []
+
+            anchor_pattern = re.compile(
+                r"<a(?P<tag>[^>]*class=['\"]result-link['\"][^>]*)>(?P<title>.*?)</a>",
+                re.IGNORECASE | re.DOTALL,
+            )
+            snippet_pattern = re.compile(
+                r"<td[^>]*class=['\"]result-snippet['\"][^>]*>(.*?)</td>",
+                re.IGNORECASE | re.DOTALL,
+            )
+            snippets = snippet_pattern.findall(response.text)
+            results: list[SearchResult] = []
+            matches = list(anchor_pattern.finditer(response.text))[: self.fetch_results]
+            for index, match in enumerate(matches):
+                href_match = re.search(r"href=['\"]([^'\"]+)", match.group("tag"), re.IGNORECASE)
+                if href_match is None:
+                    continue
+                href = html.unescape(href_match.group(1))
+                if href.startswith("//"):
+                    href = f"https:{href}"
+                parsed = urlsplit(href)
+                actual_url = parse_qs(parsed.query).get("uddg", [href])[0]
+                title = re.sub(r"<[^>]+>", "", html.unescape(match.group("title")))
+                snippet = snippets[index] if index < len(snippets) else ""
+                snippet = re.sub(r"<[^>]+>", " ", html.unescape(snippet))
+                title = re.sub(r"\s+", " ", title).strip()
+                snippet = re.sub(r"\s+", " ", snippet).strip()
+                if title and actual_url:
+                    results.append(
+                        SearchResult(
+                            title=title,
+                            url=actual_url,
+                            snippet=snippet,
+                            source="DuckDuckGo Lite",
+                            timestamp=datetime.now(UTC).isoformat(),
+                            relevance_score=1.0 - (index * 0.08),
+                        ),
+                    )
+            self._provider_succeeded("duckduckgo_lite")
+            return results
+        except httpx.RequestError:
+            self._provider_failed("duckduckgo_lite")
+            logger.warning("DuckDuckGo Lite 검색 오류")
+            return []
 
     # ─── Tavily AI 검색 ───────────────────────────────────────────
 
     async def _search_tavily(self, query: str) -> list[SearchResult]:
         """Tavily AI API — LLM-Ready 정제 데이터."""
         if not self.tavily_api_key:
+            return []
+        if not self._provider_available("tavily"):
             return []
 
         client = await self._get_client()
@@ -144,35 +259,90 @@ class WebSearchEngine:
                 "api_key": self.tavily_api_key,
                 "query": query,
                 "search_depth": "basic",
-                "max_results": self.max_results,
+                "max_results": self.fetch_results,
             }
             resp = await client.post("https://api.tavily.com/search", json=payload, timeout=15.0)
 
             if resp.status_code != 200:
+                self._provider_failed("tavily")
                 return results
+            self._provider_succeeded("tavily")
 
             data = resp.json()
-            for i, item in enumerate(data.get("results", [])[: self.max_results]):
+            for i, item in enumerate(data.get("results", [])[: self.fetch_results]):
                 results.append(
                     SearchResult(
                         title=item.get("title", ""),
                         url=item.get("url", ""),
                         snippet=item.get("content", ""),
                         source="Tavily AI",
-                        timestamp=datetime.now().isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         relevance_score=item.get("score", 1.0 - i * 0.1),
-                    )
+                    ),
                 )
         except httpx.RequestError:
+            self._provider_failed("tavily")
             logger.warning("Tavily AI 검색 오류")
 
         return results
+
+    async def _search_self_hosted(self, query: str) -> list[SearchResult]:
+        if not self.self_hosted_url or not self._provider_available("self_hosted"):
+            return []
+
+        client = await self._get_client()
+        try:
+            response = await client.post(
+                f"{self.self_hosted_url}/api/search",
+                json={
+                    "query": query,
+                    "max_results": max(self.fetch_results, 10),
+                    "include_answer": False,
+                    "include_raw_content": False,
+                },
+                timeout=15.0,
+            )
+            if response.status_code != 200:
+                self._provider_failed("self_hosted")
+                return []
+
+            payload = response.json()
+            items = payload.get("results", []) if isinstance(payload, dict) else []
+            results: list[SearchResult] = []
+            for index, item in enumerate(items[: self.fetch_results]):
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url", ""))
+                title = str(item.get("title", ""))
+                if not url or not title:
+                    continue
+                score = item.get("score", 1.0 - (index * 0.08))
+                try:
+                    relevance_score = float(score)
+                except (TypeError, ValueError):
+                    relevance_score = 1.0 - (index * 0.08)
+                results.append(
+                    SearchResult(
+                        title=title,
+                        url=url,
+                        snippet=str(item.get("content", "")),
+                        source="Antigravity Search",
+                        timestamp=datetime.now(UTC).isoformat(),
+                        relevance_score=max(0.0, min(1.0, relevance_score)),
+                    ),
+                )
+            self._provider_succeeded("self_hosted")
+            return results
+        except (httpx.RequestError, json.JSONDecodeError, ValueError):
+            self._provider_failed("self_hosted")
+            logger.warning("Self-hosted search 오류", exc_info=True)
+            return []
 
     # ─── SearXNG 검색 ────────────────────────────────────────────
 
     async def _search_searxng(self, query: str) -> list[SearchResult]:
         """SearXNG 자체 호스팅 검색 엔진."""
-        if not self.searxng_url:
+        if not self.searxng_url or not self._provider_available("searxng"):
             return []
 
         client = await self._get_client()
@@ -188,7 +358,9 @@ class WebSearchEngine:
             resp = await client.get(f"{self.searxng_url}/search", params=params)
 
             if resp.status_code != 200:
+                self._provider_failed("searxng")
                 return results
+            self._provider_succeeded("searxng")
 
             data = resp.json()
             for i, item in enumerate(data.get("results", [])[: self.max_results]):
@@ -198,11 +370,12 @@ class WebSearchEngine:
                         url=item.get("url", ""),
                         snippet=item.get("content", ""),
                         source=f"SearXNG/{item.get('engine', '')}",
-                        timestamp=datetime.now().isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         relevance_score=item.get("score", 1.0 - i * 0.1),
-                    )
+                    ),
                 )
         except httpx.RequestError:
+            self._provider_failed("searxng")
             logger.warning("SearXNG 검색 오류")
 
         return results
@@ -211,6 +384,8 @@ class WebSearchEngine:
 
     async def _search_jina(self, query: str) -> list[SearchResult]:
         """Jina AI Search Grounding (s.jina.ai) — 무료, API 키 선택적."""
+        if not self._provider_available("jina"):
+            return []
         client = await self._get_client()
         results: list[SearchResult] = []
 
@@ -227,12 +402,14 @@ class WebSearchEngine:
             )
 
             if resp.status_code != 200:
+                self._provider_failed("jina")
                 return results
+            self._provider_succeeded("jina")
 
             data = resp.json()
             items = data if isinstance(data, list) else data.get("data", data.get("results", []))
 
-            for i, item in enumerate(items[: self.max_results]):
+            for i, item in enumerate(items[: self.fetch_results]):
                 if isinstance(item, dict):
                     results.append(
                         SearchResult(
@@ -240,11 +417,12 @@ class WebSearchEngine:
                             url=item.get("url", ""),
                             snippet=str(item.get("description", item.get("content", "")) or "")[:300],
                             source="Jina Search",
-                            timestamp=datetime.now().isoformat(),
+                            timestamp=datetime.now(UTC).isoformat(),
                             relevance_score=1.0 - (i * 0.08),
-                        )
+                        ),
                     )
         except (httpx.RequestError, json.JSONDecodeError):
+            self._provider_failed("jina")
             logger.warning("Jina Search 오류 (폴백 전환)")
 
         return results
@@ -253,13 +431,19 @@ class WebSearchEngine:
 
     def _extract_content_jina(self, url: str, max_chars: int = 2000) -> str:
         """Jina Reader (r.jina.ai) — URL을 클린 마크다운으로 변환."""
+        if resolve_public_http_url_sync(url) is None:
+            return ""
         try:
             headers = {"Accept": "text/markdown"}
             jina_key = os.environ.get("JINA_API_KEY")
             if jina_key:
                 headers["Authorization"] = f"Bearer {jina_key}"
 
-            with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+            with httpx.Client(
+                timeout=10.0,
+                follow_redirects=False,
+                event_hooks={"request": [validate_httpx_request]},
+            ) as client:
                 resp = client.get(f"https://r.jina.ai/{url}", headers=headers)
                 if resp.status_code == 200:
                     text = resp.text.strip()
@@ -283,10 +467,11 @@ class WebSearchEngine:
         엔진 우선순위:
             1. 캐시 조회 (force_refresh=False일 때)
             2. Tavily AI (LLM 친화적, 키 설정 시)
-            3. SearXNG (메타 검색 — Google+Bing+DDG 집계)
-            4. Jina Search (시맨틱 그라운딩, 무료)
-            5. DuckDuckGo HTML (최종 폴백)
-            6. Fallback: 대체 쿼리로 재시도
+            3. 선택적 self-hosted search API
+            4. SearXNG (메타 검색 — Google+Bing+DDG 집계)
+            5. Jina Search (시맨틱 그라운딩, 무료)
+            6. DuckDuckGo HTML/Lite (최종 폴백)
+            7. Fallback: 대체 쿼리로 재시도
 
         Args:
             query: 검색 쿼리
@@ -305,6 +490,7 @@ class WebSearchEngine:
         # 2. Multi-Engine 검색
         all_results: list[SearchResult] = []
         engines_used: list[str] = []
+        self_hosted_elapsed_ms = 0.0
 
         # 2a. Tavily AI
         if self.tavily_api_key:
@@ -313,53 +499,68 @@ class WebSearchEngine:
                 all_results.extend(tavily_results)
                 engines_used.append("tavily")
 
+        if self.self_hosted_url:
+            provider_started = time.perf_counter()
+            self_hosted_results = await self._search_self_hosted(query)
+            self_hosted_elapsed_ms = (time.perf_counter() - provider_started) * 1000
+            if self_hosted_results:
+                all_results.extend(self_hosted_results)
+                engines_used.append("self-hosted")
+
         # 2b. SearXNG
-        if self.searxng_url and len(all_results) < self.max_results:
+        if self.searxng_url and (len(all_results) < self.max_results or len(engines_used) < 2):
             searxng_results = await self._search_searxng(query)
             if searxng_results:
                 all_results.extend(searxng_results)
                 engines_used.append("searxng")
 
         # 2c. Jina Search
-        if len(all_results) < self.max_results:
+        if len(all_results) < self.max_results or len(engines_used) < 2:
             jina_results = await self._search_jina(query)
             if jina_results:
                 all_results.extend(jina_results)
                 engines_used.append("jina")
 
         # 2d. DuckDuckGo (폴백)
-        if len(all_results) < self.max_results:
+        if len(all_results) < self.max_results or len(engines_used) < 2:
             ddg_results = await self._search_duckduckgo(query)
             if ddg_results:
                 all_results.extend(ddg_results)
                 engines_used.append("duckduckgo")
 
-        # 2e. Fallback: 모든 엔진 결과 0건 → 대체 쿼리
-        if not all_results:
+        all_results.extend(official_source_hints(query))
+        candidate_target = max(self.max_results * 2, self.max_results)
+        authority_rescue_needed = requires_authoritative_sources(query) and not has_authoritative_query_result(
+            query,
+            all_results,
+        )
+        if authority_rescue_needed:
+            candidate_target = max(candidate_target, len(all_results) + self.max_results)
+        fallback_allowed = (
+            not self.self_hosted_url or self_hosted_elapsed_ms <= self.fallback_budget_ms or authority_rescue_needed
+        )
+        fallback_needed = (
+            len(engines_used) < 2
+            or (len(all_results) <= self.max_results and not has_query_relevant_result(query, all_results))
+            or authority_rescue_needed
+        )
+        if fallback_allowed and fallback_needed:
             fallback_queries = _generate_fallback_queries(query)
             for fb_query in fallback_queries[1:4]:
-                fb_results = await self._search_searxng(fb_query)
-                if not fb_results:
-                    fb_results = await self._search_duckduckgo(fb_query)
+                if len(all_results) >= candidate_target:
+                    break
+                fb_results = await self._search_self_hosted(fb_query)
+                if not has_query_relevant_result(fb_query, fb_results):
+                    fb_results.extend(await self._search_jina(fb_query))
+                if not has_query_relevant_result(fb_query, fb_results):
+                    fb_results.extend(await self._search_searxng(fb_query))
+                if not has_query_relevant_result(fb_query, fb_results):
+                    fb_results.extend(await self._search_duckduckgo(fb_query))
                 if fb_results:
                     all_results.extend(fb_results)
                     engines_used.append("fallback")
-                    break
 
-        # 3. 중복 URL 제거
-        seen_urls: set[str] = set()
-        unique_results: list[SearchResult] = []
-        for r in all_results:
-            normalized = r.url.rstrip("/").lower()
-            if normalized not in seen_urls:
-                seen_urls.add(normalized)
-                unique_results.append(r)
-
-        # 4. 신뢰 도메인 기반 재정렬
-        _boost_by_trusted_domains(unique_results, query)
-
-        unique_results.sort(key=lambda x: x.relevance_score, reverse=True)
-        final_results = unique_results[: self.max_results]
+        final_results = rank_search_results(all_results, max_results=self.max_results, query=query)
 
         elapsed = (time.time() - start) * 1000
         engine_label = "+".join(engines_used) if engines_used else "none"
@@ -374,6 +575,13 @@ class WebSearchEngine:
 
         if final_results:
             self.cache.set(query, response)
+        elif use_cache and not force_refresh:
+            stale = self.cache.get_stale(query)
+            if stale and stale.results:
+                stale.engine = f"stale-cache/{stale.engine or 'cache'}"
+                stale.search_time_ms = round(elapsed, 1)
+                logger.warning("provider 실패로 만료 캐시 사용: '%s'", query)
+                return stale
 
         return response
 
@@ -389,9 +597,22 @@ class WebSearchEngine:
             "",
         ]
 
-        chars_used = len(lines[0])
+        conflict_sets = source_conflict_sets(citation_sources_from_results(response.results))
+        if conflict_sets:
+            lines.append("[search_conflicts]")
+            lines.extend(f"[citation:{first}] [citation:{second}]" for first, second in conflict_sets)
+            lines.extend(("[/search_conflicts]", ""))
+
+        chars_used = sum(len(line) for line in lines)
         for i, r in enumerate(response.results, 1):
-            entry = f"{i}. **{r.title}**\n   {r.snippet}\n   🔗 {r.url}\n"
+            citation = r.source_id or source_id_for_url(r.url)
+            entry = (
+                f"{i}. [citation:{citation}] **{sanitize_untrusted_text(r.title, 240)}**\n"
+                "   [untrusted_web_content]\n"
+                f"{sanitize_untrusted_text(r.snippet, wrap=False)}\n"
+                "   [/untrusted_web_content]\n"
+                f"   🔗 {r.url}\n"
+            )
             if chars_used + len(entry) > max_chars:
                 lines.append(f"... (나머지 {len(response.results) - i + 1}개 결과 생략)")
                 break
@@ -399,6 +620,19 @@ class WebSearchEngine:
             chars_used += len(entry)
 
         return "\n".join(lines)
+
+    def evaluate_response(
+        self,
+        response_text: str,
+        results: SearchResponse | Sequence[SearchResult],
+        conflict_sets: Iterable[Iterable[str]] = (),
+    ) -> CitationEvaluationReport:
+        search_results = results.results if isinstance(results, SearchResponse) else results
+        return evaluate_citations(
+            response_text,
+            citation_sources_from_results(search_results),
+            conflict_sets=conflict_sets,
+        )
 
     async def search_and_summarize(self, query: str) -> str:
         """검색 후 LLM 컨텍스트 포맷으로 반환하는 원스텝 API."""
@@ -422,35 +656,115 @@ def _boost_by_trusted_domains(results: list[SearchResult], query: str):
     for r in results:
         if any(domain in r.url for domain in trusted_domains):
             r.relevance_score += 5.0
-        if "weather" in query or "날씨" in query:
-            if "weather.naver.com" in r.url or "kma.go.kr" in r.url:
-                r.relevance_score += 15.0
+        if ("weather" in query or "날씨" in query) and ("weather.naver.com" in r.url or "kma.go.kr" in r.url):
+            r.relevance_score += 15.0
 
 
 # ─── 웹 페이지 스크래핑 ──────────────────────────────────────────
 
 
+class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
+    def __init__(self, delegate=None) -> None:
+        self._delegate = delegate or AutoBackend()
+        self._pins: dict[str, str] = {}
+
+    def pin(self, hostname: str, address: str) -> None:
+        self._pins[hostname.rstrip(".").lower()] = address
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options=None,
+    ) -> httpcore.AsyncNetworkStream:
+        address = self._pins.get(host.rstrip(".").lower())
+        if address is None:
+            raise httpcore.ConnectError(f"No pinned address for {host}")
+        return await self._delegate.connect_tcp(
+            address,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(self, path: str, timeout: float | None = None, socket_options=None):
+        return await self._delegate.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
+
+    async def sleep(self, seconds: float) -> None:
+        await self._delegate.sleep(seconds)
+
+
+class _PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
+    def __init__(self) -> None:
+        super().__init__(trust_env=False)
+        self._pinned_backend = _PinnedNetworkBackend()
+        self._pool._network_backend = self._pinned_backend
+
+    def pin(self, hostname: str, address: str) -> None:
+        self._pinned_backend.pin(hostname, address)
+
+
 class PageScraper:
     """검색 결과 URL의 본문을 추출합니다. (httpx + 정규식)"""
 
-    def __init__(self) -> None:
-        self._client: Optional[httpx.AsyncClient] = None
+    def __init__(self, legal_policy: LegalTermsPolicy | None = None) -> None:
+        self._client: httpx.AsyncClient | None = None
+        self._transport: _PinnedAsyncHTTPTransport | None = None
+        self._crawl_policy = RobotsRateLimitPolicy()
+        self._legal_policy = legal_policy or LegalTermsPolicy.from_env()
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
+            self._transport = _PinnedAsyncHTTPTransport()
             self._client = httpx.AsyncClient(
+                transport=self._transport,
                 timeout=10.0,
-                follow_redirects=True,
+                event_hooks={"request": [validate_httpx_request_async]},
+                follow_redirects=False,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; Antigravity-K/1.0)"},
             )
         return self._client
 
     async def extract_text(self, url: str, max_chars: int = 5000) -> str:
         """URL에서 본문 텍스트를 추출합니다."""
+        if not is_public_http_url(url):
+            return "[차단됨: public HTTP URL만 허용]"
         client = await self._get_client()
 
-        try:
-            resp = await client.get(url)
+        current_url = url
+        for _ in range(4):
+            resolved = await resolve_public_http_url(current_url)
+            if resolved is None:
+                return "[차단됨: public HTTP URL만 허용]"
+            current_url, addresses = resolved
+            if self._transport is not None:
+                self._transport.pin(urlsplit(current_url).hostname or "", addresses[0])
+            legal_decision = self._legal_policy.evaluate(current_url)
+            if legal_decision.reason != "policy_attested":
+                logger.info(
+                    "[CrawlerPolicy] domain=%s allowed=%s reason=%s",
+                    legal_decision.domain,
+                    legal_decision.allowed,
+                    legal_decision.reason,
+                )
+            if not legal_decision.allowed:
+                return f"[차단됨: 이용약관 정책 {legal_decision.reason}]"
+            if not await self._crawl_policy.authorize(current_url, client):
+                return "[차단됨: robots.txt 정책 또는 rate limit]"
+            try:
+                resp = await client.get(current_url, follow_redirects=False)
+            except (httpx.RequestError, UnicodeError) as e:
+                return f"[스크래핑 오류: {e}]"
+
+            if 300 <= resp.status_code < 400:
+                location = resp.headers.get("location", "")
+                if not location:
+                    return f"[HTTP {resp.status_code}]"
+                current_url = urljoin(current_url, location)
+                continue
             if resp.status_code != 200:
                 return f"[HTTP {resp.status_code}]"
 
@@ -466,9 +780,7 @@ class PageScraper:
             text = re.sub(r"<[^>]+>", " ", html)
             text = re.sub(r"\s+", " ", text).strip()
             return text[:max_chars]
-
-        except Exception as e:
-            return f"[스크래핑 오류: {e}]"
+        return "[차단됨: redirect limit 초과]"
 
     async def close(self):
         if self._client and not self._client.is_closed:
@@ -476,7 +788,7 @@ class PageScraper:
 
 
 __all__ = [
-    "WebSearchEngine",
     "PageScraper",
+    "WebSearchEngine",
     "_boost_by_trusted_domains",
 ]

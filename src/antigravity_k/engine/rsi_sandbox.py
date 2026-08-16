@@ -85,7 +85,7 @@ class MutationRecord:
     rolled_back: bool = False
     benchmark_delta: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -120,7 +120,7 @@ class RSISandbox:
         self,
         project_root: str = "",
         audit_dir: str = "data/rsi_audit",
-        verify_fn: Callable | None = None,
+        verify_fn: Callable[[str], str] | None = None,
     ):
         """Initialize the RSISandbox.
 
@@ -219,6 +219,7 @@ class RSISandbox:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                check=False,
             )
             if result.returncode == 0:
                 logger.info("[RSI Sandbox] 롤백 완료: %s", snapshot.snapshot_id)
@@ -236,7 +237,7 @@ class RSISandbox:
         self,
         filepath: str,
         new_content: str,
-        benchmark_fn: Callable | None = None,
+        benchmark_fn: Callable[[str, str], bool] | None = None,
     ) -> dict[str, ValidationResult]:
         """변이를 3중 검증합니다.
 
@@ -290,6 +291,7 @@ class RSISandbox:
                     capture_output=True,
                     text=True,
                     timeout=60,
+                    check=False,
                     env={**os.environ, "PYTHONPATH": os.path.join(self._root, "src")},
                 )
                 results["tests"] = ValidationResult.PASS if test_result.returncode == 0 else ValidationResult.FAIL
@@ -324,8 +326,8 @@ class RSISandbox:
         filepath: str,
         original: str,
         modified: str,
-        audit_fn_1: Callable | None = None,
-        audit_fn_2: Callable | None = None,
+        audit_fn_1: Callable[[str], str] | None = None,
+        audit_fn_2: Callable[[str], str] | None = None,
     ) -> dict[str, Any]:
         """두 개의 독립 LLM이 변이를 교차 검증합니다.
 
@@ -406,7 +408,7 @@ class RSISandbox:
         self._mutation_log.append(record)
         self._save_audit_log()
 
-    def get_mutation_history(self, last_n: int = 20) -> list[dict]:
+    def get_mutation_history(self, last_n: int = 20) -> list[dict[str, Any]]:
         """최근 변이 이력을 반환합니다."""
         return [m.to_dict() for m in self._mutation_log[-last_n:]]
 
@@ -433,6 +435,7 @@ class RSISandbox:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                check=False,
             )
             return result.stdout.strip() if result.returncode == 0 else "unknown"
         except Exception:

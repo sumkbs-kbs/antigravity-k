@@ -42,6 +42,34 @@ class TestAppConfigIntegration:
         assert cfg.i18n.locale == "auto"
         assert cfg.i18n.fallback_locale == "en"
 
+    def test_local_qwen_is_runtime_default(self, monkeypatch):
+        for name in (
+            "AGK_CONFIG_FILE",
+            "AGK_PROVIDER",
+            "AGK_API_ENGINE",
+            "AGK_MODEL_API_ENGINE",
+            "AGK_MAIN_MODEL",
+        ):
+            monkeypatch.delenv(name, raising=False)
+
+        cfg = AppConfig()
+
+        assert cfg.model.main_model == "qwen3.6:latest"
+        assert cfg.model.code_model == "qwen3.6:latest"
+        assert cfg.model.vision_model == "qwen3.6:latest"
+        assert cfg.model.api_engine == "ollama"
+        assert cfg.model.api_base == "http://localhost:11434/v1"
+
+    def test_lm_studio_engine_uses_its_token_environment_variable(self, monkeypatch):
+        monkeypatch.setenv("AGK_PROVIDER", "lmstudio")
+        monkeypatch.setenv("LM_STUDIO_API_KEY", "test-lmstudio-token")
+
+        cfg = AppConfig()
+
+        assert cfg.model.api_engine == "lmstudio"
+        assert cfg.model.api_base == "http://localhost:1234/v1"
+        assert cfg.model.api_key == "test-lmstudio-token"
+
     def test_max_tool_risk_exists(self):
         """SecurityConfig에 max_tool_risk가 추가되었는지 확인."""
         cfg = AppConfig()

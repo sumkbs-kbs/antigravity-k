@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Antigravity-K: LLM Wiki — 세컨드 브레인 (Second Brain).
 
 ======================================================
@@ -35,8 +34,9 @@ import logging
 import re
 import sqlite3
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger("llm_wiki")
 
@@ -67,7 +67,7 @@ class WikiEntry:
     access_count: int = 0
     relevance_score: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -219,7 +219,7 @@ class LLMWiki:
             생성된 항목 ID
 
         """
-        now = datetime.now().isoformat()
+        now = datetime.now(UTC).replace(tzinfo=None).isoformat()
         tags_json = json.dumps(tags or [], ensure_ascii=False)
 
         conn = self._connect()
@@ -255,7 +255,7 @@ class LLMWiki:
         if "tags" in updates and isinstance(updates["tags"], list):
             updates["tags"] = json.dumps(updates["tags"], ensure_ascii=False)
 
-        updates["updated_at"] = datetime.now().isoformat()
+        updates["updated_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat()
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [entry_id]
@@ -278,6 +278,11 @@ class LLMWiki:
         conn.commit()
         conn.close()
         return cursor.rowcount > 0
+
+    def delete_vault_sources(self, source_urls: tuple[str, ...]) -> int:
+        from antigravity_k.knowledge.wiki_privacy import delete_vault_sources
+
+        return delete_vault_sources(self._connect, WIKI_DIR, source_urls)
 
     def get_entry(self, entry_id: int) -> WikiEntry | None:
         """ID로 항목을 조회합니다."""
@@ -459,7 +464,7 @@ class LLMWiki:
     def save_web_search(
         self,
         query: str,
-        results: list[dict],
+        results: list[dict[str, Any]],
         auto_tag: bool = True,
     ) -> int:
         """웹 검색 결과를 위키에 저장합니다.
@@ -476,7 +481,7 @@ class LLMWiki:
         # 검색 결과를 하나의 위키 항목으로 통합
         content_parts = [
             f"## 웹 검색: {query}\n",
-            f"_검색 일시: {datetime.now().strftime('%Y-%m-%d %H:%M')}_\n",
+            f"_검색 일시: {datetime.now(UTC).replace(tzinfo=None).strftime('%Y-%m-%d %H:%M')}_\n",
         ]
 
         for i, r in enumerate(results[:8], 1):
@@ -497,7 +502,7 @@ class LLMWiki:
 
     # ─── 통계 ────────────────────────────────────────────────────
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """위키 통계를 반환합니다."""
         conn = self._connect()
 
@@ -543,6 +548,85 @@ class LLMWiki:
             "most_accessed": most_accessed,
         }
 
+    def clear_all(self) -> int:
+        conn = self._connect()
+        entries = conn.execute("SELECT category, title FROM wiki_entries").fetchall()
+        conn.execute("DELETE FROM wiki_access_log")
+        conn.execute("DELETE FROM wiki_links")
+        conn.execute("DELETE FROM wiki_entries")
+        conn.commit()
+        conn.close()
+
+        for entry in entries:
+            safe_title = re.sub(r'[<>:"/\\|?*]', "_", entry["title"])[:80]
+            (WIKI_DIR / entry["category"] / f"{safe_title}.md").unlink(missing_ok=True)
+        return len(entries)
+
+    def export_all(self) -> list[dict[str, Any]]:
+        conn = self._connect()
+        rows = [dict(row) for row in conn.execute("SELECT * FROM wiki_entries ORDER BY created_at").fetchall()]
+        conn.close()
+        return rows
+
+    def redact_all(self) -> int:
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        conn = self._connect()
+        rows = conn.execute("SELECT * FROM wiki_entries").fetchall()
+        changed = 0
+        for row in rows:
+            old_title = row["title"]
+            values = {
+                "title": redact_full(row["title"]),
+                "content": redact_full(row["content"]),
+                "tags": redact_full(row["tags"] or ""),
+                "source_url": redact_full(row["source_url"] or ""),
+            }
+            if any(values[key] != (row[key] or "") for key in values):
+                conn.execute(
+                    "UPDATE wiki_entries SET title = ?, content = ?, tags = ?, source_url = ?, updated_at = ? WHERE id = ?",
+                    (
+                        values["title"],
+                        values["content"],
+                        values["tags"],
+                        values["source_url"],
+                        datetime.now(UTC).replace(tzinfo=None).isoformat(),
+                        row["id"],
+                    ),
+                )
+                try:
+                    tags = json.loads(values["tags"] or "[]")
+                except json.JSONDecodeError:
+                    tags = []
+                self._save_markdown(row["id"], values["title"], values["content"], row["category"], tags)
+                old_file = WIKI_DIR / row["category"] / f"{re.sub(r'[<>:\"/\\|?*]', '_', old_title)[:80]}.md"
+                new_file = WIKI_DIR / row["category"] / f"{re.sub(r'[<>:\"/\\|?*]', '_', values['title'])[:80]}.md"
+                if old_file != new_file:
+                    old_file.unlink(missing_ok=True)
+                changed += 1
+        conn.commit()
+        conn.close()
+        return changed
+
+    def apply_retention(self, max_age_days: int) -> int:
+        if max_age_days < 0:
+            raise ValueError("max_age_days must be non-negative")
+        from datetime import timedelta
+
+        cutoff = (datetime.now(UTC).replace(tzinfo=None) - timedelta(days=max_age_days)).isoformat()
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT id, category, title FROM wiki_entries WHERE created_at < ?",
+            (cutoff,),
+        ).fetchall()
+        conn.execute("DELETE FROM wiki_entries WHERE created_at < ?", (cutoff,))
+        conn.commit()
+        conn.close()
+        for row in rows:
+            safe_title = re.sub(r'[<>:"/\\|?*]', "_", row["title"])[:80]
+            (WIKI_DIR / row["category"] / f"{safe_title}.md").unlink(missing_ok=True)
+        return len(rows)
+
     # ─── 내부 유틸 ───────────────────────────────────────────────
 
     def _row_to_entry(self, row) -> WikiEntry:
@@ -576,7 +660,7 @@ class LLMWiki:
         )
         conn.execute(
             "INSERT INTO wiki_access_log (entry_id, query, accessed_at) VALUES (?, ?, ?)",
-            (entry_id, query, datetime.now().isoformat()),
+            (entry_id, query, datetime.now(UTC).replace(tzinfo=None).isoformat()),
         )
 
     def _save_markdown(
@@ -597,7 +681,7 @@ class LLMWiki:
             f"id: {entry_id}\n"
             f"category: {category}\n"
             f"tags: {json.dumps(tags, ensure_ascii=False)}\n"
-            f"created: {datetime.now().isoformat()}\n"
+            f"created: {datetime.now(UTC).replace(tzinfo=None).isoformat()}\n"
             f"---\n\n"
         )
         md_file.write_text(frontmatter + content, encoding="utf-8")

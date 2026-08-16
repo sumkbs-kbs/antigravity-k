@@ -231,7 +231,7 @@ class SkillInstaller:
 
         # Step 1: npm install
         logger.info("[SkillInstaller] Installing %s...", package_name)
-        npm_ok, npm_path, npm_version, npm_err = self._npm_install(package_name)
+        npm_ok, npm_path, _npm_version, npm_err = self._npm_install(package_name)
         if not npm_ok:
             result.errors.append(f"npm install 실패: {npm_err}")
             return result
@@ -376,6 +376,7 @@ class SkillInstaller:
                 ["npm", "install", "--no-save", "--prefix", str(self.project_root), package_name],
                 capture_output=True,
                 text=True,
+                check=False,
                 timeout=120,
             )
 
@@ -595,7 +596,7 @@ class SkillInstaller:
                         if line.strip() and not line.strip().startswith("#")
                     ]
                     items_to_copy = [i for i in items_to_copy if i not in ignore_list]
-                except (OSError, IOError):
+                except OSError:
                     logger.warning("[SkillInstaller] 스킬 설치 단계 실패 (non-critical)", exc_info=True)
 
             for item in items_to_copy:
@@ -785,8 +786,8 @@ class SkillInstaller:
             validation: 패키지 검증 결과
             security: 보안 스캔 결과
         """
-        now = datetime.now().isoformat()
-        meta = {
+        now = datetime.now().astimezone().replace(tzinfo=None).isoformat()
+        meta: dict[str, Any] = {
             "name": package_name,
             "version": validation.version,
             "description": "",
@@ -831,7 +832,7 @@ class SkillInstaller:
         try:
             meta_path = dest_dir / ".agk_meta.json"
             meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.warning("[SkillInstaller] Failed to write .agk_meta.json: %s", e)
 
     def _cleanup_npm(self, npm_path: Path):
@@ -876,7 +877,7 @@ class SkillInstaller:
                     line = line.strip()
                     if line.startswith("version ="):
                         return line.split("=")[1].strip().strip('"').strip("'")
-        except (OSError, IOError):
+        except OSError:
             logger.warning("[SkillInstaller] 스킬 설치 단계 실패 (non-critical)", exc_info=True)
         return ""
 
@@ -899,7 +900,7 @@ class SkillInstaller:
             current >= required
         """
 
-        def _parse(v: str) -> tuple:
+        def _parse(v: str) -> tuple[int, int, int]:
             parts = v.split(".")
             major = int(parts[0]) if len(parts) > 0 else 0
             minor = int(parts[1]) if len(parts) > 1 else 0

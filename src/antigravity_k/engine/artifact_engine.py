@@ -18,7 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -499,11 +499,15 @@ class ArtifactEngine:
                         "filename": fname,
                         "path": fpath,
                         "size": stat.st_size,
-                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+                        .astimezone()
+                        .replace(tzinfo=None)
+                        .isoformat(),
                         "type": artifact_type,
                     },
                 )
-            except Exception:
+            except (OSError, ValueError):
+                logger.debug("Unable to inspect artifact: %s", fpath)
                 continue
 
         return artifacts
@@ -615,12 +619,25 @@ def register_artifact_tool(tool_registry, project_root: str):
     from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
     class WriteArtifactTool(BaseTool):
-        name = "write_artifact"
-        description = "Create or update planning artifacts like implementation_plan.md, task.md, and walkthrough.md"
         category = ToolCategory.FILE_IO
         render_in = RenderIn.CONTEXTUAL
         risk_level = RiskLevel.LOW
         icon = "📝"
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._name = "write_artifact"
+            self._description = (
+                "Create or update planning artifacts like implementation_plan.md, task.md, and walkthrough.md"
+            )
+
+        @property
+        def name(self) -> str:
+            return self._name
+
+        @property
+        def description(self) -> str:
+            return self._description
 
         @property
         def parameters_schema(self) -> dict[str, Any]:

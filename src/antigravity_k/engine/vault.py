@@ -1,5 +1,7 @@
 """Git-first markdown vault with concurrent-safe writes, RAG sync, and YAML frontmatter parsing."""
 
+from __future__ import annotations
+
 import logging
 import os
 import re
@@ -8,7 +10,7 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from filelock import SoftFileLock
@@ -17,6 +19,9 @@ from filelock import SoftFileLock
 from antigravity_k.engine.chunker import MarkdownChunker
 from antigravity_k.engine.event_bus import global_event_bus
 from antigravity_k.engine.vector_store import VectorStore
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.vault_privacy import VaultPrivacyMutation, VaultPrivacyResult
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +244,50 @@ class VaultEngine:
             except subprocess.CalledProcessError as e:
                 logger.error("Failed to create snapshot: %s", e.stderr)
         return None
+
+    def apply_privacy_mutation(self, mutation: VaultPrivacyMutation) -> VaultPrivacyResult:
+        from antigravity_k.engine.vault_privacy import apply_vault_privacy_mutation
+        from antigravity_k.engine.vault_privacy_derivatives import sync_vault_privacy_derivatives
+
+        return apply_vault_privacy_mutation(
+            vault_path=self.vault_path,
+            acquire_lock=self._acquire_vault_lock,
+            resolve_path=self._safe_resolve,
+            mutation=mutation,
+            sync_derivatives=lambda requested, replacements: sync_vault_privacy_derivatives(
+                self,
+                requested,
+                replacements,
+            ),
+            is_safe_restore_target=self._is_safe_restore_target,
+        )
+
+    def restore_privacy_snapshot(self, snapshot_commit: str, paths: tuple[str, ...]) -> bool:
+        from antigravity_k.engine.vault_privacy import (
+            VaultPrivacyAction,
+            VaultPrivacyMutation,
+            resolve_vault_privacy_paths,
+        )
+        from antigravity_k.engine.vault_privacy_derivatives import sync_vault_privacy_derivatives
+        from antigravity_k.engine.vault_privacy_git import (
+            restore_vault_privacy_paths,
+            validate_snapshot_paths,
+        )
+
+        with self._acquire_vault_lock():
+            if not self._is_safe_restore_target():
+                return False
+            _ = resolve_vault_privacy_paths(paths, self._safe_resolve, require_files=False)
+            validate_snapshot_paths(self.vault_path, snapshot_commit, paths)
+            _ = restore_vault_privacy_paths(self.vault_path, snapshot_commit, paths)
+            restored_paths = resolve_vault_privacy_paths(paths, self._safe_resolve, require_files=True)
+            resolved = {path: path.read_text(encoding="utf-8") for path in restored_paths}
+            sync_vault_privacy_derivatives(
+                self,
+                VaultPrivacyMutation(action=VaultPrivacyAction.REDACT, paths=paths),
+                resolved,
+            )
+        return True
 
     def restore_snapshot(self, commit_hash: str) -> bool:
         """Restore the filesystem to a specific snapshot (commit hash).
@@ -518,6 +567,34 @@ class VaultEngine:
                         except Exception:
                             logger.exception("Error reading %s during search", file_path)
         return results
+
+    def export_notes(self, include_assets: bool = False, redact: bool = True) -> list[dict[str, Any]]:
+        from antigravity_k.engine.secret_scanner import redact_full
+
+        def redact_value(value):
+            if isinstance(value, str):
+                return redact_full(value)
+            if isinstance(value, dict):
+                return {key: redact_value(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [redact_value(item) for item in value]
+            return value
+
+        records = []
+        with self._file_lock:
+            for file_path in self.vault_path.rglob("*.md"):
+                if ".git" in file_path.parts or ".chroma" in file_path.parts:
+                    continue
+                try:
+                    metadata, content = self.parse_markdown(file_path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError):
+                    continue
+                safe_metadata = redact_value(metadata) if redact else metadata
+                record = {"path": str(file_path.relative_to(self.vault_path)), "metadata": safe_metadata}
+                if include_assets:
+                    record["content"] = redact_full(content) if redact else content
+                records.append(record)
+        return records
 
     def ingest_workspace(self, workspace_path: str):
         """Ingest an entire workspace folder into the VectorStore for RAG.

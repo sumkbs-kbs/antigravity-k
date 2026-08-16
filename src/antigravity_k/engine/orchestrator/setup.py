@@ -4,6 +4,7 @@
 """
 
 import logging
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.orchestrator.setup")
 
@@ -19,7 +20,7 @@ PLANNING_MODE_BLOCK = (
 )
 
 
-def load_agent_models(config: dict) -> dict[str, str]:
+def load_agent_models(config: dict[str, Any]) -> dict[str, str]:
     """Config dict에서 역할별 모델 매핑을 추출합니다."""
     return config.get("agent_models", {})
 
@@ -50,7 +51,7 @@ def create_artifact_engine(project_root: str):
         return None
 
 
-def create_watchdog(config: dict, project_root: str, manager, vault_engine):
+def create_watchdog(config: dict[str, Any], project_root: str, manager, vault_engine):
     """AmbientWatchdog을 조건부로 초기화합니다."""
     if not config.get("ambient_partner", {}).get("watchdog_enabled", False):
         return None

@@ -13,6 +13,9 @@ import logging
 import os
 from collections.abc import Callable
 
+from antigravity_k.engine.context_budget_enforcer import enforce_context_budget
+from antigravity_k.engine.tool_evidence_compactor import compact_structured_tool_response
+
 logger = logging.getLogger("antigravity_k.context_compressor")
 
 
@@ -151,7 +154,7 @@ class ContextCompressor:
         other_msgs = [m for m in messages if m.get("role") != "system"]
 
         if len(other_msgs) <= self.keep_last_n:
-            return messages
+            return enforce_context_budget(messages, self.token_limit, self.estimate_tokens)
 
         recent_msgs = other_msgs[-self.keep_last_n :]
         old_msgs = other_msgs[: -self.keep_last_n]
@@ -169,7 +172,7 @@ class ContextCompressor:
 
         summary_msg = {"role": "system", "content": summary_text}
         compressed = system_msgs + [summary_msg] + recent_msgs
-        return compressed
+        return enforce_context_budget(compressed, self.token_limit, self.estimate_tokens)
 
     # ─── 토큰 예산 시스템 (Adaptive Token Budget) ───
 
@@ -229,7 +232,7 @@ class ContextCompressor:
         other_msgs = [m for m in messages if m.get("role") != "system"]
 
         if len(other_msgs) <= keep_last_n:
-            return messages
+            return enforce_context_budget(messages, budget, self.estimate_tokens)
 
         # 2단계: 최근 N개 보존, 나머지에 중요도 점수 부여
         recent = other_msgs[-keep_last_n:]
@@ -296,7 +299,7 @@ class ContextCompressor:
             len(kept_msgs),
         )
 
-        return result
+        return enforce_context_budget(result, budget, self.estimate_tokens)
 
     def enrich_with_rag(
         self,
@@ -384,6 +387,12 @@ class ContextCompressor:
         if not old_msgs:
             return ""
 
+        preserved_evidence = [
+            compacted
+            for message in old_msgs
+            if (compacted := compact_structured_tool_response(message.get("content", ""))) is not None
+        ][-5:]
+
         # LLM 요약 가능 시
         if self._summarize_fn:
             combined = "\n".join(f"[{m.get('role', '?')}]: {m.get('content', '')[:200]}" for m in old_msgs)
@@ -394,7 +403,9 @@ class ContextCompressor:
             try:
                 summary = self._summarize_fn(prompt)
                 if summary and len(summary.strip()) > 20:
-                    return f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n" + summary.strip()
+                    sections = [f"[대화 요약 — {len(old_msgs)}개 메시지 압축]", summary.strip()]
+                    sections.extend(preserved_evidence)
+                    return "\n".join(sections)
             except Exception:
                 logger.exception("[Compressor] LLM summarization failed")
 
@@ -405,7 +416,8 @@ class ContextCompressor:
             role = m.get("role", "")
             # 사용자 메시지와 도구 결과는 핵심 정보로 간주
             if role in ("user", "tool") and content:
-                key_msgs.append(f"[{role}]: {content[:100]}")
+                compacted = compact_structured_tool_response(content)
+                key_msgs.append(compacted or f"[{role}]: {content[:100]}")
 
         if key_msgs:
             return f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n" + "\n".join(key_msgs[:5])

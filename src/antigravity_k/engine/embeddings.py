@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+from importlib import import_module
 from typing import Union
 
 import numpy as np
@@ -40,7 +41,7 @@ class EmbeddingEngine:
 
         logger.info("Loading embedding model: %s", target_model)
         try:
-            from sentence_transformers import SentenceTransformer
+            SentenceTransformer = import_module("sentence_transformers").__dict__["SentenceTransformer"]
 
             self.model = SentenceTransformer(target_model)
             self.current_model = target_model

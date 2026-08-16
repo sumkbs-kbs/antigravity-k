@@ -5,8 +5,16 @@ import logging
 import time
 import urllib.request
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from importlib import import_module
+from typing import Any
+
+from antigravity_k.engine.context_budget import context_budget_for_context_length
+from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger("antigravity_k.inference_providers")
+
+Message = dict[str, Any]
 
 
 class BaseInferenceProvider(ABC):
@@ -31,7 +39,7 @@ class BaseInferenceProvider(ABC):
         pass
 
     @abstractmethod
-    def stream_generate(self, loaded, prompt, **kwargs):
+    def stream_generate(self, loaded, prompt, **kwargs) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -42,7 +50,7 @@ class BaseInferenceProvider(ABC):
         """
         pass
 
-    def _suppress_model_thinking(self, model_name: str, messages: list[dict]) -> list[dict]:
+    def _suppress_model_thinking(self, model_name: str, messages: list[Message]) -> list[Message]:
         if "qwen3" not in model_name.lower():
             return messages
 
@@ -94,6 +102,20 @@ class BaseInferenceProvider(ABC):
 
         return model_name, temperature, thinking_config, attribution
 
+    @staticmethod
+    def _native_tool_call_xml(tool_name: str, arguments) -> str:
+        if not tool_name:
+            return ""
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {}
+        if not isinstance(arguments, dict):
+            arguments = {}
+        payload = {"name": tool_name, "arguments": arguments}
+        return f"\n<tool_call>\n{json.dumps(payload, ensure_ascii=False)}\n</tool_call>\n"
+
 
 class AnthropicProvider(BaseInferenceProvider):
     """Anthropicprovider.
@@ -127,7 +149,7 @@ class AnthropicProvider(BaseInferenceProvider):
             **kwargs: Additional keyword arguments.
 
         """
-        import anthropic
+        anthropic = import_module("anthropic")
 
         from antigravity_k.engine.secure_key import get_api_key
 
@@ -140,7 +162,9 @@ class AnthropicProvider(BaseInferenceProvider):
         system_prompt = kwargs.get("system_prompt", "")
         raw_messages = kwargs.get("raw_messages", [{"role": "user", "content": prompt}])
         model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
-            loaded.profile, raw_messages, kwargs
+            loaded.profile,
+            raw_messages,
+            kwargs,
         )
 
         anthropic_msgs = []
@@ -203,6 +227,9 @@ class OpenRouterProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
+    requires_api_key = True
+    includes_openrouter_attribution = True
+
     def generate(self, loaded, prompt, **kwargs) -> str:
         """Generate.
 
@@ -249,7 +276,7 @@ class OpenRouterProvider(BaseInferenceProvider):
         """
         api_key = None
         base_url, api_key = self._resolve_endpoint(loaded)
-        if not api_key:
+        if self.requires_api_key and not api_key:
             yield (
                 "[Error] OpenRouter API Key not found. Run: export AGK_OPENROUTER_KEY=..."
                 "(or: agk key set openrouter <key>)"
@@ -289,20 +316,22 @@ class OpenRouterProvider(BaseInferenceProvider):
             # tool_choice: "auto" (모델이 자동 판단)
             data["tool_choice"] = kwargs.get("tool_choice", "auto")
 
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        if self.includes_openrouter_attribution:
+            headers["HTTP-Referer"] = "https://github.com/ssak-comp/antigravity-k"
+            headers["X-Title"] = "Antigravity-K"
+
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-                "HTTP-Referer": "https://github.com/ssak-comp/antigravity-k",
-                "X-Title": "Antigravity-K",
-            },
+            headers=headers,
         )
         try:
-            with urllib.request.urlopen(req, timeout=300) as response:
+            with safe_urlopen(req, timeout=300) as response:
                 # 네이티브 tool_call 누적 버퍼 (스트리밍 tool_calls 조립용)
-                pending_tool_calls: dict[int, dict] = {}
+                pending_tool_calls: dict[int, dict[str, Any]] = {}
                 for line in response:
                     line = line.decode("utf-8").strip()
                     if not line or line == "data: [DONE]":
@@ -398,6 +427,13 @@ class OllamaProvider(BaseInferenceProvider):
         except Exception:
             return ""
 
+    @staticmethod
+    def _context_window(loaded, kwargs) -> int:
+        return context_budget_for_context_length(
+            getattr(loaded.profile, "context_length", None),
+            kwargs.get("context_token_limit"),
+        ).token_limit
+
     def generate(self, loaded, prompt, **kwargs) -> str:
         """Generate.
 
@@ -420,6 +456,17 @@ class OllamaProvider(BaseInferenceProvider):
         temperature = kwargs.get("temperature", profile.temperature)
         min_p = kwargs.get("min_p", profile.min_p)
         repeat_penalty = kwargs.get("repeat_penalty", profile.repeat_penalty)
+        if "qwen3" in loaded.profile.name.lower():
+            return self._generate_native(
+                loaded,
+                prompt,
+                kwargs,
+                base_url,
+                api_key,
+                temperature,
+                min_p,
+                repeat_penalty,
+            )
 
         data = {
             "model": loaded.profile.name,
@@ -433,6 +480,10 @@ class OllamaProvider(BaseInferenceProvider):
         json_schema = kwargs.get("response_format")
         if json_schema:
             data["format"] = json_schema
+
+        tools_schema = kwargs.get("tools")
+        if tools_schema and isinstance(tools_schema, list):
+            data["tools"] = tools_schema
 
         if "raw_messages" in kwargs:
             sys_msg = kwargs.get("system_prompt", "")
@@ -452,10 +503,20 @@ class OllamaProvider(BaseInferenceProvider):
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=300) as response:
+            with safe_urlopen(req, timeout=300) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 message = result["choices"][0]["message"]
                 content = message.get("content", "")
+                native_tool_calls = message.get("tool_calls") or []
+                if native_tool_calls:
+                    content += "".join(
+                        self._native_tool_call_xml(
+                            call.get("function", {}).get("name", ""),
+                            call.get("function", {}).get("arguments", {}),
+                        )
+                        for call in native_tool_calls
+                        if isinstance(call, dict)
+                    )
                 # qwen3.6 등 thinking 모델은 content가 비고 reasoning/thinking에 담길 수 있음
                 # — reasoning을 content로 승격 (비어 있을 때만)
                 if not content:
@@ -467,6 +528,142 @@ class OllamaProvider(BaseInferenceProvider):
         except Exception as e:
             logger.exception("Local API generation failed")
             return f"[API Error for {loaded.profile.name}] {e}"
+
+    def _generate_native(
+        self,
+        loaded,
+        prompt,
+        kwargs,
+        base_url: str,
+        api_key: str,
+        temperature: float,
+        min_p: float,
+        repeat_penalty: float,
+    ) -> str:
+        import re
+
+        native_base = re.sub(r"/v\d+$", "", base_url.rstrip("/"))
+        url = f"{native_base}/api/chat"
+        if "raw_messages" in kwargs:
+            sys_msg = kwargs.get("system_prompt", "")
+            if sys_msg:
+                api_msgs = [{"role": "system", "content": sys_msg}] + list(kwargs["raw_messages"])
+            else:
+                api_msgs = list(kwargs["raw_messages"])
+        else:
+            api_msgs = [{"role": "user", "content": prompt}]
+        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
+        data = {
+            "model": loaded.profile.name,
+            "stream": False,
+            "keep_alive": "30m",
+            "think": False,
+            "options": {
+                "num_ctx": self._context_window(loaded, kwargs),
+                "num_predict": kwargs.get("max_tokens", 4096),
+                "temperature": temperature,
+                "min_p": min_p,
+                "repeat_penalty": repeat_penalty,
+            },
+            "messages": api_msgs,
+        }
+        json_schema = kwargs.get("response_format")
+        if json_schema:
+            data["format"] = json_schema
+        tools_schema = kwargs.get("tools")
+        if tools_schema and isinstance(tools_schema, list):
+            data["tools"] = tools_schema
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        )
+        try:
+            with safe_urlopen(request, timeout=300) as response:
+                message = json.loads(response.read().decode("utf-8")).get("message", {})
+                content = message.get("content", "")
+                native_tool_calls = message.get("tool_calls") or []
+                if native_tool_calls:
+                    content += "".join(
+                        self._native_tool_call_xml(
+                            call.get("function", {}).get("name", ""),
+                            call.get("function", {}).get("arguments", {}),
+                        )
+                        for call in native_tool_calls
+                        if isinstance(call, dict)
+                    )
+                return content
+        except Exception as e:
+            logger.exception("Local native API generation failed")
+            return f"[API Error for {loaded.profile.name}] {e}"
+
+    def _iter_stream_response(self, response, tools_schema: list[Any] | None = None):
+        pending_tool_calls = []
+        buffered_content = []
+        for line in response:
+            line = line.decode("utf-8").strip()
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+                if "message" in chunk:
+                    msg = chunk["message"]
+                    native_tool_calls = msg.get("tool_calls") or []
+                    if isinstance(native_tool_calls, list):
+                        pending_tool_calls.extend(native_tool_calls)
+                    if msg.get("content"):
+                        if tools_schema:
+                            buffered_content.append(msg["content"])
+                        else:
+                            yield msg["content"]
+            except json.JSONDecodeError:
+                continue
+        for call in pending_tool_calls:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function", {})
+            yield self._native_tool_call_xml(
+                function.get("name", ""),
+                function.get("arguments", {}),
+            )
+        if pending_tool_calls:
+            return
+        synthesized_call = self._single_tool_content_call("".join(buffered_content), tools_schema)
+        if synthesized_call:
+            yield synthesized_call
+            return
+        yield from buffered_content
+
+    def _single_tool_content_call(self, content: str, tools_schema: list[Any] | None) -> str:
+        if not isinstance(tools_schema, list) or len(tools_schema) != 1:
+            return ""
+        tool = tools_schema[0]
+        if not isinstance(tool, dict):
+            return ""
+        function = tool.get("function")
+        if not isinstance(function, dict):
+            return ""
+        tool_name = function.get("name")
+        parameters = function.get("parameters")
+        if not isinstance(tool_name, str) or not isinstance(parameters, dict):
+            return ""
+        required_fields = parameters.get("required")
+        if not isinstance(required_fields, list) or not required_fields:
+            return ""
+        import re
+
+        match = re.fullmatch(r"\s*```(?:json)?\s*(\{.*\})\s*```\s*", content, re.IGNORECASE | re.DOTALL)
+        if match is None:
+            return ""
+        try:
+            arguments = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return ""
+        if not isinstance(arguments, dict) or not all(
+            isinstance(field, str) and field in arguments for field in required_fields
+        ):
+            return ""
+        return self._native_tool_call_xml(tool_name, arguments)
 
     def stream_generate(self, loaded, prompt, **kwargs):
         """Stream Generate.
@@ -521,19 +718,25 @@ class OllamaProvider(BaseInferenceProvider):
             api_msgs = list(api_msgs)
             api_msgs[0] = {**api_msgs[0], "content": api_msgs[0]["content"] + f"\n{attribution}"}
 
+        default_repeat_penalty = 1.0 if "qwen3" in loaded.profile.name.lower() else 1.3
+
         data = {
             "model": model_name,
             "stream": True,
             "keep_alive": "30m",
             "think": False,  # qwen3.6 등 thinking 모델의 빈 content 스트리밍 방지
             "options": {
-                "num_ctx": 32768,
+                "num_ctx": self._context_window(loaded, kwargs),
                 "num_predict": kwargs.get("max_tokens", 4096),
                 "temperature": temperature,
-                "repeat_penalty": 1.3,
+                "repeat_penalty": kwargs.get("repeat_penalty", default_repeat_penalty),
             },
             "messages": api_msgs,
         }
+
+        tools_schema = kwargs.get("tools")
+        if tools_schema and isinstance(tools_schema, list):
+            data["tools"] = tools_schema
 
         req = urllib.request.Request(
             url,
@@ -541,25 +744,28 @@ class OllamaProvider(BaseInferenceProvider):
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         )
         try:
-            in_reasoning = False
-            with urllib.request.urlopen(req, timeout=300) as response:
-                for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                        if "message" in chunk:
-                            msg = chunk["message"]
-                            if "content" in msg and msg["content"]:
-                                if in_reasoning:
-                                    in_reasoning = False
-                                yield msg["content"]
-                    except json.JSONDecodeError:
-                        continue
-        except Exception as e:
+            with safe_urlopen(req, timeout=300) as response:
+                yield from self._iter_stream_response(response, tools_schema)
+                return
+        except Exception as outer_error:
+            error_message = str(outer_error)
+            if tools_schema:
+                logger.warning("Ollama native tools rejected; retrying with XML tool protocol")
+                fallback_data = dict(data)
+                fallback_data.pop("tools", None)
+                fallback_req = urllib.request.Request(
+                    url,
+                    data=json.dumps(fallback_data).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                )
+                try:
+                    with safe_urlopen(fallback_req, timeout=300) as response:
+                        yield from self._iter_stream_response(response)
+                        return
+                except Exception as fallback_error:
+                    error_message = str(fallback_error)
             logger.exception("Local API stream failed")
-            yield f"[API Error for {loaded.profile.name}] {e}"
+            yield f"[API Error for {loaded.profile.name}] {error_message}"
 
 
 class NimProvider(BaseInferenceProvider):
@@ -710,8 +916,8 @@ class NimProvider(BaseInferenceProvider):
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=300) as response:
-                pending_tool_calls: dict[int, dict] = {}
+            with safe_urlopen(req, timeout=300) as response:
+                pending_tool_calls: dict[int, dict[str, Any]] = {}
                 for line in response:
                     line = line.decode("utf-8").strip()
                     if not line or line == "data: [DONE]":
@@ -836,8 +1042,8 @@ class OpenAIDirectProvider(OpenRouterProvider):
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=300) as response:
-                pending_tool_calls: dict[int, dict] = {}
+            with safe_urlopen(req, timeout=300) as response:
+                pending_tool_calls: dict[int, dict[str, Any]] = {}
                 for line in response:
                     line = line.decode("utf-8").strip()
                     if not line or line == "data: [DONE]":
@@ -927,6 +1133,38 @@ class ZaiProvider(OpenAIDirectProvider):
         return base_url, api_key
 
 
+class LMStudioProvider(OpenRouterProvider):
+    requires_api_key = False
+    includes_openrouter_attribution = False
+
+    def _resolve_endpoint(self, loaded):
+        import os
+
+        from antigravity_k.config import config
+
+        profile = loaded.profile
+        base_url = getattr(profile, "api_base", "") or ""
+        if not base_url:
+            try:
+                from antigravity_k.engine.model_registry import ModelRegistry
+
+                base_url = ModelRegistry().get_provider_config("lmstudio").get("base_url", "")
+            except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+                base_url = ""
+        if not base_url:
+            base_url = (
+                config.model.api_base
+                if config.model.api_engine in {"lm_studio", "lmstudio"}
+                else "http://127.0.0.1:1234/v1"
+            )
+
+        key_env = getattr(profile, "api_key_env", "") or "LM_STUDIO_API_KEY"
+        api_key = os.environ.get(key_env, "")
+        if not api_key and config.model.api_engine in {"lm_studio", "lmstudio"}:
+            api_key = config.model.api_key if config.model.api_key != "lm-studio" else ""
+        return base_url.rstrip("/"), api_key
+
+
 class MlxProvider(BaseInferenceProvider):
     def generate(self, loaded, prompt, **kwargs) -> str:
         """Generate.
@@ -941,7 +1179,7 @@ class MlxProvider(BaseInferenceProvider):
 
         """
         try:
-            from mlx_lm import generate as mlx_generate
+            mlx_generate = import_module("mlx_lm").__dict__["generate"]
 
             max_tokens = kwargs.get("max_tokens", 1024)
             return mlx_generate(
@@ -950,8 +1188,8 @@ class MlxProvider(BaseInferenceProvider):
                 prompt=prompt,
                 max_tokens=max_tokens,
             )
-        except ImportError:
-            return f"[Simulated MLX] {loaded.profile.name} processed: {prompt[:30]}"
+        except ImportError as exc:
+            raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
     def stream_generate(self, loaded, prompt, **kwargs):
         """Stream Generate.
@@ -963,7 +1201,7 @@ class MlxProvider(BaseInferenceProvider):
 
         """
         try:
-            from mlx_lm import stream_generate as mlx_stream_generate
+            mlx_stream_generate = import_module("mlx_lm").__dict__["stream_generate"]
 
             max_tokens = kwargs.get("max_tokens", 1024)
             yield from mlx_stream_generate(
@@ -972,11 +1210,8 @@ class MlxProvider(BaseInferenceProvider):
                 prompt=prompt,
                 max_tokens=max_tokens,
             )
-        except ImportError:
-            words = f"[Simulated MLX Stream] {loaded.profile.name} processed: {prompt[:30]}".split()
-            for word in words:
-                time.sleep(0.05)
-                yield word + " "
+        except ImportError as exc:
+            raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
 
 def get_inference_provider(loaded) -> BaseInferenceProvider:
@@ -1015,6 +1250,8 @@ def get_inference_provider(loaded) -> BaseInferenceProvider:
         return GeminiProvider()
     if provider == "zai":
         return ZaiProvider()
+    if provider in {"lmstudio", "lm_studio"}:
+        return LMStudioProvider()
     if provider == "mlx":
         return MlxProvider()
 

@@ -1,6 +1,9 @@
 import asyncio
 import json
 import logging
+from collections.abc import Iterator
+from importlib import import_module
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -9,8 +12,8 @@ from fastapi.responses import StreamingResponse
 # 순환 참조를 피하기 위해 내부 임포트를 사용하거나 server.py에서 공유 모듈로 분리하는 것이 좋습니다.
 # 여기서는 router.dependencies를 사용하지 않고 직접 가져옵니다.
 from antigravity_k.api.dependencies import (
+    get_agent_runtime,
     get_model_manager,
-    get_orchestrator,
     get_translator,
 )
 from antigravity_k.engine.audit_logger import get_audit_logger
@@ -22,7 +25,7 @@ logger = logging.getLogger("antigravity_k.api.chat")
 router = APIRouter()
 
 
-def _latest_user_text(messages: list[dict]) -> str:
+def _latest_user_text(messages: list[dict[str, Any]]) -> str:
     """Return the latest text-only user message for slash-command routing."""
     for msg in reversed(messages):
         if msg.get("role") != "user":
@@ -494,7 +497,7 @@ async def chat_completions(
             __get_tool_registry,
         )
 
-        from . import legacy as legacy_routes
+        legacy_routes = import_module("antigravity_k.api.routes.legacy")
 
         registry = legacy_routes._get_slash_registry()
         engine = SelfCapabilityEngine()
@@ -525,20 +528,19 @@ async def chat_completions(
         return translator.translate_response(internal_resp, target=target_format)
 
     if slash_text.startswith("/"):
-        from . import legacy as legacy_routes
+        legacy_routes = import_module("antigravity_k.api.routes.legacy")
 
         registry = legacy_routes._get_slash_registry()
         # 등록된 슬래시 명령어인 경우에만 라우팅 (파일 경로 등 오인 방지)
         if registry.is_command(slash_text):
             result = registry.execute(slash_text)
 
-            import types
-
-            if isinstance(result, types.GeneratorType):
+            if isinstance(result, Iterator):
                 if is_stream:
+                    stream_result = result
 
                     async def _gen_stream():
-                        for chunk in result:
+                        for chunk in stream_result:
                             data = {
                                 "id": "chatcmpl-stream",
                                 "object": "chat.completion.chunk",
@@ -557,17 +559,18 @@ async def chat_completions(
 
                     return StreamingResponse(_gen_stream(), media_type="text/event-stream")
                 else:
-                    result = "".join(list(result))
+                    result = "".join(str(chunk) for chunk in result)
 
+            result_text = result if isinstance(result, str) else "".join(result)
             if is_stream:
-                return _stream_text_response(result, target_model)
+                return _stream_text_response(result_text, target_model)
 
             internal_resp = {
-                "content": result,
+                "content": result_text,
                 "model": target_model,
                 "finish_reason": "stop",
                 "tokens_in": len(slash_text) // 4,
-                "tokens_out": len(result) // 4,
+                "tokens_out": len(result_text) // 4,
             }
             target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
             return translator.translate_response(internal_resp, target=target_format)
@@ -711,21 +714,21 @@ async def chat_completions(
     if is_stream and is_agent_mode:
         from starlette.concurrency import iterate_in_threadpool
 
-        orchestrator = get_orchestrator()
+        runtime = get_agent_runtime()
 
         # Use legacy session state for reconnect (basic implementation)
-        from . import legacy as legacy_routes
+        legacy_routes = import_module("antigravity_k.api.routes.legacy")
 
         # Start new session
-        legacy_routes._active_session = legacy_routes.ActiveAgentSession()
-        active_session = legacy_routes._active_session
+        active_session = legacy_routes.__dict__["ActiveAgentSession"]()
+        legacy_routes.__dict__["_active_session"] = active_session
         active_session.is_active = True
 
         async def event_generator():
             full_response = ""
             stream_aiter = None
             try:
-                stream_aiter = iterate_in_threadpool(orchestrator.run_stream(messages, target_model=target_model))
+                stream_aiter = iterate_in_threadpool(runtime.stream(messages, target_model=target_model))
                 async for chunk in stream_aiter:
                     full_response += chunk
                     active_session.history.append(chunk)

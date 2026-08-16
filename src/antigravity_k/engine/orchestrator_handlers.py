@@ -13,11 +13,66 @@ orchestrator.py의 run_stream()에서 분리된 상태별 핸들러 함수들입
 """
 
 import logging
-from typing import Generator
+from collections.abc import Callable, Generator
 
 from antigravity_k.engine.state_graph import AgentState, StateContext
+from antigravity_k.engine.tool_guardrails import MUTATING_TOOL_NAMES
 
 logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
+
+
+def _raw_config(orch) -> dict[str, object]:
+    """orch.config(로드된 config.yaml)를 dict로 안전하게 반환한다."""
+    cfg = getattr(orch, "config", None)
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _amplification_section(orch, name: str) -> dict[str, object]:
+    """config의 amplification.<name> 섹션을 dict로 읽는다."""
+    amplification = _dict_value(_raw_config(orch).get("amplification"))
+    section = _dict_value(amplification.get(name))
+    return section
+
+
+def _dict_value(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _agent_used_mutating_tool(orch, started_at: float) -> bool:
+    tool_executor = getattr(getattr(orch, "ctx", None), "tool_executor", None)
+    history = getattr(tool_executor, "tool_call_history", [])
+    return any(
+        isinstance(entry, dict)
+        and entry.get("name") in MUTATING_TOOL_NAMES
+        and isinstance(entry.get("timestamp"), (int, float))
+        and entry["timestamp"] >= started_at
+        for entry in history
+    )
+
+
+def _cov_settings(orch) -> tuple[bool, str, int, float, int]:
+    """CoV 설정을 (enabled, model, min_len, threshold, max_iter)로 반환한다.
+
+    model 우선순위: amplification.cov.model > model.main_model > qwen3.6:latest.
+    orch.config는 raw dict이므로 dict 접근으로 읽는다 (attribute 접근이 아님).
+    """
+    cov = _amplification_section(orch, "cov")
+    raw = _raw_config(orch)
+    enabled = bool(cov.get("enabled", True))
+    configured_model = cov.get("model")
+    main_model = _dict_value(raw.get("model")).get("main_model")
+    model = (
+        configured_model
+        if isinstance(configured_model, str) and configured_model
+        else (main_model if isinstance(main_model, str) and main_model else "qwen3.6:latest")
+    )
+    min_len_value = cov.get("min_response_length", 50)
+    threshold_value = cov.get("complexity_threshold", 0.4)
+    max_iter_value = cov.get("max_revise_iterations", 2)
+    min_len = int(min_len_value) if isinstance(min_len_value, (int, float)) else 50
+    threshold = float(threshold_value) if isinstance(threshold_value, (int, float)) else 0.4
+    max_iter = int(max_iter_value) if isinstance(max_iter_value, (int, float)) else 2
+    return enabled, model, min_len, threshold, max_iter
 
 
 # ─── INIT 핸들러 ─────────────────────────────────────────────────
@@ -218,11 +273,10 @@ def ceo_analyze_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
                 continue
 
             # 스트리밍 출력
-            if in_ceo_think:
-                if len(buffer) > 8:
-                    safe_chunk = buffer[:-8]
-                    yield safe_chunk
-                    buffer = buffer[-8:]
+            if in_ceo_think and len(buffer) > 8:
+                safe_chunk = buffer[:-8]
+                yield safe_chunk
+                buffer = buffer[-8:]
 
     # 루프 종료 후, 생각 블록이 열려있다면 닫아줍니다.
     if in_ceo_think:
@@ -267,7 +321,8 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     # 사용자 모델 학습
     try:
         orch.ctx.user_model.observe(ctx.user_message, ctx.task_type)
-        user_context = orch.ctx.user_model.build_context()
+        preferences = orch.ctx.memory_manager.resolved_preferences(ctx.user_message)
+        user_context = orch.ctx.user_model.build_context(preferences)
         if user_context:
             ctx.custom_messages[-1] = {
                 "role": "user",
@@ -289,6 +344,8 @@ def route_decision(ctx: StateContext) -> AgentState:
         return AgentState.AGI_CORE
     elif task_type == "hardware_report":
         return AgentState.AGI_CORE  # 같은 핸들러 재사용
+    elif _synthesize_explicit_pipeline(ctx):
+        return AgentState.PIPELINE_EXECUTE
     elif task_type == "complex" or ctx.analysis.get("pipeline"):
         # 복잡 태스크: 파이프라인이 명시된 경우만 PIPELINE, 나머지는 MAX
         if ctx.analysis.get("pipeline"):
@@ -321,6 +378,27 @@ def _is_max_mode_candidate(ctx: StateContext) -> bool:
             request_text,
         ),
     )
+
+
+def _synthesize_explicit_pipeline(ctx: StateContext) -> bool:
+    """When the user prompt lists explicit steps but the CEO didn't build a pipeline,
+    synthesize one deterministically from the numbered/bulleted structure.
+
+    Mutates ``ctx.analysis["pipeline"]`` with one entry per explicit step and returns
+    True when a multi-step structure was found, so ``route_decision`` routes to
+    PIPELINE_EXECUTE. Deterministic, no model call — uses the PlannerExecutor splitter.
+    """
+    if ctx.analysis.get("pipeline"):
+        return False
+    from antigravity_k.engine.cognitive_loop import _split_explicit_steps
+
+    steps = _split_explicit_steps(ctx.user_message or "")
+    if len(steps) < 2:
+        return False
+    ctx.analysis["pipeline"] = [
+        {"step": idx, "agent": ctx.delegate_to or "WORKER", "task": desc} for idx, desc in enumerate(steps, start=1)
+    ]
+    return True
 
 
 def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
@@ -379,6 +457,8 @@ def code_review_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     # coding/debug 태스크만 리뷰
     if ctx.task_type not in ("coding", "complex"):
         return
+    if not _agent_used_mutating_tool(orch, ctx.started_at):
+        return
 
     try:
         # Git diff 확인
@@ -399,7 +479,7 @@ def code_review_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         # 변경된 파일이 적을 때만 상세 diff 확인
         changed_lines = diff_stat.count("\n")
         if changed_lines > 15:
-            yield "\n\n📋 **변경된 파일**: {}\n".format(diff_stat[:300])
+            yield f"\n\n📋 **변경된 파일**: {diff_stat[:300]}\n"
             return  # 너무 많은 변경은 스킵
 
         # 상세 diff 가져오기
@@ -510,7 +590,12 @@ def max_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
             "target_model": ctx.target_model,
         }
 
-        result = max_engine.run(task_spec, orchestrator=orch)
+        runtime = getattr(orch, "agent_runtime", None)
+        result = (
+            runtime.run_max(task_spec)
+            if runtime is not None and getattr(runtime, "is_canonical_runtime", False) is True
+            else max_engine.run(task_spec, orchestrator=orch)
+        )
 
         if result.final_output:
             # 결과가 이미 trace를 포함하므로 바로 yield
@@ -570,7 +655,14 @@ def agent_execute_handler(ctx: StateContext, orch) -> Generator[str, None, None]
     from antigravity_k.engine.tool_loop import ToolLoopEngine
 
     tool_loop = ToolLoopEngine(orch)
-    yield from tool_loop.run_loop(ctx.custom_messages, ctx.delegate_to, ctx.task_type, ctx.max_steps, ctx.target_model)
+    yield from tool_loop.run_loop(
+        ctx.custom_messages,
+        ctx.delegate_to,
+        ctx.task_type,
+        ctx.max_steps,
+        ctx.target_model,
+        evaluation_user_task=ctx.user_message,
+    )
     ctx.agent_output = getattr(orch, "_last_agent_output", "")
 
 
@@ -593,8 +685,7 @@ def pipeline_execute_handler(ctx: StateContext, orch) -> Generator[str, None, No
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
         tool_loop = ToolLoopEngine(orch)
-        for chunk in tool_loop.run_loop(current_messages, agent_role, "complex_step", ctx.max_steps):
-            yield chunk
+        yield from tool_loop.run_loop(current_messages, agent_role, "complex_step", ctx.max_steps)
 
         if hasattr(orch, "_last_agent_output"):
             current_messages.append(
@@ -675,16 +766,37 @@ def cov_verify_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
     규칙 기반 검증 (구문 오류, 자기 모순, 반복)을 수행하고,
     문제 발견 시 응답에 경고를 추가합니다.
     """
-    if not ctx.agent_output or len(ctx.agent_output.strip()) < 50:
+    cov_enabled, verify_model, min_len, threshold, max_iter = _cov_settings(orch)
+    if not cov_enabled:
+        return  # amplification.cov.enabled=false 시 검증 스킵
+    if not ctx.agent_output or len(ctx.agent_output.strip()) < min_len:
         return  # 짧은 응답은 검증 스킵
 
     try:
         from antigravity_k.engine.chain_of_verification import ChainOfVerification
 
-        if not hasattr(orch, "_cov_engine"):
+        if not hasattr(orch, "_cov_engine") or orch._cov_engine is None:
+            manager = getattr(orch, "manager", None)
+            generate_fn_impl: Callable[[str], str] | None
+            if manager is not None and callable(getattr(manager, "generate", None)):
+
+                def manager_generate(prompt: str) -> str:
+                    return manager.generate(
+                        prompt,
+                        target=verify_model,
+                        max_tokens=4096,
+                        temperature=0.2,
+                    )
+
+                generate_fn_impl = manager_generate
+            else:
+                generate_fn_impl = None
+
             orch._cov_engine = ChainOfVerification(
-                complexity_threshold=0.4,
-                min_response_length=50,
+                generate_fn=generate_fn_impl,
+                complexity_threshold=threshold,
+                min_response_length=min_len,
+                max_revise_iterations=max_iter,
             )
 
         cov = orch._cov_engine
@@ -693,29 +805,57 @@ def cov_verify_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         if trace.skipped:
             return
 
-        if trace.verification_result and trace.verification_result.issues:
-            severity = trace.verification_result.severity
-            issues = trace.verification_result.issues
-            if severity in ("warning", "error"):
-                yield f"\n\n🔍 **[자기검증]** {len(issues)}건 감지 (severity={severity}):\n"
-                for issue in issues[:3]:
-                    yield f"  - {issue}\n"
+        if trace.revised_response and trace.revised_response != ctx.agent_output:
+            ctx.agent_output = trace.revised_response
+            yield "✅ 자동 수정 적용 완료\n"
 
-                if trace.revised_response and trace.revised_response != ctx.agent_output:
-                    ctx.agent_output = trace.revised_response
-                    yield "✅ 자동 수정 적용 완료\n"
-                else:
-                    if severity == "error":
-                        ctx.validation_passed = False
+        if trace.verification_result and trace.verification_result.issues_found:
+            severity = trace.verification_result.severity
+            issues = trace.verification_result.issues_found
+            yield f"\n\n🔍 **[자기검증]** {len(issues)}건 감지 (severity={severity}):\n"
+            for issue in issues[:3]:
+                yield f"  - {issue}\n"
+            if not trace.verification_result.passed:
+                ctx.validation_passed = False
 
             logger.info(f"[CoV] Verified: passes={trace.total_passes}, severity={severity}, issues={len(issues)}")
         else:
             logger.debug("[CoV] Verification passed — no issues")
             ctx.validation_passed = True
+
+        from antigravity_k.tools.search_quality_evaluator import (
+            citation_sources_from_context,
+            evaluate_citations,
+        )
+
+        evidence_context = "\n".join(
+            [
+                ctx.rag_context,
+                *(message.get("content", "") for message in ctx.messages),
+                *(message.get("content", "") for message in ctx.custom_messages),
+            ],
+        )
+        citation_sources = citation_sources_from_context(evidence_context)
+        if citation_sources:
+            citation_report = evaluate_citations(ctx.agent_output, citation_sources)
+            ctx.analysis["citation_evaluation"] = citation_report.to_dict()
+            citation_failed = citation_report.claim_count and (
+                citation_report.citation_coverage < 1.0
+                or citation_report.unknown_citation_count > 0
+                or citation_report.unacknowledged_conflict_count > 0
+            )
+            if citation_failed:
+                ctx.validation_passed = False
+                yield (
+                    f"\n\n🔗 **[근거 검증]** {citation_report.unsupported_claim_count}개 주장에 "
+                    f"충분한 출처 근거가 없거나 출처 충돌이 확인되었습니다. 답변을 다시 검토합니다.\n"
+                )
     except Exception as e:
         logger.exception("Unhandled exception")
         logger.debug(f"CoV verification skipped: {e}")
-        ctx.validation_passed = True
+        ctx.validation_passed = False
+        ctx.analysis["cov_error"] = "verification_failed"
+        yield "\n\n⚠️ **[자기검증 실패]** 검증기를 완료하지 못해 재시도가 필요합니다.\n"
 
 
 # ─── QUALITY_CHECK 핸들러 ────────────────────────────────────────
@@ -725,13 +865,13 @@ def quality_check_handler(ctx: StateContext, orch) -> Generator[str, None, None]
     """품질 확인 및 에러 복구 루프백 처리."""
     if not getattr(ctx, "validation_passed", True) and ctx.retry_count < ctx.max_retries:
         ctx.retry_count += 1
-        yield f"\n\n🔄 **[에러 복구 루프]** 심각한 오류 감지. 자가 수정을 시도합니다 (재시도 {ctx.retry_count}/{ctx.max_retries})\n"  # noqa: E501
+        yield f"\n\n🔄 **[에러 복구 루프]** 심각한 오류 감지. 자가 수정을 시도합니다 (재시도 {ctx.retry_count}/{ctx.max_retries})\n"
 
         # 실패 피드백 주입
         ctx.custom_messages.append(
             {
                 "role": "user",
-                "content": "[시스템 피드백] 이전 답변에서 심각한 검증 오류가 발견되었습니다. 지시사항과 모순점을 다시 확인하고 올바르게 수정한 최종 답변을 작성하세요.",  # noqa: E501
+                "content": "[시스템 피드백] 이전 답변에서 심각한 검증 오류가 발견되었습니다. 지시사항과 모순점을 다시 확인하고 올바르게 수정한 최종 답변을 작성하세요.",
             }
         )
 
@@ -740,7 +880,7 @@ def quality_check_handler(ctx: StateContext, orch) -> Generator[str, None, None]
     else:
         ctx._loop_back = False
         if not getattr(ctx, "validation_passed", True):
-            yield f"\n\n⚠️ **[에러 복구 실패]** 최대 재시도({ctx.max_retries}회)에 도달했습니다. 마지막 결과를 유지합니다.\n"  # noqa: E501
+            yield f"\n\n⚠️ **[에러 복구 실패]** 최대 재시도({ctx.max_retries}회)에 도달했습니다. 마지막 결과를 유지합니다.\n"
 
 
 def quality_check_decision(ctx: StateContext):
@@ -773,16 +913,19 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         yield f"\n\n📊 **[Token Usage]** In: {tokens_in} tokens | Out: {tokens_out} tokens\n"
     except Exception:
         logger.exception("Unhandled exception")
-        pass
 
     # ─── Hermes Self-Evolution (QualityGate C/F 등급 시 자동 진화) ───
     # P2: config에서 self_evolution.auto_modify가 true일 때만 동작 (기본 false)
     # 질문 응답 중 스킬 파일이 자동 수정되어 diff가 응답에 섞이는 것을 방지
     try:
         _raw_cfg = getattr(orch, "config", {}) or {}
+        # amplification.self_evolution.enabled가 명시되면 우선, 아니면 기존 self_evolution.auto_modify 사용
+        _amp_se = _amplification_section(orch, "self_evolution").get("enabled")
         _sec_enabled = (
             _raw_cfg.get("self_evolution", {}).get("auto_modify", False) if isinstance(_raw_cfg, dict) else False
         )
+        if _amp_se is not None:
+            _sec_enabled = bool(_amp_se)
         sec = getattr(orch, "_evolution_coordinator", None)
         if sec is not None and _sec_enabled and ctx.agent_output and len(ctx.agent_output.strip()) > 50:
             # QualityGate 평가 수행 (execution_mode 전달 — Phase 1 D5)

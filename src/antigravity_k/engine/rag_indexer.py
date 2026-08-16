@@ -18,6 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -123,6 +124,7 @@ class RAGIndexer:
                     else:
                         chunks = self._chunk_generic(rel_path, content)
 
+                    self._annotate_chunks(chunks, content_hash)
                     all_chunks.extend(chunks)
 
         # VectorStore에 업서트
@@ -211,6 +213,7 @@ class RAGIndexer:
         else:
             chunks = self._chunk_generic(rel_path, content)
 
+        self._annotate_chunks(chunks, self._file_hashes[rel_path])
         if self.vector_store and chunks:
             store_chunks = [
                 {
@@ -222,6 +225,7 @@ class RAGIndexer:
                         "node_name": c.node_name,
                         "start_line": c.start_line,
                         "end_line": c.end_line,
+                        **c.metadata,
                     },
                 }
                 for c in chunks
@@ -229,6 +233,79 @@ class RAGIndexer:
             self.vector_store.upsert_chunks(store_chunks)
 
         return len(chunks)
+
+    def _annotate_chunks(self, chunks: list[CodeChunk], source_hash: str) -> None:
+        indexed_at = datetime.now(UTC).isoformat()
+        for chunk in chunks:
+            chunk.metadata.update(
+                {
+                    "source_hash": source_hash,
+                    "source_type": "code",
+                    "indexed_at": indexed_at,
+                },
+            )
+
+    def _attach_provenance(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        enriched: list[dict[str, Any]] = []
+        for result in results:
+            metadata = result.get("metadata") or {}
+            source = metadata.get("source")
+            source_hash = metadata.get("source_hash")
+            freshness = "unknown"
+
+            if source:
+                source_path = source if os.path.isabs(source) else os.path.join(self.project_root, source)
+                if not os.path.isfile(source_path):
+                    freshness = "missing"
+                elif source_hash:
+                    try:
+                        current_hash = hashlib.md5(Path(source_path).read_bytes()).hexdigest()
+                    except OSError:
+                        freshness = "unavailable"
+                    else:
+                        freshness = "fresh" if current_hash == source_hash else "stale"
+
+            enriched_result = dict(result)
+            enriched_result["provenance"] = {
+                "source_id": result.get("id"),
+                "source": source,
+                "source_type": metadata.get("source_type", "code"),
+                "node_type": metadata.get("node_type"),
+                "node_name": metadata.get("node_name"),
+                "start_line": metadata.get("start_line"),
+                "end_line": metadata.get("end_line"),
+                "source_hash": source_hash,
+                "indexed_at": metadata.get("indexed_at"),
+                "freshness": freshness,
+            }
+            enriched.append(enriched_result)
+        return enriched
+
+    def validate_citations(
+        self,
+        response: str,
+        results: list[dict[str, Any]],
+        require_citation: bool = True,
+    ) -> dict[str, Any]:
+        cited = list(dict.fromkeys(re.findall(r"\[citation:([^\]\s]+)\]", response or "")))
+        eligible: dict[str, str] = {}
+        for result in results:
+            provenance = result.get("provenance") or {}
+            source_id = provenance.get("source_id") or result.get("id")
+            if source_id:
+                eligible[str(source_id)] = str(provenance.get("freshness", "unknown"))
+
+        unknown = [source_id for source_id in cited if source_id not in eligible]
+        unverified = [source_id for source_id in cited if source_id in eligible and eligible[source_id] != "fresh"]
+        missing_citation = bool(results) and require_citation and not cited
+        return {
+            "valid": not unknown and not unverified and not missing_citation,
+            "required": bool(results) and require_citation,
+            "cited": cited,
+            "unknown": unknown,
+            "unverified": unverified,
+            "missing_citation": missing_citation,
+        }
 
     def search(self, query: str, n_results: int = 5, mode: str = "hybrid") -> list[dict[str, Any]]:
         """질문과 관련된 코드 청크를 검색합니다.
@@ -243,11 +320,13 @@ class RAGIndexer:
             return []
 
         if mode == "keyword":
-            return self._keyword_search(query, n_results)
+            results = self._keyword_search(query, n_results)
         elif mode == "semantic":
-            return self.vector_store.search(query, n_results=n_results)
+            results = self.vector_store.search(query, n_results=n_results)
         else:  # hybrid (default)
-            return self._hybrid_search_rrf(query, n_results)
+            results = self._hybrid_search_rrf(query, n_results)
+
+        return self._attach_provenance(results)
 
     def _keyword_search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
         """키워드 기반 정확 매칭 검색 (식별자, 함수명, 클래스명 등)."""
@@ -260,7 +339,7 @@ class RAGIndexer:
             return self.vector_store.search(query, n_results=n_results)
 
         query_tokens = query.lower().split()
-        scored: list[tuple] = []
+        scored: list[tuple[float, dict[str, Any]]] = []
         for chunk in all_chunks:
             text = chunk.get("text", "").lower()
             meta = chunk.get("metadata", {})
@@ -290,7 +369,10 @@ class RAGIndexer:
         fetch_n = n_results * 3  # 더 많이 가져와서 융합
 
         # 두 검색 채널 실행
-        semantic_results = self.vector_store.search(query, n_results=fetch_n)
+        vector_store = self.vector_store
+        if vector_store is None:
+            return []
+        semantic_results = vector_store.search(query, n_results=fetch_n)
         keyword_results = self._keyword_search(query, fetch_n)
 
         # 청크 ID → RRF 점수 계산
@@ -318,7 +400,10 @@ class RAGIndexer:
         if not results:
             return ""
 
-        lines = ["<relevant_code>"]
+        lines = [
+            "<relevant_code>",
+            "Cite code evidence with [citation:<source_id>] when relying on these snippets.",
+        ]
         total_chars = 0
         for r in results:
             text = r.get("text", "")
@@ -327,8 +412,12 @@ class RAGIndexer:
             node_name = meta.get("node_name", "")
             start = meta.get("start_line", "?")
             end = meta.get("end_line", "?")
+            provenance = r.get("provenance") or {}
+            source_id = provenance.get("source_id") or r.get("id")
+            citation = f" [citation:{source_id}]" if source_id else ""
+            freshness = provenance.get("freshness", "unknown")
 
-            header = f"# {source}:{start}-{end} ({node_name})"
+            header = f"# {source}:{start}-{end} ({node_name}){citation} [freshness:{freshness}]"
             entry = f"{header}\n{text}\n"
 
             if total_chars + len(entry) > max_chars:

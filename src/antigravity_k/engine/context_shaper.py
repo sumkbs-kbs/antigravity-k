@@ -21,6 +21,7 @@ import time
 from typing import Any
 
 from antigravity_k.engine.tokenizer import TokenEstimator
+from antigravity_k.engine.tool_evidence_compactor import compact_structured_tool_response
 
 logger = logging.getLogger(__name__)
 
@@ -170,10 +171,11 @@ class ContextShaper:
                 content = str(msg.get("content", ""))
                 # 긴 tool 결과는 요약된 참조로 축약
                 if len(content) > 200:
+                    compacted = compact_structured_tool_response(content)
                     result.append(
                         {
                             **msg,
-                            "content": f"[이전 도구 결과 축약 — {len(content)} chars]",
+                            "content": compacted or f"[이전 도구 결과 축약 — {len(content)} chars]",
                         }
                     )
                 else:
@@ -224,7 +226,7 @@ class ContextShaper:
 
     # ─────────── Stage 2: Snip ───────────
 
-    def _snip(self, messages: list[dict], target: int) -> list[dict]:
+    def _snip(self, messages: list[dict[str, str]], target: int) -> list[dict[str, str]]:
         """오래된 저우선 메시지를 절삭합니다.
 
         시스템 메시지와 최근 5턴은 보존.
@@ -241,21 +243,32 @@ class ContextShaper:
         preserved = non_system[-preserve_count:]
         candidates = non_system[:-preserve_count]
 
+        protected_evidence = []
+        removable_candidates = []
+        for message in candidates:
+            compacted = compact_structured_tool_response(message.get("content", ""))
+            if compacted is None:
+                removable_candidates.append(message)
+            else:
+                protected_evidence.append({**message, "content": compacted})
+        protected_evidence = protected_evidence[-5:]
+        candidates = removable_candidates
+
         # 우선순위 낮은 순서로 제거
         candidates.sort(key=lambda m: self.ROLE_PRIORITY.get(m.get("role", ""), 0))
 
-        result = system_msgs + candidates + preserved
+        result = system_msgs + protected_evidence + candidates + preserved
 
         while self._estimate_tokens(result) > target and candidates:
             candidates.pop(0)
-            result = system_msgs + candidates + preserved
+            result = system_msgs + protected_evidence + candidates + preserved
             self._stats["snips"] += 1
 
         return result
 
     # ─────────── Stage 3: MicroCompact ───────────
 
-    def _micro_compact(self, messages: list[dict]) -> list[dict]:
+    def _micro_compact(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
         """연속 도구 결과를 합치고, 긴 내용을 축약합니다.
 
         Claw Code의 'consecutive tool results merge' 패턴.
@@ -307,7 +320,7 @@ class ContextShaper:
 
     # ─────────── Stage 4: Context Collapse ───────────
 
-    def _context_collapse(self, messages: list[dict]) -> list[dict]:
+    def _context_collapse(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
         """긴 도구 출력(파일 내용, grep 결과)을 참조 ID로 교체하고 디스크에 저장.
 
         Claw Code의 'reference ID replacement' 패턴.
@@ -347,7 +360,7 @@ class ContextShaper:
 
     # ─────────── Stage 5: Auto Compact ───────────
 
-    def _auto_compact(self, messages: list[dict], budget: int) -> list[dict]:
+    def _auto_compact(self, messages: list[dict[str, str]], budget: int) -> list[dict[str, str]]:
         """여전히 예산 초과 시, 이전 대화를 요약문으로 교체합니다.
 
         Claw Code의 'auto-compact with LLM summary' 패턴.
@@ -365,6 +378,12 @@ class ContextShaper:
         if not old:
             return messages
 
+        preserved_evidence = [
+            compacted
+            for message in old
+            if (compacted := compact_structured_tool_response(message.get("content", ""))) is not None
+        ][-5:]
+
         # 규칙 기반 요약 생성
         summary_parts = []
         for msg in old:
@@ -378,9 +397,9 @@ class ContextShaper:
                 name = msg.get("name", "tool")
                 summary_parts.append(f"- Tool '{name}' executed")
 
-        summary = "[Previous conversation summary]\n" + "\n".join(
-            summary_parts[:20],
-        )  # 최대 20개 항목
+        summary = "\n".join(
+            ["[Previous conversation summary]", *summary_parts[:20], *preserved_evidence],
+        )
 
         summary_msg = {"role": "system", "content": summary}
 
@@ -389,7 +408,7 @@ class ContextShaper:
     # ─────────── 유틸리티 ───────────
 
     @staticmethod
-    def _estimate_tokens(messages: list[dict]) -> int:
+    def _estimate_tokens(messages: list[dict[str, str]]) -> int:
         """메시지 리스트의 대략적인 토큰 수를 추정합니다.
         TokenEstimator 통일 모듈에 위임합니다.
         """
@@ -406,7 +425,7 @@ class ContextShaper:
         """압축 통계를 반환합니다."""
         return dict(self._stats)
 
-    def get_token_usage(self, messages: list[dict]) -> dict[str, Any]:
+    def get_token_usage(self, messages: list[dict[str, str]]) -> dict[str, Any]:
         """현재 컨텍스트 토큰 사용량을 분석합니다."""
         total = self._estimate_tokens(messages)
         by_role = TokenEstimator.estimate_messages_by_role(messages)

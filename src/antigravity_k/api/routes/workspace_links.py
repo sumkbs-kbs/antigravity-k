@@ -2,6 +2,7 @@
 
 import os
 import urllib.parse
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -36,7 +37,7 @@ async def get_workspace_links():
     return JSONResponse(content={"ok": True, "workspaces": links})
 
 
-def _generate_links_for_path(absolute_path: str, name: str) -> dict:
+def _generate_links_for_path(absolute_path: str, name: str) -> dict[str, Any]:
     """주어진 경로에 대한 VS Code 및 JetBrains Gateway 접근 URI를 생성합니다."""
     # URL Encoding for paths
     encoded_path = urllib.parse.quote(absolute_path)

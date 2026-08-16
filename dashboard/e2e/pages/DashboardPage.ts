@@ -102,9 +102,9 @@ export class DashboardPage {
     this.gitTabGraph = page.locator('.git-tab').filter({ hasText: /Graph/ });
 
     /* PIN Modal */
-    this.pinModal = page.locator('[class*="pin-modal"], [class*="pin-dialog"], [role="dialog"]');
+    this.pinModal = page.locator('[role="dialog"][aria-label="PIN 인증"]');
     this.pinInput = page.locator('input[type="password"], input[placeholder*="PIN"], input[name="pin"]');
-    this.pinSubmit = page.locator('button:has-text("확인"), button:has-text("Submit"), button[type="submit"]');
+    this.pinSubmit = page.locator('button:has-text("잠금 해제"), button:has-text("확인"), button[type="submit"]');
   }
 
   /**
@@ -132,8 +132,15 @@ export class DashboardPage {
      Navigation
      ═══════════════════════════════════════════════════════════════ */
 
-  /** Navigate to the dashboard base URL and wait for it to be ready. */
-  async goto(): Promise<void> {
+  /**
+   * Navigate to the dashboard base URL and wait for it to be ready.
+   * Sets a default access PIN in localStorage before navigation to prevent
+   * the PIN authentication modal from appearing on every API 401.
+   */
+  async goto(pin = '0000'): Promise<void> {
+    await this.page.addInitScript(p => {
+      localStorage.setItem('ag_access_pin', p);
+    }, pin);
     await this.page.goto('/');
     await this.page.waitForLoadState('domcontentloaded');
   }
@@ -345,12 +352,21 @@ export class DashboardPage {
     return this.pinModal.isVisible().catch(() => false);
   }
 
-  /** If the PIN modal is visible, enter the PIN and submit. */
-  async handlePinModal(pin = '1935'): Promise<void> {
-    if (await this.isPinModalVisible()) {
+  /**
+   * If the PIN modal is visible, enter the PIN and submit.
+   * Waits up to 3s for the modal to appear (handles async dialog triggers).
+   * After submission, waits for the page reload triggered by PinModal.
+   */
+  async handlePinModal(pin = '0000'): Promise<void> {
+    try {
+      await this.pinModal.waitFor({ state: 'visible', timeout: 3000 });
       await this.pinInput.fill(pin);
       await this.pinSubmit.click();
+      // PIN modal reloads the page on success, so wait for stability
+      await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
       await this.page.waitForTimeout(500);
+    } catch {
+      // PIN modal did not appear — proceed normally
     }
   }
 

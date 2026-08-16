@@ -184,6 +184,9 @@ def auth_client(tmp_path_factory):
     config.security.access_pin = orig_pin
     config.security.pin_hash_file = orig_hash_file
     config.security.token_secret_file = orig_secret_file
+    auth_routes_mod._token_service = None
+    auth_routes_mod._pin_hash = None
+    auth_routes_mod.init_auth_state()
 
 
 def _login(client: TestClient, pin: str = "test-pin-1234") -> dict:

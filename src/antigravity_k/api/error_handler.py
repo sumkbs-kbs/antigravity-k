@@ -61,7 +61,7 @@ class APIError(Exception):
         self.context = context or {}
 
     # 예약 키 — to_dict()의 최상위 키와 충돌 방지
-    _RESERVED_KEYS: frozenset = frozenset({"ok", "error", "detail", "correlation_id"})
+    _RESERVED_KEYS: frozenset[str] = frozenset({"ok", "error", "detail", "correlation_id"})
 
     def to_dict(self, correlation_id: str = "") -> dict[str, Any]:
         result: dict[str, Any] = {

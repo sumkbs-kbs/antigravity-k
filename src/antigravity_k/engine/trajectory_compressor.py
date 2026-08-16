@@ -5,15 +5,20 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
+
+from antigravity_k.engine.tool_evidence_compactor import compact_structured_tool_response
 
 logger = logging.getLogger(__name__)
+
+Message = dict[str, Any]
 
 
 @dataclass
 class CompressionResult:
     """Result of compressing an agent trajectory (ratio, summary, retained steps)."""
 
-    compressed_messages: list[dict]
+    compressed_messages: list[Message]
     user_message: str = ""
 
 
@@ -38,7 +43,7 @@ class TrajectoryCompressor:
         self.max_messages = max_messages
         self.max_chars = max_chars
 
-    def should_compress(self, messages: list[dict]) -> bool:
+    def should_compress(self, messages: list[Message]) -> bool:
         """Determine whether to compress.
 
         Args:
@@ -51,7 +56,7 @@ class TrajectoryCompressor:
         total_chars = sum(len(str(message.get("content", ""))) for message in messages)
         return len(messages) > self.max_messages or total_chars > self.max_chars
 
-    def compress(self, messages: list[dict]) -> CompressionResult:
+    def compress(self, messages: list[Message]) -> CompressionResult:
         """Compress.
 
         Args:
@@ -64,9 +69,10 @@ class TrajectoryCompressor:
         if not messages:
             return CompressionResult(compressed_messages=[])
 
+        tail_start = max(1, len(messages) - 10)
         head = messages[:1]
-        tail = messages[-10:]
-        middle = messages[1:-10]
+        tail = messages[tail_start:]
+        middle = messages[1:tail_start]
         summary = self._summarize(middle)
 
         compressed = list(head)
@@ -80,18 +86,23 @@ class TrajectoryCompressor:
         compressed.extend(tail)
         return CompressionResult(
             compressed_messages=compressed,
-            user_message="🧭 대화 이력이 길어 핵심 궤적을 압축했습니다.",
+            user_message=("🧭 대화 이력이 길어 핵심 궤적을 압축했습니다." if middle else ""),
         )
 
-    def _summarize(self, messages: list[dict]) -> str:
+    def _summarize(self, messages: list[Message]) -> str:
         if not messages:
             return ""
 
         raw = "\n".join(f"{message.get('role', 'unknown')}: {message.get('content', '')}" for message in messages)
+        preserved_evidence = [
+            compacted
+            for message in messages
+            if (compacted := compact_structured_tool_response(str(message.get("content", "")))) is not None
+        ][-5:]
         if self.summarize_fn:
             try:
-                return self.summarize_fn(raw)
+                summary = self.summarize_fn(raw)
+                return "\n".join([summary, *preserved_evidence])
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
-        return raw[:4000]
+        return "\n".join([raw[:4000], *preserved_evidence])

@@ -7,11 +7,15 @@ Apple Silicon M5 Max (128GB) 기준 기본값이 설정되어 있습니다.
 
 import logging
 import os
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from antigravity_k.runtime_paths import default_config_path
 
 # 프로젝트 루트 경로 자동 감지
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -58,9 +62,17 @@ def _load_dotenv_once() -> None:
 _load_dotenv_once()
 
 
-def _load_yaml_config() -> dict:
+def _active_config_path() -> Path:
+    """Resolve the explicit env override, workspace config, or packaged default."""
+    configured = os.environ.get("AGK_CONFIG_FILE")
+    if configured:
+        return Path(configured)
+    return default_config_path(PROJECT_ROOT)
+
+
+def _load_yaml_config() -> dict[str, Any]:
     """Load repository config.yaml when present; environment variables still win."""
-    config_path = Path(os.environ.get("AGK_CONFIG_FILE", PROJECT_ROOT / "config.yaml"))
+    config_path = _active_config_path()
     if not config_path.exists():
         return {}
     try:
@@ -70,13 +82,17 @@ def _load_yaml_config() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _section_overrides(raw_config: dict, section: str, config_cls: type[BaseSettings]) -> dict:
+def _section_overrides(
+    raw_config: dict[str, Any],
+    section: str,
+    config_cls: type[BaseSettings],
+) -> dict[str, Any]:
     section_data = raw_config.get(section, {})
     if not isinstance(section_data, dict):
         return {}
 
     env_prefix = config_cls.model_config.get("env_prefix", "")
-    overrides = {}
+    overrides: dict[str, Any] = {}
     for key, value in section_data.items():
         if key not in config_cls.model_fields:
             continue
@@ -90,15 +106,14 @@ def _section_overrides(raw_config: dict, section: str, config_cls: type[BaseSett
 class ModelConfig(BaseSettings):
     """LLM 모델 관련 설정."""
 
-    # 메인 추론 모델 (70B급)
     main_model: str = Field(
-        default="mlx-community/Qwen3-72B-4bit",
+        default="qwen3.6:latest",
         description="메인 추론 모델 (HuggingFace repo 또는 로컬 경로)",
     )
 
     # 코딩 전용 모델
     code_model: str = Field(
-        default="mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+        default="qwen3.6:latest",
         description="코드 생성 전용 모델",
     )
 
@@ -110,7 +125,7 @@ class ModelConfig(BaseSettings):
 
     # 비전 모델
     vision_model: str = Field(
-        default="mlx-community/Qwen2-VL-7B-Instruct-4bit",
+        default="qwen3.6:latest",
         description="이미지 분석 모델",
     )
 
@@ -157,7 +172,7 @@ class ModelConfig(BaseSettings):
         if not self.api_base:
             if engine == "ollama":
                 self.api_base = "http://localhost:11434/v1"
-            elif engine == "lm_studio":
+            elif engine in {"lm_studio", "lmstudio"}:
                 self.api_base = "http://localhost:1234/v1"
             elif engine == "openrouter":
                 self.api_base = "https://openrouter.ai/api/v1"
@@ -175,8 +190,8 @@ class ModelConfig(BaseSettings):
         if not self.api_key or self.api_key == "none":
             if engine == "ollama":
                 self.api_key = os.environ.get("OLLAMA_API_KEY", "") or "ollama"
-            elif engine == "lm_studio":
-                self.api_key = "lm-studio"
+            elif engine in {"lm_studio", "lmstudio"}:
+                self.api_key = os.environ.get("LM_STUDIO_API_KEY", "") or "lm-studio"
             elif engine == "openrouter":
                 # OPENROUTER_API_KEY → AGK_OPENROUTER_KEY → AGK_API_KEY → OPENAI_API_KEY 순서
                 self.api_key = (
@@ -252,6 +267,9 @@ class SecurityConfig(BaseSettings):
     sandbox_enabled: bool = Field(default=True, description="Docker 샌드박스 활성화")
     sandbox_network: str = Field(default="none", description="샌드박스 네트워크 모드")
     max_execution_time: int = Field(default=30, description="명령 실행 타임아웃(초)")
+    max_output_bytes: int = Field(default=1_000_000, description="명령 stdout/stderr 최대 바이트")
+    max_memory_mb: int = Field(default=2_048, description="샌드박스 메모리 상한(MB)")
+    max_processes: int = Field(default=64, description="샌드박스 프로세스 수 상한")
     audit_log_enabled: bool = Field(default=True, description="감사 로그 활성화")
     max_tool_risk: str = Field(
         # P2 수정: 환경 프로파일 분리 — production에서는 medium이 기본
@@ -323,6 +341,19 @@ class RouterConfig(BaseSettings):
     max_retries: int = Field(default=3, description="최대 재시도 횟수")
     usage_tracking: bool = Field(default=True, description="사용량 추적 활성화")
     usage_db_path: str = Field(default="", description="사용량 DB 경로 (빈 문자열=자동)")
+    cascade_on_low_confidence: bool = Field(default=False, description="낮은 신뢰도 시 상위 모델 재생성")
+    cascade_confidence_threshold: float = Field(default=0.4, description="캐스케이드 신뢰도 임계값")
+    cascade_max_escalations: int = Field(default=2, description="캐스케이드 최대 에스컬레이션 횟수")
+    confidence_evaluator_enabled: bool = Field(default=False, description="LLM 신뢰도 평가기 활성화")
+    confidence_evaluator_model: str = Field(
+        default="qwen3.6:latest",
+        description="신뢰도 평가기 모델 (20B 이상, Mac 기본 qwen3.6)",
+    )
+    confidence_evaluator_min_params_b: float = Field(
+        default=20.0,
+        description="신뢰도 평가기 최소 파라미터 규모(B)",
+    )
+    confidence_evaluator_max_tokens: int = Field(default=32, description="신뢰도 평가기 최대 출력 토큰")
 
     model_config = SettingsConfigDict(env_prefix="AGK_ROUTER_")
 
@@ -350,6 +381,7 @@ class AppConfig:
 
     def __init__(self):
         """Initialize the AppConfig."""
+        self.config_path = _active_config_path()
         raw_config = _load_yaml_config()
         self._raw = raw_config
         self.model = ModelConfig(**_section_overrides(raw_config, "model", ModelConfig))
@@ -398,12 +430,11 @@ class AppConfig:
                     "OpenRouter 엔진이 선택되었지만 API 키가 없습니다. "
                     "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 설정하세요."
                 )
-        elif engine == "nim" or engine == "nvidia":
-            if not os.environ.get("NVIDIA_API_KEY"):
-                problems.append(
-                    "NIM 엔진이 선택되었지만 NVIDIA_API_KEY가 없습니다. "
-                    "build.nvidia.com에서 무료 키를 발급받아 설정하세요."
-                )
+        elif engine in {"nim", "nvidia"} and not os.environ.get("NVIDIA_API_KEY"):
+            problems.append(
+                "NIM 엔진이 선택되었지만 NVIDIA_API_KEY가 없습니다. "
+                "build.nvidia.com에서 무료 키를 발급받아 설정하세요."
+            )
 
         # 2. 포트 유효성
         if self.server.port <= 0 or self.server.port > 65535:
@@ -426,12 +457,11 @@ class AppConfig:
 
         # 4. config.yaml 모델 레지스트리 로드 확인
         try:
-            from antigravity_k.engine.model_registry import ModelRegistry
-
-            registry = ModelRegistry()
+            model_registry = import_module("antigravity_k.engine.model_registry")
+            registry = model_registry.__dict__["ModelRegistry"]()
             if not registry.list_models():
                 problems.append("config.yaml에 등록된 모델이 없습니다.")
-        except Exception as e:
+        except (ImportError, OSError, RuntimeError, TypeError, ValueError) as e:
             problems.append(f"모델 레지스트리 로드 실패: {e}")
 
         # 5. 비용 예산 양수

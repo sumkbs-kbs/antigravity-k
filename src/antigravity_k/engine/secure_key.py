@@ -28,6 +28,7 @@ import logging
 import os
 import stat
 from pathlib import Path
+from typing import Any
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -80,7 +81,7 @@ _FERNET_KEY_LEN = 44
 
 _CURRENT_KDF_VERSION = 3
 
-_KDF_VERSIONS: dict[int, dict] = {
+_KDF_VERSIONS: dict[int, dict[str, Any]] = {
     1: {
         "salt": b"antigravity-k-v1-salt",
         "iterations": 600_000,
@@ -126,6 +127,7 @@ def _get_keychain_seed() -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         if result.returncode == 0:
             seed = result.stdout.strip()
@@ -134,7 +136,6 @@ def _get_keychain_seed() -> str | None:
                 return seed
     except Exception:
         logger.exception("Unhandled exception")
-        pass
     return None
 
 
@@ -165,6 +166,7 @@ def _set_keychain_seed(seed: str) -> bool:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         if result.returncode == 0:
             logger.info("Machine seed stored in macOS Keychain")
@@ -201,6 +203,7 @@ def _get_machine_seed() -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         for line in result.stdout.splitlines():
             line = line.strip()
@@ -212,7 +215,6 @@ def _get_machine_seed() -> str:
                     return uuid_val
     except Exception:
         logger.exception("Unhandled exception")
-        pass
 
     # 2단계: /etc/machine-id (Linux systemd)
     for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
@@ -236,7 +238,6 @@ def _get_machine_seed() -> str:
             return mac.__str__()
     except Exception:
         logger.exception("Unhandled exception")
-        pass
 
     # 4단계: 절대 폴백
     logger.warning("No stable machine identifier found; using fallback seed")
@@ -304,7 +305,6 @@ def _read_master_key() -> tuple[int, bytes] | None:
 
     except Exception:
         logger.exception("Unhandled exception")
-        pass
     return None
 
 
@@ -318,13 +318,12 @@ def _save_master_key_file(key: bytes, version: int = _CURRENT_KDF_VERSION) -> No
     """
     _VAULT_KEY_DIR.mkdir(parents=True, exist_ok=True)
     # 형식: V{version}:{44바이트 키}
-    data = f"V{version}:".encode("utf-8") + key
+    data = f"V{version}:".encode() + key
     _MASTER_KEY_FILE.write_bytes(data)
     try:
         os.chmod(_MASTER_KEY_FILE, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
         logger.exception("Unhandled exception")
-        pass
 
 
 def _get_or_create_master_key() -> bytes:
@@ -373,7 +372,7 @@ def _get_cipher() -> Fernet:
 # ─── .env 파일 로드 ────────────────────────────────────────────────
 
 
-def _load_dotenv() -> dict:
+def _load_dotenv() -> dict[str, str]:
     """간단한 .env 파서 (python-dotenv 의존성 없이)."""
     env_vars: dict[str, str] = {}
     if not _DOTENV_PATH.exists():
@@ -397,7 +396,7 @@ def _load_dotenv() -> dict:
 # ─── config.yaml에서 키 로드 ────────────────────────────────────────
 
 
-def _load_config_keys() -> dict:
+def _load_config_keys() -> dict[str, Any]:
     """config.yaml의 api_keys 섹션을 로드합니다."""
     config_path = _PROJECT_ROOT / "config.yaml"
     if not config_path.exists():
@@ -423,7 +422,7 @@ def _is_placeholder(value: str) -> bool:
 # ─── Vault 암호화 저장소 ──────────────────────────────────────────
 
 
-def _load_vault_keys() -> dict:
+def _load_vault_keys() -> dict[str, Any]:
     """암호화된 vault 저장소에서 키를 로드합니다."""
     if not _VAULT_DB.exists():
         return {}
@@ -437,7 +436,7 @@ def _load_vault_keys() -> dict:
         return {}
 
 
-def _save_vault_keys(keys: dict) -> None:
+def _save_vault_keys(keys: dict[str, Any]) -> None:
     """키를 암호화하여 vault 저장소에 저장합니다."""
     _VAULT_KEY_DIR.mkdir(parents=True, exist_ok=True)
     try:
@@ -449,7 +448,6 @@ def _save_vault_keys(keys: dict) -> None:
             os.chmod(_VAULT_DB, stat.S_IRUSR | stat.S_IWUSR)
         except Exception:
             logger.exception("Unhandled exception")
-            pass
         logger.info("Vault keys saved (%d entries)", len(keys))
     except Exception:
         logger.exception("Failed to save vault keys")
@@ -550,7 +548,7 @@ def clear_vault_keys() -> None:
 # ─── config.AppConfig 통합 헬퍼 ────────────────────────────────────
 
 
-def get_raw_config_api_keys() -> dict:
+def get_raw_config_api_keys() -> dict[str, str | None]:
     """config.yaml의 api_keys 섹션을 반환합니다 (호환성용).
 
     config.py의 AppConfig에서 config.raw_config['api_keys']를
@@ -625,7 +623,7 @@ def get_key_source(service: str) -> str:
 def rotate_master_key(
     new_seed: str | None = None,
     force: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """마스터 키를 순환(rotation)하고 모든 vault 데이터를 재암호화합니다.
 
     기존 vault DB(keys.enc)를 읽고 새 마스터 키로 다시 암호화합니다.
@@ -701,7 +699,6 @@ def rotate_master_key(
                 os.chmod(_VAULT_DB, stat.S_IRUSR | stat.S_IWUSR)
             except Exception:
                 logger.exception("Unhandled exception")
-                pass
             logger.info("Re-encrypted %d service keys with new master key", len(old_keys))
         except Exception as e:
             logger.exception("Failed to re-encrypt vault data")

@@ -56,7 +56,7 @@ const config = {
   thresholds: {
     high: 80,
     low: 60,
-    break: 50,
+    break: 55,
   },
 
   dryRun: null,

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from antigravity_k.config import config
+from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger("antigravity_k.prompt_evolver")
 
@@ -198,7 +199,7 @@ class PromptEvolver:
         self,
         current_examples: list[dict[str, str]],
         task_type: str,
-        eval_fn: Callable | None = None,
+        eval_fn: Callable[..., Any] | None = None,
     ) -> list[dict[str, str]]:
         """Few-shot 예시를 자동 발견/교체합니다.
 
@@ -335,7 +336,7 @@ class PromptEvolver:
         if not model:
             # 사용 가능한 모델 자동 탐지
             try:
-                resp = urllib.request.urlopen(f"{self._ollama_url}/api/tags", timeout=5)
+                resp = safe_urlopen(f"{self._ollama_url}/api/tags", timeout=5)
                 tags = json.loads(resp.read())
                 models = [m["name"] for m in tags.get("models", [])]
                 model = models[0] if models else "llama3.2:latest"
@@ -358,7 +359,7 @@ class PromptEvolver:
             headers={"Content-Type": "application/json"},
         )
 
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with safe_urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
             return result.get("response", "")
 

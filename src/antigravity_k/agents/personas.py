@@ -312,7 +312,7 @@ DEFAULT_ORCHESTRATOR_PROMPT = (
 )
 
 
-def get_persona(persona_name: str) -> dict:
+def get_persona(persona_name: str) -> dict[str, str]:
     """주어진 이름의 페르소나 정보를 반환합니다."""
     return PERSONAS.get(persona_name.upper(), PERSONAS["WORKER"])
 
@@ -339,6 +339,6 @@ def get_orchestrator_prompt(role_name: str) -> str:
     return DEFAULT_ORCHESTRATOR_PROMPT
 
 
-def get_all_roles() -> list:
+def get_all_roles() -> list[str]:
     """등록된 모든 역할 이름을 반환합니다."""
     return list(PERSONAS.keys())

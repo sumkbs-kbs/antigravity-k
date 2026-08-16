@@ -74,6 +74,14 @@ describe('ChatMessage rendering', () => {
 /* ─── chatMessageAreEqual Comparator ────────────────────────── */
 
 describe('chatMessageAreEqual comparator', () => {
+  it('returns true for identical messages', () => {
+    const msg = { id: 'msg-1', role: 'assistant' as const, content: 'Hello' };
+    expect(chatMessageAreEqual(
+      { message: msg },
+      { message: { ...msg } },
+    )).toBe(true);
+  });
+
   it('renders correctly for identical messages', () => {
     const msg = createMessage({ id: 'msg-1', role: 'assistant', content: 'Hello' });
     const { container: c1 } = render(<ChatMessage message={msg} />);
@@ -99,23 +107,36 @@ describe('chatMessageAreEqual comparator', () => {
   });
 });
 
+/* ─── GitHubAlert Fallback ───────────────────────────────── */
+
+describe('GitHubAlert', () => {
+  it('renders blockquote fallback for unmatched alert syntax', () => {
+    const content = '> Regular blockquote without alert syntax';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    expect(container.textContent).toMatch(/Regular blockquote/);
+    const blockquote = container.querySelector('blockquote');
+    expect(blockquote).toBeInTheDocument();
+  });
+});
+
 /* ─── Mermaid Diagram ──────────────────────────────────────── */
+
+function mermaidContent(): string {
+  return '```mermaid\ngraph TD;\nA-->B;\n```';
+}
 
 describe('ChatMessage Mermaid diagram', () => {
   afterAll(() => {
     delete (window as any).mermaid;
   });
 
-  it('shows error when mermaid library not loaded', () => {
+  it('shows error when mermaid library not loaded', async () => {
     const { container } = render(
-      <ChatMessage
-        message={createMessage({
-          role: 'assistant',
-          content: '```mermaid\ngraph TD;\nA-->B;\n```',
-        })}
-      />,
+      <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
     );
-    // rehype-highlight processes the code block — 'mermaid' language label should appear
+    await screen.findByText(/mermaid/i);
     expect(container.textContent).toMatch(/mermaid/i);
   });
 
@@ -125,32 +146,118 @@ describe('ChatMessage Mermaid diagram', () => {
     };
 
     render(
-      <ChatMessage
-        message={createMessage({
-          role: 'assistant',
-          content: '```mermaid\ngraph TD;\nA-->B;\n```',
-        })}
-      />,
+      <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
     );
 
-    // After rehype-highlight processing, the mermaid code block is syntax-highlighted
-    // Copy buttons exist from MessageActions and CodeBlock
-    const copyBtns = screen.getAllByText('📋 복사');
+    const copyBtns = await screen.findAllByText('📋 복사');
     expect(copyBtns.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows loading state while rendering diagram', async () => {
+    (window as any).mermaid = {
+      render: vi.fn().mockReturnValue(new Promise(() => {})),
+    };
+
+    render(
+      <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
+    );
+
+    // ReactMarkdown + MermaidDiagram are async; wait for the loading text
+    await screen.findByText(/다이어그램 렌더링 중/);
+  });
+
+  it('shows error message when mermaid render throws', async () => {
+    (window as any).mermaid = {
+      render: vi.fn().mockRejectedValue(new Error('Syntax error in graph')),
+    };
+
+    render(
+      <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
+    );
+
+    await screen.findByText(/Syntax error in graph/);
+  });
+
+  it('handles cleanup on unmount during render', async () => {
+    let resolveRender: ((v: any) => void) | null = null;
+    const renderPromise = new Promise<any>(resolve => { resolveRender = resolve; });
+
+    (window as any).mermaid = {
+      render: vi.fn().mockReturnValue(renderPromise),
+    };
+
+    const { unmount } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content: mermaidContent() })} />,
+    );
+
+    // Wait for ReactMarkdown to mount MermaidDiagram
+    await screen.findByText(/다이어그램 렌더링 중/);
+
+    // Unmount and let the cancelled flag handle cleanup
+    unmount();
+    resolveRender!({ svg: '<svg>test</svg>' });
+
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByText(/다이어그램/)).not.toBeInTheDocument();
   });
 });
 
 /* ─── Carousel Slideshow ──────────────────────────────────── */
 
+function carouselContent(): string {
+  return '```carousel\n# Slide 1\nContent 1\n<!-- slide -->\n# Slide 2\nContent 2\n```';
+}
+
 describe('ChatMessage Carousel', () => {
-  it('renders carousel code block with language label', () => {
-    const content = '```carousel\n# Slide 1\nContent 1\n<!-- slide -->\n# Slide 2\nContent 2\n```';
+  it('renders carousel container for valid slides', async () => {
+    render(
+      <ChatMessage message={createMessage({ role: 'assistant', content: carouselContent() })} />,
+    );
+    const container = await screen.findByText(/◀ 이전/);
+    expect(container).toBeInTheDocument();
+  });
+
+  it('returns null for empty slides', () => {
+    const content = '```carousel\n```';
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content })} />,
     );
-    // rehype-highlight transforms className → 'hljs language-carousel'
-    // The language label 'carousel' appears in the rendered content
-    expect(container.textContent).toMatch(/carousel/i);
+    expect(container.querySelector('.carousel-container')).toBeNull();
+  });
+
+  it('disables prev button on first slide', async () => {
+    render(
+      <ChatMessage message={createMessage({ role: 'assistant', content: carouselContent() })} />,
+    );
+
+    const prevBtn = (await screen.findByText('◀ 이전')).closest('button')!;
+    expect(prevBtn).toBeDisabled();
+
+    const nextBtn = (await screen.findByText('다음 ▶')).closest('button')!;
+    expect(nextBtn).not.toBeDisabled();
+  });
+
+  it('disables next button on last slide', async () => {
+    render(
+      <ChatMessage message={createMessage({ role: 'assistant', content: carouselContent() })} />,
+    );
+
+    const nextBtn = (await screen.findByText('다음 ▶')).closest('button')!;
+    await act(async () => { fireEvent.click(nextBtn); });
+
+    expect(nextBtn).toBeDisabled();
+    const prevBtn = (await screen.findByText('◀ 이전')).closest('button')!;
+    expect(prevBtn).not.toBeDisabled();
+  });
+
+  it('extracts title from first slide heading', async () => {
+    const content = '```carousel\n# Slide 1 Title\nContent 1\n<!-- slide -->\n# Slide 2\nContent 2\n```';
+    render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+
+    await screen.findByText('Slide 1 Title');
+    expect(screen.getByText('Content 1')).toBeInTheDocument();
   });
 });
 
@@ -162,8 +269,17 @@ describe('ChatMessage inline code', () => {
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content })} />,
     );
-    // The content should render and contain the backtick text
     expect(container.textContent).toMatch(/const/);
+  });
+
+  it('renders inline-code class for backtick content', () => {
+    const content = 'Run `npm install` in the terminal.';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    const inlineCode = container.querySelector('code.inline-code');
+    expect(inlineCode).toBeInTheDocument();
+    expect(inlineCode?.textContent).toMatch(/npm install/);
   });
 });
 
@@ -175,7 +291,6 @@ describe('ChatMessage blockquote', () => {
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content })} />,
     );
-    // The blockquote content should be rendered
     expect(container.textContent).toMatch(/This is a quote/);
   });
 });
@@ -184,7 +299,6 @@ describe('ChatMessage blockquote', () => {
 
 describe('ChatMessage clipboard copy', () => {
   it('renders copy buttons that can be clicked without error', async () => {
-    // Stub navigator.clipboard for jsdom compatibility
     const writeText = vi.fn().mockResolvedValue(undefined);
     const originalClipboard = navigator.clipboard;
     Object.defineProperty(navigator, 'clipboard', {
@@ -208,7 +322,6 @@ describe('ChatMessage clipboard copy', () => {
 
     expect(writeText).toHaveBeenCalled();
 
-    // Restore original clipboard
     Object.defineProperty(navigator, 'clipboard', {
       value: originalClipboard,
       writable: true,
@@ -220,20 +333,33 @@ describe('ChatMessage clipboard copy', () => {
 /* ─── Code Block ───────────────────────────────────────────── */
 
 describe('ChatMessage code block', () => {
-  it('renders code block with copy buttons', () => {
+  it('renders code block with copy buttons', async () => {
+    const content = '```typescript\nconst x = 1;\n```';
     const { container } = render(
-      <ChatMessage
-        message={createMessage({
-          role: 'assistant',
-          content: '```typescript\nconst x = 1;\n```',
-        })}
-      />,
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
     );
-    // Multiple 📋 복사 buttons exist (one from MessageActions, one from CodeBlock)
-    const copyBtns = screen.getAllByText('📋 복사');
+    const copyBtns = await screen.findAllByText('📋 복사');
     expect(copyBtns.length).toBeGreaterThanOrEqual(1);
-    // With rehype-highlight, code block children are React elements, not raw text.
-    // The hljs class indicator from rehype-highlight should appear.
     expect(container.textContent).toMatch(/typescript/i);
+  });
+
+  it('shows default language label when no language specified', async () => {
+    const content = '```\nplain code block\n```';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    await screen.findByText(/code/);
+    expect(container.textContent).toMatch(/code/);
+  });
+
+  it('renders pre element via passthrough', async () => {
+    const content = '```typescript\nconst x = 1;\n```';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    const pres = container.querySelectorAll('pre');
+    expect(pres.length).toBeGreaterThanOrEqual(1);
+    const codeInPre = pres[0]?.querySelector('code');
+    expect(codeInPre).toBeInTheDocument();
   });
 });

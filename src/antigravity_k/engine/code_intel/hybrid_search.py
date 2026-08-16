@@ -1,6 +1,7 @@
 """Hybrid Search module."""
 
 import logging
+from typing import Any
 
 logger = logging.getLogger("antigravity_k.engine.code_intel.hybrid_search")
 
@@ -24,7 +25,7 @@ class HybridSearchEngine:
         self.index_built = True
         logger.info("Hybrid search index built.")
 
-    def search(self, query: str, top_k: int = 10) -> list[dict]:
+    def search(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
         """Search for.
 
         Args:

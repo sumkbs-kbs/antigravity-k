@@ -1,0 +1,30 @@
+{
+  "name": "@open-code-review/agents",
+  "version": "2.4.0",
+  "description": "AI-native skills, commands, and reviewer personas for Open Code Review",
+  "type": "module",
+  "files": [
+    "skills",
+    "commands",
+    ".claude-plugin"
+  ],
+  "keywords": [
+    "code-review",
+    "ai",
+    "agents",
+    "skills",
+    "claude",
+    "cursor",
+    "windsurf"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spencermarx/open-code-review",
+    "directory": "packages/agents"
+  },
+  "license": "Apache-2.0",
+  "author": "Spencer Marx",
+  "publishConfig": {
+    "access": "public"
+  }
+}

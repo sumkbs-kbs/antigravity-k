@@ -25,8 +25,9 @@ import asyncio
 import functools
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("antigravity_k.api_cache")
 
@@ -423,7 +424,7 @@ def cached(
     ttl: Optional[float] = None,
     tags: Optional[list[str]] = None,
     key_builder: Optional[Callable[..., str]] = None,
-) -> Callable:
+) -> Callable[..., Any]:
     """FastAPI 엔드포인트 응답을 캐싱하는 데코레이터.
 
     GET 엔드포인트에 적용하여 응답을 자동으로 캐싱합니다.
@@ -447,7 +448,7 @@ def cached(
     """
     effective_ttl = ttl if ttl is not None else CACHE_DEFAULT_TTL
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # POST/PUT/DELETE/PATCH는 캐싱하지 않음 (요청 본문 무시 방지)

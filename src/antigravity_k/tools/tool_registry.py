@@ -25,6 +25,7 @@ from antigravity_k.engine.capability_policy import (
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .permission_gate import Permission, PermissionGate
+from .tool_contracts import PermissionDecision, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -248,48 +249,64 @@ class ToolRegistry:
             - Permission.DENY + 차단 사유
 
         """
+        decision = self.authorize(tool_name, args, objective=objective)
+        if not decision.allows_execution:
+            label = "APPROVAL REQUIRED" if decision.requires_approval else "DENIED"
+            return decision.permission, f"[{label}] {decision.reason}"
+
         tool = self.get(tool_name)
-        if not tool:
+        if tool is None:
             return Permission.DENY, f"Error: Tool '{tool_name}' not found."
-
-        # 자율 capability 정책: MCP/Skills/로컬 PC 도구를 한 정책 언어로 판정합니다.
-        capability_decision = self._capability_policy.decide_tool(
-            tool,
-            args=args,
-            objective=objective,
-        )
-        if capability_decision.is_blocked:
-            return (
-                Permission.DENY,
-                f"[DENIED] {capability_decision.reason}",
-            )
-        if capability_decision.requires_approval:
-            return Permission.PROMPT, (
-                f"[APPROVAL REQUIRED] '{tool_name}' needs your permission.\n"
-                f"Args: {args}\n"
-                f"Risk: {tool.risk_level.value}\n"
-                f"Reason: {capability_decision.reason}"
-            )
-
-        # 권한 검증
-        permission = self._permission_gate.check(tool_name, args, risk_level=tool.risk_level.value)
-
-        if permission == Permission.DENY:
-            return (
-                Permission.DENY,
-                f"[DENIED] Tool '{tool_name}' blocked by permission policy.",
-            )
-
-        if permission == Permission.PROMPT:
-            return Permission.PROMPT, (
-                f"[APPROVAL REQUIRED] '{tool_name}' needs your permission.\nArgs: {args}\nRisk: {tool.risk_level.value}"
-            )
-
-        # Permission.ALLOW — 즉시 실행
         if tool_name == "run_bash_command":
-            args = {**args, "approved": True}
+            args = {**args, "_execution_permit": getattr(tool, "_execution_permit", None)}
         result = tool(**args)
         return Permission.ALLOW, result
+
+    def authorize(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        objective: str = "",
+    ) -> PermissionDecision:
+        tool = self.get(tool_name)
+        if tool is None:
+            spec = ToolSpec(name=tool_name, risk_level="medium")
+            return PermissionDecision(
+                spec=spec,
+                permission=Permission.DENY,
+                source="tool_registry",
+                reason="The requested tool is not registered.",
+            )
+
+        spec = ToolSpec(
+            name=tool.name,
+            risk_level=tool.risk_level.value,
+            category=tool.category.value,
+            description=tool.description,
+            requires_approval=tool.requires_approval,
+            parameters_schema=tool.parameters_schema,
+        )
+        invocation = ToolInvocation(spec=spec, arguments=args, objective=objective)
+        permission_decision = self._permission_gate.decide(invocation)
+        if permission_decision.is_denied:
+            return permission_decision
+
+        capability_decision = self._capability_policy.decide_tool(tool, args=args, objective=objective)
+        if capability_decision.is_blocked:
+            return PermissionDecision(
+                spec=spec,
+                permission=Permission.DENY,
+                source="capability_policy",
+                reason=capability_decision.reason,
+            )
+        if capability_decision.requires_approval:
+            return PermissionDecision(
+                spec=spec,
+                permission=Permission.PROMPT,
+                source="capability_policy",
+                reason=capability_decision.reason,
+            )
+        return permission_decision
 
     def decide_tool_use(
         self,
@@ -320,16 +337,17 @@ class ToolRegistry:
             return f"Error: Tool '{tool_name}' not found."
 
         self._permission_gate.record_approval(tool_name, tool.risk_level.value)
-        return tool(**args)
+        _, result = self.execute_with_permission(tool_name, args, objective="approved tool execution")
+        return result
 
     # ─────────────────── 스키마 API ───────────────────
 
-    def to_llm_schemas(self, names: list[str] | None = None) -> list[dict]:
+    def to_llm_schemas(self, names: list[str] | None = None) -> list[dict[str, Any]]:
         """LLM에 전달할 도구 스키마 목록을 생성합니다."""
         tools = self.get_by_names(names) if names else self.get_all()
         return [t.to_tool_call_schema() for t in tools]
 
-    def to_openai_schemas(self, names: list[str] | None = None) -> list[dict]:
+    def to_openai_schemas(self, names: list[str] | None = None) -> list[dict[str, Any]]:
         """OpenAI function calling 포맷 도구 스키마 목록 (P1-1).
 
         OpenAI 호환 provider(OpenRouter, NIM, Ollama OpenAI mode)의 네이티브
@@ -348,11 +366,11 @@ class ToolRegistry:
                         "description": schema["description"],
                         "parameters": schema.get("input_schema", {"type": "object", "properties": {}}),
                     },
-                }
+                },
             )
         return result
 
-    def to_metadata_list(self) -> list[dict]:
+    def to_metadata_list(self) -> list[dict[str, Any]]:
         """UI 대시보드용 도구 메타데이터 목록."""
         return [t.to_metadata() for t in self._tools.values()]
 

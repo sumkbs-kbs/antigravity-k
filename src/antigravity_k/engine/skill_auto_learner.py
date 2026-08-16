@@ -21,9 +21,11 @@ import re
 import urllib.request
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 from antigravity_k.config import config
+from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ class ToolCall:
     """단일 도구 호출 기록."""
 
     name: str
-    arguments: dict
+    arguments: dict[str, Any]
     result_summary: str = ""
     success: bool = True
     timestamp: str = ""
@@ -46,7 +48,7 @@ class LearnedPattern:
     tool_sequence: list[str]
     frequency: int
     context_keywords: list[str] = field(default_factory=list)
-    example_args: list[dict] = field(default_factory=list)
+    example_args: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -128,14 +130,20 @@ class SkillAutoLearner:
 
     # ─── 1. Observe: 도구 호출 수집 ───
 
-    def record_tool_call(self, name: str, arguments: dict, result: str = "", success: bool = True):
+    def record_tool_call(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        result: str = "",
+        success: bool = True,
+    ) -> None:
         """도구 호출을 현재 태스크의 시퀀스에 기록합니다."""
         call = ToolCall(
             name=name,
             arguments=arguments,
             result_summary=result[:200] if result else "",
             success=success,
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(UTC).replace(tzinfo=None).isoformat(),
         )
         self._current_task_calls.append(call)
 
@@ -153,8 +161,8 @@ class SkillAutoLearner:
             return []
 
         # N-gram 기반 시퀀스 추출 (2~5개 도구 조합)
-        sequence_counter: Counter = Counter()
-        sequence_examples: dict[tuple, list[dict]] = {}
+        sequence_counter: Counter[tuple[str, ...]] = Counter()
+        sequence_examples: dict[tuple[str, ...], list[dict[str, Any]]] = {}
 
         for task_calls in self._history:
             tool_names = [c.name for c in task_calls if c.success]
@@ -229,7 +237,7 @@ class SkillAutoLearner:
                 data=json.dumps(data).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with safe_urlopen(req, timeout=60) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 skill_content = result.get("response", "")
 
@@ -263,7 +271,7 @@ class SkillAutoLearner:
                 name=skill_name,
                 description=description,
                 source_pattern=pattern.tool_sequence,
-                created_at=datetime.now().isoformat(),
+                created_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 file_path=skill_path,
             )
             self._registry[skill_name] = record
@@ -317,7 +325,7 @@ class SkillAutoLearner:
             rec.use_count += 1
             if success:
                 rec.success_count += 1
-            rec.last_used = datetime.now().isoformat()
+            rec.last_used = datetime.now(UTC).replace(tzinfo=None).isoformat()
             self._save_registry()
 
     # ─── 6. Garbage Collection ───
@@ -328,7 +336,7 @@ class SkillAutoLearner:
         30일 이상 사용되지 않은 스킬을 제거합니다.
         """
         removed = []
-        now = datetime.now()
+        now = datetime.now(UTC).replace(tzinfo=None)
         for name, rec in list(self._registry.items()):
             if rec.success_count >= self.PERMANENT_THRESHOLD:
                 continue  # 영구 보존

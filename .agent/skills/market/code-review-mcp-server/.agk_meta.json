@@ -1,0 +1,13 @@
+{
+  "name": "code-review-mcp-server",
+  "version": "1.5.3",
+  "description": "",
+  "installed_at": "2026-07-11T10:24:37.884275",
+  "updated_at": "2026-07-11T10:24:37.884275",
+  "risk_level": "safe",
+  "trust_level": "experimental",
+  "requires_approval": false,
+  "mcp_server_id": "",
+  "security_passed": true,
+  "findings": []
+}

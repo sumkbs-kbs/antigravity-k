@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from antigravity_k.api.dependencies import (
     __get_tool_registry,
     _get_context_shaper,
     _get_session_manager,
+    get_agent_runtime,
     get_model_manager,
     get_orchestrator,
     get_vault_engine,
@@ -37,12 +39,31 @@ from antigravity_k.api.models import (
 )
 from antigravity_k.config import config
 from antigravity_k.engine.audit_logger import get_audit_logger
+from antigravity_k.engine.benchmark_cases import get_suite
+from antigravity_k.engine.benchmark_harness import BenchmarkHarness
 from antigravity_k.engine.embeddings import EmbeddingEngine, get_embedding_engine
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
 
 logger = logging.getLogger("antigravity_k.api.legacy")
 router = APIRouter()
+
+
+def _permission_gate() -> PermissionGate:
+    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+
+
+def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+    decision = _permission_gate().decide(
+        ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
+    )
+    if decision.permission != Permission.ALLOW:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied for {tool_name}: {decision.permission.value}",
+        )
 
 
 @router.get("/health")
@@ -58,8 +79,9 @@ def health_check():
     rag_files = 0
     cov_active = False
     if orchestrator:
-        if getattr(orchestrator, "_rag_indexer", None):
-            rag_files = len(getattr(orchestrator._rag_indexer, "_file_hashes", {}))
+        rag_indexer = getattr(orchestrator, "_rag_indexer", None)
+        if rag_indexer:
+            rag_files = len(getattr(rag_indexer, "_file_hashes", {}))
         if getattr(orchestrator, "_cov_engine", None):
             cov_active = True
 
@@ -102,10 +124,7 @@ async def wake_agent(
 
     특정 시스템 이벤트 발생 시 에이전트가 백그라운드에서 즉시 기상하여 태스크를 수행합니다.
     """
-    from antigravity_k.engine.task_runner import get_task_runner
-
-    runner = get_task_runner()
-    orchestrator = get_orchestrator()
+    runtime = get_agent_runtime()
 
     payload_str = json.dumps(req.payload, ensure_ascii=False)
     prompt = (
@@ -114,9 +133,8 @@ async def wake_agent(
         f" take any necessary actions."
     )
 
-    task_id = runner.submit_task(
+    task_id = runtime.submit_task(
         prompt=prompt,
-        orchestrator=orchestrator,
         target_model=req.target_model,
         context={"wake_event": req.event_type, "use_worktree": False},
     )
@@ -148,6 +166,7 @@ async def evolve_skill_api(
 
     진화된 결과는 SKILL_EVOLVED.md 로 저장되어 인간의 검토를 기다립니다.
     """
+    _require_allowed("evolve_skill", {"skill_name": req.skill_name, "target_model": req.target_model}, "critical")
     from antigravity_k.engine.evolution import EvolutionManager
 
     if vault is None:
@@ -188,6 +207,7 @@ async def evolve_system_prompt_api(
     vault: Any = Depends(get_vault_engine),
 ):
     """시스템 프롬프트의 자율 진화를 시작합니다."""
+    _require_allowed("evolve_system_prompt", {"target_model": req.target_model}, "critical")
     from antigravity_k.engine.evolution import EvolutionManager
 
     if vault is None:
@@ -215,6 +235,7 @@ def list_models(manager: ModelManager = Depends(get_model_manager)):
     import time
 
     models = manager._registry.list_models()
+    provider_capabilities = manager.provider_capabilities()
     # Ensure it follows OpenAI-like format
     formatted_data = []
     for m in models:
@@ -226,9 +247,23 @@ def list_models(manager: ModelManager = Depends(get_model_manager)):
                 "owned_by": "system",
                 "role": m.role,
                 "description": m.description,
+                "provider_capability": provider_capabilities.get(m.name),
+                **m.routing_metadata(),
             },
         )
     return {"object": "list", "data": formatted_data}
+
+
+@router.get("/v1/models/operations")
+def model_operations_status(
+    manager: ModelManager = Depends(get_model_manager),
+    refresh: bool = False,
+) -> dict[str, Any]:
+    routing_status = manager.router.status()
+    return {
+        "provider_capabilities": manager.provider_capabilities(refresh=refresh),
+        "quality_calibration": routing_status.get("quality_calibration", {}),
+    }
 
 
 @router.post("/v1/embeddings", response_model=EmbeddingResponse)
@@ -291,6 +326,7 @@ async def set_vault_config(request: Request):
     if not new_path:
         raise HTTPException(status_code=400, detail="'vault_path' is required")
     target = os.path.abspath(new_path)
+    _require_allowed("set_vault_config", {"vault_path": target}, "critical")
     if not os.path.isdir(target):
         # 디렉토리가 없으면 생성 시도
         try:
@@ -322,7 +358,7 @@ def vault_tree(engine: VaultEngine = Depends(get_vault_engine)):
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
 
-    def build_tree(base_path: Path, rel_prefix: str = "") -> list:
+    def build_tree(base_path: Path, rel_prefix: str = "") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         try:
             entries = sorted(base_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
@@ -389,6 +425,7 @@ async def vault_write(request: Request, engine: VaultEngine = Depends(get_vault_
     clean = Path(path)
     if ".." in clean.parts:
         raise HTTPException(status_code=400, detail="Invalid path")
+    _require_allowed("vault_write", {"path": path}, "medium")
     try:
         engine.write_note(path, metadata, content, commit_message=f"Wiki edit: {path}")
         return {"ok": True, "path": path}
@@ -401,6 +438,7 @@ async def vault_sync(engine: VaultEngine = Depends(get_vault_engine)):
     """현재 Vault 상태를 Git 스냅샷으로 저장."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
+    _require_allowed("vault_sync", {}, "high")
     try:
         commit_hash = engine.create_snapshot("Manual sync via Command Palette")
         return {"ok": True, "commit": commit_hash}
@@ -441,9 +479,6 @@ def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
 
 
 # ─── BACKGROUND TASK API (Codex-style long-horizon tasks) ─────────
-from antigravity_k.engine.task_runner import get_task_runner
-
-
 @router.post("/api/tasks/submit")
 async def submit_background_task(
     request: Request,
@@ -455,27 +490,58 @@ async def submit_background_task(
     prompt = body.get("prompt", "")
     context = body.get("context", {})
     model = body.get("model", "")
+    idempotency_key = body.get("idempotency_key")
 
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
+    if idempotency_key is not None and not isinstance(idempotency_key, str):
+        raise HTTPException(status_code=400, detail="idempotency_key must be a string")
 
-    orchestrator = get_orchestrator()
-    runner = get_task_runner()
-    task_id = runner.submit_task(
+    runtime = get_agent_runtime()
+    task_id = runtime.submit_task(
         prompt=prompt,
         context=context,
-        orchestrator=orchestrator,
         target_model=model,
+        idempotency_key=idempotency_key,
     )
 
     return {"status": "submitted", "task_id": task_id}
 
 
+class TaskBenchmarkRequest(BaseModel):
+    model: str = Field(default="qwen3.6:latest", min_length=1)
+    idempotency_key: str | None = None
+
+
+@router.post("/api/tasks/benchmark/{case_id}")
+async def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest):
+    cases = get_suite(case_id)
+    if len(cases) != 1 or cases[0].id != case_id:
+        raise HTTPException(status_code=404, detail="Benchmark case not found")
+
+    case = cases[0]
+    task_id = get_agent_runtime().submit_task(
+        prompt=case.prompt,
+        context=BenchmarkHarness.task_context_for_case(case),
+        target_model=request.model,
+        idempotency_key=request.idempotency_key,
+    )
+    return {
+        "status": "submitted",
+        "task_id": task_id,
+        "benchmark_case": {
+            "id": case.id,
+            "category": case.category,
+            "difficulty": case.difficulty,
+            "expected_tools": list(case.expected_tools),
+        },
+    }
+
+
 @router.get("/api/tasks/{task_id}/status")
 async def get_task_status(task_id: str):
     """태스크 진행 상태 조회."""
-    runner = get_task_runner()
-    status = runner.get_status(task_id)
+    status = get_agent_runtime().get_task_status(task_id)
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"status": "ok", "data": status}
@@ -484,18 +550,23 @@ async def get_task_status(task_id: str):
 @router.get("/api/tasks")
 async def list_tasks(limit: int = Query(default=20)):
     """최근 태스크 목록."""
-    runner = get_task_runner()
-    return {"status": "ok", "data": runner.list_tasks(limit=limit)}
+    return {"status": "ok", "data": get_agent_runtime().list_tasks(limit=limit)}
 
 
 @router.get("/api/tasks/{task_id}/output")
 async def get_task_output(task_id: str):
     """완료된 태스크의 전체 출력."""
-    runner = get_task_runner()
-    output = runner.get_output(task_id)
+    output = get_agent_runtime().get_task_output(task_id)
     if output is None:
         raise HTTPException(status_code=404, detail="Task output not found")
-    return {"status": "ok", "output": output}
+    return {"status": "ok", "task_id": task_id, "output": output}
+
+
+@router.post("/api/tasks/{task_id}/cancel")
+async def cancel_background_task(task_id: str):
+    if not get_agent_runtime().cancel_task(task_id):
+        raise HTTPException(status_code=404, detail="Task is not active")
+    return {"status": "cancelled", "task_id": task_id}
 
 
 @router.post("/api/tasks/{task_id}/resume")
@@ -505,11 +576,10 @@ async def resume_task(
     vault: VaultEngine | None = Depends(get_vault_engine),
 ):
     """중단된 태스크를 마지막 체크포인트에서 재개."""
-    orchestrator = get_orchestrator()
-    runner = get_task_runner()
-    success = runner.resume_task(task_id=task_id, orchestrator=orchestrator)
+    runtime = get_agent_runtime()
+    success = runtime.resume_task(task_id=task_id)
     if not success:
-        raise HTTPException(status_code=404, detail="No checkpoint found for task")
+        raise HTTPException(status_code=404, detail="Task is not resumable or has no checkpoint")
     return {"status": "resumed", "task_id": task_id}
 
 
@@ -539,7 +609,7 @@ def _project_name(project_path: str) -> str:
     return path.name or str(path)
 
 
-def _task_matches_workspace(task: dict, workspace: str | None) -> bool:
+def _task_matches_workspace(task: dict[str, Any], workspace: str | None) -> bool:
     if not workspace:
         return True
     expected = _normalize_project_path(workspace)
@@ -547,7 +617,7 @@ def _task_matches_workspace(task: dict, workspace: str | None) -> bool:
     return actual == expected
 
 
-def _serialize_kanban_payload(tasks: list | None = None) -> dict:
+def _serialize_kanban_payload(tasks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     selected = list(tasks if tasks is not None else kanban_tasks)
     payload = {
         "tasks": selected,
@@ -868,6 +938,7 @@ def _get_slash_registry():
             context_shaper=_get_context_shaper(),
             model_manager=get_model_manager(),
             skill_loader=__get_skill_loader(),
+            agent_runtime=get_agent_runtime(),
         )
     return _slash_registry
 
@@ -885,12 +956,10 @@ async def slash_command(request: Request):
     registry = _get_slash_registry()
 
     # is_command() 검사를 제거하여 일반 텍스트도 자연어 처리(_execute_natural_language)로 넘어가게 합니다.
-    result = registry.execute(text)
-    import types
-
-    if isinstance(result, types.GeneratorType):
+    result: object = registry.execute(text)
+    if not isinstance(result, str) and isinstance(result, Iterable):
         result = "".join(str(chunk) for chunk in result)
-    return {"ok": True, "result": result}
+    return {"ok": True, "result": str(result)}
 
 
 @router.get("/api/slash/completions")
@@ -977,6 +1046,7 @@ from fastapi import BackgroundTasks
 @router.post("/api/system/restart")
 async def system_restart(background_tasks: BackgroundTasks):
     """서버 재시작을 트리거합니다 (uvicorn --reload 동작 전제)."""
+    _require_allowed("system_restart", {}, "critical")
     try:
 
         def delay_restart():
@@ -1042,9 +1112,10 @@ class ActiveAgentSession:
         """Initialize the ActiveAgentSession."""
         self.q = ""
         self.is_active = False
-        self.history = []
+        self.history: list[str] = []
         self.done = False
-        self.error = None
+        self.error: str | None = None
+        self.orchestrator: Any | None = None
 
 
 _active_session = ActiveAgentSession()
@@ -1108,21 +1179,21 @@ async def stream_agent(
 
         try:
             # Instantiate orchestrator
-            from antigravity_k.engine.orchestrator import OrchestratorAgent
-
-            manager = get_model_manager()
-            vault = get_vault_engine()
-            orchestrator = OrchestratorAgent(model_manager=manager, vault_engine=vault)
+            runtime = get_agent_runtime()
+            _active_session.orchestrator = runtime.orchestrator
 
             messages = [{"role": "user", "content": q}]
-            target_model = orchestrator._get_model_for_role("default")
+            target_model = runtime.resolve_model()
+            tracked_stream = runtime.start_stream(messages, target_model=target_model)
+            if tracked_stream.task_id:
+                yield f"data: {json.dumps({'task_id': tracked_stream.task_id})}\n\n"
 
             # We don't want the task to cancel if the client disconnects,
             # so we run it completely and buffer. Wait, actually SSE generator
             # might still be cancelled. But with iterate_in_threadpool it usually
             # finishes the thread.
             async for chunk in iterate_in_threadpool(
-                orchestrator.run_stream(messages, target_model=target_model),
+                tracked_stream.chunks,
             ):
                 if chunk:
                     _active_session.history.append(chunk)
@@ -1268,23 +1339,15 @@ async def get_settings():
 
 # ─── Memory & Toolset & Guardrail APIs ─────────────────────────────────────
 
-from antigravity_k.engine.memory_provider import BuiltinMemoryProvider, MemoryManager
 from antigravity_k.engine.toolset_manager import ToolsetManager
 
-_memory_manager: MemoryManager | None = None
 _toolset_manager: ToolsetManager | None = None
 
 
-def _get_memory_manager() -> MemoryManager:
-    global _memory_manager
-    if _memory_manager is None:
-        _memory_manager = MemoryManager()
-        try:
-            sm = _get_session_manager()
-            _memory_manager.add_provider(BuiltinMemoryProvider(sm))
-        except Exception:
-            logger.exception("BuiltinMemoryProvider 초기화 실패")
-    return _memory_manager
+def _get_memory_manager():
+    from antigravity_k.api.dependencies import get_memory_manager
+
+    return get_memory_manager()
 
 
 def _get_toolset_manager() -> ToolsetManager:
@@ -1479,6 +1542,7 @@ async def shields_down(request: Request):
         target_toolset: 완화 시 toolset (선택, 기본 "full")
     """
     body = await request.json()
+    _require_allowed("shields_down", body, "critical")
     shields = _get_shields_manager()
     shields.shields_down(
         reason=body.get("reason"),
@@ -1491,6 +1555,7 @@ async def shields_down(request: Request):
 @router.post("/api/shields/up")
 async def shields_up():
     """Shields를 올립니다 (보호 복원)."""
+    _require_allowed("shields_up", {}, "high")
     shields = _get_shields_manager()
     shields.shields_up(restored_by="api_operator")
     return shields.status()
@@ -1569,6 +1634,12 @@ async def save_env_settings(request: Request):
         body = await request.json()
     except Exception:
         return {"ok": False, "error": "Invalid JSON"}
+
+    _require_allowed(
+        "save_env_settings",
+        {"keys": sorted(key for key, value in body.items() if value)},
+        "critical",
+    )
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
     env_path = os.path.join(project_root, ".env")

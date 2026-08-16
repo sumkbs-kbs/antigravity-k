@@ -80,7 +80,7 @@ class RSICycleResult:
     duration_sec: float = 0.0
     timestamp: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -218,7 +218,7 @@ class RSIEngine:
             self._integrate(accepted, result, mutation)
 
         except Exception as e:
-            logger.error("[RSI] 사이클 오류: %s", e, exc_info=True)
+            logger.exception("[RSI] 사이클 오류")
             result.phase_results["error"] = str(e)
 
         result.duration_sec = time.time() - start_time
@@ -267,7 +267,7 @@ class RSIEngine:
 
     def _observe(
         self,
-        benchmark_fn: Callable | None,
+        benchmark_fn: Callable[[], float] | None,
         result: RSICycleResult,
     ) -> float:
         """Phase 1: OBSERVE — 현재 성능을 측정합니다."""
@@ -377,7 +377,7 @@ class RSIEngine:
         result: RSICycleResult,
     ) -> dict[str, Any]:
         """Phase 4: MUTATE — 가설에 따른 변이체를 생성합니다."""
-        mutation = {"type": hypothesis.mutation_type, "applied": False}
+        mutation: dict[str, Any] = {"type": hypothesis.mutation_type, "applied": False}
         result.hypothesis_applied = hypothesis.hypothesis_id
         result.mutation_type = hypothesis.mutation_type
 
@@ -413,7 +413,7 @@ class RSIEngine:
 
     def _evaluate(
         self,
-        benchmark_fn: Callable | None,
+        benchmark_fn: Callable[[], float] | None,
         mutation: dict[str, Any],
         result: RSICycleResult,
     ) -> float:

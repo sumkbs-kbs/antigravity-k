@@ -25,6 +25,36 @@ MARKET_DIR_NAME = "market"
 """마켓 스킬이 설치되는 서브디렉토리 이름."""
 
 
+def _recover_scalar_metadata(frontmatter: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    supported_keys = {"name", "description", "tags", "tools", "risk_level", "trust_level", "requires_approval"}
+    for raw_line in frontmatter.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        if key not in supported_keys:
+            continue
+        value = value.strip()
+        if key in {"tags", "tools"}:
+            try:
+                parsed_value = yaml.safe_load(value)
+            except yaml.YAMLError:
+                parsed_value = None
+            if isinstance(parsed_value, list):
+                metadata[key] = parsed_value
+            elif value:
+                metadata[key] = [value.strip("[] '\"")]
+            else:
+                metadata[key] = []
+        elif key == "requires_approval":
+            metadata[key] = value.lower() in {"true", "yes", "1"}
+        else:
+            metadata[key] = value.strip("'\"")
+    return metadata
+
+
 class SkillLoader:
     """동적 스킬 로더.
 
@@ -173,9 +203,11 @@ class SkillLoader:
                 parts = content.split("---\n", 2)
                 if len(parts) >= 3:
                     try:
-                        metadata = yaml.safe_load(parts[1]) or {}
+                        parsed_metadata = yaml.safe_load(parts[1]) or {}
+                        metadata = parsed_metadata if isinstance(parsed_metadata, dict) else {}
                     except yaml.YAMLError:
-                        logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+                        metadata = _recover_scalar_metadata(parts[1])
+                        logger.warning("Recovered scalar skill metadata from invalid YAML: %s", path)
                     body = parts[2]
 
             # YAML에 이름이나 설명이 없으면 파일 이름 사용

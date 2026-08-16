@@ -12,25 +12,62 @@ Codex 스타일의 long-horizon task 실행 및 Checkpoint/Resume 지원.
 
 import json
 import logging
+import os
 import sqlite3
 import threading
+import time
 import uuid
-from datetime import datetime
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
 
+from antigravity_k.engine.benchmark_harness import TaskOutcome
+from antigravity_k.engine.task_context_snapshot import (
+    load_task_context_snapshot,
+    restored_task_context_messages,
+)
+from antigravity_k.engine.task_state_store import (
+    InvalidTaskStatusError,
+    InvalidTaskTransitionError,
+    TaskStateStore,
+    TaskStatusName,
+)
 from antigravity_k.engine.worktree_manager import WorktreeManager
 
 logger = logging.getLogger(__name__)
 
+_DIRECT_RESPONSE_MARKERS = (
+    "파일을 수정하지",
+    "도구를 사용하지",
+    "코드만",
+    "answer only",
+    "code only",
+    "do not modify files",
+    "do not use tools",
+)
+
+
+@runtime_checkable
+class TaskExecutionBindingPort(Protocol):
+    def bind_task_execution(
+        self,
+        task_id: str,
+        state_store: TaskStateStore,
+    ) -> AbstractContextManager[None]: ...
+
+    def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]: ...
+
 
 class TaskStatus:
-    PENDING = "pending"
-    RUNNING = "running"
-    DONE = "done"
-    FAILED = "failed"
-    PAUSED = "paused"
-    CANCELLED = "cancelled"
+    PENDING: TaskStatusName = "pending"
+    RUNNING: TaskStatusName = "running"
+    RESUMING: TaskStatusName = "resuming"
+    DONE: TaskStatusName = "done"
+    FAILED: TaskStatusName = "failed"
+    PAUSED: TaskStatusName = "paused"
+    CANCELLED: TaskStatusName = "cancelled"
 
 
 class TaskCheckpoint:
@@ -41,13 +78,13 @@ class TaskCheckpoint:
         self.step = step
         self.context = context
         self.output_so_far = output_so_far
-        self.timestamp = datetime.now().isoformat()
+        self.timestamp = datetime.now(UTC).isoformat()
 
 
 class BackgroundTask:
     """백그라운드 태스크 상태 객체"""
 
-    def __init__(self, task_id: str, prompt: str, context: Optional[Dict] = None):
+    def __init__(self, task_id: str, prompt: str, context: Optional[Dict[str, Any]] = None):
         self.task_id = task_id
         self.prompt = prompt
         self.context = context or {}
@@ -55,7 +92,7 @@ class BackgroundTask:
         self.progress = 0.0
         self.output = ""
         self.error: str | None = None
-        self.created_at = datetime.now().isoformat()
+        self.created_at = datetime.now(UTC).isoformat()
         self.updated_at = self.created_at
         self.cancel_event = threading.Event()
         self.checkpoints: List[TaskCheckpoint] = []
@@ -86,14 +123,26 @@ class BackgroundTaskRunner:
     - 중단 시 마지막 체크포인트에서 재개 가능
     """
 
-    def __init__(self, db_path: Optional[str] = None, vault_engine=None):
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        vault_engine=None,
+        state_store: TaskStateStore | None = None,
+        outcome_recorder: Callable[[TaskOutcome], Any] | None = None,
+    ):
         if db_path is None:
-            base_dir = Path(__file__).resolve().parent.parent / "data"
-            base_dir.mkdir(parents=True, exist_ok=True)
-            db_path = str(base_dir / "tasks.db")
+            configured_path = os.environ.get("AGK_TASK_DB_PATH", "").strip()
+            if configured_path:
+                db_path = configured_path
+            else:
+                base_dir = Path(__file__).resolve().parent.parent / "data"
+                base_dir.mkdir(parents=True, exist_ok=True)
+                db_path = str(base_dir / "tasks.db")
 
         self.db_path = db_path
         self.vault_engine = vault_engine  # W-6: DI 패턴으로 순환참조 제거
+        self.state_store = state_store or TaskStateStore(db_path)
+        self.outcome_recorder = outcome_recorder
         self._tasks: Dict[str, BackgroundTask] = {}
         self._lock = threading.Lock()
         self.worktree_manager = WorktreeManager()
@@ -106,42 +155,16 @@ class BackgroundTaskRunner:
         return conn
 
     def _init_db(self):
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS task_checkpoints (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL,
-                    step INTEGER NOT NULL,
-                    context_json TEXT NOT NULL,
-                    output_so_far TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS task_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL UNIQUE,
-                    prompt TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    output TEXT,
-                    error TEXT,
-                    created_at TEXT NOT NULL,
-                    completed_at TEXT
-                )
-            """
-            )
-            conn.commit()
+        self.state_store.initialize()
 
     def submit_task(
         self,
         prompt: str,
-        context: Optional[Dict] = None,
+        context: Optional[Dict[str, Any]] = None,
         orchestrator=None,
         target_model: str = "",
         use_worktree: bool = False,
+        idempotency_key: str | None = None,
     ) -> str:
         """
         태스크를 백그라운드 스레드에 제출합니다.
@@ -149,8 +172,23 @@ class BackgroundTaskRunner:
         Returns:
             task_id: 고유 태스크 ID
         """
+        task_context = dict(context or {})
+        if self._should_use_direct_response(prompt, task_context, use_worktree):
+            task_context["direct_response"] = True
         task_id = f"task_{uuid.uuid4().hex[:8]}"
-        task = BackgroundTask(task_id, prompt, context)
+        created_at = datetime.now(UTC).isoformat()
+        stored_task_id = self.state_store.create_task(
+            task_id,
+            prompt,
+            TaskStatus.PENDING,
+            created_at,
+            idempotency_key=idempotency_key,
+        )
+        if stored_task_id != task_id:
+            return stored_task_id
+
+        task = BackgroundTask(task_id, prompt, task_context)
+        self._save_checkpoint(task_id, 0, task.context, "")
 
         if use_worktree:
             try:
@@ -160,14 +198,6 @@ class BackgroundTaskRunner:
 
         with self._lock:
             self._tasks[task_id] = task
-
-        # DB에 기록
-        with self._get_connection() as conn:
-            conn.execute(
-                "INSERT INTO task_history (task_id, prompt, status, created_at) VALUES (?, ?, ?, ?)",
-                (task_id, prompt, TaskStatus.PENDING, task.created_at),
-            )
-            conn.commit()
 
         # 백그라운드 스레드 시작
         thread = threading.Thread(
@@ -181,6 +211,23 @@ class BackgroundTaskRunner:
 
         logger.info(f"Background task submitted: {task_id}")
         return task_id
+
+    @staticmethod
+    def _should_use_direct_response(prompt: str, context: Dict[str, Any], use_worktree: bool) -> bool:
+        configured_mode = context.get("direct_response")
+        if isinstance(configured_mode, bool):
+            return configured_mode
+        if use_worktree or context.get("use_worktree") is True:
+            return False
+        expected_tools = context.get("expected_tools", ())
+        if isinstance(expected_tools, str) and expected_tools.strip():
+            return False
+        if isinstance(expected_tools, (list, tuple, set, frozenset)) and any(
+            str(tool).strip() for tool in expected_tools
+        ):
+            return False
+        prompt_lower = prompt.casefold()
+        return any(marker in prompt_lower for marker in _DIRECT_RESPONSE_MARKERS)
 
     def cancel_task(self, task_id: str) -> bool:
         """현재 실행 중인 태스크에 중단 시그널을 보냅니다."""
@@ -208,28 +255,71 @@ class BackgroundTaskRunner:
         logger.info(f"Sending cancel signal to task {task_id}")
         task.cancel_event.set()
         task.status = TaskStatus.CANCELLED
+        task.error = "Task was manually cancelled by the user."
+        task.updated_at = datetime.now(UTC).isoformat()
         self._update_db_status(
             task_id,
             TaskStatus.CANCELLED,
-            error="Task was manually cancelled by the user.",
+            error=task.error,
         )
         return True
 
-    def _run_task(self, task: BackgroundTask, orchestrator, target_model: str):
-        """백그라운드 스레드에서 실제 태스크 실행."""
-        task.status = TaskStatus.RUNNING
-        task.updated_at = datetime.now().isoformat()
-        self._update_db_status(task.task_id, TaskStatus.RUNNING)
+    @staticmethod
+    def _benchmark_validation_error(task: BackgroundTask) -> str | None:
+        if not isinstance(task.context.get("benchmark_case_id"), str):
+            return None
+        raw_keywords = task.context.get("expected_keywords", ())
+        if isinstance(raw_keywords, str):
+            expected_keywords = (raw_keywords,)
+        elif isinstance(raw_keywords, (list, tuple, set, frozenset)):
+            expected_keywords = tuple(str(keyword) for keyword in raw_keywords if str(keyword))
+        else:
+            return None
+        missing = [keyword for keyword in expected_keywords if keyword.lower() not in task.output.lower()]
+        if not missing:
+            return None
+        return f"Benchmark output missing required content: {', '.join(missing)}"
 
+    def _run_task(
+        self,
+        task: BackgroundTask,
+        orchestrator,
+        target_model: str,
+        initial_step: int = 0,
+        initial_output: str = "",
+    ):
+        """백그라운드 스레드에서 실제 태스크 실행."""
+        started_at = time.monotonic()
+        if task.cancel_event.is_set():
+            task.status = TaskStatus.CANCELLED
+            self._update_db_status(
+                task.task_id,
+                TaskStatus.CANCELLED,
+                error="Task was cancelled before execution started.",
+            )
+            self._record_task_outcome(task, target_model, started_at, "cancelled")
+            return
+
+        task.status = TaskStatus.RUNNING
+        task.output = initial_output
+        task.progress = min(0.95, initial_step / 100)
+        task.updated_at = datetime.now(UTC).isoformat()
+        if not self._update_db_status(task.task_id, TaskStatus.RUNNING):
+            task.status = TaskStatus.CANCELLED if task.cancel_event.is_set() else TaskStatus.FAILED
+            self._record_task_outcome(task, target_model, started_at, task.status)
+            return
+
+        vault_engine = self.vault_engine
         try:
             if orchestrator is None:
                 raise ValueError("Orchestrator is required for task execution")
 
             # ─── Snapshot (Filesystem Checkpoint) 생성 ───
             # W-6: 순환참조 제거 — api.server 역방향 import 대신 DI된 vault_engine 사용
-            vault_engine = self.vault_engine or getattr(orchestrator, "vault_engine", None)
+            vault_engine = vault_engine or getattr(orchestrator, "vault_engine", None)
 
-            if vault_engine:
+            is_read_only_benchmark = task.context.get("benchmark_read_only") is True
+            if vault_engine and not is_read_only_benchmark:
                 try:
                     snapshot_hash = vault_engine.create_snapshot(f"Pre-task checkpoint for {task.task_id}")
                     if snapshot_hash:
@@ -239,17 +329,22 @@ class BackgroundTaskRunner:
                     logger.exception("Failed to create pre-task snapshot")
 
             messages = [{"role": "user", "content": task.prompt}]
+            restored_snapshot = load_task_context_snapshot(self.state_store, task.task_id)
+            if restored_snapshot is not None:
+                messages = [*restored_task_context_messages(restored_snapshot), *messages]
             if task.context:
                 context_str = json.dumps(task.context, ensure_ascii=False)
-                messages[0]["content"] += f"\n\nContext: {context_str}"
+                messages.append(
+                    {"role": "system", "content": f"Task execution context: {context_str}"},
+                )
 
             # target_model이 빈 문자열이면 오케스트레이터 기본 모델로 폴백
             if not target_model:
                 target_model = orchestrator._get_model_for_role("default")
 
-            output_parts = []
-            step = 0
-            for chunk in orchestrator.run_stream(messages, target_model=target_model):
+            output_parts = [initial_output] if initial_output else []
+            step = initial_step
+            for chunk in self._stream_task(task, orchestrator, target_model, messages):
                 if task.cancel_event.is_set():
                     logger.info(f"Task {task.task_id} interrupted by cancel event.")
                     task.status = TaskStatus.CANCELLED
@@ -265,6 +360,8 @@ class BackgroundTaskRunner:
                             self.worktree_manager.remove_worktree(task.task_id)
                         except Exception:
                             logger.exception("Failed to cleanup worktree on cancellation")
+                    self._rollback_snapshot(task, vault_engine)
+                    self._record_task_outcome(task, target_model, started_at, "cancelled")
                     return
 
                 output_parts.append(chunk)
@@ -274,30 +371,141 @@ class BackgroundTaskRunner:
                 if step % 10 == 0:
                     task.output = "".join(output_parts)
                     task.progress = min(0.95, step / 100)  # 추정 진행률
-                    task.updated_at = datetime.now().isoformat()
+                    task.updated_at = datetime.now(UTC).isoformat()
                     self._save_checkpoint(task.task_id, step, task.context, task.output)
 
             task.output = "".join(output_parts)
+            state_record = self.state_store.get_task(task.task_id)
+            if state_record is not None and state_record["status"] == TaskStatus.PAUSED:
+                task.status = TaskStatus.PAUSED
+                task.updated_at = datetime.now(UTC).isoformat()
+                self._update_db_status(task.task_id, TaskStatus.PAUSED, output=task.output)
+                self._record_task_outcome(task, target_model, started_at, "approval_required")
+                logger.info("Background task paused for approval: %s", task.task_id)
+                return
+            if state_record is not None and state_record["status"] == TaskStatus.FAILED:
+                task.status = TaskStatus.FAILED
+                task.error = str(state_record["error"] or "Task execution failed.")
+                task.updated_at = datetime.now(UTC).isoformat()
+                self._rollback_snapshot(task, vault_engine)
+                completion_reason = "quality_gate_failed" if task.error.startswith("quality_gate_failed:") else "failed"
+                self._record_task_outcome(task, target_model, started_at, completion_reason)
+                logger.warning("Background task completed with a failed terminal state: %s", task.task_id)
+                return
+            validation_error = self._benchmark_validation_error(task)
+            if validation_error:
+                task.status = TaskStatus.FAILED
+                task.error = validation_error
+                task.updated_at = datetime.now(UTC).isoformat()
+                self._update_db_status(
+                    task.task_id,
+                    TaskStatus.FAILED,
+                    output=task.output,
+                    error=validation_error,
+                )
+                self._record_task_outcome(task, target_model, started_at, "benchmark_validation_failed")
+                logger.warning("Benchmark task failed output validation: %s", task.task_id)
+                return
             task.progress = 1.0
             task.status = TaskStatus.DONE
-            task.updated_at = datetime.now().isoformat()
+            task.updated_at = datetime.now(UTC).isoformat()
 
             self._update_db_status(task.task_id, TaskStatus.DONE, output=task.output)
+            self._record_task_outcome(task, target_model, started_at, "done")
             logger.info(f"Background task completed: {task.task_id}, output length: {len(task.output)}")
 
             # ─── LLM Wiki (Vault) 자동 기록: 세컨드 브레인 축적 ───
-            self._save_to_vault(task, orchestrator)
+            if not is_read_only_benchmark:
+                self._save_to_vault(task, orchestrator)
 
         except Exception as e:
+            if task.status != TaskStatus.DONE:
+                self._rollback_snapshot(task, vault_engine)
             task.status = TaskStatus.FAILED
             task.error = str(e)
-            task.updated_at = datetime.now().isoformat()
+            task.updated_at = datetime.now(UTC).isoformat()
             self._update_db_status(task.task_id, TaskStatus.FAILED, error=str(e))
+            self._record_task_outcome(task, target_model, started_at, "failed")
             logger.exception(f"Background task failed: {task.task_id}, error")
 
         finally:
-            if task.worktree_path:
+            if task.worktree_path and task.status != TaskStatus.PAUSED:
                 self.worktree_manager.remove_worktree(task.task_id)
+
+    def _rollback_snapshot(self, task: BackgroundTask, vault_engine) -> None:
+        snapshot_hash = task.context.get("snapshot_hash")
+        restore_snapshot = getattr(vault_engine, "restore_snapshot", None)
+        if not snapshot_hash or not callable(restore_snapshot):
+            return
+        try:
+            if restore_snapshot(str(snapshot_hash)):
+                logger.info("Rolled back task %s to snapshot %s", task.task_id, snapshot_hash)
+            else:
+                logger.error("Snapshot rollback was rejected for task %s", task.task_id)
+        except Exception:
+            logger.exception("Snapshot rollback failed for task %s", task.task_id)
+
+    def _stream_task(
+        self,
+        task: BackgroundTask,
+        orchestrator,
+        target_model: str,
+        messages: list[dict[str, str]],
+    ):
+        binding: AbstractContextManager[None] = nullcontext()
+        if isinstance(orchestrator, TaskExecutionBindingPort):
+            binding = orchestrator.bind_task_execution(task.task_id, self.state_store)
+        with binding:
+            yield from orchestrator.run_stream(messages=messages, target_model=target_model)
+
+    def _record_task_outcome(
+        self,
+        task: BackgroundTask,
+        target_model: str,
+        started_at: float,
+        completion_reason: str,
+    ) -> None:
+        if self.outcome_recorder is None:
+            return
+
+        try:
+            from antigravity_k.engine.tool_call_parser import EventType, ToolCallParser
+
+            parser = ToolCallParser()
+            events = parser.feed(task.output) + parser.flush()
+            used_tools = tuple(
+                dict.fromkeys(
+                    event.tool_call.name
+                    for event in events
+                    if event.type == EventType.TOOL_CALL_COMPLETE and event.tool_call is not None
+                ),
+            )
+            expected_tools_raw = task.context.get("expected_tools", ())
+            expected_tools = (
+                (expected_tools_raw,)
+                if isinstance(expected_tools_raw, str)
+                else tuple(str(tool) for tool in expected_tools_raw)
+            )
+            benchmark_case_id = task.context.get("benchmark_case_id")
+            case_id = benchmark_case_id if isinstance(benchmark_case_id, str) and benchmark_case_id else task.task_id
+            outcome = TaskOutcome(
+                case_id=case_id,
+                target=target_model,
+                success=task.status == TaskStatus.DONE,
+                completion_reason=completion_reason,
+                expected_tools=expected_tools,
+                used_tools=used_tools,
+                retry_count=int(task.context.get("retry_count", 0) or 0),
+                latency_ms=(time.monotonic() - started_at) * 1000,
+                tokens_in=len(task.prompt) // 4,
+                tokens_out=len(task.output) // 4,
+                cost_usd=float(task.context.get("cost_usd", 0.0) or 0.0),
+                error=task.error or "",
+                calibration_eligible=isinstance(benchmark_case_id, str) and bool(benchmark_case_id),
+            )
+            self.outcome_recorder(outcome)
+        except Exception:
+            logger.exception("Task outcome recording failed: %s", task.task_id)
 
     def get_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """태스크 진행 상태를 조회합니다."""
@@ -307,19 +515,18 @@ class BackgroundTaskRunner:
         if task:
             return task.to_dict()
 
-        # 메모리에 없으면 DB에서 조회 (이전 세션의 태스크)
-        with self._get_connection() as conn:
-            row = conn.execute("SELECT * FROM task_history WHERE task_id = ?", (task_id,)).fetchone()
-            if row:
-                return {
-                    "task_id": row["task_id"],
-                    "prompt": row["prompt"][:100],
-                    "status": row["status"],
-                    "output_length": len(row["output"] or ""),
-                    "error": row["error"],
-                    "created_at": row["created_at"],
-                    "completed_at": row["completed_at"],
-                }
+        record = self.state_store.get_task(task_id)
+        if record:
+            return {
+                "task_id": record["task_id"],
+                "prompt": record["prompt"][:100],
+                "status": record["status"],
+                "output_length": len(record["output"]),
+                "error": record["error"],
+                "created_at": record["created_at"],
+                "updated_at": record["updated_at"],
+                "completed_at": record["completed_at"],
+            }
         return None
 
     def list_tasks(self, limit: int = 20) -> List[Dict[str, Any]]:
@@ -333,19 +540,18 @@ class BackgroundTaskRunner:
 
         # DB의 히스토리 (활성 태스크와 중복 제거)
         active_ids = {r["task_id"] for r in results}
-        with self._get_connection() as conn:
-            rows = conn.execute("SELECT * FROM task_history ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
-            for row in rows:
-                if row["task_id"] not in active_ids:
-                    results.append(
-                        {
-                            "task_id": row["task_id"],
-                            "prompt": row["prompt"][:100],
-                            "status": row["status"],
-                            "error": row["error"],
-                            "created_at": row["created_at"],
-                        }
-                    )
+        for record in self.state_store.list_tasks(limit):
+            if record["task_id"] not in active_ids:
+                results.append(
+                    {
+                        "task_id": record["task_id"],
+                        "prompt": record["prompt"][:100],
+                        "status": record["status"],
+                        "error": record["error"],
+                        "created_at": record["created_at"],
+                        "updated_at": record["updated_at"],
+                    },
+                )
 
         return sorted(results, key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
 
@@ -356,27 +562,38 @@ class BackgroundTaskRunner:
             if task:
                 return task.output
 
-        with self._get_connection() as conn:
-            row = conn.execute("SELECT output FROM task_history WHERE task_id = ?", (task_id,)).fetchone()
-            if row:
-                return row["output"]
+        record = self.state_store.get_task(task_id)
+        if record:
+            return record["output"]
         return None
 
-    def _save_checkpoint(self, task_id: str, step: int, context: Dict, output: str):
+    def wait_task(self, task_id: str, timeout: float | None = None) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            task = self._tasks.get(task_id)
+        if task is not None and task._thread is not None:
+            task._thread.join(timeout)
+        return self.get_status(task_id)
+
+    def _save_checkpoint(self, task_id: str, step: int, context: Dict[str, Any], output: str):
         """체크포인트를 DB에 저장합니다."""
         try:
-            with self._get_connection() as conn:
-                conn.execute(
-                    "INSERT INTO task_checkpoints (task_id, step, context_json, output_so_far, created_at) VALUES (?, ?, ?, ?, ?)",  # noqa: E501
-                    (
-                        task_id,
-                        step,
-                        json.dumps(context, ensure_ascii=False),
-                        output,
-                        datetime.now().isoformat(),
-                    ),
-                )
-                conn.commit()
+            checkpoint_context = dict(context)
+            checkpoint = self.state_store.get_last_checkpoint(task_id)
+            if checkpoint is not None:
+                try:
+                    previous_context = json.loads(checkpoint["context_json"])
+                except (json.JSONDecodeError, TypeError):
+                    previous_context = None
+                if isinstance(previous_context, dict) and "tool_loop" not in checkpoint_context:
+                    tool_loop = previous_context.get("tool_loop")
+                    if isinstance(tool_loop, dict):
+                        checkpoint_context["tool_loop"] = tool_loop
+            self.state_store.save_checkpoint(
+                task_id,
+                step,
+                json.dumps(checkpoint_context, ensure_ascii=False),
+                output,
+            )
             logger.debug(f"Checkpoint saved: {task_id} at step {step}")
         except Exception:
             logger.exception("Checkpoint save failed")
@@ -393,7 +610,7 @@ class BackgroundTaskRunner:
                 logger.warning("VaultEngine is not available. Skipping vault record.")
                 return
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             filename = f".agent/tasks/task_{task.task_id[:8]}_{timestamp}.md"
 
             # 컨텍스트와 결과를 마크다운으로 포맷팅
@@ -469,19 +686,15 @@ class BackgroundTaskRunner:
 
     def get_last_checkpoint(self, task_id: str) -> Optional[Dict[str, Any]]:
         """마지막 체크포인트를 조회합니다."""
-        with self._get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM task_checkpoints WHERE task_id = ? ORDER BY step DESC LIMIT 1",
-                (task_id,),
-            ).fetchone()
-            if row:
-                return {
-                    "task_id": row["task_id"],
-                    "step": row["step"],
-                    "context": json.loads(row["context_json"]),
-                    "output_so_far": row["output_so_far"],
-                    "created_at": row["created_at"],
-                }
+        checkpoint = self.state_store.get_last_checkpoint(task_id)
+        if checkpoint:
+            return {
+                "task_id": checkpoint["task_id"],
+                "step": checkpoint["step"],
+                "context": json.loads(checkpoint["context_json"]),
+                "output_so_far": checkpoint["output_so_far"],
+                "created_at": checkpoint["created_at"],
+            }
         return None
 
     def resume_task(
@@ -497,14 +710,15 @@ class BackgroundTaskRunner:
             return False
 
         # 원래 프롬프트 조회
-        with self._get_connection() as conn:
-            row = conn.execute("SELECT prompt FROM task_history WHERE task_id = ?", (task_id,)).fetchone()
-            if not row:
-                return False
+        record = self.state_store.get_task(task_id)
+        if not record:
+            return False
+        if not self.state_store.prepare_resume(task_id):
+            return False
 
         # 체크포인트 컨텍스트로 새 태스크 생성
         resume_prompt = (
-            f"{row['prompt']}\n\n"
+            f"{record['prompt']}\n\n"
             f"[RESUMING FROM CHECKPOINT at step {checkpoint['step']}]\n"
             f"Previous output:\n{checkpoint['output_so_far'][-2000:]}\n"
             f"Continue from where you left off."
@@ -518,7 +732,7 @@ class BackgroundTaskRunner:
 
         thread = threading.Thread(
             target=self._run_task,
-            args=(task, orchestrator, target_model),
+            args=(task, orchestrator, target_model, checkpoint["step"], checkpoint["output_so_far"]),
             name=f"bg-resume-{task_id}",
             daemon=True,
         )
@@ -528,23 +742,19 @@ class BackgroundTaskRunner:
         logger.info(f"Task resumed from checkpoint: {task_id} at step {checkpoint['step']}")
         return True
 
-    def _update_db_status(self, task_id: str, status: str, output: str | None = None, error: str | None = None):
+    def _update_db_status(
+        self,
+        task_id: str,
+        status: TaskStatusName,
+        output: str | None = None,
+        error: str | None = None,
+    ) -> bool:
         """DB에 태스크 상태를 업데이트합니다."""
         try:
-            with self._get_connection() as conn:
-                if status in (TaskStatus.DONE, TaskStatus.FAILED):
-                    conn.execute(
-                        "UPDATE task_history SET status = ?, output = ?, error = ?, completed_at = ? WHERE task_id = ?",
-                        (status, output, error, datetime.now().isoformat(), task_id),
-                    )
-                else:
-                    conn.execute(
-                        "UPDATE task_history SET status = ? WHERE task_id = ?",
-                        (status, task_id),
-                    )
-                conn.commit()
-        except Exception:
+            return self.state_store.transition(task_id, status, output=output, error=error)
+        except (sqlite3.Error, InvalidTaskStatusError, InvalidTaskTransitionError):
             logger.exception("DB status update failed")
+            return False
 
 
 # ── 싱글톤 인스턴스 ──

@@ -612,7 +612,7 @@ class SkillMarketRegistry:
             return SkillInstaller._version_gte(a, b)
         except (ImportError, AttributeError):
             # Fallback: 인라인 구현
-            def _parse(v: str) -> tuple:
+            def _parse(v: str) -> tuple[int, int, int]:
                 parts = v.split(".")
                 return (
                     int(parts[0]) if len(parts) > 0 else 0,

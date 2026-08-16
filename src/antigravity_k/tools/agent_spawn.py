@@ -14,7 +14,11 @@ Claw Code의 Agent Task 아키텍처 이식.
 
 import logging
 import time
+from importlib import import_module
 from typing import Any
+
+from antigravity_k.engine.subagent_execution import start_subagent_stream
+from antigravity_k.engine.task_runner import get_task_runner
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
@@ -34,7 +38,6 @@ class AgentSpawnTool(BaseTool):
     render_in = RenderIn.CONTEXTUAL
     risk_level = RiskLevel.MEDIUM
     icon = "🤖"
-    tags = ["agent", "spawn", "delegate", "subtask"]
 
     def __init__(self, model_manager=None, tool_registry=None):
         """Initialize the AgentSpawnTool.
@@ -45,6 +48,7 @@ class AgentSpawnTool(BaseTool):
 
         """
         super().__init__()
+        self.tags = ["agent", "spawn", "delegate", "subtask"]
         self._name = "agent_spawn"
         self._description = (
             "Spawns a sub-agent to perform an independent task. "
@@ -131,13 +135,15 @@ class AgentSpawnTool(BaseTool):
             logger.exception("Sub-agent spawn failed")
             return f"Error: Sub-agent failed: {e}"
 
-    def _spawn_sub_agent(self, task: str, tool_names: list, max_tokens: int) -> str:
+    def _spawn_sub_agent(self, task: str, tool_names: list[str], max_tokens: int) -> str:
         """실제 Orchestrator 루프를 통한 Sub-Agent 실행."""
         start_time = time.time()
 
         try:
-            from antigravity_k.api.dependencies import get_vault_engine
-            from antigravity_k.engine.orchestrator import OrchestratorAgent
+            dependencies = import_module("antigravity_k.api.dependencies")
+            orchestrator_module = import_module("antigravity_k.engine.orchestrator")
+            get_vault_engine = dependencies.__dict__["get_vault_engine"]
+            OrchestratorAgent = orchestrator_module.__dict__["OrchestratorAgent"]
 
             sub_orchestrator = OrchestratorAgent(
                 model_manager=self._model_manager,
@@ -165,19 +171,24 @@ class AgentSpawnTool(BaseTool):
 
             logger.info("Starting synchronous Sub-Agent for task: %s...", task[:50])
 
-            output_parts = []
-            for chunk in sub_orchestrator.run_stream(messages, target_model=target_model):
-                output_parts.append(chunk)
+            tracked_stream = start_subagent_stream(
+                sub_orchestrator,
+                task_runner=get_task_runner(),
+                messages=messages,
+                target_model=target_model,
+                subagent_kind="agent_spawn",
+            )
+            output_parts = list(tracked_stream.chunks)
 
             elapsed = time.time() - start_time
             result = "".join(output_parts)
 
             return f"[Sub-Agent Result] (completed in {elapsed:.1f}s)\n{result}"
         except Exception as e:
-            logger.error("Sub-agent execution failed: %s", e, exc_info=True)
+            logger.exception("Sub-agent execution failed")
             return f"Sub-agent execution failed: {e}"
 
-    def _fallback_execute(self, task: str, tool_names: list) -> str:
+    def _fallback_execute(self, task: str, tool_names: list[str]) -> str:
         """ModelManager 미연결 시 폴백 (작업 기록만)."""
         return (
             f"[Sub-Agent Queued]\n"

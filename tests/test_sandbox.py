@@ -41,6 +41,12 @@ class TestSandboxDisabled:
         result = runner.execute("printf 'hello world'")
         assert "hello world" in result.stdout
 
+    def test_output_quota_truncates_stdout(self):
+        runner = SandboxRunner(project_root="/tmp", enabled=False, max_output_bytes=8)
+        result = runner.execute("printf '1234567890'")
+        assert result.output_truncated
+        assert len(result.stdout.encode()) <= 8
+
 
 class TestSeatbeltProfile:
     """macOS seatbelt 프로파일 생성 검증 (플랫폼 무관)."""
@@ -104,3 +110,15 @@ class TestDockerDetection:
     def test_is_docker_available_returns_bool(self):
         result = SandboxRunner._is_docker_available()
         assert isinstance(result, bool)
+
+
+def test_enabled_sandbox_fails_closed_when_backend_is_unavailable(monkeypatch):
+    runner = SandboxRunner(project_root="/tmp", enabled=True)
+    runner._platform = "Linux"
+    monkeypatch.setattr(SandboxRunner, "_is_docker_available", staticmethod(lambda: False))
+
+    result = runner.execute("echo should_not_run")
+
+    assert not result.success
+    assert result.sandboxed
+    assert "raw execution is disabled" in result.error

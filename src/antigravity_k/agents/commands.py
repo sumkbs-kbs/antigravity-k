@@ -22,7 +22,7 @@ class CommandHandler:
 
         """
         self.team_manager = team_manager
-        self.commands: dict[str, Callable] = {
+        self.commands: dict[str, Callable[[list[str]], str]] = {
             "/help": self.handle_help,
             "/tasks": self.handle_tasks,
             "/review": self.handle_review,
@@ -57,7 +57,7 @@ class CommandHandler:
         else:
             return f"알 수 없는 명령어입니다: {cmd}. '/help'를 입력하여 사용 가능한 명령어를 확인하세요."
 
-    def handle_help(self, args: list) -> str:
+    def handle_help(self, args: list[str]) -> str:
         """사용 가능한 슬래시 명령어 목록을 출력합니다."""
         help_text = [
             "=== Antigravity-K 명령어 가이드 ===",
@@ -70,15 +70,15 @@ class CommandHandler:
         ]
         return "\n".join(help_text)
 
-    def handle_status(self, args: list) -> str:
+    def handle_status(self, args: list[str]) -> str:
         """팀 상태 및 시스템 헬스체크를 수행합니다."""
         return "시스템 헬스: 정상\n가동 중인 에이전트 수: 측정 중...\n(추후 팀 상태 연동 예정)"
 
-    def handle_clear(self, args: list) -> str:
+    def handle_clear(self, args: list[str]) -> str:
         """상태 초기화 명령."""
         return "CLEAR_COMMAND_RECEIVED"
 
-    def handle_tasks(self, args: list) -> str:
+    def handle_tasks(self, args: list[str]) -> str:
         """현재 Kanban 보드의 상태를 출력합니다."""
         state = self.team_manager.kanban_board.get_board_state()
         output = ["=== Kanban Board ==="]
@@ -91,7 +91,7 @@ class CommandHandler:
                 output.append(f"  - {task['id']}: {task['description']} (담당: {assignee})")
         return "\n".join(output)
 
-    def handle_review(self, args: list) -> str:
+    def handle_review(self, args: list[str]) -> str:
         """QA 에이전트에게 특정 코드나 상태의 리뷰를 지시합니다."""
         if not args:
             return "사용법: /review [리뷰할 내용 또는 대상]"
@@ -101,7 +101,7 @@ class CommandHandler:
         self.team_manager.delegate_task(task_id, "QA")
         return f"리뷰 작업이 QA 에이전트에게 할당되었습니다. (Task ID: {task_id})"
 
-    def handle_delegate(self, args: list) -> str:
+    def handle_delegate(self, args: list[str]) -> str:
         """작업을 특정 에이전트에게 수동으로 할당합니다."""
         if len(args) < 2:
             return "사용법: /delegate [Task_ID] [Agent_Name]"

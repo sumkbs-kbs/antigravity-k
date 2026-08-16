@@ -64,7 +64,7 @@ def make_message_bubble(content: str, sender: str, timestamp: str = "") -> str:
         label = f"[bold]{role_label}[/bold]{ts}"
         prefix = "[#2d7ff9]┃[/#2d7ff9] "
     elif sender == "assistant":
-        label = f"[bold #00ff87]{role_label}[/bold]{ts}"
+        label = f"[bold #00ff87]{role_label}[/]{ts}"
         prefix = "[#00ff87]┃[/#00ff87] "
     else:
         label = f"[italic]{role_label}[/italic]{ts}"
@@ -211,17 +211,31 @@ class StatusFooter(Container):
     server_status = reactive("offline")
     mode_name = reactive("interactive")  # Phase 1 D6: Plan/Build/Interactive
 
-    def compose(self) -> ComposeResult:  # type: ignore[return]
+    _status_label: Static
+    _mode_label: Static
+    _model_label: Static
+    _tools_label: Static
+    _server_label: Static
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._status_label = Static("", id="status-label")
+        self._mode_label = Static("", id="mode-label")
+        self._model_label = Static("", id="model-label")
+        self._tools_label = Static("", id="tools-label")
+        self._server_label = Static("", id="server-label")
+
+    def compose(self) -> ComposeResult:
         self.styles.background = STATUS_BG
         self.styles.height = 1
         self.styles.padding = (0, 1)
 
         with Horizontal():
-            self._status_label = Static("", id="status-label")
-            self._mode_label = Static("", id="mode-label")
-            self._model_label = Static("", id="model-label")
-            self._tools_label = Static("", id="tools-label")
-            self._server_label = Static("", id="server-label")
+            yield self._status_label
+            yield self._mode_label
+            yield self._model_label
+            yield self._tools_label
+            yield self._server_label
 
     def watch_status_text(self, value: str) -> None:
         if hasattr(self, "_status_label"):
@@ -250,7 +264,7 @@ class StatusFooter(Container):
 # ─── Progress Overlay ─────────────────────────────────────────────────────────
 
 
-class ProgressScreen(ModalScreen):
+class ProgressScreen(ModalScreen[None]):
     """Modal overlay showing a progress bar."""
 
     def __init__(self, message: str = "Processing...") -> None:
@@ -260,7 +274,7 @@ class ProgressScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         yield Container(
             Label(f"[bold]{self.task_message}[/bold]", id="progress-label"),
-            ProgressBar(mode="indeterminate"),  # type: ignore[call-arg]
+            ProgressBar(),
             id="progress-container",
         )
 
@@ -269,5 +283,5 @@ class ProgressScreen(ModalScreen):
         container.styles.background = "#1a1a2e"
         container.styles.border = ("solid", "#00ff87")
         container.styles.padding = (2, 4)
-        container.styles.align_center = True  # type: ignore[attr-defined]
+        container.styles.align_vertical = "middle"
         container.styles.margin = (10, 10)

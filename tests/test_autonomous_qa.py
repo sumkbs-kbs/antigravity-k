@@ -240,8 +240,8 @@ class TestEngineInit:
     def test_default_params(self):
         engine = AutonomousQAEngine()
         assert engine.dashboard_url == "http://localhost:5173"
-        assert engine.vision_model == "qwen2.5vl:32b"
-        assert engine.coding_model == "qwen2.5-coder:32b"
+        assert engine.vision_model == "qwen3.6:latest"
+        assert engine.coding_model == "qwen3.6:latest"
         assert engine.max_iterations == 3
 
     def test_custom_params(self):

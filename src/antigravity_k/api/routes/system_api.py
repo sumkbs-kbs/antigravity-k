@@ -11,8 +11,10 @@ import json
 import logging
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import datetime
+from typing import Any
 
 import psutil
 import yaml
@@ -24,17 +26,42 @@ from antigravity_k.api.dependencies import (
     __get_tool_registry,
     _get_context_shaper,
     _get_session_manager,
+    get_agent_runtime,
     get_model_manager,
+    get_vault_engine,
+)
+from antigravity_k.api.dependencies import (
+    get_memory_manager as _get_shared_memory_manager,
 )
 from antigravity_k.api.routes.legacy import _active_session
+from antigravity_k.config import config
 from antigravity_k.engine.api_cache import TAG_SKILLS, TAG_SYSTEM, api_cache, cached
+from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.log_level_manager import LogLevelManager
+from antigravity_k.engine.memory_provider import normalize_memory_scope
+from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
 
 logger = logging.getLogger("antigravity_k.api.system_api")
 router = APIRouter()
 
 
 # ─── Helpers ────────────────────────────────────────────────────
+
+
+def _permission_gate() -> PermissionGate:
+    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+
+
+def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+    decision = _permission_gate().decide(
+        ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
+    )
+    if decision.permission != Permission.ALLOW:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied for {tool_name}: {decision.permission.value}",
+        )
 
 
 def _get_slash_registry():
@@ -46,22 +73,12 @@ def _get_slash_registry():
         context_shaper=_get_context_shaper(),
         model_manager=get_model_manager(),
         skill_loader=__get_skill_loader(),
+        agent_runtime=get_agent_runtime(),
     )
 
 
 def _get_memory_manager():
-    from antigravity_k.engine.memory_provider import (
-        BuiltinMemoryProvider,
-        MemoryManager,
-    )
-
-    mm = MemoryManager()
-    try:
-        sm = _get_session_manager()
-        mm.add_provider(BuiltinMemoryProvider(sm))
-    except Exception:
-        logger.exception("BuiltinMemoryProvider 초기화 실패")
-    return mm
+    return _get_shared_memory_manager()
 
 
 def _get_toolset_manager():
@@ -129,12 +146,10 @@ async def slash_command(request: Request):
     body = await request.json()
     text = body.get("command") or body.get("input") or body.get("text") or ""
     registry = _get_slash_registry()
-    result = registry.execute(text)
-    import types
-
-    if isinstance(result, types.GeneratorType):
+    result: object = registry.execute(text)
+    if not isinstance(result, str) and isinstance(result, Iterable):
         result = "".join(str(chunk) for chunk in result)
-    return {"ok": True, "result": result}
+    return {"ok": True, "result": str(result)}
 
 
 @router.get("/api/slash/completions")
@@ -162,7 +177,16 @@ async def session_messages():
     sm = _get_session_manager()
     sm.start_session(resume=True)
     msgs = sm.get_messages()
-    dicts = [m.to_simple_dict() for m in msgs] if msgs and hasattr(msgs[0], "to_simple_dict") else msgs
+    dicts: list[dict[str, Any]] = []
+    for message in msgs or []:
+        to_simple_dict = getattr(message, "to_simple_dict", None)
+        if callable(to_simple_dict):
+            simple_message = to_simple_dict()
+            dicts.append(simple_message if isinstance(simple_message, dict) else {"value": str(simple_message)})
+        elif isinstance(message, dict):
+            dicts.append(message)
+        else:
+            dicts.append({"value": str(message)})
     return {"ok": True, "messages": dicts}
 
 
@@ -195,6 +219,77 @@ async def recall_memory(query: str = ""):
     mm = _get_memory_manager()
     result = mm.prefetch_all(query or "general")
     return {"recalled": result, "query": query}
+
+
+@router.delete("/api/memory")
+async def purge_memory(request: Request):
+    body = await request.json()
+    scope = body.get("scope", "all") if isinstance(body, dict) else "all"
+    if not isinstance(scope, str):
+        raise HTTPException(status_code=400, detail="scope must be a string")
+    try:
+        normalized_scope = normalize_memory_scope(scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    report = _get_memory_manager().clear(normalized_scope)
+    get_audit_logger().log_event(
+        "memory_purge",
+        {"scope": normalized_scope, "deleted": report},
+    )
+    return {"ok": True, "scope": normalized_scope, "deleted": report}
+
+
+@router.get("/api/memory/export")
+async def export_memory(scope: str = "all", include_vault_assets: bool = False):
+    try:
+        normalized_scope = normalize_memory_scope(scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = _get_memory_manager().export(normalized_scope)
+    result["vault"] = {"included": False, "asset_policy": "excluded_by_default"}
+    if include_vault_assets:
+        vault = get_vault_engine()
+        result["vault"] = {
+            "included": vault is not None,
+            "asset_policy": "redacted_export_only",
+            "notes": vault.export_notes(include_assets=True, redact=True) if vault is not None else [],
+        }
+    get_audit_logger().log_event(
+        "memory_export",
+        {"scope": normalized_scope, "include_vault_assets": include_vault_assets},
+    )
+    return result
+
+
+@router.post("/api/memory/redact")
+async def redact_memory(request: Request):
+    body = await request.json()
+    scope = body.get("scope", "all") if isinstance(body, dict) else "all"
+    if not isinstance(scope, str):
+        raise HTTPException(status_code=400, detail="scope must be a string")
+    try:
+        normalized_scope = normalize_memory_scope(scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    report = _get_memory_manager().redact(normalized_scope)
+    get_audit_logger().log_event("memory_redact", {"scope": normalized_scope, "changed": report})
+    return {"ok": True, "scope": normalized_scope, "changed": report}
+
+
+@router.post("/api/memory/retention")
+async def apply_memory_retention(request: Request):
+    body = await request.json()
+    max_age_days = body.get("max_age_days") if isinstance(body, dict) else None
+    if isinstance(max_age_days, bool) or not isinstance(max_age_days, int) or max_age_days < 0:
+        raise HTTPException(status_code=400, detail="max_age_days must be a non-negative integer")
+    report = _get_memory_manager().apply_retention(max_age_days)
+    get_audit_logger().log_event(
+        "memory_retention",
+        {"max_age_days": max_age_days, "deleted": report},
+    )
+    return {"ok": True, "max_age_days": max_age_days, "deleted": report}
 
 
 # ─── Toolset API ────────────────────────────────────────────────
@@ -317,7 +412,6 @@ async def system_skills_installed():
         installer = SkillInstaller(project_root=os.getcwd(), skill_loader=sl)
         client = SkillMarketClient(
             project_root=os.getcwd(),
-            install_dir=".agent/skills/market",
         )
         registry = SkillMarketRegistry(
             project_root=os.getcwd(),
@@ -329,11 +423,11 @@ async def system_skills_installed():
         result = []
         for skill in installed:
             s = {
-                "name": skill.name,
+                "name": skill.skill_name,
                 "version": skill.version,
                 "is_loaded": skill.is_loaded,
                 "mcp_server_id": skill.mcp_server_id,
-                "security_issues": skill.security_issues,
+                "security_issues": skill.security_findings,
             }
             result.append(s)
         return {"ok": True, "installed": result}
@@ -393,6 +487,7 @@ async def system_skills_install(request: Request):
         package_name = body.get("package_name", "")
         if not package_name:
             return {"ok": False, "error": "package_name is required"}
+        _require_allowed("install_skill", {"package_name": package_name}, "critical")
 
         from antigravity_k.engine.skill_installer import SkillInstaller
         from antigravity_k.engine.skill_market_client import SkillMarketClient
@@ -409,6 +504,8 @@ async def system_skills_install(request: Request):
         )
         result = registry.install(package_name)
         return {"ok": result.get("success", False), "result": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Skill install error: %s", e)
         return {"ok": False, "error": str(e)}
@@ -425,6 +522,7 @@ async def system_skills_remove(request: Request):
         skill_name = body.get("skill_name", "")
         if not skill_name:
             return {"ok": False, "error": "skill_name is required"}
+        _require_allowed("remove_skill", {"skill_name": skill_name}, "critical")
 
         from antigravity_k.engine.skill_installer import SkillInstaller
         from antigravity_k.engine.skill_market_client import SkillMarketClient
@@ -441,6 +539,8 @@ async def system_skills_remove(request: Request):
         )
         result = registry.remove(skill_name)
         return {"ok": result.get("success", False), "result": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Skill remove error: %s", e)
         return {"ok": False, "error": str(e)}
@@ -479,7 +579,7 @@ async def system_skills_local():
                             "version": validation.version,
                             "tool_count": validation.tool_count,
                             "warnings": validation.warnings,
-                        }
+                        },
                     )
 
         # .agent/skills/ 디렉토리 검색
@@ -503,7 +603,7 @@ async def system_skills_local():
                                 "version": validation.version,
                                 "tool_count": validation.tool_count,
                                 "warnings": validation.warnings,
-                            }
+                            },
                         )
 
         return {"ok": True, "skills": local_skills, "count": len(local_skills)}
@@ -532,7 +632,7 @@ async def system_skills_local_check(
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
         publisher = SkillPublisher(project_root=os.getcwd())
-        current_skills: list[dict] = []
+        current_skills: list[dict[str, Any]] = []
         seen_names: set[str] = set()
 
         # market/ 디렉토리 검색
@@ -548,7 +648,7 @@ async def system_skills_local_check(
                             "version": validation.version,
                             "valid": validation.valid,
                             "mtime": skill_dir.stat().st_mtime,
-                        }
+                        },
                     )
 
         # .agent/skills/ 디렉토리 검색
@@ -566,15 +666,15 @@ async def system_skills_local_check(
                             "version": validation.version,
                             "valid": validation.valid,
                             "mtime": skill_dir.stat().st_mtime,
-                        }
+                        },
                     )
 
         checked_at = datetime.utcnow().isoformat() + "Z"
 
         # since가 있으면 변경 탐지
-        new_skills: list[dict] = []
-        removed_skills: list[dict] = []
-        changed_skills: list[dict] = []
+        new_skills: list[dict[str, Any]] = []
+        removed_skills: list[dict[str, Any]] = []
+        changed_skills: list[dict[str, Any]] = []
         has_changes = False
 
         if since:
@@ -622,6 +722,11 @@ async def system_skills_publish_npm(request: Request):
         skill_name = body.get("skill_name", "")
         if not skill_name:
             return {"ok": False, "error": "skill_name is required"}
+        _require_allowed(
+            "publish_skill_npm",
+            {"skill_name": skill_name, "tag": body.get("tag", "latest")},
+            "critical",
+        )
 
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
@@ -647,6 +752,8 @@ async def system_skills_publish_npm(request: Request):
                 "summary": result.summary(),
             },
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("npm publish error")
         return {"ok": False, "error": str(e)}
@@ -679,6 +786,11 @@ async def system_skills_publish_github(request: Request):
             return {"ok": False, "error": "skill_name is required"}
         if not repo and not body.get("dry_run", False):
             return {"ok": False, "error": "repo is required (e.g. 'org/skills-repo')"}
+        _require_allowed(
+            "publish_skill_github",
+            {"skill_name": skill_name, "repo": repo, "draft": body.get("draft", False)},
+            "critical",
+        )
 
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
@@ -706,6 +818,8 @@ async def system_skills_publish_github(request: Request):
                 "summary": result.summary(),
             },
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("GitHub PR error")
         return {"ok": False, "error": str(e)}
@@ -1001,7 +1115,10 @@ async def system_log_level_set(request: Request):
 
         result = LogLevelManager.set_level(logger_name, level)
         logger.info(
-            "Log level changed: %s %s -> %s", logger_name, result["previous_level_name"], result["current_level_name"]
+            "Log level changed: %s %s -> %s",
+            logger_name,
+            result["previous_level_name"],
+            result["current_level_name"],
         )
         return {"ok": True, "result": result}
     except Exception as e:
@@ -1202,7 +1319,7 @@ async def search_and_extract(request: Request):
                     "change_percent": sp.change_percent,
                     "change_amount": sp.change_amount,
                     "volume": sp.volume,
-                }
+                },
             )
 
         weather_list = []
@@ -1214,7 +1331,7 @@ async def search_and_extract(request: Request):
                     "feels_like": w.feels_like,
                     "humidity": w.humidity,
                     "condition": w.condition,
-                }
+                },
             )
 
         exchange_list = []
@@ -1224,7 +1341,7 @@ async def search_and_extract(request: Request):
                     "currency_pair": er.currency_pair,
                     "rate": er.rate,
                     "change_percent": er.change_percent,
-                }
+                },
             )
 
         dates_list = result.dates_found
@@ -1264,6 +1381,7 @@ async def system_restart(background_tasks: BackgroundTasks):
         background_tasks (BackgroundTasks): BackgroundTasks background tasks.
 
     """
+    _require_allowed("system_restart", {}, "critical")
     try:
 
         def delay_restart():
@@ -1519,6 +1637,7 @@ async def shields_down(request: Request):
 
     """
     body = await request.json()
+    _require_allowed("shields_down", body, "critical")
     shields = _get_shields_manager()
     shields.shields_down(
         reason=body.get("reason"),
@@ -1531,6 +1650,7 @@ async def shields_down(request: Request):
 @router.post("/api/shields/up")
 async def shields_up():
     """Shields Up."""
+    _require_allowed("shields_up", {}, "high")
     shields = _get_shields_manager()
     shields.shields_up(restored_by="api_operator")
     return shields.status()

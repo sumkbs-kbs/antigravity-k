@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import threading
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class IDEServer:
         """
         self.port = port
         self.workspace_dir = workspace_dir
-        self.process: subprocess.Popen | None = None
+        self.process: subprocess.Popen[Any] | None = None
         self._lock = threading.Lock()
 
     def start(self):

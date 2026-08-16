@@ -57,7 +57,7 @@ class AgentVariant:
     archived: bool = False
     retired: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """To Dict.
 
         Returns:
@@ -67,7 +67,7 @@ class AgentVariant:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AgentVariant":
+    def from_dict(cls, data: dict[str, Any]) -> "AgentVariant":
         """From Dict.
 
         Args:

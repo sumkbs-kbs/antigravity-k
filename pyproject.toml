@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75.0", "wheel"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,8 @@ dynamic = ["version"]
 description = "Antigravity-K: Local Autonomous Engineering Agent for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "fastapi>=0.115.0,<1.0",
     "uvicorn[standard]>=0.32.0,<1.0",
@@ -16,7 +17,7 @@ dependencies = [
     "pydantic>=2.10.0,<3.0",
     "pydantic-settings>=2.6.0,<3.0",
     "pyyaml>=6.0.2,<7.0",
-    "rich>=13.9.0,<14.0",
+    "rich>=14.2.0,<16.0",
     "typer>=0.13.0,<1.0",
     "psutil>=6.1.0,<7.0",
     "aiofiles>=24.1.0,<25.0",
@@ -42,8 +43,9 @@ mlx = [
 ]
 # RAG / 문서 파싱
 rag = [
-    "chromadb>=0.5.0,<1.0",
-    "sentence-transformers>=2.7.0,<4.0",
+    "chromadb>=1.5.0,<2.0",
+    "opentelemetry-proto>=1.44.0",
+    "sentence-transformers>=5.0.0,<6.0",
     "python-docx>=1.1.0,<2.0",
     "pymupdf>=1.24.0,<2.0",
     "openpyxl>=3.1.0,<4.0",
@@ -54,6 +56,7 @@ dev = [
     "pytest>=8.3.0,<9.0",
     "pytest-asyncio>=0.24.0,<1.0",
     "ruff>=0.8.0,<1.0",
+    "basedpyright>=1.39.0,<2.0",
     "playwright>=1.40.0,<2.0",
 ]
 # 외부 통합 (Discord/Slack 봇, 웹 스크래핑) — 선택적
@@ -76,6 +79,9 @@ agk = "antigravity_k.cli:app"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+antigravity_k = ["config.yaml", "py.typed"]
+
 [tool.setuptools.dynamic]
 # Single source of truth: src/antigravity_k/__init__.py::__version__
 version = {attr = "antigravity_k.__version__"}
@@ -93,12 +99,15 @@ source = ["src/antigravity_k"]
 omit = [
     "*/tests/*",
     "*/__init__.py",
+    "*/media_gen*",
+    "*/skill_market_client*",
+    "*/computer_use*",
 ]
 
 [tool.coverage.report]
 # Minimum coverage threshold (increasing over time).
 # Core modules now at 58-98% (2026-07). Target: 60% overall by next release.
-fail_under = 55
+fail_under = 60
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

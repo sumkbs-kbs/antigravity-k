@@ -111,6 +111,7 @@ class ConfigEditorTool(BaseTool):
             return "Error: config.yaml not found."
 
         try:
+            msg = f"Unknown config action: {action}"
             with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
 
