@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -249,13 +250,10 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
     if result is None:
         return False, ""
 
-    # run_bash_command surfaces [exit_code=N] for non-zero exits.
+    # run_bash_command surfaces [exit_code=N] for non-zero exits — may carry an ErrorDistiller prefix, so match anywhere.
     stripped = result.strip()
-    if (
-        tool_name == "run_bash_command"
-        and stripped.startswith("[exit_code=")
-        and not stripped.startswith("[exit_code=0]")
-    ):
+    exit_match = re.search(r"\[exit_code=(\d+)\]", stripped)
+    if tool_name == "run_bash_command" and exit_match and exit_match.group(1) != "0":
         return True, " [non-zero exit]"
 
     # 터미널: exit_code 기반
@@ -270,9 +268,9 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return False, ""
 
-    # 일반: 에러 패턴 매칭
+    # 일반: 에러 패턴 매칭 ("Error" 프리픽스, ErrorDistiller의 "❌ [tool Error]" 형식 포함)
     lower = result[:500].lower()
-    if '"error"' in lower or '"failed"' in lower or result.startswith("Error"):
+    if '"error"' in lower or '"failed"' in lower or result.startswith("Error") or stripped.startswith("❌ ["):
         return True, " [error]"
 
     return False, ""

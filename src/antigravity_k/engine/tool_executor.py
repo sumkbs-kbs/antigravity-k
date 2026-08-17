@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -23,15 +24,18 @@ logger = logging.getLogger(__name__)
 def _result_indicates_failure(result) -> bool:
     """Classify a tool result string as a failure.
 
-    Recognizes both the legacy "Error:" prefix and the [exit_code=N] marker surfaced by
-    run_bash_command for non-zero exits, so a failed command does not pass as success.
+    Recognizes the legacy "Error:" prefix, the ErrorDistiller format
+    ("❌ [tool Error]..."), and the [exit_code=N] marker surfaced by
+    run_bash_command for non-zero exits. Markers are matched anywhere in
+    the text because ErrorDistiller may prefix failures.
     """
     if not isinstance(result, str):
         return False
     stripped = result.strip()
-    if stripped.startswith("Error"):
+    if stripped.startswith("Error") or stripped.startswith("❌ ["):
         return True
-    return stripped.startswith("[exit_code=") and not stripped.startswith("[exit_code=0]")
+    exit_match = re.search(r"\[exit_code=(\d+)\]", stripped)
+    return bool(exit_match) and exit_match.group(1) != "0"
 
 
 class ToolExecutor:
