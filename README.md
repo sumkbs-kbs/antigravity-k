@@ -32,6 +32,21 @@
 | 📝 **구조화된 로깅** | JSON 기반 로깅 + 일별 로테이션 + 감사 로그 |
 | 💰 **비용 제어** | 일일 예산, 시간당 Rate Limit, 모델별 과금 추정 |
 
+## 기능↔구현 매트릭스
+
+| 기능 | 핵심 구현 모듈·함수 | 진입점/CLI |
+|:---|---|:---|
+| 🧠 **로컬 추론 엔진** | `model_manager.py:generate()` / `model_registry.py:ModelRegistry` / `provider_adapters/` | `agk run`, `agk model list` |
+| 🌐 **집단지성 (MoE Swarm)** | `model_manager.py:generate_collective()` / `engine/agents/coordinator.py` | `agk run --mode collective` |
+| 🤖 **자율 에이전트** | `engine/orchestrator/agent.py` (ReAct graph) / `engine/tool_loop.py` / `engine/tool_executor.py` | `agk run`, `agk task resume` |
+| 🔗 **RAG 파이프라인** | `engine/rag_indexer.py:RAGIndexer` / `engine/code_intel/` / `engine/vault.py:VaultEngine` | `agk rag index`, `agk vault` |
+| 👁 **멀티모달 비전** | `provider_adapters/mlx_vlm.py` / `tools/vision_tool.py` | `agk run --model mlx-...` |
+| 🛡️ **보안** | `engine/security_policy.py` / `engine/secret_scanner.py` / `engine/approval_manager.py` / `engine/error_classifier.py` | `agk serve` (PIN), `agk security scan` |
+| 📊 **벤치마크 대시보드** | `dashboard/` (Vite+Vanilla JS) / `scripts/benchmark_viz.py` / `.github/workflows/deploy-benchmark-pages.yml` | `make dev-dashboard`, GitHub Pages |
+| 🌍 **다국어 지원** | `i18n.py` / `locales/{ko,en,ja}.json` | 환경변수 `AGK_LANG` |
+| 📝 **구조화된 로깅** | `logging_setup.py` (JSON, rotation, audit) | `AGK_LOG_LEVEL`, `data/logs/` |
+| 💰 **비용 제어** | `engine/cost_guard.py:CostGuard` / `engine/model_manager.py:UsageTracker` | `AGK_DAILY_BUDGET_USD`, `AGK_HOURLY_ACTION_LIMIT` |
+
 ## 빠른 시작
 
 ### 필수 조건

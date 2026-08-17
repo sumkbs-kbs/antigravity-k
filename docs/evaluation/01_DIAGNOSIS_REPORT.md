@@ -266,7 +266,7 @@ flowchart TB
 - [x] egress 정책 차단 로그 — **실측**: 차단 동작 5/5 정상 (사설 IP 192.168.x·cloud metadata 169.254.169.254·localhost+allow_local=False·file:// → `EgressPolicyError` 차단, 공개 URL·localhost 기본 → 통과, httpx `event_hooks` 경유 차단도 정상). **그러나 차단 로그는 부재 확인**: `egress_policy.py`는 로거 없음(예외만 전파, 실측 로그 레코드 0건), `scripts/audit_egress.py`는 AST 정적 인벤토리(런타임 차단 로그 아님). 호출자(web_search_engine 등)는 provider 오류 warning만 남기고 egress 차단 전용 기록 없음 — **개선 필요 항목으로 유지**
 
 ### 문서/운영
-- [ ] README 기능↔구현 매트릭스 — **미작성**: README에 기능-구현 매핑 표 없음, 기능 표(README 기능 표)는 존재하나 구현 모듈·함수 레벨 매핑 없음
+- [x] README 기능↔구현 매트릭스 — **작성 완료**: README "기능↔구현 매트릭스" 섹션 신설 — 10개 기능 각각에 대해 핵심 구현 모듈·함수(파일:함수)와 진입점/CLI 매핑 표 추가 (로컬 추론/집단지성/자율 에이전트/RAG/멀티모달/보안/벤치마크/다국어/로깅/비용 제어)
 - [ ] docs 01~10 부문 최신화 — **미확인/갱신 필요**: 01~06/08~10 기준일 8/10~8/13, 07(8/17), 09(8/15), 10(8/15)만 상대적 최신 — 전체 문서 기준일 일관화 및 현행화 필요
 - [ ] .gitignore 보강 — **필요**: `.antigravity/`만 있음, `data/.tmp`, `data/.backup`, `*.log`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `dist/`, `build/`, `*.egg-info/`, `htmlcov/`, `.coverage` 등 표준 무대상 누락
 
