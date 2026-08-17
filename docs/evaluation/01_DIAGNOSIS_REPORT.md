@@ -247,12 +247,12 @@ flowchart TB
 - [x] ReAct 루프 최대 반복·종료 조건 — **실측**: max_steps=1 테스트 2건 통과(Step Limit 메시지 발화) + 실제 CLI 실행 — ①qwen3.6:latest: `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 **자연 종료**(Step Limit 미도달) ②기본 경로(qwen3.8): 도구 미호출 0스텝 자연 종료 — 실측
 - [x] 도구 스키마 검증 실패 처리 — **실측**: `ToolExecutor.execute()` — ①필수 인자 누락(`glob_search`에 빈 args) → `Missing required arguments: pattern` 오류 반환 ②정상 호출(`pattern`+`path`) → 정상 실행 ③미등록 도구 → `Unknown tool` 오류 — 실측
 - [x] 위험 명령 블랙리스트 발동 — **실측**: `PermissionGate.decide()` 위험 명령 11종(`rm -rf /`·`format C:`·`curl | sh`·`mkfs.`·`dd of=/dev/` 등) **11/11 DENY 차단**, 안전 명령 6종 오차단 0 — 실측
-- [x] 승인 요청 발동 — **실측**: E2E 재검증(`make test` 실행 요구)에서 승인 요청 발생 확인 (§13, 수락/거부 왕복 응답은 미실측)
+- [x] 승인 요청 발동 + 수락/거부 왕복 응답 — **실측**: ①발동: E2E 재검증(`make test` 실행 요구)에서 승인 요청 발생 확인 (§13) ②**수락/거부 왕복**: 실제 uvicorn 서버(임시 포트) + 실제 HTTP 요청으로 11건 왕복 실측 — `GET /pending`(count=2) → `GET /{id}`(PENDING+diff_preview) → `POST /{id}/resolve approve`(→APPROVED) → `GET` 반영 확인 → `deny`(→DENIED) → 재-resolve 404 → 잘못된 decision 400 → `always_allow`(→ALWAYS_ALLOW + is_always_allowed=True) → pending drain(0). 왕복 응답 평균 ~43ms
 
 ### 메모리/RAG
 - [x] 메모리 정제가 CLI `--model` 존중 — **수정 완료** — `MemoryRecorder.record(preferred_model)` + `task_runner._save_to_vault(target_model)`로 실행 모델을 정제에도 전파 (§13-3). 회귀 테스트 2건 통과 (`test_memory_recorder.py`)
 - [ ] 메모리 계층 사용 계측 — **미실행**
-- [ ] RAG 리콜@k 벤치 — **미실행**
+- [x] RAG 리콜@k 벤치 — **실측**: 실제 프로젝트 코드(`src/antigravity_k/engine`)를 ChromaDB에 인덱싱(3,022 청크, 20.4s) 후 골든 쿼리 8건 hybrid 검색 — **recall@1=4/8(50%), recall@3=6/8(75%), recall@5=6/8(75%)**. hit@1: quality_gate·error_classifier·approval_manager·context_budget, hit@2: vault, hit@3: tool_executor, MISS 2건: trajectory_compressor(agent.py가 상위)·model_registry(dev_shims/model_manager가 상위)
 - [x] vault 자동 커밋 정상 동작 — **실측**: 임시 vault에 `VaultEngine.write_note()` 2건 → 초기화 시 git repo 자동 생성 + 노트마다 개별 자동 커밋(`Update note: notes/...`), frontmatter(title/tags) 정상 저장 — 실측
 
 ### 평가/품질
@@ -357,6 +357,7 @@ flowchart TB
 | 15 | **토큰 속도 실측 세션** | 체크리스트 미실행 항목: 로컬 추론 t/s (§7 모델/라우팅) | `agk run` 데코레이터 설명 프롬프트 3회, qwen3.8:latest 직접 호출(API 에러 0회): **평균 13.7 t/s** (18.4 / 14.3 / 8.4 — E2E 왕복 기준, 프롬프트 처리+생성 포함, Out 1,518~3,712 tokens). fallback E2E 재검증 체크리스트도 실측 완료로 정정(§12-13 실적 반영) | ✅ |
 | 16 | **동작 실측 3건 세션** | 체크리스트 미검증 항목: ReAct 루프 종료·위험 명령 블랙리스트·vault 자동 커밋 | ①**ReAct 종료**: max_steps=1 테스트 2건 통과 + CLI 실측 — qwen3.6:latest `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 자연 종료, 기본 경로는 도구 미호출 0스텝 종료 ②**블랙리스트**: `PermissionGate.decide()` 위험 명령 11종 11/11 DENY, 안전 명령 6종 오차단 0 ③**vault 자동 커밋**: 임시 vault write_note 2건 → git repo 자동 생성·노트별 자동 커밋·frontmatter 저장 ④**도구 스키마 검증**: 필수 인자 누락 → `Missing required arguments` 오류, 미등록 도구 → `Unknown tool` 오류, 정상 호출은 정상 실행 | ✅ |
 | 17 | **동작 실측 2건 세션** | 체크리스트 미검증 항목: 컨텍스트 예산 초과·QualityGate 등급 재현성 | ①**컨텍스트 예산 초과**: `TrajectoryCompressor.should_compress` — 10 msgs 미압축 / 41 msgs(>40)·85k chars(>80,000) 압축 발동, 41→12 msgs + `[Compressed conversation trajectory]` 요약 주입 + 사용자 안내 메시지. `classify_api_error` — context length exceeded → `context_overflow`+should_compress, 413(status_code 속성) → `payload_too_large`+compress, 연결 끊김+대용량(200k tokens/250 msgs) → `context_overflow`+compress, 소량 세션 → `timeout`(압축 불필요). 참고: RuntimeError 메시지 문자열만으로는 상태 코드 미추출 — 설계상 httpx/OpenAI SDK 예외의 status_code 속성 사용 ②**QualityGate 재현성**: verify_fn 없음 → 동일 입력 10회 grade/score 완전 동일(결정적, excellent 1.0), 빈 출력 항상 F. verify_fn 포함 → 비결정성 실측: 동일 입력에도 LLM 점수 변동(5/15점) 시 등급 변동(retry/excellent). verify_fn은 정규식 점수 ≥0.6에서만 호출, 0.6 미만 스킵(비용 절약 설계) | ✅ |
+| 18 | **동작 실측 2건 세션** | 체크리스트 미검증 항목: 승인 수락/거부 왕복·RAG 리콜@k | ①**승인 왕복**: 실제 uvicorn(임시 포트)+실제 HTTP 11건 — `GET /pending`(count=2, 50ms) → `GET /{id}`(PENDING+diff_preview=yes, 43ms) → `POST /{id}/resolve approve`(→APPROVED, 44ms) → `GET` 반영 → `deny`(→DENIED, 43ms) → `GET` 반영 → 재-resolve **404**(이미 해결) → `invalid` decision **400** → `always_allow`(→ALWAYS_ALLOW + `is_always_allowed()`=True) → pending drain(0). 왕복 평균 **~43ms**. 참고: `edit_file`은 old_str/new_str이 있어야 diff 생성(첫 시도에서 content만 넘겨 diff 미생성 = 정상 동작 확인) ②**RAG 리콜@k**: 실제 코드 인덱싱(engine 3,022청크, 20.4s)+골든 쿼리 8건 hybrid — **recall@1=4/8, recall@3=6/8, recall@5=6/8**. hit@1: quality_gate·error_classifier·approval_manager·context_budget, hit@2: vault, hit@3: tool_executor. MISS 2건: trajectory_compressor(상위=orchestrator/agent.py)·model_registry(상위=dev_shims/model_manager) | ✅ |
 
 ### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 
