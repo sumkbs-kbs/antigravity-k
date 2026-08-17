@@ -146,7 +146,7 @@ class TestModelProfile:
         from antigravity_k.engine.model_registry import ModelRegistry
 
         # default(코딩/비전) 역할 부여로 3역할 병합 (registry 기본 모델 로직)
-        profile = ModelRegistry().get_model("qwen3.8-27b")
+        profile = ModelRegistry().get_model("qwen3.8")
 
         assert profile is not None
         assert profile.role == "reasoning"
@@ -253,5 +253,5 @@ def test_project_defaults_prioritize_qwen38_for_reasoning_and_coding():
 
     registry = ModelRegistry()
 
-    assert registry.defaults.reasoning == "qwen3.8-27b"
-    assert registry.defaults.coding == "qwen3.8-27b"
+    assert registry.defaults.reasoning == "qwen3.8"
+    assert registry.defaults.coding == "qwen3.8"

@@ -150,11 +150,7 @@ class SelfHealingDoctor:
             return DiagnosticCheck("Model Configuration", "WARNING", "config.yaml not found.")
 
         content = config_p.read_text(encoding="utf-8")
-        if "qwen3.8-27b" in content:
-            return DiagnosticCheck(
-                "Model Configuration Alignment", "HEALTHY", "Aligned with Qwen3.8-27B primary engine."
-            )
+        if "qwen3.8" in content:
+            return DiagnosticCheck("Model Configuration Alignment", "HEALTHY", "Aligned with Qwen3.8 primary engine.")
 
-        return DiagnosticCheck(
-            "Model Configuration Alignment", "WARNING", "config.yaml does not prioritize Qwen3.8-27B."
-        )
+        return DiagnosticCheck("Model Configuration Alignment", "WARNING", "config.yaml does not prioritize Qwen3.8.")

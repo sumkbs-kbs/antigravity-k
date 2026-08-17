@@ -27,7 +27,7 @@ class FlightTelemetryState:
     tdd_failed: int
     active_negative_constraints: list[str]
     fast_path_latency_ms: float
-    model_name: str = "qwen3.8-27b"
+    model_name: str = "qwen3.8"
 
 
 class FlightDeckRenderer:

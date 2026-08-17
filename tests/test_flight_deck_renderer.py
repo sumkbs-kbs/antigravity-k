@@ -13,7 +13,7 @@ def test_flight_deck_rendering():
         tdd_failed=0,
         active_negative_constraints=["DO NOT use blocking I/O"],
         fast_path_latency_ms=2.45,
-        model_name="qwen3.8-27b",
+        model_name="qwen3.8",
     )
 
     panel = FlightDeckRenderer.render_panel(state)

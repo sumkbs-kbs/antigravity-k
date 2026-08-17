@@ -167,7 +167,7 @@ class OrchestratorAgent:
 
     def _get_model_for_role(self, role: str) -> str:
         """역할에 맞는 모델을 반환합니다. config.yaml 매핑 우선."""
-        return self.agent_models.get(role, self.agent_models.get("default", "qwen3.8-27b"))
+        return self.agent_models.get(role, self.agent_models.get("default", "qwen3.8"))
 
     def get_model_for_role(self, role: str) -> str:
         return self._get_model_for_role(role)

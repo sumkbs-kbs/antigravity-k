@@ -367,8 +367,8 @@ def test_local_quality_combo_prefers_qwen_with_fallback():
     combo = router.get_combo("reasoning-swarm")
     assert combo is not None
     assert combo.strategy == RouteStrategy.FALLBACK
-    assert combo.models[:2] == ["qwen3.8-27b", "qwen3.6:latest"]
-    assert router.route("reasoning-swarm").name == "qwen3.8-27b"
+    assert combo.models[:2] == ["qwen3.8", "qwen3.6:latest"]
+    assert router.route("reasoning-swarm").name == "qwen3.8"
     assert router.cascade_on_low_confidence is False
     assert router.cascade_confidence_threshold == 0.4
 
