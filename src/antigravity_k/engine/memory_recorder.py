@@ -58,10 +58,17 @@ class MemoryRecorder:
         user_message: str,
         agent_output: str,
         task_type: str,
+        preferred_model: str | None = None,
     ) -> Generator[str, None, None]:
         """에이전트 기억을 정제하여 Vault에 기록합니다.
 
         Generator로 구현되어 UI 스트리밍에 통합됩니다.
+
+        Args:
+            user_message: 사용자 메시지.
+            agent_output: 에이전트 출력.
+            task_type: 태스크 유형.
+            preferred_model: 정제에 사용할 모델. None이면 기본 역할 모델 사용.
 
         Yields:
             진행 상태 메시지 (UI에 표시)
@@ -84,7 +91,7 @@ class MemoryRecorder:
                 "2. **도구 및 에러 이력 (Tool Trajectory)**: 사용한 주요 도구들과 직면했던 에러, 극복 방법 요약."
             )
 
-            summarizer_model = self._get_model("default")
+            summarizer_model = preferred_model or self._get_model("default")
             response_gen = self.manager.stream_generate(
                 prompt=summary_prompt,
                 target=summarizer_model,

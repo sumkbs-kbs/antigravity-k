@@ -904,6 +904,7 @@ def memory_save_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         user_message=ctx.user_message,
         agent_output=ctx.agent_output,
         task_type=ctx.task_type,
+        preferred_model=ctx.target_model or None,
     )
 
     # 토큰 사용량

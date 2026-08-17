@@ -416,7 +416,7 @@ class BackgroundTaskRunner:
 
             # ─── LLM Wiki (Vault) 자동 기록: 세컨드 브레인 축적 ───
             if not is_read_only_benchmark:
-                self._save_to_vault(task, orchestrator)
+                self._save_to_vault(task, orchestrator, target_model)
 
         except Exception as e:
             if task.status != TaskStatus.DONE:
@@ -598,9 +598,10 @@ class BackgroundTaskRunner:
         except Exception:
             logger.exception("Checkpoint save failed")
 
-    def _save_to_vault(self, task: BackgroundTask, orchestrator=None):
+    def _save_to_vault(self, task: BackgroundTask, orchestrator=None, target_model: str = ""):
         """태스크 완료 결과를 Vault에 기록하여 세컨드 브레인 메모리로 축적.
         Orchestrator가 주어지면 LLM을 통해 기억을 정제(Consolidation)합니다.
+        target_model이 주어지면 정제에 그 모델을 사용합니다.
         """
         try:
             # W-6: 순환참조 제거 — DI된 vault_engine 또는 orchestrator에서 추출
@@ -636,7 +637,7 @@ class BackgroundTaskRunner:
                         "2. **도구 및 에러 이력 (Tool Trajectory)**: 사용한 주요 도구들과 직면했던 에러, 그리고 어떻게 극복했는지 간략히 기록."  # noqa: E501
                     )
 
-                    summarizer_model = orchestrator._get_model_for_role("default")
+                    summarizer_model = target_model or orchestrator._get_model_for_role("default")
 
                     response_gen = orchestrator.manager.stream_generate(
                         prompt=summary_prompt,
