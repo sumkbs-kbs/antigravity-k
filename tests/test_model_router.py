@@ -360,17 +360,17 @@ class TestComboAutoLoad:
         assert len(combo.models) == 2
 
 
-def test_local_quality_combo_prefers_qwen_and_cascades():
+def test_local_quality_combo_prefers_qwen_with_fallback():
     registry = ModelRegistry("config.yaml")
     router = ModelRouter(registry)
 
     combo = router.get_combo("reasoning-swarm")
     assert combo is not None
-    assert combo.strategy == RouteStrategy.CASCADING
-    assert combo.models[:2] == ["qwen3.6:latest", "deepseek-r1:70b"]
-    assert router.route("reasoning-swarm").name == "qwen3.6:latest"
-    assert router.cascade_on_low_confidence is True
-    assert router.cascade_confidence_threshold == 0.6
+    assert combo.strategy == RouteStrategy.FALLBACK
+    assert combo.models[:2] == ["qwen3.8-27b", "qwen3.6:latest"]
+    assert router.route("reasoning-swarm").name == "qwen3.8-27b"
+    assert router.cascade_on_low_confidence is False
+    assert router.cascade_confidence_threshold == 0.4
 
 
 def test_qwen_local_profile_preserves_ollama_runtime_capabilities():

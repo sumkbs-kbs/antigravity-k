@@ -105,7 +105,7 @@ class TestDoctorCommand:
         normalized_output = " ".join(result.output.replace("│", " ").split())
 
         assert "Local model health" in normalized_output
-        assert "qwen3.6:latest" in normalized_output
+        assert "qwen3.8-27b" in normalized_output
         assert "lmstudio/qwen3.6" in normalized_output
         assert "native_tools=supported" in normalized_output
         assert "fix=ollama serve" in normalized_output

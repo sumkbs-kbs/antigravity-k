@@ -1,14 +1,21 @@
 model:
-  main_model: qwen3.6:latest
-  code_model: qwen3.6:latest
+  main_model: qwen3.8-27b
+  code_model: qwen3.8-27b
   embedding_model: mlx-community/bge-m3-4bit
-  vision_model: qwen3.6:latest
+  vision_model: qwen3.8-27b
   api_engine: ollama
-  max_tokens: 4096
+  max_tokens: 8192
   temperature: 0.7
   top_p: 0.9
 models:
   reasoning:
+  - name: qwen3.8-27b
+    repo: qwen3.8-27b:latest
+    role: reasoning
+    parameter_count_b: 27.0
+    estimated_memory_gb: 18.0
+    context_length: 262144
+    description: Qwen3.8 27B (Ollama / Local, 고성능 단일 메인 모델)
   - name: qwen3.6:latest
     repo: qwen3.6:latest
     role: reasoning
@@ -296,10 +303,10 @@ models:
     context_length: 131072
     description: Phi-3.5 Vision (NIM 무료, 경량 비전)
 defaults:
-  reasoning: qwen3.6:latest
-  coding: qwen3.6:latest
+  reasoning: qwen3.8-27b
+  coding: qwen3.8-27b
   embedding: nomic-embed-text:latest
-  vision: qwen3.6:latest
+  vision: qwen3.8-27b
 providers:
   ollama:
     base_url: http://localhost:11434
@@ -345,46 +352,40 @@ agent_models:
   DESIGNER: reasoning-swarm
 combos:
   orchestrator-swarm:
-    description: CEO 분석/단순 대화 — 빠른 응답 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
-    strategy: cascading
-    models:
-    - qwen3.6:latest
-    - deepseek-r1:70b
-    - qwen/qwen3-next-80b-a3b-instruct:free
-    - google/gemma-4-26b-a4b-it:free
-    - meta/llama-3.3-70b-instruct
-    - openai/gpt-4o-mini
-  reasoning-swarm:
-    description: 추론/QA/분석 — 대형 모델 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
-    strategy: cascading
-    models:
-    - qwen3.6:latest
-    - deepseek-r1:70b
-    - google/gemma-4-26b-a4b-it:free
-    - qwen/qwen3-next-80b-a3b-instruct:free
-    - nvidia/nemotron-3-ultra-550b-a55b:free
-    - google/gemini-2.0-flash-001
-  coding-swarm:
-    description: 코딩 — 로컬 코더 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
-    strategy: cascading
-    models:
-    - qwen3.6:latest
-    - qwen3-coder-next:latest
-    - qwen/qwen2.5-coder-32b-instruct
-    - qwen/qwen3-next-80b-a3b-instruct
-    - anthropic/claude-3.5-sonnet
-    - meta/llama-3.3-70b-instruct
-    - openai/gpt-4o
-    - cohere/north-mini-code:free
-  vision-swarm:
-    description: 비전/이미지 — 로컬 우선, 3단계 폴백 (Ollama→OpenRouter→NIM)
+    description: CEO 분석/단순 대화 — Qwen3.8-27B 최우선 실행
     strategy: fallback
     models:
+    - qwen3.8-27b
+    - qwen3.6:latest
+    - deepseek-r1:70b
+    - qwen/qwen3-next-80b-a3b-instruct:free
+    - openai/gpt-4o-mini
+  reasoning-swarm:
+    description: 추론/QA/분석 — Qwen3.8-27B 최우선 실행
+    strategy: fallback
+    models:
+    - qwen3.8-27b
+    - qwen3.6:latest
+    - deepseek-r1:70b
+    - qwen/qwen3-next-80b-a3b-instruct:free
+    - google/gemini-2.0-flash-001
+  coding-swarm:
+    description: 코딩 — Qwen3.8-27B 단일 고효율 코더 최우선 실행
+    strategy: fallback
+    models:
+    - qwen3.8-27b
+    - qwen3.6:latest
+    - qwen/qwen2.5-coder-32b-instruct
+    - anthropic/claude-3.5-sonnet
+    - openai/gpt-4o
+  vision-swarm:
+    description: 비전/이미지 — Qwen3.8-27B 최우선 실행
+    strategy: fallback
+    models:
+    - qwen3.8-27b
     - qwen3.6:latest
     - llama3.2-vision:11b
-    - meta/llama-3.2-90b-vision-instruct
     - openai/gpt-4o
-    - microsoft/phi-3.5-vision-instruct
 server:
   host: 127.0.0.1
   port: 8000
@@ -417,11 +418,9 @@ router:
     prefer_local: true
     max_parameter_count_b: 70.0
     min_local_parameter_count_b: 20.0
-  cascade_on_low_confidence: true
-  cascade_confidence_threshold: 0.6
-  cascade_max_escalations: 1
-  confidence_evaluator_enabled: true
-  confidence_evaluator_model: qwen3.6:latest
+  cascade_on_low_confidence: false
+  confidence_evaluator_enabled: false
+  confidence_evaluator_model: qwen3.8-27b
   confidence_evaluator_min_params_b: 20.0
   confidence_evaluator_max_tokens: 32
   quality_calibration:

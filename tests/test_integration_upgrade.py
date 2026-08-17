@@ -54,9 +54,9 @@ class TestAppConfigIntegration:
 
         cfg = AppConfig()
 
-        assert cfg.model.main_model == "qwen3.6:latest"
-        assert cfg.model.code_model == "qwen3.6:latest"
-        assert cfg.model.vision_model == "qwen3.6:latest"
+        assert cfg.model.main_model == "qwen3.8-27b"
+        assert cfg.model.code_model == "qwen3.8-27b"
+        assert cfg.model.vision_model == "qwen3.8-27b"
         assert cfg.model.api_engine == "ollama"
         assert cfg.model.api_base == "http://localhost:11434/v1"
 

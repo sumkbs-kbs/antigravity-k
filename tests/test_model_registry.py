@@ -145,12 +145,13 @@ class TestModelProfile:
     def test_registry_merges_duplicate_qwen_roles(self):
         from antigravity_k.engine.model_registry import ModelRegistry
 
-        profile = ModelRegistry().get_model("qwen3.6:latest")
+        # default(코딩/비전) 역할 부여로 3역할 병합 (registry 기본 모델 로직)
+        profile = ModelRegistry().get_model("qwen3.8-27b")
 
         assert profile is not None
         assert profile.role == "reasoning"
-        assert profile.supported_roles == ("reasoning", "vision", "coding")
-        assert profile.routing_metadata()["roles"] == ["reasoning", "vision", "coding"]
+        assert profile.supported_roles == ("reasoning", "coding", "vision")
+        assert profile.routing_metadata()["roles"] == ["reasoning", "coding", "vision"]
 
     def test_from_dict_auto_infers_provider(self):
         """When provider is not specified, _infer_provider is called."""
@@ -247,10 +248,10 @@ class TestDefaultModels:
         assert d.embedding is None
 
 
-def test_project_defaults_prioritize_qwen36_for_reasoning_and_coding():
+def test_project_defaults_prioritize_qwen38_for_reasoning_and_coding():
     from antigravity_k.engine.model_registry import ModelRegistry
 
     registry = ModelRegistry()
 
-    assert registry.defaults.reasoning == "qwen3.6:latest"
-    assert registry.defaults.coding == "qwen3.6:latest"
+    assert registry.defaults.reasoning == "qwen3.8-27b"
+    assert registry.defaults.coding == "qwen3.8-27b"
