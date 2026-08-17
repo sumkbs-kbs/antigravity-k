@@ -192,6 +192,62 @@ def test_generate_fallback_on_failure(setup_manager):
     assert not manager.router._tracker.is_available("model-a")
 
 
+def test_generate_fallback_on_swallowed_api_error_string(setup_manager):
+    manager = setup_manager
+
+    # _do_generate가 실제 프로덕션처럼 실패를 문자열로 삼켜 반환 (모델 404 등)
+    def do_generate_side_effect(loaded, prompt, **kwargs):
+        if loaded.profile.name == "model-a":
+            return "[API Error for model-a] HTTP Error 404: Not Found"
+        return "Fallback response"
+
+    manager._do_generate.side_effect = do_generate_side_effect
+
+    res = manager.generate("Hello", "fallback-combo")
+
+    assert res == "Fallback response"
+
+    records = manager.tracker.get_recent(2)
+    assert len(records) == 2
+    assert records[0].model_name == "model-b"
+    assert records[0].success is True
+    assert records[0].fallback_depth == 1
+    assert records[0].combo_name == "fallback-combo"
+
+    assert records[1].model_name == "model-a"
+    assert records[1].success is False
+    assert "404" in records[1].error
+
+    assert not manager.router._tracker.is_available("model-a")
+
+
+def test_stream_generate_fallback_on_swallowed_api_error_string(setup_manager):
+    manager = setup_manager
+
+    # 스트림 경로에서도 오류 문자열이 첫 청크로 삼켜져 오면 폴백이 발동해야 함
+    def do_stream_side_effect(loaded, prompt, **kwargs):
+        if loaded.profile.name == "model-a":
+            return iter(["[API Error for model-a] HTTP Error 404: Not Found"])
+        return iter(["streamed ", "answer"])
+
+    manager._do_stream_generate = MagicMock(side_effect=do_stream_side_effect)
+
+    response = "".join(manager.stream_generate("Hello", "fallback-combo"))
+
+    assert response == "streamed answer"
+
+    records = manager.tracker.get_recent(2)
+    assert len(records) == 2
+    assert records[0].model_name == "model-b"
+    assert records[0].success is True
+    assert records[0].fallback_depth == 1
+
+    assert records[1].model_name == "model-a"
+    assert records[1].success is False
+
+    assert not manager.router._tracker.is_available("model-a")
+
+
 def test_generate_collective_combo_runs_council(setup_manager):
     manager = setup_manager
     manager.router.register_combo(

@@ -469,6 +469,11 @@ class ModelManager:
             response_text = self._do_generate(loaded, prompt, **kwargs)
             response_text = self._strip_hidden_reasoning(response_text)
 
+            # API 오류가 문자열로 삼켜진 경우(예: 모델 404) 콤보 폴백을 발동시킨다.
+            # 단일 모델 타깃은 기존 동작(문자열 반환)을 유지한다.
+            if combo_name and response_text.strip().lower().startswith("[api error"):
+                raise RuntimeError(response_text.strip())
+
             latency_ms = (time.time() - start_time) * 1000
             self._record_successful_call(
                 used_model,
@@ -605,6 +610,8 @@ class ModelManager:
 
             full_text = ""
             for chunk in self._do_stream_generate(loaded, prompt, **kwargs):
+                if not full_text and combo_name and chunk.strip().lower().startswith("[api error"):
+                    raise RuntimeError(chunk.strip())
                 full_text += chunk
                 yield chunk
 
