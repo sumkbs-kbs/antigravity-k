@@ -99,3 +99,39 @@ dashboard/reports/
 
 ### Vitest coverage report ###
 dashboard/coverage/
+
+# ─────────────────────────────────────────────────────────────
+# Phase 0 청소 (2026-08-17): untracked 오염물 실측 기반 등록
+# ─────────────────────────────────────────────────────────────
+.ag_worktrees/
+.agent/scratch/
+.agk_checkpoint.json
+.backup/
+.gstack/
+.omo/
+.tmp/
+.vite/
+.zcode/
+C:/
+MagicMock/
+vault_data/
+dashboard-vanilla/
+dashboard/.omo/
+demo_fastapi_project/
+sessions/
+data/audits/
+data/benchmarks/
+data/ki_entries/
+data/search_cache/
+data/wiki_entries/
+data/auth_hash
+data/token_secret
+data/usage.json
+*.bak
+coverage_report*.txt
+mypy_report*.txt
+transcript*.json
+transcript*.txt
+transcript_clean.md
+scratch_test_*.py
+self_improvement_history.json
