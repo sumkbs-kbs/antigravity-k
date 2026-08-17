@@ -241,7 +241,7 @@ flowchart TB
 - [x] fallback 체인 실동작 E2E 재검증 (실제 404 조건) — **실측 완료**: E2E 재검증 세션에서 실제 404 조건(기본 모델 태그 미설치)으로 기본 경로 실행 → `[qwen3.8-27b] 사용 불가 마킹(쿨다운 60s) → 콤보 폴백 → qwen3.6:latest 정상 응답` 실측 (§12-13, 커밋 51f0a4e). 이후 registry 정정(8100f5b)으로 기본 경로는 qwen3.8 직접 호출 성공 — 폴백 경로 자체는 404 조건 재연으로 계속 실동작 가능
 - [ ] 라우팅 전략별 지연·비용 실측 — **미검증**
 - [x] 로컬 추론 토큰 속도(t/s) — **실측**: `agk run` 데코레이터 설명 프롬프트 3회, qwen3.8:latest 직접 호출, API 에러 0회 — **평균 13.7 t/s** (개별: 18.4 / 14.3 / 8.4, E2E 왕복 기준 = 프롬프트 처리+생성 포함, Out 1,518~3,712 tokens) — 실측
-- [ ] 컨텍스트 예산 초과 시 동작 확인 — **미검증**
+- [x] 컨텍스트 예산 초과 시 동작 확인 — **실측**: `TrajectoryCompressor.should_compress` — 10 msgs 미압축 / 41 msgs(>40)·85k chars(>80,000) 압축 발동, 41→12 msgs + `[Compressed conversation trajectory]` 요약 주입 + 사용자 안내. `classify_api_error` — context length exceeded → `context_overflow`+압축, 413(status_code 속성) → `payload_too_large`+압축, 연결 끊김+대용량(200k tokens/250 msgs) → `context_overflow`+압축, 소량 세션 → `timeout`(압축 불필요) — 실측
 
 ### 에이전트/도구
 - [x] ReAct 루프 최대 반복·종료 조건 — **실측**: max_steps=1 테스트 2건 통과(Step Limit 메시지 발화) + 실제 CLI 실행 — ①qwen3.6:latest: `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 **자연 종료**(Step Limit 미도달) ②기본 경로(qwen3.8): 도구 미호출 0스텝 자연 종료 — 실측
@@ -256,7 +256,7 @@ flowchart TB
 - [x] vault 자동 커밋 정상 동작 — **실측**: 임시 vault에 `VaultEngine.write_note()` 2건 → 초기화 시 git repo 자동 생성 + 노트마다 개별 자동 커밋(`Update note: notes/...`), frontmatter(title/tags) 정상 저장 — 실측
 
 ### 평가/품질
-- [ ] QualityGate 등급 재현성(같은 입력→같은 등급) — **미검증**
+- [x] QualityGate 등급 재현성(같은 입력→같은 등급) — **실측**: verify_fn 없음 → 완전 결정적(동일 입력 10회 grade/score 동일: excellent 1.0, 빈 출력은 항상 F). verify_fn(LLM 자가검증) 포함 시 **비결정성 확인** — 동일 입력에도 LLM 점수 변동(5/15점) → 등급 변동(retry/excellent) 실측. verify_fn은 정규식 점수 ≥0.6일 때만 호출(0.6 미만 스킵 = 비용 절약 설계) — 실측
 - [ ] 벤치마크 재현 절차 문서 — **미완** (AMPLIFICATION_GUIDE.md는 존재)
 - [ ] 장기 워크플로 격차 재측정 — **미실행**
 
@@ -356,6 +356,7 @@ flowchart TB
 | 14 | **registry 정정 세션** | config 태그명 불일치 해소 (§13-4 부수 발견) | `config.yaml`(루트·src byte-identical) name/repo `qwen3.8-27b` → `qwen3.8`/`qwen3.8:latest` — `OllamaProvider`는 `profile.name`을 ollama에 전달(inference_providers.py `data["model"]`)하므로 name까지 정정 필수. 소스 기본값 2곳(flight_deck_renderer·agent.py), self_healing_doctor 문자열 검사, 테스트 5건 동기화. 결과: doctor **17 pass / 2 warn / 0 fail**(qwen3.8-27b 404 경고 소멸, 잔여 warn은 lmstudio 401·anthropic 키 미설정 — 환경), 기본 경로가 **qwen3.8 직접 호출 성공**(한 줄 요약 정상 응답, Quality Revision도 발동), 관련 테스트 118 pass, 전체 퀵 스위트 **3,645 pass / 0 fail / 4 skip** (333.6s) | ✅ (커밋: 8100f5b) |
 | 15 | **토큰 속도 실측 세션** | 체크리스트 미실행 항목: 로컬 추론 t/s (§7 모델/라우팅) | `agk run` 데코레이터 설명 프롬프트 3회, qwen3.8:latest 직접 호출(API 에러 0회): **평균 13.7 t/s** (18.4 / 14.3 / 8.4 — E2E 왕복 기준, 프롬프트 처리+생성 포함, Out 1,518~3,712 tokens). fallback E2E 재검증 체크리스트도 실측 완료로 정정(§12-13 실적 반영) | ✅ |
 | 16 | **동작 실측 3건 세션** | 체크리스트 미검증 항목: ReAct 루프 종료·위험 명령 블랙리스트·vault 자동 커밋 | ①**ReAct 종료**: max_steps=1 테스트 2건 통과 + CLI 실측 — qwen3.6:latest `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 자연 종료, 기본 경로는 도구 미호출 0스텝 종료 ②**블랙리스트**: `PermissionGate.decide()` 위험 명령 11종 11/11 DENY, 안전 명령 6종 오차단 0 ③**vault 자동 커밋**: 임시 vault write_note 2건 → git repo 자동 생성·노트별 자동 커밋·frontmatter 저장 ④**도구 스키마 검증**: 필수 인자 누락 → `Missing required arguments` 오류, 미등록 도구 → `Unknown tool` 오류, 정상 호출은 정상 실행 | ✅ |
+| 17 | **동작 실측 2건 세션** | 체크리스트 미검증 항목: 컨텍스트 예산 초과·QualityGate 등급 재현성 | ①**컨텍스트 예산 초과**: `TrajectoryCompressor.should_compress` — 10 msgs 미압축 / 41 msgs(>40)·85k chars(>80,000) 압축 발동, 41→12 msgs + `[Compressed conversation trajectory]` 요약 주입 + 사용자 안내 메시지. `classify_api_error` — context length exceeded → `context_overflow`+should_compress, 413(status_code 속성) → `payload_too_large`+compress, 연결 끊김+대용량(200k tokens/250 msgs) → `context_overflow`+compress, 소량 세션 → `timeout`(압축 불필요). 참고: RuntimeError 메시지 문자열만으로는 상태 코드 미추출 — 설계상 httpx/OpenAI SDK 예외의 status_code 속성 사용 ②**QualityGate 재현성**: verify_fn 없음 → 동일 입력 10회 grade/score 완전 동일(결정적, excellent 1.0), 빈 출력 항상 F. verify_fn 포함 → 비결정성 실측: 동일 입력에도 LLM 점수 변동(5/15점) 시 등급 변동(retry/excellent). verify_fn은 정규식 점수 ≥0.6에서만 호출, 0.6 미만 스킵(비용 절약 설계) | ✅ |
 
 ### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 
