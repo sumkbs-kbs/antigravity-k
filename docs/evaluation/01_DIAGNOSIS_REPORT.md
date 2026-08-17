@@ -238,9 +238,9 @@ flowchart TB
 
 ### 모델/라우팅
 - [x] fallback 체인 동작(모델 1차 실패 시) — **실측: 미동작 (결함 확인) → 수정 완료** — 기본 모델 qwen3.8-27b 404 시 콤보 후속 모델로 전파 안 됨, 오류가 `[API Error for ...]` 문자열로 삼켜짐 (§13). `generate()`/`stream_generate()`에 `[api error` 문자열 → RuntimeError 변환 추가 → 기존 콤보 폴백 재귀 발동. 회귀 테스트 2건 통과 (`test_model_manager_generate.py` 15 pass)
-- [ ] fallback 체인 실동작 E2E 재검증 (실제 404 조건) — **미실행** (회귀 테스트로 로직 검증됨)
+- [x] fallback 체인 실동작 E2E 재검증 (실제 404 조건) — **실측 완료**: E2E 재검증 세션에서 실제 404 조건(기본 모델 태그 미설치)으로 기본 경로 실행 → `[qwen3.8-27b] 사용 불가 마킹(쿨다운 60s) → 콤보 폴백 → qwen3.6:latest 정상 응답` 실측 (§12-13, 커밋 51f0a4e). 이후 registry 정정(8100f5b)으로 기본 경로는 qwen3.8 직접 호출 성공 — 폴백 경로 자체는 404 조건 재연으로 계속 실동작 가능
 - [ ] 라우팅 전략별 지연·비용 실측 — **미검증**
-- [ ] 로컬 추론 토큰 속도 기록(t/s) — **미실행**
+- [x] 로컬 추론 토큰 속도(t/s) — **실측**: `agk run` 데코레이터 설명 프롬프트 3회, qwen3.8:latest 직접 호출, API 에러 0회 — **평균 13.7 t/s** (개별: 18.4 / 14.3 / 8.4, E2E 왕복 기준 = 프롬프트 처리+생성 포함, Out 1,518~3,712 tokens) — 실측
 - [ ] 컨텍스트 예산 초과 시 동작 확인 — **미검증**
 
 ### 에이전트/도구
@@ -354,6 +354,7 @@ flowchart TB
 | 12 | **결함 수정 세션** | fallback 체인 + 메모리 정제 default 고정 수정 (§13 결함 1·2) | ①`model_manager.py` `generate()`/`stream_generate()`: 오류가 `[API Error...]` 문자열로 삼켜지면 RuntimeError로 변환 → 기존 콤보 폴백 재귀 발동 (단일 모델 타깃은 문자열 반환 유지). 회귀 테스트 2건 추가 → `test_model_manager_generate.py` **15 pass** ②`memory_recorder.py` `record(preferred_model)` + `orchestrator_handlers.py` (ctx.target_model 전달) + `task_runner.py` `_save_to_vault(target_model)` — 정제 모델이 CLI `--model`을 존중. `tests/test_memory_recorder.py` 신규 2건 → 관련 테스트 **20 pass** ③전체 퀵 스위트 재실행: **3,644 pass / 1 flaky fail** (잔존 1건: `test_compress_with_random_messages` — 사전 존재 랜덤 테스트, 격리 8회 중 4회 실패로 수정과 무관 확인, 아래 플레이크 정정) | ✅ (커밋: fb81792/9f05863/5f0feaa) |
 | 13 | **E2E 실동작 재검증 세션** | 수정된 두 결함의 실동작을 실제 CLI 실행으로 확인 (§13-4) | ①모델 미지정 기본 경로: `[qwen3.8-27b]` 404 → **사용 불가 마킹(쿨다운 60s) → 콤보 폴백 → qwen3.6:latest 성공** (good 70%, Out 796) — 수정 전(404 후 종료)과 대비 ②`--model qwen3.6:latest` + 도구 유도: 메모리 정제가 **실제 마크다운 요약으로 기록** (`decision_20260817_120947.md`) — 수정 전(404 문자열 기록)과 대비 ③부수 발견: 설치 모델은 `qwen3.8:latest`(27.3B)인데 config는 `qwen3.8-27b` 참조 — **태그명 불일치**, fallback 수정 덕에 동작 무해 | ✅ (커밋: 51f0a4e) |
 | 14 | **registry 정정 세션** | config 태그명 불일치 해소 (§13-4 부수 발견) | `config.yaml`(루트·src byte-identical) name/repo `qwen3.8-27b` → `qwen3.8`/`qwen3.8:latest` — `OllamaProvider`는 `profile.name`을 ollama에 전달(inference_providers.py `data["model"]`)하므로 name까지 정정 필수. 소스 기본값 2곳(flight_deck_renderer·agent.py), self_healing_doctor 문자열 검사, 테스트 5건 동기화. 결과: doctor **17 pass / 2 warn / 0 fail**(qwen3.8-27b 404 경고 소멸, 잔여 warn은 lmstudio 401·anthropic 키 미설정 — 환경), 기본 경로가 **qwen3.8 직접 호출 성공**(한 줄 요약 정상 응답, Quality Revision도 발동), 관련 테스트 118 pass, 전체 퀵 스위트 **3,645 pass / 0 fail / 4 skip** (333.6s) | ✅ (커밋: 8100f5b) |
+| 15 | **토큰 속도 실측 세션** | 체크리스트 미실행 항목: 로컬 추론 t/s (§7 모델/라우팅) | `agk run` 데코레이터 설명 프롬프트 3회, qwen3.8:latest 직접 호출(API 에러 0회): **평균 13.7 t/s** (18.4 / 14.3 / 8.4 — E2E 왕복 기준, 프롬프트 처리+생성 포함, Out 1,518~3,712 tokens). fallback E2E 재검증 체크리스트도 실측 완료로 정정(§12-13 실적 반영) | ✅ |
 
 ### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 
