@@ -245,7 +245,7 @@ flowchart TB
 
 ### 에이전트/도구
 - [x] ReAct 루프 최대 반복·종료 조건 — **실측**: max_steps=1 테스트 2건 통과(Step Limit 메시지 발화) + 실제 CLI 실행 — ①qwen3.6:latest: `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 **자연 종료**(Step Limit 미도달) ②기본 경로(qwen3.8): 도구 미호출 0스텝 자연 종료 — 실측
-- [x] 도구 스키마 검증 실패 처리 — 구현 확인, 미검증
+- [x] 도구 스키마 검증 실패 처리 — **실측**: `ToolExecutor.execute()` — ①필수 인자 누락(`glob_search`에 빈 args) → `Missing required arguments: pattern` 오류 반환 ②정상 호출(`pattern`+`path`) → 정상 실행 ③미등록 도구 → `Unknown tool` 오류 — 실측
 - [x] 위험 명령 블랙리스트 발동 — **실측**: `PermissionGate.decide()` 위험 명령 11종(`rm -rf /`·`format C:`·`curl | sh`·`mkfs.`·`dd of=/dev/` 등) **11/11 DENY 차단**, 안전 명령 6종 오차단 0 — 실측
 - [x] 승인 요청 발동 — **실측**: E2E 재검증(`make test` 실행 요구)에서 승인 요청 발생 확인 (§13, 수락/거부 왕복 응답은 미실측)
 
@@ -355,7 +355,7 @@ flowchart TB
 | 13 | **E2E 실동작 재검증 세션** | 수정된 두 결함의 실동작을 실제 CLI 실행으로 확인 (§13-4) | ①모델 미지정 기본 경로: `[qwen3.8-27b]` 404 → **사용 불가 마킹(쿨다운 60s) → 콤보 폴백 → qwen3.6:latest 성공** (good 70%, Out 796) — 수정 전(404 후 종료)과 대비 ②`--model qwen3.6:latest` + 도구 유도: 메모리 정제가 **실제 마크다운 요약으로 기록** (`decision_20260817_120947.md`) — 수정 전(404 문자열 기록)과 대비 ③부수 발견: 설치 모델은 `qwen3.8:latest`(27.3B)인데 config는 `qwen3.8-27b` 참조 — **태그명 불일치**, fallback 수정 덕에 동작 무해 | ✅ (커밋: 51f0a4e) |
 | 14 | **registry 정정 세션** | config 태그명 불일치 해소 (§13-4 부수 발견) | `config.yaml`(루트·src byte-identical) name/repo `qwen3.8-27b` → `qwen3.8`/`qwen3.8:latest` — `OllamaProvider`는 `profile.name`을 ollama에 전달(inference_providers.py `data["model"]`)하므로 name까지 정정 필수. 소스 기본값 2곳(flight_deck_renderer·agent.py), self_healing_doctor 문자열 검사, 테스트 5건 동기화. 결과: doctor **17 pass / 2 warn / 0 fail**(qwen3.8-27b 404 경고 소멸, 잔여 warn은 lmstudio 401·anthropic 키 미설정 — 환경), 기본 경로가 **qwen3.8 직접 호출 성공**(한 줄 요약 정상 응답, Quality Revision도 발동), 관련 테스트 118 pass, 전체 퀵 스위트 **3,645 pass / 0 fail / 4 skip** (333.6s) | ✅ (커밋: 8100f5b) |
 | 15 | **토큰 속도 실측 세션** | 체크리스트 미실행 항목: 로컬 추론 t/s (§7 모델/라우팅) | `agk run` 데코레이터 설명 프롬프트 3회, qwen3.8:latest 직접 호출(API 에러 0회): **평균 13.7 t/s** (18.4 / 14.3 / 8.4 — E2E 왕복 기준, 프롬프트 처리+생성 포함, Out 1,518~3,712 tokens). fallback E2E 재검증 체크리스트도 실측 완료로 정정(§12-13 실적 반영) | ✅ |
-| 16 | **동작 실측 3건 세션** | 체크리스트 미검증 항목: ReAct 루프 종료·위험 명령 블랙리스트·vault 자동 커밋 | ①**ReAct 종료**: max_steps=1 테스트 2건 통과 + CLI 실측 — qwen3.6:latest `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 자연 종료, 기본 경로는 도구 미호출 0스텝 종료 ②**블랙리스트**: `PermissionGate.decide()` 위험 명령 11종 11/11 DENY, 안전 명령 6종 오차단 0 ③**vault 자동 커밋**: 임시 vault write_note 2건 → git repo 자동 생성·노트별 자동 커밋·frontmatter 저장 | ✅ |
+| 16 | **동작 실측 3건 세션** | 체크리스트 미검증 항목: ReAct 루프 종료·위험 명령 블랙리스트·vault 자동 커밋 | ①**ReAct 종료**: max_steps=1 테스트 2건 통과 + CLI 실측 — qwen3.6:latest `glob_search (Step 1/15)` 실행 → 결과 반영 → 추가 도구 호출 없이 자연 종료, 기본 경로는 도구 미호출 0스텝 종료 ②**블랙리스트**: `PermissionGate.decide()` 위험 명령 11종 11/11 DENY, 안전 명령 6종 오차단 0 ③**vault 자동 커밋**: 임시 vault write_note 2건 → git repo 자동 생성·노트별 자동 커밋·frontmatter 저장 ④**도구 스키마 검증**: 필수 인자 누락 → `Missing required arguments` 오류, 미등록 도구 → `Unknown tool` 오류, 정상 호출은 정상 실행 | ✅ |
 
 ### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 
