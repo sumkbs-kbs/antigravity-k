@@ -82,3 +82,82 @@
 2. Performance benchmark는 지정 threshold 초과 시 hard gate.
 3. live web/model smoke는 별도 job이며 실패 원인과 provider availability를 기록한다.
 4. 부하/P95 결과가 없으면 상용 readiness를 선언하지 않는다.
+
+## 벤치마크 재현 절차
+
+아래 순서로 실행하면 CI(`.github/workflows/benchmark.yml`)와 동일한 벤치마크를 로컬에서 재현한다.
+전제: `uv sync --extra dev --extra rag` 완료, 로컬 Ollama에 `qwen3.6:latest` 로드.
+
+### 1. 로컬 모델 벤치마크 (simple/frontier/verified_code)
+
+```bash
+# 기본 simple suite (qwen3.6:latest, 결과: data/benchmarks/local-model.json)
+make local-benchmark
+# 또는 직접 실행 (모델·suite·반복 지정)
+python scripts/run_local_model_benchmark.py \
+  --suite frontier --model qwen3.6:latest --repeats 2 \
+  --output data/benchmarks/local-model-frontier.json
+
+# frontier suite (Fibonacci/BST/최신 조사/기술 비교/long-horizon recovery 5케이스)
+make local-benchmark-frontier
+
+# 코드 실행 검증 suite (verf-001~004: 실행 정확도로 채점)
+python scripts/run_local_model_benchmark.py --suite verified_code --repeats 1
+```
+
+사용 가능한 suite 이름: `all`, `frontier`, `simple`, `algorithm`, `architecture`, `korean`, `refactor`, `search`, `analysis`, `creative`, `regression`, `long_horizon`, 또는 개별 case id(예: `sim-001`).
+`--repeats N`으로 반복 실행 시 case별 평균·최솟값·표준편차·excellent 비율·all-excellent run rate가 JSON에 기록되고, `router.quality_calibration`이 이 artifact를 읽어 routing 후보를 보정한다.
+
+### 2. 성능 회귀 벤치마크 (지연 임계값)
+
+```bash
+# pytest benchmark marker 전체
+make test-benchmark
+# 파이프라인 스테이지별 지연 임계 테스트만
+python -m pytest tests/test_benchmark_performance.py -v --tb=short -m "benchmark"
+```
+
+CI 임계값(`benchmark.yml` env): `BENCHMARK_THRESHOLD_CONTEXT_ENRICH=500ms`, `BENCHMARK_THRESHOLD_CODE_REVIEW=1000ms`, `BENCHMARK_THRESHOLD_MAX_ENGINE=50ms`. 초과 시 해당 스텝이 실패하고 PR을 막는다.
+
+### 3. 파이프라인 벤치마크 (proactive pipeline)
+
+```bash
+# 4개 스테이지(context_enrich/code_review/rag_indexing/max_engine) 반복 측정
+python scripts/benchmark_proactive_pipeline.py \
+  --iterations 5 --no-warmup --json data/benchmarks/pipeline.json
+
+# 이전 결과와 비교
+python scripts/benchmark_proactive_pipeline.py \
+  --json data/benchmarks/pipeline.json --compare data/benchmarks/pipeline.prev.json
+```
+
+`--skip context_enrich code_review` 등으로 스테이지를 생략할 수 있다. GitHub Actions에서는 PR HEAD와 main 베이스를 각각 측정해 비교한다.
+
+### 4. 시각화 (벤치마크 대시보드)
+
+```bash
+python scripts/benchmark_viz.py data/benchmarks/pipeline.json \
+  --output-dir docs/benchmark/charts --format png
+```
+
+`docs/benchmark/`의 `index.html`·`benchmark_insights_report.md`·PNG 갤러리는 `benchmark.yml` 완료 후 `deploy-benchmark-pages.yml`이 이 스크립트로 재생성해 GitHub Pages에 배포한다.
+
+### 5. 검색 품질·근거 확인 벤치마크
+
+```bash
+make search-quality            # 결정론적 golden set + citation 체크
+make search-live               # live provider 검색 벤치 (golden set)
+make search-live-extended      # 확장 fixture (data/benchmarks/live-search-extended.json)
+make search-load               # 반복/동시 부하 지연·가용성 (P50/P95/P99)
+make claim-quality             # 결정론적 claim grounding/conflict fixture
+make quality-contract          # claim + task/long-horizon 계약 전체
+```
+
+### 6. 증폭 A/B 측정
+
+증폭 모드별(cascade/revision/self-consistency/decomposition) A/B 비교는 `docs/AMPLIFICATION_GUIDE.md`의 "A/B 측정 직접 실행" 섹션에 있는 `BenchmarkHarness.compare_amplification()` 스니펫을 그대로 사용한다. 로컬 기준: qwen3.6:latest, `--suite lh-001` 등 개별 case 지정 가능.
+
+### 7. 기준선 재현 확인 방법
+
+- 전체 비벤치마크 기준선: `pytest -q -m 'not benchmark'` — 최신 기록 `3442 passed, 4 skipped` (2026-08-13)
+- 벤치마크 결과 artifact는 `data/benchmarks/*.json`에 JSON으로 남으므로, 실행 후 `git diff data/benchmarks/`로 회귀 여부를 바로 확인할 수 있다.
