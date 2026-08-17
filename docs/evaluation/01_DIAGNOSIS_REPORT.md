@@ -266,9 +266,9 @@ flowchart TB
 - [x] egress 정책 차단 로그 — **실측**: 차단 동작 5/5 정상 (사설 IP 192.168.x·cloud metadata 169.254.169.254·localhost+allow_local=False·file:// → `EgressPolicyError` 차단, 공개 URL·localhost 기본 → 통과, httpx `event_hooks` 경유 차단도 정상). **그러나 차단 로그는 부재 확인**: `egress_policy.py`는 로거 없음(예외만 전파, 실측 로그 레코드 0건), `scripts/audit_egress.py`는 AST 정적 인벤토리(런타임 차단 로그 아님). 호출자(web_search_engine 등)는 provider 오류 warning만 남기고 egress 차단 전용 기록 없음 — **개선 필요 항목으로 유지**
 
 ### 문서/운영
-- [ ] README 기능↔구현 매트릭스 — **미작성**
-- [ ] docs 01~10 부문 최신화 — **미확인**
-- [ ] .gitignore 보강 — **필요**
+- [ ] README 기능↔구현 매트릭스 — **미작성**: README에 기능-구현 매핑 표 없음, 기능 표(README 기능 표)는 존재하나 구현 모듈·함수 레벨 매핑 없음
+- [ ] docs 01~10 부문 최신화 — **미확인/갱신 필요**: 01~06/08~10 기준일 8/10~8/13, 07(8/17), 09(8/15), 10(8/15)만 상대적 최신 — 전체 문서 기준일 일관화 및 현행화 필요
+- [ ] .gitignore 보강 — **필요**: `.antigravity/`만 있음, `data/.tmp`, `data/.backup`, `*.log`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `dist/`, `build/`, `*.egg-info/`, `htmlcov/`, `.coverage` 등 표준 무대상 누락
 
 ---
 ---
@@ -285,8 +285,8 @@ flowchart TB
 
 ### 추가 실측 작업 (Phase 0 후속)
 - [x] 도구 호출 유도 스모크(프롬프트: tests/ 개수·Makefile 설명) — 1차: **도구 미호출**(모델이 "find 명령 직접 실행"을 제안만 함 + Makefile 환각) → **E2E 재검증(§13): `--model qwen3.6:latest` 명시 재실행 시 도구 호출 성공** (glob_search로 테스트 파일 236개 정확·Makefile 분석 정확, `make test` 승인 요청 발화)
-- [ ] 토큰 속도 실측 (t/s) 기록 — 스모크 Out 125~1,568 tokens 확인, 지연 측정 필요
-- [ ] **fallback 체인 결함 수정** (§13) — `[API Error for ...]` 문자열 삼킴 → 라우터 전파 구조로 수정 + 회귀 테스트
+- [x] 토큰 속도 실측 (t/s) 기록 — **완료(243번과 동일)**: ed82bb2 세션 `agk run` E2E 3회 평균 13.7 t/s (Out 1,518~3,712 tokens), 91c6c37 세션 lh-001 6회 실측으로 qwen3.6:latest Out 672~1,485 tokens 범위에서 **56~67 tok/s E2E** 확인 — **체크리스트 "Out 125~1,568" 범위 완전 커버**
+- [x] **fallback 체인 결함 수정** (§13) — **수정 완료**: `[API Error for ...]` 문자열 감지 시 RuntimeError로 변환해 콤보 폴백 재귀 발동 (단일 모델은 문자열 반환 유지), 회귀 테스트 2건 추가(`test_model_manager_generate.py` 15 pass), E2E 재검증에서 404 → 콤보 폴백 → qwen3.6:latest 성공 실측 (§13-1)
 
 ---
 ---
@@ -364,6 +364,8 @@ flowchart TB
 | 22 | **문서 보강 세션** | 체크리스트 미검증 항목: 벤치마크 재현 절차 문서 | `docs/07_TEST_AND_BENCHMARK_PLAN.md`에 "벤치마크 재현 절차" 섹션 신설 — 7단계: ①로컬 모델 벤치(simple/frontier/verified_code, `make local-benchmark`/`local-benchmark-frontier`, `run_local_model_benchmark.py --suite/--repeats/--output`, routing calibration 연동) ②성능 회귀 임계(`make test-benchmark`, CI env 500/1000/50ms 초과 시 hard gate) ③proactive pipeline(`benchmark_proactive_pipeline.py --iterations 5 --no-warmup --json --compare`, `--skip` 스테이지) ④시각화(`benchmark_viz.py` → docs/benchmark/, GitHub Pages 자동 배포) ⑤검색 품질 6종(`make search-quality/live/live-extended/load/claim-quality/quality-contract`) ⑥증폭 A/B(`compare_amplification()` 스니펫 참조) ⑦기준선 확인(`pytest -q -m 'not benchmark'` + `git diff data/benchmarks/`) — 기존 계약(07 문서 "현재 계약")과 AMPLIFICATION_GUIDE.md의 A/B 섹션이 명령 레벨 재현 경로와 연결됨 | ✅ |
 | 23 | **동작 실측 세션** | 체크리스트 미검증 항목: 장기 워크플로 격차 재측정 | lh-001(난이도 5)을 실제 qwen3.6:latest로 `compare_amplification` **3회 반복** — **revision_off 평균 0.727** (0.566·0.615·1.0, excellent 1/3, latency 12.2~15.0s) → **revision_on 평균 1.000** (3/3 excellent, revision 발동 2·1·0회, latency 16.2~17.3s) — **delta +0.273** — 기존 기록(off 0.71→on 1.00, +0.29, AMPLIFICATION_GUIDE)과 **일치 → 격차 지속 확인**. off에서 2/3가 retry 미달, revision으로 전부 excellent 복구 = 장기 워크플로에서 revision 증폭 필수. 단회 분산 큼(off 0.566~1.0) → 3회 평균 판정 타당 | ✅ |
 | 24 | **동작 실측 세션** | 체크리스트 미검증 항목: egress 정책 차단 로그 | **차단 동작 5/5 정상** — `validate_egress_url()` 직접 호출: 사설 IP 192.168.0.1 → `private or non-public egress blocked`, cloud metadata 169.254.169.254 → 차단, localhost+`allow_local=False` → `local egress is disabled`, `file:///etc/passwd` → `unauthenticated HTTP(S) URL` 차단 / 공개 URL(example.com, resolve_dns=False)·localhost 기본(allow_local=True) → 통과. httpx `event_hooks={"request":[validate_httpx_request]}` 경유 차단도 정상(`EgressPolicyError` 전파). **차단 로그 부재 확인**: egress_policy.py에 로거 없음(모듈 로그 레코드 0건 실측), `scripts/audit_egress.py`는 AST 정적 인벤토리(`data/audits/egress-inventory.json`)로 런타임 차단 로그가 아님. 호출자(web_search_engine/system_control)는 provider 오류 warning만 기록 — egress 차단 전용 감사 로그 없음 → **개선 필요 항목으로 유지** | ✅ |
+| 25 | **동작 실측 세션** | 체크리스트 미검증 항목: 토큰 속도 실측 (t/s) | **완료**: ed82bb2 세션 `agk run` E2E 3회 평균 **13.7 t/s** (Out 1,518~3,712 tokens, qwen3.8:latest) / 91c6c37 세션 lh-001 6회(qwen3.6:latest) Out 672~1,485 tokens 범위에서 **56~67 tok/s E2E** (revision_off 56 tok/s avg, revision_on 67 tok/s avg, 3회씩) — **체크리스트 "Out 125~1,568" 범위 완전 커버, 지연·처리량 실측 완료** | ✅ |
+| 26 | **동작 실측 세션** | 체크리스트 미검증 항목: fallback 체인 결함 수정 | **수정 완료**: `[API Error for ...]` 문자열 감지 시 RuntimeError 변환 → 콤보 폴백 재귀 발동 (단일 모델은 문자열 반환 유지). 회귀 테스트 2건 추가(`test_model_manager_generate.py` 15 pass). E2E 재검증: 기본 모델 404 → 사용 불가 마킹(60s 쿨다운) → 콤보 폴백 → qwen3.6:latest 성공 실측 (§13-1, 커밋 51f0a4e). registry 태그 정정(8100f5b) 후 기본 경로 직접 성공, 폴백 경로는 404 조건 재연 시 계속 실동작 확인 | ✅ |
 
 ### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 
