@@ -15,7 +15,7 @@ date: 2026-08-17
 ## 1. 한 줄 결론
 
 > **"큰 그림은 정교하고 구현 폭은 상당하며, 핵심 런타임은 실제로 동작한다. 남은 문제는 품질(환각·격차)과 도구 경로다."**
-> 완성도는 **78/100** (보수적). Phase 0 검증(2026-08-17) 실측: doctor 17/17, **전체 퀵 스위트 3,637 pass / 4 fail / 4 skip (99.9% 통과)**, E2E 왕복 2건 성공 → **런타임 인프라는 확실히 검증됨**. P1 수정 세션(2026-08-17): 인지 복구 주입 회귀 확정 → 근본 원인 규명 → **매처 수정 후 실측 해소**(전체 스위트 3,639 pass / 2 fail → 잔존 1건, 나머지 테스트 드리프트·플레이크도 해소). **잔존 실패 1건은 환경 전용**(config 드리프트, CI 통과 예상). 다만 스모크 2건 모두에서 로컬 모델의 환각(프로젝트 목적을 "중력 제어"로 오답, Makefile 내용을 일반 템플릿으로 환각)과 **도구 미호출**이 실측되어, 품질·도구 경로는 여전히 보완 과제로 남는다.
+> 완성도는 **80/100** (보수적). Phase 0 검증(2026-08-17) 실측: doctor 17/17, **전체 퀵 스위트 3,637 pass / 4 fail / 4 skip**, E2E 왕복 2건 성공. P1 수정 세션: 인지 복구 주입 회귀 근본 원인 규명 → **매처 수정 후 실측 해소**. 이행 세션(2026-08-17): 커밋 8건 + **config 드리프트 실제 이행**(루트 config → qwen3.8-27b, byte-identical 동기화) → **전체 퀵 스위트 최초 완전 그린: 3,641 pass / 0 fail / 4 skip (206.71s)**. E2E 재검증: **도구 경로 실동작 확인**(glob_search로 테스트 파일 236개 실측 일치, Makefile test 타깃 정확 분석, `make test` 승인 요청 발화 = 승인 흐름도 실동작). **신규 실측 결함 2건 → 수정 완료(회귀 테스트 포함)**: ①기본 모델(qwen3.8-27b) 미설치 시 **fallback 체인 미동작**(404 후 콤보 후속 모델로 전파 안 됨 — 오류가 문자열로 삼켜짐) → `[API Error...]` 문자열을 예외로 변환해 콤보 폴백 발동하도록 수정 ②메모리 정제가 `--model` 오버라이드를 무시하고 default 모델 고정(404 문자열이 메모리에 기록됨) → `preferred_model` 전파로 수정. 수정 후 전체 퀵 스위트 **3,644 pass / 1 flaky fail**(사전 존재 랜덤 테스트, 격리 재실행으로 내 변경과 무관 확인, §12). 품질(환각)은 문맥 없는 단독 프롬프트 조건에서 여전히 리스크로 남는다(§§12-13). (이하 생략 — 상세는 §11·§12·§13)
 
 ---
 ---
@@ -25,15 +25,15 @@ date: 2026-08-17
 | # | 평가 항목 | 점수 | 근거 (읽은 코드/문서) | 감점 사유 |
 |:--:|:--|:--:|:--|:--|
 | A | 에이전트 코어 | **76** | `orchestrator/agent.py`(780줄) CEO 분석→역할별 모델 위임→ReAct 루프→스트리밍, `agent_loop`/`agent_runtime`, `test_orchestrator.py`·`test_orchestrator_handlers.py` 존재. **Phase 0: E2E 스모크 왕복 성공. P1: 인지 복구 주입 회귀 해소 실측** | 상태 그래프 전이의 전체 커버리지 미검증, 답변 품질(환각) 확인됨 |
-| B | 모델 오케스트레이션 | **82** | `model_manager.py`(1490줄) LRU·핫스왑·적응형 샘플링, `model_router.py`(820줄) 5가지 라우팅 전략+UnavailabilityTracker, `model_registry.py`(661줄) provider 자동 추론. **Phase 0: `qwen3.6:latest` Ollama 실존(23GB) + `native_tools=supported` doctor 실측**, 레지스트리 38개 모델 로드 | lmstudio 경로 401(환경 미설정), MLX 경로 네이티브 툴콜 미지원 — 우려는 환경 문제로 확인 |
-| C | 메모리 | **62** | MemoryProvider ABC→BuiltinMemoryProvider, MemoryManager(prefetch/sync_turn), 한국어 어간 처리, 메모리 충돌 해결, `memory/`(cavemem_store), DurableMemory, compactor 계열, `test_memory_conflicts.py`·`test_cavemem_store.py` 등 존재 | 계층이 5+ 모듈로 과설계될 가능성, 각 계층의 실사용 기여도 미검증 |
-| D | 도구 실행 | **74** | ToolContract/ToolSpec 계약, `permission_gate.py`(3-tier + 위험 명령 블랙리스트 + 보호 경로), PlanGuard, GatePipeline, ImmuneSystem, `tool_registry.py` 자동 발견, `tool_executor.py`(535줄), `test_tool_executor.py`·`test_gate_pipeline.py`·`test_plan_guard.py` 등 10+ 테스트. **P1: 실패 매처(distill 형식) 수정 + 테스트 실측 통과** | 스모크에서 도구 호출 경로 미실측(단순 질의), 51개 도구 전부의 계약 준수 미확인 |
+| B | 모델 오케스트레이션 | **82** | `model_manager.py`(1490줄) LRU·핫스왑·적응형 샘플링, `model_router.py`(820줄) 5가지 라우팅 전략+UnavailabilityTracker, `model_registry.py`(661줄) provider 자동 추론. **Phase 0: `qwen3.6:latest` Ollama 실존(23GB) + `native_tools=supported` doctor 실측**, 레지스트리 38개 모델 로드. **E2E 재검증: 기본 모델 404 시 fallback 체인 미동작 실측 → 수정 완료** (오류가 문자열로 삼켜지던 것을 예외 변환으로 콤보 폴백 발동, §13) | lmstudio 경로 401(환경 미설정) |
+| C | 메모리 | **62** | MemoryProvider ABC→BuiltinMemoryProvider, MemoryManager(prefetch/sync_turn), 한국어 어간 처리, 메모리 충돌 해결, `memory/`(cavemem_store), DurableMemory, compactor 계열, `test_memory_conflicts.py`·`test_cavemem_store.py` 등 존재. **E2E 재검증: 메모리 정제가 `--model` 무시하고 default 고정 → 수정 완료** (preferred_model 전파, §13) | 계층이 5+ 모듈로 과설계될 가능성, 각 계층의 실사용 기여도 미검증 |
+| D | 도구 실행 | **78** | ToolContract/ToolSpec 계약, `permission_gate.py`(3-tier + 위험 명령 블랙리스트 + 보호 경로), PlanGuard, GatePipeline, ImmuneSystem, `tool_registry.py` 자동 발견, `tool_executor.py`(535줄), `test_tool_executor.py`·`test_gate_pipeline.py`·`test_plan_guard.py` 등 10+ 테스트. **P1: 실패 매처(distill 형식) 수정 + 테스트 실측 통과** | 51개 도구 전부의 계약 준수 미확인 |
 | E | RAG | **55** | vault(git-first)+chunker+벡터+event_bus, AST 기반 `rag_indexer`, ChromaDB, `test_rag.py`·`test_rag_provenance.py`·`test_search_benchmark.py` 존재 | 검색 품질 실측치 미확인, 임베딩 모델 bge-m3-4bit 로컬 실행 검증 필요 |
 | F | 평가 | **60** | `quality_gate.py`(795줄) A/B/C/F 등급+verify_fn 자가검증, benchmark_harness, README에 실측 수치 명시. **Phase 0: 스모크에서 "응답 없음"→Quality Revision 재생성 실동작 확인** | 벤치마크 재현 절차·CI 자동화 실행 여부 미확인, 자가검증(경량 모델)의 순환 편향 리스크 |
 | G | UX | **60** | Typer CLI(1258줄, serve/key/memory/task), TUI(textual), dashboard(Vite), flight_deck_renderer, `test_cli_smoke.py`·`test_commands.py` 존재 | TUI·대시보드 시각 완성도 미검증, 명령 팔레트 인덱싱 통합 미확인 |
-| H | 보안 | **70** | `security_policy.py`(239줄) PermissionState 3분류 fail-closed, PIN 인증, secret_scanner, 승인 API(diff 미리보기), egress 정책 검증, sandbox-exec, 감사 로그, 보안 관련 테스트 다수. **Phase 0: doctor 보안 체크(vault/logs 권한, 키 설정) 전부 PASS** | 승인 흐름 실동작 미검증, 기본 모드(auto-pilot)와 fail-closed의 균형 미확인 |
+| H | 보안 | **72** | `security_policy.py`(239줄) PermissionState 3분류 fail-closed, PIN 인증, secret_scanner, 승인 API(diff 미리보기), egress 정책 검증, sandbox-exec, 감사 로그, 보안 관련 테스트 다수. **Phase 0: doctor 보안 체크(vault/logs 권한, 키 설정) 전부 PASS. E2E 재검증: `make test` 실행 시 승인 요청 발화 실측** | 기본 모드(auto-pilot)와 fail-closed의 균형 미확인 |
 
-**항목 평균: 약 70/100 → 종합 78/100 (가중: 전체 스위트 검증 완료 가산 + P1 회귀 해소·전체 실패 4→1 실측 반영, 품질·도구 경로 감점 유지)**
+**항목 평균: 약 68/100 → 종합 80/100 (가중: 전체 스위트 완전 그린(3,641/0)·config 드리프트 이행·도구 경로 실동작·승인 흐름 발화 실측 반영 가산, fallback 체인 결함 수정 완료·메모리 정제 default 고정 수정 완료 반영)**
 
 ---
 ---
@@ -227,17 +227,18 @@ flowchart TB
 ## 7. 체크리스트
 
 ### 검증 (P0) — 2026-08-17 실측 갱신
-- [x] 코어 테스트(모델 레지스트리/라우터/task_state/시크릿/파서/vault 6개 모듈 151건): **150 pass / 1 fail** — 실측
-- [x] `agk doctor`: **17 pass / 2 warn / 0 fail** — 실측 (warn: lmstudio 401, anthropic 키 미설정)
+- [x] 코어 테스트(모델 레지스트리/라우터/task_state/시크릿/파서/vault 6개 모듈 151건): **150 pass / 1 fail** → 이행 후 이 실패 해소 — 실측
+- [x] `agk doctor`: **17 pass / 2 warn / 0 fail** (이행 후 **16 pass / 3 warn / 0 fail**로 재실측 — qwen3.8-27b가 기본이 되어 ollama 미설치 경고 추가) — 실측 (warn: lmstudio 401, anthropic 키 미설정, qwen3.8-27b 미설치)
 - [x] E2E 스모크: `agk run` 왕복 성공 (task `direct_9e36c26a2496`) — 실측
 - [x] qwen3.6:latest 실존(23GB, Ollama) + `native_tools=supported` — 실측
-- [x] 전체 퀵 스위트: **3,637 pass / 4 fail / 4 skip** (221.59s) — 실측 (실패 4건 분류: 섹션 12)
-- [x] fail 1건(config) 원인 규명: root config는 gitignore된 **로컬 오버라이드**, 커밋 기본값은 src(qwen3.8-27b) — 환경 전용 실패(CI 통과) — 실측
+- [x] 전체 퀵 스위트: **3,637 pass / 4 fail / 4 skip** (221.59s) → **3,639 pass / 2 fail** (P1 후) → **3,641 pass / 0 fail / 4 skip (206.71s) — 최초 완전 그린** — 실측
+- [x] fail 1건(config) 원인 규명: root config가 **gitignore된 로컬 오버라이드가 아니라 추적된 실제 파일**로, qwen3.8-27b 마이그레이션 진행 중 드리프트(루트=qwen3.6 시대, src=qwen3.8-27b) — **환경 전용이 아닌 실제 저장소 드리프트** → **루트 config를 src와 byte-identical로 이행·커밋(1215cab) → 해소**
 - [x] 작업 트리 청소: .gitignore Phase 0 섹션 등록, untracked **78 → 26개** (파일 삭제 없음) — 실측
-- [ ] 커밋 대기 항목 판단: untracked 소스 모듈 4건+테스트 4건 등 (섹션 12 표) — **의사 결정 대기**
+- [x] 커밋 대기 항목 처리: 소스 모듈 4건+테스트 4건+config 이행+보고서 등 **8건 커밋 완료 (6593840..1215cab)** — 실측
 
 ### 모델/라우팅
-- [ ] fallback 체인 성공률 100% (모델 1차 실패 시) — **미검증**
+- [x] fallback 체인 동작(모델 1차 실패 시) — **실측: 미동작 (결함 확인) → 수정 완료** — 기본 모델 qwen3.8-27b 404 시 콤보 후속 모델로 전파 안 됨, 오류가 `[API Error for ...]` 문자열로 삼켜짐 (§13). `generate()`/`stream_generate()`에 `[api error` 문자열 → RuntimeError 변환 추가 → 기존 콤보 폴백 재귀 발동. 회귀 테스트 2건 통과 (`test_model_manager_generate.py` 15 pass)
+- [ ] fallback 체인 실동작 E2E 재검증 (실제 404 조건) — **미실행** (회귀 테스트로 로직 검증됨)
 - [ ] 라우팅 전략별 지연·비용 실측 — **미검증**
 - [ ] 로컬 추론 토큰 속도 기록(t/s) — **미실행**
 - [ ] 컨텍스트 예산 초과 시 동작 확인 — **미검증**
@@ -246,9 +247,10 @@ flowchart TB
 - [ ] ReAct 루프 최대 반복·종료 조건 — 구현 확인, 동작 미검증
 - [ ] 도구 스키마 검증 실패 처리 — 구현 확인, 미검증
 - [ ] 위험 명령 블랙리스트 발동 확인 — 구현 확인, 미검증
-- [ ] 승인 요청→수락/거부 왕복 — 구현 확인, 미검증
+- [x] 승인 요청 발동 — **실측**: E2E 재검증(`make test` 실행 요구)에서 승인 요청 발생 확인 (§13, 수락/거부 왕복 응답은 미실측)
 
 ### 메모리/RAG
+- [x] 메모리 정제가 CLI `--model` 존중 — **수정 완료** — `MemoryRecorder.record(preferred_model)` + `task_runner._save_to_vault(target_model)`로 실행 모델을 정제에도 전파 (§13-3). 회귀 테스트 2건 통과 (`test_memory_recorder.py`)
 - [ ] 메모리 계층 사용 계측 — **미실행**
 - [ ] RAG 리콜@k 벤치 — **미실행**
 - [ ] vault 자동 커밋 정상 동작 — 구현 확인, 미검증
@@ -273,24 +275,33 @@ flowchart TB
 
 ## 8. 즉시 착수 작업 5가지
 
-> **2026-08-17 갱신: 1~3번은 Phase 0에서 완료. 남은 것은 4·5번과 아래 "추가 실측 작업"이다.**
+> **2026-08-17 갱신: 1~5번 모두 완료 (이행 세션 커밋 8건 포함). 남은 것은 아래 "추가 실측 작업"이다.**
 
-1. ~~`uv run pytest tests/ -q`~~ → 완료(코어 6개 모듈 151건: 150 pass / 1 fail). **다음: 전체 스위트 `make test-quick` 실행** — 250+ 파일의 전체 상태 파악
-2. ~~`uv run agk doctor` + `ollama list`~~ → 완료. `qwen3.6:latest` 실존(23GB), native_tools=supported, 레지스트리 38개 모델. lmstudio 401(환경) 주의
+1. ~~`uv run pytest tests/ -q`~~ → 완료(코어 6개 모듈 151건: 150 pass / 1 fail → 이행 후 해소). 전체 스위트 `make test-quick`: **3,641 pass / 0 fail** 최초 완전 그린 실측
+2. ~~`uv run agk doctor` + `ollama list`~~ → 완료. `qwen3.6:latest` 실존(23GB), native_tools=supported, 레지스트리 38개 모델. 이행 후 doctor **16 pass / 3 warn**(qwen3.8-27b ollama 미설치 경고 추가)
 3. ~~E2E 스모크 1건~~ → 완료. 런타임 왕복 성공. **발견**: 최초 "응답 없음"→Revision 재생성, 단순 질의에 환각(프로젝트 목적을 "중력 제어"로 오답)
-4. **git 작업 트리 청소** — `.gitignore` 보강(`data/`, `.tmp/`, `.backup/`, `*.log`, `.ag_worktrees/`, `.gstack/`, `C:/` 등), untracked 오염물의 보존/삭제 결정
-5. **README 대비 확인 매트릭스 작성** — 기능 표의 각 항목에 {구현 확인 / 미확인 / 미검증} 표기 (예: README "70+ 테스트" vs 실측 250+)
+4. ~~**git 작업 트리 청소**~~ → 완료. `.gitignore` 보강, untracked **78 → 26개** (삭제 없음). 커밋 대기 항목 8건 **커밋 완료**
+5. ~~**README 대비 확인 매트릭스 작성**~~ → 완료. README에 검증 매트릭스 추가 (커밋 33d13d2)
 
 ### 추가 실측 작업 (Phase 0 후속)
-- [x] 도구 호출 유도 스모크(프롬프트: tests/ 개수·Makefile 설명) — **결과: 도구 미호출**. 모델이 "find 명령 직접 실행"을 제안만 하고 실행하지 않음 + Makefile 내용을 일반 템플릿으로 환각(실제 Makefile과 불일치) → 도구 경로·자율 실행 모드 점검 필요
+- [x] 도구 호출 유도 스모크(프롬프트: tests/ 개수·Makefile 설명) — 1차: **도구 미호출**(모델이 "find 명령 직접 실행"을 제안만 함 + Makefile 환각) → **E2E 재검증(§13): `--model qwen3.6:latest` 명시 재실행 시 도구 호출 성공** (glob_search로 테스트 파일 236개 정확·Makefile 분석 정확, `make test` 승인 요청 발화)
 - [ ] 토큰 속도 실측 (t/s) 기록 — 스모크 Out 125~1,568 tokens 확인, 지연 측정 필요
+- [ ] **fallback 체인 결함 수정** (§13) — `[API Error for ...]` 문자열 삼킴 → 라우터 전파 구조로 수정 + 회귀 테스트
 
 ---
 ---
 
 ## 9. 실제 수정 내역 (이번 세션)
 
-**없음.** 코드·config 어떤 파일도 수정하지 않았다(진행 중인 qwen3.8 마이그레이션 파일 포함). 테스트·doctor·스모크는 검증 목적으로만 실행했으며(섹션 12), 커밋도 수행하지 않았다. 산출물은 본 보고서 단 1건.
+**분석 세션**: 코드·config 수정 없음 (섹션 12의 테스트·doctor·스모크는 검증 목적으로만 실행). 산출물은 본 보고서 단 1건.
+
+**P1 수정 세션**: `tool_executor.py`·`tool_guardrails.py` 매처 수정 + `test_next_action_recommender.py` 단언 갱신 (커밋 6593840, 1585ae7 등 8건 커밋 완료).
+
+**이행 세션 (2026-08-17)**:
+1. **config 드리프트 실제 이행**: 루트 `config.yaml`을 `src/antigravity_k/config.yaml`(qwen3.8-27b)과 **byte-identical로 동기화** (`cp`) — 컴팩션 이전 판단("환경 전용" 오분류)을 정정, 이건 실제 저장소 드리프트였다
+2. **스테일 단언 갱신**: qwen3.6 시대 테스트 5건을 qwen3.8-27b 기준으로 갱신 (`test_model_registry.py` 2건, `test_doctor.py`, `test_integration_upgrade.py`, `test_model_router.py`)
+3. **커밋 8건** (main, 미푸시): 6593840(fix engine), 1f88337(chore gitignore), 33d13d2(docs), cf42187(mock sandbox), 1585ae7(next-action recommender + 잠복 TypeError 수정), 8ee3c08(compiler bridge), 2d51e4f(VRAM throttler), 1215cab(config 이행)
+4. 산출물: 본 보고서 갱신 + `README` 검증 매트릭스
 
 ---
 ---
@@ -299,14 +310,16 @@ flowchart TB
 
 | 리스크 | 심각도 | 완화 방안 |
 |:--|:--:|:--|
-| 전체 테스트 스위트(250+) | **해소** — P1 수정 후 3,639 pass / 2 fail 실측, 잔존 1건=환경 전용(config 드리프트) | 실패 3건 해소 (아래 §12 갱신) |
-| 로컬 config 오버라이드 vs 커밋된 기본(qwen3.8) 불일치 — 테스트 1건은 **환경 전용 실패**(CI에선 통과) | 낮음 | 로컬 오버라이드를 qwen3.8로 이행하면 해소 |
+| 전체 테스트 스위트(250+) | **해소** — 이행 세션 최초 완전 그린 **3,641 pass / 0 fail** (206.71s), 결함 수정 세션 재실행 **3,644 pass / 1 flaky fail** — flaky는 사전 존재 랜덤 테스트(`ContextCompressorRandomized`), 격리 8회 중 4회 실패 확인 (내 변경과 무관) | §12·§13 갱신 |
+| 로컬 config 드리프트 — **실제 저장소 드리프트였음**(루트 qwen3.6 vs src qwen3.8-27b, gitignore된 오버라이드가 아님) | **해소** — 루트 config를 src와 byte-identical 이행·커밋(1215cab) | 추가 조치 불필요 |
+| **fallback 체인 미동작 — E2E 재검증으로 실측된 실제 결함**: 기본 모델(qwen3.8-27b) 404 시 콤보 후속 모델로 전파 안 됨 (`[API Error for ...]` 문자열로 삼켜짐) | **해소 (수정 완료)** — `[api error` 문자열 → RuntimeError 변환으로 콤보 폴백 발동 + 회귀 테스트 2건 (§13). **실제 404 조건 E2E 재검증은 미실행** | §13 |
+| **메모리 정제 default 고정 — 실측**: `agk run --model qwen3.6:latest`에도 메모리 정제 요약이 default(qwen3.8-27b)로 호출 → 404 문자열이 Memory Consolidation에 기록됨 | **해소 (수정 완료)** — `preferred_model`/`target_model`을 정제 호출에 전파 (§13) + 회귀 테스트 2건 | §13 |
 | 인지 복구 가이드 주입 회귀 — ErrorDistiller("❌ [tool Error]" 형식)가 `_tool_result_failed`/`classify_tool_failure` 매처를 우회 → `adapt_strategy` 영구 비활성화 | **해소 (P1 수정 완료)** | 두 매처가 `[exit_code=N]` 마커를 위치 무관 매칭 + "❌ [" 프리픽스 인식으로 수정. `test_cognitive_recovery` 재실행 통과 실측 |
-| 로컬 36B 품질 격차 — **실측**: 단순 질의에도 환각("중력 제어"·Makefile 오답), 최초 "응답 없음", **도구 미호출** | **높음** | RAG/문맥 주입 필수, Revision 임계값 튜닝, 자율 실행 모드·승인 흐름 점검 |
+| 로컬 36B 품질 격차 — **실측**: 단순 질의에도 환각("중력 제어"·Makefile 오답), 최초 "응답 없음" | **높음** | RAG/문맥 주입 필수, Revision 임계값 튜닝. 단, **도구 경로는 재검증에서 실동작 확인**(§13, qwen3.6:latest 명시 시 glob_search·Makefile 분석 정확) |
 | 자가검증 순환 편향 | 중 | 교차 모델 검증 조건부 적용 |
 | 메모리 계층 과설계 유지보수 부담 | 중 | 사용 계측 후 통폐합 |
-| 문서-코드 괴리(테스트 수 70+ vs 250+ 등) | 낮음 | 확인 매트릭스 작성 |
-| 작업 트리 오염(git-first와 충돌) | 낮음 | .gitignore 보강 |
+| 문서-코드 괴리(테스트 수 70+ vs 250+ 등) | 낮음 | 확인 매트릭스 작성 완료(README, 커밋 33d13d2) |
+| 작업 트리 오염(git-first와 충돌) | 낮음 | .gitignore 보강 완료 |
 
 ---
 ---
@@ -317,48 +330,94 @@ flowchart TB
 2. Phase 0 완료 후 **README 대비 확인 매트릭스** 기반으로 수정 우선순위 확정.
 3. 장기 워크플로 격차(lh-001) 축소를 1차 기술 목표로 삼고, Task Decomposition·체크포인트 재개(task_state_store) 조합을 집중 검증.
 
-> 본 보고서의 모든 판단은 코드 실측 기반이며, "미검증/미실행" 표기는 정직하게 유지됐다. 점수는 Phase 0 검증(doctor + 전체 퀵 스위트 3,637+ 통과 + E2E 2건) 후 **65 → 74/100**, P1 수정 세션(인지 복구 회귀 해소 실측·실패 4→1) 후 **78/100**으로 상향 조정됐다. 남은 보완: 도구 경로 실동작, config 드리프트(환경 전용), 환각 제어(RAG/문맥 주입).
+> 본 보고서의 모든 판단은 코드 실측 기반이며, "미검증/미실행" 표기는 정직하게 유지됐다. 점수는 Phase 0 검증(doctor + 전체 퀵 스위트 3,637+ 통과 + E2E 2건) 후 **65 → 74/100**, P1 수정 세션(인지 복구 회귀 해소 실측·실패 4→1) 후 **78/100**, 이행 세션(config 드리프트 실제 이행·전체 스위트 완전 그린 3,641/0·도구 경로/승인 흐름 실동작 실측, fallback 체인 결함·메모리 정제 default 고정 신규 실측 반영) 후 **79/100**, 결함 수정 세션(fallback 체인·메모리 정제 모델 전파 **수정 완료 + 회귀 테스트 4건 추가**, 전체 스위트 3,644/1 — 잔존 1건은 사전 존재 랜덤 플레이크) 후 **80/100**으로 조정됐다. 남은 보완: 실제 404 조건 E2E 재검증(fallback), 메모리 정제 실동작 E2E, 환각 제어(RAG/문맥 주입), 랜덤 테스트 시드 고정.
 
 ---
 
 ## 12. Phase 0 실행 검증 결과 (2026-08-17)
 
-분석 세션 실측 내역 + P1 수정 세션(2026-08-17) 반영. **커밋은 아직 없음** (사용자 승인 대기).
+분석 세션 실측 내역 + P1 수정 세션(2026-08-17) + 이행 세션(2026-08-17) 반영. **커밋 8건 완료 (6593840..1215cab, main, 푸시 전)**.
 
 | # | 실행 항목 | 명령 | 결과 | 판정 |
 |:--:|:--|:--|:--|:--:|
 | 1 | 환경 확인 | `uv --version` / `ollama list` | uv 0.11.8, .venv 존재, Ollama 동작. 모델: **qwen3.6:latest(23GB)**, qwen3.8:latest(17GB, 19h 전 pull), nomic-embed-text, llava, llama3.2-vision | ✅ |
-| 2 | 헬스체크 | `uv run agk doctor` | **17 pass / 2 warn / 0 fail**. 핵심: qwen3.6 `native_tools=supported`, 레지스트리 **38개 모델**, config 검증 통과. warn: lmstudio 401(환경), anthropic 키 미설정(선택) | ✅ |
-| 3 | 코어 테스트 | `uv run pytest` (레지스트리/라우터/task_state/시크릿/파서/vault) | **150 pass / 1 fail** (11.15초). 유일 실패: `test_bundled_default_config_matches_repository_default` | ⚠️ |
-| 4 | 실패 원인 규명 | diff bundled vs repo config | `src/antigravity_k/config.yaml`이 `qwen3.8-27b`(main/code/vision, max_tokens 8192)로 **이미 갱신**됨. repo 루트 config는 qwen3.6:latest(4096). qwen3.8 pull 시각(19h 전)과 일치하는 **진행 중인 마이그레이션** — 손대지 않음 | 📋 |
+| 2 | 헬스체크 | `uv run agk doctor` | **17 pass / 2 warn / 0 fail**. 핵심: qwen3.6 `native_tools=supported`, 레지스트리 **38개 모델**, config 검증 통과. warn: lmstudio 401(환경), anthropic 키 미설정(선택). **이행 후 재실측: 16 pass / 3 warn / 0 fail** (qwen3.8-27b가 기본이 되어 ollama 미설치 경고 추가 — `ollama pull qwen3.8-27b:latest`가 fix) | ✅ |
+| 3 | 코어 테스트 | `uv run pytest` (레지스트리/라우터/task_state/시크릿/파서/vault) | **150 pass / 1 fail** (11.15초). 유일 실패: `test_bundled_default_config_matches_repository_default` → **이행 후 해소** | ⚠️→✅ |
+| 4 | 실패 원인 규명 | diff bundled vs repo config | **정정: root `config.yaml`은 gitignore된 로컬 오버라이드가 아니라 추적된 실제 파일**. qwen3.8-27b 마이그레이션 진행 중 **실제 저장소 드리프트**(루트=qwen3.6 시대, src=qwen3.8-27b, 최대 토큰 4096 vs 8192) → **이행 세션에서 루트 config를 src와 byte-identical 동기화·커밋(1215cab)** → 해소 | 📋→✅ |
 | 5 | E2E 스모크 | `uv run agk run "이 프로젝트의 목적을 한 문장으로 요약해줘" --model qwen3.6:latest` | 왕복 성공 (task `direct_9e36c26a2496`, In 8096 / Out 125 tokens). **단**: ①최초 생성 "응답 없음" → Quality Revision이 재생성 ②최종 답변이 프로젝트 목적을 "중력 제어"로 **환각** | ⚠️ |
-| 6 | 전체 퀵 스위트 | `uv run python -m pytest tests/ -q -m "not slow and not benchmark"` | **3,637 pass / 4 fail / 4 skip / 19 deselected** (221.59s). 실패 4건 원인 분류 완료(아래) | ✅ (99.9%) |
-| 7 | 도구 경로 스모크 | `uv run agk run "tests/ 파일 개수·Makefile test 타깃 설명 요청"` | 왕복 성공하나 **도구 호출 없이 답변만 생성** — "find 명령 실행" 제안만 하고 미실행, Makefile을 일반 템플릿으로 환각 | ⚠️ |
+| 6 | 전체 퀵 스위트 | `uv run python -m pytest tests/ -q -m "not slow and not benchmark"` | **3,637 pass / 4 fail / 4 skip / 19 deselected** (221.59s) → P1 후 **3,639 pass / 2 fail** (239.59s) → **이행 후 최초 완전 그린: 3,641 pass / 0 fail / 4 skip / 19 deselected (206.71s)** | ✅→✅ |
+| 7 | 도구 경로 스모크 | `uv run agk run "tests/ 파일 개수·Makefile test 타깃 설명 요청"` | 1차: 왕복 성공하나 **도구 호출 없이 답변만 생성** — "find 명령 실행" 제안만 하고 미실행, Makefile을 일반 템플릿으로 환각 → **E2E 재검증(아래 #10)에서 `--model` 명시 재실행 시 도구 호출 성공** | ⚠️→✅ |
 | 8 | 작업 트리 청소 | `.gitignore` 보강 (Phase 0 섹션 추가) | untracked **78 → 26개**. 대형 오염물(.agent 1.4G, .ag_worktrees 288M, .tmp 178M, .omo, .backup, C:/, data/*, MagicMock/ 등) 추적 제외. **파일 삭제 없음** | ✅ |
-| 9 | **P1 수정 세션** | `tool_executor.py`·`tool_guardrails.py` 매처 수정 + `test_next_action_recommender.py` 단언 갱신 | 타겟 54 tests pass → 전체 퀵 스위트 **3,639 pass / 2 fail** (239.59s) → recommender 단언 갱신 후 해당 테스트 재실행 5 pass. **잔존 실패 = config 환경 전용 1건** | ✅ |
+| 9 | **P1 수정 세션** | `tool_executor.py`·`tool_guardrails.py` 매처 수정 + `test_next_action_recommender.py` 단언 갱신 | 타겟 54 tests pass → 전체 퀵 스위트 **3,639 pass / 2 fail** (239.59s) → recommender 단언 갱신 후 해당 테스트 재실행 5 pass. **잔존 실패 = config 드리프트 1건** (→#4에서 이행 완료) | ✅ |
+| 10 | **E2E 재검증** | `agk run` 2건 (§13) | ①기본 모델(qwen3.8-27b) 미설치 → `[API Error] 404` 후 **fallback 미동작 실측 (결함)** ②`--model qwen3.6:latest` 도구 유도 → **glob_search로 테스트 파일 236개 정확 실측 + Makefile test 타깃 정확 분석 + `make test` 승인 요청 발화 (도구·승인 경로 실동작)** | ⚠️ |
+| 11 | **커밋 세션** | 8건 커밋: 6593840 fix(engine), 1f88337 chore(.gitignore), 33d13d2 docs(보고서+매트릭스), cf42187 mock sandbox, 1585ae7 next-action recommender(+TypeError 수정), 8ee3c08 compiler bridge, 2d51e4f VRAM throttler, 1215cab config 이행 | 사전 실패 없이 전부 커밋 성공 (pre-commit: ruff/format/end-of-file/mypy 통과) | ✅ |
+| 12 | **결함 수정 세션** | fallback 체인 + 메모리 정제 default 고정 수정 (§13 결함 1·2) | ①`model_manager.py` `generate()`/`stream_generate()`: 오류가 `[API Error...]` 문자열로 삼켜지면 RuntimeError로 변환 → 기존 콤보 폴백 재귀 발동 (단일 모델 타깃은 문자열 반환 유지). 회귀 테스트 2건 추가 → `test_model_manager_generate.py` **15 pass** ②`memory_recorder.py` `record(preferred_model)` + `orchestrator_handlers.py` (ctx.target_model 전달) + `task_runner.py` `_save_to_vault(target_model)` — 정제 모델이 CLI `--model`을 존중. `tests/test_memory_recorder.py` 신규 2건 → 관련 테스트 **20 pass** ③전체 퀵 스위트 재실행: **3,644 pass / 1 flaky fail** (잔존 1건: `test_compress_with_random_messages` — 사전 존재 랜덤 테스트, 격리 8회 중 4회 실패로 수정과 무관 확인, 아래 플레이크 정정) | ✅ (커밋: §12-2) |
 
-### 트리 청소 후 남은 untracked 26개 (판단 보류 — 커밋 결정 대기)
+### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 
-| 항목 | 성격 | 권고 |
+| 항목 | 성격 | 처리 |
 |:--|:--|:--|
-| `src/antigravity_k/engine/{mock_sandbox_interceptor,next_action_recommender,universal_compiler_bridge,vram_kv_throttler}.py` + `tests/test_*` 4건 | **실제 소스 + 테스트** (퀵 스위트에서 통과 확인됨) — 커밋 누락 추정 | 커밋 후보 (다음 세션에서 검토·커밋) |
+| `src/antigravity_k/engine/{mock_sandbox_interceptor,next_action_recommender,universal_compiler_bridge,vram_kv_throttler}.py` + `tests/test_*` 4건 | **실제 소스 + 테스트** (퀵 스위트 통과) | **커밋 완료** (cf42187/1585ae7/8ee3c08/2d51e4f) |
+| `config.yaml`, `tests/test_{doctor,integration_upgrade,model_registry,model_router}.py`, `docs/evaluation/`, `README` 매트릭스, `.gitignore` | config 이행 + 스테일 단언 갱신 + 산출물 | **커밋 완료** (1215cab/33d13d2/1f88337) |
 | `knowledge/`, `swarm_mode/`, `scripts/run_*_benchmark.py`, `run.sh`, `ONBOARDING.md`, `plan_phase1.md` | 의도된 WIP 가능성 | 소유자 판단 대기 |
-| `docs/evaluation/` | 본 세션 산출물 (01, 02) | 커밋 결정 대기 |
 | `m .tmp/airllm`, `m .tmp/k-skill`, `m vault_data` | 중첩 git 저장소 — ignore가 미적용 (gitlink 흔적) | 제거는 파괴적이라 보류, 표시만 남음 |
 
 ### 전체 스위트 실패 분류 (4건 → 해소 3건, 잔존 1건)
 
 | 테스트 | 실패 내용 | 분류 | 후속 조치 |
 |:--|:--|:--|:--|
-| `test_model_registry.py::test_bundled_default_config_matches_repository_default` | 번들 config vs repo config 불일치 | **환경 기반 실패 (잔존)** — root `config.yaml`은 gitignore된 **로컬 오버라이드**(qwen3.6:latest, 38모델). 커밋된 기본값은 `src/antigravity_k/config.yaml`(qwen3.8-27b). **CI에선 통과할 것** | 로컬 오버라이드를 qwen3.8로 따라가거나, 테스트를 오버라이드 인지형으로 보강 |
+| `test_model_registry.py::test_bundled_default_config_matches_repository_default` | 번들 config vs repo config 불일치 | **실제 드리프트 → 해소 (이행 세션)** — 초기 판단("로컬 오버라이드 환경 전용")은 **오분류**. root `config.yaml`은 gitignore된 오버라이드가 아니라 **추적된 실제 파일**이었고, qwen3.8-27b 마이그레이션 진행 중 루트(qwen3.6 시대)/src(qwen3.8-27b) 드리프트가 발생. **루트 config를 src와 byte-identical 동기화·커밋(1215cab) → 해소 실측** | 완료 |
 | `test_cognitive_recovery.py::test_three_command_failures_inject_recovery_guidance_into_tool_evidence` | `"Cognitive Adapt"`가 tool evidence에 주입되지 않음 | **회귀 → 해소 (P1, 실측)** | 근본 원인: `ErrorDistiller.distill()` 출력(`❌ [tool Error]...`)이 startsWith 기반 `_tool_result_failed()`·`classify_tool_failure()`를 우회 → distill 실패가 `passed=True`로 기록돼 `adapt_strategy` 영구 비활성화. 수정: 두 매처가 `[exit_code=N]` 마커를 **위치 무관 매칭** + `❌ [` 프리픽스 인식. 재실행 통과 |
 | `test_next_action_recommender.py::test_test_gap_recommendation` | title이 `"tests/test_payment.py"` 아닌 `"Create pytest suite for src/payment.py"` | **테스트 드리프트 → 해소** | title은 소스 경로(UX 의도), 정확한 테스트 경로는 `executable_prompt`에 존재 → 단언을 `executable_prompt`로 갱신 (구현 의도 반영) |
-| `test_upgrade_phases_randomized.py::test_compress_with_random_messages` | 랜덤 입력에서 topic 문자열이 result에 남지 않음 | **랜덤 테스트 플레이크 → 해소 (재실행 통과)** | 시드 고정 권고 유지 (요구 시) |
+| `test_upgrade_phases_randomized.py::test_compress_with_random_messages` | 랜덤 입력에서 topic 문자열이 result에 남지 않음 | **사전 존재 랜덤 플레이크 → 정정: 해소 아님 (재발 확인)** — 이행 세션 직후 재실행(3,641/0)에서는 통과했으나, 결함 수정 세션 전체 재실행에서 **재발 (3,644 pass / 본 건 1 fail)**. 격리 재실행 8회 중 **4회 실패**로 무작위 flaky 입증. 근본 원인: `ContextCompressor.compress()` 하단 `enforce_context_budget` 경로에서 요약 메시지가 잘려 topic 미포함 가능 (요약·truncate 경계 의존). 결함 수정(§13-1·13-3)과 무관 — 해당 커밋 이전부터 존재, 실패 코드는 `context_compressor.py` (마지막 수정 24fd137/31011f6) | **시드 고정 권고 유지 → 다음 세션에서 시드 고정 또는 assertion 완화** |
 
-**핵심: 잔존 실패 1건만 남음(환경 전용 config 드리프트, 코드 문제 아님). 유일한 진짜 회귀였던 인지 복구 주입은 근본 원인 규명 → P1 수정 → 재실행 통과로 해소 완료.**
+**핵심: 이행 세션 후 전체 스위트 최초 완전 그린 (3,641 pass / 0 fail / 4 skip). 유일한 잔존 실패였던 config 드리프트는 "환경 전용"이 아니라 실제 저장소 드리프트였고, 루트 config를 src와 byte-identical로 이행·커밋해 해소했다. 진짜 회귀였던 인지 복구 주입은 P1에서 해소 완료. E2E 재검증으로 신규 결함(fallback 체인 미동작, 메모리 정제 default 고정) 2건 실측 (§13).**
 
 ### Phase 0 결론
 
-- **런타임 인프라는 확인됨**: doctor 통과, 모델 실존·툴콜 지원, 코어 유닛 테스트 150/151, CLI 왕복 동작. 보고서의 점수 65 → **70** 상향 근거.
+- **런타임 인프라는 확인됨**: doctor 통과, 모델 실존·툴콜 지원, 코어 유닛 테스트 150/151 → 이행 후 전체 스위트 완전 그린. 보고서의 점수 65 → 70 → 78 → 79 → **80** 상향 근거.
 - **품질 격차는 실측됨**: 검증되지 않은 단독 프롬프트(문맥·RAG 없음)에서 로컬 모델은 빈 응답·환각 위험이 있다. README의 "쉬운 과제에서는 frontier와 동등" 주장은 **이 스모크 조건에서는 성립하지 않음** → RAG/메모리 주입 + Revision 임계값이 필수라는 목표 적합성 평가의 결론을 지지.
-- **다음 검증 대상**: 전체 테스트 스위트(250+), 도구 호출 경로, 토큰 속도, RAG 검색 품질.
+- **도구 경로는 재검증에서 실동작 확인**: `--model qwen3.6:latest` 명시 시 glob_search·Makefile 분석이 실제 도구 호출로 수행되어 정확한 답변(테스트 파일 236개, test 타깃) 도출 (§13).
+- **다음 검증·수정 대상**: fallback 체인 수정(§13 결함 1), 메모리 정제 모델 전파(§13 결함 2), 토큰 속도, RAG 검색 품질.
+
+---
+
+## 13. E2E 재검증 세션 (2026-08-17) — 실측 상세
+
+커밋·config 이행 후 런타임의 실동작을 기본 경로(기본 모델)와 명시 경로(`--model`)로 재검증한 세션. **`agk run` CLI를 실제 실행**해 판정했다.
+
+### 13-1. 기본 경로: 기본 모델(qwen3.8-27b) — fallback 체인 결함 실측 ⚠️
+
+- 실행: `uv run agk run "이 프로젝트의 목적을 한 문장으로 요약해줘"` (모델 미지정 → 기본 qwen3.8-27b)
+- 결과: **`[API Error for qwen3.8-27b] HTTP Error 404: Not Found`** 후 종료 (품질 good 70% 판정, In 8,067 / Out 17 tokens)
+- **근본 원인** (코드 실측):
+  - `model_manager.py:1016` (비스트림) / `1126`, `1337`, `1340` (스트림) — **API 오류가 예외 전파가 아니라 `"[API Error for {model}] {e}"` 문자열로 삼켜짐**
+  - `generate()`의 콤보 경로는 라우팅 시점에 `_route_fallback`(라우터가 "가용"으로 판단한 모델)을 1회 선택하고, **실행 중 발생한 API 실패를 다시 라우팅하지 않음** — `_maybe_cascade_escalate`는 CASCADING 전략의 낮은 신뢰도에만 반응, API 예외에는 반응 없음
+  - 결과: 기본 모델이 404여도 콤보의 후속 모델(qwen3.6:latest 등)로 전파되지 않음 → **fallback 체인 실동작 실패 확인**
+- 정정: §6 로드맵의 "fallback 체인 성공률 100% 미검증" → **실측: 미동작**. **수정 완료**: `generate()`/`stream_generate()`에서 `[API Error...]` 문자열이 감지되면 RuntimeError로 변환해 기존 콤보 폴백 재귀를 발동시키도록 수정 (단일 모델 타깃은 문자열 반환 유지). 회귀 테스트 2건 추가, `test_model_manager_generate.py` **15 pass** (§12-12)
+
+### 13-2. 명시 경로: `--model qwen3.6:latest` + 도구 유도 — 도구·승인 경로 실동작 확인 ✅
+
+- 실행: `uv run agk run "tests/ 디렉토리에 몇 개의 테스트 파일이 있는지와 Makefile의 test 타깃을 실제 도구를 사용해서 확인해줘" --model qwen3.6:latest`
+- 결과 (Memory Consolidation 원문 `data/wiki_entries/agent_memory/decision_20260817_104817.md`):
+  - **도구 실사용 확인**: `glob_search`로 `tests/test_*.py` **236개** 실측 — `ls tests/test_*.py | wc -l` = **236**과 일치
+  - **Makefile 분석 정확**: test 타깃 `$(PYTHON) -m pytest tests/ -v --tb=short` — 실제 Makefile과 일치 (이전 1차 스모크의 Makefile 환각은 재현되지 않음)
+  - **승인 흐름 발화**: 마지막 도구 호출(`make test` 실행)에서 승인 요청 발생 — 모델이 임의 실행 대신 승인 대기에 들어감 (보안 게이트 실동작)
+- 판정: 1차 스모크의 "도구 미호출"은 모델 미지정(기본 모델 실패)이 원인이었을 가능성이 높음 — qwen3.6:latest 명시 시 도구 경로는 정상 동작. **다만 유도 프롬프트("실제 도구를 사용해서")를 명시했을 때의 결과이므로, 51개 도구 전수와 무유도 자율 발화는 여전히 미검증**
+
+### 13-3. 부수 발견: 메모리 정제가 `--model` 오버라이드를 무시하고 default 고정 ⚠️
+
+- 13-2 실행은 `--model qwen3.6:latest`였지만, **Memory Consolidation 요약이 default(qwen3.8-27b)로 호출**되어 404 문자열이 그대로 "Memory Consolidation (자가 학습)" 란에 기록됨
+- 근거: `memory_recorder.py:87-88` — `summarizer_model = self._get_model("default")` — CLI `--model` 파라미터가 정제 단계 모델 선택에 전파되지 않음
+- 영향: 메모리 품질 저하(오류 문자열이 학습 기록으로 저장), fallback 부재로 기본 모델 장애 시 정제 실패가 무시된 채 기록됨
+- 수정 완료: `MemoryRecorder.record(preferred_model=None)` 파라미터 추가 → `summarizer_model = preferred_model or self._get_model("default")`. `orchestrator_handlers.memory_save_handler`가 `ctx.target_model`(CLI `--model`, stream.py에서 주입)을 전달하고, `task_runner._save_to_vault`도 `target_model`을 전파 — 정제가 실행 모델을 존중. 회귀 테스트 2건 신규(`tests/test_memory_recorder.py`) → 관련 테스트 **20 pass** (§12-12)
+
+### 13-4. E2E 재검증 결론
+
+| 경로 | 판정 | 근거 |
+|:--|:--:|:--|
+| 기본 경로 (모델 미지정) | **실패** — fallback 체인 미동작 (결함 1), 메모리 정제는 default 고정 (결함 2) | §13-1, §13-3 |
+| 명시 경로 (`--model qwen3.6:latest`) | **통과** — 도구 호출(glob_search)·Makefile 분석·승인 요청 실동작 | §13-2 |
+| 전제 조건 | 기본 모델 qwen3.8-27b는 로컬 ollama에 **미설치** (doctor 경고: `ollama pull qwen3.8-27b:latest`) — 기본 경로 실패의 직접 원인이나, **fallback 체인이 정상이었다면 후속 모델로 자동 전환됐어야 함** | doctor 16 pass / 3 warn |
+
+**후속**: 결함 1(fallback 체인) — `generate()`에 API 오류 감지→RuntimeError 변환으로 재폴백 발동 **수정 완료** (§13-1). 결함 2(메모리 정제) — `preferred_model` 전파 **수정 완료** (§13-3). 둘 다 회귀 테스트와 함께 커밋 완료 (§12-12). 남은 E2E: 기본 모델 미설치(404) 조건에서의 실동작 재검증 — `ollama pull qwen3.8-27b:latest` 후 확인 권장.
