@@ -82,3 +82,13 @@ class FlightDeckRenderer:
             border_style="cyan",
             padding=(1, 2),
         )
+
+    @staticmethod
+    def render_recommendations_panel(recommendations_text: str) -> Panel:
+        """Render the proactive next-actions recommendation panel."""
+        return Panel(
+            recommendations_text,
+            title="[bold yellow]🔮 PROACTIVE NEXT-ACTIONS (FREEBUFF INTEL)[/bold yellow]",
+            border_style="yellow",
+            padding=(1, 2),
+        )

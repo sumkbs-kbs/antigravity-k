@@ -86,7 +86,7 @@ const ChatPage: React.FC = () => {
         inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
         // Auto-send after brief delay
         setTimeout(() => {
-          const sendBtn = document.querySelector('.glow-btn') as HTMLButtonElement;
+          const sendBtn = document.querySelector('.send-btn') as HTMLButtonElement;
           sendBtn?.click();
         }, 100);
       }

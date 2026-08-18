@@ -100,9 +100,10 @@ const PluginPage: React.FC = () => {
   return (
     <div className="page-container full-height-page">
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2>🔌 플러그인 <span>Extensions</span></h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div className="page-header-hero">
+            <div className="hero-eyebrow">EXTENSIONS</div>
+            <h2>플러그인</h2>
             <p className="page-subtitle">
               대시보드 기능을 확장하는 플러그인을 관리합니다.
               플러그인은 사이드바 항목, 명령어, 패널, 훅을 등록할 수 있습니다.

@@ -114,6 +114,21 @@ class WebSearchEngine:
 
     # ─── DuckDuckGo 검색 ─────────────────────────────────────────
 
+    def _is_captcha_response(self, html: str) -> bool:
+        """DuckDuckGo CAPTCHA/봇 탐지 페이지인지 확인."""
+        captcha_indicators = [
+            "anomaly-modal",
+            "anomaly-modal__title",
+            "Unfortunately, bots use DuckDuckGo",
+            "Please complete the following challenge",
+            "Select all squares containing",
+            "anomaly-modal__image",
+            "image-check_",
+            "captcha",
+        ]
+        html_lower = html.lower()
+        return any(indicator.lower() in html_lower for indicator in captcha_indicators)
+
     async def _search_duckduckgo(self, query: str) -> list[SearchResult]:
         """DuckDuckGo HTML 검색 (API 키 불필요)."""
         if not self._provider_available("duckduckgo"):
@@ -136,9 +151,16 @@ class WebSearchEngine:
                 self._provider_failed("duckduckgo")
                 logger.warning("DuckDuckGo 응답 실패: %s", resp.status_code)
                 return await self._search_duckduckgo_lite(query)
-            self._provider_succeeded("duckduckgo")
 
             html = resp.text
+            # CAPTCHA 감지 시 바로 폴백으로 전환
+            if self._is_captcha_response(html):
+                self._provider_failed("duckduckgo")
+                logger.warning("DuckDuckGo CAPTCHA 감지 - Lite 버전으로 폴백")
+                return await self._search_duckduckgo_lite(query)
+
+            self._provider_succeeded("duckduckgo")
+
             title_pattern = re.compile(
                 r'<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
                 re.DOTALL,
@@ -199,6 +221,13 @@ class WebSearchEngine:
                 self._provider_failed("duckduckgo_lite")
                 return []
 
+            response_text = response.text
+            # CAPTCHA 감지 시 빈 결과 반환 (폴백 체인에서 다음 엔진 시도)
+            if self._is_captcha_response(response_text):
+                self._provider_failed("duckduckgo_lite")
+                logger.warning("DuckDuckGo Lite CAPTCHA 감지")
+                return []
+
             anchor_pattern = re.compile(
                 r"<a(?P<tag>[^>]*class=['\"]result-link['\"][^>]*)>(?P<title>.*?)</a>",
                 re.IGNORECASE | re.DOTALL,
@@ -207,9 +236,9 @@ class WebSearchEngine:
                 r"<td[^>]*class=['\"]result-snippet['\"][^>]*>(.*?)</td>",
                 re.IGNORECASE | re.DOTALL,
             )
-            snippets = snippet_pattern.findall(response.text)
+            snippets = snippet_pattern.findall(response_text)
             results: list[SearchResult] = []
-            matches = list(anchor_pattern.finditer(response.text))[: self.fetch_results]
+            matches = list(anchor_pattern.finditer(response_text))[: self.fetch_results]
             for index, match in enumerate(matches):
                 href_match = re.search(r"href=['\"]([^'\"]+)", match.group("tag"), re.IGNORECASE)
                 if href_match is None:

@@ -441,11 +441,14 @@ const MutationDashboardPage: React.FC = () => {
     <div className="page-container" style={{ maxWidth: 1000 }}>
       {/* Header */}
       <div className="page-header" style={{ marginBottom: 20 }}>
-        <h2>🧬 Mutation Test Dashboard <span>Stryker Score</span></h2>
-        <p className="page-subtitle">
-          Zustand Store 단위 변이 테스트 점수를 실시간으로 모니터링합니다.
-          CI 게이트 기준: <strong style={{ color: '#ef4444' }}>{CI_BREAK_THRESHOLD}%</strong> 미만 시 실패.
-        </p>
+        <div className="page-header-hero">
+          <div className="hero-eyebrow">MUTATION TEST</div>
+          <h2>Mutation Test Dashboard</h2>
+          <p className="page-subtitle">
+            Zustand Store 단위 변이 테스트 점수를 실시간으로 모니터링합니다.
+            CI 게이트 기준: <strong style={{ color: '#ef4444' }}>{CI_BREAK_THRESHOLD}%</strong> 미만 시 실패.
+          </p>
+        </div>
       </div>
 
       {/* Summary */}

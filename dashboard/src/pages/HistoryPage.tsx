@@ -199,9 +199,10 @@ const HistoryPage: React.FC = () => {
   return (
     <div className="page-container full-height-page history-page">
       <div className="page-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2>📜 로컬 히스토리 <span>Local History</span></h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div className="page-header-hero">
+            <div className="hero-eyebrow">LOCAL HISTORY</div>
+            <h2>로컬 히스토리</h2>
             <p className="page-subtitle">
               파일 변경 내역을 시간순으로 확인하고, 두 시점을 비교하여 차이를 검토합니다.
             </p>

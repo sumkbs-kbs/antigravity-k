@@ -283,7 +283,7 @@ class TestContextCompressorRandomized:
         topic = random.choice(["배포 전략", "DB 스키마", "API 설계", "캐시 정책"])
 
         cc = ContextCompressor(
-            token_limit=100,
+            token_limit=200,
             keep_last_n=2,
             summarize_fn=lambda p: (
                 summaries.append(1),

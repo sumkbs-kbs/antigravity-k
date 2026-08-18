@@ -395,6 +395,7 @@ class TestWebSearchEngine:
         with (
             patch.object(engine.cache, "get", return_value=None),
             patch.object(engine.cache, "get_stale", return_value=None),
+            patch.object(engine, "_search_self_hosted", return_value=[]),
             patch.object(engine, "_search_searxng", return_value=[]),
             patch.object(engine, "_search_jina", return_value=[]),
             patch.object(engine, "_search_duckduckgo", return_value=[]),
@@ -416,6 +417,7 @@ class TestWebSearchEngine:
         with (
             patch.object(engine.cache, "get", return_value=None),
             patch.object(engine.cache, "get_stale", return_value=stale_resp),
+            patch.object(engine, "_search_self_hosted", return_value=[]),
             patch.object(engine, "_search_searxng", return_value=[]),
             patch.object(engine, "_search_jina", return_value=[]),
             patch.object(engine, "_search_duckduckgo", return_value=[]),
@@ -435,6 +437,7 @@ class TestWebSearchEngine:
         mock_results = [SearchResult(title="Searched", url="https://ex.com", snippet="Result")]
         with (
             patch.object(engine.cache, "get", return_value=None),
+            patch.object(engine, "_search_self_hosted", return_value=[]),
             patch.object(engine, "_search_searxng", return_value=mock_results),
             patch.object(engine, "_search_jina", return_value=[]),
             patch.object(engine, "_search_duckduckgo", return_value=[]),
@@ -454,6 +457,7 @@ class TestWebSearchEngine:
         ]
         with (
             patch.object(engine.cache, "get", return_value=None),
+            patch.object(engine, "_search_self_hosted", return_value=[]),
             patch.object(engine, "_search_searxng", return_value=mock_results),
             patch.object(engine, "_search_jina", return_value=[]),
             patch.object(engine, "_search_duckduckgo", return_value=[]),

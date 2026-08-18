@@ -116,40 +116,42 @@ const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div className="settings-page" style={{ maxWidth: 800 }}>
-      <div className="page-header" style={{ marginBottom: 24 }}>
-        <h2>시스템 설정 <span>Settings</span></h2>
-        <p className="page-subtitle">API 키, 모델, 검색 엔진, 비용 제어를 설정합니다.</p>
+    <div className="settings-page" style={{ maxWidth: 860, margin: '0 auto' }}>
+      <div className="page-header" style={{ marginBottom: 32 }}>
+        <div className="page-header-hero">
+          <div className="hero-eyebrow">CONFIGURATION</div>
+          <h2>시스템 설정</h2>
+          <p className="page-subtitle">API 키, 모델, 검색 엔진, 비용 제어를 한 곳에서 관리합니다.</p>
+        </div>
       </div>
 
-      <div id="settings-container" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div id="settings-container" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
         {/* 1. API Keys */}
-        <GlassPanel title="🔑 API 키 설정" variant="section" className="settings-section">
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+        <GlassPanel title={<><span className="section-index">01</span> API 키 설정</>} variant="section" className="settings-section">
+          <p className="settings-desc">
             사용할 프로바이더의 API 키를 입력하세요. 입력된 키는 서버 재시작 후 적용됩니다.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {PROVIDERS.map(p => {
               const isSet = !!apiKeys[p.key];
               return (
-                <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 140, flexShrink: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{p.icon} {p.label}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{p.hint}</div>
+                <div key={p.key} className="settings-row">
+                  <div className="settings-row-label">
+                    <div className="settings-row-title">{p.icon} {p.label}</div>
+                    <div className="settings-row-hint">{p.hint}</div>
                   </div>
                   <input
                     type="password"
-                    className="glass-input"
+                    className="text-input settings-row-input"
                     placeholder={isSet ? '•••••••• (재입력 시 덮어쓰기)' : 'API 키 입력'}
                     value={apiKeys[p.key] || ''}
                     onChange={e => setApiKeys(prev => ({ ...prev, [p.key]: e.target.value }))}
-                    style={{ flex: 1, fontSize: 13, fontFamily: "'JetBrains Mono', monospace", padding: 8, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: '#fff', borderRadius: 4 }}
                   />
-                  <div style={{ width: 80, textAlign: 'right' }}>
+                  <div className="settings-row-status" style={{ width: 80, textAlign: 'right' }}>
                     {isSet
-                      ? <span style={{ color: '#10b981', fontSize: 11 }}>✓ 설정됨</span>
-                      : <span style={{ color: '#565f89', fontSize: 11 }}>⚪ 미설정</span>}
+                      ? <span className="status-badge success">✓ 설정됨</span>
+                      : <span className="status-badge muted">⚪ 미설정</span>}
                   </div>
                 </div>
               );
@@ -158,16 +160,18 @@ const SettingsPage: React.FC = () => {
         </GlassPanel>
 
         {/* 2. Default Model */}
-        <GlassPanel title="🤖 기본 모델" variant="section" className="settings-section">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 140, fontSize: 13, fontWeight: 500, flexShrink: 0 }}>기본 추론 모델</div>
+        <GlassPanel title={<><span className="section-index">02</span> 기본 모델</>} variant="section" className="settings-section">
+          <div className="settings-row">
+            <div className="settings-row-label">
+              <div className="settings-row-title">🤖 기본 추론 모델</div>
+              <div className="settings-row-hint">모델 ID를 입력하세요</div>
+            </div>
             <input
               type="text"
-              className="glass-input"
+              className="text-input settings-row-input"
               placeholder="예: qwen3.6:latest, openai/gpt-4o-mini"
               value={defaultModel}
               onChange={e => setDefaultModel(e.target.value)}
-              style={{ flex: 1, fontSize: 13, padding: 8, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: '#fff', borderRadius: 4 }}
             />
           </div>
         </GlassPanel>
@@ -175,8 +179,8 @@ const SettingsPage: React.FC = () => {
         <ModelOperationsPanel />
 
         {/* 3. Search Engine — Toggle Switch */}
-        <GlassPanel title="🔍 웹 검색 엔진" variant="section" className="settings-section">
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+        <GlassPanel title={<><span className="section-index">03</span> 웹 검색 엔진</>} variant="section" className="settings-section">
+          <p className="settings-desc">
             기본 검색 엔진을 선택하세요. 변경 사항은 즉시 적용됩니다.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -204,26 +208,28 @@ const SettingsPage: React.FC = () => {
         </GlassPanel>
 
         {/* 4. Cost Control */}
-        <GlassPanel title="💰 비용 제어" variant="section" className="settings-section">
+        <GlassPanel title={<><span className="section-index">04</span> 비용 제어</>} variant="section" className="settings-section">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 160, fontSize: 13, fontWeight: 500, flexShrink: 0 }}>일일 예산 (USD)</div>
-              <input type="number" className="glass-input" value={dailyBudget} onChange={e => setDailyBudget(e.target.value)}
-                style={{ width: 100, padding: 8, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: '#fff', borderRadius: 4 }} />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>초과 시 LLM 호출 차단</span>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <div className="settings-row-title">💰 일일 예산 (USD)</div>
+                <div className="settings-row-hint">초과 시 LLM 호출 차단</div>
+              </div>
+              <input type="number" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => setDailyBudget(e.target.value)} />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 160, fontSize: 13, fontWeight: 500, flexShrink: 0 }}>시간당 액션 한도</div>
-              <input type="number" className="glass-input" value={hourlyLimit} onChange={e => setHourlyLimit(e.target.value)}
-                style={{ width: 100, padding: 8, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: '#fff', borderRadius: 4 }} />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>분당 호출 수 제한</span>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                <div className="settings-row-title">⏱ 시간당 액션 한도</div>
+                <div className="settings-row-hint">분당 호출 수 제한</div>
+              </div>
+              <input type="number" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => setHourlyLimit(e.target.value)} />
             </div>
           </div>
         </GlassPanel>
 
         {/* 5. Local History Settings */}
-        <GlassPanel title="📜 로컬 히스토리" variant="section" className="settings-section">
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+        <GlassPanel title={<><span className="section-index">05</span> 로컬 히스토리</>} variant="section" className="settings-section">
+          <p className="settings-desc">
             파일 변경 내역을 자동으로 저장하여 이전 상태로 되돌리거나 비교할 수 있습니다.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -243,16 +249,14 @@ const SettingsPage: React.FC = () => {
         </GlassPanel>
 
         {/* 6. Theme Customization */}
-        <GlassPanel title="🎨 테마 설정" variant="section" className="settings-section">
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+        <GlassPanel title={<><span className="section-index">06</span> 테마 설정</>} variant="section" className="settings-section">
+          <p className="settings-desc">
             에디터와 인터페이스의 모양을 커스터마이즈합니다.
           </p>
 
           {/* Accent Color */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 8 }}>
-              강조 색상
-            </label>
+          <div style={{ marginBottom: 20 }}>
+            <label className="settings-field-label">강조 색상</label>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {THEME_COLORS.map(color => (
                 <button
@@ -276,15 +280,13 @@ const SettingsPage: React.FC = () => {
           </div>
 
           {/* Font Size */}
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 8 }}>
-              에디터 폰트 크기
-            </label>
+          <div style={{ marginBottom: 20 }}>
+            <label className="settings-field-label">에디터 폰트 크기</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {FONT_SIZES.map(size => (
                 <button
                   key={size}
-                  className={`glass-btn small ${fontSize === size ? 'primary' : ''}`}
+                  className={`btn-ghost font-size-btn ${fontSize === size ? 'active' : ''}`}
                   onClick={() => setPref('fontSize', size)}
                   style={{ fontSize: size > 14 ? 12 : 11 }}
                   aria-pressed={fontSize === size}
@@ -303,8 +305,8 @@ const SettingsPage: React.FC = () => {
               <span className="toggle-label">미니맵 표시</span>
             </label>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>탭 크기</span>
+            <div className="settings-row">
+              <span className="settings-row-label-text">탭 크기</span>
               <select
                 className="glass-select"
                 value={tabSize}
@@ -318,8 +320,8 @@ const SettingsPage: React.FC = () => {
               </select>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>자동 줄바꿈</span>
+            <div className="settings-row">
+              <span className="settings-row-label-text">자동 줄바꿈</span>
               <select
                 className="glass-select"
                 value={wordWrap}
@@ -334,8 +336,8 @@ const SettingsPage: React.FC = () => {
           </div>
 
           {/* Reset Theme */}
-          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--glass-border)' }}>
-            <button className="glass-btn small" onClick={resetTheme}>
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--glass-border)' }}>
+            <button className="btn-ghost" onClick={resetTheme}>
               🎨 테마 초기화
             </button>
           </div>
@@ -348,29 +350,29 @@ const SettingsPage: React.FC = () => {
         <LogLevelSection />
 
         {/* 6. Server Config (read-only) */}
-        <GlassPanel title="🖥 서버 구성 (읽기 전용)" variant="section" className="settings-section" style={{ opacity: 0.8 }}>
+        <GlassPanel title={<><span className="section-index">07</span> 서버 구성 (읽기 전용)</>} variant="section" className="settings-section" style={{ opacity: 0.8 }}>
           <div style={{ opacity: 0.8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 12, alignItems: 'center', fontSize: 14 }}>
-              <div style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>호스트</div>
+            <div className="server-config-grid">
+              <div className="settings-row-label-text">호스트</div>
               <div>{config.server?.host || '127.0.0.1'}</div>
-              <div style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>포트</div>
+              <div className="settings-row-label-text">포트</div>
               <div>{config.server?.port || '8000'}</div>
-              <div style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>API 엔진</div>
+              <div className="settings-row-label-text">API 엔진</div>
               <div>{config.model?.provider || 'openrouter'}</div>
             </div>
           </div>
         </GlassPanel>
 
         {/* Save / Reset */}
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', paddingTop: 8 }}>
           {statusMsg && (
             <div style={{ fontSize: 12, flex: 1, textAlign: 'left', minHeight: 18 }}
               dangerouslySetInnerHTML={{ __html: statusMsg }} />
           )}
-          <button className="glass-btn" onClick={handleReset}>
+          <button className="btn-ghost" onClick={handleReset}>
             🗑️ 초기화
           </button>
-          <button className={`glass-btn primary save-anim ${saving ? 'saving' : ''}`} onClick={handleSave} disabled={saving}>
+          <button className={`btn-primary save-anim ${saving ? 'saving' : ''}`} onClick={handleSave} disabled={saving}>
             {saving ? (
               <><span className="spinner spinner-sm" /> 저장 중...</>
             ) : (
@@ -472,15 +474,15 @@ const LogLevelSection: React.FC = () => {
   const errorCount = loggers.filter(l => l.level_name === 'ERROR' || l.level_name === 'CRITICAL').length;
 
   return (
-    <GlassPanel title="🔬 로그 레벨 / 디버그 모드" variant="section" className="settings-section">
+    <GlassPanel title={<><span className="section-index">08</span> 로그 레벨 / 디버그 모드</>} variant="section" className="settings-section">
       <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
         서버 재시작 없이 로깅 레벨을 동적으로 변경합니다. 디버그 모드는 모든 로거를 DEBUG로 설정합니다.
       </p>
 
       {/* Debug Mode Toggle + Quick Actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <button
-          className={`glass-btn ${debugMode ? 'danger' : ''}`}
+          className={`btn-secondary ${debugMode ? 'danger' : ''}`}
           onClick={handleToggleDebug}
           style={{
             minWidth: 140,
@@ -494,13 +496,13 @@ const LogLevelSection: React.FC = () => {
         <div style={{ width: 1, height: 24, background: 'var(--glass-border)' }} />
 
         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>퀵 액션:</span>
-        <button className="glass-btn small" onClick={() => handleSetAllLevels('DEBUG')} title="모든 로거 DEBUG">
+        <button className="btn-ghost" onClick={() => handleSetAllLevels('DEBUG')} title="모든 로거 DEBUG">
           🔍 전체 DEBUG
         </button>
-        <button className="glass-btn small" onClick={() => handleSetAllLevels('INFO')} title="모든 로거 INFO">
+        <button className="btn-ghost" onClick={() => handleSetAllLevels('INFO')} title="모든 로거 INFO">
           ℹ️ 전체 INFO
         </button>
-        <button className="glass-btn small" onClick={loadLogLevels} title="새로고침">
+        <button className="btn-ghost" onClick={loadLogLevels} title="새로고침">
           🔄 새로고침
         </button>
       </div>
@@ -549,7 +551,7 @@ const LogLevelSection: React.FC = () => {
           ))}
         </select>
 
-        <button className="glass-btn small primary" onClick={handleSetLevel}>
+        <button className="btn-primary" onClick={handleSetLevel}>
           적용
         </button>
       </div>
@@ -605,7 +607,7 @@ const LogLevelSection: React.FC = () => {
 
           {hasMore && (
             <button
-              className="glass-btn small"
+              className="btn-ghost"
               onClick={() => setExpanded(!expanded)}
               style={{ width: '100%', marginTop: 8, fontSize: 11 }}
             >
@@ -624,7 +626,7 @@ const LogLevelSection: React.FC = () => {
         }}>
           {logMsg}
           <button
-            className="glass-btn small"
+            className="btn-ghost"
             onClick={() => setLogMsg('')}
             style={{ float: 'right', fontSize: 10, padding: '2px 6px' }}
           >

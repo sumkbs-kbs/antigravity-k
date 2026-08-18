@@ -1,7 +1,7 @@
 /**
  * Sidebar — Navigation and system status
  * =======================================
- * Ported from Vanilla JS. Uses React Router NavLink for navigation.
+ * Redesigned with unsloth.ai inspired aesthetics: clean, spacious, developer-first.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -97,23 +97,18 @@ const ModeIndicator: React.FC = () => {
 
   return (
     <div
-      className="flex items-center gap-sm px-sm py-xs rounded-lg cursor-pointer"
-      style={{
-        fontSize: 12, fontWeight: 600, transition: 'all 0.3s ease',
-        background: style.bg, border: `1px solid ${style.color}`,
-      }}
+      className="mode-indicator"
       onClick={handleClick}
       role="button"
       tabIndex={0}
-      title={`${style.label} 모드`}
+      title={`${style.label} 모드 — 클릭하여 전환`}
     >
-      <span style={{ fontSize: 16 }}>{style.icon}</span>
-      <span className="flex-1" style={{ color: style.color }}>{style.label}</span>
+      <span className="mode-icon" aria-hidden="true">{style.icon}</span>
+      <span className="mode-label" style={{ color: style.color }}>{style.label}</span>
       <span
-        style={{
-          width: 8, height: 8, borderRadius: '50%',
-          background: style.color, boxShadow: `0 0 6px ${style.color}`,
-        }}
+        className="mode-dot"
+        style={{ background: style.color, boxShadow: `0 0 8px ${style.color}` }}
+        aria-hidden="true"
       />
     </div>
   );
@@ -158,38 +153,43 @@ const Sidebar: React.FC<SidebarProps> = ({ toggleTerminal }) => {
   };
 
   return (
-    <aside className="sidebar">
-      {/* Header */}
+    <aside className="sidebar" role="navigation" aria-label="메인 사이드바">
+      {/* ── Header: Logo & Project ──────────────────────────────── */}
       <div className="sidebar-header">
-        <div className="flex items-center gap-sm">
-          <span className="logo-icon">🚀</span>
-          <span className="version-badge">v0.2.0</span>
-        </div>
-        <div className="logo">
+        <div className="logo-group">
+          <span className="logo-icon" aria-hidden="true">🚀</span>
           <span className="logo-text">Antigravity-K</span>
         </div>
+        <div className="sidebar-divider" />
 
-        <div className="relative" ref={dropdownRef}>
-          <div
-            className="flex items-center gap-xs px-md py-xs rounded-lg cursor-pointer"
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              fontSize: 12,
-            }}
+        <div className="project-selector" ref={dropdownRef}>
+          <button
+            className="project-trigger"
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            role="button"
-            tabIndex={0}
             aria-label="프로젝트 선택"
+            aria-expanded={dropdownOpen}
           >
-            <span style={{ fontSize: 14 }}>📂</span>
-            <span className="flex-1 truncate text-secondary" style={{ fontSize: 12 }}>{projectName}</span>
-            <span className="text-muted" style={{ fontSize: 10 }}>▼</span>
-          </div>
+            <span className="project-icon" aria-hidden="true">📁</span>
+            <span className="project-name">{projectName}</span>
+            <span className="project-chevron" aria-hidden="true">
+              {dropdownOpen ? '▲' : '▼'}
+            </span>
+          </button>
+          {dropdownOpen && (
+            <div className="project-dropdown" role="menu">
+              <div className="project-dropdown-item" role="menuitem">
+                📁 기본 프로젝트
+              </div>
+              <div className="project-dropdown-divider" />
+              <div className="project-dropdown-item" role="menuitem">
+                + 새 프로젝트
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Navigation with React Router NavLink */}
+      {/* ── Main Navigation ─────────────────────────────────────── */}
       <nav className="sidebar-nav" aria-label="메인 네비게이션">
         {NAV_ITEMS.map(item => (
           <NavLink
@@ -206,50 +206,94 @@ const Sidebar: React.FC<SidebarProps> = ({ toggleTerminal }) => {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="flex flex-col gap-sm" style={{ borderTop: '1px solid var(--glass-border)', paddingTop: 12 }}>
-        <ProviderStatusPanel />
-        <ModeIndicator />
-
-        <div className="flex items-center gap-sm" style={{ fontSize: 12 }}>
-          <span className={`status-dot ${systemStatus.healthy ? 'online' : 'offline'}`} />
-          <span className="text-secondary">
-            {systemStatus.healthy ? '엔진 활성' : '연결 확인 중...'}
-          </span>
+      {/* ── Footer: System Status & Actions ────────────────────── */}
+      <div className="sidebar-footer">
+        <div className="sidebar-section">
+          <span className="sidebar-section-label">PROVIDERS</span>
+          <ProviderStatusPanel />
         </div>
 
-        {systemStatus.healthy && (
-          <div className="text-xs text-secondary">
-            RAM: {systemStatus.memoryMb}% | CPU: {systemStatus.cpuPercent}% | Tokens: {systemStatus.totalTokens.toLocaleString()}
+        <div className="sidebar-section">
+          <span className="sidebar-section-label">MODE</span>
+          <ModeIndicator />
+        </div>
+
+        <div className="sidebar-section">
+          <span className="sidebar-section-label">SYSTEM</span>
+          <div className="system-status">
+            <div className="status-row">
+              <span className={`status-dot ${systemStatus.healthy ? 'online' : 'offline'}`} aria-hidden="true" />
+              <span className="status-text">
+                {systemStatus.healthy ? '엔진 활성' : '연결 확인 중...'}
+              </span>
+            </div>
+            {systemStatus.healthy && (
+              <div className="system-metrics">
+                <div className="metric">
+                  <div className="metric-head">
+                    <span className="metric-label">RAM</span>
+                    <span className="metric-value">{systemStatus.memoryMb}%</span>
+                 </div>
+                  <div className="metric-bar">
+                    <span
+                      className="metric-bar-fill"
+                      data-level={systemStatus.memoryMb > 80 ? 'high' : systemStatus.memoryMb > 50 ? 'mid' : 'low'}
+                      style={{ width: `${Math.min(100, Math.max(0, systemStatus.memoryMb))}%` }}
+                    />
+                 </div>
+               </div>
+                <div className="metric">
+                  <div className="metric-head">
+                    <span className="metric-label">CPU</span>
+                    <span className="metric-value">{systemStatus.cpuPercent}%</span>
+                 </div>
+                  <div className="metric-bar">
+                    <span
+                      className="metric-bar-fill"
+                      data-level={systemStatus.cpuPercent > 80 ? 'high' : systemStatus.cpuPercent > 50 ? 'mid' : 'low'}
+                      style={{ width: `${Math.min(100, Math.max(0, systemStatus.cpuPercent))}%` }}
+                    />
+                 </div>
+               </div>
+                <div className="metric metric-inline">
+                  <span className="metric-label">Tokens</span>
+                  <span className="metric-value metric-value-mono">{systemStatus.totalTokens.toLocaleString()}</span>
+               </div>
+             </div>
+            )}
           </div>
-        )}
+        </div>
 
-        <button
-          className="icon-btn cursor-pointer"
-          style={{ textAlign: 'left', padding: '6px 10px', fontSize: 12 }}
-          onClick={() => setCommandPaletteVisible(true)}
-          aria-label="명령 팔레트 열기 (Cmd+K)"
-        >
-          🔎 명령 팔레트
-        </button>
+        <div className="sidebar-divider" />
 
-        <button
-          className="icon-btn cursor-pointer"
-          style={{ textAlign: 'left', padding: '6px 10px', fontSize: 12 }}
-          onClick={() => toggleTerminal?.()}
-          aria-label="터미널 토글 (Cmd+`)"
-        >
-          💻 터미널
-        </button>
-
-        <button
-          className="icon-btn cursor-pointer"
-          style={{ textAlign: 'left', padding: '6px 10px', fontSize: 12 }}
-          onClick={handleRestart}
-          aria-label="서버 재시작"
-        >
-          🔄 서버 재시작
-        </button>
+        <div className="sidebar-actions">
+          <button
+            className="action-btn"
+            onClick={() => setCommandPaletteVisible(true)}
+            aria-label="명령 팔레트 열기 (Cmd+K)"
+          >
+            <span className="action-icon">🔍</span>
+            <span className="action-label">명령 팔레트</span>
+            <kbd className="action-shortcut">Cmd+K</kbd>
+          </button>
+          <button
+            className="action-btn"
+            onClick={() => toggleTerminal?.()}
+            aria-label="터미널 토글 (Cmd+`)"
+          >
+            <span className="action-icon">💻</span>
+            <span className="action-label">터미널</span>
+            <kbd className="action-shortcut">Cmd+`</kbd>
+          </button>
+          <button
+            className="action-btn action-btn-danger"
+            onClick={handleRestart}
+            aria-label="서버 재시작"
+          >
+            <span className="action-icon">🔄</span>
+            <span className="action-label">재시작</span>
+          </button>
+        </div>
       </div>
     </aside>
   );

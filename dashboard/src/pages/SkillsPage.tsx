@@ -163,8 +163,9 @@ const SkillsPage: React.FC = () => {
           flexWrap: 'wrap',
           gap: 12,
         }}>
-          <div>
-            <h2>Skills Browser <span>Skill Management</span></h2>
+          <div className="page-header-hero">
+            <div className="hero-eyebrow">SKILL MANAGEMENT</div>
+            <h2>Skills Browser</h2>
             <p className="page-subtitle">
               로드된 스킬, 마켓플레이스 설치 현황, npm 검색, MCP 서버를 한눈에 확인합니다.
             </p>

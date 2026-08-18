@@ -11,7 +11,7 @@
 import React from 'react';
 
 interface Props {
-  title: string;
+  title: React.ReactNode;
   count?: number;
   subtitle?: string;
   children: React.ReactNode;

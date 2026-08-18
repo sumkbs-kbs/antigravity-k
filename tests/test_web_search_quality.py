@@ -757,9 +757,11 @@ async def test_async_search_collects_a_second_source_for_cross_validation():
     searxng = AsyncMock(side_effect=[second_source])
     jina = AsyncMock(return_value=[])
     ddg = AsyncMock(return_value=[])
+    self_hosted = AsyncMock(return_value=[])
     with pytest.MonkeyPatch.context() as patcher:
         patcher.setattr(engine.cache, "get", lambda query, force_refresh=False: None)
         patcher.setattr(engine, "_search_tavily", tavily)
+        patcher.setattr(engine, "_search_self_hosted", self_hosted)
         patcher.setattr(engine, "_search_searxng", searxng)
         patcher.setattr(engine, "_search_jina", jina)
         patcher.setattr(engine, "_search_duckduckgo", ddg)
@@ -801,6 +803,7 @@ async def test_async_search_augments_partial_results_with_fallback_query():
     searxng = AsyncMock(side_effect=[primary, fallback])
     with pytest.MonkeyPatch.context() as patcher:
         patcher.setattr(engine.cache, "get", lambda query, force_refresh=False: None)
+        patcher.setattr(engine, "_search_self_hosted", AsyncMock(return_value=[]))
         patcher.setattr(engine, "_search_searxng", searxng)
         patcher.setattr(engine, "_search_jina", AsyncMock(return_value=[]))
         patcher.setattr(engine, "_search_duckduckgo", AsyncMock(return_value=[]))
@@ -926,6 +929,7 @@ async def test_async_search_augments_single_engine_results_at_output_limit():
     searxng = AsyncMock(side_effect=[primary, fallback])
     with pytest.MonkeyPatch.context() as patcher:
         patcher.setattr(engine.cache, "get", lambda query, force_refresh=False: None)
+        patcher.setattr(engine, "_search_self_hosted", AsyncMock(return_value=[]))
         patcher.setattr(engine, "_search_searxng", searxng)
         patcher.setattr(engine, "_search_jina", AsyncMock(return_value=[]))
         patcher.setattr(engine, "_search_duckduckgo", AsyncMock(return_value=[]))

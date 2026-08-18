@@ -1222,6 +1222,18 @@ def autopilot(
         console.print(
             f"[bold green]✅ Mission '{goal}' Completed Successfully in {report.total_steps_executed} turns![/bold green]"
         )
+
+        # ── Proactive Next-Action Recommendations (Freebuff-style) ──
+        try:
+            from antigravity_k.engine.flight_deck_renderer import FlightDeckRenderer
+            from antigravity_k.engine.next_action_recommender import NextActionRecommender
+
+            recommender = NextActionRecommender(project_root=".")
+            rec_batch = recommender.synthesize_recommendations(completed_goal=goal, touched_files=["src/antigravity_k/engine/flight_controller.py"])
+            rec_panel = FlightDeckRenderer.render_recommendations_panel(rec_batch.format_cli_panel())
+            console.print(rec_panel)
+        except Exception as ex:
+            console.print(f"[dim yellow]Notice: NextActionRecommender skipped ({ex})[/dim yellow]")
     else:
         console.print(f"[bold red]❌ Mission '{goal}' stopped after {report.total_steps_executed} turns.[/bold red]")
 

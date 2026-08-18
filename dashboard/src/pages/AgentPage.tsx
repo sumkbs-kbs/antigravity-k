@@ -110,11 +110,10 @@ const AgentPage: React.FC = () => {
   return (
     <div className="page-container full-height-page agent-page">
       <div className="page-header">
-        <div className="flex items-center gap-md">
-          <div>
-            <h2>🤖 에이전트 모니터링 <span>Agent Dashboard</span></h2>
-            <p className="page-subtitle">AI 에이전트의 실시간 상태, 로그 스트림, 작업 진행 상황을 모니터링합니다.</p>
-          </div>
+        <div className="page-header-hero">
+          <div className="hero-eyebrow">AGENT MONITORING</div>
+          <h2>에이전트 모니터링</h2>
+          <p className="page-subtitle">AI 에이전트의 실시간 상태, 로그 스트림, 작업 진행 상황을 모니터링합니다.</p>
         </div>
       </div>
       <AgentMonitorPanel />
