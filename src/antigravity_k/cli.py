@@ -1229,7 +1229,9 @@ def autopilot(
             from antigravity_k.engine.next_action_recommender import NextActionRecommender
 
             recommender = NextActionRecommender(project_root=".")
-            rec_batch = recommender.synthesize_recommendations(completed_goal=goal, touched_files=["src/antigravity_k/engine/flight_controller.py"])
+            rec_batch = recommender.synthesize_recommendations(
+                completed_goal=goal, touched_files=["src/antigravity_k/engine/flight_controller.py"]
+            )
             rec_panel = FlightDeckRenderer.render_recommendations_panel(rec_batch.format_cli_panel())
             console.print(rec_panel)
         except Exception as ex:
