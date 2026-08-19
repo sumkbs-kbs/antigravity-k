@@ -1553,3 +1553,82 @@ class TestToolLoopEngineRunLoop:
 
         assert any("completed" in result for result in results)
         recorder.assert_called_once()
+
+
+class TestToolLoopEngineContextCompression:
+    """_maybe_compress_context — ContextCompressor 자동 트리거 가드."""
+
+    def _long_messages(self, count: int = 20) -> list[dict[str, str]]:
+        return [{"role": "system", "content": "system prompt"}] + [
+            {
+                "role": "user" if i % 2 == 0 else "assistant",
+                "content": f"long message {i}: " + "내용 " * 50,
+            }
+            for i in range(count)
+        ]
+
+    def test_compresses_when_over_budget(self, mock_orch):
+        from antigravity_k.engine.context_compressor import ContextCompressor
+
+        compressor = ContextCompressor(token_limit=500, keep_last_n=3)
+        mock_orch.context_compressor_for.return_value = compressor
+        mock_orch._rebuild_prompt.return_value = "rebuilt-prompt"
+        engine = ToolLoopEngine(mock_orch)
+
+        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+            self._long_messages(),
+            "orig-prompt",
+            "qwen3.6:latest",
+            "code",
+            "sys",
+            "tools",
+            "skills",
+        )
+
+        assert usage_before is not None
+        assert usage_after is not None
+        assert usage_after < usage_before
+        assert prompt == "rebuilt-prompt"
+        assert shaped != self._long_messages()
+        assert shaped[0]["role"] == "system"  # 시스템 메시지 항상 보존
+
+    def test_noop_within_budget(self, mock_orch):
+        from antigravity_k.engine.context_compressor import ContextCompressor
+
+        compressor = ContextCompressor(token_limit=5000, keep_last_n=3)
+        mock_orch.context_compressor_for.return_value = compressor
+        engine = ToolLoopEngine(mock_orch)
+
+        messages = [{"role": "user", "content": "short"}]
+        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+            messages, "orig-prompt", "qwen3.6:latest", "code", "sys", "tools", "skills"
+        )
+
+        assert usage_before is None and usage_after is None
+        assert shaped == messages
+        assert prompt == "orig-prompt"
+
+    def test_mock_compressor_skipped(self, mock_orch):
+        engine = ToolLoopEngine(mock_orch)  # context_compressor_for → MagicMock
+
+        messages = [{"role": "user", "content": "x"}]
+        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+            messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
+        )
+
+        assert usage_before is None
+        assert shaped == messages
+        assert prompt == "p"
+
+    def test_none_compressor_skipped(self, mock_orch):
+        mock_orch.context_compressor_for.return_value = None
+        engine = ToolLoopEngine(mock_orch)
+
+        messages = [{"role": "user", "content": "x"}]
+        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+            messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
+        )
+
+        assert usage_before is None
+        assert shaped == messages
+        assert prompt == "p"

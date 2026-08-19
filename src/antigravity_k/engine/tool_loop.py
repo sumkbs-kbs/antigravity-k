@@ -195,6 +195,44 @@ class ToolLoopEngine:
             logger.debug("네이티브 tools 스키마 준비 실패 — XML 파싱 폴백", exc_info=True)
         return {}
 
+    def _maybe_compress_context(
+        self,
+        shaped_messages: list[dict[str, Any]],
+        prompt_str: str,
+        delegate_model: str,
+        task_type: str,
+        system_prompt: str,
+        tool_prompt: str,
+        skill_prompts: str,
+    ) -> tuple[list[dict[str, Any]], str, float | None, float | None]:
+        """ContextCompressor 자동 트리거 — 토큰 예산 초과 시 루프 내 메시지를 압축합니다.
+
+        Returns:
+            (압축된 shaped_messages, 재구성된 prompt_str, 압축 전 사용률, 압축 후 사용률)
+            압축이 발생하지 않으면 (원본, 원본, None, None)을 반환합니다.
+        """
+        try:
+            if not hasattr(self.orch, "context_compressor_for"):
+                return shaped_messages, prompt_str, None, None
+            compressor = self.orch.context_compressor_for(delegate_model)
+            if compressor is None:
+                return shaped_messages, prompt_str, None, None
+            needs = compressor.needs_compression(shaped_messages)
+            # mock 대응: needs_compression이 bool이 아니면 (예: MagicMock) 압축 생략
+            if not isinstance(needs, bool) or not needs:
+                return shaped_messages, prompt_str, None, None
+            usage_before = float(compressor.usage_percent(shaped_messages))
+            task_key = task_type.upper() if isinstance(task_type, str) else "GENERAL"
+            compressed = compressor.adaptive_compress(shaped_messages, task_type=task_key)
+            if compressed == shaped_messages:
+                return shaped_messages, prompt_str, None, None
+            usage_after = float(compressor.usage_percent(compressed))
+            rebuilt = self.orch._rebuild_prompt(system_prompt, tool_prompt, skill_prompts, compressed)
+            return compressed, rebuilt, usage_before, usage_after
+        except Exception:
+            logger.warning("Context compression error (non-critical)", exc_info=True)
+            return shaped_messages, prompt_str, None, None
+
     def run_loop(
         self,
         messages: list[dict[str, str]],
@@ -341,6 +379,20 @@ class ToolLoopEngine:
                     return
                 elif action == CapacityAction.WARN or action == CapacityAction.COMPRESS:
                     yield "\n\n📉 **[Capacity Warning]** 시스템 리소스 압박으로 성능이 저하될 수 있습니다.\n"
+
+            if not direct_response:
+                shaped_messages, prompt_str, usage_before, usage_after = self._maybe_compress_context(
+                    shaped_messages,
+                    prompt_str,
+                    delegate_model,
+                    task_type,
+                    system_prompt,
+                    tool_prompt,
+                    skill_prompts,
+                )
+                if usage_before is not None:
+                    yield f"\n📦 **[Context Compressor]** 토큰 사용량 {usage_before:.0f}% → {usage_after:.0f}% 압축\n\n"
+                    logger.info("[ToolLoop] Context compressed: %.0f%% → %.0f%%", usage_before, usage_after)
 
             stream_kwargs: dict[str, Any] = {
                 "prompt": prompt_str,
