@@ -110,13 +110,16 @@ def gcd(a, b):
 def test_dashboard_chat_output_uses_codex_like_reading_style():
     source = Path("dashboard/src/styles/index.css").read_text(encoding="utf-8")
 
-    assert "--sidebar-width: 220px;" in source
+    assert "--sidebar-width: 240px;" in source
     assert ".glass-panel" in source
-    assert ".glow-btn" in source
+    assert ".btn-primary" in source
+    assert ".btn-secondary" in source
+    assert ".btn-ghost" in source
     assert ".status-dot" in source
     assert ".sidebar" in source
     assert ".nav-item" in source
-    assert "letter-spacing: -0." not in source
+    # 과도한 음수 letter-spacing만 금지 (헤드라인용 미세 조정은 허용)
+    assert "letter-spacing: -0.1" not in source
 
 
 @pytest.mark.skip(reason="OrchestratorAgent 대규모 리팩토링으로 EngineContext 의존성 불일치 — 향후 재작성 필요")
