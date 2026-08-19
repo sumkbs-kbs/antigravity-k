@@ -85,7 +85,9 @@ dashboard/node_modules/
 .agent/skills/gstack/bin/gstack-global-discover.exe
 
 # Config files with secrets (copy from .example files)
-config.yaml
+# 루트 config.yaml만 무시 — src/antigravity_k/config.yaml은 패키지 기본 config로
+# 추적 대상이며 번들 일치 테스트(test_model_registry)가 fresh checkout에서 요구한다.
+/config.yaml
 
 # Editor temp files
 *.swp
