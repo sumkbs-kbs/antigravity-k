@@ -13,6 +13,12 @@ import re
 import time
 from typing import Any
 
+from antigravity_k.engine.failure_classifier import (
+    ClassifiedFailure,
+    RecoveryAction,
+    RecoveryStrategyRegistry,
+    classify_tool_failure,
+)
 from antigravity_k.engine.immune_system import ImmuneSystem
 from antigravity_k.engine.task_state_store import current_task_execution_context
 from antigravity_k.tools.permission_gate import Permission, PermissionGate
@@ -84,6 +90,8 @@ class ToolExecutor:
         self.gate_pipeline = gate_pipeline
         self._consecutive_errors = 0
         self.current_objective = ""
+        self.failure_registry = RecoveryStrategyRegistry()
+        self._last_failure: ClassifiedFailure | None = None
 
         # Hermes Self-Evolution: 도구 호출 이력 (SEC가 패턴 감지용으로 사용)
         self.tool_call_history: list[dict[str, Any]] = []
@@ -313,8 +321,10 @@ class ToolExecutor:
 
         if _result_indicates_failure(result):
             self._consecutive_errors += 1
+            self._last_failure = classify_tool_failure(name, str(result))
         else:
             self._consecutive_errors = 0  # Reset on success
+            self._last_failure = None
             self._broadcast_file_event(name, args)
 
     def _broadcast_file_event(self, name: str, args: dict[str, Any]) -> None:
@@ -342,8 +352,20 @@ class ToolExecutor:
         return await asyncio.to_thread(self.execute, name, args, execution_mode=execution_mode)
 
     def _trigger_recovery(self, name: str, args: dict[str, Any], result) -> str:
-        """연속 에러 3회 시 Immune System → Vault Rollback 순으로 복구 시도."""
+        """연속 에러 3회 시 실패 유형별 복구 플레이북 → Immune System → Vault Rollback 순으로 복구 시도."""
         self._consecutive_errors = 0
+
+        # 0. 실패 유형 분류 + 복구 플레이북 우선 (면역 시스템은 코드 버그 수복 전용)
+        classified = self._last_failure or classify_tool_failure(name, str(result))
+        strategy = self.failure_registry.strategy_for(name, classified.category)
+        if strategy.action is not RecoveryAction.ESCALATE_IMMUNE:
+            logger.info(
+                "Recovery playbook for %s (%s): %s",
+                name,
+                classified.category.value,
+                strategy.action.value,
+            )
+            return strategy.render(classified)
 
         # 1. Trigger Immune System (Self-Healing)
         if self._immune_system:
