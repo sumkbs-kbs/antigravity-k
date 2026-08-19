@@ -16,6 +16,7 @@ import yaml
 from antigravity_k.engine.autonomous_learner import AutonomousLearner
 from antigravity_k.engine.cognitive_loop import CognitiveLoop
 from antigravity_k.engine.context_shaper import ContextShaper
+from antigravity_k.engine.decision_anchor import DecisionAnchor
 from antigravity_k.engine.failure_memory import FailureMemory
 from antigravity_k.engine.ide_sync import IDEContextManager
 from antigravity_k.engine.knowledge import KIEngine
@@ -157,6 +158,9 @@ class EngineContext:
         # Context & Modeling
         self.user_model = UserIntentModeler(project_root=self.project_root)
         self.context_shaper = ContextShaper()
+        # DecisionAnchor: 핵심 합의를 컨텍스트 상단에 고정 (tool_loop auto_extract/add,
+        # agent._prepare_agent_prompt inject_into_messages, system_api anchors_count 연동)
+        self.decision_anchor = DecisionAnchor()
         # 작업 1: 외부 주입 SessionManager 우선 사용 — chat.py와 동일 인스턴스 공유
         self.session_manager = session_manager or SessionManager()
 
