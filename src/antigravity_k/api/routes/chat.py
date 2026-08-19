@@ -230,6 +230,11 @@ async def chat_completions(
 
     messages = internal_req.get("messages", [])
 
+    # P0 인젝션 방어: HIGH 패턴 감지 시 시스템 경고 삽입
+    from antigravity_k.engine.prompt_injection_guard import PromptInjectionGuard
+
+    messages = PromptInjectionGuard().augment_user_input(messages)
+
     from antigravity_k.api.dependencies import _get_session_manager
 
     session_manager = _get_session_manager()

@@ -125,6 +125,10 @@ class ToolLoopEngine:
         from antigravity_k.engine.secret_scanner import redact_full
 
         evidence = redact_full(evidence)
+        # P0 인젝션 방어: 제어 문자 제거 + 파서 프로토콜 태그 중화
+        from antigravity_k.engine.prompt_injection_guard import PromptInjectionGuard
+
+        evidence = PromptInjectionGuard().sanitize_tool_result(evidence)
         truncated = len(raw_result) > _TOOL_EVIDENCE_MAX_CHARS
         if truncated:
             focused = self._focused_evidence(evidence, focus_terms)
