@@ -201,10 +201,12 @@ class SandboxRunner:
         root = self.project_root
         allow_net = self.network != "none"
 
+        # (deny default)가 네트워크도 포함해 전부 차단하므로, 허용 모드에서는
+        # 명시적 allow가 없으면 실제로는 항상 차단된다
         network_policy = (
-            ""  # 허용 (기본)
+            "(allow network*)\n;; network allowed"
             if allow_net
-            else "(deny network*)\n(deny file-write*)\n;; network blocked"
+            else "(deny network*)\n;; network blocked"
         )
 
         return f"""(version 1)
