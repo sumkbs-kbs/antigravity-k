@@ -386,6 +386,15 @@ combos:
     - qwen3.6:latest
     - llama3.2-vision:11b
     - openai/gpt-4o
+  critic-swarm:
+    description: 비판/검증(CoV, 집단지성 critic) — DeepSeek-R1 70B 로컬 품질 에스컬레이션 우선
+    strategy: fallback
+    models:
+    - deepseek-r1:70b
+    - qwen3.8
+    - qwen3.6:latest
+    - qwen/qwen3-next-80b-a3b-instruct:free
+    - openai/gpt-4o-mini
 server:
   host: 127.0.0.1
   port: 8000
@@ -447,8 +456,9 @@ amplification:
   # 각 서브시스템은 개별 토글 + 파라미터로 제어되며, model null이면 model.main_model을 따른다.
   cov:
     # Chain-of-Verification 자기검증. 작은 모델의 환각/논리오류를 잡는 1차 방어.
+    # model은 단일 모델명 또는 콤보 이름(critic-swarm 등) — 콤보면 ModelRouter fallback 체인 사용.
     enabled: true
-    model: null
+    model: critic-swarm
     min_response_length: 50
     complexity_threshold: 0.4
     max_revise_iterations: 2
