@@ -16,6 +16,7 @@ import logging
 from collections.abc import Callable, Generator
 
 from antigravity_k.engine.state_graph import AgentState, StateContext
+from antigravity_k.engine.rule_engine import route_decision_deterministic, route_decision_with_log
 from antigravity_k.engine.tool_guardrails import MUTATING_TOOL_NAMES
 
 logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
@@ -333,61 +334,20 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         logger.debug(f"User model error: {e}")
 
 
-# ─── ROUTE 핸들러 (조건부 분기) ──────────────────────────────────
 
 
+
+
+# ─── RuleEngine 기반 결정론적 라우팅 ──────────────────────────────────
 def route_decision(ctx: StateContext) -> AgentState:
-    """태스크 유형에 따라 다음 상태를 결정합니다. (MAX 모드 포함)"""
-    task_type = ctx.task_type
-
-    if task_type == "agi_core":
-        return AgentState.AGI_CORE
-    elif task_type == "hardware_report":
-        return AgentState.AGI_CORE  # 같은 핸들러 재사용
-    elif _synthesize_explicit_pipeline(ctx):
-        return AgentState.PIPELINE_EXECUTE
-    elif task_type == "complex" or ctx.analysis.get("pipeline"):
-        # 복잡 태스크: 파이프라인이 명시된 경우만 PIPELINE, 나머지는 MAX
-        if ctx.analysis.get("pipeline"):
-            return AgentState.PIPELINE_EXECUTE
-        return AgentState.MAX_EXECUTE
-    elif task_type == "debate":
-        return AgentState.DEBATE_EXECUTE
-    elif task_type in ("coding", "reasoning") and _is_max_mode_candidate(ctx):
-        return AgentState.MAX_EXECUTE
-    else:
-        return AgentState.AGENT_EXECUTE
+    """태스크 유형에 따라 다음 상태를 결정합니다. (RuleEngine 기반 결정론적)"""
+    from antigravity_k.engine.rule_engine import route_decision_deterministic
+    return route_decision_deterministic(ctx)
 
 
-def _is_max_mode_candidate(ctx: StateContext) -> bool:
-    """MAX 모드 사용 조건을 판단합니다.
-
-    - complex 태스크는 자동 MAX 모드
-    - coding 태스크 중 대규모/아키텍처급
-    - CEO 분석에서 max_mode가 True로 설정된 경우
-    """
-    if ctx.analysis and ctx.analysis.get("max_mode", False):
-        return True
-
-    import re
-
-    request_text = (ctx.user_message or "").lower()
-    return bool(
-        re.search(
-            r"(대규모|전면|아키텍처|마이그레이션|refactor|architecture|migrate|redesign|리팩토링|구조개선)",
-            request_text,
-        ),
-    )
-
-
+# ─── 파이프라인 합성 헬퍼 (RuleEngine 조건용 분석 데이터 보강) ──────────────────
 def _synthesize_explicit_pipeline(ctx: StateContext) -> bool:
-    """When the user prompt lists explicit steps but the CEO didn't build a pipeline,
-    synthesize one deterministically from the numbered/bulleted structure.
-
-    Mutates ``ctx.analysis["pipeline"]`` with one entry per explicit step and returns
-    True when a multi-step structure was found, so ``route_decision`` routes to
-    PIPELINE_EXECUTE. Deterministic, no model call — uses the PlannerExecutor splitter.
-    """
+    """사용자 프롬프트에 명시적 단계가 있으면 파이프라인을 합성합니다 (RuleEngine 조건 평가 전 호출)."""
     if ctx.analysis.get("pipeline"):
         return False
     from antigravity_k.engine.cognitive_loop import _split_explicit_steps
@@ -399,6 +359,9 @@ def _synthesize_explicit_pipeline(ctx: StateContext) -> bool:
         {"step": idx, "agent": ctx.delegate_to or "WORKER", "task": desc} for idx, desc in enumerate(steps, start=1)
     ]
     return True
+
+
+# ─── ROUTE 핸들러 (라우팅 UI 표시) ──────────────────────────────────
 
 
 def route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
