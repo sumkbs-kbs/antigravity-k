@@ -200,6 +200,31 @@ class GlobalMemoryProvider(MemoryProvider):
     def get_all(self) -> dict[str, list[str]]:
         return {category: list(values) for category, values in self._memory.items()}
 
+    def delete_entry(self, key: str) -> bool:
+        """개별 글로벌 항목을 삭제합니다.
+
+        키 형식: identity:<key> | preference:<key> | category:<이름>:<값>.
+        """
+        if key.startswith("identity:"):
+            identity_key = key.partition(":")[2]
+            if identity_key not in self._identity:
+                return False
+            del self._identity[identity_key]
+            self._save_identity()
+            return True
+        if key.startswith("preference:"):
+            return self._preferences.delete(key.partition(":")[2])
+        if key.startswith("category:"):
+            _, _, rest = key.partition(":")
+            name, _, value = rest.partition(":")
+            entries = self._memory.get(name)
+            if entries is None or value not in entries:
+                return False
+            entries.remove(value)
+            self._save_category(name)
+            return True
+        return False
+
     @override
     def clear(self, scope: MemoryScope = "all") -> int:
         normalized_scope = normalize_memory_scope(scope)

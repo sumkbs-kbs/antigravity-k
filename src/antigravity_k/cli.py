@@ -258,6 +258,60 @@ def memory_alias_remove(alias: str) -> None:
     console.print(f"[green]Project alias removed:[/green] {alias}")
 
 
+@memory_app.command("list")
+def memory_list(top: int = 20) -> None:
+    """메모리 팩트를 중요도 점수 순으로 나열합니다."""
+    from antigravity_k.api.dependencies import get_memory_manager
+
+    ranked = get_memory_manager().ranked_facts(top_k=max(1, top))
+    if not ranked:
+        console.print("[yellow]저장된 메모리 팩트가 없습니다.[/yellow]")
+        raise typer.Exit()
+    table = Table(title=f"Memory Facts (top {len(ranked)})")
+    table.add_column("Key")
+    table.add_column("Source")
+    table.add_column("Scope")
+    table.add_column("Authority")
+    table.add_column("Score")
+    table.add_column("Value")
+    for fact, score in ranked:
+        table.add_row(
+            fact.key,
+            fact.source,
+            fact.scope,
+            str(int(fact.authority)),
+            f"{score:.1f}",
+            fact.value[:80],
+        )
+    console.print(table)
+
+
+@memory_app.command("remove")
+def memory_remove(provider: str, key: str) -> None:
+    """개별 메모리 항목을 삭제합니다 (예: project decision:db, global identity:name)."""
+    from antigravity_k.api.dependencies import get_memory_manager
+
+    if not get_memory_manager().delete_entry(provider, key):
+        console.print(f"[red]삭제 실패:[/red] {provider} {key} (항목 없음 또는 미지원)")
+        raise typer.Exit(code=1)
+    console.print(f"[green]삭제 완료:[/green] {provider} {key}")
+
+
+@memory_app.command("retain")
+def memory_retain(days: int) -> None:
+    """지정 일수보다 오래된 메모리를 TTL 정리합니다."""
+    from antigravity_k.api.dependencies import get_memory_manager
+
+    if days < 0:
+        console.print("[red]days는 0 이상이어야 합니다.[/red]")
+        raise typer.Exit(code=1)
+    report = get_memory_manager().apply_retention(days)
+    total = sum(report.values())
+    console.print(f"[green]TTL 정리 완료:[/green] {total}건 제거")
+    for provider, count in report.items():
+        console.print(f"  {provider}: {count}")
+
+
 @app.command()
 def doctor(
     heal: bool = typer.Option(

@@ -242,6 +242,30 @@ class ProjectMemoryProvider(MemoryProvider):
         self._save()
         return count
 
+    def delete_entry(self, key: str) -> bool:
+        """개별 프로젝트 팩트를 삭제합니다.
+
+        키 형식: decision:<key> | fact:<key> | 별칭 키만으로도 삭제 가능.
+        """
+        if ":" in key:
+            kind, _, raw_key = key.partition(":")
+            if kind not in ("decision", "fact"):
+                return False
+            record_key = f"{kind}:{self._aliases.canonical_key(raw_key)}"
+            if record_key not in self._records:
+                return False
+            del self._records[record_key]
+            self._save()
+            return True
+        canonical = self._aliases.canonical_key(key)
+        for record_key in (f"decision:{canonical}", f"fact:{canonical}"):
+            if record_key not in self._records:
+                continue
+            del self._records[record_key]
+            self._save()
+            return True
+        return False
+
     @override
     def export(self, scope: MemoryScope = "all") -> list[dict[str, JsonValue]]:
         if normalize_memory_scope(scope) not in ("project", "all"):

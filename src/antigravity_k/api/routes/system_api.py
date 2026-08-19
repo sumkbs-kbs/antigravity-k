@@ -292,6 +292,39 @@ async def apply_memory_retention(request: Request):
     return {"ok": True, "max_age_days": max_age_days, "deleted": report}
 
 
+@router.get("/api/memory/ranked")
+async def ranked_memory_facts(top_k: int = 20):
+    """전체 메모리 팩트를 중요도 점수 내림차순으로 반환합니다."""
+    manager = _get_memory_manager()
+    ranked = manager.ranked_facts(top_k=max(1, min(top_k, 100)))
+    return {
+        "facts": [
+            {
+                "key": fact.key,
+                "value": fact.value,
+                "source": fact.source,
+                "scope": fact.scope,
+                "authority": int(fact.authority),
+                "observed_at": fact.observed_at,
+                "score": round(score, 2),
+            }
+            for fact, score in ranked
+        ]
+    }
+
+
+@router.delete("/api/memory/entries")
+async def delete_memory_entry(provider: str, key: str):
+    """개별 메모리 항목을 삭제합니다 (provider: project|global|episodic)."""
+    manager = _get_memory_manager()
+    deleted = manager.delete_entry(provider, key)
+    get_audit_logger().log_event(
+        "memory_entry_delete",
+        {"provider": provider, "key": key, "deleted": deleted},
+    )
+    return {"provider": provider, "key": key, "deleted": deleted}
+
+
 # ─── Toolset API ────────────────────────────────────────────────
 
 

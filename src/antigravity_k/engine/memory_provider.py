@@ -47,6 +47,7 @@ from antigravity_k.engine.memory_contracts import ProjectMemoryBindingError
 from antigravity_k.engine.memory_contracts import (
     normalize_memory_scope as normalize_memory_scope,
 )
+from antigravity_k.engine.memory_importance import rank_facts
 from antigravity_k.engine.project_memory import ProjectMemoryProvider
 
 logger = logging.getLogger("antigravity_k.engine.memory_provider")
@@ -454,6 +455,30 @@ class MemoryManager:
             raise ValueError("max_age_days must be non-negative")
         return {provider.name: provider.apply_retention(max_age_days) for provider in self._providers}
 
+    def ranked_facts(self, top_k: int = 20) -> list[tuple[MemoryFact, float]]:
+        """전체 제공자의 권위 사실을 중요도 점수 내림차순으로 반환합니다."""
+        facts: list[MemoryFact] = []
+        for provider in self._providers:
+            try:
+                facts.extend(provider.authoritative_facts())
+            except Exception:
+                logger.exception("Memory fact error [%s]", provider.name)
+        return rank_facts(facts, top_k=top_k)
+
+    def delete_entry(self, provider_name: str, key: str) -> bool:
+        """특정 제공자의 개별 메모리 항목을 삭제합니다.
+
+        제공자가 delete_entry를 지원하지 않거나 항목이 없으면 False를 반환합니다.
+        """
+        for provider in self._providers:
+            if provider.name != provider_name:
+                continue
+            deleter = getattr(provider, "delete_entry", None)
+            if deleter is None:
+                return False
+            return bool(deleter(key))
+        return False
+
     def get_all_tool_schemas(self) -> list[dict[str, Any]]:
         """모든 제공자의 도구 스키마를 수집합니다."""
         schemas = []
@@ -611,6 +636,25 @@ class EpisodicMemoryProvider(MemoryProvider):
         self._access_counts.clear()
         self._save()
         return deleted
+
+    def delete_entry(self, key: str) -> bool:
+        """개별 에피소드를 삭제합니다 (키 형식: episode:<인덱스>)."""
+        if not key.startswith("episode:"):
+            return False
+        try:
+            idx = int(key.partition(":")[2])
+        except ValueError:
+            return False
+        if idx < 0 or idx >= len(self._episodes):
+            return False
+        self._episodes.pop(idx)
+        self._access_counts.pop(idx, None)
+        # pop 이후 인덱스가 앞당겨진 항목들의 접근 횟수 보정
+        self._access_counts = {
+            i - 1 if i > idx else i: count for i, count in self._access_counts.items()
+        }
+        self._save()
+        return True
 
     def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
         scope = normalize_memory_scope(scope)

@@ -166,6 +166,14 @@ class PreferenceFactStore:
         record = self._records.get(key)
         return record.value if record is not None else None
 
+    def delete(self, key: str) -> bool:
+        """개별 선호 팩트를 삭제하고 저장합니다."""
+        if key not in self._records:
+            return False
+        del self._records[key]
+        self._save()
+        return True
+
     def markers(self) -> tuple[str, ...]:
         return tuple(f"[preference:{key}] {record.value}" for key, record in sorted(self._records.items()))
 
