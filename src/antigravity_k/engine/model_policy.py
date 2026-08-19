@@ -18,6 +18,8 @@ class ModelRoutingPolicy:
     prefer_local: bool = True
     max_parameter_count_b: float = 0.0
     min_local_parameter_count_b: float = 0.0
+    # 1k 토큰당 평균 비용 상한(USD). 0.0이면 비용 기준 미적용.
+    max_cost_per_1k_tokens_usd: float = 0.0
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, object]) -> ModelRoutingPolicy:
@@ -26,6 +28,7 @@ class ModelRoutingPolicy:
             prefer_local=_as_bool(raw.get("prefer_local"), default=True),
             max_parameter_count_b=_as_non_negative_float(raw.get("max_parameter_count_b")),
             min_local_parameter_count_b=_as_non_negative_float(raw.get("min_local_parameter_count_b")),
+            max_cost_per_1k_tokens_usd=_as_non_negative_float(raw.get("max_cost_per_1k_tokens_usd")),
         )
 
     def decide(self, profile: ModelProfile) -> ModelPolicyDecision:
@@ -37,6 +40,8 @@ class ModelRoutingPolicy:
             return ModelPolicyDecision(allowed=False, reason="parameter_cap_exceeded")
         if profile.is_local and parameter_count_b and parameter_count_b < self.min_local_parameter_count_b:
             return ModelPolicyDecision(allowed=False, reason="local_parameter_floor_not_met")
+        if self.max_cost_per_1k_tokens_usd and profile.cost_per_1k_tokens_usd > self.max_cost_per_1k_tokens_usd:
+            return ModelPolicyDecision(allowed=False, reason="cost_cap_exceeded")
         return ModelPolicyDecision(allowed=True, reason="eligible")
 
     def prioritize(self, profiles: Sequence[ModelProfile]) -> list[ModelProfile]:
@@ -50,6 +55,7 @@ class ModelRoutingPolicy:
             "prefer_local": self.prefer_local,
             "max_parameter_count_b": self.max_parameter_count_b,
             "min_local_parameter_count_b": self.min_local_parameter_count_b,
+            "max_cost_per_1k_tokens_usd": self.max_cost_per_1k_tokens_usd,
         }
 
 

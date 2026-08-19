@@ -39,6 +39,8 @@ class ModelProfile:
     # api_key_env: 이 모델이 사용할 환경변수명 (예: "NVIDIA_API_KEY"). 빈 값이면 providers 기본값 사용.
     api_key_env: str = ""
     roles: tuple[str, ...] = ()
+    # 1k 토큰당 평균 비용(USD). 0.0이면 비용 미설정/로컬 — 라우팅 비용 상한 검사에서 제외.
+    cost_per_1k_tokens_usd: float = 0.0
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ModelProfile:
@@ -75,6 +77,7 @@ class ModelProfile:
             api_base=data.get("api_base", ""),
             api_key_env=data.get("api_key_env", ""),
             roles=roles,
+            cost_per_1k_tokens_usd=_as_cost(data.get("cost_per_1k_tokens_usd")),
         )
         # provider가 명시되지 않았으면 이름/repo에서 자동 추론
         if not profile.provider:
@@ -193,6 +196,8 @@ class ModelProfile:
             result["dimensions"] = self.dimensions
         if self.description:
             result["description"] = self.description
+        if self.cost_per_1k_tokens_usd:
+            result["cost_per_1k_tokens_usd"] = self.cost_per_1k_tokens_usd
         if self.api_base:
             result["api_base"] = self.api_base
         if self.api_key_env:
@@ -659,3 +664,18 @@ class ModelRegistry:
                 lines.append(f"  - {m.name} ({mem}){marker}")
         lines.append(f"\n메모리 한도: {self._memory.max_loaded_gb}GB")
         return "\n".join(lines)
+
+
+def _as_cost(value: object) -> float:
+    """config의 비용 값을 안전하게 파싱해 음수/비숫자를 0.0(미설정)으로 정규화한다."""
+    match value:
+        case bool():
+            return 0.0
+        case int() | float() | str() as raw:
+            try:
+                parsed = float(raw)
+            except ValueError:
+                return 0.0
+            return max(0.0, parsed)
+        case _:
+            return 0.0

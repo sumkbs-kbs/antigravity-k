@@ -45,12 +45,16 @@ models:
     role: reasoning
     estimated_memory_gb: 0.0
     context_length: 128000
+    # 공개 가격 평균(입출력 1:1): $2.5/M in + $10/M out → $6.25/M — 비용 상한($5/M) 초과로 자동 라우팅 제외
+    cost_per_1k_tokens_usd: 0.00625
     description: OpenAI GPT-4o (OpenRouter)
   - name: openai/gpt-4o-mini
     repo: openai/gpt-4o-mini
     role: reasoning
     estimated_memory_gb: 0.0
     context_length: 128000
+    # 공개 가격 평균(입출력 1:1): $0.15/M in + $0.60/M out → $0.375/M
+    cost_per_1k_tokens_usd: 0.000375
     description: OpenAI GPT-4o-mini (OpenRouter)
   - name: qwen/qwen3-next-80b-a3b-instruct:free
     repo: qwen/qwen3-next-80b-a3b-instruct:free
@@ -63,6 +67,8 @@ models:
     role: reasoning
     estimated_memory_gb: 0.0
     context_length: 131072
+    # 공개 가격 평균(입출력 1:1): $0.18/M in + $0.72/M out → $0.45/M
+    cost_per_1k_tokens_usd: 0.00045
     description: Qwen3 Next 80B (OpenRouter, 기본 선택)
   - name: nvidia/nemotron-3-super-120b-a12b:free
     repo: nvidia/nemotron-3-super-120b-a12b:free
@@ -99,6 +105,8 @@ models:
     role: reasoning
     estimated_memory_gb: 0.0
     context_length: 200000
+    # 공개 가격 평균(입출력 1:1): $15/M in + $75/M out → $45/M — 비용 상한($5/M) 크게 초과로 자동 라우팅 제외
+    cost_per_1k_tokens_usd: 0.045
     description: Claude Opus 4 (OpenRouter)
   - name: google/gemini-2.0-flash-001
     repo: google/gemini-2.0-flash-001
@@ -427,6 +435,9 @@ router:
     prefer_local: true
     max_parameter_count_b: 70.0
     min_local_parameter_count_b: 20.0
+    # 1k 토큰당 평균 비용 상한(USD) — 평균 $5/M(입출력 1:1) 초과 모델을 자동 라우팅에서 제외.
+    # 0.0이면 비용 기준 미적용. 비용 미설정(0.0) 모델은 오탐 방지를 위해 항상 통과.
+    max_cost_per_1k_tokens_usd: 0.005
   cascade_on_low_confidence: false
   confidence_evaluator_enabled: false
   confidence_evaluator_model: qwen3.8
