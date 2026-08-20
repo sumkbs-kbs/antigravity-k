@@ -5,7 +5,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, override
+from typing import Final, Protocol, override
 
 from antigravity_k.engine.provider_adapters.unsloth_resource_contracts import (
     ReservationId,
@@ -54,27 +54,48 @@ class RepositoryRowError(RuntimeError):
         return f"Expected {self.expected} in SQLite column {self.column}."
 
 
-def _text(row: sqlite3.Row, column: str | int) -> str:
-    match row[column]:  # noqa: MATCH_OK
+type SQLiteValue = str | int | float | bytes | None
+
+
+class SQLiteValueRow(Protocol):
+    def __getitem__(self, column: str | int, /) -> SQLiteValue: ...
+
+
+class SQLiteCursor(Protocol):
+    def fetchone(self) -> SQLiteValueRow | None: ...
+
+
+def _text(row: SQLiteValueRow, column: str | int) -> str:
+    match row[column]:
         case str() as value:
             return value
+        case None | int() | float() | bytes():
+            pass
     raise RepositoryRowError(str(column), "text")
 
 
-def _integer(row: sqlite3.Row, column: str | int) -> int:
-    match row[column]:  # noqa: MATCH_OK
+def _integer(row: SQLiteValueRow, column: str | int) -> int:
+    match row[column]:
         case int() as value:
             return value
+        case None | str() | float() | bytes():
+            pass
     raise RepositoryRowError(str(column), "integer")
 
 
-def _optional_text(row: sqlite3.Row, column: str) -> str | None:
-    match row[column]:  # noqa: MATCH_OK
+def _optional_text(row: SQLiteValueRow, column: str) -> str | None:
+    match row[column]:
         case str() as value:
             return value
         case None:
             return None
+        case int() | float() | bytes():
+            pass
     raise RepositoryRowError(column, "nullable text")
+
+
+def _fetchone(cursor: SQLiteCursor) -> SQLiteValueRow | None:
+    return cursor.fetchone()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,33 +120,53 @@ class PendingReservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ExistingAdmission:
+    stored: StoredAdmission
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceOccupancy:
+    active_count: int
+
+
+AdmissionInspection = ExistingAdmission | DeviceOccupancy
+
+
+@dataclass(frozen=True, slots=True)
 class AdmissionTransaction:
     connection: sqlite3.Connection
 
-    def find_idempotency_key(self, idempotency_key: str) -> StoredAdmission | None:
-        match self.connection.execute(  # noqa: MATCH_OK
-            f"SELECT * FROM {_TABLE_NAME} WHERE idempotency_key = ?",
-            (idempotency_key,),
-        ).fetchone():
+    def inspect(self, idempotency_key: str, device_id: str) -> AdmissionInspection:
+        idempotency_row = _fetchone(
+            self.connection.execute(
+                f"SELECT * FROM {_TABLE_NAME} WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ),
+        )
+        match idempotency_row:
             case None:
-                return None
-            case sqlite3.Row() as row:
-                return StoredAdmission(
-                    reservation_id=ReservationId(_text(row, "reservation_id")),
-                    request_fingerprint=_text(row, "request_fingerprint"),
-                    provenance_fingerprint=_text(row, "provenance_fingerprint"),
-                    resource_job_id=_optional_text(row, "resource_job_id"),
-                    state=UnslothReservationState(_text(row, "state")),
+                pass
+            case row:
+                return ExistingAdmission(
+                    stored=StoredAdmission(
+                        reservation_id=ReservationId(_text(row, "reservation_id")),
+                        request_fingerprint=_text(row, "request_fingerprint"),
+                        provenance_fingerprint=_text(row, "provenance_fingerprint"),
+                        resource_job_id=_optional_text(row, "resource_job_id"),
+                        state=UnslothReservationState(_text(row, "state")),
+                    ),
                 )
-        raise RepositoryRowError("idempotency lookup", "SQLite row")
-
-    def active_count(self, device_id: str) -> int:
-        match self.connection.execute(  # noqa: MATCH_OK
-            f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE device_id = ? AND state = ?",
-            (device_id, UnslothReservationState.ACTIVE.value),
-        ).fetchone():
-            case sqlite3.Row() as row:
-                return _integer(row, 0)
+        occupancy_row = _fetchone(
+            self.connection.execute(
+                f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE device_id = ? AND state = ?",
+                (device_id, UnslothReservationState.ACTIVE.value),
+            ),
+        )
+        match occupancy_row:
+            case None:
+                pass
+            case row:
+                return DeviceOccupancy(active_count=_integer(row, 0))
         raise RepositoryRowError("active count", "SQLite row")
 
     def insert(self, pending: PendingReservation) -> None:
@@ -165,47 +206,49 @@ class UnslothResourceRepository:
             )
             reservations: list[UnslothReservation] = []
             while True:
-                match cursor.fetchone():  # noqa: MATCH_OK
+                match _fetchone(cursor):
                     case None:
                         return tuple(reservations)
-                    case sqlite3.Row() as row:
+                    case row:
                         reservations.append(self._row_to_reservation(row))
-                        continue
-                raise RepositoryRowError("active reservations", "SQLite row")
 
     def release(self, reservation_id: ReservationId, released_at: str) -> UnslothReservation | None:
         with self._connection() as connection:
             _ = connection.execute("BEGIN IMMEDIATE")
-            match connection.execute(  # noqa: MATCH_OK
-                _RELEASE_SQL,
-                (UnslothReservationState.RELEASED.value, released_at, reservation_id),
-            ).fetchone():
+            released_row = _fetchone(
+                connection.execute(
+                    _RELEASE_SQL,
+                    (UnslothReservationState.RELEASED.value, released_at, reservation_id),
+                ),
+            )
+            match released_row:
                 case None:
                     return None
-                case sqlite3.Row() as row:
+                case row:
                     return self._row_to_reservation(row)
-            raise RepositoryRowError("released reservation", "SQLite row")
 
     def bind_job(self, reservation_id: ReservationId, resource_job_id: str) -> UnslothReservation | None:
         with self._connection() as connection:
             _ = connection.execute("BEGIN IMMEDIATE")
-            match connection.execute(  # noqa: MATCH_OK
-                _BIND_JOB_SQL,
-                (
-                    resource_job_id,
-                    reservation_id,
-                    UnslothReservationState.ACTIVE.value,
-                    resource_job_id,
+            bound_row = _fetchone(
+                connection.execute(
+                    _BIND_JOB_SQL,
+                    (
+                        resource_job_id,
+                        reservation_id,
+                        UnslothReservationState.ACTIVE.value,
+                        resource_job_id,
+                    ),
                 ),
-            ).fetchone():
+            )
+            match bound_row:
                 case None:
                     return None
-                case sqlite3.Row() as row:
+                case row:
                     return self._row_to_reservation(row)
-            raise RepositoryRowError("bound reservation", "SQLite row")
 
     @staticmethod
-    def _row_to_reservation(row: sqlite3.Row) -> UnslothReservation:
+    def _row_to_reservation(row: SQLiteValueRow) -> UnslothReservation:
         return UnslothReservation(
             reservation_id=_text(row, "reservation_id"),
             operation=UnslothResourceOperation(_text(row, "operation")),
@@ -233,6 +276,7 @@ class UnslothResourceRepository:
         with self._connection() as connection:
             _ = connection.execute("PRAGMA journal_mode = WAL")
             _ = connection.execute(_CREATE_TABLE_SQL)
-            columns = {_text(row, 1) for row in connection.execute(f"PRAGMA table_info({_TABLE_NAME})")}
+            rows: list[SQLiteValueRow] = connection.execute(f"PRAGMA table_info({_TABLE_NAME})").fetchall()
+            columns = {_text(row, 1) for row in rows}
             if "resource_job_id" not in columns:
                 _ = connection.execute(f"ALTER TABLE {_TABLE_NAME} ADD COLUMN resource_job_id TEXT")

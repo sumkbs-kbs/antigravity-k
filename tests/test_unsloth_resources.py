@@ -6,10 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Barrier
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
 
+from antigravity_k.api.routes import unsloth_studio_api
 from antigravity_k.engine.provider_adapters.unsloth_resource_broker import (
     UnslothResourceBroker,
 )
@@ -23,6 +25,7 @@ from antigravity_k.engine.provider_adapters.unsloth_resource_contracts import (
     UnslothReservationState,
     UnslothResourceOperation,
 )
+from tests.test_unsloth_resource_api import _auth_headers, _client_for
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +52,10 @@ def _request(idempotency_key: str, estimated_peak_bytes: int) -> UnslothAdmissio
             sha256="b" * 64,
         ),
     )
+
+
+def _broker(tmp_path: Path) -> UnslothResourceBroker:
+    return UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
 
 
 def _admit_after_barrier(
@@ -90,7 +97,7 @@ def test_admission_replays_the_same_idempotent_request(tmp_path: Path) -> None:
 
 
 def test_admission_rejects_an_idempotency_key_with_different_payload(tmp_path: Path) -> None:
-    broker = UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
+    broker = _broker(tmp_path)
     _ = broker.admit(_request("idempotent-run-0002", estimated_peak_bytes=100))
 
     conflict = broker.admit(_request("idempotent-run-0002", estimated_peak_bytes=101))
@@ -101,7 +108,7 @@ def test_admission_rejects_an_idempotency_key_with_different_payload(tmp_path: P
 
 
 def test_admission_denies_a_second_active_reservation_on_the_same_device(tmp_path: Path) -> None:
-    broker = UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
+    broker = _broker(tmp_path)
     _ = broker.admit(_request("device-owner-0001", estimated_peak_bytes=100))
 
     denied = broker.admit(_request("device-waiter-0001", estimated_peak_bytes=100))
@@ -125,7 +132,7 @@ def test_release_is_persistent_and_removes_the_active_reservation(tmp_path: Path
 
 
 def test_re_admission_after_release_reports_the_released_reservation(tmp_path: Path) -> None:
-    broker = UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
+    broker = _broker(tmp_path)
     request = _request("released-replay-001", estimated_peak_bytes=100)
     accepted = broker.admit(request)
     _ = broker.release(ReservationId(accepted.reservation_id or ""))
@@ -140,7 +147,7 @@ def test_re_admission_after_release_reports_the_released_reservation(tmp_path: P
 
 
 def test_repeat_release_preserves_the_original_release_time(tmp_path: Path) -> None:
-    broker = UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
+    broker = _broker(tmp_path)
     accepted = broker.admit(_request("repeat-release-001", estimated_peak_bytes=100))
     reservation_id = ReservationId(accepted.reservation_id or "")
     first_release = broker.release(reservation_id)
@@ -154,7 +161,7 @@ def test_repeat_release_preserves_the_original_release_time(tmp_path: Path) -> N
 
 
 def test_release_frees_the_device_for_a_new_reservation(tmp_path: Path) -> None:
-    broker = UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
+    broker = _broker(tmp_path)
     accepted = broker.admit(_request("device-release-001", estimated_peak_bytes=100))
     _ = broker.release(ReservationId(accepted.reservation_id or ""))
 
@@ -216,17 +223,7 @@ def test_existing_resource_database_is_migrated_for_remote_job_binding(tmp_path:
     reservation_id = ReservationId("00000000-0000-0000-0000-000000000001")
     with sqlite3.connect(database_path) as connection:
         _ = connection.execute(
-            "CREATE TABLE unsloth_resource_reservations ("
-            "reservation_id TEXT PRIMARY KEY,"
-            "idempotency_key TEXT NOT NULL UNIQUE,"
-            "request_fingerprint TEXT NOT NULL,"
-            "operation TEXT NOT NULL,"
-            "device_id TEXT NOT NULL,"
-            "estimated_peak_bytes INTEGER NOT NULL,"
-            "provenance_fingerprint TEXT NOT NULL,"
-            "state TEXT NOT NULL,"
-            "created_at TEXT NOT NULL,"
-            "released_at TEXT)",
+            "CREATE TABLE unsloth_resource_reservations (reservation_id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, request_fingerprint TEXT NOT NULL, operation TEXT NOT NULL, device_id TEXT NOT NULL, estimated_peak_bytes INTEGER NOT NULL, provenance_fingerprint TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, released_at TEXT)"
         )
         _ = connection.execute(
             "INSERT INTO unsloth_resource_reservations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
@@ -266,3 +263,60 @@ def test_admission_request_rejects_an_unprobed_device() -> None:
 
     with pytest.raises(ValidationError):
         _ = UnslothAdmissionRequest.model_validate(payload)
+
+
+def test_resource_status_api_returns_200_and_keeps_writes_disabled(tmp_path: Path) -> None:
+    broker = _broker(tmp_path)
+    accepted = broker.admit(_request("api-status-contract-001", estimated_peak_bytes=100))
+
+    with _client_for(broker) as client:
+        response = client.get("/v1/integrations/unsloth/resources", headers=_auth_headers())
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert accepted.write_tools_enabled is False
+    assert payload["write_tools_enabled"] is False
+    assert payload["active_reservations"][0]["reservation_id"] == accepted.reservation_id
+
+
+def test_release_api_returns_200_with_timestamp_and_redacted_audit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broker = _broker(tmp_path)
+    accepted = broker.admit(_request("api-release-contract-001", estimated_peak_bytes=100))
+    audit = MagicMock()
+    monkeypatch.setattr(unsloth_studio_api, "get_audit_logger", lambda: audit)
+
+    with _client_for(broker) as client:
+        response = client.post(
+            f"/v1/integrations/unsloth/resources/reservations/{accepted.reservation_id}/release",
+            headers=_auth_headers(),
+        )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["state"] == "released"
+    assert payload["released_at"] is not None
+    logged_details = audit.log_event.call_args.args[1]
+    assert "idempotency_key" not in logged_details
+    assert "provenance_fingerprint" not in logged_details
+
+
+def test_release_api_returns_404_for_an_unknown_reservation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broker = _broker(tmp_path)
+    audit = MagicMock()
+    monkeypatch.setattr(unsloth_studio_api, "get_audit_logger", lambda: audit)
+
+    with _client_for(broker) as client:
+        response = client.post(
+            "/v1/integrations/unsloth/resources/reservations/00000000-0000-0000-0000-000000000000/release",
+            headers=_auth_headers(),
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Unsloth resource reservation was not found."
+    audit.log_event.assert_not_called()

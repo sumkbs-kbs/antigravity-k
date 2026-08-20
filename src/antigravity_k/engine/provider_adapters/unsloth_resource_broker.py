@@ -21,6 +21,8 @@ from antigravity_k.engine.provider_adapters.unsloth_resource_contracts import (
     UnslothResourceStatus,
 )
 from antigravity_k.engine.provider_adapters.unsloth_resource_repository import (
+    DeviceOccupancy,
+    ExistingAdmission,
     PendingReservation,
     StoredAdmission,
     UnslothResourceRepository,
@@ -31,9 +33,24 @@ class UnslothMemoryProbe(Protocol):
     def snapshot(self) -> UnslothMemorySnapshot: ...
 
 
+class SystemVirtualMemory(Protocol):
+    @property
+    def total(self) -> int: ...
+
+    @property
+    def available(self) -> int: ...
+
+
+class SystemMemoryProvider(Protocol):
+    def virtual_memory(self) -> SystemVirtualMemory: ...
+
+
+SYSTEM_MEMORY_PROVIDER: Final[SystemMemoryProvider] = psutil
+
+
 class SystemMemoryProbe:
     def snapshot(self) -> UnslothMemorySnapshot:
-        memory = psutil.virtual_memory()
+        memory = SYSTEM_MEMORY_PROVIDER.virtual_memory()
         return UnslothMemorySnapshot(total_bytes=memory.total, available_bytes=memory.available)
 
 
@@ -73,41 +90,44 @@ class UnslothResourceBroker:
     def admit(self, request: UnslothAdmissionRequest) -> UnslothAdmissionDecision:
         context = self._admission_context(request)
         with self._repository.admission() as transaction:
-            existing = transaction.find_idempotency_key(request.idempotency_key)
-            if existing is not None:
-                return self._existing_decision(existing, context)
-            if transaction.active_count(request.device_id) >= self._policy.max_active_per_device:
-                return self._decision(
-                    context,
-                    DecisionOutcome(code=UnslothAdmissionCode.DEVICE_BUSY),
-                )
-            if context.projected_available < context.required_headroom:
-                return self._decision(
-                    context,
-                    DecisionOutcome(code=UnslothAdmissionCode.INSUFFICIENT_MEMORY),
-                )
+            inspection = transaction.inspect(request.idempotency_key, request.device_id)
+            match inspection:
+                case ExistingAdmission(stored=existing):
+                    return self._existing_decision(existing, context)
+                case DeviceOccupancy(active_count=active_count):
+                    if active_count >= self._policy.max_active_per_device:
+                        return self._decision(
+                            context,
+                            DecisionOutcome(code=UnslothAdmissionCode.DEVICE_BUSY),
+                        )
+                    if context.projected_available < context.required_headroom:
+                        return self._decision(
+                            context,
+                            DecisionOutcome(code=UnslothAdmissionCode.INSUFFICIENT_MEMORY),
+                        )
 
-            reservation_id = ReservationId(str(uuid.uuid4()))
-            transaction.insert(
-                PendingReservation(
-                    reservation_id,
-                    request.idempotency_key,
-                    context.request_fingerprint,
-                    request.operation,
-                    request.device_id,
-                    request.estimated_peak_bytes,
-                    context.provenance_fingerprint,
-                    datetime.now(UTC).isoformat(),
-                ),
-            )
-            return self._decision(
-                context,
-                DecisionOutcome(
-                    code=UnslothAdmissionCode.ACCEPTED,
-                    reservation_id=reservation_id,
-                    reservation_state=UnslothReservationState.ACTIVE,
-                ),
-            )
+                    reservation_id = ReservationId(str(uuid.uuid4()))
+                    transaction.insert(
+                        PendingReservation(
+                            reservation_id,
+                            request.idempotency_key,
+                            context.request_fingerprint,
+                            request.operation,
+                            request.device_id,
+                            request.estimated_peak_bytes,
+                            context.provenance_fingerprint,
+                            datetime.now(UTC).isoformat(),
+                        ),
+                    )
+                    return self._decision(
+                        context,
+                        DecisionOutcome(
+                            code=UnslothAdmissionCode.ACCEPTED,
+                            reservation_id=reservation_id,
+                            reservation_state=UnslothReservationState.ACTIVE,
+                        ),
+                    )
+            assert_never(inspection)
 
     def status(self) -> UnslothResourceStatus:
         return UnslothResourceStatus(
@@ -148,21 +168,28 @@ class UnslothResourceBroker:
             )
         match existing.state:
             case UnslothReservationState.ACTIVE:
-                code = UnslothAdmissionCode.REPLAYED
+                return self._decision(
+                    context,
+                    DecisionOutcome(
+                        code=UnslothAdmissionCode.REPLAYED,
+                        reservation_id=existing.reservation_id,
+                        reservation_state=existing.state,
+                        resource_job_id=existing.resource_job_id,
+                        replayed=True,
+                    ),
+                )
             case UnslothReservationState.RELEASED:
-                code = UnslothAdmissionCode.RESERVATION_RELEASED
-            case unreachable:
-                assert_never(unreachable)
-        return self._decision(
-            context,
-            DecisionOutcome(
-                code=code,
-                reservation_id=existing.reservation_id,
-                reservation_state=existing.state,
-                resource_job_id=existing.resource_job_id,
-                replayed=True,
-            ),
-        )
+                return self._decision(
+                    context,
+                    DecisionOutcome(
+                        code=UnslothAdmissionCode.RESERVATION_RELEASED,
+                        reservation_id=existing.reservation_id,
+                        reservation_state=existing.state,
+                        resource_job_id=existing.resource_job_id,
+                        replayed=True,
+                    ),
+                )
+        assert_never(existing.state)
 
     @staticmethod
     def _decision(
@@ -171,16 +198,23 @@ class UnslothResourceBroker:
     ) -> UnslothAdmissionDecision:
         match outcome.code:
             case UnslothAdmissionCode.ACCEPTED | UnslothAdmissionCode.REPLAYED:
-                allowed = True
+                return UnslothResourceBroker._build_decision(context, outcome, allowed=True)
             case (
                 UnslothAdmissionCode.DEVICE_BUSY
                 | UnslothAdmissionCode.INSUFFICIENT_MEMORY
                 | UnslothAdmissionCode.IDEMPOTENCY_CONFLICT
                 | UnslothAdmissionCode.RESERVATION_RELEASED
             ):
-                allowed = False
-            case unreachable:
-                assert_never(unreachable)
+                return UnslothResourceBroker._build_decision(context, outcome, allowed=False)
+        assert_never(outcome.code)
+
+    @staticmethod
+    def _build_decision(
+        context: AdmissionContext,
+        outcome: DecisionOutcome,
+        *,
+        allowed: bool,
+    ) -> UnslothAdmissionDecision:
         return UnslothAdmissionDecision(
             allowed=allowed,
             code=outcome.code,
