@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { loadHistory, saveHistory, buildEntry, HISTORY_KEY, MAX_HISTORY } from '../PublishTab';
-import type { PublishResult } from '../types';
+import type { PublishHistoryEntry, PublishResult } from '../types';
 
 // ─── Utility Functions ───────────────────────────────────────────
 
@@ -44,14 +44,20 @@ describe('saveHistory', () => {
   });
 
   it('saves entries to localStorage', () => {
-    const entries = [{ id: 'pub_1', skill_name: 'test' }];
+    const entries: PublishHistoryEntry[] = [{
+      id: 'pub_1', skill_name: 'test', action: '', success: true,
+      timestamp: '2026-08-20T09:00:00Z', dry_run: false, summary: 'saved', errors: [], warnings: [],
+    }];
     saveHistory(entries);
     const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
     expect(saved).toEqual(entries);
   });
 
   it('truncates to MAX_HISTORY', () => {
-    const entries = Array.from({ length: 100 }, (_, i) => ({ id: `pub_${i}`, skill_name: `skill-${i}` }));
+    const entries: PublishHistoryEntry[] = Array.from({ length: 100 }, (_, i) => ({
+      id: `pub_${i}`, skill_name: `skill-${i}`, action: '', success: true,
+      timestamp: '2026-08-20T09:00:00Z', dry_run: false, summary: 'saved', errors: [], warnings: [],
+    }));
     saveHistory(entries);
     const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
     expect(saved.length).toBe(MAX_HISTORY);

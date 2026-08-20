@@ -6,16 +6,17 @@
  * execution timeline, and system metrics.
  */
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AgentMonitorPanel from '../components/Agent/AgentMonitorPanel';
 import { useAgentMonitorStore } from '../stores/agentMonitorStore';
 import { useEventWebSocket } from '../hooks/useEventWebSocket';
 import { useUiStore } from '../stores/uiStore';
 import { checkHealth, fetchSystemMetrics } from '../api/client';
+import { TaskExecutionPanel } from '../features/task-execution/TaskExecutionPanel';
 
 const AgentPage: React.FC = () => {
   const {
-    setAgentStatus, addLog, addTask, updateTaskProgress,
+    setAgentStatus, addLog,
     addTimelineEvent, setActiveTool, updateMetrics, setUptime,
   } = useAgentMonitorStore();
   const { setSystemStatus } = useUiStore();
@@ -90,8 +91,9 @@ const AgentPage: React.FC = () => {
 
         // Update uptime
         setUptime(Math.floor((Date.now() - startTime) / 1000));
-      } catch {
-        // silent
+      } catch (caught: unknown) {
+        if (!(caught instanceof Error)) throw caught;
+        setSystemStatus({ healthy: false, backends: {} });
       }
     };
 
@@ -105,7 +107,7 @@ const AgentPage: React.FC = () => {
       clearInterval(interval);
       clearInterval(uptimeInterval);
     };
-  }, []);
+  }, [setSystemStatus, startTime, setUptime, updateMetrics]);
 
   return (
     <div className="page-container full-height-page agent-page">
@@ -117,6 +119,7 @@ const AgentPage: React.FC = () => {
         </div>
       </div>
       <AgentMonitorPanel />
+      <TaskExecutionPanel />
     </div>
   );
 };

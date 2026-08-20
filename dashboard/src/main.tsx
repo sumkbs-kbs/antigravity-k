@@ -4,6 +4,30 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './styles/index.css';
 
+class DashboardBootstrapError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DashboardBootstrapError';
+  }
+}
+
+function isMermaidRuntime(value: unknown): value is Readonly<{
+  initialize: (options: Readonly<{ startOnLoad: boolean; theme: string }>) => void;
+}> {
+  return typeof value === 'object'
+    && value !== null
+    && 'initialize' in value
+    && typeof value.initialize === 'function';
+}
+
+const enableReactDevTools = import.meta.env.DEV
+  && import.meta.env.VITE_DISABLE_REACT_DEVTOOLS !== '1';
+
+if (enableReactDevTools) {
+  void import('react-grab');
+  void import('react-scan');
+}
+
 // ─── React Query Client ────────────────────────────────────────────
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,8 +40,9 @@ const queryClient = new QueryClient({
 });
 
 // ─── Mermaid Init ───────────────────────────────────────────────────
-if (typeof window !== 'undefined' && (window as any).mermaid) {
-  (window as any).mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+const mermaidRuntime: unknown = window.mermaid;
+if (isMermaidRuntime(mermaidRuntime)) {
+  mermaidRuntime.initialize({ startOnLoad: false, theme: 'dark' });
 }
 
 // ─── Global Error Handler ──────────────────────────────────────────
@@ -26,12 +51,15 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 window.addEventListener('error', (event) => {
-  if (event.target && (event.target as HTMLElement).tagName === 'SCRIPT') return;
+  if (event.target instanceof HTMLScriptElement) return;
   console.error('[Global Error]', event.error || event.message);
 });
 
 // ─── Render ────────────────────────────────────────────────────────
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root');
+if (rootElement === null) throw new DashboardBootstrapError('Dashboard root element is missing.');
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <App />
