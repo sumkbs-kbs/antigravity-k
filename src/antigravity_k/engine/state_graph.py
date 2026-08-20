@@ -104,6 +104,7 @@ class StateContext:
     current_state: AgentState = AgentState.INIT
     state_history: list[dict[str, Any]] = field(default_factory=list)
     checkpoints: list[dict[str, Any]] = field(default_factory=list)
+    _routing_log: list[dict[str, Any]] = field(default_factory=list)
 
     # 에러 복구 루프 추적
     retry_count: int = 0

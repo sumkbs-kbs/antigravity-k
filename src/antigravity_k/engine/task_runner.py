@@ -269,6 +269,7 @@ class BackgroundTaskRunner:
         if not isinstance(task.context.get("benchmark_case_id"), str):
             return None
         raw_keywords = task.context.get("expected_keywords", ())
+        expected_keywords: tuple[str, ...]
         if isinstance(raw_keywords, str):
             expected_keywords = (raw_keywords,)
         elif isinstance(raw_keywords, (list, tuple, set, frozenset)):

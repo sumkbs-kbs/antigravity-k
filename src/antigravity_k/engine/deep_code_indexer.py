@@ -93,10 +93,10 @@ class DeepCodeIndexer:
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 params = []
                 for a in node.args.args:
-                    ann = ast.unparse(a.annotation) if getattr(a, "annotation", None) else "Any"
+                    ann = ast.unparse(a.annotation) if a.annotation is not None else "Any"
                     params.append(f"{a.arg}: {ann}")
 
-                ret = ast.unparse(node.returns) if getattr(node, "returns", None) else ""
+                ret = ast.unparse(node.returns) if node.returns is not None else ""
                 doc = ast.get_docstring(node) or ""
 
                 sigs.append(

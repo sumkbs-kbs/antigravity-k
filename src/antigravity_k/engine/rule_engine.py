@@ -17,7 +17,6 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -124,13 +123,29 @@ class RuleCondition:
                 return actual not in expected
             return False
         elif op == RuleOperator.GREATER_THAN:
-            return float(actual) > float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) > float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.GREATER_EQUAL:
-            return float(actual) >= float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) >= float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.LESS_THAN:
-            return float(actual) < float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) < float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.LESS_EQUAL:
-            return float(actual) <= float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) <= float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.IS_TRUE:
             return bool(actual) is True
         elif op == RuleOperator.IS_FALSE:
@@ -150,7 +165,9 @@ class RuleCondition:
             return True
         elif op == RuleOperator.STARTS_WITH:
             if isinstance(actual, str) and isinstance(expected, str):
-                return actual.startswith(expected) if self.case_sensitive else actual.lower().startswith(expected.lower())
+                return (
+                    actual.startswith(expected) if self.case_sensitive else actual.lower().startswith(expected.lower())
+                )
             return False
         elif op == RuleOperator.ENDS_WITH:
             if isinstance(actual, str) and isinstance(expected, str):
@@ -287,8 +304,11 @@ class RuleEngine:
                 name="max_mode_large_scale",
                 description="대규모/아키텍처/마이그레이션/리팩토링 키워드 포함",
                 conditions=[
-                    RuleCondition("user_message", RuleOperator.REGEX_MATCH,
-                                  r"(대규모|전면|아키텍처|마이그레이션|refactor|architecture|migrate|redesign|리팩토링|구조개선|전체\s*재작성|full\s*rewrite)"),
+                    RuleCondition(
+                        "user_message",
+                        RuleOperator.REGEX_MATCH,
+                        r"(대규모|전면|아키텍처|마이그레이션|refactor|architecture|migrate|redesign|리팩토링|구조개선|전체\s*재작성|full\s*rewrite)",
+                    ),
                 ],
                 target_state=AgentState.MAX_EXECUTE,
                 priority=35,
@@ -365,6 +385,7 @@ class RuleEngine:
             content = path.read_text(encoding="utf-8")
             if path.suffix in (".yaml", ".yml"):
                 import yaml
+
                 data = yaml.safe_load(content)
             else:
                 data = json.loads(content)
@@ -391,9 +412,10 @@ class RuleEngine:
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.suffix in (".yaml", ".yml"):
                 import yaml
-                path.write_text(yaml.dump({"rules": [r.to_dict() for r in self._rules]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+                path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
             else:
-                path.write_text(json.dumps({"rules": [r.to_dict() for r in self._rules]}, ensure_ascii=False, indent=2), encoding="utf-8")
+                path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info(f"[RuleEngine] Saved {len(self._rules)} rules to {path}")
         except Exception as e:
             logger.exception(f"[RuleEngine] Failed to save rules to {path}: {e}")
@@ -440,18 +462,20 @@ class RuleEngine:
             decision_record = {
                 "timestamp": time.time(),
                 "rule_name": rule.name,
-                "matched": rule.matches(ctx),
+                "matched": matched,
                 "target_state": rule.target_state.value,
                 "priority": rule.priority,
-                "evaluation_time_ms": round((time.time() - start_time) * 1000, 2),
+                "evaluation_time_ms": decision_time_ms,
             }
             self._decision_log.append(decision_record)
 
-            if rule.matches(ctx):
+            if matched:
                 logger.info(
                     "[RuleEngine] Rule '%s' matched (priority=%s) → %s (%.2fms)",
-                    rule.name, rule.priority, rule.target_state.value,
-                    decision_time_ms
+                    rule.name,
+                    rule.priority,
+                    rule.target_state.value,
+                    decision_time_ms,
                 )
                 return rule.target_state
 
@@ -513,6 +537,7 @@ def route_decision_deterministic(ctx: StateContext) -> AgentState:
     """
     # 파이프라인 명시적 단계 합성 (RuleEngine 평가 전 실행)
     from antigravity_k.engine.orchestrator_handlers import _synthesize_explicit_pipeline
+
     _synthesize_explicit_pipeline(ctx)
     engine = get_rule_engine()
     return engine.evaluate(ctx)
@@ -523,10 +548,10 @@ def route_decision_with_log(ctx: StateContext) -> AgentState:
     engine = get_rule_engine()
     result = engine.evaluate(ctx)
     # 마지막 결정 로그를 컨텍스트에 저장 (디버깅용)
-    if not hasattr(ctx, "_routing_log"):
-        ctx._routing_log = []
-    ctx._routing_log.append({
-        "state": "ROUTE",
-        "target": engine.get_decision_log()[-1] if engine.get_decision_log() else None,
-    })
+    ctx._routing_log.append(
+        {
+            "state": "ROUTE",
+            "target": engine.get_decision_log()[-1] if engine.get_decision_log() else None,
+        }
+    )
     return result

@@ -9,7 +9,7 @@ import logging
 import os
 from importlib import import_module
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import yaml
 
@@ -24,6 +24,7 @@ from antigravity_k.engine.memory_provider import (
     BuiltinMemoryProvider,
     EpisodicMemoryProvider,
     MemoryManager,
+    MemoryProvider,
     WorkingMemoryBuffer,
 )
 from antigravity_k.engine.mode_manager import ModeManager
@@ -112,7 +113,7 @@ class EngineContext:
         self.project_root = project_root or os.getcwd()
 
         # Load Config
-        self.config = {}
+        self.config: dict[str, Any] = {}
         config_path = default_config_path(Path(self.project_root))
         if os.path.exists(config_path):
             with open(config_path) as f:
@@ -169,6 +170,7 @@ class EngineContext:
 
         self.memory_manager = memory_manager if memory_manager is not None else MemoryManager()
         self.memory_manager.bind_project_root(self.project_root)
+        self.global_memory: MemoryProvider | None
         if memory_manager is None:
             self.memory_manager.add_provider(BuiltinMemoryProvider(self.session_manager))
             episodic_dir = project_memory_dir(self.project_root) / "episodic"

@@ -482,7 +482,7 @@ def _custom_openapi():
     return app.openapi_schema
 
 
-app.openapi = _custom_openapi  # type: ignore[assignment]
+setattr(app, "openapi", _custom_openapi)
 
 # Prometheus metrics endpoint (public — Prometheus scrapers need access).
 # We expose a plain GET route at exactly /metrics (the ASGI mount from

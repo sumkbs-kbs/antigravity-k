@@ -403,7 +403,7 @@ class OrchestratorAgent:
         try:
             from antigravity_k.engine.tool_masker import ActiveToolMasker
 
-            masker = ActiveToolMasker(mode=getattr(self.mode_manager, "current_mode", None))
+            masker = ActiveToolMasker(mode=self.mode_manager.current_mode)
             schemas_to_render = masker.filter_tools(raw_schemas)
         except Exception:
             schemas_to_render = raw_schemas

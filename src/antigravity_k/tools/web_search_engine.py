@@ -378,7 +378,7 @@ class WebSearchEngine:
         results: list[SearchResult] = []
 
         try:
-            params = {
+            params: dict[str, str | int] = {
                 "q": query,
                 "format": "json",
                 "language": "ko-KR",

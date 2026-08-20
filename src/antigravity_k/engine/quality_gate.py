@@ -746,8 +746,8 @@ class QualityGate:
         )
 
         if is_plan_context:
-            found_sections = []
-            missing_sections = []
+            found_sections: list[str] = []
+            missing_sections: list[str] = []
             for pattern, name in plan_sections:
                 if re.search(pattern, output, re.IGNORECASE | re.MULTILINE):
                     found_sections.append(name)

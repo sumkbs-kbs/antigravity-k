@@ -9,13 +9,17 @@ LLM(qwen3.6:latest)이 상호작용(클릭, 스크롤, 추출)을 판단합니�
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+async_playwright: Callable[[], Any] | None
 try:
-    from playwright.async_api import async_playwright
+    from playwright.async_api import async_playwright as _async_playwright
 except ImportError:
     async_playwright = None
+else:
+    async_playwright = _async_playwright
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, Page

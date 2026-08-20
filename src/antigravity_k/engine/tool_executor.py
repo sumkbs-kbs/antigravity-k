@@ -41,7 +41,7 @@ def _result_indicates_failure(result) -> bool:
     if stripped.startswith("Error") or stripped.startswith("❌ ["):
         return True
     exit_match = re.search(r"\[exit_code=(\d+)\]", stripped)
-    return bool(exit_match) and exit_match.group(1) != "0"
+    return exit_match is not None and exit_match.group(1) != "0"
 
 
 class ToolExecutor:

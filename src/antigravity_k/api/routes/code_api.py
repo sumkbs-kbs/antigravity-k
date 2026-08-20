@@ -73,7 +73,7 @@ async def inline_suggest(request: Request):
                     max_tokens=2048,
                     temperature=0.3,
                 )
-                suggested = result if isinstance(result, str) else result.get("content", "") or result.get("text", "")
+                suggested = result
             except Exception:
                 logger.exception("Model generation failed, using fallback")
                 suggested = _fallback_suggestion(original_code, instruction, cursor_line)

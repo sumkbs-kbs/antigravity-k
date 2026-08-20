@@ -1,11 +1,16 @@
 """Memory Service module."""
 
+from __future__ import annotations
+
 import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +39,11 @@ class MemoryService:
             db_path = str(base_dir / "memory.db")
 
         self.db_path = db_path
-        self._vector_store = None  # 지연 초기화
+        self._vector_store: VectorStore | None = None  # 지연 초기화
         self._init_db()
 
     @property
-    def vector_store(self) -> Any | None:
+    def vector_store(self) -> VectorStore | None:
         """VectorStore를 지연 로드합니다."""
         if self._vector_store is None:
             try:

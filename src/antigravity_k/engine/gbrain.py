@@ -19,10 +19,13 @@ _chroma_available = False
 _chroma_import_error: BaseException | None = None
 
 try:
-    import chromadb
-    from chromadb.api.client import SharedSystemClient
-    from chromadb.config import Settings
+    import chromadb as _chromadb
+    from chromadb.api.client import SharedSystemClient as _SharedSystemClient
+    from chromadb.config import Settings as _Settings
 
+    chromadb = _chromadb
+    SharedSystemClient = _SharedSystemClient
+    Settings = _Settings
     _chroma_available = True
 except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존성 로드 실패  # noqa: BLE001
     _chroma_import_error = _chroma_exc

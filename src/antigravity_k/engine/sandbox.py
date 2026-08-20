@@ -203,11 +203,7 @@ class SandboxRunner:
 
         # (deny default)가 네트워크도 포함해 전부 차단하므로, 허용 모드에서는
         # 명시적 allow가 없으면 실제로는 항상 차단된다
-        network_policy = (
-            "(allow network*)\n;; network allowed"
-            if allow_net
-            else "(deny network*)\n;; network blocked"
-        )
+        network_policy = "(allow network*)\n;; network allowed" if allow_net else "(deny network*)\n;; network blocked"
 
         return f"""(version 1)
 (deny default)
@@ -405,7 +401,7 @@ class SandboxRunner:
             _ = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            _ = process.kill()
+            process.kill()
             _ = process.wait()
         finally:
             for thread in threads:

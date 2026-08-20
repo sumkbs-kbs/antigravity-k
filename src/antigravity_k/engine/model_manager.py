@@ -1322,12 +1322,12 @@ class ModelManager:
             else:
                 # Ollama Native API 스트리밍 파싱 (줄 단위 JSON)
                 with safe_urlopen(req, timeout=300) as response:
-                    for line in response:
-                        line = line.decode("utf-8").strip()
-                        if not line:
+                    for raw_line in response:
+                        decoded_line = raw_line.decode("utf-8").strip()
+                        if not decoded_line:
                             continue
                         try:
-                            chunk = json.loads(line)
+                            chunk = json.loads(decoded_line)
                             if "message" in chunk:
                                 msg = chunk["message"]
                                 if "content" in msg and msg["content"]:

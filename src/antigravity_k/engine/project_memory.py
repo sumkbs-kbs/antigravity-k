@@ -112,10 +112,10 @@ def extract_project_memory_facts(
     if match is None:
         return {}
     raw_key = re.sub(r"\s+", "", match.group("key").lower())
-    key = _KEYS.get(raw_key)
-    if key is None:
+    canonical_key = _KEYS.get(raw_key)
+    if canonical_key is None:
         return {}
-    return {f"decision:{key}": match.group("value").lower()}
+    return {f"decision:{canonical_key}": match.group("value").lower()}
 
 
 def parse_project_memory_facts(

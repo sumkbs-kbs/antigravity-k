@@ -12,10 +12,13 @@ _chroma_available = False
 _chroma_import_error: BaseException | None = None
 
 try:
-    import chromadb
-    from chromadb.api.client import SharedSystemClient
-    from chromadb.config import Settings
+    import chromadb as _chromadb
+    from chromadb.api.client import SharedSystemClient as _SharedSystemClient
+    from chromadb.config import Settings as _Settings
 
+    chromadb = _chromadb
+    SharedSystemClient = _SharedSystemClient
+    Settings = _Settings
     _chroma_available = True
 except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존성 로드 실패  # noqa: BLE001
     _chroma_import_error = _chroma_exc
@@ -130,7 +133,7 @@ class VectorStore:
                 else:
                     safe_meta[k] = str(v)
             metadatas.append(safe_meta)
-        self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[arg-type]
+        self.collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
         logger.info("Upserted %s chunks into ChromaDB.", len(chunks))
 
     def store_embedding(self, source_table: str, source_id: int, text: str) -> bool:
