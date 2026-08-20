@@ -1,6 +1,8 @@
 import json
+from collections.abc import Mapping
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from urllib.error import URLError
 
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
@@ -12,6 +14,8 @@ from antigravity_k.engine.provider_capabilities import (
     remediation_hint,
 )
 
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+
 
 class _Registry:
     def __init__(self, providers: dict[str, dict[str, str]] | None = None) -> None:
@@ -21,7 +25,7 @@ class _Registry:
         return self._providers.get(provider, {})
 
 
-def _response(payload: dict[str, object]) -> MagicMock:
+def _response(payload: Mapping[str, JsonValue]) -> MagicMock:
     response = MagicMock()
     response.read.return_value = json.dumps(payload).encode("utf-8")
     context = MagicMock()
@@ -112,6 +116,106 @@ def test_lmstudio_probe_marks_unavailable_when_no_model_is_loaded():
 
     assert capability["runtime_status"] == "unavailable"
     assert capability.get("reported_model_ids") == []
+
+
+def test_unsloth_probe_is_optional_when_endpoint_is_not_configured(monkeypatch):
+    # Given
+    monkeypatch.delenv("UNSLOTH_API_BASE", raising=False)
+    profile = ModelProfile(name="unsloth/qwen", repo="qwen3.6:latest", role="reasoning", provider="unsloth")
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    # When
+    with patch("antigravity_k.engine.provider_capabilities.safe_urlopen") as urlopen:
+        capability = probe.observe(profile)
+
+    # Then
+    urlopen.assert_not_called()
+    assert capability["runtime_status"] == "unavailable"
+    assert capability["native_tool_calling"] == "unsupported"
+    assert "not configured" in capability["detail"]
+
+
+def test_unsloth_probe_reports_configured_server_failure():
+    # Given
+    profile = ModelProfile(
+        name="unsloth/qwen",
+        repo="qwen3.6:latest",
+        role="reasoning",
+        provider="unsloth",
+        api_base="http://127.0.0.1:18000/v1",
+    )
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    # When
+    with patch("antigravity_k.engine.provider_capabilities.safe_urlopen", side_effect=URLError("connection refused")):
+        capability = probe.observe(profile)
+
+    # Then
+    assert capability["runtime_status"] == "unavailable"
+    assert capability["native_tool_calling"] == "unsupported"
+    assert "connection refused" in capability["detail"]
+
+
+def test_unsloth_probe_rejects_non_loopback_endpoint_without_request():
+    # Given
+    profile = ModelProfile(
+        name="unsloth/qwen",
+        repo="qwen3.6:latest",
+        role="reasoning",
+        provider="unsloth",
+        api_base="https://models.example.com/v1",
+    )
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    # When
+    with patch("antigravity_k.engine.provider_capabilities.safe_urlopen") as urlopen:
+        capability = probe.observe(profile)
+
+    # Then
+    urlopen.assert_not_called()
+    assert capability["runtime_status"] == "unavailable"
+    assert "loopback" in capability["detail"]
+
+
+def test_unsloth_probe_reports_runtime_metadata_and_disables_server_tools():
+    # Given
+    profile = ModelProfile(
+        name="unsloth/qwen",
+        repo="qwen3.6:latest",
+        role="reasoning",
+        provider="unsloth",
+        api_base="http://127.0.0.1:18000/v1",
+    )
+    probe = LocalProviderCapabilityProbe(_Registry())
+    payload: dict[str, JsonValue] = {
+        "data": [
+            {
+                "id": "qwen3.6:latest",
+                "backend": "mlx",
+                "device": "mps",
+                "quantization": "Q4_K_M",
+                "context_length": 32768,
+                "capabilities": ["tools"],
+            },
+        ],
+    }
+
+    # When
+    with patch(
+        "antigravity_k.engine.provider_capabilities.safe_urlopen",
+        return_value=_response(payload),
+    ) as urlopen:
+        capability = probe.observe(profile)
+
+    # Then
+    assert urlopen.call_args.args[0].full_url == "http://127.0.0.1:18000/v1/models"
+    assert capability["runtime_status"] == "available"
+    assert capability["native_tool_calling"] == "unsupported"
+    assert capability.get("reported_backend") == "mlx"
+    assert capability.get("reported_device") == "mps"
+    assert capability.get("reported_quantization") == "Q4_K_M"
+    assert capability.get("reported_context_length") == 32768
+    assert "disabled" in capability["detail"]
 
 
 def test_mlx_probe_marks_native_tools_unsupported():

@@ -26,6 +26,18 @@ def _loaded_lmstudio_model():
     )
 
 
+def _loaded_unsloth_model():
+    return SimpleNamespace(
+        profile=SimpleNamespace(
+            name="unsloth/qwen3.6",
+            repo="qwen3.6:latest",
+            provider="unsloth",
+            api_base="http://127.0.0.1:18000/v1",
+            api_key_env="UNSLOTH_API_KEY",
+        ),
+    )
+
+
 def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
     response = MagicMock()
     response.__iter__.return_value = iter(
@@ -250,6 +262,42 @@ def test_lmstudio_provider_allows_a_local_server_without_an_api_token(monkeypatc
 
 def test_lmstudio_profile_selects_the_local_openai_provider():
     assert isinstance(get_inference_provider(_loaded_lmstudio_model()), LMStudioProvider)
+
+
+def test_unsloth_profile_selects_read_only_local_provider(monkeypatch):
+    # Given
+    response = MagicMock()
+    response.__iter__.return_value = iter(
+        [b'data: {"choices":[{"delta":{"content":"Unsloth OK"}}]}\n', b"data: [DONE]\n"],
+    )
+    request_context = MagicMock()
+    request_context.__enter__.return_value = response
+    request_context.__exit__.return_value = False
+    monkeypatch.setenv("UNSLOTH_API_KEY", "scoped-test-token")
+
+    # When
+    provider = get_inference_provider(_loaded_unsloth_model())
+    with patch(
+        "antigravity_k.engine.provider_adapters.inference_providers.safe_urlopen",
+        return_value=request_context,
+    ) as urlopen:
+        output = "".join(
+            provider.stream_generate(
+                _loaded_unsloth_model(),
+                "Hello",
+                tools=[{"type": "function", "function": {"name": "run_python"}}],
+            ),
+        )
+
+    # Then
+    request = urlopen.call_args.args[0]
+    payload = json.loads(request.data.decode())
+    assert type(provider).__name__ == "UnslothProvider"
+    assert request.full_url == "http://127.0.0.1:18000/v1/chat/completions"
+    assert request.get_header("Authorization") == "Bearer scoped-test-token"
+    assert "tools" not in payload
+    assert "tool_choice" not in payload
+    assert output == "Unsloth OK"
 
 
 def test_ollama_native_tool_rejection_falls_back_to_xml_prompt():

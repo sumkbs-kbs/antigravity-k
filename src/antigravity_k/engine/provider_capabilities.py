@@ -6,9 +6,16 @@ import os
 import time
 import urllib.request
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, ClassVar, Literal, NotRequired, Protocol, TypedDict
 from urllib.error import HTTPError, URLError
 
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from antigravity_k.engine.provider_adapters.unsloth_provider import (
+    ProviderConfigValue,
+    UnslothEndpointError,
+    resolve_unsloth_settings,
+)
 from antigravity_k.tools.egress_policy import EgressPolicyError, safe_urlopen
 
 if TYPE_CHECKING:
@@ -30,10 +37,32 @@ class ProviderCapability(TypedDict):
     reported_capabilities: list[str]
     reported_model_count: int
     reported_model_ids: NotRequired[list[str]]
+    reported_backend: NotRequired[str]
+    reported_device: NotRequired[str]
+    reported_quantization: NotRequired[str]
+    reported_context_length: NotRequired[int]
 
 
 class ProviderConfigRegistry(Protocol):
-    def get_provider_config(self, provider: str) -> Mapping[str, object]: ...
+    def get_provider_config(self, provider: str) -> Mapping[str, ProviderConfigValue]: ...
+
+
+class _UnslothModelMetadata(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
+
+    id: str
+    backend: str | None = None
+    device: str | None = None
+    quantization: str | None = None
+    context_length: int | None = None
+    capabilities: tuple[str, ...] = ()
+    supports_tools: bool | None = None
+
+
+class _UnslothModelList(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
+
+    data: tuple[_UnslothModelMetadata, ...] = ()
 
 
 def remediation_hint(profile: ModelProfile, capability: ProviderCapability) -> str:
@@ -59,6 +88,14 @@ def remediation_hint(profile: ModelProfile, capability: ProviderCapability) -> s
             if "not loaded" in detail or "no loaded models" in detail:
                 return "LM Studio에서 모델을 로드한 뒤 다시 진단"
             return "LM Studio Local Server를 127.0.0.1:1234/v1에서 시작"
+        case "unsloth":
+            if "not configured" in detail:
+                return "UNSLOTH_API_BASE를 loopback OpenAI API 주소로 설정"
+            if "401" in detail or "403" in detail:
+                return "Unsloth API 토큰을 UNSLOTH_API_KEY에 추가"
+            if "loopback" in detail:
+                return "Unsloth API를 localhost에 바인딩하고 UNSLOTH_API_BASE를 갱신"
+            return "별도 Unsloth API 프로세스를 시작한 뒤 다시 진단"
         case "mlx":
             return "uv sync --extra mlx"
         case _:
@@ -86,6 +123,8 @@ class LocalProviderCapabilityProbe:
                 capability = self._probe_ollama(profile)
             case "lmstudio" | "lm_studio":
                 capability = self._probe_lmstudio(profile)
+            case "unsloth":
+                capability = self._probe_unsloth(profile)
             case "mlx":
                 capability = self._probe_mlx(profile)
             case _:
@@ -198,6 +237,83 @@ class LocalProviderCapabilityProbe:
             "mlx_lm:direct",
             detail,
         )
+
+    def _probe_unsloth(self, profile: ModelProfile) -> ProviderCapability:
+        provider_config = self._registry.get_provider_config(profile.backend)
+        try:
+            api_base, api_key = resolve_unsloth_settings(profile, provider_config)
+        except UnslothEndpointError as exc:
+            return self._capability(
+                profile,
+                "unsupported",
+                "unavailable",
+                "unsloth:/v1/models",
+                str(exc),
+            )
+
+        request = urllib.request.Request(f"{api_base}/models", headers=self._headers(api_key))
+        try:
+            payload = self._request_json(request)
+            model_list = _UnslothModelList.model_validate(payload)
+        except (
+            EgressPolicyError,
+            HTTPError,
+            URLError,
+            OSError,
+            TimeoutError,
+            json.JSONDecodeError,
+            ValidationError,
+        ) as exc:
+            return self._capability(
+                profile,
+                "unsupported",
+                "unavailable",
+                "unsloth:/v1/models",
+                f"{type(exc).__name__}: {exc}",
+            )
+
+        models = model_list.data
+        loaded_ids = [entry.id for entry in models]
+        identifiers = {profile.name, profile.repo}
+        matched = next((entry for entry in models if entry.id in identifiers), None)
+        if matched is None:
+            detail = (
+                "Unsloth server has no loaded models."
+                if not loaded_ids
+                else "Unsloth server reachable; configured model identifiers are not loaded."
+            )
+            return self._capability(
+                profile,
+                "unsupported",
+                "unavailable",
+                "unsloth:/v1/models",
+                detail,
+                reported_model_count=len(models),
+                reported_model_ids=loaded_ids[:5],
+            )
+
+        capabilities = [item.casefold() for item in matched.capabilities]
+        if matched.supports_tools is True and "tools" not in capabilities:
+            capabilities.append("tools")
+        capability = self._capability(
+            profile,
+            "unsupported",
+            "available",
+            "unsloth:/v1/models",
+            "Unsloth process reachable; server-side tools are disabled by Antigravity-K policy.",
+            capabilities,
+            reported_model_count=len(models),
+            reported_model_ids=loaded_ids[:5],
+        )
+        if matched.backend is not None:
+            capability["reported_backend"] = matched.backend
+        if matched.device is not None:
+            capability["reported_device"] = matched.device
+        if matched.quantization is not None:
+            capability["reported_quantization"] = matched.quantization
+        if matched.context_length is not None and matched.context_length > 0:
+            capability["reported_context_length"] = matched.context_length
+        return capability
 
     def _static_unknown(self, profile: ModelProfile) -> ProviderCapability:
         return self._capability(

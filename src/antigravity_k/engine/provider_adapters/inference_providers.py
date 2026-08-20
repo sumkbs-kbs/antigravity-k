@@ -229,6 +229,7 @@ class OpenRouterProvider(BaseInferenceProvider):
 
     requires_api_key = True
     includes_openrouter_attribution = True
+    forwards_native_tools = True
 
     def generate(self, loaded, prompt, **kwargs) -> str:
         """Generate.
@@ -310,7 +311,7 @@ class OpenRouterProvider(BaseInferenceProvider):
         }
 
         # 네이티브 function calling 지원 (P1-1): tools 스키마가 제공되면 전송
-        tools_schema = kwargs.get("tools")
+        tools_schema = kwargs.get("tools") if self.forwards_native_tools else None
         if tools_schema and isinstance(tools_schema, list):
             data["tools"] = tools_schema
             # tool_choice: "auto" (모델이 자동 판단)
@@ -1252,6 +1253,10 @@ def get_inference_provider(loaded) -> BaseInferenceProvider:
         return ZaiProvider()
     if provider in {"lmstudio", "lm_studio"}:
         return LMStudioProvider()
+    if provider == "unsloth":
+        from .unsloth_provider import UnslothProvider
+
+        return UnslothProvider()
     if provider == "mlx":
         return MlxProvider()
 

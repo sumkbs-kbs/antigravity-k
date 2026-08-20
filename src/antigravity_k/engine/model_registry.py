@@ -149,7 +149,7 @@ class ModelProfile:
     def is_local(self) -> bool:
         """Whether this profile is backed by a local runtime."""
         provider = (self.provider or "").lower()
-        if provider in {"ollama", "mlx", "llama.cpp", "llamacpp", "lmstudio", "lm_studio", "local"}:
+        if provider in {"ollama", "mlx", "llama.cpp", "llamacpp", "lmstudio", "lm_studio", "unsloth", "local"}:
             return True
         if provider:
             return False

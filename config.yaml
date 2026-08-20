@@ -324,6 +324,9 @@ providers:
     base_url: http://127.0.0.1:1234/v1
     api_key_env: LM_STUDIO_API_KEY
     description: LM Studio local OpenAI-compatible server
+  unsloth:
+    api_key_env: UNSLOTH_API_KEY
+    description: Optional loopback-only Unsloth OpenAI-compatible process
   mlx:
     description: Direct MLX runtime on Apple Silicon
   openrouter:
