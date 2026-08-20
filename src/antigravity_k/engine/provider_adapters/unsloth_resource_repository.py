@@ -44,7 +44,7 @@ _BIND_JOB_SQL: Final = (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RepositoryRowError(RuntimeError):
     column: str
     expected: str

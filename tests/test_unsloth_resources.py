@@ -25,6 +25,9 @@ from antigravity_k.engine.provider_adapters.unsloth_resource_contracts import (
     UnslothReservationState,
     UnslothResourceOperation,
 )
+from antigravity_k.engine.provider_adapters.unsloth_resource_repository import (
+    RepositoryRowError,
+)
 from tests.test_unsloth_resource_api import _auth_headers, _client_for
 
 
@@ -246,6 +249,23 @@ def test_existing_resource_database_is_migrated_for_remote_job_binding(tmp_path:
     assert bound is not None
     assert bound.resource_job_id == "job-from-legacy-db"
     assert broker.status().active_reservations[0].resource_job_id == "job-from-legacy-db"
+
+
+def test_corrupt_integer_row_raises_repository_row_error(tmp_path: Path) -> None:
+    database_path = tmp_path / "resources.sqlite3"
+    broker = _broker(tmp_path)
+    accepted = broker.admit(_request("corrupt-row-integer-001", estimated_peak_bytes=100))
+    with sqlite3.connect(database_path) as connection:
+        _ = connection.execute(
+            "UPDATE unsloth_resource_reservations SET estimated_peak_bytes = ? WHERE reservation_id = ?",
+            ("not-an-integer", accepted.reservation_id),
+        )
+
+    with pytest.raises(RepositoryRowError, match="Expected integer in SQLite column estimated_peak_bytes.") as raised:
+        _ = broker.status()
+
+    assert raised.value.column == "estimated_peak_bytes"
+    assert raised.value.expected == "integer"
 
 
 def test_provenance_rejects_mutable_or_unverifiable_artifacts() -> None:
