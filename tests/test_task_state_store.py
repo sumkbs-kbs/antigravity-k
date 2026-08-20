@@ -8,6 +8,7 @@ import pytest
 from antigravity_k.engine.task_runner import BackgroundTask, BackgroundTaskRunner, TaskStatus
 from antigravity_k.engine.task_state_store import (
     InvalidTaskTransitionError,
+    RunEventMetadata,
     TaskExecutionContext,
     TaskStateStore,
 )
@@ -54,6 +55,49 @@ def test_state_store_preserves_execution_event_order_without_changing_checkpoint
     assert [event["event_type"] for event in events] == ["state_transition", "state_checkpoint"]
     assert [event["sequence"] for event in events] == [1, 2]
     assert store.get_last_checkpoint("task-1") is None
+
+
+def test_state_store_migrates_and_replays_versioned_execution_events(tmp_path):
+    db_path = tmp_path / "legacy-events.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE task_execution_events ("
+            "sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, "
+            "event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL)",
+        )
+        connection.execute(
+            "INSERT INTO task_execution_events " "(task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)",
+            ("task-1", "legacy_event", '{"legacy":true}', "2026-01-01T00:00:00"),
+        )
+
+    store = TaskStateStore(str(db_path))
+    store.append_execution_event(
+        "task-1",
+        "tool.completed",
+        '{"ok":true}',
+        metadata=RunEventMetadata(
+            step_id="step-2",
+            agent_id="agent-child",
+            parent_id="agent-root",
+            tool_call_id="tool-7",
+            approval_id="approval-3",
+            resource_job_id="gpu-job-1",
+            correlation_id="request-9",
+        ),
+    )
+
+    events = store.list_execution_events("task-1")
+    assert events[0]["schema_version"] == 1
+    assert events[0]["step_id"] is None
+    assert events[1]["schema_version"] == 2
+    assert events[1]["step_id"] == "step-2"
+    assert events[1]["agent_id"] == "agent-child"
+    assert events[1]["parent_id"] == "agent-root"
+    assert events[1]["tool_call_id"] == "tool-7"
+    assert events[1]["approval_id"] == "approval-3"
+    assert events[1]["resource_job_id"] == "gpu-job-1"
+    assert events[1]["correlation_id"] == "request-9"
+    assert store.list_execution_events("task-1", after_sequence=1, limit=1) == [events[1]]
 
 
 def test_state_graph_records_bound_max_execution_events(tmp_path):

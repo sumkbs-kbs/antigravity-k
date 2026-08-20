@@ -39,8 +39,6 @@ from antigravity_k.api.models import (
 )
 from antigravity_k.config import config
 from antigravity_k.engine.audit_logger import get_audit_logger
-from antigravity_k.engine.benchmark_cases import get_suite
-from antigravity_k.engine.benchmark_harness import BenchmarkHarness
 from antigravity_k.engine.embeddings import EmbeddingEngine, get_embedding_engine
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.vault import VaultEngine
@@ -476,111 +474,6 @@ def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
     except (ValueError, KeyError) as e:
         logger.error("Search error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── BACKGROUND TASK API (Codex-style long-horizon tasks) ─────────
-@router.post("/api/tasks/submit")
-async def submit_background_task(
-    request: Request,
-    manager: ModelManager = Depends(get_model_manager),
-    vault: VaultEngine | None = Depends(get_vault_engine),
-):
-    """백그라운드 태스크 제출 — 장기 실행 작업을 비동기로 처리."""
-    body = await request.json()
-    prompt = body.get("prompt", "")
-    context = body.get("context", {})
-    model = body.get("model", "")
-    idempotency_key = body.get("idempotency_key")
-
-    if not prompt:
-        raise HTTPException(status_code=400, detail="prompt is required")
-    if idempotency_key is not None and not isinstance(idempotency_key, str):
-        raise HTTPException(status_code=400, detail="idempotency_key must be a string")
-
-    runtime = get_agent_runtime()
-    task_id = runtime.submit_task(
-        prompt=prompt,
-        context=context,
-        target_model=model,
-        idempotency_key=idempotency_key,
-    )
-
-    return {"status": "submitted", "task_id": task_id}
-
-
-class TaskBenchmarkRequest(BaseModel):
-    model: str = Field(default="qwen3.6:latest", min_length=1)
-    idempotency_key: str | None = None
-
-
-@router.post("/api/tasks/benchmark/{case_id}")
-async def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest):
-    cases = get_suite(case_id)
-    if len(cases) != 1 or cases[0].id != case_id:
-        raise HTTPException(status_code=404, detail="Benchmark case not found")
-
-    case = cases[0]
-    task_id = get_agent_runtime().submit_task(
-        prompt=case.prompt,
-        context=BenchmarkHarness.task_context_for_case(case),
-        target_model=request.model,
-        idempotency_key=request.idempotency_key,
-    )
-    return {
-        "status": "submitted",
-        "task_id": task_id,
-        "benchmark_case": {
-            "id": case.id,
-            "category": case.category,
-            "difficulty": case.difficulty,
-            "expected_tools": list(case.expected_tools),
-        },
-    }
-
-
-@router.get("/api/tasks/{task_id}/status")
-async def get_task_status(task_id: str):
-    """태스크 진행 상태 조회."""
-    status = get_agent_runtime().get_task_status(task_id)
-    if not status:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"status": "ok", "data": status}
-
-
-@router.get("/api/tasks")
-async def list_tasks(limit: int = Query(default=20)):
-    """최근 태스크 목록."""
-    return {"status": "ok", "data": get_agent_runtime().list_tasks(limit=limit)}
-
-
-@router.get("/api/tasks/{task_id}/output")
-async def get_task_output(task_id: str):
-    """완료된 태스크의 전체 출력."""
-    output = get_agent_runtime().get_task_output(task_id)
-    if output is None:
-        raise HTTPException(status_code=404, detail="Task output not found")
-    return {"status": "ok", "task_id": task_id, "output": output}
-
-
-@router.post("/api/tasks/{task_id}/cancel")
-async def cancel_background_task(task_id: str):
-    if not get_agent_runtime().cancel_task(task_id):
-        raise HTTPException(status_code=404, detail="Task is not active")
-    return {"status": "cancelled", "task_id": task_id}
-
-
-@router.post("/api/tasks/{task_id}/resume")
-async def resume_task(
-    task_id: str,
-    manager: ModelManager = Depends(get_model_manager),
-    vault: VaultEngine | None = Depends(get_vault_engine),
-):
-    """중단된 태스크를 마지막 체크포인트에서 재개."""
-    runtime = get_agent_runtime()
-    success = runtime.resume_task(task_id=task_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Task is not resumable or has no checkpoint")
-    return {"status": "resumed", "task_id": task_id}
 
 
 # ─── KANBAN API ──────────────────────────────────────────────────

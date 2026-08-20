@@ -339,68 +339,6 @@ async def stream_agent(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-# ─── Background Tasks ────────────────────────────────────────────
-
-
-@router.post("/api/tasks/submit")
-async def submit_background_task(request: Request):
-    """Submit Background Task.
-
-    Args:
-        request (Request): Request request.
-
-    """
-    return {"status": "submitted", "task_id": "dummy_task_id"}
-
-
-@router.get("/api/tasks/{task_id}/status")
-async def get_task_status(task_id: str):
-    """Retrieve task status.
-
-    Args:
-        task_id (str): str task id.
-
-    """
-    status = get_agent_runtime().get_task_status(task_id)
-    if status is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"status": "ok", "data": status}
-
-
-@router.get("/api/tasks")
-@cached(ttl=15, tags=[TAG_TASKS])
-async def list_tasks(limit: int = Query(default=20)):
-    """List Tasks.
-
-    Args:
-        limit (int): int limit.
-
-    """
-    return {"status": "ok", "data": get_agent_runtime().list_tasks(limit=limit)}
-
-
-@router.get("/api/tasks/{task_id}/output")
-async def get_task_output(task_id: str):
-    """Retrieve task output.
-
-    Args:
-        task_id (str): str task id.
-
-    """
-    output = get_agent_runtime().get_task_output(task_id)
-    if output is None:
-        raise HTTPException(status_code=404, detail="Task output not found")
-    return {"status": "ok", "task_id": task_id, "output": output}
-
-
-@router.post("/api/tasks/{task_id}/resume")
-async def resume_task(task_id: str):
-    runtime = get_agent_runtime()
-    if not runtime.resume_task(task_id=task_id):
-        raise HTTPException(status_code=404, detail="Task is not resumable or has no checkpoint")
-    return {"status": "resumed", "task_id": task_id}
-
-
 # ─── Logs & Settings ────────────────────────────────────────────
 
 

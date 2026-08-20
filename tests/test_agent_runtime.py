@@ -586,9 +586,8 @@ def test_runtime_resumes_background_work_through_same_orchestrator():
     ]
 
 
-@pytest.mark.asyncio
-async def test_background_task_route_uses_canonical_runtime(monkeypatch):
-    from antigravity_k.api.routes import legacy
+def test_background_task_route_uses_canonical_runtime(monkeypatch):
+    from antigravity_k.api.routes import task_api
 
     calls: list[dict[str, object]] = []
 
@@ -597,33 +596,31 @@ async def test_background_task_route_uses_canonical_runtime(monkeypatch):
             calls.append(kwargs)
             return "task_route_001"
 
-    class Request:
-        async def json(self) -> dict[str, object]:
-            return {
-                "prompt": "inspect the project",
-                "context": {"expected_tools": ["read_file"]},
-                "model": "",
-                "idempotency_key": "route-001",
-            }
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: Runtime())
+    result = task_api.submit_background_task(
+        task_api.TaskSubmitRequest(
+            prompt="inspect the project",
+            context={"expected_tools": ["read_file"]},
+            model="",
+            idempotency_key="route-001",
+        ),
+    )
 
-    result = await legacy.submit_background_task(Request(), MagicMock(), None)
-
-    assert result == {"status": "submitted", "task_id": "task_route_001"}
+    assert result.model_dump() == {"status": "submitted", "task_id": "task_route_001"}
     assert calls == [
         {
             "prompt": "inspect the project",
             "context": {"expected_tools": ["read_file"]},
             "target_model": "",
+            "use_worktree": False,
             "idempotency_key": "route-001",
         },
     ]
 
 
-@pytest.mark.asyncio
-async def test_agent_api_resume_route_uses_canonical_runtime(monkeypatch):
-    from antigravity_k.api.routes import agent_api
+def test_task_api_resume_route_uses_canonical_runtime(monkeypatch):
+    from antigravity_k.api.routes import task_api
 
     resumed_task_ids: list[str] = []
 
@@ -632,17 +629,16 @@ async def test_agent_api_resume_route_uses_canonical_runtime(monkeypatch):
             resumed_task_ids.append(task_id)
             return True
 
-    monkeypatch.setattr(agent_api, "get_agent_runtime", lambda: Runtime())
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    result = await agent_api.resume_task("task_runtime_001")
+    result = task_api.resume_task("task_runtime_001")
 
-    assert result == {"status": "resumed", "task_id": "task_runtime_001"}
+    assert result.model_dump() == {"status": "resumed", "task_id": "task_runtime_001"}
     assert resumed_task_ids == ["task_runtime_001"]
 
 
-@pytest.mark.asyncio
-async def test_agent_api_task_views_use_canonical_runtime(monkeypatch):
-    from antigravity_k.api.routes import agent_api
+def test_task_api_views_use_canonical_runtime(monkeypatch):
+    from antigravity_k.api.routes import task_api
 
     class Runtime:
         def get_task_status(self, task_id: str) -> dict[str, object] | None:
@@ -654,15 +650,15 @@ async def test_agent_api_task_views_use_canonical_runtime(monkeypatch):
         def get_task_output(self, task_id: str) -> str | None:
             return "partial-output" if task_id == "direct_001" else None
 
-    monkeypatch.setattr(agent_api, "get_agent_runtime", lambda: Runtime())
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    status = await agent_api.get_task_status("direct_001")
-    tasks = await agent_api.list_tasks.__wrapped__(limit=1)
-    output = await agent_api.get_task_output("direct_001")
+    status = task_api.get_task_status("direct_001")
+    tasks = task_api.list_tasks(limit=1)
+    output = task_api.get_task_output("direct_001")
 
-    assert status["data"] == {"task_id": "direct_001", "status": "failed"}
-    assert tasks["data"] == [{"task_id": "direct_001", "status": "failed"}]
-    assert output == {"status": "ok", "task_id": "direct_001", "output": "partial-output"}
+    assert status.data == {"task_id": "direct_001", "status": "failed"}
+    assert tasks.data == [{"task_id": "direct_001", "status": "failed"}]
+    assert output.model_dump() == {"status": "ok", "task_id": "direct_001", "output": "partial-output"}
 
 
 @pytest.mark.asyncio

@@ -2,68 +2,36 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Iterator, Literal, TypedDict
+from typing import Iterator
 
-TaskStatusName = Literal["pending", "running", "resuming", "done", "failed", "paused", "cancelled"]
-
-_STATUSES: Final[frozenset[str]] = frozenset(
-    {"pending", "running", "resuming", "done", "failed", "paused", "cancelled"},
+from antigravity_k.engine.task_events import (
+    ExecutionEventRecord,
+    RunEventMetadata,
+    append_execution_event,
+    initialize_execution_event_schema,
+    list_execution_events,
 )
-_TERMINAL_STATUSES: Final[frozenset[str]] = frozenset({"done", "failed", "cancelled"})
-_ALLOWED_TRANSITIONS: Final[dict[str, frozenset[str]]] = {
-    "pending": frozenset({"running", "cancelled"}),
-    "running": frozenset({"done", "failed", "paused", "cancelled"}),
-    "paused": frozenset({"running", "resuming", "cancelled"}),
-    "resuming": frozenset({"running", "failed", "cancelled"}),
-    "done": frozenset(),
-    "failed": frozenset(),
-    "cancelled": frozenset(),
-}
-
-
-class TaskRecord(TypedDict):
-    task_id: str
-    prompt: str
-    status: str
-    output: str
-    error: str | None
-    created_at: str
-    updated_at: str
-    completed_at: str | None
-
-
-class CheckpointRecord(TypedDict):
-    task_id: str
-    step: int
-    context_json: str
-    output_so_far: str
-    created_at: str
-
-
-class ExecutionEventRecord(TypedDict):
-    sequence: int
-    task_id: str
-    event_type: str
-    payload_json: str
-    created_at: str
-
-
-class InvalidTaskTransitionError(RuntimeError):
-    def __init__(self, task_id: str, current: str, requested: str):
-        self.task_id = task_id
-        self.current = current
-        self.requested = requested
-        super().__init__(f"Task {task_id} cannot transition from {current} to {requested}")
-
-
-class InvalidTaskStatusError(ValueError):
-    def __init__(self, status: str):
-        self.status = status
-        super().__init__(f"Unknown task status: {status}")
+from antigravity_k.engine.task_execution_context import (
+    TaskExecutionContext as TaskExecutionContext,
+)
+from antigravity_k.engine.task_execution_context import (
+    bind_task_execution_context as bind_task_execution_context,
+)
+from antigravity_k.engine.task_execution_context import (
+    current_task_execution_context as current_task_execution_context,
+)
+from antigravity_k.engine.task_state_types import (
+    ALLOWED_TASK_TRANSITIONS,
+    TASK_STATUSES,
+    TERMINAL_TASK_STATUSES,
+    CheckpointRecord,
+    InvalidTaskStatusError,
+    InvalidTaskTransitionError,
+    TaskRecord,
+    TaskStatusName,
+)
 
 
 class TaskStateStore:
@@ -100,15 +68,7 @@ class TaskStateStore:
                 "CREATE TABLE IF NOT EXISTS task_idempotency ("
                 "idempotency_key TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)",
             )
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS task_execution_events ("
-                "sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, "
-                "event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL)",
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_task_execution_events_task_sequence "
-                "ON task_execution_events (task_id, sequence)",
-            )
+            initialize_execution_event_schema(connection)
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(task_history)").fetchall()}
             if "updated_at" not in columns:
                 connection.execute("ALTER TABLE task_history ADD COLUMN updated_at TEXT")
@@ -122,7 +82,7 @@ class TaskStateStore:
         created_at: str,
         idempotency_key: str | None = None,
     ) -> str:
-        if status not in _STATUSES:
+        if status not in TASK_STATUSES:
             raise InvalidTaskStatusError(status)
 
         with self._connection() as connection:
@@ -173,7 +133,7 @@ class TaskStateStore:
         output: str | None = None,
         error: str | None = None,
     ) -> bool:
-        if status not in _STATUSES:
+        if status not in TASK_STATUSES:
             raise InvalidTaskStatusError(status)
 
         with self._connection() as connection:
@@ -185,11 +145,11 @@ class TaskStateStore:
                 return False
 
             current = str(row["status"])
-            if current != status and status not in _ALLOWED_TRANSITIONS.get(current, frozenset()):
+            if current != status and status not in ALLOWED_TASK_TRANSITIONS.get(current, frozenset()):
                 raise InvalidTaskTransitionError(task_id, current, status)
 
             updated_at = datetime.now(UTC).isoformat()
-            completed_at = updated_at if status in _TERMINAL_STATUSES else None
+            completed_at = updated_at if status in TERMINAL_TASK_STATUSES else None
             connection.execute(
                 "UPDATE task_history SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ? "
                 "WHERE task_id = ?",
@@ -254,34 +214,30 @@ class TaskStateStore:
             "created_at": str(row["created_at"]),
         }
 
-    def append_execution_event(self, task_id: str, event_type: str, payload_json: str) -> int:
+    def append_execution_event(
+        self,
+        task_id: str,
+        event_type: str,
+        payload_json: str,
+        metadata: RunEventMetadata | None = None,
+    ) -> int:
         with self._connection() as connection:
-            cursor = connection.execute(
-                "INSERT INTO task_execution_events "
-                "(task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)",
-                (task_id, event_type, payload_json, datetime.now(UTC).isoformat()),
+            return append_execution_event(
+                connection,
+                task_id,
+                event_type,
+                payload_json,
+                metadata,
             )
-        sequence = cursor.lastrowid
-        assert sequence is not None
-        return sequence
 
-    def list_execution_events(self, task_id: str) -> list[ExecutionEventRecord]:
+    def list_execution_events(
+        self,
+        task_id: str,
+        after_sequence: int = 0,
+        limit: int = 1_000,
+    ) -> list[ExecutionEventRecord]:
         with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT sequence, task_id, event_type, payload_json, created_at "
-                "FROM task_execution_events WHERE task_id = ? ORDER BY sequence ASC",
-                (task_id,),
-            ).fetchall()
-        return [
-            {
-                "sequence": int(row["sequence"]),
-                "task_id": str(row["task_id"]),
-                "event_type": str(row["event_type"]),
-                "payload_json": str(row["payload_json"]),
-                "created_at": str(row["created_at"]),
-            }
-            for row in rows
-        ]
+            return list_execution_events(connection, task_id, after_sequence, limit)
 
     def _row_to_task(self, row: sqlite3.Row) -> TaskRecord:
         return {
@@ -294,28 +250,3 @@ class TaskStateStore:
             "updated_at": str(row["updated_at"] or row["created_at"]),
             "completed_at": row["completed_at"],
         }
-
-
-@dataclass(frozen=True, slots=True)
-class TaskExecutionContext:
-    task_id: str
-    state_store: TaskStateStore
-
-
-_task_execution_context: ContextVar[TaskExecutionContext | None] = ContextVar(
-    "task_execution_context",
-    default=None,
-)
-
-
-def current_task_execution_context() -> TaskExecutionContext | None:
-    return _task_execution_context.get()
-
-
-@contextmanager
-def bind_task_execution_context(execution_context: TaskExecutionContext) -> Iterator[None]:
-    token = _task_execution_context.set(execution_context)
-    try:
-        yield
-    finally:
-        _task_execution_context.reset(token)

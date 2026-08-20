@@ -12,6 +12,7 @@ from antigravity_k.engine.direct_task_execution import (
     TrackedStream,
 )
 from antigravity_k.engine.goal_runner import GoalReport, GoalRunner
+from antigravity_k.engine.task_state_store import ExecutionEventRecord
 
 
 class OrchestratorPort(Protocol):
@@ -206,6 +207,20 @@ class AgentRuntime:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for task output")
         return self.task_runner.get_output(task_id)
+
+    def list_task_events(
+        self,
+        task_id: str,
+        after_sequence: int = 0,
+        limit: int = 1_000,
+    ) -> list[ExecutionEventRecord]:
+        if not isinstance(self.task_runner, TaskStoreRunnerPort):
+            raise RuntimeError("task state store is required for event replay")
+        return self.task_runner.state_store.list_execution_events(
+            task_id,
+            after_sequence=after_sequence,
+            limit=limit,
+        )
 
     def wait_task(
         self,

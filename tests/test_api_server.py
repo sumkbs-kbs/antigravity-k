@@ -392,11 +392,11 @@ def test_slash_api_benchmark_help_returns_plain_text(client, mock_manager):
 
 
 def test_task_benchmark_api_submits_a_canonical_scenario(client, monkeypatch):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
     runtime.submit_task.return_value = "task_benchmark_001"
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
 
     response = client.post(
         "/api/tasks/benchmark/srch-002",
@@ -415,11 +415,11 @@ def test_task_benchmark_api_submits_a_canonical_scenario(client, monkeypatch):
 
 
 def test_task_cancel_api_cancels_background_task(client, monkeypatch):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
     runtime.cancel_task.return_value = True
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
 
     response = client.post("/api/tasks/task_123/cancel")
 
@@ -429,11 +429,11 @@ def test_task_cancel_api_cancels_background_task(client, monkeypatch):
 
 
 def test_task_cancel_api_rejects_unknown_or_terminal_task(client, monkeypatch):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
     runtime.cancel_task.return_value = False
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
 
     response = client.post("/api/tasks/task_missing/cancel")
 
@@ -442,14 +442,14 @@ def test_task_cancel_api_rejects_unknown_or_terminal_task(client, monkeypatch):
 
 
 def test_task_api_reads_and_resumes_direct_task_through_canonical_runtime(client, monkeypatch):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
     runtime.get_task_status.return_value = {"task_id": "direct_001", "status": "failed"}
     runtime.list_tasks.return_value = [{"task_id": "direct_001", "status": "failed"}]
     runtime.get_task_output.return_value = "partial-output"
     runtime.resume_task.return_value = True
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: runtime)
 
     status = client.get("/api/tasks/direct_001/status")
     tasks = client.get("/api/tasks?limit=1")
