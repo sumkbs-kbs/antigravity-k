@@ -17,7 +17,7 @@ def line_hash(text: str) -> str:
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:4]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PatchChunk:
     """A discrete hunk to replace."""
 
@@ -27,7 +27,7 @@ class PatchChunk:
     replacement_content: str
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PatchApplicationResult:
     """Outcome of surgical patch application."""
 

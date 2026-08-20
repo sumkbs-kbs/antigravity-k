@@ -10,9 +10,16 @@ import random
 from dataclasses import dataclass, field
 
 
-@dataclass
+class NoPromptCandidatesError(ValueError):
+    """Raised when candidate selection is requested without configuration."""
+
+    def __str__(self) -> str:
+        return "No prompt candidates configured."
+
+
+@dataclass(slots=True)  # noqa: RUF012  # noqa: MUTABLE_OK - score accumulator
 class PromptCandidate:
-    """A parameterized candidate prompt configuration."""
+    """A mutable prompt candidate that accumulates evaluation scores."""
 
     candidate_id: str
     directive_text: str
@@ -34,7 +41,7 @@ class BayesianPromptTuner:
     def select_next_candidate(self) -> PromptCandidate:
         """Select candidate via Upper Confidence / Thompson-style sampling."""
         if not self.candidates:
-            raise ValueError("No prompt candidates configured.")
+            raise NoPromptCandidatesError
 
         # Epsilon-greedy or exploration of unvisited candidates
         unvisited = [c for c in self.candidates if not c.historical_scores]
