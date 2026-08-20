@@ -22,7 +22,12 @@ class UnslothStudioReadTool(StrEnum):
     TRAINING_RUNS = "list_training_runs"
 
 
-UNSLOTH_STUDIO_READ_TOOLS = tuple(UnslothStudioReadTool)
+UNSLOTH_STUDIO_READ_TOOLS: tuple[UnslothStudioReadTool, ...] = (
+    UnslothStudioReadTool.STATUS,
+    UnslothStudioReadTool.MODELS,
+    UnslothStudioReadTool.TRAINING_STATUS,
+    UnslothStudioReadTool.TRAINING_RUNS,
+)
 
 
 def normalize_unsloth_mcp_url(raw_url: str) -> str:

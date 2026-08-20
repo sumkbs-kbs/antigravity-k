@@ -25,7 +25,7 @@ from antigravity_k.tools.tool_registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 _SERVER_NAME = "unsloth-studio"
-_JSON_VALUE = TypeAdapter(JsonValue)
+_JSON_VALUE: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 _CONNECTION_ERRORS = (
     httpx.HTTPError,
     McpError,
@@ -87,7 +87,7 @@ def _payload_from(result: CallToolResult) -> JsonValue | None:
             return _JSON_VALUE.validate_python(json.loads(texts[0]))
         except json.JSONDecodeError:
             return texts[0]
-    return texts
+    return _JSON_VALUE.validate_python(texts)
 
 
 class UnslothStudioService:
