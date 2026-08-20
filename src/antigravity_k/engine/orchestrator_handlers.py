@@ -16,7 +16,6 @@ import logging
 from collections.abc import Callable, Generator
 
 from antigravity_k.engine.state_graph import AgentState, StateContext
-from antigravity_k.engine.rule_engine import route_decision_deterministic, route_decision_with_log
 from antigravity_k.engine.tool_guardrails import MUTATING_TOOL_NAMES
 
 logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
@@ -334,14 +333,11 @@ def pre_route_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
         logger.debug(f"User model error: {e}")
 
 
-
-
-
-
 # ─── RuleEngine 기반 결정론적 라우팅 ──────────────────────────────────
 def route_decision(ctx: StateContext) -> AgentState:
     """태스크 유형에 따라 다음 상태를 결정합니다. (RuleEngine 기반 결정론적)"""
     from antigravity_k.engine.rule_engine import route_decision_deterministic
+
     return route_decision_deterministic(ctx)
 
 

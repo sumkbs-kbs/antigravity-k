@@ -42,7 +42,6 @@ class BayesianPromptTuner:
             return random.choice(unvisited)
 
         # Pick candidate with highest upper confidence bound
-        total_trials = sum(len(c.historical_scores) for c in self.candidates)
         return max(
             self.candidates,
             key=lambda c: c.mean_score + 0.5 * (1.0 / (len(c.historical_scores) + 1)),

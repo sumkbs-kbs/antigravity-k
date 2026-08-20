@@ -91,7 +91,7 @@ class SurgicalPatcher:
         if norm_target in norm_orig:
             # Reconstruct with indentation preservation
             orig_lines = original_content.splitlines()
-            target_lines = [l.strip() for l in target_snippet.splitlines() if l.strip()]
+            target_lines = [line.strip() for line in target_snippet.splitlines() if line.strip()]
 
             # Find matching line index
             matched_idx = -1
