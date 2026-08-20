@@ -66,3 +66,14 @@ def test_registry_authorize_returns_permission_gate_denial_for_dangerous_shell_c
 
     assert decision.permission is Permission.DENY
     assert decision.source == "permission_gate"
+
+
+def test_registry_authorize_tool_evaluates_unregistered_descriptor(tmp_path) -> None:
+    registry = ToolRegistry(project_root=str(tmp_path))
+    tool = _WriteTool()
+
+    decision = registry.authorize_tool(tool, {"path": str(tmp_path / "note.txt")})
+
+    assert decision.permission is Permission.ALLOW
+    assert decision.spec.name == "write_file"
+    assert registry.get("write_file") is None

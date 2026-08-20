@@ -16,6 +16,7 @@ tiptap-vuetify의 TiptapVuetifyPlugin.install() 패턴에서 영감:
 import importlib
 import logging
 import pkgutil
+from collections.abc import Mapping
 from typing import Any
 
 from antigravity_k.engine.capability_policy import (
@@ -278,6 +279,14 @@ class ToolRegistry:
                 reason="The requested tool is not registered.",
             )
 
+        return self.authorize_tool(tool, args, objective=objective)
+
+    def authorize_tool(
+        self,
+        tool: BaseTool,
+        args: Mapping[str, Any],
+        objective: str = "",
+    ) -> PermissionDecision:
         spec = ToolSpec(
             name=tool.name,
             risk_level=tool.risk_level.value,
