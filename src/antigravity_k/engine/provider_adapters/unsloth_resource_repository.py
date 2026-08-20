@@ -94,7 +94,7 @@ def _optional_text(row: SQLiteValueRow, column: str) -> str | None:
     raise RepositoryRowError(column, "nullable text")
 
 
-def _fetchone(cursor: SQLiteCursor) -> SQLiteValueRow | None:
+def _typed_fetchone(cursor: SQLiteCursor) -> SQLiteValueRow | None:
     return cursor.fetchone()
 
 
@@ -137,7 +137,7 @@ class AdmissionTransaction:
     connection: sqlite3.Connection
 
     def inspect(self, idempotency_key: str, device_id: str) -> AdmissionInspection:
-        idempotency_row = _fetchone(
+        idempotency_row = _typed_fetchone(
             self.connection.execute(
                 f"SELECT * FROM {_TABLE_NAME} WHERE idempotency_key = ?",
                 (idempotency_key,),
@@ -156,7 +156,7 @@ class AdmissionTransaction:
                         state=UnslothReservationState(_text(row, "state")),
                     ),
                 )
-        occupancy_row = _fetchone(
+        occupancy_row = _typed_fetchone(
             self.connection.execute(
                 f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE device_id = ? AND state = ?",
                 (device_id, UnslothReservationState.ACTIVE.value),
@@ -206,7 +206,7 @@ class UnslothResourceRepository:
             )
             reservations: list[UnslothReservation] = []
             while True:
-                match _fetchone(cursor):
+                match _typed_fetchone(cursor):
                     case None:
                         return tuple(reservations)
                     case row:
@@ -215,7 +215,7 @@ class UnslothResourceRepository:
     def release(self, reservation_id: ReservationId, released_at: str) -> UnslothReservation | None:
         with self._connection() as connection:
             _ = connection.execute("BEGIN IMMEDIATE")
-            released_row = _fetchone(
+            released_row = _typed_fetchone(
                 connection.execute(
                     _RELEASE_SQL,
                     (UnslothReservationState.RELEASED.value, released_at, reservation_id),
@@ -230,7 +230,7 @@ class UnslothResourceRepository:
     def bind_job(self, reservation_id: ReservationId, resource_job_id: str) -> UnslothReservation | None:
         with self._connection() as connection:
             _ = connection.execute("BEGIN IMMEDIATE")
-            bound_row = _fetchone(
+            bound_row = _typed_fetchone(
                 connection.execute(
                     _BIND_JOB_SQL,
                     (
