@@ -52,6 +52,7 @@ class DecisionOutcome:
     code: UnslothAdmissionCode
     reservation_id: ReservationId | None = None
     reservation_state: UnslothReservationState | None = None
+    resource_job_id: str | None = None
     replayed: bool = False
 
 
@@ -119,6 +120,9 @@ class UnslothResourceBroker:
     def release(self, reservation_id: ReservationId) -> UnslothReservation | None:
         return self._repository.release(reservation_id, datetime.now(UTC).isoformat())
 
+    def bind_job(self, reservation_id: ReservationId, resource_job_id: str) -> UnslothReservation | None:
+        return self._repository.bind_job(reservation_id, resource_job_id)
+
     def _admission_context(self, request: UnslothAdmissionRequest) -> AdmissionContext:
         memory = self._memory_probe.snapshot()
         return AdmissionContext(
@@ -155,6 +159,7 @@ class UnslothResourceBroker:
                 code=code,
                 reservation_id=existing.reservation_id,
                 reservation_state=existing.state,
+                resource_job_id=existing.resource_job_id,
                 replayed=True,
             ),
         )
@@ -190,4 +195,5 @@ class UnslothResourceBroker:
             required_headroom_bytes=context.required_headroom,
             projected_available_bytes=context.projected_available,
             provenance_fingerprint=context.provenance_fingerprint,
+            resource_job_id=outcome.resource_job_id,
         )

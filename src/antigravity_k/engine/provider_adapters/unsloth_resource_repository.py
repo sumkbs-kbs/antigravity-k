@@ -24,6 +24,7 @@ _CREATE_TABLE_SQL: Final = (
     "device_id TEXT NOT NULL,"
     "estimated_peak_bytes INTEGER NOT NULL,"
     "provenance_fingerprint TEXT NOT NULL,"
+    "resource_job_id TEXT,"
     "state TEXT NOT NULL,"
     "created_at TEXT NOT NULL,"
     "released_at TEXT)"
@@ -31,11 +32,15 @@ _CREATE_TABLE_SQL: Final = (
 _INSERT_SQL: Final = (
     f"INSERT INTO {_TABLE_NAME} ("
     "reservation_id,idempotency_key,request_fingerprint,operation,device_id,"
-    "estimated_peak_bytes,provenance_fingerprint,state,created_at,released_at"
-    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)"
+    "estimated_peak_bytes,provenance_fingerprint,resource_job_id,state,created_at,released_at"
+    ") VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)"
 )
 _RELEASE_SQL: Final = (
     f"UPDATE {_TABLE_NAME} SET state = ?, released_at = COALESCE(released_at, ?) WHERE reservation_id = ? RETURNING *"
+)
+_BIND_JOB_SQL: Final = (
+    f"UPDATE {_TABLE_NAME} SET resource_job_id = COALESCE(resource_job_id, ?) "
+    "WHERE reservation_id = ? AND state = ? AND (resource_job_id IS NULL OR resource_job_id = ?) RETURNING *"
 )
 
 
@@ -49,11 +54,11 @@ class RepositoryRowError(RuntimeError):
         return f"Expected {self.expected} in SQLite column {self.column}."
 
 
-def _text(row: sqlite3.Row, column: str) -> str:
+def _text(row: sqlite3.Row, column: str | int) -> str:
     match row[column]:  # noqa: MATCH_OK
         case str() as value:
             return value
-    raise RepositoryRowError(column, "text")
+    raise RepositoryRowError(str(column), "text")
 
 
 def _integer(row: sqlite3.Row, column: str | int) -> int:
@@ -77,6 +82,7 @@ class StoredAdmission:
     reservation_id: ReservationId
     request_fingerprint: str
     provenance_fingerprint: str
+    resource_job_id: str | None
     state: UnslothReservationState
 
 
@@ -108,6 +114,7 @@ class AdmissionTransaction:
                     reservation_id=ReservationId(_text(row, "reservation_id")),
                     request_fingerprint=_text(row, "request_fingerprint"),
                     provenance_fingerprint=_text(row, "provenance_fingerprint"),
+                    resource_job_id=_optional_text(row, "resource_job_id"),
                     state=UnslothReservationState(_text(row, "state")),
                 )
         raise RepositoryRowError("idempotency lookup", "SQLite row")
@@ -179,6 +186,24 @@ class UnslothResourceRepository:
                     return self._row_to_reservation(row)
             raise RepositoryRowError("released reservation", "SQLite row")
 
+    def bind_job(self, reservation_id: ReservationId, resource_job_id: str) -> UnslothReservation | None:
+        with self._connection() as connection:
+            _ = connection.execute("BEGIN IMMEDIATE")
+            match connection.execute(  # noqa: MATCH_OK
+                _BIND_JOB_SQL,
+                (
+                    resource_job_id,
+                    reservation_id,
+                    UnslothReservationState.ACTIVE.value,
+                    resource_job_id,
+                ),
+            ).fetchone():
+                case None:
+                    return None
+                case sqlite3.Row() as row:
+                    return self._row_to_reservation(row)
+            raise RepositoryRowError("bound reservation", "SQLite row")
+
     @staticmethod
     def _row_to_reservation(row: sqlite3.Row) -> UnslothReservation:
         return UnslothReservation(
@@ -187,6 +212,7 @@ class UnslothResourceRepository:
             device_id=_text(row, "device_id"),
             estimated_peak_bytes=_integer(row, "estimated_peak_bytes"),
             provenance_fingerprint=_text(row, "provenance_fingerprint"),
+            resource_job_id=_optional_text(row, "resource_job_id"),
             state=UnslothReservationState(_text(row, "state")),
             created_at=_text(row, "created_at"),
             released_at=_optional_text(row, "released_at"),
@@ -207,3 +233,6 @@ class UnslothResourceRepository:
         with self._connection() as connection:
             _ = connection.execute("PRAGMA journal_mode = WAL")
             _ = connection.execute(_CREATE_TABLE_SQL)
+            columns = {_text(row, 1) for row in connection.execute(f"PRAGMA table_info({_TABLE_NAME})")}
+            if "resource_job_id" not in columns:
+                _ = connection.execute(f"ALTER TABLE {_TABLE_NAME} ADD COLUMN resource_job_id TEXT")

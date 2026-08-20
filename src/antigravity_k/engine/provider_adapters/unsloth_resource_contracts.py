@@ -119,6 +119,7 @@ class UnslothAdmissionDecision(BaseModel):
     required_headroom_bytes: int
     projected_available_bytes: int
     provenance_fingerprint: str
+    resource_job_id: str | None = None
     write_tools_enabled: Literal[False] = False
 
 
@@ -132,6 +133,7 @@ class UnslothReservation(BaseModel):
     provenance_fingerprint: str
     state: UnslothReservationState
     created_at: str
+    resource_job_id: str | None = None
     released_at: str | None = None
 
 

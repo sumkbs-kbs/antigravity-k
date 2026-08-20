@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -208,6 +209,46 @@ def test_concurrent_same_key_accepts_once_and_replays_once(tmp_path: Path) -> No
     )
     assert len({decision.reservation_id for decision in decisions}) == 1
     assert len(brokers[0].status().active_reservations) == 1
+
+
+def test_existing_resource_database_is_migrated_for_remote_job_binding(tmp_path: Path) -> None:
+    database_path = tmp_path / "resources.sqlite3"
+    reservation_id = ReservationId("00000000-0000-0000-0000-000000000001")
+    with sqlite3.connect(database_path) as connection:
+        _ = connection.execute(
+            "CREATE TABLE unsloth_resource_reservations ("
+            "reservation_id TEXT PRIMARY KEY,"
+            "idempotency_key TEXT NOT NULL UNIQUE,"
+            "request_fingerprint TEXT NOT NULL,"
+            "operation TEXT NOT NULL,"
+            "device_id TEXT NOT NULL,"
+            "estimated_peak_bytes INTEGER NOT NULL,"
+            "provenance_fingerprint TEXT NOT NULL,"
+            "state TEXT NOT NULL,"
+            "created_at TEXT NOT NULL,"
+            "released_at TEXT)",
+        )
+        _ = connection.execute(
+            "INSERT INTO unsloth_resource_reservations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+            (
+                reservation_id,
+                "legacy-resource-0001",
+                "a" * 64,
+                "training",
+                "unified:0",
+                100,
+                "b" * 64,
+                "active",
+                "2026-08-20T00:00:00+00:00",
+            ),
+        )
+
+    broker = UnslothResourceBroker(database_path, _MemoryProbe())
+    bound = broker.bind_job(reservation_id, "job-from-legacy-db")
+
+    assert bound is not None
+    assert bound.resource_job_id == "job-from-legacy-db"
+    assert broker.status().active_reservations[0].resource_job_id == "job-from-legacy-db"
 
 
 def test_provenance_rejects_mutable_or_unverifiable_artifacts() -> None:

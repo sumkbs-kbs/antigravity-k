@@ -17,6 +17,7 @@ from .legacy import router as legacy_router
 from .system_api import router as system_api_router
 from .task_api import router as task_api_router
 from .unsloth_studio_api import router as unsloth_studio_router
+from .unsloth_training_api import router as unsloth_training_router
 from .vault_privacy import router as vault_privacy_router
 from .workspace_links import router as workspace_links_router
 
@@ -31,6 +32,7 @@ api_router.include_router(system_api_router, tags=["system"])
 api_router.include_router(vault_privacy_router, tags=["memory"])
 api_router.include_router(task_api_router, tags=["tasks"])
 api_router.include_router(unsloth_studio_router, tags=["unsloth"])
+api_router.include_router(unsloth_training_router, tags=["unsloth"])
 api_router.include_router(legacy_router, tags=["legacy"])
 api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])

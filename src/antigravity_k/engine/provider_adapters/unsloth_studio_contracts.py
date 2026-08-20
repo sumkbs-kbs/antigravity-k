@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, JsonValue, SecretStr, field_validator
 
 DEFAULT_UNSLOTH_STUDIO_ENDPOINT = "http://127.0.0.1:8888/mcp/"
+UNSLOTH_STUDIO_WRITE_TOOLS_ENV = "UNSLOTH_STUDIO_WRITE_TOOLS_ENABLED"
 
 
 class UnslothStudioConfigurationError(ValueError):
@@ -71,6 +72,7 @@ class UnslothStudioSettings(BaseModel):
     token: SecretStr | None = None
     timeout_seconds: float = 10.0
     read_timeout_seconds: float = 30.0
+    write_tools_enabled: bool = False
 
     @field_validator("endpoint")
     @classmethod
@@ -93,12 +95,18 @@ class UnslothStudioSettings(BaseModel):
     @classmethod
     def from_env(cls) -> UnslothStudioSettings:
         raw_token = os.environ.get("UNSLOTH_STUDIO_MCP_TOKEN")
+        raw_write_tools = os.environ.get(UNSLOTH_STUDIO_WRITE_TOOLS_ENV, "false").strip().lower()
+        if raw_write_tools not in {"0", "1", "false", "true"}:
+            raise UnslothStudioConfigurationError(
+                f"{UNSLOTH_STUDIO_WRITE_TOOLS_ENV} must be true, false, 1, or 0.",
+            )
         return cls(
             endpoint=os.environ.get(
                 "UNSLOTH_STUDIO_MCP_URL",
                 DEFAULT_UNSLOTH_STUDIO_ENDPOINT,
             ),
             token=SecretStr(raw_token) if raw_token is not None else None,
+            write_tools_enabled=raw_write_tools in {"1", "true"},
         )
 
 
