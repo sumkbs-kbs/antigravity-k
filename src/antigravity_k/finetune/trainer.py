@@ -21,6 +21,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from antigravity_k.finetune.active_artifact import (
+    ActiveArtifactError,
+    ArtifactPromotionContract,
+    promote_artifact,
+    rollback_active_artifact,
+)
 from antigravity_k.finetune.artifact_lifecycle import ArtifactLifecycleError, fuse_training_artifact
 from antigravity_k.finetune.dataset_contract import (
     DatasetConsent,
@@ -524,6 +530,15 @@ def main():
     merge_p.add_argument("--output", required=True, help="병합 결과 경로")
     merge_p.add_argument("--evaluation", help="base/tuned evaluation_result.json 경로")
 
+    promote_p = sub.add_parser("promote", help="검증된 artifact를 active pointer로 승격")
+    promote_p.add_argument("--artifact", required=True, help="병합 artifact 디렉터리")
+    promote_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
+    promote_p.add_argument("--recipe-sha256", required=True, help="승격할 recipe SHA-256")
+    promote_p.add_argument("--evaluation-sha256", required=True, help="승격할 evaluation SHA-256")
+
+    rollback_p = sub.add_parser("rollback", help="직전 active artifact로 복원")
+    rollback_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -605,6 +620,29 @@ def main():
             logger.error("학습 artifact 병합 실패: %s", error)
             raise SystemExit(2) from error
         print(fused.model_dump_json(indent=2))
+
+    elif args.command == "promote":
+        try:
+            active = promote_artifact(
+                Path(args.artifact),
+                state_path=Path(args.state),
+                contract=ArtifactPromotionContract(
+                    recipe_sha256=args.recipe_sha256,
+                    evaluation_sha256=args.evaluation_sha256,
+                ),
+            )
+        except ActiveArtifactError as error:
+            logger.error("Active artifact 승격 실패: %s", error)
+            raise SystemExit(2) from error
+        print(active.model_dump_json(indent=2))
+
+    elif args.command == "rollback":
+        try:
+            active = rollback_active_artifact(Path(args.state))
+        except ActiveArtifactError as error:
+            logger.error("Active artifact 복원 실패: %s", error)
+            raise SystemExit(2) from error
+        print(active.model_dump_json(indent=2))
 
     else:
         parser.print_help()
