@@ -20,7 +20,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from antigravity_k.api.dependencies import (
-    __get_tool_registry,
     get_agent_runtime,
     get_embedding_engine,
     get_model_manager,
@@ -36,7 +35,6 @@ from antigravity_k.api.models import (
 from antigravity_k.api.routes.legacy import (
     EvolveRequest,
     EvolveSystemPromptRequest,
-    WakeRequest,
     _active_session,
 )
 from antigravity_k.engine.api_cache import TAG_AGENT, TAG_MODELS, TAG_SETTINGS, TAG_TASKS, cached
@@ -149,29 +147,6 @@ async def create_embeddings(
 
 
 # ─── Agent Wake / Evolve ────────────────────────────────────────
-
-
-@router.post("/api/agent/wake")
-async def wake_agent(
-    req: WakeRequest,
-    manager: ModelManager = Depends(get_model_manager),
-    registry: Any = Depends(__get_tool_registry),
-    vault: Any = Depends(get_vault_engine),
-):
-    """Wake Agent.
-
-    Args:
-        req (WakeRequest): WakeRequest req.
-        manager (ModelManager): ModelManager manager.
-        registry (Any): registry.
-        vault (Any): vault.
-
-    """
-    return {
-        "status": "woken",
-        "task_id": "dummy_task_id",
-        "message": f"Agent woken by '{req.event_type}' event (legacy mock).",
-    }
 
 
 @router.post("/api/agent/evolve")

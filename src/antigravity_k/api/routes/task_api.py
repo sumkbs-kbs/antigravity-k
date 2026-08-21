@@ -4,7 +4,8 @@ import re
 from collections.abc import AsyncIterator
 
 import anyio
-from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from anyio.to_thread import run_sync
+from fastapi import APIRouter, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 
 from antigravity_k.api.dependencies import get_agent_runtime
@@ -23,6 +24,7 @@ from antigravity_k.api.task_models import (
 from antigravity_k.engine.agent_runtime import AgentRuntime
 from antigravity_k.engine.benchmark_cases import get_suite
 from antigravity_k.engine.benchmark_harness import BenchmarkHarness
+from antigravity_k.engine.task_events import ExecutionEventRecord
 
 router = APIRouter()
 
@@ -147,6 +149,43 @@ async def stream_task_events(
     )
 
 
+@router.websocket("/api/tasks/{task_id}/events/ws")
+async def stream_task_events_websocket(
+    websocket: WebSocket,
+    task_id: str,
+    after_sequence: int = Query(default=0, ge=0),
+) -> None:
+    runtime = _runtime()
+    if runtime.get_task_status(task_id) is None:
+        await websocket.close(code=1008, reason="Task not found")
+        return
+    await websocket.accept()
+    sequence = after_sequence
+    try:
+        while True:
+            records = await _next_task_events(runtime, task_id, sequence)
+            for record in records:
+                event = TaskEvent.from_record(record)
+                sequence = event.sequence
+                await websocket.send_json(event.model_dump(mode="json"))
+            task_status = await _task_status(runtime, task_id)
+            if task_status in _TERMINAL_TASK_STATUSES:
+                end = TaskStreamEnd(task_id=task_id, last_sequence=sequence, status=task_status)
+                await websocket.send_json(
+                    {
+                        "type": "stream.end",
+                        "task_id": end.task_id,
+                        "last_sequence": end.last_sequence,
+                        "status": end.status,
+                    },
+                )
+                await websocket.close()
+                return
+            await anyio.sleep(0.5)
+    except WebSocketDisconnect:
+        return
+
+
 async def _event_stream(
     runtime: AgentRuntime,
     task_id: str,
@@ -156,13 +195,12 @@ async def _event_stream(
     sequence = after_sequence
     idle_cycles = 0
     while True:
-        records = await anyio.to_thread.run_sync(runtime.list_task_events, task_id, sequence, 200)
+        records = await _next_task_events(runtime, task_id, sequence)
         for record in records:
             event = TaskEvent.from_record(record)
             sequence = event.sequence
             yield _event_frame(event)
-        task = await anyio.to_thread.run_sync(runtime.get_task_status, task_id)
-        task_status = str(task.get("status", "unknown")) if task is not None else "unknown"
+        task_status = await _task_status(runtime, task_id)
         if task_status in _TERMINAL_TASK_STATUSES:
             end = TaskStreamEnd(task_id=task_id, last_sequence=sequence, status=task_status)
             yield f"event: stream.end\ndata: {end.model_dump_json()}\n\n"
@@ -173,6 +211,25 @@ async def _event_stream(
         if idle_cycles % 30 == 0:
             yield ": keep-alive\n\n"
         await anyio.sleep(0.5)
+
+
+async def _next_task_events(
+    runtime: AgentRuntime,
+    task_id: str,
+    after_sequence: int,
+) -> list[ExecutionEventRecord]:
+    def load() -> list[ExecutionEventRecord]:
+        return runtime.list_task_events(task_id, after_sequence=after_sequence, limit=200)
+
+    return await run_sync(load)
+
+
+async def _task_status(runtime: AgentRuntime, task_id: str) -> str:
+    def load() -> dict[str, object] | None:
+        return runtime.get_task_status(task_id)
+
+    task = await run_sync(load)
+    return str(task.get("status", "unknown")) if task is not None else "unknown"
 
 
 def _event_frame(event: TaskEvent) -> str:

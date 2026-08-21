@@ -1,8 +1,10 @@
 import json
+import typing
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from antigravity_k.api.routes import task_api
 
@@ -125,21 +127,28 @@ def test_task_event_replay_rejects_unknown_task(client: TestClient, runtime: Fak
     assert runtime.event_calls == []
 
 
-def test_task_event_sse_replays_then_ends_for_terminal_task(client: TestClient, runtime: FakeTaskRuntime) -> None:
+def test_task_event_sse_replays_then_ends_for_terminal_task(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
     response = client.get("/api/tasks/task-123/events/stream?after_sequence=0")
 
     assert response.status_code == 200
     frames = [frame for frame in response.text.strip().split("\n\n") if frame]
     assert frames[0].startswith("id: 7\nevent: task.completed\ndata: ")
-    event = json.loads(frames[0].split("data: ", 1)[1])
+    event = typing.cast(dict[str, object], json.loads(frames[0].split("data: ", 1)[1]))
+    assert runtime.event_calls == [("task-123", 0, 200)]
     assert event["task_id"] == "task-123"
     assert event["payload"] == {"result": "ok"}
     assert frames[1].startswith("event: stream.end\ndata: ")
-    end = json.loads(frames[1].split("data: ", 1)[1])
+    end = typing.cast(dict[str, object], json.loads(frames[1].split("data: ", 1)[1]))
     assert end == {"task_id": "task-123", "last_sequence": 7, "status": "done"}
 
 
-def test_task_event_sse_resumes_from_last_event_id_header(client: TestClient, runtime: FakeTaskRuntime) -> None:
+def test_task_event_sse_resumes_from_last_event_id_header(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
     response = client.get(
         "/api/tasks/task-123/events/stream?after_sequence=3",
         headers={"Last-Event-ID": "7"},
@@ -148,3 +157,46 @@ def test_task_event_sse_resumes_from_last_event_id_header(client: TestClient, ru
     assert response.status_code == 200
     assert response.text.startswith("event: stream.end\ndata: ")
     assert runtime.event_calls == [("task-123", 7, 200)]
+
+
+def test_task_event_websocket_replays_task_scoped_events_and_ends(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    with client.websocket_connect("/api/tasks/task-123/events/ws?after_sequence=3") as websocket:
+        replay = typing.cast(dict[str, object], websocket.receive_json())
+        stream_end = typing.cast(dict[str, object], websocket.receive_json())
+
+    assert replay == {
+        "sequence": 7,
+        "schema_version": 2,
+        "task_id": "task-123",
+        "step_id": "step-1",
+        "agent_id": "agent-root",
+        "parent_id": None,
+        "tool_call_id": None,
+        "approval_id": None,
+        "resource_job_id": None,
+        "correlation_id": "request-1",
+        "event_type": "task.completed",
+        "payload": {"result": "ok"},
+        "created_at": "2026-08-20T00:00:00+00:00",
+    }
+    assert stream_end == {
+        "type": "stream.end",
+        "task_id": "task-123",
+        "last_sequence": 7,
+        "status": "done",
+    }
+    assert runtime.event_calls == [("task-123", 3, 200)]
+
+
+def test_task_event_websocket_rejects_unknown_task_before_replay(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/api/tasks/missing/events/ws"):
+            pass
+
+    assert runtime.event_calls == []
