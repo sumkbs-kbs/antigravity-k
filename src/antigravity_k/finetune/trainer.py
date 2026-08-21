@@ -489,6 +489,7 @@ def main():
     train_p.add_argument("--lr", type=float, default=1e-5)
     train_p.add_argument("--lora-rank", type=int, default=16)
     train_p.add_argument("--manifest", required=True, help="Frozen dataset split manifest")
+    train_p.add_argument("--resume", action="store_true", help="최신 체크포인트에서 학습 재개")
     train_p.add_argument("--dry-run", action="store_true", help="해석된 학습 설정만 출력")
 
     # prepare
@@ -552,7 +553,7 @@ def main():
             seed=42,
         )
         try:
-            resolved = resolve_training_recipe(recipe)
+            resolved = resolve_training_recipe(recipe, resume=args.resume)
         except TrainingRecipeError as error:
             logger.error("학습 레시피 검증 실패: %s", error)
             raise SystemExit(2) from error

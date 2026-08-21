@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import platform
+import re
 import sys
 from dataclasses import dataclass
 from decimal import Decimal
@@ -25,6 +26,9 @@ class TrainingRecipeError(ValueError):
     @override
     def __str__(self) -> str:
         return self.reason
+
+
+_CHECKPOINT_PATTERN = re.compile(r"^(?P<iteration>[0-9]{7})_adapters\.safetensors$")
 
 
 class TrainingRecipe(BaseModel):
@@ -60,9 +64,20 @@ class ResolvedTrainingRecipe(BaseModel):
     recipe_sha256: str
     environment: dict[str, str]
     evaluation_sha256: str
+    resume_adapter_path: Path | None = None
+    resume_source_sha256: str | None = None
 
 
-def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
+def _latest_checkpoint(adapter_path: Path) -> Path | None:
+    candidates: list[tuple[int, Path]] = []
+    for path in adapter_path.glob("*_adapters.safetensors"):
+        match = _CHECKPOINT_PATTERN.match(path.name)
+        if match is not None:
+            candidates.append((int(match["iteration"]), path))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
+def resolve_training_recipe(recipe: TrainingRecipe, *, resume: bool = False) -> ResolvedTrainingRecipe:
     try:
         report = inspect_dataset(recipe.dataset)
     except DatasetContractError as error:
@@ -75,6 +90,10 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
     steps_per_epoch = (report.train_record_count + effective_batch - 1) // effective_batch
     iterations = max(1, steps_per_epoch) * recipe.epochs
     data_dir = recipe.output_dir / "data"
+    resume_adapter_path = _latest_checkpoint(adapter_path) if resume else None
+    if resume and resume_adapter_path is None:
+        raise TrainingRecipeError("Resumable checkpoint is required before training.")
+    resume_source_sha256 = hashlib.sha256(resume_adapter_path.read_bytes()).hexdigest() if resume_adapter_path else None
     recipe_canonical = recipe.model_dump_json(exclude={"dataset"})
     recipe_sha256 = hashlib.sha256(recipe_canonical.encode("utf-8")).hexdigest()
     environment = {
@@ -82,7 +101,7 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
         "platform": platform.platform(),
         "mlx_lm": importlib.metadata.version("mlx_lm"),
     }
-    command = (
+    command: tuple[str, ...] = (
         sys.executable,
         "-m",
         "mlx_lm",
@@ -107,6 +126,8 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
         "--seed",
         str(recipe.seed),
     )
+    if resume_adapter_path is not None:
+        command = (*command, "--resume-adapter-file", str(resume_adapter_path))
     return ResolvedTrainingRecipe(
         command=command,
         dataset_sha256=report.sha256,
@@ -121,4 +142,6 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
         recipe_sha256=recipe_sha256,
         environment=environment,
         evaluation_sha256=hashlib.sha256(b"").hexdigest(),
+        resume_adapter_path=resume_adapter_path,
+        resume_source_sha256=resume_source_sha256,
     )

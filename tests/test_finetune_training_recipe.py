@@ -106,6 +106,19 @@ def test_training_recipe_rejects_mismatched_dataset_manifest(tmp_path: Path) -> 
         _ = resolve_training_recipe(_recipe(changed))
 
 
+def test_training_recipe_resumes_from_latest_checkpoint(tmp_path: Path) -> None:
+    contract = _dataset(tmp_path)
+    _ = inspect_dataset(contract)
+    checkpoint = tmp_path / "run" / "adapters" / "0000004_adapters.safetensors"
+    checkpoint.parent.mkdir(parents=True)
+    _ = checkpoint.write_bytes(b"checkpoint")
+    _ = (checkpoint.parent / "0000002_adapters.safetensors").write_bytes(b"older")
+
+    resolved = resolve_training_recipe(_recipe(contract), resume=True)
+
+    assert resolved.command[resolved.command.index("--resume-adapter-file") + 1] == str(checkpoint)
+
+
 def test_train_cli_dry_run_prints_resolved_recipe_without_adapters(tmp_path: Path) -> None:
     contract = _dataset(tmp_path)
     _ = inspect_dataset(contract)

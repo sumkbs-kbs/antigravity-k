@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -34,6 +35,10 @@ _result_adapter: TypeAdapter[TrainingRunResult] = TypeAdapter(TrainingRunResult)
 _launch_adapter: TypeAdapter[FakeTrainingLaunch] = TypeAdapter(FakeTrainingLaunch)
 
 
+class FakeResumeLaunch(FakeTrainingLaunch):
+    resume_adapter_file: Path
+
+
 def _fake_mlx_package(root: Path, marker: Path) -> None:
     package = root / "mlx_lm"
     _ = package.mkdir(parents=True)
@@ -51,6 +56,8 @@ def _fake_mlx_package(root: Path, marker: Path) -> None:
                 "argv = __import__('sys').argv",
                 "data_index = argv.index('--data') + 1",
                 "payload = {'argv': argv, 'data_dir': argv[data_index]}",
+                "if '--resume-adapter-file' in argv:",
+                "    payload['resume_adapter_file'] = argv[argv.index('--resume-adapter-file') + 1]",
                 "marker = Path(os.environ['FAKE_MLX_MARKER'])",
                 "marker.write_text(json.dumps(payload), encoding='utf-8')",
                 "print('fake training complete')",
@@ -163,3 +170,57 @@ def test_train_cli_runs_resolved_recipe_through_adapter(tmp_path: Path) -> None:
     assert (recipe.output_dir / "training_result.json").exists()
     assert (recipe.output_dir / "data" / "train.jsonl").exists()
     assert (recipe.output_dir / "data" / "valid.jsonl").exists()
+
+
+def test_training_adapter_runs_resume_command_and_records_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_root = tmp_path / "fake"
+    marker = tmp_path / "resume-marker.json"
+    _fake_mlx_package(fake_root, marker)
+    recipe, _, _ = _recipe(tmp_path)
+    checkpoint = recipe.output_dir / "adapters" / "0000004_adapters.safetensors"
+    checkpoint.parent.mkdir(parents=True)
+    _ = checkpoint.write_bytes(b"checkpoint")
+    monkeypatch.setenv("PYTHONPATH", str(fake_root))
+    monkeypatch.setenv("FAKE_MLX_MARKER", str(marker))
+
+    resolved = resolve_training_recipe(recipe, resume=True)
+    result = run_resolved_training(resolved)
+
+    launch = TypeAdapter(FakeResumeLaunch).validate_json(marker.read_text(encoding="utf-8"))
+    assert result.resume_adapter_path == checkpoint
+    assert result.resume_source_sha256 == hashlib.sha256(b"checkpoint").hexdigest()
+    assert launch.resume_adapter_file == checkpoint
+
+
+def test_train_cli_resume_rejects_missing_checkpoint(tmp_path: Path) -> None:
+    recipe, _, _ = _recipe(tmp_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "antigravity_k.finetune.trainer",
+            "train",
+            "--model",
+            "/models/base",
+            "--base-revision",
+            "sha256:base-revision",
+            "--data",
+            str(recipe.dataset.path),
+            "--manifest",
+            str(recipe.dataset.split_policy.manifest_path),
+            "--output",
+            str(recipe.output_dir),
+            "--resume",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=os.environ | {"PYTHONPATH": "src"},
+    )
+
+    assert result.returncode == 2
+    assert "Resumable checkpoint is required" in result.stderr

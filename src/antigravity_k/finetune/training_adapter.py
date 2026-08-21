@@ -34,6 +34,8 @@ class TrainingRunResult(BaseModel):
     recipe_sha256: str
     environment: dict[str, str]
     evaluation_sha256: str
+    resume_adapter_path: Path | None = None
+    resume_source_sha256: str | None = None
 
 
 def run_resolved_training(
@@ -69,6 +71,8 @@ def run_resolved_training(
         recipe_sha256=resolved.recipe_sha256,
         environment=resolved.environment,
         evaluation_sha256=resolved.evaluation_sha256,
+        resume_adapter_path=resolved.resume_adapter_path,
+        resume_source_sha256=resolved.resume_source_sha256,
     )
     _ = (resolved.adapter_path.parent / "training_result.json").write_text(
         result.model_dump_json(indent=2) + "\n",
