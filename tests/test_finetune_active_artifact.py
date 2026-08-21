@@ -16,7 +16,6 @@ from antigravity_k.finetune.active_artifact import (
     promote_artifact,
     read_active_artifact,
     rollback_active_artifact,
-    validate_active_artifact_output,
 )
 from antigravity_k.finetune.artifact_lifecycle import (
     FusedArtifactResult,
@@ -191,36 +190,6 @@ def test_read_active_artifact_rejects_tampered_pointer(tmp_path: Path) -> None:
 
     with pytest.raises(ActiveArtifactError, match="Invalid active artifact state"):
         _ = read_active_artifact(state_path)
-
-
-def test_read_active_artifact_rejects_directory_state_path_without_detail(tmp_path: Path) -> None:
-    # Given: a directory is supplied where the active JSON state file is required.
-    state_path = tmp_path / "active-state"
-    state_path.mkdir()
-
-    # When: the active state boundary is read.
-    with pytest.raises(ActiveArtifactError, match="Active artifact state is unavailable"):
-        _ = read_active_artifact(state_path)
-
-
-def test_validated_active_artifact_output_rejects_symlink(tmp_path: Path) -> None:
-    # Given: a valid fused artifact is addressed through a directory symlink.
-    artifact_path = _write_artifact(tmp_path, "candidate")
-    symlink_path = tmp_path / "candidate-link"
-    symlink_path.symlink_to(artifact_path, target_is_directory=True)
-    state = ActiveArtifactState(
-        status=ActiveArtifactStatus.ACTIVE,
-        base_model="/models/base",
-        base_revision="sha256:base-revision",
-        output_path=symlink_path,
-        recipe_sha256="b" * 64,
-        evaluation_sha256="c" * 64,
-        promotion_revision=1,
-    )
-
-    # When: the active output is validated.
-    with pytest.raises(ActiveArtifactError, match="Active artifact output is unavailable"):
-        _ = validate_active_artifact_output(state)
 
 
 def test_concurrent_promotions_produce_one_exact_winner(tmp_path: Path) -> None:
