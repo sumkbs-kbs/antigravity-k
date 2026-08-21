@@ -49,6 +49,7 @@ class ResolvedTrainingRecipe(BaseModel):
     train_path: Path
     valid_path: Path
     adapter_path: Path
+    data_dir: Path
     iterations: int = Field(ge=1)
 
 
@@ -64,15 +65,17 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
     effective_batch = recipe.batch_size * recipe.gradient_accumulation_steps
     steps_per_epoch = (report.train_record_count + effective_batch - 1) // effective_batch
     iterations = max(1, steps_per_epoch) * recipe.epochs
+    data_dir = recipe.output_dir / "data"
     command = (
         sys.executable,
         "-m",
-        "mlx_lm.lora",
+        "mlx_lm",
+        "lora",
         "--model",
         recipe.base_model,
         "--train",
         "--data",
-        str(recipe.dataset.path.parent),
+        str(data_dir),
         "--adapter-path",
         str(adapter_path),
         "--iters",
@@ -81,7 +84,7 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
         str(recipe.batch_size),
         "--learning-rate",
         str(recipe.learning_rate),
-        "--lora-layers",
+        "--num-layers",
         str(recipe.lora_rank),
         "--save-every",
         str(recipe.save_every),
@@ -95,5 +98,6 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
         train_path=train_path,
         valid_path=valid_path,
         adapter_path=adapter_path,
+        data_dir=data_dir,
         iterations=iterations,
     )

@@ -73,10 +73,13 @@ def test_training_recipe_resolves_dataset_and_command(tmp_path: Path) -> None:
     assert resolved.dataset_record_count == report.record_count
     assert resolved.train_path == contract.path.with_name("prepared_train.jsonl")
     assert resolved.valid_path == contract.path.with_name("prepared_valid.jsonl")
-    assert resolved.command[:3] == (sys.executable, "-m", "mlx_lm.lora")
+    assert resolved.command[:3] == (sys.executable, "-m", "mlx_lm")
+    assert resolved.command[3] == "lora"
     assert "--model" in resolved.command
     assert resolved.command[resolved.command.index("--model") + 1] == "/models/base"
     assert resolved.command[resolved.command.index("--adapter-path") + 1] == str(tmp_path / "run" / "adapters")
+    assert resolved.data_dir == tmp_path / "run" / "data"
+    assert resolved.command[resolved.command.index("--data") + 1] == str(tmp_path / "run" / "data")
     assert resolved.command[resolved.command.index("--iters") + 1] == "6"
 
 
@@ -125,6 +128,6 @@ def test_train_cli_dry_run_prints_resolved_recipe_without_adapters(tmp_path: Pat
 
     payload = _resolved_adapter.validate_json(result.stdout)
     assert result.returncode == 0
-    assert payload.command[1:3] == ("-m", "mlx_lm.lora")
+    assert payload.command[1:4] == ("-m", "mlx_lm", "lora")
     assert payload.dataset_sha256 is not None
     assert not (tmp_path / "run").exists()

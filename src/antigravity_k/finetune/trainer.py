@@ -30,8 +30,8 @@ from antigravity_k.finetune.dataset_contract import (
     FinetuneDatasetContract,
     split_frozen_dataset,
 )
+from antigravity_k.finetune.training_adapter import run_resolved_training
 from antigravity_k.finetune.training_recipe import (
-    ResolvedTrainingRecipe,
     TrainingRecipe,
     TrainingRecipeError,
     resolve_training_recipe,
@@ -550,7 +550,7 @@ def main():
             seed=42,
         )
         try:
-            resolved: ResolvedTrainingRecipe = resolve_training_recipe(recipe)
+            resolved = resolve_training_recipe(recipe)
         except TrainingRecipeError as error:
             logger.error("학습 레시피 검증 실패: %s", error)
             raise SystemExit(2) from error
@@ -558,19 +558,8 @@ def main():
             print(resolved.model_dump_json(indent=2))
             return
 
-        lora_cfg = LoRAConfig(rank=args.lora_rank)
-        config = TrainingConfig(
-            base_model=args.model,
-            output_dir=args.output,
-            train_data=args.data,
-            num_epochs=args.epochs,
-            batch_size=args.batch_size,
-            learning_rate=args.lr,
-            lora=lora_cfg,
-        )
-        engine = FineTuneEngine(config)
-        result = engine.train()
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        result = run_resolved_training(resolved)
+        print(result.model_dump_json(indent=2))
 
     elif args.command == "prepare":
         try:
