@@ -30,6 +30,12 @@ from antigravity_k.finetune.dataset_contract import (
     FinetuneDatasetContract,
     split_frozen_dataset,
 )
+from antigravity_k.finetune.training_recipe import (
+    ResolvedTrainingRecipe,
+    TrainingRecipe,
+    TrainingRecipeError,
+    resolve_training_recipe,
+)
 
 logger = logging.getLogger("agk.finetune")
 
@@ -480,6 +486,8 @@ def main():
     train_p.add_argument("--batch-size", type=int, default=4)
     train_p.add_argument("--lr", type=float, default=1e-5)
     train_p.add_argument("--lora-rank", type=int, default=16)
+    train_p.add_argument("--manifest", required=True, help="Frozen dataset split manifest")
+    train_p.add_argument("--dry-run", action="store_true", help="해석된 학습 설정만 출력")
 
     # prepare
     prep_p = sub.add_parser("prepare", help="데이터 준비")
@@ -516,6 +524,40 @@ def main():
     args = parser.parse_args()
 
     if args.command == "train":
+        manifest_path = Path(args.manifest)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        recipe = TrainingRecipe(
+            base_model=args.model,
+            output_dir=Path(args.output),
+            dataset=FinetuneDatasetContract(
+                path=Path(args.data),
+                consent=DatasetConsent.EXPLICIT,
+                subject_rights=DatasetSubjectRights.HONORED,
+                license_id=DatasetLicense(manifest.get("license", "MIT")),
+                split_policy=DatasetSplitPolicy(
+                    seed=manifest["seed"],
+                    train_ratio=manifest["train_ratio"],
+                    manifest_path=manifest_path,
+                ),
+            ),
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            gradient_accumulation_steps=4,
+            learning_rate=args.lr,
+            lora_rank=args.lora_rank,
+            lora_alpha=args.lora_rank * 2,
+            save_every=100,
+            seed=42,
+        )
+        try:
+            resolved: ResolvedTrainingRecipe = resolve_training_recipe(recipe)
+        except TrainingRecipeError as error:
+            logger.error("학습 레시피 검증 실패: %s", error)
+            raise SystemExit(2) from error
+        if args.dry_run:
+            print(resolved.model_dump_json(indent=2))
+            return
+
         lora_cfg = LoRAConfig(rank=args.lora_rank)
         config = TrainingConfig(
             base_model=args.model,
