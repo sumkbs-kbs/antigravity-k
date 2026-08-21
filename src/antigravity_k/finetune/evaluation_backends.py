@@ -11,6 +11,12 @@ from urllib.request import Request
 from pydantic import BaseModel, ConfigDict
 
 from antigravity_k.finetune.evaluation import CandidateKind, EvaluationCase
+from antigravity_k.finetune.evaluation_mlx_sampler import (
+    MlxGenerate,
+    MlxHandle,
+    MlxSamplerError,
+    make_mlx_sampler,
+)
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 
@@ -33,10 +39,6 @@ class EvaluationBackend(StrEnum):
 
 
 @runtime_checkable
-class MlxHandle(Protocol): ...
-
-
-@runtime_checkable
 class MlxLoaded(Protocol):
     def __len__(self) -> int: ...
 
@@ -53,18 +55,6 @@ class MlxCandidate:
 
     def __getitem__(self, index: int) -> MlxHandle:
         return (self.model, self.tokenizer)[index]
-
-
-class MlxGenerate(Protocol):
-    def __call__(
-        self,
-        *,
-        model: MlxHandle,
-        tokenizer: MlxHandle,
-        prompt: str,
-        max_tokens: int,
-        temperature: float,
-    ) -> str: ...
 
 
 class MlxLoad(Protocol):
@@ -199,12 +189,16 @@ class MlxEvaluationInference:
                 ),
             }
         selected = self.candidates[kind]
+        try:
+            sampler = make_mlx_sampler(self.temperature)
+        except MlxSamplerError as error:
+            raise EvaluationInferenceError(str(error)) from error
         output = self.runtime.generate(
             model=selected.model,
             tokenizer=selected.tokenizer,
             prompt=case.prompt,
             max_tokens=self.max_tokens,
-            temperature=self.temperature,
+            sampler=sampler,
         )
         if not output:
             raise EvaluationInferenceError(f"MLX {kind.value} evaluation returned no content.")

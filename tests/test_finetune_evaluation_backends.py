@@ -26,6 +26,7 @@ from antigravity_k.finetune.evaluation_backends import (
     RequestBody,
     _MlxModuleRuntime,
 )
+from antigravity_k.finetune.evaluation_mlx_sampler import MlxHandle, MlxSampler, make_mlx_sampler
 
 _pair_adapter: TypeAdapter[EvaluationPair] = TypeAdapter(EvaluationPair)
 
@@ -68,13 +69,22 @@ class FakeMlxTokenizer:
 
 
 @final
-class TupleMlxLoaded(tuple[FakeMlxModel, FakeMlxTokenizer]):
-    pass
+class TupleMlxLoaded:
+    values: tuple[FakeMlxModel, FakeMlxTokenizer]
+
+    def __init__(self, values: tuple[FakeMlxModel, FakeMlxTokenizer]) -> None:
+        self.values = values
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+    def __getitem__(self, index: int) -> MlxHandle:
+        return self.values[index]
 
 
 @final
 class FakeTupleMlxRuntime:
-    generate_calls: list[tuple[FakeMlxModel, FakeMlxTokenizer, str, int, float]]
+    generate_calls: list[tuple[MlxHandle, MlxHandle, str, int, bool | MlxSampler]]
 
     def __init__(self) -> None:
         self.generate_calls = []
@@ -82,7 +92,7 @@ class FakeTupleMlxRuntime:
     def load(
         self,
         *,
-        path_or_hf_repo: str,
+        path_or_hf_repo: str | None = None,
         revision: str | None = None,
         adapter_path: str | None = None,
     ) -> MlxLoaded:
@@ -91,38 +101,46 @@ class FakeTupleMlxRuntime:
     def generate(
         self,
         *,
-        model: FakeMlxModel,
-        tokenizer: FakeMlxTokenizer,
+        model: MlxHandle,
+        tokenizer: MlxHandle,
         prompt: str,
         max_tokens: int,
-        temperature: float,
+        sampler: bool | MlxSampler,
     ) -> str:
-        self.generate_calls.append((model, tokenizer, prompt, max_tokens, temperature))
+        self.generate_calls.append((model, tokenizer, prompt, max_tokens, sampler))
         return "answer"
 
 
 @final
+class FakeMlxSampler:
+    temperature: float
+
+    def __init__(self, temperature: float) -> None:
+        self.temperature = temperature
+
+
+@final
 class FakeMlxGenerateCall:
-    model: FakeMlxModel
-    tokenizer: FakeMlxTokenizer
+    model: MlxHandle
+    tokenizer: MlxHandle
     prompt: str
     max_tokens: int
-    temperature: float
+    sampler: bool | MlxSampler
 
     def __init__(
         self,
         *,
-        model: FakeMlxModel,
-        tokenizer: FakeMlxTokenizer,
+        model: MlxHandle,
+        tokenizer: MlxHandle,
         prompt: str,
         max_tokens: int,
-        temperature: float,
+        sampler: bool | MlxSampler,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.prompt = prompt
         self.max_tokens = max_tokens
-        self.temperature = temperature
+        self.sampler = sampler
 
 
 class FakeMlxRuntime:
@@ -156,7 +174,7 @@ class FakeMlxRuntime:
         tokenizer: FakeMlxTokenizer,
         prompt: str,
         max_tokens: int,
-        temperature: float,
+        sampler: bool,
     ) -> str:
         self.generate_calls.append(
             FakeMlxGenerateCall(
@@ -164,7 +182,7 @@ class FakeMlxRuntime:
                 tokenizer=tokenizer,
                 prompt=prompt,
                 max_tokens=max_tokens,
-                temperature=temperature,
+                sampler=sampler,
             ),
         )
         return "answer"
@@ -280,6 +298,42 @@ def test_mlx_inference_normalizes_tuple_loaded_from_runtime(monkeypatch: pytest.
     model, tokenizer, _, _, _ = runtime.generate_calls[0]
     assert type(model) is FakeMlxModel
     assert type(tokenizer) is FakeMlxTokenizer
+
+
+def test_mlx_inference_passes_sampler_for_real_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeTupleMlxRuntime()
+
+    def fake_make_sampler(temperature: float) -> FakeMlxSampler:
+        return FakeMlxSampler(temperature)
+
+    monkeypatch.setattr(
+        "antigravity_k.finetune.evaluation_backends.make_mlx_sampler",
+        fake_make_sampler,
+    )
+    monkeypatch.setattr(
+        "antigravity_k.finetune.evaluation_backends._load_mlx_runtime",
+        lambda: _MlxModuleRuntime(runtime),
+    )
+    inference = MlxEvaluationInference(
+        base_model="/models/base",
+        base_revision="sha256:base-revision",
+        adapter_path=Path("/models/adapter"),
+        max_tokens=19,
+        temperature=0.25,
+    )
+
+    assert inference(_case(), CandidateKind.BASE) == "answer"
+
+    assert len(runtime.generate_calls) == 1
+    assert runtime.generate_calls[0][3] == 19
+    assert isinstance(runtime.generate_calls[0][4], FakeMlxSampler)
+    assert runtime.generate_calls[0][4].temperature == 0.25
+
+
+def test_make_mlx_sampler_returns_greedy_sampler_below_positive_temperature() -> None:
+    sampler = make_mlx_sampler(0.0)
+
+    assert sampler is False
 
 
 def test_ollama_inference_selects_exact_candidate_model() -> None:
