@@ -9,6 +9,7 @@ from typing import ClassVar, override
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from antigravity_k.finetune.evaluation import evaluation_pair_sha256, load_evaluation_pair
 from antigravity_k.finetune.training_adapter import TrainingRunResult, TrainingRunStatus
 
 
@@ -48,6 +49,7 @@ def fuse_training_artifact(
     training: TrainingRunResult,
     *,
     output_path: Path,
+    evaluation_path: Path | None = None,
 ) -> FusedArtifactResult:
     if training.status is not TrainingRunStatus.SUCCESS:
         raise ArtifactLifecycleError("Successful training run is required before fusion.")
@@ -66,6 +68,18 @@ def fuse_training_artifact(
     )
     process = subprocess.run(command, capture_output=True, text=True, check=False)
     status = FusedArtifactStatus.SUCCESS if process.returncode == 0 else FusedArtifactStatus.FAILED
+    evaluation_sha256 = training.evaluation_sha256
+    if evaluation_path is not None:
+        pair = load_evaluation_pair(
+            evaluation_path,
+            model=training.base_model,
+            model_revision=training.base_revision,
+        )
+        if pair.tuned.recipe_sha256 != training.recipe_sha256:
+            raise ArtifactLifecycleError("Evaluation recipe provenance does not match training run.")
+        if pair.tuned.adapter_path != training.adapter_path:
+            raise ArtifactLifecycleError("Evaluation adapter provenance does not match training run.")
+        evaluation_sha256 = evaluation_pair_sha256(pair)
     result = FusedArtifactResult(
         status=status,
         return_code=process.returncode,
@@ -76,7 +90,7 @@ def fuse_training_artifact(
         dataset_sha256=training.dataset_sha256,
         recipe_sha256=training.recipe_sha256,
         environment=training.environment,
-        evaluation_sha256=training.evaluation_sha256,
+        evaluation_sha256=evaluation_sha256,
         iterations=training.iterations,
         stdout=process.stdout,
         stderr=process.stderr,

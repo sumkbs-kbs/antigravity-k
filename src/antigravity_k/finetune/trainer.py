@@ -522,6 +522,7 @@ def main():
     merge_p = sub.add_parser("merge", help="어댑터 병합")
     merge_p.add_argument("--run", required=True, help="training_result.json 경로")
     merge_p.add_argument("--output", required=True, help="병합 결과 경로")
+    merge_p.add_argument("--evaluation", help="base/tuned evaluation_result.json 경로")
 
     args = parser.parse_args()
 
@@ -595,7 +596,11 @@ def main():
     elif args.command == "merge":
         training = TrainingRunResult.model_validate_json(Path(args.run).read_text(encoding="utf-8"))
         try:
-            fused = fuse_training_artifact(training, output_path=Path(args.output))
+            fused = fuse_training_artifact(
+                training,
+                output_path=Path(args.output),
+                evaluation_path=None if args.evaluation is None else Path(args.evaluation),
+            )
         except ArtifactLifecycleError as error:
             logger.error("학습 artifact 병합 실패: %s", error)
             raise SystemExit(2) from error
