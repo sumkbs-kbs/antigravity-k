@@ -13,6 +13,7 @@ Apple Silicon 128GB Unified Memory에서 로컬 파인튜닝 실행.
     engine.train()
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -36,6 +37,16 @@ from antigravity_k.finetune.dataset_contract import (
     DatasetSubjectRights,
     FinetuneDatasetContract,
     split_frozen_dataset,
+)
+from antigravity_k.finetune.evaluation import (
+    EvaluationDataset,
+    evaluate_candidates,
+)
+from antigravity_k.finetune.evaluation_backends import (
+    EvaluationBackend,
+    EvaluationInferenceError,
+    MlxEvaluationInference,
+    OllamaEvaluationInference,
 )
 from antigravity_k.finetune.training_adapter import TrainingRunResult, run_resolved_training
 from antigravity_k.finetune.training_recipe import (
@@ -539,6 +550,16 @@ def main():
     rollback_p = sub.add_parser("rollback", help="직전 active artifact로 복원")
     rollback_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
 
+    evaluate_p = sub.add_parser("evaluate", help="base/tuned 후보를 실제 backend로 평가")
+    evaluate_p.add_argument("--run", required=True, help="training_result.json 경로")
+    evaluate_p.add_argument("--dataset", required=True, help="frozen held_out_v1.jsonl 경로")
+    evaluate_p.add_argument("--backend", choices=[member.value for member in EvaluationBackend], required=True)
+    evaluate_p.add_argument("--output", required=True, help="evaluation_result.json 경로")
+    evaluate_p.add_argument("--endpoint", default="http://127.0.0.1:11434", help="Ollama API endpoint")
+    evaluate_p.add_argument("--tuned-model", help="Ollama tuned model name")
+    evaluate_p.add_argument("--max-tokens", type=int, default=256)
+    evaluate_p.add_argument("--temperature", type=float, default=0.0)
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -643,6 +664,52 @@ def main():
             logger.error("Active artifact 복원 실패: %s", error)
             raise SystemExit(2) from error
         print(active.model_dump_json(indent=2))
+
+    elif args.command == "evaluate":
+        training = TrainingRunResult.model_validate_json(Path(args.run).read_text(encoding="utf-8"))
+        dataset_path = Path(args.dataset)
+        dataset = EvaluationDataset(
+            path=dataset_path,
+            sha256=hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+            case_ids=tuple(
+                json.loads(line)["id"] for line in dataset_path.read_text(encoding="utf-8").splitlines() if line
+            ),
+        )
+        backend = EvaluationBackend(args.backend)
+        match backend:
+            case EvaluationBackend.MLX:
+                inference = MlxEvaluationInference(
+                    base_model=training.base_model,
+                    base_revision=training.base_revision,
+                    adapter_path=training.adapter_path,
+                    max_tokens=args.max_tokens,
+                    temperature=args.temperature,
+                )
+            case EvaluationBackend.OLLAMA:
+                if args.tuned_model is None:
+                    parser.error("--tuned-model is required for the ollama backend")
+                inference = OllamaEvaluationInference(
+                    endpoint=args.endpoint,
+                    base_model=training.base_model,
+                    tuned_model=args.tuned_model,
+                    max_tokens=args.max_tokens,
+                    temperature=args.temperature,
+                )
+        try:
+            pair = evaluate_candidates(
+                dataset=dataset,
+                model=training.base_model,
+                model_revision=training.base_revision,
+                adapter_path=training.adapter_path,
+                recipe_sha256=training.recipe_sha256,
+                environment=training.environment,
+                inference=inference,
+            )
+        except EvaluationInferenceError as error:
+            logger.error("평가 추론 실패: %s", error)
+            raise SystemExit(2) from error
+        _ = Path(args.output).write_text(pair.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        print(pair.model_dump_json(indent=2))
 
     else:
         parser.print_help()
