@@ -8,6 +8,13 @@ from pydantic import ValidationError
 from antigravity_k.api.dependencies import __get_tool_registry
 from antigravity_k.config import config
 from antigravity_k.engine.audit_logger import get_audit_logger
+from antigravity_k.engine.provider_adapters.unsloth_capability_contracts import (
+    UnslothCapabilitySnapshot,
+)
+from antigravity_k.engine.provider_adapters.unsloth_capability_preflight import (
+    SystemCapabilityProbe,
+    UnslothCapabilityPreflight,
+)
 from antigravity_k.engine.provider_adapters.unsloth_resource_broker import (
     SystemMemoryProbe,
     UnslothResourceBroker,
@@ -36,6 +43,20 @@ def get_unsloth_resource_broker() -> UnslothResourceBroker:
         database_path=config.paths.data_dir / "unsloth_resources.sqlite3",
         memory_probe=SystemMemoryProbe(),
     )
+
+
+def get_unsloth_capability_preflight() -> UnslothCapabilityPreflight:
+    return UnslothCapabilityPreflight(SystemCapabilityProbe(config.paths.data_dir))
+
+
+@router.get(
+    "/v1/integrations/unsloth/capabilities",
+    response_model=UnslothCapabilitySnapshot,
+)
+def get_unsloth_capabilities(
+    preflight: Annotated[UnslothCapabilityPreflight, Depends(get_unsloth_capability_preflight)],
+) -> UnslothCapabilitySnapshot:
+    return preflight.snapshot()
 
 
 def get_unsloth_studio_service(

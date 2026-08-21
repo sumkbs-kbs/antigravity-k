@@ -25,6 +25,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from antigravity_k.engine.provider_adapters.unsloth_platform_policy import default_training_platform, host_platform
+
 logger = logging.getLogger("antigravity_k.lora_pipeline")
 
 
@@ -249,10 +251,8 @@ class LoRAPipeline:
             생성된 설정 dict
 
         """
-        import platform as plt
-
         if platform == "auto":
-            platform = "mlx" if plt.system() == "Darwin" else "unsloth"
+            platform = default_training_platform(host_platform())
 
         if platform == "mlx":
             config = self._mlx_lora_config(base_model, dataset_path, output_dir)
