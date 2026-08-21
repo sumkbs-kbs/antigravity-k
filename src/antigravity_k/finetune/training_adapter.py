@@ -29,6 +29,11 @@ class TrainingRunResult(BaseModel):
     iterations: int = Field(ge=1)
     stdout: str
     stderr: str
+    base_model: str
+    base_revision: str
+    recipe_sha256: str
+    environment: dict[str, str]
+    evaluation_sha256: str
 
 
 def run_resolved_training(
@@ -59,6 +64,11 @@ def run_resolved_training(
         iterations=resolved.iterations,
         stdout=process.stdout,
         stderr=process.stderr,
+        base_model=resolved.base_model,
+        base_revision=resolved.base_revision,
+        recipe_sha256=resolved.recipe_sha256,
+        environment=resolved.environment,
+        evaluation_sha256=resolved.evaluation_sha256,
     )
     _ = (resolved.adapter_path.parent / "training_result.json").write_text(
         result.model_dump_json(indent=2) + "\n",

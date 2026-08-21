@@ -50,6 +50,7 @@ def _dataset(tmp_path: Path) -> FinetuneDatasetContract:
 def _recipe(contract: FinetuneDatasetContract) -> TrainingRecipe:
     return TrainingRecipe(
         base_model="/models/base",
+        base_revision="sha256:base-revision",
         output_dir=contract.path.parent / "run",
         dataset=contract,
         epochs=2,
@@ -81,6 +82,11 @@ def test_training_recipe_resolves_dataset_and_command(tmp_path: Path) -> None:
     assert resolved.data_dir == tmp_path / "run" / "data"
     assert resolved.command[resolved.command.index("--data") + 1] == str(tmp_path / "run" / "data")
     assert resolved.command[resolved.command.index("--iters") + 1] == "6"
+    assert resolved.base_model == "/models/base"
+    assert resolved.base_revision == "sha256:base-revision"
+    assert len(resolved.recipe_sha256) == 64
+    assert resolved.environment["python"] == sys.version.split()[0]
+    assert len(resolved.evaluation_sha256) == 64
 
 
 def test_training_recipe_rejects_mismatched_dataset_manifest(tmp_path: Path) -> None:
@@ -112,6 +118,8 @@ def test_train_cli_dry_run_prints_resolved_recipe_without_adapters(tmp_path: Pat
             "train",
             "--model",
             "/models/base",
+            "--base-revision",
+            "sha256:base-revision",
             "--data",
             str(contract.path),
             "--manifest",
@@ -130,4 +138,5 @@ def test_train_cli_dry_run_prints_resolved_recipe_without_adapters(tmp_path: Pat
     assert result.returncode == 0
     assert payload.command[1:4] == ("-m", "mlx_lm", "lora")
     assert payload.dataset_sha256 is not None
+    assert payload.base_revision == "sha256:base-revision"
     assert not (tmp_path / "run").exists()

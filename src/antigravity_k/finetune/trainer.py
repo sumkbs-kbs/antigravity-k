@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from antigravity_k.finetune.artifact_lifecycle import ArtifactLifecycleError, fuse_training_artifact
 from antigravity_k.finetune.dataset_contract import (
     DatasetConsent,
     DatasetContractError,
@@ -30,7 +31,7 @@ from antigravity_k.finetune.dataset_contract import (
     FinetuneDatasetContract,
     split_frozen_dataset,
 )
-from antigravity_k.finetune.training_adapter import run_resolved_training
+from antigravity_k.finetune.training_adapter import TrainingRunResult, run_resolved_training
 from antigravity_k.finetune.training_recipe import (
     TrainingRecipe,
     TrainingRecipeError,
@@ -480,6 +481,7 @@ def main():
     # train
     train_p = sub.add_parser("train", help="파인튜닝 실행")
     train_p.add_argument("--model", required=True, help="베이스 모델 경로")
+    train_p.add_argument("--base-revision", required=True, help="베이스 모델 revision digest")
     train_p.add_argument("--data", required=True, help="학습 데이터 (JSONL)")
     train_p.add_argument("--output", default="./output/finetune", help="출력 경로")
     train_p.add_argument("--epochs", type=int, default=3)
@@ -517,9 +519,8 @@ def main():
 
     # merge
     merge_p = sub.add_parser("merge", help="어댑터 병합")
-    merge_p.add_argument("--model", required=True, help="베이스 모델 경로")
-    merge_p.add_argument("--adapter", required=True, help="어댑터 경로")
-    merge_p.add_argument("--name", default=None, help="내보내기 이름")
+    merge_p.add_argument("--run", required=True, help="training_result.json 경로")
+    merge_p.add_argument("--output", required=True, help="병합 결과 경로")
 
     args = parser.parse_args()
 
@@ -528,6 +529,7 @@ def main():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         recipe = TrainingRecipe(
             base_model=args.model,
+            base_revision=args.base_revision,
             output_dir=Path(args.output),
             dataset=FinetuneDatasetContract(
                 path=Path(args.data),
@@ -590,10 +592,13 @@ def main():
             raise SystemExit(2) from error
 
     elif args.command == "merge":
-        config = TrainingConfig(base_model=args.model, output_dir=os.path.dirname(args.adapter))
-        engine = FineTuneEngine(config)
-        export_path = engine.merge_and_export(args.name)
-        print(f"✓ 병합 완료: {export_path}")
+        training = TrainingRunResult.model_validate_json(Path(args.run).read_text(encoding="utf-8"))
+        try:
+            fused = fuse_training_artifact(training, output_path=Path(args.output))
+        except ArtifactLifecycleError as error:
+            logger.error("학습 artifact 병합 실패: %s", error)
+            raise SystemExit(2) from error
+        print(fused.model_dump_json(indent=2))
 
     else:
         parser.print_help()

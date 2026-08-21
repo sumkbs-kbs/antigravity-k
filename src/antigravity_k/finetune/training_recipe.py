@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import importlib.metadata
+import platform
 import sys
 from dataclasses import dataclass
 from decimal import Decimal
@@ -28,6 +31,7 @@ class TrainingRecipe(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
 
     base_model: str = Field(min_length=1, max_length=4_096)
+    base_revision: str = Field(min_length=1, max_length=512)
     output_dir: Path
     dataset: FinetuneDatasetContract
     epochs: int = Field(ge=1, le=100)
@@ -51,6 +55,11 @@ class ResolvedTrainingRecipe(BaseModel):
     adapter_path: Path
     data_dir: Path
     iterations: int = Field(ge=1)
+    base_model: str
+    base_revision: str
+    recipe_sha256: str
+    environment: dict[str, str]
+    evaluation_sha256: str
 
 
 def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
@@ -66,6 +75,13 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
     steps_per_epoch = (report.train_record_count + effective_batch - 1) // effective_batch
     iterations = max(1, steps_per_epoch) * recipe.epochs
     data_dir = recipe.output_dir / "data"
+    recipe_canonical = recipe.model_dump_json(exclude={"dataset"})
+    recipe_sha256 = hashlib.sha256(recipe_canonical.encode("utf-8")).hexdigest()
+    environment = {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "mlx_lm": importlib.metadata.version("mlx_lm"),
+    }
     command = (
         sys.executable,
         "-m",
@@ -100,4 +116,9 @@ def resolve_training_recipe(recipe: TrainingRecipe) -> ResolvedTrainingRecipe:
         adapter_path=adapter_path,
         data_dir=data_dir,
         iterations=iterations,
+        base_model=recipe.base_model,
+        base_revision=recipe.base_revision,
+        recipe_sha256=recipe_sha256,
+        environment=environment,
+        evaluation_sha256=hashlib.sha256(b"").hexdigest(),
     )

@@ -83,6 +83,7 @@ def _recipe(tmp_path: Path) -> tuple[TrainingRecipe, Path, Path]:
     split_paths = split_frozen_dataset(contract)
     recipe = TrainingRecipe(
         base_model="/models/base",
+        base_revision="sha256:base-revision",
         output_dir=tmp_path / "run",
         dataset=contract,
         epochs=2,
@@ -114,6 +115,7 @@ def test_training_adapter_stages_mlx_data_and_runs_resolved_command(
     assert result.status is TrainingRunStatus.SUCCESS
     assert result.return_code == 0
     assert "fake training complete" in result.stdout
+    assert result.base_revision == "sha256:base-revision"
     assert (resolved.data_dir / "train.jsonl").read_bytes() == train_path.read_bytes()
     assert (resolved.data_dir / "valid.jsonl").read_bytes() == valid_path.read_bytes()
     launched = _launch_adapter.validate_json(marker.read_text(encoding="utf-8"))
@@ -140,6 +142,8 @@ def test_train_cli_runs_resolved_recipe_through_adapter(tmp_path: Path) -> None:
             "train",
             "--model",
             "/models/base",
+            "--base-revision",
+            "sha256:base-revision",
             "--data",
             str(recipe.dataset.path),
             "--manifest",
