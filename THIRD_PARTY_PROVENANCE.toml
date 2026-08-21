@@ -1,0 +1,70 @@
+schema_version = 1
+pinned_at = "2026-08-21"
+
+[[upstreams]]
+repository = "https://github.com/unslothai/unsloth"
+commit_sha = "20c015f292685c9dbf1e4cea92bf69a0792a6ca6"
+license_spdx = "Apache-2.0"
+copied_files = []
+integration = "Interface analysis and optional remote Unsloth Studio integration; no upstream source is distributed."
+
+[[upstreams]]
+repository = "https://github.com/CodebuffAI/freebuff"
+commit_sha = "3dfaa35fae5ff4d0c6f894bafd0eb56d914f8807"
+license_spdx = "Apache-2.0"
+copied_files = []
+integration = "Interface and UX analysis; no upstream source is distributed."
+
+[[entrypoints]]
+name = "agk"
+kind = "cli"
+command = ["agk"]
+source_path = "src/antigravity_k/cli.py"
+
+[[entrypoints]]
+name = "task-resume"
+kind = "cli"
+command = ["agk", "task", "resume"]
+source_path = "src/antigravity_k/cli.py"
+
+[[entrypoints]]
+name = "fastapi-server"
+kind = "server"
+command = ["agk", "serve"]
+source_path = "src/antigravity_k/api/server.py"
+
+[[entrypoints]]
+name = "task-events"
+kind = "http-api"
+command = ["GET", "/api/tasks/{task_id}/events"]
+source_path = "src/antigravity_k/api/routes/task_api.py"
+
+[[entrypoints]]
+name = "react-dashboard"
+kind = "web-ui"
+command = ["npm", "run", "dev"]
+source_path = "dashboard/package.json"
+
+[distribution]
+source_roots = [
+    "src/antigravity_k",
+    "dashboard/src",
+    "dashboard/e2e",
+    "dashboard-vanilla",
+    "scripts",
+]
+manifest_roots = [
+    "src",
+    "dashboard",
+    "dashboard-vanilla",
+    "scripts",
+]
+prohibited_spdx = [
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+]
+prohibited_python_packages = ["pymupdf"]
