@@ -5,17 +5,22 @@ config.yaml에서 모델 프로필을 읽어 카탈로그로 관리합니다.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import yaml
 
 from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
 from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 from antigravity_k.runtime_paths import default_config_path as _default_config_path
+
+logger = logging.getLogger("antigravity_k.model_registry")
+
+ConfigScalar: TypeAlias = str | int | float | bool | None
 
 
 @dataclass
@@ -395,6 +400,32 @@ class ServerConfig:
         )
 
 
+@dataclass(frozen=True)
+class ActiveArtifactConfig:
+    state_path: Path
+    model_name: str
+    role: str
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, ConfigScalar]) -> ActiveArtifactConfig | None:
+        if not isinstance(data, dict):
+            return None
+        state_path_value = data.get("state_path", "")
+        model_name_value = data.get("model_name", "")
+        role_value = data.get("role", "reasoning")
+        match state_path_value, model_name_value, role_value:
+            case str() as state_path, str() as model_name, str() as role:
+                pass
+            case _:
+                return None
+        state_path = state_path.strip()
+        model_name = model_name.strip()
+        role = role.strip()
+        if not state_path or not model_name or not role:
+            return None
+        return cls(state_path=Path(state_path), model_name=model_name, role=role)
+
+
 class ModelRegistry:
     """config.yaml 기반 모델 카탈로그.
 
@@ -416,6 +447,7 @@ class ModelRegistry:
         self._memory = MemoryConfig()
         self._server = ServerConfig()
         self._providers: dict[str, dict[str, Any]] = {}
+        self._active_artifact: ActiveArtifactConfig | None = None
         self._raw: dict[str, Any] = {}
         self._load_config()
 
@@ -444,6 +476,8 @@ class ModelRegistry:
                 existing.roles = tuple(dict.fromkeys((*existing.supported_roles, *p.supported_roles)))
 
         self._defaults = DefaultModels.from_dict(self._raw.get("defaults", {}))
+        self._active_artifact = ActiveArtifactConfig.from_dict(self._raw.get("active_artifact", {}))
+        self._register_active_artifact()
         for default_role in ("reasoning", "coding", "embedding", "vision"):
             default_name = getattr(self._defaults, default_role, None)
             profile = self._models.get(default_name) if default_name else None
@@ -454,6 +488,30 @@ class ModelRegistry:
         # providers 섹션 로드 (멀티 프로바이더 지원 — 작업 1)
         providers_raw = self._raw.get("providers", {})
         self._providers = providers_raw if isinstance(providers_raw, dict) else {}
+
+    def _register_active_artifact(self) -> None:
+        config = self._active_artifact
+        if config is None:
+            return
+        from antigravity_k.finetune.active_artifact import ActiveArtifactError, read_active_artifact
+
+        try:
+            active = read_active_artifact(config.state_path)
+        except ActiveArtifactError as error:
+            logger.warning("Active artifact model is unavailable: %s", error)
+            return
+        if not active.output_path.is_dir():
+            logger.warning("Active artifact output path is unavailable: %s", active.output_path)
+            return
+        profile = ModelProfile(
+            name=config.model_name,
+            repo=str(active.output_path),
+            role=config.role,
+            quantization="fused",
+            description=f"Promoted artifact revision {active.promotion_revision}",
+            provider="mlx",
+        )
+        self._models[profile.name] = profile
 
     def reload(self) -> None:
         """설정 핫 리로드."""

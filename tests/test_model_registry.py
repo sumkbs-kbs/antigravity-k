@@ -6,12 +6,16 @@ DefaultModels, and ModelRegistry core operations (list/get/find_by_role).
 
 from __future__ import annotations
 
+import json
 from importlib.resources import files
 from pathlib import Path
+
+import yaml
 
 from antigravity_k.engine.model_registry import (
     DefaultModels,
     ModelProfile,
+    ModelRegistry,
     _default_config_path,
     _infer_provider,
 )
@@ -249,9 +253,81 @@ class TestDefaultModels:
 
 
 def test_project_defaults_prioritize_qwen38_for_reasoning_and_coding():
-    from antigravity_k.engine.model_registry import ModelRegistry
-
     registry = ModelRegistry()
 
     assert registry.defaults.reasoning == "qwen3.8"
     assert registry.defaults.coding == "qwen3.8"
+
+
+def _write_registry_config(path: Path, active_artifact: str) -> None:
+    payload = {
+        "models": {
+            "reasoning": [
+                {"name": "base-model", "repo": "base-model", "role": "reasoning"},
+            ],
+        },
+        "defaults": {"reasoning": "active-model"},
+        "active_artifact": {"state_path": active_artifact, "model_name": "active-model", "role": "reasoning"},
+    }
+    _ = path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+
+def _write_active_pointer(path: Path, output_path: Path) -> None:
+    payload = {
+        "status": "active",
+        "base_model": "mlx-community/Qwen2.5-0.5B-4bit",
+        "base_revision": "8b4323d7cf06a376179d6eb5358ed1c66902529a",
+        "output_path": str(output_path),
+        "recipe_sha256": "b" * 64,
+        "evaluation_sha256": "c" * 64,
+        "promotion_revision": 1,
+    }
+    _ = path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_registry_exposes_active_artifact_as_mlx_profile(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active.json"
+    artifact_path = tmp_path / "fused"
+    artifact_path.mkdir()
+    _write_active_pointer(state_path, artifact_path)
+    _write_registry_config(config_path, str(state_path))
+
+    registry = ModelRegistry(config_path=str(config_path))
+    profile = registry.get_model("active-model")
+
+    assert profile is not None
+    assert profile.provider == "mlx"
+    assert profile.repo == str(artifact_path)
+    assert profile.role == "reasoning"
+    assert registry.defaults.reasoning == "active-model"
+
+
+def test_registry_keeps_base_catalog_when_active_artifact_output_is_missing(tmp_path: Path):
+    # Given: an active JSON pointer references a fused output that no longer exists.
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active.json"
+    _write_active_pointer(state_path, tmp_path / "missing-fused")
+    _write_registry_config(config_path, str(state_path))
+
+    # When: the registry loads the configured catalog.
+    registry = ModelRegistry(config_path=str(config_path))
+
+    # Then: it fails closed and leaves only the configured base model exposed.
+    assert registry.get_model("active-model") is None
+    assert registry.get_model("base-model") is not None
+
+
+def test_registry_keeps_base_catalog_when_active_pointer_is_malformed(tmp_path: Path):
+    # Given: the active pointer does not contain valid JSON state.
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active.json"
+    _ = state_path.write_text("not-json", encoding="utf-8")
+    _write_registry_config(config_path, str(state_path))
+
+    # When: the registry loads the configured catalog.
+    registry = ModelRegistry(config_path=str(config_path))
+
+    # Then: malformed promotion state does not hide the configured base model.
+    assert registry.get_model("active-model") is None
+    assert registry.get_model("base-model") is not None
