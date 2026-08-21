@@ -7,10 +7,12 @@ DefaultModels, and ModelRegistry core operations (list/get/find_by_role).
 from __future__ import annotations
 
 import json
+import logging
 from importlib.resources import files
 from pathlib import Path
 
 import yaml
+from pytest import LogCaptureFixture
 
 from antigravity_k.engine.model_registry import (
     DefaultModels,
@@ -19,6 +21,7 @@ from antigravity_k.engine.model_registry import (
     _default_config_path,
     _infer_provider,
 )
+from antigravity_k.finetune.artifact_lifecycle import FusedArtifactResult, FusedArtifactStatus
 
 # ---------------------------------------------------------------------------
 # ModelProfile
@@ -285,11 +288,34 @@ def _write_active_pointer(path: Path, output_path: Path) -> None:
     _ = path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_fused_artifact(output_path: Path) -> None:
+    output_path.mkdir()
+    artifact = FusedArtifactResult(
+        status=FusedArtifactStatus.SUCCESS,
+        return_code=0,
+        base_model="mlx-community/Qwen2.5-0.5B-4bit",
+        base_revision="8b4323d7cf06a376179d6eb5358ed1c66902529a",
+        adapter_path=output_path / "adapters",
+        output_path=output_path,
+        dataset_sha256="a" * 64,
+        recipe_sha256="b" * 64,
+        environment={"python": "3.13"},
+        evaluation_sha256="c" * 64,
+        iterations=1,
+        stdout="",
+        stderr="",
+    )
+    _ = (output_path / "artifact_manifest.json").write_text(
+        artifact.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
 def test_registry_exposes_active_artifact_as_mlx_profile(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     state_path = tmp_path / "active.json"
     artifact_path = tmp_path / "fused"
-    artifact_path.mkdir()
+    _write_fused_artifact(artifact_path)
     _write_active_pointer(state_path, artifact_path)
     _write_registry_config(config_path, str(state_path))
 
@@ -314,6 +340,79 @@ def test_registry_keeps_base_catalog_when_active_artifact_output_is_missing(tmp_
     registry = ModelRegistry(config_path=str(config_path))
 
     # Then: it fails closed and leaves only the configured base model exposed.
+    assert registry.get_model("active-model") is None
+    assert registry.get_model("base-model") is not None
+
+
+def test_registry_rejects_existing_directory_without_fused_manifest(tmp_path: Path):
+    # Given: an active pointer targets an arbitrary existing directory.
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active.json"
+    arbitrary_path = tmp_path / "arbitrary"
+    arbitrary_path.mkdir()
+    _write_active_pointer(state_path, arbitrary_path)
+    _write_registry_config(config_path, str(state_path))
+
+    # When: the registry loads the active pointer.
+    registry = ModelRegistry(config_path=str(config_path))
+
+    # Then: no active profile is exposed and the base catalog remains available.
+    assert registry.get_model("active-model") is None
+    assert registry.get_model("base-model") is not None
+
+
+def test_registry_rejects_symlinked_fused_output(tmp_path: Path):
+    # Given: an active pointer targets a symlink to an otherwise valid fused artifact.
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active.json"
+    fused_path = tmp_path / "fused"
+    output_symlink = tmp_path / "fused-link"
+    _write_fused_artifact(fused_path)
+    output_symlink.symlink_to(fused_path, target_is_directory=True)
+    _write_active_pointer(state_path, output_symlink)
+    _write_registry_config(config_path, str(state_path))
+
+    # When: the registry loads the active pointer.
+    registry = ModelRegistry(config_path=str(config_path))
+
+    # Then: symlinked output cannot become the active MLX profile.
+    assert registry.get_model("active-model") is None
+    assert registry.get_model("base-model") is not None
+
+
+def test_registry_redacts_malformed_pointer_metadata_from_warning(
+    tmp_path: Path,
+    caplog: LogCaptureFixture,
+):
+    # Given: malformed pointer data includes a secret-bearing rejected field.
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active.json"
+    secret = "api-key-sentinel-must-not-log"
+    _ = state_path.write_text(f'{{"status":"active","api_key":"{secret}"}}', encoding="utf-8")
+    _write_registry_config(config_path, str(state_path))
+    caplog.set_level(logging.WARNING, logger="antigravity_k.model_registry")
+
+    # When: the registry rejects the malformed active pointer.
+    registry = ModelRegistry(config_path=str(config_path))
+
+    # Then: it retains the base catalog without logging rejected metadata.
+    assert registry.get_model("active-model") is None
+    assert registry.get_model("base-model") is not None
+    assert secret not in caplog.text
+    assert "Active artifact model is unavailable." in caplog.text
+
+
+def test_registry_keeps_base_catalog_when_active_state_path_is_directory(tmp_path: Path):
+    # Given: active configuration points to a directory rather than a state file.
+    config_path = tmp_path / "config.yaml"
+    state_path = tmp_path / "active-state-directory"
+    state_path.mkdir()
+    _write_registry_config(config_path, str(state_path))
+
+    # When: the registry initializes.
+    registry = ModelRegistry(config_path=str(config_path))
+
+    # Then: the invalid state path cannot abort catalog loading or expose an active profile.
     assert registry.get_model("active-model") is None
     assert registry.get_model("base-model") is not None
 

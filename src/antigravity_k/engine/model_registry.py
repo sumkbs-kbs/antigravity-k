@@ -493,15 +493,17 @@ class ModelRegistry:
         config = self._active_artifact
         if config is None:
             return
-        from antigravity_k.finetune.active_artifact import ActiveArtifactError, read_active_artifact
+        from antigravity_k.finetune.active_artifact import (
+            ActiveArtifactError,
+            read_active_artifact,
+            validate_active_artifact_output,
+        )
 
         try:
             active = read_active_artifact(config.state_path)
-        except ActiveArtifactError as error:
-            logger.warning("Active artifact model is unavailable: %s", error)
-            return
-        if not active.output_path.is_dir():
-            logger.warning("Active artifact output path is unavailable: %s", active.output_path)
+            _ = validate_active_artifact_output(active)
+        except ActiveArtifactError:
+            logger.warning("Active artifact model is unavailable.")
             return
         profile = ModelProfile(
             name=config.model_name,

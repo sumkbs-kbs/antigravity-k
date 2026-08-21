@@ -9,6 +9,7 @@ from pytest import MonkeyPatch
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.model_router import ModelRouter
+from antigravity_k.finetune.artifact_lifecycle import FusedArtifactResult, FusedArtifactStatus
 
 
 def _write_runtime_config(path: Path, state_path: Path) -> None:
@@ -40,6 +41,29 @@ def _write_active_pointer(path: Path, fused_path: Path) -> None:
     _ = path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_fused_artifact(fused_path: Path) -> None:
+    fused_path.mkdir()
+    artifact = FusedArtifactResult(
+        status=FusedArtifactStatus.SUCCESS,
+        return_code=0,
+        base_model="mlx-community/Qwen2.5-0.5B-4bit",
+        base_revision="8b4323d7cf06a376179d6eb5358ed1c66902529a",
+        adapter_path=fused_path / "adapters",
+        output_path=fused_path,
+        dataset_sha256="a" * 64,
+        recipe_sha256="b" * 64,
+        environment={"python": "3.13"},
+        evaluation_sha256="c" * 64,
+        iterations=1,
+        stdout="",
+        stderr="",
+    )
+    _ = (fused_path / "artifact_manifest.json").write_text(
+        artifact.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
 def test_promoted_active_artifact_routes_and_loads_its_fused_repo(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -48,7 +72,7 @@ def test_promoted_active_artifact_routes_and_loads_its_fused_repo(
     config_path = tmp_path / "config.yaml"
     state_path = tmp_path / "active.json"
     fused_path = tmp_path / "promoted-fused"
-    fused_path.mkdir()
+    _write_fused_artifact(fused_path)
     _write_active_pointer(state_path, fused_path)
     _write_runtime_config(config_path, state_path)
     registry = ModelRegistry(config_path=str(config_path))

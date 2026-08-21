@@ -59,14 +59,39 @@ _state_adapter: TypeAdapter[ActiveArtifactState] = TypeAdapter(ActiveArtifactSta
 
 def read_active_artifact(state_path: Path) -> ActiveArtifactState:
     try:
+        state_path_is_file = state_path.is_file()
+        state_path_is_symlink = state_path.is_symlink()
+    except OSError as error:
+        raise ActiveArtifactError("Active artifact state is unavailable.") from error
+    if state_path_is_symlink or not state_path_is_file:
+        raise ActiveArtifactError("Active artifact state is unavailable.")
+    try:
         state = _state_adapter.validate_json(state_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ActiveArtifactError("Active artifact state is unavailable.") from error
     except ValueError as error:
-        raise ActiveArtifactError(f"Invalid active artifact state at {state_path}: {error}") from error
-    except FileNotFoundError as error:
-        raise ActiveArtifactError(f"Active artifact state is required at {state_path}.") from error
+        raise ActiveArtifactError("Invalid active artifact state.") from error
     if state.status is not ActiveArtifactStatus.ACTIVE:
         raise ActiveArtifactError("Active artifact state must be active.")
     return state
+
+
+def validate_active_artifact_output(state: ActiveArtifactState) -> FusedArtifactResult:
+    artifact = _load_artifact(state.output_path)
+    try:
+        _validate_artifact(
+            artifact,
+            artifact_path=state.output_path,
+            contract=ArtifactPromotionContract(
+                recipe_sha256=state.recipe_sha256,
+                evaluation_sha256=state.evaluation_sha256,
+            ),
+        )
+        if artifact.base_model != state.base_model or artifact.base_revision != state.base_revision:
+            raise ActiveArtifactError("Active artifact provenance does not match the fused manifest.")
+    except OSError as error:
+        raise ActiveArtifactError("Active artifact output is unavailable.") from error
+    return artifact
 
 
 def promote_artifact(
@@ -130,11 +155,24 @@ def _read_optional_state(state_path: Path) -> ActiveArtifactState | None:
 def _load_artifact(artifact_path: Path) -> FusedArtifactResult:
     manifest_path = artifact_path / "artifact_manifest.json"
     try:
+        artifact_path_is_directory = artifact_path.is_dir()
+        artifact_path_is_symlink = artifact_path.is_symlink()
+        manifest_path_is_file = manifest_path.is_file()
+        manifest_path_is_symlink = manifest_path.is_symlink()
+    except OSError as error:
+        raise ActiveArtifactError("Active artifact output is unavailable.") from error
+    if artifact_path_is_symlink:
+        raise ActiveArtifactError("Active artifact output is unavailable.")
+    if not artifact_path_is_directory:
+        raise ActiveArtifactError("Artifact manifest is required.")
+    if manifest_path_is_symlink or not manifest_path_is_file:
+        raise ActiveArtifactError("Artifact manifest is required.")
+    try:
         return _artifact_adapter.validate_json(manifest_path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise ActiveArtifactError(f"Artifact manifest is required at {manifest_path}.") from error
+    except OSError as error:
+        raise ActiveArtifactError("Artifact manifest is unavailable.") from error
     except ValueError as error:
-        raise ActiveArtifactError(f"Invalid artifact manifest at {manifest_path}: {error}") from error
+        raise ActiveArtifactError("Invalid artifact manifest.") from error
 
 
 def _validate_artifact(
