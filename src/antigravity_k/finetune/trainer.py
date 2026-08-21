@@ -21,6 +21,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from antigravity_k.finetune.dataset_contract import (
+    DatasetConsent,
+    DatasetContractError,
+    DatasetLicense,
+    DatasetSplitPolicy,
+    DatasetSubjectRights,
+    FinetuneDatasetContract,
+    split_frozen_dataset,
+)
+
 logger = logging.getLogger("agk.finetune")
 
 
@@ -476,7 +486,26 @@ def main():
     prep_p.add_argument("--input", required=True, help="입력 데이터 경로")
     prep_p.add_argument("--output", required=True, help="출력 JSONL 경로")
     prep_p.add_argument("--format", choices=["instruction", "code"], default="instruction")
-    prep_p.add_argument("--split", type=float, default=0.9, help="train/valid 비율")
+    prep_p.add_argument("--split", choices=["90/10", "80/20"], required=True, help="train/valid 비율")
+    prep_p.add_argument("--seed", type=int, required=True, help="불변 split seed")
+    prep_p.add_argument(
+        "--consent",
+        choices=[member.value for member in DatasetConsent],
+        required=True,
+        help="데이터 사용 동의 상태",
+    )
+    prep_p.add_argument(
+        "--subject-rights",
+        choices=[member.value for member in DatasetSubjectRights],
+        required=True,
+        help="데이터 주체 권리 처리 상태",
+    )
+    prep_p.add_argument(
+        "--license",
+        choices=[member.value for member in DatasetLicense],
+        required=True,
+        help="데이터 라이선스",
+    )
 
     # merge
     merge_p = sub.add_parser("merge", help="어댑터 병합")
@@ -502,19 +531,32 @@ def main():
         print(json.dumps(result, indent=2, ensure_ascii=False))
 
     elif args.command == "prepare":
-        if args.format == "instruction":
-            count = DatasetPreparer.from_instruction(args.input, args.output)
-        elif args.format == "code":
-            count = DatasetPreparer.from_code_files(args.input, args.output)
-        else:
-            print(f"알 수 없는 포맷: {args.format}")
-            return
+        try:
+            if args.format == "instruction":
+                count = DatasetPreparer.from_instruction(args.input, args.output)
+            elif args.format == "code":
+                count = DatasetPreparer.from_code_files(args.input, args.output)
+            else:
+                print(f"알 수 없는 포맷: {args.format}")
+                return
 
-        print(f"✓ {count}개 샘플 변환 완료: {args.output}")
-
-        if args.split < 1.0:
-            train_path, valid_path = DatasetPreparer.split_dataset(args.output, args.split)
-            print(f"✓ 분할 완료: {train_path}, {valid_path}")
+            contract = FinetuneDatasetContract(
+                path=Path(args.output),
+                consent=DatasetConsent(args.consent),
+                subject_rights=DatasetSubjectRights(args.subject_rights),
+                license_id=DatasetLicense(args.license),
+                split_policy=DatasetSplitPolicy(
+                    seed=args.seed,
+                    train_ratio=args.split,
+                    manifest_path=Path(args.output).with_name("split_manifest.json"),
+                ),
+            )
+            split_paths = split_frozen_dataset(contract)
+            print(f"✓ {count}개 샘플 변환 및 계약 검증 완료: {args.output}")
+            print(f"✓ 분할 완료: {split_paths.train_path}, {split_paths.valid_path}")
+        except DatasetContractError as error:
+            logger.error("데이터 계약 검증 실패: %s", error)
+            raise SystemExit(2) from error
 
     elif args.command == "merge":
         config = TrainingConfig(base_model=args.model, output_dir=os.path.dirname(args.adapter))
