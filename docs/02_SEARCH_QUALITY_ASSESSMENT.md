@@ -1,5 +1,7 @@
 # 02 Search Quality Assessment
 
+기준일: 2026-08-17
+
 ## 1. 검색 파이프라인
 
 ```mermaid
@@ -62,3 +64,14 @@ flowchart LR
 - 빈 결과: 접근 불가, 삭제, 검색 provider 장애
 
 현재 `tests/fixtures/search_quality_cases.json`의 2개 기본 케이스와 `search_quality_cases_extended.json`의 6개 human-labeled 케이스를 결정론적으로 실행하며, URL canonicalization 후 P@3/Recall@3/MRR/graded nDCG@3와 domain diversity를 측정한다. 2026-08-09 정상 provider 2-case run은 provider error 0, P@3 0.833, Recall@3 0.633, MRR 1.0, nDCG@3 0.883, domain diversity 0.833이었고 SearXNG unavailable에서도 DuckDuckGo 후보 풀과 fallback을 사용했다. 최신 configured self-hosted 2-case run은 `data/benchmarks/live-search.json`에 `error_count=0`, P@3 0.167, Recall@3 0.167, MRR 0.500, nDCG@3 0.210, domain diversity 0.667을 기록했다. 같은 endpoint의 최신 확장 6-case run은 `data/benchmarks/live-search-extended.json`에 `error_count=0`, P@3 0.056, Recall@3 0.083, MRR 0.167, nDCG@3 0.117, domain diversity 0.722를 기록했고, 3 repeats x 2 concurrency load는 error 0, P50 52.2ms, P95/P99 1805.8ms였다. 이 낮은-relevance 사례는 output count만으로 보조 provider를 생략하지 않도록 보강했지만, 이번 검증 환경에는 self-hosted endpoint가 없어 새 라이브 수치를 아직 기록하지 않았다. query rewrite와 exact-version relevance guard는 유지하되, provider 변동성과 latency budget에 따른 품질/속도 절충을 별도 기록한다. 응답은 `[citation:<source_id>]`를 문장 단위로 분해하고 알려진 source의 title/snippet overlap을 검증한다. 동일 주제에서 상충 연도 또는 명시된 version/context length/parameter count/memory/price/latency/throughput 값이 발견되면 `[search_conflicts]` metadata를 컨텍스트에 넣고, 같은 citation pair를 단정적으로 인용한 응답은 conflict acknowledgement 없이는 검증을 통과하지 않는다. 선언은 conflicting claim 안이나 바로 앞 claim에 둘 수 있어, 실제 모델의 “sources disagree” → 출처 비교 문장 구조도 검증한다. 검색 시스템은 “전 세계 모든 정보”를 보장하지 않으며, 공개·접근 가능하고 정책/robots/법적 제한을 준수하는 source 범위만 대상으로 한다.
+
+## 5. 최신 실측 요약 (2026-08-17 갱신)
+
+| 모드 | 케이스 | P@3 | Recall@3 | MRR | nDCG@3 | P95 latency | 비고 |
+|---|---|---:|---:|---:|---:|---:|---|
+| normal provider | 2-case | 0.833 | 0.633 | 1.000 | 0.883 | ~50ms | DuckDuckGo fallback |
+| self-hosted 2-case | 2-case | 0.167 | 0.167 | 0.500 | 0.210 | — | error_count=0 |
+| self-hosted extended | 6-case | 0.056 | 0.083 | 0.167 | 0.117 | — | domain diversity 0.722 |
+| load test | 3×2 concurrency | — | — | — | — | P95/P99 1805.8ms | fallback budget 1500ms 미달 |
+
+**핵심 격차**: provider 안정성과 relevance 목표 미달(authority-rescue와 Qwen source hint로 일부 회복), P95 tail 1805.8ms > fallback budget 1500ms. SearXNG/DuckDuckGo 변동성과 P95 tail이 상용 목표 미달.

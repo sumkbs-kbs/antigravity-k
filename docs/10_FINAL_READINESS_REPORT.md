@@ -1,5 +1,7 @@
 # 10 Final Readiness Report
 
+기준일: 2026-08-17
+
 ## 결론
 
 현재 Antigravity-K는 **로컬 중심 에이전트 기능 검증/베타 준비 단계**다. qwen3.6 local-first, tool permission, CoV, QualityGate 수정 재생성, RAG provenance, durable task state, web result quality contract, chat/task/slash/CLI/MAX/multiplexer의 AgentRuntime 연결, memory compliance contract는 실제 코드와 테스트로 확인됐다. 최신 simple 2-case × 2 repeats와 frontier 5-case × 2 repeats 모두 `excellent` 안정성을 확인했고 전체 basedpyright hard gate도 `0 errors`로 통과했지만, live 검색 recall/근거 정확도와 운영 rehearsal이 남아 있어 첨부 요구사항의 “상용서비스 수준” 최종 조건은 아직 충족되지 않았다.
@@ -34,3 +36,10 @@
 ## 다음 승인 조건
 
 위 차단 항목마다 재현 가능한 테스트, 실행 로그, rollback 절차가 추가되고, 전체 suite와 API/browser E2E가 clean하게 통과한 뒤에만 베타 서비스 범위를 확대한다. 현재 전체 suite와 API E2E는 통과했지만 live relevance, healthy load baseline, 배포별 legal attestation, live claim sample이 남아 있으므로 개인 로컬/개발 환경의 제한된 사용으로 유지한다.
+
+## 2026-08-17 갱신
+
+- 체크리스트 미검증 항목 일괄 실측 완료: 메모리 계층(READ 5/10, durable 5종 NO-READ), lh-001 격차 재측정(+0.273 지속), egress 차단(5/5, 로그 부재 확인), 승인 왕복(~43ms), RAG 리콜@k(recall@3=6/8), PIN 인증(8/8), 시크릿 스캐너(20/20), 라우팅 전략(collective ~5.4배).
+- 벤치마크 재현 절차 문서화 완료(`docs/07_TEST_AND_BENCHMARK_PLAN.md` "벤치마크 재현 절차" 섹션).
+- README 기능↔구현 매트릭스 작성 완료.
+- 남은 열린 항목: docs 본 문서들의 세부 내용 현행화(본 갱신으로 기준일 정렬 완료), .gitignore 표준 무대상 보강, egress 차단 전용 감사 로그 추가.

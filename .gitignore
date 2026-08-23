@@ -137,3 +137,12 @@ transcript*.txt
 transcript_clean.md
 scratch_test_*.py
 self_improvement_history.json
+
+# ─────────────────────────────────────────────────────────────
+# 보강 (2026-08-17): 잔여 누락 무대상
+# ─────────────────────────────────────────────────────────────
+data/.tmp/
+data/.backup/
+htmlcov/
+.codebase-memory/
+.playwright-mcp/

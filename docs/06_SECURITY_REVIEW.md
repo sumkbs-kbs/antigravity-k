@@ -1,5 +1,7 @@
 # 06 Security Review
 
+기준일: 2026-08-17
+
 ## 검토 범위
 
 파일·쉘·Git·브라우저·웹 검색·provider key·memory/Vault·FastAPI route를 대상으로 정적 코드와 테스트를 확인했다. 이 문서는 보안 보증서가 아니라 현재 통제와 남은 검증을 구분한 review다.

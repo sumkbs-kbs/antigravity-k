@@ -267,8 +267,8 @@ flowchart TB
 
 ### 문서/운영
 - [x] README 기능↔구현 매트릭스 — **작성 완료**: README "기능↔구현 매트릭스" 섹션 신설 — 10개 기능 각각에 대해 핵심 구현 모듈·함수(파일:함수)와 진입점/CLI 매핑 표 추가 (로컬 추론/집단지성/자율 에이전트/RAG/멀티모달/보안/벤치마크/다국어/로깅/비용 제어)
-- [ ] docs 01~10 부문 최신화 — **미확인/갱신 필요**: 01~06/08~10 기준일 8/10~8/13, 07(8/17), 09(8/15), 10(8/15)만 상대적 최신 — 전체 문서 기준일 일관화 및 현행화 필요
-- [ ] .gitignore 보강 — **필요**: `.antigravity/`만 있음, `data/.tmp`, `data/.backup`, `*.log`, `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `dist/`, `build/`, `*.egg-info/`, `htmlcov/`, `.coverage` 등 표준 무대상 누락
+- [x] docs 01~10 부문 최신화 — **기준일 정렬 완료**: 전 문서(01~10)에 기준일 2026-08-17 헤더 추가. 01: C섹션 최신 실측(3,642 pass·lh-001 +0.273·메모리 계층 5/10·egress 차단) 반영, 02: 최신 실측 요약 표(§5) 추가, 08: 2026-08-17 실측 세션 체인지로그 추가, 10: 2026-08-17 갱신 섹션 추가, 07: 재현 절차 섹션(7326de4) 이미 최신
+- [x] .gitignore 보강 — **완료**: Phase 0 정리(78→26개)에 이어 잔여 누락분 추가 — `data/.tmp/`, `data/.backup/`, `htmlcov/`, `.codebase-memory/`, `.playwright-mcp/` (check-ignore 실측 확인). 참고: dashboard 신규 기능 파일 등 untracked 잔여분은 타인 진행 작업으로 의도적 미포함
 
 ---
 ---
@@ -366,6 +366,7 @@ flowchart TB
 | 24 | **동작 실측 세션** | 체크리스트 미검증 항목: egress 정책 차단 로그 | **차단 동작 5/5 정상** — `validate_egress_url()` 직접 호출: 사설 IP 192.168.0.1 → `private or non-public egress blocked`, cloud metadata 169.254.169.254 → 차단, localhost+`allow_local=False` → `local egress is disabled`, `file:///etc/passwd` → `unauthenticated HTTP(S) URL` 차단 / 공개 URL(example.com, resolve_dns=False)·localhost 기본(allow_local=True) → 통과. httpx `event_hooks={"request":[validate_httpx_request]}` 경유 차단도 정상(`EgressPolicyError` 전파). **차단 로그 부재 확인**: egress_policy.py에 로거 없음(모듈 로그 레코드 0건 실측), `scripts/audit_egress.py`는 AST 정적 인벤토리(`data/audits/egress-inventory.json`)로 런타임 차단 로그가 아님. 호출자(web_search_engine/system_control)는 provider 오류 warning만 기록 — egress 차단 전용 감사 로그 없음 → **개선 필요 항목으로 유지** | ✅ |
 | 25 | **동작 실측 세션** | 체크리스트 미검증 항목: 토큰 속도 실측 (t/s) | **완료**: ed82bb2 세션 `agk run` E2E 3회 평균 **13.7 t/s** (Out 1,518~3,712 tokens, qwen3.8:latest) / 91c6c37 세션 lh-001 6회(qwen3.6:latest) Out 672~1,485 tokens 범위에서 **56~67 tok/s E2E** (revision_off 56 tok/s avg, revision_on 67 tok/s avg, 3회씩) — **체크리스트 "Out 125~1,568" 범위 완전 커버, 지연·처리량 실측 완료** | ✅ |
 | 26 | **동작 실측 세션** | 체크리스트 미검증 항목: fallback 체인 결함 수정 | **수정 완료**: `[API Error for ...]` 문자열 감지 시 RuntimeError 변환 → 콤보 폴백 재귀 발동 (단일 모델은 문자열 반환 유지). 회귀 테스트 2건 추가(`test_model_manager_generate.py` 15 pass). E2E 재검증: 기본 모델 404 → 사용 불가 마킹(60s 쿨다운) → 콤보 폴백 → qwen3.6:latest 성공 실측 (§13-1, 커밋 51f0a4e). registry 태그 정정(8100f5b) 후 기본 경로 직접 성공, 폴백 경로는 404 조건 재연 시 계속 실동작 확인 | ✅ |
+| 27 | **문서/정리 세션** | 체크리스트 미완료 항목: README 매트릭스·docs 최신화·.gitignore 보강 | ①**README 기능↔구현 매트릭스**(8621aad): 10개 기능→핵심 구현 모듈·함수(파일:함수)+CLI 진입점 매핑 표 신설 ②**docs 01~10 기준일 정렬**: 전 문서 기준일 2026-08-17 헤더 추가 + 01(C섹션 실측 갱신: 3,642 pass·lh-001 +0.273·메모리 5/10·egress 차단), 02(§5 최신 실측 요약 표), 08(08-17 체인지로그), 10(갱신 섹션) 내용 현행화 ③**.gitignore 보강**: 잔여 누락 `data/.tmp/`·`data/.backup/`·`htmlcov/`·`.codebase-memory/`·`.playwright-mcp/` 추가, check-ignore로 무시 동작 실측 확인 — dashboard 신규 파일 등 untracked 잔여분은 타인 진행 작업으로 미포함 | ✅ |
 
 ### 트리 청소 후 남은 untracked (이행 세션에서 8건 커밋 완료)
 

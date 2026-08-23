@@ -1,5 +1,7 @@
 # 08 Changelog
 
+기준일: 2026-08-17
+
 ## 2026-08-13
 
 ### Project-scoped memory isolation
@@ -145,3 +147,17 @@
 - legacy/외부 connector의 공통 permission audit boundary 보강
 - basedpyright hard gate와 부하/장시간 운영 rehearsal
 - Vault 원문 asset의 삭제/변경 정책과 UI consent flow
+
+## 2026-08-17
+
+### 실측 검증 세션 (체크리스트 미검증 항목 일괄 실측)
+
+- **메모리 계층 사용 계측**: 런타임과 동일한 10개 제공자 구성으로 계측 — READ 계층 5/10(builtin·episodic·working_memory·global·project), NO-READ 5/10(durable 5종, prefetch 빈 문자열). durable은 관리 명령 전용으로 확인.
+- **장기 워크플로 격차 재측정**: lh-001 3회×2모드 — revision_off 평균 0.727 → on 평균 1.000 (delta +0.273), 기존 기록(+0.29)과 일치, 격차 지속 확인.
+- **egress 정책 차단 실측**: 차단 동작 5/5 정상(사설 IP·cloud metadata·localhost+allow_local=False·file://), 단 egress_policy.py는 자체 로깅 없음(런타임 차단 로그 부재) — 개선 항목 유지.
+- **벤치마크 재현 절차 문서**: `07_TEST_AND_BENCHMARK_PLAN.md`에 7단계 재현 절차 신설(로컬 모델 벤치/성능 회귀 임계/proactive pipeline/시각화/검색 품질/증폭 A/B/기준선).
+- **README 기능↔구현 매트릭스**: 10개 기능의 구현 모듈·함수와 CLI 진입점 매핑 표 추가.
+
+### 이전 세션 (동일 날짜)
+
+- 승인 왕복(11건 HTTP, ~43ms)·RAG 리콜@k(recall@1=4/8)·PIN 인증(8/8)·시크릿 스캐너(20/20)·라우팅 전략 지연·비용(결정 ~0.002ms, collective ~5.4배) 실측 커밋 반영.
