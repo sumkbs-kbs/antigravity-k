@@ -1,7 +1,9 @@
 import logging
 import os
 import subprocess
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any, Dict
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
@@ -9,28 +11,100 @@ from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 logger = logging.getLogger(__name__)
 
 
+def build_sandbox_argv(command: str) -> tuple[list[str], Path] | None:
+    """모델 제공 명령을 seatbelt 샌드박스 argv로 래핑한다.
+
+    config의 security.sandbox_enabled가 true이고 macOS sandbox-exec을 쓸 수
+    있으면 (argv, profile_path)를 반환하고, 아니면 None(기존 raw 경로 유지)을
+    반환한다. profile 파일은 호출자가 프로세스 종료 후 삭제해야 한다.
+
+    이 헬퍼가 필요한 이유: system_tools의 단발 execute는 SandboxRunner로
+    샌드박스되지만, persistent terminal/PTY 같은 장수명 프로세스는
+    execute() 계약(호출 즉시 종료)과 맞지 않아 우회 경로가 됐다.
+    """
+    try:
+        from ..config import config as app_config
+        from ..engine.sandbox import SandboxRunner
+    except ImportError:
+        return None
+
+    if not getattr(app_config.security, "sandbox_enabled", False):
+        return None
+
+    import platform as _platform
+    import shutil as _shutil
+
+    if _platform.system() != "Darwin" or _shutil.which("sandbox-exec") is None:
+        return None
+
+    runner = SandboxRunner(
+        project_root=str(getattr(app_config.paths, "project_root", ".")),
+        enabled=True,
+        network=getattr(app_config.security, "sandbox_network", "none"),
+    )
+    try:
+        profile_text = runner._build_seatbelt_profile()
+    except Exception:
+        logger.exception("seatbelt 프로파일 생성 실패 — raw 실행으로 폴백")
+        return None
+
+    fd = tempfile.NamedTemporaryFile(mode="w", suffix=".sb", prefix="agk_term_", delete=False, encoding="utf-8")
+    with fd:
+        fd.write(profile_text)
+    profile_path = Path(fd.name)
+    return ["sandbox-exec", "-f", str(profile_path), "/bin/sh", "-c", command], profile_path
+
+
+def _cleanup_sandbox_profile(argv: list[str] | None, profile_path: Path | None) -> None:
+    """샌드박스 프로파일 임시 파일을 정리한다."""
+    if profile_path is not None:
+        try:
+            profile_path.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("profile cleanup failed: %s", profile_path)
+
+
 class PersistentTerminalManager:
     _instance = None
     terminals: dict[str, Any] = {}
+    _profiles: dict[str, Path | None] = {}
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(PersistentTerminalManager, cls).__new__(cls)
             cls._instance.terminals = {}
+            cls._instance._profiles = {}
         return cls._instance
 
     def create_terminal(self, command: str, cwd: str) -> str:
         term_id = str(uuid.uuid4())[:8]
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            cwd=cwd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
+
+        wrapped = build_sandbox_argv(command)
+        profile_path: Path | None = None
+        if wrapped is not None:
+            argv, profile_path = wrapped
+            process = subprocess.Popen(
+                argv,
+                shell=False,
+                cwd=cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            logger.info("[terminal %s] sandboxed execution enabled", term_id)
+        else:
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=cwd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
         # Using non-blocking IO for stdout/stderr would be better, but for simplicity:
         assert process.stdout is not None
         assert process.stderr is not None
@@ -38,6 +112,7 @@ class PersistentTerminalManager:
         os.set_blocking(process.stderr.fileno(), False)
 
         self.terminals[term_id] = process
+        self._profiles[term_id] = profile_path
         return term_id
 
     def get_output(self, term_id: str) -> str:
@@ -69,6 +144,9 @@ class PersistentTerminalManager:
         if process.poll() is not None:
             output += f"\n[Process exited with code {process.returncode}]"
             del self.terminals[term_id]
+            profile = self._profiles.pop(term_id, None)
+            if profile is not None:
+                _cleanup_sandbox_profile(None, profile)
 
         return output
 
@@ -244,6 +322,7 @@ class InteractivePTYTool(BaseTool):
     # Class-level state for simplicity. In a real system, use a manager.
     _active_pid: int | None = None
     _active_fd: int | None = None
+    _active_profile: Path | None = None
 
     def __init__(self):
         super().__init__()
@@ -300,6 +379,7 @@ class InteractivePTYTool(BaseTool):
             if InteractivePTYTool._active_pid:
                 self._cleanup_session()
 
+            wrapped = build_sandbox_argv(command)
             pid, fd = pty.fork()
             if pid == 0:
                 # Child process
@@ -307,8 +387,12 @@ class InteractivePTYTool(BaseTool):
                 import sys
 
                 try:
-                    cmd_args = shlex.split(command)
-                    os.execvp(cmd_args[0], cmd_args)
+                    if wrapped is not None:
+                        argv, _profile_path = wrapped
+                        os.execvp(argv[0], argv)
+                    else:
+                        cmd_args = shlex.split(command)
+                        os.execvp(cmd_args[0], cmd_args)
                 except Exception as e:
                     logger.exception("Unhandled exception")
                     print(f"Exec failed: {e}")
@@ -317,6 +401,7 @@ class InteractivePTYTool(BaseTool):
                 # Parent process
                 InteractivePTYTool._active_pid = pid
                 InteractivePTYTool._active_fd = fd
+                InteractivePTYTool._active_profile = wrapped[1] if wrapped is not None else None
                 return self._read_until_settled(wait_time)
 
         # Interact with existing session
@@ -380,3 +465,6 @@ class InteractivePTYTool(BaseTool):
             except OSError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             InteractivePTYTool._active_fd = None
+        if InteractivePTYTool._active_profile is not None:
+            _cleanup_sandbox_profile(None, InteractivePTYTool._active_profile)
+            InteractivePTYTool._active_profile = None
