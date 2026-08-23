@@ -495,11 +495,14 @@ class BenchmarkHarness:
                     use_sc = mode == "sc_on"
                     # decomp_on 모드는 초기 답을 LLM 단계 분해 경로로 생성한다.
                     use_td = mode == "decomp_on"
+                    # bon_on 모드는 초기 답을 실행 검증 Best-of-N 경로로 생성한다.
+                    use_bon = mode == "bon_on"
                     results[cid][mode] = self._execute_single(
                         case,
                         target,
                         self_consistent=use_sc,
                         decomposed=use_td,
+                        best_of_n=use_bon,
                     )
         finally:
             if router is not None and original is not None:
@@ -666,7 +669,7 @@ class BenchmarkHarness:
             for mode in modes:
                 r = by_mode.get(mode)
                 if r and not r.error:
-                    cells.append(f"{r.benchmark_score:.0%}/{r.quality_grade}/{r.latency_ms/1000:.1f}s")
+                    cells.append(f"{r.benchmark_score:.0%}/{r.quality_grade}/{r.latency_ms / 1000:.1f}s")
                 else:
                     cells.append("ERR")
             lines.append("| " + " | ".join(cells) + " |")
@@ -680,6 +683,7 @@ class BenchmarkHarness:
         target: str,
         self_consistent: bool = False,
         decomposed: bool = False,
+        best_of_n: bool = False,
     ) -> BenchmarkResult:
         """단일 과제 × 단일 타겟 실행."""
         start = time.time()
@@ -695,6 +699,14 @@ class BenchmarkHarness:
             # lh-001류 장기 워크플로 누락 요소 확보가 목적이다.
             if decomposed and hasattr(self._manager, "generate_decomposed"):
                 output = self._manager.generate_decomposed(
+                    prompt=prompt,
+                    target=target,
+                    **gen_kwargs,
+                )
+            # best_of_n=True면 실행 검증 Best-of-N 증폭으로 초기 답을 생성한다.
+            # 검증자 통과 답변이 실행 가능성을 보장하므로 코드 과제에서 강한 신호다.
+            elif best_of_n and hasattr(self._manager, "generate_best_of_n"):
+                output = self._manager.generate_best_of_n(
                     prompt=prompt,
                     target=target,
                     **gen_kwargs,

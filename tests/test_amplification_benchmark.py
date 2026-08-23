@@ -296,3 +296,30 @@ def test_decomposition_stats_include_decomp_modes():
     assert "decomp_off" in out["stats"]["by_mode"]
     assert "decomp_on" in out["stats"]["by_mode"]
     assert "decomp_off" in out["summary"] and "decomp_on" in out["summary"]
+
+
+def test_bon_mode_routes_to_generate_best_of_n():
+    """bon_on 모드는 generate_best_of_n으로 초기 답을 실행 검증 생성한다."""
+    manager, _ = _make_manager()
+    _wire_generate(manager, {"light": STRONG_RESPONSE, "heavy": STRONG_RESPONSE})
+    manager.generate_best_of_n = MagicMock(return_value=STRONG_RESPONSE)
+
+    harness = BenchmarkHarness(manager, db_path=None)
+    out = harness.compare_amplification(["lh-001"], "light", modes=["bon_on"])
+
+    assert manager.generate_best_of_n.called
+    result = out["by_case"]["lh-001"]["bon_on"]
+    assert not result.error
+    assert "bon_on" in out["stats"]["by_mode"]
+
+
+def test_bon_vs_off_ab_stats():
+    """bon_off/bon_on A/B에서 stats improvement가 baseline을 bon_off로 계산한다."""
+    manager, _ = _make_manager()
+    _wire_generate(manager, {"light": STRONG_RESPONSE, "heavy": STRONG_RESPONSE})
+    manager.generate_best_of_n = MagicMock(return_value=STRONG_RESPONSE)
+
+    harness = BenchmarkHarness(manager, db_path=None)
+    out = harness.compare_amplification(["lh-001"], "light", modes=["cascade_off", "bon_on"])
+    improvement = out["stats"]["improvement"]
+    assert improvement["baseline"] == "cascade_off"
