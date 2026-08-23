@@ -1,5 +1,7 @@
 # 09 Operation Guide
 
+기준일: 2026-08-17
+
 ## 설치
 
 지원 기준은 macOS Apple Silicon, Python 3.12+다. 프로젝트 정책과 실제 dependency lock이 완전히 정렬되기 전까지 신규 환경에서는 `.venv`와 optional extra를 명시한다.

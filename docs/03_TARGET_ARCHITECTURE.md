@@ -1,5 +1,7 @@
 # 03 Target Architecture
 
+기준일: 2026-08-17
+
 ## 1. 목표 구성도
 
 ```mermaid
