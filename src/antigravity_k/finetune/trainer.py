@@ -22,6 +22,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
+from antigravity_k.config import config
 from antigravity_k.finetune.active_artifact import (
     ActiveArtifactError,
     ArtifactPromotionContract,
@@ -47,6 +50,15 @@ from antigravity_k.finetune.evaluation_backends import (
     EvaluationInferenceError,
     MlxEvaluationInference,
     OllamaEvaluationInference,
+)
+from antigravity_k.finetune.resource_admission import (
+    FinetuneResourceAdmissionError,
+    FinetuneResourceInvariantError,
+    FinetuneResourceSettings,
+    build_finetune_resource_admission,
+    build_merge_admission_request,
+    build_training_admission_request,
+    reserve_finetune_resource,
 )
 from antigravity_k.finetune.training_adapter import TrainingRunResult, run_resolved_training
 from antigravity_k.finetune.training_recipe import (
@@ -508,6 +520,14 @@ def main():
     train_p.add_argument("--manifest", required=True, help="Frozen dataset split manifest")
     train_p.add_argument("--resume", action="store_true", help="최신 체크포인트에서 학습 재개")
     train_p.add_argument("--dry-run", action="store_true", help="해석된 학습 설정만 출력")
+    train_p.add_argument("--estimated-peak-bytes", type=int, help="예상 최대 unified-memory 사용량")
+    train_p.add_argument(
+        "--resource-db",
+        type=Path,
+        default=config.paths.data_dir / "unsloth_resources.sqlite3",
+        help="공용 capability/resource broker DB 경로",
+    )
+    train_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
 
     # prepare
     prep_p = sub.add_parser("prepare", help="데이터 준비")
@@ -540,6 +560,14 @@ def main():
     merge_p.add_argument("--run", required=True, help="training_result.json 경로")
     merge_p.add_argument("--output", required=True, help="병합 결과 경로")
     merge_p.add_argument("--evaluation", help="base/tuned evaluation_result.json 경로")
+    merge_p.add_argument("--estimated-peak-bytes", type=int, help="예상 최대 unified-memory 사용량")
+    merge_p.add_argument(
+        "--resource-db",
+        type=Path,
+        default=config.paths.data_dir / "unsloth_resources.sqlite3",
+        help="공용 capability/resource broker DB 경로",
+    )
+    merge_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
 
     promote_p = sub.add_parser("promote", help="검증된 artifact를 active pointer로 승격")
     promote_p.add_argument("--artifact", required=True, help="병합 artifact 디렉터리")
@@ -597,8 +625,26 @@ def main():
         if args.dry_run:
             print(resolved.model_dump_json(indent=2))
             return
-
-        result = run_resolved_training(resolved)
+        if args.estimated_peak_bytes is None:
+            parser.error("--estimated-peak-bytes is required for non-dry-run training")
+        try:
+            resource_settings = FinetuneResourceSettings(
+                database_path=args.resource_db,
+                estimated_peak_bytes=args.estimated_peak_bytes,
+                idempotency_key=args.resource_idempotency_key,
+            )
+            admission = build_finetune_resource_admission(
+                build_training_admission_request(resolved, resource_settings),
+                resource_settings,
+            )
+            with reserve_finetune_resource(admission):
+                result = run_resolved_training(resolved)
+        except ValidationError as error:
+            logger.error("학습 자원 설정 검증 실패")
+            raise SystemExit(2) from error
+        except (FinetuneResourceAdmissionError, FinetuneResourceInvariantError) as error:
+            logger.error("학습 자원 승인 실패: %s", error)
+            raise SystemExit(2) from error
         print(result.model_dump_json(indent=2))
 
     elif args.command == "prepare":
@@ -630,14 +676,30 @@ def main():
             raise SystemExit(2) from error
 
     elif args.command == "merge":
-        training = TrainingRunResult.model_validate_json(Path(args.run).read_text(encoding="utf-8"))
+        run_path = Path(args.run)
+        training = TrainingRunResult.model_validate_json(run_path.read_text(encoding="utf-8"))
+        if args.estimated_peak_bytes is None:
+            parser.error("--estimated-peak-bytes is required for merge")
         try:
-            fused = fuse_training_artifact(
-                training,
-                output_path=Path(args.output),
-                evaluation_path=None if args.evaluation is None else Path(args.evaluation),
+            resource_settings = FinetuneResourceSettings(
+                database_path=args.resource_db,
+                estimated_peak_bytes=args.estimated_peak_bytes,
+                idempotency_key=args.resource_idempotency_key,
             )
-        except ArtifactLifecycleError as error:
+            admission = build_finetune_resource_admission(
+                build_merge_admission_request(run_path, training, resource_settings),
+                resource_settings,
+            )
+            with reserve_finetune_resource(admission):
+                fused = fuse_training_artifact(
+                    training,
+                    output_path=Path(args.output),
+                    evaluation_path=None if args.evaluation is None else Path(args.evaluation),
+                )
+        except ValidationError as error:
+            logger.error("병합 자원 설정 검증 실패")
+            raise SystemExit(2) from error
+        except (ArtifactLifecycleError, FinetuneResourceAdmissionError, FinetuneResourceInvariantError) as error:
             logger.error("학습 artifact 병합 실패: %s", error)
             raise SystemExit(2) from error
         print(fused.model_dump_json(indent=2))

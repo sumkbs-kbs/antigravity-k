@@ -119,6 +119,23 @@ def test_training_recipe_resumes_from_latest_checkpoint(tmp_path: Path) -> None:
     assert resolved.command[resolved.command.index("--resume-adapter-file") + 1] == str(checkpoint)
 
 
+def test_mlx_gradient_checkpointing_changes_command_and_recipe_identity(tmp_path: Path) -> None:
+    contract = _dataset(tmp_path)
+    _ = inspect_dataset(contract)
+    default_recipe = _recipe(contract)
+    checkpointed_recipe = TrainingRecipe.model_validate(
+        {**default_recipe.model_dump(), "gradient_checkpointing": True},
+    )
+
+    default_resolved = resolve_training_recipe(default_recipe)
+    checkpointed_resolved = resolve_training_recipe(checkpointed_recipe)
+
+    assert "--grad-checkpoint" not in default_resolved.command
+    assert checkpointed_resolved.command.count("--grad-checkpoint") == 1
+    assert checkpointed_resolved.gradient_checkpointing is True
+    assert checkpointed_resolved.recipe_sha256 != default_resolved.recipe_sha256
+
+
 def test_train_cli_dry_run_prints_resolved_recipe_without_adapters(tmp_path: Path) -> None:
     contract = _dataset(tmp_path)
     _ = inspect_dataset(contract)

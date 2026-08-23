@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from mcp.client.session import ClientSession
 from mcp.types import CallToolResult, ListToolsResult, Tool
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from antigravity_k.engine.approval_manager import ApprovalDecision, ApprovalManager
 from antigravity_k.engine.provider_adapters.unsloth_resource_broker import UnslothResourceBroker
@@ -79,6 +79,57 @@ def _request(idempotency_key: str = "training-service-0001") -> UnslothTrainingS
             lora_alpha=16,
         ),
     )
+
+
+def test_unsloth_backend_features_reach_the_exact_mcp_config() -> None:
+    default_request = _request()
+    assert default_request.recipe.load_in_4bit is True
+    assert default_request.recipe.packing is False
+    assert default_request.recipe.use_gradient_checkpointing == "unsloth"
+    feature_recipe = UnslothTrainingRecipe.model_validate(
+        {
+            **default_request.recipe.model_dump(),
+            "load_in_4bit": False,
+            "packing": True,
+            "use_gradient_checkpointing": False,
+        },
+    )
+    feature_request = default_request.model_copy(update={"recipe": feature_recipe})
+
+    config = feature_request.mcp_config()
+
+    assert config.model_dump(mode="json") == {
+        "model_name": "unsloth/Qwen3-Coder",
+        "start_request_id": "training-service-0001",
+        "training_type": "LoRA/QLoRA",
+        "load_in_4bit": False,
+        "max_seq_length": 4_096,
+        "trust_remote_code": False,
+        "model_snapshot_path": "/models/snapshots/model",
+        "hf_dataset": "datasets/code-instructions",
+        "dataset_snapshot_path": "/datasets/snapshots/code",
+        "format_type": "chatml",
+        "num_epochs": 1,
+        "learning_rate": "0.0002",
+        "batch_size": 1,
+        "gradient_accumulation_steps": 8,
+        "lora_r": 16,
+        "lora_alpha": 16,
+        "packing": True,
+        "use_gradient_checkpointing": False,
+        "use_lora": True,
+        "enable_wandb": False,
+    }
+    assert feature_request.request_fingerprint() != default_request.request_fingerprint()
+
+
+def test_unsloth_rejects_unknown_gradient_checkpointing_mode() -> None:
+    recipe = _request().recipe
+
+    with pytest.raises(ValidationError):
+        _ = UnslothTrainingRecipe.model_validate(
+            {**recipe.model_dump(), "use_gradient_checkpointing": "automatic"},
+        )
 
 
 def _approve(request: UnslothTrainingStartRequest, approvals: ApprovalManager) -> UnslothTrainingStartRequest:

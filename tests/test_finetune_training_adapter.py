@@ -11,6 +11,10 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter
 
+from antigravity_k.engine.provider_adapters.unsloth_resource_broker import (
+    SystemMemoryProbe,
+    UnslothResourceBroker,
+)
 from antigravity_k.finetune.dataset_contract import (
     DatasetConsent,
     DatasetLicense,
@@ -136,6 +140,7 @@ def test_train_cli_runs_resolved_recipe_through_adapter(tmp_path: Path) -> None:
     marker = tmp_path / "marker.json"
     _fake_mlx_package(fake_root, marker)
     recipe, _, _ = _recipe(tmp_path)
+    resource_db = tmp_path / "resources.sqlite3"
     environment = os.environ | {
         "PYTHONPATH": f"{fake_root}{os.pathsep}src",
         "FAKE_MLX_MARKER": str(marker),
@@ -157,6 +162,10 @@ def test_train_cli_runs_resolved_recipe_through_adapter(tmp_path: Path) -> None:
             str(recipe.dataset.split_policy.manifest_path),
             "--output",
             str(recipe.output_dir),
+            "--estimated-peak-bytes",
+            "100000",
+            "--resource-db",
+            str(resource_db),
         ],
         capture_output=True,
         text=True,
@@ -170,6 +179,45 @@ def test_train_cli_runs_resolved_recipe_through_adapter(tmp_path: Path) -> None:
     assert (recipe.output_dir / "training_result.json").exists()
     assert (recipe.output_dir / "data" / "train.jsonl").exists()
     assert (recipe.output_dir / "data" / "valid.jsonl").exists()
+    assert UnslothResourceBroker(resource_db, SystemMemoryProbe()).status().active_reservations == ()
+
+
+def test_train_cli_requires_resource_estimate_before_launch(tmp_path: Path) -> None:
+    fake_root = tmp_path / "fake"
+    marker = tmp_path / "marker.json"
+    _fake_mlx_package(fake_root, marker)
+    recipe, _, _ = _recipe(tmp_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "antigravity_k.finetune.trainer",
+            "train",
+            "--model",
+            "/models/base",
+            "--base-revision",
+            "sha256:base-revision",
+            "--data",
+            str(recipe.dataset.path),
+            "--manifest",
+            str(recipe.dataset.split_policy.manifest_path),
+            "--output",
+            str(recipe.output_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=os.environ
+        | {
+            "PYTHONPATH": f"{fake_root}{os.pathsep}src",
+            "FAKE_MLX_MARKER": str(marker),
+        },
+    )
+
+    assert result.returncode == 2
+    assert "--estimated-peak-bytes is required" in result.stderr
+    assert not marker.exists()
 
 
 def test_training_adapter_runs_resume_command_and_records_checkpoint(

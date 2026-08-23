@@ -46,6 +46,7 @@ class TrainingRecipe(BaseModel):
     lora_alpha: int = Field(ge=1, le=2_048)
     save_every: int = Field(ge=1, le=100_000)
     seed: int = Field(ge=0, le=2_147_483_647)
+    gradient_checkpointing: bool = False
 
 
 class ResolvedTrainingRecipe(BaseModel):
@@ -66,6 +67,7 @@ class ResolvedTrainingRecipe(BaseModel):
     evaluation_sha256: str
     resume_adapter_path: Path | None = None
     resume_source_sha256: str | None = None
+    gradient_checkpointing: bool = False
 
 
 def _latest_checkpoint(adapter_path: Path) -> Path | None:
@@ -126,6 +128,8 @@ def resolve_training_recipe(recipe: TrainingRecipe, *, resume: bool = False) -> 
         "--seed",
         str(recipe.seed),
     )
+    if recipe.gradient_checkpointing:
+        command = (*command, "--grad-checkpoint")
     if resume_adapter_path is not None:
         command = (*command, "--resume-adapter-file", str(resume_adapter_path))
     return ResolvedTrainingRecipe(
@@ -144,4 +148,5 @@ def resolve_training_recipe(recipe: TrainingRecipe, *, resume: bool = False) -> 
         evaluation_sha256=hashlib.sha256(b"").hexdigest(),
         resume_adapter_path=resume_adapter_path,
         resume_source_sha256=resume_source_sha256,
+        gradient_checkpointing=recipe.gradient_checkpointing,
     )

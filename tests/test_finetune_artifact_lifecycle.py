@@ -9,6 +9,10 @@ from typing import ClassVar
 import pytest
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from antigravity_k.engine.provider_adapters.unsloth_resource_broker import (
+    SystemMemoryProbe,
+    UnslothResourceBroker,
+)
 from antigravity_k.finetune.artifact_lifecycle import (
     ArtifactLifecycleError,
     FusedArtifactResult,
@@ -137,6 +141,7 @@ def test_merge_cli_emits_typed_artifact_manifest(tmp_path: Path) -> None:
     resolved = _resolved(tmp_path)
     training_result = _training_result(resolved)
     training_path = tmp_path / "training_result.json"
+    resource_db = tmp_path / "resources.sqlite3"
     _ = training_path.write_text(training_result.model_dump_json(indent=2) + "\n", encoding="utf-8")
     environment = os.environ | {
         "PYTHONPATH": f"{fake_root}{os.pathsep}src",
@@ -153,6 +158,10 @@ def test_merge_cli_emits_typed_artifact_manifest(tmp_path: Path) -> None:
             str(training_path),
             "--output",
             str(tmp_path / "fused-cli"),
+            "--estimated-peak-bytes",
+            "100000",
+            "--resource-db",
+            str(resource_db),
         ],
         capture_output=True,
         text=True,
@@ -164,6 +173,42 @@ def test_merge_cli_emits_typed_artifact_manifest(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert payload.status is FusedArtifactStatus.SUCCESS
     assert (tmp_path / "fused-cli" / "artifact_manifest.json").exists()
+    assert UnslothResourceBroker(resource_db, SystemMemoryProbe()).status().active_reservations == ()
+
+
+def test_merge_cli_requires_resource_estimate_before_launch(tmp_path: Path) -> None:
+    fake_root = tmp_path / "fake"
+    marker = tmp_path / "fuse-launch.json"
+    _fake_fuse_package(fake_root)
+    resolved = _resolved(tmp_path)
+    training_path = tmp_path / "training_result.json"
+    _ = training_path.write_text(_training_result(resolved).model_dump_json(), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "antigravity_k.finetune.trainer",
+            "merge",
+            "--run",
+            str(training_path),
+            "--output",
+            str(tmp_path / "fused-cli"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=os.environ
+        | {
+            "PYTHONPATH": f"{fake_root}{os.pathsep}src",
+            "FAKE_FUSE_MARKER": str(marker),
+        },
+    )
+
+    assert result.returncode == 2
+    assert "--estimated-peak-bytes is required" in result.stderr
+    assert not marker.exists()
+    assert not (tmp_path / "fused-cli").exists()
 
 
 def test_merge_cli_rejects_failed_training_run(tmp_path: Path) -> None:
