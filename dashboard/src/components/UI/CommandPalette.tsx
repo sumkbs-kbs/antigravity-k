@@ -9,97 +9,52 @@
  * component without losing the global shortcut.
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
+
+import { CommandIcon } from '../../features/command-palette/CommandIcon';
+import {
+  BUILTIN_COMMANDS,
+  CommandSearchError,
+  filterPaletteCommands,
+  searchNoteCommands,
+} from '../../features/command-palette/commandRegistry';
+import type { PaletteCommand } from '../../features/command-palette/commandRegistry';
+import { usePluginCommands } from '../../plugin/PluginManager';
 import { useUiStore } from '../../stores/uiStore';
 
-interface Command {
-  id: string;
-  title: string;
-  icon: string;
-  subtitle?: string;
-  action: () => void;
-}
-
-const AVAILABLE_COMMANDS: Command[] = [
-  { id: 'search', title: 'Search Notes', icon: '🔍', action: () => {} },
-  { id: 'new_note', title: 'Create New Note', icon: '📝', action: () => {
-    const { navigate: nav } = useUiStore.getState() as any;
-    window.dispatchEvent(new CustomEvent('agk:open-wiki-new'));
-  }},
-  { id: 'chat', title: 'Open AI Chat', icon: '💬', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:navigate', { detail: '/chat' }));
-  }},
-  { id: 'goal', title: 'Autonomous Goal (/goal)', icon: '🎯', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/goal ' } }));
-  }},
-  { id: 'agentic', title: 'Agentic Upgrade Radar (/agentic)', icon: '🧭', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/agentic ' } }));
-  }},
-  { id: 'mcp', title: 'MCP Upgrade Radar (/mcp)', icon: '🔌', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/mcp ' } }));
-  }},
-  { id: 'capabilities', title: 'Autonomous Capabilities (/capabilities)', icon: '🧠', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/capabilities ' } }));
-  }},
-  { id: 'self', title: 'Self Capability Report (/self)', icon: '🪪', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/self' } }));
-  }},
-  { id: 'codex', title: 'Codex Capability Transfer (/codex)', icon: '⚡', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/codex ' } }));
-  }},
-  { id: 'benchmark', title: 'Collective Benchmark Report (/benchmark)', icon: '📊', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:chat-slash', { detail: { text: '/benchmark report' } }));
-  }},
-  { id: 'settings', title: 'Preferences', icon: '⚙️', action: () => {
-    window.dispatchEvent(new CustomEvent('agk:navigate', { detail: '/settings' }));
-  }},
-  { id: 'sync', title: 'Sync Vault (Git)', icon: '🔄', action: () => {
-    const { addToast } = useUiStore.getState();
-    addToast('🔄 Vault 동기화 중...', 'info');
-    fetch('/api/vault/sync', { method: 'POST' })
-      .then(r => r.json())
-      .then(d => {
-        if (d.ok) addToast(`✅ Vault 동기화 완료 (commit: ${(d.commit || '').substring(0, 7) || 'N/A'})`, 'success');
-        else addToast('❌ Vault 동기화 실패', 'error');
-      })
-      .catch((e: any) => addToast(`❌ Vault 동기화 오류: ${e.message}`, 'error'));
-  }},
-  { id: 'selftest', title: 'Self-Test', icon: '🧪', action: () => {
-    useUiStore.getState().addToast('🧪 Self-test triggered', 'info');
-  }},
-  { id: 'tdd_loop', title: 'Test-Driven Code Generation (Cmd+Shift+D)', icon: '🧪', action: () => {
-    useUiStore.getState().addToast('🧪 TDD 루프 생성 중...', 'info');
-  }},
-];
-
 const CommandPalette: React.FC = () => {
-  const navigate = useNavigate();
-  const { commandPaletteVisible, setCommandPaletteVisible } = useUiStore();
+  const { addToast, commandPaletteVisible, setCommandPaletteVisible } = useUiStore();
+  const pluginCommands = usePluginCommands();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Command[]>([]);
+  const [results, setResults] = useState<readonly PaletteCommand[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestRef = useRef(0);
+  const availableCommands = useMemo<readonly PaletteCommand[]>(() => [
+    ...BUILTIN_COMMANDS,
+    ...pluginCommands.map((command) => ({
+      id: `plugin:${command.id}`,
+      title: command.label,
+      subtitle: command.category ?? 'Plugin',
+      icon: 'plugin',
+      keywords: [command.id, command.category ?? 'plugin'],
+      disabled: false,
+      execute: command.execute,
+    } satisfies PaletteCommand)),
+  ], [pluginCommands]);
   const hideAfterAction = useCallback(() => {
+    searchRequestRef.current += 1;
     setCommandPaletteVisible(false);
     setQuery('');
     setSelectedIndex(0);
   }, [setCommandPaletteVisible]);
 
-  // Navigate helper using React Router
-  const doNavigate = useCallback((path: string) => {
-    hideAfterAction();
-    setTimeout(() => navigate(path), 50);
-  }, [navigate, hideAfterAction]);
-
-  // Filter commands locally
-  const getLocalMatches = useCallback((q: string): Command[] => {
-    const norm = q.toLowerCase();
-    return AVAILABLE_COMMANDS.filter(cmd =>
-      cmd.title.toLowerCase().includes(norm) || cmd.id.includes(norm)
-    );
-  }, []);
+  const getLocalMatches = useCallback(
+    (value: string): readonly PaletteCommand[] => filterPaletteCommands(availableCommands, value),
+    [availableCommands],
+  );
 
   // Show results on open / query change
   useEffect(() => {
@@ -115,53 +70,36 @@ const CommandPalette: React.FC = () => {
     }
   }, [commandPaletteVisible]);
 
-  // Perform web search for notes
-  const performSearch = useCallback(async (q: string) => {
-    if (!q) {
+  const performSearch = useCallback(async (value: string) => {
+    if (value.trim().length === 0) {
       setResults(getLocalMatches(''));
       return;
     }
-    const local = getLocalMatches(q);
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
+    const local = getLocalMatches(value);
     try {
-      const res = await fetch(`/v1/notes/search?q=${encodeURIComponent(q)}`);
-      if (!res.ok) throw new Error('Search failed');
-      const data = await res.json();
-      const apiCommands: Command[] = [];
-
-      if (data.semantic_results?.length) {
-        data.semantic_results.forEach((r: any) => {
-          apiCommands.push({
-            id: 'rag_res', title: (r.text || '').substring(0, 40) + '...',
-            subtitle: 'Semantic Match', icon: '🧠',
-            action: () => {
-              const path = r.metadata?.source || r.id;
-              hideAfterAction();
-              setTimeout(() => window.dispatchEvent(new CustomEvent('agk:open-wiki-note', { detail: path })), 150);
-            },
-          });
-        });
-      }
-      if (data.keyword_results?.length) {
-        data.keyword_results.forEach((path: string) => {
-          apiCommands.push({
-            id: 'kw_res', title: path,
-            subtitle: 'Keyword Match', icon: '📄',
-            action: () => {
-              hideAfterAction();
-              setTimeout(() => window.dispatchEvent(new CustomEvent('agk:open-wiki-note', { detail: path })), 150);
-            },
-          });
-        });
-      }
-      setResults([...local, ...apiCommands]);
+      const noteCommands = await searchNoteCommands(value);
+      if (searchRequestRef.current !== requestId) return;
+      setResults([...local, ...noteCommands]);
       setSelectedIndex(0);
-    } catch {
-      setResults(local.length > 0 ? local : [{ id: 'error', title: 'Error searching notes', icon: '⚠️', action: () => {} }]);
+    } catch (error) {
+      if (!(error instanceof CommandSearchError)) throw error;
+      if (searchRequestRef.current !== requestId) return;
+      setResults(local.length > 0 ? local : [{
+        id: 'search-error',
+        title: 'Error searching notes',
+        subtitle: 'Search unavailable',
+        icon: 'warning',
+        keywords: [],
+        disabled: true,
+        execute: () => undefined,
+      }]);
     }
-  }, [getLocalMatches, hideAfterAction]);
+  }, [getLocalMatches]);
 
   // Debounced search
-  const handleInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
     setResults(getLocalMatches(val));
@@ -170,17 +108,38 @@ const CommandPalette: React.FC = () => {
     searchTimeoutRef.current = setTimeout(() => performSearch(val), 300);
   }, [getLocalMatches, performSearch]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => Math.min(i + 1, results.length - 1)); }
+  const reportExecutionError = useCallback((error: unknown): void => {
+    if (error instanceof Error) {
+      addToast(`Command failed: ${error.message}`, 'error');
+      return;
+    }
+    throw error;
+  }, [addToast]);
+
+  const executeCommand = useCallback((command: PaletteCommand): void => {
+    if (command.disabled) return;
+    try {
+      void Promise.resolve(command.execute()).catch(reportExecutionError);
+      hideAfterAction();
+    } catch (error) {
+      reportExecutionError(error);
+    }
+  }, [hideAfterAction, reportExecutionError]);
+
+  const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((index) => results.length === 0 ? 0 : Math.min(index + 1, results.length - 1));
+    }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => Math.max(i - 1, 0)); }
     else if (e.key === 'Enter') {
       e.preventDefault();
-      const cmd = results[selectedIndex];
-      if (cmd) { cmd.action(); hideAfterAction(); }
+      const command = results[selectedIndex];
+      if (command !== undefined) executeCommand(command);
     }
-  }, [results, selectedIndex, hideAfterAction]);
+  }, [executeCommand, results, selectedIndex]);
 
-  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
+  const handleOverlayClick = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) hideAfterAction();
   }, [hideAfterAction]);
 
@@ -194,13 +153,17 @@ const CommandPalette: React.FC = () => {
     return () => window.removeEventListener('keydown', handleEsc);
   }, [commandPaletteVisible, hideAfterAction]);
 
+  useEffect(() => () => {
+    if (searchTimeoutRef.current !== null) clearTimeout(searchTimeoutRef.current);
+  }, []);
+
   if (!commandPaletteVisible) return null;
 
   return (
     <div className="command-palette-overlay" style={{ display: 'flex' }} onClick={handleOverlayClick}>
       <div className="command-palette" role="dialog" aria-label="명령 팔레트">
         <div className="cmd-header">
-          <span className="cmd-icon" aria-hidden="true">🔍</span>
+          <span className="cmd-icon"><CommandIcon icon="search" /></span>
           <input
             ref={inputRef}
             type="text"
@@ -212,6 +175,11 @@ const CommandPalette: React.FC = () => {
             autoComplete="off"
             spellCheck={false}
             aria-label="검색어 입력"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="cmd-results"
+            aria-expanded="true"
+            aria-activedescendant={results[selectedIndex] === undefined ? undefined : `cmd-option-${results[selectedIndex].id}`}
           />
           <span className="cmd-shortcut" aria-label="닫기">ESC</span>
         </div>
@@ -220,18 +188,21 @@ const CommandPalette: React.FC = () => {
             <div className="cmd-empty">No results found</div>
           ) : (
             results.map((cmd, index) => (
-              <div
-                key={cmd.id + index}
+              <button
+                key={cmd.id}
+                id={`cmd-option-${cmd.id}`}
+                type="button"
                 className={`cmd-item ${index === selectedIndex ? 'selected' : ''}`}
                 role="option"
                 aria-selected={index === selectedIndex}
-                onClick={() => { cmd.action(); hideAfterAction(); }}
+                disabled={cmd.disabled}
+                onClick={() => executeCommand(cmd)}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
-                <span className="cmd-item-icon">{cmd.icon}</span>
+                <span className="cmd-item-icon"><CommandIcon icon={cmd.icon} /></span>
                 <span className="cmd-item-title">{cmd.title}</span>
-                {cmd.subtitle && <span className="cmd-item-subtitle">{cmd.subtitle}</span>}
-              </div>
+                {cmd.subtitle !== null && <span className="cmd-item-subtitle">{cmd.subtitle}</span>}
+              </button>
             ))
           )}
         </div>

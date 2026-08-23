@@ -80,7 +80,7 @@ antigravity-k/
 │   ├── security/          # Security modules
 │   ├── tools/             # Tool implementations
 │   └── knowledge/         # Knowledge management
-├── dashboard/             # Web dashboard (Vite + vanilla JS)
+├── dashboard/             # Web dashboard (React + TypeScript + Vite)
 ├── tests/                 # Test suite
 ├── scripts/               # Utility scripts
 └── docs/                  # Documentation

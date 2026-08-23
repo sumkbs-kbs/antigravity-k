@@ -133,6 +133,56 @@ Layout rules:
 - **Motion**: none.
 - **Layout**: stack. Output preview owns vertical scrolling and is height-bounded.
 
+### Execution Block Stack
+
+- **Structure**: an ordered list of typed projection blocks; each block delegates to one documented execution primitive.
+- **Variants**: agent tree, checklist, terminal evidence.
+- **Spacing**: intrinsic two-column grid for agent/checklist blocks followed by a full-width terminal block.
+- **States**: each delegated primitive owns loading, empty, running, waiting, completed, failed, and cancelled states.
+- **Accessibility**: block order matches event comprehension order; every block retains its semantic heading and landmark.
+- **Motion**: none. Event projection updates preserve stable block and row identity.
+- **Layout**: the stack never owns page scrolling; terminal output remains the only bounded nested scroll region.
+
+### Command Palette Item
+
+- **Structure**: native button with a semantic SVG icon, title, optional category, and selected state.
+- **Variants**: built-in action, note search result, plugin action, unavailable/error row.
+- **Spacing**: `--space-3` vertical padding, `--space-4` horizontal padding, `--space-2` internal gap.
+- **States**: default, hover, keyboard-selected, focus-visible, disabled.
+- **Accessibility**: listbox owns `aria-activedescendant`; each option has a stable ID and is operable with Enter or click.
+- **Motion**: background and icon-color feedback use `--transition-fast`; no layout property animates.
+- **Layout**: title truncates without hiding the category; the result list is the bounded scroll owner.
+
+### Task Queue Panel
+
+- **Structure**: labelled submit form followed by server-owned task rows and lifecycle controls.
+- **Variants**: empty, pending, running, resuming, completed, failed, paused, cancelled.
+- **Spacing**: compact operational stack using `--space-2` and `--space-3`.
+- **States**: selected task, submitting, cancelling, resuming, disabled invalid action.
+- **Accessibility**: prompt has a persistent label; each cancel/resume control includes the task title in its accessible name.
+- **Motion**: color feedback only; streamed state changes do not move focus.
+- **Layout**: task rows are the named bounded scroll region; task status remains a server projection.
+
+### Session History / Fork
+
+- **Structure**: the canonical task-history rows inside Task Queue, with source status, selection, lifecycle controls, and an explicit fork action.
+- **Variants**: active source, terminal source, paused/failed source, fork request pending, fork failure.
+- **Spacing**: history heading uses `--space-3`; row actions retain the compact `--space-2` cluster.
+- **States**: selected source, fork pending, fork created and selected, source preserved.
+- **Accessibility**: the fork control includes the source task title in its accessible name; creating a fork does not move or remove the source row.
+- **Motion**: none. The new session appears through the normal server-list refresh without an optimistic clone.
+- **Layout**: history reuses the Task Queue bounded list; no second scroll owner or session store is introduced.
+
+### Approval Queue
+
+- **Structure**: pending request list, selected request metadata, existing DiffViewer preview, and explicit deny/always-allow/approve controls.
+- **Variants**: empty, pending request, no-diff request, resolving, request error.
+- **Spacing**: compact list beside a flexible detail region using `--space-3`.
+- **States**: selected, resolving, rejected, approved, always allowed.
+- **Accessibility**: risk and tool name are visible text; each decision control includes the request description in its accessible name.
+- **Motion**: none. Resolution removes only the server-confirmed request.
+- **Layout**: queue and detail collapse to one column below tablet width; DiffViewer owns its bounded editor viewport.
+
 ## 6. Motion & Interaction
 
 | Type | Token | Usage |

@@ -64,7 +64,16 @@ describe('TaskExecutionView', () => {
         events={[]}
         connectionState="idle"
         error={null}
+        pendingAction={null}
+        approvals={[]}
+        pendingApprovalId={null}
+        approvalError={null}
         onSelectTask={vi.fn()}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onFork={vi.fn()}
+        onResolveApproval={vi.fn()}
         onRetry={vi.fn()}
       />,
     );
@@ -81,12 +90,21 @@ describe('TaskExecutionView', () => {
         events={[leadEvent, event]}
         connectionState="connected"
         error={null}
+        pendingAction={null}
+        approvals={[]}
+        pendingApprovalId={null}
+        approvalError={null}
         onSelectTask={vi.fn()}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResume={vi.fn()}
+        onFork={vi.fn()}
+        onResolveApproval={vi.fn()}
         onRetry={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole('option', { name: /Repository tests and repair/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Repository tests and repair, 상태 running' })).toBeInTheDocument();
     expect(screen.getByText('QA agent')).toBeInTheDocument();
     expect(screen.getByText('Run verification')).toBeInTheDocument();
     expect(screen.getByText('npm run build')).toBeInTheDocument();

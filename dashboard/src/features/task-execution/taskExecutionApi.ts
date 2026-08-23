@@ -2,8 +2,11 @@ import ky from 'ky';
 
 import {
   TaskEventSchema,
+  TaskActionResponseSchema,
   TaskEventsResponseSchema,
+  TaskForkResponseSchema,
   TaskListResponseSchema,
+  TaskSubmitResponseSchema,
   TaskStreamEndSchema,
   type TaskEvent,
   type TaskId,
@@ -81,6 +84,43 @@ export async function fetchTaskList(signal: AbortSignal): Promise<readonly TaskS
     timeout: 10_000,
   }).json();
   return TaskListResponseSchema.parse(raw).data;
+}
+
+export async function submitTask(prompt: string): Promise<TaskId> {
+  const raw: unknown = await ky.post('/api/tasks/submit', {
+    headers: accessHeaders(),
+    json: { prompt },
+    retry: 0,
+    timeout: 10_000,
+  }).json();
+  return TaskSubmitResponseSchema.parse(raw).task_id;
+}
+
+export async function forkTask(taskId: TaskId): Promise<TaskId> {
+  const raw: unknown = await ky.post(`/api/tasks/${encodeURIComponent(taskId)}/fork`, {
+    headers: accessHeaders(),
+    json: {},
+    retry: 0,
+    timeout: 10_000,
+  }).json();
+  return TaskForkResponseSchema.parse(raw).task_id;
+}
+
+async function performTaskAction(taskId: TaskId, action: 'cancel' | 'resume'): Promise<void> {
+  const raw: unknown = await ky.post(`/api/tasks/${encodeURIComponent(taskId)}/${action}`, {
+    headers: accessHeaders(),
+    retry: 0,
+    timeout: 10_000,
+  }).json();
+  TaskActionResponseSchema.parse(raw);
+}
+
+export async function cancelTask(taskId: TaskId): Promise<void> {
+  await performTaskAction(taskId, 'cancel');
+}
+
+export async function resumeTask(taskId: TaskId): Promise<void> {
+  await performTaskAction(taskId, 'resume');
 }
 
 export async function fetchTaskEvents(

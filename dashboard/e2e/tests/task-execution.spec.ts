@@ -3,9 +3,12 @@ import path from 'node:path';
 
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { z } from 'zod';
 
 const artifactDirectory = process.env.VISUAL_ARTIFACT_DIR
   ?? path.join(process.cwd(), 'test-results', 'task-execution-visual');
+const TaskSubmitBodySchema = z.object({ prompt: z.string() });
+const ApprovalDecisionBodySchema = z.object({ decision: z.string() });
 
 const tasks = {
   status: 'ok',
@@ -75,6 +78,17 @@ const events = [
   }),
 ];
 
+const pendingApproval = {
+  request_id: 'approval-ui',
+  tool_name: 'apply_patch',
+  risk_level: 'high',
+  description: '설정 파일 수정',
+  diff_preview: '--- a/settings.ts\n+++ b/settings.ts\n@@ -1 +1 @@\n-old\n+new',
+  status: 'pending',
+  created_at: 1_777_000_000,
+  timeout_sec: 120,
+};
+
 async function installTaskFixtures(page: Page, failEvents = false): Promise<void> {
   await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tasks) });
@@ -96,6 +110,9 @@ async function installTaskFixtures(page: Page, failEvents = false): Promise<void
       contentType: 'text/event-stream',
       body: 'event: stream.end\ndata: {"task_id":"task-ui","last_sequence":5,"status":"done"}\n\n',
     });
+  });
+  await page.route(/\/api\/approval\/pending(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [pendingApproval], count: 1 }) });
   });
   await page.route(/\/api\/system\/metrics(?:\?.*)?$/, async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, memory_mb: 512, cpu_percent: 8, total_tokens: 2048 }) });
@@ -130,9 +147,9 @@ for (const viewport of [
     expect(overflow.document).toBeLessThanOrEqual(0);
     expect(overflow.body).toBeLessThanOrEqual(0);
 
-    const selector = page.getByLabel('Task 실행');
-    await selector.focus();
-    await expect(selector).toBeFocused();
+    const prompt = page.getByLabel('새 작업 지시');
+    await prompt.focus();
+    await expect(prompt).toBeFocused();
 
     const accessibility = await new AxeBuilder({ page }).include('.task-execution-shell').analyze();
     expect(accessibility.violations).toEqual([]);
@@ -146,7 +163,13 @@ for (const viewport of [
         .agent-page {
           overflow: visible !important;
         }
+        [data-react-grab-toolbar] {
+          display: none !important;
+        }
       `,
+    });
+    await page.locator('[data-react-grab-toolbar]').evaluateAll((nodes) => {
+      for (const node of nodes) node.remove();
     });
     await page.locator('.task-execution-shell').screenshot({
       path: path.join(artifactDirectory, `${viewport.name}-${viewport.width}.png`),
@@ -158,6 +181,102 @@ test('shows a recoverable replay error', async ({ page }) => {
   await installTaskFixtures(page, true);
   await page.goto('/agent');
 
-  await expect(page.getByRole('alert')).toContainText('503');
+  await expect(page.getByRole('region', { name: '실행 추적' }).getByRole('alert')).toContainText('503');
   await expect(page.getByRole('button', { name: '다시 연결' })).toBeVisible();
+});
+
+test('runs submit, approval, cancel, resume, and reconnect without sequence duplication', async ({ page }) => {
+  let taskStatus = 'running';
+  let approvalResolved = false;
+  let streamAttempts = 0;
+  const replayCursors: number[] = [];
+  const submittedPrompts: string[] = [];
+  const decisions: string[] = [];
+
+  await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        data: [{ ...tasks.data[0], status: taskStatus }],
+      }),
+    });
+  });
+  await page.route(/\/api\/tasks\/submit$/, async (route) => {
+    const body = TaskSubmitBodySchema.parse(route.request().postDataJSON());
+    submittedPrompts.push(body.prompt);
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ status: 'submitted', task_id: 'task-ui' }) });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/cancel$/, async (route) => {
+    taskStatus = 'cancelled';
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'cancelled', task_id: 'task-ui' }) });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/resume$/, async (route) => {
+    taskStatus = 'running';
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'resumed', task_id: 'task-ui' }) });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/events(?:\?.*)?$/, async (route) => {
+    const cursor = Number(new URL(route.request().url()).searchParams.get('after_sequence') ?? '0');
+    replayCursors.push(cursor);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        task_id: 'task-ui',
+        events: events.filter((item) => Number(item.sequence) > cursor),
+        last_sequence: 5,
+      }),
+    });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/events\/stream(?:\?.*)?$/, async (route) => {
+    streamAttempts += 1;
+    if (streamAttempts === 1) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'temporary disconnect' }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'event: stream.end\ndata: {"task_id":"task-ui","last_sequence":5,"status":"done"}\n\n',
+    });
+  });
+  await page.route(/\/api\/approval\/pending(?:\?.*)?$/, async (route) => {
+    const pending = approvalResolved ? [] : [pendingApproval];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending, count: pending.length }) });
+  });
+  await page.route(/\/api\/approval\/approval-ui\/resolve$/, async (route) => {
+    const body = ApprovalDecisionBodySchema.parse(route.request().postDataJSON());
+    decisions.push(body.decision);
+    approvalResolved = true;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, request_id: 'approval-ui', status: 'approved' }) });
+  });
+  await page.route(/\/api\/system\/metrics(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, memory_mb: 512, cpu_percent: 8, total_tokens: 2048 }) });
+  });
+
+  await page.goto('/agent');
+  await expect(page.getByRole('heading', { name: '승인 대기열' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '설정 파일 수정 apply_patch · high' })).toBeVisible();
+  await expect.poll(() => replayCursors.includes(5), { timeout: 5_000 }).toBe(true);
+
+  await page.getByLabel('새 작업 지시').fill('  브라우저 lifecycle 검증  ');
+  await page.getByRole('button', { name: '작업 제출' }).click();
+  await expect.poll(() => submittedPrompts).toEqual(['브라우저 lifecycle 검증']);
+
+  await page.getByRole('button', { name: '설정 파일 수정 승인' }).click();
+  await expect.poll(() => decisions).toEqual(['approve']);
+  await expect(page.getByText('대기 중인 승인 요청이 없습니다.')).toBeVisible();
+
+  await page.getByRole('button', { name: '병렬 에이전트로 dashboard 검증 취소' }).click();
+  await expect(page.getByRole('button', { name: '병렬 에이전트로 dashboard 검증 재개' })).toBeVisible();
+  await page.getByRole('button', { name: '병렬 에이전트로 dashboard 검증 재개' }).click();
+  await expect(page.getByRole('button', { name: '병렬 에이전트로 dashboard 검증 취소' })).toBeVisible();
+
+  await expect(page.getByText('스트림 완료')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText('5 events')).toBeVisible();
+  expect(streamAttempts).toBeGreaterThanOrEqual(2);
+  expect(replayCursors).toContain(5);
+  const accessibility = await new AxeBuilder({ page }).include('.task-execution-shell').analyze();
+  expect(accessibility.violations).toEqual([]);
 });

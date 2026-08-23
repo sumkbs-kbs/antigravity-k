@@ -4,6 +4,15 @@ export const TaskIdSchema = z.string().min(1).brand<'TaskId'>();
 export const AgentIdSchema = z.string().min(1).brand<'AgentId'>();
 export const StepIdSchema = z.string().min(1).brand<'StepId'>();
 export const ToolCallIdSchema = z.string().min(1).brand<'ToolCallId'>();
+export const TaskStatusSchema = z.enum([
+  'pending',
+  'running',
+  'resuming',
+  'done',
+  'failed',
+  'paused',
+  'cancelled',
+]);
 
 export const TaskEventSchema = z.object({
   sequence: z.number().int().nonnegative(),
@@ -30,7 +39,7 @@ export const TaskEventsResponseSchema = z.object({
 export const TaskSummarySchema = z.object({
   task_id: TaskIdSchema,
   prompt: z.string(),
-  status: z.string().min(1),
+  status: TaskStatusSchema,
   output: z.string().optional().default(''),
   error: z.string().nullable(),
   created_at: z.string().min(1),
@@ -49,9 +58,26 @@ export const TaskStreamEndSchema = z.object({
   status: z.string().min(1),
 }).readonly();
 
+export const TaskSubmitResponseSchema = z.object({
+  status: z.literal('submitted'),
+  task_id: TaskIdSchema,
+}).readonly();
+
+export const TaskForkResponseSchema = z.object({
+  status: z.literal('forked'),
+  task_id: TaskIdSchema,
+  source_task_id: TaskIdSchema,
+}).readonly();
+
+export const TaskActionResponseSchema = z.object({
+  status: z.enum(['cancelled', 'resumed']),
+  task_id: TaskIdSchema,
+}).readonly();
+
 export type TaskId = z.infer<typeof TaskIdSchema>;
 export type AgentId = z.infer<typeof AgentIdSchema>;
 export type StepId = z.infer<typeof StepIdSchema>;
 export type TaskEvent = z.infer<typeof TaskEventSchema>;
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type JsonValue = z.infer<ReturnType<typeof z.json>>;

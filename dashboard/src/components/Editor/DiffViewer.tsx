@@ -6,7 +6,7 @@
  * Supports inline accept/reject actions.
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffOnMount } from '@monaco-editor/react';
 import { useChangeStore, ProposedChange } from '../../stores/changeStore';
@@ -57,12 +57,11 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
   showActions = true,
   height = '100%',
 }) => {
-  const editorRef = useRef<any>(null);
   const { addToast } = useUiStore();
 
   const handleMount: DiffOnMount = useCallback((diffEditor, monaco) => {
-    const editor = diffEditor.getModifiedEditor();
-    editorRef.current = editor;
+    diffEditor.getOriginalEditor().updateOptions({ ariaLabel: `${change.fileName} 변경 전` });
+    diffEditor.getModifiedEditor().updateOptions({ ariaLabel: `${change.fileName} 변경 후` });
     monaco.editor.defineTheme('diff-theme', DIFF_THEME);
     monaco.editor.setTheme('diff-theme');
 
@@ -80,7 +79,7 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
       });
       observer.observe(container);
     }
-  }, []);
+  }, [change.fileName]);
 
   const handleApprove = useCallback(() => {
     if (onApprove) {
@@ -135,6 +134,8 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
           theme="diff-theme"
           onMount={handleMount}
           options={{
+            originalAriaLabel: `${change.fileName} 변경 전`,
+            modifiedAriaLabel: `${change.fileName} 변경 후`,
             fontSize: 13,
             fontFamily: "'JetBrains Mono', monospace",
             lineNumbers: 'on',

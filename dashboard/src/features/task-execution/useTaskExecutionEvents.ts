@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { fetchTaskEvents, fetchTaskList, streamTaskEvents } from './taskExecutionApi';
+import {
+  cancelTask,
+  fetchTaskEvents,
+  fetchTaskList,
+  forkTask,
+  resumeTask,
+  streamTaskEvents,
+  submitTask,
+} from './taskExecutionApi';
+import type { PendingTaskAction } from './TaskQueuePanel';
 import type { TaskEvent, TaskId, TaskSummary } from './taskExecutionSchema';
 
 export type TaskConnectionState = 'idle' | 'loading' | 'connected' | 'reconnecting' | 'complete' | 'error';
@@ -11,7 +20,12 @@ export type TaskExecutionState = Readonly<{
   events: readonly TaskEvent[];
   connectionState: TaskConnectionState;
   error: string | null;
+  pendingAction: PendingTaskAction | null;
   selectTask: (taskId: TaskId) => void;
+  submit: (prompt: string) => void;
+  cancel: (taskId: TaskId) => void;
+  resume: (taskId: TaskId) => void;
+  fork: (taskId: TaskId) => void;
   retry: () => void;
 }>;
 
@@ -33,6 +47,7 @@ export function useTaskExecutionEvents(): TaskExecutionState {
   const [connectionState, setConnectionState] = useState<TaskConnectionState>('loading');
   const [error, setError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [pendingAction, setPendingAction] = useState<PendingTaskAction | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,5 +135,72 @@ export function useTaskExecutionEvents(): TaskExecutionState {
   const selectTask = useCallback((taskId: TaskId) => setSelectedTaskId(taskId), []);
   const retry = useCallback(() => setReloadVersion((current) => current + 1), []);
 
-  return { tasks, selectedTaskId, events, connectionState, error, selectTask, retry };
+  const submit = useCallback((prompt: string): void => {
+    setPendingAction({ kind: 'submit' });
+    setError(null);
+    void submitTask(prompt)
+      .then((taskId) => {
+        setSelectedTaskId(taskId);
+        setReloadVersion((current) => current + 1);
+      })
+      .catch((caught: unknown) => {
+        if (!(caught instanceof Error)) throw caught;
+        setError(caught.message);
+      })
+      .finally(() => setPendingAction(null));
+  }, []);
+
+  const cancel = useCallback((taskId: TaskId): void => {
+    setPendingAction({ kind: 'cancel', taskId });
+    setError(null);
+    void cancelTask(taskId)
+      .then(() => setReloadVersion((current) => current + 1))
+      .catch((caught: unknown) => {
+        if (!(caught instanceof Error)) throw caught;
+        setError(caught.message);
+      })
+      .finally(() => setPendingAction(null));
+  }, []);
+
+  const resume = useCallback((taskId: TaskId): void => {
+    setPendingAction({ kind: 'resume', taskId });
+    setError(null);
+    void resumeTask(taskId)
+      .then(() => setReloadVersion((current) => current + 1))
+      .catch((caught: unknown) => {
+        if (!(caught instanceof Error)) throw caught;
+        setError(caught.message);
+      })
+      .finally(() => setPendingAction(null));
+  }, []);
+
+  const fork = useCallback((taskId: TaskId): void => {
+    setPendingAction({ kind: 'fork', taskId });
+    setError(null);
+    void forkTask(taskId)
+      .then((forkedTaskId) => {
+        setSelectedTaskId(forkedTaskId);
+        setReloadVersion((current) => current + 1);
+      })
+      .catch((caught: unknown) => {
+        if (!(caught instanceof Error)) throw caught;
+        setError(caught.message);
+      })
+      .finally(() => setPendingAction(null));
+  }, []);
+
+  return {
+    tasks,
+    selectedTaskId,
+    events,
+    connectionState,
+    error,
+    pendingAction,
+    selectTask,
+    submit,
+    cancel,
+    resume,
+    fork,
+    retry,
+  };
 }

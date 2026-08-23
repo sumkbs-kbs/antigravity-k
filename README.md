@@ -42,7 +42,7 @@
 | 🔗 **RAG 파이프라인** | `engine/rag_indexer.py:RAGIndexer` / `engine/code_intel/` / `engine/vault.py:VaultEngine` | `agk rag index`, `agk vault` |
 | 👁 **멀티모달 비전** | `provider_adapters/mlx_vlm.py` / `tools/vision_tool.py` | `agk run --model mlx-...` |
 | 🛡️ **보안** | `engine/security_policy.py` / `engine/secret_scanner.py` / `engine/approval_manager.py` / `engine/error_classifier.py` | `agk serve` (PIN), `agk security scan` |
-| 📊 **벤치마크 대시보드** | `dashboard/` (Vite+Vanilla JS) / `scripts/benchmark_viz.py` / `.github/workflows/deploy-benchmark-pages.yml` | `make dev-dashboard`, GitHub Pages |
+| 📊 **벤치마크 대시보드** | `dashboard/` (React+TypeScript+Vite) / `scripts/benchmark_viz.py` / `.github/workflows/deploy-benchmark-pages.yml` | `make dev-dashboard`, GitHub Pages |
 | 🌍 **다국어 지원** | `i18n.py` / `locales/{ko,en,ja}.json` | 환경변수 `AGK_LANG` |
 | 📝 **구조화된 로깅** | `logging_setup.py` (JSON, rotation, audit) | `AGK_LOG_LEVEL`, `data/logs/` |
 | 💰 **비용 제어** | `engine/cost_guard.py:CostGuard` / `engine/model_manager.py:UsageTracker` | `AGK_DAILY_BUDGET_USD`, `AGK_HOURLY_ACTION_LIMIT` |
@@ -145,7 +145,7 @@ antigravity-k/
 │   ├── cli.py                  # Typer CLI
 │   ├── config.py               # Pydantic 설정 관리
 │   └── i18n.py                 # 다국어 지원
-├── dashboard/                  # 웹 대시보드 (Vite + Vanilla JS)
+├── dashboard/                  # 웹 대시보드 (React + TypeScript + Vite)
 ├── tests/                      # 테스트 스위트 (70+ 파일)
 ├── scripts/                    # 유틸리티 스크립트
 ├── docs/                       # 문서
@@ -165,7 +165,7 @@ antigravity-k/
 | 코드 인덱싱 | AST + RAGIndexer | 소스 코드 그래프 인덱싱 |
 | API 서버 | FastAPI + uvicorn | OpenAI 호환 REST API |
 | 설정 관리 | Pydantic Settings + YAML | 환경변수/파일 설정 |
-| 대시보드 | Vite + Vanilla JS | 시스템 모니터링 UI |
+| 대시보드 | React + TypeScript + Vite | 시스템 모니터링 UI |
 | 로깅 | 구조화된 JSON + 로테이션 | 추적성 (Traceability) |
 | i18n | 자체 번역 시스템 | 한국어/English/日本語 |
 | CI/CD | GitHub Actions | Lint/Test/Deploy 자동화 |

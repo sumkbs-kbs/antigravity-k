@@ -50,13 +50,11 @@ source_roots = [
     "src/antigravity_k",
     "dashboard/src",
     "dashboard/e2e",
-    "dashboard-vanilla",
     "scripts",
 ]
 manifest_roots = [
     "src",
     "dashboard",
-    "dashboard-vanilla",
     "scripts",
 ]
 prohibited_spdx = [
