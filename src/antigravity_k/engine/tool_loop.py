@@ -417,6 +417,8 @@ class ToolLoopEngine:
                 _raw_cfg.get("amplification", {}).get("self_consistency", {}) if isinstance(_raw_cfg, dict) else {}
             )
             _sc_enabled = bool(_sc_cfg.get("enabled", False)) if isinstance(_sc_cfg, dict) else False
+            _bon_cfg = _raw_cfg.get("amplification", {}).get("best_of_n", {}) if isinstance(_raw_cfg, dict) else {}
+            _bon_enabled = bool(_bon_cfg.get("enabled", False)) if isinstance(_bon_cfg, dict) else False
             _td_cfg = (
                 _raw_cfg.get("amplification", {}).get("task_decomposition", {}) if isinstance(_raw_cfg, dict) else {}
             )
@@ -425,6 +427,10 @@ class ToolLoopEngine:
                 # 분해는 self-consistency보다 상위 계층: 복잡 작업을 먼저 단계로
                 # 나누고, 게이트를 통과하지 못하면 내부에서 SC→일반 생성으로 폴백한다.
                 stream_gen = iter([self.orch.manager.generate_decomposed(**stream_kwargs)])
+            elif direct_response and _bon_enabled and hasattr(self.orch.manager, "generate_best_of_n"):
+                # 실행 검증 Best-of-N은 유사도 다수결(SC)보다 강한 신호:
+                # 검증 통과 답변은 실행 가능성이 보장되므로 SC보다 우선한다.
+                stream_gen = iter([self.orch.manager.generate_best_of_n(**stream_kwargs)])
             elif direct_response and _sc_enabled and hasattr(self.orch.manager, "generate_self_consistent"):
                 stream_gen = iter([self.orch.manager.generate_self_consistent(**stream_kwargs)])
             elif direct_response:

@@ -508,6 +508,27 @@ amplification:
     escalate_on_revision_failure: true
     min_steps: 2
     max_steps: 6
+  best_of_n:
+    # 실행 검증 기반 Best-of-N. N개 후보를 샘플링해 검증자를 통과한 첫 답변 선택.
+    # 유사도 다수결(self_consistency)과 달리 실행 가능성을 실제로 검증하므로
+    # 코딩 과제에서 더 강한 신호다. 통과 즉시 반환해 나머지 샘플 비용을 생략한다.
+    # verifier: "syntax"(구문 검사, 기본) 또는 외부에서 주입한 실행 검증 함수.
+    enabled: false
+    n_samples: 3
+    # use_compute_budget: true면 TestTimeComputeScaler 복잡도 티어가 n_samples를
+    # 덮어쓴다 (SIMPLE=1 ~ EXTREME=5). 어려운 작업일수록 검증 시도를 늘린다.
+    use_compute_budget: false
+    # verifier: "syntax"(구문 검사) 또는 "worktree_tests"(답변의 ```lang path 펜스를
+    # git worktree 스냅샷에 적용하고 test_command로 실제 통과 판정 — 더 강한 신호).
+    verifier: syntax
+    test_command: pytest -q
+    test_timeout_sec: 120
+    base_temperature: 0.7
+    temperature_spread: 0.3
+    language_hint: python
+    feedback_loop: true
+    max_feedback_rounds: 1
+    complexity_threshold: null
 self_evolution:
   auto_modify: false
 cost:

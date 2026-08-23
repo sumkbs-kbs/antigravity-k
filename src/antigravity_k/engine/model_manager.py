@@ -9,9 +9,13 @@ import gc
 import logging
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.best_of_n_verifier import VerificationOutcome
 
 from ..tools.egress_policy import safe_urlopen
 from .collective_intelligence import CollectiveIntelligenceEngine
@@ -677,6 +681,119 @@ class ModelManager:
             return {}
         cfg = amp.get("task_decomposition", {})
         return cfg if isinstance(cfg, dict) else {}
+
+    def _best_of_n_config(self) -> dict:
+        """amplification.best_of_n 섹션을 반환한다."""
+        raw = getattr(self._registry, "_raw", {})
+        amp = raw.get("amplification", {})
+        if not isinstance(amp, dict):
+            return {}
+        cfg = amp.get("best_of_n", {})
+        return cfg if isinstance(cfg, dict) else {}
+
+    def _resolve_bon_verifier(self, cfg: dict, make_syntax_verifier, language: str, make_answer_patch_verifier):
+        """best_of_n.verifier 설정에 따라 검증자를 선택한다.
+
+        "syntax"(기본): 구문 검사. "worktree_tests": 답변 파일 블록을 git
+        worktree 스냅샷에 적용해 실제 테스트 명령으로 판정한다.
+        """
+        mode = str(cfg.get("verifier", "syntax"))
+        if mode != "worktree_tests":
+            return make_syntax_verifier(language)
+
+        import shlex as _shlex
+
+        try:
+            from antigravity_k.config import config as app_config
+
+            project_root = getattr(app_config.paths, "project_root", ".")
+        except ImportError:
+            project_root = "."
+        test_command = _shlex.split(str(cfg.get("test_command", "pytest -q")))
+        try:
+            return make_answer_patch_verifier(
+                project_root,
+                test_command,
+                timeout_sec=float(cfg.get("test_timeout_sec", 120)),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("worktree_tests 검증자 생성 실패(%s) — 구문 검사로 폴백", exc)
+            return make_syntax_verifier(language)
+
+    def generate_best_of_n(
+        self,
+        prompt: str,
+        target: str,
+        verifier_fn: Callable[[str], "VerificationOutcome"] | None = None,
+        **kwargs,
+    ) -> str:
+        """실행 검증 기반 Best-of-N 증폭으로 답변을 생성한다.
+
+        amplification.best_of_n.enabled가 false(기본)면 일반 generate로 폴백.
+        켜져 있으면 N개 후보를 샘플링해 검증자(기본: Python 구문 검사)를 통과한
+        첫 답변을 선택한다. 유사도 다수결(self_consistency)보다 코딩 과제에서
+        강한 신호다 — 실행 가능성이 실제 정답의 상위 집합이므로.
+        """
+        cfg = self._best_of_n_config()
+        if not cfg.get("enabled", False):
+            return self.generate(prompt, target, **kwargs)
+
+        from antigravity_k.engine.best_of_n_verifier import (
+            BestOfNVerifier,
+            config_to_engine_kwargs,
+            make_answer_patch_verifier,
+            make_syntax_verifier,
+        )
+
+        threshold = cfg.get("complexity_threshold")
+        if threshold is not None:
+            from antigravity_k.engine.chain_of_verification import estimate_complexity
+
+            try:
+                if estimate_complexity(prompt) < float(threshold):
+                    return self.generate(prompt, target, **kwargs)
+            except (TypeError, ValueError):
+                logger.warning("best_of_n.complexity_threshold 무시(잘못된 값): %r", threshold)
+
+        language = str(cfg.get("language_hint", "python"))
+        sample_kwargs = {k: v for k, v in kwargs.items() if k != "temperature"}
+
+        if verifier_fn is None:
+            verifier_fn = self._resolve_bon_verifier(cfg, make_syntax_verifier, language, make_answer_patch_verifier)
+
+        def _sample(sample_prompt: str, **sample_overrides) -> str:
+            merged = {**sample_kwargs, **sample_overrides}
+            return self.generate(sample_prompt, target, **merged)
+
+        engine_kwargs = config_to_engine_kwargs(cfg)
+        if cfg.get("use_compute_budget"):
+            # o-series/DeepSeek-R1 테스트타임 스케일링: 과제 복잡도 티어가
+            # 샘플 수(branching factor)를 결정한다. 어려운 작업일수록 N이 커진다.
+            from antigravity_k.engine.best_of_n_verifier import budget_to_n_samples
+            from antigravity_k.engine.test_time_compute_scaler import TestTimeComputeScaler
+
+            budget = TestTimeComputeScaler.evaluate_budget(prompt)
+            engine_kwargs["n_samples"] = budget_to_n_samples(budget.branching_factor)
+
+        engine = BestOfNVerifier(
+            generate_fn=_sample,
+            verifier_fn=verifier_fn or make_syntax_verifier(language),
+            **engine_kwargs,
+        )
+        trace = engine.run(
+            prompt,
+            feedback_loop=bool(cfg.get("feedback_loop", True)),
+            max_feedback_rounds=int(cfg.get("max_feedback_rounds", 1)),
+        )
+        if trace.skipped or not trace.selected:
+            return self.generate(prompt, target, **kwargs)
+        logger.info(
+            "best-of-n selected (idx=%s/%s, early_exit=%s)",
+            trace.selected_index,
+            trace.n_candidates,
+            trace.early_exit,
+        )
+        return trace.selected
 
     def generate_self_consistent(self, prompt: str, target: str, **kwargs) -> str:
         """단일 모델 N샘플링 self-consistency 증폭으로 답변을 생성한다.
