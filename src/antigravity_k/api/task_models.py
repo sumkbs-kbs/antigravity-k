@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator
 
@@ -32,6 +32,37 @@ class TaskSubmitRequest(BaseModel):
 class TaskSubmitResponse(BaseModel):
     status: Literal["submitted"] = "submitted"
     task_id: str
+
+
+class BlankTaskForkPromptError(ValueError):
+    pass
+
+
+class TaskForkRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    prompt: str | None = None
+    model: str = ""
+    use_worktree: bool = False
+    idempotency_key: str | None = None
+
+    @field_validator("prompt")
+    @classmethod
+    def normalize_prompt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        prompt = value.strip()
+        if not prompt:
+            raise BlankTaskForkPromptError("prompt must not be blank")
+        return prompt
+
+
+class TaskForkResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    status: Literal["forked"] = "forked"
+    task_id: str
+    source_task_id: str
 
 
 class TaskBenchmarkRequest(BaseModel):
@@ -121,6 +152,8 @@ __all__ = [
     "TaskBenchmarkRequest",
     "TaskEvent",
     "TaskEventsResponse",
+    "TaskForkRequest",
+    "TaskForkResponse",
     "TaskListResponse",
     "TaskOutputResponse",
     "TaskStatusResponse",

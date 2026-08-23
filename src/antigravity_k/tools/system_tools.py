@@ -5,6 +5,8 @@ import os
 import subprocess
 from typing import Any
 
+from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
+
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
@@ -320,21 +322,20 @@ class RunBashCommandTool(BaseTool):
                 return sandbox_result
 
             # 폴백: 일반 subprocess (샌드박스 비활성화 시)
-            result = subprocess.run(
+            result = LimitedProcessRunner(max_output_bytes=1_000_000).run(
                 command,
                 shell=True,
-                capture_output=True,
-                text=True,
                 timeout=60,
                 env=env_vars,
+                cwd=os.getcwd(),
             )
             output = result.stdout
             if result.stderr:
                 output += f"\nSTDERR:\n{result.stderr}"
             # Surface a non-zero exit code so the model can definitively detect failure
             # and trigger a correction — inferring it from stderr content is unreliable.
-            if result.returncode != 0:
-                output = f"[exit_code={result.returncode}]\n" + output
+            if result.return_code != 0:
+                output = f"[exit_code={result.return_code}]\n" + output
             return output if output else "Command executed successfully with no output."
         except subprocess.TimeoutExpired:
             return "Error: Command timed out after 60 seconds."

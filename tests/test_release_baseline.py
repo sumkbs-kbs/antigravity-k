@@ -37,6 +37,16 @@ def test_baseline_inventory_covers_runtime_cli_api_and_dashboard_entrypoints() -
     assert {"agk", "task-resume", "fastapi-server", "task-events", "react-dashboard"} <= names
 
 
+def test_distribution_excludes_deprecated_vanilla_dashboard() -> None:
+    baseline = load_release_baseline(PROJECT_ROOT)
+    distribution_roots = {
+        *baseline.distribution.source_roots,
+        *baseline.distribution.manifest_roots,
+    }
+
+    assert "dashboard-vanilla" not in distribution_roots
+
+
 def test_python_dependencies_do_not_request_agpl_pymupdf() -> None:
     configuration = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
 

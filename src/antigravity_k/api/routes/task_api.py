@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator
+from typing import ClassVar, Final
 
 import anyio
 from anyio.to_thread import run_sync
 from fastapi import APIRouter, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from antigravity_k.api.dependencies import get_agent_runtime
 from antigravity_k.api.task_models import (
@@ -14,6 +16,8 @@ from antigravity_k.api.task_models import (
     TaskBenchmarkRequest,
     TaskEvent,
     TaskEventsResponse,
+    TaskForkRequest,
+    TaskForkResponse,
     TaskListResponse,
     TaskOutputResponse,
     TaskStatusResponse,
@@ -30,6 +34,31 @@ router = APIRouter()
 
 _TERMINAL_TASK_STATUSES = frozenset({"done", "failed", "cancelled"})
 _SSE_EVENT_NAME = re.compile(r"[A-Za-z0-9_.:-]+")
+_FORK_OUTPUT_CONTEXT_LIMIT: Final = 12_000
+
+
+class _TaskForkSource(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    task_id: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    output: str = ""
+
+
+class _TaskForkMetadata(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    source_task_id: str
+    source_status: str
+    source_output: str
+    source_last_sequence: int
+
+
+class _TaskForkContext(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    fork: _TaskForkMetadata
 
 
 def _runtime() -> AgentRuntime:
@@ -58,6 +87,38 @@ def submit_background_task(request: TaskSubmitRequest) -> TaskSubmitResponse:
         idempotency_key=request.idempotency_key,
     )
     return TaskSubmitResponse(task_id=task_id)
+
+
+@router.post(
+    "/api/tasks/{task_id}/fork",
+    response_model=TaskForkResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def fork_task(task_id: str, request: TaskForkRequest) -> TaskForkResponse:
+    runtime = _runtime()
+    try:
+        source = _TaskForkSource.model_validate(_require_task(runtime, task_id))
+    except ValidationError as error:
+        raise HTTPException(status_code=409, detail="Task history is not forkable") from error
+
+    events = runtime.list_task_events(task_id, after_sequence=0, limit=1_000)
+    last_sequence = events[-1]["sequence"] if events else 0
+    fork_context = _TaskForkContext(
+        fork=_TaskForkMetadata(
+            source_task_id=source.task_id,
+            source_status=source.status,
+            source_output=source.output[-_FORK_OUTPUT_CONTEXT_LIMIT:],
+            source_last_sequence=last_sequence,
+        ),
+    ).model_dump()
+    forked_task_id = runtime.submit_task(
+        prompt=request.prompt or source.prompt,
+        context=fork_context,
+        target_model=request.model,
+        use_worktree=request.use_worktree,
+        idempotency_key=request.idempotency_key,
+    )
+    return TaskForkResponse(task_id=forked_task_id, source_task_id=source.task_id)
 
 
 @router.get("/api/tasks/{task_id}/status", response_model=TaskStatusResponse)

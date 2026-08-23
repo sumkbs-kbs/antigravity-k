@@ -61,16 +61,18 @@ def test_permissions_policy_header(client: TestClient):
 
 
 def test_csp_blocks_javascript_urls(client: TestClient):
-    """The CSP must not allow 'unsafe-inline' in script-src without restrictions.
-
-    We check that the CSP does not contain the dangerous ``javascript:``
-    scheme in any directive source list. (``unsafe-inline`` is present for the
-    vanilla-JS dashboard but is mitigated by DOMPurify on the client.)
-    """
     resp = client.get("/metrics")
     csp = resp.headers.get("content-security-policy", "")
     # No directive should allow javascript: as a source.
     assert "javascript:" not in csp
+
+
+def test_csp_script_policy_has_no_deprecated_inline_runtime(client: TestClient):
+    response = client.get("/metrics")
+    policy = response.headers.get("content-security-policy", "")
+    script_policy = next(part for part in policy.split(";") if part.strip().startswith("script-src"))
+
+    assert "'unsafe-inline'" not in script_policy
 
 
 # ---------------------------------------------------------------------------

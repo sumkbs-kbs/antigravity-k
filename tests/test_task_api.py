@@ -21,7 +21,12 @@ class FakeTaskRuntime:
     def get_task_status(self, task_id: str) -> dict[str, object] | None:
         if task_id == "missing":
             return None
-        return {"task_id": task_id, "status": "done"}
+        return {
+            "task_id": task_id,
+            "prompt": "inspect the repository",
+            "status": "done",
+            "output": "source result",
+        }
 
     def list_task_events(self, task_id: str, after_sequence: int, limit: int) -> list[dict[str, object]]:
         self.event_calls.append((task_id, after_sequence, limit))
@@ -90,6 +95,42 @@ def test_submit_task_rejects_blank_prompt(client: TestClient, runtime: FakeTaskR
 
     assert response.status_code == 422
     assert runtime.submit_calls == []
+
+
+def test_fork_task_submits_source_snapshot_without_mutating_source(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    response = client.post("/api/tasks/task-source/fork", json={})
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "status": "forked",
+        "task_id": "task-123",
+        "source_task_id": "task-source",
+    }
+    assert runtime.submit_calls == [
+        {
+            "prompt": "inspect the repository",
+            "context": {
+                "fork": {
+                    "source_task_id": "task-source",
+                    "source_status": "done",
+                    "source_output": "source result",
+                    "source_last_sequence": 7,
+                },
+            },
+            "target_model": "",
+            "use_worktree": False,
+            "idempotency_key": None,
+        },
+    ]
+    assert runtime.get_task_status("task-source") == {
+        "task_id": "task-source",
+        "prompt": "inspect the repository",
+        "status": "done",
+        "output": "source result",
+    }
 
 
 def test_task_event_replay_is_task_scoped_and_decodes_payload(client: TestClient, runtime: FakeTaskRuntime) -> None:

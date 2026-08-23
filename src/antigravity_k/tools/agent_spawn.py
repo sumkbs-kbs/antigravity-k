@@ -17,10 +17,21 @@ import time
 from importlib import import_module
 from typing import Any
 
+from pydantic import ValidationError
+
+from antigravity_k.engine.agent_definition import (
+    AgentContractViolation,
+    AgentSpawnContract,
+    AgentSpawnRequest,
+    AgentToolRegistry,
+    ResolvedAgentSpawn,
+    default_agent_spawn_contract,
+)
 from antigravity_k.engine.subagent_execution import start_subagent_stream
 from antigravity_k.engine.task_runner import get_task_runner
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
+from .tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +50,12 @@ class AgentSpawnTool(BaseTool):
     risk_level = RiskLevel.MEDIUM
     icon = "🤖"
 
-    def __init__(self, model_manager=None, tool_registry=None):
+    def __init__(
+        self,
+        model_manager=None,
+        tool_registry: ToolRegistry | None = None,
+        contract: AgentSpawnContract | None = None,
+    ):
         """Initialize the AgentSpawnTool.
 
         Args:
@@ -62,6 +78,11 @@ class AgentSpawnTool(BaseTool):
                     "type": "string",
                     "description": "Clear description of what the sub-agent should do.",
                 },
+                "agent": {
+                    "type": "string",
+                    "description": "Declared child agent name.",
+                    "default": "WORKER",
+                },
                 "tools": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -78,6 +99,7 @@ class AgentSpawnTool(BaseTool):
         }
         self._model_manager = model_manager
         self._tool_registry = tool_registry
+        self._contract = contract or default_agent_spawn_contract()
 
     @property
     def name(self) -> str:
@@ -119,25 +141,33 @@ class AgentSpawnTool(BaseTool):
             Any: The any result.
 
         """
-        task = kwargs.get("task", "")
-        tool_names = kwargs.get("tools", ["read_file", "glob_search", "grep_search"])
-        max_tokens = kwargs.get("max_tokens", 4096)
-
-        if not task:
-            return "Error: No task description provided."
+        try:
+            request = AgentSpawnRequest.model_validate(kwargs)
+            resolved = self._contract.resolve(request.agent, request.tools)
+        except ValidationError as error:
+            return f"Error: Invalid agent spawn request: {error.errors(include_url=False)}"
+        except AgentContractViolation as error:
+            return f"[DENIED] {error}"
 
         if not self._model_manager:
-            return self._fallback_execute(task, tool_names)
+            return self._fallback_execute(request.task, list(resolved.allowed_tools))
 
         try:
-            return self._spawn_sub_agent(task, tool_names, max_tokens)
+            return self._spawn_sub_agent(request, resolved)
         except Exception as e:
             logger.exception("Sub-agent spawn failed")
             return f"Error: Sub-agent failed: {e}"
 
-    def _spawn_sub_agent(self, task: str, tool_names: list[str], max_tokens: int) -> str:
+    def _spawn_sub_agent(
+        self,
+        request: AgentSpawnRequest,
+        resolved: ResolvedAgentSpawn,
+    ) -> str:
         """실제 Orchestrator 루프를 통한 Sub-Agent 실행."""
         start_time = time.time()
+        tool_registry = self._tool_registry
+        if tool_registry is None:
+            return "Sub-agent execution failed: ToolRegistry is unavailable."
 
         try:
             dependencies = import_module("antigravity_k.api.dependencies")
@@ -148,28 +178,28 @@ class AgentSpawnTool(BaseTool):
             sub_orchestrator = OrchestratorAgent(
                 model_manager=self._model_manager,
                 vault_engine=get_vault_engine(),
-                tool_registry=self._tool_registry,  # 부모의 ToolRegistry 공유 (도구 중복 생성 방지)
+                tool_registry=AgentToolRegistry(
+                    tool_registry,
+                    resolved.definition,
+                    resolved.allowed_tools,
+                ),
             )
 
             # Sub-Agent용 모델 결정 (WORKER 역할에 매핑된 모델 사용)
-            target_model = sub_orchestrator._get_model_for_role("WORKER")
+            target_model = sub_orchestrator._get_model_for_role(resolved.definition.role)
 
             # Sub-Agent 시스템 프롬프트
-            system_prompt = (
-                "You are a focused sub-agent. Complete the given task efficiently. "
-                "You have access to tools, use them to accomplish the task. "
-                "Return only the essential result without unnecessary explanation."
-            )
+            system_prompt = resolved.definition.system_prompt
 
             messages = [
                 {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": f"Task: {task}\nAvailable tools: {tool_names}",
+                    "content": f"Task: {request.task}\nAvailable tools: {list(resolved.allowed_tools)}",
                 },
             ]
 
-            logger.info("Starting synchronous Sub-Agent for task: %s...", task[:50])
+            logger.info("Starting synchronous Sub-Agent for task: %s...", request.task[:50])
 
             tracked_stream = start_subagent_stream(
                 sub_orchestrator,

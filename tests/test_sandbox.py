@@ -3,7 +3,11 @@
 seatbelt 프로파일 생성, 비활성 폴백, 타임아웃, Docker 감지를 검증합니다.
 """
 
+import os
 import platform
+import shlex
+import signal
+import sys
 
 import pytest
 
@@ -86,6 +90,45 @@ class TestTimeout:
         runner = SandboxRunner(project_root="/tmp", enabled=False, timeout=60)
         result = runner.execute("sleep 10", timeout=1)
         assert result.timed_out
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group behavior")
+    def test_timeout_terminates_background_descendant(self, tmp_path):
+        pid_file = tmp_path / "descendant.pid"
+        child_code = (
+            "import pathlib, subprocess, sys, time; "
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+            "pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding='utf-8'); "
+            "time.sleep(60)"
+        )
+        command = " ".join(
+            (
+                shlex.quote(sys.executable),
+                "-c",
+                shlex.quote(child_code),
+                shlex.quote(str(pid_file)),
+            )
+        )
+        runner = SandboxRunner(
+            project_root=str(tmp_path),
+            enabled=False,
+            timeout=1,
+            max_processes=10_000,
+        )
+
+        try:
+            result = runner.execute(command)
+            assert result.timed_out
+            descendant_pid = int(pid_file.read_text(encoding="utf-8"))
+            with pytest.raises(ProcessLookupError):
+                os.kill(descendant_pid, 0)
+        finally:
+            if pid_file.exists():
+                descendant_pid = int(pid_file.read_text(encoding="utf-8"))
+                try:
+                    os.kill(descendant_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 @pytest.mark.skipif(platform.system() != "Darwin", reason="macOS 전용")

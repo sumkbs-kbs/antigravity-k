@@ -23,6 +23,7 @@ from textual.widgets import (
     RichLog,
     Static,
 )
+from textual.worker import get_current_worker
 
 from antigravity_k import __version__
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
@@ -57,7 +58,7 @@ class HelpScreen(Screen[None]):
                         "[bold]Keyboard Shortcuts[/bold]",
                         "  [dim]Ctrl+Space[/dim]    Show slash command completions",
                         "  [dim]Tab[/dim]            Cycle through completions",
-                        "  [dim]Ctrl+C[/dim]         Cancel current operation",
+                        "  [dim]Ctrl+C[/dim]         Clear input / Cancel task / Exit when idle",
                         "  [dim]Ctrl+L[/dim]         Clear chat",
                         "  [dim]Ctrl+P[/dim]         Open command palette",
                         "  [dim]Ctrl+Q[/dim] / [dim]Esc[/dim]   Close help / Quit",
@@ -65,22 +66,14 @@ class HelpScreen(Screen[None]):
                         "[bold]Slash Commands[/bold]",
                         "  [dim]/help[/dim]           Show this help",
                         "  [dim]/tools[/dim]          List available tools",
-                        "  [dim]/status[/dim]         System status",
-                        "  [dim]/model[/dim]          Current model info",
-                        "  [dim]/context[/dim]        Token usage analysis",
-                        "  [dim]/memory[/dim]         Working memory contents",
-                        "  [dim]/self[/dim]           Self capability report",
-                        "  [dim]/compact[/dim]        Force context compression",
-                        "  [dim]/session[/dim]        Session management",
-                        "  [dim]/skill[/dim]          Skill management",
+                        "  [dim]/status /model[/dim]  System and model status",
+                        "  [dim]/context /memory[/dim]  Context and working memory",
+                        "  [dim]/self /compact[/dim]  Capabilities and context compression",
+                        "  [dim]/session /skill[/dim]  Session and skill management",
                         "  [dim]/benchmark[/dim]      Run benchmarks",
-                        "  [dim]/exit[/dim]           Exit the TUI",
-                        "  [dim]/clear[/dim]          Clear chat",
+                        "  [dim]/exit /clear[/dim]    Exit the TUI or clear chat",
                         "",
-                        "[bold]Tips[/bold]",
-                        "  • Type a message directly for natural conversation",
-                        "  • Use /commands for quick actions",
-                        "  • Click follow-up suggestions after responses",
+                        "[bold]Tips[/bold]: Type directly • use /commands • click follow-ups",
                     )
                 ),
                 id="help-content",
@@ -104,6 +97,7 @@ class ChatScreen(Screen[None]):
     """Main chat screen with message list, input, and status bar."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("ctrl+c", "interrupt", "Clear / Cancel / Exit", priority=True),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_chat", "Clear"),
         Binding("ctrl+p", "open_help", "Help"),
@@ -158,6 +152,7 @@ class ChatScreen(Screen[None]):
         footer.status_text = "Ready"
         footer.server_status = "online"
         footer.tools_count = len(self.slash_registry._commands)
+        self.input.focus()
 
     def _setup_styles(self) -> None:
         """Apply styling to the layout."""
@@ -180,15 +175,14 @@ class ChatScreen(Screen[None]):
     def _print_welcome(self) -> None:
         """Print welcome message."""
         welcome = (
-            f"[bold #00ff87]🚀 Antigravity-K TUI v{__version__}[/]\n\n"
+            f"[bold #00ff87]Antigravity-K TUI v{__version__}[/]\n\n"
             "[dim]Terminal UI for the Local Autonomous Engineering Agent[/dim]\n\n"
             "Type a [bold]message[/bold] for conversation, or use [bold]/commands[/bold]:\n"
             "  [dim]/help[/dim]   — Show available commands\n"
             "  [dim]/tools[/dim]  — List tools\n"
             "  [dim]/status[/dim] — System status\n"
             "  [dim]/exit[/dim]   — Quit\n\n"
-            "[dim]Ctrl+Space[/dim] for command completion  |  [dim]Ctrl+P[/dim] for help\n"
-            "─" * 50
+            "[dim]Ctrl+Space[/dim] for command completion  |  [dim]Ctrl+P[/dim] for help\n" + "─" * 50
         )
         self._add_message(welcome, "system")
 
@@ -234,14 +228,32 @@ class ChatScreen(Screen[None]):
         """Exit the application."""
         self.app.exit()
 
+    def action_interrupt(self) -> None:
+        if self.input.value:
+            self.input.value = ""
+            self.input.focus()
+            self.query_one(StatusFooter).status_text = "Input cleared · Ctrl+C again to exit"
+            return
+
+        if self._processing:
+            self.workers.cancel_group(self, "task")
+            self._processing = False
+            self._update_input_state(False)
+            self.query_one(StatusFooter).status_text = "Task cancelled · Ctrl+C again to exit"
+            self._add_message("[yellow]Current task cancelled.[/yellow]", "system")
+            return
+
+        self.app.exit()
+
     # ─── Input Processing ─────────────────────────────────────────
 
-    @work(exclusive=True, thread=True)
-    async def _process_input(self, text: str) -> None:
+    @work(exclusive=True, group="task", thread=True)
+    def _process_input(self, text: str) -> None:
         """Process user input (slash command or natural language)."""
         if self._processing:
             return
         self._processing = True
+        worker = get_current_worker()
 
         try:
             # Show user message
@@ -253,6 +265,9 @@ class ChatScreen(Screen[None]):
                 response = self._handle_slash_command(text)
             else:
                 response = self._handle_natural_language(text)
+
+            if worker.is_cancelled:
+                return
 
             # Phase 1 D6: Update status footer with current mode after slash command
             if text.startswith("/") and self._mode_manager:
@@ -267,7 +282,8 @@ class ChatScreen(Screen[None]):
 
             # Generate follow-up suggestions
             suggestions = self._generate_suggestions(text, response)
-            self.app.call_from_thread(self._set_suggestions, suggestions)
+            if not worker.is_cancelled:
+                self.app.call_from_thread(self._set_suggestions, suggestions)
 
         except Exception as e:
             logger.exception("Input processing error")
@@ -418,6 +434,7 @@ class AgkTUI(App[None]):
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("ctrl+c", "interrupt", "Clear / Cancel / Exit", priority=True),
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+p", "show_help", "Help"),
     ]
@@ -436,6 +453,13 @@ class AgkTUI(App[None]):
         screen = self.get_screen("chat-screen") if hasattr(self, "get_screen") else None
         if isinstance(screen, ChatScreen):
             screen.action_open_help()
+
+    def action_interrupt(self) -> None:
+        screen = self.screen
+        if isinstance(screen, ChatScreen):
+            screen.action_interrupt()
+            return
+        self.exit()
 
     def action_toggle_dark(self) -> None:
         """Toggle dark mode (always dark for terminal)."""
