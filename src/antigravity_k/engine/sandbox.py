@@ -22,10 +22,10 @@ import os
 import platform
 import subprocess
 import tempfile
-import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import BinaryIO
+
+from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
 
 logger = logging.getLogger("antigravity_k.sandbox")
 
@@ -362,60 +362,14 @@ class SandboxRunner:
         env: Mapping[str, str] | None,
         cwd: str | None,
     ) -> tuple[int, str, str, bool]:
-        process = subprocess.Popen(
+        result = LimitedProcessRunner(self.max_output_bytes).run(
             args,
             shell=shell,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            env=dict(env) if env is not None else os.environ.copy(),
+            timeout=timeout,
+            env=env,
             cwd=cwd or self.project_root,
         )
-        stdout_buffer = bytearray()
-        stderr_buffer = bytearray()
-        truncated = [False, False]
-
-        def drain(stream: BinaryIO | None, buffer: bytearray, index: int) -> None:
-            if stream is None:
-                return
-            while True:
-                chunk = stream.read(8192)
-                if not chunk:
-                    return
-                remaining = self.max_output_bytes - len(buffer)
-                if remaining > 0:
-                    buffer.extend(chunk[:remaining])
-                if len(chunk) > max(remaining, 0):
-                    truncated[index] = True
-
-        threads = [
-            threading.Thread(target=drain, args=(process.stdout, stdout_buffer, 0), daemon=True),
-            threading.Thread(target=drain, args=(process.stderr, stderr_buffer, 1), daemon=True),
-        ]
-        for thread in threads:
-            thread.start()
-
-        timed_out = False
-        try:
-            _ = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            process.kill()
-            _ = process.wait()
-        finally:
-            for thread in threads:
-                thread.join(timeout=1)
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
-
-        stdout = bytes(stdout_buffer).decode("utf-8", errors="replace")
-        stderr = bytes(stderr_buffer).decode("utf-8", errors="replace")
-        if timed_out:
-            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
-        return process.returncode or 0, stdout, stderr, any(truncated)
+        return result.return_code, result.stdout, result.stderr, result.output_truncated
 
     @staticmethod
     def _is_docker_available() -> bool:

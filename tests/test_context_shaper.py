@@ -7,6 +7,8 @@ inject_budget_awareness.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from antigravity_k.engine.context_compressor import ContextCompressor
@@ -260,6 +262,44 @@ class TestClearOldToolResults:
 
 
 class TestAdaptiveCompressionEvidence:
+    def test_prompt_cache_prefix_is_byte_stable_and_compaction_is_deterministic(self):
+        # Given: the provider has cached the first two messages as one immutable prefix.
+        cached_prefix = [
+            {"role": "system", "content": "stable system instructions"},
+            {"role": "user", "content": "stable repository contract"},
+        ]
+        evidence = (
+            '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
+            "[UNTRUSTED_TOOL_RESULT]\nVERIFIED_RESULT=5050\n"
+            "[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+        )
+        messages = [
+            *cached_prefix,
+            {"role": "tool", "content": evidence},
+            *[
+                {
+                    "role": "user" if index % 2 == 0 else "assistant",
+                    "content": f"mutable-{index} " * 80,
+                }
+                for index in range(10)
+            ],
+        ]
+        compressor = ContextCompressor(token_limit=320, keep_last_n=4)
+
+        # When: identical input and prompt-cache state are compacted twice.
+        first = compressor.adaptive_compress(messages, prompt_cache_prefix=2)
+        second = compressor.adaptive_compress(messages, prompt_cache_prefix=2)
+
+        # Then: the cached bytes and deterministic tool evidence survive unchanged.
+        def canonical(value):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+        assert canonical(first[:2]) == canonical(cached_prefix)
+        assert canonical(first) == canonical(second)
+        assert "[TOOL_EVIDENCE]" in canonical(first)
+        assert "VERIFIED_RESULT=5050" in canonical(first)
+        assert messages[:2] == cached_prefix
+
     def test_single_oversized_user_goal_is_bounded_without_losing_its_edges(self):
         # Given: the current user goal alone is larger than the target model budget.
         goal = "BEGIN_OBJECTIVE " + ("implementation detail " * 200) + " END_CONSTRAINT"

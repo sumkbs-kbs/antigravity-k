@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Generator
 
+from antigravity_k.engine.codebase_file_selection import select_relevant_files
 from antigravity_k.engine.state_graph import AgentState, StateContext
 
 logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
@@ -61,13 +62,15 @@ def context_enrich_handler(ctx: StateContext, orch) -> None:
         )  # ─── Freebuff-Style: Code Tree 기반 자동 파일 컨텍스트 (P1+P2) ───
     try:
         code_tree = getattr(orch, "code_tree_indexer", None)
-        if code_tree:
-            # 1. 코드 트리 구축 (최초 1회, 이후 캐시)
-            code_tree.build_tree()
-
-            # 2. 사용자 메시지와 관련된 파일 검색
-            related_files = code_tree.search(ctx.user_message, max_files=8)
-
+        memory_search = vars(orch).get("codebase_memory_search")
+        selection = select_relevant_files(
+            orch.project_root,
+            ctx.user_message,
+            memory_search=memory_search,
+            fallback_search=code_tree,
+        )
+        if selection.files:
+            related_files = [candidate.model_dump(mode="python") for candidate in selection.files]
             if related_files:
                 from antigravity_k.engine.file_summarizer import FileSummarizer
 
@@ -77,7 +80,8 @@ def context_enrich_handler(ctx: StateContext, orch) -> None:
                 if file_context:
                     rag_context += "\n" + file_context
                     logger.info(
-                        "[CodeTree] Auto-injected %s files for: %s",
+                        "[FileSelection:%s] Auto-injected %s files for: %s",
+                        selection.source.value,
                         len(related_files),
                         ctx.user_message[:50],
                     )

@@ -115,6 +115,9 @@ def _latest_user_index(messages: list[Message]) -> int:
 
 
 def _protection_rank(message: Message, index: int, latest_user: int) -> int:
+    content = message.get("content", "")
+    if "[TOOL_EVIDENCE]" in content and "VERIFIED_RESULT=" in content:
+        return 5
     if index == latest_user:
         return 4
     role = message.get("role", "")

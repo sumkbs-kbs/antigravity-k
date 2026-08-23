@@ -122,9 +122,13 @@ class EngineContext:
         # Core Tools & Gates
         self.shared_tool_registry = tool_registry is not None
         capability_policy_config = self.config.get("autonomous_capabilities", {})
-        self.tool_registry = tool_registry or ToolRegistry(
-            project_root=self.project_root,
-            capability_policy_config=capability_policy_config,
+        self.tool_registry = (
+            tool_registry
+            if tool_registry is not None
+            else ToolRegistry(
+                project_root=self.project_root,
+                capability_policy_config=capability_policy_config,
+            )
         )
         self.permission_gate = PermissionGate(project_root=self.project_root)
 

@@ -18,6 +18,8 @@ from antigravity_k.engine.provider_adapters.unsloth_resource_contracts import (
     UnslothResourceOperation,
 )
 
+type UnslothGradientCheckpointing = Literal[False, True, "unsloth"]
+
 
 @dataclass(frozen=True, slots=True)
 class UnslothTrainingContractError(ValueError):
@@ -37,7 +39,7 @@ class UnslothTrainingRecipe(BaseModel):
     dataset_snapshot_path: str = Field(min_length=1, max_length=4_096)
     format_type: str = Field(min_length=1, max_length=64)
     training_type: Literal["LoRA/QLoRA"] = "LoRA/QLoRA"
-    load_in_4bit: Literal[True] = True
+    load_in_4bit: bool = True
     max_seq_length: int = Field(ge=256, le=131_072)
     num_epochs: int = Field(ge=1, le=100)
     learning_rate: Decimal = Field(gt=0, lt=1)
@@ -45,6 +47,8 @@ class UnslothTrainingRecipe(BaseModel):
     gradient_accumulation_steps: int = Field(ge=1, le=4_096)
     lora_r: int = Field(ge=1, le=1_024)
     lora_alpha: int = Field(ge=1, le=2_048)
+    packing: bool = False
+    use_gradient_checkpointing: UnslothGradientCheckpointing = "unsloth"
     trust_remote_code: Literal[False] = False
     enable_wandb: Literal[False] = False
 
@@ -65,7 +69,7 @@ class UnslothTrainingMCPConfig(BaseModel):
     model_name: str
     start_request_id: str
     training_type: Literal["LoRA/QLoRA"]
-    load_in_4bit: Literal[True]
+    load_in_4bit: bool
     max_seq_length: int
     trust_remote_code: Literal[False]
     model_snapshot_path: str
@@ -78,6 +82,8 @@ class UnslothTrainingMCPConfig(BaseModel):
     gradient_accumulation_steps: int
     lora_r: int
     lora_alpha: int
+    packing: bool
+    use_gradient_checkpointing: UnslothGradientCheckpointing
     use_lora: Literal[True] = True
     enable_wandb: Literal[False]
 
@@ -120,8 +126,25 @@ class UnslothTrainingStartRequest(BaseModel):
 
     def mcp_config(self) -> UnslothTrainingMCPConfig:
         return UnslothTrainingMCPConfig(
-            **self.recipe.model_dump(mode="python"),
+            model_name=self.recipe.model_name,
             start_request_id=self.admission.idempotency_key,
+            training_type=self.recipe.training_type,
+            load_in_4bit=self.recipe.load_in_4bit,
+            max_seq_length=self.recipe.max_seq_length,
+            trust_remote_code=self.recipe.trust_remote_code,
+            model_snapshot_path=self.recipe.model_snapshot_path,
+            hf_dataset=self.recipe.hf_dataset,
+            dataset_snapshot_path=self.recipe.dataset_snapshot_path,
+            format_type=self.recipe.format_type,
+            num_epochs=self.recipe.num_epochs,
+            learning_rate=self.recipe.learning_rate,
+            batch_size=self.recipe.batch_size,
+            gradient_accumulation_steps=self.recipe.gradient_accumulation_steps,
+            lora_r=self.recipe.lora_r,
+            lora_alpha=self.recipe.lora_alpha,
+            packing=self.recipe.packing,
+            use_gradient_checkpointing=self.recipe.use_gradient_checkpointing,
+            enable_wandb=self.recipe.enable_wandb,
         )
 
 

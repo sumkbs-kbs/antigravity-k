@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Final
+
+from pydantic import JsonValue
+
+from antigravity_k.engine.model_memory_calibration import ModelMemoryBudget, load_model_memory_budget
 
 DEFAULT_CONTEXT_TOKEN_LIMIT: Final = 8_000
 MAX_CONTEXT_TOKEN_LIMIT: Final = 32_768
@@ -16,16 +21,32 @@ class ContextBudget:
     token_limit: int
     trajectory_max_messages: int
     trajectory_max_chars: int
+    kv_cache_byte_limit: int | None = None
 
 
-def context_budget_for_model(config: Mapping[str, object], model_name: str) -> ContextBudget:
+def context_budget_for_model(config: Mapping[str, JsonValue], model_name: str) -> ContextBudget:
     context_length = _model_context_length(config, model_name)
-    return context_budget_for_context_length(context_length, _configured_token_limit(config))
+    memory_budget = _model_memory_budget(config, model_name)
+    configured_limit = _configured_token_limit(config)
+    if context_length is None and memory_budget is None:
+        return _budget_from_token_limit(DEFAULT_CONTEXT_TOKEN_LIMIT)
+
+    limits = [MAX_CONTEXT_TOKEN_LIMIT]
+    if context_length is not None:
+        limits.append(_input_limit_for_context(context_length))
+    if configured_limit is not None:
+        limits.append(configured_limit)
+    if memory_budget is not None:
+        limits.append(memory_budget.context_token_limit)
+    return _budget_from_token_limit(
+        min(limits),
+        None if memory_budget is None else memory_budget.kv_cache_byte_limit,
+    )
 
 
 def context_budget_for_context_length(
-    context_length: object,
-    configured_token_limit: object = None,
+    context_length: JsonValue,
+    configured_token_limit: JsonValue = None,
 ) -> ContextBudget:
     resolved_context_length = _positive_int(context_length)
     if resolved_context_length is None:
@@ -37,26 +58,37 @@ def context_budget_for_context_length(
     return _budget_from_token_limit(token_limit)
 
 
-def _model_context_length(config: Mapping[str, object], model_name: str) -> int | None:
+def _model_context_length(config: Mapping[str, JsonValue], model_name: str) -> int | None:
     models = config.get("models")
-    if not isinstance(models, Mapping):
+    if not isinstance(models, dict):
         return None
 
     for profiles in models.values():
         if not isinstance(profiles, list):
             continue
         for profile in profiles:
-            if not isinstance(profile, Mapping) or profile.get("name") != model_name:
+            if not isinstance(profile, dict) or profile.get("name") != model_name:
                 continue
             return _positive_int(profile.get("context_length"))
     return None
 
 
-def _configured_token_limit(config: Mapping[str, object]) -> int | None:
+def _configured_token_limit(config: Mapping[str, JsonValue]) -> int | None:
     router = config.get("router")
-    if not isinstance(router, Mapping):
+    if not isinstance(router, dict):
         return None
     return _positive_int(router.get("context_token_limit"))
+
+
+def _model_memory_budget(config: Mapping[str, JsonValue], model_name: str) -> ModelMemoryBudget | None:
+    router = config.get("router")
+    if not isinstance(router, dict):
+        return None
+    raw_paths = router.get("memory_calibration_artifact_paths")
+    if not isinstance(raw_paths, list):
+        return None
+    paths = tuple(Path(raw_path) for raw_path in raw_paths if isinstance(raw_path, str))
+    return load_model_memory_budget(paths, model_name)
 
 
 def _input_limit_for_context(context_length: int) -> int:
@@ -64,15 +96,16 @@ def _input_limit_for_context(context_length: int) -> int:
     return min(MAX_CONTEXT_TOKEN_LIMIT, max(1_024, context_length - response_reserve))
 
 
-def _budget_from_token_limit(token_limit: int) -> ContextBudget:
+def _budget_from_token_limit(token_limit: int, kv_cache_byte_limit: int | None = None) -> ContextBudget:
     return ContextBudget(
         token_limit=token_limit,
         trajectory_max_messages=max(40, min(MAX_TRAJECTORY_MESSAGES, token_limit // 256)),
         trajectory_max_chars=max(LEGACY_TRAJECTORY_MAX_CHARS, token_limit * 4),
+        kv_cache_byte_limit=kv_cache_byte_limit,
     )
 
 
-def _positive_int(value: object) -> int | None:
+def _positive_int(value: JsonValue) -> int | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int) and value > 0:

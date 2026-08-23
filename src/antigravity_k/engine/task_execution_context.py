@@ -5,6 +5,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
+from antigravity_k.engine.task_process_supervisor import task_process_supervisor
+
 if TYPE_CHECKING:
     from antigravity_k.engine.task_state_store import TaskStateStore
 
@@ -27,11 +29,13 @@ def current_task_execution_context() -> TaskExecutionContext | None:
 
 @contextmanager
 def bind_task_execution_context(execution_context: TaskExecutionContext) -> Iterator[None]:
+    task_process_supervisor.enter_task_scope(execution_context.task_id)
     token = _task_execution_context.set(execution_context)
     try:
         yield
     finally:
         _task_execution_context.reset(token)
+        task_process_supervisor.exit_task_scope(execution_context.task_id)
 
 
 __all__ = [

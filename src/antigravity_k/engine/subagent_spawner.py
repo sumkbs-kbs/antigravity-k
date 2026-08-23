@@ -14,6 +14,15 @@ from collections.abc import Iterator
 from importlib import import_module
 from typing import Any
 
+from pydantic import ValidationError
+
+from antigravity_k.engine.agent_definition import (
+    AgentContractViolation,
+    AgentSpawnContract,
+    AgentSpawnRequest,
+    AgentToolRegistry,
+    default_agent_spawn_contract,
+)
 from antigravity_k.engine.subagent_execution import start_subagent_stream
 from antigravity_k.engine.task_runner import get_task_runner
 
@@ -41,7 +50,12 @@ class OrchestratorAgent:
 class SubagentSpawner:
     """Spawns isolated sub-agent processes for parallel task execution."""
 
-    def __init__(self, model_manager, tool_registry):
+    def __init__(
+        self,
+        model_manager,
+        tool_registry,
+        contract: AgentSpawnContract | None = None,
+    ):
         """Initialize the SubagentSpawner.
 
         Args:
@@ -51,6 +65,7 @@ class SubagentSpawner:
         """
         self.model_manager = model_manager
         self.tool_registry = tool_registry
+        self.contract = contract or default_agent_spawn_contract()
         dependencies = import_module("antigravity_k.api.dependencies")
         self.vault_engine = dependencies.__dict__["get_vault_engine"]()
 
@@ -63,8 +78,13 @@ class SubagentSpawner:
         logger.info("Spawning %s sub-agents in parallel.", len(tasks))
 
         async def _run_subagent(task_data: dict[str, Any], index: int) -> str:
-            task_desc = task_data.get("task", "")
-            tools_allowed = task_data.get("tools", ["read_file", "glob_search"])
+            try:
+                request = AgentSpawnRequest.model_validate(task_data)
+                resolved = self.contract.resolve(request.agent, request.tools)
+            except ValidationError as error:
+                return f"[Sub-Agent #{index} Error] Invalid spawn request: {error.errors(include_url=False)}"
+            except AgentContractViolation as error:
+                return f"[Sub-Agent #{index} Error] [DENIED] {error}"
 
             start_time = time.time()
             try:
@@ -72,20 +92,21 @@ class SubagentSpawner:
                 sub_orch = OrchestratorAgent(
                     model_manager=self.model_manager,
                     vault_engine=self.vault_engine,
-                    tool_registry=self.tool_registry,
+                    tool_registry=AgentToolRegistry(
+                        self.tool_registry,
+                        resolved.definition,
+                        resolved.allowed_tools,
+                    ),
                 )
 
-                target_model = sub_orch._get_model_for_role("WORKER")
-                system_prompt = (
-                    "You are a focused sub-agent spawned for a specific sub-task. "
-                    "Use your tools to solve it. Return only the essential result."
-                )
+                target_model = sub_orch._get_model_for_role(resolved.definition.role)
+                system_prompt = resolved.definition.system_prompt
 
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
-                        "content": f"Task: {task_desc}\nAllowed tools: {tools_allowed}",
+                        "content": f"Task: {request.task}\nAllowed tools: {list(resolved.allowed_tools)}",
                     },
                 ]
 

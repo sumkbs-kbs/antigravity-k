@@ -13,8 +13,9 @@ import logging
 import os
 from collections.abc import Callable
 
+from antigravity_k.engine.adaptive_context_compaction import adaptive_compact, leading_prompt_cache_prefix
 from antigravity_k.engine.context_budget_enforcer import enforce_context_budget
-from antigravity_k.engine.tool_evidence_compactor import compact_structured_tool_response
+from antigravity_k.engine.context_summary import summarize_messages
 
 logger = logging.getLogger("antigravity_k.context_compressor")
 
@@ -198,18 +199,9 @@ class ContextCompressor:
         messages: list[dict[str, str]],
         task_type: str = "GENERAL",
         token_budget: int | None = None,
+        prompt_cache_prefix: int | None = None,
     ) -> list[dict[str, str]]:
-        """토큰 예산 기반 적응형 압축.
-
-        각 메시지에 중요도 점수를 부여하고, 예산 내에서
-        가장 중요한 정보만 보존합니다.
-
-        Args:
-            messages: 전체 메시지 히스토리
-            task_type: 작업 유형 (SEARCH/CODE/ANALYSIS/CREATIVE/GENERAL)
-            token_budget: 목표 토큰 수 (None이면 self.token_limit 사용)
-
-        """
+        """캐시 prefix를 고정하고 작업 유형별 토큰 예산으로 메시지를 압축합니다."""
         budget = token_budget or self.token_limit
         total_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in messages)
 
@@ -223,83 +215,28 @@ class ContextCompressor:
             task_type,
         )
 
-        strategy = self._TASK_COMPRESSION.get(task_type, self._TASK_COMPRESSION["GENERAL"])
-        keep_last_n = strategy["keep_last_n"]
-        max_tool_chars = strategy["max_tool_chars"]
-
-        # 1단계: 시스템 메시지 분리 (항상 보존)
-        system_msgs = [m for m in messages if m.get("role") == "system"]
-        other_msgs = [m for m in messages if m.get("role") != "system"]
-
-        if len(other_msgs) <= keep_last_n:
-            return enforce_context_budget(messages, budget, self.estimate_tokens)
-
-        # 2단계: 최근 N개 보존, 나머지에 중요도 점수 부여
-        recent = other_msgs[-keep_last_n:]
-        old = other_msgs[:-keep_last_n]
-
-        scored_old = []
-        for i, msg in enumerate(old):
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            weight = self._IMPORTANCE_WEIGHTS.get(role, 0.5)
-
-            # 위치 감쇄: 최근에 가까울수록 더 중요
-            recency_bonus = (i + 1) / len(old) * 0.3
-            importance = weight + recency_bonus
-
-            scored_old.append((importance, i, msg))
-
-        # 3단계: 중요도 순으로 정렬, 예산 내에서 선별
-        scored_old.sort(key=lambda x: x[0], reverse=True)
-
-        # 시스템 + 최근 메시지의 토큰 먼저 계산
-        reserved_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in system_msgs + recent)
-        remaining_budget = budget - reserved_tokens
-
-        kept_old = []
-        for importance, orig_idx, msg in scored_old:
-            content = msg.get("content", "")
-            role = msg.get("role", "")
-
-            # 도구 결과가 너무 길면 잘라내기
-            if role == "tool" and len(content) > max_tool_chars:
-                msg = dict(msg)
-                msg["content"] = content[:max_tool_chars] + "\n...(결과 일부 생략)"
-
-            msg_tokens = self.estimate_tokens(msg.get("content", ""))
-            if msg_tokens <= remaining_budget:
-                kept_old.append((orig_idx, msg))
-                remaining_budget -= msg_tokens
-
-        # 원래 순서로 복원
-        kept_old.sort(key=lambda x: x[0])
-        kept_msgs = [msg for _, msg in kept_old]
-
-        # 4단계: 버려진 메시지 요약
-        kept_indices = {idx for idx, _ in kept_old}
-        dropped = [old[i] for i in range(len(old)) if i not in kept_indices]
-
-        result = system_msgs[:]
-
-        if dropped:
-            summary = self._summarize_old_messages(dropped)
-            if summary:
-                result.append({"role": "system", "content": summary})
-
-        result.extend(kept_msgs)
-        result.extend(recent)
+        result = adaptive_compact(
+            messages,
+            token_budget=budget,
+            task_type=task_type,
+            prompt_cache_prefix=(
+                leading_prompt_cache_prefix(messages) if prompt_cache_prefix is None else prompt_cache_prefix
+            ),
+            estimate_tokens=self.estimate_tokens,
+            summarize=self._summarize_old_messages,
+            importance_weights=self._IMPORTANCE_WEIGHTS,
+            task_strategies=self._TASK_COMPRESSION,
+        )
 
         final_tokens = sum(self.estimate_tokens(m.get("content", "")) for m in result)
         logger.info(
             "[AdaptiveCompress] 완료: %s → %s tokens (%s개 메시지 요약, %s개 선별 보존)",
             total_tokens,
             final_tokens,
-            len(dropped),
-            len(kept_msgs),
+            len(messages) - len(result),
+            len(result),
         )
-
-        return enforce_context_budget(result, budget, self.estimate_tokens)
+        return result
 
     def enrich_with_rag(
         self,
@@ -384,45 +321,4 @@ class ContextCompressor:
 
     def _summarize_old_messages(self, old_msgs: list[dict[str, str]]) -> str:
         """오래된 메시지를 LLM으로 요약하거나 휴리스틱 요약합니다."""
-        if not old_msgs:
-            return ""
-
-        preserved_evidence = [
-            compacted
-            for message in old_msgs
-            if (compacted := compact_structured_tool_response(message.get("content", ""))) is not None
-        ][-5:]
-
-        # LLM 요약 가능 시
-        if self._summarize_fn:
-            combined = "\n".join(f"[{m.get('role', '?')}]: {m.get('content', '')[:200]}" for m in old_msgs)
-            prompt = (
-                "아래 대화 기록을 3줄 이내로 핵심만 요약해주세요. "
-                "특히 사용자의 결정사항, 아키텍처 선택, 변경된 파일을 포함하세요.\n\n" + combined[:2000]
-            )
-            try:
-                summary = self._summarize_fn(prompt)
-                if summary and len(summary.strip()) > 20:
-                    sections = [f"[대화 요약 — {len(old_msgs)}개 메시지 압축]", summary.strip()]
-                    sections.extend(preserved_evidence)
-                    return "\n".join(sections)
-            except Exception:
-                logger.exception("[Compressor] LLM summarization failed")
-
-        # 폴백: 휴리스틱 요약
-        key_msgs = []
-        for m in old_msgs:
-            content = m.get("content", "")
-            role = m.get("role", "")
-            # 사용자 메시지와 도구 결과는 핵심 정보로 간주
-            if role in ("user", "tool") and content:
-                compacted = compact_structured_tool_response(content)
-                key_msgs.append(compacted or f"[{role}]: {content[:100]}")
-
-        if key_msgs:
-            return f"[대화 요약 — {len(old_msgs)}개 메시지 압축]\n" + "\n".join(key_msgs[:5])
-
-        return (
-            f"[System Note: {len(old_msgs)} older messages were pruned for "
-            "context efficiency. The agent has already explored previous steps.]"
-        )
+        return summarize_messages(old_msgs, self._summarize_fn)

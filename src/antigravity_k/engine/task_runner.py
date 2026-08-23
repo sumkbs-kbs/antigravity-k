@@ -28,6 +28,7 @@ from antigravity_k.engine.task_context_snapshot import (
     load_task_context_snapshot,
     restored_task_context_messages,
 )
+from antigravity_k.engine.task_process_supervisor import task_process_supervisor
 from antigravity_k.engine.task_state_store import (
     InvalidTaskStatusError,
     InvalidTaskTransitionError,
@@ -246,6 +247,7 @@ class BackgroundTaskRunner:
                     TaskStatus.CANCELLED,
                     error="Task was cancelled before it started executing or it was lost in memory.",
                 )
+                task_process_supervisor.cancel_task(task_id)
                 return True
             return False
 
@@ -262,6 +264,7 @@ class BackgroundTaskRunner:
             TaskStatus.CANCELLED,
             error=task.error,
         )
+        task_process_supervisor.cancel_task(task_id)
         return True
 
     @staticmethod
