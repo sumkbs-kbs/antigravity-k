@@ -18,9 +18,13 @@ Unsloth/mlx-lm 기반 파인튜닝 설정을 자동 생성합니다.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
+import shlex
+import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,6 +69,54 @@ class HarvestEntry:
         }
 
 
+# ─── DPO 선호쌍 ──────────────────────────────────────────────────────
+
+
+@dataclass
+class PreferencePair:
+    """DPO(Direct Preference Optimization) 학습용 선호쌍 1건.
+
+    chosen/rejected는 동일 프롬프트에 대한 두 응답이며,
+    QualityGate 점수 또는 사용자 승인이 라벨 근거가 된다.
+
+    source: 라벨 근거 출처 ("quality_gate" | "revision" | "human")
+    """
+
+    prompt: str
+    chosen: str
+    rejected: str
+    chosen_score: float
+    rejected_score: float
+    source: str = "quality_gate"
+    task_type: str = "general"
+    timestamp: float = field(default_factory=time.time)
+
+    def to_dpo_format(self) -> dict[str, str]:
+        """TRL DPOTrainer 표준 포맷으로 변환."""
+        return {
+            "prompt": self.prompt,
+            "chosen": self.chosen,
+            "rejected": self.rejected,
+        }
+
+
+@dataclass
+class TrainingRunResult:
+    """학습 실행 결과."""
+
+    success: bool
+    exit_code: int | None = None
+    elapsed_sec: float = 0.0
+    log_tail: list[str] = field(default_factory=list)
+    command: str = ""
+    error: str = ""
+
+
+def mlx_lm_available() -> bool:
+    """mlx-lm 패키지 설치 여부."""
+    return importlib.util.find_spec("mlx_lm") is not None
+
+
 # ─── 메인 파이프라인 ─────────────────────────────────────────────────
 
 
@@ -97,8 +149,11 @@ class LoRAPipeline:
         self._harvest_dir.mkdir(parents=True, exist_ok=True)
         self._min_score = min_score
         self._harvest_file = self._harvest_dir / "harvest.jsonl"
+        self._pairs_file = self._harvest_dir / "pairs.jsonl"
         self._entries: list[HarvestEntry] = []
+        self._pairs: list[PreferencePair] = []
         self._load_existing()
+        self._load_pairs()
 
     def _load_existing(self) -> None:
         """기존 수확 데이터를 로드합니다."""
@@ -382,6 +437,298 @@ model.save_pretrained("{output_dir}/lora_model")
                 "학습 완료 후 GGUF 변환하여 Ollama에 등록",
             ],
         }
+
+    # ─── DPO 선호쌍 (Unsloth 격차 해소) ────────────────────────────
+
+    def _load_pairs(self) -> None:
+        """기존 선호쌍 데이터를 로드합니다."""
+        if not self._pairs_file.exists():
+            return
+        try:
+            with open(self._pairs_file, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        data = json.loads(line)
+                        self._pairs.append(PreferencePair(**data))
+            logger.info("[LoRA] %s개 기존 선호쌍 로드", len(self._pairs))
+        except Exception:
+            logger.exception("[LoRA] 기존 선호쌍 로드 실패")
+
+    def record_pair(
+        self,
+        prompt: str,
+        chosen: str,
+        rejected: str,
+        chosen_score: float,
+        rejected_score: float,
+        source: str = "quality_gate",
+        task_type: str = "general",
+    ) -> bool:
+        """선호쌍을 직접 기록합니다.
+
+        revision 흐름(재생성 전 답=rejected, 후 답=chosen)이나 사용자 승인에서 호출.
+
+        Returns:
+            True if recorded, False if scores are inverted or equal
+        """
+        if chosen_score <= rejected_score:
+            return False
+        pair = PreferencePair(
+            prompt=prompt,
+            chosen=chosen,
+            rejected=rejected,
+            chosen_score=chosen_score,
+            rejected_score=rejected_score,
+            source=source,
+            task_type=task_type,
+        )
+        self._pairs.append(pair)
+        try:
+            with open(self._pairs_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(pair), ensure_ascii=False) + "\n")
+        except Exception:
+            logger.exception("[LoRA] 선호쌍 저장 실패")
+        return True
+
+    def build_preference_pairs(
+        self,
+        min_score_gap: float = 0.15,
+    ) -> int:
+        """수확 데이터에서 동일 프롬프트 그룹별로 선호쌍을 자동 추출합니다.
+
+        같은 user_request에 대해 점수 차이가 min_score_gap 이상인 응답 쌍이
+        있으면 (최고점=chosen, 최저점=rejected) 페어를 생성합니다.
+        QualityGate가 암묵적 라벨러 역할을 하는 자가 개선 경로입니다.
+
+        Returns:
+            새로 추가된 페어 수
+        """
+        groups: dict[str, list[HarvestEntry]] = {}
+        for e in self._entries:
+            groups.setdefault(e.user_request, []).append(e)
+
+        added = 0
+        for prompt, entries in groups.items():
+            if len(entries) < 2:
+                continue
+            best = max(entries, key=lambda e: e.quality_score)
+            worst = min(entries, key=lambda e: e.quality_score)
+            if best.quality_score - worst.quality_score < min_score_gap:
+                continue
+            if best.agent_output == worst.agent_output:
+                continue
+            if self.record_pair(
+                prompt=prompt,
+                chosen=best.agent_output,
+                rejected=worst.agent_output,
+                chosen_score=best.quality_score,
+                rejected_score=worst.quality_score,
+                source="quality_gate",
+                task_type=best.task_type,
+            ):
+                added += 1
+
+        logger.info("[LoRA] 수확 데이터에서 선호쌍 %s건 추출", added)
+        return added
+
+    def export_dpo_dataset(
+        self,
+        output_path: str = "data/dpo_dataset.jsonl",
+        max_pairs: int = 2000,
+    ) -> dict[str, Any]:
+        """선호쌍을 TRL DPOTrainer 호환 JSONL로 내보냅니다."""
+        selected = sorted(self._pairs, key=lambda p: p.chosen_score - p.rejected_score, reverse=True)
+        selected = selected[:max_pairs]
+
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with open(output, "w", encoding="utf-8") as f:
+            for pair in selected:
+                f.write(json.dumps(pair.to_dpo_format(), ensure_ascii=False) + "\n")
+
+        stats = {
+            "total_pairs": len(self._pairs),
+            "exported": len(selected),
+            "output_path": str(output),
+            "avg_score_gap": (
+                sum(p.chosen_score - p.rejected_score for p in selected) / len(selected) if selected else 0
+            ),
+        }
+        logger.info("[LoRA] DPO 데이터셋 내보내기 완료: %s건 → %s", len(selected), output)
+        return stats
+
+    def generate_dpo_config(
+        self,
+        base_model: str = "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+        dataset_path: str = "data/dpo_dataset.jsonl",
+        output_dir: str = "data/dpo_output",
+        platform: str = "auto",
+    ) -> dict[str, Any]:
+        """DPO 학습 설정을 생성합니다 (mlx-lm / Unsloth).
+
+        SFT로 정렬된 베이스 위에 선호 정렬을 얹는 2단계 훈련의 2단계 설정.
+        """
+        if platform == "auto":
+            platform = default_training_platform(host_platform())
+
+        config_path = Path(output_dir) / "dpo_config.json"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if platform == "mlx":
+            config: dict[str, Any] = {
+                "platform": "mlx",
+                "command": (
+                    f"python -m mlx_lm.lora "
+                    f"--model {base_model} "
+                    f"--train "
+                    f"--fine-tune-type dora "
+                    f"--data {dataset_path} "
+                    f"--adapter-path {output_dir}/adapters "
+                    f"--iters 400 "
+                    f"--batch-size 2 "
+                    f"--learning-rate 1e-6"
+                ),
+                "notes": [
+                    "mlx-lm DPO는 chat 포맷 프롬프트-응답 쌍을 요구하므로",
+                    "export 시 chosen/rejected를 assistant 턴으로 감싸야 할 수 있습니다.",
+                    "학습 전 mlx-lm 최신 버전 문서의 DPO 데이터 형식을 확인하세요.",
+                ],
+            }
+        else:
+            config = {
+                "platform": "unsloth",
+                "script": f"""
+from unsloth import FastLanguageModel
+from trl import DPOTrainer, DPOConfig
+from datasets import load_dataset
+
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name="{base_model}",
+    max_seq_length=4096,
+    load_in_4bit=True,
+)
+
+dataset = load_dataset("json", data_files="{dataset_path}", split="train")
+trainer = DPOTrainer(
+    model=model,
+    train_dataset=dataset,
+    tokenizer=tokenizer,
+    args=DPOConfig(
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        warmup_steps=10,
+        max_steps=120,
+        learning_rate=5e-6,
+        beta=0.1,
+        logging_steps=1,
+        output_dir="{output_dir}",
+    ),
+)
+trainer.train()
+model.save_pretrained("{output_dir}/dpo_model")
+""",
+                "notes": [
+                    "Unsloth DPOTrainer은 CUDA GPU 필수 (24GB+ 권장)",
+                    "SFT 어댑터 위에 실행하는 것을 권장 (2단계 정렬)",
+                ],
+            }
+
+        config["base_model"] = base_model
+        config["dataset"] = dataset_path
+        config["output_dir"] = output_dir
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+
+        logger.info("[LoRA] DPO 학습 설정 생성: %s (platform: %s)", config_path, platform)
+        return config
+
+    # ─── 학습 실행 (Unsloth 격차: 설정 생성 → 실제 실행) ──────────
+
+    def run_training(
+        self,
+        config: dict[str, Any],
+        on_log: Callable[[str], None] | None = None,
+        timeout_sec: float | None = None,
+    ) -> TrainingRunResult:
+        """생성된 mlx-lm 학습 설정을 실제로 실행합니다.
+
+        platform이 "mlx"면 command를 파싱해 서브프로세스로 실행하고
+        로그를 on_log 콜백으로 스트리밍합니다. "unsloth"는 CUDA GPU가 필요해
+        스크립트를 디스크에 저장한 뒤 안내 에러와 함께 실패 결과를 반환합니다.
+        """
+        started = time.monotonic()
+        platform = str(config.get("platform", ""))
+
+        if platform == "unsloth":
+            script_path = self._persist_unsloth_script(config)
+            return TrainingRunResult(
+                success=False,
+                error=(f"Unsloth 학습은 CUDA GPU 호스트에서 실행하세요. 스크립트 저장됨: {script_path}"),
+                elapsed_sec=time.monotonic() - started,
+            )
+
+        command = str(config.get("command", ""))
+        if not command:
+            return TrainingRunResult(success=False, error="config에 command가 없습니다", elapsed_sec=0.0)
+
+        if not mlx_lm_available():
+            return TrainingRunResult(
+                success=False,
+                error="mlx-lm 미설치 — `uv sync --extra mlx` 또는 `pip install mlx-lm` 후 재시도",
+                elapsed_sec=time.monotonic() - started,
+            )
+
+        argv = shlex.split(command)
+        tail: list[str] = []
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            return TrainingRunResult(
+                success=False,
+                error=f"프로세스 시작 실패: {exc}",
+                command=command,
+                elapsed_sec=time.monotonic() - started,
+            )
+
+        assert proc.stdout is not None
+        with proc:
+            for line in proc.stdout:
+                line = line.rstrip()
+                tail.append(line)
+                if len(tail) > 50:
+                    tail.pop(0)
+                if on_log is not None:
+                    on_log(line)
+
+        exit_code = proc.wait() if proc.poll() is None else proc.returncode
+        return TrainingRunResult(
+            success=exit_code == 0,
+            exit_code=exit_code,
+            elapsed_sec=time.monotonic() - started,
+            log_tail=tail,
+            command=command,
+        )
+
+    @staticmethod
+    def _persist_unsloth_script(config: dict[str, Any]) -> Path | None:
+        """Unsloth 학습 스크립트를 output_dir에 저장한다 (GPU 호스트 이전용)."""
+        output_dir = Path(str(config.get("output_dir", "data/lora_output")))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        script_path = output_dir / ("train_dpo.py" if "DPOTrainer" in str(config.get("script", "")) else "train_sft.py")
+        try:
+            script_path.write_text(str(config.get("script", "")), encoding="utf-8")
+        except Exception:
+            logger.exception("[LoRA] Unsloth 스크립트 저장 실패")
+            return None
+        logger.info("[LoRA] Unsloth 스크립트 저장: %s", script_path)
+        return script_path
 
     # ─── 유틸리티 ─────────────────────────────────────────────────
 
