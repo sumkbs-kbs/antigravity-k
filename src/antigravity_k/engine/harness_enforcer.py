@@ -43,6 +43,10 @@ class HarnessEnforcer:
     # AVO 스타일 스톨 감지: 동일 (tool, args-hash) 반복 임계. 2회째 시도는
     # 이미 반복이므로 차단하고 전략수정 프롬프트를 되돌려준다.
     STALL_REPEAT_THRESHOLD: ClassVar[int] = 2
+    # 유사한 오류 메시지가 이 횟수만큼 모이면 같은 원인의 정체로 판정한다.
+    STALL_ERROR_CLUSTER_THRESHOLD: ClassVar[int] = 3
+    # 연속 실패(무진행) 행동이 이 개수를 채우면 목표 재분해를 요구한다.
+    STALL_NO_PROGRESS_WINDOW: ClassVar[int] = 5
 
     def __init__(self, project_root: str = ".", strict_mode: bool = False):
         """Initialize the HarnessEnforcer.
@@ -56,6 +60,9 @@ class HarnessEnforcer:
         self.strict_mode = strict_mode
         self.guidelines: dict[str, Any] = {}
         self._call_counts: dict[str, int] = {}
+        self._error_clusters: dict[str, int] = {}
+        self._outcome_window: list[bool] = []
+        self._pending_intervention: str = ""
 
     def load_guidelines(self) -> None:
         """Load optional harness guidance when present."""
@@ -75,6 +82,9 @@ class HarnessEnforcer:
     def reset_stall_tracking(self) -> None:
         """스톨 카운터를 초기화한다 (새 목표/세션 시작 시 호출)."""
         self._call_counts.clear()
+        self._error_clusters.clear()
+        self._outcome_window.clear()
+        self._pending_intervention = ""
 
     @staticmethod
     def build_stall_message(tool_name: str) -> str:
@@ -85,6 +95,64 @@ class HarnessEnforcer:
             "[대안 가설] 같은 방식의 재시도는 금지다. 원인 분류 후 구조적으로 다른 "
             "접근 1개를 가설로 세우고 즉시 실행하라."
         )
+
+    @staticmethod
+    def _error_fingerprint(error_text: str) -> str:
+        """오류 표면을 정규화해 동일 원인 판정용 지문을 뽑는다.
+
+        숫자·따옴표 문자열·경로는 표면 차이일 뿐이므로 치환해 버린다.
+        """
+        lines = [line.strip() for line in (error_text or "").splitlines() if line.strip()]
+        if not lines:
+            return ""
+        signature = lines[-1]
+        signature = re.sub(r"\d+", "<N>", signature)
+        signature = re.sub(r"[\"'][^\"']{4,}[\"']", "<Q>", signature)
+        signature = re.sub(r"[\w./\\-]*[/\\][\w./\\-]+", "<P>", signature)
+        return signature.lower()[:160]
+
+    def record_outcome(self, failed: bool, error_text: str = "") -> None:
+        """도구 실행 결과를 감독기에 적재한다 (check_after에서 호출).
+
+        유사 오류 클러스터와 무진행 윈도우를 갱신하고, 임계 도달 시 1회용
+        개입(STALL 지시문)을 예약한다 — 다음 허용 경계 검사에서 한 번만
+        차단해 강제로 전략수정 한 턴을 벌린다.
+        """
+        self._outcome_window.append(bool(failed))
+        if len(self._outcome_window) > self.STALL_NO_PROGRESS_WINDOW:
+            self._outcome_window.pop(0)
+
+        if not self._pending_intervention:
+            if len(self._outcome_window) >= self.STALL_NO_PROGRESS_WINDOW and all(self._outcome_window):
+                self._pending_intervention = (
+                    f"[STALL DETECTED] 진척 없는 행동 {self.STALL_NO_PROGRESS_WINDOW}개 연속\n"
+                    "[폐기] 현재 접근 방식 자체\n"
+                    "[대안 가설] 목표를 서브골로 분해하고, 가장 작은 검증 가능한 단위부터 다시 실행하라."
+                )
+                return
+
+            fingerprint = self._error_fingerprint(error_text)
+            if fingerprint:
+                count = self._error_clusters.get(fingerprint, 0) + 1
+                self._error_clusters[fingerprint] = count
+                if len(self._error_clusters) > 64:
+                    self._error_clusters.clear()
+                if count >= self.STALL_ERROR_CLUSTER_THRESHOLD:
+                    self._error_clusters[fingerprint] = 0
+                    self._pending_intervention = (
+                        f"[STALL DETECTED] 유사한 오류 {self.STALL_ERROR_CLUSTER_THRESHOLD}회 반복\n"
+                        f"[오류 지문] {fingerprint}\n"
+                        "[폐기] 같은 원인을 건드리지 않는 표면적 수정\n"
+                        "[대안 가설] 오류의 근본 원인을 한 문장으로 분류한 뒤, 그 원인을 직접 제거하는 접근으로 전환하라."
+                    )
+
+    def _consume_intervention_if_due(self) -> dict[str, Any] | None:
+        """예약된 개입이 있으면 한 번 반환하고 소비한다."""
+        if self._pending_intervention:
+            message = self._pending_intervention
+            self._pending_intervention = ""
+            return {"allowed": False, "reason": message, "stall": True}
+        return None
 
     def check_tool_boundary(
         self,
@@ -112,6 +180,10 @@ class HarnessEnforcer:
         path_value = args.get("path") or args.get("file_path") or args.get("target")
         if path_value and not self._path_allowed(str(path_value)):
             return {"allowed": False, "reason": "path is outside project boundary"}
+
+        intervention = self._consume_intervention_if_due()
+        if intervention is not None:
+            return intervention
 
         if self._is_stalled(tool_name, args):
             return {

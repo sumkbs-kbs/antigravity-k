@@ -74,6 +74,6 @@ STALL 판정 시 출력 형식:
 # qwen3.8:27b 운영 권장 (하네스 측 설정 — 프롬프트 외부)
 # - temperature 0.6 / top_p 0.95 (도구 호출 안정성 우선)
 # - thinking 예산: <thinking> 블록 300토큰 이내 강제 (긴 사고 = 루프 이탈 원인)
-# - HarnessEnforcer.check_tool_boundary()를 stall 카운터와 연동:
-#   동일 (tool, args-hash) 2회 → LLM에게 위 STALL 프롬프트 자동 주입
+# - HarnessEnforcer 스톨 감지 (구현 완료, check_tool_boundary 연동):
+#   동일 (tool, args-hash) 2회 차단 + 유사 오류 지문 3회·무진행 5행동 → 1회용 STALL 개입 주입
 # - reflexion_memory에서 이전 실패 trace top-3를 system에 주입 후 시작

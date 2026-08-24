@@ -133,6 +133,14 @@ class ToolGuardrailManager:
         failed: bool = False,
     ) -> GuardrailDecision:
         """도구 호출 후 가드레일 체크."""
+        # HarnessEnforcer 감독기에 결과 적재 (유사 오류/무진행 스톨 추적)
+        if self._harness is not None and hasattr(self._harness, "record_outcome"):
+            try:
+                error_text = tool_result if isinstance(tool_result, str) else str(tool_result or "")
+                self._harness.record_outcome(failed=failed, error_text=error_text if failed else "")
+            except Exception:
+                logger.debug("Harness record_outcome error", exc_info=True)
+
         if not self._guardrail:
             return GuardrailDecision(allowed=True)
 

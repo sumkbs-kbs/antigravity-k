@@ -64,3 +64,80 @@ def test_goal_runner_contract_injects_harness_rules():
     markdown = runner.render_markdown(report)
     assert "# Long-run Harness Rules" in markdown
     assert "[STATE]" in markdown
+
+
+class TestSimilarErrorCluster:
+    def test_fingerprint_normalizes_surface_noise(self):
+        a = HarnessEnforcer._error_fingerprint("FileNotFoundError: [Errno 2] no such file: /tmp/x1.py")
+        b = HarnessEnforcer._error_fingerprint("FileNotFoundError: [Errno 2] no such file: /var/y999.py")
+        assert a == b
+        assert a != ""
+
+    def test_three_similar_errors_trigger_one_shot_intervention(self):
+        enforcer = HarnessEnforcer()
+        for i in range(3):
+            enforcer.record_outcome(failed=True, error_text=f"KeyError: 'config_{i}' missing")
+        res = enforcer.check_tool_boundary("read_file", {"path": "other.py"})
+        assert res["allowed"] is False
+        assert res["stall"] is True
+        assert "유사한 오류" in res["reason"]
+        # 원샷 — 소비 후에는 다시 허용
+        assert enforcer.check_tool_boundary("read_file", {"path": "other.py"})["allowed"] is True
+
+    def test_different_errors_do_not_cluster(self):
+        enforcer = HarnessEnforcer()
+        enforcer.record_outcome(failed=True, error_text="KeyError: alpha")
+        enforcer.record_outcome(failed=True, error_text="TypeError: bad operand")
+        enforcer.record_outcome(failed=True, error_text="PermissionError: denied")
+        assert enforcer.check_tool_boundary("read_file", {"path": "z.py"})["allowed"] is True
+
+    def test_success_does_not_block_progress(self):
+        enforcer = HarnessEnforcer()
+        enforcer.record_outcome(failed=True, error_text="KeyError: k")
+        enforcer.record_outcome(failed=False)
+        assert enforcer.check_tool_boundary("read_file", {"path": "z.py"})["allowed"] is True
+
+
+class TestNoProgressWindow:
+    def test_five_consecutive_failures_demand_subgoal_decomposition(self):
+        enforcer = HarnessEnforcer()
+        for i in range(5):
+            enforcer.record_outcome(
+                failed=True, error_text=f"distinct error {i}: {['alpha','beta','gamma','delta','epsilon'][i]}"
+            )
+        res = enforcer.check_tool_boundary("run_command", {"command": "make test"})
+        assert res["allowed"] is False
+        assert "진척 없는 행동" in res["reason"]
+
+    def test_window_slides_on_success(self):
+        enforcer = HarnessEnforcer()
+        for word in ("alpha", "bravo", "charlie", "delta"):
+            enforcer.record_outcome(failed=True, error_text=f"{word} exploded")
+        enforcer.record_outcome(failed=False)
+        enforcer.record_outcome(failed=True, error_text="echo exploded")
+        assert enforcer.check_tool_boundary("read_file", {"path": "q.py"})["allowed"] is True
+
+    def test_reset_clears_supervision_state(self):
+        enforcer = HarnessEnforcer()
+        for i in range(5):
+            enforcer.record_outcome(failed=True, error_text=f"x{i} distinct-{i}")
+        enforcer.reset_stall_tracking()
+        assert enforcer.check_tool_boundary("read_file", {"path": "r.py"})["allowed"] is True
+
+
+class TestGuardrailManagerIntegration:
+    def test_check_after_records_into_harness(self):
+        from antigravity_k.engine.tool_guardrail_manager import ToolGuardrailManager
+
+        harness = HarnessEnforcer()
+        manager = ToolGuardrailManager(harness=harness)
+        for i in range(3):
+            manager.check_after(
+                "run_command",
+                {"command": f"cmd{i}"},
+                f"Traceback ...\nKeyError: 'same_cause_{i}'",
+                failed=True,
+            )
+        decision = manager.check_before("read_file", {"path": "anything.py"})
+        assert decision.allowed is False
+        assert "STALL DETECTED" in decision.message
