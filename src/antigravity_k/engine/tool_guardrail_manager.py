@@ -70,7 +70,7 @@ class ToolGuardrailManager:
         # 1. Harness boundary check
         if self._harness:
             try:
-                h_res = self._harness.check_tool_boundary(tool_name)
+                h_res = self._harness.check_tool_boundary(tool_name, tool_args)
                 if not h_res.get("allowed", True):
                     return GuardrailDecision(
                         allowed=False,

@@ -347,7 +347,20 @@ class GoalRunner:
             lines.extend(["", "---", ""])
             lines.append(report.kanban_board.to_markdown())
 
+        # 장기 자율 실행 하네스 규칙 주입 (파일이 있을 때만)
+        from antigravity_k.engine.harness_enforcer import load_longrun_harness_prompt
+
+        harness_prompt = load_longrun_harness_prompt(self.project_root_hint())
+        if harness_prompt:
+            lines.extend(["", "---", "", "# Long-run Harness Rules", "", harness_prompt])
+
         return "\n".join(lines)
+
+    def project_root_hint(self) -> str:
+        """계약 렌더링 기준 프로젝트 루트 힌트 (workspace_dir 우선, 없으면 cwd)."""
+        import os
+
+        return self.workspace_dir or os.getcwd()
 
     def _normalize(self, objective: str) -> str:
         normalized = re.sub(r"\s+", " ", objective or "").strip()
