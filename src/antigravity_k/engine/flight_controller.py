@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from antigravity_k.engine.atomic_transaction_engine import AtomicTransactionEngine
 from antigravity_k.engine.deep_code_indexer import DeepCodeIndexer
+from antigravity_k.engine.harness_enforcer import HarnessEnforcer
 from antigravity_k.engine.reflexion_memory import ReflexionMemory
 from antigravity_k.engine.subgoal_graph import SubgoalGraph
 from antigravity_k.engine.test_time_compute_scaler import ComputeBudget, TestTimeComputeScaler
@@ -31,14 +32,25 @@ class MissionReport:
     tdd_passed: bool
     compute_budget: ComputeBudget | None = None
     log_messages: list[str] = field(default_factory=list)
+    stall_interventions: list[str] = field(default_factory=list)
 
 
 class AutonomousFlightController:
     """Executes end-to-end engineering missions autonomously without manual prompting."""
 
-    def __init__(self, project_root: str | Path, max_flight_turns: int = 10):
+    # AVO 규칙: 같은 방식 2회 연속 실패하면 3번째는 금지 — 영구 실패로 강등.
+    # 그 전까지는 서브골이 재시도 가능 상태로 남아 전략수정 턴을 가질 수 있다.
+    MAX_STEP_ATTEMPTS: int = 2
+
+    def __init__(
+        self,
+        project_root: str | Path,
+        max_flight_turns: int = 10,
+        enforcer: HarnessEnforcer | None = None,
+    ):
         self.project_root = Path(project_root).resolve()
         self.max_flight_turns = max_flight_turns
+        self.enforcer = enforcer or HarnessEnforcer(project_root=str(self.project_root))
         self.reflexion = ReflexionMemory(max_episodes=5)
         self.indexer = DeepCodeIndexer(self.project_root)
         self.transaction_engine = AtomicTransactionEngine(self.project_root)
@@ -73,11 +85,43 @@ class AutonomousFlightController:
             f"🚀 [Flight Controller] Mission Launched: '{goal}'",
             f"⚡ [Compute Scaler] Allocated Tier: {budget.complexity_tier} (Branching: {budget.branching_factor}, MCTS: {budget.mcts_depth}, Worktree: {budget.requires_speculative_worktree})",
         ]
+        stall_interventions: list[str] = []
+        self.enforcer.reset_stall_tracking()
+        step_attempts: dict[str, int] = {}
         turn = 0
         failed_count = 0
 
+        def _record_failure(task_id: str, description: str, reason: str) -> None:
+            nonlocal failed_count
+            failed_count += 1
+            attempts = step_attempts.get(task_id, 0) + 1
+            step_attempts[task_id] = attempts
+            if attempts >= self.MAX_STEP_ATTEMPTS:
+                dag.fail_subgoal(task_id, reason)
+                self.reflexion.record_failure(
+                    context=description,
+                    attempted_action=f"Subgoal {task_id}",
+                    failure_reason=reason,
+                )
+                logs.append(
+                    f"❌ [Flight Turn {turn}] Subgoal [{task_id}] PERMANENTLY FAILED after {attempts} attempts. Reflexion recorded."
+                )
+            else:
+                logs.append(
+                    f"⚠️ [Flight Turn {turn}] Subgoal [{task_id}] failed (attempt {attempts}/{self.MAX_STEP_ATTEMPTS}) — retryable."
+                )
+
         while turn < self.max_flight_turns and not dag.is_all_completed():
             turn += 1
+
+            # 감독기 개입 소비: 예약된 STALL이 있으면 이 턴은 강제 재계획 턴으로 쓴다.
+            boundary = self.enforcer.check_tool_boundary("flight_step", {"turn": turn})
+            if not boundary.get("allowed", True) and boundary.get("stall"):
+                reason = boundary.get("reason", "")
+                stall_interventions.append(reason)
+                logs.append(f"🛑 [Flight Turn {turn}] Supervisor intervention:\n{reason}")
+                continue
+
             ready_nodes = dag.get_ready_subgoals()
             if not ready_nodes:
                 logs.append("⚠️ [Flight Controller] Deadlock: No subgoals are ready to execute.")
@@ -89,24 +133,23 @@ class AutonomousFlightController:
             )
 
             # Execute the step
+            success = False
             try:
                 success = step_executor(current_node.task_id, current_node.description)
-                if success:
-                    dag.complete_subgoal(current_node.task_id)
-                    logs.append(f"✅ [Flight Turn {turn}] Subgoal [{current_node.task_id}] COMPLETED cleanly.")
-                else:
-                    failed_count += 1
-                    dag.fail_subgoal(current_node.task_id, "Step executor returned false")
-                    self.reflexion.record_failure(
-                        context=current_node.description,
-                        attempted_action=f"Subgoal {current_node.task_id}",
-                        failure_reason="Execution did not satisfy step criteria",
-                    )
-                    logs.append(f"❌ [Flight Turn {turn}] Subgoal [{current_node.task_id}] FAILED. Reflexion recorded.")
             except Exception as ex:
-                failed_count += 1
-                dag.fail_subgoal(current_node.task_id, str(ex))
-                logs.append(f"❌ [Flight Turn {turn}] Exception in [{current_node.task_id}]: {ex}")
+                success = False
+                _record_failure(current_node.task_id, current_node.description, str(ex)[:200])
+                self.enforcer.record_outcome(failed=True)
+                continue
+
+            if success:
+                dag.complete_subgoal(current_node.task_id)
+                logs.append(f"✅ [Flight Turn {turn}] Subgoal [{current_node.task_id}] COMPLETED cleanly.")
+            else:
+                _record_failure(current_node.task_id, current_node.description, "Step executor returned false")
+
+            # 감독기에 결과 적재 — 무진행 윈도우/오류 클러스터가 여기서 갱신된다.
+            self.enforcer.record_outcome(failed=not success)
 
         all_done = dag.is_all_completed()
         logs.append(f"🏁 [Flight Controller] Mission Ended. Success: {all_done} (Turns: {turn})")
@@ -119,4 +162,5 @@ class AutonomousFlightController:
             tdd_passed=all_done,
             compute_budget=budget,
             log_messages=logs,
+            stall_interventions=stall_interventions,
         )
