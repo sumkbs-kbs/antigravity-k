@@ -22,13 +22,12 @@ from pydantic import BaseModel, Field
 
 from antigravity_k import __version__
 from antigravity_k.api.dependencies import (
-    __get_skill_loader,
     __get_tool_registry,
-    _get_context_shaper,
     _get_session_manager,
     get_agent_runtime,
     get_model_manager,
     get_orchestrator,
+    get_slash_registry,
     get_vault_engine,
 )
 from antigravity_k.api.models import (
@@ -816,24 +815,8 @@ async def code_intel_impact(request: Request):
 
 
 # ─── Claw Code: Slash Commands & Session API ─────────────────
-# P0 수정: 싱글톤 패턴 적용 + SlashRegistry 전체 DI 연결
-_slash_registry = None
-
-
-def _get_slash_registry():
-    global _slash_registry
-    if _slash_registry is None:
-        from antigravity_k.engine.slash_commands import SlashCommandRegistry
-
-        _slash_registry = SlashCommandRegistry(
-            tool_registry=__get_tool_registry(),
-            session_manager=_get_session_manager(),
-            context_shaper=_get_context_shaper(),
-            model_manager=get_model_manager(),
-            skill_loader=__get_skill_loader(),
-            agent_runtime=get_agent_runtime(),
-        )
-    return _slash_registry
+# 팩토리 구현은 dependencies로 이동 — 하위 호환 별칭 유지
+_get_slash_registry = get_slash_registry
 
 
 @router.post("/api/slash")
@@ -963,55 +946,11 @@ async def system_restart(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def close_unauthorized_ws(websocket: WebSocket) -> bool:
-    """Close WebSocket if not authorized. Returns True if closed.
-
-    Authenticates the connection using a bearer token or legacy PIN provided
-    via query parameters (``?token=`` or ``?pin=``) since browsers cannot set
-    custom headers on WebSocket handshakes. If the connection carries valid
-    credentials this returns ``False`` (not closed); otherwise it accepts then
-    immediately closes the socket with a 4401 policy code and returns ``True``.
-    """
-    from antigravity_k.api.auth_routes import get_token_service
-    from antigravity_k.engine.auth import extract_token_from_ws, verify_pin
-
-    # Accept first so we can send a close code; Starlette requires accept before close.
-    await websocket.accept()
-
-    credential = extract_token_from_ws(websocket)
-
-    # Try bearer token first.
-    if credential:
-        token_service = get_token_service()
-        # Heuristic: tokens contain dots (JWT structure), PINs don't.
-        if "." in credential and token_service.verify_token(credential) is not None:
-            return False
-        # Otherwise treat as a legacy PIN.
-        from antigravity_k.api.auth_routes import get_current_pin_hash
-
-        stored = get_current_pin_hash()
-        if stored and verify_pin(credential, stored):
-            return False
-
-    # No valid credential — deny.
-    await websocket.close(code=4401, reason="Unauthorized")
-    return True
-
-
-class ActiveAgentSession:
-    """Holds the currently active agent session state for streaming."""
-
-    def __init__(self):
-        """Initialize the ActiveAgentSession."""
-        self.q = ""
-        self.is_active = False
-        self.history: list[str] = []
-        self.done = False
-        self.error: str | None = None
-        self.orchestrator: Any | None = None
-
-
-_active_session = ActiveAgentSession()
+from antigravity_k.api.routes.session_state import (
+    _active_session,
+    close_unauthorized_ws,
+    reset_active_session,
+)
 
 
 @router.get("/api/agent/active")
@@ -1038,8 +977,6 @@ async def stream_agent(
     from starlette.concurrency import iterate_in_threadpool
 
     async def event_generator():
-        global _active_session
-
         # If reconnecting to an active session
         if reconnect and _active_session.is_active:
             # Yield history first
@@ -1065,8 +1002,9 @@ async def stream_agent(
             yield f"data: {json.dumps({'error': 'Missing query'})}\n\n"
             return
 
-        # Start new session
-        _active_session = ActiveAgentSession()
+        # Start new session — 바인딩 재할당 대신 동일 객체를 리셋한다
+        # (값 복사 임포트 소비자의 stale 바인딩 방지)
+        reset_active_session()
         _active_session.is_active = True
         _active_session.q = q
 

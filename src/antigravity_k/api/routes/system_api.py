@@ -33,7 +33,7 @@ from antigravity_k.api.dependencies import (
 from antigravity_k.api.dependencies import (
     get_memory_manager as _get_shared_memory_manager,
 )
-from antigravity_k.api.routes.legacy import _active_session
+from antigravity_k.api.routes.session_state import get_active_session
 from antigravity_k.config import config
 from antigravity_k.engine.api_cache import TAG_SKILLS, TAG_SYSTEM, api_cache, cached
 from antigravity_k.engine.audit_logger import get_audit_logger
@@ -1459,7 +1459,7 @@ import termios
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from antigravity_k.api.routes.legacy import close_unauthorized_ws
+from antigravity_k.api.routes.session_state import close_unauthorized_ws
 
 
 @router.websocket("/ws/terminal")
@@ -1777,7 +1777,8 @@ async def get_deep_health():
 @router.get("/api/harness/status")
 async def get_live_harness_status():
     """Retrieve live harness status."""
-    if not _active_session.is_active or not _active_session.orchestrator:
+    session = get_active_session()
+    if not session.is_active or not session.orchestrator:
         return {
             "ok": True,
             "phase": "bypass",
@@ -1789,7 +1790,7 @@ async def get_live_harness_status():
             "cache_hit_rate": 0,
             "overall_health": "healthy",
         }
-    orch = _active_session.orchestrator
+    orch = session.orchestrator
     phase = "bypass"
     if hasattr(orch, "plan_guard") and orch.plan_guard:
         phase = orch.plan_guard.get_phase().value

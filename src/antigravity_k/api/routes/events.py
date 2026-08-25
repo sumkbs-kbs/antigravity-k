@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from antigravity_k.api.routes.legacy import close_unauthorized_ws
+from antigravity_k.api.routes.session_state import close_unauthorized_ws
 from antigravity_k.engine.event_bus import global_event_bus
 
 logger = logging.getLogger("antigravity_k.api.events")

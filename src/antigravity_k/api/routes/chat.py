@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 from collections.abc import Iterator
-from importlib import import_module
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -500,11 +499,10 @@ async def chat_completions(
         from antigravity_k.api.dependencies import (
             __get_skill_loader,
             __get_tool_registry,
+            get_slash_registry,
         )
 
-        legacy_routes = import_module("antigravity_k.api.routes.legacy")
-
-        registry = legacy_routes._get_slash_registry()
+        registry = get_slash_registry()
         engine = SelfCapabilityEngine()
         snapshot = engine.build(
             tool_registry=__get_tool_registry(),
@@ -533,9 +531,9 @@ async def chat_completions(
         return translator.translate_response(internal_resp, target=target_format)
 
     if slash_text.startswith("/"):
-        legacy_routes = import_module("antigravity_k.api.routes.legacy")
+        from antigravity_k.api.dependencies import get_slash_registry
 
-        registry = legacy_routes._get_slash_registry()
+        registry = get_slash_registry()
         # 등록된 슬래시 명령어인 경우에만 라우팅 (파일 경로 등 오인 방지)
         if registry.is_command(slash_text):
             result = registry.execute(slash_text)
@@ -721,12 +719,10 @@ async def chat_completions(
 
         runtime = get_agent_runtime()
 
-        # Use legacy session state for reconnect (basic implementation)
-        legacy_routes = import_module("antigravity_k.api.routes.legacy")
+        from antigravity_k.api.routes.session_state import reset_active_session
 
-        # Start new session
-        active_session = legacy_routes.__dict__["ActiveAgentSession"]()
-        legacy_routes.__dict__["_active_session"] = active_session
+        # Start new session — shared singleton을 리셋해 사용한다
+        active_session = reset_active_session()
         active_session.is_active = True
 
         async def event_generator():
