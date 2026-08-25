@@ -104,11 +104,19 @@ class ComputerUseTool(BaseTool):
             "required": ["action"],
         }
 
-        # 드라이버 셋 (OS 추상화 계층)
-        self._drivers = driver_set or get_driver_set(force_stub=force_stub)
+        # 드라이버 셋 (OS 추상화 계층) — 첫 실행까지 프로브를 미룬다 (CLI 시작 잡음 제거)
+        self._driver_set_override = driver_set
+        self._force_stub = force_stub
+        self._resolved_drivers: DriverSet | None = None
 
         # 보안 게이트
         self._guard = guard or ActionGuard()
+
+    @property
+    def _drivers(self) -> DriverSet:
+        if self._resolved_drivers is None:
+            self._resolved_drivers = self._driver_set_override or get_driver_set(force_stub=self._force_stub)
+        return self._resolved_drivers
 
     @property
     def name(self) -> str:
