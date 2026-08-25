@@ -519,16 +519,17 @@ def test_slash_natural_language_uses_bound_agent_runtime():
 
 
 def test_legacy_slash_registry_receives_bound_agent_runtime(monkeypatch):
+    from antigravity_k.api import dependencies
     from antigravity_k.api.routes import legacy
 
     runtime = object()
-    monkeypatch.setattr(legacy, "_slash_registry", None)
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
-    monkeypatch.setattr(legacy, "__get_tool_registry", lambda: [])
-    monkeypatch.setattr(legacy, "_get_session_manager", lambda: None)
-    monkeypatch.setattr(legacy, "_get_context_shaper", lambda: None)
-    monkeypatch.setattr(legacy, "get_model_manager", lambda: None)
-    monkeypatch.setattr(legacy, "__get_skill_loader", lambda: None)
+    monkeypatch.setattr(dependencies, "_slash_registry", None)
+    monkeypatch.setattr(dependencies, "get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr(dependencies, "__get_tool_registry", lambda: [])
+    monkeypatch.setattr(dependencies, "_get_session_manager", lambda: None)
+    monkeypatch.setattr(dependencies, "_get_context_shaper", lambda: None)
+    monkeypatch.setattr(dependencies, "get_model_manager", lambda: None)
+    monkeypatch.setattr(dependencies, "__get_skill_loader", lambda: None)
 
     registry = legacy._get_slash_registry()
 
@@ -663,18 +664,22 @@ def test_task_api_views_use_canonical_runtime(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_stream_route_emits_direct_task_id_before_chunks(monkeypatch):
-    from antigravity_k.api.routes import agent_api
+    from antigravity_k.api.routes import legacy
 
     class Runtime:
         orchestrator = None
 
-        def start_stream(self, messages: list[dict[str, str]]) -> TrackedStream:
+        def resolve_model(self) -> str:
+            return "qwen3-test"
+
+        def start_stream(self, messages: list[dict[str, str]], target_model: str = "") -> TrackedStream:
             assert messages == [{"role": "user", "content": "track this"}]
+            assert target_model == "qwen3-test"
             return TrackedStream(task_id="direct_001", chunks=iter(["runtime-response"]))
 
-    monkeypatch.setattr(agent_api, "get_agent_runtime", lambda: Runtime())
+    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: Runtime())
 
-    response = await agent_api.stream_agent(q="track this")
+    response = await legacy.stream_agent(q="track this")
     chunks = [chunk async for chunk in response.body_iterator]
     body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
 
