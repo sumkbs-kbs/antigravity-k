@@ -19,6 +19,7 @@ from .system_api import router as system_api_router
 from .task_api import router as task_api_router
 from .unsloth_studio_api import router as unsloth_studio_router
 from .unsloth_training_api import router as unsloth_training_router
+from .vault_api import router as vault_api_router
 from .vault_privacy import router as vault_privacy_router
 from .workspace_links import router as workspace_links_router
 
@@ -42,3 +43,4 @@ api_router.include_router(workspace_links_router, tags=["workspaces"])
 api_router.include_router(approval_router, tags=["approval"])
 api_router.include_router(git_router, tags=["git"])
 api_router.include_router(code_router, tags=["code"])
+api_router.include_router(vault_api_router, tags=["vault"])
