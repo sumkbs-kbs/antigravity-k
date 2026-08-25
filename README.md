@@ -14,14 +14,14 @@
 
 ---
 
-> Apple Silicon에서 Ollama `qwen3.6:latest`를 기본으로 사용하는 로컬 우선 자율형 엔지니어링 에이전트입니다.
+> Apple Silicon에서 Ollama `qwen3.8`을 기본으로 사용하는 로컬 우선 자율형 엔지니어링 에이전트입니다.
 > Ollama, 직접 MLX, LM Studio OpenAI 호환 서버를 하나의 모델 레지스트리와 CLI로 연결하고, 계획·도구 호출·RAG·메모리·평가 루프로 로컬 모델의 작업 품질을 보강합니다.
 
 ## 기능
 
 | 기능 | 설명 |
 |:---|---:|
-| 🧠 **로컬 추론 엔진** | Ollama Qwen3.6 36B 기본, 직접 MLX와 LM Studio 선택 지원 |
+| 🧠 **로컬 추론 엔진** | Ollama Qwen3.8 기본, 직접 MLX와 LM Studio 선택 지원 |
 | 🌐 **집단지성 (MoE Swarm)** | 다중 모델 교차 검증 및 토론 라우팅 |
 | 🤖 **자율 에이전트** | ReAct 패턴 + 도구 호출 + 자가 진화 (Self-Evolution) |
 | 🔗 **RAG 파이프라인** | ChromaDB + 임베딩 + AST 기반 코드 인덱싱 |
@@ -68,7 +68,7 @@ cd antigravity-k
 uv sync --extra dev --extra rag --extra mlx
 
 # 3. 기본 로컬 모델 설치
-ollama pull qwen3.6:latest
+ollama pull qwen3.8:latest
 
 # 4. CLI와 기본 모델 프로필 확인
 uv run agk doctor
@@ -84,13 +84,13 @@ cd dashboard && npm ci && npm run build && cd ..
 # API 서버 실행
 uv run agk serve --host 127.0.0.1 --port 8000
 
-# 기본 Qwen3.6 로컬 에이전트 실행
-uv run agk run "현재 프로젝트의 테스트 실패 원인을 요약해줘" --model qwen3.6:latest
+# 기본 Qwen3.8 로컬 에이전트 실행
+uv run agk run "현재 프로젝트의 테스트 실패 원인을 요약해줘" --model qwen3.8
 
 # 반환된 direct task ID의 상태/출력 조회 및 실패·일시정지 작업 재개
 uv run agk task status direct_ab12cd34ef56
 uv run agk task output direct_ab12cd34ef56
-uv run agk task resume direct_ab12cd34ef56 --model qwen3.6:latest
+uv run agk task resume direct_ab12cd34ef56 --model qwen3.8
 
 # 프로젝트 고유 용어를 메모리 canonical key에 연결
 uv run agk memory alias-set database primary_store
@@ -229,12 +229,12 @@ cp .env.example .env
 
 ### 로컬 프로바이더 설정 (Ollama + MLX + LM Studio)
 
-기본 프로필은 `config.yaml`의 `qwen3.6:latest`이며, reasoning·coding·vision 역할 모두에 Ollama를 사용합니다. `agk model list`로 등록된 이름과 프로바이더를 확인한 뒤 `agk run --model <name>`으로 역할별 모델을 명시적으로 선택할 수 있습니다.
+기본 프로필은 `config.yaml`의 `qwen3.8`이며, reasoning·coding·vision 역할 모두에 Ollama를 사용합니다. `agk model list`로 등록된 이름과 프로바이더를 확인한 뒤 `agk run --model <name>`으로 역할별 모델을 명시적으로 선택할 수 있습니다.
 
 ```bash
 # Ollama: 기본 경로
-ollama pull qwen3.6:latest
-uv run agk run "간단한 작업 계획을 만들어줘" --model qwen3.6:latest
+ollama pull qwen3.8:latest
+uv run agk run "간단한 작업 계획을 만들어줘" --model qwen3.8
 
 # 직접 MLX: Apple Silicon에서 레지스트리의 32B 코딩 프로필 실행
 uv sync --extra mlx
