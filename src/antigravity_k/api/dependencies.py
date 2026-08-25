@@ -317,7 +317,7 @@ def get_model_manager() -> ModelManager:
         logger.info("Lazy initializing ModelManager...")
         from antigravity_k.engine.usage_tracker import UsageTracker
 
-        registry = ModelRegistry("config.yaml")
+        registry = ModelRegistry()
         tracker = UsageTracker(db_path="data/token_usage.json")
         model_manager = ModelManager(registry, tracker=tracker)
     return model_manager
@@ -420,3 +420,23 @@ def get_embedding_engine() -> EmbeddingEngine:
     engine = EmbeddingEngine()
     engine.initialize()
     return engine
+
+
+_slash_registry = None
+
+
+def get_slash_registry():
+    """Slash command registry singleton (DI-wired)."""
+    global _slash_registry
+    if _slash_registry is None:
+        from antigravity_k.engine.slash_commands import SlashCommandRegistry
+
+        _slash_registry = SlashCommandRegistry(
+            tool_registry=__get_tool_registry(),
+            session_manager=_get_session_manager(),
+            context_shaper=_get_context_shaper(),
+            model_manager=get_model_manager(),
+            skill_loader=__get_skill_loader(),
+            agent_runtime=get_agent_runtime(),
+        )
+    return _slash_registry
