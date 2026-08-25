@@ -59,8 +59,8 @@ format: ## Format code with ruff
 format-check: ## Check formatting without changing files
 	$(PYTHON) -m ruff format --check src/ tests/ scripts/
 
-typecheck: ## Run mypy type checking
-	$(PYTHON) -m mypy src/ --ignore-missing-imports --no-strict-optional || true
+typecheck: ## Run mypy type checking (config: pyproject [tool.mypy])
+	$(PYTHON) -m mypy src/
 
 check: lint format-check typecheck ## Run all code quality checks
 
