@@ -122,7 +122,11 @@ dashboard/.omo/
 demo_fastapi_project/
 sessions/
 data/audits/
-data/benchmarks/
+data/benchmarks/*
+!data/benchmarks/held_out_v1.jsonl
+!data/benchmarks/held_out_v1.freeze.json
+!data/benchmarks/held_out_v2.jsonl
+!data/benchmarks/held_out_v2.freeze.json
 data/ki_entries/
 data/search_cache/
 data/wiki_entries/
@@ -146,3 +150,15 @@ data/.backup/
 htmlcov/
 .codebase-memory/
 .playwright-mcp/
+
+# ─────────────────────────────────────────────────────────────
+# 위생 (2026-08-25): 루트 폐기물 재발 방지
+# - 스크래치 스크립트/산출물은 scratch/ 아래에서만 작업
+# - 버그로 생성된 이상 경로(C:/, MagicMock/) 차단
+# ─────────────────────────────────────────────────────────────
+scratch_*.py
+scratch_*.json
+C:/
+MagicMock/
+*_output.txt
+test_output.json
