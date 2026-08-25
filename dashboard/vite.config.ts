@@ -24,12 +24,17 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'dist',
+    outDir: path.resolve(__dirname, '../src/antigravity_k/dashboard_dist'),
     emptyOutDir: true,
     chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {
         manualChunks(id: string) {
+          // Keep ky explicit: its entry (distribution/index.js) auto-splits into a
+          // chunk literally named "index", colliding with the app entry chunk name.
+          if (id.includes('/src/api/') || id.includes('node_modules/ky/')) {
+            return 'api-client';
+          }
           // Core vendor — React, Router, Zustand (excludes @tanstack for separate chunk)
           if (id.includes('node_modules/react/') ||
               id.includes('node_modules/react-dom/') ||
