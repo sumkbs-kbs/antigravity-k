@@ -315,10 +315,10 @@ class TestBenchmarkSlashCommand:
         assert "## mock table" in rendered
 
     def test_command_palette_exposes_benchmark_report(self):
-        tsx = Path("dashboard/src/components/UI/CommandPalette.tsx").read_text(encoding="utf-8")
+        registry = Path("dashboard/src/features/command-palette/commandRegistry.ts").read_text(encoding="utf-8")
 
-        assert "Collective Benchmark Report (/benchmark)" in tsx
-        assert "text: '/benchmark report'" in tsx
+        assert "Collective Benchmark Report (/benchmark)" in registry
+        assert "text: '/benchmark report'" in registry
 
 
 # ─── 영속화 테스트 ────────────────────────────────────────────────
@@ -401,7 +401,7 @@ class TestPersistence:
 class TestVerifiedCodeExecution:
     def test_correct_executed_output_is_verified(self, harness):
         # Given: a model answer whose code, when executed, prints the expected output.
-        answer = "```python\n" "def sum_to(n):\n" "    return n * (n + 1) // 2\n" "print(sum_to(100))\n" "```\n"
+        answer = "```python\ndef sum_to(n):\n    return n * (n + 1) // 2\nprint(sum_to(100))\n```\n"
 
         # When: the harness verifies the executed output against the expected value.
         passed, actual = harness._verify_executed_code(answer, "5050")
