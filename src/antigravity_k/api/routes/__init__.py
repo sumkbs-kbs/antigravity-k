@@ -11,6 +11,7 @@ from .approval_api import router as approval_router
 from .chat import router as chat_router
 from .code_api import router as code_router
 from .events import router as events_router
+from .evolution_api import router as evolution_router
 from .filesystem import router as filesystem_router
 from .git_api import router as git_router
 from .legacy import router as legacy_router
@@ -35,6 +36,7 @@ api_router.include_router(unsloth_studio_router, tags=["unsloth"])
 api_router.include_router(unsloth_training_router, tags=["unsloth"])
 api_router.include_router(legacy_router, tags=["legacy"])
 api_router.include_router(agent_tools_router, tags=["agent_tools"])
+api_router.include_router(evolution_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])
 api_router.include_router(workspace_links_router, tags=["workspaces"])
 api_router.include_router(approval_router, tags=["approval"])
