@@ -42,7 +42,8 @@ class TokenEstimator:
         base_tokens = len(text.encode("utf-8")) // TokenEstimator.BYTES_PER_TOKEN
         # 한글/CJK 문자는 모델에 따라 토큰을 더 많이 소비하므로 보정치 추가 (+1 token/char)
         cjk_count = len(CJK_PATTERN.findall(text))
-        return base_tokens + cjk_count
+        # 3바이트 미만의 짧은 응답도 실제로는 1토큰 이상 소비하므로 하한을 둔다
+        return max(base_tokens + cjk_count, 1)
 
     @staticmethod
     def estimate_messages(messages: list[dict[str, str]], use_cache: bool = True) -> int:
