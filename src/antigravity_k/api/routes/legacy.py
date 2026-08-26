@@ -4,9 +4,9 @@ import asyncio
 import json
 import logging
 import os
-from collections.abc import Iterable
 from typing import Any
 
+import yaml
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -22,6 +22,7 @@ from antigravity_k.api.dependencies import (
     get_slash_registry,
 )
 from antigravity_k.config import config
+from antigravity_k.engine.toolset_manager import ToolsetManager
 from antigravity_k.tools.permission_gate import Permission, PermissionGate
 from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
 
@@ -44,6 +45,37 @@ def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> N
         )
 
 
+_toolset_manager = None
+
+_get_slash_registry = get_slash_registry
+
+
+def _get_memory_manager():
+    from antigravity_k.api.dependencies import get_memory_manager
+
+    return get_memory_manager()
+
+
+def _get_toolset_manager() -> ToolsetManager:
+    global _toolset_manager
+    if _toolset_manager is None:
+        try:
+            config_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                "config.yaml",
+            )
+            if os.path.exists(config_file):
+                with open(config_file, encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+                _toolset_manager = ToolsetManager.from_config(cfg.get("toolsets", {}))
+            else:
+                _toolset_manager = ToolsetManager()
+        except Exception:
+            logger.exception("Unhandled exception")
+            _toolset_manager = ToolsetManager()
+    return _toolset_manager
+
+
 # NOTE: The unauthenticated ``/ws/terminal`` handler that previously lived here
 # has been removed. It duplicated the safer, auth-gated version in system_api.py
 # (which checks ``close_unauthorized_ws`` + the ``AGK_ENABLE_TERMINAL_WS`` flag)
@@ -52,66 +84,6 @@ def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> N
 
 
 # Mount static dashboard if available
-# ─── Claw Code: Slash Commands & Session API ─────────────────
-# 팩토리 구현은 dependencies로 이동 — 하위 호환 별칭 유지
-_get_slash_registry = get_slash_registry
-
-
-@router.post("/api/slash")
-async def slash_command(request: Request):
-    """Slash Command.
-
-    Args:
-        request (Request): Request request.
-
-    """
-    body = await request.json()
-    text = body.get("command") or body.get("input") or body.get("text") or ""
-    registry = _get_slash_registry()
-
-    # is_command() 검사를 제거하여 일반 텍스트도 자연어 처리(_execute_natural_language)로 넘어가게 합니다.
-    result: object = registry.execute(text)
-    if not isinstance(result, str) and isinstance(result, Iterable):
-        result = "".join(str(chunk) for chunk in result)
-    return {"ok": True, "result": str(result)}
-
-
-@router.get("/api/slash/completions")
-async def slash_completions(prefix: str = "/"):
-    """Slash Completions.
-
-    Args:
-        prefix (str): str prefix.
-
-    """
-    registry = _get_slash_registry()
-    return {"completions": registry.get_completions(prefix)}
-
-
-@router.get("/api/session/info")
-async def session_info():
-    """Session Info."""
-    sm = _get_session_manager()
-    return {"ok": True, "session": sm.get_session_info() or {}}
-
-
-@router.get("/api/session/messages")
-async def session_messages():
-    """Session Messages."""
-    sm = _get_session_manager()
-    sm.start_session(resume=True)
-    return {"ok": True, "messages": sm.get_messages()}
-
-
-@router.post("/api/session/save")
-async def session_save():
-    """Session Save."""
-    # P0 수정: 매번 새 인스턴스 대신 싱글톤 사용
-    sm = _get_session_manager()
-    sm.save()
-    return {"ok": True, "message": "Session saved."}
-
-
 # ─── File System API (I-6 리팩터링: routes/filesystem.py로 분리) ─────────────────
 from antigravity_k.api.routes.filesystem import router as fs_router
 
@@ -243,9 +215,6 @@ async def get_logs(lines: int = 100):
         return {"logs": [f"Error reading logs: {str(e)}"]}
 
 
-import yaml
-
-
 @router.post("/api/models/default")
 async def set_default_model(request: Request):
     """Set default model for a role in config.yaml.
@@ -337,154 +306,6 @@ async def get_settings():
     except Exception as e:
         logger.exception("Unhandled exception")
         return {"settings": {"error": str(e)}}
-
-
-# ─── Memory & Toolset & Guardrail APIs ─────────────────────────────────────
-
-from antigravity_k.engine.toolset_manager import ToolsetManager
-
-_toolset_manager: ToolsetManager | None = None
-
-
-def _get_memory_manager():
-    from antigravity_k.api.dependencies import get_memory_manager
-
-    return get_memory_manager()
-
-
-def _get_toolset_manager() -> ToolsetManager:
-    global _toolset_manager
-    if _toolset_manager is None:
-        try:
-            config_file = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-                "config.yaml",
-            )
-            if os.path.exists(config_file):
-                with open(config_file, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f)
-                _toolset_manager = ToolsetManager.from_config(cfg.get("toolsets", {}))
-            else:
-                _toolset_manager = ToolsetManager()
-        except Exception:
-            logger.exception("Unhandled exception")
-            _toolset_manager = ToolsetManager()
-    return _toolset_manager
-
-
-@router.get("/api/memory/stats")
-async def get_memory_stats():
-    """메모리 시스템 상태를 반환합니다."""
-    mm = _get_memory_manager()
-    return {"memory": mm.get_stats()}
-
-
-@router.get("/api/memory/recall")
-async def recall_memory(query: str = ""):
-    """쿼리 기반 메모리 회상."""
-    mm = _get_memory_manager()
-    result = mm.prefetch_all(query or "general")
-    return {"recalled": result, "query": query}
-
-
-@router.get("/api/toolsets")
-async def list_toolsets():
-    """등록된 모든 toolset 목록을 반환합니다."""
-    ts = _get_toolset_manager()
-    return {"toolsets": ts.list_toolsets(), "active": ts.active_toolset}
-
-
-@router.post("/api/toolsets/activate")
-async def activate_toolset(request: Request):
-    """활성 toolset을 변경합니다."""
-    body = await request.json()
-    name = body.get("name", "full")
-    ts = _get_toolset_manager()
-    success = ts.set_active(name)
-    return {
-        "success": success,
-        "active": ts.active_toolset,
-        "tools": ts.get_active_tools() if success else [],
-    }
-
-
-@router.get("/api/toolsets/{name}/tools")
-async def get_toolset_tools(name: str):
-    """특정 toolset의 해석된 도구 목록을 반환합니다."""
-    ts = _get_toolset_manager()
-    tools = ts.resolve(name)
-    return {"toolset": name, "tools": tools, "count": len(tools)}
-
-
-@router.get("/api/system/full-status")
-async def get_system_status_extended():
-    """시스템 전체 상태를 반환합니다 (메모리, toolset, 가드레일, shields 포함)."""
-    mm = _get_memory_manager()
-    ts = _get_toolset_manager()
-    shields = _get_shields_manager()
-    return {
-        "status": "running",
-        "memory": mm.get_stats(),
-        "toolset": {
-            "active": ts.active_toolset,
-            "available": list(ts.list_toolsets().keys()),
-        },
-        "guardrails": {
-            "warnings_enabled": True,
-            "hard_stop_enabled": False,
-        },
-        "shields": shields.status(),
-    }
-
-
-# ─── Harness Engineering API (Self-Test & Intent-Based Testing) ──────────────
-
-_harness_instance = None
-
-
-def get_harness():
-    """Retrieve harness."""
-    global _harness_instance
-    if _harness_instance is None:
-        from antigravity_k.engine.harness import TestHarness
-
-        _harness_instance = TestHarness()
-    return _harness_instance
-
-
-@router.post("/api/harness/self-test")
-async def harness_self_test(request: Request):
-    """에이전트가 대시보드 전체를 자동 테스트합니다."""
-    try:
-        body = await request.json()
-    except Exception:
-        logger.exception("Unhandled exception")
-        body = {}
-
-    scope = body.get("scope", "api_only")  # 기본: API만 (브라우저 없이 빠르게)
-
-    harness = get_harness()
-    report = await harness.run_all(use_browser=(scope != "api_only"))
-
-    return {"ok": True, "report": report.to_dict()}
-
-
-@router.get("/api/harness/results")
-async def harness_results():
-    """최근 테스트 결과를 조회합니다."""
-    harness = get_harness()
-    report = harness.get_latest_report()
-    if report:
-        return {"ok": True, "report": report.to_dict()}
-    return {"ok": True, "report": None, "message": "아직 테스트가 실행되지 않았습니다."}
-
-
-@router.get("/api/harness/trend")
-async def harness_trend():
-    """테스트 추세를 조회합니다."""
-    harness = get_harness()
-    trend = harness.feedback.get_trend()
-    return {"ok": True, "trend": trend}
 
 
 # ─── Shields & Security APIs (NemoClaw ported) ──────────────────────────────
