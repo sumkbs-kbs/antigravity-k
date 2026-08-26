@@ -17,6 +17,7 @@ from .filesystem import router as filesystem_router
 from .git_api import router as git_router
 from .kanban_api import router as kanban_api_router
 from .legacy import router as legacy_router
+from .models_api import router as models_router
 from .system_api import router as system_api_router
 from .task_api import router as task_api_router
 from .unsloth_studio_api import router as unsloth_studio_router
@@ -38,6 +39,7 @@ api_router.include_router(task_api_router, tags=["tasks"])
 api_router.include_router(unsloth_studio_router, tags=["unsloth"])
 api_router.include_router(unsloth_training_router, tags=["unsloth"])
 api_router.include_router(kanban_api_router, tags=["kanban"])
+api_router.include_router(models_router, tags=["models"])
 api_router.include_router(legacy_router, tags=["legacy"])
 api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(evolution_router, tags=["agent_tools"])
