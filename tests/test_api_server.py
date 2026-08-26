@@ -139,7 +139,7 @@ def test_env_settings_honors_permission_denial_before_file_write(client, monkeyp
 
 
 def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import kanban_api as legacy
 
     original_tasks = list(legacy.kanban_tasks)
     original_counter = legacy.task_counter
@@ -192,7 +192,7 @@ def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
 
 
 def test_kanban_websocket_sends_flat_tasks_payload(client):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import kanban_api as legacy
 
     original_tasks = list(legacy.kanban_tasks)
     legacy.kanban_tasks.clear()

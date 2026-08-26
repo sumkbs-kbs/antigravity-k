@@ -1,0 +1,270 @@
+"""Kanban API — 태스크 보드 CRUD, 워크스페이스 필터, 실시간 브로드캐스트."""
+
+import asyncio
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+
+from antigravity_k.api.routes.session_state import close_unauthorized_ws
+from antigravity_k.config import config
+from antigravity_k.engine.event_bus import global_event_bus
+
+router = APIRouter()
+logger = logging.getLogger("antigravity_k.api.routes.kanban")
+
+# ─── 상태 ────────────────────────────────────────────────────────
+
+kanban_tasks: list[dict[str, Any]] = []
+task_counter = 100
+kanban_clients: set[Any] = set()
+
+
+def _default_project_path() -> str:
+    try:
+        return str(Path(config.paths.project_root).resolve())
+    except Exception:
+        logger.exception("Unhandled exception")
+        return str(Path.cwd().resolve())
+
+
+def _normalize_project_path(project_path: str | None = None) -> str:
+    raw = str(project_path or "").strip()
+    if not raw or raw == "/":
+        return _default_project_path()
+    return str(Path(raw).expanduser().resolve())
+
+
+def _project_name(project_path: str) -> str:
+    path = Path(project_path)
+    return path.name or str(path)
+
+
+def _task_matches_workspace(task: dict[str, Any], workspace: str | None) -> bool:
+    if not workspace:
+        return True
+    expected = _normalize_project_path(workspace)
+    actual = _normalize_project_path(task.get("project_path"))
+    return actual == expected
+
+
+def _serialize_kanban_payload(tasks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    selected = list(tasks if tasks is not None else kanban_tasks)
+    payload = {
+        "tasks": selected,
+        "todo": [],
+        "in_progress": [],
+        "completed": [],
+        "cancelled": [],
+        # Backward-compatible aliases for older Kanban consumers.
+        "BACKLOG": [],
+        "IN_PROGRESS": [],
+        "REVIEW": [],
+        "DONE": [],
+    }
+    for task in selected:
+        status = task.get("status", "todo")
+        if status in payload:
+            payload[status].append(task)
+        if status == "todo":
+            payload["BACKLOG"].append(task)
+        elif status == "in_progress":
+            payload["IN_PROGRESS"].append(task)
+        elif status == "completed":
+            payload["DONE"].append(task)
+        elif status == "cancelled":
+            payload["DONE"].append(task)
+    return payload
+
+
+async def broadcast_kanban():
+    """Broadcast Kanban."""
+    # Helper to broadcast the flat task list plus grouped status views.
+    message = json.dumps(_serialize_kanban_payload())
+    for client in list(kanban_clients):
+        try:
+            await client.send_text(message)
+        except Exception:
+            logger.exception("Unhandled exception")
+            kanban_clients.discard(client)
+
+
+def _on_agent_turn_started(**kwargs):
+    global task_counter
+    task_type = kwargs.get("task_type", "Task")
+    role = kwargs.get("role", "WORKER")
+
+    # Check if a similar task is already in progress
+    for task in kanban_tasks:
+        if task["role"] == role and task["status"] == "in_progress":
+            return  # Update existing if needed, or skip
+
+    kanban_tasks.append(
+        {
+            "id": f"T{task_counter}",
+            "title": f"[{role}] {task_type}",
+            "description": "Agent is working on the task...",
+            "status": "in_progress",
+            "type": "Agent",
+            "role": role,
+            "priority": "normal",
+            "project_path": _default_project_path(),
+            "project_name": _project_name(_default_project_path()),
+        },
+    )
+    task_counter += 1
+
+
+def _on_agent_turn_ended(**kwargs):
+    role = kwargs.get("role", "WORKER")
+    for task in reversed(kanban_tasks):
+        if task["role"] == role and task["status"] == "in_progress":
+            task["status"] = "completed"
+            task["description"] = "Task completed successfully."
+            break
+
+
+global_event_bus.subscribe("AgentTurnStarted", _on_agent_turn_started)
+global_event_bus.subscribe("AgentTurnEnded", _on_agent_turn_ended)
+
+
+class StatusUpdate(BaseModel):
+    """Statusupdate.
+
+    Bases: BaseModel
+    """
+
+    status: str
+
+
+@router.post("/api/kanban/tasks")
+async def create_kanban_task(request: Request):
+    """Create kanban task.
+
+    Args:
+        request (Request): Request request.
+
+    """
+    global task_counter
+    data = await request.json()
+    project_path = _normalize_project_path(
+        data.get("project_path") or data.get("workspace_path") or data.get("workspace"),
+    )
+    task = {
+        "id": f"T{task_counter}",
+        "title": data.get("description", "Untitled Task"),
+        "description": data.get("description", "Untitled Task"),
+        "role": data.get("assignee", "auto"),
+        "status": "todo",
+        "tokens": 0,
+        "type": data.get("type", "Task"),
+        "priority": data.get("priority", "normal"),
+        "project_path": project_path,
+        "project_name": _project_name(project_path),
+    }
+    task_counter += 1
+    kanban_tasks.append(task)
+    await broadcast_kanban()
+    return task
+
+
+@router.get("/api/kanban/tasks")
+async def get_kanban_tasks(workspace: str | None = Query(None)):
+    """Retrieve kanban tasks.
+
+    Args:
+        workspace (str | None): str | None workspace.
+
+    """
+    tasks = [t for t in kanban_tasks if _task_matches_workspace(t, workspace)]
+    return {
+        "data": tasks,
+        "workspace": _normalize_project_path(workspace) if workspace else None,
+    }
+
+
+@router.post("/api/kanban/tasks/{task_id}/cancel")
+async def cancel_kanban_task_endpoint(task_id: str):
+    """Cancel Kanban Task Endpoint.
+
+    Args:
+        task_id (str): str task id.
+
+    """
+    # 실제 백그라운드 엔진 취소 호출 (mocking for non-existing real tasks)
+    try:
+        from antigravity_k.engine.task_runner import get_task_runner
+
+        runner = get_task_runner()
+        runner.cancel_task(task_id)
+    except Exception:
+        logger.exception("Engine cancel failed or skipped")
+
+    for task in kanban_tasks:
+        if str(task["id"]) == str(task_id):
+            task["status"] = "cancelled"
+            task["title"] = f"[중단됨] {task.get('title', '')}"
+            await broadcast_kanban()
+            return {"ok": True, "message": "Task cancelled", "task": task}
+
+    raise HTTPException(status_code=404, detail="Task not found")
+
+
+@router.delete("/api/kanban/tasks/{task_id}")
+async def delete_kanban_task_endpoint(task_id: str):
+    """Remove kanban task endpoint.
+
+    Args:
+        task_id (str): str task id.
+
+    """
+    for idx, task in enumerate(list(kanban_tasks)):
+        if str(task["id"]) == str(task_id):
+            removed = kanban_tasks.pop(idx)
+            await broadcast_kanban()
+            return {"ok": True, "message": "Task removed", "task": removed}
+
+    raise HTTPException(status_code=404, detail="Task not found")
+
+
+@router.put("/api/kanban/tasks/{task_id}/status")
+async def update_kanban_task_status(task_id: str, update: StatusUpdate):
+    """Update kanban task status.
+
+    Args:
+        task_id (str): str task id.
+        update (StatusUpdate): StatusUpdate update.
+
+    """
+    for task in kanban_tasks:
+        if task["id"] == task_id:
+            task["status"] = update.status
+            await broadcast_kanban()
+            return task
+    raise HTTPException(status_code=404, detail="Task not found")
+
+
+@router.websocket("/ws/kanban")
+async def websocket_kanban(websocket: WebSocket):
+    """Websocket Kanban.
+
+    Args:
+        websocket (WebSocket): WebSocket websocket.
+
+    """
+    if await close_unauthorized_ws(websocket):
+        return
+    kanban_clients.add(websocket)
+    try:
+        await websocket.send_text(json.dumps(_serialize_kanban_payload()))
+
+        while True:
+            await websocket.receive_text()
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        kanban_clients.discard(websocket)
+    except Exception:
+        logger.exception("Unhandled exception")
+        kanban_clients.discard(websocket)
