@@ -410,6 +410,67 @@ async def harness_trend():
 
 # ─── Skills API (D16: Dashboard Skills Browser) ─────────────────
 
+# ─── System Status & Restart (legacy에서 귀속) ─────────────────
+# ─── System API (Status & Restart) ─────────────────
+
+
+# 서버 시작 시간 (업타임 계산용)
+START_TIME = time.time()
+
+
+@router.get("/api/system/status")
+async def system_status():
+    """서버의 현재 상태, 메모리 사용량 및 업타임을 반환합니다."""
+    try:
+        from antigravity_k.api.dependencies import get_model_manager
+
+        mem_info = psutil.virtual_memory()
+        uptime_seconds = int(time.time() - START_TIME)
+
+        # Get global token usage from tracker
+        model_manager = get_model_manager()
+        total_tokens = model_manager.tracker.get_total_tokens()
+
+        return {
+            "ok": True,
+            "status": "online",
+            "memory_mb": mem_info.percent,  # Returns percentage despite the legacy key name
+            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "total_tokens": total_tokens,
+            "uptime_seconds": uptime_seconds,
+            "version": __version__,
+        }
+    except (psutil.Error, OSError, RuntimeError) as e:
+        logger.error("Status error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/system/restart")
+async def system_restart(background_tasks: BackgroundTasks):
+    """System Restart.
+
+    Args:
+        background_tasks (BackgroundTasks): BackgroundTasks background tasks.
+
+    """
+    _require_allowed("system_restart", {}, "critical")
+    try:
+
+        def delay_restart():
+            trigger_file = os.path.abspath(os.path.join("src", ".restart_trigger"))
+            with open(trigger_file, "a"):
+                os.utime(trigger_file, None)
+            logger.info("Restart triggered via API (delayed).")
+
+        background_tasks.add_task(delay_restart)
+        return {
+            "ok": True,
+            "message": "Restart triggered. The server will reboot in a moment.",
+        }
+    except (OSError, RuntimeError) as e:
+        logger.error("Restart error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/api/system/skills")
 @cached(ttl=60, tags=[TAG_SKILLS])
@@ -958,28 +1019,6 @@ async def set_system_mode(request: Request):
         return {"ok": False, "error": str(e)}
 
 
-@router.get("/api/system/status")
-async def system_status():
-    """System Status."""
-    try:
-        mem_info = psutil.virtual_memory()
-        uptime_seconds = int(time.time() - START_TIME)
-        model_manager = get_model_manager()
-        total_tokens = model_manager.tracker.get_total_tokens()
-        return {
-            "ok": True,
-            "status": "online",
-            "memory_mb": mem_info.percent,
-            "cpu_percent": psutil.cpu_percent(interval=0.1),
-            "total_tokens": total_tokens,
-            "uptime_seconds": uptime_seconds,
-            "version": __version__,
-        }
-    except (psutil.Error, OSError, RuntimeError) as e:
-        logger.error("Status error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/api/search/ab-test/run")
 async def run_extraction_ab_test(request: Request):
     """데이터 추출 A/B 테스트를 실행합니다.
@@ -1404,33 +1443,6 @@ async def search_and_extract(request: Request):
     except Exception as e:
         logger.exception("Search and extract error")
         return {"ok": False, "error": str(e)}
-
-
-@router.post("/api/system/restart")
-async def system_restart(background_tasks: BackgroundTasks):
-    """System Restart.
-
-    Args:
-        background_tasks (BackgroundTasks): BackgroundTasks background tasks.
-
-    """
-    _require_allowed("system_restart", {}, "critical")
-    try:
-
-        def delay_restart():
-            trigger_file = os.path.abspath(os.path.join("src", ".restart_trigger"))
-            with open(trigger_file, "a"):
-                os.utime(trigger_file, None)
-            logger.info("Restart triggered via API (delayed).")
-
-        background_tasks.add_task(delay_restart)
-        return {
-            "ok": True,
-            "message": "Restart triggered. The server will reboot in a moment.",
-        }
-    except (OSError, RuntimeError) as e:
-        logger.error("Restart error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/system/full-status")
