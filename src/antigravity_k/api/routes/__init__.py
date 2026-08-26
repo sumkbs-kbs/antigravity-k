@@ -10,6 +10,7 @@ from .agent_tools import router as agent_tools_router
 from .approval_api import router as approval_router
 from .chat import router as chat_router
 from .code_api import router as code_router
+from .code_intel_api import router as code_intel_router
 from .events import router as events_router
 from .evolution_api import router as evolution_router
 from .filesystem import router as filesystem_router
@@ -45,4 +46,5 @@ api_router.include_router(workspace_links_router, tags=["workspaces"])
 api_router.include_router(approval_router, tags=["approval"])
 api_router.include_router(git_router, tags=["git"])
 api_router.include_router(code_router, tags=["code"])
+api_router.include_router(code_intel_router, tags=["code"])
 api_router.include_router(vault_api_router, tags=["vault"])
