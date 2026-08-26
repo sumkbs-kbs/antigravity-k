@@ -14,11 +14,10 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
-from antigravity_k.config import config
 from antigravity_k.engine.api_cache import TAG_FILESYSTEM, api_cache, cached
 from antigravity_k.engine.vault import VaultEngine
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ def get_workspace_root() -> str:
 
 
 def _permission_gate() -> PermissionGate:
-    return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
+    return PermissionGate(project_root=WORKSPACE_ROOT, mode="auto-pilot")
 
 
 def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:

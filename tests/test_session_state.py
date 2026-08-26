@@ -4,7 +4,7 @@
 stale 바인딩이 발생하지 않음을 검증한다.
 """
 
-from antigravity_k.api.routes import legacy, session_state
+from antigravity_k.api.routes import session_state
 
 
 class TestSharedSessionBinding:
@@ -23,10 +23,14 @@ class TestSharedSessionBinding:
         assert session.history == []
         assert session.done is False
 
-    def test_legacy_stream_uses_shared_singleton_not_private_copy(self):
-        # legacy가 세션을 교체(rebinding)하더라도 공유 정체가 유지되어야 한다.
+    def test_agent_stream_uses_shared_singleton_not_private_copy(self):
+        # 스트림 라우트가 세션을 교체(rebinding)하지 않고 공유 정체를 유지한다.
         before = session_state.get_active_session()
-        assert legacy._active_session is before
+        import antigravity_k.api.routes.agent_stream_api as stream_api
+
+        stream_api.reset_active_session()
+        after = session_state.get_active_session()
+        assert after is before
 
     def test_close_unauthorized_ws_importable_from_neutral_module(self):
         from antigravity_k.api.routes.session_state import close_unauthorized_ws

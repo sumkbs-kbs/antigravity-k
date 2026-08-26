@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
-from playwright.async_api import Browser, BrowserContext, Error, Page, async_playwright
 from pydantic import BaseModel
 
+from antigravity_k.api.browser_session_state import BrowserSessionState
 from antigravity_k.config import config
 from antigravity_k.engine.sandbox import SandboxRunner
 from antigravity_k.tools.egress_policy import validate_httpx_request_async
@@ -20,18 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class BrowserState:
-    """Tracks browser session state (active page, URL, cookies)."""
-
-    playwright: Any = None
-    browser: Browser | None = None
-    context: BrowserContext | None = None
-    page: Page | None = None
-    console_errors: list[Any] = []
-    console_logs: list[Any] = []
-
-
-browser_state = BrowserState()
+browser_state = BrowserSessionState()
 
 
 def _permission_gate() -> PermissionGate:
@@ -192,6 +181,13 @@ async def browser_action(req: BrowserActionRequest):
         {"action": req.action, "url": req.url, "selector": req.selector},
         risk_level,
     )
+    try:
+        from playwright.async_api import Error, async_playwright
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Browser automation is unavailable; install the dev dependency group to enable Playwright.",
+        ) from exc
     try:
         if req.action == "launch":
             if not browser_state.playwright:
@@ -458,7 +454,17 @@ async def vision_analyze(req: VisionAnalyzeRequest):
         # 스크린샷 자동 캡처 (없으면)
         screenshot_b64 = req.screenshot_base64
         if not screenshot_b64 and browser_state.page:
-            screenshot_bytes = await browser_state.page.screenshot()
+            try:
+                from playwright.async_api import Error as PlaywrightError
+
+                screenshot_bytes = await browser_state.page.screenshot()
+            except ModuleNotFoundError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Browser capture is unavailable; install the dev dependency group to enable Playwright.",
+                ) from exc
+            except PlaywrightError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
 
         if not screenshot_b64:
@@ -503,7 +509,7 @@ async def vision_analyze(req: VisionAnalyzeRequest):
 
     except HTTPException:
         raise
-    except (httpx.RequestError, httpx.HTTPStatusError, Error) as e:
+    except (httpx.RequestError, httpx.HTTPStatusError) as e:
         raise HTTPException(status_code=500, detail=str(e))
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Response parse error: {e}")

@@ -170,15 +170,12 @@ def test_engine_context_reuses_injected_memory_manager(tmp_path: Path):
 
 
 def test_memory_routes_use_the_shared_dependency_manager(monkeypatch):
-    from antigravity_k.api import dependencies
-    from antigravity_k.api.routes import legacy, system_api
+    from antigravity_k.api.routes import system_api
 
     manager = MemoryManager()
     monkeypatch.setattr(system_api, "_get_shared_memory_manager", lambda: manager)
-    monkeypatch.setattr(dependencies, "get_memory_manager", lambda: manager)
 
     assert system_api._get_memory_manager() is manager
-    assert legacy._get_memory_manager() is manager
 
 
 def test_dependency_orchestrator_receives_shared_memory_manager(tmp_path: Path, monkeypatch):

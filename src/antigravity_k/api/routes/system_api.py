@@ -1832,3 +1832,124 @@ async def get_live_harness_status():
         "cache_hit_rate": 85,
         "overall_health": overall_health,
     }
+
+
+# ─── Logs / Settings (legacy에서 귀속) ─────────────────
+@router.get("/api/logs")
+async def get_logs(lines: int = 100):
+    """Retrieve logs.
+
+    Args:
+        lines (int): int lines.
+
+    """
+    log_file = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "logs",
+        "server_debug.log",
+    )
+    if not os.path.exists(log_file):
+        return {"logs": ["Log file not found."]}
+    try:
+        with open(log_file, encoding="utf-8") as f:
+            all_lines = f.readlines()
+        return {"logs": all_lines[-lines:]}
+    except Exception as e:
+        logger.exception("Unhandled exception")
+        return {"logs": [f"Error reading logs: {str(e)}"]}
+
+
+@router.get("/api/settings")
+async def get_settings():
+    """Retrieve settings — .env에서 API 키 상태를 포함하여 반환."""
+    # __file__ = src/antigravity_k/api/routes/legacy.py → 5번 dirname = 프로젝트 루트
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+    config_file = os.path.join(project_root, "config.yaml")
+    if not os.path.exists(config_file):
+        return {"settings": {}}
+    try:
+        with open(config_file, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+
+        # .env에서 API 키 상태 확인 (마스킹)
+        env_keys = [
+            "OPENROUTER_API_KEY",
+            "NVIDIA_API_KEY",
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "ZAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+        ]
+        api_keys = {}
+        for k in env_keys:
+            val = os.environ.get(k, "")
+            if val and len(val) > 4:
+                api_keys[k] = val[:4] + "*" * (len(val) - 4)
+            elif val:
+                api_keys[k] = "****"
+            else:
+                api_keys[k] = ""
+        cfg["api_keys"] = api_keys
+        cfg.setdefault("model", {})
+        cfg["model"]["name"] = cfg.get("defaults", {}).get("reasoning", "")
+        cfg["model"]["provider"] = cfg.get("model", {}).get("api_engine", "")
+        return {"settings": cfg}
+    except Exception as e:
+        logger.exception("Unhandled exception")
+        return {"settings": {"error": str(e)}}
+
+
+@router.post("/api/settings/env")
+async def save_env_settings(request: Request):
+    """사용자가 설정한 API 키 등을 .env 파일에 저장합니다."""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "error": "Invalid JSON"}
+
+    _require_allowed(
+        "save_env_settings",
+        {"keys": sorted(key for key, value in body.items() if value)},
+        "critical",
+    )
+
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+    env_path = os.path.join(project_root, ".env")
+
+    # 기존 .env 읽기
+    existing_lines = []
+    existing_keys: dict[str, int] = {}
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                existing_lines.append(line.rstrip("\n"))
+                if "=" in line and not line.startswith("#"):
+                    key = line.split("=", 1)[0].strip()
+                    existing_keys[key] = i
+
+    # API 키와 설정값 업데이트
+    env_var_keys = [
+        "OPENROUTER_API_KEY",
+        "NVIDIA_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "ZAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "AGK_DAILY_BUDGET_USD",
+        "AGK_HOURLY_ACTION_LIMIT",
+    ]
+    updated_count = 0
+    for key, value in body.items():
+        if not value:
+            continue
+        if key in env_var_keys or key.endswith("_API_KEY"):
+            if key in existing_keys:
+                existing_lines[existing_keys[key]] = f"{key}={value}"
+            else:
+                existing_lines.append(f"{key}={value}")
+            updated_count += 1
+
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(existing_lines) + "\n")
+
+    return {"ok": True, "updated": updated_count, "message": "설정이 .env에 저장되었습니다."}

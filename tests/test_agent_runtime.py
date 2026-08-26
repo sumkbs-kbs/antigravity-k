@@ -520,7 +520,6 @@ def test_slash_natural_language_uses_bound_agent_runtime():
 
 def test_legacy_slash_registry_receives_bound_agent_runtime(monkeypatch):
     from antigravity_k.api import dependencies
-    from antigravity_k.api.routes import legacy
 
     runtime = object()
     monkeypatch.setattr(dependencies, "_slash_registry", None)
@@ -531,7 +530,9 @@ def test_legacy_slash_registry_receives_bound_agent_runtime(monkeypatch):
     monkeypatch.setattr(dependencies, "get_model_manager", lambda: None)
     monkeypatch.setattr(dependencies, "__get_skill_loader", lambda: None)
 
-    registry = legacy._get_slash_registry()
+    from antigravity_k.api.dependencies import get_slash_registry
+
+    registry = get_slash_registry()
 
     assert registry._agent_runtime is runtime
 
@@ -664,7 +665,7 @@ def test_task_api_views_use_canonical_runtime(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_stream_route_emits_direct_task_id_before_chunks(monkeypatch):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import agent_stream_api as legacy
 
     class Runtime:
         orchestrator = None

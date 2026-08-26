@@ -6,6 +6,7 @@
 from fastapi import APIRouter
 
 from .agent_activity import router as agent_activity_router
+from .agent_stream_api import router as agent_stream_router
 from .agent_tools import router as agent_tools_router
 from .approval_api import router as approval_router
 from .chat import router as chat_router
@@ -16,8 +17,8 @@ from .evolution_api import router as evolution_router
 from .filesystem import router as filesystem_router
 from .git_api import router as git_router
 from .kanban_api import router as kanban_api_router
-from .legacy import router as legacy_router
 from .models_api import router as models_router
+from .security_api import router as security_router
 from .system_api import router as system_api_router
 from .task_api import router as task_api_router
 from .unsloth_studio_api import router as unsloth_studio_router
@@ -39,8 +40,10 @@ api_router.include_router(task_api_router, tags=["tasks"])
 api_router.include_router(unsloth_studio_router, tags=["unsloth"])
 api_router.include_router(unsloth_training_router, tags=["unsloth"])
 api_router.include_router(kanban_api_router, tags=["kanban"])
+api_router.include_router(agent_stream_router, tags=["agent_stream"])
+api_router.include_router(security_router, tags=["security"])
 api_router.include_router(models_router, tags=["models"])
-api_router.include_router(legacy_router, tags=["legacy"])
+
 api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(evolution_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])

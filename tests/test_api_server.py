@@ -18,6 +18,8 @@ def mock_manager():
     manager.generate.return_value = "This is a mock response from the LLM."
     # status()가 딕셔너리를 반환하도록 설정 (health check 등에서 사용)
     manager.status.return_value = {"loaded_models": []}
+    # SlashCommandRegistry가 model_manager.router를 참조한다
+    manager.router = MagicMock()
     return manager
 
 
@@ -40,7 +42,7 @@ def client(mock_manager, mock_translator):
     app.dependency_overrides[dependencies.get_translator] = lambda: mock_translator
 
     # legacy._get_slash_registry()가 직접 호출하는 get_model_manager도 오버라이드
-    with patch("antigravity_k.api.routes.legacy.get_model_manager", return_value=mock_manager):
+    with patch("antigravity_k.api.dependencies.get_model_manager", return_value=mock_manager):
         with TestClient(app) as c:
             if config.security.access_pin:
                 c.headers.update({"X-Access-Pin": config.security.access_pin})
@@ -123,7 +125,7 @@ def test_skill_publish_npm_honors_permission_denial_before_publisher_start(clien
 
 
 def test_env_settings_honors_permission_denial_before_file_write(client, monkeypatch):
-    from antigravity_k.api.routes import legacy
+    from antigravity_k.api.routes import system_api as legacy
 
     gate = MagicMock()
     gate.check.return_value = Permission.DENY
@@ -258,9 +260,9 @@ def test_chat_completions_openai_format(client, mock_manager):
 
 
 def test_chat_completions_routes_slash_goal(client, mock_manager):
-    from antigravity_k.api.routes import legacy
+    import antigravity_k.api.dependencies as deps
 
-    legacy._slash_registry = None
+    deps._slash_registry = None
     payload = {
         "model": "test-combo",
         "messages": [{"role": "user", "content": "/goal DOM 기능을 테스트하고 리포트를 작성해줘"}],
@@ -278,9 +280,9 @@ def test_chat_completions_routes_slash_goal(client, mock_manager):
 
 
 def test_chat_completions_capabilities_uses_connected_policy(client, mock_manager):
-    from antigravity_k.api.routes import legacy
+    import antigravity_k.api.dependencies as deps
 
-    legacy._slash_registry = None
+    deps._slash_registry = None
     payload = {
         "model": "test-combo",
         "messages": [{"role": "user", "content": "/capabilities DOM browser testing"}],
@@ -300,9 +302,9 @@ def test_chat_completions_capabilities_uses_connected_policy(client, mock_manage
 
 
 def test_chat_completions_routes_slash_codex(client, mock_manager):
-    from antigravity_k.api.routes import legacy
+    import antigravity_k.api.dependencies as deps
 
-    legacy._slash_registry = None
+    deps._slash_registry = None
     payload = {
         "model": "test-combo",
         "messages": [
@@ -346,9 +348,9 @@ def test_chat_completions_self_capability_bypasses_llm(client, mock_manager):
 
 
 def test_slash_api_accepts_input_alias(client, mock_manager):
-    from antigravity_k.api.routes import legacy
+    import antigravity_k.api.dependencies as deps
 
-    legacy._slash_registry = None
+    deps._slash_registry = None
 
     response = client.post(
         "/api/slash",
@@ -364,9 +366,9 @@ def test_slash_api_accepts_input_alias(client, mock_manager):
 
 
 def test_slash_api_empty_command_returns_structured_error(client, mock_manager):
-    from antigravity_k.api.routes import legacy
+    import antigravity_k.api.dependencies as deps
 
-    legacy._slash_registry = None
+    deps._slash_registry = None
 
     response = client.post("/api/slash", json={})
 
@@ -377,9 +379,9 @@ def test_slash_api_empty_command_returns_structured_error(client, mock_manager):
 
 
 def test_slash_api_benchmark_help_returns_plain_text(client, mock_manager):
-    from antigravity_k.api.routes import legacy
+    import antigravity_k.api.dependencies as deps
 
-    legacy._slash_registry = None
+    deps._slash_registry = None
 
     response = client.post("/api/slash", json={"input": "/benchmark"})
 

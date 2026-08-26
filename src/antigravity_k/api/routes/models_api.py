@@ -2,9 +2,11 @@
 
 import json
 import logging
+import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+import yaml
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from antigravity_k import __version__
@@ -17,6 +19,7 @@ from antigravity_k.api.dependencies import (
     get_vault_engine,
 )
 from antigravity_k.api.models import EmbeddingData, EmbeddingRequest, EmbeddingResponse, UsageStats
+from antigravity_k.config import config
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.embeddings import EmbeddingEngine
 from antigravity_k.engine.model_manager import ModelManager
@@ -174,4 +177,57 @@ async def create_embeddings(
         )
     except (ValueError, RuntimeError, KeyError) as e:
         logger.error("Embedding error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/models/default")
+async def set_default_model(request: Request):
+    """Set default model for a role in config.yaml.
+
+    Body:
+        name: model slug (e.g. "nvidia/nemotron-3-ultra-550b-a55b:free")
+        role: optional role override (default: auto-detect from registry)
+    """
+    try:
+        body = await request.json()
+        name = body.get("name", "")
+        if not name:
+            raise HTTPException(status_code=400, detail="'name' is required")
+
+        from antigravity_k.engine.model_registry import ModelRegistry
+
+        registry = ModelRegistry()
+        model = registry.get_model(name)
+        if not model:
+            raise HTTPException(status_code=404, detail=f"Model '{name}' not found in registry")
+
+        role = body.get("role", model.role)
+        config_file = os.path.join(config.paths.project_root, "config.yaml")
+
+        with open(config_file, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+
+        if "defaults" not in cfg or not isinstance(cfg["defaults"], dict):
+            cfg["defaults"] = {}
+
+        old_default = cfg["defaults"].get(role, "(없음)")
+        cfg["defaults"][role] = name
+
+        with open(config_file, "w", encoding="utf-8") as f:
+            yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        # Re-registry reload
+        registry.reload()
+
+        return {
+            "ok": True,
+            "role": role,
+            "old_default": old_default,
+            "new_default": name,
+            "message": f"기본 {role} 모델이 {name}(으)로 변경되었습니다.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to set default model: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
