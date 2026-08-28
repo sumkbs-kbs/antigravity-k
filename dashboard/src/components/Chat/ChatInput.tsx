@@ -5,6 +5,12 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 
+declare global {
+  interface Window {
+    __chatInputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  }
+}
+
 interface Props {
   onSend: (text: string, imageDataUrl?: string) => void;
   onStop: () => void;
@@ -25,7 +31,7 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
     if (registerRef && textareaRef.current) {
       registerRef(textareaRef.current);
       // Also expose globally for approval buttons
-      (window as any).__chatInputRef = textareaRef;
+      window.__chatInputRef = textareaRef;
     }
     return () => {
       if (registerRef) registerRef(null);
@@ -65,7 +71,10 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setImageDataUrl(ev.target?.result as string);
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === 'string') setImageDataUrl(result);
+    };
     reader.readAsDataURL(file);
   };
 
@@ -74,7 +83,10 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
     const file = e.dataTransfer.files?.[0];
     if (file?.type.startsWith('image/')) {
       const reader = new FileReader();
-      reader.onload = (ev) => setImageDataUrl(ev.target?.result as string);
+      reader.onload = (ev) => {
+        const result = ev.target?.result;
+        if (typeof result === 'string') setImageDataUrl(result);
+      };
       reader.readAsDataURL(file);
     }
   }, []);

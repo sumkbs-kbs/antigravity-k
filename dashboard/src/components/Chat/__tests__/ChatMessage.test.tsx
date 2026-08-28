@@ -129,7 +129,7 @@ function mermaidContent(): string {
 
 describe('ChatMessage Mermaid diagram', () => {
   afterAll(() => {
-    delete (window as any).mermaid;
+    delete window.mermaid;
   });
 
   it('shows error when mermaid library not loaded', async () => {
@@ -141,7 +141,7 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('renders mermaid diagram when library is available', async () => {
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockResolvedValue({ svg: '<svg>test</svg>' }),
     };
 
@@ -154,7 +154,7 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('shows loading state while rendering diagram', async () => {
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockReturnValue(new Promise(() => {})),
     };
 
@@ -167,7 +167,7 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('shows error message when mermaid render throws', async () => {
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockRejectedValue(new Error('Syntax error in graph')),
     };
 
@@ -179,10 +179,10 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('handles cleanup on unmount during render', async () => {
-    let resolveRender: ((v: any) => void) | null = null;
-    const renderPromise = new Promise<any>(resolve => { resolveRender = resolve; });
+    const renderDeferred: { resolve: (value: { svg: string }) => void } = { resolve: () => {} };
+    const renderPromise = new Promise<{ svg: string }>(resolve => { renderDeferred.resolve = resolve; });
 
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockReturnValue(renderPromise),
     };
 
@@ -195,7 +195,7 @@ describe('ChatMessage Mermaid diagram', () => {
 
     // Unmount and let the cancelled flag handle cleanup
     unmount();
-    resolveRender!({ svg: '<svg>test</svg>' });
+    renderDeferred.resolve({ svg: '<svg>test</svg>' });
 
     await new Promise(r => setTimeout(r, 50));
     expect(screen.queryByText(/다이어그램/)).not.toBeInTheDocument();

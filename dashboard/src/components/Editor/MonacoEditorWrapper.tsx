@@ -14,7 +14,8 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import Editor, { BeforeMount, OnMount } from '@monaco-editor/react';
+import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
+import type { Uri } from 'monaco-editor';
 import { useProblemsStore } from '../../stores/problemsStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useInlineEditStore } from '../../stores/inlineEditStore';
@@ -136,8 +137,8 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     };
 
     // Listen for marker changes via Monaco's onDidChangeMarkers
-    const markerListener = monaco.editor.onDidChangeMarkers((resources: any[]) => {
-      if (resources.some((r: any) => r.toString() === modelUri?.toString())) {
+    const markerListener = monaco.editor.onDidChangeMarkers((resources: readonly Uri[]) => {
+      if (resources.some((resource) => resource.toString() === modelUri?.toString())) {
         debouncedUpdate();
       }
     });
@@ -168,7 +169,7 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     revealListenerRef.current = handleRevealLine;
 
     // ─── Ctrl+K: Inline Edit (Cursor-style) ───────────────────────
-    const inlineEditAction = editor.addAction({
+    editor.addAction({
       id: 'inline-edit',
       label: 'Inline Edit (Ctrl+K)',
       keybindings: [
@@ -192,7 +193,7 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     });
 
     // ─── Listen for Ctrl+Enter to accept inline edit suggestion ────
-    const inlineAcceptAction = editor.addAction({
+    editor.addAction({
       id: 'inline-accept',
       label: 'Accept Inline Edit Suggestion',
       keybindings: [

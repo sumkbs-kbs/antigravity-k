@@ -10,7 +10,7 @@ export type ExecutionMode = 'interactive' | 'plan' | 'build';
 
 export interface SystemStatus {
   healthy: boolean;
-  backends: Record<string, any>;
+  backends: Record<string, unknown>;
   ragFiles: number;
   covActive: boolean;
   cpuPercent: number;
@@ -68,7 +68,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   mode: 'interactive',
 
-  pinModalVisible: false,
+  pinModalVisible: true,
   commandPaletteVisible: false,
   folderBrowserVisible: false,
   chatHistoryVisible: false,

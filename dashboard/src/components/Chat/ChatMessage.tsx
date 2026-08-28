@@ -27,8 +27,16 @@ const GitHubAlert: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 // ─── Mermaid Diagram ──────────────────────────────────────────────
 declare global {
+  interface MermaidRenderResult {
+    readonly svg: string;
+  }
+
+  interface MermaidRuntime {
+    readonly render: (id: string, definition: string) => Promise<MermaidRenderResult>;
+  }
+
   interface Window {
-    mermaid: any;
+    mermaid?: MermaidRuntime;
   }
 }
 
@@ -39,7 +47,8 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
   const renderId = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`).current;
 
   useEffect(() => {
-    if (!containerRef.current || !window.mermaid) {
+    const mermaid = window.mermaid;
+    if (!containerRef.current || !mermaid) {
       setError('Mermaid library not loaded');
       setLoading(false);
       return;
@@ -51,14 +60,15 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
       try {
         if (!containerRef.current) return;
         containerRef.current.innerHTML = '';
-        const { svg } = await window.mermaid.render(renderId, code);
+        const { svg } = await mermaid.render(renderId, code);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
           setError(null);
         }
-      } catch (e: any) {
+      } catch (error) {
         if (!cancelled) {
-          setError(e.message || 'Mermaid render failed');
+          const message = error instanceof Error ? error.message : String(error);
+          setError(message || 'Mermaid render failed');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -146,8 +156,8 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
 function extractCodeText(children: React.ReactNode): string {
   if (typeof children === 'string') return children;
   if (typeof children === 'number') return String(children);
-  if (children && typeof children === 'object' && 'props' in children) {
-    return extractCodeText((children as any).props.children);
+  if (React.isValidElement<{ children?: React.ReactNode }>(children)) {
+    return extractCodeText(children.props.children);
   }
   if (Array.isArray(children)) {
     return children.map(extractCodeText).join('');
@@ -226,7 +236,7 @@ function ChatMessageComponent({ message }: Props) {
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight, rehypeRaw]}
             components={{
-              code({ className, children, ...props }) {
+              code({ className, children }) {
                 const isInline = extractLanguage(className) === '' && !className?.includes('hljs');
                 if (isInline) {
                   return <InlineCode>{children}</InlineCode>;

@@ -72,10 +72,18 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   },
 
   setPref: (key, value) => {
-    set({ [key]: value } as any);
+    set({ [key]: value } as Pick<ThemePrefs, typeof key>);
     // Persist
     const state = get();
-    const { load, apply, setPref, reset, ...prefs } = state;
+    const prefs = {
+      accentColor: state.accentColor,
+      fontSize: state.fontSize,
+      sidebarWidth: state.sidebarWidth,
+      showMinimap: state.showMinimap,
+      showLineNumbers: state.showLineNumbers,
+      wordWrap: state.wordWrap,
+      tabSize: state.tabSize,
+    } satisfies ThemePrefs;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     // Apply CSS variables
     get().apply();

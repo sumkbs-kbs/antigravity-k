@@ -16,7 +16,11 @@ export interface WikiTreeItem {
 export interface WikiDocument {
   path: string;
   content: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 export interface WikiState {
@@ -43,7 +47,7 @@ export interface WikiState {
   initVault: () => Promise<void>;
   loadTree: () => Promise<void>;
   loadDocument: (path: string) => Promise<void>;
-  saveDocument: (path: string, content: string, metadata?: Record<string, any>) => Promise<boolean>;
+  saveDocument: (path: string, content: string, metadata?: Record<string, unknown>) => Promise<boolean>;
   createDocument: (path: string, title: string, tags: string[]) => Promise<boolean>;
   searchDocuments: (q: string) => Promise<void>;
   updateVaultConfig: (path: string) => Promise<boolean>;
@@ -114,8 +118,8 @@ export const useWikiStore = create<WikiState>((set, get) => ({
         isEditing: false,
         editContent: data.content || '',
       });
-    } catch (err: any) {
-      console.error('Wiki load error:', err);
+    } catch (err) {
+      console.error('Wiki load error:', err instanceof Error ? err.message : String(err));
     }
   },
 
@@ -161,11 +165,22 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     }
     try {
       const resp = await fetch(`/v1/notes/search?q=${encodeURIComponent(q)}`);
-      const data = await resp.json();
-      const results = [
-        ...(data.keyword_results || []),
-        ...(data.semantic_results || []).map((r: any) => r.metadata?.source || r.id),
-      ];
+      const rawData: unknown = await resp.json();
+      const data = isRecord(rawData) ? rawData : {};
+      const keywordResults = Array.isArray(data.keyword_results)
+        ? data.keyword_results.filter((item): item is string => typeof item === 'string')
+        : [];
+      const semanticResults = Array.isArray(data.semantic_results)
+        ? data.semantic_results.flatMap((item) => {
+            if (!isRecord(item)) return [];
+            const metadata = isRecord(item.metadata) ? item.metadata : {};
+            const source = typeof metadata.source === 'string' ? metadata.source : undefined;
+            const id = typeof item.id === 'string' ? item.id : undefined;
+            const result = source ?? id;
+            return result ? [result] : [];
+          })
+        : [];
+      const results = [...keywordResults, ...semanticResults];
       set({ searchResults: [...new Set(results)] });
     } catch {
       set({ searchResults: [] });

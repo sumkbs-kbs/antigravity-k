@@ -41,6 +41,10 @@ const THEME_COLORS = ['#7c6aef', '#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#e
 
 const FONT_SIZES = [12, 13, 14, 15, 16, 18, 20];
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 const SettingsPage: React.FC = () => {
   const { accentColor, fontSize, showMinimap, wordWrap, tabSize, setPref, reset: resetTheme } = useThemeStore();
   const { autoSaveEnabled, setAutoSaveEnabled } = useLocalHistoryStore();
@@ -97,8 +101,8 @@ const SettingsPage: React.FC = () => {
       } else {
         setStatusMsg(`⚠️ ${data.error || data.detail || '저장 실패 — PIN을 확인하세요'}`);
       }
-    } catch (err: any) {
-      setStatusMsg(`⚠️ localStorage에 저장됨 (.env 동기화 실패: ${err.message})`);
+    } catch (error) {
+      setStatusMsg(`⚠️ localStorage에 저장됨 (.env 동기화 실패: ${errorMessage(error)})`);
     } finally {
       setSaving(false);
     }
@@ -400,14 +404,17 @@ const LogLevelSection: React.FC = () => {
   const [logMsg, setLogMsg] = useState('');
   const [expanded, setExpanded] = useState(false);
 
+  const applyLogLevelData = (data: Awaited<ReturnType<typeof fetchLogLevels>>) => {
+    if (data.ok) {
+      setLoggers(data.loggers);
+      setDebugModeState(data.debug_mode);
+    }
+  };
+
   const loadLogLevels = async () => {
     setLoading(true);
     try {
-      const data = await fetchLogLevels();
-      if (data.ok) {
-        setLoggers(data.loggers);
-        setDebugModeState(data.debug_mode);
-      }
+      applyLogLevelData(await fetchLogLevels());
     } catch {
       setLogMsg('⚠️ 로그 레벨을 불러오는데 실패했습니다.');
     } finally {
@@ -416,7 +423,21 @@ const LogLevelSection: React.FC = () => {
   };
 
   useEffect(() => {
-    loadLogLevels();
+    let active = true;
+    void fetchLogLevels()
+      .then(data => {
+        if (active) applyLogLevelData(data);
+      })
+      .catch(() => {
+        if (active) setLogMsg('⚠️ 로그 레벨을 불러오는데 실패했습니다.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleSetLevel = async () => {
@@ -428,8 +449,8 @@ const LogLevelSection: React.FC = () => {
       } else {
         setLogMsg(`⚠️ ${data.error || '설정 실패'}`);
       }
-    } catch (err: any) {
-      setLogMsg(`⚠️ 네트워크 오류: ${err.message}`);
+    } catch (error) {
+      setLogMsg(`⚠️ 네트워크 오류: ${errorMessage(error)}`);
     }
   };
 
@@ -442,8 +463,8 @@ const LogLevelSection: React.FC = () => {
       } else {
         setLogMsg(`⚠️ ${data.error || '설정 실패'}`);
       }
-    } catch (err: any) {
-      setLogMsg(`⚠️ 네트워크 오류: ${err.message}`);
+    } catch (error) {
+      setLogMsg(`⚠️ 네트워크 오류: ${errorMessage(error)}`);
     }
   };
 
@@ -458,8 +479,8 @@ const LogLevelSection: React.FC = () => {
       } else {
         setLogMsg(`⚠️ ${data.error || '전환 실패'}`);
       }
-    } catch (err: any) {
-      setLogMsg(`⚠️ 네트워크 오류: ${err.message}`);
+    } catch (error) {
+      setLogMsg(`⚠️ 네트워크 오류: ${errorMessage(error)}`);
     }
   };
 
@@ -502,7 +523,7 @@ const LogLevelSection: React.FC = () => {
         <button className="btn-ghost" onClick={() => handleSetAllLevels('INFO')} title="모든 로거 INFO">
           ℹ️ 전체 INFO
         </button>
-        <button className="btn-ghost" onClick={loadLogLevels} title="새로고침">
+        <button className="btn-ghost" onClick={() => { void loadLogLevels(); }} title="새로고침">
           🔄 새로고침
         </button>
       </div>

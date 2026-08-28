@@ -27,7 +27,7 @@ export interface OutputEntry {
   level: OutputLevel;
   message: string;
   /** Optional structured data */
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface OutputState {
@@ -46,7 +46,7 @@ export interface OutputState {
 let outputCounter = 0;
 const MAX_ENTRIES = 5000;
 
-export const useOutputStore = create<OutputState>((set, get) => ({
+export const useOutputStore = create<OutputState>((set) => ({
   entries: [],
   activeSource: null,
   maxEntries: MAX_ENTRIES,
@@ -79,12 +79,12 @@ export function logOutput(
   message: string,
   source: OutputSource = OUTPUT_SOURCES.SYSTEM,
   level: OutputLevel = 'info',
-  data?: Record<string, any>,
+  data?: Record<string, unknown>,
 ) {
   useOutputStore.getState().addOutput({ source, level, message, data });
 }
 
-export function logToolOutput(message: string, data?: Record<string, any>) {
+export function logToolOutput(message: string, data?: Record<string, unknown>) {
   logOutput(message, OUTPUT_SOURCES.TOOL, 'info', data);
 }
 

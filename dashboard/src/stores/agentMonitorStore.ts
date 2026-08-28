@@ -18,7 +18,7 @@ export interface LogEntry {
   source: string;
   message: string;
   /** Optional structured metadata */
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface ActiveTool {
@@ -89,7 +89,7 @@ const MAX_TASKS = 20;
 let logCounter = 0;
 let eventCounter = 0;
 
-export const useAgentMonitorStore = create<AgentMonitorState>((set, get) => ({
+export const useAgentMonitorStore = create<AgentMonitorState>((set) => ({
   agentStatus: 'idle',
   activeTool: null,
   logs: [],
@@ -177,7 +177,7 @@ export const useAgentMonitorStore = create<AgentMonitorState>((set, get) => ({
 
 /* ─── Convenience helpers ──────────────────────────────────── */
 
-export function logAgent(message: string, level: LogEntry['level'] = 'info', source = 'Agent', data?: Record<string, any>) {
+export function logAgent(message: string, level: LogEntry['level'] = 'info', source = 'Agent', data?: Record<string, unknown>) {
   useAgentMonitorStore.getState().addLog({ level, source, message, data });
 }
 

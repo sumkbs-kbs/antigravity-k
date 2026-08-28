@@ -17,26 +17,30 @@ const PluginCard: React.FC<{ id: string }> = ({ id }) => {
   const { addToast } = useUiStore();
 
   const entry = getPlugin(id);
+  const pluginName = entry?.definition.manifest.name ?? '';
+
+  const handleToggle = useCallback(() => {
+    if (!entry) return;
+    if (entry.enabled) {
+      disable(id);
+      addToast(`🔌 ${pluginName} 비활성화됨`, 'info');
+    } else {
+      enable(id);
+      addToast(`🔌 ${pluginName} 활성화됨`, 'success');
+    }
+  }, [id, entry, pluginName, enable, disable, addToast]);
+
+  const handleUnregister = useCallback(() => {
+    if (!entry) return;
+    if (confirm(`"${pluginName}" 플러그인을 제거하시겠습니까?`)) {
+      unregister(id);
+      addToast(`🗑️ ${pluginName} 제거됨`, 'info');
+    }
+  }, [id, entry, pluginName, unregister, addToast]);
+
   if (!entry) return null;
 
   const { definition: plugin, enabled, loadedAt } = entry;
-
-  const handleToggle = useCallback(() => {
-    if (enabled) {
-      disable(id);
-      addToast(`🔌 ${plugin.manifest.name} 비활성화됨`, 'info');
-    } else {
-      enable(id);
-      addToast(`🔌 ${plugin.manifest.name} 활성화됨`, 'success');
-    }
-  }, [id, enabled, plugin.manifest.name, enable, disable, addToast]);
-
-  const handleUnregister = useCallback(() => {
-    if (confirm(`"${plugin.manifest.name}" 플러그인을 제거하시겠습니까?`)) {
-      unregister(id);
-      addToast(`🗑️ ${plugin.manifest.name} 제거됨`, 'info');
-    }
-  }, [id, plugin.manifest.name, unregister, addToast]);
 
   const loadedDate = new Date(loadedAt).toLocaleString('ko-KR');
 

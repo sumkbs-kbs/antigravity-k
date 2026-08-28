@@ -5,7 +5,10 @@
  */
 
 import { create } from 'zustand';
+import type { OnMount } from '@monaco-editor/react';
 import { firePluginHook } from '../plugin/pluginRegistry';
+
+type MonacoEditor = Parameters<OnMount>[0];
 
 export interface OpenFile {
   path: string;
@@ -21,7 +24,7 @@ export interface EditorState {
   activeFilePath: string | null;
 
   // Monaco editor instance (for overlay widgets, etc.)
-  monacoEditor: any | null;
+  monacoEditor: MonacoEditor | null;
 
   // Preview
   previewVisible: boolean;
@@ -33,7 +36,7 @@ export interface EditorState {
   openFile: (path: string, name: string, content: string, language?: string) => void;
   closeFile: (path: string) => void;
   setActiveFile: (path: string) => void;
-  setMonacoEditor: (editor: any | null) => void;
+  setMonacoEditor: (editor: MonacoEditor | null) => void;
   updateFileContent: (path: string, content: string) => void;
   markFileSaved: (path: string) => void;
 
