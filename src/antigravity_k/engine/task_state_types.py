@@ -52,11 +52,30 @@ class InvalidTaskStatusError(ValueError):
         super().__init__(f"Unknown task status: {status}")
 
 
+def parse_task_status(value: str) -> TaskStatusName:
+    if value == "pending":
+        return "pending"
+    if value == "running":
+        return "running"
+    if value == "resuming":
+        return "resuming"
+    if value == "done":
+        return "done"
+    if value == "failed":
+        return "failed"
+    if value == "paused":
+        return "paused"
+    if value == "cancelled":
+        return "cancelled"
+    raise InvalidTaskStatusError(value)
+
+
 __all__ = [
     "ALLOWED_TASK_TRANSITIONS",
     "CheckpointRecord",
     "InvalidTaskStatusError",
     "InvalidTaskTransitionError",
+    "parse_task_status",
     "TASK_STATUSES",
     "TERMINAL_TASK_STATUSES",
     "TaskRecord",

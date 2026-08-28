@@ -334,13 +334,13 @@ class OpenRouterProvider(BaseInferenceProvider):
                 # 네이티브 tool_call 누적 버퍼 (스트리밍 tool_calls 조립용)
                 pending_tool_calls: dict[int, dict[str, Any]] = {}
                 for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line or line == "data: [DONE]":
+                    line_text = line.decode("utf-8").strip()
+                    if not line_text or line_text == "data: [DONE]":
                         continue
-                    if line.startswith("data: "):
-                        line = line[6:]
+                    if line_text.startswith("data: "):
+                        line_text = line_text[6:]
                     try:
-                        chunk = json.loads(line)
+                        chunk = json.loads(line_text)
                         if "choices" in chunk and chunk["choices"]:
                             delta = chunk["choices"][0].get("delta", {})
                             # 1. 일반 텍스트 content
@@ -920,13 +920,13 @@ class NimProvider(BaseInferenceProvider):
             with safe_urlopen(req, timeout=300) as response:
                 pending_tool_calls: dict[int, dict[str, Any]] = {}
                 for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line or line == "data: [DONE]":
+                    line_text = line.decode("utf-8").strip()
+                    if not line_text or line_text == "data: [DONE]":
                         continue
-                    if line.startswith("data: "):
-                        line = line[6:]
+                    if line_text.startswith("data: "):
+                        line_text = line_text[6:]
                     try:
-                        chunk = json.loads(line)
+                        chunk = json.loads(line_text)
                         if "choices" in chunk and chunk["choices"]:
                             delta = chunk["choices"][0].get("delta", {})
                             if "content" in delta and delta["content"]:
@@ -1046,13 +1046,13 @@ class OpenAIDirectProvider(OpenRouterProvider):
             with safe_urlopen(req, timeout=300) as response:
                 pending_tool_calls: dict[int, dict[str, Any]] = {}
                 for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line or line == "data: [DONE]":
+                    line_text = line.decode("utf-8").strip()
+                    if not line_text or line_text == "data: [DONE]":
                         continue
-                    if line.startswith("data: "):
-                        line = line[6:]
+                    if line_text.startswith("data: "):
+                        line_text = line_text[6:]
                     try:
-                        chunk = json.loads(line)
+                        chunk = json.loads(line_text)
                         if "choices" in chunk and chunk["choices"]:
                             delta = chunk["choices"][0].get("delta", {})
                             if "content" in delta and delta["content"]:
