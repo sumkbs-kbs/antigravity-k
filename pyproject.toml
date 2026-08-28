@@ -91,6 +91,12 @@ version = {attr = "antigravity_k.__version__"}
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead\\.:starlette.exceptions.StarletteDeprecationWarning",
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+]
 markers = [
     "benchmark: 성능 회귀 테스트 (latency 임계값 검증)",
     "slow: 실행 시간이 긴 느린 테스트 (CI에서 -m 'not slow'로 제외 가능)",
