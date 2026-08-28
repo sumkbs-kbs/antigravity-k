@@ -23,6 +23,7 @@ from antigravity_k.engine.model_registry import ModelRegistry
 from antigravity_k.engine.orchestrator import OrchestratorAgent
 from antigravity_k.engine.project_memory import ProjectMemoryProvider, project_memory_dir
 from antigravity_k.engine.protocol_translator import ProtocolTranslator
+from antigravity_k.engine.scheduled_job_service import ScheduledJobService
 from antigravity_k.engine.session_manager import SessionManager
 from antigravity_k.engine.skill_loader import SkillLoader
 from antigravity_k.engine.vault import VaultEngine
@@ -41,6 +42,7 @@ _context_shaper: ContextShaper | None = None
 _session_manager: SessionManager | None = None
 _orchestrator: OrchestratorAgent | None = None
 _agent_runtime: AgentRuntime | None = None
+_scheduled_job_service: ScheduledJobService | None = None
 _benchmark_harness: BenchmarkHarness | None = None
 _memory_manager: MemoryManager | None = None
 _mode_manager: Any | None = None
@@ -394,6 +396,23 @@ def get_agent_runtime() -> AgentRuntime:
         if ctx is not None:
             ctx.slash_commands.bind_runtime(_agent_runtime)
     return _agent_runtime
+
+
+def get_scheduled_job_service() -> ScheduledJobService:
+    global _scheduled_job_service
+    if _scheduled_job_service is None:
+        from antigravity_k.engine.scheduled_job_store import ScheduledJobStore
+        from antigravity_k.engine.task_runner import get_task_runner
+
+        runtime = get_agent_runtime()
+        configured_path = os.environ.get("AGK_JOB_DB_PATH", "").strip()
+        db_path = configured_path or get_task_runner().db_path
+        _scheduled_job_service = ScheduledJobService(
+            ScheduledJobStore(db_path),
+            runtime.submit_task,
+            runtime.get_task_status,
+        )
+    return _scheduled_job_service
 
 
 def get_translator() -> ProtocolTranslator:

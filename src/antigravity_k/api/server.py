@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Any, cast
 
+import anyio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -142,11 +143,33 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[Startup] API Cache cleanup init skipped")
 
+    _scheduled_job_task: asyncio.Task[None] | None = None
+
+    try:
+
+        async def _scheduled_job_loop() -> None:
+            while True:
+                await anyio.sleep(15)
+                try:
+                    from antigravity_k.api.dependencies import get_scheduled_job_service
+
+                    service = get_scheduled_job_service()
+                    await asyncio.to_thread(service.tick)
+                except Exception:
+                    logger.exception("[Jobs] Scheduled job tick failed")
+
+        _scheduled_job_task = asyncio.create_task(_scheduled_job_loop())
+        logger.info("[Startup] Scheduled job loop started (interval=15s)")
+    except Exception:
+        logger.exception("[Startup] Scheduled job loop init skipped")
+
     yield
 
     # Cancel cache cleanup
     if _cache_cleanup_task is not None and not _cache_cleanup_task.done():
         _cache_cleanup_task.cancel()
+    if _scheduled_job_task is not None and not _scheduled_job_task.done():
+        _scheduled_job_task.cancel()
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")
     tasks = [task for task in getattr(app.state, "background_tasks", set()) if not task.done()]

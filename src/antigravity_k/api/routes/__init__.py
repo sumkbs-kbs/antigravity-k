@@ -16,6 +16,7 @@ from .events import router as events_router
 from .evolution_api import router as evolution_router
 from .filesystem import router as filesystem_router
 from .git_api import router as git_router
+from .job_api import router as job_api_router
 from .kanban_api import router as kanban_api_router
 from .models_api import router as models_router
 from .security_api import router as security_router
@@ -37,6 +38,7 @@ api_router.include_router(filesystem_router, tags=["filesystem"])
 api_router.include_router(system_api_router, tags=["system"])
 api_router.include_router(vault_privacy_router, tags=["memory"])
 api_router.include_router(task_api_router, tags=["tasks"])
+api_router.include_router(job_api_router, tags=["jobs"])
 api_router.include_router(unsloth_studio_router, tags=["unsloth"])
 api_router.include_router(unsloth_training_router, tags=["unsloth"])
 api_router.include_router(kanban_api_router, tags=["kanban"])
