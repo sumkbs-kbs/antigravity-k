@@ -102,6 +102,16 @@ def test_query_relevance_requires_exact_version_evidence():
     )
 
 
+def test_query_relevance_accepts_bounded_concept_aliases():
+    result = SearchResult(
+        title="Index update notes",
+        url="https://example.com/updates",
+        snippet="The latest release documents updated metadata.",
+    )
+
+    assert has_query_relevant_result("freshness", [result])
+
+
 def test_golden_search_cases_measure_retrieval_metrics_from_fixture():
     fixture_path = Path(__file__).parent / "fixtures" / "search_quality_cases.json"
     cases = [SearchGoldenCase.from_dict(case) for case in json.loads(fixture_path.read_text())]

@@ -11,6 +11,7 @@ import socket
 from collections.abc import Sequence
 from dataclasses import replace
 from functools import partial
+from typing import Final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .web_search_models import SearchResult
@@ -24,6 +25,15 @@ _VERSION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _AUTHORITATIVE_INTENT_PATTERN = re.compile(r"\b(?:official|docs?|documentation|rfc|standard)\b", re.IGNORECASE)
+_QUERY_ALIASES: Final[dict[str, tuple[str, ...]]] = {
+    "citation": ("reference", "evidence", "source"),
+    "compaction": ("compress", "compression", "compact"),
+    "freshness": ("updated", "latest", "current"),
+    "latency": ("delay", "response", "speed"),
+    "provenance": ("citation", "evidence", "source"),
+    "recall": ("retrieve", "retrieval"),
+    "runtime": ("server", "inference", "execution"),
+}
 
 
 def canonicalize_url(url: str) -> str:
@@ -167,15 +177,16 @@ def rank_search_results(
 
 
 def _query_relevance(query: str, result: SearchResult) -> float:
-    query_tokens = set(_TOKEN_PATTERN.findall(query.casefold()))
+    query_tokens: set[str] = set(_TOKEN_PATTERN.findall(query.casefold()))
     if not query_tokens:
         return 0.0
-    title_tokens = set(_TOKEN_PATTERN.findall(result.title.casefold()))
-    result_tokens = title_tokens | set(_TOKEN_PATTERN.findall(result.snippet.casefold()))
-    coverage = len(query_tokens & result_tokens) / len(query_tokens)
-    title_coverage = len(query_tokens & title_tokens) / len(query_tokens)
+    title_tokens: set[str] = set(_TOKEN_PATTERN.findall(result.title.casefold()))
+    result_tokens: set[str] = title_tokens | set(_TOKEN_PATTERN.findall(result.snippet.casefold()))
+    alias_tokens = {alias for token in query_tokens for alias in _QUERY_ALIASES.get(token, ())}
+    coverage = (len(query_tokens & result_tokens) + (0.5 * len(alias_tokens & result_tokens))) / len(query_tokens)
+    title_coverage = (len(query_tokens & title_tokens) + (0.5 * len(alias_tokens & title_tokens))) / len(query_tokens)
     score = min(1.0, (coverage * 0.7) + (title_coverage * 0.3))
-    specific_terms = _VERSION_PATTERN.findall(query.casefold())
+    specific_terms: list[str] = _VERSION_PATTERN.findall(query.casefold())
     if specific_terms:
         compact_result = re.sub(r"[\W_]+", "", f"{result.title} {result.snippet}".casefold())
         exact_matches = sum(1 for term in specific_terms if re.sub(r"[\W_]+", "", term) in compact_result)
