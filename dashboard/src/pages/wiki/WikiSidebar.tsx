@@ -24,8 +24,8 @@ const WikiSidebar: React.FC<Props> = ({
   onSearchChange, onSelectDoc, onOpenVaultModal, onOpenNewModal,
 }) => {
   const renderTree = (items: WikiTreeItem[]) => {
-    return items.map((item, i) => (
-      <TreeNode key={item.path || i} item={item} depth={0} onSelect={onSelectDoc} />
+    return items.map(item => (
+      <TreeNode key={item.path} item={item} depth={0} onSelect={onSelectDoc} />
     ));
   };
 
@@ -45,6 +45,9 @@ const WikiSidebar: React.FC<Props> = ({
         id="wiki-vault-path"
         style={{ padding: '4px 12px', fontSize: 11, color: 'var(--text-muted)', background: 'rgba(0,0,0,0.15)', borderBottom: '1px solid var(--glass-border)', cursor: 'pointer' }}
         onClick={onOpenVaultModal}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenVaultModal(); } }}
         title={`Vault: ${vaultPath}`}
       >
         📁 {vaultPath ? (vaultPath.length > 40 ? '...' + vaultPath.slice(-37) : vaultPath) : '미설정'}
@@ -64,8 +67,8 @@ const WikiSidebar: React.FC<Props> = ({
       {/* Tree / Search Results */}
       <div id="wiki-tree" className="wiki-tree" style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
         {searchQuery && searchResults.length > 0 ? (
-          searchResults.map((p, i) => (
-            <div key={i} className="tree-item file" style={{ padding: '8px 16px', cursor: 'pointer' }} onClick={() => onSelectDoc(p)}>
+          searchResults.map(p => (
+            <div key={p} className="tree-item file" style={{ padding: '8px 16px', cursor: 'pointer' }} onClick={() => onSelectDoc(p)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectDoc(p); } }}>
               <span className="tree-icon">🔍</span>
               <span className="tree-name">{p}</span>
             </div>

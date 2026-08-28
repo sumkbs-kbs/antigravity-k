@@ -7,6 +7,8 @@
  * Ported from Vanilla JS original (chat.js formatContent function).
  */
 
+import DOMPurify from 'dompurify';
+
 // ─── Agent Badge Definitions ────────────────────────────────────────
 const AGENT_BADGES: Record<string, [string, string]> = {
   CEO: ['ceo', '🏢'],
@@ -20,6 +22,32 @@ const AGENT_BADGES: Record<string, [string, string]> = {
   ARBITER: ['arbiter', '🔨'],
   SELF: ['self', '💬'],
 };
+
+export function sanitizeMarkdown(text: string): string {
+  if (!text) return text;
+
+  const protectedSegments: string[] = [];
+  const protectedText = text
+    .replace(/```[\s\S]*?```|`[^`]+`/g, (segment) => {
+      const token = `__AGK_PROTECTED_${protectedSegments.length}__`;
+      protectedSegments.push(segment);
+      return token;
+    })
+    .replace(/<\/?think>/gi, (tag) => {
+      const token = `__AGK_PROTECTED_${protectedSegments.length}__`;
+      protectedSegments.push(tag);
+      return token;
+    });
+
+  let sanitized = DOMPurify.sanitize(protectedText, {
+    USE_PROFILES: { html: true },
+    FORBID_ATTR: ['style'],
+  });
+  protectedSegments.forEach((segment, index) => {
+    sanitized = sanitized.replace(`__AGK_PROTECTED_${index}__`, segment);
+  });
+  return sanitized;
+}
 
 /**
  * Preprocess agent-specific markdown patterns into HTML
@@ -70,7 +98,7 @@ export function preprocessContent(text: string): string {
         .map((line: string) => line.replace(/^>\s?/, ''));
       const bodyHtml = contentLines
         .filter((l: string) => l.trim())
-        .map((l: string) => `<p>${l}</p>`)
+        .map((l: string) => `<p>${escapeHTML(l)}</p>`)
         .join('\n');
 
       return (
@@ -96,26 +124,26 @@ export function preprocessContent(text: string): string {
     (_match, step, total, toolPlaceholder) => {
       const idx = parseInt(toolPlaceholder.match(/%%INLINE_(\d+)%%/)?.[1] || '0');
       const toolName = inlineCodes[idx] || toolPlaceholder;
-      return `<div class="tool-timeline-badge start"><span class="icon">🛠️</span> <span class="text">Executing Tool <b>${toolName}</b> <span class="step-info">(Step ${step}/${total})</span></span></div>`;
+      return `<div class="tool-timeline-badge start"><span class="icon">🛠️</span> <span class="text">Executing Tool <b>${escapeHTML(toolName)}</b> <span class="step-info">(Step ${step}/${total})</span></span></div>`;
     }
   );
 
   // 🐍 **[Ouroboros Guard]**
   processed = processed.replace(
     /🐍 \*\*\[Ouroboros Guard\]\*\*(.*)/g,
-    '<div class="tool-timeline-badge warning"><span class="icon">🐍</span> <span class="text"><b>Ouroboros Guard:</b>$1</span></div>'
+    (_match, detail) => `<div class="tool-timeline-badge warning"><span class="icon">🐍</span> <span class="text"><b>Ouroboros Guard:</b>${escapeHTML(detail)}</span></div>`
   );
 
   // ⚠️ **[Step Limit]**
   processed = processed.replace(
     /⚠️ \*\*\[Step Limit\]\*\*(.*)/g,
-    '<div class="tool-timeline-badge error"><span class="icon">🛑</span> <span class="text"><b>Step Limit:</b>$1</span></div>'
+    (_match, detail) => `<div class="tool-timeline-badge error"><span class="icon">🛑</span> <span class="text"><b>Step Limit:</b>${escapeHTML(detail)}</span></div>`
   );
 
   // ⚠️ **[TOOL CALL PARSE ERROR]**
   processed = processed.replace(
     /⚠️ \*\*\[TOOL CALL PARSE ERROR\](.*)\*\*/g,
-    '<div class="tool-timeline-badge error"><span class="icon">⚠️</span> <span class="text"><b>Parse Error:</b>$1</span></div>'
+    (_match, detail) => `<div class="tool-timeline-badge error"><span class="icon">⚠️</span> <span class="text"><b>Parse Error:</b>${escapeHTML(detail)}</span></div>`
   );
 
   // 📊 **[Token Usage]**
@@ -134,7 +162,7 @@ export function preprocessContent(text: string): string {
   processed = processed.replace(
     /\[APPROVAL REQUIRED\]\s*([^<]*)(?:<br>|\n)?[^\n]*Wait for their 'Yes' before retrying\.?/g,
     (_match, msg) => {
-      const trimmedMsg = msg.trim();
+      const trimmedMsg = escapeHTML(msg.trim());
       return `<div class="tool-timeline-badge approval-box" style="border: 2px solid var(--accent-color); background: rgba(0, 122, 204, 0.1); padding: 12px; margin-top: 8px; border-radius: 8px;">
         <div style="display:flex; align-items:center; margin-bottom: 8px;">
           <span style="font-size:20px; margin-right:12px;">✋</span>
@@ -143,8 +171,8 @@ export function preprocessContent(text: string): string {
             <span style="font-size:12px; color:var(--text-secondary); margin-top:4px;">${trimmedMsg}</span>
           </div>
         </div>          <div style="display:flex; gap:8px; margin-top:12px;">
-            <button class="glow-btn" onclick="window.dispatchEvent(new CustomEvent('agk:approval-response', { detail: { text: '승인합니다' } }))" style="flex:1; background:var(--accent-color); border:none; border-radius:4px; padding:8px; color:#fff; cursor:pointer;">승인 (Approve)</button>
-            <button onclick="window.dispatchEvent(new CustomEvent('agk:approval-response', { detail: { text: '거절합니다' } }))" style="flex:1; background:transparent; border:1px solid var(--glass-border); border-radius:4px; padding:8px; color:var(--text-primary); cursor:pointer;">거절 (Reject)</button>
+            <button class="glow-btn" data-agk-action="approval" data-response="승인합니다" style="flex:1; background:var(--accent-color); border:none; border-radius:4px; padding:8px; color:#fff; cursor:pointer;">승인 (Approve)</button>
+            <button data-agk-action="approval" data-response="거절합니다" style="flex:1; background:transparent; border:1px solid var(--glass-border); border-radius:4px; padding:8px; color:var(--text-primary); cursor:pointer;">거절 (Reject)</button>
           </div>
       </div>`;
     }
@@ -152,16 +180,17 @@ export function preprocessContent(text: string): string {
 
   // ── Step 6: Artifact Generated ──
   processed = processed.replace(
-    /\[ARTIFACT GENERATED: (.*?) \(Type: (.*?)\)\]\nSuccessfully saved to (.*?)\.?/g,
+    /\[ARTIFACT GENERATED: (.*?) \(Type: (.*?)\)\]\nSuccessfully saved to ([^\n]+?)(?:\.)?(?=\n|$)/g,
     (_match, fname, type, path) => {
-      const safePath = path.replace(/\\/g, '\\\\');
+      const safePath = escapeHTML(path);
+      const safeName = escapeHTML(fname);
       const btnHtml = (type === 'html' || type === 'react')
-        ? `<button class="preview-btn" onclick="window.previewArtifact?.('${safePath}', '${fname}')" style="margin-left:auto; background:var(--accent-color); font-size:11px; padding: 4px 8px; border:none; border-radius:4px; color:#fff; cursor:pointer;">View Preview</button>`
+        ? `<button class="preview-btn" data-agk-action="preview" data-path="${safePath}" data-name="${safeName}" style="margin-left:auto; background:var(--accent-color); font-size:11px; padding: 4px 8px; border:none; border-radius:4px; color:#fff; cursor:pointer;">View Preview</button>`
         : '';
       return `<div class="tool-timeline-badge artifact" style="border-left: 3px solid #10b981; background: rgba(16, 185, 129, 0.1); width:100%; display:flex; align-items:center;">
         <span style="margin-right:8px;">🎨</span>
         <div style="display:flex; flex-direction:column;">
-          <span style="font-weight:bold;">Artifact: ${fname}</span>
+          <span style="font-weight:bold;">Artifact: ${safeName}</span>
           <span style="font-size:11px; color:#aaa;">Saved to project</span>
         </div>
         ${btnHtml}

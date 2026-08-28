@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 import DiffViewer from '../../components/Editor/DiffViewer';
 import type { ProposedChange } from '../../stores/changeStore';
-import type { ApprovalDecision, ApprovalRequest } from './approvalApi';
+import type { ApprovalDecision, ApprovalRequest, ApprovalReview } from './approvalApi';
 
 type ApprovalQueueProps = Readonly<{
   approvals: readonly ApprovalRequest[];
@@ -15,6 +15,12 @@ function diffPath(lines: readonly string[]): string {
   const header = lines.find((line) => line.startsWith('+++ '));
   if (header === undefined) return 'proposed-change.diff';
   return header.slice(4).replace(/^b\//, '').replace(/ \(after\)$/, '') || 'proposed-change.diff';
+}
+
+function reviewLabel(review: ApprovalReview): string {
+  if (review.decision === 'approve') return '승인 후보';
+  if (review.decision === 'deny') return '거부 권고';
+  return '사용자 확인 필요';
 }
 
 export function approvalDiffChange(approval: ApprovalRequest): ProposedChange {
@@ -91,6 +97,16 @@ export function ApprovalQueue({ approvals, pendingRequestId, error, onResolve }:
                 <DiffViewer change={change} showActions={false} height={280} />
               ) : (
                 <p className="approval-queue-empty">이 요청에는 파일 변경 미리보기가 없습니다.</p>
+              )}
+              {selected.auto_review !== null && (
+                <aside className={`approval-review approval-review-${selected.auto_review.decision}`} aria-label="자동 검토 결과">
+                  <div className="approval-review-heading">
+                    <strong>자동 검토 · {reviewLabel(selected.auto_review)}</strong>
+                    <span>{Math.round(selected.auto_review.risk_score * 100)}% 위험도</span>
+                  </div>
+                  <p>{selected.auto_review.rationale}</p>
+                  <small>{selected.auto_review.reviewer} · 사용자 결정은 별도로 필요합니다.</small>
+                </aside>
               )}
               <div className="approval-queue-actions">
                 <button

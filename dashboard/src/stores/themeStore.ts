@@ -8,7 +8,8 @@
 
 import { create } from 'zustand';
 
-const STORAGE_KEY = 'agk_theme_prefs';
+const STORAGE_KEY = 'agk_theme_prefs:v1';
+const LEGACY_STORAGE_KEY = 'agk_theme_prefs';
 
 export interface ThemePrefs {
   accentColor: string;
@@ -46,7 +47,7 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
 
   load: () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
         const saved = JSON.parse(raw) as Partial<ThemePrefs>;
         set({ ...DEFAULTS, ...saved });

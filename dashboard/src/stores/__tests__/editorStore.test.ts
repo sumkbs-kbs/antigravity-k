@@ -180,6 +180,21 @@ describe('useEditorStore', () => {
     vi.restoreAllMocks();
   });
 
+  it('saveFile does not parse a non-OK response', async () => {
+    const json = vi.fn().mockResolvedValue({ ok: true });
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503, json });
+
+    useEditorStore.getState().openFile('test.ts', 'test.ts', 'content');
+    useEditorStore.getState().updateFileContent('test.ts', 'modified');
+    const result = await useEditorStore.getState().saveFile('test.ts');
+
+    expect(result).toBe(false);
+    expect(json).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().openFiles[0].isDirty).toBe(true);
+
+    vi.restoreAllMocks();
+  });
+
   /* ─── Preview ─────────────────────────────────────────── */
 
   it('shows preview with path, title, and content', () => {

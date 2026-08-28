@@ -1,5 +1,7 @@
 import ky from 'ky';
 
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+
 import {
   TaskEventSchema,
   TaskActionResponseSchema,
@@ -44,10 +46,7 @@ export class TaskEventStreamError extends Error {
 }
 
 function accessHeaders(accept = 'application/json'): Headers {
-  const headers = new Headers({ Accept: accept });
-  const pin = localStorage.getItem('ag_access_pin');
-  if (pin !== null && pin.length > 0) headers.set('X-Access-Pin', pin);
-  return headers;
+  return createAccessPinHeaders({ Accept: accept });
 }
 
 export function parseSseChunk(input: string): ParsedSseChunk {

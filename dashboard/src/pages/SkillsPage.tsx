@@ -16,6 +16,29 @@ import PublishTab from './skills/PublishTab';
 
 type Tab = 'all' | 'marketplace' | 'search' | 'mcp' | 'publish';
 type CountKey = 'all' | 'market' | 'mcp';
+type SkillsResponse = { skills?: Skill[] };
+type InstalledResponse = { installed?: MarketplaceSkill[] };
+type SearchResponse = { ok?: boolean; results?: SearchResult[] };
+type McpResponse = { servers?: MCPServer[] };
+type ActionResponse = { ok?: boolean };
+
+const TABS: ReadonlyArray<{ id: Tab; icon: string; label: string; countKey?: CountKey }> = [
+  { id: 'all', icon: '🧰', label: 'All Skills', countKey: 'all' },
+  { id: 'marketplace', icon: '🏪', label: 'Marketplace', countKey: 'market' },
+  { id: 'search', icon: '🔍', label: 'Search npm' },
+  { id: 'publish', icon: '📦', label: 'Publish' },
+  { id: 'mcp', icon: '🔌', label: 'MCP Servers', countKey: 'mcp' },
+];
+
+async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await globalThis.fetch(url, options);
+  if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+  return await response.json() as T;
+}
+
+function fetchAllSkills(): Promise<SkillsResponse> {
+  return requestJson<SkillsResponse>('/api/system/skills');
+}
 
 const SkillsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('all');
@@ -28,14 +51,6 @@ const SkillsPage: React.FC = () => {
   const [silentLoading, setSilentLoading] = useState(false);
   const skillsCountRef = useRef(0);
 
-  const tabs: { id: Tab; icon: string; label: string; countKey?: CountKey }[] = [
-    { id: 'all', icon: '🧰', label: 'All Skills', countKey: 'all' },
-    { id: 'marketplace', icon: '🏪', label: 'Marketplace', countKey: 'market' },
-    { id: 'search', icon: '🔍', label: 'Search npm' },
-    { id: 'publish', icon: '📦', label: 'Publish' },
-    { id: 'mcp', icon: '🔌', label: 'MCP Servers', countKey: 'mcp' },
-  ];
-
   const counts: Record<CountKey, number> = {
     all: skills.length,
     market: marketSkills.length,
@@ -47,28 +62,24 @@ const SkillsPage: React.FC = () => {
     try {
       switch (tab) {
         case 'all': {
-          const res = await fetch('/api/system/skills');
-          const data = await res.json();
-          setSkills(data.skills || []);
+          const data = await requestJson<SkillsResponse>('/api/system/skills');
+          setSkills(data.skills ?? []);
           break;
         }
         case 'marketplace': {
-          const res = await fetch('/api/system/skills/installed');
-          const data = await res.json();
-          setMarketSkills(data.installed || []);
+          const data = await requestJson<InstalledResponse>('/api/system/skills/installed');
+          setMarketSkills(data.installed ?? []);
           if (!data.installed?.length) {
             try {
-              const searchRes = await fetch('/api/system/skills/search?q=skill&limit=10');
-              const searchData = await searchRes.json();
-              if (searchData.ok) setSearchResults(searchData.results || []);
+              const searchData = await requestJson<SearchResponse>('/api/system/skills/search?q=skill&limit=10');
+              if (searchData.ok === true) setSearchResults(searchData.results ?? []);
             } catch { /* ignore */ }
           }
           break;
         }
         case 'mcp': {
-          const res = await fetch('/api/system/skills/mcp');
-          const data = await res.json();
-          setMCPservers(data.servers || []);
+          const data = await requestJson<McpResponse>('/api/system/skills/mcp');
+          setMCPservers(data.servers ?? []);
           break;
         }
       }
@@ -79,7 +90,10 @@ const SkillsPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { loadTab(activeTab); }, [activeTab, loadTab]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadTab(activeTab); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, loadTab]);
 
   // Auto-discovery polling: silently refresh 'all' tab every 20s
   useEffect(() => {
@@ -87,11 +101,9 @@ const SkillsPage: React.FC = () => {
       if (activeTab !== 'all') return;
       setSilentLoading(true);
       try {
-        const res = await fetch('/api/system/skills');
-        const data = await res.json();
-        const newSkills = data.skills || [];
+        const data = await fetchAllSkills();
+        const newSkills = data.skills ?? [];
         if (skillsCountRef.current > 0 && newSkills.length !== skillsCountRef.current) {
-          setSilentLoading(false);
           setSkills(newSkills);
           skillsCountRef.current = newSkills.length;
           useUiStore.getState().addToast(`🔄 새 스킬 감지: ${newSkills.length}개`, 'info');
@@ -100,7 +112,7 @@ const SkillsPage: React.FC = () => {
         skillsCountRef.current = newSkills.length;
         setSkills(newSkills);
       } catch { /* ignore */ }
-      setSilentLoading(false);
+      finally { setSilentLoading(false); }
     }, 20000);
     return () => clearInterval(interval);
   }, [activeTab]);
@@ -110,9 +122,8 @@ const SkillsPage: React.FC = () => {
     setActiveTab('search');
     setLoading(true);
     try {
-      const res = await fetch(`/api/system/skills/search?q=${encodeURIComponent(searchQuery)}&limit=20`);
-      const data = await res.json();
-      setSearchResults(data.results || []);
+      const data = await requestJson<SearchResponse>(`/api/system/skills/search?q=${encodeURIComponent(searchQuery)}&limit=20`);
+      setSearchResults(data.results ?? []);
     } catch {
       setSearchResults([]);
     } finally {
@@ -122,15 +133,14 @@ const SkillsPage: React.FC = () => {
 
   const doInstall = useCallback(async (pkgName: string) => {
     try {
-      const res = await fetch('/api/system/skills/install', {
+      const data = await requestJson<ActionResponse>('/api/system/skills/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ package_name: pkgName }),
       });
-      const data = await res.json();
-      if (data.ok) {
+      if (data.ok === true) {
         useUiStore.getState().addToast(`✅ ${pkgName} installed`, 'success');
-        loadTab('marketplace');
+        void loadTab('marketplace');
       }
     } catch { /* ignore */ }
   }, [loadTab]);
@@ -138,14 +148,14 @@ const SkillsPage: React.FC = () => {
   const doRemove = useCallback(async (skillName: string) => {
     if (!confirm(`"${skillName}" 스킬을 제거하시겠습니까?`)) return;
     try {
-      const res = await fetch('/api/system/skills/remove', {
+      const response = await fetch('/api/system/skills/remove', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skill_name: skillName }),
       });
-      if (res.ok) {
+      if (response.ok) {
         useUiStore.getState().addToast(`🗑️ ${skillName} removed`, 'success');
-        loadTab('marketplace');
+        void loadTab('marketplace');
       }
     } catch { /* ignore */ }
   }, [loadTab]);
@@ -183,14 +193,14 @@ const SkillsPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="skills-tabs">
-        {tabs.map(tab => (
+        {TABS.map(tab => (
           <button
             key={tab.id}
             className={`skills-tab ${activeTab === tab.id ? 'active' : ''}`}
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.icon} {tab.label}
-            {tab.countKey && <span className="skills-count">{(counts as any)[tab.countKey] || 0}</span>}
+            {tab.countKey && <span className="skills-count">{counts[tab.countKey] || 0}</span>}
           </button>
         ))}
       </div>
@@ -202,6 +212,7 @@ const SkillsPage: React.FC = () => {
             <input
               type="text"
               className="glass-input"
+              aria-label="npm 스킬 검색"
               placeholder="npm에서 @antigravity-k/skill-* 패키지 검색..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}

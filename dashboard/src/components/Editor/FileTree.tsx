@@ -10,6 +10,7 @@ import { useFileStore } from '../../stores/fileStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
 import { getFileIcon } from '../../utils/fileIcons';
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
 
 interface FileTreeNodeProps {
   name: string;
@@ -28,6 +29,10 @@ function treeNodeAreEqual(prevProps: FileTreeNodeProps, nextProps: FileTreeNodeP
   if (prevProps.isDir !== nextProps.isDir) return false;
   if (prevProps.depth !== nextProps.depth) return false;
   return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDir, depth }) => {
@@ -64,21 +69,37 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDi
       toggleExpanded(path);
       if (!isExpanded && children === null) {
         setLoadingChildren(true);
-        const items = await loadDirectory(path);
-        setChildren(items);
-        setLoadingChildren(false);
+        try {
+          const items = await loadDirectory(path);
+          setChildren(items);
+        } finally {
+          setLoadingChildren(false);
+        }
       }
     } else {
       try {
-        const res = await fetch(`/api/fs/read?file=${encodeURIComponent(path)}`);
-        const data = await res.json();
-        if (data.content !== undefined) {
+        const res = await fetch(`/api/fs/read?file=${encodeURIComponent(path)}`, {
+          headers: createAccessPinHeaders(),
+        });
+        if (!res.ok) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const errorData: unknown = await res.json();
+            if (isRecord(errorData) && typeof errorData.detail === 'string') detail = errorData.detail;
+          } catch {
+            detail = `HTTP ${res.status}`;
+          }
+          addToast(`파일 읽기 실패: ${detail}`, 'error');
+          return;
+        }
+        const data: unknown = await res.json();
+        if (isRecord(data) && typeof data.content === 'string') {
           openFile(path, name, data.content);
         } else {
-          addToast(`파일 읽기 실패: ${data.detail || '알 수 없는 오류'}`, 'error');
+          addToast('파일 읽기 실패: 알 수 없는 오류', 'error');
         }
-      } catch (err: any) {
-        addToast(`파일 읽기 오류: ${err.message}`, 'error');
+      } catch (err) {
+        addToast(`파일 읽기 오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
       }
     }
   }, [isDir, path, name, isExpanded, children, toggleExpanded, loadDirectory, openFile, addToast]);
@@ -475,7 +496,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = React.memo(({ name, path, isDi
       )}
     </div>
   );
-});
+}, treeNodeAreEqual);
 
 FileTreeNode.displayName = 'FileTreeNode';
 

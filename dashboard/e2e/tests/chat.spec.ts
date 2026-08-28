@@ -78,14 +78,7 @@ test.describe('Chat Interface', () => {
   });
 
   test('should have the empty state before any messages', async () => {
-    // Fresh chat should show empty state (suggestions, not messages)
-    const emptyState = dashboard.page.locator('.empty-state, [class*="empty"], .chat-suggestions');
     const hasBubbles = await dashboard.page.locator('.bubble').count();
-    // Either empty state is visible OR there are no message bubbles yet
-    if (hasBubbles === 0) {
-      const emptyVisible = await emptyState.first().isVisible().catch(() => false);
-      // Empty state may or may not exist depending on UI; just verify no bubbles
-      expect(hasBubbles).toBe(0);
-    }
+    expect(hasBubbles).toBe(0);
   });
 });

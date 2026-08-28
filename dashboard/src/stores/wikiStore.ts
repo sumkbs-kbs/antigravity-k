@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand';
+import { createAccessPinHeaders } from '../utils/accessPinCredential';
 
 export interface WikiTreeItem {
   name: string;
@@ -21,6 +22,13 @@ export interface WikiDocument {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isWikiTreeItem(value: unknown): value is WikiTreeItem {
+  if (!isRecord(value) || typeof value.name !== 'string' || typeof value.path !== 'string') return false;
+  if (value.type !== 'file' && value.type !== 'folder') return false;
+  return value.children === undefined
+    || (Array.isArray(value.children) && value.children.every(isWikiTreeItem));
 }
 
 export interface WikiState {
@@ -78,19 +86,21 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const savedPath = localStorage.getItem(VAULT_PATH_KEY);
     if (savedPath) {
       try {
-        await fetch('/api/vault/config', {
+        const resp = await fetch('/api/vault/config', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ vault_path: savedPath }),
         });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       } catch { /* ignore */ }
     }
     try {
-      const resp = await fetch('/api/vault/config');
-      const data = await resp.json();
-      if (data.ok) {
-        set({ vaultPath: data.vault_path });
-        localStorage.setItem(VAULT_PATH_KEY, data.vault_path);
+      const resp = await fetch('/api/vault/config', { headers: createAccessPinHeaders() });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rawData: unknown = await resp.json();
+      if (isRecord(rawData) && rawData.ok === true && typeof rawData.vault_path === 'string') {
+        set({ vaultPath: rawData.vault_path });
+        localStorage.setItem(VAULT_PATH_KEY, rawData.vault_path);
       }
     } catch { /* ignore */ }
     await get().loadTree();
@@ -98,25 +108,34 @@ export const useWikiStore = create<WikiState>((set, get) => ({
 
   loadTree: async () => {
     try {
-      const resp = await fetch('/api/vault/tree');
-      const data = await resp.json();
-      if (data.vault_path) {
-        set({ vaultPath: data.vault_path });
-        localStorage.setItem(VAULT_PATH_KEY, data.vault_path);
+      const resp = await fetch('/api/vault/tree', { headers: createAccessPinHeaders() });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rawData: unknown = await resp.json();
+      if (!isRecord(rawData)) throw new Error('Invalid Vault tree response');
+      if (typeof rawData.vault_path === 'string' && rawData.vault_path.length > 0) {
+        set({ vaultPath: rawData.vault_path });
+        localStorage.setItem(VAULT_PATH_KEY, rawData.vault_path);
       }
-      set({ treeData: data.tree || [] });
+      const treeData = Array.isArray(rawData.tree) ? rawData.tree.filter(isWikiTreeItem) : [];
+      set({ treeData });
     } catch { /* ignore */ }
   },
 
   loadDocument: async (path) => {
     try {
-      const resp = await fetch(`/api/vault/read?path=${encodeURIComponent(path)}`);
+      const resp = await fetch(`/api/vault/read?path=${encodeURIComponent(path)}`, {
+        headers: createAccessPinHeaders(),
+      });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
+      const rawData: unknown = await resp.json();
+      if (!isRecord(rawData) || typeof rawData.content !== 'string') {
+        throw new Error('Invalid Vault document response');
+      }
+      const metadata = isRecord(rawData.metadata) ? rawData.metadata : {};
       set({
-        currentDoc: { path, content: data.content || '', metadata: data.metadata || {} },
+        currentDoc: { path, content: rawData.content, metadata },
         isEditing: false,
-        editContent: data.content || '',
+        editContent: rawData.content,
       });
     } catch (err) {
       console.error('Wiki load error:', err instanceof Error ? err.message : String(err));
@@ -127,10 +146,12 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     try {
       const resp = await fetch('/api/vault/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path, content, metadata: metadata || get().currentDoc?.metadata || {} }),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rawData: unknown = await resp.json();
+      if (!isRecord(rawData) || rawData.ok !== true) return false;
       set({ isEditing: false });
       await get().loadDocument(path);
       return true;
@@ -145,10 +166,12 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     try {
       const resp = await fetch('/api/vault/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path, content, metadata }),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rawData: unknown = await resp.json();
+      if (!isRecord(rawData) || rawData.ok !== true) return false;
       await get().loadTree();
       await get().loadDocument(path);
       return true;
@@ -164,7 +187,10 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       return;
     }
     try {
-      const resp = await fetch(`/v1/notes/search?q=${encodeURIComponent(q)}`);
+      const resp = await fetch(`/v1/notes/search?q=${encodeURIComponent(q)}`, {
+        headers: createAccessPinHeaders(),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const rawData: unknown = await resp.json();
       const data = isRecord(rawData) ? rawData : {};
       const keywordResults = Array.isArray(data.keyword_results)
@@ -191,13 +217,14 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     try {
       const resp = await fetch('/api/vault/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ vault_path: path }),
       });
-      const data = await resp.json();
-      if (data.ok) {
-        set({ vaultPath: data.vault_path });
-        localStorage.setItem(VAULT_PATH_KEY, data.vault_path);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const rawData: unknown = await resp.json();
+      if (isRecord(rawData) && rawData.ok === true && typeof rawData.vault_path === 'string') {
+        set({ vaultPath: rawData.vault_path });
+        localStorage.setItem(VAULT_PATH_KEY, rawData.vault_path);
         await get().loadTree();
         set({ currentDoc: null });
         return true;

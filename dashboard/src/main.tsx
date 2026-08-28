@@ -21,6 +21,7 @@ function isMermaidRuntime(value: unknown): value is Readonly<{
 }
 
 const enableReactDevTools = import.meta.env.DEV
+  && import.meta.env.VITE_ENABLE_REACT_DEVTOOLS === '1'
   && import.meta.env.VITE_DISABLE_REACT_DEVTOOLS !== '1';
 
 if (enableReactDevTools) {

@@ -118,6 +118,11 @@ export const BUILTIN_COMMANDS = [
     execute: () => dispatchCommandEvent('agk:chat-slash', { text: '/benchmark report' }),
   },
   {
+    id: 'job_operations', title: 'Open Job Operations', subtitle: 'Operations', icon: 'automation',
+    keywords: ['jobs', 'schedule', 'retry', 'health', '작업'], disabled: false,
+    execute: () => dispatchCommandEvent('agk:navigate', '/plugins/job-operations'),
+  },
+  {
     id: 'settings', title: 'Preferences', subtitle: 'Workspace', icon: 'settings',
     keywords: ['settings', '환경 설정'], disabled: false,
     execute: () => dispatchCommandEvent('agk:navigate', '/settings'),

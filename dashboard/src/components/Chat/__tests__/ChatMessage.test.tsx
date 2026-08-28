@@ -69,6 +69,41 @@ describe('ChatMessage rendering', () => {
     );
     expect(container.innerHTML).toBe('');
   });
+
+  it('sanitizes raw HTML before rendering', () => {
+    const content = '<img src="x" onerror="window.__agkXss = true"><script>window.__agkXss = true</script>';
+    const { container } = render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    expect(container.querySelector('script')).not.toBeInTheDocument();
+    expect(container.querySelector('[onerror]')).not.toBeInTheDocument();
+  });
+
+  it('delegates approval actions without inline handlers', () => {
+    const handler = vi.fn();
+    window.addEventListener('agk:approval-response', handler);
+    const content = "[APPROVAL REQUIRED] Please approve this change\nWait for their 'Yes' before retrying.";
+
+    render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    const approveButton = screen.getByRole('button', { name: /승인/ });
+    expect(approveButton).not.toHaveAttribute('onclick');
+    fireEvent.click(approveButton);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect((handler.mock.calls[0]?.[0] as CustomEvent<{ text: string }>).detail.text).toBe('승인합니다');
+    window.removeEventListener('agk:approval-response', handler);
+  });
+
+  it('delegates artifact preview actions through the window API', () => {
+    const previewArtifact = vi.fn().mockResolvedValue(undefined);
+    const originalPreviewArtifact = window.previewArtifact;
+    window.previewArtifact = previewArtifact;
+    const content = '[ARTIFACT GENERATED: report.html (Type: html)]\nSuccessfully saved to /tmp/report.html.';
+
+    render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    fireEvent.click(screen.getByRole('button', { name: /View Preview/ }));
+
+    expect(previewArtifact).toHaveBeenCalledWith('/tmp/report.html', 'report.html');
+    window.previewArtifact = originalPreviewArtifact;
+  });
 });
 
 /* ─── chatMessageAreEqual Comparator ────────────────────────── */

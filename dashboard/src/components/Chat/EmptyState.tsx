@@ -25,9 +25,9 @@ const EmptyState: React.FC<Props> = ({ onExampleClick }) => {
         날씨/주가 조회 등 다양한 작업을 도와드릴 수 있습니다.
       </div>
       <div className="empty-state-chips">
-        {EXAMPLES.map((ex, i) => (
+        {EXAMPLES.map(ex => (
           <button
-            key={i}
+            key={ex.text}
             className="example-chip"
             onClick={() => onExampleClick(ex.text)}
           >

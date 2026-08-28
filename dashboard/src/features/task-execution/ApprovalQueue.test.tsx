@@ -19,6 +19,14 @@ const approval = ApprovalRequestSchema.parse({
   status: 'pending',
   created_at: 1_777_000_000,
   timeout_sec: 120,
+  auto_review: {
+    decision: 'escalate',
+    risk_score: 0.8,
+    reason_codes: ['file_change'],
+    rationale: '사용자 확인이 필요합니다.',
+    reviewer: 'policy-v1',
+    reviewed_at: 1_777_000_001,
+  },
 });
 
 describe('ApprovalQueue', () => {
@@ -35,6 +43,8 @@ describe('ApprovalQueue', () => {
 
     expect(screen.getByRole('heading', { name: '승인 대기열' })).toBeInTheDocument();
     expect(screen.getByTestId('approval-diff')).toHaveTextContent('new');
+    expect(screen.getByText('자동 검토 · 사용자 확인 필요')).toBeInTheDocument();
+    expect(screen.getByText('80% 위험도')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '설정 파일 수정 승인' }));
     expect(onResolve).toHaveBeenCalledWith('approval-1', 'approve');
     fireEvent.click(screen.getByRole('button', { name: '설정 파일 수정 거절' }));

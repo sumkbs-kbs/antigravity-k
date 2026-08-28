@@ -13,6 +13,7 @@ import { useEventWebSocket } from '../hooks/useEventWebSocket';
 import { useUiStore } from '../stores/uiStore';
 import { checkHealth, fetchSystemMetrics } from '../api/client';
 import { TaskExecutionPanel } from '../features/task-execution/TaskExecutionPanel';
+import { PersistentAgencyPanel } from '../features/persistent-agency/PersistentAgencyPanel';
 
 const AgentPage: React.FC = () => {
   const {
@@ -20,7 +21,7 @@ const AgentPage: React.FC = () => {
     addTimelineEvent, setActiveTool, updateMetrics, setUptime,
   } = useAgentMonitorStore();
   const { setSystemStatus } = useUiStore();
-  const [startTime] = useState(Date.now());
+  const [startTime] = useState(() => Date.now());
 
   // ── WebSocket integration for real-time monitoring ──────────
   useEventWebSocket({
@@ -119,6 +120,7 @@ const AgentPage: React.FC = () => {
         </div>
       </div>
       <AgentMonitorPanel />
+      <PersistentAgencyPanel />
       <TaskExecutionPanel />
     </div>
   );

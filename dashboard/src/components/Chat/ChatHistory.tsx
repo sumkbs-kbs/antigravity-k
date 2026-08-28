@@ -44,6 +44,9 @@ const ChatHistory: React.FC<Props> = ({ visible, onClose }) => {
                   key={session.id}
                   className={`history-item ${isActive ? 'active' : ''}`}
                   onClick={() => { switchSession(session.id); onClose(); }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchSession(session.id); onClose(); } }}
                   style={{ display: 'flex', alignItems: 'center', padding: '10px 12px' }}
                 >
                   <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>

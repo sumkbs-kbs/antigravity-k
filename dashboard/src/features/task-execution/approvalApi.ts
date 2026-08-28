@@ -1,7 +1,17 @@
 import ky from 'ky';
 import { z } from 'zod';
 
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+
 export const ApprovalDecisionSchema = z.enum(['approve', 'deny', 'always_allow']);
+export const ApprovalReviewSchema = z.object({
+  decision: z.enum(['approve', 'deny', 'escalate']),
+  risk_score: z.number().min(0).max(1),
+  reason_codes: z.array(z.string()).readonly(),
+  rationale: z.string(),
+  reviewer: z.string().min(1),
+  reviewed_at: z.number().nonnegative(),
+}).readonly();
 export const ApprovalRequestSchema = z.object({
   request_id: z.string().min(1),
   tool_name: z.string().min(1),
@@ -11,6 +21,7 @@ export const ApprovalRequestSchema = z.object({
   status: z.literal('pending'),
   created_at: z.number().nonnegative(),
   timeout_sec: z.number().int().positive(),
+  auto_review: ApprovalReviewSchema.nullable(),
 }).readonly();
 
 const ApprovalListResponseSchema = z.object({
@@ -25,13 +36,11 @@ const ApprovalResolveResponseSchema = z.object({
 }).readonly();
 
 export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
+export type ApprovalReview = z.infer<typeof ApprovalReviewSchema>;
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
 
 function accessHeaders(): Headers {
-  const headers = new Headers({ Accept: 'application/json' });
-  const pin = localStorage.getItem('ag_access_pin');
-  if (pin !== null && pin.length > 0) headers.set('X-Access-Pin', pin);
-  return headers;
+  return createAccessPinHeaders({ Accept: 'application/json' });
 }
 
 export async function fetchPendingApprovals(signal: AbortSignal): Promise<readonly ApprovalRequest[]> {

@@ -4,12 +4,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
-import { useUiStore } from '../../stores/uiStore';
 import { fetchModels, type ModelInfo } from '../../api/client';
 
 const ModelSelector: React.FC = () => {
   const { selectedModel, setSelectedModel } = useChatStore();
-  const { addToast } = useUiStore();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
 

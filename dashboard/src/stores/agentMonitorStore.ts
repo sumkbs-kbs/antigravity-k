@@ -72,7 +72,7 @@ export interface AgentMonitorState {
   addTask: (task: TaskProgress) => void;
   removeTask: (taskId: string) => void;
   addTimelineEvent: (event: Omit<ExecutionEvent, 'id' | 'timestamp'>) => void;
-  updateMetrics: (metrics: { memoryMb?: number; cpuPercent?: number; totalTokens?: number }) => void;
+  updateMetrics: (metrics: { memoryMb?: number | null; cpuPercent?: number | null; totalTokens?: number | null }) => void;
   setUptime: (uptime: number) => void;
   clearLogs: () => void;
   reset: () => void;

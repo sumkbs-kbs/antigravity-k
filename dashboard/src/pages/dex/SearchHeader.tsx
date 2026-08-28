@@ -41,6 +41,7 @@ const SearchHeader: React.FC<Props> = ({ query, searching, onQueryChange, onSear
             onChange={e => onQueryChange(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && onSearch()}
             placeholder="검색어를 입력하세요 (예: 한화에어로스페이스 주가 알려줘)"
+            aria-label="검색어"
             style={{
               width: '100%', padding: '12px 14px 12px 40px',
               background: 'rgba(0,0,0,0.4)', border: '1px solid var(--glass-border)',
@@ -72,8 +73,9 @@ const SearchHeader: React.FC<Props> = ({ query, searching, onQueryChange, onSear
       {/* Quick chips */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
         {QUERY_CHIPS.map(q => (
-          <span
+          <button
             key={q}
+            type="button"
             className="dex-chip"
             onClick={() => onQueryChange(q)}
             style={{
@@ -84,7 +86,7 @@ const SearchHeader: React.FC<Props> = ({ query, searching, onQueryChange, onSear
             }}
           >
             {q}
-          </span>
+          </button>
         ))}
       </div>
     </div>

@@ -16,7 +16,7 @@ const DiffLineComponent: React.FC<{ line: DiffLine; index: number }> = React.mem
   const prefix = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
 
   return (
-    <div className={className} key={index}>
+    <div className={className}>
       <span className="git-diff-line-no">{index + 1}</span>
       <span className="git-diff-prefix">{prefix}</span>
       <span className="git-diff-text">{line.content}</span>
@@ -86,8 +86,8 @@ const GitDiffView: React.FC = () => {
       {/* Stat summary */}
       {statLines.length > 0 && (
         <div className="git-diff-stat">
-          {statLines.map((line, i) => (
-            <div key={i} className="git-diff-stat-line">{line}</div>
+          {statLines.map(line => (
+            <div key={line} className="git-diff-stat-line">{line}</div>
           ))}
         </div>
       )}
@@ -97,7 +97,10 @@ const GitDiffView: React.FC = () => {
         {parsedLines.length === 0 ? (
           <div className="git-empty">No changes in diff</div>
         ) : (
-          parsedLines.map((line, i) => <DiffLineComponent key={i} line={line} index={i} />)
+          parsedLines.map((line, i) => {
+            const lineKey = `${line.type}:${line.oldLine ?? ''}:${line.newLine ?? ''}:${line.content}`;
+            return <DiffLineComponent key={lineKey} line={line} index={i} />;
+          })
         )}
       </div>
     </div>

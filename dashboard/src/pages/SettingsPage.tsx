@@ -4,29 +4,22 @@
  * Ported from Vanilla JS. API keys, model selection, search engine, cost control.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useReducer, useState } from 'react';
 import { GlassPanel } from '../components/shared';
 import { useThemeStore } from '../stores/themeStore';
 import { useLocalHistoryStore } from '../stores/localHistoryStore';
 import CacheStatsPanel from '../components/shared/CacheStatsPanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
-import { fetchLogLevels, setLogLevel, setAllLogLevels, setDebugMode, type LogLevelInfo } from '../api/client';
-
-interface ServerConfig {
-  host?: string;
-  port?: string;
-}
-
-interface ModelConfig {
-  provider?: string;
-  name?: string;
-}
-
-interface SettingsData {
-  api_keys?: Record<string, string>;
-  server?: ServerConfig;
-  model?: ModelConfig;
-}
+import {
+  fetchLogLevels,
+  fetchSettings,
+  saveSettings,
+  setLogLevel,
+  setAllLogLevels,
+  setDebugMode,
+  type LogLevelInfo,
+  type SettingsData,
+} from '../api/client';
 
 const PROVIDERS = [
   { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', icon: '🌐', hint: 'openrouter.ai/keys' },
@@ -45,34 +38,84 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function readStoredSettings(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem('agk_user_settings:v1') ?? localStorage.getItem('agk_user_settings');
+    const value: unknown = JSON.parse(raw || '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    );
+  } catch {
+    return {};
+  }
+}
+
+interface SettingsFormState {
+  config: SettingsData;
+  apiKeys: Record<string, string>;
+  defaultModel: string;
+  searchEngine: string;
+  dailyBudget: string;
+  hourlyLimit: string;
+  loading: boolean;
+}
+
+type SettingsFormAction =
+  | { type: 'hydrate'; value: Omit<SettingsFormState, 'loading'> }
+  | { type: 'setApiKey'; key: string; value: string }
+  | { type: 'setDefaultModel'; value: string }
+  | { type: 'setSearchEngine'; value: string }
+  | { type: 'setDailyBudget'; value: string }
+  | { type: 'setHourlyLimit'; value: string }
+  | { type: 'setLoading'; value: boolean };
+
+const initialSettingsForm: SettingsFormState = {
+  config: {},
+  apiKeys: {},
+  defaultModel: '',
+  searchEngine: 'searxng',
+  dailyBudget: '50',
+  hourlyLimit: '100',
+  loading: true,
+};
+
+function settingsFormReducer(state: SettingsFormState, action: SettingsFormAction): SettingsFormState {
+  switch (action.type) {
+    case 'hydrate': return { ...state, ...action.value, loading: false };
+    case 'setApiKey': return { ...state, apiKeys: { ...state.apiKeys, [action.key]: action.value } };
+    case 'setDefaultModel': return { ...state, defaultModel: action.value };
+    case 'setSearchEngine': return { ...state, searchEngine: action.value };
+    case 'setDailyBudget': return { ...state, dailyBudget: action.value };
+    case 'setHourlyLimit': return { ...state, hourlyLimit: action.value };
+    case 'setLoading': return { ...state, loading: action.value };
+  }
+}
+
 const SettingsPage: React.FC = () => {
   const { accentColor, fontSize, showMinimap, wordWrap, tabSize, setPref, reset: resetTheme } = useThemeStore();
   const { autoSaveEnabled, setAutoSaveEnabled } = useLocalHistoryStore();
-  const [config, setConfig] = useState<SettingsData>({});
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-  const [defaultModel, setDefaultModel] = useState('');
-  const [searchEngine, setSearchEngine] = useState('searxng');
-  const [dailyBudget, setDailyBudget] = useState('50');
-  const [hourlyLimit, setHourlyLimit] = useState('100');
+  const [{ config, apiKeys, defaultModel, searchEngine, dailyBudget, hourlyLimit, loading }, dispatch] = useReducer(settingsFormReducer, initialSettingsForm);
   const [statusMsg, setStatusMsg] = useState('');
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const savedSettings = JSON.parse(localStorage.getItem('agk_user_settings') || '{}');
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then((data: { settings?: SettingsData }) => {
-        const cfg = data.settings || {};
-        setConfig(cfg);
-        setDefaultModel(savedSettings.default_model || cfg.model?.name || '');
-        setSearchEngine(savedSettings.search_engine || 'searxng');
-        setDailyBudget(savedSettings.daily_budget_usd || '50');
-        setHourlyLimit(savedSettings.hourly_action_limit || '100');
-        setApiKeys(savedSettings);
-        setLoading(false);
+    const savedSettings = readStoredSettings();
+    void fetchSettings()
+      .then((cfg: SettingsData) => {
+        dispatch({
+          type: 'hydrate',
+          value: {
+            config: cfg,
+            defaultModel: savedSettings.default_model || cfg.model?.name || '',
+            searchEngine: savedSettings.search_engine || 'searxng',
+            dailyBudget: savedSettings.daily_budget_usd || '50',
+            hourlyLimit: savedSettings.hourly_action_limit || '100',
+            apiKeys: savedSettings,
+          },
+        });
       })
-      .catch(() => setLoading(false));
+      .catch(() => dispatch({ type: 'setLoading', value: false }));
   }, []);
 
   const handleSave = async () => {
@@ -82,20 +125,12 @@ const SettingsPage: React.FC = () => {
     settings.daily_budget_usd = dailyBudget;
     settings.hourly_action_limit = hourlyLimit;
 
-    localStorage.setItem('agk_user_settings', JSON.stringify(settings));
+    localStorage.setItem('agk_user_settings:v1', JSON.stringify(settings));
     setStatusMsg('⏳ 저장 중...');
     setSaving(true);
 
     try {
-      const res = await fetch('/api/settings/env', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Access-Pin': localStorage.getItem('ag_access_pin') || '0000',
-        },
-        body: JSON.stringify(settings),
-      });
-      const data = await res.json();
+      const data = await saveSettings(settings);
       if (data.ok) {
         setStatusMsg(`✅ 저장 완료! ${data.updated || 0}개 항목이 .env에 저장되었습니다.`);
       } else {
@@ -110,7 +145,7 @@ const SettingsPage: React.FC = () => {
 
   const handleReset = () => {
     if (confirm('모든 설정을 초기화하시겠습니까?')) {
-      localStorage.removeItem('agk_user_settings');
+      localStorage.removeItem('agk_user_settings:v1');
       window.location.reload();
     }
   };
@@ -150,7 +185,7 @@ const SettingsPage: React.FC = () => {
                     className="text-input settings-row-input"
                     placeholder={isSet ? '•••••••• (재입력 시 덮어쓰기)' : 'API 키 입력'}
                     value={apiKeys[p.key] || ''}
-                    onChange={e => setApiKeys(prev => ({ ...prev, [p.key]: e.target.value }))}
+                    onChange={e => dispatch({ type: 'setApiKey', key: p.key, value: e.target.value })}
                   />
                   <div className="settings-row-status" style={{ width: 80, textAlign: 'right' }}>
                     {isSet
@@ -175,7 +210,7 @@ const SettingsPage: React.FC = () => {
               className="text-input settings-row-input"
               placeholder="예: qwen3.6:latest, openai/gpt-4o-mini"
               value={defaultModel}
-              onChange={e => setDefaultModel(e.target.value)}
+              onChange={e => dispatch({ type: 'setDefaultModel', value: e.target.value })}
             />
           </div>
         </GlassPanel>
@@ -199,7 +234,7 @@ const SettingsPage: React.FC = () => {
                   name="search_engine"
                   value={engine.id}
                   checked={searchEngine === engine.id}
-                  onChange={() => setSearchEngine(engine.id)}
+                  onChange={() => dispatch({ type: 'setSearchEngine', value: engine.id })}
                 />
                 <span className="toggle-track" />
                 <span className="toggle-label">
@@ -219,14 +254,14 @@ const SettingsPage: React.FC = () => {
                 <div className="settings-row-title">💰 일일 예산 (USD)</div>
                 <div className="settings-row-hint">초과 시 LLM 호출 차단</div>
               </div>
-              <input type="number" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => setDailyBudget(e.target.value)} />
+                  <input type="number" className="text-input settings-row-input-narrow" value={dailyBudget} onChange={e => dispatch({ type: 'setDailyBudget', value: e.target.value })} />
             </div>
             <div className="settings-row">
               <div className="settings-row-label">
                 <div className="settings-row-title">⏱ 시간당 액션 한도</div>
                 <div className="settings-row-hint">분당 호출 수 제한</div>
               </div>
-              <input type="number" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => setHourlyLimit(e.target.value)} />
+                  <input type="number" className="text-input settings-row-input-narrow" value={hourlyLimit} onChange={e => dispatch({ type: 'setHourlyLimit', value: e.target.value })} />
             </div>
           </div>
         </GlassPanel>
@@ -370,8 +405,7 @@ const SettingsPage: React.FC = () => {
         {/* Save / Reset */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', paddingTop: 8 }}>
           {statusMsg && (
-            <div style={{ fontSize: 12, flex: 1, textAlign: 'left', minHeight: 18 }}
-              dangerouslySetInnerHTML={{ __html: statusMsg }} />
+            <div style={{ fontSize: 12, flex: 1, textAlign: 'left', minHeight: 18 }}>{statusMsg}</div>
           )}
           <button className="btn-ghost" onClick={handleReset}>
             🗑️ 초기화

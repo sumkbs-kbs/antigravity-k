@@ -106,6 +106,7 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
             <img src={imageDataUrl} alt="preview" style={{ maxHeight: 60, borderRadius: 4, border: '1px solid rgba(255,255,255,0.2)' }} />
             <button
               onClick={() => { setImageDataUrl(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+              aria-label="첨부 이미지 제거"
               style={{
                 position: 'absolute', top: -6, right: -6, background: '#ff4444', color: 'white',
                 border: 'none', borderRadius: '50%', width: 18, height: 18, fontSize: 10,
@@ -134,6 +135,7 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
           placeholder="명령어나 질문을 입력하세요... (이미지 Drag & Drop 가능)"
+          aria-label="메시지 입력"
           rows={1}
           disabled={disabled}
         />

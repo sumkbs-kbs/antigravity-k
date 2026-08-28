@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand';
+import { createAccessPinHeaders } from '../utils/accessPinCredential';
 
 export interface FileTreeItem {
   name: string;
@@ -31,6 +32,49 @@ export interface FileTreeState {
   renamePath: (path: string, newName: string) => Promise<{ ok: boolean; detail?: string }>;
   createFile: (path: string, content?: string) => Promise<boolean>;
   getWorkspace: () => Promise<string>;
+}
+
+interface FileApiPayload {
+  ok?: boolean;
+  detail?: string;
+  items?: FileTreeItem[];
+  workspace?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isFileTreeItem(value: unknown): value is FileTreeItem {
+  return isRecord(value)
+    && typeof value.name === 'string'
+    && typeof value.path === 'string'
+    && typeof value.is_dir === 'boolean';
+}
+
+async function parseFileResponse(response: Response): Promise<FileApiPayload> {
+  if (!response.ok) {
+    let errorPayload: unknown;
+    try {
+      errorPayload = await response.json();
+    } catch {
+      errorPayload = null;
+    }
+    const detail = isRecord(errorPayload) && typeof errorPayload.detail === 'string'
+      ? errorPayload.detail
+      : `Request failed with status ${response.status}`;
+    throw new Error(detail);
+  }
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)) {
+    throw new Error('Invalid file API response');
+  }
+  return {
+    ok: typeof payload.ok === 'boolean' ? payload.ok : undefined,
+    detail: typeof payload.detail === 'string' ? payload.detail : undefined,
+    items: Array.isArray(payload.items) ? payload.items.filter(isFileTreeItem) : undefined,
+    workspace: typeof payload.workspace === 'string' ? payload.workspace : undefined,
+  };
 }
 
 export const useFileStore = create<FileTreeState>((set, get) => ({
@@ -71,8 +115,10 @@ export const useFileStore = create<FileTreeState>((set, get) => ({
 
   loadDirectory: async (dir = '.') => {
     try {
-      const res = await fetch(`/api/fs/list?dir=${encodeURIComponent(dir)}`);
-      const data = await res.json();
+      const res = await fetch(`/api/fs/list?dir=${encodeURIComponent(dir)}`, {
+        headers: createAccessPinHeaders(),
+      });
+      const data = await parseFileResponse(res);
       return data.items || [];
     } catch (e) {
       console.error('[FileStore] loadDirectory error:', e);
@@ -84,10 +130,10 @@ export const useFileStore = create<FileTreeState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/mkdir', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: folderPath }),
       });
-      const data = await res.json();
+      const data = await parseFileResponse(res);
       return data.ok === true;
     } catch {
       return false;
@@ -98,10 +144,10 @@ export const useFileStore = create<FileTreeState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/rename', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: itemPath, new_name: newName }),
       });
-      const data = await res.json();
+      const data = await parseFileResponse(res);
       return { ok: data.ok === true, detail: data.detail };
     } catch {
       return { ok: false, detail: 'Network error' };
@@ -112,10 +158,10 @@ export const useFileStore = create<FileTreeState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: filePath, content }),
       });
-      const data = await res.json();
+      const data = await parseFileResponse(res);
       return data.ok === true;
     } catch {
       return false;
@@ -126,10 +172,10 @@ export const useFileStore = create<FileTreeState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/delete', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: itemPath }),
       });
-      const data = await res.json();
+      const data = await parseFileResponse(res);
       return data.ok === true;
     } catch {
       return false;
@@ -138,9 +184,9 @@ export const useFileStore = create<FileTreeState>((set, get) => ({
 
   getWorkspace: async () => {
     try {
-      const res = await fetch('/api/fs/workspace');
-      const data = await res.json();
-      const wp = data.workspace || '/';
+      const res = await fetch('/api/fs/workspace', { headers: createAccessPinHeaders() });
+      const data = await parseFileResponse(res);
+      const wp = data.workspace ?? '/';
       set({ workspacePath: wp });
       return wp;
     } catch {

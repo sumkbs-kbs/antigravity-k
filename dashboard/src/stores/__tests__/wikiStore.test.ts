@@ -5,8 +5,16 @@
  * localStorage integration, error handling, and edge cases.
  */
 
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi, type Mock } from 'vitest';
 import { useWikiStore } from '../wikiStore';
+
+const jsonResponse = (body: unknown, init?: ResponseInit): Response =>
+  new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json' },
+    ...init,
+  });
+
+let fetchMock: Mock<typeof fetch>;
 
 beforeEach(() => {
   useWikiStore.setState({
@@ -93,15 +101,16 @@ describe('useWikiStore — setters', () => {
 
 describe('useWikiStore — initVault', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('loads config when saved path exists in localStorage', async () => {
     localStorage.setItem('antigravity_vault_path', '/saved/vault');
-    (global.fetch as any)
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true }) }) // POST config
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, vault_path: '/saved/vault' }) }) // GET config
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ vault_path: '/saved/vault', tree: [] }) }); // loadTree
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true })) // POST config
+      .mockResolvedValueOnce(jsonResponse({ ok: true, vault_path: '/saved/vault' })) // GET config
+      .mockResolvedValueOnce(jsonResponse({ vault_path: '/saved/vault', tree: [] })); // loadTree
 
     await useWikiStore.getState().initVault();
     expect(useWikiStore.getState().vaultPath).toBe('/saved/vault');
@@ -110,28 +119,28 @@ describe('useWikiStore — initVault', () => {
 
   it('handles POST config failure gracefully', async () => {
     localStorage.setItem('antigravity_vault_path', '/saved/vault');
-    (global.fetch as any)
+    fetchMock
       .mockRejectedValueOnce(new Error('POST failed'))
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, vault_path: '/saved/vault' }) })
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ vault_path: '/saved/vault', tree: [] }) });
+      .mockResolvedValueOnce(jsonResponse({ ok: true, vault_path: '/saved/vault' }))
+      .mockResolvedValueOnce(jsonResponse({ vault_path: '/saved/vault', tree: [] }));
 
     await useWikiStore.getState().initVault();
     expect(useWikiStore.getState().vaultPath).toBe('/saved/vault');
   });
 
   it('loads config without saved path', async () => {
-    (global.fetch as any)
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, vault_path: '/new/vault' }) })
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ vault_path: '/new/vault', tree: [] }) });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, vault_path: '/new/vault' }))
+      .mockResolvedValueOnce(jsonResponse({ vault_path: '/new/vault', tree: [] }));
 
     await useWikiStore.getState().initVault();
     expect(useWikiStore.getState().vaultPath).toBe('/new/vault');
   });
 
   it('handles GET config failure gracefully', async () => {
-    (global.fetch as any)
+    fetchMock
       .mockRejectedValueOnce(new Error('GET failed'))
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true }) });
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
 
     await useWikiStore.getState().initVault();
     // Should still have default vaultPath
@@ -141,16 +150,15 @@ describe('useWikiStore — initVault', () => {
 
 describe('useWikiStore — loadTree', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('loads tree data successfully', async () => {
     const tree = [
       { name: 'docs', path: '/docs', type: 'folder' as const, children: [] },
     ];
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve({ vault_path: '/vault', tree }),
-    });
+    fetchMock.mockResolvedValue(jsonResponse({ vault_path: '/vault', tree }));
 
     await useWikiStore.getState().loadTree();
     expect(useWikiStore.getState().vaultPath).toBe('/vault');
@@ -158,22 +166,46 @@ describe('useWikiStore — loadTree', () => {
   });
 
   it('handles API error gracefully', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Network error'));
+    fetchMock.mockRejectedValue(new Error('Network error'));
     await useWikiStore.getState().loadTree();
     expect(useWikiStore.getState().treeData).toEqual([]);
+  });
+
+  it('does not replace the tree when the API returns a non-OK response', async () => {
+    const existingTree = [{ name: 'existing.md', path: '/existing.md', type: 'file' as const }];
+    useWikiStore.getState().setTreeData(existingTree);
+    const json = vi.fn();
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json } as unknown as Response);
+
+    await useWikiStore.getState().loadTree();
+    expect(useWikiStore.getState().treeData).toEqual(existingTree);
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it('filters malformed tree entries at the API boundary', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      vault_path: '/vault',
+      tree: [
+        { name: 'valid.md', path: '/valid.md', type: 'file' },
+        { name: 'invalid', path: '/invalid', type: 'unknown' },
+      ],
+    }));
+
+    await useWikiStore.getState().loadTree();
+    expect(useWikiStore.getState().treeData).toEqual([
+      { name: 'valid.md', path: '/valid.md', type: 'file' },
+    ]);
   });
 });
 
 describe('useWikiStore — loadDocument', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('loads document successfully', async () => {
-    (global.fetch as any).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ content: '# Hello', metadata: { title: 'Hello' } }),
-    });
+    fetchMock.mockResolvedValue(jsonResponse({ content: '# Hello', metadata: { title: 'Hello' } }));
 
     await useWikiStore.getState().loadDocument('/test.md');
     const doc = useWikiStore.getState().currentDoc;
@@ -184,18 +216,14 @@ describe('useWikiStore — loadDocument', () => {
   });
 
   it('handles HTTP error gracefully', async () => {
-    (global.fetch as any).mockResolvedValue({
-      ok: false,
-      status: 404,
-      json: () => Promise.resolve({}),
-    });
+    fetchMock.mockResolvedValue(jsonResponse({}, { status: 404 }));
 
     await useWikiStore.getState().loadDocument('/missing.md');
     expect(useWikiStore.getState().currentDoc).toBeNull();
   });
 
   it('handles network error gracefully', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Network error'));
+    fetchMock.mockRejectedValue(new Error('Network error'));
     await useWikiStore.getState().loadDocument('/test.md');
     expect(useWikiStore.getState().currentDoc).toBeNull();
   });
@@ -203,14 +231,15 @@ describe('useWikiStore — loadDocument', () => {
 
 describe('useWikiStore — saveDocument', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('saves document successfully', async () => {
     useWikiStore.getState().setCurrentDoc({ path: '/test.md', content: 'old', metadata: { title: 'Test' } });
-    (global.fetch as any)
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) // POST write
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ content: 'new', metadata: {} }) }); // loadDocument
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, path: '/test.md' })) // POST write
+      .mockResolvedValueOnce(jsonResponse({ content: 'new', metadata: {} })); // loadDocument
 
     const result = await useWikiStore.getState().saveDocument('/test.md', 'new content');
     expect(result).toBe(true);
@@ -218,48 +247,64 @@ describe('useWikiStore — saveDocument', () => {
   });
 
   it('returns false on HTTP error', async () => {
-    (global.fetch as any).mockResolvedValue({ ok: false, status: 500 });
+    fetchMock.mockResolvedValue(jsonResponse({}, { status: 500 }));
     const result = await useWikiStore.getState().saveDocument('/test.md', 'content');
     expect(result).toBe(false);
   });
 
   it('returns false on network error', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Network error'));
+    fetchMock.mockRejectedValue(new Error('Network error'));
     const result = await useWikiStore.getState().saveDocument('/test.md', 'content');
     expect(result).toBe(false);
+  });
+
+  it('returns false when the write response is not successful', async () => {
+    useWikiStore.getState().setIsEditing(true);
+    fetchMock.mockResolvedValue(jsonResponse({ ok: false, message: 'write failed' }));
+
+    const result = await useWikiStore.getState().saveDocument('/test.md', 'content');
+    expect(result).toBe(false);
+    expect(useWikiStore.getState().isEditing).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('uses existing metadata when not provided', async () => {
     const metadata = { title: 'Test' };
     useWikiStore.getState().setCurrentDoc({ path: '/test.md', content: 'old', metadata });
-    (global.fetch as any)
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ content: 'new', metadata }) });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, path: '/test.md' }))
+      .mockResolvedValueOnce(jsonResponse({ content: 'new', metadata }));
 
     await useWikiStore.getState().saveDocument('/test.md', 'new content');
-    const callArgs = (global.fetch as any).mock.calls[0];
-    const body = JSON.parse(callArgs[1].body);
+    const callArgs = fetchMock.mock.calls[0];
+    expect(callArgs).toBeDefined();
+    if (!callArgs) return;
+    const requestInit = callArgs[1];
+    expect(requestInit).toBeDefined();
+    if (!requestInit) return;
+    const body = JSON.parse(String(requestInit.body));
     expect(body.metadata).toEqual(metadata);
   });
 });
 
 describe('useWikiStore — createDocument', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('creates document successfully', async () => {
-    (global.fetch as any)
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) // POST write
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ tree: [] }) }) // loadTree
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ content: '', metadata: {} }) }); // loadDocument
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, path: '/new.md' })) // POST write
+      .mockResolvedValueOnce(jsonResponse({ tree: [] })) // loadTree
+      .mockResolvedValueOnce(jsonResponse({ content: '', metadata: {} })); // loadDocument
 
     const result = await useWikiStore.getState().createDocument('/new.md', 'New Doc', ['docs']);
     expect(result).toBe(true);
   });
 
   it('returns false on HTTP error', async () => {
-    (global.fetch as any).mockResolvedValue({ ok: false, status: 500 });
+    fetchMock.mockResolvedValue(jsonResponse({}, { status: 500 }));
     const result = await useWikiStore.getState().createDocument('/new.md', 'New', []);
     expect(result).toBe(false);
   });
@@ -267,16 +312,15 @@ describe('useWikiStore — createDocument', () => {
 
 describe('useWikiStore — searchDocuments', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('searches and returns combined results', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve({
-        keyword_results: ['doc1.md'],
-        semantic_results: [{ metadata: { source: 'doc2.md' } }, { id: 'doc3.md' }],
-      }),
-    });
+    fetchMock.mockResolvedValue(jsonResponse({
+      keyword_results: ['doc1.md'],
+      semantic_results: [{ metadata: { source: 'doc2.md' } }, { id: 'doc3.md' }],
+    }));
 
     await useWikiStore.getState().searchDocuments('hello');
     expect(useWikiStore.getState().searchResults).toEqual(['doc1.md', 'doc2.md', 'doc3.md']);
@@ -290,24 +334,32 @@ describe('useWikiStore — searchDocuments', () => {
   });
 
   it('handles API error gracefully', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Search failed'));
+    fetchMock.mockRejectedValue(new Error('Search failed'));
     await useWikiStore.getState().searchDocuments('hello');
     expect(useWikiStore.getState().searchResults).toEqual([]);
   });
 
+  it('returns empty results without parsing a non-OK response', async () => {
+    useWikiStore.getState().setSearchResults(['stale.md']);
+    const json = vi.fn();
+    fetchMock.mockResolvedValue({ ok: false, status: 502, json } as unknown as Response);
+
+    await useWikiStore.getState().searchDocuments('hello');
+    expect(useWikiStore.getState().searchResults).toEqual([]);
+    expect(json).not.toHaveBeenCalled();
+  });
+
   it('handles API error with empty results', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Search failed'));
+    fetchMock.mockRejectedValue(new Error('Search failed'));
     await useWikiStore.getState().searchDocuments('hello');
     expect(useWikiStore.getState().searchResults).toEqual([]);
   });
 
   it('deduplicates results with Set', async () => {
-    (global.fetch as any).mockResolvedValue({
-      json: () => Promise.resolve({
-        keyword_results: ['doc1.md', 'doc2.md'],
-        semantic_results: [{ metadata: { source: 'doc1.md' } }, { metadata: { source: 'doc2.md' } }],
-      }),
-    });
+    fetchMock.mockResolvedValue(jsonResponse({
+      keyword_results: ['doc1.md', 'doc2.md'],
+      semantic_results: [{ metadata: { source: 'doc1.md' } }, { metadata: { source: 'doc2.md' } }],
+    }));
 
     await useWikiStore.getState().searchDocuments('hello');
     expect(useWikiStore.getState().searchResults).toEqual(['doc1.md', 'doc2.md']);
@@ -316,13 +368,14 @@ describe('useWikiStore — searchDocuments', () => {
 
 describe('useWikiStore — updateVaultConfig', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('updates vault config successfully', async () => {
-    (global.fetch as any)
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, vault_path: '/new/vault' }) })
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ vault_path: '/new/vault', tree: [] }) });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, vault_path: '/new/vault' }))
+      .mockResolvedValueOnce(jsonResponse({ vault_path: '/new/vault', tree: [] }));
 
     const result = await useWikiStore.getState().updateVaultConfig('/new/vault');
     expect(result).toBe(true);
@@ -332,13 +385,13 @@ describe('useWikiStore — updateVaultConfig', () => {
   });
 
   it('returns false when API returns not ok', async () => {
-    (global.fetch as any).mockResolvedValue({ json: () => Promise.resolve({ ok: false }) });
+    fetchMock.mockResolvedValue(jsonResponse({ ok: false }));
     const result = await useWikiStore.getState().updateVaultConfig('/new/vault');
     expect(result).toBe(false);
   });
 
   it('returns false on network error', async () => {
-    (global.fetch as any).mockRejectedValue(new Error('Network error'));
+    fetchMock.mockRejectedValue(new Error('Network error'));
     const result = await useWikiStore.getState().updateVaultConfig('/new/vault');
     expect(result).toBe(false);
   });

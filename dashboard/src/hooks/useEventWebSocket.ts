@@ -6,135 +6,196 @@
  * Auto-reconnects with 3s delay, prevents duplicate connections.
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
+import { z } from 'zod';
 import { useUiStore } from '../stores/uiStore';
 import { firePluginHook } from '../plugin/pluginRegistry';
+import { readStoredAccessPin } from '../utils/accessPinCredential';
 
-export interface EventHandlers {
-  onToolExecutionStarted?: (data: { name?: string; tool_name?: string }) => void;
+const executionModeSchema = z.enum(['interactive', 'plan', 'build']);
+const eventObjectSchema = z.object({}).catchall(z.unknown()).readonly();
+const toolExecutionDataSchema = z.object({
+  name: z.string().optional(),
+  tool_name: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const failureDataSchema = z.object({
+  error: z.string().optional(),
+  message: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const cognitiveAdaptationDataSchema = z.object({
+  reason: z.string().optional(),
+  adaptation: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const planningModeDataSchema = z.object({
+  goal: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const fileEventDataSchema = z.object({
+  filepath: z.string().optional(),
+  content: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const modeChangedDataSchema = z.object({
+  from_mode: executionModeSchema.optional(),
+  to_mode: executionModeSchema.optional(),
+  reason: z.string().optional(),
+  timestamp: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+
+const eventMessageSchema = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('ModeChanged'), data: modeChangedDataSchema }).readonly(),
+  z.object({ event: z.literal('ToolExecutionStarted'), data: toolExecutionDataSchema }).readonly(),
+  z.object({ event: z.literal('ToolExecutionFinished'), data: eventObjectSchema }).readonly(),
+  z.object({ event: z.literal('FailureDetected'), data: failureDataSchema }).readonly(),
+  z.object({ event: z.literal('CognitiveAdaptation'), data: cognitiveAdaptationDataSchema }).readonly(),
+  z.object({ event: z.literal('PlanningModeStarted'), data: planningModeDataSchema }).readonly(),
+  z.object({ event: z.literal('FileOpened'), data: fileEventDataSchema }).readonly(),
+  z.object({ event: z.literal('FileModified'), data: fileEventDataSchema }).readonly(),
+]);
+
+type ToolExecutionData = z.infer<typeof toolExecutionDataSchema>;
+type FailureData = z.infer<typeof failureDataSchema>;
+type CognitiveAdaptationData = z.infer<typeof cognitiveAdaptationDataSchema>;
+type PlanningModeData = z.infer<typeof planningModeDataSchema>;
+type FileEventData = z.infer<typeof fileEventDataSchema>;
+type ModeChangedData = z.infer<typeof modeChangedDataSchema>;
+type EventMessage = z.infer<typeof eventMessageSchema>;
+
+function assertNever(message: never): never {
+  throw new TypeError(`Unsupported event message: ${JSON.stringify(message)}`);
+}
+
+export type EventHandlers = Readonly<{
+  onToolExecutionStarted?: (data: ToolExecutionData) => void;
   onToolExecutionFinished?: () => void;
-  onFailureDetected?: (data: any) => void;
-  onCognitiveAdaptation?: (data: any) => void;
-  onPlanningModeStarted?: (data: any) => void;
-  onFileOpened?: (data: { filepath?: string; content?: string }) => void;
-  onFileModified?: (data: { filepath?: string; content?: string }) => void;
-  onModeChanged?: (data: { to_mode?: string }) => void;
+  onFailureDetected?: (data: FailureData) => void;
+  onCognitiveAdaptation?: (data: CognitiveAdaptationData) => void;
+  onPlanningModeStarted?: (data: PlanningModeData) => void;
+  onFileOpened?: (data: FileEventData) => void;
+  onFileModified?: (data: FileEventData) => void;
+  onModeChanged?: (data: ModeChangedData) => void;
+}>;
+
+function dispatchEventMessage(message: EventMessage, handlers: EventHandlers): void {
+  switch (message.event) {
+    case 'ModeChanged':
+      handlers.onModeChanged?.(message.data);
+      if (message.data.to_mode !== undefined) {
+        useUiStore.getState().setMode(message.data.to_mode);
+      }
+      return;
+    case 'ToolExecutionStarted':
+      handlers.onToolExecutionStarted?.(message.data);
+      firePluginHook('tool:start', message.data);
+      return;
+    case 'ToolExecutionFinished':
+      handlers.onToolExecutionFinished?.();
+      firePluginHook('tool:end', message.data);
+      return;
+    case 'FailureDetected':
+      handlers.onFailureDetected?.(message.data);
+      return;
+    case 'CognitiveAdaptation':
+      handlers.onCognitiveAdaptation?.(message.data);
+      return;
+    case 'PlanningModeStarted':
+      handlers.onPlanningModeStarted?.(message.data);
+      return;
+    case 'FileOpened':
+      handlers.onFileOpened?.(message.data);
+      return;
+    case 'FileModified':
+      handlers.onFileModified?.(message.data);
+      return;
+    default:
+      return assertNever(message);
+  }
 }
 
 export function useEventWebSocket(handlers: EventHandlers) {
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlersRef = useRef(handlers);
-  const isConnectingRef = useRef(false);
-  handlersRef.current = handlers;
-
-  const connect = useCallback(() => {
-    // Prevent duplicate connections
-    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
-      return;
-    }
-    if (isConnectingRef.current) return;
-    isConnectingRef.current = true;
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.port === '5173' || window.location.port === '5174'
-      ? 'localhost:8000'
-      : window.location.host;
-    const wsUrl = `${protocol}//${host}/v1/ws/events`;
-
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        isConnectingRef.current = false;
-        if (reconnectTimerRef.current) {
-          clearTimeout(reconnectTimerRef.current);
-          reconnectTimerRef.current = null;
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          const h = handlersRef.current;
-
-          switch (msg.event) {
-            case 'ModeChanged':
-              h.onModeChanged?.(msg.data);
-              const newMode = msg.data?.to_mode;
-              if (newMode && ['interactive', 'plan', 'build'].includes(newMode)) {
-                useUiStore.getState().setMode(newMode as any);
-              }
-              break;
-            case 'ToolExecutionStarted':
-              h.onToolExecutionStarted?.(msg.data);
-              firePluginHook('tool:start', msg.data);
-              break;
-            case 'ToolExecutionFinished':
-              h.onToolExecutionFinished?.();
-              firePluginHook('tool:end', msg.data);
-              break;
-            case 'FailureDetected':
-              h.onFailureDetected?.(msg.data);
-              break;
-            case 'CognitiveAdaptation':
-              h.onCognitiveAdaptation?.(msg.data);
-              break;
-            case 'PlanningModeStarted':
-              h.onPlanningModeStarted?.(msg.data);
-              break;
-            case 'FileOpened':
-              h.onFileOpened?.(msg.data);
-              break;
-            case 'FileModified':
-              h.onFileModified?.(msg.data);
-              break;
-            default:
-              break;
-          }
-        } catch {
-          // ignore malformed messages
-        }
-      };
-
-      ws.onclose = () => {
-        wsRef.current = null;
-        isConnectingRef.current = false;
-        if (!reconnectTimerRef.current) {
-          reconnectTimerRef.current = setTimeout(() => {
-            reconnectTimerRef.current = null;
-            connect();
-          }, 3000);
-        }
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-    } catch {
-      isConnectingRef.current = false;
-      if (!reconnectTimerRef.current) {
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null;
-          connect();
-        }, 3000);
-      }
-    }
-  }, []);
+  useEffect(() => {
+    handlersRef.current = handlers;
+  }, [handlers]);
 
   useEffect(() => {
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let isConnecting = false;
+    let isDisposed = false;
+
+    function scheduleReconnect(): void {
+      if (isDisposed || reconnectTimer !== null) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, 3000);
+    }
+
+    function connect(): void {
+      if (isDisposed || isConnecting) return;
+      if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+      isConnecting = true;
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.port === '5173' || window.location.port === '5174'
+        ? 'localhost:8000'
+        : window.location.host;
+      const wsUrl = new URL(`${protocol}//${host}/v1/ws/events`);
+      const accessPin = readStoredAccessPin();
+      if (accessPin !== null) wsUrl.searchParams.set('pin', accessPin);
+
+      try {
+        const nextSocket = new WebSocket(wsUrl);
+        socket = nextSocket;
+
+        nextSocket.onopen = () => {
+          isConnecting = false;
+          if (reconnectTimer !== null) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
+        };
+
+        nextSocket.onmessage = (event) => {
+          let rawMessage: unknown;
+          try {
+            rawMessage = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          const parsedMessage = eventMessageSchema.safeParse(rawMessage);
+          if (!parsedMessage.success) return;
+          dispatchEventMessage(parsedMessage.data, handlersRef.current);
+        };
+
+        nextSocket.onclose = () => {
+          if (socket === nextSocket) socket = null;
+          isConnecting = false;
+          scheduleReconnect();
+        };
+
+        nextSocket.onerror = () => {
+          nextSocket.close();
+        };
+      } catch {
+        isConnecting = false;
+        scheduleReconnect();
+      }
+    }
+
     connect();
     return () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
+      isDisposed = true;
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
       }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (socket !== null) {
+        socket.onclose = null;
+        socket.close();
+        socket = null;
       }
-      isConnectingRef.current = false;
+      isConnecting = false;
     };
-  }, [connect]);
+  }, []);
 }

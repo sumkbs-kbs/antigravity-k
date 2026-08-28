@@ -5,17 +5,39 @@
  * GitHub Alerts, Mermaid diagrams, and Carousel slideshows.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ChatMessage as ChatMessageType } from '../../stores/chatStore';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { preprocessContent } from '../../utils/formatContent';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import { preprocessContent, sanitizeMarkdown } from '../../utils/formatContent';
 
 interface Props {
   message: ChatMessageType;
 }
+
+const markdownSanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), 'button'],
+  attributes: {
+    ...defaultSchema.attributes,
+    '*': [
+      ...(defaultSchema.attributes?.['*'] ?? []),
+      ['className', /^[A-Za-z0-9_-]+$/],
+      'style',
+      'data*',
+    ],
+    button: [
+      ...(defaultSchema.attributes?.button ?? []),
+      'type',
+      'className',
+      'style',
+      'data*',
+    ],
+  },
+};
 
 // ─── GitHub Alert Blockquote (fallback — main conversion in formatContent.ts) ──
 const GitHubAlert: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -37,6 +59,7 @@ declare global {
 
   interface Window {
     mermaid?: MermaidRuntime;
+    previewArtifact?: (filePath: string, fileName: string) => Promise<void>;
   }
 }
 
@@ -44,7 +67,7 @@ const MermaidDiagram: React.FC<{ code: string }> = ({ code }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const renderId = useRef(`mermaid-${Math.random().toString(36).slice(2, 9)}`).current;
+  const renderId = `mermaid-${useId().replaceAll(':', '')}`;
 
   useEffect(() => {
     const mermaid = window.mermaid;
@@ -123,10 +146,11 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
         <div className="carousel-dots">
           {slides.map((_, i) => (
             <button
-              key={i}
+              key={slides[i]}
               type="button"
               className={`carousel-dot ${i === current ? 'active' : ''}`}
               onClick={() => setCurrent(i)}
+              aria-label={`슬라이드 ${i + 1}로 이동`}
             />
           ))}
         </div>
@@ -143,7 +167,7 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
         {title && <h4>{title}</h4>}
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight, rehypeRaw]}
+          rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
         >
           {body}
         </ReactMarkdown>
@@ -217,24 +241,62 @@ const MessageActions: React.FC<{ content: string }> = ({ content }) => {
 
 function ChatMessageComponent({ message }: Props) {
   const { role, content } = message;
+  const handleBubbleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-agk-action]')
+      : null;
+    if (!target || !event.currentTarget.contains(target)) return;
+
+    const action = target.dataset.agkAction;
+    if (action === 'approval') {
+      const text = target.dataset.response;
+      if (text) {
+        window.dispatchEvent(new CustomEvent('agk:approval-response', { detail: { text } }));
+      }
+      return;
+    }
+
+    if (action === 'preview') {
+      const filePath = target.dataset.path;
+      const fileName = target.dataset.name;
+      if (filePath && fileName) {
+        void window.previewArtifact?.(filePath, fileName);
+      }
+    }
+  }, []);
+
+  const handleBubbleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-agk-action]')
+      : null;
+    if (target && !(target instanceof HTMLButtonElement)) target.click();
+  }, []);
+
   if (!content && role === 'assistant') return null;
   if (!content) return null;
 
   const avatar = role === 'user' ? '👤' : '🤖';
 
-  // Preprocess assistant content for custom agent patterns
-  const displayContent = role === 'assistant' ? preprocessContent(content) : content;
+  const displayContent = role === 'assistant'
+    ? preprocessContent(sanitizeMarkdown(content))
+    : content;
 
   return (
     <div className={`message ${role}`}>
       <div className="avatar">{avatar}</div>
-      <div className="bubble glass-panel">
+      <div
+        className="bubble glass-panel"
+        role={role === 'assistant' ? 'group' : undefined}
+        onClick={role === 'assistant' ? handleBubbleClick : undefined}
+        onKeyDown={role === 'assistant' ? handleBubbleKeyDown : undefined}
+      >
         {role === 'user' ? (
           <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
         ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight, rehypeRaw]}
+            rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
             components={{
               code({ className, children }) {
                 const isInline = extractLanguage(className) === '' && !className?.includes('hljs');

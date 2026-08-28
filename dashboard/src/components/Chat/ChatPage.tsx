@@ -28,10 +28,10 @@ import ChangePanel from '../Editor/ChangePanel';
 // Lazy-load SplitPane (defer Split.js ~6kB)
 const SplitPane = lazy(() => import('../Layout/SplitPane'));
 const SplitPaneFallback: React.FC = () => (
-  <div style={{ display: 'flex', height: '100%', gap: 6 }}>
-    <div style={{ flex: '0 0 20%', minWidth: 180, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-    <div style={{ flex: '0 0 40%', minWidth: 240, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-    <div style={{ flex: 1, minWidth: 280, background: 'var(--bg-secondary)', borderRadius: 8 }} />
+  <div className="chat-split-fallback" style={{ display: 'flex', height: '100%', gap: 6 }}>
+    <div className="chat-split-fallback-explorer" style={{ flex: '0 0 20%', minWidth: 180, background: 'var(--bg-secondary)', borderRadius: 8 }} />
+    <div className="chat-split-fallback-editor" style={{ flex: '0 0 40%', minWidth: 240, background: 'var(--bg-secondary)', borderRadius: 8 }} />
+    <div className="chat-split-fallback-chat" style={{ flex: 1, minWidth: 280, background: 'var(--bg-secondary)', borderRadius: 8 }} />
   </div>
 );
 
@@ -49,14 +49,18 @@ const ChatPage: React.FC = () => {
   const chatHistoryRef = useRef<HTMLDivElement>(null);
   const toolIndicatorRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const approvalSendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use refs to avoid stale closures in async callbacks
   const selectedModelRef = useRef(selectedModel);
-  selectedModelRef.current = selectedModel;
   const isPlanModeRef = useRef(isPlanMode);
-  isPlanModeRef.current = isPlanMode;
   const isTddModeRef = useRef(isTddMode);
-  isTddModeRef.current = isTddMode;
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+    isPlanModeRef.current = isPlanMode;
+    isTddModeRef.current = isTddMode;
+  }, [isPlanMode, isTddMode, selectedModel]);
 
   const { panelVisible: changePanelVisible, setPanelVisible: setChangePanelVisible } = useChangeStore();
   const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
@@ -85,7 +89,8 @@ const ChatPage: React.FC = () => {
         nativeInputValueSetter?.call(inputRef.current, text);
         inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
         // Auto-send after brief delay
-        setTimeout(() => {
+        if (approvalSendTimeoutRef.current !== null) clearTimeout(approvalSendTimeoutRef.current);
+        approvalSendTimeoutRef.current = setTimeout(() => {
           const sendBtn = document.querySelector('.send-btn') as HTMLButtonElement;
           sendBtn?.click();
         }, 100);
@@ -109,8 +114,12 @@ const ChatPage: React.FC = () => {
     return () => {
       window.removeEventListener('agk:approval-response', handler as EventListener);
       window.removeEventListener('agk:wiki-ref', wikiRefHandler as EventListener);
+      if (approvalSendTimeoutRef.current !== null) {
+        clearTimeout(approvalSendTimeoutRef.current);
+        approvalSendTimeoutRef.current = null;
+      }
     };
-  }, []);
+  }, [addMessage, addToast, appendToCurrentAssistantContent, saveToStorage, setStreaming, updateLastAssistantMessage]);
 
   // ─── Get the last assistant bubble for tool event injection ──────
   const getLastAssistantBubble = useCallback((): HTMLElement | null => {
@@ -182,7 +191,10 @@ const ChatPage: React.FC = () => {
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
         // Load and open in editor
         fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
-          .then(r => r.json())
+          .then(r => {
+            if (!r.ok) throw new Error(`File read failed (${r.status})`);
+            return r.json();
+          })
           .then(d => {
             if (d.content !== undefined) {
               openFile(filePath, fileName, d.content);
@@ -197,7 +209,10 @@ const ChatPage: React.FC = () => {
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
         // Open file in editor
         fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
-          .then(r => r.json())
+          .then(r => {
+            if (!r.ok) throw new Error(`File read failed (${r.status})`);
+            return r.json();
+          })
           .then(d => {
             if (d.content !== undefined) {
               openFile(filePath, fileName, d.content);
@@ -224,14 +239,9 @@ const ChatPage: React.FC = () => {
     const planMode = isPlanModeRef.current;
     const tddMode = isTddModeRef.current;
 
-    let userContent: string | any[] = text;
     let displayText = text;
 
     if (imageDataUrl) {
-      userContent = [
-        { type: 'text', text: text || '이 이미지를 분석해주세요.' },
-        { type: 'image_url', image_url: { url: imageDataUrl } },
-      ];
       displayText = text + ' 📎🖼️';
     }
 
@@ -248,42 +258,44 @@ const ChatPage: React.FC = () => {
     const updatedMessages = useChatStore.getState().messages;
     await streamChatCompletion(
       { model, messages: updatedMessages, stream: true, agent_mode: true, plan_mode: planMode, tdd_mode: tddMode },
-      (chunk) => {
-        assistantContent += chunk;
-        appendToCurrentAssistantContent(chunk);
-        updateLastAssistantMessage(assistantContent);
-        saveToStorage();
-      },
-      () => {
-        // Update final message
-        updateLastAssistantMessage(assistantContent);
-        saveToStorage();
-        setStreaming(false);
-        abortRef.current = null;
-        firePluginHook('chat:response', { content: assistantContent, model: selectedModelRef.current });
+      {
+        onChunk: (chunk) => {
+          assistantContent += chunk;
+          appendToCurrentAssistantContent(chunk);
+          updateLastAssistantMessage(assistantContent);
+          saveToStorage();
+        },
+        onDone: () => {
+          // Update final message
+          updateLastAssistantMessage(assistantContent);
+          saveToStorage();
+          setStreaming(false);
+          abortRef.current = null;
+          firePluginHook('chat:response', { content: assistantContent, model: selectedModelRef.current });
 
-        // ── Auto-detect file changes from assistant response ──
-        if (assistantContent && assistantContent.length > 50) {
-          detectChangesFromAssistantContent(assistantContent)
-            .then(count => {
-              if (count > 0) {
-                addToast(`📋 ${count}개 파일 변경 감지 — 검토해보세요`, 'info');
-              }
-            })
-            .catch(() => {});
-        }
-      },
-      (err) => {
-        console.error('Stream error:', err);
-        updateLastAssistantMessage(assistantContent || `Error: ${err.message}`);
-        saveToStorage();
-        setStreaming(false);
-        abortRef.current = null;
-        addToast(`오류: ${err.message}`, 'error');
+          // ── Auto-detect file changes from assistant response ──
+          if (assistantContent && assistantContent.length > 50) {
+            detectChangesFromAssistantContent(assistantContent)
+              .then(count => {
+                if (count > 0) {
+                  addToast(`📋 ${count}개 파일 변경 감지 — 검토해보세요`, 'info');
+                }
+              })
+              .catch(() => {});
+          }
+        },
+        onError: (err) => {
+          console.error('Stream error:', err);
+          updateLastAssistantMessage(assistantContent || `Error: ${err.message}`);
+          saveToStorage();
+          setStreaming(false);
+          abortRef.current = null;
+          addToast(`오류: ${err.message}`, 'error');
+        },
       },
       abortController.signal
     );
-  }, []);
+  }, [addMessage, addToast, appendToCurrentAssistantContent, saveToStorage, setStreaming, updateLastAssistantMessage]);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
@@ -303,6 +315,8 @@ const ChatPage: React.FC = () => {
     <div className="ide-layout">
       <Suspense fallback={<SplitPaneFallback />}>
       <SplitPane
+        className="chat-split-pane"
+        panelClassNames={['split-panel-explorer', 'split-panel-editor', 'split-panel-chat']}
         direction="horizontal"
         storageKey="agk_ide_split_sizes"
         initialSizes={[20, 40, 40]}
@@ -366,8 +380,8 @@ const ChatPage: React.FC = () => {
             {messages.length === 0 ? (
               <EmptyState onExampleClick={handleExampleClick} />
             ) : (
-              messages.map((msg, i) => (
-                <ChatMessage key={msg.id || `${msg.role}-${i}`} message={msg} />
+              messages.map(msg => (
+                <ChatMessage key={msg.id ?? `${msg.role}:${msg.content}`} message={msg} />
               ))
             )}
             {isStreaming && (

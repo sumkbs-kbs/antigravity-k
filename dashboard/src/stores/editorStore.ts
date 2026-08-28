@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import type { OnMount } from '@monaco-editor/react';
 import { firePluginHook } from '../plugin/pluginRegistry';
+import { createAccessPinHeaders } from '../utils/accessPinCredential';
 
 type MonacoEditor = Parameters<OnMount>[0];
 
@@ -143,11 +144,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     try {
       const res = await fetch('/api/fs/write', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: file.path, content: file.content }),
       });
-      const data = await res.json();
-      if (data.ok) {
+      if (!res.ok) return false;
+      const data: unknown = await res.json();
+      if (data !== null && typeof data === 'object' && 'ok' in data && data.ok === true) {
         get().markFileSaved(path);
         return true;
       }

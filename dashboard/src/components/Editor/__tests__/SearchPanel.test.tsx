@@ -5,7 +5,7 @@
  * search input, regex/case options, results display, replace, keyboard nav.
  */
 
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll, type Mock } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import SearchPanel from '../SearchPanel';
 
@@ -14,6 +14,7 @@ import SearchPanel from '../SearchPanel';
 const mockOpenFile = vi.fn();
 const mockUpdateFileContent = vi.fn();
 const mockAddToast = vi.fn();
+let fetchMock: Mock<typeof fetch>;
 
 vi.mock('../../../stores/editorStore', () => ({
   useEditorStore: () => ({
@@ -72,8 +73,11 @@ const emptySearchResponse = {
   total_matches: 0,
 };
 
-function mockFetchResponse(data: any) {
-  return { json: () => Promise.resolve(data) };
+function mockFetchResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 /* ─── SearchPanel Rendering ────────────────────────────────── */
@@ -85,7 +89,8 @@ describe('SearchPanel rendering', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('returns null when visible is false', () => {
@@ -96,7 +101,7 @@ describe('SearchPanel rendering', () => {
   });
 
   it('renders search panel when visible is true', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -109,7 +114,7 @@ describe('SearchPanel rendering', () => {
   });
 
   it('renders search panel with regex placeholder when useRegex is toggled', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -120,7 +125,7 @@ describe('SearchPanel rendering', () => {
   });
 
   it('clears state when visible changes from true to false', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     const { rerender } = render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -132,13 +137,14 @@ describe('SearchPanel rendering', () => {
     rerender(<SearchPanel visible={false} onClose={vi.fn()} />);
     rerender(<SearchPanel visible={true} onClose={vi.fn()} />);
 
-    const searchInput = screen.getByPlaceholderText('Search files...');
-    expect(searchInput).toHaveValue('');
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search files...')).toHaveValue('');
+    });
   });
 
   it('shows loading state during search', async () => {
-    const pendingPromise = new Promise(() => {});
-    (global.fetch as any).mockReturnValue(pendingPromise);
+    const pendingPromise = new Promise<Response>(() => {});
+    fetchMock.mockReturnValue(pendingPromise);
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -154,7 +160,7 @@ describe('SearchPanel rendering', () => {
   });
 
   it('shows no results message when search returns empty', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(emptySearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(emptySearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -175,11 +181,12 @@ describe('SearchPanel rendering', () => {
 describe('SearchPanel search input', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('calls search API when user types', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -197,11 +204,9 @@ describe('SearchPanel search input', () => {
       headers: { 'Content-Type': 'application/json' },
     }));
 
-    const callArgs = (global.fetch as any).mock.calls.find(
-      (c: any[]) => c[0] === '/api/fs/search'
-    );
+    const callArgs = fetchMock.mock.calls.find(c => c[0] === '/api/fs/search');
     if (callArgs) {
-      const body = JSON.parse(callArgs[1].body);
+      const body = JSON.parse(String(callArgs[1]?.body));
       expect(body.query).toBe('function');
       expect(body.max_results).toBe(200);
     }
@@ -231,9 +236,9 @@ describe('SearchPanel search input', () => {
       expect(fetchMock).toHaveBeenCalled();
     }, { timeout: 1000 });
 
-    const regexCall = fetchMock.mock.calls.find((c: any[]) => c[0] === '/api/fs/search');
+    const regexCall = fetchMock.mock.calls.find(c => c[0] === '/api/fs/search');
     if (regexCall) {
-      const body = JSON.parse(regexCall[1].body);
+      const body = JSON.parse(String(regexCall[1]?.body));
       expect(body.regex).toBe(true);
     }
   });
@@ -262,15 +267,15 @@ describe('SearchPanel search input', () => {
       expect(fetchMock).toHaveBeenCalled();
     }, { timeout: 1000 });
 
-    const csCall = fetchMock.mock.calls.find((c: any[]) => c[0] === '/api/fs/search');
+    const csCall = fetchMock.mock.calls.find(c => c[0] === '/api/fs/search');
     if (csCall) {
-      const body = JSON.parse(csCall[1].body);
+      const body = JSON.parse(String(csCall[1]?.body));
       expect(body.case_sensitive).toBe(true);
     }
   });
 
   it('shows match count in summary', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -290,11 +295,12 @@ describe('SearchPanel search input', () => {
 describe('SearchPanel search results', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('displays file results with match lines', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -313,7 +319,7 @@ describe('SearchPanel search results', () => {
   });
 
   it('shows collapse/expand toggle on file results', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -350,11 +356,12 @@ describe('SearchPanel search results', () => {
 describe('SearchPanel keyboard navigation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('moves focus down on ArrowDown', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -378,7 +385,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('moves focus down twice then up — focus stays at first match', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -402,7 +409,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('shows navigation only when focusedIdx >= 0', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -453,7 +460,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('triggers search on Shift+Enter', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -462,7 +469,7 @@ describe('SearchPanel keyboard navigation', () => {
       fireEvent.change(input, { target: { value: 'function' } });
     });
 
-    (global.fetch as any).mockClear();
+    fetchMock.mockClear();
 
     await act(async () => {
       fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
@@ -474,7 +481,7 @@ describe('SearchPanel keyboard navigation', () => {
   });
 
   it('tabs from search to replace input', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -498,11 +505,12 @@ describe('SearchPanel keyboard navigation', () => {
 describe('SearchPanel replace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('shows replace input after search', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -517,7 +525,7 @@ describe('SearchPanel replace', () => {
   });
 
   it('shows Replace button per match when replace text is entered', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -542,7 +550,7 @@ describe('SearchPanel replace', () => {
   });
 
   it('shows Replace All button when replace text is entered', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -571,11 +579,12 @@ describe('SearchPanel replace', () => {
 describe('FileResult expand/collapse', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('shows matches list by default (expanded)', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -591,7 +600,7 @@ describe('FileResult expand/collapse', () => {
   });
 
   it('hides matches when file header is clicked (collapse)', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -619,11 +628,12 @@ describe('FileResult expand/collapse', () => {
 describe('SearchPanel replace edge cases', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('does not show Replace All button when replaceText is empty', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -640,7 +650,7 @@ describe('SearchPanel replace edge cases', () => {
   });
 
   it('does not show individual Replace buttons when replaceText is empty', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -657,7 +667,7 @@ describe('SearchPanel replace edge cases', () => {
   });
 
   it('does not show per-file replace all button when replaceText is empty', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -679,7 +689,8 @@ describe('SearchPanel replace edge cases', () => {
 describe('SearchPanel close', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('calls onClose when close button is clicked', async () => {
@@ -698,13 +709,14 @@ describe('SearchPanel close', () => {
 describe('SearchPanel open match', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('opens file when clicking a match line', async () => {
-    (global.fetch as any)
+    fetchMock
       .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
-      .mockResolvedValueOnce(mockFetchResponse({ content: 'file content' }));
+      .mockResolvedValueOnce(mockFetchResponse({ ok: true, content: 'file content' }));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -729,7 +741,7 @@ describe('SearchPanel open match', () => {
   });
 
   it('shows error toast when open fails with network error', async () => {
-    (global.fetch as any)
+    fetchMock
       .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
       .mockRejectedValueOnce(new Error('Network error'));
 
@@ -756,6 +768,46 @@ describe('SearchPanel open match', () => {
       );
     }, { timeout: 1000 });
   });
+
+  it('shows the backend detail when opening a match returns a non-OK response', async () => {
+    fetchMock
+      .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
+      .mockResolvedValueOnce(mockFetchResponse({ detail: 'File not found' }, 404));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => expect(screen.getByText('10')).toBeInTheDocument(), { timeout: 1000 });
+    const matchLine = screen.getByText('10').closest('.search-match-line');
+    if (matchLine) await act(async () => { fireEvent.click(matchLine); });
+
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('파일 열기 오류: File not found', 'error'));
+    expect(mockOpenFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid file content shape when opening a match', async () => {
+    fetchMock
+      .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
+      .mockResolvedValueOnce(mockFetchResponse({ ok: true, content: 42 }));
+
+    render(<SearchPanel visible={true} onClose={vi.fn()} />);
+
+    const input = screen.getByPlaceholderText('Search files...');
+    await act(async () => {
+      fireEvent.change(input, { target: { value: 'function' } });
+    });
+
+    await waitFor(() => expect(screen.getByText('10')).toBeInTheDocument(), { timeout: 1000 });
+    const matchLine = screen.getByText('10').closest('.search-match-line');
+    if (matchLine) await act(async () => { fireEvent.click(matchLine); });
+
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('파일 열기 오류: Invalid file response', 'error'));
+    expect(mockOpenFile).not.toHaveBeenCalled();
+  });
 });
 
 /* ─── Keyboard Navigation Edge Cases ───────────────────────── */
@@ -763,11 +815,12 @@ describe('SearchPanel open match', () => {
 describe('SearchPanel keyboard edge cases', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it('handles Escape on replace input to clear replaceText', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -793,7 +846,7 @@ describe('SearchPanel keyboard edge cases', () => {
   });
 
   it('handles Shift+Tab from replace to search input', async () => {
-    (global.fetch as any).mockResolvedValue(mockFetchResponse(mockSearchResponse));
+    fetchMock.mockResolvedValue(mockFetchResponse(mockSearchResponse));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 
@@ -813,9 +866,9 @@ describe('SearchPanel keyboard edge cases', () => {
   });
 
   it('opens focused match on Enter key', async () => {
-    (global.fetch as any)
+    fetchMock
       .mockResolvedValueOnce(mockFetchResponse(mockSearchResponse))
-      .mockResolvedValueOnce(mockFetchResponse({ content: 'file content' }));
+      .mockResolvedValueOnce(mockFetchResponse({ ok: true, content: 'file content' }));
 
     render(<SearchPanel visible={true} onClose={vi.fn()} />);
 

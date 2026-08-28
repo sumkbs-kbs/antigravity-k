@@ -6,7 +6,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { useUiStore } from '../../stores/uiStore';
+import { useUiStore, type ExecutionMode } from '../../stores/uiStore';
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
 
 const MODE_STYLES: Record<string, { icon: string; label: string; color: string; bg: string }> = {
   plan: { icon: '📋', label: 'PLAN', color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.12)' },
@@ -27,6 +28,13 @@ const NAV_ITEMS = [
   { path: '/settings', icon: '⚙️', label: '설정' },
 ];
 
+function providerModelName(value: unknown): string {
+  if (typeof value !== 'object' || value === null) return '';
+  const record = value as Record<string, unknown>;
+  const candidate = record.name ?? record.model;
+  return typeof candidate === 'string' ? candidate.toLowerCase() : '';
+}
+
 const ProviderStatusPanel: React.FC = () => {
   const { systemStatus } = useUiStore();
   const { backends } = systemStatus;
@@ -42,8 +50,8 @@ const ProviderStatusPanel: React.FC = () => {
   const activeModels = Array.isArray(backends) ? backends : Object.values(backends || {});
   const activeProviders = new Set<string>();
 
-  activeModels.forEach((m: any) => {
-    const name = (m.name || m.model || '').toLowerCase();
+  activeModels.forEach((model) => {
+    const name = providerModelName(model);
     if (name.includes('ollama') || name.includes(':latest')) activeProviders.add('ollama');
     if (name.includes('openrouter') || (name.includes('/') && !name.startsWith('gpt'))) activeProviders.add('openrouter');
     if (name.startsWith('deepseek-ai/') || name.startsWith('meta/') || name.startsWith('nvidia/')) activeProviders.add('nim');
@@ -75,23 +83,23 @@ const ModeIndicator: React.FC = () => {
   const handleClick = async () => {
     const currentIdx = modes.indexOf(mode);
     const nextMode = modes[(currentIdx + 1) % modes.length] as keyof typeof MODE_STYLES;
-    const pin = localStorage.getItem('ag_access_pin') || '0000';
 
     try {
       const res = await fetch('/api/system/mode', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Access-Pin': pin },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode: nextMode, reason: '대시보드 클릭' }),
       });
+      if (!res.ok) throw new Error(`Mode switch failed (${res.status})`);
       const data = await res.json();
       if (data.ok) {
-        setMode(nextMode as any);
+        setMode(nextMode as ExecutionMode);
         addToast(`모드 전환: ${nextMode.toUpperCase()}`, 'success');
       } else {
         addToast(`모드 전환 실패: ${data.error || ''}`, 'error');
       }
-    } catch (err: any) {
-      addToast(`서버 오류: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      addToast(`서버 오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   };
 
@@ -101,6 +109,7 @@ const ModeIndicator: React.FC = () => {
       onClick={handleClick}
       role="button"
       tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleClick(); } }}
       title={`${style.label} 모드 — 클릭하여 전환`}
     >
       <span className="mode-icon" aria-hidden="true">{style.icon}</span>
@@ -124,7 +133,7 @@ const Sidebar: React.FC<SidebarProps> = ({ toggleTerminal }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const [projectName, setProjectName] = useState('기본 프로젝트');
+  const [projectName] = useState('기본 프로젝트');
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -142,8 +151,8 @@ const Sidebar: React.FC<SidebarProps> = ({ toggleTerminal }) => {
       await fetch('/api/system/restart', { method: 'POST' });
       addToast('🔄 서버 재시작 중...', 'info');
       setTimeout(() => window.location.reload(), 3000);
-    } catch (err: any) {
-      addToast(`재시작 실패: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      addToast(`재시작 실패: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   };
 
@@ -153,7 +162,7 @@ const Sidebar: React.FC<SidebarProps> = ({ toggleTerminal }) => {
   };
 
   return (
-    <aside className="sidebar" role="navigation" aria-label="메인 사이드바">
+    <aside className="sidebar" aria-label="메인 사이드바">
       {/* ── Header: Logo & Project ──────────────────────────────── */}
       <div className="sidebar-header">
         <div className="logo-group">

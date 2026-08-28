@@ -59,15 +59,20 @@ const CommandPalette: React.FC = () => {
   // Show results on open / query change
   useEffect(() => {
     if (!commandPaletteVisible) return;
-    setResults(getLocalMatches(query));
-    setSelectedIndex(0);
+    const timer = setTimeout(() => {
+      setResults(getLocalMatches(query));
+      setSelectedIndex(0);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [commandPaletteVisible, query, getLocalMatches]);
 
   // Focus input when opened
   useEffect(() => {
     if (commandPaletteVisible) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const focusTimer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(focusTimer);
     }
+    return undefined;
   }, [commandPaletteVisible]);
 
   const performSearch = useCallback(async (value: string) => {
@@ -160,7 +165,7 @@ const CommandPalette: React.FC = () => {
   if (!commandPaletteVisible) return null;
 
   return (
-    <div className="command-palette-overlay" style={{ display: 'flex' }} onClick={handleOverlayClick}>
+    <div className="command-palette-overlay" style={{ display: 'flex' }} onClick={handleOverlayClick} role="presentation">
       <div className="command-palette" role="dialog" aria-label="명령 팔레트">
         <div className="cmd-header">
           <span className="cmd-icon"><CommandIcon icon="search" /></span>

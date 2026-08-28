@@ -1,17 +1,18 @@
 /**
  * changeDetector — AI 응답에서 파일 변경 사항을 자동 감지
  * ==========================================================
- * 
+ *
  * 감지 패턴:
  * 1. 코드 블록 with 파일 경로 주석: ```python:path/to/file.py
  * 2. Diff 형식: --- a/file +++ b/file 블록
  * 3. 명시적 마커: [FILE: path/to/file.py]
  * 4. WebSocket FileModified 이벤트 (외부 통합)
- * 
+ *
  * 감지된 변경 사항을 Change Store에 자동 등록합니다.
  */
 
 import { useChangeStore } from '../stores/changeStore';
+import { createAccessPinHeaders } from './accessPinCredential';
 
 /* ─── Types ───────────────────────────────────────────────── */
 
@@ -36,16 +37,21 @@ const FILE_MARKER = /\[FILE:\s*([^\]]+)\]\n?([\s\S]*?)(?=\n\[FILE:|```|$)/g;
 
 /* ─── Read file content from backend ───────────────────────── */
 
-async function fetchFileContent(filePath: string): Promise<string | null> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+async function fetchFileContent(filePath: string): Promise<string | null | undefined> {
   try {
-    const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
-    const data = await res.json();
-    if (data.content !== undefined) {
-      return data.content;
-    }
-    return null; // File doesn't exist (new file)
+    const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`, {
+      headers: createAccessPinHeaders(),
+    });
+    if (!res.ok) return res.status === 404 ? null : undefined;
+    const data: unknown = await res.json();
+    if (isRecord(data) && typeof data.content === 'string') return data.content;
+    return undefined;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -159,6 +165,7 @@ export async function detectChangesFromContent(content: string): Promise<number>
   const results = await Promise.all(readPromises);
 
   for (const { pending, originalContent } of results) {
+    if (originalContent === undefined) continue;
     // Only register if content actually changed (file exists with different content, or is new)
     if (originalContent === null || cleanContent(originalContent) !== cleanContent(pending.newContent)) {
       registerChange(
@@ -189,15 +196,19 @@ export async function detectChangesFromAssistantContent(content: string): Promis
 export async function registerFileModification(filePath: string, fileName: string): Promise<boolean> {
   try {
     const originalContent = await fetchFileContent(filePath);
-    if (originalContent === null) return false;
+    if (originalContent === null || originalContent === undefined) return false;
 
     // Read previous version (before modification) from git HEAD
     let previousContent: string | null = null;
     try {
-      const gitRes = await fetch(`/api/git/file-content?path=.&file=${encodeURIComponent(filePath)}&ref=HEAD`);
-      const gitData = await gitRes.json();
-      if (gitData.ok && gitData.content !== undefined) {
-        previousContent = gitData.content;
+      const gitRes = await fetch(`/api/git/file-content?path=.&file=${encodeURIComponent(filePath)}&ref=HEAD`, {
+        headers: createAccessPinHeaders(),
+      });
+      if (gitRes.ok) {
+        const gitData: unknown = await gitRes.json();
+        if (isRecord(gitData) && gitData.ok === true && typeof gitData.content === 'string') {
+          previousContent = gitData.content;
+        }
       }
     } catch {
       // Git not available — register as a new change from scratch

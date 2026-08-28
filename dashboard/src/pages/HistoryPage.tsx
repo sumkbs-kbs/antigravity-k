@@ -170,11 +170,15 @@ const FileListSidebar: React.FC = () => {
             onBlur={handleMaxChange}
             onKeyDown={e => e.key === 'Enter' && handleMaxChange()}
             autoFocus
+            aria-label="파일당 최대 스냅샷 수"
           />
         ) : (
           <span
             className="history-max-value"
             onClick={() => { setMaxInput(String(maxSnapshotsPerFile)); setEditingMax(true); }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMaxInput(String(maxSnapshotsPerFile)); setEditingMax(true); } }}
             title="클릭하여 변경"
           >
             {maxSnapshotsPerFile}

@@ -30,6 +30,7 @@ const PlanToggleBar: React.FC = () => {
           title="Plan Mode: AI가 먼저 구현 계획을 수립합니다"
           role="button"
           tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPlanMode(!isPlanMode); } }}
         >
           <span className="toggle-dot" />
           <span>📋 Plan</span>
@@ -42,6 +43,7 @@ const PlanToggleBar: React.FC = () => {
           title="TDD Mode: 다중 모델 경쟁 기반으로 테스트 주도 코딩을 수행합니다"
           role="button"
           tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTddMode(!isTddMode); } }}
         >
           <span className="toggle-dot" style={{ background: 'var(--success-color)' }} />
           <span>🧪 TDD Mode</span>

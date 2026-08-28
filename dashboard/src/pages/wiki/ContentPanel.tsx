@@ -48,8 +48,8 @@ const ContentPanel: React.FC<Props> = ({
       )}
       {tags.length ? (
         <div style={{ display: 'flex', gap: 4, marginBottom: 12, width: '100%' }}>
-          {tags.map((t, i) => (
-            <span key={i} className="status-badge" style={{ background: 'rgba(124,106,239,0.1)', color: 'var(--accent-color)', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
+          {tags.map(t => (
+            <span key={t} className="status-badge" style={{ background: 'rgba(124,106,239,0.1)', color: 'var(--accent-color)', fontSize: 11, padding: '2px 8px', borderRadius: 4 }}>
               #{t}
             </span>
           ))}

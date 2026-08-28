@@ -51,8 +51,10 @@ export function useTaskExecutionEvents(): TaskExecutionState {
 
   useEffect(() => {
     const controller = new AbortController();
-    setConnectionState('loading');
-    setError(null);
+    const resetTimer = window.setTimeout(() => {
+      setConnectionState('loading');
+      setError(null);
+    }, 0);
 
     void fetchTaskList(controller.signal)
       .then((nextTasks) => {
@@ -71,19 +73,24 @@ export function useTaskExecutionEvents(): TaskExecutionState {
         setConnectionState('error');
       });
 
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(resetTimer);
+      controller.abort();
+    };
   }, [reloadVersion]);
 
   useEffect(() => {
     if (selectedTaskId === null) {
-      setEvents([]);
-      return;
+      const clearTimer = window.setTimeout(() => setEvents([]), 0);
+      return () => window.clearTimeout(clearTimer);
     }
 
     const controller = new AbortController();
-    setEvents([]);
-    setError(null);
-    setConnectionState('loading');
+    const resetTimer = window.setTimeout(() => {
+      setEvents([]);
+      setError(null);
+      setConnectionState('loading');
+    }, 0);
 
     const run = async (): Promise<void> => {
       const replay = await fetchTaskEvents(selectedTaskId, 0, controller.signal);
@@ -129,7 +136,10 @@ export function useTaskExecutionEvents(): TaskExecutionState {
       setConnectionState('error');
     });
 
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(resetTimer);
+      controller.abort();
+    };
   }, [selectedTaskId, reloadVersion]);
 
   const selectTask = useCallback((taskId: TaskId) => setSelectedTaskId(taskId), []);

@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useAgentMonitorStore, type AgentStatus, type LogEntry, type TaskProgress } from '../../stores/agentMonitorStore';
+import { useAgentMonitorStore, type AgentStatus } from '../../stores/agentMonitorStore';
 
 /* ─── Constants ────────────────────────────────────────────── */
 
@@ -74,7 +74,6 @@ const AgentStatusCard: React.FC = () => {
   const [toolDuration, setToolDuration] = useState(0);
   useEffect(() => {
     if (!activeTool || activeTool.status !== 'running') {
-      setToolDuration(0);
       return;
     }
     const interval = setInterval(() => {

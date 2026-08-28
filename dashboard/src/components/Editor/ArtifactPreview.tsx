@@ -39,6 +39,7 @@ const ArtifactPreview: React.FC = () => {
     window.previewArtifact = async (filePath: string, fileName: string) => {
       try {
         const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
+        if (!res.ok) throw new Error(`Preview read failed (${res.status})`);
         const data = ArtifactReadResponseSchema.parse(await res.json());
         if (data.content) {
           useEditorStore.getState().showPreview(filePath, fileName, data.content);
@@ -108,6 +109,7 @@ const ArtifactPreview: React.FC = () => {
           className="icon-btn"
           style={{ color: '#666' }}
           onClick={handleClose}
+          aria-label="미리보기 닫기"
         >
           ✕
         </button>

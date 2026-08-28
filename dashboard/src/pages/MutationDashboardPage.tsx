@@ -148,6 +148,9 @@ const StoreCard: React.FC<{ store: StoreData }> = ({ store }) => {
         cursor: 'pointer',
       }}
       onClick={() => setExpanded(!expanded)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(value => !value); } }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = `${color}40`; }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = ''; }}
     >
@@ -396,8 +399,8 @@ const ImprovementTimeline: React.FC = () => {
           position: 'absolute', left: 8, top: 0, bottom: 0,
           width: 2, background: 'var(--glass-border)',
         }} />
-        {timeline.map((item, i) => (
-          <div key={i} style={{ position: 'relative', paddingBottom: 16, paddingLeft: 16 }}>
+        {timeline.map(item => (
+          <div key={item.phase} style={{ position: 'relative', paddingBottom: 16, paddingLeft: 16 }}>
             {/* Dot */}
             <div style={{
               position: 'absolute', left: -20, top: 4,

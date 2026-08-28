@@ -11,6 +11,11 @@ import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { useProblemsStore, getFilteredProblems, ProblemSeverity, Problem } from '../../stores/problemsStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 /* ─── Severity Icon ────────────────────────────────────────── */
 
@@ -104,23 +109,41 @@ const ProblemsPanel: React.FC = () => {
   // Focus filter input when panel opens
   useEffect(() => {
     if (problemsPanelVisible && filterInputRef.current) {
-      setTimeout(() => filterInputRef.current?.focus(), 50);
+      const focusTimer = setTimeout(() => filterInputRef.current?.focus(), 50);
+      return () => clearTimeout(focusTimer);
     }
+    return undefined;
   }, [problemsPanelVisible]);
 
   const handleProblemClick = useCallback(async (problem: Problem) => {
     try {
-      const res = await fetch(`/api/fs/read?file=${encodeURIComponent(problem.filePath)}`);
-      const data = await res.json();
-      if (data.content !== undefined) {
+      const res = await fetch(`/api/fs/read?file=${encodeURIComponent(problem.filePath)}`, {
+        headers: createAccessPinHeaders(),
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const errorData: unknown = await res.json();
+          if (isRecord(errorData) && typeof errorData.detail === 'string') detail = errorData.detail;
+        } catch {
+          detail = `HTTP ${res.status}`;
+        }
+        addToast(`파일 열기 오류: ${detail}`, 'error');
+        return;
+      }
+      const data: unknown = await res.json();
+      if (isRecord(data) && typeof data.content === 'string') {
         openFile(problem.filePath, problem.fileName, data.content);
         // Dispatch event to navigate to line
         window.dispatchEvent(new CustomEvent('agk:editor-reveal-line', {
           detail: { line: problem.line, column: problem.column },
         }));
+      } else {
+        addToast('파일 열기 오류: 알 수 없는 오류', 'error');
       }
-    } catch (err: any) {
-      addToast(`파일 열기 오류: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`파일 열기 오류: ${message}`, 'error');
     }
   }, [openFile, addToast]);
 
@@ -182,6 +205,7 @@ const ProblemsPanel: React.FC = () => {
               value={filterText}
               onChange={e => setFilterText(e.target.value)}
               placeholder="Filter..."
+              aria-label="문제 필터"
               onKeyDown={e => e.key === 'Escape' && setFilterText('')}
             />
             {/* Close button */}

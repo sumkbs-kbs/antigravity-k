@@ -51,12 +51,13 @@ export interface LocalHistoryState {
   // Computed
   getSnapshotsForFile: (filePath: string) => FileSnapshot[];
   getAllFiles: () => Array<{ filePath: string; fileName: string; count: number; lastModified: number }>;
-  getSnapshotById: (id: string | null) => FileSnapshot | null;
+  getSnapshotById: (id: string | null | undefined) => FileSnapshot | null;
 }
 
 /* ─── Storage ──────────────────────────────────────────────── */
 
-const STORAGE_KEY = 'agk_local_history';
+const STORAGE_KEY = 'agk_local_history:v1';
+const LEGACY_STORAGE_KEY = STORAGE_KEY.replace(':v1', '');
 function loadMaxSetting(): number {
   try {
     const raw = localStorage.getItem('agk_history_max');
@@ -72,7 +73,7 @@ const DEFAULT_MAX_SNAPSHOTS = loadMaxSetting();
 
 function loadFromStorage(): Record<string, FileSnapshot[]> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* ignore corrupt data */ }
   return {};
@@ -81,6 +82,7 @@ function loadFromStorage(): Record<string, FileSnapshot[]> {
 function saveToStorage(snapshots: Record<string, FileSnapshot[]>) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshots));
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(snapshots));
   } catch {
     // Storage full — silently fail
   }
@@ -192,6 +194,7 @@ export const useLocalHistoryStore = create<LocalHistoryState>((set, get) => {
     clearAllHistory: () => {
       set({ snapshots: {}, selectedFile: null, compareIds: [null, null] });
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
     },
 
     setSelectedFile: (filePath) => {

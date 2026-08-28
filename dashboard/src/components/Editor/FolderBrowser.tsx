@@ -33,6 +33,7 @@ const FolderBrowser: React.FC = () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/fs/browse?dir=${encodeURIComponent(dir)}`);
+      if (!res.ok) throw new Error(`Browse failed (${res.status})`);
       const data = await res.json();
       if (data.ok) {
         setBrowseData(data);
@@ -47,8 +48,10 @@ const FolderBrowser: React.FC = () => {
 
   useEffect(() => {
     if (folderBrowserVisible) {
-      loadBrowse('/');
+      const timer = setTimeout(() => void loadBrowse('/'), 0);
+      return () => clearTimeout(timer);
     }
+    return undefined;
   }, [folderBrowserVisible, loadBrowse]);
 
   const handleSelectFolder = useCallback(async () => {
@@ -59,6 +62,7 @@ const FolderBrowser: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: currentPath }),
       });
+      if (!res.ok) throw new Error(`Workspace update failed (${res.status})`);
       const data = await res.json();
       if (data.ok) {
         setWorkspacePath(data.workspace);
@@ -69,8 +73,8 @@ const FolderBrowser: React.FC = () => {
       } else {
         addToast(`워크스페이스 설정 실패: ${data.detail}`, 'error');
       }
-    } catch (err: any) {
-      addToast(`오류: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      addToast(`오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   }, [currentPath, setWorkspacePath, refreshTree, setFolderBrowserVisible, addToast]);
 
@@ -111,6 +115,7 @@ const FolderBrowser: React.FC = () => {
             className="icon-btn"
             style={{ color: 'var(--text-secondary)' }}
             onClick={() => setFolderBrowserVisible(false)}
+            aria-label="폴더 선택 대화상자 닫기"
           >
             ✕
           </button>
@@ -143,6 +148,9 @@ const FolderBrowser: React.FC = () => {
             <div
               className="browse-item"
               onClick={() => handleNavigate(browseData.parent!)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNavigate(browseData.parent!); } }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -174,6 +182,9 @@ const FolderBrowser: React.FC = () => {
               key={item.path}
               className="browse-item"
               onClick={() => item.is_dir && handleNavigate(item.path)}
+              role={item.is_dir ? 'button' : undefined}
+              tabIndex={item.is_dir ? 0 : undefined}
+              onKeyDown={item.is_dir ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleNavigate(item.path); } } : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',

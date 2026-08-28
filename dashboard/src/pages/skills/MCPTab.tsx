@@ -37,8 +37,11 @@ const MCPTab: React.FC<MCPTabProps> = ({ servers }) => {
             : status === 'error'
               ? '🔴'
               : '⚪';
-          const tools = (server.tools || server.available_tools || []) as any[];
+          const tools = server.tools || server.available_tools || [];
           const toolCount = tools.length;
+          const toolNames = [...new Set(tools.map(t =>
+            typeof t === 'string' ? t : (t.name || t.function?.name || 'tool')
+          ))].slice(0, 8);
 
           return (
             <div key={server.name || server.server_name} className="glass-panel skill-card">
@@ -82,9 +85,9 @@ const MCPTab: React.FC<MCPTabProps> = ({ servers }) => {
               {toolCount > 0 && (
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--glass-border)' }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {tools.slice(0, 8).map((t: any, i: number) => (
-                      <span key={i} className="tool-chip">
-                        {esc(typeof t === 'string' ? t : (t.name || t.function?.name || 'tool'))}
+                    {toolNames.map(toolName => (
+                      <span key={toolName} className="tool-chip">
+                        {esc(toolName)}
                       </span>
                     ))}
                     {toolCount > 8 && (
