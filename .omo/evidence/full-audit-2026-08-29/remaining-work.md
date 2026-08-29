@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `6b7185f` (한국어 속어 검색 테스트 경계 타입 보강 포함)
-- 전체 `basedpyright`: `0 errors, 27963 warnings, 0 notes` (속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 697건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `fad2093` (특허 검색 테스트 네트워크 double 타입 보강 포함)
+- 전체 `basedpyright`: `0 errors, 27900 warnings, 0 notes` (특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 697건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -50,6 +50,7 @@ date: 2026-08-29
 
 ## 최근 완료 단위
 
+- `fad2093`: 특허 검색 테스트의 URL opener 응답 double, fetcher 콜백, 캡처 payload를 명시적으로 타입화하고 동적 lambda를 named callback으로 교체했다. `PYTHONPATH=.agent/skills/k-skill` 기준 16개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일별 basedpyright 경고가 `132 → 69`로 감소했다. 전체 basedpyright는 `0 errors, 27900 warnings, 0 notes`다.
 - `6b7185f`: 한국어 속어 검색 테스트의 동적 모듈 로더 반환형, fixture 인자, unittest override, 콜백 계약, 테스트 클래스 상수와 부작용 반환값을 명시했다. 51개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일별 basedpyright 경고가 `227 → 198`로 감소했다. 전체 basedpyright는 `0 errors, 27963 warnings, 0 notes`다.
 - `ea8a973`: 장학금 필터 CLI가 `sys.stdout.write`와 `argparse`의 의도적 부작용 반환값 29건을 `_`에 명시적으로 소비했다. 관련 12개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일별 basedpyright 경고가 `239 → 210`으로 감소했다. 전체 basedpyright는 `0 errors, 27992 warnings, 0 notes`다.
 - `28a65e3`: `tests/test_tool_loop.py`의 의도적인 `list`/문자열 반환값 36건을 `_`에 명시적으로 소비했다. tool-loop 90개 테스트, Ruff, Ruff-format, pre-commit이 통과했고 파일별 basedpyright 경고가 `733 → 697`로 감소했다. 잔여 경고는 동적 MagicMock/Any 경계와 보호 메서드 테스트 접근이며, 전체 basedpyright는 `0 errors, 28021 warnings, 0 notes`다.
