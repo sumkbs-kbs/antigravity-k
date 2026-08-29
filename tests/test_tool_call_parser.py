@@ -25,6 +25,7 @@ def test_normal_tool_call():
     assert EventType.TOOL_CALL_COMPLETE in types, f"TOOL_CALL_COMPLETE missing: {types}"
 
     complete_event = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE][0]
+    assert complete_event.tool_call is not None
     assert complete_event.tool_call.name == "web_search"
     assert complete_event.tool_call.arguments == {"query": "test"}
     print("✅ test_normal_tool_call PASSED")
@@ -66,6 +67,7 @@ def test_thought_then_real_tool_call():
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected TOOL_CALL_ERROR: {types}"
 
     complete_event = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE][0]
+    assert complete_event.tool_call is not None
     assert complete_event.tool_call.name == "web_search"
     assert complete_event.tool_call.arguments == {"query": "거제 날씨"}
     print("✅ test_thought_then_real_tool_call PASSED")
@@ -91,6 +93,7 @@ def test_streaming_chunks():
     # thought 안의 <action_call>은 무시, 진짜만 감지
     complete_events = [e for e in all_events if e.type == EventType.TOOL_CALL_COMPLETE]
     assert len(complete_events) == 1, f"Expected exactly 1 TOOL_CALL_COMPLETE, got {len(complete_events)}: {types}"
+    assert complete_events[0].tool_call is not None
     assert complete_events[0].tool_call.name == "web_search"
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected TOOL_CALL_ERROR: {types}"
     print("✅ test_streaming_chunks PASSED")
@@ -126,6 +129,7 @@ def test_multiple_thought_blocks():
     types = [e.type for e in events]
     complete_events = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE]
     assert len(complete_events) == 1, f"Expected 1 TOOL_CALL_COMPLETE, got {len(complete_events)}"
+    assert complete_events[0].tool_call is not None
     assert complete_events[0].tool_call.name == "test_tool"
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected errors: {types}"
     print("✅ test_multiple_thought_blocks PASSED")
