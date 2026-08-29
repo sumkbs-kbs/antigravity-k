@@ -12,6 +12,8 @@
 
 - Current continuation checkpoint: `50ce062`; whole-tree basedpyright reports `0 errors, 27327 warnings, 0 notes`. `tests/test_token_estimator.py` now types its parametrized payload boundary; its 9-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `3 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
+- Current continuation checkpoint: `91c6b61`; whole-tree basedpyright reports `0 errors, 27325 warnings, 0 notes`. `tests/test_web_scraper_boundary.py` now invokes the scraper through an explicit typed adapter; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `a41645b`; whole-tree basedpyright reports `0 errors, 27527 warnings, 0 notes`. `tests/test_dialectic_engine.py` now narrows dynamic workflow steps with runtime list checks and explicitly consumes an exception-path state transition; its 28-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `52ad6ea`; whole-tree basedpyright reports `0 errors, 27530 warnings, 0 notes`. `tests/test_mode_manager.py` now explicitly consumes five intentional state-transition return values; its 27-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
