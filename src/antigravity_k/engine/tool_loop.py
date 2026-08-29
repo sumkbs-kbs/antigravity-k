@@ -60,7 +60,7 @@ class ToolLoopEngine:
 
     def __init__(
         self,
-        orchestrator,
+        orchestrator: Any,
         outcome_recorder: Callable[[TaskOutcome], Any] | None = None,
     ):
         """Initialize the ToolLoopEngine.
