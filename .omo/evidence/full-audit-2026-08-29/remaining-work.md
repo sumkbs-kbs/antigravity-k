@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `eec4dec` (장학금 필터 JSON·argparse 경계를 명시 타입 모델로 정리)
-- 전체 `basedpyright`: `0 errors, 25662 warnings, 0 notes` (장학금 필터 구현 경고 210건을 0건으로 축소; tool-loop 테스트는 119건 잔여 동적 MagicMock/Any 경고, MAX 테스트·KTX 스킬·대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
+- 최신 검증 커밋: `8211882` (tool-loop 전체 테스트의 중첩 mock 경계를 공용 typed helper로 정리)
+- 전체 `basedpyright`: `0 errors, 25543 warnings, 0 notes` (장학금 필터 구현과 tool-loop 테스트 파일 경고를 각각 0건으로 축소; MAX 테스트·KTX 스킬·대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -29,7 +29,7 @@ date: 2026-08-29
    - 우선순위: `tests/test_tool_loop.py`, `tests/test_data_extractor.py`, `tests/test_integration_d1_d2_d4.py`, `tests/test_secure_key.py`, `scripts/benchmark_viz.py`, `.agent/skills/**`의 고경고 파일
    - 원칙: fixture/결과 타입을 좁히고 동작은 보존한다. 광범위한 경고 억제 지시문은 사용하지 않는다.
    - 완료: 변경 파일 Ruff/mypy/basedpyright 경고 0, 관련 회귀 테스트 통과, 독립 커밋과 ledger 기록
-   - tool-loop 후속: `tests/test_tool_loop.py`는 현재 611건이 반복되는 중첩 `MagicMock` 호출·반환값·호출검증 경계에서 발생한다. 공용 typed test-double 계층과 90개 테스트의 계약 전환이 필요하며, 사용자 변경과 겹치는 소스 파일은 동작 변경 없이 별도 승인 단위로 진행한다.
+   - tool-loop 완료: `tests/test_tool_loop.py`의 중첩 `MagicMock` 호출·반환값·호출검증 경계를 공용 typed helper로 전환했다. 90개 테스트와 파일 basedpyright 경고 0건을 확인했다.
    - 장학금 후속: `scholarship_filter.py`는 210건이 `dict[str, Any]` 입력 모델과 argparse Namespace 경계에 집중되어 있다. TypedDict 입력/출력 모델을 먼저 확정한 뒤 필터·리포트 경로를 단계적으로 전환한다.
    - 장학금 완료: `scholarship_filter.py`의 JSON 값·마감 컨텍스트·eligibility 결과·argparse 인자를 명시 타입으로 전환했다. 구현 파일 basedpyright 경고 `210 → 0`, 장학금 12개 테스트와 Ruff/format/mypy/pre-commit 통과.
 
@@ -52,6 +52,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `8211882`: `tests/test_tool_loop.py`의 direct-response, quality-revision, durable approval, context-compression, event-bus 및 공용 mock fixture 경계를 typed helper로 전환했다. 90개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), pre-commit이 통과했으며 파일 경고가 `119 → 0`, 전체 basedpyright는 `0 errors, 25543 warnings, 0 notes`다.
 
 - `eec4dec`: `.agent/skills/k-skill/korean-scholarship-search/scripts/scholarship_filter.py`의 JSON 경계(`JsonValue`), 마감 컨텍스트/eligibility 결과 TypedDict, argparse `FilterArgs` Protocol을 도입하고 정규식·리포트 메타데이터의 타입 협소화를 완료했다. 장학금 12개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했으며 구현 파일 경고가 `210 → 0`, 전체 basedpyright는 `0 errors, 25662 warnings, 0 notes`다.
 

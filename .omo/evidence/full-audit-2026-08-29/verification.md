@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `8211882`; whole-tree basedpyright reports `0 errors, 25543 warnings, 0 notes`. `tests/test_tool_loop.py` direct-response, quality-revision, durable approval, context-compression, event-bus, and fixture boundaries now use shared typed helpers; its 90-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `119 → 0`. Worktree remains 244 dirty user paths; dashboard nested advisories and `Transport closed` remain.
+
 - Current continuation checkpoint: `eec4dec`; whole-tree basedpyright reports `0 errors, 25662 warnings, 0 notes`. Scholarship filter JSON and argparse boundaries now use explicit `JsonValue`/TypedDict/Protocol models; the implementation file reports `0 errors, 0 warnings, 0 notes`, its 12-test suite, Ruff, Ruff-format, mypy, and pre-commit pass. Worktree remains 244 dirty user paths; tool-loop residual mock warnings, dashboard nested advisories, and `Transport closed` remain.
 
 - Current continuation checkpoint: `0bfba41`; whole-tree basedpyright reports `0 errors, 25872 warnings, 0 notes`. `tests/test_tool_loop.py` durable resume, step-limit outcome, and quality-gate failure fixtures now use shared typed helpers; all 90 tests, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `133 → 119`. Worktree remains 244 dirty paths; scholarship implementation, remaining tool-loop mock chains, dashboard nested advisories, and `Transport closed` remain.
