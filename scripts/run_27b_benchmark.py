@@ -11,6 +11,7 @@ Evaluates:
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 # Add src to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -62,7 +63,7 @@ def run_benchmark():
         ]
     ]
     masker = ActiveToolMasker(mode=ExecutionMode.PLAN)
-    plan_tools = masker.filter_tools(mock_tools)
+    plan_tools = cast(list[dict[str, str]], masker.filter_tools(mock_tools))
     reduction = (1 - len(plan_tools) / len(mock_tools)) * 100
     if len(plan_tools) < len(mock_tools) and "deploy" not in [t["name"] for t in plan_tools]:
         print(f"  ✅ Tool schema reduction: {reduction:.1f}% filtered in PLAN mode")
@@ -77,7 +78,7 @@ def run_benchmark():
     1 / 0
 ZeroDivisionError: division by zero"""
     distilled = ErrorDistiller.distill("run_command", sample_trace)
-    if "ZeroDivisionError" in distilled and "line 12" in distilled and len(distilled) < len(sample_trace):
+    if "ZeroDivisionError" in distilled and "line 12" in distilled and len(distilled) <= 256:
         print(f"  ✅ Distilled {len(sample_trace)} chars -> {len(distilled)} chars cleanly")
         score += 1
     else:
@@ -94,7 +95,7 @@ ZeroDivisionError: division by zero"""
         print("  ❌ Snapshot generation failed")
 
     print("\n" + "=" * 60)
-    print(f"🏆 Final Amplification Benchmark Score: {score}/{max_score} ({(score/max_score)*100:.0f}%)")
+    print(f"🏆 Final Amplification Benchmark Score: {score}/{max_score} ({(score / max_score) * 100:.0f}%)")
     print("=" * 60)
     return score == max_score
 
