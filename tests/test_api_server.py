@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,9 +11,12 @@ from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.protocol_translator import ProtocolTranslator
 from antigravity_k.tools.permission_gate import Permission
 
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject = dict[str, JsonValue]
+
 
 @pytest.fixture
-def mock_manager():
+def mock_manager() -> MagicMock:
     manager = MagicMock(spec=ModelManager)
     # generate 메서드가 성공적으로 문자열을 반환하도록 설정
     manager.generate.return_value = "This is a mock response from the LLM."
@@ -24,13 +28,13 @@ def mock_manager():
 
 
 @pytest.fixture
-def mock_translator():
+def mock_translator() -> ProtocolTranslator:
     # 실제 ProtocolTranslator를 사용하거나 Mocking
     return ProtocolTranslator()
 
 
 @pytest.fixture
-def client(mock_manager, mock_translator):
+def client(mock_manager: MagicMock, mock_translator: ProtocolTranslator) -> Iterator[TestClient]:
     """FastAPI DI + legacy module의 get_model_manager를 함께 오버라이드.
 
     _get_slash_registry()가 get_model_manager()를 직접 호출할 때도
@@ -53,7 +57,7 @@ def client(mock_manager, mock_translator):
     app.dependency_overrides.clear()
 
 
-def test_health_check(client):
+def test_health_check(client: TestClient):
     response = client.get("/v1/health")
     assert response.status_code == 200
     data = response.json()
@@ -63,7 +67,7 @@ def test_health_check(client):
     assert "cov_active" in data
 
 
-def test_health_check_root_alias(client):
+def test_health_check_root_alias(client: TestClient):
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
@@ -73,7 +77,7 @@ def test_health_check_root_alias(client):
     assert "cov_active" in data
 
 
-def test_dashboard_spa_deep_link_serves_index(client):
+def test_dashboard_spa_deep_link_serves_index(client: TestClient):
     response = client.get("/agent")
 
     assert response.status_code == 200
@@ -102,7 +106,9 @@ def test_memory_purge_requires_access_pin_without_auth_header():
     assert response.status_code == 401
 
 
-def test_skill_publish_github_honors_permission_denial_before_publisher_start(client, monkeypatch):
+def test_skill_publish_github_honors_permission_denial_before_publisher_start(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
     from antigravity_k.api.routes import system_api
 
     gate = MagicMock()
@@ -117,7 +123,9 @@ def test_skill_publish_github_honors_permission_denial_before_publisher_start(cl
     assert response.status_code == 403
 
 
-def test_skill_publish_npm_honors_permission_denial_before_publisher_start(client, monkeypatch):
+def test_skill_publish_npm_honors_permission_denial_before_publisher_start(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
     from antigravity_k.api.routes import system_api
 
     gate = MagicMock()
@@ -132,7 +140,7 @@ def test_skill_publish_npm_honors_permission_denial_before_publisher_start(clien
     assert response.status_code == 403
 
 
-def test_env_settings_honors_permission_denial_before_file_write(client, monkeypatch):
+def test_env_settings_honors_permission_denial_before_file_write(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     from antigravity_k.api.routes import system_api as legacy
 
     gate = MagicMock()
@@ -148,19 +156,19 @@ def test_env_settings_honors_permission_denial_before_file_write(client, monkeyp
     assert response.status_code == 403
 
 
-def test_env_settings_rejects_non_object_payload(client):
+def test_env_settings_rejects_non_object_payload(client: TestClient):
     response = client.post("/api/settings/env", json=[])
 
     assert response.status_code == 400
 
 
-def test_env_settings_rejects_non_string_value(client):
+def test_env_settings_rejects_non_string_value(client: TestClient):
     response = client.post("/api/settings/env", json={"OPENAI_API_KEY": 123})
 
     assert response.status_code == 400
 
 
-def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
+def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client: TestClient):
     from antigravity_k.api.routes import kanban_api as legacy
 
     original_tasks = list(legacy.kanban_tasks)
@@ -213,7 +221,7 @@ def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
         legacy.task_counter = original_counter
 
 
-def test_kanban_websocket_sends_flat_tasks_payload(client):
+def test_kanban_websocket_sends_flat_tasks_payload(client: TestClient):
     from antigravity_k.api.routes import kanban_api as legacy
 
     original_tasks = list(legacy.kanban_tasks)
@@ -249,7 +257,7 @@ def test_kanban_websocket_sends_flat_tasks_payload(client):
         legacy.kanban_tasks.extend(original_tasks)
 
 
-def test_chat_completions_openai_format(client, mock_manager):
+def test_chat_completions_openai_format(client: TestClient, mock_manager: MagicMock):
     payload = {
         "model": "test-combo",
         "messages": [{"role": "user", "content": "Hello, Antigravity!"}],
@@ -291,32 +299,32 @@ def test_chat_completions_openai_format(client, mock_manager):
         {"model": "test-combo", "messages": [], "stream": "false"},
     ],
 )
-def test_chat_completions_rejects_malformed_payload(client, payload):
+def test_chat_completions_rejects_malformed_payload(client: TestClient, payload: JsonValue):
     response = client.post("/v1/chat/completions", json=payload)
 
     assert response.status_code == 400
 
 
-def test_chat_completions_rejects_malformed_json(client):
+def test_chat_completions_rejects_malformed_json(client: TestClient):
     response = client.post("/v1/chat/completions", content="{")
 
     assert response.status_code == 400
 
 
 @pytest.mark.parametrize("payload", [[], {"name": 123}, {"name": "test-combo", "role": 123}])
-def test_set_default_model_rejects_malformed_payload(client, payload):
+def test_set_default_model_rejects_malformed_payload(client: TestClient, payload: JsonValue):
     response = client.post("/api/models/default", json=payload)
 
     assert response.status_code == 400
 
 
-def test_set_default_model_rejects_malformed_json(client):
+def test_set_default_model_rejects_malformed_json(client: TestClient):
     response = client.post("/api/models/default", content="{")
 
     assert response.status_code == 400
 
 
-def test_chat_reconnect_endpoint_uses_shared_session_state(client):
+def test_chat_reconnect_endpoint_uses_shared_session_state(client: TestClient):
     from antigravity_k.api.routes.session_state import reset_active_session
 
     reset_active_session()
@@ -327,7 +335,7 @@ def test_chat_reconnect_endpoint_uses_shared_session_state(client):
     assert "data: [DONE]" in response.text
 
 
-def test_chat_completions_routes_slash_goal(client, mock_manager):
+def test_chat_completions_routes_slash_goal(client: TestClient, mock_manager: MagicMock):
     import antigravity_k.api.dependencies as deps
 
     deps._slash_registry = None
@@ -347,7 +355,7 @@ def test_chat_completions_routes_slash_goal(client, mock_manager):
     mock_manager.generate.assert_not_called()
 
 
-def test_chat_completions_capabilities_uses_connected_policy(client, mock_manager):
+def test_chat_completions_capabilities_uses_connected_policy(client: TestClient, mock_manager: MagicMock):
     import antigravity_k.api.dependencies as deps
 
     deps._slash_registry = None
@@ -369,7 +377,7 @@ def test_chat_completions_capabilities_uses_connected_policy(client, mock_manage
     mock_manager.generate.assert_not_called()
 
 
-def test_chat_completions_routes_slash_codex(client, mock_manager):
+def test_chat_completions_routes_slash_codex(client: TestClient, mock_manager: MagicMock):
     import antigravity_k.api.dependencies as deps
 
     deps._slash_registry = None
@@ -394,7 +402,7 @@ def test_chat_completions_routes_slash_codex(client, mock_manager):
     mock_manager.generate.assert_not_called()
 
 
-def test_chat_completions_self_capability_bypasses_llm(client, mock_manager):
+def test_chat_completions_self_capability_bypasses_llm(client: TestClient, mock_manager: MagicMock):
     payload = {
         "model": "test-combo",
         "messages": [
@@ -415,7 +423,7 @@ def test_chat_completions_self_capability_bypasses_llm(client, mock_manager):
     mock_manager.generate.assert_not_called()
 
 
-def test_slash_api_accepts_input_alias(client, mock_manager):
+def test_slash_api_accepts_input_alias(client: TestClient, mock_manager: MagicMock):
     import antigravity_k.api.dependencies as deps
 
     deps._slash_registry = None
@@ -433,7 +441,7 @@ def test_slash_api_accepts_input_alias(client, mock_manager):
     mock_manager.generate.assert_not_called()
 
 
-def test_slash_api_empty_command_returns_structured_error(client, mock_manager):
+def test_slash_api_empty_command_returns_structured_error(client: TestClient, mock_manager: MagicMock):
     import antigravity_k.api.dependencies as deps
 
     deps._slash_registry = None
@@ -446,7 +454,7 @@ def test_slash_api_empty_command_returns_structured_error(client, mock_manager):
     mock_manager.generate.assert_not_called()
 
 
-def test_slash_api_benchmark_help_returns_plain_text(client, mock_manager):
+def test_slash_api_benchmark_help_returns_plain_text(client: TestClient, mock_manager: MagicMock):
     import antigravity_k.api.dependencies as deps
 
     deps._slash_registry = None
@@ -461,7 +469,7 @@ def test_slash_api_benchmark_help_returns_plain_text(client, mock_manager):
     mock_manager.generate.assert_not_called()
 
 
-def test_task_benchmark_api_submits_a_canonical_scenario(client, monkeypatch):
+def test_task_benchmark_api_submits_a_canonical_scenario(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
@@ -484,7 +492,7 @@ def test_task_benchmark_api_submits_a_canonical_scenario(client, monkeypatch):
     assert submitted["context"]["benchmark_read_only"] is True
 
 
-def test_task_cancel_api_cancels_background_task(client, monkeypatch):
+def test_task_cancel_api_cancels_background_task(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
@@ -498,7 +506,7 @@ def test_task_cancel_api_cancels_background_task(client, monkeypatch):
     runtime.cancel_task.assert_called_once_with("task_123", owner_subject="loopback")
 
 
-def test_task_cancel_api_rejects_unknown_or_terminal_task(client, monkeypatch):
+def test_task_cancel_api_rejects_unknown_or_terminal_task(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
@@ -511,7 +519,9 @@ def test_task_cancel_api_rejects_unknown_or_terminal_task(client, monkeypatch):
     assert response.json()["detail"] == "Task is not active"
 
 
-def test_task_api_reads_and_resumes_direct_task_through_canonical_runtime(client, monkeypatch):
+def test_task_api_reads_and_resumes_direct_task_through_canonical_runtime(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
     from antigravity_k.api.routes import task_api
 
     runtime = MagicMock()
@@ -535,7 +545,7 @@ def test_task_api_reads_and_resumes_direct_task_through_canonical_runtime(client
     runtime.get_task_output.assert_called_once_with("direct_001", owner_subject="loopback")
 
 
-def test_embeddings_endpoint_uses_local_fallback(client):
+def test_embeddings_endpoint_uses_local_fallback(client: TestClient):
     payload = {"model": "test-embed-model", "input": "Hello, embeddings!"}
 
     response = client.post("/v1/embeddings", json=payload)
