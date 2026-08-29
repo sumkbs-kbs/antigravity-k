@@ -1,8 +1,10 @@
+from typing import Any
+
 from antigravity_k.engine.orchestrator_handlers import route_decision
 from antigravity_k.engine.state_graph import AgentState, StateContext
 
 
-def _ctx(user_message: str, task_type: str = "simple_chat", analysis: dict | None = None) -> StateContext:
+def _ctx(user_message: str, task_type: str = "simple_chat", analysis: dict[str, Any] | None = None) -> StateContext:
     ctx = StateContext()
     ctx.user_message = user_message
     ctx.task_type = task_type

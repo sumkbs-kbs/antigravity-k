@@ -1,13 +1,13 @@
 """Tests for the OpenAI adapter."""
 
 import json
+from typing import ClassVar
 
 from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 
 
 class TestTranslateRequest:
-    def setup_method(self):
-        self.adapter = OpenAIAdapter()
+    adapter: ClassVar[OpenAIAdapter] = OpenAIAdapter()
 
     def test_basic_text_message(self):
         payload = {
@@ -77,8 +77,7 @@ class TestTranslateRequest:
 
 
 class TestTranslateResponse:
-    def setup_method(self):
-        self.adapter = OpenAIAdapter()
+    adapter: ClassVar[OpenAIAdapter] = OpenAIAdapter()
 
     def test_no_choices(self):
         resp = {"id": "err", "error": "fail"}
@@ -132,8 +131,7 @@ class TestTranslateResponse:
 
 
 class TestTranslateStream:
-    def setup_method(self):
-        self.adapter = OpenAIAdapter()
+    adapter: ClassVar[OpenAIAdapter] = OpenAIAdapter()
 
     def test_returns_chunk_as_is(self):
         chunk = {"choices": [{"delta": {"content": "Hello"}}]}

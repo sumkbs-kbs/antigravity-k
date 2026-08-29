@@ -54,7 +54,7 @@ def setup_manager(mock_registry):
     return manager
 
 
-def _make_cm(payload: dict) -> MagicMock:
+def _make_cm(payload: dict[str, object]) -> MagicMock:
     """safe_urlopen 반환값을 흉내 내는 컨텍스트 매니저 mock."""
     cm = MagicMock()
     cm.read.return_value = json.dumps(payload).encode("utf-8")
@@ -150,6 +150,16 @@ class TestTargetResolution:
         mock_registry.get_default.return_value = None
 
         assert setup_manager.get_target_for_role("unknown-role") == "default_model"
+
+    def test_get_target_for_role_recovers_from_unregistered_configured_target(self, setup_manager, mock_registry):
+        mock_registry._raw = {"agent_models": {"coding": "missing-local"}}
+        discovered = _profile("discovered-local:7b", role="coding")
+        discovered.provider = "ollama"
+        mock_registry.refresh_local_models.return_value = (discovered,)
+        mock_registry.get_model.side_effect = lambda x: {"discovered-local:7b": discovered}.get(x)
+        mock_registry.get_default.return_value = None
+
+        assert setup_manager.get_target_for_role("coding", default_role="coding") == "discovered-local:7b"
 
 
 class TestPrefetch:
@@ -331,13 +341,17 @@ class TestProviderDelegation:
 @pytest.fixture
 def http_env():
     original_model = config.model
-    config.model = SimpleNamespace(
-        api_base="http://127.0.0.1:11434/v1",
-        api_key="test-key",
-        api_engine="ollama",
+    setattr(
+        config,
+        "model",
+        SimpleNamespace(
+            api_base="http://127.0.0.1:11434/v1",
+            api_key="test-key",
+            api_engine="ollama",
+        ),
     )
     yield
-    config.model = original_model
+    setattr(config, "model", original_model)
 
 
 class TestLegacyOllamaGenerate:
@@ -415,7 +429,7 @@ class TestLegacyOllamaGenerate:
         assert body["messages"][0]["role"] == "system"
 
 
-def _make_http(payload: dict) -> MagicMock:
+def _make_http(payload: dict[str, object]) -> MagicMock:
     cm = MagicMock()
     cm.read.return_value = json.dumps(payload).encode("utf-8")
     cm.__enter__.return_value = cm

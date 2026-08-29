@@ -61,10 +61,14 @@ def _stream_cm(lines: list[bytes]) -> MagicMock:
 @pytest.fixture
 def http_env():
     original_model = config.model
-    config.model = SimpleNamespace(
-        api_base="http://127.0.0.1:11434/v1",
-        api_key="test-key",
-        api_engine="ollama",
+    setattr(
+        config,
+        "model",
+        SimpleNamespace(
+            api_base="http://127.0.0.1:11434/v1",
+            api_key="test-key",
+            api_engine="ollama",
+        ),
     )
     yield
     config.model = original_model
@@ -221,10 +225,14 @@ class TestOllamaNativeStream:
 class TestOpenRouterSseStream:
     def test_parses_delta_frames_and_stops_on_done(self, manager):
         original_model = config.model
-        config.model = SimpleNamespace(
-            api_base="https://openrouter.ai/api/v1",
-            api_key="key",
-            api_engine="openrouter",
+        setattr(
+            config,
+            "model",
+            SimpleNamespace(
+                api_base="https://openrouter.ai/api/v1",
+                api_key="key",
+                api_engine="openrouter",
+            ),
         )
         try:
             frames = b'data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n\n'
@@ -238,14 +246,18 @@ class TestOpenRouterSseStream:
 
             assert chunks == ["A"]
         finally:
-            config.model = original_model
+            setattr(config, "model", original_model)
 
     def test_malformed_frames_are_tolerated(self, manager):
         original_model = config.model
-        config.model = SimpleNamespace(
-            api_base="https://openrouter.ai/api/v1",
-            api_key="key",
-            api_engine="openrouter",
+        setattr(
+            config,
+            "model",
+            SimpleNamespace(
+                api_base="https://openrouter.ai/api/v1",
+                api_key="key",
+                api_engine="openrouter",
+            ),
         )
         try:
             frames = b'data: {broken json}\n\ndata: {"choices":[{"delta":{"content":"B"}}]}\n\n'
@@ -288,6 +300,18 @@ class TestStreamDispatchAndGenerate:
         chunks = list(ModelManager._do_stream_generate(manager, _loaded(manager, "model-a"), "Hi"))
 
         assert chunks == ["p1", "p2"]
+
+    def test_dispatch_passes_long_context_plan_to_provider(self, manager):
+        provider = MagicMock()
+        provider.stream_generate.return_value = iter(["p1"])
+        manager._get_provider = MagicMock(return_value=provider)
+        manager._uses_anthropic_direct = MagicMock(return_value=False)
+        plan = {"native_attention_enabled": True}
+        manager.long_context_plan = MagicMock(return_value=plan)
+
+        list(ModelManager._do_stream_generate(manager, _loaded(manager, "model-a"), "Hi"))
+
+        assert provider.stream_generate.call_args.kwargs["execution_plan"] is plan
 
     def test_stream_generate_single_model_records_usage(self, manager):
         manager._do_stream_generate = lambda loaded, prompt, **kw: iter(["안녕", "하세요"])

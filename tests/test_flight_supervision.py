@@ -23,7 +23,7 @@ def _sequential_executor(outcomes: list[bool]):
     return executor
 
 
-def _subgoals(n: int) -> list[dict]:
+def _subgoals(n: int) -> list[dict[str, str]]:
     return [{"id": f"s{i}", "desc": f"independent step {i}"} for i in range(1, n + 1)]
 
 

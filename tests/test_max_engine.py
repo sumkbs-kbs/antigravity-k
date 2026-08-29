@@ -20,7 +20,7 @@ from antigravity_k.engine.max_engine import (
 # ─── Helper: Mock Manager ────────────────────────────────────────
 
 
-def _make_mock_manager(models: list[str] | None = None, config: dict | None = None):
+def _make_mock_manager(models: list[str] | None = None, config: dict[str, object] | None = None):
     """Mock ModelManager를 생성합니다."""
     mgr = MagicMock()
     mgr._loaded_models = None
