@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `6680a13` (secure-key 테스트 타입 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 28648 warnings, 0 notes`
+- 최신 검증 커밋: `2526fee` (벤치마크 테스트 더블 경계 보완 포함)
+- 전체 `basedpyright`: `0 errors, 28398 warnings, 0 notes`
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -79,6 +79,8 @@ date: 2026-08-29
 - `7b86bd3`: `tests/test_tool_loop.py` adds explicit `Path` temporary-directory contracts and `_run` execution argument/result contracts. The tool-loop suite passed 90 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `793 → 733`, and whole-tree basedpyright is now `0 errors, 28770 warnings, 0 notes`; residuals are dynamic `MagicMock` boundaries and intentional private-method coverage.
 - `000cbd5`: `RAGIndexer.sync(subdirs=...)` now limits stale-manifest deletion to the requested subdirectory scope, with a regression test preserving outside-scope chunks. Nineteen RAG/long-context tests plus Ruff/mypy/pre-commit passed; whole-tree basedpyright remains `0 errors, 28770 warnings, 0 notes`. Existing user-owned source formatting drift remains untouched. Detailed file-level classification is recorded in `user-change-review.md`.
 - `6680a13`: `tests/test_secure_key.py` applies class-level fixtures, removes unused fixture parameters, consumes intentional side-effect results, and adds typed subprocess callbacks. The focused suite passed 45 tests, Ruff/mypy/pre-commit passed, file basedpyright warnings reduced `166 → 44`, and whole-tree basedpyright is now `0 errors, 28648 warnings, 0 notes`; residuals are private API coverage and preserved pre-existing format drift.
+- `6bbb85b`: `scripts/run_local_model_benchmark.py` adds explicit manager, benchmark, grounding-case, search-record, CLI-argument, and JSON boundary contracts, plus a required response-file guard for non-live grounding mode. The focused benchmark suite passed 5 tests, `--help` smoke passed, Ruff/Ruff-format/mypy/pre-commit passed, and file basedpyright warnings reduced `244 → 0`; user-owned dirty paths remain preserved.
+- `2526fee`: the same benchmark helpers now accept the repository's `SimpleNamespace` test doubles through internal casts, preserving runtime compatibility while keeping the script at `0` basedpyright warnings. The focused 5-test suite and full basedpyright passed with `0 errors, 28398 warnings, 0 notes` globally; user-owned dirty paths remain preserved.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
