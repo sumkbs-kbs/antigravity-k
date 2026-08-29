@@ -5,12 +5,56 @@ import subprocess
 import sys
 import textwrap
 import unittest
+from collections.abc import Mapping, Sequence
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Callable, override
+from types import ModuleType
+from typing import Callable, Protocol, TypedDict, cast, override
 from unittest.mock import patch
 
-ktx_booking = importlib.import_module("ktx_booking")
+ktx_booking: ModuleType = importlib.import_module("ktx_booking")
+
+
+class _NormalizedTrain(TypedDict):
+    train_id: str
+
+
+class _TrainArgs(Protocol):
+    train_id: str
+    train_type: str
+
+
+def _parse_args(parser: argparse.ArgumentParser, argv: list[str]) -> _TrainArgs:
+    return cast(_TrainArgs, cast(object, parser.parse_args(argv)))
+
+
+def _train_type_map() -> Mapping[str, str]:
+    return cast(Mapping[str, str], getattr(ktx_booking, "TRAIN_TYPE_MAP"))
+
+
+def _normalize_train(train: object, index: int) -> _NormalizedTrain:
+    method = cast(Callable[[object, int], _NormalizedTrain], getattr(ktx_booking, "normalize_train"))
+    return method(train, index)
+
+
+def _find_train_by_id(trains: Sequence[object], train_id: str) -> object | None:
+    method = cast(Callable[[Sequence[object], str], object | None], getattr(ktx_booking, "find_train_by_id"))
+    return method(trains, train_id)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    method = cast(Callable[[], argparse.ArgumentParser], getattr(ktx_booking, "build_parser"))
+    return method()
+
+
+def _command_search(args: argparse.Namespace) -> None:
+    method = cast(Callable[[argparse.Namespace], None], getattr(ktx_booking, "command_search"))
+    method(args)
+
+
+def _command_reserve(args: argparse.Namespace) -> None:
+    method = cast(Callable[[argparse.Namespace], None], getattr(ktx_booking, "command_reserve"))
+    method(args)
 
 
 class FakeTrain:
@@ -136,17 +180,16 @@ class KtxBookingTests(unittest.TestCase):
     def test_normalize_train_emits_stable_train_id(self):
         train = FakeTrain(train_no="009", dep_time="090000", arr_time="113000")
 
-        normalized = ktx_booking.normalize_train(train, index=2)
+        normalized = _normalize_train(train, index=2)
 
         self.assertIn("train_id", normalized)
         train_id = normalized["train_id"]
-        if not isinstance(train_id, str):
-            self.fail("train_id should be emitted as a string")
-        resolved = ktx_booking.find_train_by_id([train], train_id)
+        resolved = _find_train_by_id([train], train_id)
         self.assertIs(resolved, train)
 
     def test_build_parser_requires_train_id_for_reserve(self):
-        args = ktx_booking.build_parser().parse_args(
+        args = _parse_args(
+            _build_parser(),
             [
                 "reserve",
                 "서울",
@@ -155,29 +198,31 @@ class KtxBookingTests(unittest.TestCase):
                 "090000",
                 "--train-id",
                 "ktx:v1:test",
-            ]
+            ],
         )
 
         self.assertEqual(args.train_id, "ktx:v1:test")
         self.assertEqual(args.train_type, "ktx")
 
     def test_build_parser_defaults_search_train_type_to_ktx(self):
-        args = ktx_booking.build_parser().parse_args(
+        args = _parse_args(
+            _build_parser(),
             [
                 "search",
                 "서울",
                 "부산",
                 "20260328",
                 "090000",
-            ]
+            ],
         )
 
         self.assertEqual(args.train_type, "ktx")
 
     def test_parser_train_type_choices_match_supported_train_types(self):
-        parser = ktx_booking.build_parser()
-        for train_type in sorted(ktx_booking.TRAIN_TYPE_MAP):
-            search_args = parser.parse_args(
+        parser = _build_parser()
+        for train_type in sorted(_train_type_map()):
+            search_args = _parse_args(
+                parser,
                 [
                     "search",
                     "서울",
@@ -186,9 +231,10 @@ class KtxBookingTests(unittest.TestCase):
                     "090000",
                     "--train-type",
                     train_type,
-                ]
+                ],
             )
-            reserve_args = parser.parse_args(
+            reserve_args = _parse_args(
+                parser,
                 [
                     "reserve",
                     "서울",
@@ -199,7 +245,7 @@ class KtxBookingTests(unittest.TestCase):
                     "ktx:v1:test",
                     "--train-type",
                     train_type,
-                ]
+                ],
             )
             self.assertEqual(search_args.train_type, train_type)
             self.assertEqual(reserve_args.train_type, train_type)
@@ -231,11 +277,11 @@ class KtxBookingTests(unittest.TestCase):
 
         with patch.object(ktx_booking, "build_client", return_value=client):
             with redirect_stdout(io.StringIO()):
-                ktx_booking.command_search(args)
+                _command_search(args)
 
         self.assertEqual(
             client.search_calls[-1]["train_type"],
-            ktx_booking.TRAIN_TYPE_MAP["itx-cheongchun"],
+            _train_type_map()["itx-cheongchun"],
         )
 
     def test_command_reserve_targets_exact_train_id_even_if_order_changes(self):
@@ -248,42 +294,42 @@ class KtxBookingTests(unittest.TestCase):
         )
         user_selected = FakeTrain(train_no="009", dep_time="090000", arr_time="113000", label="user-selected")
         other_train = FakeTrain(train_no="011", dep_time="093000", arr_time="120000", label="other-train")
-        train_id = ktx_booking.normalize_train(user_selected, index=2)["train_id"]
+        train_id = _normalize_train(user_selected, index=2)["train_id"]
         client = FakeClient([other_train, sold_out_first, user_selected])
 
         with patch.object(ktx_booking, "build_client", return_value=client):
             with redirect_stdout(io.StringIO()):
-                ktx_booking.command_reserve(self.make_args(train_id))
+                _command_reserve(self.make_args(train_id))
 
         self.assertIs(client.reserved_train, user_selected)
 
     def test_command_reserve_fails_if_selected_train_is_no_longer_available(self):
         user_selected = FakeTrain(train_no="009", dep_time="090000", arr_time="113000", label="user-selected")
         other_train = FakeTrain(train_no="011", dep_time="093000", arr_time="120000", label="other-train")
-        train_id = ktx_booking.normalize_train(user_selected, index=2)["train_id"]
+        train_id = _normalize_train(user_selected, index=2)["train_id"]
         client = FakeClient([other_train])
 
         with patch.object(ktx_booking, "build_client", return_value=client):
             with self.assertRaises(SystemExit) as exc:
                 with redirect_stdout(io.StringIO()):
-                    ktx_booking.command_reserve(self.make_args(train_id))
+                    _command_reserve(self.make_args(train_id))
 
         self.assertIn("train_id", str(exc.exception))
 
     def test_command_reserve_replays_selected_train_type(self):
         selected = FakeTrain(train_no="009", dep_time="090000", arr_time="113000", label="selected")
-        train_id = ktx_booking.normalize_train(selected, index=1)["train_id"]
+        train_id = _normalize_train(selected, index=1)["train_id"]
         client = FakeClient([selected])
         args = self.make_args(train_id)
         args.train_type = "itx-cheongchun"
 
         with patch.object(ktx_booking, "build_client", return_value=client):
             with redirect_stdout(io.StringIO()):
-                ktx_booking.command_reserve(args)
+                _command_reserve(args)
 
         self.assertEqual(
             client.search_calls[-1]["train_type"],
-            ktx_booking.TRAIN_TYPE_MAP["itx-cheongchun"],
+            _train_type_map()["itx-cheongchun"],
         )
         self.assertIs(client.reserved_train, selected)
 
@@ -297,7 +343,7 @@ class KtxBookingTests(unittest.TestCase):
             has_waiting_list=True,
             label="waiting-only",
         )
-        train_id = ktx_booking.normalize_train(waiting_only, index=1)["train_id"]
+        train_id = _normalize_train(waiting_only, index=1)["train_id"]
         client = FakeClient(
             [],
             search_handler=lambda *args, **kwargs: [waiting_only] if kwargs.get("include_waiting_list") else [],
@@ -307,7 +353,7 @@ class KtxBookingTests(unittest.TestCase):
 
         with patch.object(ktx_booking, "build_client", return_value=client):
             with redirect_stdout(io.StringIO()):
-                ktx_booking.command_reserve(args)
+                _command_reserve(args)
 
         self.assertTrue(client.search_calls)
         self.assertTrue(client.search_calls[-1]["include_waiting_list"])
