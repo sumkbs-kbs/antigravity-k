@@ -54,7 +54,7 @@ class LoadedModel:
     last_used_at: float = 0.0  # 마지막 사용 시각
     actual_memory_gb: float = 0.0
 
-    def touch(self):
+    def touch(self) -> None:
         """사용 시각 갱신 (LRU용)."""
         self.last_used_at = time.time()
 
@@ -1250,13 +1250,18 @@ class ModelManager:
         )
         return cleaned.strip()
 
-    def _apply_dynamic_inference_config(self, loaded_profile, prompt_or_messages, kwargs):
+    def _apply_dynamic_inference_config(
+        self,
+        loaded_profile: ModelProfile,
+        prompt_or_messages: str | list[Message],
+        kwargs: Payload,
+    ) -> tuple[str, float, dict[str, str | int] | None, str]:
         import hashlib
 
         model_name = loaded_profile.name
-        thinking_config = None
-        temperature = kwargs.get("temperature", 0.7)
-        max_tokens = kwargs.get("max_tokens", 8192)
+        thinking_config: dict[str, str | int] | None = None
+        temperature = float(kwargs.get("temperature", 0.7))
+        max_tokens = int(kwargs.get("max_tokens", 8192))
 
         if ":" in model_name:
             base_model, spec = model_name.split(":", 1)
