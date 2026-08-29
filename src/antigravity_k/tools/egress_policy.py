@@ -71,10 +71,22 @@ async def validate_httpx_request_async(request: httpx.Request) -> None:
     validate_httpx_request(request)
 
 
+def validate_public_httpx_request(request: httpx.Request) -> None:
+    """Reject local/private destinations for untrusted outbound requests."""
+    validate_egress_url(str(request.url), allow_local=False)
+
+
+async def validate_public_httpx_request_async(request: httpx.Request) -> None:
+    """Async event-hook variant of :func:`validate_public_httpx_request`."""
+    validate_public_httpx_request(request)
+
+
 __all__ = [
     "EgressPolicyError",
     "safe_urlopen",
     "validate_egress_url",
     "validate_httpx_request",
     "validate_httpx_request_async",
+    "validate_public_httpx_request",
+    "validate_public_httpx_request_async",
 ]
