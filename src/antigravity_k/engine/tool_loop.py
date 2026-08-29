@@ -396,7 +396,7 @@ class ToolLoopEngine:
                     yield f"\n📦 **[Context Compressor]** 토큰 사용량 {usage_before:.0f}% → {usage_after:.0f}% 압축\n\n"
                     logger.info("[ToolLoop] Context compressed: %.0f%% → %.0f%%", usage_before, usage_after)
 
-            stream_kwargs: dict[str, Any] = {
+            stream_kwargs: dict[str, ToolArgumentValue] = {
                 "prompt": prompt_str,
                 "target": delegate_model,
                 "task_type": task_type,
