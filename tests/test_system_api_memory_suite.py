@@ -4,6 +4,7 @@ DI 게터를 패치해 각 엔드포인트의 계약(응답 구조, 감사 로�
 클램프)을 외부 의존 없이 검증한다.
 """
 
+from collections.abc import Iterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,7 +16,7 @@ from antigravity_k.api.server import app
 
 
 @pytest.fixture
-def client():
+def client() -> Iterator[TestClient]:
     from antigravity_k.config import config
 
     headers = {"X-Access-Pin": config.security.access_pin}
@@ -25,13 +26,13 @@ def client():
 
 
 @pytest.fixture
-def audit_spy(monkeypatch):
+def audit_spy(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     spy = MagicMock()
     monkeypatch.setattr(system_api, "get_audit_logger", lambda: spy)
     return spy
 
 
-def _memory_manager(**overrides):
+def _memory_manager(**overrides: object) -> MagicMock:
     mm = MagicMock()
     mm.get_stats.return_value = {"episodic": 3}
     mm.prefetch_all.return_value = ["fact-a"]
@@ -58,14 +59,14 @@ def _memory_manager(**overrides):
 
 
 class TestSessionEndpoints:
-    def test_session_info_empty_when_none(self, client, monkeypatch):
+    def test_session_info_empty_when_none(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(system_api, "_get_session_manager", lambda: SimpleNamespace(get_session_info=lambda: None))
 
         body = client.get("/api/session/info").json()
 
         assert body == {"ok": True, "session": {}}
 
-    def test_session_save_ok(self, client, monkeypatch):
+    def test_session_save_ok(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         saved = {}
         sm = SimpleNamespace(save=lambda: saved.update(ok=True))
         monkeypatch.setattr(system_api, "_get_session_manager", lambda: sm)
@@ -76,9 +77,9 @@ class TestSessionEndpoints:
         }
         assert saved["ok"] is True
 
-    def test_session_messages_normalizes_shapes(self, client, monkeypatch):
+    def test_session_messages_normalizes_shapes(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         class Msg:
-            def to_simple_dict(self):
+            def to_simple_dict(self) -> dict[str, str]:
                 return {"role": "user", "content": "c"}
 
         sm = SimpleNamespace(
@@ -102,8 +103,8 @@ class TestSessionEndpoints:
 
 
 class TestMemorySuite:
-    def test_stats_and_recall(self, client, monkeypatch):
-        calls = {}
+    def test_stats_and_recall(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        calls: dict[str, str] = {}
 
         def fake_prefetch(query: str):
             calls["q"] = query
@@ -117,7 +118,7 @@ class TestMemorySuite:
         assert body["recalled"] == ["fact-a"] and body["query"] == "DB"
         assert calls["q"] == "DB"
 
-    def test_purge_logs_audit_event(self, client, monkeypatch, audit_spy):
+    def test_purge_logs_audit_event(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_spy: MagicMock):
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: _memory_manager())
 
         body = client.request("DELETE", "/api/memory", json={"scope": "project"}).json()
@@ -125,14 +126,14 @@ class TestMemorySuite:
         assert body["ok"] is True and body["scope"] == "project"
         assert audit_spy.log_event.call_args.args[0] == "memory_purge"
 
-    def test_purge_invalid_scope_is_400(self, client, monkeypatch, audit_spy):
+    def test_purge_invalid_scope_is_400(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_spy: MagicMock):
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: _memory_manager())
 
         response = client.request("DELETE", "/api/memory", json={"scope": "galaxy"})
 
         assert response.status_code == 400
 
-    def test_export_excludes_vault_by_default(self, client, monkeypatch, audit_spy):
+    def test_export_excludes_vault_by_default(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_spy: MagicMock):
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: _memory_manager())
         monkeypatch.setattr(system_api, "get_vault_engine", lambda: None, raising=False)
 
@@ -140,7 +141,7 @@ class TestMemorySuite:
 
         assert body["vault"] == {"included": False, "asset_policy": "excluded_by_default"}
 
-    def test_redact_reports_changed(self, client, monkeypatch, audit_spy):
+    def test_redact_reports_changed(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_spy: MagicMock):
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: _memory_manager())
 
         body = client.post("/api/memory/redact", json={"scope": "all"}).json()
@@ -148,12 +149,12 @@ class TestMemorySuite:
         assert body == {"ok": True, "scope": "all", "changed": {"changed": 2}}
 
     @pytest.mark.parametrize("payload", [{"max_age_days": True}, {"max_age_days": -1}, {"max_age_days": "3"}])
-    def test_retention_rejects_invalid_ages(self, client, monkeypatch, payload, audit_spy):
+    def test_retention_rejects_invalid_ages(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, payload: dict[str, object], audit_spy: MagicMock):
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: _memory_manager())
 
         assert client.post("/api/memory/retention", json=payload).status_code == 400
 
-    def test_retention_valid_path_audits(self, client, monkeypatch, audit_spy):
+    def test_retention_valid_path_audits(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_spy: MagicMock):
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: _memory_manager())
 
         body = client.post("/api/memory/retention", json={"max_age_days": 30}).json()
@@ -161,8 +162,8 @@ class TestMemorySuite:
         assert body["ok"] is True and body["max_age_days"] == 30
         assert audit_spy.log_event.call_args.args[0] == "memory_retention"
 
-    def test_ranked_facts_maps_fields_and_clamps_top_k(self, client, monkeypatch):
-        captured = {}
+    def test_ranked_facts_maps_fields_and_clamps_top_k(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        captured: dict[str, int] = {}
         mm = _memory_manager()
         mm.ranked_facts = lambda top_k: (
             captured.__setitem__("top_k", top_k)
@@ -188,7 +189,7 @@ class TestMemorySuite:
         assert body["facts"][0]["score"] == 0.91
         assert body["facts"][0]["authority"] == 2
 
-    def test_delete_entry_reports_result(self, client, monkeypatch, audit_spy):
+    def test_delete_entry_reports_result(self, client: TestClient, monkeypatch: pytest.MonkeyPatch, audit_spy: MagicMock):
         mm = _memory_manager(delete_entry=lambda provider, key: key == "keep")
         monkeypatch.setattr(system_api, "_get_memory_manager", lambda: mm)
 
@@ -214,7 +215,7 @@ class TestToolsetEndpoints:
         )
         return ts
 
-    def test_list_toolsets(self, client, monkeypatch):
+    def test_list_toolsets(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(system_api, "_get_toolset_manager", self._toolset_manager)
 
         body = client.get("/api/toolsets").json()
@@ -222,7 +223,7 @@ class TestToolsetEndpoints:
         assert body["active"] == "full"
         assert "minimal" in body["toolsets"]
 
-    def test_activate_success_and_failure(self, client, monkeypatch):
+    def test_activate_success_and_failure(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(system_api, "_get_toolset_manager", self._toolset_manager)
 
         ok = client.post("/api/toolsets/activate", json={"name": "minimal"}).json()
@@ -231,7 +232,7 @@ class TestToolsetEndpoints:
         assert ok["success"] is True and ok["tools"] == ["read_file"]
         assert fail["success"] is False and fail["tools"] == []
 
-    def test_toolset_tools_count(self, client, monkeypatch):
+    def test_toolset_tools_count(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(system_api, "_get_toolset_manager", self._toolset_manager)
 
         body = client.get("/api/toolsets/full/tools").json()
@@ -243,7 +244,7 @@ class TestToolsetEndpoints:
 
 
 class TestHarnessEndpoints:
-    def test_self_test_runs_without_browser_for_api_scope(self, client, monkeypatch):
+    def test_self_test_runs_without_browser_for_api_scope(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         harness = SimpleNamespace(run_all=AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"passed": 3})))
         monkeypatch.setattr(system_api, "get_harness", lambda: harness)
 
@@ -252,7 +253,7 @@ class TestHarnessEndpoints:
         assert body["ok"] is True and body["report"]["passed"] == 3
         harness.run_all.assert_called_once_with(use_browser=False)
 
-    def test_results_message_when_never_run(self, client, monkeypatch):
+    def test_results_message_when_never_run(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         harness = SimpleNamespace(get_latest_report=lambda: None, feedback=SimpleNamespace(get_trend=lambda: []))
         monkeypatch.setattr(system_api, "get_harness", lambda: harness)
 
@@ -260,7 +261,7 @@ class TestHarnessEndpoints:
 
         assert body["report"] is None and "아직" in body["message"]
 
-    def test_trend_passthrough(self, client, monkeypatch):
+    def test_trend_passthrough(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         harness = SimpleNamespace(feedback=SimpleNamespace(get_trend=lambda: [{"pass_rate": 1.0}]))
         monkeypatch.setattr(system_api, "get_harness", lambda: harness)
 
@@ -271,7 +272,7 @@ class TestHarnessEndpoints:
 
 
 class TestModeHistory:
-    def test_history_mapping(self, client, monkeypatch):
+    def test_history_mapping(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         mgr = SimpleNamespace(
             mode_history=[SimpleNamespace(from_mode="plan", to_mode="build", reason="r", timestamp=1)]
         )
@@ -285,7 +286,7 @@ class TestModeHistory:
         assert body["ok"] is True
         assert body["history"] == [{"from": "plan", "to": "build", "reason": "r", "timestamp": 1}]
 
-    def test_failure_returns_ok_false_with_empty_history(self, client, monkeypatch):
+    def test_failure_returns_ok_false_with_empty_history(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
         import antigravity_k.api.dependencies as deps
 
         def boom():
