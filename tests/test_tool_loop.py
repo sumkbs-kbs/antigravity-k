@@ -15,7 +15,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Callable, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,7 +24,30 @@ from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
 from antigravity_k.engine.task_context_snapshot import load_task_context_snapshot
 from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStateStore
+from antigravity_k.engine.tool_call_parser import ToolCall
 from antigravity_k.engine.tool_loop import TaskOutcomeRecorder, ToolLoopEngine
+
+
+def _format_tool_response(
+    engine: ToolLoopEngine,
+    tool_call: ToolCall,
+    tool_result: str,
+    focus_terms: tuple[str, ...] = (),
+) -> str:
+    method = cast(Callable[[ToolCall, str, tuple[str, ...]], str], getattr(engine, "_format_tool_response"))
+    return method(tool_call, tool_result, focus_terms)
+
+
+def _native_tools_kwargs(
+    engine: ToolLoopEngine,
+    delegate_model: str,
+    required_tools: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    method = cast(
+        Callable[[str, tuple[str, ...] | None], dict[str, object]],
+        getattr(engine, "_native_tools_kwargs"),
+    )
+    return method(delegate_model, required_tools)
 
 
 def _outcome_recorder(outcomes: list[TaskOutcome]) -> TaskOutcomeRecorder:
@@ -113,10 +136,9 @@ class TestToolLoopEngineInit:
         assert engine.outcome_recorder is recorder
 
     def test_compacts_large_tool_result_with_source_provenance(self, mock_orch: MagicMock):
-        from antigravity_k.engine.tool_call_parser import ToolCall
-
         raw_result = "BEGIN\n" + ("x" * 20_000) + "\nEND"
-        formatted = ToolLoopEngine(mock_orch)._format_tool_response(
+        formatted = _format_tool_response(
+            ToolLoopEngine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": "README.md"}),
             raw_result,
         )
@@ -130,10 +152,9 @@ class TestToolLoopEngineInit:
         assert "END" in formatted
 
     def test_restores_stored_tool_artifact(self, mock_orch: MagicMock):
-        from antigravity_k.engine.tool_call_parser import ToolCall
-
         engine = ToolLoopEngine(mock_orch)
-        formatted = engine._format_tool_response(
+        formatted = _format_tool_response(
+            engine,
             ToolCall(name="read_file", arguments={"file_path": "README.md"}),
             "A" * 20_000,
         )
@@ -143,10 +164,9 @@ class TestToolLoopEngineInit:
         assert engine.restore_context_artifact(ref_id) == "A" * 20_000
 
     def test_preserves_query_matched_middle_evidence_when_compacting(self, mock_orch: MagicMock):
-        from antigravity_k.engine.tool_call_parser import ToolCall
-
         raw_result = "header\n" + ("x" * 8_000) + "\nagent_models:\n  default: qwen3.6:latest\n" + ("y" * 8_000)
-        formatted = ToolLoopEngine(mock_orch)._format_tool_response(
+        formatted = _format_tool_response(
+            ToolLoopEngine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": "config.yaml"}),
             raw_result,
             focus_terms=("agent_models",),
@@ -156,10 +176,9 @@ class TestToolLoopEngineInit:
         assert "default: qwen3.6:latest" in formatted
 
     def test_redacts_secrets_in_tool_result_before_context_injection(self, mock_orch: MagicMock):
-        from antigravity_k.engine.tool_call_parser import ToolCall
-
         raw_result = "NVIDIA_API_KEY=nvapi-abc123def456789012345678901234567890\nexport OPENAI_API_KEY=sk-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        formatted = ToolLoopEngine(mock_orch)._format_tool_response(
+        formatted = _format_tool_response(
+            ToolLoopEngine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": ".env"}),
             raw_result,
         )
@@ -169,11 +188,10 @@ class TestToolLoopEngineInit:
         assert "<REDACTED>" in formatted
 
     def test_redacts_secrets_even_when_large_tool_result_is_truncated(self, mock_orch: MagicMock):
-        from antigravity_k.engine.tool_call_parser import ToolCall
-
         # Secret sits near the head so it lands in the truncated head slice.
         raw_result = "OPENAI_API_KEY=sk-proj-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZ" + chr(10) + ("x" * 20_000) + chr(10) + "END"
-        formatted = ToolLoopEngine(mock_orch)._format_tool_response(
+        formatted = _format_tool_response(
+            ToolLoopEngine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": "big.env"}),
             raw_result,
         )
@@ -185,7 +203,7 @@ class TestToolLoopEngineInit:
 class TestToolLoopEngineNativeToolsKwargs:
     def test_disabled_by_default(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
-        result = engine._native_tools_kwargs("some-model")
+        result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_enabled_but_unsupported_provider(self, mock_orch: MagicMock):
@@ -194,7 +212,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         profile.provider = "mlx"
         mock_orch.manager._registry.get_model.return_value = profile
         engine = ToolLoopEngine(mock_orch)
-        result = engine._native_tools_kwargs("some-model")
+        result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_enabled_with_openrouter_success(self, mock_orch: MagicMock):
@@ -206,7 +224,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry.to_openai_schemas.return_value = [{"name": "run_bash"}]
         mock_orch.tool_registry = tool_registry
         engine = ToolLoopEngine(mock_orch)
-        result = engine._native_tools_kwargs("some-model")
+        result = _native_tools_kwargs(engine, "some-model")
         assert "tools" in result
         assert result["tools"] == [{"name": "run_bash"}]
 
@@ -221,7 +239,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         mock_orch.tool_registry = tool_registry
         engine = ToolLoopEngine(mock_orch)
 
-        result = engine._native_tools_kwargs("qwen3.6:latest")
+        result = _native_tools_kwargs(engine, "qwen3.6:latest")
 
         assert result["tools"] == [{"name": "read_file"}]
 
@@ -235,7 +253,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
         mock_orch.tool_registry = tool_registry
 
-        result = ToolLoopEngine(mock_orch)._native_tools_kwargs("qwen3.6:latest", ("read_file",))
+        result = _native_tools_kwargs(ToolLoopEngine(mock_orch), "qwen3.6:latest", ("read_file",))
 
         assert result["tools"] == [{"name": "read_file"}]
         tool_registry.to_openai_schemas.assert_called_once_with(names=["read_file"])
@@ -251,7 +269,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         mock_orch.tool_registry = tool_registry
         engine = ToolLoopEngine(mock_orch)
 
-        result = engine._native_tools_kwargs("lmstudio/qwen3.6")
+        result = _native_tools_kwargs(engine, "lmstudio/qwen3.6")
 
         assert result["tools"] == [{"name": "read_file"}]
 
@@ -266,7 +284,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         mock_orch.tool_registry = tool_registry
         engine = ToolLoopEngine(mock_orch)
 
-        result = engine._native_tools_kwargs("legacy-local")
+        result = _native_tools_kwargs(engine, "legacy-local")
 
         assert result == {}
 
@@ -279,20 +297,20 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry.to_openai_schemas.return_value = []
         mock_orch.tool_registry = tool_registry
         engine = ToolLoopEngine(mock_orch)
-        result = engine._native_tools_kwargs("some-model")
+        result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_registry_get_model_raises_exception(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         mock_orch.manager._registry.get_model.side_effect = ValueError("not found")
         engine = ToolLoopEngine(mock_orch)
-        result = engine._native_tools_kwargs("some-model")
+        result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_config_not_dict(self, mock_orch: MagicMock):
         mock_orch.config = None
         engine = ToolLoopEngine(mock_orch)
-        result = engine._native_tools_kwargs("some-model")
+        result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
 
@@ -1694,11 +1712,10 @@ class TestToolLoopEngineContextCompression:
         assert shaped[0]["role"] == "system"  # 시스템 메시지 항상 보존
 
     def test_reinjects_relevant_artifact_after_compression(self, mock_orch: MagicMock):
-        from antigravity_k.engine.tool_call_parser import ToolCall
-
         engine = ToolLoopEngine(mock_orch)
         raw_result = "header\n" + ("x" * 8_000) + "\nagent_models:\n  default: qwen3.6:latest\n" + ("y" * 8_000)
-        formatted = engine._format_tool_response(
+        formatted = _format_tool_response(
+            engine,
             ToolCall(name="read_file", arguments={"file_path": "config.yaml"}),
             raw_result,
         )
