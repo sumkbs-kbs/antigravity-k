@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `8832f03` (impact analyzer 테스트 graph fixture 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 27307 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `907a47a` (flight controller 테스트 callback 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 27305 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer·flight controller 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `907a47a`: `tests/test_flight_controller.py`의 성공 고정 executor 매개변수에 `_` 접두사를 사용해 미사용 매개변수 경고를 제거했다. 1개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `2 → 0`, 전체 basedpyright는 `0 errors, 27305 warnings, 0 notes`로 감소했다.
 
 - `8832f03`: `tests/test_code_intel_impact_analyzer.py`의 빈 graph fixture를 `dict[str, object]`로 명시했다. 2개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `2 → 0`, 전체 basedpyright는 `0 errors, 27307 warnings, 0 notes`로 감소했다.
 
