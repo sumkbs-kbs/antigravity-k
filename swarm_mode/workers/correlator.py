@@ -2,14 +2,18 @@
 
 import time
 from datetime import datetime
+from typing import Any
 
-from workers.base_worker import BaseWorker, WorkerResult
+try:
+    from .base_worker import BaseWorker, WorkerResult
+except ImportError:
+    from swarm_mode.workers.base_worker import BaseWorker, WorkerResult
 
 
 class Correlator(BaseWorker):
     """Finds cross-domain correlations between financial data and tech trends."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         self.name = "correlator"
         self.threshold = self.config.get("threshold", 0.6)
@@ -31,7 +35,7 @@ class Correlator(BaseWorker):
             data={"correlations": correlations, "actions": actions, "collected_at": datetime.now().isoformat()},
         )
 
-    def _find_correlations(self) -> list[dict]:
+    def _find_correlations(self) -> list[dict[str, Any]]:
         """Find cross-domain correlations."""
         return [
             {
@@ -54,7 +58,7 @@ class Correlator(BaseWorker):
             },
         ]
 
-    def _generate_actions(self, correlations: list[dict]) -> list[dict]:
+    def _generate_actions(self, correlations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Generate action items based on correlations."""
         actions = []
         for corr in correlations:

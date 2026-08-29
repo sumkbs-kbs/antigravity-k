@@ -495,7 +495,7 @@ def test_task_cancel_api_cancels_background_task(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"status": "cancelled", "task_id": "task_123"}
-    runtime.cancel_task.assert_called_once_with("task_123")
+    runtime.cancel_task.assert_called_once_with("task_123", owner_subject="loopback")
 
 
 def test_task_cancel_api_rejects_unknown_or_terminal_task(client, monkeypatch):
@@ -530,9 +530,9 @@ def test_task_api_reads_and_resumes_direct_task_through_canonical_runtime(client
     assert tasks.json()["data"] == [{"task_id": "direct_001", "status": "failed"}]
     assert output.json() == {"status": "ok", "task_id": "direct_001", "output": "partial-output"}
     assert resumed.json() == {"status": "resumed", "task_id": "direct_001"}
-    runtime.get_task_status.assert_called_once_with("direct_001")
-    runtime.list_tasks.assert_called_once_with(limit=1)
-    runtime.get_task_output.assert_called_once_with("direct_001")
+    runtime.get_task_status.assert_called_once_with("direct_001", owner_subject="loopback")
+    runtime.list_tasks.assert_called_once_with(limit=1, owner_subject="loopback")
+    runtime.get_task_output.assert_called_once_with("direct_001", owner_subject="loopback")
 
 
 def test_embeddings_endpoint_uses_local_fallback(client):

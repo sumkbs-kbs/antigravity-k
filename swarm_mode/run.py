@@ -5,13 +5,16 @@ import json
 import sys
 from pathlib import Path
 
-# Add swarm_mode to path
-module_dir = Path(__file__).resolve().parent
-if str(module_dir) not in sys.path:
-    sys.path.insert(0, str(module_dir))
-
-from llm_client import get_status
-from orchestrator import SwarmOrchestrator
+try:
+    from .llm_client import get_status
+    from .orchestrator import SwarmOrchestrator
+except ImportError:
+    module_dir = Path(__file__).resolve().parent
+    repo_root = module_dir.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from swarm_mode.llm_client import get_status
+    from swarm_mode.orchestrator import SwarmOrchestrator
 
 
 def main():

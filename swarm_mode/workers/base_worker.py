@@ -12,7 +12,7 @@ class WorkerConfig:
 
     name: str = ""
     enabled: bool = True
-    params: dict = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -20,23 +20,23 @@ class WorkerResult:
     worker: str
     status: str  # "success" | "failed"
     duration: float = 0.0
-    data: dict = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items()}
 
 
 class BaseWorker(ABC):
     """Abstract base class for all swarm workers."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.name = self.__class__.__name__
         # LLM backend info (passed from orchestrator)
         self._llm_backend: str = "local"
-        self._llm_config: dict = {}
+        self._llm_config: dict[str, Any] = {}
         self._prompt_history: list[dict[str, Any]] = []
 
     @abstractmethod
@@ -46,7 +46,10 @@ class BaseWorker(ABC):
 
     def call_llm(self, prompt: str, system: str = "", model: str = "") -> str:
         """Wrapper for llm_client.call_llm with worker context."""
-        from llm_client import call_llm as _call_llm
+        try:
+            from ..llm_client import call_llm as _call_llm
+        except ImportError:
+            from swarm_mode.llm_client import call_llm as _call_llm
 
         result = _call_llm(prompt, system=system, model=model, config=self._llm_config)
         self._prompt_history.append({"prompt": prompt[:200], "result": result[:200]})

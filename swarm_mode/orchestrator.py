@@ -24,17 +24,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 log = logging.getLogger("swarm.orchestrator")
 
 try:
-    from workers.base_worker import BaseWorker, WorkerResult
+    from .llm_client import get_status
+    from .workers.base_worker import BaseWorker, WorkerResult
 except ImportError:
     import sys
 
     module_dir = Path(__file__).resolve().parent
-    if str(module_dir) not in sys.path:
-        sys.path.insert(0, str(module_dir))
-    from workers.base_worker import BaseWorker, WorkerResult
-
-# Import LLM client for OpenRouter fallback
-from llm_client import get_status
+    repo_root = module_dir.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    from swarm_mode.llm_client import get_status
+    from swarm_mode.workers.base_worker import BaseWorker, WorkerResult
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
@@ -54,11 +54,14 @@ class SwarmRun:
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     status: WorkerStatus = WorkerStatus.PENDING
     workers: dict[str, dict[str, Any]] = field(default_factory=dict)
-    correlations: list[dict] = field(default_factory=list)
+    correlations: list[dict[str, Any]] = field(default_factory=list)
     error_summary: str = field(default="")
     duration_seconds: float = 0.0
     completed_at: str = field(default_factory=lambda: datetime.now().isoformat())
     llm_backend: str = field(default="unknown")  # "local", "openrouter", "mixed"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class SwarmOrchestrator:
@@ -66,15 +69,15 @@ class SwarmOrchestrator:
 
     def __init__(self, config_path: Optional[str] = None):
         self.config = self._load_config(config_path)
-        self.swarm_config: dict = self.config.get("swarm", {})
-        self.output_config: dict = self.config.get("output", {})
-        self.lm_config: dict = self.config.get("lm", {})
+        self.swarm_config: dict[str, Any] = self.config.get("swarm", {})
+        self.output_config: dict[str, Any] = self.config.get("output", {})
+        self.lm_config: dict[str, Any] = self.config.get("lm", {})
         self.timeout: int = self.swarm_config.get("timeout", 300)
         self.max_workers: int = self.swarm_config.get("max_workers", 4)
         self.retry_attempts: int = self.swarm_config.get("retry_attempts", 2)
-        self._llm_status: dict = {}
+        self._llm_status: dict[str, Any] = {}
 
-    def _load_config(self, config_path: Optional[str]) -> dict:
+    def _load_config(self, config_path: Optional[str]) -> dict[str, Any]:
         if config_path and Path(config_path).exists():
             return json.loads(Path(config_path).read_text())
         config_file = BASE_DIR / "config.json"
@@ -82,7 +85,7 @@ class SwarmOrchestrator:
             return json.loads(config_file.read_text())
         return self._default_config()
 
-    def _default_config(self) -> dict:
+    def _default_config(self) -> dict[str, Any]:
         return {
             "swarm": {"max_workers": 4, "timeout": 300},
             "output": {"dir": "outputs"},
@@ -118,7 +121,7 @@ class SwarmOrchestrator:
 
         return "error"
 
-    def get_enabled_workers(self) -> list[dict]:
+    def get_enabled_workers(self) -> list[dict[str, Any]]:
         """Get list of enabled worker configs."""
         workers_config = self.config.get("workers", [])
         return [w for w in workers_config if w.get("enabled", True)]
@@ -126,14 +129,12 @@ class SwarmOrchestrator:
     def load_worker_class(self, worker_name: str) -> Optional[type]:
         """Import a worker module and return the BaseWorker subclass."""
         try:
-            mod = __import__(f"workers.{worker_name}", fromlist=[worker_name])
-            cls = getattr(mod, worker_name.replace("-", "_").title().replace("_", ""))
+            mod = __import__(f"swarm_mode.workers.{worker_name}", fromlist=[worker_name])
             for attr in dir(mod):
                 obj = getattr(mod, attr)
                 if isinstance(obj, type) and issubclass(obj, BaseWorker) and obj != BaseWorker:
-                    cls = obj
-                    break
-            return cls
+                    return obj
+            return None
         except (ImportError, AttributeError):
             return None
 
@@ -195,7 +196,7 @@ class SwarmOrchestrator:
         self._save_output(run)
         return run
 
-    def _run_single_worker(self, worker_cfg: dict, backend: str) -> WorkerResult:
+    def _run_single_worker(self, worker_cfg: dict[str, Any], backend: str) -> WorkerResult:
         """Run a single worker with retry logic and LLM fallback."""
         name = worker_cfg["name"]
         worker_cls = self.load_worker_class(name)
@@ -223,7 +224,7 @@ class SwarmOrchestrator:
 
         return WorkerResult(worker=name, status=WorkerStatus.FAILED.value, duration=0.0, error=str(last_error))
 
-    def _correlate_results(self, financial_result: WorkerResult, tech_result: WorkerResult) -> list[dict]:
+    def _correlate_results(self, financial_result: WorkerResult, tech_result: WorkerResult) -> list[dict[str, Any]]:
         """Find correlations between financial and tech data."""
         correlations = []
         fin_data = financial_result.data if financial_result.data else {}
@@ -261,8 +262,14 @@ class SwarmOrchestrator:
 
     def _save_output(self, run: SwarmRun):
         """Save run results as JSON."""
-        output_dir = BASE_DIR / self.output_config.get("dir", "outputs")
-        output_dir.mkdir(exist_ok=True)
+        configured_dir = Path(str(self.output_config.get("dir", "outputs")))
+        if configured_dir.is_absolute():
+            output_dir = configured_dir
+        elif configured_dir.parts and configured_dir.parts[0] == BASE_DIR.name:
+            output_dir = BASE_DIR.parent / configured_dir
+        else:
+            output_dir = BASE_DIR / configured_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         output_file = output_dir / f"run_{ts}_{run.run_id}.json"
@@ -301,7 +308,10 @@ class SwarmOrchestrator:
 
     def execute_with_backtest(self, strategy_desc: str) -> SwarmRun:
         """Run swarm mode with goal-based backtest."""
-        from goal_backtest import run_backtest
+        try:
+            from .goal_backtest import run_backtest
+        except ImportError:
+            from swarm_mode.goal_backtest import run_backtest
 
         run = SwarmRun()
         t0 = time.time()

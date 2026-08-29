@@ -15,7 +15,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("swarm.llm")
 
@@ -41,7 +41,7 @@ def _openrouter_api_key_from_env() -> str:
     return os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OR_API_KEY") or ""
 
 
-def _with_env_overrides(config: dict) -> dict:
+def _with_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     merged = dict(config)
     env_key = _openrouter_api_key_from_env()
     if env_key:
@@ -49,9 +49,9 @@ def _with_env_overrides(config: dict) -> dict:
     return merged
 
 
-def load_llm_config(config_path: Optional[str] = None) -> dict:
+def load_llm_config(config_path: Optional[str] = None) -> dict[str, Any]:
     """Load LLM config from config.json (swarm.lm section)."""
-    config_file = config_path or Path(__file__).parent / "config.json"
+    config_file = Path(config_path) if config_path else Path(__file__).parent / "config.json"
     if config_file.exists():
         data = json.loads(config_file.read_text())
         lm = data.get("lm", {})
@@ -68,7 +68,7 @@ def call_llm(
     system: str = "",
     model: str = "",
     timeout: int = 0,
-    config: Optional[dict] = None,
+    config: Optional[dict[str, Any]] = None,
     retry_with_or: bool = True,
     paid: bool = False,  # True = tier3 직접 지정
     complex: bool = False,  # True = tier3 요청 (복잡도 자동 판단)
@@ -131,7 +131,7 @@ def call_llm(
     return "LLM unavailable: all tiers failed."
 
 
-def _call_tier1_local(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
+def _call_tier1_local(prompt: str, system: str, config: dict[str, Any], timeout: int) -> Optional[str]:
     """Tier 1: Local Ollama — 보안 민감 데이터."""
     url = config.get("local_base_url", DEFAULTS["local_base_url"])
     local_timeout = config.get("local_timeout", DEFAULTS["local_timeout"])
@@ -176,7 +176,7 @@ def _call_tier1_local(prompt: str, system: str, config: dict, timeout: int) -> O
         return None
 
 
-def _call_tier2_free(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
+def _call_tier2_free(prompt: str, system: str, config: dict[str, Any], timeout: int) -> Optional[str]:
     """Tier 2: OpenRouter free model — 일반 작업."""
     or_timeout = config.get("or_free_timeout", DEFAULTS["or_free_timeout"])
     or_model = config.get("or_free_model", DEFAULTS["or_free_model"])
@@ -189,7 +189,7 @@ def _call_tier2_free(prompt: str, system: str, config: dict, timeout: int) -> Op
     return _call_openrouter(prompt, system, or_model, config, url, or_api_key, or_timeout, free=True)
 
 
-def _call_tier3_paid(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
+def _call_tier3_paid(prompt: str, system: str, config: dict[str, Any], timeout: int) -> Optional[str]:
     """Tier 3: OpenRouter paid model — 복잡/정교 작업 전용."""
     or_timeout = config.get("or_paid_timeout", DEFAULTS["or_paid_timeout"])
     or_model = config.get("or_paid_model", DEFAULTS["or_paid_model"])
@@ -221,7 +221,7 @@ def _call_openrouter(
     prompt: str,
     system: str,
     model: str,
-    config: dict,
+    config: dict[str, Any],
     url: str,
     api_key: str,
     timeout: int,
@@ -279,12 +279,12 @@ def _call_openrouter(
 # === Helpers for batch processing ===
 
 
-def call_batch(prompts: list, **kwargs) -> list:
+def call_batch(prompts: list[str], **kwargs: Any) -> list[str]:
     """Call LLM batch."""
     return [call_llm(p, **kwargs) for p in prompts]
 
 
-def get_status() -> dict:
+def get_status() -> dict[str, bool]:
     """Check what LLM backends are available."""
     status = {
         "local": False,
@@ -311,7 +311,7 @@ def get_status() -> dict:
     return status
 
 
-def get_cost_alert(config: Optional[dict] = None) -> dict:
+def get_cost_alert(config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Get cost status and alerts for paid tier."""
     if config is None:
         config = load_llm_config()

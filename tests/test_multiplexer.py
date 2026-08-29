@@ -38,6 +38,16 @@ class TestMultiplexer:
         assert results == []
 
     @pytest.mark.asyncio
+    async def test_run_parallel_goals_rejects_excessive_fanout(self, temp_project_root):
+        mux = Multiplexer(project_root=temp_project_root)
+
+        with mock.patch.object(mux.worktree_manager, "create_worktree") as create_worktree:
+            with pytest.raises(ValueError, match="최대 32개"):
+                await mux.run_parallel_goals([{"instruction": "work"}] * 33)
+
+        create_worktree.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_run_parallel_goals_single(self, temp_project_root):
         """단일 goal 실행 시 worktree 생성 + GoalRunner 실행이 이루어져야 함."""
         mux = Multiplexer(project_root=temp_project_root)

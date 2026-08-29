@@ -8,6 +8,7 @@ from antigravity_k.engine.goal_runner import GoalRunner
 from antigravity_k.engine.worktree_manager import WorktreeManager
 
 logger = logging.getLogger(__name__)
+_MAX_PARALLEL_GOALS = 32
 
 
 class Multiplexer:
@@ -43,6 +44,8 @@ class Multiplexer:
             {"task_id": "feature-api", "instruction": "Write backend logic"}
         ]
         """
+        if len(goals) > _MAX_PARALLEL_GOALS:
+            raise ValueError(f"병렬 목표 수는 최대 {_MAX_PARALLEL_GOALS}개까지 허용됩니다")
         logger.info("[Multiplexer] Spawning %s parallel agents...", len(goals))
 
         tasks = []

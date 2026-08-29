@@ -12,6 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -24,17 +25,18 @@ class BacktestResult:
     period: int = 0
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     status: str = "pending"
-    metrics: dict = field(default_factory=dict)
-    strategy_detail: dict = field(default_factory=dict)
-    portfolio_impact: list = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    strategy_detail: dict[str, Any] = field(default_factory=dict)
+    portfolio_impact: list[dict[str, Any]] = field(default_factory=list)
+    data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     duration: float = 0.0
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {**self.__dict__, "completed_at": datetime.now().isoformat()}
 
 
-def run_backtest(ticker: str, strategy: str, period: int, config: dict) -> BacktestResult:
+def run_backtest(ticker: str, strategy: str, period: int, config: dict[str, Any]) -> BacktestResult:
     """Run a full backtest in Goal Mode: data collection → strategy execution → metrics → portfolio impact."""
     result = BacktestResult(ticker=ticker, strategy=strategy, period=period)
     t0 = time.time()
@@ -69,7 +71,7 @@ def run_backtest(ticker: str, strategy: str, period: int, config: dict) -> Backt
     return result
 
 
-def collect_market_data(ticker: str, period: int, config: dict) -> BacktestResult:
+def collect_market_data(ticker: str, period: int, config: dict[str, Any]) -> BacktestResult:
     """Collect market data in parallel from multiple sources."""
     result = BacktestResult(ticker=ticker)
     data_sources = config.get("data_sources", ["wiki", "krx"])
@@ -99,7 +101,7 @@ def collect_market_data(ticker: str, period: int, config: dict) -> BacktestResul
     return result
 
 
-def execute_strategy(strategy_name: str, data: dict, config: dict) -> BacktestResult:
+def execute_strategy(strategy_name: str, data: dict[str, Any], config: dict[str, Any]) -> BacktestResult:
     """Execute a backtest strategy."""
     result = BacktestResult(strategy=strategy_name)
     closes = data.get("closes", [])
@@ -152,7 +154,7 @@ def execute_strategy(strategy_name: str, data: dict, config: dict) -> BacktestRe
     return result
 
 
-def calculate_metrics(strategy_data: dict, market_data: dict) -> dict:
+def calculate_metrics(strategy_data: dict[str, Any], market_data: dict[str, Any]) -> dict[str, Any]:
     """Calculate performance metrics."""
     closes = market_data.get("closes", [])
     signals = strategy_data.get("signals", [])
@@ -206,7 +208,7 @@ def calculate_metrics(strategy_data: dict, market_data: dict) -> dict:
     }
 
 
-def analyze_portfolio_impact(metrics: dict, ticker: str) -> list[dict]:
+def analyze_portfolio_impact(metrics: dict[str, Any], ticker: str) -> list[dict[str, Any]]:
     """Analyze portfolio impact of strategy results."""
     impacts = []
 

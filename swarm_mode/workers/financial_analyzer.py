@@ -2,24 +2,28 @@
 
 import time
 from datetime import datetime
+from typing import Any
 
-from workers.base_worker import BaseWorker, WorkerResult
+try:
+    from .base_worker import BaseWorker, WorkerResult
+except ImportError:
+    from swarm_mode.workers.base_worker import BaseWorker, WorkerResult
 
 
 class FinancialAnalayzer(BaseWorker):
     """Collects financial market data from multiple sources and returns structured metrics."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         self.name = "financial_analyzer"
         self.sources = self.config.get("sources", ["korea", "us", "global"])
         self.metrics = self.config.get("metrics", ["kospi", "kosdaq", "spx", "nasdaq", "gold", "wti", "usd_krw"])
-        self.results = {}
+        self.results: dict[str, Any] = {}
 
     def execute(self) -> WorkerResult:
         """Collect financial data from available sources."""
         t0 = time.time()
-        result_data = {}
+        result_data: dict[str, Any] = {}
 
         # Collect from different source groups
         for source in self.sources:
@@ -31,7 +35,7 @@ class FinancialAnalayzer(BaseWorker):
 
         return WorkerResult(worker=self.name, status="success", duration=time.time() - t0, data=result_data)
 
-    def _collect_source(self, source: str) -> dict:
+    def _collect_source(self, source: str) -> dict[str, Any]:
         """Collect data from one source category."""
         try:
             if source == "korea":
@@ -44,7 +48,7 @@ class FinancialAnalayzer(BaseWorker):
             return {"error": str(e)}
         return {}
 
-    def _collect_korea(self) -> dict:
+    def _collect_korea(self) -> dict[str, Any]:
         """Collect Korean market data from local Wiki (KOSPI, KOSDAQ, Samsung, etc.)."""
         financial_data = {
             "KOSPI": {"value": "latest", "source": "wiki"},
@@ -53,7 +57,7 @@ class FinancialAnalayzer(BaseWorker):
         }
         return financial_data
 
-    def _collect_us(self) -> dict:
+    def _collect_us(self) -> dict[str, Any]:
         """Collect US market data (Dow, S&P 500, Nasdaq)."""
         us_data = {
             "Dow_Jones": {"value": "latest"},
@@ -63,7 +67,7 @@ class FinancialAnalayzer(BaseWorker):
         }
         return us_data
 
-    def _collect_global(self) -> dict:
+    def _collect_global(self) -> dict[str, Any]:
         """Collect global commodity data (gold, oil, USD/KRW)."""
         globals = {
             "Gold": {"unit": "USD/oz"},
@@ -73,5 +77,5 @@ class FinancialAnalayzer(BaseWorker):
         }
         return globals
 
-    def _generate_summary(self, result_data: dict) -> str:
+    def _generate_summary(self, result_data: dict[str, Any]) -> str:
         return f"Financial data collected from {len(result_data)} sources at {result_data.get('collected_at', 'now')}"

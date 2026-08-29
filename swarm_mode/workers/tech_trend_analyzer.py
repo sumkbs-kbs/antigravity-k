@@ -2,14 +2,18 @@
 
 import time
 from datetime import datetime
+from typing import Any
 
-from workers.base_worker import BaseWorker, WorkerResult
+try:
+    from .base_worker import BaseWorker, WorkerResult
+except ImportError:
+    from swarm_mode.workers.base_worker import BaseWorker, WorkerResult
 
 
 class TechTrendAnalyser(BaseWorker):
     """Collects AI/tech trends from web sources and Wiki research."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         self.name = "tech_trend_analyzer"
         self.sources = self.config.get("sources", ["web_search", "yt_analysis", "wiki_research"])
@@ -18,7 +22,7 @@ class TechTrendAnalyser(BaseWorker):
     def execute(self) -> WorkerResult:
         """Collect tech trends and return structured data."""
         t0 = time.time()
-        result_data = {}
+        result_data: dict[str, Any] = {}
 
         for source in self.sources:
             source_data = self._collect_source(source)
@@ -30,11 +34,11 @@ class TechTrendAnalyser(BaseWorker):
 
         return WorkerResult(worker=self.name, status="success", duration=time.time() - t0, data=result_data)
 
-    def _collect_source(self, source: str) -> dict:
+    def _collect_source(self, source: str) -> dict[str, Any]:
         """Collect from one source."""
         return {"status": "ready", "sources": ["yt_analysis", "wiki_research", "web_trends"]}
 
-    def _identify_trends(self, all_data: dict) -> list[dict]:
+    def _identify_trends(self, all_data: dict[str, Any]) -> list[dict[str, Any]]:
         """Identify trends from collected data."""
         trends = [
             {
@@ -61,6 +65,6 @@ class TechTrendAnalyser(BaseWorker):
         ]
         return trends
 
-    def _compute_confidences(self, all_data: dict) -> dict:
+    def _compute_confidences(self, all_data: dict[str, Any]) -> dict[str, float]:
         """Compute confidence scores for trends."""
         return {t["topic"]: t["confidence"] for t in self._identify_trends(all_data)}
