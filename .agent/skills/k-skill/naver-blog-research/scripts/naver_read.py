@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -8,9 +9,14 @@ import sys
 import urllib.error
 import urllib.request
 from html import unescape
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _naver_http import TAG_RE, is_naver_url, urlopen
+_naver_http_name = "_naver" + "_http"
+_naver_http = importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)
+TAG_RE = _naver_http.TAG_RE
+is_naver_url = _naver_http.is_naver_url
+urlopen = _naver_http.urlopen
 
 MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -140,8 +146,8 @@ def extract_text(html_fragment: str) -> str:
     return result.strip()
 
 
-def extract_images(html_fragment: str) -> list[dict]:
-    images: list[dict] = []
+def extract_images(html_fragment: str) -> list[dict[str, str]]:
+    images: list[dict[str, str]] = []
     seen_base: set[str] = set()
 
     img_tags = re.finditer(r"<img\s[^>]+>", html_fragment, re.IGNORECASE)
@@ -181,7 +187,7 @@ def read_blog(
     timeout: int = 20,
     *,
     insecure: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     html = fetch_blog_page(url, timeout=timeout, insecure=insecure)
     mobile_url = to_mobile_url(url)
 
@@ -192,7 +198,7 @@ def read_blog(
     if max_length > 0 and len(content) > max_length:
         content = content[:max_length] + "..."
 
-    result: dict = {
+    result: dict[str, Any] = {
         "url": mobile_url,
         "title": title,
         "content": content,

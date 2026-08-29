@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _naver_http import is_naver_url, urlopen
+_naver_http_name = "_naver" + "_http"
+_naver_http = importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)
+is_naver_url = _naver_http.is_naver_url
+urlopen = _naver_http.urlopen
 
 DEFAULT_OUTPUT_DIR = "./naver-images"
 DEFAULT_MAX = 10
@@ -74,7 +79,7 @@ def download_image(
     timeout: int = DEFAULT_TIMEOUT,
     *,
     insecure: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Download a single image from a Naver CDN URL.
 
     *output_dir* is used solely for path-traversal protection: the resolved
@@ -116,16 +121,16 @@ def download_images(
     timeout: int = DEFAULT_TIMEOUT,
     *,
     insecure: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     os.makedirs(output_dir, exist_ok=True)
 
     max_count = max(1, max_count)
     targets = urls[:max_count]
-    downloaded: list[dict] = []
-    failed: list[dict] = []
+    downloaded: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
 
     # index → result 순서를 보장하기 위해 dict로 매핑
-    results_by_index: dict[int, dict] = {}
+    results_by_index: dict[int, dict[str, Any]] = {}
 
     with ThreadPoolExecutor(max_workers=min(4, max(1, len(targets)))) as executor:
         future_to_index = {}

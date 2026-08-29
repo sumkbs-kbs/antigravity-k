@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from html import unescape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _naver_http import TAG_RE, urlopen
+_naver_http_name = "_naver" + "_http"
+_naver_http = importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)
+TAG_RE = _naver_http.TAG_RE
+urlopen = _naver_http.urlopen
 
 SEARCH_URL = "https://search.naver.com/search.naver"
 DEFAULT_COUNT = 10
@@ -70,11 +75,11 @@ def fetch_search_page(
         ) from error
 
 
-def parse_search_results(html: str) -> list[dict]:
-    results: list[dict] = []
+def parse_search_results(html: str) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
     anchors = BLOG_ANCHOR_PATTERN.findall(html)
 
-    pending: dict[str, dict] = {}
+    pending: dict[str, dict[str, str]] = {}
 
     for full_url, user_id, post_id, inner_html in anchors:
         if full_url not in pending:
@@ -115,9 +120,9 @@ def search(
     timeout: int = 15,
     *,
     insecure: bool = False,
-) -> dict:
+) -> dict[str, object]:
     count = max(1, min(count, MAX_COUNT))
-    all_results: list[dict] = []
+    all_results: list[dict[str, str]] = []
     seen_urls: set[str] = set()
     start = FIRST_PAGE_START
     # 네이버 검색이 페이지당 정확히 RESULTS_PER_PAGE개를 반환하지 않을 수 있으므로 여유 페이지 확보

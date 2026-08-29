@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -10,13 +11,12 @@ from html import unescape
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _slang_http import (  # noqa: E402
-    BlockedError,
-    NotFoundError,
-    UpstreamError,
-    build_namuwiki_url,
-    fetch_html,
-)
+_slang_http = importlib.import_module(f"{__package__}._slang_http" if __package__ else "_slang_http")
+BlockedError = _slang_http.BlockedError
+NotFoundError = _slang_http.NotFoundError
+UpstreamError = _slang_http.UpstreamError
+build_namuwiki_url = _slang_http.build_namuwiki_url
+fetch_html = _slang_http.fetch_html
 
 DEFAULT_TIMEOUT = 15
 DEFAULT_MAX_LENGTH = 1500
@@ -244,7 +244,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _format_text(result: dict) -> str:
+def _format_text(result: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append(f"URL: {result['url']}")
     if result["fetched"]:

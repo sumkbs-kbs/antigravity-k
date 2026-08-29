@@ -22,7 +22,7 @@ MATCH_REASON_ORDER = {
 }
 
 
-def load_index(path: str | None = None) -> dict:
+def load_index(path: str | None = None) -> dict[str, Any]:
     target = pathlib.Path(path) if path else DEFAULT_INDEX_PATH
     if not target.exists():
         raise FileNotFoundError(f"slang index not found at: {target}")
@@ -37,7 +37,7 @@ def _normalize(text: str) -> str:
     return " ".join(text.lower().split())
 
 
-def _collect_match(entry: dict, query_norm: str) -> str | None:
+def _collect_match(entry: dict[str, Any], query_norm: str) -> str | None:
     term_norm = _normalize(entry.get("term", ""))
     if not query_norm:
         return "no-query"
@@ -98,13 +98,13 @@ def search(
     intensity: str | list[str] | None = None,
     limit: int = DEFAULT_LIMIT,
     include_deprecated: bool = False,
-    index: dict | None = None,
+    index: dict[str, Any] | None = None,
     index_path: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     if index is None:
         index = load_index(index_path)
 
-    entries: list[dict] = list(index.get("entries", []))
+    entries: list[dict[str, Any]] = list(index.get("entries", []))
 
     mood_list = _ensure_list(mood)
     context_list = _ensure_list(context)
@@ -114,7 +114,7 @@ def search(
     query_norm = _normalize(query) if query else ""
     clamped_limit = max(1, min(int(limit), MAX_LIMIT))
 
-    scored: list[tuple[int, int, str, dict]] = []
+    scored: list[tuple[int, int, str, dict[str, Any]]] = []
 
     for entry in entries:
         if not include_deprecated and not entry.get("still_usable", True):
@@ -167,7 +167,7 @@ def search(
     }
 
 
-def _format_text(result: dict) -> str:
+def _format_text(result: dict[str, Any]) -> str:
     if not result["candidates"]:
         return "No candidates found.\n"
     lines: list[str] = []
