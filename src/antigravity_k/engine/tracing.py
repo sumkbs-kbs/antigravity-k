@@ -26,6 +26,7 @@ OpenTelemetry 호환 패턴을 따르며, 외부 옵저버빌리티 도구
         span.set_output(result)
 """
 
+import inspect
 import json
 import logging
 import os
@@ -374,9 +375,7 @@ def traced(tracer: AgentTracer, span_type: str = "generic", name: str | None = N
                 s.set_output(result)
                 return result
 
-        import asyncio
-
-        if asyncio.iscoroutinefunction(func):
+        if inspect.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper
 

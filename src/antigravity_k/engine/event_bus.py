@@ -1,13 +1,16 @@
 """Event Bus module."""
 
 import asyncio
+import inspect
 import logging
+import os
 from collections.abc import Awaitable, Callable
-from typing import Any, Union
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-CallbackType = Union[Callable[..., Any], Callable[..., Awaitable[Any]]]
+CallbackType = Callable[..., Any] | Callable[..., Awaitable[Any]]
 
 
 class EventBus:
@@ -44,7 +47,7 @@ class EventBus:
 
         for callback in self._subscribers[event_name]:
             try:
-                if asyncio.iscoroutinefunction(callback):
+                if inspect.iscoroutinefunction(callback):
                     # 비동기 환경이면 태스크로 실행, 아니면 무시되거나 별도 런루프 필요 (여기선 백그라운드 스케줄 시도)
                     try:
                         loop = asyncio.get_running_loop()
@@ -70,7 +73,7 @@ class EventBus:
 
         tasks = []
         for callback in self._subscribers[event_name]:
-            if asyncio.iscoroutinefunction(callback):
+            if inspect.iscoroutinefunction(callback):
                 tasks.append(callback(**kwargs))
             else:
                 try:
@@ -91,7 +94,44 @@ class EventBus:
 global_event_bus = EventBus()
 
 
-def bridge_to_hook_event_bus():
+def attach_persistent_agency(
+    controller: Any,
+    project_id: str,
+    trajectory_id: str = "hooks",
+    hook_bus: Any | None = None,
+) -> Callable[[Any], None] | None:
+    """Attach a durable observation sink to a HookEventBus instance."""
+    bus = hook_bus
+    if bus is None:
+        from antigravity_k.engine.hook_event_bus import get_hook_event_bus
+
+        bus = get_hook_event_bus()
+    bindings: set[tuple[int, str, str]] = getattr(bus, "_persistent_agency_bindings", set())
+    key = (id(controller), project_id, trajectory_id)
+    if key in bindings:
+        return None
+
+    def on_hook_event(event: Any) -> None:
+        try:
+            controller.record_external_event(
+                project_id,
+                trajectory_id,
+                str(getattr(event, "kind", "unknown")),
+                getattr(event, "payload", {}),
+            )
+        except Exception:
+            logger.exception("[EventBus] persistent agency event record failed")
+
+    bus.subscribe_all(on_hook_event)
+    bindings.add(key)
+    setattr(bus, "_persistent_agency_bindings", bindings)
+    return on_hook_event
+
+
+def bridge_to_hook_event_bus(
+    project_root: str | None = None,
+    persistent_agency: Any | None = None,
+):
     """HookEventBus와 글로벌 EventBus를 양방향 브릿지합니다.
 
     - EventBus.publish() → HookEventBus JSONL 파일에도 기록 (듀얼 싱크)
@@ -102,6 +142,14 @@ def bridge_to_hook_event_bus():
 
         hook_bus = get_hook_event_bus()
 
+        if persistent_agency is None and project_root:
+            from antigravity_k.engine.persistent_agency import PersistentAgencyController
+
+            persistent_agency = PersistentAgencyController(project_root)
+        if persistent_agency is not None:
+            root = str(Path(project_root or os.getcwd()).resolve())
+            attach_persistent_agency(persistent_agency, root, hook_bus=hook_bus)
+
         # EventBus → HookEventBus 듀얼 싱크
         original_publish = global_event_bus.publish
 
@@ -111,7 +159,7 @@ def bridge_to_hook_event_bus():
             if hook_bus._initialized:
                 hook_bus.emit_event(event_name, kwargs)
 
-        global_event_bus.publish = dual_publish
+        setattr(global_event_bus, "publish", dual_publish)
 
         # HookEventBus → EventBus 브릿지
         def on_hook_event(event):
