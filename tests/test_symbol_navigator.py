@@ -10,7 +10,7 @@ def test_symbol_navigator_indexing():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
         py_file = root / "calculator.py"
-        py_file.write_text(
+        _ = py_file.write_text(
             """
 class Calculator:
     def add(self, a, b):
