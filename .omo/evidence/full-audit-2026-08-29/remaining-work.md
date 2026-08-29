@@ -14,6 +14,7 @@ date: 2026-08-29
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
+- Git tracked+untracked Python 871개 AST 검사에서 현존 파일 문법 오류 0건을 확인했다. 삭제 상태인 tracked Python 12개는 외부 호환성 검토 대상으로 남아 있다.
 - codebase-memory MCP: `Transport closed` 상태로 인덱스 영향 분석이 일시 중단됨
 - 앱 재시작 후 `mcp__codebase_memory_mcp__list_projects`를 재시도했지만 동일하게 `Transport closed`가 재현됐다. 외부 MCP 프로세스/세션 복구 전까지 shell·LSP·회귀 테스트 증빙으로 보완한다.
 
