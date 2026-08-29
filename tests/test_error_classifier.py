@@ -6,6 +6,8 @@ classify_api_error() pipeline for common HTTP status codes and patterns.
 
 from __future__ import annotations
 
+from typing import final
+
 from antigravity_k.engine.error_classifier import (
     ClassifiedError,
     FailoverReason,
@@ -330,6 +332,7 @@ class TestExtractUtils:
         assert result.reason == FailoverReason.rate_limit
 
     def test_extract_status_code_from_response_obj(self):
+        @final
         class MockResponse:
             status_code = 503
 
@@ -361,6 +364,7 @@ class TestExtractUtils:
         assert result.reason == FailoverReason.auth
 
     def test_extract_error_body_with_response_json(self):
+        @final
         class MockResponse:
             status_code = 400
 
@@ -373,6 +377,7 @@ class TestExtractUtils:
         assert result.reason == FailoverReason.context_overflow
 
     def test_extract_error_body_with_text_fallback(self):
+        @final
         class MockResponse:
             status_code = 401
             text = '{"error": "unauthorized"}'
