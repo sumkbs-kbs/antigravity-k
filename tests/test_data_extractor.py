@@ -11,7 +11,8 @@ Coverage areas:
   - extract_structured_data shortcut
 """
 
-from typing import ClassVar
+from collections.abc import Mapping
+from typing import Callable, ClassVar, TypedDict, cast
 
 import pytest
 
@@ -24,6 +25,27 @@ from antigravity_k.engine.data_extractor import (
     ExtractionResult,
     extract_structured_data,
 )
+
+
+class _Top1Answer(TypedDict):
+    text: str
+
+
+class _Top1Data(TypedDict):
+    answer: _Top1Answer
+
+
+def _extract_top1_json(extractor: DataExtractor, text: str) -> _Top1Data | None:
+    method = cast(Callable[[str], _Top1Data | None], getattr(extractor, "_extract_top1_json"))
+    return method(text)
+
+
+def _extract_from_top1_json(extractor: DataExtractor, data: _Top1Data) -> ExtractedStockPrice | None:
+    method = cast(
+        Callable[[Mapping[str, object]], ExtractedStockPrice | None], getattr(extractor, "_extract_from_top1_json")
+    )
+    return method(data)
+
 
 # ─── Fixtures ──────────────────────────────────────────────────────
 
@@ -717,12 +739,12 @@ class TestTop1JsonExtraction:
         search_text = self._make_search_result(json_body)
 
         # TOP 1 JSON 추출
-        top1 = extractor._extract_top1_json(search_text)
+        top1 = _extract_top1_json(extractor, search_text)
         assert top1 is not None
         assert "95만원" in top1["answer"]["text"]
 
         # _extract_from_top1_json → 만원 패턴으로 가격 추출
-        sp = extractor._extract_from_top1_json(top1)
+        sp = _extract_from_top1_json(extractor, top1)
         assert sp is not None
         assert sp.close_price == 950000  # 95만원 → 950,000원
 
@@ -734,10 +756,10 @@ class TestTop1JsonExtraction:
         """
         json_body = '{"query":"test","answer":{"text":"목표주가 99.6만원으로 상향 [1]"},"results":[]}'
         search_text = self._make_search_result(json_body)
-        top1 = extractor._extract_top1_json(search_text)
+        top1 = _extract_top1_json(extractor, search_text)
         assert top1 is not None
 
-        sp = extractor._extract_from_top1_json(top1)
+        sp = _extract_from_top1_json(extractor, top1)
         # '목표주가'는 목표 컨텍스트 → 99.6만원 필터링되어야 함
         if sp is not None:
             assert sp.close_price is None, f"'목표주가 99.6만원'이 필터링되지 않음! close_price={sp.close_price}"
@@ -746,10 +768,10 @@ class TestTop1JsonExtraction:
         """TOP 1 JSON + 억원 표기법: answer.text에 '1.5억원' 포함."""
         json_body = '{"query":"시가총액","answer":{"text":"한화에어로스페이스 시가총액 1.5억원 [1]"},"results":[]}'
         search_text = self._make_search_result(json_body)
-        top1 = extractor._extract_top1_json(search_text)
+        top1 = _extract_top1_json(extractor, search_text)
         assert top1 is not None
 
-        sp = extractor._extract_from_top1_json(top1)
+        sp = _extract_from_top1_json(extractor, top1)
         assert sp is not None
         assert sp.close_price == 150000000  # 1.5억원 → 150,000,000원
 
@@ -762,10 +784,10 @@ class TestTop1JsonExtraction:
         )
         search_text = self._make_search_result(json_body)
 
-        top1 = extractor._extract_top1_json(search_text)
+        top1 = _extract_top1_json(extractor, search_text)
         assert top1 is not None
 
-        sp = extractor._extract_from_top1_json(top1)
+        sp = _extract_from_top1_json(extractor, top1)
         assert sp is not None
         assert sp.close_price == 950000  # 95만원
         assert sp.change_percent == 1.51  # +1.51%
@@ -785,9 +807,9 @@ class TestTop1JsonExtraction:
         )
         search_text = self._make_search_result(json_body)
 
-        top1 = extractor._extract_top1_json(search_text)
+        top1 = _extract_top1_json(extractor, search_text)
         assert top1 is not None
-        sp = extractor._extract_from_top1_json(top1)
+        sp = _extract_from_top1_json(extractor, top1)
         assert sp is not None
         assert sp.close_price == 1000000  # 100만원 → 1,000,000원
 
@@ -818,12 +840,12 @@ class TestTop1JsonExtraction:
         """TOP 1 JSON에 주식 데이터 없음 → None."""
         json_body = '{"query":"오늘 날씨","answer":{"text":"서울은 맑고 기온은 22도입니다."},"results":[]}'
         search_text = self._make_search_result(json_body)
-        top1 = extractor._extract_top1_json(search_text)
+        top1 = _extract_top1_json(extractor, search_text)
         assert top1 is not None
         assert "서울" in top1["answer"]["text"]
 
         # 주식 데이터는 없어야 함
-        sp = extractor._extract_from_top1_json(top1)
+        sp = _extract_from_top1_json(extractor, top1)
         assert sp is None
 
     def test_top1_with_dates(self, extractor: DataExtractor):
