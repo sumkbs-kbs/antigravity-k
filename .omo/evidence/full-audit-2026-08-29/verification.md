@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `5a30e45`; whole-tree basedpyright reports `0 errors, 27317 warnings, 0 notes`. `tests/test_next_action_recommender.py` now explicitly consumes temporary directory/file creation results; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `6537447`; whole-tree basedpyright reports `0 errors, 27318 warnings, 0 notes`. `tests/test_external_brain_e2e.py` now explicitly consumes the verification `CognitiveLoop` construction result; its 2-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `2c40c87`; whole-tree basedpyright reports `0 errors, 27319 warnings, 0 notes`. `tests/test_egress_audit.py` now explicitly consumes its temporary source-file write result; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
