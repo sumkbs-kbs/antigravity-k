@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `e6841ec` (Protocol translator 테스트 타입 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 28830 warnings, 0 notes`
+- 최신 검증 커밋: `7b86bd3` (tool-loop 테스트 타입 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 28770 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -69,6 +69,7 @@ date: 2026-08-29
 - `9b13aca`: `tests/test_semantic_dom.py` types parser and snapshot fixtures plus all injected parser/snapshot parameters, narrows parsed bounding boxes before coordinate assertions, and gives generated element maps an explicit contract. The Semantic DOM suite passed 67 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `206 → 21`, and whole-tree basedpyright is now `0 errors, 29095 warnings, 0 notes`; residuals are intentional private parser-method coverage.
 - `13d6929`: `tests/test_rsi_family.py` types all temporary-path and RSI sandbox fixtures, injected pytest monkeypatch parameters, and sandbox callbacks while preserving mutation/audit behavior. The RSI family suite passed 28 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `191 → 65`, and whole-tree basedpyright is now `0 errors, 28969 warnings, 0 notes`; residuals are explicit MagicMock/Any boundaries, private RSI internals, and dynamic callback payloads.
 - `e6841ec`: `tests/test_protocol_translator.py` types the shared `ProtocolTranslator` fixture and every injected translator parameter while preserving OpenAI/Anthropic/internal conversion coverage. The protocol translator suite passed 43 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `171 → 32`, and whole-tree basedpyright is now `0 errors, 28830 warnings, 0 notes`; residuals are private conversion-method coverage and dynamic request payload values.
+- `7b86bd3`: `tests/test_tool_loop.py` adds explicit `Path` temporary-directory contracts and `_run` execution argument/result contracts. The tool-loop suite passed 90 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `793 → 733`, and whole-tree basedpyright is now `0 errors, 28770 warnings, 0 notes`; residuals are dynamic `MagicMock` boundaries and intentional private-method coverage.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
