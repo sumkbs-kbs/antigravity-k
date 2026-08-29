@@ -12,6 +12,14 @@ _TASK_LIST_ADAPTER: TypeAdapter[list[dict[str, JsonValue]]] = TypeAdapter(list[d
 _MAX_TASK_CONTEXT_BYTES: Final[int] = 64 * 1024
 
 
+class BlankTaskPromptError(ValueError):
+    pass
+
+
+class TaskContextTooLargeError(ValueError):
+    pass
+
+
 class TaskSubmitRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
@@ -26,14 +34,14 @@ class TaskSubmitRequest(BaseModel):
     def normalize_prompt(cls, value: str) -> str:
         prompt = value.strip()
         if not prompt:
-            raise ValueError("prompt must not be blank")
+            raise BlankTaskPromptError("prompt must not be blank")
         return prompt
 
     @field_validator("context")
     @classmethod
     def limit_context_size(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
         if len(_TASK_DATA_ADAPTER.dump_json(value)) > _MAX_TASK_CONTEXT_BYTES:
-            raise ValueError("context exceeds the maximum size")
+            raise TaskContextTooLargeError("context exceeds the maximum size")
         return value
 
 
