@@ -169,8 +169,21 @@ class RAGIndexer:
                         rel_path = os.path.relpath(fpath, self.project_root)
                         current_files.add(rel_path)
 
-        # 삭제된 파일 처리
-        deleted_files = set(self._file_hashes.keys()) - current_files
+        if subdirs:
+            normalized_scopes = {
+                os.path.normpath(os.path.relpath(os.path.join(self.project_root, subdir), self.project_root))
+                for subdir in subdirs
+            }
+
+            def in_scope(rel_path: str) -> bool:
+                return "." in normalized_scopes or any(
+                    rel_path == scope or rel_path.startswith(f"{scope}{os.sep}") for scope in normalized_scopes
+                )
+
+            manifest_files = {rel_path for rel_path in self._file_hashes if in_scope(rel_path)}
+        else:
+            manifest_files = set(self._file_hashes)
+        deleted_files = manifest_files - current_files
         for rel_path in deleted_files:
             del self._file_hashes[rel_path]
             if self.vector_store:
