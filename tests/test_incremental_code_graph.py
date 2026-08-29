@@ -16,7 +16,7 @@ class DataPipeline:
     def process(self, raw_data):
         pass
 """
-        graph.update_file("pipeline.py", content=code_v1)
+        _ = graph.update_file("pipeline.py", content=code_v1)
         syms = graph.lookup_symbol("DataPipeline")
         assert len(syms) == 1
         assert syms[0].file_path == "pipeline.py"
@@ -30,7 +30,7 @@ class DataPipeline:
     def validate(self, schema):
         pass
 """
-        graph.update_file("pipeline.py", content=code_v2)
+        _ = graph.update_file("pipeline.py", content=code_v2)
         val_syms = graph.lookup_symbol("validate")
         assert len(val_syms) == 1
         assert val_syms[0].name == "validate"
