@@ -5,6 +5,7 @@
 """
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,10 +21,10 @@ from antigravity_k.engine.rsi_sandbox import (
 
 def _engine(tmp_path: str) -> RSIEngine:
     engine = RSIEngine(config=RSIConfig(cooldown_sec=0), project_root=tmp_path)
-    engine._sandbox = MagicMock()
-    engine._archive = MagicMock()
-    engine._evolver = MagicMock()
-    engine._evolver.evolve_system_prompt.return_value = ("진화된 프롬프트", 0.8)
+    setattr(engine, "_sandbox", MagicMock())
+    setattr(engine, "_archive", MagicMock())
+    setattr(engine, "_evolver", MagicMock())
+    cast(Any, engine._evolver).evolve_system_prompt.return_value = ("진화된 프롬프트", 0.8)
     return engine
 
 
@@ -33,14 +34,14 @@ def _engine(tmp_path: str) -> RSIEngine:
 class TestRSICycleVerdicts:
     def test_improvement_is_accepted_and_archived(self, tmp_path):
         engine = _engine(str(tmp_path))
-        engine._benchmark = iter([0.5, 0.7])
+        scores = iter([0.5, 0.7])
 
-        result = engine.run_cycle(benchmark_fn=lambda: next(engine._benchmark))
+        result = engine.run_cycle(benchmark_fn=lambda: next(scores))
 
         assert result.success is True
         assert result.improvement == pytest.approx(0.2)
         assert result.phase_results["integrate"] == "archived"
-        engine._archive.archive.assert_called_once()
+        cast(Any, engine._archive).archive.assert_called_once()
 
     def test_regression_rolls_back_without_archiving(self, tmp_path):
         engine = _engine(str(tmp_path))
@@ -52,7 +53,7 @@ class TestRSICycleVerdicts:
         assert result.success is False
         assert result.rolled_back is True
         assert result.phase_results["integrate"] == "rolled_back"
-        engine._archive.archive.assert_not_called()
+        cast(Any, engine._archive).archive.assert_not_called()
 
     def test_meaningless_change_is_skipped(self, tmp_path):
         engine = _engine(str(tmp_path))
@@ -65,7 +66,7 @@ class TestRSICycleVerdicts:
 
     def test_failed_mutation_keeps_baseline(self, tmp_path):
         engine = _engine(str(tmp_path))
-        engine._evolver.evolve_system_prompt.side_effect = RuntimeError("evolver down")
+        cast(Any, engine._evolver).evolve_system_prompt.side_effect = RuntimeError("evolver down")
         engine.run_cycle(benchmark_fn=lambda: 0.5)
 
         result = engine.run_cycle(benchmark_fn=lambda: 0.9)
@@ -101,14 +102,14 @@ class TestDiagnoseAndHypothesize:
 
     def test_low_baseline_appends_diagnoses(self, tmp_path):
         engine = _engine(str(tmp_path))
-        weaknesses = engine._diagnose({}, SimpleNamespace(before_score=0.3, phase_results={}))
+        weaknesses = engine._diagnose({}, cast(Any, SimpleNamespace(before_score=0.3, phase_results={})))
 
         assert any("벤치마크 점수 저조" in w for w in weaknesses)
         assert any("심각한 성능 저하" in w for w in weaknesses)
 
     def test_no_weakness_falls_back_to_exploratory(self, tmp_path):
         engine = _engine(str(tmp_path))
-        weaknesses = engine._diagnose({}, SimpleNamespace(before_score=0.9, phase_results={}))
+        weaknesses = engine._diagnose({}, cast(Any, SimpleNamespace(before_score=0.9, phase_results={})))
 
         assert weaknesses == ["특별한 약점 없음 — 탐색적 개선 시도"]
 
@@ -116,7 +117,7 @@ class TestDiagnoseAndHypothesize:
 class TestEvolutionLoopAndReports:
     def test_run_evolution_stops_after_three_failures(self, tmp_path):
         engine = _engine(str(tmp_path))
-        engine._evolver.evolve_system_prompt.side_effect = RuntimeError("down")
+        cast(Any, engine._evolver).evolve_system_prompt.side_effect = RuntimeError("down")
 
         results = engine.run_evolution(max_cycles=10, performance_data={})
 
@@ -189,11 +190,11 @@ class TestValidateMutation:
         target.write_text("VALUE = 1\n", encoding="utf-8")
 
         class FakeCompleted:
-            returncode = 0
+            return_code = 0
             stdout = ""
             stderr = ""
 
-        monkeypatch.setattr("antigravity_k.engine.rsi_sandbox.subprocess.run", lambda *a, **k: FakeCompleted())
+        monkeypatch.setattr("antigravity_k.engine.rsi_sandbox.run_sandboxed_argv", lambda *a, **k: FakeCompleted())
 
         results = sandbox.validate_mutation("mod.py", "VALUE = 2\n")
 
@@ -205,11 +206,11 @@ class TestValidateMutation:
         target.write_text("VALUE = 1\n", encoding="utf-8")
 
         class FakeCompleted:
-            returncode = 1
+            return_code = 1
             stdout = ""
             stderr = "1 failed"
 
-        monkeypatch.setattr("antigravity_k.engine.rsi_sandbox.subprocess.run", lambda *a, **k: FakeCompleted())
+        monkeypatch.setattr("antigravity_k.engine.rsi_sandbox.run_sandboxed_argv", lambda *a, **k: FakeCompleted())
 
         results = sandbox.validate_mutation("mod.py", "VALUE = 2\n")
 
