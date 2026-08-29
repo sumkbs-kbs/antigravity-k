@@ -145,6 +145,14 @@ def _set_mock_return(root: MagicMock, path: tuple[str, ...], value: object) -> N
     setattr(_mock_path(root, path), "return_value", value)
 
 
+def _set_mock_attr(root: MagicMock, path: tuple[str, ...], value: object) -> None:
+    names = list(path)
+    if not names:
+        raise ValueError("mock attribute path must not be empty")
+    parent = _mock_path(root, path[:-1]) if len(path) > 1 else root
+    setattr(parent, names[-1], value)
+
+
 def _set_mock_side_effect(root: MagicMock, path: tuple[str, ...], value: object) -> None:
     setattr(_mock_path(root, path), "side_effect", value)
 
@@ -159,6 +167,22 @@ def _get_mock_attr(root: MagicMock, path: tuple[str, ...]) -> object:
 def _assert_mock_called_once_with(root: MagicMock, path: tuple[str, ...], **kwargs: object) -> None:
     method = cast(Callable[..., object], cast(object, getattr(_mock_path(root, path), "assert_called_once_with")))
     method(**kwargs)
+
+
+def _assert_mock_called_once(root: MagicMock, path: tuple[str, ...]) -> None:
+    method = cast(Callable[[], object], cast(object, getattr(_mock_path(root, path), "assert_called_once")))
+    method()
+
+
+def _mock_call_count(root: MagicMock, path: tuple[str, ...]) -> int:
+    return cast(int, cast(object, getattr(_mock_path(root, path), "call_count")))
+
+
+def _mock_call_args(root: MagicMock, path: tuple[str, ...]) -> tuple[tuple[object, ...], dict[str, object]]:
+    call_args = cast(object, getattr(_mock_path(root, path), "call_args"))
+    args = cast(tuple[object, ...], cast(object, getattr(call_args, "args")))
+    kwargs = cast(dict[str, object], cast(object, getattr(call_args, "kwargs")))
+    return args, kwargs
 
 
 class _RaisingIter:
@@ -566,43 +590,51 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        quality_gate.evaluate.assert_called_once()
+        _assert_mock_called_once(quality_gate, ("evaluate",))
 
     def test_cognitive_loop_reflect_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
-        mock_orch.ctx.cognitive_loop.reflect.assert_called_once_with("do something", "output")
+        method = cast(
+            Callable[[str, str], object],
+            cast(
+                object, getattr(_mock_path(mock_orch, ("ctx", "cognitive_loop", "reflect")), "assert_called_once_with")
+            ),
+        )
+        method("do something", "output")
 
     def test_quality_gate_evaluate_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
-        mock_orch.ctx.quality_gate.evaluate.assert_called_once()
+        _assert_mock_called_once(mock_orch, ("ctx", "quality_gate", "evaluate"))
 
     def test_quality_gate_user_message_yielded(self, mock_orch: MagicMock):
-        mock_orch.ctx.quality_gate.evaluate.return_value.user_message = "Quality issue detected"
+        _set_mock_attr(
+            mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "user_message"), "Quality issue detected"
+        )
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         res = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         assert any("Quality issue detected" in r for r in res)
 
     def test_quality_gate_retry_marked(self, mock_orch: MagicMock):
-        mock_orch.ctx.quality_gate.evaluate.return_value.should_retry = True
-        mock_orch.ctx.quality_gate.evaluate.return_value.feedback = "needs improvement"
-        mock_orch.ctx.quality_gate.evaluate.return_value.user_message = ""
+        _set_mock_attr(mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "should_retry"), True)
+        _set_mock_attr(mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "feedback"), "needs improvement")
+        _set_mock_attr(mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "user_message"), "")
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
-        mock_orch.ctx.quality_gate.mark_retry.assert_called_once()
+        _assert_mock_called_once(mock_orch, ("ctx", "quality_gate", "mark_retry"))
 
     def test_quality_gate_revision_replaces_output_and_outcome(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="보완 필요", score=0.3)
         revised = MagicMock(user_message="", should_retry=False, feedback="", score=0.9)
-        mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised]
-        mock_orch._get_model_for_role.return_value = "qwen3.6:latest"
-        mock_orch.manager.stream_generate.return_value = iter(["초안"])
-        mock_orch.manager.generate.return_value = "보완된 최종 답변"
+        _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised])
+        _set_mock_return(mock_orch, ("_get_model_for_role",), "qwen3.6:latest")
+        _set_mock_return(mock_orch, ("manager", "stream_generate"), iter(["초안"]))
+        _set_mock_return(mock_orch, ("manager", "generate"), "보완된 최종 답변")
         outcomes: list[TaskOutcome] = []
 
         with patch("antigravity_k.engine.event_bus.global_event_bus") as event_bus:
@@ -610,7 +642,7 @@ class TestToolLoopEnginePostLoopChecks:
             result = list(engine.run_loop([{"role": "user", "content": "요청"}], "CODER", "chat"))
 
         assert any("보완된 최종 답변" in chunk for chunk in result)
-        assert mock_orch._last_agent_output == "보완된 최종 답변"
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "보완된 최종 답변"
         assert outcomes[0].retry_count == 1
         assert outcomes[0].tokens_out == len("보완된 최종 답변") // 4
         event_bus.publish.assert_called_once_with(
@@ -619,15 +651,17 @@ class TestToolLoopEnginePostLoopChecks:
             assistant_response="보완된 최종 답변",
             project_root="/tmp/test",
         )
-        mock_orch.manager.generate.assert_called_once()
+        _assert_mock_called_once(mock_orch, ("manager", "generate"))
 
     def test_quality_revision_retries_until_gate_budget_is_exhausted(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="중국어 혼입", score=0.3)
         first_revision = MagicMock(user_message="", should_retry=True, feedback="여전히 중국어 혼입", score=0.7)
         second_revision = MagicMock(user_message="", should_retry=False, feedback="", score=0.95)
-        mock_orch.ctx.quality_gate.max_retries = 2
-        mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, first_revision, second_revision]
-        mock_orch.manager.generate.side_effect = ["개선되었지만 중국어 포함", "최종 한국어 답변"]
+        _set_mock_attr(mock_orch, ("ctx", "quality_gate", "max_retries"), 2)
+        _set_mock_side_effect(
+            mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, first_revision, second_revision]
+        )
+        _set_mock_side_effect(mock_orch, ("manager", "generate"), ["개선되었지만 중국어 포함", "최종 한국어 답변"])
 
         chunks = list(
             _post_loop_checks(
@@ -640,13 +674,13 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        assert mock_orch.manager.generate.call_count == 2
-        assert mock_orch._last_agent_output == "최종 한국어 답변"
+        assert _mock_call_count(mock_orch, ("manager", "generate")) == 2
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "최종 한국어 답변"
         assert any("최종 한국어 답변" in chunk for chunk in chunks)
 
     def test_quality_gate_receives_normalized_local_language_output(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=False, feedback="", score=1.0)
-        mock_orch.ctx.quality_gate.evaluate.return_value = initial
+        _set_mock_return(mock_orch, ("ctx", "quality_gate", "evaluate"), initial)
 
         _ = list(
             _post_loop_checks(
@@ -658,8 +692,9 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        assert mock_orch.ctx.quality_gate.evaluate.call_args.args[2] == "시간복잡도와 공간복잡도를 설명합니다."
-        assert mock_orch._last_agent_output == "시간복잡도와 공간복잡도를 설명합니다."
+        args, _ = _mock_call_args(mock_orch, ("ctx", "quality_gate", "evaluate"))
+        assert args[2] == "시간복잡도와 공간복잡도를 설명합니다."
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "시간복잡도와 공간복잡도를 설명합니다."
 
     def test_qwen_quality_revision_uses_measured_stable_sampling(self, mock_orch: MagicMock):
         mock_orch.manager.generate.return_value = "revised"
