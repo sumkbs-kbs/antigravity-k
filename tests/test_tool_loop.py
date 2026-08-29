@@ -240,6 +240,17 @@ def _mock_call_kwargs_list(root: MagicMock, path: tuple[str, ...]) -> list[dict[
     return [cast(dict[str, object], getattr(call, "kwargs")) for call in cast(list[object], raw_calls)]
 
 
+def _mock_await_args_list(root: MagicMock, path: tuple[str, ...]) -> list[tuple[tuple[object, ...], dict[str, object]]]:
+    raw_calls = cast(object, getattr(_mock_path(root, path), "await_args_list"))
+    return [
+        (
+            cast(tuple[object, ...], getattr(call, "args")),
+            cast(dict[str, object], getattr(call, "kwargs")),
+        )
+        for call in cast(list[object], raw_calls)
+    ]
+
+
 class _RaisingIter:
     """Iterator that raises exc on first __next__().
 
@@ -1484,7 +1495,7 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file"]}',
             "",
         )
-        self._orch().task_execution_context = TaskExecutionContext("tool-contract", store)
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("tool-contract", store))
 
         expected_tools = _expected_tools(_engine(self._orch()))
 
@@ -1499,9 +1510,9 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file"]}',
             "",
         )
-        self._orch().task_execution_context = TaskExecutionContext("required-tool", store)
-        self._orch().ctx.quality_gate = None
-        self._orch().manager.stream_generate.return_value = iter(["ungrounded answer"])
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("required-tool", store))
+        _set_mock_attr(self._orch(), ("ctx", "quality_gate"), None)
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["ungrounded answer"]))
 
         _ = list(
             _engine(self._orch()).run_loop(
@@ -1559,18 +1570,21 @@ class TestToolLoopEngineRunLoop:
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         _ = store.create_task("qwen-plan", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint("qwen-plan", 0, '{"expected_tools": ["read_file"]}', "")
-        self._orch().task_execution_context = TaskExecutionContext("qwen-plan", store)
-        self._orch().ctx.quality_gate = None
-        self._orch().ctx.tool_executor.execute_async.return_value = "README contents"
-        self._orch().manager.stream_generate.side_effect = [
-            iter(
-                [
-                    "<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>",
-                ],
-            ),
-            iter(["grounded summary"]),
-        ]
-
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("qwen-plan", store))
+        _set_mock_attr(self._orch(), ("ctx", "quality_gate"), None)
+        _set_mock_return(self._orch(), ("ctx", "tool_executor", "execute_async"), "README contents")
+        _set_mock_side_effect(
+            self._orch(),
+            ("manager", "stream_generate"),
+            [
+                iter(
+                    [
+                        "<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>",
+                    ],
+                ),
+                iter(["grounded summary"]),
+            ],
+        )
         # When: the required-tool loop processes Qwen's completed planning turn.
         _ = list(
             _engine(self._orch()).run_loop(
@@ -1585,7 +1599,9 @@ class TestToolLoopEngineRunLoop:
         record = store.get_task("qwen-plan")
         assert record is not None
         assert record["status"] == "done"
-        self._orch().ctx.tool_executor.execute_async.assert_awaited_once_with(
+        _assert_mock_awaited_once_with(
+            self._orch(),
+            ("ctx", "tool_executor", "execute_async"),
             "read_file",
             {"file_path": "README.md"},
         )
@@ -1600,14 +1616,22 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file", "grep_search"]}',
             "",
         )
-        self._orch().task_execution_context = TaskExecutionContext("qwen-multistep", store)
-        self._orch().ctx.quality_gate = None
-        self._orch().ctx.tool_executor.execute_async.side_effect = ["README contents", "matching defaults"]
-        self._orch().manager.stream_generate.side_effect = [
-            iter(["<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>"]),
-            iter(["<scratch_pad>\nActions: Call grep_search with query='defaults'.\n</scratch_pad>"]),
-            iter(["grounded summary"]),
-        ]
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("qwen-multistep", store))
+        _set_mock_attr(self._orch(), ("ctx", "quality_gate"), None)
+        _set_mock_side_effect(
+            self._orch(),
+            ("ctx", "tool_executor", "execute_async"),
+            ["README contents", "matching defaults"],
+        )
+        _set_mock_side_effect(
+            self._orch(),
+            ("manager", "stream_generate"),
+            [
+                iter(["<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>"]),
+                iter(["<scratch_pad>\nActions: Call grep_search with query='defaults'.\n</scratch_pad>"]),
+                iter(["grounded summary"]),
+            ],
+        )
 
         # When: the tool loop completes the sequential Qwen planning turns.
         _ = list(
@@ -1623,7 +1647,7 @@ class TestToolLoopEngineRunLoop:
         record = store.get_task("qwen-multistep")
         assert record is not None
         assert record["status"] == "done"
-        assert self._orch().ctx.tool_executor.execute_async.await_args_list == [
+        assert _mock_await_args_list(self._orch(), ("ctx", "tool_executor", "execute_async")) == [
             (("read_file", {"file_path": "README.md"}), {}),
             (("grep_search", {"query": "defaults"}), {}),
         ]
