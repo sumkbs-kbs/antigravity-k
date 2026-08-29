@@ -16,6 +16,7 @@ Covers the main execution paths:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,7 +30,12 @@ from antigravity_k.tools.tool_registry import ToolRegistry
 # ---------------------------------------------------------------------------
 
 
-def _make_tool(name="dummy", *, required=None, schema=None):
+def _make_tool(
+    name: str = "dummy",
+    *,
+    required: list[str] | None = None,
+    schema: dict[str, object] | None = None,
+) -> MagicMock:
     """Create a mock tool object with a parameters_schema."""
     tool = MagicMock()
     tool.name = name
@@ -38,7 +44,7 @@ def _make_tool(name="dummy", *, required=None, schema=None):
 
 
 @pytest.fixture
-def tool_registry():
+def tool_registry() -> MagicMock:
     """A minimal ToolRegistry with one registered 'dummy' tool and readonly tools."""
     reg = MagicMock(spec=ToolRegistry)
     reg._tools = {}
@@ -57,12 +63,12 @@ def tool_registry():
 
 
 @pytest.fixture
-def permission_gate():
+def permission_gate() -> MagicMock:
     return MagicMock(spec=PermissionGate)
 
 
 @pytest.fixture
-def executor(tool_registry, permission_gate, tmp_path):
+def executor(tool_registry: MagicMock, permission_gate: MagicMock, tmp_path: Path) -> ToolExecutor:
     """Create a ToolExecutor with mocked ImmuneSystem (disabled)."""
     with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
         ex = ToolExecutor(
@@ -80,7 +86,7 @@ def executor(tool_registry, permission_gate, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_execute_unknown_tool_returns_error(executor):
+def test_execute_unknown_tool_returns_error(executor: ToolExecutor):
     """Calling an unregistered tool must return a structured error."""
     result = executor.execute("nonexistent", {})
     assert "Unknown tool" in result
@@ -92,7 +98,7 @@ def test_execute_unknown_tool_returns_error(executor):
 # ---------------------------------------------------------------------------
 
 
-def test_readonly_tool_uses_permission_boundary(executor, tool_registry):
+def test_readonly_tool_uses_permission_boundary(executor: ToolExecutor, tool_registry: MagicMock):
     readonly_tool = MagicMock()
     readonly_tool.parameters_schema = {"required": []}
     readonly_tool.return_value = "file content"
@@ -112,12 +118,12 @@ def test_readonly_tool_uses_permission_boundary(executor, tool_registry):
     assert called == ["read_file"]
 
 
-def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path):
+def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path: Path):
     from antigravity_k.engine.tool_executor import ToolExecutor
     from antigravity_k.tools.system_tools import ReadFileTool
 
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(ReadFileTool())
+    _ = registry.install(ReadFileTool())
     with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
         executor = ToolExecutor(
             tool_registry=registry,
@@ -130,13 +136,13 @@ def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path):
     assert "[DENIED]" in result
 
 
-def test_approved_execution_rechecks_permission_boundary(tmp_path):
+def test_approved_execution_rechecks_permission_boundary(tmp_path: Path):
     from antigravity_k.tools.system_tools import ReadFileTool
 
     target = tmp_path / "protected-by-override.txt"
-    target.write_text("must not be read", encoding="utf-8")
+    _ = target.write_text("must not be read", encoding="utf-8")
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(ReadFileTool())
+    _ = registry.install(ReadFileTool())
     registry.permission_gate.set_override("read_file", Permission.DENY)
 
     result = registry.execute_approved("read_file", {"file_path": str(target)})
@@ -144,14 +150,14 @@ def test_approved_execution_rechecks_permission_boundary(tmp_path):
     assert "[DENIED]" in result
 
 
-def test_readonly_tool_records_history(executor, tool_registry):
+def test_readonly_tool_records_history(executor: ToolExecutor, tool_registry: MagicMock):
     """Readonly tool execution must be recorded in tool_call_history."""
     readonly_tool = MagicMock(return_value="content")
     readonly_tool.parameters_schema = {"required": []}
     tool_registry._tools["read_file"] = readonly_tool
     tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
 
-    executor.execute("read_file", {"file_path": "/tmp/x"})
+    _ = executor.execute("read_file", {"file_path": "/tmp/x"})
     assert len(executor.tool_call_history) == 1
     assert executor.tool_call_history[0]["name"] == "read_file"
     assert executor.tool_call_history[0]["success"] is True
@@ -162,7 +168,7 @@ def test_readonly_tool_records_history(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_plan_guard_blocks_tool(executor, tool_registry):
+def test_plan_guard_blocks_tool(executor: ToolExecutor, tool_registry: MagicMock):
     """When PlanGuard denies execution, a [BLOCKED] error is returned."""
     # Register write_file so it passes the 'name not in tool_registry' check.
     write_tool = _make_tool("write_file", required=["file_path"])
@@ -181,7 +187,7 @@ def test_plan_guard_blocks_tool(executor, tool_registry):
     assert executor._consecutive_errors == 1
 
 
-def test_plan_guard_allows_tool(executor, tool_registry):
+def test_plan_guard_allows_tool(executor: ToolExecutor, tool_registry: MagicMock):
     """When PlanGuard allows, execution proceeds normally."""
     guard = MagicMock()
     decision = MagicMock()
@@ -199,7 +205,7 @@ def test_plan_guard_allows_tool(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_missing_required_args_returns_error(executor):
+def test_missing_required_args_returns_error(executor: ToolExecutor):
     """Missing required arguments must produce a structured error."""
     result = executor.execute("dummy", {})
     assert "Missing required arguments" in result
@@ -212,7 +218,7 @@ def test_missing_required_args_returns_error(executor):
 # ---------------------------------------------------------------------------
 
 
-def test_preflight_creates_missing_directory(executor, tool_registry, tmp_path):
+def test_preflight_creates_missing_directory(executor: ToolExecutor, tool_registry: MagicMock, tmp_path: Path):
     """Write tools auto-create missing parent directories."""
     # Register write_file as a real tool with no required args for simplicity.
     write_tool = _make_tool("write_file", required=[])
@@ -231,7 +237,7 @@ def test_preflight_creates_missing_directory(executor, tool_registry, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_permission_deny_returns_blocked(executor, tool_registry):
+def test_permission_deny_returns_blocked(executor: ToolExecutor, tool_registry: MagicMock):
     """When execute_with_permission returns DENY, a [DENIED] error is returned."""
     tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.DENY, "blocked")
     result = executor.execute("dummy", {"x": 1})
@@ -240,7 +246,7 @@ def test_permission_deny_returns_blocked(executor, tool_registry):
     assert executor.tool_call_history[-1]["permission"] == "deny"
 
 
-def test_permission_prompt_returns_approval_required(executor, tool_registry):
+def test_permission_prompt_returns_approval_required(executor: ToolExecutor, tool_registry: MagicMock):
     """When execute_with_permission returns PROMPT, an [APPROVAL REQUIRED] message is returned."""
     tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.PROMPT, "needs approval")
     result = executor.execute("dummy", {"x": 1})
@@ -253,22 +259,22 @@ def test_permission_prompt_returns_approval_required(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_consecutive_error_reset_on_success(executor, tool_registry):
+def test_consecutive_error_reset_on_success(executor: ToolExecutor, tool_registry: MagicMock):
     """A successful tool call resets the consecutive error counter."""
     executor._consecutive_errors = 2
-    executor.execute("dummy", {"x": 1})
+    _ = executor.execute("dummy", {"x": 1})
     assert executor._consecutive_errors == 0
 
 
-def test_three_consecutive_errors_trigger_recovery(executor, tool_registry):
+def test_three_consecutive_errors_trigger_recovery(executor: ToolExecutor, tool_registry: MagicMock):
     """Three consecutive errors trigger the recovery path (_trigger_recovery)."""
     # Make execute_with_permission return errors.
     tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.ALLOW, "Error: something failed")
     # Mock _trigger_recovery to verify it's called.
     executor._trigger_recovery = MagicMock(return_value="recovery result")
 
-    executor.execute("dummy", {"x": 1})  # error 1
-    executor.execute("dummy", {"x": 1})  # error 2
+    _ = executor.execute("dummy", {"x": 1})  # error 1
+    _ = executor.execute("dummy", {"x": 1})  # error 2
     result = executor.execute("dummy", {"x": 1})  # error 3 → trigger
 
     assert result == "recovery result"
@@ -280,7 +286,7 @@ def test_three_consecutive_errors_trigger_recovery(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_tool_call_history_capped_at_20(executor, tool_registry):
+def test_tool_call_history_capped_at_20(executor: ToolExecutor, tool_registry: MagicMock):
     """The history list must not exceed 20 entries."""
     readonly_tool = MagicMock(return_value="ok")
     readonly_tool.parameters_schema = {"required": []}
@@ -288,7 +294,7 @@ def test_tool_call_history_capped_at_20(executor, tool_registry):
     tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
 
     for i in range(25):
-        executor.execute("read_file", {"file_path": f"/tmp/{i}"})
+        _ = executor.execute("read_file", {"file_path": f"/tmp/{i}"})
 
     assert len(executor.tool_call_history) == 20
     # The oldest entries should have been dropped; the last should be the most recent.
@@ -300,20 +306,20 @@ def test_tool_call_history_capped_at_20(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_validate_and_preflight_returns_none_on_success(executor):
+def test_validate_and_preflight_returns_none_on_success(executor: ToolExecutor):
     """_validate_and_preflight returns None when validation passes."""
     result = executor._validate_and_preflight("dummy", {"x": 1})
     assert result is None
 
 
-def test_validate_and_preflight_missing_args(executor):
+def test_validate_and_preflight_missing_args(executor: ToolExecutor):
     """_validate_and_preflight returns an error string for missing args."""
     result = executor._validate_and_preflight("dummy", {})
     assert result is not None
     assert "Missing required arguments" in result
 
 
-def test_record_tool_call_adds_entry(executor):
+def test_record_tool_call_adds_entry(executor: ToolExecutor):
     """_record_tool_call appends a single history entry."""
     initial = len(executor.tool_call_history)
     executor._record_tool_call("test_tool", {"k": "v"}, "result")
@@ -323,7 +329,7 @@ def test_record_tool_call_adds_entry(executor):
     assert entry["success"] is True
 
 
-def test_record_tool_call_error_result_marked_unsuccessful(executor):
+def test_record_tool_call_error_result_marked_unsuccessful(executor: ToolExecutor):
     """An error result string must be marked as unsuccessful in history."""
     executor._record_tool_call("bad_tool", {}, "Error: failed")
     assert executor.tool_call_history[-1]["success"] is False
@@ -334,47 +340,47 @@ def test_record_tool_call_error_result_marked_unsuccessful(executor):
 # ---------------------------------------------------------------------------
 
 
-def test_broadcast_file_event_skips_non_file_tools(executor):
+def test_broadcast_file_event_skips_non_file_tools(executor: ToolExecutor):
     """_broadcast_file_event does nothing for non-file tools."""
     # Should not raise even if the tool is not a file tool.
-    executor._broadcast_file_event("web_search", {"query": "test"})
+    _ = executor._broadcast_file_event("web_search", {"query": "test"})
 
 
-def test_broadcast_file_event_publishes_for_read_file(executor, tmp_path):
+def test_broadcast_file_event_publishes_for_read_file(executor: ToolExecutor, tmp_path: Path):
     """_broadcast_file_event publishes FileOpened for read_file on an existing file."""
     test_file = tmp_path / "test.txt"
-    test_file.write_text("hello")
+    _ = test_file.write_text("hello")
 
     published = []
     with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
         mock_bus.publish = lambda event_type, **kwargs: published.append((event_type, kwargs))
-        executor._broadcast_file_event("read_file", {"file_path": str(test_file)})
+        _ = executor._broadcast_file_event("read_file", {"file_path": str(test_file)})
 
     assert len(published) == 1
     assert published[0][0] == "FileOpened"
     assert published[0][1]["filepath"] == str(test_file)
 
 
-def test_broadcast_file_event_publishes_for_write_file(executor, tmp_path):
+def test_broadcast_file_event_publishes_for_write_file(executor: ToolExecutor, tmp_path: Path):
     """_broadcast_file_event publishes FileModified for write_file."""
     test_file = tmp_path / "output.txt"
-    test_file.write_text("data")
+    _ = test_file.write_text("data")
 
     published = []
     with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
         mock_bus.publish = lambda event_type, **kwargs: published.append((event_type, kwargs))
-        executor._broadcast_file_event("write_file", {"file_path": str(test_file)})
+        _ = executor._broadcast_file_event("write_file", {"file_path": str(test_file)})
 
     assert published[0][0] == "FileModified"
 
 
-def test_broadcast_file_event_skips_nonexistent_file(executor):
+def test_broadcast_file_event_skips_nonexistent_file(executor: ToolExecutor):
     """_broadcast_file_event does nothing for a non-existent file path."""
     # Should not raise.
-    executor._broadcast_file_event("read_file", {"file_path": "/nonexistent/path/file.txt"})
+    _ = executor._broadcast_file_event("read_file", {"file_path": "/nonexistent/path/file.txt"})
 
 
-def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
+def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path: Path):
     # Given: a task whose checkpoint records write_file as a tool the user explicitly requested.
     from antigravity_k.engine.gate_pipeline import create_default_pipeline
     from antigravity_k.engine.task_state_store import (
@@ -416,7 +422,7 @@ def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
     assert "APPROVAL REQUIRED" not in str(result)
 
 
-def test_nonzero_exit_code_result_is_classified_as_failure(executor, tool_registry):
+def test_nonzero_exit_code_result_is_classified_as_failure(executor: ToolExecutor, tool_registry: MagicMock):
     # Given: a tool whose result carries the [exit_code=N] failure marker surfaced by
     # run_bash_command when a command exits non-zero.
     failing_tool = _make_tool("run_bash_command", required=["command"])
@@ -429,7 +435,7 @@ def test_nonzero_exit_code_result_is_classified_as_failure(executor, tool_regist
     )
 
     # When: the executor runs the tool and records the outcome.
-    executor.execute("run_bash_command", {"command": "false"})
+    _ = executor.execute("run_bash_command", {"command": "false"})
 
     # Then: the result is classified as a failure so the consecutive-error counter
     # advances and the recovery loop can trigger — the exit-code marker must not mask it.
@@ -437,7 +443,7 @@ def test_nonzero_exit_code_result_is_classified_as_failure(executor, tool_regist
     assert executor._consecutive_errors == 1
 
 
-def test_dangerous_command_is_denied_even_when_run_bash_is_user_contracted(tmp_path):
+def test_dangerous_command_is_denied_even_when_run_bash_is_user_contracted(tmp_path: Path):
     # Given: a task that explicitly contracted run_bash_command (auto-approved via the
     # user-contract path), so the ApprovalGate is bypassed.
     from antigravity_k.tools.permission_gate import PermissionGate
