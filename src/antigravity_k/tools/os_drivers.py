@@ -12,12 +12,130 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from importlib import import_module
-from typing import Any, final, override
+from typing import Literal, Protocol, final, overload, override
 
 logger = logging.getLogger(__name__)
 
 
-def _load_optional_module(name: str) -> Any:
+class _ScreenshotImage(Protocol):
+    def save(self, target: object, *, format: str) -> None: ...
+
+
+class _PyAutoGUI(Protocol):
+    FAILSAFE: bool
+    PAUSE: float
+
+    def moveTo(self, x: int, y: int, *, duration: float = 0.0) -> None: ...
+
+    def click(self, x: int, y: int, *, button: str) -> None: ...
+
+    def doubleClick(self, x: int, y: int) -> None: ...
+
+    def drag(self, x: int, y: int, *, duration: float) -> None: ...
+
+    def hscroll(self, amount: int) -> None: ...
+
+    def scroll(self, amount: int) -> None: ...
+
+    def write(self, text: str, *, interval: float) -> None: ...
+
+    def press(self, key: str) -> None: ...
+
+    def hotkey(self, *keys: str) -> None: ...
+
+    def keyDown(self, key: str) -> None: ...
+
+    def keyUp(self, key: str) -> None: ...
+
+    def screenshot(self, *, region: tuple[int, int, int, int] | None) -> _ScreenshotImage: ...
+
+    def size(self) -> tuple[int, int]: ...
+
+
+class _BitmapImageRep(Protocol):
+    def initWithCGImage_(self, image: object) -> "_BitmapImageRep": ...
+
+    def representationUsingType_properties_(self, image_type: int, properties: object) -> bytes: ...
+
+
+class _BitmapImageRepFactory(Protocol):
+    def alloc(self) -> _BitmapImageRep: ...
+
+
+class _Quartz(Protocol):
+    kCGEventMouseMoved: object
+    kCGMouseButtonLeft: object
+    kCGMouseButtonRight: object
+    kCGEventLeftMouseDown: object
+    kCGEventRightMouseDown: object
+    kCGEventLeftMouseUp: object
+    kCGEventRightMouseUp: object
+    kCGEventLeftMouseDragged: object
+    kCGHIDEventTap: object
+    kCGMouseEventClickState: object
+    kCGScrollEventUnitLine: object
+    kCGWindowListOptionOnScreenOnly: object
+    kCGNullWindowID: object
+    kCGWindowImageDefault: object
+    CGRectInfinite: object
+    NSPNGFileType: int
+    NSBitmapImageRep: _BitmapImageRepFactory
+
+    def CGEventCreateMouseEvent(
+        self,
+        source: object,
+        event_type: object,
+        point: object,
+        button: object,
+    ) -> object: ...
+
+    def CGPointMake(self, x: float, y: float) -> object: ...
+
+    def CGEventPost(self, tap: object, event: object) -> None: ...
+
+    def CGEventSetIntegerValueField(self, event: object, field: object, value: int) -> None: ...
+
+    def CGEventCreateScrollWheelEvent(
+        self,
+        source: object,
+        unit: object,
+        wheel_count: int,
+        delta_y: int,
+        delta_x: int,
+    ) -> object: ...
+
+    def CGEventCreateKeyboardEvent(self, source: object, keycode: int, keydown: bool) -> object: ...
+
+    def CGEventKeyboardSetUnicodeString(self, event: object, length: int, text: str) -> None: ...
+
+    def CGEventSetFlags(self, event: object, flags: int) -> None: ...
+
+    def CGRectMake(self, x: int, y: int, width: int, height: int) -> object: ...
+
+    def CGWindowListCreateImage(
+        self,
+        rect: object,
+        option: object,
+        window_id: object,
+        image_default: object,
+    ) -> object | None: ...
+
+    def CGMainDisplayID(self) -> object: ...
+
+    def CGDisplayPixelsWide(self, display: object) -> int: ...
+
+    def CGDisplayPixelsHigh(self, display: object) -> int: ...
+
+
+@overload
+def _load_optional_module(name: Literal["pyautogui"]) -> _PyAutoGUI: ...
+
+
+@overload
+def _load_optional_module(name: Literal["Quartz"]) -> _Quartz: ...
+
+
+def _load_optional_module(name: str) -> object:
     return import_module(name)
 
 
@@ -701,7 +819,7 @@ class MacOSKeyboardDriver(KeyboardDriver):
 
         # 수정 키와 일반 키 분리
         mod_flags = 0
-        normal_keys = []
+        normal_keys: list[str] = []
         for k in keys:
             k_lower = k.lower()
             if k_lower in self._MOD_FLAGS:
@@ -787,7 +905,7 @@ class MacOSScreenDriver(ScreenDriver):
                 x, y, w, h = region
                 cmd.extend(["-R", f"{x},{y},{w},{h}"])
             cmd.append(tmp_path)
-            subprocess.run(cmd, check=True, timeout=10)
+            _ = subprocess.run(cmd, check=True, timeout=10)
 
             with open(tmp_path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
@@ -855,7 +973,7 @@ def get_driver_set(force_stub: bool = False) -> DriverSet:
     if sys.platform == "darwin":
         # macOS: Quartz 네이티브 드라이버 시도
         try:
-            _load_optional_module("Quartz")
+            _ = _load_optional_module("Quartz")
 
             logger.info("Using macOS Quartz native drivers")
             return DriverSet(
