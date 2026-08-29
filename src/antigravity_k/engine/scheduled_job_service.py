@@ -54,17 +54,25 @@ class ScheduledJobService:
         command_runner: CommandRunner | None = None,
         delivery_sender: DeliverySender | None = None,
     ):
-        self.store = store
-        self.submit_agent = submit_agent
-        self.read_task_status = read_task_status
-        self.command_runner = command_runner or _run_command
-        self.delivery_sender = delivery_sender or _send_webhook
+        self.store: ScheduledJobStore = store
+        self.submit_agent: AgentSubmitter = submit_agent
+        self.read_task_status: TaskStatusReader = read_task_status
+        self.command_runner: CommandRunner = command_runner or _run_command
+        self.delivery_sender: DeliverySender = delivery_sender or _send_webhook
 
     def create_job(self, request: JobCreate, now: datetime | None = None) -> ScheduledJob:
         current = _aware_utc(now or utc_now())
         next_run_at = _next_run(request.schedule, current)
         job = ScheduledJob(
-            **request.model_dump(),
+            name=request.name,
+            prompt=request.prompt,
+            model=request.model,
+            context=request.context,
+            context_mode=request.context_mode,
+            use_worktree=request.use_worktree,
+            execution=request.execution,
+            delivery=request.delivery,
+            schedule=request.schedule,
             job_id=f"job_{uuid.uuid4().hex[:12]}",
             created_at=current,
             updated_at=current,
@@ -88,7 +96,15 @@ class ScheduledJobService:
         if "schedule" in changes:
             next_run_at = _next_run(merged_spec.schedule, current)
         updated = ScheduledJob(
-            **merged_spec.model_dump(),
+            name=merged_spec.name,
+            prompt=merged_spec.prompt,
+            model=merged_spec.model,
+            context=merged_spec.context,
+            context_mode=merged_spec.context_mode,
+            use_worktree=merged_spec.use_worktree,
+            execution=merged_spec.execution,
+            delivery=merged_spec.delivery,
+            schedule=merged_spec.schedule,
             job_id=existing.job_id,
             status=existing.status,
             created_at=existing.created_at,
@@ -137,8 +153,8 @@ class ScheduledJobService:
             run = self._submit_agent(job, run_id, current, idempotency_key or run_id)
         if run.status in {"succeeded", "failed"}:
             run = self._deliver(job, run)
-        self.store.save_run(run, idempotency_key=idempotency_key)
-        self.store.replace(job.model_copy(update={"last_run_at": current, "updated_at": current}))
+        _ = self.store.save_run(run, idempotency_key=idempotency_key)
+        _ = self.store.replace(job.model_copy(update={"last_run_at": current, "updated_at": current}))
         return run
 
     def get_run_by_idempotency(self, idempotency_key: str) -> JobRun | None:
@@ -146,7 +162,7 @@ class ScheduledJobService:
 
     def tick(self, now: datetime | None = None) -> list[JobRun]:
         current = _aware_utc(now or utc_now())
-        self.reconcile_runs(now=current)
+        _ = self.reconcile_runs(now=current)
         runs: list[JobRun] = []
         for job in self.store.list_due(current):
             next_run_at = _next_after_execution(job.schedule, current)
@@ -187,13 +203,13 @@ class ScheduledJobService:
                 job = self.store.get(updated.job_id)
                 if job is not None:
                     updated = self._deliver(job, updated)
-            self.store.save_run(updated)
+            _ = self.store.save_run(updated)
             reconciled.append(updated)
         return reconciled
 
     def list_runs(self, job_id: str, limit: int = 100) -> list[JobRun]:
-        self._require_job(job_id)
-        self.reconcile_runs()
+        _ = self._require_job(job_id)
+        _ = self.reconcile_runs()
         return self.store.list_runs(job_id, limit)
 
     def _submit_agent(
@@ -336,7 +352,7 @@ def _send_webhook(target: str, payload: dict[str, object], secret: str) -> None:
         timeout=15,
     ) as client:
         response = client.post(target, content=body, headers=headers)
-        response.raise_for_status()
+        _ = response.raise_for_status()
 
 
 __all__ = ["ScheduledJobService"]
