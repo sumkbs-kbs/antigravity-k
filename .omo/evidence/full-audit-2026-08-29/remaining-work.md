@@ -8,7 +8,7 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `6d87333` (감사 체크포인트 문서 반영; 이후 source 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
+- 최신 검증 커밋: `2843ddc` (source parser 타입 경계와 감사 체크포인트 문서 반영; 이후 tool-loop 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
 - 전체 `basedpyright`: `0 errors, 25110 warnings, 0 notes` (장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 0건으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
