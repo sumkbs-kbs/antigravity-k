@@ -29,6 +29,8 @@ date: 2026-08-29
    - 우선순위: `tests/test_tool_loop.py`, `tests/test_data_extractor.py`, `tests/test_integration_d1_d2_d4.py`, `tests/test_secure_key.py`, `scripts/benchmark_viz.py`, `.agent/skills/**`의 고경고 파일
    - 원칙: fixture/결과 타입을 좁히고 동작은 보존한다. 광범위한 경고 억제 지시문은 사용하지 않는다.
    - 완료: 변경 파일 Ruff/mypy/basedpyright 경고 0, 관련 회귀 테스트 통과, 독립 커밋과 ledger 기록
+   - tool-loop 후속: `tests/test_tool_loop.py`는 현재 611건이 반복되는 중첩 `MagicMock` 호출·반환값·호출검증 경계에서 발생한다. 공용 typed test-double 계층과 90개 테스트의 계약 전환이 필요하며, 사용자 변경과 겹치는 소스 파일은 동작 변경 없이 별도 승인 단위로 진행한다.
+   - 장학금 후속: `scholarship_filter.py`는 210건이 `dict[str, Any]` 입력 모델과 argparse Namespace 경계에 집중되어 있다. TypedDict 입력/출력 모델을 먼저 확정한 뒤 필터·리포트 경로를 단계적으로 전환한다.
 
 2. **대시보드 의존성·산출물 결정**
    - 남은 audit은 중첩 Monaco/typed-rest-client 경로이며 breaking/upstream 조정 여부를 확인한다.
