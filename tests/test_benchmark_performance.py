@@ -97,6 +97,13 @@ def _create_rag_test_project(tmpdir: str) -> dict[str, str]:
 class _Timer:
     """간단한 밀리초 단위 타이머."""
 
+    _start: float
+    _elapsed: float
+
+    def __init__(self) -> None:
+        self._start = 0.0
+        self._elapsed = 0.0
+
     def __enter__(self):
         self._start = time.perf_counter()
         return self
