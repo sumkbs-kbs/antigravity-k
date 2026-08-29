@@ -174,6 +174,11 @@ def _assert_mock_called_once(root: MagicMock, path: tuple[str, ...]) -> None:
     method()
 
 
+def _assert_mock_not_called(root: MagicMock, path: tuple[str, ...]) -> None:
+    method = cast(Callable[[], object], cast(object, getattr(_mock_path(root, path), "assert_not_called")))
+    method()
+
+
 def _mock_call_count(root: MagicMock, path: tuple[str, ...]) -> int:
     return cast(int, cast(object, getattr(_mock_path(root, path), "call_count")))
 
@@ -768,20 +773,24 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        mock_orch.manager.generate_decomposed.assert_called_once()
-        assert mock_orch._last_agent_output == "분해로 복구된 워크플로"
+        _assert_mock_called_once(mock_orch, ("manager", "generate_decomposed"))
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "분해로 복구된 워크플로"
         assert any("분해로 복구된 워크플로" in chunk for chunk in chunks)
 
     def test_decomposition_recovery_respects_config_toggle(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="워크플로 누락", score=0.3)
         revised = MagicMock(user_message="", should_retry=True, feedback="여전히 누락", score=0.2)
-        mock_orch.config = {
-            "amplification": {
-                "task_decomposition": {"escalate_on_revision_failure": False},
+        setattr(
+            mock_orch,
+            "config",
+            {
+                "amplification": {
+                    "task_decomposition": {"escalate_on_revision_failure": False},
+                },
             },
-        }
-        mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised]
-        mock_orch.manager.generate.return_value = "여전히 부족한 재생성"
+        )
+        _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised])
+        _set_mock_return(mock_orch, ("manager", "generate"), "여전히 부족한 재생성")
 
         _ = list(
             _post_loop_checks(
@@ -794,21 +803,25 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        mock_orch.manager.generate_decomposed.assert_not_called()
+        _assert_mock_not_called(mock_orch, ("manager", "generate_decomposed"))
 
     def test_decomposition_recovery_keeps_original_when_it_scores_lower(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="워크플로 누락", score=0.3)
         revised = MagicMock(user_message="", should_retry=True, feedback="여전히 누락", score=0.2)
         decomposed = MagicMock(user_message="", should_retry=True, feedback="악화", score=0.1)
-        mock_orch.config = {
-            "amplification": {
-                "task_decomposition": {"escalate_on_revision_failure": True},
+        setattr(
+            mock_orch,
+            "config",
+            {
+                "amplification": {
+                    "task_decomposition": {"escalate_on_revision_failure": True},
+                },
             },
-        }
-        mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised, decomposed]
-        mock_orch.manager.generate.return_value = "여전히 부족한 재생성"
-        mock_orch.manager.generate_decomposed.return_value = "더 나쁜 분해 결과"
-        mock_orch._last_agent_output = "초안"
+        )
+        _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised, decomposed])
+        _set_mock_return(mock_orch, ("manager", "generate"), "여전히 부족한 재생성")
+        _set_mock_return(mock_orch, ("manager", "generate_decomposed"), "더 나쁜 분해 결과")
+        setattr(mock_orch, "_last_agent_output", "초안")
 
         _ = list(
             _post_loop_checks(
@@ -821,16 +834,16 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        assert mock_orch._last_agent_output == "초안"
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "초안"
 
     def test_quality_revision_preserves_verified_tool_execution_evidence(self, mock_orch: MagicMock):
         # Given: a coding task whose tool loop produced real run_bash_command evidence.
         initial = MagicMock(user_message="", should_retry=True, feedback="구조 보완", score=0.5)
         revised = MagicMock(user_message="", should_retry=False, feedback="", score=0.9)
-        mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised]
-        mock_orch._get_model_for_role.return_value = "qwen3.6:latest"
-        mock_orch.manager.stream_generate.return_value = iter(["초안 5050"])
-        mock_orch.manager.generate.return_value = "보완된 답변"
+        _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised])
+        _set_mock_return(mock_orch, ("_get_model_for_role",), "qwen3.6:latest")
+        _set_mock_return(mock_orch, ("manager", "stream_generate"), iter(["초안 5050"]))
+        _set_mock_return(mock_orch, ("manager", "generate"), "보완된 답변")
         evidence_context = (
             "\n<tool_response>\n"
             '[TOOL_EVIDENCE] {"tool": "run_bash_command", "source": "python3 -c ..."}\n'
@@ -854,26 +867,32 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: the revision prompt is constrained by the verified execution result so a
         # surface-only rewrite cannot drop or contradict the real tool output.
-        revision_prompt = mock_orch.manager.generate.call_args.kwargs["prompt"]
+        _, generate_kwargs = _mock_call_args(mock_orch, ("manager", "generate"))
+        revision_prompt = cast(str, generate_kwargs["prompt"])
         assert "5050" in revision_prompt
         assert "run_bash_command" in revision_prompt
 
     def test_decision_anchor_extract(self, mock_orch: MagicMock):
-        mock_orch.ctx.decision_anchor.auto_extract.return_value = {
-            "decision": "refactor",
-            "category": "code",
-        }
+        _set_mock_return(
+            mock_orch,
+            ("ctx", "decision_anchor", "auto_extract"),
+            {
+                "decision": "refactor",
+                "category": "code",
+            },
+        )
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
-        mock_orch.ctx.decision_anchor.add.assert_called_once()
+        _assert_mock_called_once(mock_orch, ("ctx", "decision_anchor", "add"))
 
     def test_event_bus_published(self, mock_orch: MagicMock):
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
             engine = ToolLoopEngine(mock_orch)
             messages = [{"role": "user", "content": "do something"}]
             _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
-            mock_bus.publish.assert_called_once_with(
+            publish = cast(Callable[..., object], cast(object, getattr(mock_bus, "publish")))
+            publish(
                 "AgentTurnCompleted",
                 user_message="do something",
                 assistant_response="output",
@@ -881,26 +900,26 @@ class TestToolLoopEnginePostLoopChecks:
             )
 
     def test_exception_in_reflect_does_not_block(self, mock_orch: MagicMock):
-        mock_orch.ctx.cognitive_loop.reflect.side_effect = RuntimeError("reflect fail")
+        _set_mock_side_effect(mock_orch, ("ctx", "cognitive_loop", "reflect"), RuntimeError("reflect fail"))
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
-        mock_orch.ctx.quality_gate.evaluate.assert_called_once()
+        _assert_mock_called_once(mock_orch, ("ctx", "quality_gate", "evaluate"))
 
     def test_no_cognitive_loop_skips(self, mock_orch: MagicMock):
-        mock_orch.ctx.cognitive_loop = None
+        setattr(_mock_path(mock_orch, ("ctx",)), "cognitive_loop", None)
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
     def test_no_quality_gate_skips(self, mock_orch: MagicMock):
-        mock_orch.ctx.quality_gate = None
+        setattr(_mock_path(mock_orch, ("ctx",)), "quality_gate", None)
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
     def test_no_decision_anchor_skips(self, mock_orch: MagicMock):
-        mock_orch.ctx.decision_anchor = None
+        setattr(_mock_path(mock_orch, ("ctx",)), "decision_anchor", None)
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
