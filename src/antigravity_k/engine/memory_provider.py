@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 
 from antigravity_k.engine.memory_conflicts import (
     MemoryRecallFragment,
@@ -144,6 +144,7 @@ class BuiltinMemoryProvider(MemoryProvider):
         self._session_manager = session_manager
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -153,6 +154,7 @@ class BuiltinMemoryProvider(MemoryProvider):
         """
         return "builtin"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         """Working Memory에서 관련 기억을 회상합니다."""
         try:
@@ -180,6 +182,7 @@ class BuiltinMemoryProvider(MemoryProvider):
             logger.debug("BuiltinMemoryProvider.prefetch error: %s", e)
             return ""
 
+    @override
     def sync_turn(
         self,
         user_message: str,
@@ -195,6 +198,7 @@ class BuiltinMemoryProvider(MemoryProvider):
             logger.exception("Unhandled exception")
             logger.debug("BuiltinMemoryProvider.sync_turn error: %s", e)
 
+    @override
     def on_session_switch(self, new_session_id: str) -> None:
         """세션 전환 시 SessionManager의 세션을 전환합니다."""
         try:
@@ -203,24 +207,28 @@ class BuiltinMemoryProvider(MemoryProvider):
             logger.exception("Unhandled exception")
             logger.debug("BuiltinMemoryProvider.on_session_switch error: %s", e)
 
+    @override
     def clear(self, scope: MemoryScope = "all") -> int:
         scope = normalize_memory_scope(scope)
         if scope in ("session", "working", "all"):
             return self._session_manager.clear_memory(scope)
         return 0
 
+    @override
     def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
         normalized = normalize_memory_scope(scope)
         if normalized == "project":
             return []
         return self._session_manager.export_memory(normalized)
 
+    @override
     def redact(self, scope: MemoryScope = "all") -> int:
         normalized = normalize_memory_scope(scope)
         if normalized == "project":
             return 0
         return self._session_manager.redact_memory(normalized)
 
+    @override
     def apply_retention(self, max_age_days: int) -> int:
         return self._session_manager.apply_retention(max_age_days)
 
@@ -536,6 +544,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         self._load()
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -545,6 +554,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         """
         return "episodic"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         """쿼리와 관련된 과거 에피소드를 회상합니다."""
         if not self._episodes:
@@ -603,6 +613,7 @@ class EpisodicMemoryProvider(MemoryProvider):
 
         return "\n".join(lines)
 
+    @override
     def sync_turn(
         self,
         user_message: str,
@@ -627,6 +638,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         else:
             self._save()  # 작업 3: 디스크 영속화
 
+    @override
     def clear(self, scope: MemoryScope = "all") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("session", "all"):
@@ -650,18 +662,18 @@ class EpisodicMemoryProvider(MemoryProvider):
         self._episodes.pop(idx)
         self._access_counts.pop(idx, None)
         # pop 이후 인덱스가 앞당겨진 항목들의 접근 횟수 보정
-        self._access_counts = {
-            i - 1 if i > idx else i: count for i, count in self._access_counts.items()
-        }
+        self._access_counts = {i - 1 if i > idx else i: count for i, count in self._access_counts.items()}
         self._save()
         return True
 
+    @override
     def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
         scope = normalize_memory_scope(scope)
         if scope not in ("session", "all"):
             return []
         return list(self._episodes)
 
+    @override
     def redact(self, scope: MemoryScope = "all") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("session", "all"):
@@ -686,6 +698,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         self._save()
         return changed
 
+    @override
     def apply_retention(self, max_age_days: int) -> int:
         if max_age_days < 0:
             raise ValueError("max_age_days must be non-negative")
@@ -819,6 +832,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         self._max_turns = max_turns
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -828,6 +842,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         """
         return "working_memory"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         """워킹 메모리에서 최근 컨텍스트를 반환합니다."""
         if not self._turns:
@@ -841,6 +856,7 @@ class WorkingMemoryBuffer(MemoryProvider):
 
         return "\n".join(lines)
 
+    @override
     def sync_turn(
         self,
         user_message: str,
@@ -875,6 +891,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         """최근 N개 턴을 반환합니다."""
         return self._turns[-n * 2 :]
 
+    @override
     def clear(self, scope: MemoryScope = "working") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("working", "all"):
@@ -884,12 +901,14 @@ class WorkingMemoryBuffer(MemoryProvider):
         self._pinned.clear()
         return deleted
 
+    @override
     def export(self, scope: MemoryScope = "working") -> list[dict[str, Any]]:
         scope = normalize_memory_scope(scope)
         if scope not in ("working", "all"):
             return []
         return list(self._turns)
 
+    @override
     def redact(self, scope: MemoryScope = "working") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("working", "all"):
