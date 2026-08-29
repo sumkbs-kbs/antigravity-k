@@ -63,7 +63,7 @@ def test_public_bind_accepts_strong_pin(tmp_path: Path) -> None:
 
 def test_production_accepts_persisted_pin_hash(tmp_path: Path) -> None:
     pin_hash_file = tmp_path / "auth-hash"
-    pin_hash_file.write_text(hash_pin("persisted-strong-pin"), encoding="utf-8")
+    _ = pin_hash_file.write_text(hash_pin("persisted-strong-pin"), encoding="utf-8")
 
     from antigravity_k.api.startup_security import validate_startup_security
 
