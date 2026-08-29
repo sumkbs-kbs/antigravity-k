@@ -1,6 +1,6 @@
 # Full audit continuation evidence
 
-- Current continuation checkpoint: `6d4d538` (records `43a5b86` and `fba94e3`); whole-tree basedpyright reports `0 errors, 27520 warnings, 0 notes`. Error-classifier response doubles are final (51 tests, file warnings `4 → 0`), and the RAG Chroma fixture is explicitly `Iterator[str]` (3 tests, file warnings `3 → 0`); both focused suites, Ruff, Ruff-format, basedpyright, and pre-commit pass. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+- Current continuation checkpoint: `1ae894b`; whole-tree basedpyright reports `0 errors, 27344 warnings, 0 notes`. `tests/test_web_search_quality.py` now has explicit golden-fixture, network callback, private-method adapter, and AsyncMock contracts; its 46-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `176 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `a41645b`; whole-tree basedpyright reports `0 errors, 27527 warnings, 0 notes`. `tests/test_dialectic_engine.py` now narrows dynamic workflow steps with runtime list checks and explicitly consumes an exception-path state transition; its 28-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
