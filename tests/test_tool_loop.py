@@ -416,7 +416,7 @@ class TestToolLoopEnginePostLoopChecks:
             project_root="/tmp/test",
         )
 
-        list(
+        _ = list(
             ToolLoopEngine(orchestrator)._post_loop_checks(
                 [{"role": "user", "content": "write code"}],
                 "code",
@@ -430,13 +430,13 @@ class TestToolLoopEnginePostLoopChecks:
     def test_cognitive_loop_reflect_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.cognitive_loop.reflect.assert_called_once_with("do something", "output")
 
     def test_quality_gate_evaluate_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.evaluate.assert_called_once()
 
     def test_quality_gate_user_message_yielded(self, mock_orch: MagicMock):
@@ -452,7 +452,7 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.quality_gate.evaluate.return_value.user_message = ""
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.mark_retry.assert_called_once()
 
     def test_quality_gate_revision_replaces_output_and_outcome(self, mock_orch: MagicMock):
@@ -506,7 +506,7 @@ class TestToolLoopEnginePostLoopChecks:
         initial = MagicMock(user_message="", should_retry=False, feedback="", score=1.0)
         mock_orch.ctx.quality_gate.evaluate.return_value = initial
 
-        list(
+        _ = list(
             ToolLoopEngine(mock_orch)._post_loop_checks(
                 [{"role": "user", "content": "request"}],
                 "coding",
@@ -521,7 +521,7 @@ class TestToolLoopEnginePostLoopChecks:
     def test_qwen_quality_revision_uses_measured_stable_sampling(self, mock_orch: MagicMock):
         mock_orch.manager.generate.return_value = "revised"
 
-        ToolLoopEngine(mock_orch)._quality_revision(
+        _ = ToolLoopEngine(mock_orch)._quality_revision(
             "request",
             "draft",
             "feedback",
@@ -554,7 +554,7 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.manager.generate.return_value = "revision output"
         outcomes: list[TaskOutcome] = []
 
-        list(
+        _ = list(
             ToolLoopEngine(mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "request"}],
                 "CODER",
@@ -603,7 +603,7 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised]
         mock_orch.manager.generate.return_value = "여전히 부족한 재생성"
 
-        list(
+        _ = list(
             ToolLoopEngine(mock_orch)._post_loop_checks(
                 [{"role": "user", "content": ""}],
                 "long_horizon",
@@ -629,7 +629,7 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.manager.generate_decomposed.return_value = "더 나쁜 분해 결과"
         mock_orch._last_agent_output = "초안"
 
-        list(
+        _ = list(
             ToolLoopEngine(mock_orch)._post_loop_checks(
                 [{"role": "user", "content": ""}],
                 "long_horizon",
@@ -658,7 +658,7 @@ class TestToolLoopEnginePostLoopChecks:
         engine = ToolLoopEngine(mock_orch)
 
         # When: post-loop checks run with that execution evidence present.
-        list(
+        _ = list(
             engine._post_loop_checks(
                 [{"role": "user", "content": ""}],
                 "code",
@@ -682,14 +682,14 @@ class TestToolLoopEnginePostLoopChecks:
         }
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.decision_anchor.add.assert_called_once()
 
     def test_event_bus_published(self, mock_orch: MagicMock):
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
             engine = ToolLoopEngine(mock_orch)
             messages = [{"role": "user", "content": "do something"}]
-            list(engine._post_loop_checks(messages, "code", "output", "do something"))
+            _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
             mock_bus.publish.assert_called_once_with(
                 "AgentTurnCompleted",
                 user_message="do something",
@@ -701,26 +701,26 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.cognitive_loop.reflect.side_effect = RuntimeError("reflect fail")
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.evaluate.assert_called_once()
 
     def test_no_cognitive_loop_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.cognitive_loop = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
 
     def test_no_quality_gate_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.quality_gate = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
 
     def test_no_decision_anchor_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.decision_anchor = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
 
 
 # ─── Run Tool Task Async ────────────────────────────────────────
@@ -867,7 +867,7 @@ class TestToolLoopEngineRunLoop:
         """qwen3 도구 에이전트 경로도 실측된 안정 샘플링 파라미터를 사용한다."""
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
 
-        self._run(target_model="qwen3.6:latest")
+        _ = self._run(target_model="qwen3.6:latest")
 
         kwargs = self.mock_orch.manager.stream_generate.call_args.kwargs
         assert kwargs["temperature"] == 0.2
@@ -1067,7 +1067,7 @@ class TestToolLoopEngineRunLoop:
     def test_non_positive_max_steps_still_runs_once(self):
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
 
-        self._run(max_steps=0)
+        _ = self._run(max_steps=0)
 
         assert self.mock_orch.manager.stream_generate.call_count == 1
 
@@ -1085,7 +1085,7 @@ class TestToolLoopEngineRunLoop:
         }
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [augmented_message],
                 "CODER",
@@ -1103,7 +1103,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
         engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
 
-        list(engine.run_loop([{"role": "user", "content": "finish"}], "CODER", "code"))
+        _ = list(engine.run_loop([{"role": "user", "content": "finish"}], "CODER", "code"))
 
         assert len(outcomes) == 1
         assert outcomes[0].case_id == "loop-001"
@@ -1122,7 +1122,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
         engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
 
-        list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code"))
+        _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code"))
 
         assert len(outcomes) == 1
         assert outcomes[0].used_tools == ("run_bash",)
@@ -1198,7 +1198,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.ctx.quality_gate = None
         self.mock_orch.manager.stream_generate.return_value = iter(["ungrounded answer"])
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
@@ -1232,7 +1232,7 @@ class TestToolLoopEngineRunLoop:
         tool_call = '<tool_call>\n{"name": "read_file", "arguments": {"file_path": "README.md"}}\n</tool_call>\n'
         self.mock_orch.manager.stream_generate.side_effect = [iter([tool_call]), iter(["grounded summary"])]
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
@@ -1263,7 +1263,7 @@ class TestToolLoopEngineRunLoop:
         ]
 
         # When: the required-tool loop processes Qwen's completed planning turn.
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
@@ -1301,7 +1301,7 @@ class TestToolLoopEngineRunLoop:
         ]
 
         # When: the tool loop completes the sequential Qwen planning turns.
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "inspect README"}],
                 "SELF",
@@ -1342,7 +1342,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.stream_generate.return_value = iter(["resumed summary"])
 
         # When: the durable task resumes its tool loop.
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
@@ -1366,7 +1366,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
         engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
 
-        list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code", max_steps=1))
+        _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code", max_steps=1))
 
         assert len(outcomes) == 1
         assert outcomes[0].success is False
@@ -1387,7 +1387,7 @@ class TestToolLoopEngineRunLoop:
         )
         outcomes: list[TaskOutcome] = []
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write code"}],
                 "CODER",
@@ -1415,7 +1415,7 @@ class TestToolLoopEngineRunLoop:
             ],
         )
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "write a file"}],
                 "CODER",
@@ -1454,7 +1454,7 @@ class TestToolLoopEngineRunLoop:
         )
         outcomes: list[TaskOutcome] = []
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write fibonacci"}],
                 "CODER",
@@ -1471,7 +1471,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch._get_model_for_role.return_value = "role-default"
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "complete this"}],
                 "CODER",
@@ -1486,7 +1486,7 @@ class TestToolLoopEngineRunLoop:
     def test_quality_gate_uses_latest_user_message_when_execution_context_follows(self):
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [
                     {"role": "user", "content": "user request"},
@@ -1503,7 +1503,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         self.mock_orch.manager.generate.return_value = "completed"
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "answer only"}],
                 "SELF",
@@ -1529,7 +1529,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.config = {"models": {"reasoning": [{"name": "qwen3.8:27b"}]}}
         self.mock_orch.manager.generate.return_value = "completed"
 
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 [{"role": "user", "content": "very large request"}],
                 "SELF",
@@ -1557,7 +1557,7 @@ class TestToolLoopEngineRunLoop:
         ]
 
         # When: ToolLoop generates a tool-free direct answer.
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 messages,
                 "SELF",
@@ -1623,7 +1623,7 @@ class TestToolLoopEngineRunLoop:
         ]
 
         # When: the tool-free response completes with the contradictory text.
-        list(
+        _ = list(
             ToolLoopEngine(self.mock_orch).run_loop(
                 messages,
                 "SELF",
