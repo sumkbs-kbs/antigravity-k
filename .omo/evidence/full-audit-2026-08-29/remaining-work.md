@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `54cbcd7` (KTX optional 의존성·JSON 응답 경계를 typed Protocol로 정리)
-- 전체 `basedpyright`: `0 errors, 25401 warnings, 0 notes` (장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 0건으로 축소; 소스 `src/antigravity_k/engine/tool_loop.py` 369건 등 기존 경고, 대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
+- 최신 검증 커밋: `6d87333` (감사 체크포인트 문서 반영; 이후 source 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
+- 전체 `basedpyright`: `0 errors, 25110 warnings, 0 notes` (장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 0건으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -60,13 +60,15 @@ date: 2026-08-29
 
 ## 다음 우선순위
 
-1. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리하고 369건 경고를 단계적으로 축소한다. 해당 파일은 사용자 변경과 겹치므로 hunk 단위 검토 후 독립 커밋한다.
+1. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 58`로 축소했다. 남은 경고는 보호 메서드, 이벤트 버스의 미완 타입, JSON/도구 인자 동적 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
 2. dashboard 중첩 DOMPurify 취약점은 Monaco major 변경 영향 검토 및 사용자 승인 후 lockfile 단위로 처리한다.
 3. codebase-memory MCP transport 복구 후 repository re-index와 호출 경로 재검증을 수행한다.
 
 ## 최근 완료 단위
 
 - `54cbcd7`: `.agent/skills/k-skill/scripts/ktx_booking.py`의 `korail2`/PyCryptodome 동적 의존성, JSON 응답, 열차·예약 생성기, argparse 핸들러 경계를 typed Protocol/JSON boundary helper로 전환했다. 11개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했으며 파일 경고가 `97 → 0`, 전체 basedpyright는 `0 errors, 25401 warnings, 0 notes`다.
+
+- 2026-08-30 source 경계 continuation: `tool_loop.py`의 manager/context/quality/capacity/incremental-graph Protocol을 보강하고 `ToolCall.arguments`를 재귀 JSON 값으로 명시했다. `tests/test_tool_loop.py` 90개, 전체 pytest `4806 passed, 6 skipped`, Ruff/Ruff-format/mypy가 통과했으며 `tool_loop.py` 파일 경고는 `369 → 58`, 전체 basedpyright는 `0 errors, 25110 warnings, 0 notes`다. 생성자 입력과 state-store는 다양한 기존 테스트 double 호환을 위해 동적 경계로 유지했다. `tool_loop.py`와 `task_execution_context.py`는 기존 사용자 변경과 겹쳐 미커밋이며, parser 타입 보강도 별도 커밋 없이 보존했다.
 
 - `9ecfb4e`: `tests/test_max_engine.py`의 보호 메서드 호출·대입과 MAX 실행 핸들러를 typed callable adapter/`setattr` 경계로 전환했다. 43개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), pre-commit이 통과했으며 파일 경고가 `45 → 0`, 전체 basedpyright는 `0 errors, 25498 warnings, 0 notes`다.
 

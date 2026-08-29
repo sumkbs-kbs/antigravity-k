@@ -10,9 +10,11 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TypeAlias
 
 logger = logging.getLogger(__name__)
+
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
 
 class EventType(Enum):
@@ -35,7 +37,7 @@ class ToolCall:
     """A parsed tool invocation (name, arguments, raw text)."""
 
     name: str
-    arguments: dict[str, Any] = field(default_factory=dict)
+    arguments: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @dataclass
