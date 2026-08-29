@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Protocol, override
 from urllib.parse import urlsplit, urlunsplit
 
-from .inference_providers import LMStudioProvider
+from .inference_providers import LMStudioProvider, LoadedModelArg
 
 type ProviderConfigValue = str | int | float | bool | None
 
@@ -71,7 +71,7 @@ class UnslothProvider(LMStudioProvider):
     forwards_native_tools = False
 
     @override
-    def _resolve_endpoint(self, loaded: LoadedUnslothModel) -> tuple[str, str]:
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         return resolve_unsloth_settings(loaded.profile, self._provider_config())
 
     @staticmethod
