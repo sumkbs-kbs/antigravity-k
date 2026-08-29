@@ -1,16 +1,16 @@
-import os
+import subprocess
 import time
 from pathlib import Path
 
 from antigravity_k.agents.skills_registry import SkillsRegistry
 
 
-def log_agent_message(agent_name: str, message: str, color_code: str = "\033[0m"):
+def log_agent_message(agent_name: str, message: str, color_code: str = "\033[0m") -> None:
     print(f"{color_code}[{agent_name}]\033[0m: {message}")
     time.sleep(1)
 
 
-def run_debate_demo():
+def run_debate_demo(*, create_git_checkpoint: bool = False) -> None:
     print("=" * 60)
     print("Antigravity-K Agentic Framework Debate & Autopilot Demo")
     print("=" * 60)
@@ -68,17 +68,22 @@ def run_debate_demo():
     artifacts_dir = Path("demo_artifacts")
     artifacts_dir.mkdir(exist_ok=True)
     plan_file = artifacts_dir / "upload_api_plan.md"
-    plan_file.write_text(
+    _ = plan_file.write_text(
         "# Secure Upload API Plan\n- [ ] Extension whitelist\n- [ ] Size limit\n- [ ] Abstract Storage Interface",
         encoding="utf-8",
     )
 
     print(f"[SYSTEM] '{plan_file}' 파일이 생성되었습니다.")
 
-    # Mock Git Commit
-    os.system("git add demo_artifacts/upload_api_plan.md")
-    os.system('git commit -m "docs: auto-generated secure file upload API plan via debate"')
-    print("[SYSTEM] Git Checkpoint 생성이 완료되었습니다.")
+    if create_git_checkpoint:
+        _ = subprocess.run(["git", "add", str(plan_file)], check=True)
+        _ = subprocess.run(
+            ["git", "commit", "-m", "docs: auto-generated secure file upload API plan via debate"],
+            check=True,
+        )
+        print("[SYSTEM] Git Checkpoint 생성이 완료되었습니다.")
+    else:
+        print("[SYSTEM] Git Checkpoint 생성은 데모 모드에서 생략되었습니다.")
     print("=" * 60)
     print("데모 완료")
 
