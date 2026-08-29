@@ -7,7 +7,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from importlib import import_module
-from typing import Any, override
+from typing import Any, Protocol, override
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
 from antigravity_k.tools.egress_policy import safe_urlopen
@@ -18,6 +18,17 @@ Message = dict[str, Any]
 Prompt = str | list[Message]
 
 
+class ProviderProfileLike(Protocol):
+    name: str
+    repo: str
+
+
+class LoadedModelLike(Protocol):
+    profile: ProviderProfileLike
+    model: object
+    tokenizer: object
+
+
 class BaseInferenceProvider(ABC):
     """Baseinferenceprovider.
 
@@ -25,7 +36,7 @@ class BaseInferenceProvider(ABC):
     """
 
     @abstractmethod
-    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -40,7 +51,7 @@ class BaseInferenceProvider(ABC):
         pass
 
     @abstractmethod
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs) -> Iterator[str]:
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -125,7 +136,7 @@ class AnthropicProvider(BaseInferenceProvider):
     """
 
     @override
-    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -143,7 +154,7 @@ class AnthropicProvider(BaseInferenceProvider):
         return result
 
     @override
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -235,7 +246,7 @@ class OpenRouterProvider(BaseInferenceProvider):
     forwards_native_tools: bool = True
 
     @override
-    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -252,7 +263,7 @@ class OpenRouterProvider(BaseInferenceProvider):
             result += chunk
         return result
 
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         """loaded.profile에서 per-model 엔드포인트와 키를 해석 (멀티 프로바이더)."""
         import os
 
@@ -271,7 +282,7 @@ class OpenRouterProvider(BaseInferenceProvider):
         return base_url, api_key
 
     @override
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -392,7 +403,7 @@ class OllamaProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         """loaded.profile에서 per-model Ollama 엔드포인트와 키를 해석 (멀티 프로바이더)."""
         import os
 
@@ -434,14 +445,14 @@ class OllamaProvider(BaseInferenceProvider):
             return ""
 
     @staticmethod
-    def _context_window(loaded, kwargs) -> int:
+    def _context_window(loaded: LoadedModelLike, kwargs) -> int:
         return context_budget_for_context_length(
             getattr(loaded.profile, "context_length", None),
             kwargs.get("context_token_limit"),
         ).token_limit
 
     @override
-    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -538,8 +549,8 @@ class OllamaProvider(BaseInferenceProvider):
 
     def _generate_native(
         self,
-        loaded,
-        prompt,
+        loaded: LoadedModelLike,
+        prompt: Prompt,
         kwargs,
         base_url: str,
         api_key: str,
@@ -673,7 +684,7 @@ class OllamaProvider(BaseInferenceProvider):
         return self._native_tool_call_xml(tool_name, arguments)
 
     @override
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -806,7 +817,7 @@ class NimProvider(BaseInferenceProvider):
         self._request_timestamps.append(now)
         return True
 
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         """loaded.profile과 registry에서 NIM 엔드포인트와 API 키를 해석합니다."""
         import os
 
@@ -830,7 +841,7 @@ class NimProvider(BaseInferenceProvider):
         return base_url, api_key
 
     @override
-    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -850,7 +861,7 @@ class NimProvider(BaseInferenceProvider):
         return result
 
     @override
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -982,7 +993,7 @@ class OpenAIDirectProvider(OpenRouterProvider):
     """
 
     @override
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         """OpenAI 직접 엔드포인트와 키를 해석."""
         import os
 
@@ -1002,7 +1013,7 @@ class OpenAIDirectProvider(OpenRouterProvider):
         return base_url, api_key
 
     @override
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs):
         """OpenAI 직접 스트리밍 (HTTP-Referer 헤더 없음)."""
         base_url, api_key = self._resolve_endpoint(loaded)
         if not api_key:
@@ -1103,7 +1114,7 @@ class GeminiProvider(OpenAIDirectProvider):
     """
 
     @override
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         import os
 
         profile = loaded.profile
@@ -1129,7 +1140,7 @@ class ZaiProvider(OpenAIDirectProvider):
     """
 
     @override
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         import os
 
         profile = loaded.profile
@@ -1152,7 +1163,7 @@ class LMStudioProvider(OpenRouterProvider):
     includes_openrouter_attribution: bool = False
 
     @override
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelLike) -> tuple[str, str]:
         import os
 
         from antigravity_k.config import config
@@ -1182,7 +1193,7 @@ class LMStudioProvider(OpenRouterProvider):
 
 class MlxProvider(BaseInferenceProvider):
     @override
-    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -1208,7 +1219,7 @@ class MlxProvider(BaseInferenceProvider):
             raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
     @override
-    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelLike, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -1231,7 +1242,7 @@ class MlxProvider(BaseInferenceProvider):
             raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
 
-def get_inference_provider(loaded) -> BaseInferenceProvider:
+def get_inference_provider(loaded: LoadedModelLike) -> BaseInferenceProvider:
     """loaded.profile.provider 기반으로 적절한 추론 프로바이더를 반환합니다.
 
     우선순위 (작업 2):
