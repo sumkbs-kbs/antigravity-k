@@ -314,6 +314,17 @@ class TestApiCache:
 # ═══════════════════════════════════════════════════════════════════
 
 
+class _QueryParams:
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def __str__(self) -> str:
+        return self._value
+
+    def __bool__(self) -> bool:
+        return bool(self._value)
+
+
 class FakeRequest:
     """Mock FastAPI Request for decorator tests."""
 
@@ -321,9 +332,7 @@ class FakeRequest:
         self.method = method
         self.url = MagicMock()
         self.url.path = path
-        self.query_params = MagicMock()
-        self.query_params.__str__ = lambda self: query_params
-        self.query_params.__bool__ = lambda self: bool(query_params)
+        self.query_params = _QueryParams(query_params)
 
 
 class TestCachedDecorator:
@@ -335,7 +344,7 @@ class TestCachedDecorator:
         call_count = 0
 
         @cached(ttl=60, tags=["test"])
-        async def my_endpoint(request: FakeRequest) -> dict:
+        async def my_endpoint(request: FakeRequest) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             return {"data": "expensive"}
@@ -355,7 +364,7 @@ class TestCachedDecorator:
         call_count = 0
 
         @cached(ttl=60)
-        async def my_endpoint(request: FakeRequest) -> dict:
+        async def my_endpoint(request: FakeRequest) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             return {"data": call_count}
@@ -375,7 +384,7 @@ class TestCachedDecorator:
         call_count = 0
 
         @cached(ttl=60)
-        async def my_endpoint(request: FakeRequest) -> dict:
+        async def my_endpoint(request: FakeRequest) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             return {"data": call_count}
@@ -393,7 +402,7 @@ class TestCachedDecorator:
         call_count = 0
 
         @cached(ttl=60)
-        def sync_endpoint() -> dict:
+        def sync_endpoint() -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             return {"data": "sync"}
@@ -412,7 +421,7 @@ class TestCachedDecorator:
         await global_cache.clear()
 
         @cached(ttl=60, tags=["demo_tag"])
-        async def demo_endpoint(request: FakeRequest) -> dict:
+        async def demo_endpoint(request: FakeRequest) -> dict[str, object]:
             return {"data": "demo"}
 
         req = FakeRequest(path="/api/demo")
@@ -435,7 +444,7 @@ class TestCachedDecorator:
             return f"custom:{kwargs.get('user_id', 'anon')}"
 
         @cached(ttl=60, key_builder=my_key_builder)
-        async def user_endpoint(user_id: str) -> dict:
+        async def user_endpoint(user_id: str) -> dict[str, object]:
             nonlocal call_count
             call_count += 1
             return {"id": user_id, "data": "profile"}
