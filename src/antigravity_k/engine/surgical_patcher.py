@@ -75,8 +75,22 @@ class SurgicalPatcher:
             )
 
         # 1. Exact match
-        if target_snippet in original_content:
-            new_content = original_content.replace(target_snippet, replacement_snippet, 1)
+        exact_start = original_content.find(target_snippet)
+        if exact_start != -1 and start_line_hint is not None and start_line_hint > 0:
+            hinted_start = exact_start
+            while hinted_start != -1:
+                line_number = original_content.count("\n", 0, hinted_start) + 1
+                if line_number == start_line_hint:
+                    exact_start = hinted_start
+                    break
+                hinted_start = original_content.find(target_snippet, hinted_start + 1)
+
+        if exact_start != -1:
+            new_content = (
+                original_content[:exact_start]
+                + replacement_snippet
+                + original_content[exact_start + len(target_snippet) :]
+            )
             mod_lines = len(replacement_snippet.splitlines()) - len(target_snippet.splitlines())
             return PatchApplicationResult(
                 success=True,
@@ -93,9 +107,18 @@ class SurgicalPatcher:
             orig_lines = original_content.splitlines()
             target_lines = [line.strip() for line in target_snippet.splitlines() if line.strip()]
 
-            # Find matching line index
             matched_idx = -1
+            if start_line_hint is not None:
+                hinted_idx = start_line_hint - 1
+                if (
+                    0 <= hinted_idx < len(orig_lines)
+                    and target_lines
+                    and orig_lines[hinted_idx].strip() == target_lines[0]
+                ):
+                    matched_idx = hinted_idx
             for i, line in enumerate(orig_lines):
+                if matched_idx != -1:
+                    break
                 if target_lines and line.strip() == target_lines[0]:
                     matched_idx = i
                     break
