@@ -12,6 +12,7 @@ date: 2026-08-30
 - 집계는 `src` 148, `tests` 60, `dashboard` 19, `scripts` 3, `.tmp` 2, 기타 12다.
 - 상태는 수정 144, 삭제 42, 서브모듈 변경 2, 미추적 56이다.
 - 미추적 Python 21개와 JS/TS 30개는 전체 정적 진단·pytest/Vitest 탐색 범위에 포함됐지만 아직 독립 커밋하지 않았다.
+- 최신 전체 basedpyright 재측정은 `0 errors, 25886 warnings, 0 notes`이며, Qwen scratchpad 실행 fixture 정리는 사용자 dirty path를 건드리지 않고 `dfbc1e8` 독립 커밋으로 분리했다. 해당 파일 경고는 `156 → 133`으로 감소했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25909 warnings, 0 notes`이며, native-tool follow-up fixture 정리는 사용자 dirty path를 건드리지 않고 `c5a947d` 독립 커밋으로 분리했다. 해당 파일 경고는 `176 → 156`으로 감소했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25929 warnings, 0 notes`이며, tool-loop outcome/citation fixture 정리는 사용자 dirty path를 건드리지 않고 `247ee90` 독립 커밋으로 분리했다. 해당 파일 경고는 `196 → 176`으로 감소했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25949 warnings, 0 notes`이며, tool-loop guardrail/step-limit fixture 정리는 사용자 dirty path를 건드리지 않고 `de084f2` 독립 커밋으로 분리했다. 해당 파일 경고는 `227 → 196`으로 감소했다.
