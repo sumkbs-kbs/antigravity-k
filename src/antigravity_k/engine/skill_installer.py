@@ -22,7 +22,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, final
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class SecurityReport:
         return [f for f in self.findings if f.severity == "warning"]
 
     def summary(self) -> str:
-        parts = []
+        parts: list[str] = []
         if self.errors:
             parts.append(f"🔴 {len(self.errors)} errors")
         if self.warnings:
@@ -183,6 +183,7 @@ _SUSPICIOUS_PATTERNS: list[tuple[str, str, str]] = [
 # ─── 메인 클래스 ──────────────────────────────────────────────────────
 
 
+@final
 class SkillInstaller:
     """npm 패키지 기반 스킬 설치/업데이트/제거 관리자.
 
@@ -503,7 +504,7 @@ class SkillInstaller:
         mcp = agk.get("mcp", {}) or {}
         mcp_server_id = str(mcp.get("serverId", "") or "") if isinstance(mcp, dict) else ""
 
-        warnings = []
+        warnings: list[str] = []
         if risk_level in ("high", "critical"):
             warnings.append(f"위험도 '{risk_level}' — 설치 전 검토 필요")
         if trust_level == "experimental":
@@ -532,9 +533,10 @@ class SkillInstaller:
         Returns:
             SecurityReport
         """
+        _ = skill_name
         findings: list[SecurityFinding] = []
 
-        scan_targets = []
+        scan_targets: list[Path] = []
         skill_md = npm_path / "SKILL.md"
         if skill_md.exists():
             scan_targets.append(skill_md)
@@ -603,9 +605,9 @@ class SkillInstaller:
                 src_item = src / item
                 if src_item.exists():
                     if src_item.is_dir():
-                        shutil.copytree(src_item, dest / item, dirs_exist_ok=True)
+                        _ = shutil.copytree(src_item, dest / item, dirs_exist_ok=True)
                     else:
-                        shutil.copy2(src_item, dest / item)
+                        _ = shutil.copy2(src_item, dest / item)
 
             return True, ""
 
@@ -650,7 +652,7 @@ class SkillInstaller:
                     # 이미 존재하는 서버 — 스킬 소유권 등록
                     if existing_config.get("source") != "skill":
                         # 카탈로그 서버를 스킬 소유로 등록
-                        registry.register_skill_mcp(
+                        _ = registry.register_skill_mcp(
                             skill_name,
                             {
                                 "serverId": server_id,
@@ -679,7 +681,7 @@ class SkillInstaller:
                         if "env" in existing_config:
                             mcp_servers[server_id]["env"] = dict(existing_config["env"])
 
-                        mcp_json_path.write_text(
+                        _ = mcp_json_path.write_text(
                             json.dumps(mcp_config, ensure_ascii=False, indent=2),
                             encoding="utf-8",
                         )
@@ -715,7 +717,7 @@ class SkillInstaller:
 
                     if mcp_skill_config and mcp_skill_config.get("command"):
                         # 스킬 package.json의 antigravityK.mcp 설정 사용
-                        registry.register_skill_mcp(
+                        _ = registry.register_skill_mcp(
                             skill_name,
                             {
                                 "serverId": server_id,
@@ -744,7 +746,7 @@ class SkillInstaller:
                             if "env" in mcp_skill_config:
                                 mcp_servers[server_id]["env"] = dict(mcp_skill_config["env"])
 
-                            mcp_json_path.write_text(
+                            _ = mcp_json_path.write_text(
                                 json.dumps(mcp_config, ensure_ascii=False, indent=2),
                                 encoding="utf-8",
                             )
@@ -755,9 +757,9 @@ class SkillInstaller:
                     else:
                         # 설정을 찾을 수 없음 — 안내
                         warnings.append(
-                            f"MCP 서버 '{server_id}' 설정을 찾을 수 없습니다. "
-                            f"스킬 패키지의 package.json > antigravityK.mcp에 command/args/env가 "
-                            f"포함되어 있는지 확인하거나 .mcp.json에 수동으로 설정해주세요."
+                            f"MCP 서버 '{server_id}' 설정을 찾을 수 없습니다. 스킬 패키지의 "
+                            + "package.json > antigravityK.mcp에 command/args/env가 포함되어 있는지 "
+                            + "확인하거나 .mcp.json에 수동으로 설정해주세요."
                         )
 
             except ImportError:
@@ -775,7 +777,7 @@ class SkillInstaller:
         package_name: str,
         validation: InstallValidation,
         security: SecurityReport | None,
-    ):
+    ) -> None:
         """Step 6: .agk_meta.json 메타데이터 파일 작성.
 
         SkillMarketClient.get_installed()가 이 파일을 읽습니다.
@@ -831,11 +833,11 @@ class SkillInstaller:
 
         try:
             meta_path = dest_dir / ".agk_meta.json"
-            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            _ = meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError as e:
             logger.warning("[SkillInstaller] Failed to write .agk_meta.json: %s", e)
 
-    def _cleanup_npm(self, npm_path: Path):
+    def _cleanup_npm(self, npm_path: Path) -> None:
         """Step 9: node_modules/<pkg>/ 디렉토리 정리.
 
         npm install --no-save로 생성된 node_modules 항목을 제거합니다.
