@@ -143,7 +143,7 @@ class _Manager:
         return "summary"
 
 
-def test_orchestrator_builds_target_aware_compressors(tmp_path):
+def test_orchestrator_builds_target_aware_compressors(tmp_path: Path) -> None:
     orchestrator = OrchestratorAgent(model_manager=_Manager(), project_root=str(tmp_path))
     orchestrator.config = _config(context_length=262_144)
 
