@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `8ff1d7f` (model policy 테스트 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 27334 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `21bce15` (local model benchmark 테스트 import 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 27330 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -50,6 +50,7 @@ date: 2026-08-29
 
 ## 최근 완료 단위
 
+- `21bce15`: `tests/test_local_model_benchmark.py`의 private benchmark helper import를 명시적 module adapter로 좁혔다. 5개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `4 → 0`, 전체 basedpyright는 `0 errors, 27330 warnings, 0 notes`로 감소했다.
 - `8ff1d7f`: `tests/test_model_policy.py`의 private `_model_policy` 검증을 명시적 typed adapter로 좁혔다. 7개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `4 → 0`, 전체 basedpyright는 `0 errors, 27334 warnings, 0 notes`로 감소했다.
 - `6835943`: `tests/test_openai_adapter.py`의 tool-call 응답 content와 빈 choices payload를 명시적으로 좁혔다. 12개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `3 → 0`, 전체 basedpyright는 `0 errors, 27338 warnings, 0 notes`로 감소했다.
 - `264db1a`: `tests/test_context_budget.py`의 마지막 미타입 `tmp_path` fixture를 `Path`로 명시했다. 8개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `3 → 0`, 전체 basedpyright는 `0 errors, 27341 warnings, 0 notes`로 감소했다.
