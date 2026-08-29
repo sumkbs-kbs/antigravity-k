@@ -9,7 +9,8 @@ import pathlib
 import sys
 import unittest
 import urllib.parse
-from typing import Any
+from types import ModuleType
+from typing import Any, override
 from unittest import mock
 
 SKILL_ROOT = pathlib.Path(__file__).resolve().parents[1] / "korean-slang-writing"
@@ -17,7 +18,7 @@ SCRIPTS_DIR = SKILL_ROOT / "scripts"
 DATA_DIR = SKILL_ROOT / "data"
 
 
-def _load(module_name: str, script_name: str):
+def _load(module_name: str, script_name: str) -> ModuleType:
     path = SCRIPTS_DIR / script_name
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
@@ -44,13 +45,13 @@ slang_lookup = _load("korean_slang_writing_lookup", "slang_lookup.py")
 def make_entry(
     *,
     term: str,
-    aliases=None,
+    aliases: list[str] | None = None,
     meaning_short: str = "meaning",
-    usage_context=None,
-    mood_tags=None,
+    usage_context: list[str] | None = None,
+    mood_tags: list[str] | None = None,
     intensity: str = "medium",
     safety: str = "safe",
-    example_usage=None,
+    example_usage: list[str] | None = None,
     namuwiki_url: str = "https://namu.wiki/w/test",
     era: str = "2020",
     still_usable: bool = True,
@@ -84,6 +85,7 @@ class SeedIndexShapeTest(unittest.TestCase):
     seed_path: pathlib.Path = pathlib.Path()
     seed: dict[str, Any] = {}
 
+    @override
     def setUp(self) -> None:
         self.seed_path = DATA_DIR / "seed-slang.json"
         with self.seed_path.open(encoding="utf-8") as fh:
@@ -169,6 +171,7 @@ class SeedIndexShapeTest(unittest.TestCase):
 class SearchQueryMatchingTest(unittest.TestCase):
     index: dict[str, Any] = {}
 
+    @override
     def setUp(self) -> None:
         self.index = make_index(
             [
@@ -230,6 +233,7 @@ class SearchQueryMatchingTest(unittest.TestCase):
 class SearchFilterTest(unittest.TestCase):
     index: dict[str, Any] = {}
 
+    @override
     def setUp(self) -> None:
         self.index = make_index(
             [
@@ -327,6 +331,7 @@ class SearchFilterTest(unittest.TestCase):
 class SearchCliTest(unittest.TestCase):
     fixture_path: pathlib.Path = pathlib.Path()
 
+    @override
     def setUp(self) -> None:
         self.fixture_path = pathlib.Path(__file__).resolve().parent / "fixtures" / "slang-fixture.json"
         self.fixture_path.parent.mkdir(parents=True, exist_ok=True)
@@ -336,8 +341,9 @@ class SearchCliTest(unittest.TestCase):
                 make_entry(term="현타", mood_tags=["부정"], era="2015"),
             ]
         )
-        self.fixture_path.write_text(json.dumps(fixture, ensure_ascii=False), encoding="utf-8")
+        _ = self.fixture_path.write_text(json.dumps(fixture, ensure_ascii=False), encoding="utf-8")
 
+    @override
     def tearDown(self) -> None:
         if self.fixture_path.exists():
             self.fixture_path.unlink()
@@ -410,7 +416,7 @@ class LoadIndexTest(unittest.TestCase):
 
 
 class LookupParsingTest(unittest.TestCase):
-    HTML_SAMPLE = """
+    HTML_SAMPLE: str = """
     <html>
     <head><title>중꺾마 - 나무위키</title></head>
     <body>
@@ -424,7 +430,7 @@ class LookupParsingTest(unittest.TestCase):
     </html>
     """
 
-    HTML_CURRENT_NAMUWIKI = """
+    HTML_CURRENT_NAMUWIKI: str = """
     <!doctype html>
     <html>
     <head>
@@ -708,8 +714,9 @@ class LookupNetworkTest(unittest.TestCase):
         html = LookupParsingTest.HTML_SAMPLE
         expected_url = slang_http.build_namuwiki_url("중꺾마")
 
-        def fake_fetch(url: str, timeout: int):
+        def fake_fetch(url: str, timeout: int) -> str:
             self.assertEqual(url, expected_url)
+            _ = timeout
             return html
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
@@ -727,7 +734,8 @@ class LookupNetworkTest(unittest.TestCase):
         self.assertEqual(decoded_path, "중꺾마")
 
     def test_lookup_handles_http_403_as_blocked(self) -> None:
-        def fake_fetch(url: str, timeout: int):
+        def fake_fetch(url: str, timeout: int) -> str:
+            _ = (url, timeout)
             raise slang_http.BlockedError("HTTP 403 (possibly Cloudflare)")
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
@@ -739,7 +747,8 @@ class LookupNetworkTest(unittest.TestCase):
         self.assertEqual(result["summary"], "")
 
     def test_lookup_handles_http_404_gracefully(self) -> None:
-        def fake_fetch(url: str, timeout: int):
+        def fake_fetch(url: str, timeout: int) -> str:
+            _ = (url, timeout)
             raise slang_http.NotFoundError("HTTP 404: page not found")
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
@@ -751,8 +760,9 @@ class LookupNetworkTest(unittest.TestCase):
     def test_lookup_accepts_bare_term_and_builds_namuwiki_url(self) -> None:
         captured: dict[str, str] = {}
 
-        def fake_fetch(url: str, timeout: int):
+        def fake_fetch(url: str, timeout: int) -> str:
             captured["url"] = url
+            _ = timeout
             return LookupParsingTest.HTML_SAMPLE
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=fake_fetch):
@@ -801,7 +811,8 @@ class LookupCliTest(unittest.TestCase):
         self.assertTrue(output["fetched"])
 
     def test_cli_exits_non_zero_when_blocked(self) -> None:
-        def raise_blocked(url: str, timeout: int):
+        def raise_blocked(url: str, timeout: int) -> str:
+            _ = (url, timeout)
             raise slang_http.BlockedError("HTTP 403")
 
         with mock.patch.object(slang_lookup, "fetch_page", side_effect=raise_blocked):
@@ -819,4 +830,4 @@ class LookupCliTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()
