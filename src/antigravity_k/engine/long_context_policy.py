@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol, TypedDict, assert_never, runtime_checkable
+from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 from antigravity_k.engine.context_budget import ContextBudget
 from antigravity_k.engine.long_context_capabilities import LongContextCapability, LongContextStrategy
@@ -71,5 +71,3 @@ def build_long_context_plan(
                 "candidate_pool": 0,
                 "rationale": "runtime_unavailable",
             }
-        case unreachable:
-            assert_never(unreachable)
