@@ -13,14 +13,16 @@ from unittest.mock import MagicMock
 
 from antigravity_k.engine.max_engine import (
     MaxModeEngine,
+    MaxOrchestratorProtocol,
     MaxRunResult,
+    WorkerConfig,
     WorkerResult,
 )
 
 # ─── Helper: Mock Manager ────────────────────────────────────────
 
 
-def _make_mock_manager(models: list[str] | None = None, config: dict[str, object] | None = None):
+def _make_mock_manager(config: dict[str, object] | None = None) -> MagicMock:
     """Mock ModelManager를 생성합니다."""
     mgr = MagicMock()
     mgr._loaded_models = None
@@ -29,17 +31,26 @@ def _make_mock_manager(models: list[str] | None = None, config: dict[str, object
     return mgr
 
 
-def _make_mock_orchestrator(manager=None, qa_response: str = "SELECTED: 1\nREASON: Best output"):
+def _make_mock_orchestrator(
+    manager: MagicMock | None = None,
+    qa_response: str = "SELECTED: 1\nREASON: Best output",
+) -> MagicMock:
     """Mock OrchestratorAgent를 생성합니다."""
     orch = MagicMock()
-    orch.manager = manager or _make_mock_manager()
 
     # Selector 호출 시 qa_response 반환
-    def mock_generate(prompt="", target="", max_tokens=256):
+    def mock_generate(prompt: str = "", target: str = "", max_tokens: int = 256) -> str:
+        _ = (prompt, target, max_tokens)
         return qa_response
 
-    orch.manager.generate = mock_generate
-    orch._get_model_for_role = lambda role: "qa-model"
+    resolved_manager = manager if manager is not None else _make_mock_manager()
+    resolved_manager.generate = mock_generate
+    orch.manager = resolved_manager
+
+    def resolve_role(_role: str) -> str:
+        return "qa-model"
+
+    orch._get_model_for_role = resolve_role
     orch.project_root = "/tmp/test_project"
     return orch
 
@@ -305,7 +316,8 @@ class TestSelectorLogic:
         """Selector 예외 발생 시 첫 번째 결과로 폴백되는지 검증."""
         mgr = _make_mock_manager()
 
-        def broken_generate(prompt="", target="", max_tokens=256):
+        def broken_generate(prompt: str = "", target: str = "", max_tokens: int = 256) -> str:
+            _ = (prompt, target, max_tokens)
             raise RuntimeError("API failure")
 
         mgr.generate = broken_generate
@@ -407,7 +419,17 @@ class TestRunIntegration:
         engine = MaxModeEngine(mgr)
         engine._get_available_models = lambda: ["model-a", "model-b"]
 
-        def mock_run_worker(worker_id, config, prompt, messages, task_type, delegate_to, max_steps, orchestrator):
+        def mock_run_worker(
+            worker_id: int,
+            config: WorkerConfig,
+            prompt: str,
+            messages: list[dict[str, str]],
+            task_type: str,
+            delegate_to: str,
+            max_steps: int,
+            orchestrator: MaxOrchestratorProtocol,
+        ) -> WorkerResult:
+            _ = (config, prompt, messages, task_type, delegate_to, max_steps, orchestrator)
             if worker_id == 0:
                 return WorkerResult(0, "model-a", "default", "short", 0.5)
             return WorkerResult(1, "model-b", "creative", "longer complete solution with details", 1.2)
@@ -440,7 +462,17 @@ class TestRunIntegration:
         engine = MaxModeEngine(mgr)
         engine._get_available_models = lambda: ["model-a", "model-b"]
 
-        def mock_run_worker(worker_id, config, prompt, messages, task_type, delegate_to, max_steps, orchestrator):
+        def mock_run_worker(
+            worker_id: int,
+            config: WorkerConfig,
+            prompt: str,
+            messages: list[dict[str, str]],
+            task_type: str,
+            delegate_to: str,
+            max_steps: int,
+            orchestrator: MaxOrchestratorProtocol,
+        ) -> WorkerResult:
+            _ = (prompt, messages, task_type, delegate_to, max_steps, orchestrator)
             return WorkerResult(worker_id, config["model"], config["strategy"], "", 2.0, error="Worker crashed")
 
         engine._run_worker = mock_run_worker
@@ -517,7 +549,7 @@ class TestRunIntegration:
 
         call_count = [0]
 
-        def mock_run_worker(*args, **kwargs):
+        def mock_run_worker(*_args: object, **_kwargs: object) -> WorkerResult:
             call_count[0] += 1
             if call_count[0] == 1:
                 raise RuntimeError("Worker thread crash")
@@ -547,7 +579,17 @@ class TestRunIntegration:
 
         captured = {}
 
-        def mock_run_worker(worker_id, config, prompt, messages, task_type, delegate_to, max_steps, orchestrator):
+        def mock_run_worker(
+            worker_id: int,
+            config: WorkerConfig,
+            prompt: str,
+            messages: list[dict[str, str]],
+            task_type: str,
+            delegate_to: str,
+            max_steps: int,
+            orchestrator: MaxOrchestratorProtocol,
+        ) -> WorkerResult:
+            _ = (worker_id, config, messages, max_steps, orchestrator)
             captured["task_type"] = task_type
             captured["delegate_to"] = delegate_to
             captured["prompt"] = prompt
@@ -555,7 +597,7 @@ class TestRunIntegration:
 
         engine._run_worker = mock_run_worker
 
-        engine.run(
+        _ = engine.run(
             {
                 "prompt": "Refactor auth",
                 "messages": [{"role": "user", "content": "Refactor auth module"}],
@@ -648,7 +690,7 @@ class TestEdgeCases:
         engine = MaxModeEngine(mgr)
         engine._get_available_models = lambda: ["model-a"]
 
-        def mock_run_worker(*args, **kwargs):
+        def mock_run_worker(*_args: object, **_kwargs: object) -> WorkerResult:
             return WorkerResult(0, "model-a", "default", "output", 0.3)
 
         engine._run_worker = mock_run_worker
@@ -744,10 +786,10 @@ class TestMaxExecuteHandler:
         ctx.refined_prompt = ""
         ctx.rag_context = ""
 
-        chunks = []
+        chunks: list[str] = []
         try:
             for c in max_execute_handler(ctx, orch):
-                chunks.append(c)
+                chunks.append(str(c))
         except Exception:
             pass
 
@@ -761,7 +803,8 @@ class TestMaxExecuteHandler:
         mgr = _make_mock_manager()
         engine = MaxModeEngine(mgr)
 
-        def broken_run(task_spec, orchestrator=None):
+        def broken_run(task_spec: dict[str, object], orchestrator: object | None = None) -> MaxRunResult:
+            _ = (task_spec, orchestrator)
             raise RuntimeError("Engine crashed")
 
         engine.run = broken_run
@@ -781,10 +824,10 @@ class TestMaxExecuteHandler:
         ctx.refined_prompt = ""
         ctx.rag_context = ""
 
-        chunks = []
+        chunks: list[str] = []
         try:
             for c in max_execute_handler(ctx, orch):
-                chunks.append(c)
+                chunks.append(str(c))
         except Exception:
             pass
 
