@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `c625cbf` (Hardcore 벤치마크 fixture 경고 제거 포함)
-- 전체 `basedpyright`: `0 errors, 28382 warnings, 0 notes` (최신 변경 파일도 0 warnings)
+- 최신 검증 커밋: `16dc85d` (Codex transfer manifest 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 28373 warnings, 0 notes` (최신 변경 파일도 0 warnings)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -88,6 +88,7 @@ date: 2026-08-29
 - `ab5081f`: `PromptCompiler` now emits recorded `failing_action` values as `Avoid` rules instead of silently dropping them; the evolution-memory benchmark now passes `3/3 (100%)`, and the regression test covers the negative rule. The compiler/script/test files pass basedpyright, Ruff, Ruff-format, py_compile, and pre-commit with 0 warnings; whole-tree basedpyright remains `0 errors, 28389 warnings, 0 notes`.
 - `8e6a0ff`: `scripts/run_next_action_benchmark.py` explicitly consumes its temporary fixture `write_text` result. The real benchmark passes `3/3 (100%)`; script basedpyright, Ruff, Ruff-format, py_compile, and pre-commit pass with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28384 warnings, 0 notes`.
 - `c625cbf`: `scripts/run_musk_hardcore_benchmark.py` explicitly consumes its telemetry fixture `write_text` result and normalizes score formatting. The real benchmark passes `3/3 (100%)`; script basedpyright, Ruff, Ruff-format, py_compile, and pre-commit pass with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28382 warnings, 0 notes`.
+- `16dc85d`: `CodexTransferEngine` renders manifest table rows through explicit formatting instead of implicit string concatenation; its slash-command regression test now types the path fixture and consumes setup side effects. `tests/test_codex_transfer.py` passed 3 tests; changed source/test files pass basedpyright, Ruff, Ruff-format, and pre-commit with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28373 warnings, 0 notes`.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
