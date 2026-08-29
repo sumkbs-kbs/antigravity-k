@@ -2,20 +2,44 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.requests import Request
 
-from antigravity_k.engine.agent_runtime import AgentRuntime, TrackedStream
+from antigravity_k.engine.agent_runtime import (
+    AgentRuntime as _AgentRuntime,
+)
+from antigravity_k.engine.agent_runtime import (
+    GoalRunnerPort,
+    OrchestratorPort,
+    TaskRunnerPort,
+    TrackedStream,
+)
 from antigravity_k.engine.persistent_agency import AgencyConfig, PersistentAgencyController
 from antigravity_k.engine.task_runner import BackgroundTaskRunner
 from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStateStore
 
 
+def AgentRuntime(
+    orchestrator: object,
+    task_runner: object | None = None,
+    goal_runner: object | None = None,
+) -> _AgentRuntime:
+    return _AgentRuntime(
+        cast(OrchestratorPort, orchestrator),
+        task_runner=cast(TaskRunnerPort | None, task_runner),
+        goal_runner=cast(GoalRunnerPort | None, goal_runner),
+    )
+
+
 class FakeOrchestrator:
     def __init__(self) -> None:
         self.stream_calls: list[dict[str, object]] = []
+        self.agent_runtime: Any = None
+        self.max_engine: Any = None
+        self.tool_registry: Any = None
 
     def _get_model_for_role(self, role: str) -> str:
         assert role == "default"
@@ -64,7 +88,8 @@ class FakeTaskRunner:
         return {"task_id": task_id, "status": "done"}
 
     def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> list[dict[str, object]]:
-        return [{"task_id": "task_runtime_001", "status": "done"}][:limit]
+        task: dict[str, object] = {"task_id": "task_runtime_001", "status": "done"}
+        return [task][:limit]
 
     def get_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
         return "runtime-output" if task_id == "task_runtime_001" else None
@@ -187,7 +212,9 @@ def test_runtime_projects_durable_context_into_next_objective(tmp_path):
 
     submitted = runner.submit_calls[0]
     assert "The parser cache must be rebuilt first" in str(submitted["prompt"])
-    assert submitted["context"]["persistent_context_event_ids"]
+    context = submitted["context"]
+    assert isinstance(context, dict)
+    assert context["persistent_context_event_ids"]
 
 
 def test_runtime_reconciles_all_claimed_objective_tasks(tmp_path):
@@ -200,7 +227,9 @@ def test_runtime_reconciles_all_claimed_objective_tasks(tmp_path):
     runtime = AgentRuntime(orchestrator, task_runner=FakeTaskRunner())
 
     assert runtime.reconcile_persistent_objectives(controller.project_id) == 1
-    assert controller.get_objective(objective.objective_id).status.value == "done"
+    stored = controller.get_objective(objective.objective_id)
+    assert stored is not None
+    assert stored.status.value == "done"
 
     summaries = controller.project_context(controller.project_id, "main").text
     assert "task_runtime_001 done" in summaries
@@ -231,7 +260,9 @@ def test_runtime_start_stream_persists_direct_execution_and_exposes_task_id(tmp_
 
     assert tracked.task_id is not None
     assert list(tracked.chunks) == ["first", "second"]
-    record = store.get_task(tracked.task_id)
+    task_id = tracked.task_id
+    assert task_id is not None
+    record = store.get_task(task_id)
     assert record is not None
     assert record["status"] == "done"
     assert record["output"] == "firstsecond"
@@ -267,7 +298,9 @@ def test_runtime_direct_stream_persists_normalized_language_output(tmp_path):
     # Then: both the user stream and durable output contain Korean terms only.
     normalized = "시간복잡도와 공간복잡도"
     assert "".join(chunks) == normalized
-    record = store.get_task(tracked.task_id)
+    task_id = tracked.task_id
+    assert task_id is not None
+    record = store.get_task(task_id)
     assert record is not None
     assert record["output"] == normalized
 
@@ -300,7 +333,9 @@ def test_runtime_direct_task_stores_canonical_final_output(tmp_path):
 
     # Then: the user saw the full stream, but the task record stores only the final answer.
     assert "".join(chunks) == "draft with syntax error\nrevision notice\ncorrected final answer"
-    record = store.get_task(tracked.task_id)
+    task_id = tracked.task_id
+    assert task_id is not None
+    record = store.get_task(task_id)
     assert record is not None
     assert record["status"] == "done"
     assert record["output"] == "corrected final answer"
@@ -463,7 +498,7 @@ def test_runtime_run_max_uses_orchestrator_engine():
     orchestrator.max_engine = engine
     runtime = AgentRuntime(orchestrator)
 
-    task_spec = {"prompt": "inspect"}
+    task_spec: dict[str, object] = {"prompt": "inspect"}
 
     assert runtime.run_max(task_spec) == "max-result"
     engine.run.assert_called_once_with(task_spec, orchestrator=orchestrator)
@@ -554,7 +589,8 @@ def test_slash_goal_uses_bound_agent_runtime():
 
     class Runtime:
         def goal_contract(self, objective, context=None):
-            return f"runtime-goal:{objective}:{context['tool_count']}"
+            tool_count = context["tool_count"] if context is not None else 0
+            return f"runtime-goal:{objective}:{tool_count}"
 
     registry = SlashCommandRegistry(tool_registry=["tool"], agent_runtime=Runtime())
 
@@ -722,7 +758,8 @@ def test_task_api_views_use_canonical_runtime(monkeypatch):
             return {"task_id": task_id, "status": "failed"}
 
         def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[dict[str, object]]:
-            return [{"task_id": "direct_001", "status": "failed"}][:limit]
+            task: dict[str, object] = {"task_id": "direct_001", "status": "failed"}
+            return [task][:limit]
 
         def get_task_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
             return "partial-output" if task_id == "direct_001" else None
@@ -758,7 +795,7 @@ async def test_agent_stream_route_emits_direct_task_id_before_chunks(monkeypatch
 
     response = await legacy.stream_agent(q="track this")
     chunks = [chunk async for chunk in response.body_iterator]
-    body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+    body = "".join(chunk.decode() if isinstance(chunk, bytes) else str(chunk) for chunk in chunks)
 
     assert '"task_id": "direct_001"' in body
     assert "runtime-response" in body
@@ -789,11 +826,13 @@ async def test_chat_stream_route_uses_canonical_runtime(monkeypatch):
     manager.generate.return_value = "GENERAL"
     monkeypatch.setattr(chat, "get_agent_runtime", lambda: Runtime())
 
-    response = await chat.chat_completions(Request(), manager, ProtocolTranslator())
-    chunks = [chunk async for chunk in response.body_iterator]
-    body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+    response = await chat.chat_completions(cast(Any, Request()), manager, ProtocolTranslator())
+    chunks = [chunk async for chunk in cast(Any, response).body_iterator]
+    body = "".join(chunk.decode() if isinstance(chunk, bytes) else str(chunk) for chunk in chunks)
 
     assert "runtime-response" in body
     assert len(calls) == 1
-    assert calls[0]["messages"][-1] == {"role": "user", "content": "Explain the runtime"}
+    messages = calls[0]["messages"]
+    assert isinstance(messages, list)
+    assert messages[-1] == {"role": "user", "content": "Explain the runtime"}
     assert calls[0]["target_model"] == "test-combo"

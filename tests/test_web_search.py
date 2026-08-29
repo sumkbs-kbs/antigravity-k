@@ -10,6 +10,7 @@ Coverage targets:
   - Edge cases: empty strings, special characters, error paths
 """
 
+from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -24,6 +25,14 @@ from antigravity_k.tools.web_search import (
     _classify_query_category,
     _generate_fallback_queries,
 )
+
+
+def _mock_httpx_client(method: str, callback: Callable[..., Any]) -> MagicMock:
+    client = MagicMock()
+    request_method = getattr(client.__enter__.return_value, method)
+    request_method.side_effect = callback
+    return client
+
 
 # ═══════════════════════════════════════════════════════════════════
 # _classify_query_category tests
@@ -520,7 +529,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_jina("test")
         assert len(results) >= 1
         assert results[0][0] == "Jina Result"
@@ -534,7 +543,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_jina("test")
         assert results == []
 
@@ -545,7 +554,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             raise ConnectionError("Network error")
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_jina("test")
         assert results == []
 
@@ -567,7 +576,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_duckduckgo("test")
         assert len(results) >= 1
         assert results[0][0] == "Title 1"
@@ -582,7 +591,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_duckduckgo("test")
         assert results == []
 
@@ -601,7 +610,7 @@ class TestWebSearchTool:
         def mock_post(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.post": mock_post}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("post", mock_post))
         results = tool._sync_search_self_hosted("test")
         assert len(results) >= 1
         assert results[0][0] == "💡 AI Answer" or results[0][0] == "SH Result"
@@ -615,7 +624,7 @@ class TestWebSearchTool:
             resp.status_code = 500
             return resp
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.post": mock_post}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("post", mock_post))
         results = tool._sync_search_self_hosted("test")
         assert results == []
 
@@ -743,7 +752,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_searxng("test")
         assert len(results) >= 1
         assert results[0][0] == "SX Result"
@@ -758,7 +767,7 @@ class TestWebSearchTool:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_searxng("test")
         assert results == []
 
@@ -789,7 +798,7 @@ class TestWebSearchTool:
         def mock_post(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.post": mock_post}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("post", mock_post))
 
         monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
         monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
@@ -828,7 +837,7 @@ class TestWebSearchEdgeCases:
         def mock_get(*args, **kwargs):
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: MagicMock(**{"__enter__.return_value.get": mock_get}))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
         results = tool._sync_search_duckduckgo("test")
         assert len(results) == 1
         assert "example.com/page" in results[0][1]
