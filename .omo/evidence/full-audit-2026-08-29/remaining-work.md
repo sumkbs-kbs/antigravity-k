@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `6f7bcf1` (MAX/OS 드라이버 증거 기록 포함)
-- 전체 `basedpyright`: `0 errors, 33827 warnings, 0 notes`
+- 최신 검증 커밋: `3980675` (KTX booking optional-dependency 증거 기록 포함)
+- 전체 `basedpyright`: `0 errors, 33779 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -45,3 +45,4 @@ date: 2026-08-29
 
 - `ef7a2b8`: optional OS-driver protocols, `os_drivers.py` warnings `187 → 0`, 55 tests
 - `ed45e8c`: MAX engine/runtime protocol boundaries, `max_engine.py` warnings `128 → 0`, 43 MAX tests
+- `65f57ca`: concrete PyCryptodome AES import, KTX script tests `11` passed, warnings `340 → 292`
