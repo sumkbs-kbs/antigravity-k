@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `27dc217`; whole-tree basedpyright reports `0 errors, 26288 warnings, 0 notes`. `tests/test_tool_loop.py` post-loop citation-recovery tests now use typed mock/result helpers; all 90 tests, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `553 → 535`. Worktree remains 244 dirty paths; scholarship implementation, remaining tool-loop mock chains, dashboard nested advisories, and `Transport closed` remain.
+
 - Current continuation checkpoint: `edd3b53`; whole-tree basedpyright reports `0 errors, 26306 warnings, 0 notes`. `tests/test_tool_loop.py` shared fixture mock initialization now uses typed path helpers; all 90 tests, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `573 → 553`. Worktree remains 244 dirty paths; scholarship implementation, remaining tool-loop mock chains, dashboard nested advisories, and `Transport closed` remain.
 
 - Current continuation checkpoint: `8e571aa`; whole-tree basedpyright reports `0 errors, 26326 warnings, 0 notes`. `tests/test_tool_loop.py` native-tools tests now use shared typed helpers for nested mock configuration and call verification; all 90 tests, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `611 → 573`. Worktree remains 244 dirty paths; scholarship implementation, remaining tool-loop mock chains, dashboard nested advisories, and `Transport closed` remain.
