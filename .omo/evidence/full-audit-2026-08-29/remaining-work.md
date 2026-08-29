@@ -17,6 +17,7 @@ date: 2026-08-29
 - Git tracked+untracked Python 871개 AST 검사에서 현존 파일 문법 오류 0건을 확인했다. 삭제 상태인 tracked Python 12개는 외부 호환성 검토 대상으로 남아 있다.
 - codebase-memory MCP: `Transport closed` 상태로 인덱스 영향 분석이 일시 중단됨
 - 앱 재시작 후 `mcp__codebase_memory_mcp__list_projects`를 재시도했지만 동일하게 `Transport closed`가 재현됐다. 외부 MCP 프로세스/세션 복구 전까지 shell·LSP·회귀 테스트 증빙으로 보완한다.
+- working tree 패키징 검증에서 오래된 무시된 `build/`가 남아 있으면 `pip wheel .` 결과에 이미 삭제된 모듈 10개가 다시 포함되는 현상을 확인했다. 깨끗한 소스 export를 별도 임시 디렉터리에서 빌드하면 `agk = antigravity_k.cli:app` entry-point가 유지되고 삭제 모듈은 포함되지 않는다. 따라서 현재 dirty 변경을 릴리스 검증할 때는 clean export/clean build base를 강제해야 하며, 기존 `scripts/verify_clean_machine.sh`의 `git archive HEAD` 검증은 미커밋 working-tree 변경을 포함하지 않는다는 제한을 최종 게이트에 명시한다.
 
 ## 대시보드 의존성 감사 결과
 
