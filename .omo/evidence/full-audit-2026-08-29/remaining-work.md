@@ -16,6 +16,13 @@ date: 2026-08-29
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
 - codebase-memory MCP: `Transport closed` 상태로 인덱스 영향 분석이 일시 중단됨
 
+## 대시보드 의존성 감사 결과
+
+- `dashboard/npm audit --json`: `low 1, moderate 3, high 0, critical 0`.
+- 취약 경로는 직접 의존성보다 중첩 의존성이다. `monaco-editor@0.56.0` 내부 `dompurify@3.4.8`가 XSS 관련 advisory에 걸리고, `typed-rest-client@2.3.1 → qs@6.15.1` 경로가 moderate DoS advisory에 걸린다. 루트 `dompurify@3.4.14`는 별도로 최신 범위다.
+- `npm audit fix --dry-run`은 118개 패키지 추가와 대규모 lock/node_modules churn을 제시하며, Monaco 경로는 `0.53.0` major 변경을 제안한다. 현재 사용자 변경으로 `dashboard/node_modules/.package-lock.json`이 이미 수정된 상태이므로 자동 업데이트·다운그레이드는 승인 전까지 실행하지 않는다.
+- typecheck/lint/Vitest/build는 기존 기준대로 통과했으며, 의존성 변경은 별도 승인 커밋으로 분리해야 한다.
+
 ## 실행 순서와 완료 조건
 
 1. **tests/scripts/skills 경고 부채 축소**
