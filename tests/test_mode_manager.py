@@ -46,7 +46,7 @@ class TestSwitchToPlan:
 
     def test_switch_to_plan_records_history(self):
         mgr = ModeManager()
-        mgr.switch_to_plan("testing")
+        _ = mgr.switch_to_plan("testing")
         assert len(mgr.mode_history) == 1
         transition = mgr.mode_history[0]
         assert transition.to_mode == ExecutionMode.PLAN
@@ -56,7 +56,7 @@ class TestSwitchToPlan:
         mgr = ModeManager()
         mgr.set_plan_artifact("/some/path")
         mgr.set_plan_quality_passed(True)
-        mgr.switch_to_plan()
+        _ = mgr.switch_to_plan()
         assert mgr.plan_artifact_path is None
         assert mgr.can_auto_transition_to_build is False
 
@@ -90,7 +90,7 @@ class TestSwitchToBuild:
         """Passing plan_artifact_path to switch_to_build sets it."""
         mgr = ModeManager(initial_mode=ExecutionMode.PLAN)
         mgr.set_plan_quality_passed(True)
-        mgr.switch_to_build(plan_artifact_path="/custom/plan.md")
+        _ = mgr.switch_to_build(plan_artifact_path="/custom/plan.md")
         assert mgr.plan_artifact_path == "/custom/plan.md"
 
     def test_build_idempotent(self):
@@ -119,7 +119,7 @@ class TestSwitchToInteractive:
     def test_switch_to_interactive_clears_artifact(self):
         mgr = ModeManager(initial_mode=ExecutionMode.BUILD)
         mgr.set_plan_artifact("/path")
-        mgr.switch_to_interactive()
+        _ = mgr.switch_to_interactive()
         assert mgr.plan_artifact_path is None
 
 
@@ -188,7 +188,7 @@ class TestToDict:
 
     def test_to_dict_contains_history(self):
         mgr = ModeManager()
-        mgr.switch_to_plan()
+        _ = mgr.switch_to_plan()
         d = mgr.to_dict()
         assert "history_count" in d
         assert d["history_count"] >= 1
