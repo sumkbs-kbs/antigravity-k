@@ -322,7 +322,7 @@ class PatchedKorail(Korail):
         super().__init__(korail_id, korail_pw, auto_login=False, want_feedback=want_feedback)
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         if auto_login:
-            self.login(korail_id, korail_pw)
+            _ = self.login(korail_id, korail_pw)
 
     def _check_result(self, data: Any) -> bool:
         return bool(getattr(self, "_result_check")(data))
@@ -783,19 +783,19 @@ def command_cancel(args: argparse.Namespace) -> None:
     )
     if match is None:
         raise SystemExit(f"reservation {args.reservation_id} not found")
-    client.cancel(match)
+    _ = client.cancel(match)
     print_json({"cancelled": True, "reservation_id": args.reservation_id})
 
 
 def add_common_trip_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("dep", help="출발역")
-    parser.add_argument("arr", help="도착역")
-    parser.add_argument("date", help="출발일 YYYYMMDD")
-    parser.add_argument("time", help="희망 시작 시각 HHMMSS")
-    parser.add_argument("--adults", type=int, default=1, help="성인 수")
-    parser.add_argument("--children", type=int, default=0, help="어린이 수")
-    parser.add_argument("--toddlers", type=int, default=0, help="유아 수")
-    parser.add_argument("--seniors", type=int, default=0, help="경로 수")
+    _ = parser.add_argument("dep", help="출발역")
+    _ = parser.add_argument("arr", help="도착역")
+    _ = parser.add_argument("date", help="출발일 YYYYMMDD")
+    _ = parser.add_argument("time", help="희망 시작 시각 HHMMSS")
+    _ = parser.add_argument("--adults", type=int, default=1, help="성인 수")
+    _ = parser.add_argument("--children", type=int, default=0, help="어린이 수")
+    _ = parser.add_argument("--toddlers", type=int, default=0, help="유아 수")
+    _ = parser.add_argument("--seniors", type=int, default=0, help="경로 수")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -804,46 +804,46 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="KTX/Korail 열차를 조회합니다")
     add_common_trip_args(search_parser)
-    search_parser.add_argument("--limit", type=int, default=5, help="출력할 최대 열차 수")
-    search_parser.add_argument(
+    _ = search_parser.add_argument("--limit", type=int, default=5, help="출력할 최대 열차 수")
+    _ = search_parser.add_argument(
         "--train-type",
         choices=sorted(TRAIN_TYPE_MAP),
         default="ktx",
         help="조회할 열차 종류 (기본 ktx). ITX-청춘 노선은 itx-cheongchun, 무궁화는 mugunghwa, 전체는 all 사용",
     )
-    search_parser.add_argument("--include-no-seats", action="store_true", help="매진 열차도 포함")
-    search_parser.add_argument("--include-waiting-list", action="store_true", help="예약 대기 가능 열차도 포함")
-    search_parser.set_defaults(func=command_search)
+    _ = search_parser.add_argument("--include-no-seats", action="store_true", help="매진 열차도 포함")
+    _ = search_parser.add_argument("--include-waiting-list", action="store_true", help="예약 대기 가능 열차도 포함")
+    _ = search_parser.set_defaults(func=command_search)
 
     reserve_parser = subparsers.add_parser("reserve", help="조회 결과 중 하나를 예약합니다")
     add_common_trip_args(reserve_parser)
-    reserve_parser.add_argument("--train-id", required=True, help="search 결과에서 복사한 stable train_id")
-    reserve_parser.add_argument("--seat-option", choices=sorted(RESERVE_OPTION_MAP), default="general-first")
-    reserve_parser.add_argument(
+    _ = reserve_parser.add_argument("--train-id", required=True, help="search 결과에서 복사한 stable train_id")
+    _ = reserve_parser.add_argument("--seat-option", choices=sorted(RESERVE_OPTION_MAP), default="general-first")
+    _ = reserve_parser.add_argument(
         "--train-type",
         choices=sorted(TRAIN_TYPE_MAP),
         default="ktx",
         help="재조회할 열차 종류 — search 단계에서 사용한 값과 동일하게 지정 (기본 ktx)",
     )
-    reserve_parser.add_argument("--include-no-seats", action="store_true", help="검색 시 매진 열차도 포함")
-    reserve_parser.add_argument(
+    _ = reserve_parser.add_argument("--include-no-seats", action="store_true", help="검색 시 매진 열차도 포함")
+    _ = reserve_parser.add_argument(
         "--include-waiting-list",
         action="store_true",
         help="검색 시 예약대기 열차도 포함",
     )
-    reserve_parser.add_argument(
+    _ = reserve_parser.add_argument(
         "--try-waiting",
         action="store_true",
         help="좌석이 없으면 예약대기를 시도 (reserve 재조회 시 예약대기 열차 자동 포함)",
     )
-    reserve_parser.set_defaults(func=command_reserve)
+    _ = reserve_parser.set_defaults(func=command_reserve)
 
     reservations_parser = subparsers.add_parser("reservations", help="현재 예약 목록을 조회합니다")
-    reservations_parser.set_defaults(func=command_reservations)
+    _ = reservations_parser.set_defaults(func=command_reservations)
 
     cancel_parser = subparsers.add_parser("cancel", help="예약번호로 예약을 취소합니다")
-    cancel_parser.add_argument("reservation_id", help="취소할 예약번호")
-    cancel_parser.set_defaults(func=command_cancel)
+    _ = cancel_parser.add_argument("reservation_id", help="취소할 예약번호")
+    _ = cancel_parser.set_defaults(func=command_cancel)
 
     return parser
 
