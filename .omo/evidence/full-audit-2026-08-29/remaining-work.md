@@ -10,7 +10,7 @@ date: 2026-08-29
 
 - 최신 검증 커밋: `8211882` (tool-loop 전체 테스트의 중첩 mock 경계를 공용 typed helper로 정리)
 - 전체 `basedpyright`: `0 errors, 25543 warnings, 0 notes` (장학금 필터 구현과 tool-loop 테스트 파일 경고를 각각 0건으로 축소; MAX 테스트·KTX 스킬·대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
-- 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
+- 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
@@ -50,6 +50,12 @@ date: 2026-08-29
 5. **최종 게이트**
    - 전체 pytest, dashboard checks, global Ruff, basedpyright, `git diff --check`를 최신 HEAD에서 재실행한다.
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
+
+## 최신 최종 게이트
+
+- 최신 HEAD 기준 전체 pytest는 `4806 passed, 6 skipped`로 완료됐고, 기존 Starlette/httpx deprecation warning 1건만 관찰됐다.
+- 대시보드 typecheck·lint·Vitest(`42 files / 588 tests`)·production build는 통과했다. production 의존성 audit은 low 1, moderate 1이며, Monaco 중첩 DOMPurify 경로의 강제 major 변경은 승인 전까지 보류한다.
+- 전역 Ruff는 통과했고, 사용자 변경 경로를 포함한 `git diff --check`는 dashboard_dist 생성 파일의 기존 trailing whitespace 4건을 제외하고 통과했다.
 
 ## 최근 완료 단위
 

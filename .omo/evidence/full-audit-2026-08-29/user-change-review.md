@@ -12,6 +12,7 @@ date: 2026-08-30
 - 집계는 `src` 148, `tests` 60, `dashboard` 19, `scripts` 3, `.tmp` 2, 기타 12다.
 - 상태는 수정 144, 삭제 42, 서브모듈 변경 2, 미추적 56이다.
 - 미추적 Python 21개와 JS/TS 30개는 전체 정적 진단·pytest/Vitest 탐색 범위에 포함됐지만 아직 독립 커밋하지 않았다.
+- 최종 게이트에서 전체 pytest `4806 passed, 6 skipped`, 대시보드 588개 테스트·typecheck·lint·build, 전역 Ruff가 통과했다. 사용자 dirty path 244개는 stage/revert하지 않았고, 생성된 dashboard_dist trailing whitespace 4건과 중첩 DOMPurify audit만 보류 위험으로 남겼다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25543 warnings, 0 notes`이며, `tests/test_tool_loop.py`의 direct-response·context-compression 및 공용 fixture 경계를 `8211882` 독립 커밋으로 정리해 해당 파일 경고를 `119 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25662 warnings, 0 notes`이며, 장학금 필터 구현의 JSON·argparse 경계를 `eec4dec` 독립 커밋으로 정리해 해당 파일 경고를 `210 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25872 warnings, 0 notes`이며, durable resume/quality failure fixture 정리는 사용자 dirty path를 건드리지 않고 `0bfba41` 독립 커밋으로 분리했다. 해당 파일 경고는 `133 → 119`으로 감소했다.
@@ -51,7 +52,7 @@ date: 2026-08-30
 
 ## 검증 결과
 
-- 전체 pytest 기준선: `4804 passed, 6 skipped`.
+- 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
 - 최신 전체 basedpyright: `0 errors, 25543 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0. 중첩 `monaco-editor → dompurify`와 `typed-rest-client → qs` 경로가 남아 있으며, dry-run은 118개 패키지 추가와 Monaco major 변경을 제안했다.
