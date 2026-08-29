@@ -13,6 +13,7 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import urllib.request
 from dataclasses import dataclass, field
@@ -106,6 +107,52 @@ class AutonomousLearner:
         self.project_root = project_root
         self._max_gaps = 3  # 한 번에 최대 3개 지식 갭만 처리
         self._max_sources_per_gap = 3
+        self._last_manager_generation_failed = False
+
+    def _generation_target(self, role_name: str, default_role: str = "reasoning") -> str:
+        configured = os.environ.get("AGK_KNOWLEDGE_MODEL", "").strip()
+        if configured:
+            return configured
+        if self.manager is not None:
+            resolver = getattr(self.manager, "get_target_for_role", None)
+            if callable(resolver):
+                try:
+                    target = resolver(role_name, default_role=default_role)
+                    if isinstance(target, str) and target.strip():
+                        return target.strip()
+                except (AttributeError, TypeError, ValueError, RuntimeError):
+                    logger.warning("[AutoLearn] Failed to resolve managed knowledge model", exc_info=True)
+        return config.model.main_model
+
+    def _generate_with_manager(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+        role_name: str,
+        default_role: str = "reasoning",
+    ) -> str | None:
+        if self.manager is None:
+            return None
+        generate = getattr(self.manager, "generate", None)
+        if not callable(generate):
+            return None
+        self._last_manager_generation_failed = False
+        try:
+            response = generate(
+                prompt,
+                self._generation_target(role_name, default_role),
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+            self._last_manager_generation_failed = True
+            logger.warning("[AutoLearn] Managed knowledge generation failed; using keyword fallback", exc_info=True)
+            return None
+        if response is None:
+            self._last_manager_generation_failed = True
+        return response if isinstance(response, str) else None
 
     def should_learn(self, task_description: str) -> bool:
         """태스크 수행에 새로운 외부 지식이 필요한지 빠르게 판단합니다."""
@@ -184,22 +231,29 @@ class AutonomousLearner:
         )
 
         try:
-            # Ollama API 직접 호출 (비스트리밍)
-            default_model = "qwen3.6:latest"
-            data = {
-                "model": default_model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"num_predict": 512, "temperature": 0.3},
-            }
-            req = urllib.request.Request(
-                f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
-                data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+            response_text = self._generate_with_manager(
+                prompt,
+                max_tokens=512,
+                temperature=0.3,
+                role_name="knowledge_gap_analyzer",
             )
-            with safe_urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                response_text = result.get("response", "")
+            if response_text is None:
+                if self._last_manager_generation_failed:
+                    return self._analyze_with_keywords(task_description)
+                data = {
+                    "model": self._generation_target("knowledge_gap_analyzer"),
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 512, "temperature": 0.3},
+                }
+                req = urllib.request.Request(
+                    f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
+                    data=json.dumps(data).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with safe_urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                    response_text = result.get("response", "")
 
             # JSON 추출
             # <think> 태그 제거
@@ -403,23 +457,16 @@ class AutonomousLearner:
                 f"Search Results:\n{search_results[:4000]}\n\n"
                 f"Write a clear, structured summary in the language that matches the topic."
             )
-            data = {
-                "model": "deepseek-v4",
-                "prompt": prompt,
-                "stream": False,
-                "options": {"num_predict": 800, "temperature": 0.3},
-            }
-            req = urllib.request.Request(
-                f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
-                data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+            summary = self._generate_with_manager(
+                prompt,
+                max_tokens=800,
+                temperature=0.3,
+                role_name="knowledge_synthesizer",
             )
-            with safe_urlopen(req, timeout=60) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                summary = result.get("response", "")
-                # <think> 태그 제거
-                summary = re.sub(r"<think>.*?</think>", "", summary, flags=re.DOTALL).strip()
-                return summary if summary else search_results[:2000]
+            if summary is None:
+                return search_results[:2000]
+            summary = re.sub(r"<think>.*?</think>", "", summary, flags=re.DOTALL).strip()
+            return summary if summary else search_results[:2000]
         except Exception:
             logger.exception("[AutoLearn] Summarization failed")
             return search_results[:2000]
