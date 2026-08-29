@@ -127,7 +127,7 @@ class BaseInferenceProvider(ABC):
         return model_name, temperature, thinking_config, attribution
 
     @staticmethod
-    def _native_tool_call_xml(tool_name: str, arguments) -> str:
+    def _native_tool_call_xml(tool_name: str, arguments: DynamicValue) -> str:
         if not tool_name:
             return ""
         if isinstance(arguments, str):
@@ -563,7 +563,7 @@ class OllamaProvider(BaseInferenceProvider):
         self,
         loaded: LoadedModelArg,
         prompt: Prompt,
-        kwargs,
+        kwargs: JsonMap,
         base_url: str,
         api_key: str,
         temperature: float,
@@ -628,16 +628,16 @@ class OllamaProvider(BaseInferenceProvider):
             return f"[API Error for {loaded.profile.name}] {e}"
 
     def _iter_stream_response(
-        self, response: DynamicValue, tools_schema: list[DynamicValue] | None = None
+        self, response: Iterator[bytes], tools_schema: list[DynamicValue] | None = None
     ) -> Iterator[str]:
-        pending_tool_calls = []
-        buffered_content = []
+        pending_tool_calls: list[DynamicValue] = []
+        buffered_content: list[str] = []
         for line in response:
-            line = line.decode("utf-8").strip()
-            if not line:
+            line_text = line.decode("utf-8").strip()
+            if not line_text:
                 continue
             try:
-                chunk = json.loads(line)
+                chunk = json.loads(line_text)
                 if "message" in chunk:
                     msg = chunk["message"]
                     native_tool_calls = msg.get("tool_calls") or []
@@ -875,7 +875,7 @@ class NimProvider(BaseInferenceProvider):
         return result
 
     @override
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
