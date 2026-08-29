@@ -4,6 +4,8 @@
 config 매핑이 올바른지, 실패 경로가 안전한지 검증한다.
 """
 
+from typing import TypedDict
+
 import pytest
 
 from antigravity_k.engine.self_consistency import (
@@ -15,14 +17,21 @@ from antigravity_k.engine.self_consistency import (
 )
 
 
-def _gen_factory(responses):
+class _GenState(TypedDict):
+    i: int
+    temps: list[float]
+
+
+def _gen_factory(responses: list[str]):
     """responses를 순차 반환하는 generate_fn. 호출 시 temperature를 기록한다."""
-    state = {"i": 0, "temps": []}
+    state: _GenState = {"i": 0, "temps": []}
 
     def gen(prompt, **kwargs):
         i = state["i"]
         state["i"] += 1
-        state["temps"].append(kwargs.get("temperature"))
+        temperature = kwargs.get("temperature")
+        if isinstance(temperature, (int, float)):
+            state["temps"].append(float(temperature))
         return responses[min(i, len(responses) - 1)]
 
     return gen, state
@@ -308,7 +317,7 @@ class TestGeneralizedSelfConsistencyPath:
         """direct_response run_loop를 위한 최소 orch stub을 반환."""
         from unittest.mock import AsyncMock, MagicMock
 
-        def make(config: dict, model_name: str = "deepseek-r1:70b"):
+        def make(config: dict[str, object], model_name: str = "deepseek-r1:70b"):
             orch = MagicMock()
             orch.config = config
             orch.project_root = "/tmp"
