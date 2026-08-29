@@ -1,5 +1,7 @@
 """Inference Providers module."""
 
+from __future__ import annotations
+
 import json
 import logging
 import time
@@ -8,10 +10,13 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from importlib import import_module
 from types import SimpleNamespace
-from typing import Any, Protocol, override
+from typing import TYPE_CHECKING, Any, Protocol, override
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
 from antigravity_k.tools.egress_policy import safe_urlopen
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.model_registry import ModelProfile
 
 logger = logging.getLogger("antigravity_k.inference_providers")
 
@@ -20,7 +25,7 @@ Prompt = str | list[Message]
 
 
 class LoadedModelLike(Protocol):
-    profile: Any
+    profile: ModelProfile
     model: Any
     tokenizer: Any
 
