@@ -30,7 +30,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import TypedDict
 
 logger = logging.getLogger("antigravity_k.engine.cost_guard")
 
@@ -178,6 +178,30 @@ class SpendRecord:
     tokens_out: int = 0
 
 
+class DailyStats(TypedDict):
+    global_daily_spend_usd: float
+    daily_budget_usd: float
+    remaining_usd: float
+    usage_percent: float
+    user_spends: dict[str, float]
+    hourly_actions: int
+    hourly_limit: int
+    reset_date: str
+
+
+class SpendSummary(TypedDict):
+    model: str
+    cost_usd: float
+    tokens_in: int
+    tokens_out: int
+    user_id: str
+
+
+class DashboardData(DailyStats):
+    enabled: bool
+    recent_spends: list[SpendSummary]
+
+
 # ── 메인 CostGuard ──
 
 
@@ -204,12 +228,12 @@ class CostGuard:
             enabled (bool): bool enabled.
 
         """
-        self.daily_budget_usd = daily_budget_usd
-        self.user_daily_budget_usd = user_daily_budget_usd
-        self.hourly_action_limit = hourly_action_limit
-        self.enabled = enabled
+        self.daily_budget_usd: float = daily_budget_usd
+        self.user_daily_budget_usd: float = user_daily_budget_usd
+        self.hourly_action_limit: int = hourly_action_limit
+        self.enabled: bool = enabled
 
-        self._lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
         self._global_daily_spend: float = 0.0
         self._user_daily_spend: dict[str, float] = {}
         self._last_reset_date: str = self._today_utc()
@@ -275,7 +299,7 @@ class CostGuard:
             now = time.time()
             cutoff = now - 3600  # 1시간 윈도우
             while self._action_timestamps and self._action_timestamps[0] < cutoff:
-                self._action_timestamps.popleft()
+                _ = self._action_timestamps.popleft()
 
             hourly_count = len(self._action_timestamps)
             if hourly_count >= self.hourly_action_limit:
@@ -354,7 +378,7 @@ class CostGuard:
             user_remaining = self.user_daily_budget_usd - user_spend
             return min(max(0, global_remaining), max(0, user_remaining))
 
-    def get_daily_stats(self) -> dict[str, Any]:
+    def get_daily_stats(self) -> DailyStats:
         """일일 비용 통계를 반환합니다."""
         with self._lock:
             self._maybe_reset_daily()
@@ -372,11 +396,10 @@ class CostGuard:
                 "reset_date": self._last_reset_date,
             }
 
-    def to_dashboard_data(self) -> dict[str, Any]:
+    def to_dashboard_data(self) -> DashboardData:
         """대시보드 UI용 데이터를 반환합니다."""
         stats = self.get_daily_stats()
-        stats["enabled"] = self.enabled
-        stats["recent_spends"] = [
+        recent_spends: list[SpendSummary] = [
             {
                 "model": s.model,
                 "cost_usd": round(s.cost_usd, 6),
@@ -386,7 +409,11 @@ class CostGuard:
             }
             for s in self._spend_history[-20:]
         ]
-        return stats
+        return {
+            **stats,
+            "enabled": self.enabled,
+            "recent_spends": recent_spends,
+        }
 
     # ── 정밀 비용 계산 (IronClaw 캐시 할인 패턴) ──
 
