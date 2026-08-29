@@ -19,9 +19,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, final
+from typing import Any, TypeAlias, final
 
 logger = logging.getLogger(__name__)
+
+DynamicValue: TypeAlias = Any
+JsonMap: TypeAlias = dict[str, Any]
 
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────────
@@ -47,7 +50,7 @@ class TransitionStep:
     phase: str
     success: bool
     message: str = ""
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonMap = field(default_factory=dict)
     duration_ms: float = 0.0
 
 
@@ -153,10 +156,10 @@ class PlanToBuildPipeline:
 
     def __init__(
         self,
-        mode_manager: Any | None = None,
-        artifact_engine: Any | None = None,
-        quality_gate: Any | None = None,
-        kanban_engine: Any | None = None,
+        mode_manager: DynamicValue | None = None,
+        artifact_engine: DynamicValue | None = None,
+        quality_gate: DynamicValue | None = None,
+        kanban_engine: DynamicValue | None = None,
         min_plan_score: float = DEFAULT_MIN_SCORE,
     ):
         """Initialize the PlanToBuildPipeline.
@@ -320,7 +323,7 @@ class PlanToBuildPipeline:
 
     # ─── 서브스텝 ───────────────────────────────────────────────────
 
-    def _validate_plan(self, plan_file: str) -> dict[str, Any]:
+    def _validate_plan(self, plan_file: str) -> JsonMap:
         """Step 1: Plan 아티팩트 완전성을 검증합니다.
 
         1. Plan 파일 존재 여부 확인
@@ -415,7 +418,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _check_quality(self, plan_file: str, _validation: dict[str, Any]) -> dict[str, Any]:
+    def _check_quality(self, plan_file: str, _validation: JsonMap) -> JsonMap:
         """Step 2: QualityGate로 Plan 품질을 평가합니다.
 
         ArtifactEngine의 validate_plan_complete() 결과를
@@ -499,7 +502,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _execute_transition(self, plan_file: str) -> dict[str, Any]:
+    def _execute_transition(self, plan_file: str) -> JsonMap:
         """Step 3: ModeManager를 통해 Plan→Build 전환을 실행합니다.
 
         1. set_plan_artifact(plan_file) — Plan 아티팩트 경로 설정
@@ -581,7 +584,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _create_kanban_tasks(self, plan_file: str) -> dict[str, Any]:
+    def _create_kanban_tasks(self, plan_file: str) -> JsonMap:
         """Step 4: Plan에서 태스크를 추출하여 Kanban에 등록합니다.
 
         KanbanEngine이 없으면 ArtifactEngine.auto_create_kanban_tasks()에 위임합니다.
