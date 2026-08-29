@@ -164,9 +164,14 @@ def _get_mock_attr(root: MagicMock, path: tuple[str, ...]) -> object:
     return current
 
 
-def _assert_mock_called_once_with(root: MagicMock, path: tuple[str, ...], **kwargs: object) -> None:
+def _assert_mock_called_once_with(
+    root: MagicMock,
+    path: tuple[str, ...],
+    *args: object,
+    **kwargs: object,
+) -> None:
     method = cast(Callable[..., object], cast(object, getattr(_mock_path(root, path), "assert_called_once_with")))
-    method(**kwargs)
+    method(*args, **kwargs)
 
 
 def _assert_mock_called_once(root: MagicMock, path: tuple[str, ...]) -> None:
@@ -176,6 +181,24 @@ def _assert_mock_called_once(root: MagicMock, path: tuple[str, ...]) -> None:
 
 def _assert_mock_not_called(root: MagicMock, path: tuple[str, ...]) -> None:
     method = cast(Callable[[], object], cast(object, getattr(_mock_path(root, path), "assert_not_called")))
+    method()
+
+
+def _assert_mock_awaited_once_with(
+    root: MagicMock,
+    path: tuple[str, ...],
+    *args: object,
+    **kwargs: object,
+) -> None:
+    method = cast(
+        Callable[..., object],
+        cast(object, getattr(_mock_path(root, path), "assert_awaited_once_with")),
+    )
+    method(*args, **kwargs)
+
+
+def _assert_mock_awaited_not_called(root: MagicMock, path: tuple[str, ...]) -> None:
+    method = cast(Callable[[], object], cast(object, getattr(_mock_path(root, path), "assert_not_awaited")))
     method()
 
 
@@ -941,7 +964,7 @@ class TestToolLoopEngineRunToolTaskAsync:
             json.dumps({"benchmark_read_only": True}),
             "",
         )
-        mock_orch.task_execution_context = TaskExecutionContext("benchmark-read-only", store)
+        setattr(mock_orch, "task_execution_context", TaskExecutionContext("benchmark-read-only", store))
         tc = ToolCall(name="write_file", arguments={"path": "result.py", "content": "print('changed')"})
 
         _, pre_decision, _, tool_result, blocked = await _run_tool_task_async(ToolLoopEngine(mock_orch), tc)
@@ -949,8 +972,8 @@ class TestToolLoopEngineRunToolTaskAsync:
         assert blocked is True
         assert pre_decision is None
         assert "BENCHMARK READ-ONLY" in str(tool_result)
-        mock_orch.ctx.tool_guardrail.before_call.assert_not_called()
-        mock_orch.ctx.tool_executor.execute_async.assert_not_called()
+        _assert_mock_not_called(mock_orch, ("ctx", "tool_guardrail", "before_call"))
+        _assert_mock_awaited_not_called(mock_orch, ("ctx", "tool_executor", "execute_async"))
 
     @pytest.mark.asyncio
     async def test_guardrail_blocks_execution(self, mock_orch: MagicMock):
@@ -962,12 +985,18 @@ class TestToolLoopEngineRunToolTaskAsync:
         pre_decision.action = "block"
         pre_decision.should_halt = False
         pre_decision.reason = "security"
-        pre_decision.to_dict.return_value = {
-            "action": "block",
-            "message": "Tool blocked by guardrail",
-            "reason": "security",
-        }
-        mock_orch.ctx.tool_guardrail.before_call.return_value = pre_decision
+        setattr(
+            pre_decision,
+            "to_dict",
+            MagicMock(
+                return_value={
+                    "action": "block",
+                    "message": "Tool blocked by guardrail",
+                    "reason": "security",
+                }
+            ),
+        )
+        _set_mock_return(mock_orch, ("ctx", "tool_guardrail", "before_call"), pre_decision)
 
         tc = ToolCall(name="run_bash", arguments={"command": "ls"})
         engine = ToolLoopEngine(mock_orch)
@@ -975,27 +1004,32 @@ class TestToolLoopEngineRunToolTaskAsync:
         _, _, _, synthetic, blocked = result
         assert blocked is True
         assert "blocked" in str(synthetic).lower()
-        mock_orch.ctx.tool_executor.execute_async.assert_not_called()
+        _assert_mock_awaited_not_called(mock_orch, ("ctx", "tool_executor", "execute_async"))
 
     @pytest.mark.asyncio
     async def test_successful_execution(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
-        mock_orch.ctx.tool_executor.execute_async.return_value = "command output"
+        _set_mock_return(mock_orch, ("ctx", "tool_executor", "execute_async"), "command output")
         tc = ToolCall(name="run_bash", arguments={"command": "ls"})
         engine = ToolLoopEngine(mock_orch)
         result = await _run_tool_task_async(engine, tc)
         _, _, _, tool_result, blocked = result
         assert blocked is False
         assert tool_result == "command output"
-        mock_orch.ctx.tool_executor.execute_async.assert_called_once_with("run_bash", {"command": "ls"})
-        mock_orch.ctx.tool_guardrail.after_call.assert_called_once()
+        _assert_mock_awaited_once_with(
+            mock_orch,
+            ("ctx", "tool_executor", "execute_async"),
+            "run_bash",
+            {"command": "ls"},
+        )
+        _assert_mock_called_once(mock_orch, ("ctx", "tool_guardrail", "after_call"))
 
     @pytest.mark.asyncio
     async def test_cognitive_verify_error_handled(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
-        mock_orch.ctx.cognitive_loop.verify_tool_result.side_effect = ValueError("verify fail")
+        _set_mock_side_effect(mock_orch, ("ctx", "cognitive_loop", "verify_tool_result"), ValueError("verify fail"))
         tc = ToolCall(name="search", arguments={"query": "test"})
         engine = ToolLoopEngine(mock_orch)
         result = await _run_tool_task_async(engine, tc)
@@ -1008,7 +1042,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
-            mock_bus.publish.side_effect = RuntimeError("bus down")
+            setattr(mock_bus, "publish", MagicMock(side_effect=RuntimeError("bus down")))
             tc = ToolCall(name="bash", arguments={"cmd": "ls"})
             engine = ToolLoopEngine(mock_orch)
             result = await _run_tool_task_async(engine, tc)
