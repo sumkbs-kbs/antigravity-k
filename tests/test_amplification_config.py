@@ -29,7 +29,7 @@ LONG_AGENT_OUTPUT = (
 )
 
 
-def _orch_with_config(config: dict) -> SimpleNamespace:
+def _orch_with_config(config: dict[str, object]) -> SimpleNamespace:
     """raw dict config를 가진 최소 orch stub."""
     orch = SimpleNamespace()
     orch.config = config
@@ -196,6 +196,7 @@ class TestCognitiveConfigMapping:
         # max_retries/dialectic_enabled 누락 → None → CognitiveLoop 기본값.
         e, kw = cognitive_config_from_raw({"amplification": {"cognitive": {"enabled": True}}})
         assert e is True
+        assert "max_retries" in kw and "dialectic_enabled" in kw
         assert kw["max_retries"] is None
         assert kw["dialectic_enabled"] is None
 
@@ -206,6 +207,7 @@ class TestCognitiveConfigMapping:
     def test_non_dict_config_safe(self):
         e, kw = cognitive_config_from_raw(None)
         assert e is True
+        assert "max_retries" in kw
         assert kw["max_retries"] is None
 
     def test_kwargs_build_valid_cognitive_loop(self):
