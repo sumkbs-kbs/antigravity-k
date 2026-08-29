@@ -159,7 +159,7 @@ class TestD8_SkillMarketClient_DataModels:
         msg = client.format_search_results([])
         assert "검색 결과가 없습니다" in msg
 
-    def test_installation_state_management(self, tmp_path):
+    def test_installation_state_management(self, tmp_path: Path):
         """record_installation / remove_installation / is_installed."""
         from antigravity_k.engine.skill_market_client import (
             MARKET_STATE_DIR,
@@ -180,7 +180,7 @@ class TestD8_SkillMarketClient_DataModels:
             "installed_at": "2026-01-01T00:00:00",
             "updated_at": "2026-01-01T00:00:00",
         }
-        (skill_dir / ".agk_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+        _ = (skill_dir / ".agk_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
         client = SkillMarketClient(project_root=str(tmp_path))
 
@@ -213,7 +213,7 @@ class TestD8_SkillMarketClient_DataModels:
 class TestD9_SkillInstaller:
     """SkillInstaller — 검증/보안/메타데이터 + 시뮬레이션 플로우."""
 
-    def test_validate_package_valid(self, tmp_path):
+    def test_validate_package_valid(self, tmp_path: Path):
         """정상 AGK 패키지 → InstallValidation.valid=True."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
@@ -224,7 +224,7 @@ class TestD9_SkillInstaller:
             "version": "1.0.0",
             "antigravityK": {"skill": True, "riskLevel": "safe", "trustLevel": "verified"},
         }
-        (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
         validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "@antigravity-k/skill-test")
         assert validation.valid is True
@@ -232,19 +232,19 @@ class TestD9_SkillInstaller:
         assert validation.risk_level == "safe"
         assert validation.trust_level == "verified"
 
-    def test_validate_package_not_agk(self, tmp_path):
+    def test_validate_package_not_agk(self, tmp_path: Path):
         """antigravityK.skill != true → valid=False."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
         npm_path = tmp_path / "node_modules" / "lodash"
         npm_path.mkdir(parents=True)
         pkg_json = {"name": "lodash", "version": "4.17.21", "antigravityK": {"skill": False}}
-        (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
         validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "lodash")
         assert validation.valid is False
 
-    def test_validate_package_missing_package_json(self, tmp_path):
+    def test_validate_package_missing_package_json(self, tmp_path: Path):
         """package.json 없음 → valid=False."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
@@ -255,7 +255,7 @@ class TestD9_SkillInstaller:
         assert validation.valid is False
         assert "package.json not found" in validation.reason
 
-    def test_validate_package_requires_approval(self, tmp_path):
+    def test_validate_package_requires_approval(self, tmp_path: Path):
         """requiresApproval=true → 검증 결과에 반영."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
@@ -266,14 +266,14 @@ class TestD9_SkillInstaller:
             "version": "1.0.0",
             "antigravityK": {"skill": True, "requiresApproval": True, "riskLevel": "high"},
         }
-        (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
         validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-sensitive")
         assert validation.valid is True
         assert validation.requires_approval is True
         assert validation.risk_level == "high"
 
-    def test_validate_package_mcp_config(self, tmp_path):
+    def test_validate_package_mcp_config(self, tmp_path: Path):
         """package.json antigravityK.mcp → mcp_server_id 파싱."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
@@ -287,12 +287,12 @@ class TestD9_SkillInstaller:
                 "mcp": {"serverId": "my-mcp-server", "command": "python", "args": ["-m", "server"]},
             },
         }
-        (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
         validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-mcp")
         assert validation.mcp_server_id == "my-mcp-server"
 
-    def test_validate_package_platform_mismatch(self, tmp_path):
+    def test_validate_package_platform_mismatch(self, tmp_path: Path):
         """현재 플랫폼이 지원되지 않음 → valid=False."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
@@ -303,13 +303,13 @@ class TestD9_SkillInstaller:
             "version": "1.0.0",
             "antigravityK": {"skill": True, "platforms": ["nonexistent-platform"]},
         }
-        (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
         validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-platform")
         assert validation.valid is False
         assert "플랫폼" in validation.reason or "platform" in validation.reason.lower()
 
-    def test_security_scan_no_skill_md(self, tmp_path):
+    def test_security_scan_no_skill_md(self, tmp_path: Path):
         """SKILL.md 없으면 빈 리포트 (passed=True)."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
@@ -320,21 +320,21 @@ class TestD9_SkillInstaller:
         assert report.passed is True
         assert len(report.findings) == 0
 
-    def test_security_scan_suspicious_references(self, tmp_path):
+    def test_security_scan_suspicious_references(self, tmp_path: Path):
         """references/ 디렉토리도 스캔 대상."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
         npm_path = tmp_path / "node_modules" / "skill"
         npm_path.mkdir(parents=True)
-        (npm_path / "SKILL.md").write_text("# Clean skill")
+        _ = (npm_path / "SKILL.md").write_text("# Clean skill")
         ref_dir = npm_path / "references"
         ref_dir.mkdir()
-        (ref_dir / "security.md").write_text("API_KEY=sk-1234567890abcdef")
+        _ = (ref_dir / "security.md").write_text("API_KEY=sk-1234567890abcdef")
 
         report = SkillInstaller(str(tmp_path))._security_scan(npm_path, "skill")
         assert len(report.warnings) >= 1  # API_KEY pattern detected as warning
 
-    def test_write_meta_with_mcp_config(self, tmp_path):
+    def test_write_meta_with_mcp_config(self, tmp_path: Path):
         """_write_meta에서 mcp_config 저장."""
         from antigravity_k.engine.skill_installer import InstallValidation, SecurityReport, SkillInstaller
 
@@ -350,7 +350,7 @@ class TestD9_SkillInstaller:
                 "mcp": {"serverId": "my-server", "command": "node", "args": ["server.js"], "env": {"KEY": "VAL"}},
             },
         }
-        (dest_dir / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (dest_dir / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
         validation = InstallValidation(
             valid=True,
@@ -368,38 +368,38 @@ class TestD9_SkillInstaller:
         assert meta["mcp_config"]["args"] == ["server.js"]
         assert meta["mcp_config"]["env"] == {"KEY": "VAL"}
 
-    def test_copy_to_market_copies_files(self, tmp_path):
+    def test_copy_to_market_copies_files(self, tmp_path: Path):
         """_copy_to_market → package.json + SKILL.md 복사 확인."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
         src = tmp_path / "node_modules" / "@antigravity-k" / "skill-test"
         src.mkdir(parents=True)
-        (src / "package.json").write_text('{"name": "test", "version": "1.0.0"}')
-        (src / "SKILL.md").write_text("# Test skill")
+        _ = (src / "package.json").write_text('{"name": "test", "version": "1.0.0"}')
+        _ = (src / "SKILL.md").write_text("# Test skill")
 
         dest = tmp_path / "market" / "skill-test"
-        ok, err = SkillInstaller(None)._copy_to_market(src, dest)
+        ok, _err = SkillInstaller(None)._copy_to_market(src, dest)
         assert ok is True
-        assert err == ""
+        assert _err == ""
         assert (dest / "package.json").exists()
         assert (dest / "SKILL.md").exists()
         assert json.loads((dest / "package.json").read_text())["name"] == "test"
         assert (dest / "SKILL.md").read_text() == "# Test skill"
 
-    def test_copy_to_market_with_agkignore(self, tmp_path):
+    def test_copy_to_market_with_agkignore(self, tmp_path: Path):
         """.agkignore에 포함된 항목은 복사 제외."""
         from antigravity_k.engine.skill_installer import SkillInstaller
 
         src = tmp_path / "node_modules" / "@antigravity-k" / "skill-test"
         src.mkdir(parents=True)
-        (src / "package.json").write_text("{}")
-        (src / "SKILL.md").write_text("# X")
-        (src / "tests").mkdir()
-        (src / "tests" / "test_main.py").write_text("")
-        (src / ".agkignore").write_text("tests")
+        _ = (src / "package.json").write_text("{}")
+        _ = (src / "SKILL.md").write_text("# X")
+        _ = (src / "tests").mkdir()
+        _ = (src / "tests" / "test_main.py").write_text("")
+        _ = (src / ".agkignore").write_text("tests")
 
         dest = tmp_path / "market" / "skill-test"
-        ok, err = SkillInstaller(None)._copy_to_market(src, dest)
+        ok, _err = SkillInstaller(None)._copy_to_market(src, dest)
         assert ok is True
         assert (dest / "package.json").exists()
         assert (dest / "SKILL.md").exists()
@@ -585,8 +585,8 @@ class TestD11_MCPServerRegistry_Advanced:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         reg = MCPServerRegistry()
-        reg.register_skill_mcp("my-skill", {"serverId": "srv-1", "command": "echo"})
-        reg.register_skill_mcp("my-skill", {"serverId": "srv-2", "command": "cat"})
+        _ = reg.register_skill_mcp("my-skill", {"serverId": "srv-1", "command": "echo"})
+        _ = reg.register_skill_mcp("my-skill", {"serverId": "srv-2", "command": "cat"})
 
         servers = reg.get_skill_mcp_servers("my-skill")
         assert len(servers) == 2
@@ -598,8 +598,8 @@ class TestD11_MCPServerRegistry_Advanced:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         reg = MCPServerRegistry()
-        reg.register_skill_mcp("a", {"serverId": "srv-a", "command": "echo"})
-        reg.register_skill_mcp("b", {"serverId": "srv-b", "command": "cat"})
+        _ = reg.register_skill_mcp("a", {"serverId": "srv-a", "command": "echo"})
+        _ = reg.register_skill_mcp("b", {"serverId": "srv-b", "command": "cat"})
 
         all_servers = reg.get_skill_mcp_servers()
         assert "srv-a" in all_servers
@@ -617,7 +617,7 @@ class TestD11_MCPServerRegistry_Advanced:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         reg = MCPServerRegistry()
-        reg.register_skill_mcp("test", {"serverId": "my-srv", "command": "echo"})
+        _ = reg.register_skill_mcp("test", {"serverId": "my-srv", "command": "echo"})
 
         skill_cat = reg.get_by_category("skill")
         assert "my-srv" in skill_cat
@@ -637,7 +637,7 @@ class TestD11_MCPServerRegistry_Advanced:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / ".mcp.json"
             reg = MCPServerRegistry()
-            reg.generate_config_with_skills(str(output))
+            _ = reg.generate_config_with_skills(str(output))
             config = json.loads(output.read_text(encoding="utf-8"))
             assert "filesystem" in config["mcpServers"]
 
@@ -646,7 +646,7 @@ class TestD11_MCPServerRegistry_Advanced:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         reg = MCPServerRegistry()
-        reg.register_skill_mcp("test", {"serverId": "skill-srv", "command": "echo"})
+        _ = reg.register_skill_mcp("test", {"serverId": "skill-srv", "command": "echo"})
         summary = reg.get_catalog_summary()
         assert "skill-srv" in summary
         assert "skill: test" in summary
@@ -660,7 +660,7 @@ class TestD11_MCPServerRegistry_Advanced:
 class TestD13_SkillLoader_Market_Advanced:
     """SkillLoader — market/ 다중 스킬/소스태깅/오버라이트."""
 
-    def test_load_multiple_market_skills(self, tmp_path):
+    def test_load_multiple_market_skills(self, tmp_path: Path):
         """market/에 여러 스킬 → 모두 로드."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
@@ -668,7 +668,7 @@ class TestD13_SkillLoader_Market_Advanced:
         for name in ["alpha", "beta", "gamma"]:
             d = market / name
             d.mkdir(parents=True)
-            (d / "SKILL.md").write_text(f"---\nname: Skill {name}\n---\n\nContent {name}.")
+            _ = (d / "SKILL.md").write_text(f"---\nname: Skill {name}\n---\n\nContent {name}.")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         skills = loader.list_skills_by_source("market")
@@ -678,26 +678,26 @@ class TestD13_SkillLoader_Market_Advanced:
         assert "gamma" in ids
         assert len(skills) == 3
 
-    def test_market_skill_with_metadata(self, tmp_path):
+    def test_market_skill_with_metadata(self, tmp_path: Path):
         """YAML frontmatter 태그/툴/리스트 파싱."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         d = tmp_path / ".agent" / "skills" / "market" / "full-skill"
         d.mkdir(parents=True)
-        (d / "SKILL.md").write_text(
+        _ = (d / "SKILL.md").write_text(
             "---\n"
-            "name: Full Skill\n"
-            "description: A skill with all metadata\n"
-            "tags:\n"
-            "  - tag1\n"
-            "  - tag2\n"
-            "tools:\n"
-            "  - read_file\n"
-            "  - write_file\n"
-            "risk_level: low\n"
-            "trust_level: verified\n"
-            "requires_approval: false\n"
-            "---\n\n# Body content\n\nInstructions here.\n"
+            + "name: Full Skill\n"
+            + "description: A skill with all metadata\n"
+            + "tags:\n"
+            + "  - tag1\n"
+            + "  - tag2\n"
+            + "tools:\n"
+            + "  - read_file\n"
+            + "  - write_file\n"
+            + "risk_level: low\n"
+            + "trust_level: verified\n"
+            + "requires_approval: false\n"
+            + "---\n\n# Body content\n\nInstructions here.\n"
         )
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
@@ -712,19 +712,19 @@ class TestD13_SkillLoader_Market_Advanced:
         assert skill["requires_approval"] is False
         assert skill["source"] == "market"
 
-    def test_local_skill_preserved_when_no_market_overlap(self, tmp_path):
+    def test_local_skill_preserved_when_no_market_overlap(self, tmp_path: Path):
         """로컬 스킬이 market과 이름이 다르면 로컬 유지."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         # 로컬 스킬
         local = tmp_path / ".agent" / "skills" / "local-only"
         local.mkdir(parents=True)
-        (local / "SKILL.md").write_text("---\nname: Local Only\n---\n\nLocal.\n")
+        _ = (local / "SKILL.md").write_text("---\nname: Local Only\n---\n\nLocal.\n")
 
         # 다른 이름의 마켓 스킬
         market = tmp_path / ".agent" / "skills" / "market" / "market-only"
         market.mkdir(parents=True)
-        (market / "SKILL.md").write_text("---\nname: Market Only\n---\n\nMarket.\n")
+        _ = (market / "SKILL.md").write_text("---\nname: Market Only\n---\n\nMarket.\n")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         assert loader.get_skill("local-only") is not None
@@ -738,13 +738,13 @@ class TestD13_SkillLoader_Market_Advanced:
         assert market_skill is not None
         assert market_skill["source"] == "market"
 
-    def test_active_skills_api(self, tmp_path):
+    def test_active_skills_api(self, tmp_path: Path):
         """activate_skill / deactivate_skill / clear_active_skills."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         d = tmp_path / ".agent" / "skills" / "market" / "activable"
         d.mkdir(parents=True)
-        (d / "SKILL.md").write_text("# Activable skill")
+        _ = (d / "SKILL.md").write_text("# Activable skill")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
 
@@ -760,14 +760,14 @@ class TestD13_SkillLoader_Market_Advanced:
         # 존재하지 않는 스킬 활성화 → False
         assert loader.activate_skill("nonexistent") is False
 
-    def test_market_skills_isolated_from_global(self, tmp_path):
+    def test_market_skills_isolated_from_global(self, tmp_path: Path):
         """include_global=False → 글로벌 스킬 미로드 확인."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
         # 마켓 스킬만 생성
         d = tmp_path / ".agent" / "skills" / "market" / "mkt-skill"
         d.mkdir(parents=True)
-        (d / "SKILL.md").write_text("# Market skill")
+        _ = (d / "SKILL.md").write_text("# Market skill")
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         assert loader.get_skill("mkt-skill") is not None
@@ -775,7 +775,7 @@ class TestD13_SkillLoader_Market_Advanced:
         assert market_skill is not None
         assert market_skill["source"] == "market"
 
-    def test_refresh_reloads_skills(self, tmp_path):
+    def test_refresh_reloads_skills(self, tmp_path: Path):
         """refresh() → 새로 추가된 마켓 스킬 로드."""
         from antigravity_k.engine.skill_loader import SkillLoader
 
@@ -785,7 +785,7 @@ class TestD13_SkillLoader_Market_Advanced:
         # 스킬 추가 후 refresh
         d = tmp_path / ".agent" / "skills" / "market" / "new-skill"
         d.mkdir(parents=True)
-        (d / "SKILL.md").write_text("# New skill")
+        _ = (d / "SKILL.md").write_text("# New skill")
         loader.refresh()
 
         assert loader.get_skill("new-skill") is not None
@@ -910,9 +910,9 @@ class TestWeek2_E2E_MarketplaceLifecycle:
         skill_dir.mkdir(parents=True)
 
         # SKILL.md
-        (skill_dir / "SKILL.md").write_text(
+        _ = (skill_dir / "SKILL.md").write_text(
             f"---\nname: {name.title()}\ndescription: {name} skill\ntools:\n  - read_file\n"
-            f"risk_level: low\ntrust_level: verified\n---\n\n# {name.title()}\n\n{name} instructions.\n"
+            + f"risk_level: low\ntrust_level: verified\n---\n\n# {name.title()}\n\n{name} instructions.\n"
         )
 
         # package.json
@@ -933,7 +933,7 @@ class TestWeek2_E2E_MarketplaceLifecycle:
                 "args": ["-m", name],
             }
             agk_metadata["mcp_server_id"] = mcp_server_id
-        (skill_dir / "package.json").write_text(json.dumps(pkg, ensure_ascii=False, indent=2))
+        _ = (skill_dir / "package.json").write_text(json.dumps(pkg, ensure_ascii=False, indent=2))
 
         # .agk_meta.json
         meta = {
@@ -948,11 +948,11 @@ class TestWeek2_E2E_MarketplaceLifecycle:
         }
         if mcp_server_id:
             meta["mcp_server_id"] = mcp_server_id
-        (skill_dir / ".agk_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+        _ = (skill_dir / ".agk_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
         return skill_dir
 
-    def test_e2e_skill_marketplace_lifecycle(self, tmp_path):
+    def test_e2e_skill_marketplace_lifecycle(self, tmp_path: Path):
         """전체 마켓플레이스 라이프사이클 E2E 검증.
 
         시나리오:
@@ -970,9 +970,9 @@ class TestWeek2_E2E_MarketplaceLifecycle:
         from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
 
         # ── Phase 1: Setup 3 마켓 스킬 ──
-        self._create_market_skill(tmp_path, "code-review", "1.0.0", mcp_server_id="review-server")
-        self._create_market_skill(tmp_path, "data-pipeline", "2.0.0")
-        self._create_market_skill(tmp_path, "rag-search", "0.5.0")
+        _ = self._create_market_skill(tmp_path, "code-review", "1.0.0", mcp_server_id="review-server")
+        _ = self._create_market_skill(tmp_path, "data-pipeline", "2.0.0")
+        _ = self._create_market_skill(tmp_path, "rag-search", "0.5.0")
 
         # ── Phase 2: SkillLoader 로드 ──
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
@@ -1055,7 +1055,7 @@ class TestWeek2_E2E_MarketplaceLifecycle:
 
         # ── Phase 5: MCPServerRegistry MCP 등록 ──
         mcp_reg = MCPServerRegistry()
-        mcp_reg.register_skill_mcp(
+        _ = mcp_reg.register_skill_mcp(
             "code-review",
             {
                 "serverId": "review-server",
@@ -1096,14 +1096,14 @@ class TestWeek2_E2E_MarketplaceLifecycle:
         assert loader_no_market.get_skill("code-review") is None
 
         # MCPServerRegistry unregister
-        mcp_reg.unregister_skill_mcp("code-review")
+        _ = mcp_reg.unregister_skill_mcp("code-review")
         assert "review-server" not in mcp_reg.get_skill_mcp_servers()
 
         # format_list with empty
         empty_format = registry.format_list([])
         assert "설치된 마켓 스킬이 없습니다" in empty_format or "Marketplace" in empty_format
 
-    def test_e2e_skill_installer_simulated_flow(self, tmp_path):
+    def test_e2e_skill_installer_simulated_flow(self, tmp_path: Path):
         """SkillInstaller 시뮬레이션 플로우 (npm 없이).
 
         validate → security → copy → meta → cleanup 단계 검증.
@@ -1121,10 +1121,10 @@ class TestWeek2_E2E_MarketplaceLifecycle:
             "version": "1.5.0",
             "antigravityK": {"skill": True, "riskLevel": "safe", "trustLevel": "verified"},
         }
-        (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
-        (npm_path / "SKILL.md").write_text("# Test skill\n\nSafe instructions.")
+        _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
+        _ = (npm_path / "SKILL.md").write_text("# Test skill\n\nSafe instructions.")
         (npm_path / "references").mkdir()
-        (npm_path / "references" / "help.md").write_text("# Help reference")
+        _ = (npm_path / "references" / "help.md").write_text("# Help reference")
 
         installer = SkillInstaller(project_root=str(tmp_path))
 
@@ -1139,7 +1139,7 @@ class TestWeek2_E2E_MarketplaceLifecycle:
 
         # ── Step 4: Copy to market ──
         dest = tmp_path / ".agent" / "skills" / "market" / "skill-test"
-        ok, err = installer._copy_to_market(npm_path, dest)
+        ok, _err = installer._copy_to_market(npm_path, dest)
         assert ok is True
         assert (dest / "SKILL.md").exists()
         assert (dest / "package.json").exists()
