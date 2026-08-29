@@ -1,6 +1,6 @@
 # Full audit continuation evidence
 
-- Current continuation checkpoint: `28a65e3`; whole-tree basedpyright reports `0 errors, 28021 warnings, 0 notes`. `tests/test_tool_loop.py` consumes 36 intentional list/string side-effect results; its 90-test suite, Ruff, Ruff-format, and pre-commit pass, with file warnings reduced `733 → 697`. MAX-engine tests pass 43 tests with 45 intentional protected/private boundary warnings; KTX skill tests pass 11 with 97 optional-dependency/third-party warnings. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+- Current continuation checkpoint: `ea8a973`; whole-tree basedpyright reports `0 errors, 27992 warnings, 0 notes`. The scholarship filter CLI consumes 29 intentional stdout/argparse side-effect results; its 12-test suite, Ruff, Ruff-format, py_compile, and pre-commit pass, with file warnings reduced `239 → 210`. `tests/test_tool_loop.py` remains at 697 warnings after its 90-test continuation. MAX-engine tests pass 43 tests with 45 intentional protected/private boundary warnings; KTX skill tests pass 11 with 97 optional-dependency/third-party warnings. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - HEAD reviewed: `6d3680ca90e9c78bc2b5f31edb226fad8d0c355f`
 - Review snapshot: `/tmp/agk-review-ownership.OhyNJI` (HEAD plus 170 tracked edits and 30 untracked paths copied from the user worktree).
