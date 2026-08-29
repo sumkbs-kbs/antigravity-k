@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `69c9764`; whole-tree basedpyright reports `0 errors, 27314 warnings, 0 notes`. `tests/test_symbol_navigator.py` now explicitly consumes its symbol-index fixture write result; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `6eca1aa`; whole-tree basedpyright reports `0 errors, 27315 warnings, 0 notes`. `tests/test_startup_security.py` now explicitly consumes its persisted PIN-hash fixture write result; its 8-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `fe64f85`; whole-tree basedpyright reports `0 errors, 27316 warnings, 0 notes`. `tests/test_search_conflicts.py` now uses explicit string concatenation for the conflict acknowledgement text; its 6-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
