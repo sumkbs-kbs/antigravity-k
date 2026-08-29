@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -732,7 +733,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("benchmark-read-only", "benchmark prompt", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("benchmark-read-only", "benchmark prompt", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "benchmark-read-only",
             0,
@@ -938,9 +939,10 @@ class TestToolLoopEngineRunLoop:
         class RetryableError(Exception):
             pass
 
-        def mock_classify(e, **kw):
+        def mock_classify(e: Exception, **kw: object):
             from antigravity_k.engine.error_classifier import ClassifiedError, FailoverReason
 
+            _ = (e, kw)
             return ClassifiedError(reason=FailoverReason.timeout, retryable=True)
 
         with patch("antigravity_k.engine.tool_loop.classify_api_error", side_effect=mock_classify):
@@ -959,9 +961,10 @@ class TestToolLoopEngineRunLoop:
         class FatalError(Exception):
             pass
 
-        def mock_classify(e, **kw):
+        def mock_classify(e: Exception, **kw: object):
             from antigravity_k.engine.error_classifier import ClassifiedError, FailoverReason
 
+            _ = (e, kw)
             return ClassifiedError(reason=FailoverReason.format_error, retryable=False)
 
         with patch("antigravity_k.engine.tool_loop.classify_api_error", side_effect=mock_classify):
@@ -977,9 +980,10 @@ class TestToolLoopEngineRunLoop:
         class ContextOverflow(Exception):
             pass
 
-        def mock_classify(e, **kw):
+        def mock_classify(e: Exception, **kw: object):
             from antigravity_k.engine.error_classifier import ClassifiedError, FailoverReason
 
+            _ = (e, kw)
             return ClassifiedError(reason=FailoverReason.context_overflow, retryable=True, should_compress=True)
 
         mock_shaper = MagicMock()
@@ -1056,7 +1060,12 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self.mock_orch.manager.stream_generate.side_effect = lambda **kwargs: iter([tool_xml])
+
+        def stream_generate(**kwargs: object) -> Iterator[str]:
+            _ = kwargs
+            return iter([tool_xml])
+
+        self.mock_orch.manager.stream_generate.side_effect = stream_generate
         self.mock_orch.ctx.tool_executor.execute_async.return_value = "result"
 
         results = self._run(max_steps=51)
@@ -1172,7 +1181,7 @@ class TestToolLoopEngineRunLoop:
 
     def test_reads_expected_tools_from_durable_execution_context(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("tool-contract", "read README", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("tool-contract", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "tool-contract",
             0,
@@ -1187,7 +1196,7 @@ class TestToolLoopEngineRunLoop:
 
     def test_missing_required_tool_marks_durable_task_failed(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("required-tool", "read README", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("required-tool", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "required-tool",
             0,
@@ -1213,7 +1222,7 @@ class TestToolLoopEngineRunLoop:
 
     def test_omits_satisfied_native_tools_from_follow_up_turn(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("read-once", "read README", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("read-once", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "read-once",
             0,
@@ -1248,7 +1257,7 @@ class TestToolLoopEngineRunLoop:
     def test_recovers_a_qwen_scratchpad_action_for_one_required_tool(self, tmp_path: Path):
         # Given: Qwen plans the sole required read instead of emitting its tool-call tag.
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("qwen-plan", "read README", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("qwen-plan", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint("qwen-plan", 0, '{"expected_tools": ["read_file"]}', "")
         self.mock_orch.task_execution_context = TaskExecutionContext("qwen-plan", store)
         self.mock_orch.ctx.quality_gate = None
@@ -1284,7 +1293,7 @@ class TestToolLoopEngineRunLoop:
     def test_recovers_each_qwen_scratchpad_action_in_a_multistep_contract(self, tmp_path: Path):
         # Given: Qwen plans each of two required tools in separate scratch-pad turns.
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("qwen-multistep", "inspect README", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("qwen-multistep", "inspect README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "qwen-multistep",
             0,
@@ -1322,7 +1331,7 @@ class TestToolLoopEngineRunLoop:
     def test_resume_uses_checkpointed_tool_progress_and_evidence(self, tmp_path: Path):
         # Given: a paused task whose required file read already completed before interruption.
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("resumed-read", "read README", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("resumed-read", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "resumed-read",
             4,
@@ -1374,7 +1383,7 @@ class TestToolLoopEngineRunLoop:
 
     def test_quality_gate_failure_marks_durable_task_failed(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("quality-failed", "write code", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("quality-failed", "write code", "pending", "2026-01-01T00:00:00")
         self.mock_orch.task_execution_context = TaskExecutionContext("quality-failed", store)
         self.mock_orch.manager.stream_generate.return_value = iter(["invalid output"])
         self.mock_orch.ctx.quality_gate.evaluate.return_value = QualityScore(
@@ -1404,14 +1413,14 @@ class TestToolLoopEngineRunLoop:
 
     def test_persists_approval_wait_with_tool_step_checkpoint(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("loop-durable", "write a file", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("loop-durable", "write a file", "pending", "2026-01-01T00:00:00")
         self.mock_orch.task_execution_context = TaskExecutionContext("loop-durable", store)
         self.mock_orch.ctx.tool_executor.execute_async.return_value = "[APPROVAL REQUIRED] confirm write"
         self.mock_orch.manager.stream_generate.return_value = iter(
             [
                 "<action_call>\n<tool_call>\n"
-                '{"name": "write_file", "arguments": {"path": "report.md"}}\n'
-                "</tool_call>\n</action_call>\n",
+                + '{"name": "write_file", "arguments": {"path": "report.md"}}\n'
+                + "</tool_call>\n</action_call>\n",
             ],
         )
 
@@ -1441,7 +1450,7 @@ class TestToolLoopEngineRunLoop:
 
     def test_read_only_benchmark_defers_completion_to_task_runner(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
-        store.create_task("benchmark-deferred", "benchmark prompt", "pending", "2026-01-01T00:00:00")
+        _ = store.create_task("benchmark-deferred", "benchmark prompt", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
             "benchmark-deferred",
             0,
@@ -1743,7 +1752,7 @@ class TestToolLoopEngineContextCompression:
         engine = ToolLoopEngine(mock_orch)  # context_compressor_for → MagicMock
 
         messages = [{"role": "user", "content": "x"}]
-        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+        shaped, prompt, usage_before, _usage_after = engine._maybe_compress_context(
             messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
         )
 
@@ -1756,7 +1765,7 @@ class TestToolLoopEngineContextCompression:
         engine = ToolLoopEngine(mock_orch)
 
         messages = [{"role": "user", "content": "x"}]
-        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+        shaped, prompt, usage_before, _usage_after = engine._maybe_compress_context(
             messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
         )
 
