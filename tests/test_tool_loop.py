@@ -1670,9 +1670,9 @@ class TestToolLoopEngineRunLoop:
             ),
             "partial output",
         )
-        self._orch().task_execution_context = TaskExecutionContext("resumed-read", store)
-        self._orch().ctx.quality_gate = None
-        self._orch().manager.stream_generate.return_value = iter(["resumed summary"])
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("resumed-read", store))
+        _set_mock_attr(self._orch(), ("ctx", "quality_gate"), None)
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["resumed summary"]))
 
         # When: the durable task resumes its tool loop.
         _ = list(
@@ -1687,7 +1687,7 @@ class TestToolLoopEngineRunLoop:
         record = store.get_task("resumed-read")
         assert record is not None
         assert record["status"] == "done"
-        self._orch().ctx.tool_executor.execute_async.assert_not_called()
+        _assert_mock_not_called(self._orch(), ("ctx", "tool_executor", "execute_async"))
 
     def test_records_step_limit_as_unsuccessful(self):
         outcomes: list[TaskOutcome] = []
@@ -1696,7 +1696,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self._orch().manager.stream_generate.return_value = iter([tool_xml])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter([tool_xml]))
         engine = _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code", max_steps=1))
@@ -1708,15 +1708,19 @@ class TestToolLoopEngineRunLoop:
     def test_quality_gate_failure_marks_durable_task_failed(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         _ = store.create_task("quality-failed", "write code", "pending", "2026-01-01T00:00:00")
-        self._orch().task_execution_context = TaskExecutionContext("quality-failed", store)
-        self._orch().manager.stream_generate.return_value = iter(["invalid output"])
-        self._orch().ctx.quality_gate.evaluate.return_value = QualityScore(
-            grade=QualityGrade.F,
-            score=0.0,
-            feedback="[QUALITY GATE] required implementation is missing",
-            user_message="",
-            should_retry=False,
-            issues=["incomplete"],
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("quality-failed", store))
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["invalid output"]))
+        _set_mock_return(
+            self._orch(),
+            ("ctx", "quality_gate", "evaluate"),
+            QualityScore(
+                grade=QualityGrade.F,
+                score=0.0,
+                feedback="[QUALITY GATE] required implementation is missing",
+                user_message="",
+                should_retry=False,
+                issues=["incomplete"],
+            ),
         )
         outcomes: list[TaskOutcome] = []
 
