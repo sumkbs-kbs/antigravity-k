@@ -8,11 +8,15 @@ inject_budget_awareness.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
+from typing import cast
 
 import pytest
+from pydantic import JsonValue
 
 from antigravity_k.engine.context_compressor import ContextCompressor
 from antigravity_k.engine.context_shaper import ContextShaper
+from antigravity_k.engine.long_context_policy import LongContextExecutionPlan
 
 
 @pytest.fixture
@@ -26,7 +30,7 @@ def shaper(tmp_path):
     )
 
 
-def _make_messages(count: int, content: str = "Hello world") -> list[dict]:
+def _make_messages(count: int, content: str = "Hello world") -> list[dict[str, str]]:
     """Generate a list of messages for testing."""
     return [{"role": "user" if i % 2 == 0 else "assistant", "content": content} for i in range(count)]
 
@@ -59,6 +63,49 @@ class TestInit:
 
 
 class TestShape:
+    def test_shape_for_model_uses_model_specific_budget(self, tmp_path):
+        config = {
+            "models": {
+                "reasoning": [{"name": "qwen3.6:latest", "context_length": 16_384}],
+            },
+        }
+        messages = _make_messages(80, "payload " * 80)
+        shaper = ContextShaper(storage_dir=str(tmp_path / "model-context"))
+
+        result = shaper.shape_for_model(
+            cast(list[dict[str, str]], messages), cast(Mapping[str, JsonValue], config), "qwen3.6:latest"
+        )
+
+        assert shaper._estimate_tokens(result) <= 12_288
+
+    def test_shape_for_model_applies_provider_execution_plan(self, tmp_path):
+        config = {
+            "models": {
+                "reasoning": [{"name": "qwen3.6:latest", "context_length": 16_384}],
+            },
+        }
+        messages = _make_messages(80, "payload " * 80)
+        shaper = ContextShaper(storage_dir=str(tmp_path / "planned-context"))
+        plan: LongContextExecutionPlan = {
+            "strategy": "retrieval_fallback",
+            "retrieval_mode": "long_context",
+            "native_attention_enabled": False,
+            "kv_cache_mode": "bounded_context",
+            "kv_cache_compression_enabled": False,
+            "context_token_limit": 9_830,
+            "candidate_pool": 96,
+            "rationale": "bounded_retrieval_fallback",
+        }
+
+        result = shaper.shape_for_model(
+            cast(list[dict[str, str]], messages),
+            cast(Mapping[str, JsonValue], config),
+            "qwen3.6:latest",
+            execution_plan=plan,
+        )
+
+        assert shaper._estimate_tokens(result) <= 9_830
+
     def test_force_compact_preserves_old_structured_tool_evidence(self, tmp_path):
         # Given: an overflow retry has old verified evidence followed by a long conversation.
         old_result = (
