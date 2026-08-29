@@ -19,6 +19,7 @@ Coverage targets:
 
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +28,7 @@ from antigravity_k.tools.system_control import SystemControlTool
 
 
 @pytest.fixture
-def tool():
+def tool() -> SystemControlTool:
     """SystemControlTool 기본 인스턴스."""
     return SystemControlTool()
 
@@ -40,15 +41,15 @@ def tool():
 class TestToolProperties:
     """name, description, parameters_schema, category."""
 
-    def test_name(self, tool):
+    def test_name(self, tool: SystemControlTool):
         assert tool.name == "system_control"
 
-    def test_description(self, tool):
+    def test_description(self, tool: SystemControlTool):
         assert isinstance(tool.description, str)
         assert len(tool.description) > 0
         assert "operating system" in tool.description.lower()
 
-    def test_schema_has_required_actions(self, tool):
+    def test_schema_has_required_actions(self, tool: SystemControlTool):
         schema = tool.parameters_schema
         assert schema["type"] == "object"
         assert "action" in schema["properties"]
@@ -61,7 +62,7 @@ class TestToolProperties:
         assert "set_volume" in actions
         assert "auto_optimize" in actions
 
-    def test_category_and_risk(self, tool):
+    def test_category_and_risk(self, tool: SystemControlTool):
         from antigravity_k.tools.base_tool import RiskLevel, ToolCategory
 
         assert tool.category == ToolCategory.COMPUTER_USE
@@ -76,17 +77,17 @@ class TestToolProperties:
 class TestExecute:
     """execute() 메서드의 액션 디스패치."""
 
-    def test_no_action(self, tool):
+    def test_no_action(self, tool: SystemControlTool):
         result = tool.execute()
         assert "error" in result
         assert "No action" in result["error"]
 
-    def test_unknown_action(self, tool):
+    def test_unknown_action(self, tool: SystemControlTool):
         result = tool.execute(action="nonexistent_action")
         assert "error" in result
         assert "Unknown action" in result["error"]
 
-    def test_action_dispatches_to_handler(self, tool):
+    def test_action_dispatches_to_handler(self, tool: SystemControlTool):
         """execute가 올바른 _action_ 메서드를 호출하는지 확인."""
         with patch.object(tool, "_action_get_system_info") as mock_method:
             mock_method.return_value = {"status": "ok", "data": "test"}
@@ -94,7 +95,7 @@ class TestExecute:
             mock_method.assert_called_once()
             assert result["status"] == "ok"
 
-    def test_action_exception_handled(self, tool):
+    def test_action_exception_handled(self, tool: SystemControlTool):
         """execute에서 예외 발생 시 에러 반환."""
         with patch.object(tool, "_action_get_system_info") as mock_method:
             mock_method.side_effect = RuntimeError("Simulated error")
@@ -111,7 +112,7 @@ class TestExecute:
 class TestGetSystemInfo:
     """시스템 정보 수집 — platform/paths mock."""
 
-    def test_basic_info(self, tool):
+    def test_basic_info(self, tool: SystemControlTool):
         """기본 시스템 정보 필드 포함 여부."""
         result = tool._action_get_system_info()
         assert result["status"] == "ok"
@@ -123,7 +124,7 @@ class TestGetSystemInfo:
         assert "hostname" in info
         assert "cpu_cores" in info
 
-    def test_memory_with_psutil(self, tool):
+    def test_memory_with_psutil(self, tool: SystemControlTool):
         """psutil로 메모리/디스크 정보 수집."""
         with patch.dict("sys.modules", {"psutil": MagicMock()}):
             import psutil  # type: ignore[import]
@@ -148,7 +149,7 @@ class TestGetSystemInfo:
             assert "disk" in info
             assert info["disk"]["total_gb"] == 500.0
 
-    def test_memory_without_psutil(self, tool):
+    def test_memory_without_psutil(self, tool: SystemControlTool):
         """psutil 없이 sysctl 폴백."""
         with (
             patch.dict("sys.modules", {"psutil": None}),
@@ -165,7 +166,7 @@ class TestGetSystemInfo:
             assert "memory" in info
             assert info["memory"]["total_gb"] == 16.0
 
-    def test_gpu_on_darwin(self, tool):
+    def test_gpu_on_darwin(self, tool: SystemControlTool):
         """macOS에서 GPU 정보 수집."""
         with (
             patch("platform.system", return_value="Darwin"),
@@ -192,7 +193,7 @@ class TestGetSystemInfo:
             assert info["gpu"]["name"] == "Apple M3 Pro"
             assert info["gpu"]["metal_support"] == "Metal 3"
 
-    def test_gpu_not_available(self, tool):
+    def test_gpu_not_available(self, tool: SystemControlTool):
         """GPU 정보 없을 때 graceful 처리."""
         with (
             patch("platform.system", return_value="Linux"),
@@ -203,7 +204,7 @@ class TestGetSystemInfo:
             # Linux에서 subprocess 실패 — GPU 정보 없어도 정상 응답
             assert "platform" in info
 
-    def test_ollama_unavailable(self, tool):
+    def test_ollama_unavailable(self, tool: SystemControlTool):
         """Ollama 연결 불가 시 'Not available'."""
         result = tool._action_get_system_info()
         info = result["system_info"]
@@ -221,24 +222,24 @@ class TestGetSystemInfo:
 class TestGetEnvStatus:
     """환경 설정 상태 조회."""
 
-    def test_config_not_found(self, tool):
+    def test_config_not_found(self, tool: SystemControlTool):
         """config.yaml이 없을 때."""
         with patch.object(tool, "_find_config_path", return_value=None):
             result = tool._action_get_env_status()
             assert result["status"] == "ok"
             assert result["env_status"]["settings"] == {}
 
-    def test_config_not_exists(self, tool):
+    def test_config_not_exists(self, tool: SystemControlTool):
         """config.yaml 경로는 있지만 파일이 없을 때."""
         with patch.object(tool, "_find_config_path", return_value="/nonexistent/config.yaml"):
             result = tool._action_get_env_status()
             assert result["status"] == "ok"
             assert result["env_status"]["settings"] == {}
 
-    def test_config_load_error(self, tool, tmp_path):
+    def test_config_load_error(self, tool: SystemControlTool, tmp_path: Path):
         """설정 파일 로드 중 예외 처리."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("invalid: yaml: : }", encoding="utf-8")
+        _ = config_file.write_text("invalid: yaml: : }", encoding="utf-8")
         with patch.object(tool, "_find_config_path", return_value=str(config_file)):
             result = tool._action_get_env_status()
             assert result["status"] == "ok"
@@ -253,7 +254,7 @@ class TestGetEnvStatus:
 class TestGetRunningApps:
     """실행 중인 앱 목록."""
 
-    def test_on_darwin(self, tool):
+    def test_on_darwin(self, tool: SystemControlTool):
         """macOS — osascript 호출."""
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run") as mock_run:
@@ -267,7 +268,7 @@ class TestGetRunningApps:
                 assert "Finder" in result["running_apps"]
                 assert "Safari" in result["running_apps"]
 
-    def test_on_darwin_osascript_error(self, tool):
+    def test_on_darwin_osascript_error(self, tool: SystemControlTool):
         """macOS — osascript 실패 시 빈 리스트."""
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 10)):
@@ -275,7 +276,7 @@ class TestGetRunningApps:
                 assert result["status"] == "ok"
                 assert result["running_apps"] == []
 
-    def test_on_linux_with_psutil(self, tool):
+    def test_on_linux_with_psutil(self, tool: SystemControlTool):
         """Linux — psutil로 앱 목록 수집."""
         with patch("platform.system", return_value="Linux"):
             mock_process = MagicMock()
@@ -285,7 +286,7 @@ class TestGetRunningApps:
                 assert result["status"] == "ok"
                 assert "bash" in result["running_apps"]
 
-    def test_on_linux_without_psutil(self, tool):
+    def test_on_linux_without_psutil(self, tool: SystemControlTool):
         """Linux — psutil 없을 때."""
         with (
             patch("platform.system", return_value="Linux"),
@@ -301,12 +302,12 @@ class TestGetRunningApps:
 
 
 class TestLaunchApp:
-    def test_no_target(self, tool):
+    def test_no_target(self, tool: SystemControlTool):
         result = tool._action_launch_app()
         assert "error" in result
         assert "No app name" in result["error"]
 
-    def test_on_darwin(self, tool):
+    def test_on_darwin(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.Popen") as mock_popen:
                 result = tool._action_launch_app(target="Safari")
@@ -314,13 +315,13 @@ class TestLaunchApp:
                 assert result["app"] == "Safari"
                 mock_popen.assert_called_with(["open", "-a", "Safari"])
 
-    def test_on_darwin_error(self, tool):
+    def test_on_darwin_error(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.Popen", side_effect=FileNotFoundError("App not found")):
                 result = tool._action_launch_app(target="Nonexistent")
                 assert "error" in result
 
-    def test_on_linux(self, tool):
+    def test_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_launch_app(target="Firefox")
             assert "error" in result
@@ -328,18 +329,18 @@ class TestLaunchApp:
 
 
 class TestKillApp:
-    def test_no_target(self, tool):
+    def test_no_target(self, tool: SystemControlTool):
         result = tool._action_kill_app()
         assert "error" in result
 
-    def test_protected_process(self, tool):
+    def test_protected_process(self, tool: SystemControlTool):
         """시스템 핵심 프로세스 종료 차단."""
         for protected in ["Finder", "Dock", "SystemUIServer", "launchd", "WindowServer"]:
             result = tool._action_kill_app(target=protected)
             assert "error" in result
             assert "protected" in result["error"].lower()
 
-    def test_on_darwin(self, tool):
+    def test_on_darwin(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock()
@@ -347,13 +348,13 @@ class TestKillApp:
                 assert result["status"] == "ok"
                 assert result["app"] == "Safari"
 
-    def test_on_darwin_error(self, tool):
+    def test_on_darwin_error(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run", side_effect=RuntimeError("Failed")):
                 result = tool._action_kill_app(target="Safari")
                 assert "error" in result
 
-    def test_on_linux(self, tool):
+    def test_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_kill_app(target="Firefox")
             assert "error" in result
@@ -366,25 +367,25 @@ class TestKillApp:
 
 
 class TestOpenUrl:
-    def test_no_url(self, tool):
+    def test_no_url(self, tool: SystemControlTool):
         result = tool._action_open_url()
         assert "error" in result
 
-    def test_on_darwin(self, tool):
+    def test_on_darwin(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.Popen") as mock_popen:
                 result = tool._action_open_url(target="https://example.com")
                 assert result["status"] == "ok"
                 mock_popen.assert_called_with(["open", "https://example.com"])
 
-    def test_on_linux(self, tool):
+    def test_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             with patch("subprocess.Popen") as mock_popen:
                 result = tool._action_open_url(target="https://example.com")
                 assert result["status"] == "ok"
                 mock_popen.assert_called_with(["xdg-open", "https://example.com"])
 
-    def test_exception(self, tool):
+    def test_exception(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.Popen", side_effect=OSError("Permission denied")):
                 result = tool._action_open_url(target="https://example.com")
@@ -397,7 +398,7 @@ class TestOpenUrl:
 
 
 class TestClipboard:
-    def test_get_clipboard_on_darwin(self, tool):
+    def test_get_clipboard_on_darwin(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run") as mock_run:
                 mock_proc = MagicMock()
@@ -407,22 +408,22 @@ class TestClipboard:
                 assert result["status"] == "ok"
                 assert result["clipboard"] == "clipboard content"
 
-    def test_get_clipboard_on_linux(self, tool):
+    def test_get_clipboard_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_get_clipboard()
             assert "error" in result
 
-    def test_get_clipboard_error(self, tool):
+    def test_get_clipboard_error(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run", side_effect=RuntimeError("pbpaste failed")):
                 result = tool._action_get_clipboard()
                 assert "error" in result
 
-    def test_set_clipboard_no_target(self, tool):
+    def test_set_clipboard_no_target(self, tool: SystemControlTool):
         result = tool._action_set_clipboard()
         assert "error" in result
 
-    def test_set_clipboard_on_darwin(self, tool):
+    def test_set_clipboard_on_darwin(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.Popen") as mock_popen:
                 mock_proc = MagicMock()
@@ -431,12 +432,12 @@ class TestClipboard:
                 assert result["status"] == "ok"
                 assert result["length"] == 13
 
-    def test_set_clipboard_on_linux(self, tool):
+    def test_set_clipboard_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_set_clipboard(target="test")
             assert "error" in result
 
-    def test_set_clipboard_error(self, tool):
+    def test_set_clipboard_error(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.Popen", side_effect=RuntimeError("pbcopy failed")):
                 result = tool._action_set_clipboard(target="test")
@@ -449,33 +450,33 @@ class TestClipboard:
 
 
 class TestSetVolume:
-    def test_default_value(self, tool):
+    def test_default_value(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"), patch("subprocess.run"):
             result = tool._action_set_volume()
             assert result["status"] == "ok"
             assert result["level"] == 50
 
-    def test_custom_value(self, tool):
+    def test_custom_value(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"), patch("subprocess.run"):
             result = tool._action_set_volume(value="75")
             assert result["level"] == 75
 
-    def test_clamp_to_100(self, tool):
+    def test_clamp_to_100(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"), patch("subprocess.run"):
             result = tool._action_set_volume(value="150")
             assert result["level"] == 100
 
-    def test_clamp_to_0(self, tool):
+    def test_clamp_to_0(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"), patch("subprocess.run"):
             result = tool._action_set_volume(value="-10")
             assert result["level"] == 0
 
-    def test_on_linux(self, tool):
+    def test_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_set_volume(value="50")
             assert "error" in result
 
-    def test_exception(self, tool):
+    def test_exception(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run", side_effect=RuntimeError("osascript failed")):
                 result = tool._action_set_volume(value="50")
@@ -483,23 +484,23 @@ class TestSetVolume:
 
 
 class TestToggleWifi:
-    def test_on_linux(self, tool):
+    def test_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_toggle_wifi()
             assert "error" in result
 
-    def test_on_darwin(self, tool):
+    def test_on_darwin(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"), patch("subprocess.run"):
             result = tool._action_toggle_wifi(value="on")
             assert result["status"] == "ok"
             assert result["state"] == "on"
 
-    def test_off(self, tool):
+    def test_off(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"), patch("subprocess.run"):
             result = tool._action_toggle_wifi(value="off")
             assert result["state"] == "off"
 
-    def test_exception(self, tool):
+    def test_exception(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run", side_effect=RuntimeError("networksetup failed")):
                 result = tool._action_toggle_wifi(value="on")
@@ -507,12 +508,12 @@ class TestToggleWifi:
 
 
 class TestManageNotifications:
-    def test_on_linux(self, tool):
+    def test_on_linux(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Linux"):
             result = tool._action_manage_notifications()
             assert "error" in result
 
-    def test_turn_on(self, tool):
+    def test_turn_on(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock()
@@ -520,14 +521,14 @@ class TestManageNotifications:
                 assert result["status"] == "ok"
                 assert result["action"] == "dnd_on"
 
-    def test_turn_off(self, tool):
+    def test_turn_off(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock()
                 result = tool._action_manage_notifications(value="off")
                 assert result["action"] == "dnd_off"
 
-    def test_exception(self, tool):
+    def test_exception(self, tool: SystemControlTool):
         with patch("platform.system", return_value="Darwin"):
             with patch("subprocess.run", side_effect=RuntimeError("Shortcuts failed")):
                 result = tool._action_manage_notifications(value="on")
@@ -542,7 +543,7 @@ class TestManageNotifications:
 class TestAutoOptimize:
     """자동 최적화 — 메모리 계층별 설정."""
 
-    def test_high_memory_128gb(self, tool):
+    def test_high_memory_128gb(self, tool: SystemControlTool):
         """128GB+ → 32K 컨텍스트, 70B 모델."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -562,7 +563,7 @@ class TestAutoOptimize:
             assert result["recommended"]["max_model_size"] == "70B"
             assert any("128GB" in o for o in result["optimizations"])
 
-    def test_medium_memory_64gb(self, tool):
+    def test_medium_memory_64gb(self, tool: SystemControlTool):
         """64GB → 16K 컨텍스트, 32B 모델."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -580,7 +581,7 @@ class TestAutoOptimize:
             assert result["recommended"]["context_window"] == 16384
             assert result["recommended"]["max_model_size"] == "32B"
 
-    def test_low_memory_16gb(self, tool):
+    def test_low_memory_16gb(self, tool: SystemControlTool):
         """16GB → 4K 컨텍스트, 7B 모델."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -598,7 +599,7 @@ class TestAutoOptimize:
             assert result["recommended"]["context_window"] == 4096
             assert result["recommended"]["max_model_size"] == "7B"
 
-    def test_mid_memory_32gb(self, tool):
+    def test_mid_memory_32gb(self, tool: SystemControlTool):
         """32GB → 8K 컨텍스트, 14B 모델."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -616,7 +617,7 @@ class TestAutoOptimize:
             assert result["recommended"]["context_window"] == 8192
             assert result["recommended"]["max_model_size"] == "14B"
 
-    def test_apple_silicon_gpu(self, tool):
+    def test_apple_silicon_gpu(self, tool: SystemControlTool):
         """Apple Silicon GPU 감지 시 MPS 가속."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -634,7 +635,7 @@ class TestAutoOptimize:
             assert result["recommended"]["gpu_acceleration"] == "mps"
             assert any("MPS" in o for o in result["optimizations"])
 
-    def test_nvidia_gpu(self, tool):
+    def test_nvidia_gpu(self, tool: SystemControlTool):
         """NVIDIA GPU 감지 시 CUDA 가속."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -651,10 +652,10 @@ class TestAutoOptimize:
             result = tool._action_auto_optimize()
             assert result["recommended"]["gpu_acceleration"] == "cuda"
 
-    def test_config_file_update(self, tool, tmp_path):
+    def test_config_file_update(self, tool: SystemControlTool, tmp_path: Path):
         """config.yaml 업데이트."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("ollama:\n  context_window: 4096\n", encoding="utf-8")
+        _ = config_file.write_text("ollama:\n  context_window: 4096\n", encoding="utf-8")
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
             patch.object(tool, "_find_config_path", return_value=str(config_file)),
@@ -675,7 +676,7 @@ class TestAutoOptimize:
             updated = config_file.read_text(encoding="utf-8")
             assert "context_window: 32768" in updated
 
-    def test_ollama_models_included(self, tool):
+    def test_ollama_models_included(self, tool: SystemControlTool):
         """Ollama 모델 목록이 최적화 결과에 포함."""
         with (
             patch.object(tool, "_action_get_system_info") as mock_info,
@@ -705,16 +706,16 @@ class TestAutoOptimize:
 class TestFindConfigPath:
     """_find_config_path는 상위 디렉토리를 탐색."""
 
-    def test_finds_config_in_parent(self, tool, tmp_path):
+    def test_finds_config_in_parent(self, tool: SystemControlTool, tmp_path: Path):
         """상위 디렉토리에 config.yaml이 있으면 발견."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("test: config", encoding="utf-8")
+        _ = config_file.write_text("test: config", encoding="utf-8")
         # tool의 파일을 기준으로 탐색하므로, tmp_path를 상위로 설정
         with patch.object(tool, "_find_config_path", return_value=str(config_file)):
             result = tool._find_config_path()
             assert result == str(config_file)
 
-    def test_returns_none_if_not_found(self, tool, tmp_path):
+    def test_returns_none_if_not_found(self, tool: SystemControlTool):
         """config.yaml이 없으면 None 반환."""
         with patch.object(tool, "_find_config_path", return_value=None):
             result = tool._find_config_path()
