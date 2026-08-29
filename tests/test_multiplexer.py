@@ -8,6 +8,11 @@ import pytest
 from antigravity_k.engine.multiplexer import Multiplexer
 
 
+def _result(value: object) -> dict[str, str]:
+    assert isinstance(value, dict)
+    return value
+
+
 @pytest.fixture
 def temp_project_root():
     """임시 프로젝트 루트 디렉토리."""
@@ -52,7 +57,11 @@ class TestMultiplexer:
         """단일 goal 실행 시 worktree 생성 + GoalRunner 실행이 이루어져야 함."""
         mux = Multiplexer(project_root=temp_project_root)
 
-        with mock.patch.object(mux.worktree_manager, "create_worktree", return_value="/tmp/worktree/test-1"):
+        with mock.patch.object(
+            mux.worktree_manager,
+            "create_worktree",
+            return_value="/tmp/worktree/test-1",
+        ) as create_worktree:
             with mock.patch(
                 "antigravity_k.engine.multiplexer.GoalRunner",
                 autospec=True,
@@ -66,7 +75,7 @@ class TestMultiplexer:
                 )
 
                 # create_worktree가 올바르게 호출되었는가
-                mux.worktree_manager.create_worktree.assert_called_once_with(
+                create_worktree.assert_called_once_with(
                     branch_name="test-task-1",
                     base_branch="main",
                 )
@@ -77,8 +86,9 @@ class TestMultiplexer:
                 # _run_single_agent가 호출되어야 함
                 assert len(mux.active_runners) == 1
                 assert mux.active_runners[0] is mock_runner_instance
-                assert results[0]["task_id"] == "test-task-1"
-                assert results[0]["status"] == "success"
+                result = _result(results[0])
+                assert result["task_id"] == "test-task-1"
+                assert result["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_run_parallel_goals_multiple(self, temp_project_root):
@@ -110,9 +120,11 @@ class TestMultiplexer:
                 )
 
                 assert len(results) == 2
-                assert results[0]["task_id"] == "task-a"
-                assert results[1]["task_id"] == "task-b"
-                assert all(r["status"] == "success" for r in results)
+                first = _result(results[0])
+                second = _result(results[1])
+                assert first["task_id"] == "task-a"
+                assert second["task_id"] == "task-b"
+                assert all(_result(r)["status"] == "success" for r in results)
 
     @pytest.mark.asyncio
     async def test_run_parallel_goals_with_auto_task_id(self, temp_project_root):
@@ -134,7 +146,7 @@ class TestMultiplexer:
                 )
 
                 # task_id가 제공되지 않으면 자동 생성
-                assert results[0]["status"] == "success"
+                assert _result(results[0])["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_single_agent_failure(self, temp_project_root):
@@ -167,8 +179,8 @@ class TestMultiplexer:
                     ],
                 )
 
-                good_result = next(r for r in results if r["task_id"] == "good-task")
-                bad_result = next(r for r in results if r["task_id"] == "bad-task")
+                good_result = next(_result(r) for r in results if _result(r)["task_id"] == "good-task")
+                bad_result = next(_result(r) for r in results if _result(r)["task_id"] == "bad-task")
                 assert good_result["status"] == "success"
                 assert bad_result["status"] == "failed"
                 assert "Agent exploded" in bad_result["error"]
