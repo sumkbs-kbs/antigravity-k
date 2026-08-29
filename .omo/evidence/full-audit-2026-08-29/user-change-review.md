@@ -16,6 +16,7 @@ date: 2026-08-30
 - 최신 전체 basedpyright 재측정은 `0 errors, 26862 warnings, 0 notes`이며, config editor 테스트 정리도 사용자 dirty path를 건드리지 않고 독립 커밋으로 분리했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 26770 warnings, 0 notes`이며, tiptap 패턴 테스트 정리도 사용자 dirty path를 건드리지 않고 독립 커밋으로 분리했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 26677 warnings, 0 notes`이며, task state 테스트 정리도 사용자 dirty path를 건드리지 않고 독립 커밋으로 분리했다.
+- 최신 전체 basedpyright 재측정은 `0 errors, 26631 warnings, 0 notes`이며, KTX 테스트 정리도 사용자 dirty path를 건드리지 않고 독립 커밋으로 분리했다.
 
 ## 위험도별 판단
 
