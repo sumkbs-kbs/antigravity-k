@@ -5,6 +5,7 @@
 목표의 핵심 메커니즘이 실제로 연결되어 동작함을 증명한다.
 """
 
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from antigravity_k.engine.model_manager import ModelManager
@@ -42,7 +43,7 @@ def _make_manager(responses, cascade_on, threshold=0.4, max_esc=2):
     router.cascade_confidence_threshold = threshold
     router.cascade_max_escalations = max_esc
 
-    manager = ModelManager(registry=registry, router=router, tracker=UsageTracker(db_path=None))
+    manager = cast(Any, ModelManager(registry=registry, router=router, tracker=UsageTracker(db_path=None)))
     manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
     calls = []
 
