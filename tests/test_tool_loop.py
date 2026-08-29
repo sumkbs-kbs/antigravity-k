@@ -42,12 +42,12 @@ class _RaisingIter:
     """
 
     def __init__(self, exc: Exception):
-        self.exc = exc
+        self.exc: Exception = exc
 
-    def __iter__(self):
+    def __iter__(self) -> _RaisingIter:
         return self
 
-    def __next__(self):
+    def __next__(self) -> str:
         raise self.exc
 
 
@@ -55,7 +55,7 @@ class _RaisingIter:
 
 
 @pytest.fixture
-def mock_orch():
+def mock_orch() -> MagicMock:
     """Mock orchestrator with minimal attributes for ToolLoopEngine."""
     orch = MagicMock()
     orch.config = {}
@@ -101,16 +101,16 @@ def mock_orch():
 
 
 class TestToolLoopEngineInit:
-    def test_stores_orchestrator(self, mock_orch):
+    def test_stores_orchestrator(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         assert engine.orch is mock_orch
 
-    def test_accepts_task_outcome_recorder(self, mock_orch):
+    def test_accepts_task_outcome_recorder(self, mock_orch: MagicMock):
         recorder = MagicMock()
         engine = ToolLoopEngine(mock_orch, outcome_recorder=recorder)
         assert engine.outcome_recorder is recorder
 
-    def test_compacts_large_tool_result_with_source_provenance(self, mock_orch):
+    def test_compacts_large_tool_result_with_source_provenance(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         raw_result = "BEGIN\n" + ("x" * 20_000) + "\nEND"
@@ -127,7 +127,7 @@ class TestToolLoopEngineInit:
         assert "BEGIN" in formatted
         assert "END" in formatted
 
-    def test_restores_stored_tool_artifact(self, mock_orch):
+    def test_restores_stored_tool_artifact(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         engine = ToolLoopEngine(mock_orch)
@@ -140,7 +140,7 @@ class TestToolLoopEngineInit:
 
         assert engine.restore_context_artifact(ref_id) == "A" * 20_000
 
-    def test_preserves_query_matched_middle_evidence_when_compacting(self, mock_orch):
+    def test_preserves_query_matched_middle_evidence_when_compacting(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         raw_result = "header\n" + ("x" * 8_000) + "\nagent_models:\n  default: qwen3.6:latest\n" + ("y" * 8_000)
@@ -153,7 +153,7 @@ class TestToolLoopEngineInit:
         assert "agent_models:" in formatted
         assert "default: qwen3.6:latest" in formatted
 
-    def test_redacts_secrets_in_tool_result_before_context_injection(self, mock_orch):
+    def test_redacts_secrets_in_tool_result_before_context_injection(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         raw_result = "NVIDIA_API_KEY=nvapi-abc123def456789012345678901234567890\nexport OPENAI_API_KEY=sk-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -166,7 +166,7 @@ class TestToolLoopEngineInit:
         assert "sk-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" not in formatted
         assert "<REDACTED>" in formatted
 
-    def test_redacts_secrets_even_when_large_tool_result_is_truncated(self, mock_orch):
+    def test_redacts_secrets_even_when_large_tool_result_is_truncated(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         # Secret sits near the head so it lands in the truncated head slice.
@@ -181,12 +181,12 @@ class TestToolLoopEngineInit:
 
 
 class TestToolLoopEngineNativeToolsKwargs:
-    def test_disabled_by_default(self, mock_orch):
+    def test_disabled_by_default(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         result = engine._native_tools_kwargs("some-model")
         assert result == {}
 
-    def test_enabled_but_unsupported_provider(self, mock_orch):
+    def test_enabled_but_unsupported_provider(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "mlx"
@@ -195,7 +195,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         result = engine._native_tools_kwargs("some-model")
         assert result == {}
 
-    def test_enabled_with_openrouter_success(self, mock_orch):
+    def test_enabled_with_openrouter_success(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "openrouter"
@@ -208,7 +208,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         assert "tools" in result
         assert result["tools"] == [{"name": "run_bash"}]
 
-    def test_enabled_with_ollama_success(self, mock_orch):
+    def test_enabled_with_ollama_success(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "ollama"
@@ -223,7 +223,7 @@ class TestToolLoopEngineNativeToolsKwargs:
 
         assert result["tools"] == [{"name": "read_file"}]
 
-    def test_enabled_ollama_limits_schemas_to_required_tools(self, mock_orch):
+    def test_enabled_ollama_limits_schemas_to_required_tools(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "ollama"
@@ -238,7 +238,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         assert result["tools"] == [{"name": "read_file"}]
         tool_registry.to_openai_schemas.assert_called_once_with(names=["read_file"])
 
-    def test_enabled_with_lmstudio_native_capability_success(self, mock_orch):
+    def test_enabled_with_lmstudio_native_capability_success(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "lmstudio"
@@ -253,7 +253,7 @@ class TestToolLoopEngineNativeToolsKwargs:
 
         assert result["tools"] == [{"name": "read_file"}]
 
-    def test_enabled_with_explicitly_unsupported_local_capability_uses_xml(self, mock_orch):
+    def test_enabled_with_explicitly_unsupported_local_capability_uses_xml(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "ollama"
@@ -268,7 +268,7 @@ class TestToolLoopEngineNativeToolsKwargs:
 
         assert result == {}
 
-    def test_enabled_with_openrouter_empty_schemas(self, mock_orch):
+    def test_enabled_with_openrouter_empty_schemas(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "openrouter"
@@ -280,14 +280,14 @@ class TestToolLoopEngineNativeToolsKwargs:
         result = engine._native_tools_kwargs("some-model")
         assert result == {}
 
-    def test_registry_get_model_raises_exception(self, mock_orch):
+    def test_registry_get_model_raises_exception(self, mock_orch: MagicMock):
         mock_orch.config = {"tool_loop": {"native_function_calling": True}}
         mock_orch.manager._registry.get_model.side_effect = ValueError("not found")
         engine = ToolLoopEngine(mock_orch)
         result = engine._native_tools_kwargs("some-model")
         assert result == {}
 
-    def test_config_not_dict(self, mock_orch):
+    def test_config_not_dict(self, mock_orch: MagicMock):
         mock_orch.config = None
         engine = ToolLoopEngine(mock_orch)
         result = engine._native_tools_kwargs("some-model")
@@ -298,7 +298,7 @@ class TestToolLoopEngineNativeToolsKwargs:
 
 
 class TestToolLoopEnginePostLoopChecks:
-    def test_uses_source_title_fallback_when_no_model_claim_is_supported(self, mock_orch):
+    def test_uses_source_title_fallback_when_no_model_claim_is_supported(self, mock_orch: MagicMock):
         # Given: usable search records but no claim the model grounded correctly.
         evidence_context = (
             "1. [citation:python-docs] **Python 3.13 release notes**\n"
@@ -330,7 +330,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert mock_orch.ctx.analysis["citation_recovery"] == "deterministic_source_titles"
         assert any("Citation Recovery" in output for output in outputs)
 
-    def test_recovers_only_supported_claims_after_invalid_citation_revision(self, mock_orch):
+    def test_recovers_only_supported_claims_after_invalid_citation_revision(self, mock_orch: MagicMock):
         # Given: one supported claim, one unknown citation, and one unsupported claim.
         evidence_context = (
             "1. [citation:python-docs] **Python 3.13 release notes**\n"
@@ -369,7 +369,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert mock_orch.ctx.analysis["citation_evaluation"]["unknown_citation_count"] == 0
         assert any("Citation Recovery" in output for output in outputs)
 
-    def test_revises_uncited_web_claim_with_available_evidence(self, mock_orch):
+    def test_revises_uncited_web_claim_with_available_evidence(self, mock_orch: MagicMock):
         # Given: a final answer without the available web citation.
         evidence_context = (
             "1. [citation:python-docs] **Python 3.13 release notes**\n"
@@ -426,26 +426,26 @@ class TestToolLoopEnginePostLoopChecks:
 
         quality_gate.evaluate.assert_called_once()
 
-    def test_cognitive_loop_reflect_called(self, mock_orch):
+    def test_cognitive_loop_reflect_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.cognitive_loop.reflect.assert_called_once_with("do something", "output")
 
-    def test_quality_gate_evaluate_called(self, mock_orch):
+    def test_quality_gate_evaluate_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.evaluate.assert_called_once()
 
-    def test_quality_gate_user_message_yielded(self, mock_orch):
+    def test_quality_gate_user_message_yielded(self, mock_orch: MagicMock):
         mock_orch.ctx.quality_gate.evaluate.return_value.user_message = "Quality issue detected"
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         res = list(engine._post_loop_checks(messages, "code", "output", "do something"))
         assert any("Quality issue detected" in r for r in res)
 
-    def test_quality_gate_retry_marked(self, mock_orch):
+    def test_quality_gate_retry_marked(self, mock_orch: MagicMock):
         mock_orch.ctx.quality_gate.evaluate.return_value.should_retry = True
         mock_orch.ctx.quality_gate.evaluate.return_value.feedback = "needs improvement"
         mock_orch.ctx.quality_gate.evaluate.return_value.user_message = ""
@@ -454,7 +454,7 @@ class TestToolLoopEnginePostLoopChecks:
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.mark_retry.assert_called_once()
 
-    def test_quality_gate_revision_replaces_output_and_outcome(self, mock_orch):
+    def test_quality_gate_revision_replaces_output_and_outcome(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="보완 필요", score=0.3)
         revised = MagicMock(user_message="", should_retry=False, feedback="", score=0.9)
         mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised]
@@ -479,7 +479,7 @@ class TestToolLoopEnginePostLoopChecks:
         )
         mock_orch.manager.generate.assert_called_once()
 
-    def test_quality_revision_retries_until_gate_budget_is_exhausted(self, mock_orch):
+    def test_quality_revision_retries_until_gate_budget_is_exhausted(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="중국어 혼입", score=0.3)
         first_revision = MagicMock(user_message="", should_retry=True, feedback="여전히 중국어 혼입", score=0.7)
         second_revision = MagicMock(user_message="", should_retry=False, feedback="", score=0.95)
@@ -501,7 +501,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert mock_orch._last_agent_output == "최종 한국어 답변"
         assert any("최종 한국어 답변" in chunk for chunk in chunks)
 
-    def test_quality_gate_receives_normalized_local_language_output(self, mock_orch):
+    def test_quality_gate_receives_normalized_local_language_output(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=False, feedback="", score=1.0)
         mock_orch.ctx.quality_gate.evaluate.return_value = initial
 
@@ -517,7 +517,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert mock_orch.ctx.quality_gate.evaluate.call_args.args[2] == "시간복잡도와 공간복잡도를 설명합니다."
         assert mock_orch._last_agent_output == "시간복잡도와 공간복잡도를 설명합니다."
 
-    def test_qwen_quality_revision_uses_measured_stable_sampling(self, mock_orch):
+    def test_qwen_quality_revision_uses_measured_stable_sampling(self, mock_orch: MagicMock):
         mock_orch.manager.generate.return_value = "revised"
 
         ToolLoopEngine(mock_orch)._quality_revision(
@@ -531,7 +531,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert kwargs["temperature"] == 0.08
         assert kwargs["repeat_penalty"] == 1.15
 
-    def test_quality_gate_keeps_original_grade_when_revision_scores_lower(self, mock_orch):
+    def test_quality_gate_keeps_original_grade_when_revision_scores_lower(self, mock_orch: MagicMock):
         initial = QualityScore(
             grade=QualityGrade.C,
             score=0.5,
@@ -564,7 +564,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert mock_orch._last_agent_output == "draft output"
         assert outcomes[0].error == "quality_gate_failed: draft feedback"
 
-    def test_decomposition_recovery_used_when_revision_still_fails(self, mock_orch):
+    def test_decomposition_recovery_used_when_revision_still_fails(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="워크플로 누락", score=0.3)
         revised = MagicMock(user_message="", should_retry=True, feedback="여전히 누락", score=0.2)
         decomposed = MagicMock(user_message="", should_retry=False, feedback="", score=0.9)
@@ -591,7 +591,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert mock_orch._last_agent_output == "분해로 복구된 워크플로"
         assert any("분해로 복구된 워크플로" in chunk for chunk in chunks)
 
-    def test_decomposition_recovery_respects_config_toggle(self, mock_orch):
+    def test_decomposition_recovery_respects_config_toggle(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="워크플로 누락", score=0.3)
         revised = MagicMock(user_message="", should_retry=True, feedback="여전히 누락", score=0.2)
         mock_orch.config = {
@@ -614,7 +614,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         mock_orch.manager.generate_decomposed.assert_not_called()
 
-    def test_decomposition_recovery_keeps_original_when_it_scores_lower(self, mock_orch):
+    def test_decomposition_recovery_keeps_original_when_it_scores_lower(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=True, feedback="워크플로 누락", score=0.3)
         revised = MagicMock(user_message="", should_retry=True, feedback="여전히 누락", score=0.2)
         decomposed = MagicMock(user_message="", should_retry=True, feedback="악화", score=0.1)
@@ -640,7 +640,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         assert mock_orch._last_agent_output == "초안"
 
-    def test_quality_revision_preserves_verified_tool_execution_evidence(self, mock_orch):
+    def test_quality_revision_preserves_verified_tool_execution_evidence(self, mock_orch: MagicMock):
         # Given: a coding task whose tool loop produced real run_bash_command evidence.
         initial = MagicMock(user_message="", should_retry=True, feedback="구조 보완", score=0.5)
         revised = MagicMock(user_message="", should_retry=False, feedback="", score=0.9)
@@ -674,7 +674,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert "5050" in revision_prompt
         assert "run_bash_command" in revision_prompt
 
-    def test_decision_anchor_extract(self, mock_orch):
+    def test_decision_anchor_extract(self, mock_orch: MagicMock):
         mock_orch.ctx.decision_anchor.auto_extract.return_value = {
             "decision": "refactor",
             "category": "code",
@@ -684,7 +684,7 @@ class TestToolLoopEnginePostLoopChecks:
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.decision_anchor.add.assert_called_once()
 
-    def test_event_bus_published(self, mock_orch):
+    def test_event_bus_published(self, mock_orch: MagicMock):
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
             engine = ToolLoopEngine(mock_orch)
             messages = [{"role": "user", "content": "do something"}]
@@ -696,26 +696,26 @@ class TestToolLoopEnginePostLoopChecks:
                 project_root="/tmp/test",
             )
 
-    def test_exception_in_reflect_does_not_block(self, mock_orch):
+    def test_exception_in_reflect_does_not_block(self, mock_orch: MagicMock):
         mock_orch.ctx.cognitive_loop.reflect.side_effect = RuntimeError("reflect fail")
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.evaluate.assert_called_once()
 
-    def test_no_cognitive_loop_skips(self, mock_orch):
+    def test_no_cognitive_loop_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.cognitive_loop = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
 
-    def test_no_quality_gate_skips(self, mock_orch):
+    def test_no_quality_gate_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.quality_gate = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         list(engine._post_loop_checks(messages, "code", "output", "do something"))
 
-    def test_no_decision_anchor_skips(self, mock_orch):
+    def test_no_decision_anchor_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.decision_anchor = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
@@ -727,7 +727,7 @@ class TestToolLoopEnginePostLoopChecks:
 
 class TestToolLoopEngineRunToolTaskAsync:
     @pytest.mark.asyncio
-    async def test_read_only_benchmark_blocks_mutating_tool(self, mock_orch, tmp_path):
+    async def test_read_only_benchmark_blocks_mutating_tool(self, mock_orch: MagicMock, tmp_path):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         store = TaskStateStore(str(tmp_path / "tasks.db"))
@@ -750,7 +750,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         mock_orch.ctx.tool_executor.execute_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_guardrail_blocks_execution(self, mock_orch):
+    async def test_guardrail_blocks_execution(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         pre_decision = MagicMock()
@@ -775,7 +775,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         mock_orch.ctx.tool_executor.execute_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_successful_execution(self, mock_orch):
+    async def test_successful_execution(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         mock_orch.ctx.tool_executor.execute_async.return_value = "command output"
@@ -789,7 +789,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         mock_orch.ctx.tool_guardrail.after_call.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_cognitive_verify_error_handled(self, mock_orch):
+    async def test_cognitive_verify_error_handled(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         mock_orch.ctx.cognitive_loop.verify_tool_result.side_effect = ValueError("verify fail")
@@ -801,7 +801,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         assert tool_result is not None
 
     @pytest.mark.asyncio
-    async def test_event_bus_exception_handled(self, mock_orch):
+    async def test_event_bus_exception_handled(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
@@ -822,7 +822,7 @@ class TestToolLoopEngineRunLoop:
     mock_orch: MagicMock = MagicMock()
 
     @pytest.fixture(autouse=True)
-    def _setup_run_loop_mocks(self, mock_orch):
+    def _setup_run_loop_mocks(self, mock_orch: MagicMock) -> None:
         """Common mocks for run_loop: prepare_agent_prompt, manager, combo check."""
         self.mock_orch = mock_orch
         # NOTE: get_combo must return None (not False) — run_loop checks
@@ -1651,7 +1651,7 @@ class TestToolLoopEngineContextCompression:
             for i in range(count)
         ]
 
-    def test_compresses_when_over_budget(self, mock_orch):
+    def test_compresses_when_over_budget(self, mock_orch: MagicMock):
         from antigravity_k.engine.context_compressor import ContextCompressor
 
         compressor = ContextCompressor(token_limit=500, keep_last_n=3)
@@ -1676,7 +1676,7 @@ class TestToolLoopEngineContextCompression:
         assert shaped != self._long_messages()
         assert shaped[0]["role"] == "system"  # 시스템 메시지 항상 보존
 
-    def test_reinjects_relevant_artifact_after_compression(self, mock_orch):
+    def test_reinjects_relevant_artifact_after_compression(self, mock_orch: MagicMock):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         engine = ToolLoopEngine(mock_orch)
@@ -1715,7 +1715,7 @@ class TestToolLoopEngineContextCompression:
         assert usage_before == 90.0
         assert usage_after == 20.0
 
-    def test_noop_within_budget(self, mock_orch):
+    def test_noop_within_budget(self, mock_orch: MagicMock):
         from antigravity_k.engine.context_compressor import ContextCompressor
 
         compressor = ContextCompressor(token_limit=5000, keep_last_n=3)
@@ -1731,7 +1731,7 @@ class TestToolLoopEngineContextCompression:
         assert shaped == messages
         assert prompt == "orig-prompt"
 
-    def test_mock_compressor_skipped(self, mock_orch):
+    def test_mock_compressor_skipped(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)  # context_compressor_for → MagicMock
 
         messages = [{"role": "user", "content": "x"}]
@@ -1743,7 +1743,7 @@ class TestToolLoopEngineContextCompression:
         assert shaped == messages
         assert prompt == "p"
 
-    def test_none_compressor_skipped(self, mock_orch):
+    def test_none_compressor_skipped(self, mock_orch: MagicMock):
         mock_orch.context_compressor_for.return_value = None
         engine = ToolLoopEngine(mock_orch)
 
@@ -1756,7 +1756,7 @@ class TestToolLoopEngineContextCompression:
         assert shaped == messages
         assert prompt == "p"
 
-    def test_checkpoint_context_is_bounded_for_long_sessions(self, mock_orch):
+    def test_checkpoint_context_is_bounded_for_long_sessions(self, mock_orch: MagicMock):
         messages = [{"role": "user", "content": f"turn-{index}"} for index in range(300)]
 
         engine = ToolLoopEngine(mock_orch)
