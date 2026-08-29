@@ -463,7 +463,7 @@ def command_filter(args: argparse.Namespace) -> int:
         "items": items,
     }
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
-    sys.stdout.write("\n")
+    _ = sys.stdout.write("\n")
     return 0
 
 
@@ -605,23 +605,23 @@ def command_eligibility(args: argparse.Namespace) -> int:
         "results": results,
     }
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
-    sys.stdout.write("\n")
+    _ = sys.stdout.write("\n")
     return 0
 
 
 def add_common_filters(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--input", help="JSON file path. If omitted, reads from stdin.")
-    parser.add_argument("--q", help="Keyword filter across name, organization, notes, and majors.")
-    parser.add_argument("--org-type", help="school|foundation|government|company|local-government|other")
-    parser.add_argument("--school-kind", help="highschool|college|university|graduate-school")
-    parser.add_argument("--school-name", help="Partial match against supported school names.")
-    parser.add_argument("--student-level", help="highschool|undergraduate|graduate|all")
-    parser.add_argument("--major", help="Partial match against target major names.")
-    parser.add_argument("--department-name", help="Partial match against department/program names.")
-    parser.add_argument("--grade-year", type=int, help="Student year, e.g. 1, 2, 3, 4.")
-    parser.add_argument("--gpa", type=float, help="Current GPA for eligibility check.")
-    parser.add_argument("--income-band", type=int, help="학자금 지원구간 integer, usually 0~10.")
-    parser.add_argument(
+    _ = parser.add_argument("--input", help="JSON file path. If omitted, reads from stdin.")
+    _ = parser.add_argument("--q", help="Keyword filter across name, organization, notes, and majors.")
+    _ = parser.add_argument("--org-type", help="school|foundation|government|company|local-government|other")
+    _ = parser.add_argument("--school-kind", help="highschool|college|university|graduate-school")
+    _ = parser.add_argument("--school-name", help="Partial match against supported school names.")
+    _ = parser.add_argument("--student-level", help="highschool|undergraduate|graduate|all")
+    _ = parser.add_argument("--major", help="Partial match against target major names.")
+    _ = parser.add_argument("--department-name", help="Partial match against department/program names.")
+    _ = parser.add_argument("--grade-year", type=int, help="Student year, e.g. 1, 2, 3, 4.")
+    _ = parser.add_argument("--gpa", type=float, help="Current GPA for eligibility check.")
+    _ = parser.add_argument("--income-band", type=int, help="학자금 지원구간 integer, usually 0~10.")
+    _ = parser.add_argument(
         "--today",
         help=f"Override current date for deadline filtering/reporting. When omitted or unparsable, defaults to current KST date ({KST_LABEL}), e.g. 2026-04-14.",
     )
@@ -771,7 +771,7 @@ def command_report(args: argparse.Namespace) -> int:
             lines.append(report_entry(record, today))
             lines.append("")
 
-    sys.stdout.write("\n".join(lines).rstrip() + "\n")
+    _ = sys.stdout.write("\n".join(lines).rstrip() + "\n")
     return 0
 
 
@@ -783,25 +783,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     filter_parser = subparsers.add_parser("filter", help="Filter scholarship records by profile and preference.")
     add_common_filters(filter_parser)
-    filter_parser.add_argument("--min-amount", type=int, help="Minimum scholarship amount in KRW.")
-    filter_parser.add_argument("--max-amount", type=int, help="Maximum scholarship amount in KRW.")
-    filter_parser.add_argument(
+    _ = filter_parser.add_argument("--min-amount", type=int, help="Minimum scholarship amount in KRW.")
+    _ = filter_parser.add_argument("--max-amount", type=int, help="Maximum scholarship amount in KRW.")
+    _ = filter_parser.add_argument(
         "--strict-amount",
         action="store_true",
         help="Drop records whose amount cannot be normalized to KRW.",
     )
-    filter_parser.add_argument("--deadline-status", help="open|upcoming|closed")
-    filter_parser.add_argument(
+    _ = filter_parser.add_argument("--deadline-status", help="open|upcoming|closed")
+    _ = filter_parser.add_argument(
         "--only-open-now",
         action="store_true",
         help="Keep only scholarships open on --today.",
     )
-    filter_parser.add_argument(
+    _ = filter_parser.add_argument(
         "--upcoming-within-days",
         type=int,
         help="Keep scholarships opening within N days.",
     )
-    filter_parser.add_argument(
+    _ = filter_parser.add_argument(
         "--deadline-within-days",
         type=int,
         help="Keep scholarships closing within N days.",
@@ -820,25 +820,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Render a readable markdown report grouped by open/upcoming/closed based on the current date.",
     )
     add_common_filters(report_parser)
-    report_parser.add_argument("--min-amount", type=int, help="Minimum scholarship amount in KRW.")
-    report_parser.add_argument("--max-amount", type=int, help="Maximum scholarship amount in KRW.")
-    report_parser.add_argument(
+    _ = report_parser.add_argument("--min-amount", type=int, help="Minimum scholarship amount in KRW.")
+    _ = report_parser.add_argument("--max-amount", type=int, help="Maximum scholarship amount in KRW.")
+    _ = report_parser.add_argument(
         "--strict-amount",
         action="store_true",
         help="Drop records whose amount cannot be normalized to KRW.",
     )
-    report_parser.add_argument("--deadline-status", help="open|upcoming|closed")
-    report_parser.add_argument(
+    _ = report_parser.add_argument("--deadline-status", help="open|upcoming|closed")
+    _ = report_parser.add_argument(
         "--only-open-now",
         action="store_true",
         help="Keep only scholarships open on --today.",
     )
-    report_parser.add_argument(
+    _ = report_parser.add_argument(
         "--upcoming-within-days",
         type=int,
         help="Keep scholarships opening within N days.",
     )
-    report_parser.add_argument(
+    _ = report_parser.add_argument(
         "--deadline-within-days",
         type=int,
         help="Keep scholarships closing within N days.",
