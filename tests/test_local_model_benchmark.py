@@ -1,13 +1,8 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from types import SimpleNamespace
 from typing import cast
 
-from scripts.run_local_model_benchmark import (
-    _build_grounding_prompt,
-    _extract_grounding_answer,
-    _summarize_grounding_runs,
-    _summarize_repeats,
-)
+import scripts.run_local_model_benchmark as benchmark_module
 
 
 def _result(case_id: str, score: float, grade: str, revision_count: int = 0):
@@ -24,6 +19,31 @@ def _result(case_id: str, score: float, grade: str, revision_count: int = 0):
 
 def _mapping(value: object) -> Mapping[str, object]:
     return cast(Mapping[str, object], value)
+
+
+def _summarize_repeats(reports: Sequence[object]) -> dict[str, object]:
+    summarize = cast(
+        Callable[[Sequence[object]], dict[str, object]], cast(object, getattr(benchmark_module, "_summarize_repeats"))
+    )
+    return summarize(reports)
+
+
+def _build_grounding_prompt(case: object) -> str:
+    build = cast(Callable[[object], str], cast(object, getattr(benchmark_module, "_build_grounding_prompt")))
+    return build(case)
+
+
+def _extract_grounding_answer(raw: str) -> str:
+    extract = cast(Callable[[str], str], cast(object, getattr(benchmark_module, "_extract_grounding_answer")))
+    return extract(raw)
+
+
+def _summarize_grounding_runs(runs: Sequence[Sequence[object]]) -> dict[str, object]:
+    summarize = cast(
+        Callable[[Sequence[Sequence[object]]], dict[str, object]],
+        cast(object, getattr(benchmark_module, "_summarize_grounding_runs")),
+    )
+    return summarize(runs)
 
 
 def test_summarize_repeats_counts_verified_code_result_as_excellent():
