@@ -270,7 +270,7 @@ def load_usage_json(path: Path | str | None) -> dict[str, int]:
     counts: dict[str, int] = {}
     for key, value in data.items():
         try:
-            counts[str(key)] = int(value)
+            counts[str(key)] = int(str(value))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"usage count for {key!r} must be an integer") from exc
     return counts

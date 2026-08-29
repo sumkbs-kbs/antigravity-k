@@ -270,7 +270,11 @@ def bootstrap_session(*, forest_id: str, forest_pw: str, ttl_sec: int = 600) -> 
                 if fid and name:
                     forests[fid] = name
 
-        cookies = {cookie["name"]: cookie["value"] for cookie in page.context.cookies()}
+        cookies = {
+            str(cookie.get("name")): str(cookie.get("value", ""))
+            for cookie in page.context.cookies()
+            if cookie.get("name")
+        }
         user_agent = page.evaluate("() => navigator.userAgent")
         browser.close()
 
