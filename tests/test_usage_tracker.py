@@ -17,13 +17,13 @@ from antigravity_k.engine.usage_tracker import (
 
 
 @pytest.fixture
-def tracker():
+def tracker() -> UsageTracker:
     """메모리 전용 추적기 (DB 파일 없음)."""
     return UsageTracker(db_path=None, max_records=100)
 
 
 @pytest.fixture
-def tracker_with_db(tmp_path):
+def tracker_with_db(tmp_path: Path) -> UsageTracker:
     """임시 DB 파일 사용 추적기."""
     db_path = tmp_path / "test_usage.json"
     return UsageTracker(db_path=str(db_path), auto_save_interval=5)
@@ -35,7 +35,7 @@ def tracker_with_db(tmp_path):
 class TestRecord:
     """기록 API 테스트."""
 
-    def test_basic_record(self, tracker):
+    def test_basic_record(self, tracker: UsageTracker):
         entry = tracker.record(
             "qwen3-72b",
             tokens_in=100,
@@ -49,7 +49,7 @@ class TestRecord:
         assert entry.total_tokens == 600
         assert entry.success is True
 
-    def test_failure_record(self, tracker):
+    def test_failure_record(self, tracker: UsageTracker):
         entry = tracker.record(
             "model-a",
             success=False,
@@ -58,7 +58,7 @@ class TestRecord:
         assert entry.success is False
         assert entry.error == "OOM"
 
-    def test_combo_record(self, tracker):
+    def test_combo_record(self, tracker: UsageTracker):
         entry = tracker.record(
             "model-b",
             combo_name="coding-stack",
@@ -73,7 +73,7 @@ class TestRecord:
             tracker.record(f"model-{i}")
         assert len(tracker._records) == 5
 
-    def test_timestamp_set(self, tracker):
+    def test_timestamp_set(self, tracker: UsageTracker):
         before = time.time()
         entry = tracker.record("model-a")
         after = time.time()
@@ -86,11 +86,11 @@ class TestRecord:
 class TestStats:
     """통계 조회 테스트."""
 
-    def test_empty_stats(self, tracker):
+    def test_empty_stats(self, tracker: UsageTracker):
         stats = tracker.get_stats()
         assert stats == []
 
-    def test_daily_stats(self, tracker):
+    def test_daily_stats(self, tracker: UsageTracker):
         for _ in range(5):
             tracker.record("qwen3-72b", tokens_in=10, tokens_out=50, latency_ms=100, success=True)
         tracker.record("qwen3-72b", success=False, error="fail")
@@ -103,7 +103,7 @@ class TestStats:
         assert s.failure_count == 1
         assert s.success_rate == pytest.approx(83.3, rel=0.1)
 
-    def test_per_model_stats(self, tracker):
+    def test_per_model_stats(self, tracker: UsageTracker):
         tracker.record("model-a", tokens_in=10)
         tracker.record("model-b", tokens_in=20)
         tracker.record("model-a", tokens_in=30)
@@ -115,7 +115,7 @@ class TestStats:
         assert len(a_stats) == 1
         assert a_stats[0].total_requests == 2
 
-    def test_latency_stats(self, tracker):
+    def test_latency_stats(self, tracker: UsageTracker):
         tracker.record("model-a", latency_ms=100, success=True)
         tracker.record("model-a", latency_ms=200, success=True)
         tracker.record("model-a", latency_ms=300, success=True)
@@ -126,7 +126,7 @@ class TestStats:
         assert s.min_latency_ms == 100
         assert s.max_latency_ms == 300
 
-    def test_fallback_count(self, tracker):
+    def test_fallback_count(self, tracker: UsageTracker):
         tracker.record("model-a", fallback_depth=0)
         tracker.record("model-b", fallback_depth=1)
         tracker.record("model-c", fallback_depth=2)
@@ -140,14 +140,14 @@ class TestStats:
 
 
 class TestRecent:
-    def test_get_recent(self, tracker):
+    def test_get_recent(self, tracker: UsageTracker):
         for i in range(10):
             tracker.record(f"model-{i}")
         recent = tracker.get_recent(5)
         assert len(recent) == 5
         assert recent[0].model_name == "model-9"  # 최근순
 
-    def test_get_model_names(self, tracker):
+    def test_get_model_names(self, tracker: UsageTracker):
         tracker.record("a")
         tracker.record("b")
         tracker.record("a")
@@ -159,7 +159,7 @@ class TestRecent:
 
 
 class TestDashboard:
-    def test_dashboard_data_structure(self, tracker):
+    def test_dashboard_data_structure(self, tracker: UsageTracker):
         tracker.record("model-a", tokens_in=10, tokens_out=50)
         data = tracker.to_dashboard_data()
         assert "daily" in data
@@ -173,7 +173,7 @@ class TestDashboard:
 
 
 class TestPersistence:
-    def test_save_and_load(self, tmp_path):
+    def test_save_and_load(self, tmp_path: Path):
         db_path = str(tmp_path / "usage.json")
 
         # 기록 & 저장
@@ -187,7 +187,7 @@ class TestPersistence:
         assert len(t2._records) == 2
         assert t2._records[0].model_name == "model-a"
 
-    def test_auto_save(self, tmp_path):
+    def test_auto_save(self, tmp_path: Path):
         db_path = str(tmp_path / "usage.json")
         t = UsageTracker(db_path=db_path, auto_save_interval=3)
         t.record("a")
@@ -196,7 +196,7 @@ class TestPersistence:
         t.record("c")
         assert Path(db_path).exists()  # 3건 도달 → 자동 저장
 
-    def test_corrupt_db(self, tmp_path):
+    def test_corrupt_db(self, tmp_path: Path):
         db_path = tmp_path / "corrupt.json"
         db_path.write_text("NOT JSON", encoding="utf-8")
         t = UsageTracker(db_path=str(db_path))
@@ -233,7 +233,7 @@ class TestUsageStats:
         assert d["total_tokens"] == 300
         assert "success_rate" in d
 
-    def test_clear(self, tracker):
+    def test_clear(self, tracker: UsageTracker):
         tracker.record("a")
         tracker.record("b")
         tracker.clear()
