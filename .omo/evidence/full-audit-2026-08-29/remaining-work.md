@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `63e4a2d` (CI 도구 테스트 typed adapter 정리 포함)
-- 전체 `basedpyright`: `0 errors, 26955 warnings, 0 notes` (CI 도구 테스트까지 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 스킬 모듈 Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, tool-loop 테스트는 611건 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `153b5f2` (CI/config editor 테스트 typed adapter 정리 포함)
+- 전체 `basedpyright`: `0 errors, 26862 warnings, 0 notes` (CI 도구·config editor 테스트까지 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 스킬 모듈 Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, tool-loop 테스트는 611건 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -186,6 +186,7 @@ date: 2026-08-29
 - `9f771d8`: KTX search/reserve/cancel and train/reservation normalization now use explicit Protocol contracts, with a guarded reservation result and typed command payloads. The KTX script suite passed 11 tests; Ruff, Ruff-format, mypy, py_compile, and pre-commit passed. File basedpyright warnings decreased from 269 to 97; remaining diagnostics are optional `korail2`/crypto import surfaces and untyped third-party members. Whole-tree basedpyright remeasurement is `0 errors, 28057 warnings, 0 notes`.
 
 - `63e4a2d`: `tests/test_ci_tools.py`의 보호 메서드 호출, 파싱 결과, linter 목록, PR subprocess mock을 명시적 callable/TypedDict/Mock 경계로 정리하고 파일 쓰기 반환값을 소비했다. 45개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `93 → 0`, 전체 basedpyright는 `0 errors, 26955 warnings, 0 notes`다.
+- `153b5f2`: `tests/test_config_editor_tool.py`의 pytest fixture, ConfigEditorTool 실행 결과, YAML 결과 구조를 명시적 타입과 경계 adapter로 정리하고 미사용 fixture 의존성을 제거했다. 15개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `93 → 0`, 전체 basedpyright는 `0 errors, 26862 warnings, 0 notes`다.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 

@@ -13,6 +13,7 @@ date: 2026-08-30
 - 상태는 수정 144, 삭제 42, 서브모듈 변경 2, 미추적 56이다.
 - 미추적 Python 21개와 JS/TS 30개는 전체 정적 진단·pytest/Vitest 탐색 범위에 포함됐지만 아직 독립 커밋하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 26955 warnings, 0 notes`이며, 이번 CI 도구 테스트 정리는 사용자 dirty path를 건드리지 않고 독립 커밋으로 분리했다.
+- 최신 전체 basedpyright 재측정은 `0 errors, 26862 warnings, 0 notes`이며, config editor 테스트 정리도 사용자 dirty path를 건드리지 않고 독립 커밋으로 분리했다.
 
 ## 위험도별 판단
 
