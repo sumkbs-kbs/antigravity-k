@@ -13,10 +13,32 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import NoReturn, cast
+from typing import Callable, NoReturn, cast
 
 import pytest
 from cryptography.fernet import Fernet
+
+import antigravity_k.engine.secure_key as secure_key
+
+_get_machine_seed = cast(Callable[[], str], getattr(secure_key, "_get_machine_seed"))
+_get_or_create_master_key = cast(Callable[[], bytes], getattr(secure_key, "_get_or_create_master_key"))
+_load_vault_keys = cast(Callable[[], dict[str, str]], getattr(secure_key, "_load_vault_keys"))
+_save_vault_keys = cast(Callable[[dict[str, str]], None], getattr(secure_key, "_save_vault_keys"))
+_derive_key_from_seed = cast(Callable[[str], bytes], getattr(secure_key, "_derive_key_from_seed"))
+get_api_key = secure_key.get_api_key
+store_api_key = secure_key.store_api_key
+has_api_key = secure_key.has_api_key
+remove_api_key = secure_key.remove_api_key
+clear_vault_keys = secure_key.clear_vault_keys
+list_configured_services = secure_key.list_configured_services
+get_key_source = secure_key.get_key_source
+rotate_master_key = secure_key.rotate_master_key
+VALID_SERVICES = secure_key.VALID_SERVICES
+
+
+def _secure_path(module: object, name: str) -> Path:
+    return cast(Path, getattr(module, name))
+
 
 # ─── Fixtures: 경로 상수 오버라이드 ─────────────────────────────────
 
@@ -58,6 +80,7 @@ def fake_ioreg_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
         returncode=0,
         stdout='  "IOPlatformUUID" = "E9C3EB2E-A2B0-570C-BC5F-100B4CFD1BB8"\n',
     )
+
     def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
         return fake_result
 
@@ -93,7 +116,6 @@ class TestGetMachineSeed:
 
     def test_returns_ioreg_uuid_when_available(self):
         """1순위: IOPlatformUUID가 있으면 이를 반환해야 함."""
-        from antigravity_k.engine.secure_key import _get_machine_seed
 
         seed = _get_machine_seed()
         assert seed == "E9C3EB2E-A2B0-570C-BC5F-100B4CFD1BB8"
@@ -102,8 +124,6 @@ class TestGetMachineSeed:
     def test_returns_machine_id_when_ioreg_fails(self, monkeypatch: pytest.MonkeyPatch):
         """2순위: ioreg 실패 시 /etc/machine-id를 반환해야 함."""
         import subprocess
-
-        from antigravity_k.engine.secure_key import _get_machine_seed
 
         # ioreg 실패 시뮬레이션
         monkeypatch.setattr(
@@ -117,8 +137,6 @@ class TestGetMachineSeed:
     def test_returns_mac_address_when_all_else_fails(self, monkeypatch: pytest.MonkeyPatch):
         """3순위: ioreg도 없고 machine-id도 없으면 MAC 주소를 반환해야 함."""
         import subprocess
-
-        from antigravity_k.engine.secure_key import _get_machine_seed
 
         # ioreg / machine-id 모두 실패
         monkeypatch.setattr(
@@ -140,8 +158,6 @@ class TestGetMachineSeed:
         import subprocess
         import uuid
 
-        from antigravity_k.engine.secure_key import _get_machine_seed
-
         # 모든 Tier 차단
         monkeypatch.setattr(
             subprocess,
@@ -155,7 +171,6 @@ class TestGetMachineSeed:
 
     def test_deterministic_on_same_machine(self):
         """동일 환경에서 항상 같은 시드를 반환해야 함."""
-        from antigravity_k.engine.secure_key import _get_machine_seed
 
         seed1 = _get_machine_seed()
         seed2 = _get_machine_seed()
@@ -173,7 +188,6 @@ class TestGetOrCreateMasterKey:
 
     def test_creates_new_key(self, patch_paths: Path):
         """최초 호출 시 마스터 키를 생성하고 반환해야 함."""
-        from antigravity_k.engine.secure_key import _get_or_create_master_key
 
         key = _get_or_create_master_key()
         assert isinstance(key, bytes)
@@ -182,17 +196,13 @@ class TestGetOrCreateMasterKey:
         # 키 파일이 생성되었는지 확인
         assert patch_paths.joinpath("master.key").exists()
 
-    def test_restores_cached_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_restores_cached_key(self, monkeypatch: pytest.MonkeyPatch):
         """두 번째 호출 시 캐시된 키를 복원해야 함.
 
         시드가 변경되어도 master.key가 캐싱되어 있으면
         동일한 키를 반환해야 함.
         """
         import subprocess
-
-        from antigravity_k.engine.secure_key import _get_or_create_master_key
 
         key1 = _get_or_create_master_key()
 
@@ -202,6 +212,7 @@ class TestGetOrCreateMasterKey:
             returncode=0,
             stdout='  "IOPlatformUUID" = "DIFFERENT-UUID"\n',
         )
+
         def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
             return fake_result
 
@@ -212,7 +223,6 @@ class TestGetOrCreateMasterKey:
 
     def test_key_is_valid_fernet_key(self):
         """생성된 키로 Fernet 암호를 만들 수 있어야 함."""
-        from antigravity_k.engine.secure_key import _get_or_create_master_key
 
         key = _get_or_create_master_key()
         cipher = Fernet(key)
@@ -223,17 +233,13 @@ class TestGetOrCreateMasterKey:
 
     def test_creates_directory(self, patch_paths: Path):
         """Vault 디렉토리가 없으면 생성해야 함."""
-        from antigravity_k.engine.secure_key import _get_or_create_master_key
 
         assert patch_paths.exists() is False
         _ = _get_or_create_master_key()
         assert patch_paths.exists()
 
-    def test_restores_existing_key_after_reinit(
-        self, patch_paths: Path
-    ):
+    def test_restores_existing_key_after_reinit(self, patch_paths: Path):
         """master.key가 이미 있으면 재생성하지 않고 복원해야 함."""
-        from antigravity_k.engine.secure_key import _get_or_create_master_key
 
         key1 = _get_or_create_master_key()
 
@@ -248,7 +254,6 @@ class TestGetOrCreateMasterKey:
 
     def test_deterministic_across_calls(self):
         """여러 번 호출해도 동일한 master.key가 생성됨."""
-        from antigravity_k.engine.secure_key import _get_or_create_master_key
 
         keys = [_get_or_create_master_key() for _ in range(5)]
         assert all(k == keys[0] for k in keys)
@@ -265,7 +270,6 @@ class TestVaultStore:
 
     def test_save_and_load_roundtrip(self):
         """저장한 키를 정상적으로 복호화할 수 있어야 함."""
-        from antigravity_k.engine.secure_key import _load_vault_keys, _save_vault_keys
 
         original = {"anthropic": "sk-ant-test123", "openai": "sk-proj-test456"}
         _save_vault_keys(original)
@@ -274,13 +278,11 @@ class TestVaultStore:
 
     def test_load_empty_when_no_file(self):
         """저장소 파일이 없으면 빈 dict를 반환해야 함."""
-        from antigravity_k.engine.secure_key import _load_vault_keys
 
         assert _load_vault_keys() == {}
 
     def test_load_empty_on_corrupt_file(self, patch_paths: Path):
         """파일이 손상되면 빈 dict를 반환해야 함 (예외 처리)."""
-        from antigravity_k.engine.secure_key import _load_vault_keys
 
         vault_db = patch_paths / "keys.enc"
         vault_db.parent.mkdir(parents=True, exist_ok=True)
@@ -290,7 +292,6 @@ class TestVaultStore:
 
     def test_file_permissions_after_save(self, patch_paths: Path):
         """저장 후 파일 권한이 소유자만 읽기/쓰기여야 함."""
-        from antigravity_k.engine.secure_key import _save_vault_keys
 
         _save_vault_keys({"test": "value"})
         vault_db = patch_paths / "keys.enc"
@@ -303,18 +304,14 @@ class TestVaultStore:
 
     def test_multiple_saves_overwrite(self):
         """여러 번 저장해도 마지막 값으로 덮어써져야 함."""
-        from antigravity_k.engine.secure_key import _load_vault_keys, _save_vault_keys
 
         _save_vault_keys({"a": "1"})
         _save_vault_keys({"b": "2"})
         loaded = _load_vault_keys()
         assert loaded == {"b": "2"}  # 덮어쓰기
 
-    def test_encrypted_file_is_not_plaintext(
-        self, patch_paths: Path
-    ):
+    def test_encrypted_file_is_not_plaintext(self, patch_paths: Path):
         """저장된 파일이 평문이 아닌 암호화되어야 함."""
-        from antigravity_k.engine.secure_key import _save_vault_keys
 
         _save_vault_keys({"anthropic": "sk-ant-visible-in-plain"})
         vault_db = patch_paths / "keys.enc"
@@ -333,11 +330,8 @@ class TestVaultStore:
 class TestKeyLifecycle:
     """공개 API: store_api_key → get_api_key → has_api_key → remove_api_key → clear_vault_keys."""
 
-    def test_store_and_get(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_store_and_get(self, monkeypatch: pytest.MonkeyPatch):
         """Store 후 get으로 동일한 키를 조회할 수 있어야 함."""
-        from antigravity_k.engine.secure_key import get_api_key, store_api_key
 
         # 환경변수 오염 방지
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
@@ -347,20 +341,12 @@ class TestKeyLifecycle:
 
     def test_store_rejects_placeholder(self):
         """Placeholder 키는 저장을 거부해야 함."""
-        from antigravity_k.engine.secure_key import store_api_key
 
         assert store_api_key("anthropic", "your-key-here") is False
         assert store_api_key("openai", "sk-proj-your-key-here") is False
 
-    def test_has_api_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_has_api_key(self, monkeypatch: pytest.MonkeyPatch):
         """has_api_key가 키 존재 여부를 정확히 반환해야 함."""
-        from antigravity_k.engine.secure_key import (
-            get_api_key,
-            has_api_key,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -369,15 +355,8 @@ class TestKeyLifecycle:
         assert has_api_key("anthropic") is True
         assert get_api_key("anthropic") == "sk-ant-has-test"
 
-    def test_remove_api_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_remove_api_key(self, monkeypatch: pytest.MonkeyPatch):
         """Remove 후 키가 vault에서 제거되어야 함."""
-        from antigravity_k.engine.secure_key import (
-            get_api_key,
-            remove_api_key,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -388,20 +367,11 @@ class TestKeyLifecycle:
 
     def test_remove_nonexistent_returns_false(self):
         """존재하지 않는 키를 삭제하면 False를 반환해야 함."""
-        from antigravity_k.engine.secure_key import remove_api_key
 
         assert remove_api_key("nonexistent") is False
 
-    def test_clear_vault_keys(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_clear_vault_keys(self, monkeypatch: pytest.MonkeyPatch):
         """clear_vault_keys 후 모든 키가 제거되어야 함."""
-        from antigravity_k.engine.secure_key import (
-            clear_vault_keys,
-            get_api_key,
-            list_configured_services,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("AGK_OPENAI_KEY", raising=False)
@@ -419,14 +389,8 @@ class TestKeyLifecycle:
         assert get_api_key("anthropic") is None
         assert get_api_key("openai") is None
 
-    def test_get_key_source_priority(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_get_key_source_priority(self, monkeypatch: pytest.MonkeyPatch):
         """키 소스 우선순위가 올바르게 보고되어야 함."""
-        from antigravity_k.engine.secure_key import (
-            get_key_source,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -444,19 +408,12 @@ class TestKeyLifecycle:
 
     def test_get_key_source_none(self, monkeypatch: pytest.MonkeyPatch):
         """어디에도 키가 없으면 'none'을 반환해야 함."""
-        from antigravity_k.engine.secure_key import get_key_source
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
         assert get_key_source("anthropic") == "none"
 
-    def test_list_configured_services(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_list_configured_services(self, monkeypatch: pytest.MonkeyPatch):
         """설정된 서비스 목록을 정확히 반환해야 함."""
-        from antigravity_k.engine.secure_key import (
-            list_configured_services,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("AGK_OPENAI_KEY", raising=False)
@@ -483,11 +440,8 @@ class TestKeyLifecycle:
 class TestGetApiKeyPriority:
     """get_api_key()의 4단계 조회 우선순위를 검증합니다."""
 
-    def test_env_var_takes_highest_priority(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_env_var_takes_highest_priority(self, monkeypatch: pytest.MonkeyPatch):
         """환경변수가 vault보다 우선해야 함."""
-        from antigravity_k.engine.secure_key import get_api_key, store_api_key
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -501,7 +455,6 @@ class TestGetApiKeyPriority:
         monkeypatch: pytest.MonkeyPatch,
     ):
         """.env 파일 값이 config.yaml과 vault보다 우선해야 함."""
-        from antigravity_k.engine.secure_key import get_api_key, store_api_key
 
         monkeypatch.delenv("AGK_OPENAI_KEY", raising=False)
 
@@ -516,7 +469,6 @@ class TestGetApiKeyPriority:
 
     def test_returns_none_when_not_found(self, monkeypatch: pytest.MonkeyPatch):
         """어디에서도 키를 찾을 수 없으면 None을 반환해야 함."""
-        from antigravity_k.engine.secure_key import get_api_key
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("AGK_OPENAI_KEY", raising=False)
@@ -528,22 +480,17 @@ class TestGetApiKeyPriority:
 
     def test_ignores_env_placeholder_keys(self, monkeypatch: pytest.MonkeyPatch):
         """환경변수에 placeholder가 설정되어 있으면 무시해야 함."""
-        from antigravity_k.engine.secure_key import get_api_key
 
         monkeypatch.setenv("AGK_ANTHROPIC_KEY", "your-key-here")
         assert get_api_key("anthropic") is None
 
     def test_unknown_service_returns_none(self):
         """알 수 없는 서비스 이름에 대해 None을 반환해야 함."""
-        from antigravity_k.engine.secure_key import get_api_key
 
         assert get_api_key("nonexistent-service") is None
 
-    def test_case_insensitive_service_name(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_case_insensitive_service_name(self, monkeypatch: pytest.MonkeyPatch):
         """서비스 이름이 대소문자를 구분하지 않아야 함."""
-        from antigravity_k.engine.secure_key import get_api_key, store_api_key
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -568,7 +515,6 @@ class TestRotateMasterKey:
 
     def test_derive_key_is_deterministic(self):
         """동일한 시드에서 항상 같은 키가 파생되어야 함."""
-        from antigravity_k.engine.secure_key import _derive_key_from_seed
 
         key1 = _derive_key_from_seed("test-seed-123")
         key2 = _derive_key_from_seed("test-seed-123")
@@ -577,21 +523,13 @@ class TestRotateMasterKey:
 
     def test_different_seeds_produce_different_keys(self):
         """다른 시드에서 다른 키가 파생되어야 함."""
-        from antigravity_k.engine.secure_key import _derive_key_from_seed
 
         key1 = _derive_key_from_seed("seed-a")
         key2 = _derive_key_from_seed("seed-b")
         assert key1 != key2
 
-    def test_rotate_with_new_seed_reencrypts_vault_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_rotate_with_new_seed_reencrypts_vault_data(self, monkeypatch: pytest.MonkeyPatch):
         """새 시드로 rotation 시 vault 데이터가 재암호화되어야 함."""
-        from antigravity_k.engine.secure_key import (
-            get_api_key,
-            rotate_master_key,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("AGK_OPENAI_KEY", raising=False)
@@ -611,15 +549,8 @@ class TestRotateMasterKey:
         assert get_api_key("anthropic") == "sk-ant-rot-test"
         assert get_api_key("openai") == "sk-proj-rot-test"
 
-    def test_rotate_without_new_seed_is_noop(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_rotate_without_new_seed_is_noop(self, monkeypatch: pytest.MonkeyPatch):
         """새 시드 없이 rotation하면 동일 키이므로 rotated=False여야 함."""
-        from antigravity_k.engine.secure_key import (
-            get_api_key,
-            rotate_master_key,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -629,39 +560,24 @@ class TestRotateMasterKey:
         assert result["rotated"] is False, "동일 시드로 rotated=True는 예상치 못함"
         assert get_api_key("anthropic") == "sk-ant-noop-test"
 
-    def test_rotate_without_vault_data_succeeds(
-        self
-    ):
+    def test_rotate_without_vault_data_succeeds(self):
         """Vault 데이터가 없어도 rotation이 성공해야 함."""
-        from antigravity_k.engine.secure_key import rotate_master_key
 
         result = rotate_master_key(new_seed="fresh-seed")
         assert result["success"] is True
         assert result["rotated"] is True
         assert result["services_count"] == 0
 
-    def test_rotate_stores_seed_in_keychain(
-        self
-    ):
+    def test_rotate_stores_seed_in_keychain(self):
         """Rotation 시 새 시드가 키체인에 저장되어야 함."""
-        from antigravity_k.engine.secure_key import (
-            rotate_master_key,
-        )
 
         # no_keychain autouse fixture가 _set_keychain_seed를 mock하므로
         # 여기서는 키체인 mock이 False를 반환하는지만 확인
         result = rotate_master_key(new_seed="keychain-test-seed")
         assert result["success"] is True
 
-    def test_rotate_force_forces_reencryption_with_same_key(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_rotate_force_forces_reencryption_with_same_key(self, monkeypatch: pytest.MonkeyPatch):
         """force=True면 동일 키여도 강제 재암호화해야 함."""
-        from antigravity_k.engine.secure_key import (
-            get_api_key,
-            rotate_master_key,
-            store_api_key,
-        )
 
         monkeypatch.delenv("AGK_ANTHROPIC_KEY", raising=False)
 
@@ -678,9 +594,7 @@ class TestRotateMasterKey:
         assert result_force["services_count"] == 1
         assert get_api_key("anthropic") == "sk-ant-force-test"
 
-    def test_kdf_migration_v1_to_v2_with_rotate(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_kdf_migration_v1_to_v2_with_rotate(self, monkeypatch: pytest.MonkeyPatch):
         """force=True + rotate로 KDF v1→v2 마이그레이션이 실제로 동작해야 함.
 
         시나리오:
@@ -695,10 +609,10 @@ class TestRotateMasterKey:
 
         # 1. v1 master key 생성
         monkeypatch.setattr(sk, "_CURRENT_KDF_VERSION", 1)
-        _ = sk._get_or_create_master_key()
+        _ = _get_or_create_master_key()
 
         # V1: 포맷 확인
-        raw = sk._MASTER_KEY_FILE.read_bytes()
+        raw = _secure_path(sk, "_MASTER_KEY_FILE").read_bytes()
         assert raw.startswith(b"V1:"), f"Expected V1: prefix, got {raw[:10]!r}"
 
         # vault 데이터 저장
@@ -713,15 +627,13 @@ class TestRotateMasterKey:
         assert result["services_count"] == 1
 
         # 3. master.key가 V2:로 업그레이드되었는지 확인
-        raw = sk._MASTER_KEY_FILE.read_bytes()
+        raw = _secure_path(sk, "_MASTER_KEY_FILE").read_bytes()
         assert raw.startswith(b"V2:"), f"Expected V2: prefix after migration, got {raw[:10]!r}"
 
         # 4. vault 데이터가 여전히 접근 가능한지 확인
         assert sk.get_api_key("anthropic") == "sk-ant-migrate-test"
 
-    def test_kdf_migration_reencrypts_vault_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_kdf_migration_reencrypts_vault_data(self, monkeypatch: pytest.MonkeyPatch):
         """KDF v1→v2 마이그레이션 시 vault 데이터가 실제로 재암호화되는지 검증.
 
         단순히 접근 가능한지 확인하는 것을 넘어:
@@ -740,8 +652,8 @@ class TestRotateMasterKey:
 
         # 1. v1 키 생성 + 다중 서비스 vault 데이터 저장
         monkeypatch.setattr(sk, "_CURRENT_KDF_VERSION", 1)
-        v1_key = sk._get_or_create_master_key()
-        assert sk._MASTER_KEY_FILE.read_bytes().startswith(b"V1:")
+        v1_key = _get_or_create_master_key()
+        assert _secure_path(sk, "_MASTER_KEY_FILE").read_bytes().startswith(b"V1:")
 
         _ = sk.store_api_key("anthropic", "sk-ant-migrate-reenc")
         _ = sk.store_api_key("openai", "sk-proj-migrate-reenc")
@@ -749,7 +661,7 @@ class TestRotateMasterKey:
         assert sk.get_api_key("openai") == "sk-proj-migrate-reenc"
 
         # 2. 마이그레이션 전 vault DB 스냅샷
-        old_vault_bytes = sk._VAULT_DB.read_bytes()
+        old_vault_bytes = _secure_path(sk, "_VAULT_DB").read_bytes()
         assert len(old_vault_bytes) > 0
 
         # 3. v2로 마이그레이션 (force=True)
@@ -758,9 +670,9 @@ class TestRotateMasterKey:
         assert result["success"] is True
         assert result["rotated"] is True
         assert result["services_count"] == 2
-        assert sk._MASTER_KEY_FILE.read_bytes().startswith(b"V2:")
+        assert _secure_path(sk, "_MASTER_KEY_FILE").read_bytes().startswith(b"V2:")
 
-        new_vault_bytes = sk._VAULT_DB.read_bytes()
+        new_vault_bytes = _secure_path(sk, "_VAULT_DB").read_bytes()
 
         # 4. vault DB 바이트가 변경되었는지 확인 (재암호화 증명)
         assert old_vault_bytes != new_vault_bytes, "Vault encrypted bytes must differ after KDF migration"
@@ -774,7 +686,7 @@ class TestRotateMasterKey:
             _ = v1_cipher.decrypt(new_vault_bytes)
 
         # 6. v2 키로 새 vault DB를 정상 복호화할 수 있는지 확인
-        v2_key = sk._derive_key_from_seed(sk._get_machine_seed())
+        v2_key = _derive_key_from_seed(_get_machine_seed())
         assert v1_key != v2_key, "v1 key and v2 key must differ"
         v2_cipher = Fernet(v2_key)
         decrypted = v2_cipher.decrypt(new_vault_bytes)
@@ -789,9 +701,7 @@ class TestRotateMasterKey:
 
     # ── v2→v3 KDF 마이그레이션 (동일 패턴) ──────────────────────
 
-    def test_kdf_migration_v2_to_v3_with_rotate(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_kdf_migration_v2_to_v3_with_rotate(self, monkeypatch: pytest.MonkeyPatch):
         """force=True + rotate로 KDF v2→v3 마이그레이션이 동일 패턴으로 동작해야 함.
 
         시나리오:
@@ -806,9 +716,9 @@ class TestRotateMasterKey:
 
         # 1. v2 master key 생성
         monkeypatch.setattr(sk, "_CURRENT_KDF_VERSION", 2)
-        _ = sk._get_or_create_master_key()
+        _ = _get_or_create_master_key()
 
-        raw = sk._MASTER_KEY_FILE.read_bytes()
+        raw = _secure_path(sk, "_MASTER_KEY_FILE").read_bytes()
         assert raw.startswith(b"V2:"), f"Expected V2: prefix, got {raw[:10]!r}"
 
         _ = sk.store_api_key("anthropic", "sk-ant-v3-migrate-test")
@@ -822,15 +732,13 @@ class TestRotateMasterKey:
         assert result["services_count"] == 1
 
         # 3. master.key가 V3:로 업그레이드되었는지 확인
-        raw = sk._MASTER_KEY_FILE.read_bytes()
+        raw = _secure_path(sk, "_MASTER_KEY_FILE").read_bytes()
         assert raw.startswith(b"V3:"), f"Expected V3: prefix after migration, got {raw[:10]!r}"
 
         # 4. vault 데이터가 여전히 접근 가능한지 확인
         assert sk.get_api_key("anthropic") == "sk-ant-v3-migrate-test"
 
-    def test_kdf_migration_v2_to_v3_reencrypts_vault_data(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_kdf_migration_v2_to_v3_reencrypts_vault_data(self, monkeypatch: pytest.MonkeyPatch):
         """KDF v2→v3 마이그레이션 시 vault 데이터가 실제로 재암호화되는지 검증.
 
         v1→v2와 동일한 패턴:
@@ -849,8 +757,8 @@ class TestRotateMasterKey:
 
         # 1. v2 키 생성 + 다중 서비스 vault 데이터 저장
         monkeypatch.setattr(sk, "_CURRENT_KDF_VERSION", 2)
-        v2_key = sk._get_or_create_master_key()
-        assert sk._MASTER_KEY_FILE.read_bytes().startswith(b"V2:")
+        v2_key = _get_or_create_master_key()
+        assert _secure_path(sk, "_MASTER_KEY_FILE").read_bytes().startswith(b"V2:")
 
         _ = sk.store_api_key("anthropic", "sk-ant-v3-reenc")
         _ = sk.store_api_key("openai", "sk-proj-v3-reenc")
@@ -858,7 +766,7 @@ class TestRotateMasterKey:
         assert sk.get_api_key("openai") == "sk-proj-v3-reenc"
 
         # 2. 마이그레이션 전 vault DB 스냅샷
-        old_vault_bytes = sk._VAULT_DB.read_bytes()
+        old_vault_bytes = _secure_path(sk, "_VAULT_DB").read_bytes()
         assert len(old_vault_bytes) > 0
 
         # 3. v3로 마이그레이션 (force=True)
@@ -867,9 +775,9 @@ class TestRotateMasterKey:
         assert result["success"] is True
         assert result["rotated"] is True
         assert result["services_count"] == 2
-        assert sk._MASTER_KEY_FILE.read_bytes().startswith(b"V3:")
+        assert _secure_path(sk, "_MASTER_KEY_FILE").read_bytes().startswith(b"V3:")
 
-        new_vault_bytes = sk._VAULT_DB.read_bytes()
+        new_vault_bytes = _secure_path(sk, "_VAULT_DB").read_bytes()
 
         # 4. vault DB 바이트가 변경되었는지 확인 (재암호화 증명)
         assert old_vault_bytes != new_vault_bytes, "Vault encrypted bytes must differ after KDF migration"
@@ -882,7 +790,7 @@ class TestRotateMasterKey:
             _ = v2_cipher.decrypt(new_vault_bytes)
 
         # 6. v3 키로 새 vault DB를 정상 복호화할 수 있는지 확인
-        v3_key = sk._derive_key_from_seed(sk._get_machine_seed())
+        v3_key = _derive_key_from_seed(_get_machine_seed())
         assert v2_key != v3_key, "v2 key and v3 key must differ"
         v3_cipher = Fernet(v3_key)
         decrypted = v3_cipher.decrypt(new_vault_bytes)
@@ -900,8 +808,6 @@ class TestValidServices:
     """VALID_SERVICES 상수를 검증합니다."""
 
     def test_contains_expected_services(self):
-        from antigravity_k.engine.secure_key import VALID_SERVICES
-
         expected = ["anthropic", "openai", "openrouter", "nvidia", "gemini", "zai"]
         assert sorted(VALID_SERVICES) == sorted(expected)
 
@@ -947,11 +853,11 @@ class TestCliKeyRotateE2E:
 
         # Step 1: Python API로 v1 vault 데이터 설정
         monkeypatch.setattr(sk, "_CURRENT_KDF_VERSION", 1)
-        _ = sk._get_or_create_master_key()
+        _ = _get_or_create_master_key()
         _ = sk.store_api_key("anthropic", "sk-ant-e2e-cli-test")
 
         # V1: prefix 확인
-        raw = sk._MASTER_KEY_FILE.read_bytes()
+        raw = _secure_path(sk, "_MASTER_KEY_FILE").read_bytes()
         assert raw.startswith(b"V1:"), f"Expected V1: prefix, got {raw[:10]!r}"
 
         # Step 2: CLI subprocess 실행
@@ -968,14 +874,14 @@ class TestCliKeyRotateE2E:
         )
 
         # Step 3: CLI 출력 검증
-        assert result.returncode == 0, (
-            f"CLI failed (rc={result.returncode}):\n  stdout: {result.stdout}\n  stderr: {result.stderr}"
-        )
+        assert (
+            result.returncode == 0
+        ), f"CLI failed (rc={result.returncode}):\n  stdout: {result.stdout}\n  stderr: {result.stderr}"
         assert "마스터 키 순환 완료" in result.stdout, f"Expected success message in stdout:\n{result.stdout}"
         assert "재암호화된 서비스: 1개" in result.stdout, f"Expected '1 service' in stdout:\n{result.stdout}"
 
         # Step 4: V3: prefix 확인 (현재 _CURRENT_KDF_VERSION=3)
-        raw = sk._MASTER_KEY_FILE.read_bytes()
+        raw = _secure_path(sk, "_MASTER_KEY_FILE").read_bytes()
         assert raw.startswith(b"V3:"), f"Expected V3: prefix after migration, got {raw[:10]!r}"
 
         # Step 5: vault 데이터 접근 가능 확인
