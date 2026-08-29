@@ -2,6 +2,8 @@ import contextlib
 import importlib
 import io
 import unittest
+import urllib.request
+from types import TracebackType
 from unittest import mock
 
 patent_search = importlib.import_module("scripts.patent_search")
@@ -177,21 +179,26 @@ class ServiceKeyEncodingTest(unittest.TestCase):
             self.assertEqual(resolve_service_key(), "abc+def==")
 
     def test_fetch_xml_does_not_double_encode_percent_encoded_service_key(self):
-        captured = {}
+        captured: dict[str, str] = {}
 
         class FakeResponse:
-            def __enter__(self):
+            def __enter__(self) -> "FakeResponse":
                 return self
 
-            def __exit__(self, exc_type, exc, tb):
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> bool:
                 return False
 
-            def read(self):
+            def read(self) -> bytes:
                 return b"<response><header><resultCode>00</resultCode></header></response>"
 
-        def fake_urlopen(request, timeout):
+        def fake_urlopen(request: urllib.request.Request, timeout: int) -> FakeResponse:
             captured["url"] = request.full_url
-            captured["timeout"] = timeout
+            captured["timeout"] = str(timeout)
             return FakeResponse()
 
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
@@ -201,7 +208,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
                 timeout=7,
             )
 
-        self.assertEqual(captured["timeout"], 7)
+        self.assertEqual(captured["timeout"], "7")
         self.assertIn("ServiceKey=abc%2Bdef%3D%3D", captured["url"])
         self.assertNotIn("%252B", captured["url"])
         self.assertNotIn("%253D", captured["url"])
@@ -210,20 +217,26 @@ class ServiceKeyEncodingTest(unittest.TestCase):
         """Callers passing a raw percent-encoded key directly into build_search_params
         must not trigger double-encoding when urlencode serializes the dict.
         """
-        captured = {}
+        captured: dict[str, str] = {}
 
         class FakeResponse:
-            def __enter__(self):
+            def __enter__(self) -> "FakeResponse":
                 return self
 
-            def __exit__(self, exc_type, exc, tb):
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> bool:
                 return False
 
-            def read(self):
+            def read(self) -> bytes:
                 return b"<response><header><resultCode>00</resultCode></header></response>"
 
-        def fake_urlopen(request, timeout):
+        def fake_urlopen(request: urllib.request.Request, timeout: int) -> FakeResponse:
             captured["url"] = request.full_url
+            _ = timeout
             return FakeResponse()
 
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
@@ -238,20 +251,26 @@ class ServiceKeyEncodingTest(unittest.TestCase):
 
     def test_build_detail_params_decodes_percent_encoded_service_key(self):
         """Same guard for build_detail_params direct callers."""
-        captured = {}
+        captured: dict[str, str] = {}
 
         class FakeResponse:
-            def __enter__(self):
+            def __enter__(self) -> "FakeResponse":
                 return self
 
-            def __exit__(self, exc_type, exc, tb):
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> bool:
                 return False
 
-            def read(self):
+            def read(self) -> bytes:
                 return b"<response><header><resultCode>00</resultCode></header></response>"
 
-        def fake_urlopen(request, timeout):
+        def fake_urlopen(request: urllib.request.Request, timeout: int) -> FakeResponse:
             captured["url"] = request.full_url
+            _ = timeout
             return FakeResponse()
 
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
@@ -267,9 +286,9 @@ class ServiceKeyEncodingTest(unittest.TestCase):
 
 class PatentSearchWorkflowTest(unittest.TestCase):
     def test_search_patents_uses_fetcher_and_returns_parsed_report(self):
-        calls = []
+        calls: list[tuple[str, dict[str, str], int]] = []
 
-        def fake_fetcher(url, params, timeout):
+        def fake_fetcher(url: str, params: dict[str, str], timeout: int) -> str:
             calls.append((url, params, timeout))
             return SAMPLE_SEARCH_XML
 
@@ -289,9 +308,9 @@ class PatentSearchWorkflowTest(unittest.TestCase):
         self.assertEqual(calls[0][1]["numOfRows"], "7")
 
     def test_get_patent_detail_uses_detail_endpoint(self):
-        calls = []
+        calls: list[tuple[str, dict[str, str], int]] = []
 
-        def fake_fetcher(url, params, timeout):
+        def fake_fetcher(url: str, params: dict[str, str], timeout: int) -> str:
             calls.append((url, params, timeout))
             return SAMPLE_DETAIL_XML
 
@@ -302,11 +321,15 @@ class PatentSearchWorkflowTest(unittest.TestCase):
         self.assertEqual(calls[0][1]["applicationNumber"], "1020240001234")
 
     def test_search_patents_surfaces_api_auth_errors_cleanly(self):
+        def fake_auth_fetcher(url: str, params: dict[str, str], timeout: int) -> str:
+            _ = (url, params, timeout)
+            return SAMPLE_AUTH_ERROR_XML
+
         with self.assertRaisesRegex(RuntimeError, "SERVICE KEY IS NOT REGISTERED ERROR"):
             search_patents(
                 "배터리",
                 service_key="bad-key",
-                fetcher=lambda url, params, timeout: SAMPLE_AUTH_ERROR_XML,
+                fetcher=fake_auth_fetcher,
             )
 
 
