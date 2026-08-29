@@ -16,7 +16,7 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Any, override
+from typing import Any, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import safe_urlopen
@@ -24,6 +24,7 @@ from .egress_policy import safe_urlopen
 logger = logging.getLogger(__name__)
 
 
+@final
 class SystemControlTool(BaseTool):
     """macOS/Linux/Windows 시스템 전체 제어 도구.
 
@@ -40,14 +41,14 @@ class SystemControlTool(BaseTool):
     def __init__(self):
         """Initialize the SystemControlTool."""
         super().__init__()
-        self._name = "system_control"
-        self._description = (
+        self._name: str = "system_control"
+        self._description: str = (
             "Control the operating system: manage apps, check system resources, "
             "optimize environment settings, control clipboard/volume/wifi, "
             "and auto-tune the Antigravity-K configuration for optimal performance. "
             "Always acts in the user's best interest."
         )
-        self._schema = {
+        self._schema: dict[str, Any] = {
             "type": "object",
             "properties": {
                 "action": {
@@ -259,7 +260,7 @@ class SystemControlTool(BaseTool):
 
     def _action_get_running_apps(self, **kwargs: object) -> dict[str, Any]:
         """실행 중인 앱 목록을 반환합니다."""
-        apps = []
+        apps: list[str] = []
         if platform.system() == "Darwin":
             try:
                 result = subprocess.run(
@@ -282,7 +283,9 @@ class SystemControlTool(BaseTool):
                 import psutil
 
                 for proc in psutil.process_iter(["pid", "name"]):
-                    apps.append(proc.info["name"])
+                    name = proc.info["name"]
+                    if isinstance(name, str):
+                        apps.append(name)
                 apps = list(set(apps))[:50]
             except ImportError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
@@ -296,7 +299,7 @@ class SystemControlTool(BaseTool):
 
         if platform.system() == "Darwin":
             try:
-                subprocess.Popen(["open", "-a", target])
+                _ = subprocess.Popen(["open", "-a", target])
                 return {"status": "ok", "action": "launch_app", "app": target}
             except Exception as e:
                 logger.exception("Unhandled exception")
@@ -326,7 +329,7 @@ class SystemControlTool(BaseTool):
 
         if platform.system() == "Darwin":
             try:
-                subprocess.run(
+                _ = subprocess.run(
                     ["osascript", "-e", f'tell application "{target}" to quit'],
                     timeout=10,
                 )
@@ -342,7 +345,7 @@ class SystemControlTool(BaseTool):
         if not target:
             return {"error": "No URL specified."}
         try:
-            subprocess.Popen(
+            _ = subprocess.Popen(
                 ["open", target] if platform.system() == "Darwin" else ["xdg-open", target],
             )
             return {"status": "ok", "action": "open_url", "url": target}
@@ -371,7 +374,7 @@ class SystemControlTool(BaseTool):
         try:
             if platform.system() == "Darwin":
                 process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-                process.communicate(target.encode("utf-8"))
+                _ = process.communicate(target.encode("utf-8"))
                 return {
                     "status": "ok",
                     "action": "set_clipboard",
@@ -391,7 +394,7 @@ class SystemControlTool(BaseTool):
             level = int(value) if value else 50
             level = max(0, min(100, level))
             if platform.system() == "Darwin":
-                subprocess.run(["osascript", "-e", f"set volume output volume {level}"], timeout=5)
+                _ = subprocess.run(["osascript", "-e", f"set volume output volume {level}"], timeout=5)
                 return {"status": "ok", "action": "set_volume", "level": level}
             return {"error": f"Volume control not supported on {platform.system()}"}
         except Exception as e:
@@ -404,7 +407,7 @@ class SystemControlTool(BaseTool):
             return {"error": f"WiFi control not supported on {platform.system()}"}
         try:
             state = "on" if value.lower() in ("on", "true", "1", "") else "off"
-            subprocess.run(["networksetup", "-setairportpower", "en0", state], timeout=10)
+            _ = subprocess.run(["networksetup", "-setairportpower", "en0", state], timeout=10)
             return {"status": "ok", "action": "toggle_wifi", "state": state}
         except Exception as e:
             logger.exception("Unhandled exception")
@@ -417,14 +420,14 @@ class SystemControlTool(BaseTool):
         try:
             # macOS Focus 모드 토글 (Ventura+)
             if value.lower() in ("on", "dnd", "focus"):
-                subprocess.run(
+                _ = subprocess.run(
                     ["shortcuts", "run", "Turn On Do Not Disturb"],
                     timeout=10,
                     capture_output=True,
                 )
                 return {"status": "ok", "action": "dnd_on"}
             else:
-                subprocess.run(
+                _ = subprocess.run(
                     ["shortcuts", "run", "Turn Off Do Not Disturb"],
                     timeout=10,
                     capture_output=True,
@@ -451,7 +454,7 @@ class SystemControlTool(BaseTool):
         sys_info = self._action_get_system_info()["system_info"]
 
         # 2. 최적 설정 계산
-        optimizations = []
+        optimizations: list[str] = []
         recommended: dict[str, Any] = {}
 
         # 메모리 기반 컨텍스트 크기 결정
@@ -519,7 +522,7 @@ class SystemControlTool(BaseTool):
                 # 기존 설정 백업
                 backup_path = config_path + ".backup"
                 if not os.path.exists(backup_path):
-                    shutil.copy2(config_path, backup_path)
+                    _ = shutil.copy2(config_path, backup_path)
                     optimizations.append(f"📋 기존 설정 백업: {backup_path}")
 
                 # 최적 설정 적용
