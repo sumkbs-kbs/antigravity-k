@@ -13,6 +13,7 @@ Codex 스타일의 long-horizon task 실행 및 Checkpoint/Resume 지원.
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
 
 from antigravity_k.engine.benchmark_harness import TaskOutcome
+from antigravity_k.engine.secret_scanner import redact, redact_full, redact_url, strip_credentials
 from antigravity_k.engine.task_context_snapshot import (
     load_task_context_snapshot,
     restored_task_context_messages,
@@ -48,6 +50,17 @@ _DIRECT_RESPONSE_MARKERS = (
     "do not modify files",
     "do not use tools",
 )
+
+_VAULT_URL_PATTERN = re.compile(r"https?://[^\s'\"<>]+")
+
+
+def _redact_vault_text(text: str) -> str:
+    redacted = redact_full(redact(text))
+
+    def replace_url(match: re.Match[str]) -> str:
+        return redact_url(match.group(0)) or "<REDACTED_URL>"
+
+    return _VAULT_URL_PATTERN.sub(replace_url, redacted)
 
 
 @runtime_checkable
@@ -634,12 +647,15 @@ class BackgroundTaskRunner:
 
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             filename = f".agent/tasks/task_{task.task_id[:8]}_{timestamp}.md"
+            safe_prompt = _redact_vault_text(task.prompt)
+            safe_output = _redact_vault_text(task.output)
+            safe_context: object = strip_credentials(task.context)
 
             # 컨텍스트와 결과를 마크다운으로 포맷팅
             context_md = ""
             if task.context:
                 context_md = (
-                    "## Context\n```json\n" + json.dumps(task.context, ensure_ascii=False, indent=2) + "\n```\n\n"
+                    "## Context\n```json\n" + json.dumps(safe_context, ensure_ascii=False, indent=2) + "\n```\n\n"
                 )
 
             # --- 1. Memory Consolidation (기억 정제 및 도구 이력 추출) ---
@@ -651,8 +667,8 @@ class BackgroundTaskRunner:
                     summary_prompt = (
                         "당신은 에이전트의 작업 로그를 분석하여 세컨드 브레인(Wiki)에 저장할 핵심 기억(Memory)을 추출하는 전문가입니다.\n"  # noqa: E501
                         f"아래는 에이전트가 수행한 작업의 로그입니다.\n\n"
-                        f"<task_prompt>\n{task.prompt}\n</task_prompt>\n\n"
-                        f"<task_output>\n{task.output[-6000:]}\n</task_output>\n\n"
+                        f"<task_prompt>\n{safe_prompt}\n</task_prompt>\n\n"
+                        f"<task_output>\n{safe_output[-6000:]}\n</task_output>\n\n"
                         "다음 항목을 마크다운 포맷으로 작성해주세요:\n"
                         "1. **핵심 요약 (Lessons Learned)**: 이 작업에서 성공적으로 해결한 문제와 배운 점을 3~4줄로 요약.\n"  # noqa: E501
                         "2. **도구 및 에러 이력 (Tool Trajectory)**: 사용한 주요 도구들과 직면했던 에러, 그리고 어떻게 극복했는지 간략히 기록."  # noqa: E501
@@ -674,20 +690,22 @@ class BackgroundTaskRunner:
                     extracted_text = re.sub(r"<think>.*?</think>", "", extracted_text, flags=re.DOTALL).strip()
 
                     if extracted_text:
-                        summary_content = f"## 🧠 Memory Consolidation (자가 학습)\n\n{extracted_text}\n\n"
+                        summary_content = (
+                            f"## 🧠 Memory Consolidation (자가 학습)\n\n{_redact_vault_text(extracted_text)}\n\n"
+                        )
                 except Exception:
                     logger.exception("Memory consolidation failed")
                     summary_content = "## 🧠 Memory Consolidation\n\n*(요약 생성에 실패했습니다)*\n\n"
 
             # --- 2. 최종 마크다운 조합 ---
-            content = f"# Task: {task.prompt[:50]}...\n\n"
+            content = f"# Task: {safe_prompt[:50]}...\n\n"
             content += f"**Task ID**: {task.task_id}\n"
             content += f"**Status**: {task.status}\n"
             content += f"**Date**: {task.updated_at}\n\n"
-            content += f"## Prompt\n{task.prompt}\n\n"
+            content += f"## Prompt\n{safe_prompt}\n\n"
             content += context_md
             content += summary_content
-            content += f"## Raw Result\n\n<details>\n<summary>전체 로그 보기</summary>\n\n{task.output}\n\n</details>\n"
+            content += f"## Raw Result\n\n<details>\n<summary>전체 로그 보기</summary>\n\n{safe_output}\n\n</details>\n"
 
             metadata = {
                 "type": "background_task",

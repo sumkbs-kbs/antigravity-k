@@ -43,6 +43,39 @@ def test_runner_records_successful_task_outcome(tmp_path):
     assert outcomes[0].calibration_eligible is False
 
 
+def test_runner_redacts_secrets_before_persisting_task_artifact(tmp_path):
+    class FakeVault:
+        def __init__(self):
+            self.write_calls = []
+
+        def write_note(self, **kwargs):
+            self.write_calls.append(kwargs)
+
+    api_secret = "sk-proj-" + "a" * 24
+    context_secret = "context-password-secret"
+    output_secret = "bearer-token-secret"
+    vault = FakeVault()
+    runner = BackgroundTaskRunner(
+        db_path=str(tmp_path / "tasks.db"),
+        vault_engine=vault,
+    )
+    task = BackgroundTask(
+        "task-redaction",
+        f"API_KEY={api_secret} https://user:password-secret@example.com/path?token=url-secret",
+        context={"password": context_secret, "nested": {"api_key": "nested-secret"}},
+    )
+    task.status = TaskStatus.DONE
+    task.output = f"Authorization: Bearer {output_secret}"
+
+    runner._save_to_vault(task)
+
+    assert len(vault.write_calls) == 1
+    content = vault.write_calls[0]["content"]
+    for secret in (api_secret, context_secret, "nested-secret", output_secret, "password-secret", "url-secret"):
+        assert secret not in content
+    assert "<REDACTED>" in content
+
+
 def test_runner_records_benchmark_case_id_instead_of_ephemeral_task_id(tmp_path):
     outcomes = []
     runner = BackgroundTaskRunner(
