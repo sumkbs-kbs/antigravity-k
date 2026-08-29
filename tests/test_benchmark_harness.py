@@ -16,15 +16,16 @@ from antigravity_k.engine.benchmark_harness import (
     BenchmarkHarness,
     BenchmarkReport,
 )
+from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
 # ─── Fixtures ─────────────────────────────────────────────────────
 
 
 @pytest.fixture
-def mock_model_manager():
+def mock_model_manager() -> MagicMock:
     """ModelManager를 모킹합니다."""
-    manager = MagicMock()
+    manager = MagicMock(spec=ModelManager)
     # generate() 호출 시 항상 유효한 한국어 코드 응답을 반환
     manager.generate.return_value = (
         "### 🔍 분석\n\n피보나치 수열을 구하는 함수입니다.\n\n"
@@ -52,12 +53,12 @@ def mock_model_manager():
 
 
 @pytest.fixture
-def tmp_db_path(tmp_path):
+def tmp_db_path(tmp_path: Path) -> Path:
     return tmp_path / "test_benchmark.json"
 
 
 @pytest.fixture
-def harness(mock_model_manager, tmp_db_path):
+def harness(mock_model_manager: MagicMock, tmp_db_path: Path) -> BenchmarkHarness:
     return BenchmarkHarness(
         model_manager=mock_model_manager,
         db_path=tmp_db_path,
@@ -90,7 +91,7 @@ class TestBenchmarkCases:
 
         assert case.expected_tools == ("web_search",)
 
-    def test_quality_gate_uses_case_category_for_non_coding_tasks(self, harness):
+    def test_quality_gate_uses_case_category_for_non_coding_tasks(self, harness: BenchmarkHarness):
         case = get_suite("srch-002")[0]
         harness._manager.generate.return_value = (
             "- AI 반도체 시장의 최신 동향입니다.\n"
@@ -102,7 +103,7 @@ class TestBenchmarkCases:
 
         assert "요청된 코드 블록 누락" not in result.issues
 
-    def test_benchmark_prompt_adds_category_contract(self, harness):
+    def test_benchmark_prompt_adds_category_contract(self, harness: BenchmarkHarness):
         search_prompt = harness._benchmark_prompt(get_suite("srch-002")[0])
         long_horizon_prompt = harness._benchmark_prompt(get_suite("lh-001")[0])
         comparison_prompt = harness._benchmark_prompt(get_suite("sim-002")[0])
@@ -118,7 +119,7 @@ class TestBenchmarkCases:
         assert "전/후 구조 비교" in refactor_prompt
         assert "Markdown 표" in refactor_prompt
 
-    def test_quality_revision_keeps_only_improved_response(self, harness):
+    def test_quality_revision_keeps_only_improved_response(self, harness: BenchmarkHarness):
         case = get_suite("srch-002")[0]
         harness._quality_gate.max_retries = 1
         harness._manager.generate.side_effect = [
@@ -131,7 +132,7 @@ class TestBenchmarkCases:
         assert result.quality_revision_count == 1
         assert harness._manager.generate.call_count == 2
 
-    def test_quality_revision_uses_second_attempt_when_first_is_still_weak(self, harness):
+    def test_quality_revision_uses_second_attempt_when_first_is_still_weak(self, harness: BenchmarkHarness):
         case = get_suite("sim-001")[0]
         valid = harness._manager.generate.return_value
         harness._manager.generate.side_effect = ["응답이 너무 짧습니다.", "여전히 요구사항이 부족합니다.", valid]
@@ -143,7 +144,7 @@ class TestBenchmarkCases:
         assert result.quality_revision_applied is True
         assert result.quality_grade == "excellent"
 
-    def test_repeat_quality_revision_discards_anchoring_output(self, harness):
+    def test_repeat_quality_revision_discards_anchoring_output(self, harness: BenchmarkHarness):
         case = get_suite("sim-001")[0]
         harness._manager.generate.return_value = "새로운 답변"
 
@@ -187,7 +188,7 @@ class TestBenchmarkHarness:
         assert revision["temperature"] == 0.08
         assert remote == {"max_tokens": 4096, "temperature": 0.4}
 
-    def test_run_single_case(self, harness, mock_model_manager):
+    def test_run_single_case(self, harness: BenchmarkHarness, mock_model_manager: MagicMock):
         case = get_suite("sim-001")[0]
         results = harness.run_case(case, targets=["test-model"])
 
@@ -201,7 +202,7 @@ class TestBenchmarkHarness:
         assert results[0].latency_ms >= 0  # mock은 즉시 반환하므로 0.0 가능
         mock_model_manager.generate.assert_called_once()
 
-    def test_run_multiple_targets(self, harness, mock_model_manager):
+    def test_run_multiple_targets(self, harness: BenchmarkHarness, mock_model_manager: MagicMock):
         case = get_suite("sim-001")[0]
         targets = ["collective-council", "model-a", "model-b"]
         results = harness.run_case(case, targets=targets)
@@ -210,7 +211,7 @@ class TestBenchmarkHarness:
         assert [r.target for r in results] == targets
         assert mock_model_manager.generate.call_count == 3
 
-    def test_run_suite(self, harness):
+    def test_run_suite(self, harness: BenchmarkHarness):
         report = harness.run_suite("simple", targets=["test-model"])
 
         assert isinstance(report, BenchmarkReport)
@@ -218,11 +219,11 @@ class TestBenchmarkHarness:
         assert len(report.results) >= 2
         assert report.duration_s >= 0
 
-    def test_comparison_table_no_data(self, harness):
+    def test_comparison_table_no_data(self, harness: BenchmarkHarness):
         table = harness.comparison_table()
         assert "결과가 없습니다" in table
 
-    def test_comparison_table_with_data(self, harness):
+    def test_comparison_table_with_data(self, harness: BenchmarkHarness):
         # 데이터 생성
         harness.run_suite("simple", targets=["test-model"])
         table = harness.comparison_table("simple")
@@ -233,7 +234,7 @@ class TestBenchmarkHarness:
         assert "test-model" in table
         assert "sim-001" in table
 
-    def test_error_handling(self, harness, mock_model_manager):
+    def test_error_handling(self, harness: BenchmarkHarness, mock_model_manager: MagicMock):
         """모델 실행 실패 시에도 결과가 기록됩니다."""
         mock_model_manager.generate.side_effect = RuntimeError("VRAM exhausted")
         case = get_suite("sim-001")[0]
@@ -243,7 +244,7 @@ class TestBenchmarkHarness:
         assert results[0].quality_grade == "fail"
         assert results[0].error == "VRAM exhausted"
 
-    def test_default_targets(self, harness):
+    def test_default_targets(self, harness: BenchmarkHarness):
         targets = harness._default_targets()
         assert "collective-council" in targets
         assert len(targets) >= 2  # collective + at least 1 individual
@@ -253,7 +254,7 @@ class TestBenchmarkHarness:
 
 
 class TestBenchmarkSlashCommand:
-    def test_help_returns_string_not_generator(self, mock_model_manager):
+    def test_help_returns_string_not_generator(self, mock_model_manager: MagicMock):
         registry = SlashCommandRegistry(model_manager=mock_model_manager)
 
         result = registry.execute("/benchmark")
@@ -261,7 +262,7 @@ class TestBenchmarkSlashCommand:
         assert isinstance(result, str)
         assert "Benchmark 명령어" in result
 
-    def test_report_returns_string_not_generator(self, mock_model_manager):
+    def test_report_returns_string_not_generator(self, mock_model_manager: MagicMock):
         registry = SlashCommandRegistry(model_manager=mock_model_manager)
 
         result = registry.execute("/benchmark report")
@@ -269,7 +270,7 @@ class TestBenchmarkSlashCommand:
         assert isinstance(result, str)
         assert "Benchmark 비교표" in result or "벤치마크 결과가 없습니다" in result
 
-    def test_task_report_returns_operational_metrics(self, mock_model_manager):
+    def test_task_report_returns_operational_metrics(self, mock_model_manager: MagicMock):
         registry = SlashCommandRegistry(model_manager=mock_model_manager)
         fake_harness = MagicMock()
         fake_harness.task_comparison_table.return_value = "## Task Benchmark\n| 성공률 | 100% |"
@@ -280,7 +281,7 @@ class TestBenchmarkSlashCommand:
         assert "Task Benchmark" in result
         fake_harness.task_comparison_table.assert_called_once_with()
 
-    def test_task_export_returns_calibration_artifact_path(self, mock_model_manager):
+    def test_task_export_returns_calibration_artifact_path(self, mock_model_manager: MagicMock):
         registry = SlashCommandRegistry(model_manager=mock_model_manager)
         fake_harness = MagicMock()
         fake_harness.export_task_calibration_artifact.return_value = Path("data/benchmarks/qwen-task.json")
@@ -291,7 +292,7 @@ class TestBenchmarkSlashCommand:
         assert "qwen-task.json" in result
         fake_harness.export_task_calibration_artifact.assert_called_once_with("qwen3.6:latest", None)
 
-    def test_run_returns_streaming_generator(self, mock_model_manager):
+    def test_run_returns_streaming_generator(self, mock_model_manager: MagicMock):
         registry = SlashCommandRegistry(model_manager=mock_model_manager)
         fake_report = BenchmarkReport(
             suite_name="simple",
@@ -325,7 +326,7 @@ class TestBenchmarkSlashCommand:
 
 
 class TestPersistence:
-    def test_save_and_load(self, mock_model_manager, tmp_db_path):
+    def test_save_and_load(self, mock_model_manager: MagicMock, tmp_db_path: Path):
         harness1 = BenchmarkHarness(model_manager=mock_model_manager, db_path=tmp_db_path)
         harness1.run_suite("simple", targets=["test-model"])
         count = len(harness1._history)
@@ -335,7 +336,7 @@ class TestPersistence:
         harness2 = BenchmarkHarness(model_manager=mock_model_manager, db_path=tmp_db_path)
         assert len(harness2._history) == count
 
-    def test_clear_history(self, harness, tmp_db_path):
+    def test_clear_history(self, harness: BenchmarkHarness, tmp_db_path: Path):
         harness.run_suite("simple", targets=["test-model"])
         assert len(harness._history) > 0
 
@@ -347,7 +348,7 @@ class TestPersistence:
             data = json.load(f)
         assert data["total_results"] == 0
 
-    def test_json_format(self, harness, tmp_db_path):
+    def test_json_format(self, harness: BenchmarkHarness, tmp_db_path: Path):
         harness.run_suite("simple", targets=["test-model"])
 
         with open(tmp_db_path) as f:
@@ -368,7 +369,7 @@ class TestPersistence:
             assert "keyword_coverage" in result
             assert "latency_ms" in result
 
-    def test_loads_legacy_results_without_composite_fields(self, mock_model_manager, tmp_db_path):
+    def test_loads_legacy_results_without_composite_fields(self, mock_model_manager: MagicMock, tmp_db_path: Path):
         legacy = {
             "version": 1,
             "results": [
@@ -399,7 +400,7 @@ class TestPersistence:
 
 
 class TestVerifiedCodeExecution:
-    def test_correct_executed_output_is_verified(self, harness):
+    def test_correct_executed_output_is_verified(self, harness: BenchmarkHarness):
         # Given: a model answer whose code, when executed, prints the expected output.
         answer = "```python\ndef sum_to(n):\n    return n * (n + 1) // 2\nprint(sum_to(100))\n```\n"
 
@@ -410,7 +411,7 @@ class TestVerifiedCodeExecution:
         assert passed is True
         assert actual.strip() == "5050"
 
-    def test_wrong_executed_output_is_not_verified(self, harness):
+    def test_wrong_executed_output_is_not_verified(self, harness: BenchmarkHarness):
         # Given: code that prints the wrong value for the expected output.
         answer = "```python\nprint(1234)\n```"
 
@@ -419,7 +420,7 @@ class TestVerifiedCodeExecution:
         assert passed is False
         assert "1234" in actual
 
-    def test_answer_without_code_block_is_not_verified(self, harness):
+    def test_answer_without_code_block_is_not_verified(self, harness: BenchmarkHarness):
         # Given: prose only — the model narrated the result without runnable code.
         answer = "결과는 5050입니다."
 
@@ -428,7 +429,9 @@ class TestVerifiedCodeExecution:
         assert passed is False
         assert "no_code_block" in actual
 
-    def test_execute_single_records_verified_flag_and_adjusts_score(self, harness, mock_model_manager):
+    def test_execute_single_records_verified_flag_and_adjusts_score(
+        self, harness: BenchmarkHarness, mock_model_manager: MagicMock
+    ):
         # Given: a verified-code case whose generated answer prints the right value.
         from antigravity_k.engine.benchmark_cases import BenchmarkCase
 
@@ -450,7 +453,9 @@ class TestVerifiedCodeExecution:
         assert result.verified_output.strip() == "5050"
         assert result.benchmark_score > 0.0
 
-    def test_execute_single_self_corrects_when_first_code_runs_wrong(self, harness, mock_model_manager):
+    def test_execute_single_self_corrects_when_first_code_runs_wrong(
+        self, harness: BenchmarkHarness, mock_model_manager: MagicMock
+    ):
         # Given: the model first returns code that runs but prints the wrong value,
         # then (on the verify-driven revision) returns code that prints the right value.
         from antigravity_k.engine.benchmark_cases import BenchmarkCase
