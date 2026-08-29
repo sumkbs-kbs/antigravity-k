@@ -1,7 +1,8 @@
 """Vector Store module."""
 
 import logging
-from typing import Any
+from types import TracebackType
+from typing import Any, final
 
 # 선택적 의존성. import 실패 시 전체 런타임 부팅을 막지 않도록 방어 로드.
 # chromadb는 VectorStore 인스턴스 생성 시점에만 필요하다.
@@ -26,6 +27,7 @@ except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존�
 logger = logging.getLogger(__name__)
 
 
+@final
 class VectorStore:
     """ChromaDB-backed vector store for RAG chunk storage and retrieval."""
 
@@ -79,7 +81,7 @@ class VectorStore:
             collection_name,
         )
 
-    def close(self):
+    def close(self) -> None:
         """ChromaDB 클라이언트 연결을 정리합니다."""
         if getattr(self, "_closed", True):
             return
@@ -87,25 +89,30 @@ class VectorStore:
         try:
             close = getattr(self.client, "close", None)
             if callable(close):
-                close()
+                _ = close()
         except Exception:
             logger.exception("VectorStore: chromadb client close 실패")
         finally:
             try:
                 clear_system_cache = getattr(SharedSystemClient, "clear_system_cache", None)
                 if callable(clear_system_cache):
-                    clear_system_cache()
+                    _ = clear_system_cache()
             except Exception:
                 logger.exception("VectorStore: clear_system_cache 실패")
             self.client = None
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.close()
 
-    def __enter__(self):
+    def __enter__(self) -> "VectorStore":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     def upsert_chunks(self, chunks: list[dict[str, Any]]) -> None:
@@ -171,13 +178,14 @@ class VectorStore:
         return results
 
     def fit_tfidf(self, documents: list[str]) -> None:
+        _ = documents
         return None
 
     def get_stats(self) -> dict[str, Any]:
         count = self.collection.count() if self.collection is not None else 0
         return {"available": True, "persist_directory": self.persist_directory, "count": count}
 
-    def delete_file_chunks(self, file_path: str):
+    def delete_file_chunks(self, file_path: str) -> None:
         """Delete all chunks belonging to a specific file.
 
         Useful when a file is deleted or completely rewritten.
@@ -189,12 +197,12 @@ class VectorStore:
             logger.exception("Error deleting chunks for %s", file_path)
 
     def delete_file_chunks_strict(self, file_path: str) -> None:
-        self.collection.delete(where={"source": file_path})
+        _ = self.collection.delete(where={"source": file_path})
 
     def clear(self) -> int:
         ids = self.collection.get().get("ids") or []
         if ids:
-            self.collection.delete(ids=ids)
+            _ = self.collection.delete(ids=ids)
         return len(ids)
 
     def export_all(self) -> list[dict[str, Any]]:
