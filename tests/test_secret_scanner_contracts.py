@@ -4,6 +4,9 @@
 민감 파일/메모리 경로 판정의 엣지를 잠근다.
 """
 
+import re
+from typing import cast
+
 from antigravity_k.engine.secret_scanner import (
     CREDENTIAL_PLACEHOLDER,
     _redact_match_partial,
@@ -22,7 +25,7 @@ from antigravity_k.engine.secret_scanner import (
 class TestScanEdgeCases:
     def test_non_string_or_empty_content_yields_no_matches(self):
         assert scan_for_secrets("") == []
-        assert scan_for_secrets(None) == []  # type: ignore[arg-type]
+        assert scan_for_secrets(cast(str, cast(object, None))) == []
 
     def test_duplicate_secret_values_are_deduplicated(self):
         text = "api_key=sk-abcdefghijklmnop1234 api_key=sk-abcdefghijklmnop1234"
@@ -50,7 +53,7 @@ class TestRedaction:
         assert "<REDACTED>" in result
 
     def test_redact_full_passthrough_non_string(self):
-        assert redact_full(123) == 123  # type: ignore[arg-type]
+        assert redact_full(cast(str, cast(object, 123))) == 123
 
     def test_short_matched_value_fully_masked(self):
         assert _redact_match_partial(match_like("ab")) == "****"
@@ -76,7 +79,7 @@ def match_like(value: str):
                 return value
             raise IndexError(index)
 
-    return _Match()
+    return cast(re.Match[str], cast(object, _Match()))
 
 
 class TestRedactUrl:
@@ -97,7 +100,7 @@ class TestRedactUrl:
 
     def test_empty_or_non_string_returns_none(self):
         assert redact_url("") is None
-        assert redact_url(None) is None  # type: ignore[arg-type]
+        assert redact_url(cast(str, cast(object, None))) is None
 
 
 class TestCredentialClassification:
