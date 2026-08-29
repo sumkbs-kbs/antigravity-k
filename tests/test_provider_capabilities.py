@@ -55,6 +55,41 @@ def test_ollama_probe_reports_model_native_tools():
     assert capability["native_tool_calling"] == "supported"
     assert capability["runtime_status"] == "available"
     assert capability["reported_capabilities"] == ["completion", "tools"]
+    assert "long_context" in capability
+    assert capability["long_context"]["strategy"] == "retrieval_fallback"
+    assert capability["long_context"]["native_sparse_attention"] == "unknown"
+
+
+def test_ollama_probe_promotes_explicit_long_context_capabilities():
+    profile = ModelProfile(
+        name="qwen3.8:27b",
+        repo="qwen3.8:27b",
+        role="reasoning",
+        provider="ollama",
+    )
+    probe = LocalProviderCapabilityProbe(_Registry({"ollama": {"base_url": "http://localhost:11434"}}))
+
+    with patch(
+        "antigravity_k.engine.provider_capabilities.safe_urlopen",
+        return_value=_response(
+            {
+                "capabilities": [
+                    "completion",
+                    "sparse_attention",
+                    "linear_attention",
+                    "kv_cache_compression",
+                ],
+            },
+        ),
+    ):
+        capability = probe.observe(profile)
+
+    assert "long_context" in capability
+    long_context = capability["long_context"]
+    assert long_context["strategy"] == "native"
+    assert long_context["native_sparse_attention"] == "supported"
+    assert long_context["native_linear_attention"] == "supported"
+    assert long_context["kv_cache_compression"] == "supported"
 
 
 def test_lmstudio_probe_reports_explicit_model_tool_metadata():
@@ -218,12 +253,129 @@ def test_unsloth_probe_reports_runtime_metadata_and_disables_server_tools():
     assert "disabled" in capability["detail"]
 
 
+def test_unsloth_probe_promotes_explicit_attention_metadata():
+    profile = ModelProfile(
+        name="unsloth/qwen",
+        repo="qwen3.8:27b",
+        role="reasoning",
+        provider="unsloth",
+        api_base="http://127.0.0.1:18000/v1",
+    )
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    with patch(
+        "antigravity_k.engine.provider_capabilities.safe_urlopen",
+        return_value=_response(
+            {
+                "data": [
+                    {
+                        "id": "unsloth/qwen",
+                        "attention_type": "linear",
+                        "kv_cache_quantization": True,
+                    },
+                ],
+            },
+        ),
+    ):
+        capability = probe.observe(profile)
+
+    assert set(capability["reported_capabilities"]) == {"linear_attention", "kv_cache_compression"}
+    assert "long_context" in capability
+    assert capability["long_context"]["strategy"] == "native"
+
+
 def test_mlx_probe_marks_native_tools_unsupported():
     profile = ModelProfile(name="mlx-qwen", repo="mlx-community/qwen", role="reasoning", provider="mlx")
     capability = LocalProviderCapabilityProbe(_Registry()).observe(profile)
 
     assert capability["native_tool_calling"] == "unsupported"
     assert capability["source"] == "mlx_lm:direct"
+
+
+def test_transformers_probe_reports_direct_runtime_available(tmp_path):
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "model.safetensors").write_bytes(b"weights")
+    profile = ModelProfile(name="local-transformers", repo=str(tmp_path), role="reasoning", provider="transformers")
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    with patch(
+        "antigravity_k.engine.provider_capabilities.importlib.util.find_spec",
+        return_value=object(),
+    ):
+        capability = probe.observe(profile)
+
+    assert capability["runtime_status"] == "available"
+    assert capability["source"] == "transformers:direct"
+    assert "별도 서버 없이" in capability["detail"]
+
+
+def test_transformers_probe_reads_explicit_long_context_metadata(tmp_path):
+    (tmp_path / "config.json").write_text(
+        json.dumps(
+            {
+                "sparse_attention": True,
+                "attention_type": "linear",
+                "kv_cache_compression": True,
+            },
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "model.safetensors").write_bytes(b"weights")
+    profile = ModelProfile(name="local-transformers", repo=str(tmp_path), role="reasoning", provider="transformers")
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    with patch(
+        "antigravity_k.engine.provider_capabilities.importlib.util.find_spec",
+        return_value=object(),
+    ):
+        capability = probe.observe(profile)
+
+    assert capability["reported_capabilities"] == [
+        "kv_cache_compression",
+        "linear_attention",
+        "sparse_attention",
+    ]
+    assert "long_context" in capability
+    assert capability["long_context"]["strategy"] == "native"
+
+
+def test_unsloth_local_adapter_reads_same_long_context_metadata(tmp_path):
+    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "config.json").write_text(json.dumps({"attention_type": "linear"}), encoding="utf-8")
+    (tmp_path / "adapter_model.safetensors").write_bytes(b"weights")
+    profile = ModelProfile(name="local-unsloth", repo=str(tmp_path), role="reasoning", provider="unsloth")
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    with patch(
+        "antigravity_k.engine.provider_capabilities.importlib.util.find_spec",
+        return_value=object(),
+    ):
+        capability = probe.observe(profile)
+
+    assert capability["reported_capabilities"] == ["linear_attention"]
+    assert "long_context" in capability
+    assert capability["long_context"]["strategy"] == "native"
+
+
+def test_unsloth_adapter_probe_uses_direct_runtime_without_server(tmp_path):
+    (tmp_path / "adapter_config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "adapter_model.safetensors").write_bytes(b"weights")
+    profile = ModelProfile(name="local-unsloth", repo=str(tmp_path), role="reasoning", provider="unsloth")
+    probe = LocalProviderCapabilityProbe(_Registry())
+
+    with (
+        patch(
+            "antigravity_k.engine.provider_capabilities.importlib.util.find_spec",
+            return_value=object(),
+        ),
+        patch("antigravity_k.engine.provider_capabilities.safe_urlopen") as urlopen,
+    ):
+        capability = probe.observe(profile)
+
+    urlopen.assert_not_called()
+    assert capability["runtime_status"] == "available"
+    assert capability["source"] == "unsloth:local-adapter"
 
 
 def _capability_for(
@@ -327,4 +479,34 @@ def test_manager_status_exposes_capabilities_to_router():
     status = manager.status()
 
     assert status["provider_capabilities"][profile.name]["native_tool_calling"] == "supported"
+    assert status["provider_capabilities"][profile.name]["long_context_plan"]["strategy"] == "retrieval_fallback"
+    assert status["provider_capabilities"][profile.name]["long_context_plan"]["retrieval_mode"] == "long_context"
     assert status["routing"]["provider_capabilities"][profile.name]["runtime_status"] == "available"
+
+
+def test_manager_long_context_plan_returns_same_policy_as_capability() -> None:
+    profile = ModelProfile(name="qwen3.6:latest", repo="qwen3.6:latest", role="reasoning", provider="ollama")
+    registry = MagicMock(spec=ModelRegistry)
+    registry._raw = {"models": {"reasoning": [{"name": profile.name, "context_length": 16_384}]}}
+    registry.memory_config = SimpleNamespace(max_loaded_gb=100.0, unload_cooldown_sec=60.0, auto_unload=False)
+    registry.get_model.return_value = profile
+    manager = ModelManager(registry=registry, router=ModelRouter(registry))
+    manager._capability_probe.observe = MagicMock(
+        return_value={
+            "model": profile.name,
+            "provider": "ollama",
+            "is_local": True,
+            "native_tool_calling": "supported",
+            "runtime_status": "available",
+            "source": "test",
+            "detail": "test",
+            "reported_capabilities": [],
+            "reported_model_count": 0,
+        },
+    )
+
+    plan = manager.long_context_plan(profile.name)
+
+    assert plan is not None
+    assert plan["strategy"] == "retrieval_fallback"
+    assert plan["context_token_limit"] == 9_830
