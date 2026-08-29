@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from antigravity_k.api.browser_session_state import (
     BrowserSessionLimitError,
@@ -470,7 +470,7 @@ class AutonomousQARequest(BaseModel):
     """
 
     url: str = "http://localhost:5173"
-    max_iterations: int = 3
+    max_iterations: int = Field(default=3, ge=1, le=10)
     vision_model: str = "qwen3.6:latest"
     coding_model: str = "qwen3.6:latest"
 
@@ -691,7 +691,7 @@ class TDDGenerateRequest(BaseModel):
 
     prompt: str
     target_file_path: str | None = None
-    max_iterations: int = 3
+    max_iterations: int = Field(default=3, ge=1, le=10)
     coding_model: str = "qwen3.6:latest"
 
 

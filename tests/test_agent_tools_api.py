@@ -2,7 +2,9 @@ import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from antigravity_k.api.routes import agent_tools
 from antigravity_k.api.routes.agent_tools import (
@@ -188,6 +190,17 @@ def test_agent_model_defaults_prioritize_local_qwen():
     assert AutonomousQARequest().coding_model == "qwen3.6:latest"
     assert VisionAnalyzeRequest().model == "qwen3.6:latest"
     assert TDDGenerateRequest(prompt="write a test").coding_model == "qwen3.6:latest"
+
+
+@pytest.mark.parametrize("request_model", [AutonomousQARequest, TDDGenerateRequest])
+@pytest.mark.parametrize("max_iterations", [0, 11])
+def test_autonomous_loop_iteration_budget_is_bounded(request_model, max_iterations):
+    payload = {"max_iterations": max_iterations}
+    if request_model is TDDGenerateRequest:
+        payload["prompt"] = "write a test"
+
+    with pytest.raises(ValidationError):
+        request_model(**payload)
 
 
 def test_agent_fs_write_and_read_are_limited_to_project_root(tmp_path, monkeypatch):
