@@ -226,7 +226,7 @@ class TestD9_SkillInstaller:
         }
         (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-test")
+        validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "@antigravity-k/skill-test")
         assert validation.valid is True
         assert validation.version == "1.0.0"
         assert validation.risk_level == "safe"
@@ -241,7 +241,7 @@ class TestD9_SkillInstaller:
         pkg_json = {"name": "lodash", "version": "4.17.21", "antigravityK": {"skill": False}}
         (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(None)._validate_package(npm_path, "lodash")
+        validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "lodash")
         assert validation.valid is False
 
     def test_validate_package_missing_package_json(self, tmp_path):
@@ -251,7 +251,7 @@ class TestD9_SkillInstaller:
         npm_path = tmp_path / "node_modules" / "broken"
         npm_path.mkdir(parents=True)
         # No package.json
-        validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-broken")
+        validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "@antigravity-k/skill-broken")
         assert validation.valid is False
         assert "package.json not found" in validation.reason
 
@@ -316,7 +316,7 @@ class TestD9_SkillInstaller:
         npm_path = tmp_path / "node_modules" / "empty"
         npm_path.mkdir(parents=True)
 
-        report = SkillInstaller._security_scan(None, npm_path, "empty")
+        report = SkillInstaller(str(tmp_path))._security_scan(npm_path, "empty")
         assert report.passed is True
         assert len(report.findings) == 0
 
@@ -331,7 +331,7 @@ class TestD9_SkillInstaller:
         ref_dir.mkdir()
         (ref_dir / "security.md").write_text("API_KEY=sk-1234567890abcdef")
 
-        report = SkillInstaller._security_scan(None, npm_path, "skill")
+        report = SkillInstaller(str(tmp_path))._security_scan(npm_path, "skill")
         assert len(report.warnings) >= 1  # API_KEY pattern detected as warning
 
     def test_write_meta_with_mcp_config(self, tmp_path):
@@ -361,7 +361,7 @@ class TestD9_SkillInstaller:
             mcp_server_id="my-server",
         )
         security = SecurityReport(passed=True)
-        SkillInstaller._write_meta(None, dest_dir, "@antigravity-k/skill-mcp", validation, security)
+        SkillInstaller(str(tmp_path))._write_meta(dest_dir, "@antigravity-k/skill-mcp", validation, security)
 
         meta = json.loads((dest_dir / ".agk_meta.json").read_text(encoding="utf-8"))
         assert meta["mcp_config"]["command"] == "node"
@@ -732,8 +732,10 @@ class TestD13_SkillLoader_Market_Advanced:
 
         # 각각 source 확인
         local_skill = loader.get_skill("local-only")
+        assert local_skill is not None
         assert local_skill["source"] == "local"
         market_skill = loader.get_skill("market-only")
+        assert market_skill is not None
         assert market_skill["source"] == "market"
 
     def test_active_skills_api(self, tmp_path):
@@ -769,7 +771,9 @@ class TestD13_SkillLoader_Market_Advanced:
 
         loader = SkillLoader(project_root=str(tmp_path), include_global=False, include_market=True)
         assert loader.get_skill("mkt-skill") is not None
-        assert loader.get_skill("mkt-skill")["source"] == "market"
+        market_skill = loader.get_skill("mkt-skill")
+        assert market_skill is not None
+        assert market_skill["source"] == "market"
 
     def test_refresh_reloads_skills(self, tmp_path):
         """refresh() → 새로 추가된 마켓 스킬 로드."""
@@ -785,7 +789,9 @@ class TestD13_SkillLoader_Market_Advanced:
         loader.refresh()
 
         assert loader.get_skill("new-skill") is not None
-        assert loader.get_skill("new-skill")["source"] == "market"
+        new_skill = loader.get_skill("new-skill")
+        assert new_skill is not None
+        assert new_skill["source"] == "market"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -910,22 +916,23 @@ class TestWeek2_E2E_MarketplaceLifecycle:
         )
 
         # package.json
-        pkg = {
+        agk_metadata: dict[str, object] = {
+            "skill": True,
+            "riskLevel": "low",
+            "trustLevel": "verified",
+        }
+        pkg: dict[str, object] = {
             "name": f"@antigravity-k/skill-{name}",
             "version": version,
-            "antigravityK": {
-                "skill": True,
-                "riskLevel": "low",
-                "trustLevel": "verified",
-            },
+            "antigravityK": agk_metadata,
         }
         if mcp_server_id:
-            pkg["antigravityK"]["mcp"] = {
+            agk_metadata["mcp"] = {
                 "serverId": mcp_server_id,
                 "command": "python",
                 "args": ["-m", name],
             }
-            pkg["antigravityK"]["mcp_server_id"] = mcp_server_id
+            agk_metadata["mcp_server_id"] = mcp_server_id
         (skill_dir / "package.json").write_text(json.dumps(pkg, ensure_ascii=False, indent=2))
 
         # .agk_meta.json
