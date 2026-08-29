@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `384fbb6` (skill market 테스트 mock/private adapter 정리 포함)
-- 전체 `basedpyright`: `0 errors, 27048 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer·flight controller·self-healing doctor·MCP capability·OS driver·preference memory·shared session state·speculative branching·structural snapshot·TDD verifier·data extractor·secure-key·장학금 필터 테스트·skill market 테스트는 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 스킬 모듈 Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, tool-loop 테스트는 611건 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `63e4a2d` (CI 도구 테스트 typed adapter 정리 포함)
+- 전체 `basedpyright`: `0 errors, 26955 warnings, 0 notes` (CI 도구 테스트까지 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 스킬 모듈 Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, tool-loop 테스트는 611건 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -184,6 +184,8 @@ date: 2026-08-29
 - `624ef87`: `.agent/skills/k-skill/scripts/ktx_booking.py` explicitly consumes login/cancel/parser registration return values, removing 21 unused-call-result diagnostics without changing CLI behavior. KTX script tests passed 11; Ruff, Ruff-format, mypy, pre-commit, and py_compile passed. File basedpyright warnings decreased from 292 to 271; remaining diagnostics are optional `korail2`/crypto dynamic import contracts and argparse namespace boundaries. Whole-tree basedpyright remeasurement is `0 errors, 28231 warnings, 0 notes`.
 - `a146bfb`: KTX dependency and missing-secret error messages no longer rely on implicit string concatenation. The KTX script suite passed 11 tests; Ruff, Ruff-format, mypy, py_compile, and pre-commit passed. File basedpyright warnings decreased from 271 to 269; whole-tree basedpyright remeasurement is `0 errors, 28229 warnings, 0 notes`.
 - `9f771d8`: KTX search/reserve/cancel and train/reservation normalization now use explicit Protocol contracts, with a guarded reservation result and typed command payloads. The KTX script suite passed 11 tests; Ruff, Ruff-format, mypy, py_compile, and pre-commit passed. File basedpyright warnings decreased from 269 to 97; remaining diagnostics are optional `korail2`/crypto import surfaces and untyped third-party members. Whole-tree basedpyright remeasurement is `0 errors, 28057 warnings, 0 notes`.
+
+- `63e4a2d`: `tests/test_ci_tools.py`의 보호 메서드 호출, 파싱 결과, linter 목록, PR subprocess mock을 명시적 callable/TypedDict/Mock 경계로 정리하고 파일 쓰기 반환값을 소비했다. 45개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `93 → 0`, 전체 basedpyright는 `0 errors, 26955 warnings, 0 notes`다.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
