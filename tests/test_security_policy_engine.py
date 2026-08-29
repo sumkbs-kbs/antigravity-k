@@ -4,6 +4,8 @@
 Fail-Closed 동작, 커맨드/도메인 차단 규칙을 검증한다.
 """
 
+from typing import cast
+
 import yaml
 
 from antigravity_k.engine.security_policy import (
@@ -70,7 +72,7 @@ class TestFailClosed:
 # ── 커맨드/도메인 규칙 ────────────────────────────────────────────
 
 
-def _engine_with(tmp_path, policy: dict) -> SecurityPolicyEngine:
+def _engine_with(tmp_path, policy: dict[str, object]) -> SecurityPolicyEngine:
     policy_file = tmp_path / "policy.yaml"
     policy_file.write_text(yaml.safe_dump(policy), encoding="utf-8")
     return SecurityPolicyEngine(policy_file=str(policy_file))
@@ -145,5 +147,6 @@ class TestToolPermissionEngine:
         )
 
         assert engine.is_fail_closed is False
-        assert engine.policy["filesystem"]["allowed_paths"] == ["/tmp"]
+        filesystem = cast(dict[str, list[str]], cast(object, engine.policy["filesystem"]))
+        assert filesystem["allowed_paths"] == ["/tmp"]
         assert engine.is_command_allowed("run danger script") is False

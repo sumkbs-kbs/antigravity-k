@@ -69,7 +69,7 @@ class TestGateDecision:
         """GateDecision is frozen — attributes cannot be reassigned."""
         d = GateDecision()
         with pytest.raises(AttributeError):
-            d.action = GateAction.DENY  # type: ignore[misc]
+            setattr(d, "action", GateAction.DENY)
 
 
 # ---------------------------------------------------------------------------
