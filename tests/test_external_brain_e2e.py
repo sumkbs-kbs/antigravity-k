@@ -25,7 +25,7 @@ async def test_external_brain_e2e_delegation():
     ) as mock_send:
         mock_send.return_value = mock_response
 
-        CognitiveLoop(
+        _ = CognitiveLoop(
             project_root="/tmp",
             external_brain_router=router,
         )
