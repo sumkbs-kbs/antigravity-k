@@ -1,4 +1,5 @@
 import tempfile
+from collections.abc import Iterator
 
 import pytest
 
@@ -26,12 +27,12 @@ Another paragraph under the second header. Let's make it slightly longer.
 
 
 @pytest.fixture
-def temp_chroma():
+def temp_chroma() -> Iterator[str]:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         yield tmpdir
 
 
-def test_vector_store(temp_chroma):
+def test_vector_store(temp_chroma: str):
     store = VectorStore(persist_directory=temp_chroma, collection_name="test_collection")
     chunks = [
         {"id": "test1_0", "text": "Apple is a fruit", "metadata": {"source": "test1"}},
