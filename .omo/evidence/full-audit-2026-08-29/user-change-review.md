@@ -6,6 +6,8 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+- 최신 전체 basedpyright 재측정은 `0 errors, 25401 warnings, 0 notes`이며, `.agent/skills/k-skill/scripts/ktx_booking.py`의 optional 의존성·JSON 응답 경계를 `54cbcd7` 독립 커밋으로 정리해 해당 파일 경고를 `97 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
+
 - 최신 전체 basedpyright 재측정은 `0 errors, 25498 warnings, 0 notes`이며, `tests/test_max_engine.py`의 보호 메서드·MAX 핸들러 경계를 `9ecfb4e` 독립 커밋으로 정리해 해당 파일 경고를 `45 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 
 ## 범위
@@ -56,7 +58,7 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 25543 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 25401 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0. 중첩 `monaco-editor → dompurify`와 `typed-rest-client → qs` 경로가 남아 있으며, dry-run은 118개 패키지 추가와 Monaco major 변경을 제안했다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.
