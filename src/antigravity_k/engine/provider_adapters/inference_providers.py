@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from importlib import import_module
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Protocol, override
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, override
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
 from antigravity_k.tools.egress_policy import safe_urlopen
@@ -22,12 +22,15 @@ logger = logging.getLogger("antigravity_k.inference_providers")
 
 Message = dict[str, Any]
 Prompt = str | list[Message]
+DynamicValue: TypeAlias = Any
+JsonMap: TypeAlias = dict[str, Any]
+DynamicConfig: TypeAlias = tuple[str, DynamicValue, JsonMap | None, str]
 
 
 class LoadedModelLike(Protocol):
     profile: ModelProfile
-    model: Any
-    tokenizer: Any
+    model: DynamicValue
+    tokenizer: DynamicValue
 
 
 LoadedModelArg = LoadedModelLike | SimpleNamespace
@@ -40,7 +43,7 @@ class BaseInferenceProvider(ABC):
     """
 
     @abstractmethod
-    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -55,7 +58,7 @@ class BaseInferenceProvider(ABC):
         pass
 
     @abstractmethod
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs) -> Iterator[str]:
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -82,7 +85,12 @@ class BaseInferenceProvider(ABC):
 
         return [{"role": "system", "content": directive}, *prepared]
 
-    def _apply_dynamic_inference_config(self, loaded_profile, prompt_or_messages, kwargs):
+    def _apply_dynamic_inference_config(
+        self,
+        loaded_profile: DynamicValue,
+        prompt_or_messages: Prompt,
+        kwargs: JsonMap,
+    ) -> DynamicConfig:
         import hashlib
 
         model_name = loaded_profile.name
@@ -140,7 +148,7 @@ class AnthropicProvider(BaseInferenceProvider):
     """
 
     @override
-    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -158,7 +166,7 @@ class AnthropicProvider(BaseInferenceProvider):
         return result
 
     @override
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -250,7 +258,7 @@ class OpenRouterProvider(BaseInferenceProvider):
     forwards_native_tools: bool = True
 
     @override
-    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -286,7 +294,7 @@ class OpenRouterProvider(BaseInferenceProvider):
         return base_url, api_key
 
     @override
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -352,7 +360,7 @@ class OpenRouterProvider(BaseInferenceProvider):
         try:
             with safe_urlopen(req, timeout=300) as response:
                 # 네이티브 tool_call 누적 버퍼 (스트리밍 tool_calls 조립용)
-                pending_tool_calls: dict[int, dict[str, Any]] = {}
+                pending_tool_calls: dict[int, JsonMap] = {}
                 for line in response:
                     line_text = line.decode("utf-8").strip()
                     if not line_text or line_text == "data: [DONE]":
@@ -449,14 +457,14 @@ class OllamaProvider(BaseInferenceProvider):
             return ""
 
     @staticmethod
-    def _context_window(loaded: LoadedModelArg, kwargs) -> int:
+    def _context_window(loaded: LoadedModelArg, kwargs: JsonMap) -> int:
         return context_budget_for_context_length(
             getattr(loaded.profile, "context_length", None),
             kwargs.get("context_token_limit"),
         ).token_limit
 
     @override
-    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -619,7 +627,9 @@ class OllamaProvider(BaseInferenceProvider):
             logger.exception("Local native API generation failed")
             return f"[API Error for {loaded.profile.name}] {e}"
 
-    def _iter_stream_response(self, response, tools_schema: list[Any] | None = None):
+    def _iter_stream_response(
+        self, response: DynamicValue, tools_schema: list[DynamicValue] | None = None
+    ) -> Iterator[str]:
         pending_tool_calls = []
         buffered_content = []
         for line in response:
@@ -656,7 +666,7 @@ class OllamaProvider(BaseInferenceProvider):
             return
         yield from buffered_content
 
-    def _single_tool_content_call(self, content: str, tools_schema: list[Any] | None) -> str:
+    def _single_tool_content_call(self, content: str, tools_schema: list[DynamicValue] | None) -> str:
         if not isinstance(tools_schema, list) or len(tools_schema) != 1:
             return ""
         tool = tools_schema[0]
@@ -688,7 +698,7 @@ class OllamaProvider(BaseInferenceProvider):
         return self._native_tool_call_xml(tool_name, arguments)
 
     @override
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -942,7 +952,7 @@ class NimProvider(BaseInferenceProvider):
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                pending_tool_calls: dict[int, dict[str, Any]] = {}
+                pending_tool_calls: dict[int, JsonMap] = {}
                 for line in response:
                     line_text = line.decode("utf-8").strip()
                     if not line_text or line_text == "data: [DONE]":
@@ -1017,7 +1027,7 @@ class OpenAIDirectProvider(OpenRouterProvider):
         return base_url, api_key
 
     @override
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """OpenAI 직접 스트리밍 (HTTP-Referer 헤더 없음)."""
         base_url, api_key = self._resolve_endpoint(loaded)
         if not api_key:
@@ -1070,7 +1080,7 @@ class OpenAIDirectProvider(OpenRouterProvider):
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                pending_tool_calls: dict[int, dict[str, Any]] = {}
+                pending_tool_calls: dict[int, JsonMap] = {}
                 for line in response:
                     line_text = line.decode("utf-8").strip()
                     if not line_text or line_text == "data: [DONE]":
@@ -1197,7 +1207,7 @@ class LMStudioProvider(OpenRouterProvider):
 
 class MlxProvider(BaseInferenceProvider):
     @override
-    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -1223,7 +1233,7 @@ class MlxProvider(BaseInferenceProvider):
             raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
     @override
-    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs):
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
