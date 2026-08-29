@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `a809476` (KTX 예약 테스트 double 타입 보강 포함)
-- 전체 `basedpyright`: `0 errors, 27794 warnings, 0 notes` (KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 697건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `7606ff7` (tool-loop 테스트 경계 타입 보강 포함)
+- 전체 `basedpyright`: `0 errors, 27762 warnings, 0 notes` (KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `7606ff7`: `tests/test_tool_loop.py`의 durable task 생성 반환값, 오류 분류 콜백, 스트림 side-effect callback, 문자열 조합, context compression 미사용 결과를 명시적으로 타입화·소비했다. tool-loop 90개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일 경고가 `697 → 665`로 감소했다. 전체 basedpyright는 `0 errors, 27762 warnings, 0 notes`다.
 
 - `a809476`: KTX 예약 테스트의 FakeTrain/FakeReservation/FakeClient 속성·메서드·콜백 계약을 명시하고 unittest 문자열 오버라이드를 표시했다. `PYTHONPATH=.agent/skills/k-skill` 기준 11개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일별 basedpyright 경고가 `152 → 46`으로 감소했다. 전체 basedpyright는 `0 errors, 27794 warnings, 0 notes`다.
 - `fad2093`: 특허 검색 테스트의 URL opener 응답 double, fetcher 콜백, 캡처 payload를 명시적으로 타입화하고 동적 lambda를 named callback으로 교체했다. `PYTHONPATH=.agent/skills/k-skill` 기준 16개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일별 basedpyright 경고가 `132 → 69`로 감소했다. 전체 basedpyright는 `0 errors, 27900 warnings, 0 notes`다.

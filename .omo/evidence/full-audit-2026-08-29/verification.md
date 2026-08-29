@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `7606ff7`; whole-tree basedpyright reports `0 errors, 27762 warnings, 0 notes`. `tests/test_tool_loop.py` now explicitly types error-classifier and stream callbacks, consumes durable task creation results, removes implicit string concatenation, and marks unused context-compression results. The 90-test tool-loop suite, Ruff, Ruff-format, py_compile, and pre-commit pass; file warnings fell `697 → 665`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `a809476`; whole-tree basedpyright reports `0 errors, 27794 warnings, 0 notes`. KTX booking tests now have typed FakeTrain/FakeReservation/FakeClient attributes, methods, and callbacks; with `PYTHONPATH=.agent/skills/k-skill`, the 11-test suite, Ruff, Ruff-format, py_compile, and pre-commit pass, with file warnings reduced `152 → 46`. The patent-search test remains at 69 warnings, Korean slang-writing at 198, scholarship filter CLI at 210, and `tests/test_tool_loop.py` at 697. MAX-engine tests pass 43 tests with 45 intentional protected/private boundary warnings; KTX skill implementation tests pass 11 with 97 optional-dependency/third-party warnings. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - HEAD reviewed: `6d3680ca90e9c78bc2b5f31edb226fad8d0c355f`
