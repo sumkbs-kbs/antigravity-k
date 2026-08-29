@@ -61,6 +61,7 @@ dev = [
     "mypy>=1.13.0,<2.0",
     "types-PyYAML>=6.0",
     "types-croniter>=5.0.0",
+    "requests>=2.32.0,<3.0",
     "playwright>=1.40.0,<2.0",
 ]
 # 외부 통합 (Discord/Slack 봇, 웹 스크래핑) — 선택적
