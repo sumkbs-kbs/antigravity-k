@@ -10,7 +10,55 @@ import sys
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Callable, Protocol, TypeAlias, TypedDict, cast
+
+JsonPrimitive: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+class DeadlineContext(TypedDict):
+    today: str
+    start: str | None
+    end: str | None
+    status: str
+    days_until_start: int | None
+    days_until_end: int | None
+
+
+class EligibilityResult(TypedDict):
+    name: JsonValue
+    organization_name: str
+    organization_type: str
+    source_url: JsonValue
+    apply_url: JsonValue
+    status: str
+    passed: list[str]
+    failed: list[str]
+    unknown: list[str]
+
+
+class FilterArgs(Protocol):
+    input: str | None
+    q: str | None
+    org_type: str | None
+    school_kind: str | None
+    school_name: str | None
+    student_level: str | None
+    major: str | None
+    department_name: str | None
+    grade_year: int | None
+    gpa: float | None
+    income_band: int | None
+    today: str | None
+    min_amount: int | None
+    max_amount: int | None
+    strict_amount: bool
+    deadline_status: str | None
+    only_open_now: bool
+    upcoming_within_days: int | None
+    deadline_within_days: int | None
+    func: Callable[["FilterArgs"], int]
+
 
 AMOUNT_KEYS = (
     "annual_krw",
@@ -26,27 +74,28 @@ KST = timezone(timedelta(hours=9), name="Asia/Seoul")
 KST_LABEL = "Asia/Seoul (KST)"
 
 
-def read_payload(path: str | None) -> Any:
+def read_payload(path: str | None) -> JsonValue:
     if path:
-        return json.loads(Path(path).read_text(encoding="utf8"))
+        return cast(JsonValue, json.loads(Path(path).read_text(encoding="utf8")))
 
     raw = sys.stdin.read().strip()
     if not raw:
         raise SystemExit("expected JSON input from --input or stdin")
-    return json.loads(raw)
+    return cast(JsonValue, json.loads(raw))
 
 
-def ensure_records(payload: Any) -> list[dict[str, Any]]:
+def ensure_records(payload: JsonValue) -> list[dict[str, JsonValue]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):
-        if isinstance(payload.get("items"), list):
-            return [item for item in payload["items"] if isinstance(item, dict)]
+        items = payload.get("items")
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
         return [payload]
     raise SystemExit("input JSON must be an object or an array of objects")
 
 
-def as_list(value: Any) -> list[Any]:
+def as_list(value: JsonValue | None) -> list[JsonValue]:
     if value is None:
         return []
     if isinstance(value, list):
@@ -54,16 +103,16 @@ def as_list(value: Any) -> list[Any]:
     return [value]
 
 
-def normalize_text(value: Any) -> str:
+def normalize_text(value: JsonValue | None) -> str:
     return str(value or "").strip().lower()
 
 
-def contains_text(values: list[Any], needle: str) -> bool:
+def contains_text(values: list[JsonValue], needle: str) -> bool:
     target = normalize_text(needle)
     return any(target in normalize_text(value) for value in values)
 
 
-def parse_int(value: Any) -> int | None:
+def parse_int(value: JsonValue | None) -> int | None:
     if value is None or value == "":
         return None
     if isinstance(value, bool):
@@ -78,7 +127,7 @@ def parse_int(value: Any) -> int | None:
         return None
 
 
-def parse_float(value: Any) -> float | None:
+def parse_float(value: JsonValue | None) -> float | None:
     if value is None or value == "":
         return None
     if isinstance(value, bool):
@@ -89,7 +138,7 @@ def parse_float(value: Any) -> float | None:
         return None
 
 
-def parse_date(value: Any) -> date | None:
+def parse_date(value: JsonValue | None) -> date | None:
     if not value:
         return None
     text = str(value).strip()
@@ -129,19 +178,23 @@ def resolve_today(value: str | None) -> date:
     return parsed or current_kst_date()
 
 
-def extract_org_type(record: dict[str, Any]) -> str:
-    organization = record.get("organization") or {}
-    return normalize_text(record.get("org_type") or organization.get("type") or "")
+def extract_org_type(record: dict[str, JsonValue]) -> str:
+    organization = record.get("organization")
+    organization_map = organization if isinstance(organization, dict) else {}
+    return normalize_text(record.get("org_type") or organization_map.get("type") or "")
 
 
-def extract_org_name(record: dict[str, Any]) -> str:
-    organization = record.get("organization") or {}
-    return str(record.get("organization_name") or organization.get("name") or "").strip()
+def extract_org_name(record: dict[str, JsonValue]) -> str:
+    organization = record.get("organization")
+    organization_map = organization if isinstance(organization, dict) else {}
+    return str(record.get("organization_name") or organization_map.get("name") or "").strip()
 
 
 def parse_amount_from_text(text: str) -> list[int]:
     candidates: list[int] = []
-    for raw, unit in re.findall(r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*(만원|원)", text):
+    for match in re.finditer(r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*(만원|원)", text):
+        raw = match.group(1)
+        unit = match.group(2)
         try:
             value = float(raw.replace(",", ""))
         except ValueError:
@@ -151,14 +204,14 @@ def parse_amount_from_text(text: str) -> list[int]:
     return candidates
 
 
-def normalize_deadline_status(value: Any) -> str | None:
+def normalize_deadline_status(value: JsonValue | None) -> str | None:
     status = normalize_text(value)
     if status in CANONICAL_DEADLINE_STATUSES:
         return status
     return None
 
 
-def extract_amount_value(record: dict[str, Any]) -> int | None:
+def extract_amount_value(record: dict[str, JsonValue]) -> int | None:
     amount = record.get("amount")
     candidates: list[int] = []
 
@@ -181,9 +234,10 @@ def extract_amount_value(record: dict[str, Any]) -> int | None:
     return max(candidates) if candidates else None
 
 
-def infer_deadline_status(record: dict[str, Any], today: date | None = None) -> str:
+def infer_deadline_status(record: dict[str, JsonValue], today: date | None = None) -> str:
     today = today or current_kst_date()
-    deadline = record.get("deadline") or {}
+    deadline_value = record.get("deadline")
+    deadline = deadline_value if isinstance(deadline_value, dict) else {}
     start_at = parse_date(deadline.get("start"))
     end_at = parse_date(deadline.get("end"))
 
@@ -197,9 +251,10 @@ def infer_deadline_status(record: dict[str, Any], today: date | None = None) -> 
     return cached_status or "unknown"
 
 
-def deadline_context(record: dict[str, Any], today: date | None = None) -> dict[str, Any]:
+def deadline_context(record: dict[str, JsonValue], today: date | None = None) -> DeadlineContext:
     today = today or current_kst_date()
-    deadline = record.get("deadline") or {}
+    deadline_value = record.get("deadline")
+    deadline = deadline_value if isinstance(deadline_value, dict) else {}
     start_at = parse_date(deadline.get("start"))
     end_at = parse_date(deadline.get("end"))
     status = infer_deadline_status(record, today)
@@ -215,14 +270,14 @@ def deadline_context(record: dict[str, Any], today: date | None = None) -> dict[
     }
 
 
-def get_eligibility(record: dict[str, Any]) -> dict[str, Any]:
+def get_eligibility(record: dict[str, JsonValue]) -> dict[str, JsonValue]:
     eligibility = record.get("eligibility")
     if isinstance(eligibility, dict):
         return eligibility
     return {}
 
 
-def extract_department_names(record: dict[str, Any]) -> list[Any]:
+def extract_department_names(record: dict[str, JsonValue]) -> list[JsonValue]:
     eligibility = get_eligibility(record)
     values = as_list(eligibility.get("department_names"))
     if values:
@@ -230,16 +285,16 @@ def extract_department_names(record: dict[str, Any]) -> list[Any]:
     return as_list(eligibility.get("majors"))
 
 
-def school_match_values(record: dict[str, Any]) -> list[Any]:
+def school_match_values(record: dict[str, JsonValue]) -> list[JsonValue]:
     eligibility = get_eligibility(record)
-    values: list[Any] = []
+    values: list[JsonValue] = []
     values.extend(as_list(eligibility.get("school_names")))
     values.append(extract_org_name(record))
     return [value for value in values if value]
 
 
-def department_match_values(record: dict[str, Any]) -> list[Any]:
-    values: list[Any] = []
+def department_match_values(record: dict[str, JsonValue]) -> list[JsonValue]:
+    values: list[JsonValue] = []
     values.extend(extract_department_names(record))
     values.append(extract_org_name(record))
     values.append(record.get("source_url"))
@@ -247,7 +302,7 @@ def department_match_values(record: dict[str, Any]) -> list[Any]:
     return [value for value in values if value]
 
 
-def match_query(record: dict[str, Any], query: str | None) -> bool:
+def match_query(record: dict[str, JsonValue], query: str | None) -> bool:
     if not query:
         return True
 
@@ -266,7 +321,7 @@ def match_query(record: dict[str, Any], query: str | None) -> bool:
     return contains_text(haystacks, query)
 
 
-def match_filter(record: dict[str, Any], args: argparse.Namespace) -> tuple[bool, list[str]]:
+def match_filter(record: dict[str, JsonValue], args: FilterArgs) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     eligibility = get_eligibility(record)
     today = resolve_today(getattr(args, "today", None))
@@ -348,12 +403,13 @@ def match_filter(record: dict[str, Any], args: argparse.Namespace) -> tuple[bool
         else:
             reasons.append("major=?")
 
-    if getattr(args, "department_name", None):
+    department_name = args.department_name
+    if department_name:
         departments = department_match_values(record)
-        if departments and not contains_text(departments, args.department_name):
+        if departments and not contains_text(departments, department_name):
             return False, reasons
         if departments:
-            reasons.append(f"department_name~={args.department_name}")
+            reasons.append(f"department_name~={department_name}")
         else:
             reasons.append("department_name=?")
 
@@ -421,9 +477,9 @@ def match_filter(record: dict[str, Any], args: argparse.Namespace) -> tuple[bool
     return True, reasons
 
 
-def command_filter(args: argparse.Namespace) -> int:
+def command_filter(args: FilterArgs) -> int:
     records = ensure_records(read_payload(args.input))
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, JsonValue]] = []
     today = resolve_today(getattr(args, "today", None))
 
     for record in records:
@@ -431,12 +487,15 @@ def command_filter(args: argparse.Namespace) -> int:
         if not matched:
             continue
         entry = deepcopy(record)
-        entry["_match"] = {
-            "amount_krw": extract_amount_value(record),
-            "deadline": deadline_context(record, today),
-            "deadline_status": infer_deadline_status(record, today),
-            "reasons": reasons,
-        }
+        entry["_match"] = cast(
+            JsonValue,
+            {
+                "amount_krw": extract_amount_value(record),
+                "deadline": deadline_context(record, today),
+                "deadline_status": infer_deadline_status(record, today),
+                "reasons": reasons,
+            },
+        )
         items.append(entry)
 
     payload = {
@@ -467,7 +526,7 @@ def command_filter(args: argparse.Namespace) -> int:
     return 0
 
 
-def eligibility_result(record: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+def eligibility_result(record: dict[str, JsonValue], args: FilterArgs) -> EligibilityResult:
     failed: list[str] = []
     passed: list[str] = []
     unknown: list[str] = []
@@ -518,12 +577,13 @@ def eligibility_result(record: dict[str, Any], args: argparse.Namespace) -> dict
         else:
             unknown.append("major=?")
 
-    if getattr(args, "department_name", None):
+    department_name = args.department_name
+    if department_name:
         departments = department_match_values(record)
-        if departments and not contains_text(departments, args.department_name):
+        if departments and not contains_text(departments, department_name):
             failed.append(f"department_name mismatch: {departments}")
         elif departments:
-            passed.append(f"department_name~={args.department_name}")
+            passed.append(f"department_name~={department_name}")
         else:
             unknown.append("department_name=?")
 
@@ -586,7 +646,7 @@ def eligibility_result(record: dict[str, Any], args: argparse.Namespace) -> dict
     }
 
 
-def command_eligibility(args: argparse.Namespace) -> int:
+def command_eligibility(args: FilterArgs) -> int:
     records = ensure_records(read_payload(args.input))
     results = [eligibility_result(record, args) for record in records]
     payload = {
@@ -637,7 +697,7 @@ def format_krw(value: int | None) -> str:
     return f"{value:,}원"
 
 
-def compact_eligibility_text(record: dict[str, Any]) -> str:
+def compact_eligibility_text(record: dict[str, JsonValue]) -> str:
     eligibility = get_eligibility(record)
     chunks: list[str] = []
 
@@ -678,14 +738,33 @@ def compact_eligibility_text(record: dict[str, Any]) -> str:
     return " / ".join(chunks) if chunks else "세부 자격은 공고 원문 확인"
 
 
-def report_entry(record: dict[str, Any], today: date) -> str:
+def coerce_deadline_context(value: JsonValue | None, fallback: DeadlineContext) -> DeadlineContext:
+    if not isinstance(value, dict):
+        return fallback
+    status = value.get("status")
+    today = value.get("today")
+    start = value.get("start")
+    end = value.get("end")
+    return {
+        "today": str(today) if today else fallback["today"],
+        "start": str(start) if start else None,
+        "end": str(end) if end else None,
+        "status": str(status) if status else fallback["status"],
+        "days_until_start": parse_int(value.get("days_until_start")),
+        "days_until_end": parse_int(value.get("days_until_end")),
+    }
+
+
+def report_entry(record: dict[str, JsonValue], today: date) -> str:
     raw_match_meta = record.get("_match")
     match_meta = raw_match_meta if isinstance(raw_match_meta, dict) else {}
     raw_context = match_meta.get("deadline")
-    context = raw_context if isinstance(raw_context, dict) else deadline_context(record, today)
+    context = coerce_deadline_context(raw_context, deadline_context(record, today))
     amount_text = None
-    if isinstance(record.get("amount"), dict):
-        amount_text = record["amount"].get("text")
+    amount = record.get("amount")
+    if isinstance(amount, dict):
+        raw_amount_text = amount.get("text")
+        amount_text = str(raw_amount_text) if raw_amount_text else None
     if not amount_text:
         amount_text = format_krw(extract_amount_value(record))
 
@@ -702,7 +781,8 @@ def report_entry(record: dict[str, Any], today: date) -> str:
     period = f"{context['start'] or '?'} ~ {context['end'] or '?'}"
     source_url = record.get("source_url") or "-"
     apply_url = record.get("apply_url") or "-"
-    reasons = match_meta.get("reasons") if isinstance(match_meta.get("reasons"), list) else []
+    raw_reasons = match_meta.get("reasons")
+    reasons = [str(reason) for reason in raw_reasons] if isinstance(raw_reasons, list) else []
 
     lines = [
         f"### {record.get('name') or '장학금명 미상'}",
@@ -723,26 +803,31 @@ def report_entry(record: dict[str, Any], today: date) -> str:
     return "\n".join(lines)
 
 
-def command_report(args: argparse.Namespace) -> int:
+def command_report(args: FilterArgs) -> int:
     today = resolve_today(args.today)
     records = ensure_records(read_payload(args.input))
-    matched: list[dict[str, Any]] = []
+    matched: list[dict[str, JsonValue]] = []
 
     for record in records:
         ok, reasons = match_filter(record, args)
         if ok:
             entry = deepcopy(record)
-            entry["_match"] = {
-                "amount_krw": extract_amount_value(record),
-                "deadline": deadline_context(record, today),
-                "deadline_status": infer_deadline_status(record, today),
-                "reasons": reasons,
-            }
+            entry["_match"] = cast(
+                JsonValue,
+                {
+                    "amount_krw": extract_amount_value(record),
+                    "deadline": deadline_context(record, today),
+                    "deadline_status": infer_deadline_status(record, today),
+                    "reasons": reasons,
+                },
+            )
             matched.append(entry)
 
-    groups = {"open": [], "upcoming": [], "closed": [], "unknown": []}
+    groups: dict[str, list[dict[str, JsonValue]]] = {"open": [], "upcoming": [], "closed": [], "unknown": []}
     for record in matched:
-        status = normalize_deadline_status((record.get("_match") or {}).get("deadline_status")) or "unknown"
+        raw_match = record.get("_match")
+        match_meta = raw_match if isinstance(raw_match, dict) else {}
+        status = normalize_deadline_status(match_meta.get("deadline_status")) or "unknown"
         groups[status].append(record)
 
     lines = [
@@ -850,7 +935,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = cast(FilterArgs, cast(object, parser.parse_args()))
     return args.func(args)
 
 
