@@ -376,20 +376,25 @@ def match_filter(record: dict[str, Any], args: argparse.Namespace) -> tuple[bool
         else:
             reasons.append("gpa=?")
 
-    if args.income_band is not None:
+    income_band = parse_int(args.income_band)
+    if income_band is not None:
         income_band_min = parse_int(eligibility.get("income_band_min"))
         income_band_max = parse_int(eligibility.get("income_band_max"))
         income_bands = {parse_int(value) for value in as_list(eligibility.get("income_bands"))}
         income_bands.discard(None)
 
-        if income_bands and args.income_band not in income_bands:
+        if income_bands and income_band not in income_bands:
             return False, reasons
-        if income_band_min is not None and args.income_band < income_band_min:
-            return False, reasons
-        if income_band_max is not None and args.income_band > income_band_max:
-            return False, reasons
+        if income_band_min is not None:
+            minimum_band = income_band_min
+            if income_band < minimum_band:
+                return False, reasons
+        if income_band_max is not None:
+            maximum_band = income_band_max
+            if income_band > maximum_band:
+                return False, reasons
         if income_bands or income_band_min is not None or income_band_max is not None:
-            reasons.append(f"income_band={args.income_band}")
+            reasons.append(f"income_band={income_band}")
         else:
             reasons.append("income_band=?")
 
@@ -523,8 +528,9 @@ def eligibility_result(record: dict[str, Any], args: argparse.Namespace) -> dict
             unknown.append("department_name=?")
 
     if args.grade_year is not None:
-        grade_years = {parse_int(value) for value in as_list(eligibility.get("grade_years"))}
-        grade_years.discard(None)
+        grade_years = {
+            parsed for value in as_list(eligibility.get("grade_years")) if (parsed := parse_int(value)) is not None
+        }
         if grade_years and args.grade_year not in grade_years:
             failed.append(f"grade_year mismatch: {sorted(grade_years)}")
         elif grade_years:
@@ -544,8 +550,9 @@ def eligibility_result(record: dict[str, Any], args: argparse.Namespace) -> dict
     if args.income_band is not None:
         income_band_min = parse_int(eligibility.get("income_band_min"))
         income_band_max = parse_int(eligibility.get("income_band_max"))
-        income_bands = {parse_int(value) for value in as_list(eligibility.get("income_bands"))}
-        income_bands.discard(None)
+        income_bands = {
+            parsed for value in as_list(eligibility.get("income_bands")) if (parsed := parse_int(value)) is not None
+        }
 
         if income_bands and args.income_band not in income_bands:
             failed.append(f"income_band mismatch: {sorted(income_bands)}")
@@ -672,10 +679,10 @@ def compact_eligibility_text(record: dict[str, Any]) -> str:
 
 
 def report_entry(record: dict[str, Any], today: date) -> str:
-    match_meta = record.get("_match") if isinstance(record.get("_match"), dict) else {}
-    context = (
-        match_meta.get("deadline") if isinstance(match_meta.get("deadline"), dict) else deadline_context(record, today)
-    )
+    raw_match_meta = record.get("_match")
+    match_meta = raw_match_meta if isinstance(raw_match_meta, dict) else {}
+    raw_context = match_meta.get("deadline")
+    context = raw_context if isinstance(raw_context, dict) else deadline_context(record, today)
     amount_text = None
     if isinstance(record.get("amount"), dict):
         amount_text = record["amount"].get("text")
