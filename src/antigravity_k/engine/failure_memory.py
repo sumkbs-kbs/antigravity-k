@@ -114,10 +114,16 @@ class FailureMemory:
             )
             for r in gbrain_results:
                 # FailureMemory의 포맷에 맞게 변환
+                raw_pattern = r.get("error_pattern")
+                if isinstance(raw_pattern, str):
+                    error_pattern = raw_pattern
+                else:
+                    raw_content = r.get("content", "")
+                    error_pattern = raw_content[:50] if isinstance(raw_content, str) else ""
                 results.append(
                     {
                         "tool": r.get("tool", "unknown"),
-                        "error_pattern": r.get("error_pattern", r.get("content", "")[:50]),
+                        "error_pattern": error_pattern,
                         "fix_applied": "",  # GBrain content에 포함되어 있음
                         "source": "gbrain",
                     },
