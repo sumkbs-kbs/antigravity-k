@@ -25,7 +25,7 @@ def run_transcendence_integrated_flight():
 
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "kernel.py").write_text(
+        _ = (root / "kernel.py").write_text(
             "def ignite_thruster(psi: float) -> bool:\n    '''Ignite engine.'''\n    return True\n", encoding="utf-8"
         )
 
@@ -67,7 +67,7 @@ def run_transcendence_integrated_flight():
             score += 1
 
     print("\n" + "=" * 80)
-    print(f"🏆 TRANSCENDENCE INTEGRATION SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 TRANSCENDENCE INTEGRATION SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 
