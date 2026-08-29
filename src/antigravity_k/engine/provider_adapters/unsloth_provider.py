@@ -68,7 +68,7 @@ def resolve_unsloth_settings(
 
 
 class UnslothProvider(LMStudioProvider):
-    forwards_native_tools = False
+    forwards_native_tools: bool = False
 
     @override
     def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
