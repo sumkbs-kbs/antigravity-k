@@ -86,6 +86,25 @@ async def _run_tool_task_async(engine: ToolLoopEngine, tool_call: ToolCall) -> T
     return await method(tool_call)
 
 
+def _run_loop(
+    engine: ToolLoopEngine,
+    messages: list[dict[str, str]],
+    delegate_to: str,
+    task_type: str,
+    max_steps: int,
+    target_model: str | None,
+) -> Generator[str, None, None]:
+    method = cast(
+        Callable[[list[dict[str, str]], str, str, int, str | None], Generator[str, None, None]],
+        getattr(engine, "run_loop"),
+    )
+    return method(messages, delegate_to, task_type, max_steps, target_model)
+
+
+def _engine(orchestrator: MagicMock) -> ToolLoopEngine:
+    return ToolLoopEngine(cast(object, orchestrator))
+
+
 def _maybe_compress_context(
     engine: ToolLoopEngine,
     shaped_messages: list[dict[str, str]],
@@ -289,7 +308,7 @@ def mock_orch() -> MagicMock:
 
 class TestToolLoopEngineInit:
     def test_stores_orchestrator(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         assert engine.orch is mock_orch
 
     def test_accepts_task_outcome_recorder(self, mock_orch: MagicMock):
@@ -300,7 +319,7 @@ class TestToolLoopEngineInit:
     def test_compacts_large_tool_result_with_source_provenance(self, mock_orch: MagicMock):
         raw_result = "BEGIN\n" + ("x" * 20_000) + "\nEND"
         formatted = _format_tool_response(
-            ToolLoopEngine(mock_orch),
+            _engine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": "README.md"}),
             raw_result,
         )
@@ -314,7 +333,7 @@ class TestToolLoopEngineInit:
         assert "END" in formatted
 
     def test_restores_stored_tool_artifact(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         formatted = _format_tool_response(
             engine,
             ToolCall(name="read_file", arguments={"file_path": "README.md"}),
@@ -328,7 +347,7 @@ class TestToolLoopEngineInit:
     def test_preserves_query_matched_middle_evidence_when_compacting(self, mock_orch: MagicMock):
         raw_result = "header\n" + ("x" * 8_000) + "\nagent_models:\n  default: qwen3.6:latest\n" + ("y" * 8_000)
         formatted = _format_tool_response(
-            ToolLoopEngine(mock_orch),
+            _engine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": "config.yaml"}),
             raw_result,
             focus_terms=("agent_models",),
@@ -340,7 +359,7 @@ class TestToolLoopEngineInit:
     def test_redacts_secrets_in_tool_result_before_context_injection(self, mock_orch: MagicMock):
         raw_result = "NVIDIA_API_KEY=nvapi-abc123def456789012345678901234567890\nexport OPENAI_API_KEY=sk-proj-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         formatted = _format_tool_response(
-            ToolLoopEngine(mock_orch),
+            _engine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": ".env"}),
             raw_result,
         )
@@ -353,7 +372,7 @@ class TestToolLoopEngineInit:
         # Secret sits near the head so it lands in the truncated head slice.
         raw_result = "OPENAI_API_KEY=sk-proj-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZ" + chr(10) + ("x" * 20_000) + chr(10) + "END"
         formatted = _format_tool_response(
-            ToolLoopEngine(mock_orch),
+            _engine(mock_orch),
             ToolCall(name="read_file", arguments={"file_path": "big.env"}),
             raw_result,
         )
@@ -364,7 +383,7 @@ class TestToolLoopEngineInit:
 
 class TestToolLoopEngineNativeToolsKwargs:
     def test_disabled_by_default(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
@@ -373,7 +392,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         profile = MagicMock()
         setattr(profile, "provider", "mlx")
         _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
@@ -385,7 +404,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry = MagicMock()
         _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "run_bash"}])
         setattr(mock_orch, "tool_registry", tool_registry)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert "tools" in result
         assert result["tools"] == [{"name": "run_bash"}]
@@ -399,7 +418,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry = MagicMock()
         _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
         setattr(mock_orch, "tool_registry", tool_registry)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         result = _native_tools_kwargs(engine, "qwen3.6:latest")
 
@@ -415,7 +434,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
         setattr(mock_orch, "tool_registry", tool_registry)
 
-        result = _native_tools_kwargs(ToolLoopEngine(mock_orch), "qwen3.6:latest", ("read_file",))
+        result = _native_tools_kwargs(_engine(mock_orch), "qwen3.6:latest", ("read_file",))
 
         assert result["tools"] == [{"name": "read_file"}]
         _assert_mock_called_once_with(tool_registry, ("to_openai_schemas",), names=["read_file"])
@@ -429,7 +448,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry = MagicMock()
         _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
         setattr(mock_orch, "tool_registry", tool_registry)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         result = _native_tools_kwargs(engine, "lmstudio/qwen3.6")
 
@@ -444,7 +463,7 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry = MagicMock()
         _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
         setattr(mock_orch, "tool_registry", tool_registry)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         result = _native_tools_kwargs(engine, "legacy-local")
 
@@ -458,20 +477,20 @@ class TestToolLoopEngineNativeToolsKwargs:
         tool_registry = MagicMock()
         _set_mock_return(tool_registry, ("to_openai_schemas",), [])
         setattr(mock_orch, "tool_registry", tool_registry)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_registry_get_model_raises_exception(self, mock_orch: MagicMock):
         setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         _set_mock_side_effect(mock_orch, ("manager", "_registry", "get_model"), ValueError("not found"))
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_config_not_dict(self, mock_orch: MagicMock):
         setattr(mock_orch, "config", None)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
@@ -492,7 +511,7 @@ class TestToolLoopEnginePostLoopChecks:
         invalid_output = "Python 3.13 runs a perfect JIT. [citation:wrong-id]"
         _set_mock_return(mock_orch, ("manager", "generate"), invalid_output)
         setattr(_mock_path(mock_orch, ("ctx",)), "analysis", {})
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         # When: model correction and claim filtering cannot retain a factual claim.
         outputs = list(
@@ -533,7 +552,7 @@ class TestToolLoopEnginePostLoopChecks:
         )
         _set_mock_return(mock_orch, ("manager", "generate"), invalid_output)
         setattr(_mock_path(mock_orch, ("ctx",)), "analysis", {})
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         # When: the model revision preserves invalid citations and unsupported content.
         outputs = list(
@@ -573,7 +592,7 @@ class TestToolLoopEnginePostLoopChecks:
             ("manager", "generate"),
             ("Python 3.13 introduces an experimental JIT compiler. [citation:python-docs]"),
         )
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         # When: post-loop checks receive an unsupported factual claim.
         outputs = list(
@@ -621,7 +640,7 @@ class TestToolLoopEnginePostLoopChecks:
         _assert_mock_called_once(quality_gate, ("evaluate",))
 
     def test_cognitive_loop_reflect_called(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         method = cast(
@@ -633,7 +652,7 @@ class TestToolLoopEnginePostLoopChecks:
         method("do something", "output")
 
     def test_quality_gate_evaluate_called(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         _assert_mock_called_once(mock_orch, ("ctx", "quality_gate", "evaluate"))
@@ -642,7 +661,7 @@ class TestToolLoopEnginePostLoopChecks:
         _set_mock_attr(
             mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "user_message"), "Quality issue detected"
         )
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         res = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         assert any("Quality issue detected" in r for r in res)
@@ -651,7 +670,7 @@ class TestToolLoopEnginePostLoopChecks:
         _set_mock_attr(mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "should_retry"), True)
         _set_mock_attr(mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "feedback"), "needs improvement")
         _set_mock_attr(mock_orch, ("ctx", "quality_gate", "evaluate", "return_value", "user_message"), "")
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         _assert_mock_called_once(mock_orch, ("ctx", "quality_gate", "mark_retry"))
@@ -693,7 +712,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         chunks = list(
             _post_loop_checks(
-                ToolLoopEngine(mock_orch),
+                _engine(mock_orch),
                 [{"role": "user", "content": "request"}],
                 "coding",
                 "draft",
@@ -712,7 +731,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         _ = list(
             _post_loop_checks(
-                ToolLoopEngine(mock_orch),
+                _engine(mock_orch),
                 [{"role": "user", "content": "request"}],
                 "coding",
                 "시간复杂도와 공간复杂도를 설명합니다.",
@@ -728,7 +747,7 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.manager.generate.return_value = "revised"
 
         _ = _quality_revision(
-            ToolLoopEngine(mock_orch),
+            _engine(mock_orch),
             "request",
             "draft",
             "feedback",
@@ -787,7 +806,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         chunks = list(
             _post_loop_checks(
-                ToolLoopEngine(mock_orch),
+                _engine(mock_orch),
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -817,7 +836,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         _ = list(
             _post_loop_checks(
-                ToolLoopEngine(mock_orch),
+                _engine(mock_orch),
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -848,7 +867,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         _ = list(
             _post_loop_checks(
-                ToolLoopEngine(mock_orch),
+                _engine(mock_orch),
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -873,7 +892,7 @@ class TestToolLoopEnginePostLoopChecks:
             "[UNTRUSTED_TOOL_RESULT]\nsum_to(100) = 5050\n[//UNTRUSTED_TOOL_RESULT]\n"
             "</tool_response>"
         )
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         # When: post-loop checks run with that execution evidence present.
         _ = list(
@@ -904,14 +923,14 @@ class TestToolLoopEnginePostLoopChecks:
                 "category": "code",
             },
         )
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         _assert_mock_called_once(mock_orch, ("ctx", "decision_anchor", "add"))
 
     def test_event_bus_published(self, mock_orch: MagicMock):
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
-            engine = ToolLoopEngine(mock_orch)
+            engine = _engine(mock_orch)
             messages = [{"role": "user", "content": "do something"}]
             _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
             publish = cast(Callable[..., object], cast(object, getattr(mock_bus, "publish")))
@@ -924,26 +943,26 @@ class TestToolLoopEnginePostLoopChecks:
 
     def test_exception_in_reflect_does_not_block(self, mock_orch: MagicMock):
         _set_mock_side_effect(mock_orch, ("ctx", "cognitive_loop", "reflect"), RuntimeError("reflect fail"))
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         _assert_mock_called_once(mock_orch, ("ctx", "quality_gate", "evaluate"))
 
     def test_no_cognitive_loop_skips(self, mock_orch: MagicMock):
         setattr(_mock_path(mock_orch, ("ctx",)), "cognitive_loop", None)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
     def test_no_quality_gate_skips(self, mock_orch: MagicMock):
         setattr(_mock_path(mock_orch, ("ctx",)), "quality_gate", None)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
     def test_no_decision_anchor_skips(self, mock_orch: MagicMock):
         setattr(_mock_path(mock_orch, ("ctx",)), "decision_anchor", None)
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
         _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
@@ -967,7 +986,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         setattr(mock_orch, "task_execution_context", TaskExecutionContext("benchmark-read-only", store))
         tc = ToolCall(name="write_file", arguments={"path": "result.py", "content": "print('changed')"})
 
-        _, pre_decision, _, tool_result, blocked = await _run_tool_task_async(ToolLoopEngine(mock_orch), tc)
+        _, pre_decision, _, tool_result, blocked = await _run_tool_task_async(_engine(mock_orch), tc)
 
         assert blocked is True
         assert pre_decision is None
@@ -999,7 +1018,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         _set_mock_return(mock_orch, ("ctx", "tool_guardrail", "before_call"), pre_decision)
 
         tc = ToolCall(name="run_bash", arguments={"command": "ls"})
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = await _run_tool_task_async(engine, tc)
         _, _, _, synthetic, blocked = result
         assert blocked is True
@@ -1012,7 +1031,7 @@ class TestToolLoopEngineRunToolTaskAsync:
 
         _set_mock_return(mock_orch, ("ctx", "tool_executor", "execute_async"), "command output")
         tc = ToolCall(name="run_bash", arguments={"command": "ls"})
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = await _run_tool_task_async(engine, tc)
         _, _, _, tool_result, blocked = result
         assert blocked is False
@@ -1031,7 +1050,7 @@ class TestToolLoopEngineRunToolTaskAsync:
 
         _set_mock_side_effect(mock_orch, ("ctx", "cognitive_loop", "verify_tool_result"), ValueError("verify fail"))
         tc = ToolCall(name="search", arguments={"query": "test"})
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         result = await _run_tool_task_async(engine, tc)
         _, _, _, tool_result, blocked = result
         assert blocked is False
@@ -1044,7 +1063,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
             setattr(mock_bus, "publish", MagicMock(side_effect=RuntimeError("bus down")))
             tc = ToolCall(name="bash", arguments={"cmd": "ls"})
-            engine = ToolLoopEngine(mock_orch)
+            engine = _engine(mock_orch)
             result = await _run_tool_task_async(engine, tc)
             _, _, _, tool_result, _ = result
             assert tool_result is not None
@@ -1065,11 +1084,14 @@ class TestToolLoopEngineRunLoop:
         # NOTE: get_combo must return None (not False) — run_loop checks
         # `is not None` to detect combo mode. False is not None = True,
         # which incorrectly skips the is_loaded check!
-        mock_orch.manager.router.get_combo.return_value = None
-        mock_orch.manager.is_loaded.return_value = True
+        _set_mock_return(mock_orch, ("manager", "router", "get_combo"), None)
+        _set_mock_return(mock_orch, ("manager", "is_loaded"), True)
         # Don't set _capacity_checkpoint — MagicMock auto-creates it,
         # and its check_step_budget().action returns a MagicMock that won't
         # match any CapacityAction enum, making capacity check a no-op.
+
+    def _orch(self) -> MagicMock:
+        return cast(MagicMock, self.mock_orch)
 
     def _run(
         self,
@@ -1080,32 +1102,36 @@ class TestToolLoopEngineRunLoop:
         target_model: str | None = None,
     ) -> list[str]:
         """Helper: create engine and collect run_loop output."""
-        engine = ToolLoopEngine(self.mock_orch)
+        orchestrator = self._orch()
+        engine = _engine(orchestrator)
         msgs = messages or [{"role": "user", "content": "test task"}]
-        return list(engine.run_loop(msgs, delegate_to, task_type, max_steps, target_model))
+        return list(_run_loop(engine, msgs, delegate_to, task_type, max_steps, target_model))
 
     def test_model_not_loaded(self):
         """is_loaded=False and not a combo -> model not loaded error."""
-        self.mock_orch.manager.router.get_combo.return_value = None
-        self.mock_orch.manager.is_loaded.return_value = False
+        orchestrator = self._orch()
+        _set_mock_return(orchestrator, ("manager", "router", "get_combo"), None)
+        _set_mock_return(orchestrator, ("manager", "is_loaded"), False)
         results = self._run()
         assert any("모델" in r and "로드되지 않았" in r for r in results)
 
     def test_combo_skips_loaded_check(self):
         """combo name (coding-swarm 등)은 is_loaded 체크를 건너뜀."""
-        self.mock_orch.manager.router.get_combo.return_value = "coding-swarm"
-        self.mock_orch.manager.is_loaded.return_value = False  # Would fail if checked
-        self.mock_orch.manager.stream_generate.return_value = iter([])
+        orchestrator = self._orch()
+        _set_mock_return(orchestrator, ("manager", "router", "get_combo"), "coding-swarm")
+        _set_mock_return(orchestrator, ("manager", "is_loaded"), False)
+        _set_mock_return(orchestrator, ("manager", "stream_generate"), iter([]))
         results = self._run()
         assert all("로드되지 않았" not in r for r in results)
 
     def test_qwen_agent_stream_uses_stable_local_sampling(self):
         """qwen3 도구 에이전트 경로도 실측된 안정 샘플링 파라미터를 사용한다."""
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
+        orchestrator = self._orch()
+        _set_mock_return(orchestrator, ("manager", "stream_generate"), iter(["completed"]))
 
         _ = self._run(target_model="qwen3.6:latest")
 
-        kwargs = self.mock_orch.manager.stream_generate.call_args.kwargs
+        _, kwargs = _mock_call_args(orchestrator, ("manager", "stream_generate"))
         assert kwargs["temperature"] == 0.2
         assert kwargs["repeat_penalty"] == 1.1
         assert kwargs["min_p"] == 0.0
@@ -1115,8 +1141,8 @@ class TestToolLoopEngineRunLoop:
         from antigravity_k.engine.capacity_flow import CapacityAction
 
         mock_cap = MagicMock()
-        mock_cap.check_step_budget.return_value.action = CapacityAction.HALT
-        self.mock_orch._capacity_checkpoint = mock_cap
+        _set_mock_attr(mock_cap, ("check_step_budget", "return_value", "action"), CapacityAction.HALT)
+        setattr(self._orch(), "_capacity_checkpoint", mock_cap)
         results = self._run()
         assert any("Capacity Limit" in r for r in results)
 
@@ -1125,15 +1151,16 @@ class TestToolLoopEngineRunLoop:
         from antigravity_k.engine.capacity_flow import CapacityAction
 
         mock_cap = MagicMock()
-        mock_cap.check_step_budget.return_value.action = CapacityAction.WARN
-        self.mock_orch._capacity_checkpoint = mock_cap
-        self.mock_orch.manager.stream_generate.return_value = iter([])
+        _set_mock_attr(mock_cap, ("check_step_budget", "return_value", "action"), CapacityAction.WARN)
+        orchestrator = self._orch()
+        setattr(orchestrator, "_capacity_checkpoint", mock_cap)
+        _set_mock_return(orchestrator, ("manager", "stream_generate"), iter([]))
         results = self._run()
         assert any("Capacity Warning" in r for r in results)
 
     def test_text_only_no_tool_calls(self):
         """stream yields text only, no tool calls -> breaks and does post_loop."""
-        self.mock_orch.manager.stream_generate.return_value = iter(["Hello ", "world"])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["Hello ", "world"]))
         results = self._run()
         assert any("Hello" in r for r in results)
         assert any("world" in r for r in results)
@@ -1145,7 +1172,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
+        self._orch().manager.stream_generate.return_value = iter([tool_xml])
         results = self._run()
         result_text = " ".join(results)
         assert "tool" in result_text.lower() or "실행" in result_text
@@ -1161,7 +1188,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "write_file", "arguments": {"path": "f.txt", "waitForPreviousTools": true}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
+        self._orch().manager.stream_generate.return_value = iter([tool_xml])
         results = self._run()
         result_text = " ".join(results)
         # Should have executed both tools
@@ -1184,7 +1211,7 @@ class TestToolLoopEngineRunLoop:
             # stream_generate returns a RaisingIter — exception is raised
             # INSIDE the for-loop try/except, not during the call (which
             # is outside the try block)
-            self.mock_orch.manager.stream_generate.return_value = _RaisingIter(
+            self._orch().manager.stream_generate.return_value = _RaisingIter(
                 RetryableError("timeout"),
             )
             results = self._run(max_steps=3)
@@ -1203,7 +1230,7 @@ class TestToolLoopEngineRunLoop:
             return ClassifiedError(reason=FailoverReason.format_error, retryable=False)
 
         with patch("antigravity_k.engine.tool_loop.classify_api_error", side_effect=mock_classify):
-            self.mock_orch.manager.stream_generate.return_value = _RaisingIter(
+            self._orch().manager.stream_generate.return_value = _RaisingIter(
                 FatalError("bad request"),
             )
             results = self._run()
@@ -1223,10 +1250,10 @@ class TestToolLoopEngineRunLoop:
 
         mock_shaper = MagicMock()
         mock_shaper.shape.return_value = [{"role": "user", "content": "compressed"}]
-        self.mock_orch.context_shaper = mock_shaper
+        self._orch().context_shaper = mock_shaper
 
         # stream_generate returns RaisingIter on 1st call, normal iter on 2nd
-        self.mock_orch.manager.stream_generate.side_effect = [
+        self._orch().manager.stream_generate.side_effect = [
             _RaisingIter(ContextOverflow("context too long")),
             iter(["after compress"]),
         ]
@@ -1249,7 +1276,7 @@ class TestToolLoopEngineRunLoop:
             "reason": "policy",
         }
 
-        mock_orch = self.mock_orch
+        mock_orch = self._orch()
         mock_orch.ctx.tool_guardrail.before_call.return_value = pre_decision
 
         tool_xml = (
@@ -1266,7 +1293,7 @@ class TestToolLoopEngineRunLoop:
 
     def test_approval_required_break(self):
         """tool_result contains APPROVAL REQUIRED -> breaks loop."""
-        mock_orch = self.mock_orch
+        mock_orch = self._orch()
         mock_orch.ctx.tool_executor.execute_async.return_value = "[APPROVAL REQUIRED] Please confirm"
 
         tool_xml = (
@@ -1285,7 +1312,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
+        self._orch().manager.stream_generate.return_value = iter([tool_xml])
         results = self._run(max_steps=1)
         assert any("Step Limit" in r for r in results)
 
@@ -1300,24 +1327,24 @@ class TestToolLoopEngineRunLoop:
             _ = kwargs
             return iter([tool_xml])
 
-        self.mock_orch.manager.stream_generate.side_effect = stream_generate
-        self.mock_orch.ctx.tool_executor.execute_async.return_value = "result"
+        self._orch().manager.stream_generate.side_effect = stream_generate
+        self._orch().ctx.tool_executor.execute_async.return_value = "result"
 
         results = self._run(max_steps=51)
 
         assert any("최대 도구 호출 횟수(50)" in r for r in results)
-        assert self.mock_orch.manager.stream_generate.call_count == 50
+        assert self._orch().manager.stream_generate.call_count == 50
 
     def test_non_positive_max_steps_still_runs_once(self):
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
+        self._orch().manager.stream_generate.return_value = iter(["completed"])
 
         _ = self._run(max_steps=0)
 
-        assert self.mock_orch.manager.stream_generate.call_count == 1
+        assert self._orch().manager.stream_generate.call_count == 1
 
     def test_empty_messages_post_loop(self):
         """messages가 비어 있으면 post_loop는 user_task=''로 실행."""
-        self.mock_orch.manager.stream_generate.return_value = iter(["output"])
+        self._orch().manager.stream_generate.return_value = iter(["output"])
         results = self._run(messages=[])
         assert isinstance(results, list)
 
@@ -1327,10 +1354,10 @@ class TestToolLoopEngineRunLoop:
             "role": "user",
             "content": "architecture context: [web evidence] Python 3.13 ...",
         }
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
+        self._orch().manager.stream_generate.return_value = iter(["completed"])
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [augmented_message],
                 "CODER",
                 "coding",
@@ -1338,14 +1365,14 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        assert self.mock_orch.ctx.quality_gate.evaluate.call_args.args[1] == "Python 3.13 출시일을 알려줘"
+        assert self._orch().ctx.quality_gate.evaluate.call_args.args[1] == "Python 3.13 출시일을 알려줘"
 
     def test_records_successful_text_task_outcome(self):
         outcomes: list[TaskOutcome] = []
-        self.mock_orch.task_id = "loop-001"
-        self.mock_orch.expected_tools = ()
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
+        self._orch().task_id = "loop-001"
+        self._orch().expected_tools = ()
+        self._orch().manager.stream_generate.return_value = iter(["completed"])
+        engine = ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "finish"}], "CODER", "code"))
 
@@ -1356,15 +1383,15 @@ class TestToolLoopEngineRunLoop:
 
     def test_records_used_tools_and_expected_tools(self):
         outcomes: list[TaskOutcome] = []
-        self.mock_orch.task_id = "loop-002"
-        self.mock_orch.expected_tools = ("run_bash",)
+        self._orch().task_id = "loop-002"
+        self._orch().expected_tools = ("run_bash",)
         tool_xml = (
             "<action_call>\n<tool_call>\n"
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
+        self._orch().manager.stream_generate.return_value = iter([tool_xml])
+        engine = ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code"))
 
@@ -1388,20 +1415,20 @@ class TestToolLoopEngineRunLoop:
             "   [/untrusted_web_content]\n"
             f"   🔗 {primary_url}\n"
         )
-        self.mock_orch.expected_tools = ("web_search",)
-        self.mock_orch.ctx.tool_executor.execute_async.return_value = tool_result
-        self.mock_orch.manager.stream_generate.side_effect = [
+        self._orch().expected_tools = ("web_search",)
+        self._orch().ctx.tool_executor.execute_async.return_value = tool_result
+        self._orch().manager.stream_generate.side_effect = [
             iter([tool_xml]),
             iter(["Python 3.13 offers a JIT compiler."]),
         ]
-        self.mock_orch.manager.generate.return_value = (
+        self._orch().manager.generate.return_value = (
             f"Python 3.13 introduces an experimental JIT compiler. [citation:{citation}]"
         )
         outcomes: list[TaskOutcome] = []
 
         # When: the loop executes the search and evaluates its final answer.
         outputs = list(
-            ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "Python 3.13 JIT 기능을 알려줘"}],
                 "SELF",
                 "chat",
@@ -1411,7 +1438,7 @@ class TestToolLoopEngineRunLoop:
         # Then: the corrected, cited answer is the completed task output.
         assert outcomes[0].success is True
         assert outcomes[0].completion_reason == "done"
-        assert self.mock_orch._last_agent_output.endswith(f"[citation:{citation}]")
+        assert self._orch()._last_agent_output.endswith(f"[citation:{citation}]")
         assert any("Citation Revision" in output for output in outputs)
 
     def test_reads_expected_tools_from_durable_execution_context(self, tmp_path: Path):
@@ -1423,9 +1450,9 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file"]}',
             "",
         )
-        self.mock_orch.task_execution_context = TaskExecutionContext("tool-contract", store)
+        self._orch().task_execution_context = TaskExecutionContext("tool-contract", store)
 
-        expected_tools = _expected_tools(ToolLoopEngine(self.mock_orch))
+        expected_tools = _expected_tools(_engine(self._orch()))
 
         assert expected_tools == ("read_file",)
 
@@ -1438,12 +1465,12 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file"]}',
             "",
         )
-        self.mock_orch.task_execution_context = TaskExecutionContext("required-tool", store)
-        self.mock_orch.ctx.quality_gate = None
-        self.mock_orch.manager.stream_generate.return_value = iter(["ungrounded answer"])
+        self._orch().task_execution_context = TaskExecutionContext("required-tool", store)
+        self._orch().ctx.quality_gate = None
+        self._orch().manager.stream_generate.return_value = iter(["ungrounded answer"])
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
                 "chat",
@@ -1464,20 +1491,20 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file"]}',
             "",
         )
-        self.mock_orch.task_execution_context = TaskExecutionContext("read-once", store)
-        self.mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        self._orch().task_execution_context = TaskExecutionContext("read-once", store)
+        self._orch().config = {"tool_loop": {"native_function_calling": True}}
         profile = MagicMock()
         profile.provider = "ollama"
-        self.mock_orch.manager._registry.get_model.return_value = profile
-        self.mock_orch.manager.provider_capability.return_value = {"native_tool_calling": "supported"}
-        self.mock_orch.tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
-        self.mock_orch.ctx.tool_executor.execute_async.return_value = "README contents"
-        self.mock_orch.ctx.quality_gate = None
+        self._orch().manager._registry.get_model.return_value = profile
+        self._orch().manager.provider_capability.return_value = {"native_tool_calling": "supported"}
+        self._orch().tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
+        self._orch().ctx.tool_executor.execute_async.return_value = "README contents"
+        self._orch().ctx.quality_gate = None
         tool_call = '<tool_call>\n{"name": "read_file", "arguments": {"file_path": "README.md"}}\n</tool_call>\n'
-        self.mock_orch.manager.stream_generate.side_effect = [iter([tool_call]), iter(["grounded summary"])]
+        self._orch().manager.stream_generate.side_effect = [iter([tool_call]), iter(["grounded summary"])]
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
                 "chat",
@@ -1485,7 +1512,7 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        first_call, second_call = self.mock_orch.manager.stream_generate.call_args_list
+        first_call, second_call = self._orch().manager.stream_generate.call_args_list
         assert first_call.kwargs["tools"] == [{"name": "read_file"}]
         assert "tools" not in second_call.kwargs
 
@@ -1494,10 +1521,10 @@ class TestToolLoopEngineRunLoop:
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         _ = store.create_task("qwen-plan", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint("qwen-plan", 0, '{"expected_tools": ["read_file"]}', "")
-        self.mock_orch.task_execution_context = TaskExecutionContext("qwen-plan", store)
-        self.mock_orch.ctx.quality_gate = None
-        self.mock_orch.ctx.tool_executor.execute_async.return_value = "README contents"
-        self.mock_orch.manager.stream_generate.side_effect = [
+        self._orch().task_execution_context = TaskExecutionContext("qwen-plan", store)
+        self._orch().ctx.quality_gate = None
+        self._orch().ctx.tool_executor.execute_async.return_value = "README contents"
+        self._orch().manager.stream_generate.side_effect = [
             iter(
                 [
                     "<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>",
@@ -1508,7 +1535,7 @@ class TestToolLoopEngineRunLoop:
 
         # When: the required-tool loop processes Qwen's completed planning turn.
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
                 "chat",
@@ -1520,7 +1547,7 @@ class TestToolLoopEngineRunLoop:
         record = store.get_task("qwen-plan")
         assert record is not None
         assert record["status"] == "done"
-        self.mock_orch.ctx.tool_executor.execute_async.assert_awaited_once_with(
+        self._orch().ctx.tool_executor.execute_async.assert_awaited_once_with(
             "read_file",
             {"file_path": "README.md"},
         )
@@ -1535,10 +1562,10 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file", "grep_search"]}',
             "",
         )
-        self.mock_orch.task_execution_context = TaskExecutionContext("qwen-multistep", store)
-        self.mock_orch.ctx.quality_gate = None
-        self.mock_orch.ctx.tool_executor.execute_async.side_effect = ["README contents", "matching defaults"]
-        self.mock_orch.manager.stream_generate.side_effect = [
+        self._orch().task_execution_context = TaskExecutionContext("qwen-multistep", store)
+        self._orch().ctx.quality_gate = None
+        self._orch().ctx.tool_executor.execute_async.side_effect = ["README contents", "matching defaults"]
+        self._orch().manager.stream_generate.side_effect = [
             iter(["<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>"]),
             iter(["<scratch_pad>\nActions: Call grep_search with query='defaults'.\n</scratch_pad>"]),
             iter(["grounded summary"]),
@@ -1546,7 +1573,7 @@ class TestToolLoopEngineRunLoop:
 
         # When: the tool loop completes the sequential Qwen planning turns.
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "inspect README"}],
                 "SELF",
                 "chat",
@@ -1558,7 +1585,7 @@ class TestToolLoopEngineRunLoop:
         record = store.get_task("qwen-multistep")
         assert record is not None
         assert record["status"] == "done"
-        assert self.mock_orch.ctx.tool_executor.execute_async.await_args_list == [
+        assert self._orch().ctx.tool_executor.execute_async.await_args_list == [
             (("read_file", {"file_path": "README.md"}), {}),
             (("grep_search", {"query": "defaults"}), {}),
         ]
@@ -1581,13 +1608,13 @@ class TestToolLoopEngineRunLoop:
             ),
             "partial output",
         )
-        self.mock_orch.task_execution_context = TaskExecutionContext("resumed-read", store)
-        self.mock_orch.ctx.quality_gate = None
-        self.mock_orch.manager.stream_generate.return_value = iter(["resumed summary"])
+        self._orch().task_execution_context = TaskExecutionContext("resumed-read", store)
+        self._orch().ctx.quality_gate = None
+        self._orch().manager.stream_generate.return_value = iter(["resumed summary"])
 
         # When: the durable task resumes its tool loop.
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "read README"}],
                 "SELF",
                 "chat",
@@ -1598,7 +1625,7 @@ class TestToolLoopEngineRunLoop:
         record = store.get_task("resumed-read")
         assert record is not None
         assert record["status"] == "done"
-        self.mock_orch.ctx.tool_executor.execute_async.assert_not_called()
+        self._orch().ctx.tool_executor.execute_async.assert_not_called()
 
     def test_records_step_limit_as_unsuccessful(self):
         outcomes: list[TaskOutcome] = []
@@ -1607,8 +1634,8 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
+        self._orch().manager.stream_generate.return_value = iter([tool_xml])
+        engine = ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code", max_steps=1))
 
@@ -1619,9 +1646,9 @@ class TestToolLoopEngineRunLoop:
     def test_quality_gate_failure_marks_durable_task_failed(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         _ = store.create_task("quality-failed", "write code", "pending", "2026-01-01T00:00:00")
-        self.mock_orch.task_execution_context = TaskExecutionContext("quality-failed", store)
-        self.mock_orch.manager.stream_generate.return_value = iter(["invalid output"])
-        self.mock_orch.ctx.quality_gate.evaluate.return_value = QualityScore(
+        self._orch().task_execution_context = TaskExecutionContext("quality-failed", store)
+        self._orch().manager.stream_generate.return_value = iter(["invalid output"])
+        self._orch().ctx.quality_gate.evaluate.return_value = QualityScore(
             grade=QualityGrade.F,
             score=0.0,
             feedback="[QUALITY GATE] required implementation is missing",
@@ -1632,7 +1659,7 @@ class TestToolLoopEngineRunLoop:
         outcomes: list[TaskOutcome] = []
 
         _ = list(
-            ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write code"}],
                 "CODER",
                 "code",
@@ -1649,9 +1676,9 @@ class TestToolLoopEngineRunLoop:
     def test_persists_approval_wait_with_tool_step_checkpoint(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         _ = store.create_task("loop-durable", "write a file", "pending", "2026-01-01T00:00:00")
-        self.mock_orch.task_execution_context = TaskExecutionContext("loop-durable", store)
-        self.mock_orch.ctx.tool_executor.execute_async.return_value = "[APPROVAL REQUIRED] confirm write"
-        self.mock_orch.manager.stream_generate.return_value = iter(
+        self._orch().task_execution_context = TaskExecutionContext("loop-durable", store)
+        self._orch().ctx.tool_executor.execute_async.return_value = "[APPROVAL REQUIRED] confirm write"
+        self._orch().manager.stream_generate.return_value = iter(
             [
                 "<action_call>\n<tool_call>\n"
                 + '{"name": "write_file", "arguments": {"path": "report.md"}}\n'
@@ -1660,7 +1687,7 @@ class TestToolLoopEngineRunLoop:
         )
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "write a file"}],
                 "CODER",
                 "code",
@@ -1692,14 +1719,14 @@ class TestToolLoopEngineRunLoop:
             '{"benchmark_read_only": true}',
             "",
         )
-        self.mock_orch.task_execution_context = TaskExecutionContext("benchmark-deferred", store)
-        self.mock_orch.manager.stream_generate.return_value = iter(
+        self._orch().task_execution_context = TaskExecutionContext("benchmark-deferred", store)
+        self._orch().manager.stream_generate.return_value = iter(
             ["def fibonacci(n: int): return n  # O(1), raise ValueError"]
         )
         outcomes: list[TaskOutcome] = []
 
         _ = list(
-            ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write fibonacci"}],
                 "CODER",
                 "code",
@@ -1712,11 +1739,11 @@ class TestToolLoopEngineRunLoop:
         assert outcomes == []
 
     def test_explicit_target_model_overrides_delegate_role(self):
-        self.mock_orch._get_model_for_role.return_value = "role-default"
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
+        self._orch()._get_model_for_role.return_value = "role-default"
+        self._orch().manager.stream_generate.return_value = iter(["completed"])
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "complete this"}],
                 "CODER",
                 "code",
@@ -1724,14 +1751,14 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        self.mock_orch.manager.is_loaded.assert_called_once_with("qwen3.6:latest")
-        assert self.mock_orch.manager.stream_generate.call_args.kwargs["target"] == "qwen3.6:latest"
+        self._orch().manager.is_loaded.assert_called_once_with("qwen3.6:latest")
+        assert self._orch().manager.stream_generate.call_args.kwargs["target"] == "qwen3.6:latest"
 
     def test_quality_gate_uses_latest_user_message_when_execution_context_follows(self):
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
+        self._orch().manager.stream_generate.return_value = iter(["completed"])
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [
                     {"role": "user", "content": "user request"},
                     {"role": "system", "content": "Task execution context: {}"},
@@ -1741,14 +1768,14 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        assert self.mock_orch.ctx.quality_gate.evaluate.call_args.args[1] == "user request"
+        assert self._orch().ctx.quality_gate.evaluate.call_args.args[1] == "user request"
 
     def test_direct_response_skips_agent_prompt_and_native_tool_schemas(self):
-        self.mock_orch.config = {"tool_loop": {"native_function_calling": True}}
-        self.mock_orch.manager.generate.return_value = "completed"
+        self._orch().config = {"tool_loop": {"native_function_calling": True}}
+        self._orch().manager.generate.return_value = "completed"
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "answer only"}],
                 "SELF",
                 "chat",
@@ -1757,10 +1784,10 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        self.mock_orch._prepare_agent_prompt.assert_not_called()
-        self.mock_orch.manager.stream_generate.assert_not_called()
-        assert self.mock_orch.manager.generate.call_args.kwargs["temperature"] == 0.2
-        assert self.mock_orch.manager.generate.call_args.kwargs["repeat_penalty"] == 1.1
+        self._orch()._prepare_agent_prompt.assert_not_called()
+        self._orch().manager.stream_generate.assert_not_called()
+        assert self._orch().manager.generate.call_args.kwargs["temperature"] == 0.2
+        assert self._orch().manager.generate.call_args.kwargs["repeat_penalty"] == 1.1
 
     def test_direct_response_uses_model_aware_context_shaper(self, tmp_path: Path):
         from antigravity_k.engine.context_shaper import ContextShaper
@@ -1769,12 +1796,12 @@ class TestToolLoopEngineRunLoop:
         shaper.shape_for_model = MagicMock(
             return_value=[{"role": "user", "content": "condensed request"}],
         )
-        self.mock_orch.context_shaper = shaper
-        self.mock_orch.config = {"models": {"reasoning": [{"name": "qwen3.8:27b"}]}}
-        self.mock_orch.manager.generate.return_value = "completed"
+        self._orch().context_shaper = shaper
+        self._orch().config = {"models": {"reasoning": [{"name": "qwen3.8:27b"}]}}
+        self._orch().manager.generate.return_value = "completed"
 
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 [{"role": "user", "content": "very large request"}],
                 "SELF",
                 "chat",
@@ -1785,11 +1812,11 @@ class TestToolLoopEngineRunLoop:
 
         shaper.shape_for_model.assert_called_once()
         assert shaper.shape_for_model.call_args.args[2] == "qwen3.8:27b"
-        assert "condensed request" in self.mock_orch.manager.generate.call_args.kwargs["prompt"]
+        assert "condensed request" in self._orch().manager.generate.call_args.kwargs["prompt"]
 
     def test_direct_response_prompt_includes_structured_memory_context(self):
         # Given: direct mode receives one authoritative memory system record.
-        self.mock_orch.manager.generate.return_value = "SQLite"
+        self._orch().manager.generate.return_value = "SQLite"
         messages = [
             {
                 "role": "system",
@@ -1802,7 +1829,7 @@ class TestToolLoopEngineRunLoop:
 
         # When: ToolLoop generates a tool-free direct answer.
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 messages,
                 "SELF",
                 "chat",
@@ -1812,13 +1839,13 @@ class TestToolLoopEngineRunLoop:
         )
 
         # Then: the machine-readable memory marker reaches the model prompt.
-        prompt = self.mock_orch.manager.generate.call_args.kwargs["prompt"]
+        prompt = self._orch().manager.generate.call_args.kwargs["prompt"]
         assert "[resolved:project:decision:database source=project scope=project] sqlite" in prompt
 
     def test_verified_authoritative_memory_answer_skips_prose_revision(self):
         # Given: direct mode returns the exact value from an authoritative memory marker.
-        self.mock_orch.manager.generate.return_value = "sqlite"
-        self.mock_orch.ctx.quality_gate.evaluate.return_value = QualityScore(
+        self._orch().manager.generate.return_value = "sqlite"
+        self._orch().ctx.quality_gate.evaluate.return_value = QualityScore(
             grade=QualityGrade.F,
             score=0.1,
             feedback="too short",
@@ -1838,7 +1865,7 @@ class TestToolLoopEngineRunLoop:
 
         # When: the tool-free direct response completes.
         output = "".join(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 messages,
                 "SELF",
                 "chat",
@@ -1849,13 +1876,13 @@ class TestToolLoopEngineRunLoop:
 
         # Then: generic prose scoring cannot overwrite the verified short answer.
         assert output == "sqlite"
-        assert self.mock_orch._last_agent_output == "sqlite"
-        self.mock_orch.ctx.quality_gate.evaluate.assert_not_called()
-        self.mock_orch.manager.generate.assert_called_once()
+        assert self._orch()._last_agent_output == "sqlite"
+        self._orch().ctx.quality_gate.evaluate.assert_not_called()
+        self._orch().manager.generate.assert_called_once()
 
     def test_contradictory_memory_answer_still_runs_quality_gate(self):
         # Given: direct mode returns a negated sentence containing the authoritative value.
-        self.mock_orch.manager.generate.return_value = "not sqlite"
+        self._orch().manager.generate.return_value = "not sqlite"
         messages = [
             {
                 "role": "system",
@@ -1868,7 +1895,7 @@ class TestToolLoopEngineRunLoop:
 
         # When: the tool-free response completes with the contradictory text.
         _ = list(
-            ToolLoopEngine(self.mock_orch).run_loop(
+            _engine(self._orch()).run_loop(
                 messages,
                 "SELF",
                 "chat",
@@ -1878,12 +1905,12 @@ class TestToolLoopEngineRunLoop:
         )
 
         # Then: substring overlap alone cannot bypass normal quality evaluation.
-        self.mock_orch.ctx.quality_gate.evaluate.assert_called_once()
+        self._orch().ctx.quality_gate.evaluate.assert_called_once()
 
     def test_recorder_failure_does_not_fail_tool_loop(self):
         recorder = MagicMock(side_effect=RuntimeError("metrics unavailable"))
-        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=recorder)
+        self._orch().manager.stream_generate.return_value = iter(["completed"])
+        engine = ToolLoopEngine(self._orch(), outcome_recorder=recorder)
 
         results = list(engine.run_loop([{"role": "user", "content": "finish"}], "CODER", "code"))
 
@@ -1909,7 +1936,7 @@ class TestToolLoopEngineContextCompression:
         compressor = ContextCompressor(token_limit=500, keep_last_n=3)
         mock_orch.context_compressor_for.return_value = compressor
         mock_orch._rebuild_prompt.return_value = "rebuilt-prompt"
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         shaped, prompt, usage_before, usage_after = _maybe_compress_context(
             engine,
@@ -1930,7 +1957,7 @@ class TestToolLoopEngineContextCompression:
         assert shaped[0]["role"] == "system"  # 시스템 메시지 항상 보존
 
     def test_reinjects_relevant_artifact_after_compression(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         raw_result = "header\n" + ("x" * 8_000) + "\nagent_models:\n  default: qwen3.6:latest\n" + ("y" * 8_000)
         formatted = _format_tool_response(
             engine,
@@ -1973,7 +2000,7 @@ class TestToolLoopEngineContextCompression:
 
         compressor = ContextCompressor(token_limit=5000, keep_last_n=3)
         mock_orch.context_compressor_for.return_value = compressor
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         messages = [{"role": "user", "content": "short"}]
         shaped, prompt, usage_before, usage_after = _maybe_compress_context(
@@ -1985,7 +2012,7 @@ class TestToolLoopEngineContextCompression:
         assert prompt == "orig-prompt"
 
     def test_mock_compressor_skipped(self, mock_orch: MagicMock):
-        engine = ToolLoopEngine(mock_orch)  # context_compressor_for → MagicMock
+        engine = _engine(mock_orch)  # context_compressor_for → MagicMock
 
         messages = [{"role": "user", "content": "x"}]
         shaped, prompt, usage_before, _usage_after = _maybe_compress_context(
@@ -1998,7 +2025,7 @@ class TestToolLoopEngineContextCompression:
 
     def test_none_compressor_skipped(self, mock_orch: MagicMock):
         mock_orch.context_compressor_for.return_value = None
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
 
         messages = [{"role": "user", "content": "x"}]
         shaped, prompt, usage_before, _usage_after = _maybe_compress_context(
@@ -2012,7 +2039,7 @@ class TestToolLoopEngineContextCompression:
     def test_checkpoint_context_is_bounded_for_long_sessions(self, mock_orch: MagicMock):
         messages = [{"role": "user", "content": f"turn-{index}"} for index in range(300)]
 
-        engine = ToolLoopEngine(mock_orch)
+        engine = _engine(mock_orch)
         _refresh_checkpoint_context(engine, messages)
 
         checkpoint_messages = cast(list[dict[str, str]], getattr(engine, "_checkpoint_messages"))
