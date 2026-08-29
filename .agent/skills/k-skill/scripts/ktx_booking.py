@@ -176,10 +176,8 @@ def ensure_runtime_dependencies() -> None:
         missing.append("pycryptodome")
     if missing:
         install_command = f"python3 -m pip install {' '.join(missing)}"
-        raise SystemExit(
-            "scripts/ktx_booking.py requires additional Python packages "
-            f"({', '.join(missing)}). Install them before running this helper: {install_command}"
-        )
+        error = f"scripts/ktx_booking.py requires additional Python packages ({', '.join(missing)}). Install them before running this helper: {install_command}"
+        raise SystemExit(error)
 
 
 @final
@@ -706,8 +704,8 @@ def build_client() -> PatchedKorail:
     if not korail_id or not korail_pw:
         raise SystemExit(
             "이 작업에는 KSKILL_KTX_ID, KSKILL_KTX_PASSWORD 환경변수가 필요합니다. "
-            "환경변수가 설정되어 있지 않으면 ~/.config/k-skill/secrets.env 에 추가하거나 "
-            "에이전트의 secret vault에서 주입해 주세요."
+            + "환경변수가 설정되어 있지 않으면 ~/.config/k-skill/secrets.env 에 추가하거나 "
+            + "에이전트의 secret vault에서 주입해 주세요."
         )
     client = PatchedKorail(korail_id, korail_pw)
     if not client.logined:
