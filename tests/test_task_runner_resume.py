@@ -1,7 +1,9 @@
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
+from antigravity_k.engine.task_context_snapshot import load_task_context_snapshot
 from antigravity_k.engine.task_runner import BackgroundTaskRunner
 
 
@@ -10,6 +12,51 @@ class _FakeOrchestrator:
 
     def run_stream(self, messages, target_model):
         return iter(["new output"])
+
+
+def test_background_run_persists_initial_context_snapshot(tmp_path):
+    runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
+    task_id = runner.submit_task(
+        "inspect the large project",
+        context={"phase": "discovery", "persist_context_snapshot": True},
+        orchestrator=_FakeOrchestrator(),
+        target_model="qwen3.8:27b",
+    )
+    thread = runner._tasks[task_id]._thread
+    assert thread is not None
+    thread.join(timeout=2)
+
+    snapshot = load_task_context_snapshot(runner.state_store, task_id)
+    assert snapshot is not None
+    assert snapshot.target_model == "qwen3.8:27b"
+    assert any(message.content == "inspect the large project" for message in snapshot.messages)
+
+
+def test_worktree_task_enables_context_snapshot_without_extra_configuration(
+    monkeypatch,
+    tmp_path,
+):
+    runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
+    monkeypatch.setattr(
+        runner.worktree_manager,
+        "create_worktree",
+        lambda task_id: str(tmp_path / task_id),
+    )
+    monkeypatch.setattr(runner.worktree_manager, "remove_worktree", lambda task_id: None)
+
+    task_id = runner.submit_task(
+        "refactor the large project",
+        orchestrator=_FakeOrchestrator(),
+        target_model="qwen3.8:27b",
+        use_worktree=True,
+    )
+    thread = runner._tasks[task_id]._thread
+    assert thread is not None
+    thread.join(timeout=2)
+
+    snapshot = load_task_context_snapshot(runner.state_store, task_id)
+    assert snapshot is not None
+    assert runner._tasks[task_id].context["use_worktree"] is True
 
 
 def test_resume_task_preserves_checkpoint_step_and_output(tmp_path):
@@ -22,12 +69,20 @@ def test_resume_task_preserves_checkpoint_step_and_output(tmp_path):
             (task_id, "continue this task", "paused", "2026-01-01T00:00:00"),
         )
         conn.commit()
-    runner._save_checkpoint(task_id, 9, {"phase": "build"}, "previous output")
+    runner._save_checkpoint(
+        task_id,
+        9,
+        {"phase": "build", "working_memory": "Next Action: run focused tests"},
+        "previous output",
+    )
 
     assert runner.resume_task(task_id, orchestrator=_FakeOrchestrator(), target_model="model") is True
     task = runner._tasks[task_id]
+    assert "Next Action: run focused tests" in task.prompt
     assert task._thread is not None
-    task._thread.join(timeout=2)
+    thread = task._thread
+    assert thread is not None
+    thread.join(timeout=2)
 
     assert task.output == "previous outputnew output"
     checkpoint = runner.get_last_checkpoint(task_id)
@@ -111,7 +166,9 @@ def test_resume_task_recovers_a_failed_task_from_its_initial_checkpoint(tmp_path
         orchestrator=orchestrator,
         target_model="qwen3.6:latest",
     )
-    runner._tasks[task_id]._thread.join(timeout=2)
+    thread = runner._tasks[task_id]._thread
+    assert thread is not None
+    thread.join(timeout=2)
 
     failed = runner.state_store.get_task(task_id)
     checkpoint = runner.get_last_checkpoint(task_id)
@@ -122,7 +179,9 @@ def test_resume_task_recovers_a_failed_task_from_its_initial_checkpoint(tmp_path
     assert checkpoint["context"]["task_plan"]["objective"] == "recover this task"
 
     assert runner.resume_task(task_id, orchestrator=orchestrator, target_model="qwen3.6:latest") is True
-    runner._tasks[task_id]._thread.join(timeout=2)
+    thread = runner._tasks[task_id]._thread
+    assert thread is not None
+    thread.join(timeout=2)
 
     recovered = runner.state_store.get_task(task_id)
     assert recovered is not None
@@ -154,7 +213,9 @@ def test_background_runner_binds_task_state_for_the_full_stream_lifetime(tmp_pat
     orchestrator = BoundOrchestrator()
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
     task_id = runner.submit_task("bind task", orchestrator=orchestrator, target_model="qwen3.6:latest")
-    runner._tasks[task_id]._thread.join(timeout=2)
+    thread = runner._tasks[task_id]._thread
+    assert thread is not None
+    thread.join(timeout=2)
 
     assert orchestrator.bindings == [(task_id, runner.state_store)]
     assert orchestrator.active_task_id == ""
@@ -163,6 +224,8 @@ def test_background_runner_binds_task_state_for_the_full_stream_lifetime(tmp_pat
 def test_background_runner_preserves_an_approval_pause_from_the_tool_loop(tmp_path):
     class ApprovalOrchestrator:
         vault_engine = None
+        task_id: str = ""
+        state_store: Any = None
 
         @contextmanager
         def bind_task_execution(self, task_id, state_store):
@@ -180,7 +243,9 @@ def test_background_runner_preserves_an_approval_pause_from_the_tool_loop(tmp_pa
         orchestrator=ApprovalOrchestrator(),
         target_model="qwen3.6:latest",
     )
-    runner._tasks[task_id]._thread.join(timeout=2)
+    thread = runner._tasks[task_id]._thread
+    assert thread is not None
+    thread.join(timeout=2)
 
     task = runner._tasks[task_id]
     record = runner.state_store.get_task(task_id)
@@ -228,7 +293,9 @@ def test_resume_after_store_reopen_injects_only_its_task_context_snapshot(tmp_pa
     resumed = BackgroundTaskRunner(db_path=str(db_path))
     orchestrator = CapturingOrchestrator()
     assert resumed.resume_task("task-alpha", orchestrator=orchestrator, target_model="qwen3.6:latest") is True
-    resumed._tasks["task-alpha"]._thread.join(timeout=2)
+    thread = resumed._tasks["task-alpha"]._thread
+    assert thread is not None
+    thread.join(timeout=2)
 
     # Then: alpha context is model-visible while beta context remains isolated.
     restored = "\n".join(message["content"] for message in orchestrator.messages)
