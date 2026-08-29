@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib
 import json
 import os
 import random
@@ -11,35 +12,41 @@ import string
 import sys
 import time
 from functools import reduce
+from typing import Any
 
+_aes: Any = None
+_pad: Any = None
+_crypto_import_error: ModuleNotFoundError | None = None
 try:
-    from Crypto.Cipher import AES
-    from Crypto.Util.Padding import pad
+    _crypto_cipher = importlib.import_module("Crypto.Cipher")
+    _crypto_padding = importlib.import_module("Crypto.Util.Padding")
+    _aes = _crypto_cipher.AES
+    _pad = _crypto_padding.pad
 except ModuleNotFoundError as exc:
-    AES = None
-    pad = None
-    _CRYPTO_IMPORT_ERROR = exc
-else:
-    _CRYPTO_IMPORT_ERROR = None
+    _crypto_import_error = exc
+AES = _aes
+pad = _pad
+_CRYPTO_IMPORT_ERROR = _crypto_import_error
 
+korail_mod: Any = None
+_korail_import_error: ModuleNotFoundError | None = None
 try:
-    import korail2.korail2 as korail_mod
-    from korail2 import (
-        AdultPassenger,
-        ChildPassenger,
-        Korail,
-        KorailError,
-        NeedToLoginError,
-        NoResultsError,
-        Passenger,
-        ReserveOption,
-        SeniorPassenger,
-        SoldOutError,
-        ToddlerPassenger,
-        TrainType,
-    )
+    korail_mod = importlib.import_module("korail2.korail2")
+    _korail = importlib.import_module("korail2")
+    AdultPassenger = _korail.AdultPassenger
+    ChildPassenger = _korail.ChildPassenger
+    Korail = _korail.Korail
+    KorailError = _korail.KorailError
+    NeedToLoginError = _korail.NeedToLoginError
+    NoResultsError = _korail.NoResultsError
+    Passenger = _korail.Passenger
+    ReserveOption = _korail.ReserveOption
+    SeniorPassenger = _korail.SeniorPassenger
+    SoldOutError = _korail.SoldOutError
+    ToddlerPassenger = _korail.ToddlerPassenger
+    TrainType = _korail.TrainType
 except ModuleNotFoundError as exc:
-    _KORAIL_IMPORT_ERROR = exc
+    _korail_import_error = exc
 
     class KorailError(Exception):
         pass
@@ -104,10 +111,16 @@ except ModuleNotFoundError as exc:
     class _FallbackKorailModule:
         EMAIL_REGEX = re.compile(r".+@.+")
         PHONE_NUMBER_REGEX = re.compile(r"^\d+$")
+        KORAIL_LOGIN = ""
+        KORAIL_SEARCH_SCHEDULE = ""
+        KORAIL_TICKETRESERVATION = ""
+        KORAIL_MYRESERVATIONLIST = ""
+        KORAIL_CANCEL = ""
+        Train = object
+        Reservation = object
 
     korail_mod = _FallbackKorailModule()
-else:
-    _KORAIL_IMPORT_ERROR = None
+_KORAIL_IMPORT_ERROR = _korail_import_error
 
 DEFAULT_USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 13; SM-S928N Build/UP1A.231005.007)"
 DYNAPATH_PATHS = [
@@ -291,6 +304,13 @@ class PatchedKorail(Korail):
     ):
         import requests
 
+        self.korail_id = korail_id
+        self.korail_pw = korail_pw
+        self._key = ""
+        self.membership_number = ""
+        self.name = ""
+        self.email = ""
+        self.logined = False
         self._session = requests.session()
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         self._engine = DynaPathMasterEngine()
@@ -298,6 +318,9 @@ class PatchedKorail(Korail):
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         if auto_login:
             self.login(korail_id, korail_pw)
+
+    def _check_result(self, data: Any) -> bool:
+        return bool(getattr(self, "_result_check")(data))
 
     def _generate_sid(self, timestamp_ms: int) -> str:
         ensure_runtime_dependencies()
@@ -339,8 +362,8 @@ class PatchedKorail(Korail):
             "Version": self._version,
             "txtInputFlg": input_flag,
             "txtMemberNo": korail_id,
-            "txtPwd": self._Korail__enc_password(korail_pw),
-            "idx": self._idx,
+            "txtPwd": getattr(self, "_Korail__enc_password")(korail_pw),
+            "idx": getattr(self, "_idx", ""),
         }
         if sid:
             payload["Sid"] = sid
@@ -369,7 +392,9 @@ class PatchedKorail(Korail):
         include_no_seats: bool = False,
         include_waiting_list: bool = False,
     ):
-        kst_now = korail_mod.datetime.now(korail_mod.timezone.utc) + korail_mod.timedelta(hours=9)
+        from datetime import datetime, timedelta, timezone
+
+        kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
         if date is None:
             date = kst_now.strftime("%Y%m%d")
         if time_value is None:
@@ -377,7 +402,7 @@ class PatchedKorail(Korail):
         if passengers is None:
             passengers = [AdultPassenger()]
 
-        passengers = Passenger.reduce(passengers)
+        passengers = list(Passenger.reduce(passengers) or [])
         adult_count = reduce(
             lambda total, passenger: total + passenger.count,
             [p for p in passengers if isinstance(p, AdultPassenger)],
@@ -429,7 +454,7 @@ class PatchedKorail(Korail):
 
         response = self._session.post(korail_mod.KORAIL_SEARCH_SCHEDULE, params=payload, headers=headers)
         data = json.loads(response.text)
-        if self._result_check(data):
+        if self._check_result(data):
             trains = [korail_mod.Train(info) for info in data["trn_infos"]["trn_info"]]
             trains = [train for train in trains if train.dep_name == dep and train.arr_name == arr]
             filters = [lambda train: train.has_seat()]
@@ -441,6 +466,7 @@ class PatchedKorail(Korail):
             if not trains:
                 raise NoResultsError()
             return trains
+        raise NoResultsError()
 
     def reserve(
         self,
@@ -531,7 +557,7 @@ class PatchedKorail(Korail):
 
         response = self._session.get(korail_mod.KORAIL_TICKETRESERVATION, params=payload, headers=headers)
         data = json.loads(response.text)
-        if self._result_check(data):
+        if self._check_result(data):
             reservation_id = data["h_pnr_no"]
             matches = [reservation for reservation in self.reservations() if reservation.rsv_id == reservation_id]
             if len(matches) == 1:
@@ -543,7 +569,7 @@ class PatchedKorail(Korail):
         response = self._session.get(korail_mod.KORAIL_MYRESERVATIONLIST, params=payload)
         data = json.loads(response.text)
         try:
-            if self._result_check(data):
+            if self._check_result(data):
                 return [
                     korail_mod.Reservation(train_info)
                     for journey in data["jrny_infos"]["jrny_info"]
@@ -566,7 +592,7 @@ class PatchedKorail(Korail):
         }
         response = self._session.get(korail_mod.KORAIL_CANCEL, params=payload)
         data = json.loads(response.text)
-        if self._result_check(data):
+        if self._check_result(data):
             return True
         return False
 
