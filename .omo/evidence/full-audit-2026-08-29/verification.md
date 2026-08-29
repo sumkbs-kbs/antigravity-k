@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `d1fd5ab`; whole-tree basedpyright reports `0 errors, 27298 warnings, 0 notes`. `tests/test_preference_memory.py` now accesses the private profile-preference helper through an explicit callable adapter; its 8-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `4f3d225`; whole-tree basedpyright reports `0 errors, 27300 warnings, 0 notes`. `tests/test_os_drivers.py` now annotates the Windows fallback mock varargs; its 23-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `ab613d4`; whole-tree basedpyright reports `0 errors, 27302 warnings, 0 notes`. `tests/test_mcp_capability.py` now uses direct `ClientSession` boundary casts for test doubles; its 5-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
