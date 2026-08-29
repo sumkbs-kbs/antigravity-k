@@ -186,31 +186,38 @@ def mock_orch() -> MagicMock:
     orch.manager = MagicMock()
     orch.manager._registry = MagicMock()
     orch.manager.router = MagicMock()
-    orch.manager.is_loaded.return_value = True
-    orch._prepare_agent_prompt.return_value = (
-        "delegate_model",
-        "system_prompt_part",
-        "tool_prompt_part",
-        "skill_prompts_part",
-        "prompt_str",
-        [{"role": "user", "content": "test"}],
+    _set_mock_return(orch, ("manager", "is_loaded"), True)
+    _set_mock_return(
+        orch,
+        ("_prepare_agent_prompt",),
+        (
+            "delegate_model",
+            "system_prompt_part",
+            "tool_prompt_part",
+            "skill_prompts_part",
+            "prompt_str",
+            [{"role": "user", "content": "test"}],
+        ),
     )
 
     # Context with guardrail
     ctx = MagicMock()
     ctx.tool_guardrail = MagicMock()
-    ctx.tool_guardrail.before_call.return_value = MagicMock()
-    ctx.tool_guardrail.before_call.return_value.allows_execution = True
-    ctx.tool_guardrail.after_call.return_value = MagicMock()
-    ctx.tool_guardrail.after_call.return_value.action = "allow"
-    ctx.tool_guardrail.reset = MagicMock()
+    before_call_result = MagicMock()
+    setattr(before_call_result, "allows_execution", True)
+    _set_mock_return(ctx, ("tool_guardrail", "before_call"), before_call_result)
+    after_call_result = MagicMock()
+    setattr(after_call_result, "action", "allow")
+    _set_mock_return(ctx, ("tool_guardrail", "after_call"), after_call_result)
+    setattr(_mock_path(ctx, ("tool_guardrail",)), "reset", MagicMock())
     ctx.cognitive_loop = MagicMock()
     ctx.quality_gate = MagicMock()
-    ctx.quality_gate.evaluate.return_value = MagicMock()
-    ctx.quality_gate.evaluate.return_value.user_message = ""
-    ctx.quality_gate.evaluate.return_value.should_retry = False
+    quality_result = MagicMock()
+    setattr(quality_result, "user_message", "")
+    setattr(quality_result, "should_retry", False)
+    _set_mock_return(ctx, ("quality_gate", "evaluate"), quality_result)
     ctx.decision_anchor = MagicMock()
-    ctx.decision_anchor.auto_extract.return_value = None
+    _set_mock_return(ctx, ("decision_anchor", "auto_extract"), None)
     ctx.tool_executor = MagicMock()
     ctx.tool_executor.execute_async = AsyncMock(return_value="result_ok")
 
