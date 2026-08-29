@@ -42,8 +42,8 @@ def run_benchmark():
     # 2. Smart Breakpoint
     print("\n[2/3] Smart Breakpoint & Clarification Gate...")
     gate = SmartBreakpointGate(max_consecutive_failures=3)
-    gate.record_attempt(False)
-    gate.record_attempt(False)
+    _ = gate.record_attempt(False)
+    _ = gate.record_attempt(False)
     triggered = gate.record_attempt(False)
     if triggered:
         prompt = gate.generate_breakpoint("OAuth Setup", "401 Unauthorized", [("Use Mock", "mock")])
@@ -70,7 +70,7 @@ def run_benchmark():
         print("  ❌ Failed working memory compaction")
 
     print("\n" + "=" * 75)
-    print(f"🏆 CONTINUOUS EVOLUTION SCORE: {passed}/{total} ({(passed/total)*100:.0f}%)")
+    print(f"🏆 CONTINUOUS EVOLUTION SCORE: {passed}/{total} ({(passed / total) * 100:.0f}%)")
     print("=" * 75)
     return passed == total
 

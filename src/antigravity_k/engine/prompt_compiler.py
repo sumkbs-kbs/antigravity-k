@@ -7,6 +7,7 @@ specialize, and compile role prompt markdown files in `prompts/roles/`.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import final
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +23,12 @@ class TrajectoryRecord:
     lesson_learned: str = ""
 
 
+@final
 class PromptCompiler:
     """Compiles golden task trajectories into optimized, high-density system prompts."""
 
     def __init__(self, prompts_dir: str | Path):
-        self.prompts_dir = Path(prompts_dir).resolve()
+        self.prompts_dir: Path = Path(prompts_dir).resolve()
         self.trajectories: list[TrajectoryRecord] = []
 
     def record_trajectory(
@@ -65,6 +67,8 @@ class PromptCompiler:
             for idx, t in enumerate(role_trajectories[-3:], 1):
                 lines.append(f"### Pattern {idx}: {t.user_prompt[:80]}")
                 lines.append(f"Action: `{t.successful_action}`")
+                if t.failing_action:
+                    lines.append(f"Avoid: `{t.failing_action}`")
                 if t.lesson_learned:
                     lines.append(f"Constraint: {t.lesson_learned}")
 
@@ -74,6 +78,6 @@ class PromptCompiler:
         """Save the compiled prompt to disk under prompts/roles/."""
         self.prompts_dir.mkdir(parents=True, exist_ok=True)
         target_path = self.prompts_dir / f"{role.lower()}.md"
-        target_path.write_text(compiled_content, encoding="utf-8")
+        _ = target_path.write_text(compiled_content, encoding="utf-8")
         logger.info("Compiled and updated prompt for role '%s' at %s", role, target_path)
         return target_path
