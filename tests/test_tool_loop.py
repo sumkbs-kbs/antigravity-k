@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -727,7 +728,7 @@ class TestToolLoopEnginePostLoopChecks:
 
 class TestToolLoopEngineRunToolTaskAsync:
     @pytest.mark.asyncio
-    async def test_read_only_benchmark_blocks_mutating_tool(self, mock_orch: MagicMock, tmp_path):
+    async def test_read_only_benchmark_blocks_mutating_tool(self, mock_orch: MagicMock, tmp_path: Path):
         from antigravity_k.engine.tool_call_parser import ToolCall
 
         store = TaskStateStore(str(tmp_path / "tasks.db"))
@@ -834,7 +835,14 @@ class TestToolLoopEngineRunLoop:
         # and its check_step_budget().action returns a MagicMock that won't
         # match any CapacityAction enum, making capacity check a no-op.
 
-    def _run(self, messages=None, delegate_to="CODER", task_type="code", max_steps=5, target_model=None):
+    def _run(
+        self,
+        messages: list[dict[str, str]] | None = None,
+        delegate_to: str = "CODER",
+        task_type: str = "code",
+        max_steps: int = 5,
+        target_model: str | None = None,
+    ) -> list[str]:
         """Helper: create engine and collect run_loop output."""
         engine = ToolLoopEngine(self.mock_orch)
         msgs = messages or [{"role": "user", "content": "test task"}]
@@ -1162,7 +1170,7 @@ class TestToolLoopEngineRunLoop:
         assert self.mock_orch._last_agent_output.endswith(f"[citation:{citation}]")
         assert any("Citation Revision" in output for output in outputs)
 
-    def test_reads_expected_tools_from_durable_execution_context(self, tmp_path):
+    def test_reads_expected_tools_from_durable_execution_context(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("tool-contract", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
@@ -1177,7 +1185,7 @@ class TestToolLoopEngineRunLoop:
 
         assert expected_tools == ("read_file",)
 
-    def test_missing_required_tool_marks_durable_task_failed(self, tmp_path):
+    def test_missing_required_tool_marks_durable_task_failed(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("required-tool", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
@@ -1203,7 +1211,7 @@ class TestToolLoopEngineRunLoop:
         assert record["status"] == "failed"
         assert record["error"] == "required_tools_missing: read_file"
 
-    def test_omits_satisfied_native_tools_from_follow_up_turn(self, tmp_path):
+    def test_omits_satisfied_native_tools_from_follow_up_turn(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("read-once", "read README", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
@@ -1237,7 +1245,7 @@ class TestToolLoopEngineRunLoop:
         assert first_call.kwargs["tools"] == [{"name": "read_file"}]
         assert "tools" not in second_call.kwargs
 
-    def test_recovers_a_qwen_scratchpad_action_for_one_required_tool(self, tmp_path):
+    def test_recovers_a_qwen_scratchpad_action_for_one_required_tool(self, tmp_path: Path):
         # Given: Qwen plans the sole required read instead of emitting its tool-call tag.
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("qwen-plan", "read README", "pending", "2026-01-01T00:00:00")
@@ -1273,7 +1281,7 @@ class TestToolLoopEngineRunLoop:
             {"file_path": "README.md"},
         )
 
-    def test_recovers_each_qwen_scratchpad_action_in_a_multistep_contract(self, tmp_path):
+    def test_recovers_each_qwen_scratchpad_action_in_a_multistep_contract(self, tmp_path: Path):
         # Given: Qwen plans each of two required tools in separate scratch-pad turns.
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("qwen-multistep", "inspect README", "pending", "2026-01-01T00:00:00")
@@ -1311,7 +1319,7 @@ class TestToolLoopEngineRunLoop:
             (("grep_search", {"query": "defaults"}), {}),
         ]
 
-    def test_resume_uses_checkpointed_tool_progress_and_evidence(self, tmp_path):
+    def test_resume_uses_checkpointed_tool_progress_and_evidence(self, tmp_path: Path):
         # Given: a paused task whose required file read already completed before interruption.
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("resumed-read", "read README", "pending", "2026-01-01T00:00:00")
@@ -1364,7 +1372,7 @@ class TestToolLoopEngineRunLoop:
         assert outcomes[0].success is False
         assert outcomes[0].completion_reason == "step_limit"
 
-    def test_quality_gate_failure_marks_durable_task_failed(self, tmp_path):
+    def test_quality_gate_failure_marks_durable_task_failed(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("quality-failed", "write code", "pending", "2026-01-01T00:00:00")
         self.mock_orch.task_execution_context = TaskExecutionContext("quality-failed", store)
@@ -1394,7 +1402,7 @@ class TestToolLoopEngineRunLoop:
         assert outcomes[0].success is False
         assert outcomes[0].completion_reason == "quality_gate_failed"
 
-    def test_persists_approval_wait_with_tool_step_checkpoint(self, tmp_path):
+    def test_persists_approval_wait_with_tool_step_checkpoint(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("loop-durable", "write a file", "pending", "2026-01-01T00:00:00")
         self.mock_orch.task_execution_context = TaskExecutionContext("loop-durable", store)
@@ -1431,7 +1439,7 @@ class TestToolLoopEngineRunLoop:
         assert any(message.content == "test" for message in snapshot.messages)
         assert '"working_memory"' in checkpoint["context_json"]
 
-    def test_read_only_benchmark_defers_completion_to_task_runner(self, tmp_path):
+    def test_read_only_benchmark_defers_completion_to_task_runner(self, tmp_path: Path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
         store.create_task("benchmark-deferred", "benchmark prompt", "pending", "2026-01-01T00:00:00")
         store.save_checkpoint(
@@ -1510,7 +1518,7 @@ class TestToolLoopEngineRunLoop:
         assert self.mock_orch.manager.generate.call_args.kwargs["temperature"] == 0.2
         assert self.mock_orch.manager.generate.call_args.kwargs["repeat_penalty"] == 1.1
 
-    def test_direct_response_uses_model_aware_context_shaper(self, tmp_path):
+    def test_direct_response_uses_model_aware_context_shaper(self, tmp_path: Path):
         from antigravity_k.engine.context_shaper import ContextShaper
 
         shaper = ContextShaper(storage_dir=str(tmp_path / "context"))
