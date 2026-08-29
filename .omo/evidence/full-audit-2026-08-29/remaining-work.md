@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `c55606f` (shared session state 테스트 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 27296 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer·flight controller·self-healing doctor·MCP capability·OS driver·preference memory·shared session state 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `ac59d04` (speculative branching fixture side-effect 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 27294 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer·flight controller·self-healing doctor·MCP capability·OS driver·preference memory·shared session state·speculative branching 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `ac59d04`: `tests/test_speculative_branching.py`의 git subprocess와 임시 파일 쓰기 반환값을 의도적으로 소비하도록 명시했다. 9개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `2 → 0`, 전체 basedpyright는 `0 errors, 27294 warnings, 0 notes`로 감소했다.
 
 - `c55606f`: `tests/test_session_state.py`에서 스트림 라우트의 reset helper를 명시적 callable adapter로 호출하고 결과를 소비하도록 정리했다. 3개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `2 → 0`, 전체 basedpyright는 `0 errors, 27296 warnings, 0 notes`로 감소했다.
 
