@@ -8,7 +8,7 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `0eec540` (benchmark visualization 타입 경계·입력 검증 포함)
+- 최신 검증 커밋: `75004f4` (benchmark visualization 검증 증거 기록 포함)
 - 전체 `basedpyright`: `0 errors, 33458 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
