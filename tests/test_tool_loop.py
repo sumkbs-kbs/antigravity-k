@@ -1282,22 +1282,28 @@ class TestToolLoopEngineRunLoop:
         pre_decision.action = "block"
         pre_decision.should_halt = True
         pre_decision.reason = "policy"
-        pre_decision.to_dict.return_value = {
-            "action": "block",
-            "message": "Not allowed",
-            "reason": "policy",
-        }
+        setattr(
+            pre_decision,
+            "to_dict",
+            MagicMock(
+                return_value={
+                    "action": "block",
+                    "message": "Not allowed",
+                    "reason": "policy",
+                }
+            ),
+        )
 
         mock_orch = self._orch()
-        mock_orch.ctx.tool_guardrail.before_call.return_value = pre_decision
+        _set_mock_return(mock_orch, ("ctx", "tool_guardrail", "before_call"), pre_decision)
 
         tool_xml = (
             "<action_call>\n<tool_call>\n"
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        mock_orch.manager.stream_generate.return_value = iter([tool_xml])
-        mock_orch.ctx.tool_executor.execute_async.return_value = "result"
+        _set_mock_return(mock_orch, ("manager", "stream_generate"), iter([tool_xml]))
+        _set_mock_return(mock_orch, ("ctx", "tool_executor", "execute_async"), "result")
 
         results = self._run()
         result_text = " ".join(results)
@@ -1306,14 +1312,14 @@ class TestToolLoopEngineRunLoop:
     def test_approval_required_break(self):
         """tool_result contains APPROVAL REQUIRED -> breaks loop."""
         mock_orch = self._orch()
-        mock_orch.ctx.tool_executor.execute_async.return_value = "[APPROVAL REQUIRED] Please confirm"
+        _set_mock_return(mock_orch, ("ctx", "tool_executor", "execute_async"), "[APPROVAL REQUIRED] Please confirm")
 
         tool_xml = (
             "<action_call>\n<tool_call>\n"
             '{"name": "write_file", "arguments": {"path": "test.txt"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        mock_orch.manager.stream_generate.return_value = iter([tool_xml])
+        _set_mock_return(mock_orch, ("manager", "stream_generate"), iter([tool_xml]))
         results = self._run()
         assert any("APPROVAL REQUIRED" in r for r in results)
 
@@ -1324,7 +1330,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self._orch().manager.stream_generate.return_value = iter([tool_xml])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter([tool_xml]))
         results = self._run(max_steps=1)
         assert any("Step Limit" in r for r in results)
 
@@ -1339,24 +1345,24 @@ class TestToolLoopEngineRunLoop:
             _ = kwargs
             return iter([tool_xml])
 
-        self._orch().manager.stream_generate.side_effect = stream_generate
-        self._orch().ctx.tool_executor.execute_async.return_value = "result"
+        _set_mock_side_effect(self._orch(), ("manager", "stream_generate"), stream_generate)
+        _set_mock_return(self._orch(), ("ctx", "tool_executor", "execute_async"), "result")
 
         results = self._run(max_steps=51)
 
         assert any("최대 도구 호출 횟수(50)" in r for r in results)
-        assert self._orch().manager.stream_generate.call_count == 50
+        assert _mock_call_count(self._orch(), ("manager", "stream_generate")) == 50
 
     def test_non_positive_max_steps_still_runs_once(self):
-        self._orch().manager.stream_generate.return_value = iter(["completed"])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["completed"]))
 
         _ = self._run(max_steps=0)
 
-        assert self._orch().manager.stream_generate.call_count == 1
+        assert _mock_call_count(self._orch(), ("manager", "stream_generate")) == 1
 
     def test_empty_messages_post_loop(self):
         """messages가 비어 있으면 post_loop는 user_task=''로 실행."""
-        self._orch().manager.stream_generate.return_value = iter(["output"])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["output"]))
         results = self._run(messages=[])
         assert isinstance(results, list)
 
