@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `9f771d8` (MAX 테스트·KTX CLI/열차·예약 Protocol 경계 포함)
-- 전체 `basedpyright`: `0 errors, 28057 warnings, 0 notes` (MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `28a65e3` (tool-loop 테스트의 의도적 반환값 소비 포함)
+- 전체 `basedpyright`: `0 errors, 28021 warnings, 0 notes` (tool-loop 테스트는 697건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `28a65e3`: `tests/test_tool_loop.py`의 의도적인 `list`/문자열 반환값 36건을 `_`에 명시적으로 소비했다. tool-loop 90개 테스트, Ruff, Ruff-format, pre-commit이 통과했고 파일별 basedpyright 경고가 `733 → 697`로 감소했다. 잔여 경고는 동적 MagicMock/Any 경계와 보호 메서드 테스트 접근이며, 전체 basedpyright는 `0 errors, 28021 warnings, 0 notes`다.
 
 - `ef7a2b8`: optional OS-driver protocols, `os_drivers.py` warnings `187 → 0`, 55 tests
 - `ed45e8c`: MAX engine/runtime protocol boundaries, `max_engine.py` warnings `128 → 0`, 43 MAX tests
