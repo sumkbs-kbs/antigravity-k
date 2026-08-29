@@ -215,44 +215,44 @@ class TestSemanticSnapshot:
 class TestIntentMatchScore:
     """Tests for SemanticDOMParser._intent_match_score private method."""
 
-    def test_exact_name_match(self, parser):
+    def test_exact_name_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="Login")
         score = parser._intent_match_score(el, "login")
         assert score > 0
 
-    def test_no_match(self, parser):
+    def test_no_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="Signup")
         score = parser._intent_match_score(el, "login")
         assert score == 0.0
 
-    def test_aria_label_match(self, parser):
+    def test_aria_label_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="", aria_label="submit button")
         score = parser._intent_match_score(el, "submit")
         assert score > 0
 
-    def test_placeholder_match(self, parser):
+    def test_placeholder_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", placeholder="Enter your email")
         score = parser._intent_match_score(el, "email")
         assert score > 0
 
-    def test_href_match(self, parser):
+    def test_href_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", href="https://example.com/login")
         score = parser._intent_match_score(el, "login")
         assert score > 0
 
-    def test_interactable_bonus(self, parser):
+    def test_interactable_bonus(self, parser: SemanticDOMParser):
         el1 = ElementInfo(ref="@ref1", name="Submit", is_interactable=True)
         el2 = ElementInfo(ref="@ref2", name="Submit", is_interactable=False)
         score1 = parser._intent_match_score(el1, "submit")
         score2 = parser._intent_match_score(el2, "submit")
         assert score1 > score2
 
-    def test_partial_word_match(self, parser):
+    def test_partial_word_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="User Login Form")
         score = parser._intent_match_score(el, "login form")
         assert score > 0.5 * 2.0 * 0.5  # partial word match minimum
 
-    def test_mixed_fields(self, parser):
+    def test_mixed_fields(self, parser: SemanticDOMParser):
         el = ElementInfo(
             ref="@ref1",
             name="Search",
@@ -264,7 +264,7 @@ class TestIntentMatchScore:
         # name (3.0) + aria_label (2.5) + placeholder (2.0) + interactable bonus (1.2x)
         assert score > 7.0
 
-    def test_empty_name_with_match(self, parser):
+    def test_empty_name_with_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="", aria_label="")
         score = parser._intent_match_score(el, "anything")
         assert score == 0.0
@@ -274,35 +274,35 @@ class TestIntentMatchScore:
 
 
 class TestFindByIntent:
-    def test_exact_name(self, parser, snapshot_with_elements):
+    def test_exact_name(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.find_by_intent(snapshot_with_elements, "Login")
         assert result is not None
         assert result.ref == "@ref1"
 
-    def test_partial_match(self, parser, snapshot_with_elements):
+    def test_partial_match(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.find_by_intent(snapshot_with_elements, "log")
         assert result is not None
         assert result.ref == "@ref1"
 
-    def test_no_match_returns_none(self, parser, snapshot_with_elements):
+    def test_no_match_returns_none(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.find_by_intent(snapshot_with_elements, "nonexistent")
         assert result is None
 
-    def test_role_keyword_button(self, parser, snapshot_with_elements):
+    def test_role_keyword_button(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.find_by_intent(snapshot_with_elements, "버튼")
         assert result is not None
         assert result.role == ElementRole.BUTTON
 
-    def test_role_keyword_input(self, parser, snapshot_with_elements):
+    def test_role_keyword_input(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.find_by_intent(snapshot_with_elements, "입력")
         assert result is not None
         assert result.role == ElementRole.INPUT
 
-    def test_role_with_clean_intent(self, parser, snapshot_with_elements):
+    def test_role_with_clean_intent(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.find_by_intent(snapshot_with_elements, "링크 문서")
         assert result is not None
 
-    def test_complex_intent(self, parser):
+    def test_complex_intent(self, parser: SemanticDOMParser):
         """Should find the best match from multiple elements."""
         snap = SemanticSnapshot(
             elements={
@@ -314,7 +314,7 @@ class TestFindByIntent:
         result = parser.find_by_intent(snap, "검색 입력")
         assert result is not None
 
-    def test_empty_snapshot(self, parser):
+    def test_empty_snapshot(self, parser: SemanticDOMParser):
         snap = SemanticSnapshot()
         result = parser.find_by_intent(snap, "anything")
         assert result is None
@@ -324,7 +324,7 @@ class TestFindByIntent:
 
 
 class TestParseElement:
-    def test_button_element(self, parser):
+    def test_button_element(self, parser: SemanticDOMParser):
         raw = {
             "tag": "button",
             "name": "Click me",
@@ -336,58 +336,59 @@ class TestParseElement:
         assert el.role == ElementRole.BUTTON
         assert el.name == "Click me"
         assert el.is_interactable is True
+        assert el.bbox is not None
         assert el.bbox.x == 10
         assert el.bbox.y == 20
 
-    def test_input_text(self, parser):
+    def test_input_text(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "text", "name": "username", "placeholder": "Enter user", "isInteractive": True}
         el = parser._parse_element("@ref2", raw)
         assert el.role == ElementRole.INPUT
         assert el.placeholder == "Enter user"
 
-    def test_checkbox(self, parser):
+    def test_checkbox(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "checkbox", "name": "agree", "isInteractive": True}
         el = parser._parse_element("@ref3", raw)
         assert el.role == ElementRole.CHECKBOX
 
-    def test_radio(self, parser):
+    def test_radio(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "radio", "name": "gender", "isInteractive": True}
         el = parser._parse_element("@ref4", raw)
         assert el.role == ElementRole.RADIO
 
-    def test_submit_button(self, parser):
+    def test_submit_button(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "submit", "name": "Go", "isInteractive": True}
         el = parser._parse_element("@ref5", raw)
         assert el.role == ElementRole.BUTTON
 
-    def test_link(self, parser):
+    def test_link(self, parser: SemanticDOMParser):
         raw = {"tag": "a", "href": "https://example.com", "name": "Example", "isInteractive": True}
         el = parser._parse_element("@ref6", raw)
         assert el.role == ElementRole.LINK
         assert el.href == "https://example.com"
 
-    def test_heading(self, parser):
+    def test_heading(self, parser: SemanticDOMParser):
         raw = {"tag": "h1", "name": "Welcome"}
         el = parser._parse_element("@ref7", raw)
         assert el.role == ElementRole.HEADING
         assert el.is_interactable is False
 
-    def test_aria_role_priority(self, parser):
+    def test_aria_role_priority(self, parser: SemanticDOMParser):
         raw = {"tag": "div", "role": "button", "name": "Custom btn", "isInteractive": True}
         el = parser._parse_element("@ref8", raw)
         assert el.role == ElementRole.BUTTON
 
-    def test_unknown_element(self, parser):
+    def test_unknown_element(self, parser: SemanticDOMParser):
         raw = {"tag": "section", "name": "Content"}
         el = parser._parse_element("@ref9", raw)
         assert el.role == ElementRole.OTHER
 
-    def test_disabled_element(self, parser):
+    def test_disabled_element(self, parser: SemanticDOMParser):
         raw = {"tag": "button", "disabled": True, "isInteractive": False}
         el = parser._parse_element("@ref10", raw)
         assert el.is_disabled is True
 
-    def test_missing_bbox(self, parser):
+    def test_missing_bbox(self, parser: SemanticDOMParser):
         raw = {"tag": "div"}
         el = parser._parse_element("@ref11", raw)
         assert el.bbox is not None
@@ -399,7 +400,7 @@ class TestParseElement:
 
 
 class TestToLLMContext:
-    def test_basic_context(self, parser, snapshot_with_elements):
+    def test_basic_context(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         ctx = parser.to_llm_context(snapshot_with_elements, max_elements=10)
         assert "Page:" in ctx
         assert "Elements (" in ctx
@@ -407,7 +408,7 @@ class TestToLLMContext:
         assert "@ref2" in ctx
         assert "@ref3" in ctx
 
-    def test_interactable_only(self, parser):
+    def test_interactable_only(self, parser: SemanticDOMParser):
         snap = SemanticSnapshot(
             elements={
                 "@ref1": ElementInfo(ref="@ref1", tag="button", is_interactable=True),
@@ -418,34 +419,34 @@ class TestToLLMContext:
         assert "@ref1" in ctx
         assert "@ref2" not in ctx
 
-    def test_max_elements_truncation(self, parser):
-        elements = {}
+    def test_max_elements_truncation(self, parser: SemanticDOMParser):
+        elements: dict[str, ElementInfo] = {}
         for i in range(100):
             elements[f"@ref{i}"] = ElementInfo(ref=f"@ref{i}", tag="div")
         snap = SemanticSnapshot(elements=elements, total_count=100)
         ctx = parser.to_llm_context(snap, max_elements=5)
         assert "more elements" in ctx
 
-    def test_empty_snapshot(self, parser):
+    def test_empty_snapshot(self, parser: SemanticDOMParser):
         snap = SemanticSnapshot()
         ctx = parser.to_llm_context(snap)
         assert 'Page: "" ()' in ctx or "Page:" in ctx
         assert "interactable" in ctx
 
-    def test_with_bbox(self, parser):
+    def test_with_bbox(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", tag="button", bbox=BoundingBox(10, 20, 100, 30))
         snap = SemanticSnapshot(elements={"@ref1": el})
         ctx = parser.to_llm_context(snap, include_bbox=True)
         assert "(10,20,100,30)" in ctx
 
-    def test_default_bbox_included(self, parser):
+    def test_default_bbox_included(self, parser: SemanticDOMParser):
         """By default (include_bbox=True), bbox should be in the context."""
         el = ElementInfo(ref="@ref1", tag="button", bbox=BoundingBox(10, 20, 100, 30))
         snap = SemanticSnapshot(elements={"@ref1": el})
         ctx = parser.to_llm_context(snap)
         assert "(10,20,100,30)" in ctx
 
-    def test_include_bbox_false_omits_bbox(self, parser):
+    def test_include_bbox_false_omits_bbox(self, parser: SemanticDOMParser):
         """When include_bbox=False, bbox should NOT be in the context."""
         el = ElementInfo(ref="@ref1", tag="button", name="OK", bbox=BoundingBox(10, 20, 100, 30))
         snap = SemanticSnapshot(elements={"@ref1": el})
@@ -457,17 +458,17 @@ class TestToLLMContext:
 
 
 class TestResolveRef:
-    def test_ref_lookup(self, parser, snapshot_with_elements):
+    def test_ref_lookup(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.resolve_ref(snapshot_with_elements, "@ref1")
         assert result is not None
         assert result.ref == "@ref1"
 
-    def test_natural_language(self, parser, snapshot_with_elements):
+    def test_natural_language(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.resolve_ref(snapshot_with_elements, "Login")
         assert result is not None
         assert result.ref == "@ref1"
 
-    def test_missing_ref(self, parser, snapshot_with_elements):
+    def test_missing_ref(self, parser: SemanticDOMParser, snapshot_with_elements: SemanticSnapshot):
         result = parser.resolve_ref(snapshot_with_elements, "@ref100")
         assert result is None
 
@@ -476,12 +477,12 @@ class TestResolveRef:
 
 
 @pytest.fixture
-def parser():
+def parser() -> SemanticDOMParser:
     return SemanticDOMParser()
 
 
 @pytest.fixture
-def snapshot_with_elements():
+def snapshot_with_elements() -> SemanticSnapshot:
     """Basic snapshot with 3 elements for find_by_intent tests."""
     return SemanticSnapshot(
         elements={
