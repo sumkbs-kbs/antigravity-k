@@ -13,7 +13,8 @@ os-ai-computer-use 프레임워크의 핵심 패턴을 Antigravity-K의 BaseTool
 """
 
 import logging
-from typing import Any
+from collections.abc import Mapping
+from typing import final, override
 
 from ..security.computer_use_guard import ActionGuard
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
@@ -21,7 +22,28 @@ from .os_drivers import DriverSet, get_driver_set
 
 logger = logging.getLogger(__name__)
 
+type ActionValue = str | int | float | bool | None
+type ActionResultValue = str | int | float | dict[str, int]
+type ActionResult = dict[str, ActionResultValue]
+type SchemaValue = str | int | bool | list[str] | Mapping[str, "SchemaValue"]
 
+
+def _int_arg(args: dict[str, ActionValue], key: str, default: int = 0) -> int:
+    value = args.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _float_arg(args: dict[str, ActionValue], key: str, default: float) -> float:
+    value = args.get(key)
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+def _str_arg(args: dict[str, ActionValue], key: str, default: str = "") -> str:
+    value = args.get(key)
+    return value if isinstance(value, str) else default
+
+
+@final
 class ComputerUseTool(BaseTool):
     """AI 에이전트가 사용자의 데스크탑을 조작할 수 있는 도구.
 
@@ -62,7 +84,7 @@ class ComputerUseTool(BaseTool):
             "type text, press keys, and scroll. Use this when you need to interact "
             "with GUI applications on the user's computer."
         )
-        self._schema = {
+        self._schema: dict[str, SchemaValue] = {
             "type": "object",
             "properties": {
                 "action": {
@@ -119,6 +141,7 @@ class ComputerUseTool(BaseTool):
         return self._resolved_drivers
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -129,6 +152,7 @@ class ComputerUseTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -139,7 +163,8 @@ class ComputerUseTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, SchemaValue]:
         """Parameters Schema.
 
         Returns:
@@ -148,11 +173,15 @@ class ComputerUseTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ActionValue) -> ActionResult:
         """액션을 실행합니다."""
-        action = kwargs.get("action")
-        if not action:
+        action_value = kwargs.get("action")
+        if not action_value:
             return {"error": "No action specified."}
+        if not isinstance(action_value, str):
+            return {"error": f"Unknown action: {action_value}"}
+        action = action_value
 
         # 해상도 주입 (위험 영역 검사용)
         try:
@@ -174,7 +203,19 @@ class ComputerUseTool(BaseTool):
 
         # ── 액션 디스패치 ──
         try:
-            handler = getattr(self, f"_action_{action}", None)
+            handlers = {
+                "screenshot": self._action_screenshot,
+                "mouse_move": self._action_mouse_move,
+                "left_click": self._action_left_click,
+                "right_click": self._action_right_click,
+                "double_click": self._action_double_click,
+                "left_click_drag": self._action_left_click_drag,
+                "type": self._action_type,
+                "key": self._action_key,
+                "hold_key": self._action_hold_key,
+                "scroll": self._action_scroll,
+            }
+            handler = handlers.get(action)
             if handler is None:
                 return {"error": f"Unknown action: {action}"}
             return handler(**kwargs)
@@ -184,8 +225,9 @@ class ComputerUseTool(BaseTool):
 
     # ────────────────── 개별 액션 핸들러 ──────────────────
 
-    def _action_screenshot(self, **kwargs) -> dict[str, Any]:
+    def _action_screenshot(self, **kwargs: ActionValue) -> ActionResult:
         """화면을 캡처합니다."""
+        _ = kwargs
         base64_png = self._drivers.screen.screenshot()
         width, height = self._drivers.screen.get_screen_size()
         return {
@@ -194,35 +236,35 @@ class ComputerUseTool(BaseTool):
             "screen_size": {"width": width, "height": height},
         }
 
-    def _action_mouse_move(self, **kwargs) -> dict[str, Any]:
+    def _action_mouse_move(self, **kwargs: ActionValue) -> ActionResult:
         """마우스를 이동합니다."""
-        x, y = kwargs.get("x", 0), kwargs.get("y", 0)
+        x, y = _int_arg(kwargs, "x"), _int_arg(kwargs, "y")
         self._drivers.mouse.move(x, y)
         return {"status": "ok", "action": "mouse_move", "position": {"x": x, "y": y}}
 
-    def _action_left_click(self, **kwargs) -> dict[str, Any]:
+    def _action_left_click(self, **kwargs: ActionValue) -> ActionResult:
         """왼쪽 클릭합니다."""
-        x, y = kwargs.get("x", 0), kwargs.get("y", 0)
+        x, y = _int_arg(kwargs, "x"), _int_arg(kwargs, "y")
         self._drivers.mouse.click(x, y, button="left")
         return {"status": "ok", "action": "left_click", "position": {"x": x, "y": y}}
 
-    def _action_right_click(self, **kwargs) -> dict[str, Any]:
+    def _action_right_click(self, **kwargs: ActionValue) -> ActionResult:
         """오른쪽 클릭합니다."""
-        x, y = kwargs.get("x", 0), kwargs.get("y", 0)
+        x, y = _int_arg(kwargs, "x"), _int_arg(kwargs, "y")
         self._drivers.mouse.click(x, y, button="right")
         return {"status": "ok", "action": "right_click", "position": {"x": x, "y": y}}
 
-    def _action_double_click(self, **kwargs) -> dict[str, Any]:
+    def _action_double_click(self, **kwargs: ActionValue) -> ActionResult:
         """더블 클릭합니다."""
-        x, y = kwargs.get("x", 0), kwargs.get("y", 0)
+        x, y = _int_arg(kwargs, "x"), _int_arg(kwargs, "y")
         self._drivers.mouse.double_click(x, y)
         return {"status": "ok", "action": "double_click", "position": {"x": x, "y": y}}
 
-    def _action_left_click_drag(self, **kwargs) -> dict[str, Any]:
+    def _action_left_click_drag(self, **kwargs: ActionValue) -> ActionResult:
         """드래그합니다."""
-        start_x, start_y = kwargs.get("x", 0), kwargs.get("y", 0)
-        end_x, end_y = kwargs.get("end_x", 0), kwargs.get("end_y", 0)
-        duration = kwargs.get("duration", 0.5)
+        start_x, start_y = _int_arg(kwargs, "x"), _int_arg(kwargs, "y")
+        end_x, end_y = _int_arg(kwargs, "end_x"), _int_arg(kwargs, "end_y")
+        duration = _float_arg(kwargs, "duration", 0.5)
         self._drivers.mouse.drag(start_x, start_y, end_x, end_y, duration=duration)
         return {
             "status": "ok",
@@ -231,17 +273,17 @@ class ComputerUseTool(BaseTool):
             "end": {"x": end_x, "y": end_y},
         }
 
-    def _action_type(self, **kwargs) -> dict[str, Any]:
+    def _action_type(self, **kwargs: ActionValue) -> ActionResult:
         """텍스트를 타이핑합니다."""
-        text = kwargs.get("text", "")
+        text = _str_arg(kwargs, "text")
         if not text:
             return {"error": "No text provided for 'type' action."}
         self._drivers.keyboard.type_text(text)
         return {"status": "ok", "action": "type", "text_length": len(text)}
 
-    def _action_key(self, **kwargs) -> dict[str, Any]:
+    def _action_key(self, **kwargs: ActionValue) -> ActionResult:
         """키를 입력합니다."""
-        key_combo = kwargs.get("key_combo", "")
+        key_combo = _str_arg(kwargs, "key_combo")
         if not key_combo:
             return {"error": "No key_combo provided for 'key' action."}
 
@@ -254,10 +296,10 @@ class ComputerUseTool(BaseTool):
 
         return {"status": "ok", "action": "key", "key_combo": key_combo}
 
-    def _action_hold_key(self, **kwargs) -> dict[str, Any]:
+    def _action_hold_key(self, **kwargs: ActionValue) -> ActionResult:
         """키를 홀드합니다."""
-        key_combo = kwargs.get("key_combo", "")
-        duration = kwargs.get("duration", 1.0)
+        key_combo = _str_arg(kwargs, "key_combo")
+        duration = _float_arg(kwargs, "duration", 1.0)
         if not key_combo:
             return {"error": "No key_combo provided for 'hold_key' action."}
 
@@ -265,11 +307,11 @@ class ComputerUseTool(BaseTool):
         self._drivers.keyboard.hold_key(keys[0], duration=duration)
         return {"status": "ok", "action": "hold_key", "key": keys[0], "duration": duration}
 
-    def _action_scroll(self, **kwargs) -> dict[str, Any]:
+    def _action_scroll(self, **kwargs: ActionValue) -> ActionResult:
         """스크롤합니다."""
-        x, y = kwargs.get("x", 0), kwargs.get("y", 0)
-        direction = kwargs.get("direction", "down")
-        amount = kwargs.get("amount", 3)
+        x, y = _int_arg(kwargs, "x"), _int_arg(kwargs, "y")
+        direction = _str_arg(kwargs, "direction", "down")
+        amount = _int_arg(kwargs, "amount", 3)
         self._drivers.mouse.scroll(x, y, direction=direction, amount=amount)
         return {
             "status": "ok",
