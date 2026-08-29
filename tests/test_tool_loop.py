@@ -13,13 +13,24 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
+from antigravity_k.engine.task_context_snapshot import load_task_context_snapshot
 from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStateStore
-from antigravity_k.engine.tool_loop import ToolLoopEngine
+from antigravity_k.engine.tool_loop import TaskOutcomeRecorder, ToolLoopEngine
+
+
+def _outcome_recorder(outcomes: list[TaskOutcome]) -> TaskOutcomeRecorder:
+    def record(outcome: TaskOutcome) -> TaskOutcome:
+        outcomes.append(outcome)
+        return outcome
+
+    return cast(TaskOutcomeRecorder, record)
 
 
 class _RaisingIter:
@@ -111,8 +122,23 @@ class TestToolLoopEngineInit:
         assert len(formatted) < 7_000
         assert '"source": "README.md"' in formatted
         assert '"original_chars": 20010' in formatted
+        assert '"context_artifact_ref": "artifact-' in formatted
+        assert '"context_artifact_tool": "read_context_artifact"' in formatted
         assert "BEGIN" in formatted
         assert "END" in formatted
+
+    def test_restores_stored_tool_artifact(self, mock_orch):
+        from antigravity_k.engine.tool_call_parser import ToolCall
+
+        engine = ToolLoopEngine(mock_orch)
+        formatted = engine._format_tool_response(
+            ToolCall(name="read_file", arguments={"file_path": "README.md"}),
+            "A" * 20_000,
+        )
+        marker = '"context_artifact_ref": "'
+        ref_id = formatted.split(marker, 1)[1].split('"', 1)[0]
+
+        assert engine.restore_context_artifact(ref_id) == "A" * 20_000
 
     def test_preserves_query_matched_middle_evidence_when_compacting(self, mock_orch):
         from antigravity_k.engine.tool_call_parser import ToolCall
@@ -435,10 +461,10 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch._get_model_for_role.return_value = "qwen3.6:latest"
         mock_orch.manager.stream_generate.return_value = iter(["초안"])
         mock_orch.manager.generate.return_value = "보완된 최종 답변"
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
 
         with patch("antigravity_k.engine.event_bus.global_event_bus") as event_bus:
-            engine = ToolLoopEngine(mock_orch, outcome_recorder=outcomes.append)
+            engine = ToolLoopEngine(mock_orch, outcome_recorder=_outcome_recorder(outcomes))
             result = list(engine.run_loop([{"role": "user", "content": "요청"}], "CODER", "chat"))
 
         assert any("보완된 최종 답변" in chunk for chunk in result)
@@ -525,10 +551,10 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.quality_gate.evaluate.side_effect = [initial, revised]
         mock_orch.manager.stream_generate.return_value = iter(["draft output"])
         mock_orch.manager.generate.return_value = "revision output"
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
 
         list(
-            ToolLoopEngine(mock_orch, outcome_recorder=outcomes.append).run_loop(
+            ToolLoopEngine(mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "request"}],
                 "CODER",
                 "chat",
@@ -1063,11 +1089,11 @@ class TestToolLoopEngineRunLoop:
         assert self.mock_orch.ctx.quality_gate.evaluate.call_args.args[1] == "Python 3.13 출시일을 알려줘"
 
     def test_records_successful_text_task_outcome(self):
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
         self.mock_orch.task_id = "loop-001"
         self.mock_orch.expected_tools = ()
         self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=outcomes.append)
+        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
 
         list(engine.run_loop([{"role": "user", "content": "finish"}], "CODER", "code"))
 
@@ -1077,7 +1103,7 @@ class TestToolLoopEngineRunLoop:
         assert outcomes[0].completion_reason == "done"
 
     def test_records_used_tools_and_expected_tools(self):
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
         self.mock_orch.task_id = "loop-002"
         self.mock_orch.expected_tools = ("run_bash",)
         tool_xml = (
@@ -1086,7 +1112,7 @@ class TestToolLoopEngineRunLoop:
             "</tool_call>\n</action_call>\n"
         )
         self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=outcomes.append)
+        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
 
         list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code"))
 
@@ -1119,11 +1145,11 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.generate.return_value = (
             f"Python 3.13 introduces an experimental JIT compiler. [citation:{citation}]"
         )
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
 
         # When: the loop executes the search and evaluates its final answer.
         outputs = list(
-            ToolLoopEngine(self.mock_orch, outcome_recorder=outcomes.append).run_loop(
+            ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "Python 3.13 JIT 기능을 알려줘"}],
                 "SELF",
                 "chat",
@@ -1195,7 +1221,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
         self.mock_orch.ctx.tool_executor.execute_async.return_value = "README contents"
         self.mock_orch.ctx.quality_gate = None
-        tool_call = "<tool_call>\n" '{"name": "read_file", "arguments": {"file_path": "README.md"}}\n' "</tool_call>\n"
+        tool_call = '<tool_call>\n{"name": "read_file", "arguments": {"file_path": "README.md"}}\n</tool_call>\n'
         self.mock_orch.manager.stream_generate.side_effect = [iter([tool_call]), iter(["grounded summary"])]
 
         list(
@@ -1222,7 +1248,7 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.stream_generate.side_effect = [
             iter(
                 [
-                    "<scratch_pad>\n" "Actions: Call read_file with file_path='README.md'.\n" "</scratch_pad>",
+                    "<scratch_pad>\nActions: Call read_file with file_path='README.md'.\n</scratch_pad>",
                 ],
             ),
             iter(["grounded summary"]),
@@ -1323,14 +1349,14 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.ctx.tool_executor.execute_async.assert_not_called()
 
     def test_records_step_limit_as_unsuccessful(self):
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
         tool_xml = (
             "<action_call>\n<tool_call>\n"
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
         self.mock_orch.manager.stream_generate.return_value = iter([tool_xml])
-        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=outcomes.append)
+        engine = ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes))
 
         list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code", max_steps=1))
 
@@ -1351,10 +1377,10 @@ class TestToolLoopEngineRunLoop:
             should_retry=False,
             issues=["incomplete"],
         )
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
 
         list(
-            ToolLoopEngine(self.mock_orch, outcome_recorder=outcomes.append).run_loop(
+            ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write code"}],
                 "CODER",
                 "code",
@@ -1381,7 +1407,14 @@ class TestToolLoopEngineRunLoop:
             ],
         )
 
-        list(ToolLoopEngine(self.mock_orch).run_loop([{"role": "user", "content": "write a file"}], "CODER", "code"))
+        list(
+            ToolLoopEngine(self.mock_orch).run_loop(
+                [{"role": "user", "content": "write a file"}],
+                "CODER",
+                "code",
+                target_model="qwen3.8",
+            ),
+        )
 
         record = store.get_task("loop-durable")
         checkpoint = store.get_last_checkpoint("loop-durable")
@@ -1392,6 +1425,11 @@ class TestToolLoopEngineRunLoop:
         assert '"completion_reason": "approval_required"' in checkpoint["context_json"]
         assert '"write_file"' in checkpoint["context_json"]
         assert '"tool_evidence_context"' in checkpoint["context_json"]
+        snapshot = load_task_context_snapshot(store, "loop-durable")
+        assert snapshot is not None
+        assert snapshot.target_model == "qwen3.8"
+        assert any(message.content == "test" for message in snapshot.messages)
+        assert '"working_memory"' in checkpoint["context_json"]
 
     def test_read_only_benchmark_defers_completion_to_task_runner(self, tmp_path):
         store = TaskStateStore(str(tmp_path / "tasks.db"))
@@ -1406,10 +1444,10 @@ class TestToolLoopEngineRunLoop:
         self.mock_orch.manager.stream_generate.return_value = iter(
             ["def fibonacci(n: int): return n  # O(1), raise ValueError"]
         )
-        outcomes = []
+        outcomes: list[TaskOutcome] = []
 
         list(
-            ToolLoopEngine(self.mock_orch, outcome_recorder=outcomes.append).run_loop(
+            ToolLoopEngine(self.mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write fibonacci"}],
                 "CODER",
                 "code",
@@ -1472,6 +1510,31 @@ class TestToolLoopEngineRunLoop:
         assert self.mock_orch.manager.generate.call_args.kwargs["temperature"] == 0.2
         assert self.mock_orch.manager.generate.call_args.kwargs["repeat_penalty"] == 1.1
 
+    def test_direct_response_uses_model_aware_context_shaper(self, tmp_path):
+        from antigravity_k.engine.context_shaper import ContextShaper
+
+        shaper = ContextShaper(storage_dir=str(tmp_path / "context"))
+        shaper.shape_for_model = MagicMock(
+            return_value=[{"role": "user", "content": "condensed request"}],
+        )
+        self.mock_orch.context_shaper = shaper
+        self.mock_orch.config = {"models": {"reasoning": [{"name": "qwen3.8:27b"}]}}
+        self.mock_orch.manager.generate.return_value = "completed"
+
+        list(
+            ToolLoopEngine(self.mock_orch).run_loop(
+                [{"role": "user", "content": "very large request"}],
+                "SELF",
+                "chat",
+                target_model="qwen3.8:27b",
+                direct_response=True,
+            ),
+        )
+
+        shaper.shape_for_model.assert_called_once()
+        assert shaper.shape_for_model.call_args.args[2] == "qwen3.8:27b"
+        assert "condensed request" in self.mock_orch.manager.generate.call_args.kwargs["prompt"]
+
     def test_direct_response_prompt_includes_structured_memory_context(self):
         # Given: direct mode receives one authoritative memory system record.
         self.mock_orch.manager.generate.return_value = "SQLite"
@@ -1479,7 +1542,7 @@ class TestToolLoopEngineRunLoop:
             {
                 "role": "system",
                 "content": (
-                    "[Recalled Memory]\n" "[resolved:project:decision:database source=project scope=project] sqlite"
+                    "[Recalled Memory]\n[resolved:project:decision:database source=project scope=project] sqlite"
                 ),
             },
             {"role": "user", "content": "데이터베이스 이름만 답해줘"},
@@ -1515,7 +1578,7 @@ class TestToolLoopEngineRunLoop:
             {
                 "role": "system",
                 "content": (
-                    "[Recalled Memory]\n" "[resolved:project:decision:database source=project scope=project] sqlite"
+                    "[Recalled Memory]\n[resolved:project:decision:database source=project scope=project] sqlite"
                 ),
             },
             {"role": "user", "content": "데이터베이스 이름만 답해줘"},
@@ -1545,7 +1608,7 @@ class TestToolLoopEngineRunLoop:
             {
                 "role": "system",
                 "content": (
-                    "[Recalled Memory]\n" "[resolved:project:decision:database source=project scope=project] sqlite"
+                    "[Recalled Memory]\n[resolved:project:decision:database source=project scope=project] sqlite"
                 ),
             },
             {"role": "user", "content": "데이터베이스 이름만 답해줘"},
@@ -1613,6 +1676,45 @@ class TestToolLoopEngineContextCompression:
         assert shaped != self._long_messages()
         assert shaped[0]["role"] == "system"  # 시스템 메시지 항상 보존
 
+    def test_reinjects_relevant_artifact_after_compression(self, mock_orch):
+        from antigravity_k.engine.tool_call_parser import ToolCall
+
+        engine = ToolLoopEngine(mock_orch)
+        raw_result = "header\n" + ("x" * 8_000) + "\nagent_models:\n  default: qwen3.6:latest\n" + ("y" * 8_000)
+        formatted = engine._format_tool_response(
+            ToolCall(name="read_file", arguments={"file_path": "config.yaml"}),
+            raw_result,
+        )
+        compressor = MagicMock()
+        compressor.needs_compression.return_value = True
+        compressor.usage_percent.side_effect = [90.0, 20.0]
+        compressor.adaptive_compress.return_value = [
+            {"role": "user", "content": "continue"},
+        ]
+        mock_orch.context_compressor_for.return_value = compressor
+        mock_orch._rebuild_prompt.return_value = "rebuilt-prompt"
+
+        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+            [
+                {"role": "user", "content": "inspect agent_models routing"},
+                {"role": "assistant", "content": formatted},
+            ],
+            "orig-prompt",
+            "qwen3.6:latest",
+            "code",
+            "sys",
+            "tools",
+            "skills",
+            focus_terms=("agent_models",),
+        )
+
+        assert shaped == [{"role": "user", "content": "continue"}]
+        assert prompt.startswith("rebuilt-prompt\n[CONTEXT_ARTIFACT_RECALL]")
+        assert '"ref_id":"artifact-' in prompt
+        assert "agent_models" in prompt
+        assert usage_before == 90.0
+        assert usage_after == 20.0
+
     def test_noop_within_budget(self, mock_orch):
         from antigravity_k.engine.context_compressor import ContextCompressor
 
@@ -1653,3 +1755,12 @@ class TestToolLoopEngineContextCompression:
         assert usage_before is None
         assert shaped == messages
         assert prompt == "p"
+
+    def test_checkpoint_context_is_bounded_for_long_sessions(self, mock_orch):
+        messages = [{"role": "user", "content": f"turn-{index}"} for index in range(300)]
+
+        engine = ToolLoopEngine(mock_orch)
+        engine._refresh_checkpoint_context(messages)
+
+        assert len(engine._checkpoint_messages) == 256
+        assert engine._checkpoint_messages[-1]["content"] == "turn-299"
