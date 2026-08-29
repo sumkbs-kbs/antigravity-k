@@ -10,7 +10,7 @@ date: 2026-08-29
 
 - 최신 검증 커밋: `000cbd5` (RAG 부분 동기화 범위 결함 수정 포함)
 - 전체 `basedpyright`: `0 errors, 28770 warnings, 0 notes`
-- 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
+- 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
