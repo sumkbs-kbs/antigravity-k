@@ -56,3 +56,13 @@ date: 2026-08-29
 - `9e7e90a`: `tests/test_api_server.py` fixture and endpoint parameters now use explicit `TestClient`, `MagicMock`, `ProtocolTranslator`, `pytest.MonkeyPatch`, and recursive JSON-value contracts. The API server suite passed 36 tests with 2 environment skips and one pre-existing Starlette/httpx deprecation warning; Ruff, Ruff-format, mypy, and pre-commit hooks passed; file basedpyright warnings reduced `313 → 73`; whole-tree basedpyright is now `0 errors, 31587 warnings, 0 notes`. Remaining diagnostics are dynamic MagicMock/response JSON and intentional private registry accesses.
 - `bee68ac`: `tests/test_usage_tracker.py` tracker fixtures and dependent test parameters use explicit `UsageTracker` and `Path` contracts. The usage-tracker suite passed 20 tests; Ruff, Ruff-format, and pre-commit hooks passed; file basedpyright warnings reduced `129 → 33`; whole-tree basedpyright is now `0 errors, 31490 warnings, 0 notes`. Remaining diagnostics are intentional side-effect fixture calls, protected record assertions, and partially typed pytest helpers.
 - `6380828`: unconsumed `UsageTracker.record` results in `tests/test_usage_tracker.py` are explicitly assigned to `_`, preserving side-effect intent. The usage-tracker suite passed 20 tests, Ruff and all pre-commit hooks passed, file basedpyright warnings reduced `33 → 8`, and whole-tree basedpyright is now `0 errors, 31466 warnings, 0 notes`. Remaining diagnostics are five protected `_records` assertions, two partially typed pytest members, and one unused call result.
+
+## 사용자 변경 244개 1차 분류 (현재 작업트리)
+
+- 경로 집계: `src` 148, `tests` 60, `dashboard` 19, `scripts` 3, `.tmp` 2, 기타 12.
+- 상태 집계: 수정 144, 삭제 42, 서브모듈 변경 2, 미추적 56.
+- 미추적 코드: Python 21개, JS/TS 30개. 나머지는 데이터·문서·생성물이다.
+- 가장 큰 변경량: `data/benchmark_results.json`(+3513), `dashboard/node_modules/.package-lock.json`(+2627/-317), `tests/test_tool_sandbox_coverage.py`(+277), `src/antigravity_k/engine/rag_indexer.py`(+251), `src/antigravity_k/api/routes/system_api.py`(+214).
+- 삭제된 핵심 소스/테스트: `agents/commands.py`, `agents/coordinator.py`, `agents/team_manager.py`, `engine/{json_logger,logging_util,memory_hygiene}.py`, `integrations/{discord_bot,slack_bot}.py`, `knowledge/artifact_service.py`, `scripts/ingest_obsidian.py`, `tests/{test_commands,test_multi_agent}.py`. 현재 `src/tests/scripts/.agent`에서 이 모듈을 직접 import하는 참조는 확인되지 않았지만, 패키지 외부 사용 가능성은 별도 import/배포 검증이 필요하다.
+- `dashboard_dist`는 기존 해시 산출물 삭제와 새 해시 산출물 추가가 함께 발생했다. 빌드 결과 churn으로 분류하고, 소스 대시보드 검증과 별도로 승인 전까지 stage하지 않는다.
+- `src` 148개는 API·엔진·에이전트·도구로 분리해 각 diff와 회귀 테스트를 매칭해야 한다. 현재까지 사용자 변경을 포함한 전체 dirty tree를 임의로 stage/revert하지 않았다.
