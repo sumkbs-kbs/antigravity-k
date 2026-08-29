@@ -21,7 +21,7 @@ import logging
 import time
 import uuid
 from collections.abc import Generator
-from typing import Any
+from typing import Any, Final
 
 from antigravity_k.agents.base_agent import BaseAgent
 from antigravity_k.agents.kanban import KanbanBoard
@@ -29,6 +29,7 @@ from antigravity_k.agents.message_bus import MessageBus
 from antigravity_k.agents.personas import get_persona
 
 logger = logging.getLogger("antigravity_k.engine.agent_fabric")
+_MAX_DEBATE_ROUNDS: Final[int] = 10
 
 
 class AgentFabric:
@@ -357,6 +358,8 @@ class AgentFabric:
             num_critics: 비평가 수
 
         """
+        rounds = max(1, min(rounds, _MAX_DEBATE_ROUNDS))
+
         # 토론 전용 채널
         channel = f"debate_{uuid.uuid4().hex[:8]}"
         self.message_bus.create_channel(channel)

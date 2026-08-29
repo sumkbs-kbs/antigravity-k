@@ -97,6 +97,37 @@ class TestExecuteCrew:
 
 
 class TestExecuteDebate:
+    def test_debate_rounds_are_bounded(self, fabric):
+        fabric.create_temp_agent = lambda role, suffix="": FakeAgent(role)
+
+        joined = "".join(
+            fabric.execute_debate(
+                "상한 점검",
+                [],
+                rounds=100,
+                num_critics=0,
+            )
+        )
+
+        assert "📌 라운드: 10" in joined
+        assert joined.count("## 🔄 Round") == 10
+
+    @pytest.mark.parametrize("requested_rounds", [0, -3])
+    def test_non_positive_rounds_run_one_round(self, fabric, requested_rounds):
+        fabric.create_temp_agent = lambda role, suffix="": FakeAgent(role)
+
+        joined = "".join(
+            fabric.execute_debate(
+                "최소 라운드 점검",
+                [],
+                rounds=requested_rounds,
+                num_critics=0,
+            )
+        )
+
+        assert "📌 라운드: 1" in joined
+        assert joined.count("## 🔄 Round") == 1
+
     def test_debate_round_structure_and_feedback_loop(self, fabric):
         def make_agent(kind):
             agent = FakeAgent(kind)
@@ -144,7 +175,7 @@ class TestExecuteDebate:
             agent.run = run
             return agent
 
-        fabric.create_temp_agent = lambda role, suffix="": (make_proposer() if role == "PROPOSER" else FakeAgent(role))
+        fabric.create_temp_agent = lambda role, suffix="": make_proposer() if role == "PROPOSER" else FakeAgent(role)
 
         list(fabric.execute_debate("주제", [], rounds=2, num_critics=1))
 
