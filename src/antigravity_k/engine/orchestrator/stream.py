@@ -7,7 +7,6 @@ import json
 import logging
 import re
 from collections.abc import Generator
-from typing import Any
 
 from antigravity_k.engine.state_graph import StateContext
 from antigravity_k.engine.task_context_snapshot import (
@@ -19,7 +18,7 @@ from antigravity_k.engine.task_state_store import TaskExecutionContext
 logger = logging.getLogger("antigravity_k.orchestrator.stream")
 
 
-def _benchmark_context(orch) -> dict[str, Any] | None:
+def _benchmark_context(orch) -> dict[str, object] | None:
     execution_context = getattr(orch, "task_execution_context", None)
     if execution_context is None:
         return None
@@ -33,13 +32,13 @@ def _benchmark_context(orch) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _is_direct_benchmark(context: dict[str, Any] | None) -> bool:
+def _is_direct_benchmark(context: dict[str, object] | None) -> bool:
     if context is None or context.get("benchmark_read_only") is not True:
         return False
     return not _has_expected_tools(context)
 
 
-def _has_expected_tools(context: dict[str, Any] | None) -> bool:
+def _has_expected_tools(context: dict[str, object] | None) -> bool:
     if context is None:
         return False
     expected_tools = context.get("expected_tools", ())
@@ -48,7 +47,7 @@ def _has_expected_tools(context: dict[str, Any] | None) -> bool:
     return isinstance(expected_tools, (list, tuple, set)) and any(str(tool).strip() for tool in expected_tools)
 
 
-def _is_direct_response(context: dict[str, Any] | None) -> bool:
+def _is_direct_response(context: dict[str, object] | None) -> bool:
     return context is not None and context.get("direct_response") is True
 
 
@@ -60,7 +59,7 @@ def _direct_response_task_type(user_text: str) -> str:
     )
 
 
-def _expected_tool_task_type(context: dict[str, Any] | None, user_text: str) -> str:
+def _expected_tool_task_type(context: dict[str, object] | None, user_text: str) -> str:
     if context is None:
         return _direct_response_task_type(user_text)
     expected_tools = context.get("expected_tools", ())
@@ -92,7 +91,7 @@ def _stream_direct_benchmark(orch, user_text: str, target_model: str) -> Generat
     orch._last_agent_output = output
 
 
-def _extract_learned_preferences(orch) -> dict[str, Any] | None:
+def _extract_learned_preferences(orch) -> dict[str, object] | None:
     """UserIntentModeler 프로파일에서 학습된 선호도를 추출합니다 (작업 5).
 
     GlobalMemoryProvider.sync_turn()이 이 metadata를 받아
