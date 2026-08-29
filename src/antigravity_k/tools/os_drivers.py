@@ -12,7 +12,7 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from importlib import import_module
-from typing import Any, override
+from typing import Any, final, override
 
 logger = logging.getLogger(__name__)
 
@@ -99,14 +99,15 @@ class DriverSet:
             screen (ScreenDriver): ScreenDriver screen.
 
         """
-        self.mouse = mouse
-        self.keyboard = keyboard
-        self.screen = screen
+        self.mouse: MouseDriver = mouse
+        self.keyboard: KeyboardDriver = keyboard
+        self.screen: ScreenDriver = screen
 
 
 # ───────────────────── Windows 구현 (PyAutoGUI) ─────────────────────
 
 
+@final
 class WindowsMouseDriver(MouseDriver):
     """Windows PyAutoGUI 기반 마우스 드라이버."""
 
@@ -194,6 +195,7 @@ class WindowsMouseDriver(MouseDriver):
             self._pag.scroll(scroll_amount)
 
 
+@final
 class WindowsKeyboardDriver(KeyboardDriver):
     """Windows PyAutoGUI 기반 키보드 드라이버."""
 
@@ -250,6 +252,7 @@ class WindowsKeyboardDriver(KeyboardDriver):
         self._pag.keyUp(key)
 
 
+@final
 class WindowsScreenDriver(ScreenDriver):
     """Windows PyAutoGUI 기반 화면 캡처 드라이버."""
 
@@ -281,6 +284,7 @@ class WindowsScreenDriver(ScreenDriver):
 # ─────────────────────── Stub 구현 (테스트/비대화 환경용) ────────────
 
 
+@final
 class StubMouseDriver(MouseDriver):
     """테스트용 마우스 드라이버 (실제 조작 없음)."""
 
@@ -358,6 +362,7 @@ class StubMouseDriver(MouseDriver):
         self.last_action = ("scroll", x, y, direction, amount)
 
 
+@final
 class StubKeyboardDriver(KeyboardDriver):
     """테스트용 키보드 드라이버 (실제 입력 없음)."""
 
@@ -583,6 +588,7 @@ class MacOSMouseDriver(MouseDriver):
         Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
 
+@final
 class MacOSKeyboardDriver(KeyboardDriver):
     """macOS Quartz 기반 키보드 드라이버."""
 
