@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `0f16dff` (data extractor JSON 테스트 adapter 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 27278 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer·flight controller·self-healing doctor·MCP capability·OS driver·preference memory·shared session state·speculative branching·structural snapshot·TDD verifier·data extractor 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 스킬 모듈 Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `22cfbe3` (tool-loop private helper 테스트 adapter 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 27262 warnings, 0 notes` (웹 검색 품질·context budget·OpenAI adapter·model policy·local model benchmark·token estimator·web scraper·fast path kernel·Bayesian prompt tuner·cancel task·codebase memory 파일 선택·egress audit·external brain E2E·next action recommender·search conflicts·startup security·symbol navigator·workspace links·browser session state·call hierarchy·impact analyzer·flight controller·self-healing doctor·MCP capability·OS driver·preference memory·shared session state·speculative branching·structural snapshot·TDD verifier·data extractor 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 스킬 모듈 Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 649건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `22cfbe3`: `tests/test_tool_loop.py`의 `_format_tool_response` 및 `_native_tools_kwargs` 보호 helper 호출 16건을 명시적 typed adapter로 전환했다. 90개 테스트, Ruff, Ruff-format, basedpyright(오류 없음), pre-commit이 통과했고 파일 경고가 `665 → 649`, 전체 basedpyright는 `0 errors, 27262 warnings, 0 notes`로 감소했다.
 
 - `0f16dff`: `tests/test_data_extractor.py`의 보호된 TOP 1 JSON helper 호출을 `TypedDict`와 callable adapter로 좁혔다. 100개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `12 → 0`, 전체 basedpyright는 `0 errors, 27278 warnings, 0 notes`로 감소했다.
 
