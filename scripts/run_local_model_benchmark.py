@@ -44,11 +44,12 @@ _GROUNDING_RESPONSE_SCHEMA = {
 }
 
 
-def _build_grounding_prompt(case: ClaimGroundingCase) -> str:
-    question = case.question.strip() or "Restate only the factual claim supported by the evidence."
-    citation_ids = ", ".join(f"[citation:{source.source_id}]" for source in case.sources)
+def _build_grounding_prompt(case: object) -> str:
+    typed_case = cast("ClaimGroundingCase", case)
+    question = typed_case.question.strip() or "Restate only the factual claim supported by the evidence."
+    citation_ids = ", ".join(f"[citation:{source.source_id}]" for source in typed_case.sources)
     evidence: list[str] = []
-    for source in case.sources:
+    for source in typed_case.sources:
         evidence.append(
             "\n".join(
                 (
@@ -170,8 +171,9 @@ def _run_live_search_grounding(
     return results, generated_responses, search_records
 
 
-def _summarize_grounding_runs(runs: Sequence[Sequence[ClaimGroundingResult]]) -> dict[str, object]:
-    all_results = [result for run in runs for result in run]
+def _summarize_grounding_runs(runs: Sequence[Sequence[object]]) -> dict[str, object]:
+    typed_runs = [[cast("ClaimGroundingResult", result) for result in run] for run in runs]
+    all_results = [result for run in typed_runs for result in run]
     by_case: dict[str, list[ClaimGroundingResult]] = {}
     for result in all_results:
         by_case.setdefault(result.case_id, []).append(result)
@@ -180,10 +182,10 @@ def _summarize_grounding_runs(runs: Sequence[Sequence[ClaimGroundingResult]]) ->
         "result_count": len(all_results),
         "pass_rate": round(sum(result.passed for result in all_results) / len(all_results), 3) if all_results else 0.0,
         "all_pass_run_rate": round(
-            sum(bool(run) and all(result.passed for result in run) for run in runs) / len(runs),
+            sum(bool(run) and all(result.passed for result in run) for run in typed_runs) / len(typed_runs),
             3,
         )
-        if runs
+        if typed_runs
         else 0.0,
         "by_case": {
             case_id: {
@@ -232,11 +234,12 @@ def _is_excellent(result: BenchmarkResult) -> bool:
     return result.quality_grade == "excellent"
 
 
-def _summarize_repeats(reports: Sequence[BenchmarkReport]) -> dict[str, object]:
-    all_results = [result for report in reports for result in report.results]
+def _summarize_repeats(reports: Sequence[object]) -> dict[str, object]:
+    typed_reports = [cast("BenchmarkReport", report) for report in reports]
+    all_results = [result for report in typed_reports for result in report.results]
     if not all_results:
         return {
-            "repeat_count": len(reports),
+            "repeat_count": len(typed_reports),
             "result_count": 0,
             "mean_benchmark_score": 0.0,
             "benchmark_score_stddev": 0.0,
@@ -248,7 +251,7 @@ def _summarize_repeats(reports: Sequence[BenchmarkReport]) -> dict[str, object]:
 
     run_summaries: list[dict[str, object]] = []
     all_excellent_runs = 0
-    for index, report in enumerate(reports, start=1):
+    for index, report in enumerate(typed_reports, start=1):
         results = report.results
         excellent = sum(_is_excellent(result) for result in results)
         if results and excellent == len(results):
@@ -284,13 +287,13 @@ def _summarize_repeats(reports: Sequence[BenchmarkReport]) -> dict[str, object]:
 
     scores = [result.benchmark_score for result in all_results]
     return {
-        "repeat_count": len(reports),
+        "repeat_count": len(typed_reports),
         "result_count": len(all_results),
         "mean_benchmark_score": round(fmean(scores), 3),
         "benchmark_score_stddev": round(pstdev(scores), 3),
         "min_benchmark_score": round(min(scores), 3),
         "excellent_rate": round(sum(_is_excellent(result) for result in all_results) / len(all_results), 3),
-        "all_excellent_run_rate": round(all_excellent_runs / len(reports), 3) if reports else 0.0,
+        "all_excellent_run_rate": round(all_excellent_runs / len(typed_reports), 3) if typed_reports else 0.0,
         "runs": run_summaries,
         "by_case": by_case,
     }
