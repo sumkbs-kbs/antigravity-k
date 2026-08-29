@@ -5,13 +5,14 @@ Ollama 네이티브 스트림, OpenAI 호환 SSE, Anthropic 직접 스트림,
 """
 
 import json
+from collections.abc import Iterator
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from antigravity_k.config import config
-from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_manager import LoadedModel, ModelManager
 from antigravity_k.engine.model_registry import ModelRegistry
 from antigravity_k.engine.model_router import ModelCombo, ModelRouter, RouteStrategy
 from antigravity_k.engine.usage_tracker import UsageTracker
@@ -19,7 +20,7 @@ from tests.test_model_manager_lifecycle import _profile
 
 
 @pytest.fixture
-def mock_registry():
+def mock_registry() -> MagicMock:
     registry = MagicMock(spec=ModelRegistry)
     registry.memory_config = MagicMock()
     registry.memory_config.max_loaded_gb = 1000
@@ -38,14 +39,14 @@ def mock_registry():
 
 
 @pytest.fixture
-def manager(mock_registry):
+def manager(mock_registry: MagicMock) -> ModelManager:
     tracker = UsageTracker(db_path=None)
     mgr = ModelManager(registry=mock_registry, router=ModelRouter(mock_registry), tracker=tracker)
     mgr._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
     return mgr
 
 
-def _loaded(manager_obj: ModelManager, name: str):
+def _loaded(manager_obj: ModelManager, name: str) -> LoadedModel:
     return manager_obj.load(name)
 
 
@@ -59,7 +60,7 @@ def _stream_cm(lines: list[bytes]) -> MagicMock:
 
 
 @pytest.fixture
-def http_env():
+def http_env() -> Iterator[None]:
     original_model = config.model
     setattr(
         config,
@@ -78,7 +79,7 @@ def http_env():
 
 
 class TestDynamicInferenceConfig:
-    def test_plain_model_keeps_kwargs_temperature(self, manager):
+    def test_plain_model_keeps_kwargs_temperature(self, manager: ModelManager):
         name, temperature, thinking, attribution = manager._apply_dynamic_inference_config(
             _profile("model-a"), "prompt", {"temperature": 0.3}
         )
@@ -88,18 +89,19 @@ class TestDynamicInferenceConfig:
         assert thinking is None
         assert attribution.startswith("\nx-antigravity-k-agent:")
 
-    def test_digit_suffix_becomes_thinking_budget(self, manager):
+    def test_digit_suffix_becomes_thinking_budget(self, manager: ModelManager):
         _, temperature, thinking, _ = manager._apply_dynamic_inference_config(_profile("qwen3:4096"), "prompt", {})
 
         assert thinking == {"type": "enabled", "budget_tokens": 4096}
         assert temperature == 1.0
 
-    def test_level_suffix_scales_thinking_budget(self, manager):
+    def test_level_suffix_scales_thinking_budget(self, manager: ModelManager):
         _, temperature, thinking, _ = manager._apply_dynamic_inference_config(
             _profile("qwen3:high"), "prompt", {"max_tokens": 8192}
         )
 
         assert thinking is not None
+        assert isinstance(thinking["budget_tokens"], int)
         assert thinking["budget_tokens"] >= 1024
         assert temperature == 1.0
 
@@ -108,7 +110,7 @@ class TestDynamicInferenceConfig:
 
 
 class TestStreamMessagePreparation:
-    def test_raw_messages_get_system_prompt_prepended(self, manager, http_env):
+    def test_raw_messages_get_system_prompt_prepended(self, manager: ModelManager, http_env: None):
         loaded = _loaded(manager, "model-a")
         msgs = manager._prepare_stream_messages(
             loaded,
@@ -121,7 +123,7 @@ class TestStreamMessagePreparation:
         assert "x-antigravity-k-agent:" in msgs[0]["content"]
         assert msgs[1]["content"] == "hi"
 
-    def test_content_parts_flattened_to_string(self, manager, http_env):
+    def test_content_parts_flattened_to_string(self, manager: ModelManager, http_env: None):
         loaded = _loaded(manager, "model-a")
         msgs = manager._prepare_stream_messages(
             loaded,
@@ -142,7 +144,7 @@ class TestStreamMessagePreparation:
 
         assert msgs[0]["content"].startswith("part1 part2")
 
-    def test_attribution_appended_to_first_message(self, manager, http_env):
+    def test_attribution_appended_to_first_message(self, manager: ModelManager, http_env: None):
         loaded = _loaded(manager, "model-a")
         msgs = manager._prepare_stream_messages(loaded, "hello", {})
 
@@ -150,7 +152,7 @@ class TestStreamMessagePreparation:
 
 
 class TestStreamRequestBuilder:
-    def test_ollama_native_request_shape(self, manager, http_env):
+    def test_ollama_native_request_shape(self, manager: ModelManager, http_env: None):
         req, model_name = manager._build_stream_request(
             _loaded(manager, "model-a"),
             [{"role": "user", "content": "hi"}],
@@ -158,6 +160,7 @@ class TestStreamRequestBuilder:
             is_openrouter=False,
         )
 
+        assert isinstance(req.data, bytes)
         body = json.loads(req.data.decode("utf-8"))
         assert req.full_url == "http://127.0.0.1:11434/api/chat"
         assert model_name == "model-a"
@@ -166,7 +169,7 @@ class TestStreamRequestBuilder:
         assert body["options"]["num_ctx"] == 32768
         assert body["options"]["num_predict"] == 128
 
-    def test_openrouter_request_targets_chat_completions(self, manager, http_env):
+    def test_openrouter_request_targets_chat_completions(self, manager: ModelManager, http_env: None):
         req, model_name = manager._build_stream_request(
             _loaded(manager, "model-a"),
             [{"role": "user", "content": "hi"}],
@@ -174,6 +177,7 @@ class TestStreamRequestBuilder:
             is_openrouter=True,
         )
 
+        assert isinstance(req.data, bytes)
         body = json.loads(req.data.decode("utf-8"))
         assert req.full_url.endswith("/chat/completions")
         assert req.headers.get("X-title") == "Antigravity-K"
@@ -185,7 +189,7 @@ class TestStreamRequestBuilder:
 
 
 class TestOllamaNativeStream:
-    def test_yields_message_contents(self, manager, http_env):
+    def test_yields_message_contents(self, manager: ModelManager, http_env: None):
         lines = [
             json.dumps({"message": {"content": "안녕"}}, ensure_ascii=False).encode("utf-8") + b"\n",
             b"\n",
@@ -199,7 +203,7 @@ class TestOllamaNativeStream:
 
         assert chunks == ["안녕", "하세요"]
 
-    def test_invalid_json_lines_skipped(self, manager, http_env):
+    def test_invalid_json_lines_skipped(self, manager: ModelManager, http_env: None):
         lines = [b"not-json\n", b'{"message":{"content":"ok"}}\n']
         loaded = _loaded(manager, "model-a")
 
@@ -208,7 +212,7 @@ class TestOllamaNativeStream:
 
         assert chunks == ["ok"]
 
-    def test_generic_failure_yields_api_error_marker(self, manager, http_env):
+    def test_generic_failure_yields_api_error_marker(self, manager: ModelManager, http_env: None):
         failing = MagicMock()
         failing.__enter__.side_effect = RuntimeError("socket exploded")
         loaded = _loaded(manager, "model-a")
@@ -223,7 +227,7 @@ class TestOllamaNativeStream:
 
 
 class TestOpenRouterSseStream:
-    def test_parses_delta_frames_and_stops_on_done(self, manager):
+    def test_parses_delta_frames_and_stops_on_done(self, manager: ModelManager):
         original_model = config.model
         setattr(
             config,
@@ -248,7 +252,7 @@ class TestOpenRouterSseStream:
         finally:
             setattr(config, "model", original_model)
 
-    def test_malformed_frames_are_tolerated(self, manager):
+    def test_malformed_frames_are_tolerated(self, manager: ModelManager):
         original_model = config.model
         setattr(
             config,
@@ -278,7 +282,7 @@ class TestOpenRouterSseStream:
 
 
 class TestStreamDispatchAndGenerate:
-    def test_dispatch_falls_back_to_legacy_stream_without_provider(self, manager):
+    def test_dispatch_falls_back_to_legacy_stream_without_provider(self, manager: ModelManager):
         manager._uses_anthropic_direct = MagicMock(return_value=False)
         manager._get_provider = MagicMock(return_value=None)
 
@@ -291,7 +295,7 @@ class TestStreamDispatchAndGenerate:
 
         assert chunks == ["legacy"]
 
-    def test_dispatch_delegates_to_provider_when_available(self, manager):
+    def test_dispatch_delegates_to_provider_when_available(self, manager: ModelManager):
         provider = MagicMock()
         provider.stream_generate.return_value = iter(["p1", "p2"])
         manager._get_provider = MagicMock(return_value=provider)
@@ -301,7 +305,7 @@ class TestStreamDispatchAndGenerate:
 
         assert chunks == ["p1", "p2"]
 
-    def test_dispatch_passes_long_context_plan_to_provider(self, manager):
+    def test_dispatch_passes_long_context_plan_to_provider(self, manager: ModelManager):
         provider = MagicMock()
         provider.stream_generate.return_value = iter(["p1"])
         manager._get_provider = MagicMock(return_value=provider)
@@ -313,7 +317,7 @@ class TestStreamDispatchAndGenerate:
 
         assert provider.stream_generate.call_args.kwargs["execution_plan"] is plan
 
-    def test_stream_generate_single_model_records_usage(self, manager):
+    def test_stream_generate_single_model_records_usage(self, manager: ModelManager):
         manager._do_stream_generate = lambda loaded, prompt, **kw: iter(["안녕", "하세요"])
 
         chunks = list(manager.stream_generate("프롬프트", "model-a"))
@@ -324,7 +328,7 @@ class TestStreamDispatchAndGenerate:
         assert recent[0].model_name == "model-a"
         assert len(recent) == 1
 
-    def test_stream_generate_combo_fallback_on_error(self, manager):
+    def test_stream_generate_combo_fallback_on_error(self, manager: ModelManager):
         combo = ModelCombo(
             name="fb-combo",
             models=["model-a", "model-b"],
@@ -347,7 +351,7 @@ class TestStreamDispatchAndGenerate:
         assert chunks == ["복구"]
         assert calls == ["model-a", "model-b"]
 
-    def test_stream_generate_collective_chunks_full_text(self, manager):
+    def test_stream_generate_collective_chunks_full_text(self, manager: ModelManager):
         combo = ModelCombo(
             name="swarm",
             models=["model-a", "model-b"],
@@ -385,7 +389,7 @@ def _fake_anthropic_module(texts: list[str], fail: bool = False) -> MagicMock:
 
 
 class TestAnthropicDirectStream:
-    def test_missing_api_key_yields_error_text(self, manager):
+    def test_missing_api_key_yields_error_text(self, manager: ModelManager):
         original_raw = getattr(config, "_raw", {})
         config._raw = {"api_keys": {"anthropic": ""}}
         try:
@@ -399,7 +403,7 @@ class TestAnthropicDirectStream:
 
         assert chunks == ["[Error] Anthropic API Key not found in config.yaml"]
 
-    def test_streams_texts_with_valid_key(self, manager):
+    def test_streams_texts_with_valid_key(self, manager: ModelManager):
         original_raw = getattr(config, "_raw", {})
         config._raw = {"api_keys": {"anthropic": "sk-ant-real"}}
         try:
@@ -414,7 +418,7 @@ class TestAnthropicDirectStream:
         assert chunks == ["안녕", "!"]
         import_mod.assert_called_once_with("anthropic")
 
-    def test_stream_failure_yields_api_error(self, manager):
+    def test_stream_failure_yields_api_error(self, manager: ModelManager):
         original_raw = getattr(config, "_raw", {})
         config._raw = {"api_keys": {"anthropic": "sk-ant-real"}}
         try:
@@ -430,7 +434,7 @@ class TestAnthropicDirectStream:
 
 
 class TestAnthropicRequestParams:
-    def test_filters_roles_and_builds_system_blocks(self, manager):
+    def test_filters_roles_and_builds_system_blocks(self, manager: ModelManager):
         raw_messages = [
             {"role": "system", "content": "should be dropped"},
             {"role": "user", "content": "질문"},
@@ -451,7 +455,7 @@ class TestAnthropicRequestParams:
         assert params["max_tokens"] == 2048
         assert "thinking" not in params
 
-    def test_thinking_config_included_when_present(self, manager):
+    def test_thinking_config_included_when_present(self, manager: ModelManager):
         params = manager._build_anthropic_request_params(
             [{"role": "user", "content": "?"}],
             "",
@@ -464,7 +468,7 @@ class TestAnthropicRequestParams:
 
         assert params["thinking"] == {"type": "enabled", "budget_tokens": 4096}
 
-    def test_more_than_four_cache_blocks_trims_middle(self, manager):
+    def test_more_than_four_cache_blocks_trims_middle(self, manager: ModelManager):
         blocks = [{"cache_control": {"type": "ephemeral"}} for _ in range(5)]
         content_list = [[block] for block in blocks]
         raw_messages = [
