@@ -8,6 +8,8 @@ date: 2026-08-30
 
 - 최신 전체 basedpyright 재측정은 `0 errors, 25401 warnings, 0 notes`이며, `.agent/skills/k-skill/scripts/ktx_booking.py`의 optional 의존성·JSON 응답 경계를 `54cbcd7` 독립 커밋으로 정리해 해당 파일 경고를 `97 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 
+- 최신 대시보드 의존성 검증 커밋은 `707a312`이며, `npm audit --omit=dev`가 `0 vulnerabilities`를 보고한다. Monaco `0.56.0`은 유지하고 중첩 `dompurify`만 `3.4.14`로 override했다. 생성된 `dashboard_dist`와 `node_modules` 변경은 사용자 산출물로 보존했다.
+
 - 최신 전체 basedpyright 재측정은 `0 errors, 25498 warnings, 0 notes`이며, `tests/test_max_engine.py`의 보호 메서드·MAX 핸들러 경계를 `9ecfb4e` 독립 커밋으로 정리해 해당 파일 경고를 `45 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 
 ## 범위
@@ -16,9 +18,9 @@ date: 2026-08-30
 - 집계는 `src` 148, `tests` 60, `dashboard` 19, `scripts` 3, `.tmp` 2, 기타 12다.
 - 상태는 수정 144, 삭제 42, 서브모듈 변경 2, 미추적 56이다.
 - 미추적 Python 21개와 JS/TS 30개는 전체 정적 진단·pytest/Vitest 탐색 범위에 포함됐지만 아직 독립 커밋하지 않았다.
-- 최종 게이트에서 전체 pytest `4806 passed, 6 skipped`, 대시보드 588개 테스트·typecheck·lint·build, 전역 Ruff가 통과했다. 사용자 dirty path 244개는 stage/revert하지 않았고, 생성된 dashboard_dist trailing whitespace 4건과 중첩 DOMPurify audit만 보류 위험으로 남겼다.
-- 앱 재시작 뒤에도 codebase-memory MCP `list_projects`가 `Transport closed`로 실패했다. 소스 `src/antigravity_k/engine/tool_loop.py` 369건과 기타 사용자 변경 파일의 정적 경고는 MCP 복구 후 호출 경로 재검증과 함께 단계적으로 처리한다.
-- 최신 전체 basedpyright 재측정은 `0 errors, 25543 warnings, 0 notes`이며, `tests/test_tool_loop.py`의 direct-response·context-compression 및 공용 fixture 경계를 `8211882` 독립 커밋으로 정리해 해당 파일 경고를 `119 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
+- 최종 게이트에서 전체 pytest `4806 passed, 6 skipped`, 대시보드 588개 테스트·typecheck·lint·build, 전역 Ruff가 통과했다. 사용자 dirty path 244개는 stage/revert하지 않았고, 생성된 dashboard_dist trailing whitespace 4건만 보류 위험으로 남겼다. production `npm audit --omit=dev`는 `0 vulnerabilities`다.
+- 앱 재시작 뒤에도 codebase-memory MCP `list_projects`가 `Transport closed`로 실패했다. 소스 `src/antigravity_k/engine/tool_loop.py` 경고는 `369 → 14`로 축소했으며, 남은 보호 멤버·동적 외부 경계는 사용자 변경 소유권 확인 후 처리한다.
+- 최신 전체 basedpyright 재측정은 `0 errors, 25045 warnings, 0 notes`이며, `tests/test_tool_loop.py`의 direct-response·context-compression 및 공용 fixture 경계를 `8211882` 독립 커밋으로 정리하고 source tool-loop 경계를 추가 보강해 해당 테스트 파일 경고를 `119 → 0`, 소스 파일 경고를 `369 → 14`로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25662 warnings, 0 notes`이며, 장학금 필터 구현의 JSON·argparse 경계를 `eec4dec` 독립 커밋으로 정리해 해당 파일 경고를 `210 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25872 warnings, 0 notes`이며, durable resume/quality failure fixture 정리는 사용자 dirty path를 건드리지 않고 `0bfba41` 독립 커밋으로 분리했다. 해당 파일 경고는 `133 → 119`으로 감소했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25886 warnings, 0 notes`이며, Qwen scratchpad 실행 fixture 정리는 사용자 dirty path를 건드리지 않고 `dfbc1e8` 독립 커밋으로 분리했다. 해당 파일 경고는 `156 → 133`으로 감소했다.
@@ -58,9 +60,9 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 25401 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 25045 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
-- 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0. 중첩 `monaco-editor → dompurify`와 `typed-rest-client → qs` 경로가 남아 있으며, dry-run은 118개 패키지 추가와 Monaco major 변경을 제안했다.
+- 대시보드 `npm audit --omit=dev`: `0 vulnerabilities`. 중첩 `monaco-editor → dompurify`는 `707a312`의 `3.4.14` override로 해소했고 Monaco major 변경은 하지 않았다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.
 
 ## 커밋 정책
