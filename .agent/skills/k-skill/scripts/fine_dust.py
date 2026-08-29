@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from math import atan2, cos, radians, sin, sqrt, tan
+from typing import Any
 
 STATION_SERVICE_URL = "http://apis.data.go.kr/B552584/MsrstnInfoInqireSvc"
 MEASUREMENT_SERVICE_URL = "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc"
@@ -51,11 +52,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def load_json_file(path: str | os.PathLike[str]) -> dict:
+def load_json_file(path: str | os.PathLike[str]) -> dict[str, Any]:
     return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
 
 
-def extract_items(payload: dict | list) -> list[dict]:
+def extract_items(payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return payload
 
@@ -167,13 +168,13 @@ def wgs84_to_air_korea_tm(lat: float, lon: float) -> tuple[float, float]:
 
 
 def pick_station(
-    station_items: list[dict],
+    station_items: list[dict[str, Any]],
     *,
     lat: float | None = None,
     lon: float | None = None,
     region_hint: str | None = None,
     station_name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     if not station_items:
         raise SystemExit("측정소 후보가 없습니다.")
 
@@ -228,13 +229,13 @@ def pick_station(
 
 
 def resolve_station(
-    station_items: list[dict],
+    station_items: list[dict[str, Any]],
     *,
     lat: float | None = None,
     lon: float | None = None,
     region_hint: str | None = None,
     station_name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     if station_items:
         return pick_station(
             station_items,
@@ -250,7 +251,7 @@ def resolve_station(
     raise SystemExit("측정소 후보가 없습니다.")
 
 
-def find_measurement(measurement_items: list[dict], station_name: str) -> dict:
+def find_measurement(measurement_items: list[dict[str, Any]], station_name: str) -> dict[str, Any]:
     exact_match = next(
         (item for item in measurement_items if item.get("stationName") == station_name),
         None,
@@ -290,15 +291,15 @@ def grade_to_label(raw_grade: object, *, pollutant: str, value: object) -> str:
 
 def build_report(
     *,
-    station_items: list[dict],
-    measurement_items: list[dict],
+    station_items: list[dict[str, Any]],
+    measurement_items: list[dict[str, Any]],
     lat: float | None = None,
     lon: float | None = None,
     region_hint: str | None = None,
     station_name: str | None = None,
     lookup_mode: str | None = None,
-    selected_station: dict | None = None,
-) -> dict:
+    selected_station: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     station = selected_station or resolve_station(
         station_items,
         lat=lat,
@@ -367,7 +368,7 @@ def get_proxy_base_url() -> str | None:
     return DEFAULT_PROXY_BASE_URL
 
 
-def read_json_response(request: urllib.request.Request | str) -> dict:
+def read_json_response(request: urllib.request.Request | str) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             return json.load(response)
@@ -393,13 +394,13 @@ def read_json_response(request: urllib.request.Request | str) -> dict:
         raise SystemExit(message or f"요청이 실패했습니다: HTTP {exc.code}") from exc
 
 
-def fetch_json(url: str, params: dict[str, object]) -> dict:
+def fetch_json(url: str, params: dict[str, object]) -> dict[str, Any]:
     query = urllib.parse.urlencode({key: value for key, value in params.items() if value is not None})
     request_url = f"{url}?{query}"
     return read_json_response(request_url)
 
 
-def fetch_proxy_report(args: argparse.Namespace) -> dict | None:
+def fetch_proxy_report(args: argparse.Namespace) -> dict[str, Any] | None:
     base_url = get_proxy_base_url()
     if not base_url or args.station_file or args.measurement_file:
         return None
@@ -419,7 +420,7 @@ def fetch_proxy_report(args: argparse.Namespace) -> dict | None:
     return read_json_response(request)
 
 
-def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict, str]:
+def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
     if args.station_file:
         return load_json_file(args.station_file), (
             "coordinates" if args.lat is not None and args.lon is not None else "fallback"
@@ -463,12 +464,12 @@ def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict, str]:
     raise SystemExit("위도/경도 또는 region fallback 이 필요합니다.")
 
 
-def fetch_station_payload(args: argparse.Namespace) -> dict:
+def fetch_station_payload(args: argparse.Namespace) -> dict[str, Any]:
     payload, _ = fetch_station_lookup(args)
     return payload
 
 
-def fetch_measurement_payload(args: argparse.Namespace, station_name: str) -> dict:
+def fetch_measurement_payload(args: argparse.Namespace, station_name: str) -> dict[str, Any]:
     if args.measurement_file:
         return load_json_file(args.measurement_file)
 
@@ -487,7 +488,7 @@ def fetch_measurement_payload(args: argparse.Namespace, station_name: str) -> di
     )
 
 
-def render_text(report: dict) -> str:
+def render_text(report: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"측정소: {report['station_name']}",
