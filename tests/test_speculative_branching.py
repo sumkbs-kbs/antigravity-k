@@ -117,7 +117,7 @@ class TestWorktreeIsolation:
         repo.mkdir()
 
         def git(*args: str) -> None:
-            subprocess.run(
+            _ = subprocess.run(
                 ["git", *args],
                 cwd=repo,
                 check=True,
@@ -127,7 +127,7 @@ class TestWorktreeIsolation:
         git("init", "-q")
         git("config", "user.email", "t@t.local")
         git("config", "user.name", "t")
-        (repo / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        _ = (repo / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
         git("add", ".")
         git("commit", "-qm", "init")
         return repo
