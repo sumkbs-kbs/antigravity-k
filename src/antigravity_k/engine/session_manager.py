@@ -18,11 +18,12 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, final
 
 logger = logging.getLogger(__name__)
 
 
+@final
 class SessionManager:
     """세션 영속성 관리자.
 
@@ -102,13 +103,13 @@ class SessionManager:
         logger.info("Created new session: %s", self._session_id)
         return self._session_id
 
-    def save(self):
+    def save(self) -> None:
         """현재 세션을 디스크에 저장합니다."""
         if self._current_session:
             self._current_session["updated_at"] = time.time()
             self._save_session()
 
-    def end_session(self):
+    def end_session(self) -> None:
         """현재 세션을 종료하고 저장합니다."""
         if self._current_session:
             self._current_session["metadata"]["ended_at"] = time.time()
@@ -125,7 +126,7 @@ class SessionManager:
         *,
         role: str | None = None,
         content: str | None = None,
-    ):
+    ) -> None:
         """턴(사용자 입력 + 어시스턴트 응답)을 세션에 추가합니다.
 
         두 가지 호출 패턴을 지원:
@@ -133,7 +134,7 @@ class SessionManager:
           2. add_turn(role="user", content="...")  (단일 메시지, BuiltinMemoryProvider 호환)
         """
         if not self._current_session:
-            self.start_session()
+            _ = self.start_session()
             assert self._current_session is not None
 
         # role/content 키워드 인자로 단일 메시지 추가 (호환성)
@@ -163,10 +164,10 @@ class SessionManager:
 
     # ─────────── Working Memory (장기 기억) ───────────
 
-    def set_memory(self, key: str, value: Any):
+    def set_memory(self, key: str, value: Any) -> None:
         """Working Memory에 값을 저장합니다."""
         if not self._current_session:
-            self.start_session()
+            _ = self.start_session()
             assert self._current_session is not None
         self._current_session["working_memory"][key] = {
             "value": value,
@@ -311,7 +312,7 @@ class SessionManager:
                 path = Path(self.base_dir) / f"{record['session_id']}.json"
                 if path == Path(self.base_dir) / f"{self._session_id}.json" and isinstance(data, dict):
                     self._current_session = data
-                path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                _ = path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         elif self._current_session:
             data = dict(self._current_session)
             key = "messages" if scope == "session" else "working_memory"
@@ -340,21 +341,21 @@ class SessionManager:
 
     # ─────────── 메타데이터 추적 ───────────
 
-    def record_tool_use(self, tool_name: str):
+    def record_tool_use(self, tool_name: str) -> None:
         """도구 사용을 기록합니다."""
         if self._current_session:
             tools = self._current_session["metadata"]["tools_used"]
             if tool_name not in tools:
                 tools.append(tool_name)
 
-    def record_file_modified(self, file_path: str):
+    def record_file_modified(self, file_path: str) -> None:
         """파일 수정을 기록합니다."""
         if self._current_session:
             files = self._current_session["metadata"]["files_modified"]
             if file_path not in files:
                 files.append(file_path)
 
-    def record_tokens(self, count: int):
+    def record_tokens(self, count: int) -> None:
         """토큰 사용량을 기록합니다."""
         if self._current_session:
             self._current_session["metadata"]["total_tokens_used"] += count
@@ -410,7 +411,7 @@ class SessionManager:
 
     # ─────────── 내부 메서드 ───────────
 
-    def _save_session(self):
+    def _save_session(self) -> None:
         """세션을 디스크에 저장합니다."""
         if not self._current_session or not self._session_id:
             return
@@ -421,7 +422,7 @@ class SessionManager:
         except Exception:
             logger.exception("Failed to save session")
 
-    def _load_session(self, fpath: str):
+    def _load_session(self, fpath: str) -> None:
         """디스크에서 세션을 로드합니다."""
         try:
             with open(fpath, encoding="utf-8") as f:
