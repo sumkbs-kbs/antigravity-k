@@ -228,6 +228,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "requests" },
     { name = "ruff" },
+    { name = "sqlalchemy" },
     { name = "types-croniter" },
     { name = "types-pyyaml" },
 ]
@@ -301,6 +302,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0,<1.0" },
     { name = "sentence-transformers", marker = "extra == 'rag'", specifier = ">=5.0.0,<6.0" },
     { name = "slowapi", specifier = ">=0.1.9,<1.0" },
+    { name = "sqlalchemy", marker = "extra == 'dev'", specifier = ">=2.0.0,<3.0" },
     { name = "textual", specifier = ">=8.0.0,<9.0" },
     { name = "torch", marker = "extra == 'transformers'", specifier = ">=2.4.0,<3.0" },
     { name = "transformers", marker = "extra == 'transformers'", specifier = ">=4.48.0" },
