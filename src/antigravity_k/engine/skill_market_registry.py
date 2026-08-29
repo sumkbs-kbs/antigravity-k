@@ -18,8 +18,37 @@ SkillMarketRegistry는 마켓 스킬의 전체 라이프사이클을 관리하�
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol, TypeAlias, final
+
+from antigravity_k.engine.skill_installer import InstallResult
+from antigravity_k.engine.skill_market_client import InstalledSkill, SkillDetail, SkillListing
+
+JsonObject: TypeAlias = Mapping[str, object]
+
+
+class MarketClientProtocol(Protocol):
+    def search(self, query: str, limit: int = 20) -> list[SkillListing]: ...
+
+    def get_detail(self, package_name: str) -> SkillDetail | None: ...
+
+    def get_installed(self, project_root: str | None = None) -> list[InstalledSkill]: ...
+
+
+class InstallerProtocol(Protocol):
+    def install(self, package_name: str) -> InstallResult: ...
+
+    def remove(self, package_name: str) -> InstallResult: ...
+
+    def update(self, package_name: str) -> InstallResult: ...
+
+
+class LoaderProtocol(Protocol):
+    active_skills: list[str]
+
+    def list_skills(self) -> list[dict[str, object]]: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +118,10 @@ class RegistrySkillInfo:
     security_passed: bool = True
     """최근 보안 스캔 통과 여부."""
 
-    security_findings: list[dict[str, Any]] = field(default_factory=list)
+    security_findings: list[dict[str, object]] = field(default_factory=list)
     """보안 스캔 결과 상세."""
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         return {
             "skill_name": self.skill_name,
             "package_name": self.package_name,
@@ -115,6 +144,7 @@ class RegistrySkillInfo:
 # ─── 레지스트리 메인 클래스 ──────────────────────────────────────────
 
 
+@final
 class SkillMarketRegistry:
     """마켓 스킬 레지스트리.
 
@@ -130,9 +160,9 @@ class SkillMarketRegistry:
     def __init__(
         self,
         project_root: str | None = None,
-        market_client: Any | None = None,
-        installer: Any | None = None,
-        skill_loader: Any | None = None,
+        market_client: MarketClientProtocol | None = None,
+        installer: InstallerProtocol | None = None,
+        skill_loader: LoaderProtocol | None = None,
     ):
         """Initialize the SkillMarketRegistry.
 
@@ -143,13 +173,13 @@ class SkillMarketRegistry:
             skill_loader: SkillLoader 인스턴스
         """
         self.project_root = project_root or "."
-        self.market_client = market_client
-        self.installer = installer
-        self.skill_loader = skill_loader
+        self.market_client: MarketClientProtocol | None = market_client
+        self.installer: InstallerProtocol | None = installer
+        self.skill_loader: LoaderProtocol | None = skill_loader
 
     # ─── 검색 ───────────────────────────────────────────────────────
 
-    def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int = 20) -> list[JsonObject]:
         """npm 레지스트리에서 스킬을 검색합니다.
 
         Args:
@@ -176,7 +206,7 @@ class SkillMarketRegistry:
             logger.exception("[SkillRegistry] Search failed")
             return [{"error": str(e)}]
 
-    def get_detail(self, package_name: str) -> dict[str, Any] | None:
+    def get_detail(self, package_name: str) -> JsonObject | None:
         """패키지 상세 정보를 조회합니다. (설치 상태 포함)
 
         Args:
@@ -196,7 +226,7 @@ class SkillMarketRegistry:
 
             installed = self._get_installed_skill(detail.skill_name)
 
-            result = detail.to_dict()
+            result: dict[str, object] = {**detail.to_dict()}
             result["is_installed"] = installed is not None
             if installed:
                 result["installed_version"] = installed.version
@@ -210,7 +240,7 @@ class SkillMarketRegistry:
 
     # ─── 설치 / 제거 / 업데이트 ────────────────────────────────────
 
-    def install(self, package_name: str) -> dict[str, Any]:
+    def install(self, package_name: str) -> JsonObject:
         """스킬을 설치합니다.
 
         SkillInstaller.install()에 위임하고, 설치 후
@@ -242,7 +272,7 @@ class SkillMarketRegistry:
             logger.exception("[SkillRegistry] Install failed")
             return {"success": False, "error": str(e)}
 
-    def remove(self, skill_name: str) -> dict[str, Any]:
+    def remove(self, skill_name: str) -> JsonObject:
         """설치된 스킬을 제거합니다.
 
         Args:
@@ -269,7 +299,7 @@ class SkillMarketRegistry:
             logger.exception("[SkillRegistry] Remove failed")
             return {"success": False, "error": str(e)}
 
-    def update(self, skill_name: str) -> dict[str, Any]:
+    def update(self, skill_name: str) -> JsonObject:
         """설치된 스킬을 최신 버전으로 업데이트합니다.
 
         Args:
@@ -299,7 +329,7 @@ class SkillMarketRegistry:
             logger.exception("[SkillRegistry] Update failed")
             return {"success": False, "error": str(e)}
 
-    def update_all(self) -> list[dict[str, Any]]:
+    def update_all(self) -> list[JsonObject]:
         """모든 설치된 스킬을 최신 버전으로 업데이트합니다.
 
         먼저 check_updates()로 최신 버전을 확인한 후,
@@ -309,7 +339,7 @@ class SkillMarketRegistry:
             각 스킬의 업데이트 결과 리스트
         """
         outdated = self.check_updates()
-        results = []
+        results: list[JsonObject] = []
 
         for skill in outdated:
             logger.info(
@@ -425,7 +455,7 @@ class SkillMarketRegistry:
             "",
         ]
 
-        for i, skill in enumerate(skills, 1):
+        for skill in skills:
             # 상태 아이콘
             if not skill.is_active:
                 status_icon = "💤"
@@ -496,10 +526,14 @@ class SkillMarketRegistry:
             lines.append("")
             lines.append("**보안 검사 상세:**")
             for finding in skill.security_findings[:5]:
-                severity_icon = {"error": "🔴", "warning": "🟡", "info": "ℹ️"}.get(finding.get("severity", ""), "ℹ️")
-                lines.append(
-                    f"  {severity_icon} {finding.get('message', '')} ({finding.get('file', '')}:{finding.get('line', 0)})"
-                )
+                severity = finding.get("severity")
+                severity_key = severity if isinstance(severity, str) else ""
+                severity_icon = {"error": "🔴", "warning": "🟡", "info": "ℹ️"}.get(severity_key, "ℹ️")
+                message = finding.get("message")
+                message_text = message if isinstance(message, str) else ""
+                line = finding.get("line")
+                line_number = line if isinstance(line, int) else 0
+                lines.append(f"  {severity_icon} {message_text} ({finding.get('file', '')}:{line_number})")
 
         lines.append("")
         lines.append(f"**CLI 명령어:** `agk market info {skill.skill_name}`")
@@ -581,7 +615,12 @@ class SkillMarketRegistry:
         if not self.skill_loader:
             return set()
         try:
-            return {s["id"] for s in self.skill_loader.list_skills()}
+            loaded_ids: set[str] = set()
+            for skill in self.skill_loader.list_skills():
+                skill_id = skill.get("id")
+                if isinstance(skill_id, str):
+                    loaded_ids.add(skill_id)
+            return loaded_ids
         except Exception:
             return set()
 
@@ -605,19 +644,13 @@ class SkillMarketRegistry:
     @staticmethod
     def _version_gte(a: str, b: str) -> bool:
         """semver 비교: a >= b"""
-        # SkillInstaller에 동일한 구현이 있음. 중복 방지를 위해 import
-        try:
-            from antigravity_k.engine.skill_installer import SkillInstaller
 
-            return SkillInstaller._version_gte(a, b)
-        except (ImportError, AttributeError):
-            # Fallback: 인라인 구현
-            def _parse(v: str) -> tuple[int, int, int]:
-                parts = v.split(".")
-                return (
-                    int(parts[0]) if len(parts) > 0 else 0,
-                    int(parts[1]) if len(parts) > 1 else 0,
-                    int(parts[2]) if len(parts) > 2 else 0,
-                )
+        def _parse(v: str) -> tuple[int, int, int]:
+            parts = v.split(".")
+            return (
+                int(parts[0]) if len(parts) > 0 else 0,
+                int(parts[1]) if len(parts) > 1 else 0,
+                int(parts[2]) if len(parts) > 2 else 0,
+            )
 
-            return _parse(a) >= _parse(b)
+        return _parse(a) >= _parse(b)
