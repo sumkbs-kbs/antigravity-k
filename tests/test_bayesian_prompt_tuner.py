@@ -31,4 +31,4 @@ def test_select_next_candidate_reports_empty_configuration() -> None:
 
     # When/Then: callers receive the domain-specific configuration error.
     with pytest.raises(NoPromptCandidatesError):
-        tuner.select_next_candidate()
+        _ = tuner.select_next_candidate()
