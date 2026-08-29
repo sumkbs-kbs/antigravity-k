@@ -3,6 +3,7 @@ import io
 import json
 import os
 import unittest
+from collections.abc import Mapping
 from pathlib import Path
 
 from scripts.geeknews_search import (
@@ -18,6 +19,12 @@ from scripts.geeknews_search import (
 )
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "geeknews-feed.xml"
+
+
+def require_mapping(value: object) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise AssertionError(f"expected mapping payload, got {type(value).__name__}")
+    return value
 
 
 class GeekNewsFeedParseTest(unittest.TestCase):
@@ -90,13 +97,16 @@ class GeekNewsPayloadShapeTest(unittest.TestCase):
         search_payload = build_search_payload(feed, query="claude", limit=5)
         detail_payload = build_detail_payload(feed, lookup="28439")
 
-        self.assertEqual(list_payload["source"]["title"], feed.title)
+        list_source = require_mapping(list_payload["source"])
+        detail_item = require_mapping(detail_payload["item"])
+
+        self.assertEqual(list_source["title"], feed.title)
         self.assertEqual(list_payload["count"], 2)
         self.assertEqual(search_payload["query"], "claude")
         self.assertEqual(search_payload["count"], 1)
-        self.assertEqual(detail_payload["item"]["id"], "https://news.hada.io/topic?id=28439")
-        self.assertIn("summary", detail_payload["item"])
-        self.assertIn("content_html", detail_payload["item"])
+        self.assertEqual(detail_item["id"], "https://news.hada.io/topic?id=28439")
+        self.assertIn("summary", detail_item)
+        self.assertIn("content_html", detail_item)
 
 
 class GeekNewsCliShapeTest(unittest.TestCase):
