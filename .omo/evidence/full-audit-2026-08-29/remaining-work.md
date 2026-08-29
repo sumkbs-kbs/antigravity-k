@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `9e7e90a` (API 서버 테스트 fixture 경계 기록 포함)
-- 전체 `basedpyright`: `0 errors, 31587 warnings, 0 notes`
+- 최신 검증 커밋: `bee68ac` (usage-tracker 테스트 fixture 경계 기록 포함)
+- 전체 `basedpyright`: `0 errors, 31490 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -54,3 +54,4 @@ date: 2026-08-29
 - `019953f`: system-memory API client/audit fixtures, manager override payloads, injected test parameters, and local capture maps use explicit contracts; the current 53-test suite passed, Ruff and remaining pre-commit hooks passed, file warnings reduced `391 → 221`, and whole-tree basedpyright is now `0 errors, 32203 warnings, 0 notes`. User-added API coverage remains unstaged; Ruff-format was skipped to avoid rewriting unrelated user-owned formatting in the same file.
 - `aa8fb2a`: `tests/test_web_search.py` now uses explicit fixture, callback, HTTP-client factory, and result contracts; `WebSearchTool.execute` validates string query inputs and returns `str`. The web-search suite passed 76 tests, Ruff/Ruff-format/mypy and pre-commit hooks passed, file basedpyright warnings reduced `359 → 16`, and whole-tree basedpyright is now `0 errors, 31827 warnings, 0 notes`. The remaining 16 file warnings are intentional private-method test accesses.
 - `9e7e90a`: `tests/test_api_server.py` fixture and endpoint parameters now use explicit `TestClient`, `MagicMock`, `ProtocolTranslator`, `pytest.MonkeyPatch`, and recursive JSON-value contracts. The API server suite passed 36 tests with 2 environment skips and one pre-existing Starlette/httpx deprecation warning; Ruff, Ruff-format, mypy, and pre-commit hooks passed; file basedpyright warnings reduced `313 → 73`; whole-tree basedpyright is now `0 errors, 31587 warnings, 0 notes`. Remaining diagnostics are dynamic MagicMock/response JSON and intentional private registry accesses.
+- `bee68ac`: `tests/test_usage_tracker.py` tracker fixtures and dependent test parameters use explicit `UsageTracker` and `Path` contracts. The usage-tracker suite passed 20 tests; Ruff, Ruff-format, and pre-commit hooks passed; file basedpyright warnings reduced `129 → 33`; whole-tree basedpyright is now `0 errors, 31490 warnings, 0 notes`. Remaining diagnostics are intentional side-effect fixture calls, protected record assertions, and partially typed pytest helpers.
