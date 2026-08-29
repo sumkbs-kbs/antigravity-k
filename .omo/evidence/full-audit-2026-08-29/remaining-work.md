@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `f4868ba` (Hybrid reranker 메타데이터 타입 경계 포함)
-- 전체 `basedpyright`: `0 errors, 28371 warnings, 0 notes` (최신 변경 파일도 0 warnings)
+- 최신 검증 커밋: `df66d90` (Incremental code graph 타입·테스트 경계 포함)
+- 전체 `basedpyright`: `0 errors, 28368 warnings, 0 notes` (최신 변경 파일도 0 warnings)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -91,6 +91,7 @@ date: 2026-08-29
 - `16dc85d`: `CodexTransferEngine` renders manifest table rows through explicit formatting instead of implicit string concatenation; its slash-command regression test now types the path fixture and consumes setup side effects. `tests/test_codex_transfer.py` passed 3 tests; changed source/test files pass basedpyright, Ruff, Ruff-format, and pre-commit with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28373 warnings, 0 notes`.
 - `f4a0921`: `ContextArtifactStore` explicitly types its retention-policy field. Context-artifact store/tool tests passed 8 tests; the owned source file passes basedpyright and Ruff with 0 warnings, while untracked user-owned context-artifact tests remain unstaged. Whole-tree basedpyright remeasurement is `0 errors, 28372 warnings, 0 notes`.
 - `f4868ba`: `SearchCandidate.metadata` uses a recursive JSON-compatible `MetadataValue` alias instead of explicit `Any`. `tests/test_hybrid_reranker.py` passed 1 test; the source/test pair passes basedpyright and Ruff with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28371 warnings, 0 notes`.
+- `df66d90`: `IncrementalCodeGraph.project_root` is explicitly typed and its update results are consumed in the regression test. `tests/test_incremental_code_graph.py` passed 1 test; source/test basedpyright and Ruff pass with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28368 warnings, 0 notes`.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
