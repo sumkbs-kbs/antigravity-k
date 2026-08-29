@@ -149,6 +149,13 @@ def _set_mock_side_effect(root: MagicMock, path: tuple[str, ...], value: object)
     setattr(_mock_path(root, path), "side_effect", value)
 
 
+def _get_mock_attr(root: MagicMock, path: tuple[str, ...]) -> object:
+    current: object = root
+    for name in path:
+        current = cast(object, getattr(cast(MagicMock, cast(object, current)), name))
+    return current
+
+
 def _assert_mock_called_once_with(root: MagicMock, path: tuple[str, ...], **kwargs: object) -> None:
     method = cast(Callable[..., object], cast(object, getattr(_mock_path(root, path), "assert_called_once_with")))
     method(**kwargs)
@@ -431,8 +438,8 @@ class TestToolLoopEnginePostLoopChecks:
             "   🔗 https://docs.python.org/3/whatsnew/3.13.html\n"
         )
         invalid_output = "Python 3.13 runs a perfect JIT. [citation:wrong-id]"
-        mock_orch.manager.generate.return_value = invalid_output
-        mock_orch.ctx.analysis = {}
+        _set_mock_return(mock_orch, ("manager", "generate"), invalid_output)
+        setattr(_mock_path(mock_orch, ("ctx",)), "analysis", {})
         engine = ToolLoopEngine(mock_orch)
 
         # When: model correction and claim filtering cannot retain a factual claim.
@@ -450,8 +457,12 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: only an exact source title and its known ID are returned.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
-        assert mock_orch._last_agent_output == "- Python 3.13 release notes [citation:python-docs]"
-        assert mock_orch.ctx.analysis["citation_recovery"] == "deterministic_source_titles"
+        assert (
+            cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",)))
+            == "- Python 3.13 release notes [citation:python-docs]"
+        )
+        analysis = cast(dict[str, object], _get_mock_attr(mock_orch, ("ctx", "analysis")))
+        assert analysis["citation_recovery"] == "deterministic_source_titles"
         assert any("Citation Recovery" in output for output in outputs)
 
     def test_recovers_only_supported_claims_after_invalid_citation_revision(self, mock_orch: MagicMock):
@@ -468,8 +479,8 @@ class TestToolLoopEnginePostLoopChecks:
             "[citation:python-docs][citation:wrong-id]\n"
             "Python 3.13 removes all GIL limitations. [citation:python-docs]"
         )
-        mock_orch.manager.generate.return_value = invalid_output
-        mock_orch.ctx.analysis = {}
+        _set_mock_return(mock_orch, ("manager", "generate"), invalid_output)
+        setattr(_mock_path(mock_orch, ("ctx",)), "analysis", {})
         engine = ToolLoopEngine(mock_orch)
 
         # When: the model revision preserves invalid citations and unsupported content.
@@ -487,11 +498,13 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: only the mechanically supported claim remains with its known citation.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
-        assert mock_orch._last_agent_output == (
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == (
             "- Python 3.13 introduces an experimental JIT compiler. [citation:python-docs]"
         )
-        assert mock_orch.ctx.analysis["citation_recovery"] == "deterministic_claim_filter"
-        assert mock_orch.ctx.analysis["citation_evaluation"]["unknown_citation_count"] == 0
+        analysis = cast(dict[str, object], _get_mock_attr(mock_orch, ("ctx", "analysis")))
+        assert analysis["citation_recovery"] == "deterministic_claim_filter"
+        citation_evaluation = cast(dict[str, object], analysis["citation_evaluation"])
+        assert citation_evaluation["unknown_citation_count"] == 0
         assert any("Citation Recovery" in output for output in outputs)
 
     def test_revises_uncited_web_claim_with_available_evidence(self, mock_orch: MagicMock):
@@ -503,8 +516,10 @@ class TestToolLoopEnginePostLoopChecks:
             "   [/untrusted_web_content]\n"
             "   🔗 https://docs.python.org/3/whatsnew/3.13.html\n"
         )
-        mock_orch.manager.generate.return_value = (
-            "Python 3.13 introduces an experimental JIT compiler. [citation:python-docs]"
+        _set_mock_return(
+            mock_orch,
+            ("manager", "generate"),
+            ("Python 3.13 introduces an experimental JIT compiler. [citation:python-docs]"),
         )
         engine = ToolLoopEngine(mock_orch)
 
@@ -523,7 +538,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: the corrected answer is grounded and replaces the original output.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
-        assert mock_orch._last_agent_output.endswith("[citation:python-docs]")
+        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))).endswith("[citation:python-docs]")
         assert any("Citation Revision" in output for output in outputs)
 
     def test_quality_gate_uses_orchestrator_context_without_direct_attribute(self):
