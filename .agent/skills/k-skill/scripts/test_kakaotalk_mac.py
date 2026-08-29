@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
-import scripts.kakaotalk_mac as kakaotalk_mac
+kakaotalk_mac = importlib.import_module("scripts.kakaotalk_mac")
 
 
 def sha512_hex(value: int) -> str:
@@ -23,7 +25,7 @@ def make_resolved_auth(
     database_name: str = "db-name",
     key: str = "super-secret",
     source: str = "cache",
-) -> kakaotalk_mac.ResolvedAuth:
+) -> Any:
     return kakaotalk_mac.ResolvedAuth(
         user_id=user_id,
         uuid=uuid,
@@ -105,7 +107,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
                 database_files=[database_path],
             )
 
-            def verify(candidate: kakaotalk_mac.ResolvedAuth) -> bool:
+            def verify(candidate: Any) -> bool:
                 verification_calls.append(candidate.user_id)
                 return candidate.user_id == target_user_id
 
