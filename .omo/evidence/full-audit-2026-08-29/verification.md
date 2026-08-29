@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `00170e5`; whole-tree basedpyright reports `0 errors, 27321 warnings, 0 notes`. `tests/test_cancel_task.py` now invokes the dynamically typed task submission through an explicit callable adapter; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `1135f29`; whole-tree basedpyright reports `0 errors, 27322 warnings, 0 notes`. `tests/test_bayesian_prompt_tuner.py` now explicitly consumes the expected exception-path return value; its 2-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `8e9ab14`; whole-tree basedpyright reports `0 errors, 27323 warnings, 0 notes`. `tests/test_fast_path_kernel.py` now explicitly consumes temporary-file write results; its 2-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
