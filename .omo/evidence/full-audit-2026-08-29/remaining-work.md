@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `0e393b2` (MCP 세션 관리자 테스트 타입 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 30389 warnings, 0 notes`
+- 최신 검증 커밋: `7b22715` (benchmark harness 테스트 fixture/주입 타입 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 30090 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -60,6 +60,8 @@ date: 2026-08-29
 - `2a8777c`: `tests/test_system_control.py` fixture and all injected tool/path parameters use explicit contracts; unused file-write results are marked intentionally consumed. The system-control suite passed 65 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `292 → 70`, and whole-tree basedpyright is now `0 errors, 30772 warnings, 0 notes`; the remaining 70 are protected private-action coverage and dynamic JSON/Mock boundaries.
 - `c96be30`: `tests/test_tool_executor.py` fixtures, helper parameters, injected executor/registry/path contracts, and intentional side-effect calls are explicit. The tool-executor suite passed 25 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `254 → 105`, and whole-tree basedpyright is now `0 errors, 30623 warnings, 0 notes`; residuals are dynamic MagicMock registry maps and protected executor-state coverage.
 - `0e393b2`: `tests/test_mcp_session_manager.py` uses explicit manager/mock fixture and patched dependency contracts, direct `asyncio.run`, and intentionally ignored connection results. The MCP session suite passed 22 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `251 → 17`, and whole-tree basedpyright is now `0 errors, 30389 warnings, 0 notes`; residuals are external MCP mock methods and awaited-call assertions.
+- `f081db0`: `tests/test_model_manager_stream.py` types registry/manager/stream fixtures and injected parameters, narrows optional thinking budget and request bytes before use, and preserves config fixture side effects. The model-stream suite passed 25 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `248 → 102`, and whole-tree basedpyright is now `0 errors, 30243 warnings, 0 notes`; residuals are protected private stream coverage and dynamic provider mocks.
+- `7b22715`: `tests/test_benchmark_harness.py` annotates benchmark/model-manager/path fixtures and injected parameters, and uses a model-manager spec for the shared mock. The benchmark harness suite passed 37 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `248 → 95` (the unstaged user-added provider-error test remains preserved), and whole-tree basedpyright is now `0 errors, 30090 warnings, 0 notes`; residuals are protected private harness access and dynamic mock members.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
