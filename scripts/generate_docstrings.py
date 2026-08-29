@@ -20,13 +20,14 @@ Requires:
 
 import argparse
 import ast
+import importlib
 import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -34,7 +35,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # ─── Violation Detection ─────────────────────────────────────────────────
 
 
-def get_ruff_violations(paths: list[str]) -> list[dict]:
+def get_ruff_violations(paths: list[str]) -> list[dict[str, Any]]:
     """Run ruff --select=D and return parsed JSON violations."""
     cmd = ["ruff", "check", "--select=D", "--output-format=json", *paths]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
@@ -72,7 +73,7 @@ def find_node_at_line(tree: ast.AST, line: int) -> Optional[ast.AST]:
     return candidate
 
 
-def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict:
+def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any]:
     """Extract context from a function/method definition node.
 
     Collects all parameter kinds: positional, positional-only, vararg (*args),
@@ -120,7 +121,7 @@ def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict:
     }
 
 
-def get_class_context(node: ast.ClassDef) -> dict:
+def get_class_context(node: ast.ClassDef) -> dict[str, Any]:
     """Extract context from a class definition node."""
     bases = [ast.unparse(b) for b in node.bases]
     return {
@@ -129,7 +130,7 @@ def get_class_context(node: ast.ClassDef) -> dict:
     }
 
 
-def get_module_context(filepath: Path) -> dict:
+def get_module_context(filepath: Path) -> dict[str, str]:
     """Extract module-level context."""
     # Try to infer module purpose from filename and imports
     return {
@@ -138,7 +139,7 @@ def get_module_context(filepath: Path) -> dict:
     }
 
 
-def extract_context(filepath: Path, line: int, code: str) -> dict:
+def extract_context(filepath: Path, line: int, code: str) -> dict[str, Any]:
     """Extract context for a violation at the given line."""
     try:
         tree = ast.parse(code)
@@ -156,7 +157,7 @@ def extract_context(filepath: Path, line: int, code: str) -> dict:
     if node is None:
         return {"error": f"No node found at line {line}"}
 
-    context = {
+    context: dict[str, Any] = {
         "file": str(filepath.relative_to(PROJECT_ROOT)),
         "line": line,
         "code_prefix": _get_code_prefix(code, line),
@@ -207,7 +208,7 @@ def _find_enclosing_class(tree: ast.AST, func_node: ast.AST) -> Optional[str]:
 # ─── Docstring Generation ────────────────────────────────────────────────
 
 
-def generate_docstring(context: dict, ai_mode: bool = False) -> Optional[str]:
+def generate_docstring(context: dict[str, Any], ai_mode: bool = False) -> Optional[str]:
     """Generate a Google-style docstring for the given context."""
     vtype = context.get("type")
 
@@ -225,7 +226,7 @@ def _snake_to_title(name: str) -> str:
     return name.replace("_", " ").title().strip()
 
 
-def _gen_module_docstring(ctx: dict) -> str:
+def _gen_module_docstring(ctx: dict[str, Any]) -> str:
     """Generate a single-line module docstring.
 
     Uses single-line format (no D205 issue for single-line docstrings).
@@ -250,7 +251,7 @@ def _gen_module_docstring(ctx: dict) -> str:
     return _ensure_docstring_compliance(result)
 
 
-def _gen_class_docstring(ctx: dict) -> str:
+def _gen_class_docstring(ctx: dict[str, Any]) -> str:
     """Generate a class docstring from context.
 
     Generates Google-style docstrings that comply with D205
@@ -274,7 +275,7 @@ def _gen_class_docstring(ctx: dict) -> str:
     return _ensure_docstring_compliance(result)
 
 
-def _gen_function_docstring(ctx: dict, ai_mode: bool = False) -> str:
+def _gen_function_docstring(ctx: dict[str, Any], ai_mode: bool = False) -> str:
     """Generate a function/method docstring from context.
 
     Generates Google-style docstrings that comply with D205
@@ -409,7 +410,7 @@ def _gen_summary_line(name: str, return_type: str, is_method: bool, class_name: 
     return f"{desc.title()}."
 
 
-def _gen_args_section(params: list[dict], is_method: bool) -> Optional[str]:
+def _gen_args_section(params: list[dict[str, Any]], is_method: bool) -> Optional[str]:
     """Generate the Args section of a Google-style docstring.
 
     Handles all parameter kinds: regular, *args (vararg), **kwargs (kwarg),
@@ -584,7 +585,7 @@ def _ensure_docstring_compliance(docstring: str) -> str:
 # ─── AI Mode ─────────────────────────────────────────────────────────────
 
 
-def generate_ai_docstring(context: dict) -> Optional[str]:
+def generate_ai_docstring(context: dict[str, Any]) -> Optional[str]:
     """Generate a docstring using an LLM (OpenAI-compatible API)."""
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -594,7 +595,7 @@ def generate_ai_docstring(context: dict) -> Optional[str]:
     prompt = _build_ai_prompt(context)
     try:
         # Try OpenAI-compatible API first
-        from openai import OpenAI
+        OpenAI = importlib.import_module("openai").OpenAI
 
         client = OpenAI(api_key=api_key, base_url=os.environ.get("OPENAI_BASE_URL"))
         response = client.chat.completions.create(
@@ -623,7 +624,7 @@ def generate_ai_docstring(context: dict) -> Optional[str]:
         return generate_docstring(context, ai_mode=False)
 
 
-def _build_ai_prompt(context: dict) -> str:
+def _build_ai_prompt(context: dict[str, Any]) -> str:
     """Build a prompt for the AI describing what docstring to generate."""
     vtype = context.get("type")
 
@@ -645,9 +646,9 @@ def _build_ai_prompt(context: dict) -> str:
 # ─── Main ────────────────────────────────────────────────────────────────
 
 
-def get_violations_by_file(violations: list[dict]) -> dict[str, list[dict]]:
+def get_violations_by_file(violations: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Group violations by file path."""
-    by_file: dict[str, list[dict]] = {}
+    by_file: dict[str, list[dict[str, Any]]] = {}
     for v in violations:
         by_file.setdefault(v["filename"], []).append(v)
     return by_file

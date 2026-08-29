@@ -17,16 +17,19 @@ JSON 벤치마크 결과를 읽어 matplotlib 기반 차트를 생성합니다.
 """
 
 import argparse
+import importlib
 import json
 import os
 import sys
+from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")  # GUI 없는 환경 지원
-
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
+try:
+    matplotlib = importlib.import_module("matplotlib")
+    matplotlib.use("Agg")
+    plt = importlib.import_module("matplotlib.pyplot")
+    mticker = importlib.import_module("matplotlib.ticker")
+except ImportError as exc:
+    raise SystemExit("benchmark_viz.py requires matplotlib; install it with `uv pip install matplotlib`") from exc
 import numpy as np
 
 # ─── 스타일 설정 ──────────────────────────────────────────────────
@@ -58,7 +61,7 @@ plt.rcParams["savefig.bbox"] = "tight"
 # ─── 데이터 로드 ──────────────────────────────────────────────────
 
 
-def load_benchmark(path: str) -> dict:
+def load_benchmark(path: str) -> dict[str, Any]:
     """JSON 벤치마크 파일을 로드합니다."""
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -84,7 +87,7 @@ def _stage_label(stage: str) -> str:
 # ─── 차트 1: 개요 대시보드 ────────────────────────────────────────
 
 
-def plot_overview(data: dict, output_dir: str, fmt: str):
+def plot_overview(data: dict[str, Any], output_dir: str, fmt: str):
     """스테이지별 평균/최소/최대/P95 latency 비교 대시보드."""
     stages = list(data.keys())
     if not stages:
@@ -218,7 +221,7 @@ def plot_overview(data: dict, output_dir: str, fmt: str):
 # ─── 차트 2: 스테이지별 Latency Trend ─────────────────────────────
 
 
-def plot_trends(data: dict, output_dir: str, fmt: str):
+def plot_trends(data: dict[str, Any], output_dir: str, fmt: str):
     """각 스테이지의 반복 횟수별 지연시간 추이."""
     stages = list(data.keys())
     if not stages:
@@ -310,7 +313,7 @@ def plot_trends(data: dict, output_dir: str, fmt: str):
 # ─── 차트 3: 세부 컴포넌트 분석 ───────────────────────────────────
 
 
-def plot_breakdown(data: dict, output_dir: str, fmt: str):
+def plot_breakdown(data: dict[str, Any], output_dir: str, fmt: str):
     """각 스테이지의 서브 컴포넌트별 Latency Breakdown."""
     stages = list(data.keys())
     if not stages:
@@ -517,7 +520,7 @@ def plot_breakdown(data: dict, output_dir: str, fmt: str):
 # ─── 차트 4: 통계 히트맵 ─────────────────────────────────────────
 
 
-def plot_heatmap(data: dict, output_dir: str, fmt: str):
+def plot_heatmap(data: dict[str, Any], output_dir: str, fmt: str):
     """스테이지별 통계를 컬러 히트맵으로 표시."""
     stages = list(data.keys())
     if not stages:
@@ -569,7 +572,7 @@ def plot_heatmap(data: dict, output_dir: str, fmt: str):
 #  ─── 차트 5: 서브 컴포넌트 그룹 비교 (모든 스테이지) ──────────────
 
 
-def plot_subcomponent_comparison(data: dict, output_dir: str, fmt: str):
+def plot_subcomponent_comparison(data: dict[str, Any], output_dir: str, fmt: str):
     """모든 스테이지의 주요 서브 컴포넌트를 하나의 차트에 그룹 비교."""
     stages = list(data.keys())
     if len(stages) < 2:
