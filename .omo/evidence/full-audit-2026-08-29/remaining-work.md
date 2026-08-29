@@ -8,21 +8,21 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `2843ddc` (source parser 타입 경계와 감사 체크포인트 문서 반영; 이후 tool-loop 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
+- 최신 검증 커밋: `707a312` (Monaco 중첩 DOMPurIFY override 반영; 이후 tool-loop 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
 - 전체 `basedpyright`: `0 errors, 25045 warnings, 0 notes` (장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 0건으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
-- 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
+- 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
 - codebase-memory MCP: `Transport closed` 상태로 인덱스 영향 분석이 일시 중단됨
 - 앱 재시작 후 `mcp__codebase_memory_mcp__list_projects`를 재시도했지만 동일하게 `Transport closed`가 재현됐다. 외부 MCP 프로세스/세션 복구 전까지 shell·LSP·회귀 테스트 증빙으로 보완한다.
 
 ## 대시보드 의존성 감사 결과
 
-- `dashboard/npm audit --json`: `low 1, moderate 3, high 0, critical 0`.
-- 취약 경로는 직접 의존성보다 중첩 의존성이다. `monaco-editor@0.56.0` 내부 `dompurify@3.4.8`가 XSS 관련 advisory에 걸리고, `typed-rest-client@2.3.1 → qs@6.15.1` 경로가 moderate DoS advisory에 걸린다. 루트 `dompurify@3.4.14`는 별도로 최신 범위다.
-- `npm audit fix --dry-run`은 118개 패키지 추가와 대규모 lock/node_modules churn을 제시하며, Monaco 경로는 `0.53.0` major 변경을 제안한다. 현재 사용자 변경으로 `dashboard/node_modules/.package-lock.json`이 이미 수정된 상태이므로 자동 업데이트·다운그레이드는 승인 전까지 실행하지 않는다.
-- typecheck/lint/Vitest/build는 기존 기준대로 통과했으며, 의존성 변경은 별도 승인 커밋으로 분리해야 한다.
+- `dashboard/npm audit --omit=dev --json`: `0 vulnerabilities`.
+- 기존 취약 경로는 `monaco-editor@0.56.0 → dompurify@3.4.8` 중첩 의존성이었다. `dashboard/package.json`에 `monaco-editor.dompurify=3.4.14` override를 적용해 중첩 패키지를 제거했다.
+- 임시 lockfile 검증과 실제 `npm audit --omit=dev`에서 모두 `0 vulnerabilities`를 확인했다. `npm ci --dry-run`도 성공했고 Monaco 버전은 `0.56.0`을 유지한다.
+- typecheck/lint/Vitest/build도 통과했으며, 의존성 변경은 `707a312` 독립 커밋으로 반영했다. 생성된 `dashboard_dist`와 `node_modules` 변경은 사용자 dirty 산출물로 보존했다.
 
 ## 실행 순서와 완료 조건
 
@@ -35,7 +35,7 @@ date: 2026-08-29
    - 장학금 완료: `scholarship_filter.py`의 JSON 값·마감 컨텍스트·eligibility 결과·argparse 인자를 명시 타입으로 전환했다. 구현 파일 basedpyright 경고 `210 → 0`, 장학금 12개 테스트와 Ruff/format/mypy/pre-commit 통과.
 
 2. **대시보드 의존성·산출물 결정**
-   - 남은 audit은 중첩 Monaco/typed-rest-client 경로이며 breaking/upstream 조정 여부를 확인한다.
+   - `707a312`에서 중첩 Monaco DOMPurify 경로를 `3.4.14` override로 고정해 production audit을 0건으로 만들었다.
    - `dashboard_dist` 해시 산출물은 사용자 변경으로 간주하고 삭제·정리·커밋하지 않는다.
    - 완료: audit 결과와 산출물 처리 결정을 문서화하고, 승인된 범위만 별도 커밋
 
@@ -55,13 +55,13 @@ date: 2026-08-29
 ## 최신 최종 게이트
 
 - 최신 HEAD 기준 전체 pytest는 `4806 passed, 6 skipped`로 완료됐고, 기존 Starlette/httpx deprecation warning 1건만 관찰됐다.
-- 대시보드 typecheck·lint·Vitest(`42 files / 588 tests`)·production build는 통과했다. production 의존성 audit은 low 1, moderate 1이며, Monaco 중첩 DOMPurify 경로의 강제 major 변경은 승인 전까지 보류한다.
+- 대시보드 typecheck·lint·Vitest(`42 files / 588 tests`)·production build와 `npm audit --omit=dev`(`0 vulnerabilities`)가 통과했다. Monaco 버전은 `0.56.0`으로 유지했다.
 - 전역 Ruff는 통과했고, 사용자 변경 경로를 포함한 `git diff --check`는 dashboard_dist 생성 파일의 기존 trailing whitespace 4건을 제외하고 통과했다.
 
 ## 다음 우선순위
 
 1. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 14`로 축소했다. 남은 경고는 보호 메서드, 생성자 호환용 동적 경계, JSON decoder와 이벤트 버스의 외부 타입 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
-2. dashboard 중첩 DOMPurify 취약점은 Monaco major 변경 영향 검토 및 사용자 승인 후 lockfile 단위로 처리한다.
+2. 대시보드 중첩 DOMPurify 취약점은 `707a312` override로 해결했고 production audit은 0건이다.
 3. codebase-memory MCP transport 복구 후 repository re-index와 호출 경로 재검증을 수행한다.
 
 ## 최근 완료 단위
@@ -69,6 +69,7 @@ date: 2026-08-29
 - `54cbcd7`: `.agent/skills/k-skill/scripts/ktx_booking.py`의 `korail2`/PyCryptodome 동적 의존성, JSON 응답, 열차·예약 생성기, argparse 핸들러 경계를 typed Protocol/JSON boundary helper로 전환했다. 11개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했으며 파일 경고가 `97 → 0`, 전체 basedpyright는 `0 errors, 25401 warnings, 0 notes`다.
 
 - 2026-08-30 source 경계 continuation: `tool_loop.py`의 manager/context/quality/capacity/incremental-graph Protocol을 보강하고 `ToolCall.arguments`를 재귀 JSON 값으로 명시했다. 이벤트 발행·JSON checkpoint·expected-tools 경계와 의도적 반환값 소비도 정리했다. `tests/test_tool_loop.py` 90개, 전체 pytest `4806 passed, 6 skipped`, Ruff/Ruff-format/mypy가 통과했으며 `tool_loop.py` 파일 경고는 `369 → 14`, 전체 basedpyright는 `0 errors, 25045 warnings, 0 notes`다. 생성자 입력과 state-store는 다양한 기존 테스트 double 호환을 위해 동적 경계로 유지했다. `tool_loop.py`와 `task_execution_context.py`는 기존 사용자 변경과 겹쳐 미커밋이며, parser 타입 보강은 `2843ddc`에 기록했다.
+- 2026-08-30 dashboard dependency continuation: `707a312`에서 `monaco-editor@0.56.0`의 중첩 `dompurify@3.4.8`을 `3.4.14` override로 고정했다. `npm audit --omit=dev`와 `npm ci --dry-run`이 성공하고, typecheck/lint/Vitest 588개/build도 통과했다. 대시보드 production 취약점은 `2 → 0`으로 해소됐으며 생성된 `dashboard_dist`와 `node_modules` 변경은 사용자 dirty 산출물로 stage하지 않았다.
 
 - `9ecfb4e`: `tests/test_max_engine.py`의 보호 메서드 호출·대입과 MAX 실행 핸들러를 typed callable adapter/`setattr` 경계로 전환했다. 43개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), pre-commit이 통과했으며 파일 경고가 `45 → 0`, 전체 basedpyright는 `0 errors, 25498 warnings, 0 notes`다.
 
