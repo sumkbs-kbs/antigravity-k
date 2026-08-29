@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TypedDict
+from typing import TypedDict, cast
 
-from antigravity_k.engine.orchestrator_handlers import context_enrich_handler
+import antigravity_k.engine.orchestrator_handlers as orchestrator_handlers
 from antigravity_k.engine.state_graph import StateContext
 
 
@@ -59,7 +60,11 @@ def _run_enrichment(project_root: Path, memory: _SearchBackend, fallback: _Searc
         code_tree_indexer=fallback,
         manager=None,
     )
-    context_enrich_handler(context, orchestrator)
+    enrich = cast(
+        Callable[[StateContext, object], None],
+        cast(object, getattr(orchestrator_handlers, "context_enrich_handler")),
+    )
+    enrich(context, orchestrator)
     return context
 
 
