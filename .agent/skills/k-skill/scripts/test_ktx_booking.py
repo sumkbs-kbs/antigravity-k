@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import io
 import subprocess
 import sys
@@ -8,7 +9,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import ktx_booking
+ktx_booking = importlib.import_module("ktx_booking")
 
 
 class FakeTrain:
@@ -291,7 +292,7 @@ class KtxBookingTests(unittest.TestCase):
         train_id = ktx_booking.normalize_train(waiting_only, index=1)["train_id"]
         client = FakeClient(
             [],
-            search_handler=lambda *args, **kwargs: ([waiting_only] if kwargs.get("include_waiting_list") else []),
+            search_handler=lambda *args, **kwargs: [waiting_only] if kwargs.get("include_waiting_list") else [],
         )
         args = self.make_args(train_id)
         args.try_waiting = True

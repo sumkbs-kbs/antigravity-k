@@ -1,3 +1,4 @@
+import importlib
 import io
 import json
 import pathlib
@@ -5,7 +6,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest import mock
 
-import fine_dust
+fine_dust = importlib.import_module("fine_dust")
 
 FIXTURES = pathlib.Path(__file__).with_name("fixtures")
 

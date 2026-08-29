@@ -1,3 +1,4 @@
+import importlib
 import json
 import shutil
 import subprocess
@@ -7,12 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from k_skill_cleaner import (
-    AGENT_USAGE_SOURCES,
-    collect_skill_usage,
-    find_skill_dirs,
-    rank_cleanup_candidates,
-)
+k_skill_cleaner = importlib.import_module("k_skill_cleaner")
+AGENT_USAGE_SOURCES = k_skill_cleaner.AGENT_USAGE_SOURCES
+collect_skill_usage = k_skill_cleaner.collect_skill_usage
+find_skill_dirs = k_skill_cleaner.find_skill_dirs
+rank_cleanup_candidates = k_skill_cleaner.rank_cleanup_candidates
 
 
 class KSkillCleanerTest(unittest.TestCase):
