@@ -166,7 +166,7 @@ class TestGetDriverSet:
     @mock.patch("antigravity_k.tools.os_drivers.WindowsKeyboardDriver", side_effect=ImportError("mocked"))
     @mock.patch("antigravity_k.tools.os_drivers.WindowsScreenDriver", side_effect=ImportError("mocked"))
     @mock.patch("antigravity_k.tools.os_drivers.sys.platform", "win32")
-    def test_windows_falls_back_to_stub(self, *_mocks):
+    def test_windows_falls_back_to_stub(self, *_mocks: object):
         ds = get_driver_set(force_stub=False)
         assert isinstance(ds.mouse, StubMouseDriver)
         assert isinstance(ds.keyboard, StubKeyboardDriver)
