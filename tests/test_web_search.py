@@ -10,7 +10,9 @@ Coverage targets:
   - Edge cases: empty strings, special characters, error paths
 """
 
-from typing import Any, Callable
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Callable
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -26,12 +28,38 @@ from antigravity_k.tools.web_search import (
     _generate_fallback_queries,
 )
 
+SearchTuple = tuple[str, str, str]
+SearchResults = list[SearchTuple]
 
-def _mock_httpx_client(method: str, callback: Callable[..., Any]) -> MagicMock:
+
+def _mock_httpx_client(method: str, callback: Callable[..., object]) -> MagicMock:
     client = MagicMock()
-    request_method = getattr(client.__enter__.return_value, method)
-    request_method.side_effect = callback
+    client.configure_mock(**{f"__enter__.return_value.{method}.side_effect": callback})
     return client
+
+
+def _client_factory(method: str, callback: Callable[..., object]) -> Callable[..., MagicMock]:
+    def factory(*_args: object, **_kwargs: object) -> MagicMock:
+        return _mock_httpx_client(method, callback)
+
+    return factory
+
+
+def _empty_search(_query: str, **_kwargs: object) -> SearchResults:
+    return []
+
+
+def _empty_search_no_kwargs(_query: str) -> SearchResults:
+    return []
+
+
+def _empty_content(_url: str, max_chars: int = 2000) -> str:
+    del max_chars
+    return ""
+
+
+def _raise_stock_validation(_query: str) -> object:
+    raise RuntimeError("Simulated")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -170,7 +198,7 @@ class TestGenerateFallbackQueries:
 
 
 @pytest.fixture
-def search_cache(tmp_path):
+def search_cache(tmp_path: Path) -> Iterator[SearchCache]:
     """SearchCache with isolated temp directory."""
     import antigravity_k.tools.web_search_cache as wsc
 
@@ -187,11 +215,11 @@ def search_cache(tmp_path):
 class TestSearchCache:
     """SearchCache: get/set/clear/stats/force_refresh/TTL/realtime."""
 
-    def test_get_empty_cache(self, search_cache):
+    def test_get_empty_cache(self, search_cache: SearchCache):
         """캐시가 비어있으면 None 반환."""
         assert search_cache.get("삼성전자 주가") is None
 
-    def test_set_and_get(self, search_cache):
+    def test_set_and_get(self, search_cache: SearchCache):
         """캐시 저장 후 조회."""
         response = SearchResponse(
             query="test",
@@ -206,25 +234,25 @@ class TestSearchCache:
         assert len(cached.results) == 1
         assert cached.results[0].title == "T"
 
-    def test_force_refresh(self, search_cache):
+    def test_force_refresh(self, search_cache: SearchCache):
         """force_refresh=True면 캐시 무시하고 None 반환."""
         response = SearchResponse(query="test", results=[SearchResult(title="T", url="https://ex.com", snippet="S")])
         search_cache.set("test", response)
         assert search_cache.get("test", force_refresh=True) is None
 
-    def test_realtime_keyword_bypasses_cache(self, search_cache):
+    def test_realtime_keyword_bypasses_cache(self, search_cache: SearchCache):
         """실시간 키워드(날씨)가 포함되면 캐시 무시."""
         response = SearchResponse(query="날씨", results=[], total_results=0, engine="test")
         search_cache.set("날씨", response)
         # 실시간 키워드는 TTL이 0이어서 set()에서 저장되지 않음
         assert search_cache.get("날씨") is None
 
-    def test_cache_stats_empty(self, search_cache):
+    def test_cache_stats_empty(self, search_cache: SearchCache):
         """빈 캐시의 통계."""
         stats = search_cache.get_cache_stats()
         assert stats["total_files"] == 0
 
-    def test_cache_stats_with_data(self, search_cache):
+    def test_cache_stats_with_data(self, search_cache: SearchCache):
         """데이터가 있는 캐시의 통계."""
         response = SearchResponse(
             query="test",
@@ -233,17 +261,19 @@ class TestSearchCache:
         )
         search_cache.set("test", response)
         stats = search_cache.get_cache_stats()
+        assert isinstance(stats["total_files"], int)
+        assert isinstance(stats["total_size_kb"], (int, float))
         assert stats["total_files"] >= 1
         assert stats["total_size_kb"] > 0
 
-    def test_clear_single(self, search_cache):
+    def test_clear_single(self, search_cache: SearchCache):
         """특정 쿼리 캐시 삭제."""
         response = SearchResponse(query="test", results=[], engine="test")
         search_cache.set("test", response)
         search_cache.clear("test")
         assert search_cache.get("test") is None
 
-    def test_clear_all(self, search_cache):
+    def test_clear_all(self, search_cache: SearchCache):
         """전체 캐시 삭제."""
         for q in ["a", "b", "c"]:
             search_cache.set(
@@ -253,7 +283,7 @@ class TestSearchCache:
         search_cache.clear()
         assert search_cache.get_cache_stats()["total_files"] == 0
 
-    def test_ttl_expiry(self, search_cache):
+    def test_ttl_expiry(self, search_cache: SearchCache):
         """TTL 만료 시 None 반환 (mock으로 시간 조작)."""
         response = SearchResponse(query="expired", results=[], engine="test")
         search_cache.set("expired", response)
@@ -262,12 +292,12 @@ class TestSearchCache:
             from datetime import UTC, datetime, timedelta
 
             # 미래 시간으로 설정 (24시간 이상 지난 것으로 만듦)
-            mock_dt.now.return_value = datetime.now(UTC) + timedelta(hours=48)
+            mock_dt.configure_mock(now=MagicMock(return_value=datetime.now(UTC) + timedelta(hours=48)))
             mock_dt.fromisoformat = datetime.fromisoformat
             cached = search_cache.get("expired")
             assert cached is None
 
-    def test_stale_cache_is_available_with_explicit_marker(self, search_cache):
+    def test_stale_cache_is_available_with_explicit_marker(self, search_cache: SearchCache):
         response = SearchResponse(
             query="expired",
             results=[SearchResult(title="T", url="https://ex.com", snippet="S")],
@@ -278,7 +308,7 @@ class TestSearchCache:
         with patch("antigravity_k.tools.web_search_cache.datetime") as mock_dt:
             from datetime import UTC, datetime, timedelta
 
-            mock_dt.now.return_value = datetime.now(UTC) + timedelta(hours=48)
+            mock_dt.configure_mock(now=MagicMock(return_value=datetime.now(UTC) + timedelta(hours=48)))
             mock_dt.fromisoformat = datetime.fromisoformat
             stale = search_cache.get_stale("expired")
 
@@ -287,35 +317,35 @@ class TestSearchCache:
         assert stale.stale is True
         assert stale.results[0].title == "T"
 
-    def test_ttl_zero_not_cached(self, search_cache):
+    def test_ttl_zero_not_cached(self, search_cache: SearchCache):
         """TTL 0이면 캐시 저장하지 않음."""
         with patch.object(search_cache, "_get_effective_ttl", return_value=0):
             response = SearchResponse(query="test", results=[], engine="test")
             search_cache.set("test", response)
             assert search_cache.get("test") is None
 
-    def test_corrupted_cache_file(self, search_cache):
+    def test_corrupted_cache_file(self, search_cache: SearchCache):
         """손상된 캐시 파일 처리."""
         import antigravity_k.tools.web_search_cache as wsc
 
         key = search_cache._cache_key("corrupt")
         cache_file = wsc.CACHE_DIR / f"{key}.json"
-        cache_file.write_text("not json", encoding="utf-8")
+        _ = cache_file.write_text("not json", encoding="utf-8")
         assert search_cache.get("corrupt") is None
 
-    def test_safe_cache_key(self, search_cache):
+    def test_safe_cache_key(self, search_cache: SearchCache):
         """캐시 키 생성이 안전한 파일명을 만듦."""
         key = search_cache._cache_key("특수문자!@#$%^&*()_+{}|:<>?")
         assert "/" not in key
         assert "\\" not in key
         assert len(key) <= 80
 
-    def test_technical_ttl_72h(self, search_cache):
+    def test_technical_ttl_72h(self, search_cache: SearchCache):
         """기술 문서 쿼리의 TTL은 72시간."""
         ttl = search_cache._get_effective_ttl("python tutorial")
         assert ttl == 72
 
-    def test_finance_ttl_30min(self, search_cache):
+    def test_finance_ttl_30min(self, search_cache: SearchCache):
         """금융 쿼리의 TTL은 0.5시간."""
         ttl = search_cache._get_effective_ttl("삼성전자 주가")
         assert ttl == 0.5
@@ -517,48 +547,52 @@ class TestWebSearchTool:
         result = tool.execute(query="")
         assert "Missing query" in str(result)
 
-    def test_sync_search_jina(self, monkeypatch):
+    def test_sync_search_jina(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_jina — HTTP 응답 모킹."""
         tool = WebSearchTool()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = [
-            {"title": "Jina Result", "url": "https://jina.ex", "description": "Jina desc"},
-        ]
+        mock_response.configure_mock(
+            json=MagicMock(
+                return_value=[
+                    {"title": "Jina Result", "url": "https://jina.ex", "description": "Jina desc"},
+                ],
+            ),
+        )
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_jina("test")
         assert len(results) >= 1
         assert results[0][0] == "Jina Result"
 
-    def test_sync_search_jina_empty(self, monkeypatch):
+    def test_sync_search_jina_empty(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_jina — 200 아니면 빈 리스트."""
         tool = WebSearchTool()
         mock_response = MagicMock()
         mock_response.status_code = 403
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_jina("test")
         assert results == []
 
-    def test_sync_search_jina_exception(self, monkeypatch):
+    def test_sync_search_jina_exception(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_jina — 예외 발생 시 빈 리스트."""
         tool = WebSearchTool()
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             raise ConnectionError("Network error")
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_jina("test")
         assert results == []
 
-    def test_sync_search_duckduckgo(self, monkeypatch):
+    def test_sync_search_duckduckgo(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_duckduckgo — HTML 스크래핑 모킹."""
         tool = WebSearchTool()
         html_content = """
@@ -573,58 +607,62 @@ class TestWebSearchTool:
         mock_response.status_code = 200
         mock_response.text = html_content
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_duckduckgo("test")
         assert len(results) >= 1
         assert results[0][0] == "Title 1"
         assert "Snippet 1" in results[0][2]
 
-    def test_sync_search_duckduckgo_403(self, monkeypatch):
+    def test_sync_search_duckduckgo_403(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_duckduckgo — 403 응답 시 빈 리스트."""
         tool = WebSearchTool()
         mock_response = MagicMock()
         mock_response.status_code = 403
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_duckduckgo("test")
         assert results == []
 
-    def test_sync_search_self_hosted(self, monkeypatch):
+    def test_sync_search_self_hosted(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_self_hosted — API 응답 모킹."""
         tool = WebSearchTool()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {"title": "SH Result", "url": "https://sh.ex", "content": "SH content"},
-            ],
-            "backend": "mock",
-        }
+        mock_response.configure_mock(
+            json=MagicMock(
+                return_value={
+                    "results": [
+                        {"title": "SH Result", "url": "https://sh.ex", "content": "SH content"},
+                    ],
+                    "backend": "mock",
+                },
+            ),
+        )
 
-        def mock_post(*args, **kwargs):
+        def mock_post(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("post", mock_post))
+        monkeypatch.setattr(httpx, "Client", _client_factory("post", mock_post))
         results = tool._sync_search_self_hosted("test")
         assert len(results) >= 1
         assert results[0][0] == "💡 AI Answer" or results[0][0] == "SH Result"
 
-    def test_sync_search_self_hosted_http_error(self, monkeypatch):
+    def test_sync_search_self_hosted_http_error(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_self_hosted — HTTP 오류 시 빈 리스트."""
         tool = WebSearchTool()
 
-        def mock_post(*args, **kwargs):
+        def mock_post(*_args: object, **_kwargs: object) -> MagicMock:
             resp = MagicMock()
             resp.status_code = 500
             return resp
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("post", mock_post))
+        monkeypatch.setattr(httpx, "Client", _client_factory("post", mock_post))
         results = tool._sync_search_self_hosted("test")
         assert results == []
 
@@ -635,7 +673,7 @@ class TestWebSearchTool:
         results = tool._sync_search_searxng("test")
         assert results == []
 
-    def test_execute_with_stock_validation(self, monkeypatch):
+    def test_execute_with_stock_validation(self, monkeypatch: pytest.MonkeyPatch):
         """execute — 종목코드 검증이 실패해도 계속 실행됨 (graceful degradation)."""
         import antigravity_k.engine.stock_code_validator as scv
 
@@ -645,37 +683,41 @@ class TestWebSearchTool:
         monkeypatch.setattr(
             scv,
             "validate_query_stock_codes",
-            lambda q: (_ for _ in ()).throw(RuntimeError("Simulated")),
+            _raise_stock_validation,
         )
 
         # Mock all search methods to return empty
-        monkeypatch.setattr(tool, "_sync_search_self_hosted", lambda q, **kw: [])
-        monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_duckduckgo", lambda q: [])
+        monkeypatch.setattr(tool, "_sync_search_self_hosted", _empty_search)
+        monkeypatch.setattr(tool, "_sync_search_searxng", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_jina", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_duckduckgo", _empty_search_no_kwargs)
 
         result = tool.execute(query="096732 한화에어로스페이스 주가 알려줘")
         assert isinstance(result, str)
         assert "결과 없음" in result
 
-    def test_execute_with_results(self, monkeypatch):
+    def test_execute_with_results(self, monkeypatch: pytest.MonkeyPatch):
         """execute — 검색 결과가 있으면 포맷팅된 문자열 반환."""
         tool = WebSearchTool()
+
+        def search_with_result(_query: str, **_kwargs: object) -> SearchResults:
+            return [("Title", "https://ex.com", "Snippet content")]
+
         monkeypatch.setattr(
             tool,
             "_sync_search_self_hosted",
-            lambda q, **kw: [("Title", "https://ex.com", "Snippet content")],
+            search_with_result,
         )
-        monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_duckduckgo", lambda q: [])
+        monkeypatch.setattr(tool, "_sync_search_searxng", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_jina", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_duckduckgo", _empty_search_no_kwargs)
         # Jina Reader 내부 httpx 호출 차단 (실제 네트워크 방지)
-        monkeypatch.setattr(tool.engine, "_extract_content_jina", lambda url, max_chars=2000: "")
+        monkeypatch.setattr(tool.engine, "_extract_content_jina", _empty_content)
 
         # Fallback httpx.Client도 차단 → 스니펫 폴백 메시지에 포함됨
-        def _mock_client(*a, **kw):
+        def _mock_client(*_args: object, **_kwargs: object) -> MagicMock:
             m = MagicMock()
-            m.__enter__.return_value.get.side_effect = httpx.ConnectError("mocked")
+            m.configure_mock(**{"__enter__.return_value.get.side_effect": httpx.ConnectError("mocked")})
             return m
 
         monkeypatch.setattr(httpx, "Client", _mock_client)
@@ -685,43 +727,46 @@ class TestWebSearchTool:
         assert "Title" in result
         assert "Snippet content" in result
 
-    def test_execute_deep_mode(self, monkeypatch):
+    def test_execute_deep_mode(self, monkeypatch: pytest.MonkeyPatch):
         """execute — deep 모드로 추가 결과 요청."""
         tool = WebSearchTool()
         results_standard = [("T1", "https://ex.com/1", "S1")]
         results_deep = [("T2", "https://ex.com/2", "S2")]
 
+        def search_by_depth(_query: str, **kwargs: object) -> SearchResults:
+            return results_standard if not kwargs.get("deep") else results_deep
+
         monkeypatch.setattr(
             tool,
             "_sync_search_self_hosted",
-            lambda q, **kw: results_standard if not kw.get("deep") else results_deep,
+            search_by_depth,
         )
-        monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_duckduckgo", lambda q: [])
+        monkeypatch.setattr(tool, "_sync_search_searxng", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_jina", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_duckduckgo", _empty_search_no_kwargs)
 
         result = tool.execute(query="test", depth="deep")
         assert isinstance(result, str)
         assert "T1" in result
 
-    def test_execute_all_engines_empty_no_fallback(self, monkeypatch):
+    def test_execute_all_engines_empty_no_fallback(self, monkeypatch: pytest.MonkeyPatch):
         """execute — 모든 엔진 결과 없음 + fallback 실패."""
         tool = WebSearchTool()
-        monkeypatch.setattr(tool, "_sync_search_self_hosted", lambda q, **kw: [])
-        monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_duckduckgo", lambda q: [])
+        monkeypatch.setattr(tool, "_sync_search_self_hosted", _empty_search)
+        monkeypatch.setattr(tool, "_sync_search_searxng", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_jina", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_duckduckgo", _empty_search_no_kwargs)
 
         result = tool.execute(query="zzzznonexistent")
         assert isinstance(result, str)
         assert "결과 없음" in result
 
-    def test_execute_fallback_success(self, monkeypatch):
+    def test_execute_fallback_success(self, monkeypatch: pytest.MonkeyPatch):
         """execute — 첫 번째 엔진 실패 시 fallback 성공."""
         tool = WebSearchTool()
         call_count = 0
 
-        def mock_self_hosted(q, **kw):
+        def mock_self_hosted(_q: str, **_kw: object) -> list[tuple[str, str, str]]:
             nonlocal call_count
             call_count += 1
             if call_count > 1:
@@ -729,82 +774,90 @@ class TestWebSearchTool:
             return []
 
         monkeypatch.setattr(tool, "_sync_search_self_hosted", mock_self_hosted)
-        monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_duckduckgo", lambda q: [])
+        monkeypatch.setattr(tool, "_sync_search_searxng", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_duckduckgo", _empty_search_no_kwargs)
 
         result = tool.execute(query="test")
         assert isinstance(result, str)
         # Should have some content — either original or fallback
         assert len(result) > 0
 
-    def test_sync_search_searxng_results(self, monkeypatch):
+    def test_sync_search_searxng_results(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_searxng — 정상 응답."""
         tool = WebSearchTool()
         tool.searxng_url = "http://localhost:8080"
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {"title": "SX Result", "url": "https://sx.ex", "content": "SX content"},
-            ],
-        }
+        mock_response.configure_mock(
+            json=MagicMock(
+                return_value={
+                    "results": [
+                        {"title": "SX Result", "url": "https://sx.ex", "content": "SX content"},
+                    ],
+                },
+            ),
+        )
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_searxng("test")
         assert len(results) >= 1
         assert results[0][0] == "SX Result"
 
-    def test_sync_search_searxng_http_error(self, monkeypatch):
+    def test_sync_search_searxng_http_error(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_searxng — HTTP 오류 시 빈 리스트."""
         tool = WebSearchTool()
         tool.searxng_url = "http://localhost:8080"
         mock_response = MagicMock()
         mock_response.status_code = 500
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_searxng("test")
         assert results == []
 
-    def test_stock_ticker_snippet_in_results(self, monkeypatch):
+    def test_stock_ticker_snippet_in_results(self, monkeypatch: pytest.MonkeyPatch):
         """execute — Self-Hosted stock_data가 스니펫에 포함됨."""
         tool = WebSearchTool()
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Stock Result",
-                    "url": "https://ex.com/stock",
-                    "content": "주가 정보입니다",
-                    "stock_data": {
-                        "name": "한화에어로스페이스",
-                        "ticker": "012450",
-                        "price": 943000,
-                        "change_percent": 1.51,
-                        "direction": "상승",
-                    },
+        mock_response.configure_mock(
+            json=MagicMock(
+                return_value={
+                    "results": [
+                        {
+                            "title": "Stock Result",
+                            "url": "https://ex.com/stock",
+                            "content": "주가 정보입니다",
+                            "stock_data": {
+                                "name": "한화에어로스페이스",
+                                "ticker": "012450",
+                                "price": 943000,
+                                "change_percent": 1.51,
+                                "direction": "상승",
+                            },
+                        },
+                    ],
+                    "backend": "mock",
                 },
-            ],
-            "backend": "mock",
-        }
+            ),
+        )
 
-        def mock_post(*args, **kwargs):
+        def mock_post(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("post", mock_post))
+        monkeypatch.setattr(httpx, "Client", _client_factory("post", mock_post))
 
-        monkeypatch.setattr(tool, "_sync_search_searxng", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_jina", lambda q: [])
-        monkeypatch.setattr(tool, "_sync_search_duckduckgo", lambda q: [])
+        monkeypatch.setattr(tool, "_sync_search_searxng", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_jina", _empty_search_no_kwargs)
+        monkeypatch.setattr(tool, "_sync_search_duckduckgo", _empty_search_no_kwargs)
         # Jina Reader 차단 — 실제 HTTP 호출 방지
-        monkeypatch.setattr(tool.engine, "_extract_content_jina", lambda url, max_chars=2000: "")
+        monkeypatch.setattr(tool.engine, "_extract_content_jina", _empty_content)
 
         result = tool.execute(query="한화에어로스페이스 주가")
         assert isinstance(result, str)
@@ -821,7 +874,7 @@ class TestWebSearchTool:
 class TestWebSearchEdgeCases:
     """Edge cases: exceptions, empty inputs, special characters."""
 
-    def test_duckduckgo_uddg_url_extraction(self, monkeypatch):
+    def test_duckduckgo_uddg_url_extraction(self, monkeypatch: pytest.MonkeyPatch):
         """_sync_search_duckduckgo — uddg URL에서 실제 URL 추출."""
         tool = WebSearchTool()
         html_content = """
@@ -834,10 +887,10 @@ class TestWebSearchEdgeCases:
         mock_response.status_code = 200
         mock_response.text = html_content
 
-        def mock_get(*args, **kwargs):
+        def mock_get(*_args: object, **_kwargs: object) -> MagicMock:
             return mock_response
 
-        monkeypatch.setattr(httpx, "Client", lambda *a, **kw: _mock_httpx_client("get", mock_get))
+        monkeypatch.setattr(httpx, "Client", _client_factory("get", mock_get))
         results = tool._sync_search_duckduckgo("test")
         assert len(results) == 1
         assert "example.com/page" in results[0][1]
@@ -848,7 +901,7 @@ class TestWebSearchEdgeCases:
         queries = _generate_fallback_queries("『파이썬』 문법 [정리]!")
         assert len(queries) >= 1
 
-    def test_cache_key_with_long_query(self, tmp_path):
+    def test_cache_key_with_long_query(self, tmp_path: Path):
         """매우 긴 쿼리의 캐시 키는 80자로 제한."""
         import antigravity_k.tools.web_search as ws
 

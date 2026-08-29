@@ -102,10 +102,11 @@ class WebSearchTool(BaseTool):
     # execute() — 메인 진입점 (분해된 메서드들로 구성)
     # ════════════════════════════════════════════════════════════════
 
-    def execute(self, **kwargs) -> Any:
-        query = kwargs.get("query")
-        if not query:
+    def execute(self, **kwargs: object) -> str:
+        query_value = kwargs.get("query")
+        if not isinstance(query_value, str) or not query_value:
             return "Error: Missing query"
+        query = query_value
 
         depth = kwargs.get("depth", "standard")
         is_deep = depth == "deep"
