@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `95377c7` (Sillok 검색 테스트 동적 래퍼 계약 보강 포함)
-- 전체 `basedpyright`: `0 errors, 27651 warnings, 0 notes` (KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `a4b6310` (Vault 테스트 fixture·동시성 경계 타입 보강 포함)
+- 전체 `basedpyright`: `0 errors, 27535 warnings, 0 notes` (KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `a4b6310`: `tests/test_vault.py`의 VaultEngine fixture, 동시성 writer, subprocess spy, monkeypatch callback과 의도적 반환값을 명시적으로 타입화했다. Vault 12개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 파일 경고가 `116 → 0`으로 감소했다. 전체 basedpyright는 `0 errors, 27535 warnings, 0 notes`다.
 
 - `95377c7`: `test_sillok_search.py`에 동적 `exec` 래퍼를 위한 `.pyi` export 계약과 네트워크 테스트 double 타입을 추가해 런타임 동작은 유지하면서 파일 경고를 `111 → 0`으로 줄였다. 13개 테스트, Ruff, Ruff-format, py_compile, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 27651 warnings, 0 notes`다.
 
