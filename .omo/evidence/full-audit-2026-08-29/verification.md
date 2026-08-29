@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `900d555`; whole-tree basedpyright reports `0 errors, 27311 warnings, 0 notes`. `tests/test_browser_session_state.py` now accesses the private session-ID helper through a typed adapter and consumes the expected limit-error return value; its 3-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `676408e`; whole-tree basedpyright reports `0 errors, 27313 warnings, 0 notes`. `tests/test_workspace_links.py` now accesses the private link generator through an explicit callable/`TypedDict` adapter; its 4-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `69c9764`; whole-tree basedpyright reports `0 errors, 27314 warnings, 0 notes`. `tests/test_symbol_navigator.py` now explicitly consumes its symbol-index fixture write result; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
