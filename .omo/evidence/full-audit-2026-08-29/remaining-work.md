@@ -8,7 +8,7 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `43a5b86` (Error classifier 응답 double 경계 정리 포함)
+- 최신 검증 커밋: `6d4d538` (RAG·classifier checkpoint 기록 포함)
 - 전체 `basedpyright`: `0 errors, 27520 warnings, 0 notes` (KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
