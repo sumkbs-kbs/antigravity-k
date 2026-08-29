@@ -30,6 +30,7 @@ def test_backup_manager_snapshot_and_rollback(setup_test_env):
     target_files = ["src/antigravity_k/target.py", "test_process.md"]
     bm.create_snapshot(target_files)
 
+    assert bm.current_snapshot is not None
     assert bm.current_snapshot.exists()
     assert (bm.current_snapshot / "src" / "antigravity_k" / "target.py").exists()
 

@@ -39,8 +39,10 @@ class TestObstacle:
         bbox = BoundingBox(x=10, y=20, width=100, height=200)
         obs = Obstacle(type="popup", description="Test popup", bbox=bbox)
         assert obs.bbox == bbox
-        assert obs.bbox.x == 10
-        assert obs.bbox.y == 20
+        obs_bbox = obs.bbox
+        assert obs_bbox is not None
+        assert obs_bbox.x == 10
+        assert obs_bbox.y == 20
 
     def test_cookie_banner_not_blocking(self):
         """쿠키 배너는 blocking=False (다른 요소와 상호작용 가능)."""
@@ -190,9 +192,10 @@ class TestParseObstacles:
         assert obstacles[0].type == "modal"
         assert obstacles[0].description == "Login required"
         assert obstacles[0].blocking is True
-        assert obstacles[0].bbox is not None
-        assert obstacles[0].bbox.x == 100
-        assert obstacles[0].bbox.y == 200
+        obstacle_bbox = obstacles[0].bbox
+        assert obstacle_bbox is not None
+        assert obstacle_bbox.x == 100
+        assert obstacle_bbox.y == 200
         assert obstacles[0].close_ref == ""  # closeBtn 없음
 
     def test_modal_with_close_btn(self, hybrid, empty_snapshot):

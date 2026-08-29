@@ -1,7 +1,10 @@
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Request
+from starlette.datastructures import State
 
 from antigravity_k.engine.engine_context import EngineContext
 from antigravity_k.engine.memory_contracts import ProjectMemoryBindingError
@@ -50,8 +53,16 @@ def test_cognitive_memory_database_is_project_scoped(tmp_path: Path) -> None:
     context_b = EngineContext(model_manager=MagicMock(), project_root=str(project_b))
 
     # Then: each SQLite database resides under its own project root.
-    path_a = Path(context_a.cognitive_loop.cavemem_store.db_path).resolve()
-    path_b = Path(context_b.cognitive_loop.cavemem_store.db_path).resolve()
+    loop_a = context_a.cognitive_loop
+    loop_b = context_b.cognitive_loop
+    assert loop_a is not None
+    assert loop_b is not None
+    store_a = loop_a.cavemem_store
+    store_b = loop_b.cavemem_store
+    assert store_a is not None
+    assert store_b is not None
+    path_a = Path(store_a.db_path).resolve()
+    path_b = Path(store_b.db_path).resolve()
     assert path_a == project_a / ".antigravity" / "memory" / "cavemem.sqlite3"
     assert path_b == project_b / ".antigravity" / "memory" / "cavemem.sqlite3"
 
@@ -358,12 +369,12 @@ async def test_project_scope_purge_route_is_audited(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(system_api, "_get_memory_manager", lambda: manager)
     monkeypatch.setattr(system_api, "get_audit_logger", lambda: audit)
 
-    class Request:
+    class RequestStub:
         async def json(self):
             return {"scope": "project"}
 
     # When: project memory is purged through the route surface.
-    result = await system_api.purge_memory(Request())
+    result = await system_api.purge_memory(cast(Request[State], cast(object, RequestStub())))
 
     # Then: the project provider count and scope are audited.
     assert result == {"ok": True, "scope": "project", "deleted": {"project": 1}}

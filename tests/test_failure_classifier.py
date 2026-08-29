@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -48,7 +49,7 @@ def test_classify_tool_failure(tool, message, expected):
 
 
 def test_classify_accepts_non_string():
-    failure = classify_tool_failure("read_file", 42)
+    failure = classify_tool_failure("read_file", cast(str, cast(object, 42)))
     assert failure.category is FailureCategory.unknown
 
 

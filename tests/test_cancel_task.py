@@ -27,6 +27,7 @@ def test_cancel_task():
     time.sleep(1)  # Let it start running
 
     status = runner.get_status(task_id)
+    assert status is not None
     print(f"Status before cancel: {status['status']}")
 
     print(f"Cancelling task {task_id}...")
@@ -36,6 +37,7 @@ def test_cancel_task():
     time.sleep(1)  # Wait for thread to notice the event and abort
 
     status = runner.get_status(task_id)
+    assert status is not None
     print(f"Status after cancel: {status['status']}")
 
     if status["status"] == "cancelled":
