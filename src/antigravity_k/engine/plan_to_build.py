@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, final
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # ─── 데이터 모델 ──────────────────────────────────────────────────────
 
 
+@final
 class TransitionPhase(str):
     """전환 파이프라인의 각 단계."""
 
@@ -128,6 +129,7 @@ class TransitionResult:
 # ─── 메인 파이프라인 ──────────────────────────────────────────────────
 
 
+@final
 class PlanToBuildPipeline:
     """Plan→Build 자동 전환 파이프라인.
 
@@ -413,7 +415,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _check_quality(self, plan_file: str, validation: dict[str, Any]) -> dict[str, Any]:
+    def _check_quality(self, plan_file: str, _validation: dict[str, Any]) -> dict[str, Any]:
         """Step 2: QualityGate로 Plan 품질을 평가합니다.
 
         ArtifactEngine의 validate_plan_complete() 결과를
