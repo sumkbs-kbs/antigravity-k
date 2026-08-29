@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnknownMemberType=false
 """Freebuff-Style Proactive Pipeline — 벤치마크 결과 시각화 대시보드.
 
 JSON 벤치마크 결과를 읽어 matplotlib 기반 차트를 생성합니다.
@@ -61,10 +62,39 @@ plt.rcParams["savefig.bbox"] = "tight"
 # ─── 데이터 로드 ──────────────────────────────────────────────────
 
 
+_REQUIRED_STATS = ("avg_ms", "median_ms", "min_ms", "max_ms", "p95_ms", "stddev_ms", "n")
+
+
+def _validate_benchmark_data(data: object, path: str) -> dict[str, Any]:
+    if not isinstance(data, dict) or not data:
+        raise ValueError(f"{path}: expected a non-empty stage mapping")
+
+    for stage, payload in data.items():
+        if not isinstance(stage, str) or not isinstance(payload, dict):
+            raise ValueError(f"{path}: each stage must map to an object")
+        stats = payload.get("stats")
+        samples = payload.get("samples")
+        if not isinstance(stats, dict) or not isinstance(samples, list):
+            raise ValueError(f"{path}: stage '{stage}' needs 'stats' and 'samples'")
+        missing_stats = [key for key in _REQUIRED_STATS if key not in stats]
+        if missing_stats:
+            missing = ", ".join(missing_stats)
+            raise ValueError(f"{path}: stage '{stage}' is missing stats: {missing}")
+
+    return data
+
+
 def load_benchmark(path: str) -> dict[str, Any]:
     """JSON 벤치마크 파일을 로드합니다."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw_data = json.load(f)
+    except OSError as exc:
+        raise ValueError(f"{path}: unable to read input ({exc})") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{path}: invalid JSON at line {exc.lineno}, column {exc.colno}") from exc
+
+    return _validate_benchmark_data(raw_data, path)
 
 
 # ─── 색상 / 레이블 헬퍼 ──────────────────────────────────────────
@@ -143,7 +173,7 @@ def plot_overview(data: dict[str, Any], output_dir: str, fmt: str):
     )
 
     # 막대 위 값 표시
-    for bar, val, p95 in zip(bars_avg, avg_vals, p95_vals):
+    for bar, val, _p95 in zip(bars_avg, avg_vals, p95_vals):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + max_vals[0] * 0.02,
@@ -343,8 +373,7 @@ def plot_breakdown(data: dict[str, Any], output_dir: str, fmt: str):
 
         ax.set_xlabel("Latency (ms)", fontsize=11)
         ax.set_title(
-            f"Context Enrich — 세부 Breakdown\n"
-            f"({meta.get('files_indexed', '?')} files, {meta.get('tree_size_kb', '?')} KB tree)",
+            f"Context Enrich — 세부 Breakdown\n({meta.get('files_indexed', '?')} files, {meta.get('tree_size_kb', '?')} KB tree)",
             fontsize=12,
             fontweight="bold",
         )
@@ -381,8 +410,7 @@ def plot_breakdown(data: dict[str, Any], output_dir: str, fmt: str):
 
         ax.set_xlabel("Latency (ms)", fontsize=11)
         ax.set_title(
-            f"Code Review — 세부 Breakdown\n"
-            f"({meta.get('changed_files', '?')} files, {meta.get('diff_size_bytes', '?')} bytes diff)",
+            f"Code Review — 세부 Breakdown\n({meta.get('changed_files', '?')} files, {meta.get('diff_size_bytes', '?')} bytes diff)",
             fontsize=12,
             fontweight="bold",
         )
@@ -651,27 +679,27 @@ def main():
     parser = argparse.ArgumentParser(
         description="Freebuff-Style Proactive Pipeline — 벤치마크 시각화",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "input",
         help="JSON 벤치마크 결과 파일 경로",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--output-dir",
         default="charts",
         help="차트 출력 디렉토리 (기본: ./charts)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--format",
         default="png",
         choices=["png", "svg", "pdf"],
         help="출력 이미지 포맷 (기본: png)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--show",
         action="store_true",
         help="GUI로 차트 표시 (png 저장 안 함)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--skip-charts",
         nargs="*",
         choices=["overview", "trends", "breakdown", "heatmap", "subcomponent"],
@@ -692,7 +720,10 @@ def main():
     print(f"   출력: {args.output_dir}/")
     print()
 
-    data = load_benchmark(args.input)
+    try:
+        data = load_benchmark(args.input)
+    except ValueError as exc:
+        parser.error(str(exc))
     stages = list(data.keys())
 
     print(f"   로드된 스테이지: {', '.join(stages)}")
