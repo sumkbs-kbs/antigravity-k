@@ -22,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 import uvicorn
@@ -37,10 +37,12 @@ try:
     from antigravity_k.knowledge.wiki import LLMWiki
     from antigravity_k.tools.web_search import WebSearchEngine
 
-    HAS_TOOLS = True
+    has_tools = True
 except ImportError:
-    HAS_TOOLS = False
+    has_tools = False
     KanbanBoard = None
+    LLMWiki = None
+    WebSearchEngine = None
 
 # ─── 로깅 설정 ───────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -104,16 +106,16 @@ MODEL_ROUTES: dict[str, str] = {
 }
 
 # 시스템 프롬프트 (Reasoning Traces)
-SYSTEM_PROMPT: str = ""
+_system_prompt: str = ""
 SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "system_prompt.md"
 
 
 def load_system_prompt():
     """시스템 프롬프트 파일을 로드합니다."""
-    global SYSTEM_PROMPT
+    global _system_prompt
     if SYSTEM_PROMPT_PATH.exists():
-        SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
-        logger.info(f"시스템 프롬프트 로드 완료: {len(SYSTEM_PROMPT)}자")
+        _system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+        logger.info(f"시스템 프롬프트 로드 완료: {len(_system_prompt)}자")
     else:
         logger.warning(f"시스템 프롬프트 파일 없음: {SYSTEM_PROMPT_PATH}")
 
@@ -236,7 +238,7 @@ def log_request(method: str, path: str, model: str, backend_name: str):
 # ─── API 엔드포인트 ──────────────────────────────────────────────────────────
 
 # Kanban 상태 및 WebSocket 관련 전역 변수
-kanban_board: Optional[KanbanBoard] = None
+kanban_board: Any = None
 active_websockets: list[WebSocket] = []
 
 
@@ -281,7 +283,7 @@ async def startup():
     scan_finetuned_models()
 
     # Kanban 보드 초기화 및 브로드캐스터 시작
-    if HAS_TOOLS and KanbanBoard:
+    if has_tools and KanbanBoard:
         kanban_board = KanbanBoard()
         asyncio.create_task(kanban_broadcaster())
         logger.info("Kanban 보드 및 웹소켓 브로드캐스터 시작됨")
@@ -331,7 +333,7 @@ async def chat_completions(request: Request):
     agent_mode = body.get("agent_mode", False)
 
     # ── Reasoning Traces: 시스템 프롬프트 자동 주입 ──────────────
-    if SYSTEM_PROMPT and "messages" in body:
+    if _system_prompt and "messages" in body:
         messages = body["messages"]
         has_system = any(m.get("role") == "system" for m in messages)
         if not has_system:
@@ -343,7 +345,7 @@ async def chat_completions(request: Request):
 - <tool_call>{"name": "wiki_search", "arguments": {"query": "검색어"}}</tool_call>
 필요하다면 위 형식에 맞춰 <tool_call> 태그를 출력하세요. 실행 결과는 <tool_response> 로 전달됩니다."""
             body["messages"] = [
-                {"role": "system", "content": SYSTEM_PROMPT + system_ext},
+                {"role": "system", "content": _system_prompt + system_ext},
                 *messages,
             ]
             logger.info("[Reasoning] 시스템 프롬프트 자동 주입 완료")
@@ -366,18 +368,19 @@ async def chat_completions(request: Request):
     logger.info(f"[#{request_counter}] {model} → {backend.name} ({target_url})")
 
     assert http_client is not None
+    client = http_client
 
     if stream:
         if agent_mode and agent_executor:
             # Agent Loop Stream (QueryEngine Pattern)
             return StreamingResponse(
-                agent_executor.run_agent_stream(http_client, target_url, body),
+                agent_executor.run_agent_stream(client, target_url, body),
                 media_type="text/event-stream",
             )
         else:
             # 일반 스트리밍 응답 포워딩
             async def stream_response():
-                async with http_client.stream(
+                async with client.stream(
                     "POST", target_url, json=body, headers={"Content-Type": "application/json"}
                 ) as resp:
                     async for chunk in resp.aiter_bytes():
@@ -530,18 +533,18 @@ async def websocket_kanban(websocket: WebSocket):
 
 # ─── 웹 검색 및 에이전트 도구 API ────────────────────────────────────────────────
 
-search_engine: Optional[WebSearchEngine] = None
-wiki: Optional[LLMWiki] = None
+search_engine: Any = None
+wiki: Any = None
 
 
 class AgentExecutor:
     """Hermes Agent Reasoning Traces 형식의 도구 호출을 처리하는 실행기"""
 
-    def __init__(self, search_engine, wiki):
+    def __init__(self, search_engine: Any, wiki: Any) -> None:
         self.search_engine = search_engine
         self.wiki = wiki
 
-    async def execute_tool(self, tool_name: str, arguments: dict) -> str:
+    async def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         logger.info(f"[AgentExecutor] 도구 실행: {tool_name}({arguments})")
         try:
             # 외부 MCP 서버 라우팅 훅
@@ -567,7 +570,7 @@ class AgentExecutor:
         except Exception as e:
             return f"Error: 도구 실행 중 오류 발생 - {e}"
 
-    async def run_agent_stream(self, client: httpx.AsyncClient, target_url: str, body: dict):
+    async def run_agent_stream(self, client: httpx.AsyncClient, target_url: str, body: dict[str, Any]):
         """Tool execution loop 처리. 클라이언트에는 SSE 형식으로 스트리밍"""
         import re
 
@@ -642,7 +645,7 @@ agent_executor: Optional[AgentExecutor] = None
 async def init_tools():
     """웹 검색 엔진, Wiki 및 AgentExecutor를 초기화합니다."""
     global search_engine, wiki, agent_executor
-    if HAS_TOOLS:
+    if has_tools and WebSearchEngine is not None and LLMWiki is not None:
         search_engine = WebSearchEngine()
         wiki = LLMWiki()
         agent_executor = AgentExecutor(search_engine, wiki)

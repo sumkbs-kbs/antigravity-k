@@ -17,7 +17,7 @@ import json
 import os
 import sys
 import time
-from typing import Callable
+from collections.abc import Callable, Generator
 
 # 프로젝트 루트 탐색
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 
 
 @contextlib.contextmanager
-def timer_ms() -> Callable:
+def timer_ms() -> Generator[Callable[[], float], None, None]:
     start = time.perf_counter()
     yield lambda: (time.perf_counter() - start) * 1000
 
@@ -43,7 +43,7 @@ class TestRunner:
         self.runs = runs
         self.results: dict[str, list[float]] = {}
 
-    def run(self, name: str, fn: Callable, *args, **kwargs):
+    def run(self, name: str, fn: Callable[..., object], *args: object, **kwargs: object) -> None:
         """테스트 함수를 N회 실행하고 elapsed_ms를 수집합니다."""
         times: list[float] = []
         for i in range(self.runs):
@@ -71,7 +71,7 @@ def _p95(vals: list[float]) -> float:
     return s[min(idx, len(s) - 1)]
 
 
-def _stats(vals: list[float]) -> dict:
+def _stats(vals: list[float]) -> dict[str, float]:
     if not vals:
         return {"avg": 0, "median": 0, "min": 0, "max": 0, "p95": 0, "stddev": 0}
     n = len(vals)
@@ -439,7 +439,7 @@ def main():
     print(f"  RECOMMENDED THRESHOLDS (margin={args.margin}x)")
     print(f"{'=' * 60}\n")
 
-    all_recommendations: dict[str, dict] = {}
+    all_recommendations: dict[str, dict[str, object]] = {}
 
     print(f"  {'Test':<45} {'Max(ms)':<10} {'P95(ms)':<10} {'→ Thresh(ms)':<15}")
     print(f"  {'-' * 45} {'-' * 10} {'-' * 10} {'-' * 15}")
@@ -461,7 +461,7 @@ def main():
     print("  Pipeline-level env var thresholds")
     print(f"  {'=' * 40}\n")
 
-    pipeline_recs: dict[str, dict] = {}
+    pipeline_recs: dict[str, dict[str, object]] = {}
     for stage_name, test_names in STAGE_GROUPS.items():
         if stage_name in skip:
             continue

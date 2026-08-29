@@ -102,7 +102,7 @@ class BenchmarkResult:
 
 
 @contextlib.contextmanager
-def timer() -> Generator[float, None, None]:
+def timer() -> Generator[Callable[[], float], None, None]:
     """밀리초 단위 타이머 컨텍스트 매니저. elapsed_ms를 yield."""
     start = time.perf_counter()
     yield lambda: (time.perf_counter() - start) * 1000
@@ -581,7 +581,7 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
 
 def run_benchmark(
     stage: str,
-    benchmark_fn: Callable,
+    benchmark_fn: Callable[[str, int], BenchmarkSample],
     project_root: str,
     iterations: int,
     warmup: bool = True,
