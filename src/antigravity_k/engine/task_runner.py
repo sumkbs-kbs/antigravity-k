@@ -85,10 +85,17 @@ class TaskCheckpoint:
 class BackgroundTask:
     """백그라운드 태스크 상태 객체"""
 
-    def __init__(self, task_id: str, prompt: str, context: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        task_id: str,
+        prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        owner_subject: str = "loopback",
+    ):
         self.task_id = task_id
         self.prompt = prompt
         self.context = context or {}
+        self.owner_subject = owner_subject or "loopback"
         self.status = TaskStatus.PENDING
         self.progress = 0.0
         self.output = ""
@@ -166,6 +173,7 @@ class BackgroundTaskRunner:
         target_model: str = "",
         use_worktree: bool = False,
         idempotency_key: str | None = None,
+        owner_subject: str = "loopback",
     ) -> str:
         """
         태스크를 백그라운드 스레드에 제출합니다.
@@ -184,11 +192,12 @@ class BackgroundTaskRunner:
             TaskStatus.PENDING,
             created_at,
             idempotency_key=idempotency_key,
+            owner_subject=owner_subject,
         )
         if stored_task_id != task_id:
             return stored_task_id
 
-        task = BackgroundTask(task_id, prompt, task_context)
+        task = BackgroundTask(task_id, prompt, task_context, owner_subject=owner_subject)
         self._save_checkpoint(task_id, 0, task.context, "")
 
         if use_worktree:
@@ -230,25 +239,27 @@ class BackgroundTaskRunner:
         prompt_lower = prompt.casefold()
         return any(marker in prompt_lower for marker in _DIRECT_RESPONSE_MARKERS)
 
-    def cancel_task(self, task_id: str) -> bool:
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
         """현재 실행 중인 태스크에 중단 시그널을 보냅니다."""
         with self._lock:
             task = self._tasks.get(task_id)
+            if task is not None and owner_subject is not None and task.owner_subject != owner_subject:
+                task = None
 
         if not task:
             # Check DB
-            status_info = self.get_status(task_id)
+            status_info = self.get_status(task_id, owner_subject=owner_subject)
             if status_info and status_info["status"] in [
                 TaskStatus.PENDING,
                 TaskStatus.RUNNING,
             ]:
-                self._update_db_status(
+                updated = self._update_db_status(
                     task_id,
                     TaskStatus.CANCELLED,
                     error="Task was cancelled before it started executing or it was lost in memory.",
                 )
                 task_process_supervisor.cancel_task(task_id)
-                return True
+                return updated
             return False
 
         if task.status in [TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.CANCELLED]:
@@ -511,15 +522,17 @@ class BackgroundTaskRunner:
         except Exception:
             logger.exception("Task outcome recording failed: %s", task.task_id)
 
-    def get_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_status(self, task_id: str, owner_subject: str | None = None) -> Optional[Dict[str, Any]]:
         """태스크 진행 상태를 조회합니다."""
         with self._lock:
             task = self._tasks.get(task_id)
+            if task is not None and owner_subject is not None and task.owner_subject != owner_subject:
+                task = None
 
         if task:
             return task.to_dict()
 
-        record = self.state_store.get_task(task_id)
+        record = self.state_store.get_task(task_id, owner_subject=owner_subject)
         if record:
             return {
                 "task_id": record["task_id"],
@@ -533,18 +546,20 @@ class BackgroundTaskRunner:
             }
         return None
 
-    def list_tasks(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> List[Dict[str, Any]]:
         """최근 태스크 목록을 반환합니다."""
         results = []
 
         # 메모리의 활성 태스크
         with self._lock:
             for task in self._tasks.values():
+                if owner_subject is not None and task.owner_subject != owner_subject:
+                    continue
                 results.append(task.to_dict())
 
         # DB의 히스토리 (활성 태스크와 중복 제거)
         active_ids = {r["task_id"] for r in results}
-        for record in self.state_store.list_tasks(limit):
+        for record in self.state_store.list_tasks(limit, owner_subject=owner_subject):
             if record["task_id"] not in active_ids:
                 results.append(
                     {
@@ -559,14 +574,16 @@ class BackgroundTaskRunner:
 
         return sorted(results, key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
 
-    def get_output(self, task_id: str) -> Optional[str]:
+    def get_output(self, task_id: str, owner_subject: str | None = None) -> Optional[str]:
         """완료된 태스크의 전체 출력을 반환합니다."""
         with self._lock:
             task = self._tasks.get(task_id)
+            if task is not None and owner_subject is not None and task.owner_subject != owner_subject:
+                task = None
             if task:
                 return task.output
 
-        record = self.state_store.get_task(task_id)
+        record = self.state_store.get_task(task_id, owner_subject=owner_subject)
         if record:
             return record["output"]
         return None
@@ -689,9 +706,9 @@ class BackgroundTaskRunner:
         except Exception:
             logger.exception("Failed to save task result to vault")
 
-    def get_last_checkpoint(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_last_checkpoint(self, task_id: str, owner_subject: str | None = None) -> Optional[Dict[str, Any]]:
         """마지막 체크포인트를 조회합니다."""
-        checkpoint = self.state_store.get_last_checkpoint(task_id)
+        checkpoint = self.state_store.get_last_checkpoint(task_id, owner_subject=owner_subject)
         if checkpoint:
             return {
                 "task_id": checkpoint["task_id"],
@@ -707,29 +724,42 @@ class BackgroundTaskRunner:
         task_id: str,
         orchestrator=None,
         target_model: str = "",
+        owner_subject: str | None = None,
     ) -> bool:
         """마지막 체크포인트에서 태스크를 재개합니다."""
-        checkpoint = self.get_last_checkpoint(task_id)
+        checkpoint = self.get_last_checkpoint(task_id, owner_subject=owner_subject)
         if not checkpoint:
             logger.warning(f"No checkpoint found for task {task_id}")
             return False
 
         # 원래 프롬프트 조회
-        record = self.state_store.get_task(task_id)
+        record = self.state_store.get_task(task_id, owner_subject=owner_subject)
         if not record:
             return False
-        if not self.state_store.prepare_resume(task_id):
+        if not self.state_store.prepare_resume(task_id, owner_subject=owner_subject):
             return False
 
         # 체크포인트 컨텍스트로 새 태스크 생성
+        working_memory = checkpoint["context"].get("working_memory", "")
+        working_memory_block = (
+            f"Working memory state:\n{working_memory}\n"
+            if isinstance(working_memory, str) and working_memory.strip()
+            else ""
+        )
         resume_prompt = (
             f"{record['prompt']}\n\n"
             f"[RESUMING FROM CHECKPOINT at step {checkpoint['step']}]\n"
+            f"{working_memory_block}"
             f"Previous output:\n{checkpoint['output_so_far'][-2000:]}\n"
             f"Continue from where you left off."
         )
 
-        task = BackgroundTask(task_id, resume_prompt, checkpoint["context"])
+        task = BackgroundTask(
+            task_id,
+            resume_prompt,
+            checkpoint["context"],
+            owner_subject=owner_subject or "loopback",
+        )
         task.output = checkpoint["output_so_far"]
 
         with self._lock:

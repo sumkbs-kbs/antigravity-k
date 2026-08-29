@@ -66,8 +66,15 @@ def _runtime() -> AgentRuntime:
     return get_agent_runtime()
 
 
-def _require_task(runtime: AgentRuntime, task_id: str) -> dict[str, object]:
-    task = runtime.get_task_status(task_id)
+def _auth_subject(request: Request) -> str:
+    subject = getattr(request.state, "auth_subject", "anonymous")
+    if not isinstance(subject, str) or not subject.strip():
+        return "anonymous"
+    return subject.strip()
+
+
+def _require_task(runtime: AgentRuntime, task_id: str, owner_subject: str | None = None) -> dict[str, object]:
+    task = runtime.get_task_status(task_id, owner_subject=owner_subject)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
@@ -78,7 +85,7 @@ def _require_task(runtime: AgentRuntime, task_id: str) -> dict[str, object]:
     response_model=TaskSubmitResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def submit_background_task(request: TaskSubmitRequest) -> TaskSubmitResponse:
+def submit_background_task(request: TaskSubmitRequest, http_request: Request) -> TaskSubmitResponse:
     context: dict[str, object] = dict(request.context)
     task_id = _runtime().submit_task(
         prompt=request.prompt,
@@ -86,6 +93,7 @@ def submit_background_task(request: TaskSubmitRequest) -> TaskSubmitResponse:
         target_model=request.model,
         use_worktree=request.use_worktree,
         idempotency_key=request.idempotency_key,
+        owner_subject=_auth_subject(http_request),
     )
     return TaskSubmitResponse(task_id=task_id)
 
@@ -95,14 +103,15 @@ def submit_background_task(request: TaskSubmitRequest) -> TaskSubmitResponse:
     response_model=TaskForkResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def fork_task(task_id: str, request: TaskForkRequest) -> TaskForkResponse:
+def fork_task(task_id: str, request: TaskForkRequest, http_request: Request) -> TaskForkResponse:
     runtime = _runtime()
+    owner_subject = _auth_subject(http_request)
     try:
-        source = _TaskForkSource.model_validate(_require_task(runtime, task_id))
+        source = _TaskForkSource.model_validate(_require_task(runtime, task_id, owner_subject=owner_subject))
     except ValidationError as error:
         raise HTTPException(status_code=409, detail="Task history is not forkable") from error
 
-    events = runtime.list_task_events(task_id, after_sequence=0, limit=1_000)
+    events = runtime.list_task_events(task_id, after_sequence=0, limit=1_000, owner_subject=owner_subject)
     last_sequence = events[-1]["sequence"] if events else 0
     fork_context = _TaskForkContext(
         fork=_TaskForkMetadata(
@@ -118,44 +127,45 @@ def fork_task(task_id: str, request: TaskForkRequest) -> TaskForkResponse:
         target_model=request.model,
         use_worktree=request.use_worktree,
         idempotency_key=request.idempotency_key,
+        owner_subject=owner_subject,
     )
     return TaskForkResponse(task_id=forked_task_id, source_task_id=source.task_id)
 
 
 @router.get("/api/tasks/{task_id}/status", response_model=TaskStatusResponse)
-def get_task_status(task_id: str) -> TaskStatusResponse:
-    return TaskStatusResponse.from_runtime(_require_task(_runtime(), task_id))
+def get_task_status(task_id: str, request: Request) -> TaskStatusResponse:
+    return TaskStatusResponse.from_runtime(_require_task(_runtime(), task_id, owner_subject=_auth_subject(request)))
 
 
 @router.get("/api/tasks", response_model=TaskListResponse)
-def list_tasks(limit: int = Query(default=20, ge=1, le=200)) -> TaskListResponse:
-    return TaskListResponse.from_runtime(_runtime().list_tasks(limit=limit))
+def list_tasks(request: Request, limit: int = Query(default=20, ge=1, le=200)) -> TaskListResponse:
+    return TaskListResponse.from_runtime(_runtime().list_tasks(limit=limit, owner_subject=_auth_subject(request)))
 
 
 @router.get("/api/tasks/{task_id}/output", response_model=TaskOutputResponse)
-def get_task_output(task_id: str) -> TaskOutputResponse:
-    output = _runtime().get_task_output(task_id)
+def get_task_output(task_id: str, request: Request) -> TaskOutputResponse:
+    output = _runtime().get_task_output(task_id, owner_subject=_auth_subject(request))
     if output is None:
         raise HTTPException(status_code=404, detail="Task output not found")
     return TaskOutputResponse(task_id=task_id, output=output)
 
 
 @router.post("/api/tasks/{task_id}/cancel", response_model=TaskActionResponse)
-def cancel_background_task(task_id: str) -> TaskActionResponse:
-    if not _runtime().cancel_task(task_id):
+def cancel_background_task(task_id: str, request: Request) -> TaskActionResponse:
+    if not _runtime().cancel_task(task_id, owner_subject=_auth_subject(request)):
         raise HTTPException(status_code=404, detail="Task is not active")
     return TaskActionResponse(status="cancelled", task_id=task_id)
 
 
 @router.post("/api/tasks/{task_id}/resume", response_model=TaskActionResponse)
-def resume_task(task_id: str) -> TaskActionResponse:
-    if not _runtime().resume_task(task_id=task_id):
+def resume_task(task_id: str, request: Request) -> TaskActionResponse:
+    if not _runtime().resume_task(task_id=task_id, owner_subject=_auth_subject(request)):
         raise HTTPException(status_code=404, detail="Task is not resumable or has no checkpoint")
     return TaskActionResponse(status="resumed", task_id=task_id)
 
 
 @router.post("/api/tasks/benchmark/{case_id}", response_model=None)
-def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest) -> dict[str, object]:
+def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest, http_request: Request) -> dict[str, object]:
     cases = get_suite(case_id)
     if len(cases) != 1 or cases[0].id != case_id:
         raise HTTPException(status_code=404, detail="Benchmark case not found")
@@ -165,6 +175,7 @@ def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest) -> dict[s
         context=BenchmarkHarness.task_context_for_case(case),
         target_model=request.model,
         idempotency_key=request.idempotency_key,
+        owner_subject=_auth_subject(http_request),
     )
     return {
         "status": "submitted",
@@ -181,14 +192,21 @@ def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest) -> dict[s
 @router.get("/api/tasks/{task_id}/events", response_model=TaskEventsResponse)
 def list_task_events(
     task_id: str,
+    request: Request,
     after_sequence: int = Query(default=0, ge=0),
     limit: int = Query(default=200, ge=1, le=500),
 ) -> TaskEventsResponse:
     runtime = _runtime()
-    _require_task(runtime, task_id)
+    owner_subject = _auth_subject(request)
+    _require_task(runtime, task_id, owner_subject=owner_subject)
     events = [
         TaskEvent.from_record(record)
-        for record in runtime.list_task_events(task_id, after_sequence=after_sequence, limit=limit)
+        for record in runtime.list_task_events(
+            task_id,
+            after_sequence=after_sequence,
+            limit=limit,
+            owner_subject=owner_subject,
+        )
     ]
     last_sequence = events[-1].sequence if events else after_sequence
     return TaskEventsResponse(task_id=task_id, events=events, last_sequence=last_sequence)
@@ -202,10 +220,11 @@ async def stream_task_events(
     last_event_id: int | None = Header(default=None, alias="Last-Event-ID", ge=0),
 ) -> StreamingResponse:
     runtime = _runtime()
-    _require_task(runtime, task_id)
+    owner_subject = _auth_subject(request)
+    _require_task(runtime, task_id, owner_subject=owner_subject)
     resume_sequence = max(after_sequence, last_event_id or 0)
     return StreamingResponse(
-        _event_stream(runtime, task_id, request, resume_sequence),
+        _event_stream(runtime, task_id, request, resume_sequence, owner_subject),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -218,20 +237,23 @@ async def stream_task_events_websocket(
     after_sequence: int = Query(default=0, ge=0),
 ) -> None:
     runtime = _runtime()
-    if runtime.get_task_status(task_id) is None:
-        await websocket.close(code=1008, reason="Task not found")
-        return
     if await close_unauthorized_ws(websocket):
+        return
+    owner_subject = getattr(websocket.state, "auth_subject", "loopback")
+    if not isinstance(owner_subject, str) or not owner_subject:
+        owner_subject = "loopback"
+    if runtime.get_task_status(task_id, owner_subject=owner_subject) is None:
+        await websocket.close(code=1008, reason="Task not found")
         return
     sequence = after_sequence
     try:
         while True:
-            records = await _next_task_events(runtime, task_id, sequence)
+            records = await _next_task_events(runtime, task_id, sequence, owner_subject)
             for record in records:
                 event = TaskEvent.from_record(record)
                 sequence = event.sequence
                 await websocket.send_json(event.model_dump(mode="json"))
-            task_status = await _task_status(runtime, task_id)
+            task_status = await _task_status(runtime, task_id, owner_subject)
             if task_status in _TERMINAL_TASK_STATUSES:
                 end = TaskStreamEnd(task_id=task_id, last_sequence=sequence, status=task_status)
                 await websocket.send_json(
@@ -254,16 +276,17 @@ async def _event_stream(
     task_id: str,
     request: Request,
     after_sequence: int,
+    owner_subject: str,
 ) -> AsyncIterator[str]:
     sequence = after_sequence
     idle_cycles = 0
     while True:
-        records = await _next_task_events(runtime, task_id, sequence)
+        records = await _next_task_events(runtime, task_id, sequence, owner_subject)
         for record in records:
             event = TaskEvent.from_record(record)
             sequence = event.sequence
             yield _event_frame(event)
-        task_status = await _task_status(runtime, task_id)
+        task_status = await _task_status(runtime, task_id, owner_subject)
         if task_status in _TERMINAL_TASK_STATUSES:
             end = TaskStreamEnd(task_id=task_id, last_sequence=sequence, status=task_status)
             yield f"event: stream.end\ndata: {end.model_dump_json()}\n\n"
@@ -280,16 +303,22 @@ async def _next_task_events(
     runtime: AgentRuntime,
     task_id: str,
     after_sequence: int,
+    owner_subject: str | None = None,
 ) -> list[ExecutionEventRecord]:
     def load() -> list[ExecutionEventRecord]:
-        return runtime.list_task_events(task_id, after_sequence=after_sequence, limit=200)
+        return runtime.list_task_events(
+            task_id,
+            after_sequence=after_sequence,
+            limit=200,
+            owner_subject=owner_subject,
+        )
 
     return await run_sync(load)
 
 
-async def _task_status(runtime: AgentRuntime, task_id: str) -> str:
+async def _task_status(runtime: AgentRuntime, task_id: str, owner_subject: str | None = None) -> str:
     def load() -> dict[str, object] | None:
-        return runtime.get_task_status(task_id)
+        return runtime.get_task_status(task_id, owner_subject=owner_subject)
 
     task = await run_sync(load)
     return str(task.get("status", "unknown")) if task is not None else "unknown"

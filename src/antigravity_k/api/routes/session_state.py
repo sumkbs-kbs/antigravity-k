@@ -6,6 +6,7 @@ WebSocket 인증 헬퍼를 담는 중립 모듈이다. 라우트 모듈 간에�
 """
 
 import logging
+import os
 from typing import Any
 
 from fastapi import WebSocket
@@ -63,20 +64,37 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
 
     # Accept first so we can send a close code; Starlette requires accept before close.
     await websocket.accept()
+    websocket.state.agk_accepted = True
 
     credential = extract_token_from_ws(websocket)
+
+    from antigravity_k.api.startup_security import is_loopback_host
+    from antigravity_k.config import config
+
+    if (
+        not config.security.access_pin
+        and os.environ.get("AGK_ENV", "development").strip().lower() != "production"
+        and is_loopback_host(config.server.host)
+    ):
+        websocket.state.auth_subject = "loopback"
+        return False
 
     # Try bearer token first.
     if credential:
         token_service = get_token_service()
         # Heuristic: tokens contain dots (JWT structure), PINs don't.
-        if "." in credential and token_service.verify_token(credential) is not None:
-            return False
+        if "." in credential:
+            claims = token_service.verify_token(credential)
+            if claims is not None:
+                subject = claims.get("sub")
+                websocket.state.auth_subject = subject if isinstance(subject, str) and subject else "bearer"
+                return False
         # Otherwise treat as a legacy PIN.
         from antigravity_k.api.auth_routes import get_current_pin_hash
 
         stored = get_current_pin_hash()
         if stored and verify_pin(credential, stored):
+            websocket.state.auth_subject = "pin-user"
             return False
 
     # No valid credential — deny.

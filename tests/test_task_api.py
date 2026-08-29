@@ -18,8 +18,8 @@ class FakeTaskRuntime:
         self.submit_calls.append(kwargs)
         return "task-123"
 
-    def get_task_status(self, task_id: str) -> dict[str, object] | None:
-        if task_id == "missing":
+    def get_task_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None:
+        if task_id == "missing" or owner_subject == "foreign":
             return None
         return {
             "task_id": task_id,
@@ -28,8 +28,16 @@ class FakeTaskRuntime:
             "output": "source result",
         }
 
-    def list_task_events(self, task_id: str, after_sequence: int, limit: int) -> list[dict[str, object]]:
+    def list_task_events(
+        self,
+        task_id: str,
+        after_sequence: int,
+        limit: int,
+        owner_subject: str | None = None,
+    ) -> list[dict[str, object]]:
         self.event_calls.append((task_id, after_sequence, limit))
+        if owner_subject == "foreign":
+            return []
         if after_sequence >= 7:
             return []
         return [
@@ -50,6 +58,23 @@ class FakeTaskRuntime:
             },
         ]
 
+    def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[dict[str, object]]:
+        if owner_subject == "foreign":
+            return []
+        tasks: list[dict[str, object]] = [{"task_id": "task-123", "status": "done"}]
+        return tasks[:limit]
+
+    def get_task_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
+        if owner_subject == "foreign":
+            return None
+        return "source result" if task_id == "task-123" else None
+
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+        return owner_subject != "foreign"
+
+    def resume_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+        return owner_subject != "foreign"
+
 
 @pytest.fixture
 def runtime(monkeypatch: pytest.MonkeyPatch) -> FakeTaskRuntime:
@@ -61,6 +86,12 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> FakeTaskRuntime:
 @pytest.fixture
 def client() -> TestClient:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def set_test_auth_subject(request, call_next):
+        request.state.auth_subject = request.headers.get("X-Test-Subject", "owner")
+        return await call_next(request)
+
     app.include_router(task_api.router)
     return TestClient(app)
 
@@ -86,6 +117,7 @@ def test_submit_task_uses_typed_canonical_runtime_contract(client: TestClient, r
             "target_model": "qwen-local",
             "use_worktree": True,
             "idempotency_key": "request-1",
+            "owner_subject": "owner",
         },
     ]
 
@@ -159,6 +191,7 @@ def test_fork_task_submits_source_snapshot_without_mutating_source(
             "target_model": "",
             "use_worktree": False,
             "idempotency_key": None,
+            "owner_subject": "owner",
         },
     ]
     assert runtime.get_task_status("task-source") == {
@@ -202,6 +235,40 @@ def test_task_event_replay_rejects_unknown_task(client: TestClient, runtime: Fak
 
     assert response.status_code == 404
     assert runtime.event_calls == []
+
+
+def test_task_status_rejects_foreign_authenticated_subject(client: TestClient, runtime: FakeTaskRuntime) -> None:
+    response = client.get("/api/tasks/task-123/status", headers={"X-Test-Subject": "foreign"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/api/tasks/task-123/output"),
+        ("post", "/api/tasks/task-123/cancel"),
+        ("post", "/api/tasks/task-123/resume"),
+        ("get", "/api/tasks/task-123/events"),
+        ("get", "/api/tasks/task-123/events/stream"),
+    ],
+)
+def test_task_mutation_and_replay_reject_foreign_authenticated_subject(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+    method: str,
+    path: str,
+) -> None:
+    response = getattr(client, method)(path, headers={"X-Test-Subject": "foreign"})
+
+    assert response.status_code == 404
+
+
+def test_task_listing_is_owner_scoped(client: TestClient, runtime: FakeTaskRuntime) -> None:
+    response = client.get("/api/tasks", headers={"X-Test-Subject": "foreign"})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "data": []}
 
 
 def test_task_event_sse_replays_then_ends_for_terminal_task(
@@ -272,8 +339,8 @@ def test_task_event_websocket_rejects_unknown_task_before_replay(
     client: TestClient,
     runtime: FakeTaskRuntime,
 ) -> None:
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/api/tasks/missing/events/ws"):
-            pass
+    with client.websocket_connect("/api/tasks/missing/events/ws") as websocket:
+        with pytest.raises(WebSocketDisconnect):
+            websocket.receive_json()
 
     assert runtime.event_calls == []

@@ -5,8 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.requests import Request
 
 from antigravity_k.engine.agent_runtime import AgentRuntime, TrackedStream
+from antigravity_k.engine.persistent_agency import AgencyConfig, PersistentAgencyController
 from antigravity_k.engine.task_runner import BackgroundTaskRunner
 from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStateStore
 
@@ -54,17 +56,17 @@ class FakeTaskRunner:
         self.submit_calls.append(kwargs)
         return True
 
-    def cancel_task(self, task_id: str) -> bool:
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
         self.cancel_calls.append(task_id)
         return True
 
-    def get_status(self, task_id: str) -> dict[str, object] | None:
+    def get_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None:
         return {"task_id": task_id, "status": "done"}
 
-    def list_tasks(self, limit: int = 20) -> list[dict[str, object]]:
+    def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> list[dict[str, object]]:
         return [{"task_id": "task_runtime_001", "status": "done"}][:limit]
 
-    def get_output(self, task_id: str) -> str | None:
+    def get_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
         return "runtime-output" if task_id == "task_runtime_001" else None
 
     def wait_task(self, task_id: str, timeout: float | None = None) -> dict[str, object] | None:
@@ -136,6 +138,72 @@ def test_runtime_cancels_background_task_through_runner():
 
     assert runtime.cancel_task("task_runtime_001") is True
     assert runner.cancel_calls == ["task_runtime_001"]
+
+
+def test_runtime_records_background_task_lifecycle_in_persistent_agency(tmp_path):
+    orchestrator = FakeOrchestrator()
+    agency = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", agency)
+    runner = FakeTaskRunner()
+    runtime = AgentRuntime(orchestrator, task_runner=runner)
+
+    task_id = runtime.submit_task("index the changed files", context={"trajectory_id": "main"})
+    assert task_id == "task_runtime_001"
+    assert runtime.resume_task(task_id) is True
+    assert runtime.cancel_task(task_id) is True
+
+    events = agency.store.list_events(agency.project_id, "main")
+    assert [event.payload["status"] for event in events] == ["submitted", "resumed", "cancelled"]
+    assert "index the changed files" in str(events[0].payload["text"])
+
+
+def test_runtime_submits_next_objective_and_reconciles_completion(tmp_path):
+    orchestrator = FakeOrchestrator()
+    controller = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", controller)
+    objective = controller.enqueue_objective("demo", "Run the next indexed check", "Check files")
+    runtime = AgentRuntime(orchestrator, task_runner=FakeTaskRunner())
+
+    task_id = runtime.submit_next_objective("demo")
+    assert task_id == "task_runtime_001"
+    status = runtime.get_task_status(task_id)
+    assert status is not None
+    assert status["status"] == "done"
+    stored = controller.get_objective(objective.objective_id)
+    assert stored is not None
+    assert stored.status.value == "done"
+
+
+def test_runtime_projects_durable_context_into_next_objective(tmp_path):
+    orchestrator = FakeOrchestrator()
+    controller = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", controller)
+    controller.record_observation(controller.project_id, "main", "The parser cache must be rebuilt first")
+    controller.enqueue_objective(controller.project_id, "Rebuild parser cache")
+    runner = FakeTaskRunner()
+    runtime = AgentRuntime(orchestrator, task_runner=runner)
+
+    runtime.submit_next_objective(controller.project_id)
+
+    submitted = runner.submit_calls[0]
+    assert "The parser cache must be rebuilt first" in str(submitted["prompt"])
+    assert submitted["context"]["persistent_context_event_ids"]
+
+
+def test_runtime_reconciles_all_claimed_objective_tasks(tmp_path):
+    orchestrator = FakeOrchestrator()
+    controller = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", controller)
+    objective = controller.enqueue_objective(controller.project_id, "Reconcile me")
+    controller.claim_next_objective(controller.project_id)
+    controller.bind_objective_task("task_runtime_001", objective.objective_id, controller.project_id, "main")
+    runtime = AgentRuntime(orchestrator, task_runner=FakeTaskRunner())
+
+    assert runtime.reconcile_persistent_objectives(controller.project_id) == 1
+    assert controller.get_objective(objective.objective_id).status.value == "done"
+
+    summaries = controller.project_context(controller.project_id, "main").text
+    assert "task_runtime_001 done" in summaries
 
 
 def test_runtime_exposes_durable_task_queries_and_wait_through_runner():
@@ -556,6 +624,7 @@ def test_runtime_submits_background_work_through_same_orchestrator_and_model():
     assert submitted["target_model"] == "qwen3.6:latest"
     assert submitted["use_worktree"] is False
     assert submitted["idempotency_key"] == "request-001"
+    assert submitted["owner_subject"] == "loopback"
     context = submitted["context"]
     assert isinstance(context, dict)
     assert context["expected_tools"] == ["read_file"]
@@ -584,6 +653,7 @@ def test_runtime_resumes_background_work_through_same_orchestrator():
             "task_id": "task_runtime_001",
             "orchestrator": orchestrator,
             "target_model": "qwen3.6:latest",
+            "owner_subject": None,
         },
     ]
 
@@ -607,6 +677,7 @@ def test_background_task_route_uses_canonical_runtime(monkeypatch):
             model="",
             idempotency_key="route-001",
         ),
+        Request({"type": "http", "method": "POST", "path": "/api/tasks/submit", "headers": []}),
     )
 
     assert result.model_dump() == {"status": "submitted", "task_id": "task_route_001"}
@@ -617,6 +688,7 @@ def test_background_task_route_uses_canonical_runtime(monkeypatch):
             "target_model": "",
             "use_worktree": False,
             "idempotency_key": "route-001",
+            "owner_subject": "anonymous",
         },
     ]
 
@@ -627,13 +699,16 @@ def test_task_api_resume_route_uses_canonical_runtime(monkeypatch):
     resumed_task_ids: list[str] = []
 
     class Runtime:
-        def resume_task(self, task_id: str) -> bool:
+        def resume_task(self, task_id: str, owner_subject: str | None = None) -> bool:
             resumed_task_ids.append(task_id)
             return True
 
     monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    result = task_api.resume_task("task_runtime_001")
+    result = task_api.resume_task(
+        "task_runtime_001",
+        Request({"type": "http", "method": "POST", "path": "/api/tasks/task_runtime_001/resume", "headers": []}),
+    )
 
     assert result.model_dump() == {"status": "resumed", "task_id": "task_runtime_001"}
     assert resumed_task_ids == ["task_runtime_001"]
@@ -643,20 +718,21 @@ def test_task_api_views_use_canonical_runtime(monkeypatch):
     from antigravity_k.api.routes import task_api
 
     class Runtime:
-        def get_task_status(self, task_id: str) -> dict[str, object] | None:
+        def get_task_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None:
             return {"task_id": task_id, "status": "failed"}
 
-        def list_tasks(self, limit: int) -> list[dict[str, object]]:
+        def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[dict[str, object]]:
             return [{"task_id": "direct_001", "status": "failed"}][:limit]
 
-        def get_task_output(self, task_id: str) -> str | None:
+        def get_task_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
             return "partial-output" if task_id == "direct_001" else None
 
     monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    status = task_api.get_task_status("direct_001")
-    tasks = task_api.list_tasks(limit=1)
-    output = task_api.get_task_output("direct_001")
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    status = task_api.get_task_status("direct_001", request)
+    tasks = task_api.list_tasks(request, limit=1)
+    output = task_api.get_task_output("direct_001", request)
 
     assert status.data == {"task_id": "direct_001", "status": "failed"}
     assert tasks.data == [{"task_id": "direct_001", "status": "failed"}]

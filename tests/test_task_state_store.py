@@ -44,6 +44,22 @@ def test_state_store_prepares_failed_task_for_explicit_resume(tmp_path):
     assert store.transition("task-1", "running") is True
 
 
+def test_state_store_refuses_resume_while_current_process_still_owns_task(tmp_path):
+    # Given: the current live process owns a running task.
+    store = TaskStateStore(str(tmp_path / "tasks.db"))
+    store.create_task("task-live", "prompt", "pending", "2026-01-01T00:00:00")
+    assert store.transition("task-live", "running") is True
+
+    # When: another resume attempt targets that still-owned task.
+    resumed = store.prepare_resume("task-live")
+
+    # Then: the store refuses concurrent execution and preserves running state.
+    assert resumed is False
+    record = store.get_task("task-live")
+    assert record is not None
+    assert record["status"] == "running"
+
+
 def test_state_store_preserves_execution_event_order_without_changing_checkpoints(tmp_path):
     store = TaskStateStore(str(tmp_path / "tasks.db"))
     store.create_task("task-1", "prompt", "pending", "2026-01-01T00:00:00")
@@ -66,7 +82,7 @@ def test_state_store_migrates_and_replays_versioned_execution_events(tmp_path):
             "event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL)",
         )
         connection.execute(
-            "INSERT INTO task_execution_events " "(task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO task_execution_events (task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)",
             ("task-1", "legacy_event", '{"legacy":true}', "2026-01-01T00:00:00"),
         )
 
@@ -171,6 +187,34 @@ def test_state_store_returns_existing_task_for_idempotency_key(tmp_path):
     assert store.get_task("task-2") is None
 
 
+def test_state_store_scopes_task_reads_events_and_idempotency_to_owner(tmp_path):
+    store = TaskStateStore(str(tmp_path / "tasks.db"))
+    first = store.create_task(
+        "task-owner",
+        "prompt",
+        "pending",
+        "2026-01-01T00:00:00",
+        idempotency_key="request-1",
+        owner_subject="alice",
+    )
+    second = store.create_task(
+        "task-other",
+        "prompt",
+        "pending",
+        "2026-01-01T00:00:01",
+        idempotency_key="request-1",
+        owner_subject="bob",
+    )
+
+    assert first == "task-owner"
+    assert second == "task-other"
+    assert store.get_task("task-owner", owner_subject="bob") is None
+    assert [task["task_id"] for task in store.list_tasks(20, owner_subject="alice")] == ["task-owner"]
+    store.append_execution_event("task-owner", "task.completed", '{"ok":true}')
+    assert store.list_execution_events("task-owner", owner_subject="bob") == []
+    assert len(store.list_execution_events("task-owner", owner_subject="alice")) == 1
+
+
 def test_state_store_migrates_legacy_task_history(tmp_path):
     db_path = tmp_path / "legacy.db"
     with sqlite3.connect(db_path) as connection:
@@ -189,6 +233,43 @@ def test_state_store_migrates_legacy_task_history(tmp_path):
     record = store.get_task("legacy-task")
     assert record is not None
     assert record["updated_at"]
+
+
+def test_state_store_migrates_legacy_idempotency_keys_to_owner_scope(tmp_path):
+    db_path = tmp_path / "legacy-idempotency.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE task_idempotency ("
+            "idempotency_key TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)",
+        )
+        connection.execute(
+            "INSERT INTO task_idempotency (idempotency_key, task_id, created_at) VALUES (?, ?, ?)",
+            ("request-1", "legacy-task", "2026-01-01T00:00:00"),
+        )
+
+    store = TaskStateStore(str(db_path))
+    assert (
+        store.create_task(
+            "task-alice",
+            "prompt",
+            "pending",
+            "2026-01-01T00:00:01",
+            idempotency_key="request-1",
+            owner_subject="alice",
+        )
+        == "task-alice"
+    )
+    assert (
+        store.create_task(
+            "task-bob",
+            "prompt",
+            "pending",
+            "2026-01-01T00:00:02",
+            idempotency_key="request-1",
+            owner_subject="bob",
+        )
+        == "task-bob"
+    )
 
 
 def test_runner_deduplicates_submission_by_idempotency_key(tmp_path):

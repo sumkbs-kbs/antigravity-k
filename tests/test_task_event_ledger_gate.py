@@ -51,6 +51,12 @@ def _runtime(db_path: str, monkeypatch: pytest.MonkeyPatch) -> Generator[AgentRu
 @pytest.fixture
 def client() -> TestClient:
     application = FastAPI()
+
+    @application.middleware("http")
+    async def set_loopback_subject(request, call_next):
+        request.state.auth_subject = "loopback"
+        return await call_next(request)
+
     application.include_router(task_api.router)
     return TestClient(application)
 
