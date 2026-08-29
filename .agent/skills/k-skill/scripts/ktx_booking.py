@@ -11,21 +11,33 @@ import re
 import string
 import sys
 import time
+from collections.abc import Callable
 from functools import reduce
-from typing import Any, final
+from typing import Any, Protocol, cast, final
 
-_aes: Any = None
-_pad: Any = None
+
+class _CipherProtocol(Protocol):
+    def encrypt(self, data: bytes) -> bytes: ...
+
+
+class _AESProtocol(Protocol):
+    MODE_CBC: int
+
+    def new(self, key: bytes, mode: int, *, iv: bytes) -> _CipherProtocol: ...
+
+
+_aes: _AESProtocol | None = None
+_pad: Callable[[bytes, int], bytes] | None = None
 _crypto_import_error: ModuleNotFoundError | None = None
 try:
     _crypto_cipher = importlib.import_module("Crypto.Cipher.AES")
     _crypto_padding = importlib.import_module("Crypto.Util.Padding")
-    _aes = _crypto_cipher
-    _pad = _crypto_padding.pad
+    _aes = cast(_AESProtocol, cast(object, _crypto_cipher))
+    _pad = cast(Callable[[bytes, int], bytes], _crypto_padding.pad)
 except ModuleNotFoundError as exc:
     _crypto_import_error = exc
-AES = _aes
-pad = _pad
+AES: _AESProtocol | None = _aes
+pad: Callable[[bytes, int], bytes] | None = _pad
 _CRYPTO_IMPORT_ERROR = _crypto_import_error
 
 korail_mod: Any = None
@@ -166,6 +178,79 @@ TRAIN_ID_FIELDS = (
     "dep_code",
     "arr_code",
 )
+
+
+class _TripArgs(Protocol):
+    dep: str
+    arr: str
+    date: str
+    time: str
+    adults: int
+    children: int
+    toddlers: int
+    seniors: int
+
+
+class _SearchArgs(_TripArgs, Protocol):
+    train_type: str
+    include_no_seats: bool
+    include_waiting_list: bool
+    limit: int
+
+
+class _ReserveArgs(_SearchArgs, Protocol):
+    train_id: str
+    seat_option: str
+    try_waiting: bool
+
+
+class _CancelArgs(Protocol):
+    reservation_id: str
+
+
+class _TrainProtocol(Protocol):
+    dep_name: str
+    arr_name: str
+    dep_date: str
+    dep_code: str
+    dep_time: str
+    arr_code: str
+    arr_date: str
+    arr_time: str
+    train_no: str
+    run_date: str
+    train_type: str
+    train_type_name: str
+    train_group: str
+
+    def has_seat(self) -> bool: ...
+
+    def has_general_seat(self) -> bool: ...
+
+    def has_special_seat(self) -> bool: ...
+
+    def has_waiting_list(self) -> bool: ...
+
+    def has_general_waiting_list(self) -> bool: ...
+
+
+class _ReservationProtocol(Protocol):
+    rsv_id: str
+    train_no: object
+    train_type_name: object
+    dep_name: object
+    dep_date: object
+    dep_time: object
+    arr_name: object
+    arr_date: object
+    arr_time: object
+    seat_no_count: object
+    price: object
+    buy_limit_date: object
+    buy_limit_time: object
+    journey_no: str
+    journey_cnt: str
+    rsv_chg_no: str
 
 
 def ensure_runtime_dependencies() -> None:
@@ -327,6 +412,8 @@ class PatchedKorail(Korail):
 
     def _generate_sid(self, timestamp_ms: int) -> str:
         ensure_runtime_dependencies()
+        if AES is None or pad is None:
+            raise RuntimeError("crypto dependencies are unavailable")
         plaintext = f"{self._device}{timestamp_ms}".encode("utf-8")
         cipher = AES.new(self._sid_key, AES.MODE_CBC, iv=self._sid_key)
         return base64.b64encode(cipher.encrypt(pad(plaintext, 16))).decode("utf-8") + "\n"
@@ -394,7 +481,7 @@ class PatchedKorail(Korail):
         passengers: list[Passenger] | None = None,
         include_no_seats: bool = False,
         include_waiting_list: bool = False,
-    ):
+    ) -> list[_TrainProtocol]:
         from datetime import datetime, timedelta, timezone
 
         kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
@@ -473,11 +560,11 @@ class PatchedKorail(Korail):
 
     def reserve(
         self,
-        train,
-        passengers=None,
-        option=ReserveOption.GENERAL_FIRST,
-        try_waiting=False,
-    ):
+        train: _TrainProtocol,
+        passengers: list[Passenger] | None = None,
+        option: str = ReserveOption.GENERAL_FIRST,
+        try_waiting: bool = False,
+    ) -> _ReservationProtocol | None:
         reserving_seat = True
         try:
             if not train.has_seat():
@@ -508,7 +595,7 @@ class PatchedKorail(Korail):
         if passengers is None:
             passengers = [AdultPassenger()]
 
-        passengers = Passenger.reduce(passengers)
+        passengers = cast(list[Passenger], Passenger.reduce(passengers))
         passenger_count = reduce(lambda total, passenger: total + passenger.count, passengers, 0)
         headers, sid = self._auth_headers_and_sid(korail_mod.KORAIL_TICKETRESERVATION)
         payload = {
@@ -567,7 +654,7 @@ class PatchedKorail(Korail):
                 return matches[0]
             raise KorailError(f"reservation {reservation_id} was created but could not be reloaded")
 
-    def reservations(self):
+    def reservations(self) -> list[_ReservationProtocol]:
         payload = {"Device": self._device, "Version": self._version, "Key": self._key}
         response = self._session.get(korail_mod.KORAIL_MYRESERVATIONLIST, params=payload)
         data = json.loads(response.text)
@@ -582,7 +669,7 @@ class PatchedKorail(Korail):
             return []
         return []
 
-    def cancel(self, reservation):
+    def cancel(self, reservation: _ReservationProtocol) -> bool:
         assert isinstance(reservation, korail_mod.Reservation)
         payload = {
             "Device": self._device,
@@ -600,7 +687,7 @@ class PatchedKorail(Korail):
         return False
 
 
-def parse_passengers(args: argparse.Namespace) -> list[Passenger]:
+def parse_passengers(args: _TripArgs) -> list[Passenger]:
     passengers: list[Passenger] = []
     if args.adults:
         passengers.append(AdultPassenger(args.adults))
@@ -615,11 +702,11 @@ def parse_passengers(args: argparse.Namespace) -> list[Passenger]:
     return passengers
 
 
-def build_train_id_payload(train) -> dict[str, str]:
+def build_train_id_payload(train: _TrainProtocol) -> dict[str, str]:
     return {field: getattr(train, field) for field in TRAIN_ID_FIELDS}
 
 
-def build_train_id(train) -> str:
+def build_train_id(train: _TrainProtocol) -> str:
     payload = json.dumps(build_train_id_payload(train), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
     return f"{TRAIN_ID_PREFIX}{encoded}"
@@ -644,7 +731,7 @@ def parse_train_id(train_id: str) -> dict[str, str]:
     return {field: payload[field] for field in TRAIN_ID_FIELDS}
 
 
-def find_train_by_id(trains, train_id: str):
+def find_train_by_id(trains: list[_TrainProtocol], train_id: str) -> _TrainProtocol | None:
     expected = parse_train_id(train_id)
     for train in trains:
         if build_train_id_payload(train) == expected:
@@ -652,7 +739,7 @@ def find_train_by_id(trains, train_id: str):
     return None
 
 
-def normalize_train(train, index: int) -> dict[str, object]:
+def normalize_train(train: _TrainProtocol, index: int) -> dict[str, object]:
     return {
         "index": index,
         "train_id": build_train_id(train),
@@ -671,7 +758,7 @@ def normalize_train(train, index: int) -> dict[str, object]:
     }
 
 
-def normalize_reservation(reservation) -> dict[str, object]:
+def normalize_reservation(reservation: _ReservationProtocol) -> dict[str, object]:
     return {
         "reservation_id": reservation.rsv_id,
         "train_no": reservation.train_no,
@@ -713,7 +800,7 @@ def build_client() -> PatchedKorail:
     return client
 
 
-def command_search(args: argparse.Namespace) -> None:
+def command_search(args: _SearchArgs) -> None:
     client = build_client()
     passengers = parse_passengers(args)
     trains = client.search_train(
@@ -735,7 +822,7 @@ def command_search(args: argparse.Namespace) -> None:
     )
 
 
-def command_reserve(args: argparse.Namespace) -> None:
+def command_reserve(args: _ReserveArgs) -> None:
     client = build_client()
     passengers = parse_passengers(args)
     include_waiting_list = args.include_waiting_list or args.try_waiting
@@ -758,6 +845,8 @@ def command_reserve(args: argparse.Namespace) -> None:
         option=RESERVE_OPTION_MAP[args.seat_option],
         try_waiting=args.try_waiting,
     )
+    if reservation is None:
+        raise KorailError("reservation request did not return a reservation")
     print_json({"reservation": normalize_reservation(reservation)})
 
 
@@ -772,7 +861,7 @@ def command_reservations(_: argparse.Namespace) -> None:
     )
 
 
-def command_cancel(args: argparse.Namespace) -> None:
+def command_cancel(args: _CancelArgs) -> None:
     client = build_client()
     reservations = client.reservations()
     match = next(
