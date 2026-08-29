@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+from antigravity_k.engine.code_intel.knowledge_graph import NodeType
 from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
 
@@ -13,8 +14,9 @@ class TestCodeIndexPipeline:
         assert pipeline.repo_manager is None
 
     def test_load_existing_empty(self):
-        pipeline = CodeIndexPipeline()
-        result = pipeline.load_existing("/tmp")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pipeline = CodeIndexPipeline()
+            result = pipeline.load_existing(tmpdir)
         assert result is True
 
     def test_run_with_python_files(self):
@@ -55,8 +57,4 @@ class TestCodeIndexPipeline:
         with tempfile.TemporaryDirectory() as tmpdir:
             pipeline.run(tmpdir, force=True)
             # Mock nodes should be added
-            assert (
-                pipeline.graph.get_nodes_by_type(pipeline.graph.NodeType.MODULE)
-                if hasattr(pipeline.graph, "NodeType")
-                else True
-            )
+            assert pipeline.graph.get_nodes_by_type(NodeType.MODULE)

@@ -13,7 +13,7 @@ import os
 import time
 from collections.abc import Iterable
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import psutil
@@ -763,7 +763,7 @@ async def system_skills_local_check(
                         },
                     )
 
-        checked_at = datetime.utcnow().isoformat() + "Z"
+        checked_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         # since가 있으면 변경 탐지
         new_skills: list[dict[str, Any]] = []
