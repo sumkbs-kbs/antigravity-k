@@ -72,6 +72,7 @@ date: 2026-08-29
 
 - 2026-08-30 source 경계 continuation: `tool_loop.py`의 manager/context/quality/capacity/incremental-graph Protocol을 보강하고 `ToolCall.arguments`를 재귀 JSON 값으로 명시했다. 이벤트 발행·JSON checkpoint·expected-tools 경계와 의도적 반환값 소비도 정리했다. `tests/test_tool_loop.py` 90개, 전체 pytest `4806 passed, 6 skipped`, Ruff/Ruff-format/mypy가 통과했으며 `tool_loop.py` 파일 경고는 `369 → 14`, 전체 basedpyright는 `0 errors, 25045 warnings, 0 notes`다. 생성자 입력과 state-store는 다양한 기존 테스트 double 호환을 위해 동적 경계로 유지했다. `tool_loop.py`와 `task_execution_context.py`는 기존 사용자 변경과 겹쳐 미커밋이며, parser 타입 보강은 `2843ddc`에 기록했다.
 - 2026-08-30 dashboard dependency continuation: `707a312`에서 `monaco-editor@0.56.0`의 중첩 `dompurify@3.4.8`을 `3.4.14` override로 고정했다. `npm audit --omit=dev`와 `npm ci --dry-run`이 성공하고, typecheck/lint/Vitest 588개/build도 통과했다. 대시보드 production 취약점은 `2 → 0`으로 해소됐으며 생성된 `dashboard_dist`와 `node_modules` 변경은 사용자 dirty 산출물로 stage하지 않았다.
+- 2026-08-30 high-risk regression continuation: RAG 증분/하위 디렉터리·provenance·retrieval, long-context, Git API, system API 회귀 145개가 통과했다. `PYTHONPATH=src python -m antigravity_k.cli --help`와 `OrchestratorAgent`/`ModelRouter` import smoke도 성공했다. 마지막 codebase-memory `list_projects` 재시도는 다시 `Transport closed`였고, 외부 호환성 재색인은 복구 전까지 보류한다.
 
 - `9ecfb4e`: `tests/test_max_engine.py`의 보호 메서드 호출·대입과 MAX 실행 핸들러를 typed callable adapter/`setattr` 경계로 전환했다. 43개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), pre-commit이 통과했으며 파일 경고가 `45 → 0`, 전체 basedpyright는 `0 errors, 25498 warnings, 0 notes`다.
 
