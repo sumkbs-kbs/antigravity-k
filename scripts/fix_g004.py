@@ -121,7 +121,7 @@ def fix_file(filepath: str, dry_run: bool = False) -> int:
         return len(fixes)
 
     with open(filepath, "w", encoding="utf-8") as f:
-        f.write(new_source)
+        _ = f.write(new_source)
 
     return len(fixes)
 
@@ -167,4 +167,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _ = main()
