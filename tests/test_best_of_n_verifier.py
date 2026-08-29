@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 from antigravity_k.engine.best_of_n_verifier import (
     BestOfNVerifier,
@@ -96,7 +97,8 @@ class TestBestOfNVerifier:
         assert trace.selected != ""
         failed = [c for c in trace.candidates if c.verification and not c.verification.passed]
         assert len(failed) == 2
-        assert any("ValueError" in c.verification.detail for c in failed)
+        details = [c.verification.detail for c in failed if c.verification is not None]
+        assert any("ValueError" in detail for detail in details)
 
     def test_no_verifier_single_generation_contract(self):
         gen, calls = _gen_factory(["single answer"])
@@ -158,13 +160,13 @@ def test_verification_outcome_defaults(tmp_path: Path):
 
 
 class TestModelManagerWiring:
-    def _make_manager(self, amp_cfg: dict):
+    def _make_manager(self, amp_cfg: dict[str, object]):
         from antigravity_k.engine.model_manager import ModelManager
 
         class FakeRegistry:
             _raw = {"amplification": {"best_of_n": amp_cfg}}
 
-        mgr = ModelManager.__new__(ModelManager)
+        mgr = cast(Any, ModelManager.__new__(ModelManager))
         mgr._registry = FakeRegistry()
         return mgr
 
@@ -173,7 +175,9 @@ class TestModelManagerWiring:
         mgr = self._make_manager({"enabled": True, "n_samples": 3})
 
         def gen(prompt, target, **kw):
-            calls.append(kw.get("temperature"))
+            temperature = kw.get("temperature")
+            if isinstance(temperature, (int, float)):
+                calls.append(float(temperature))
             return f"```python\nx = {len(calls)}\n```"
 
         mgr.generate = gen
