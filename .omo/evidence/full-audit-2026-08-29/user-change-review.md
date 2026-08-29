@@ -12,6 +12,8 @@ date: 2026-08-30
 
 - 최신 전체 basedpyright 재측정은 `0 errors, 25498 warnings, 0 notes`이며, `tests/test_max_engine.py`의 보호 메서드·MAX 핸들러 경계를 `9ecfb4e` 독립 커밋으로 정리해 해당 파일 경고를 `45 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 
+- 최신 전체 basedpyright 재측정은 `0 errors, 25012 warnings, 0 notes`이며, clean 파일 `src/antigravity_k/engine/model_manager.py`의 암시적 문자열 연결 2건과 미사용 반환값 1건을 `1539306` 독립 커밋으로 정리했다. lifecycle/generate/stream 회귀 테스트 83개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
+
 ## 범위
 
 - `git status --short` 기준 244개 dirty path를 작성자와 관계없이 재분류했다.
@@ -61,7 +63,7 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 25015 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 25012 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities`. 중첩 `monaco-editor → dompurify`는 `707a312`의 `3.4.14` override로 해소했고 Monaco major 변경은 하지 않았다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.
