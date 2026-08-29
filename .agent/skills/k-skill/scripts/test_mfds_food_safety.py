@@ -1,13 +1,13 @@
+import importlib
 import unittest
 
-from scripts.mfds_food_safety import (
-    build_food_interview,
-    filter_food_items,
-    normalize_food_recall_row,
-    normalize_improper_food_item,
-    resolve_proxy_base_url,
-    search_food_safety,
-)
+mfds_food_safety = importlib.import_module("scripts.mfds_food_safety")
+build_food_interview = mfds_food_safety.build_food_interview
+filter_food_items = mfds_food_safety.filter_food_items
+normalize_food_recall_row = mfds_food_safety.normalize_food_recall_row
+normalize_improper_food_item = mfds_food_safety.normalize_improper_food_item
+resolve_proxy_base_url = mfds_food_safety.resolve_proxy_base_url
+search_food_safety = mfds_food_safety.search_food_safety
 
 
 class FoodInterviewTest(unittest.TestCase):

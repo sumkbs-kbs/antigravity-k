@@ -1,4 +1,5 @@
 import contextlib
+import importlib
 import io
 import json
 import os
@@ -8,17 +9,16 @@ from datetime import date
 from pathlib import Path
 from unittest import mock
 
-from scripts.subway_lost_property import (
-    LOST112_LIST_URL,
-    SEOUL_METRO_LOST_CENTER_URL,
-    SearchQuery,
-    build_curl_command,
-    build_search_payload,
-    build_search_plan,
-    expand_station_keywords,
-    main,
-    probe_source,
-)
+subway_lost_property = importlib.import_module("scripts.subway_lost_property")
+LOST112_LIST_URL = subway_lost_property.LOST112_LIST_URL
+SEOUL_METRO_LOST_CENTER_URL = subway_lost_property.SEOUL_METRO_LOST_CENTER_URL
+SearchQuery = subway_lost_property.SearchQuery
+build_curl_command = subway_lost_property.build_curl_command
+build_search_payload = subway_lost_property.build_search_payload
+build_search_plan = subway_lost_property.build_search_plan
+expand_station_keywords = subway_lost_property.expand_station_keywords
+main = subway_lost_property.main
+probe_source = subway_lost_property.probe_source
 
 
 class SubwayLostPropertyQueryTest(unittest.TestCase):

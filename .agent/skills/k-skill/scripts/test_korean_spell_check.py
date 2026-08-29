@@ -1,16 +1,16 @@
 import contextlib
+import importlib
 import io
 import json
 import unittest
 
-from scripts.korean_spell_check import (
-    SpellCheckIssue,
-    apply_page_corrections,
-    check_text,
-    extract_result_payload,
-    parse_args,
-    split_text_into_chunks,
-)
+korean_spell_check = importlib.import_module("scripts.korean_spell_check")
+SpellCheckIssue = korean_spell_check.SpellCheckIssue
+apply_page_corrections = korean_spell_check.apply_page_corrections
+check_text = korean_spell_check.check_text
+extract_result_payload = korean_spell_check.extract_result_payload
+parse_args = korean_spell_check.parse_args
+split_text_into_chunks = korean_spell_check.split_text_into_chunks
 
 SAMPLE_RESULTS_HTML = """<!DOCTYPE html>
 <html>

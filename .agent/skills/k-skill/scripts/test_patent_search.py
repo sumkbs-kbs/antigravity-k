@@ -1,23 +1,23 @@
 import contextlib
+import importlib
 import io
 import unittest
 from unittest import mock
 
-from scripts.patent_search import (
-    PatentDetail,
-    PatentSearchResponse,
-    PatentSearchResult,
-    build_detail_params,
-    build_search_params,
-    fetch_xml,
-    get_patent_detail,
-    main,
-    parse_args,
-    parse_patent_detail_response,
-    parse_patent_search_response,
-    resolve_service_key,
-    search_patents,
-)
+patent_search = importlib.import_module("scripts.patent_search")
+PatentDetail = patent_search.PatentDetail
+PatentSearchResponse = patent_search.PatentSearchResponse
+PatentSearchResult = patent_search.PatentSearchResult
+build_detail_params = patent_search.build_detail_params
+build_search_params = patent_search.build_search_params
+fetch_xml = patent_search.fetch_xml
+get_patent_detail = patent_search.get_patent_detail
+main = patent_search.main
+parse_args = patent_search.parse_args
+parse_patent_detail_response = patent_search.parse_patent_detail_response
+parse_patent_search_response = patent_search.parse_patent_search_response
+resolve_service_key = patent_search.resolve_service_key
+search_patents = patent_search.search_patents
 
 SAMPLE_SEARCH_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <response>

@@ -1,16 +1,16 @@
+import importlib
 import json
 import os
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.zipcode_search import (
-    SEARCH_URL,
-    AddressSearchResult,
-    fetch_search_page,
-    lookup_korean_address,
-    parse_search_results,
-)
+zipcode_search = importlib.import_module("scripts.zipcode_search")
+SEARCH_URL = zipcode_search.SEARCH_URL
+AddressSearchResult = zipcode_search.AddressSearchResult
+fetch_search_page = zipcode_search.fetch_search_page
+lookup_korean_address = zipcode_search.lookup_korean_address
+parse_search_results = zipcode_search.parse_search_results
 
 SAMPLE_HTML = """
 <table>

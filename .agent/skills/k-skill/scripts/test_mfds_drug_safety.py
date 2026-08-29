@@ -1,12 +1,12 @@
+import importlib
 import unittest
 
-from scripts.mfds_drug_safety import (
-    build_drug_interview,
-    lookup_drugs,
-    normalize_easy_drug_item,
-    normalize_safe_stad_item,
-    resolve_proxy_base_url,
-)
+mfds_drug_safety = importlib.import_module("scripts.mfds_drug_safety")
+build_drug_interview = mfds_drug_safety.build_drug_interview
+lookup_drugs = mfds_drug_safety.lookup_drugs
+normalize_easy_drug_item = mfds_drug_safety.normalize_easy_drug_item
+normalize_safe_stad_item = mfds_drug_safety.normalize_safe_stad_item
+resolve_proxy_base_url = mfds_drug_safety.resolve_proxy_base_url
 
 
 class DrugInterviewTest(unittest.TestCase):

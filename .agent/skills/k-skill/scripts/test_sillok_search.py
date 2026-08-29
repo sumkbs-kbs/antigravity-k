@@ -1,24 +1,24 @@
 import contextlib
+import importlib
 import io
 import ssl
 import types
 import unittest
 from unittest import mock
 
-from scripts.sillok_search import (
-    ArticleDetail,
-    SearchReport,
-    SearchResult,
-    build_http_client,
-    build_opener,
-    fetch_text,
-    filter_results,
-    parse_args,
-    parse_detail_page,
-    parse_result_title_metadata,
-    parse_search_results,
-    search_sillok,
-)
+sillok_search = importlib.import_module("scripts.sillok_search")
+ArticleDetail = sillok_search.ArticleDetail
+SearchReport = sillok_search.SearchReport
+SearchResult = sillok_search.SearchResult
+build_http_client = sillok_search.build_http_client
+build_opener = sillok_search.build_opener
+fetch_text = sillok_search.fetch_text
+filter_results = sillok_search.filter_results
+parse_args = sillok_search.parse_args
+parse_detail_page = sillok_search.parse_detail_page
+parse_result_title_metadata = sillok_search.parse_result_title_metadata
+parse_search_results = sillok_search.parse_search_results
+search_sillok = sillok_search.search_sillok
 
 SAMPLE_SEARCH_HTML = """<!DOCTYPE html>
 <html lang=\"ko\">
