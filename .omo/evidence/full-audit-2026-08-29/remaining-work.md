@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `278df38` (Surgical patch line hint 동작 보완 포함)
-- 전체 `basedpyright`: `0 errors, 28366 warnings, 0 notes` (최신 변경 파일도 0 warnings)
+- 최신 검증 커밋: `d62e24c` (Unsloth provider capability 타입 경계 포함)
+- 전체 `basedpyright`: `0 errors, 28365 warnings, 0 notes` (최신 변경 파일도 0 warnings)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -94,6 +94,7 @@ date: 2026-08-29
 - `df66d90`: `IncrementalCodeGraph.project_root` is explicitly typed and its update results are consumed in the regression test. `tests/test_incremental_code_graph.py` passed 1 test; source/test basedpyright and Ruff pass with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28368 warnings, 0 notes`.
 - `89aaaea`: `long_context_policy.py` removes the statically unreachable default match arm from the exhaustive `LongContextStrategy` union. The fallback/native/unavailable regression tests passed 3 tests; the owned source passes basedpyright and Ruff with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28367 warnings, 0 notes`.
 - `278df38`: `SurgicalPatcher.apply_patch` now honors `start_line_hint` when repeated snippets exist, and a regression test proves the hinted occurrence is selected. `tests/test_surgical_patcher.py` passed 4 tests; source/test basedpyright, Ruff, Ruff-format, and pre-commit pass with 0 warnings; whole-tree basedpyright remeasurement is `0 errors, 28366 warnings, 0 notes`.
+- `d62e24c`: `UnslothProvider.forwards_native_tools` is explicitly typed. The inference-provider suite passed 10 tests; the owned source passes basedpyright and Ruff with 0 warnings, while user-modified inference-provider tests remain unstaged. Whole-tree basedpyright remeasurement is `0 errors, 28365 warnings, 0 notes`.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
