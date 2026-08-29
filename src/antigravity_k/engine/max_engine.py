@@ -21,7 +21,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, final
 
 logger = logging.getLogger("antigravity_k.max_engine")
 
@@ -51,6 +51,7 @@ class MaxRunResult:
     error: str | None = None
 
 
+@final
 class MaxModeEngine:
     """MAX 모드 병렬 편집 엔진.
 
@@ -75,7 +76,7 @@ class MaxModeEngine:
         self.project_root = project_root or os.getcwd()
         self._max_workers = 4  # 기본값, 필요시 조정
 
-    def set_max_workers(self, n: int):
+    def set_max_workers(self, n: int) -> None:
         """최대 병렬 워커 수를 설정합니다."""
         self._max_workers = max(1, min(n, 8))  # 1~8 범위
 
@@ -611,6 +612,7 @@ class MaxModeEngine:
         configs: list[dict[str, str]],
     ) -> str:
         """MAX 모드 실행 트레이스를 포맷팅합니다."""
+        _ = configs
         worker_details = []
         for i, r in enumerate(results):
             marker = "← SELECTED" if i == selected_idx else ""
