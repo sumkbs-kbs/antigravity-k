@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `2b9d93e` (27B 벤치마크 실제 QA 게이트 보정 포함)
-- 전체 `basedpyright`: `0 errors, 28396 warnings, 0 notes`
+- 최신 검증 커밋: `e6b376d` (Frontier benchmark 부수효과 경계 명시 포함)
+- 전체 `basedpyright`: `0 errors, 28395 warnings, 0 notes`
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -83,6 +83,7 @@ date: 2026-08-29
 - `2526fee`: the same benchmark helpers now accept the repository's `SimpleNamespace` test doubles through internal casts, preserving runtime compatibility while keeping the script at `0` basedpyright warnings. The focused 5-test suite and full basedpyright passed with `0 errors, 28398 warnings, 0 notes` globally; user-owned dirty paths remain preserved.
 - `1678834`: `scripts/fix_g004.py` explicitly consumes the file-write and entrypoint return values. The script now reports `0 errors, 0 warnings, 0 notes`; f-string conversion smoke passed, Ruff/Ruff-format/pre-commit passed, and whole-tree basedpyright reports `0 errors, 28397 warnings, 0 notes`.
 - `2b9d93e`: `scripts/run_27b_benchmark.py` fixes the Error Distiller benchmark gate to enforce required diagnostic fields and a bounded 256-character result instead of requiring a summary shorter than an unusually short fixture. The real benchmark run now passes `4/4` with exit code 0; script basedpyright/Ruff/Ruff-format/pre-commit pass, and whole-tree basedpyright reports `0 errors, 28396 warnings, 0 notes`.
+- `e6b376d`: `scripts/run_frontier_exceeding_benchmark.py` explicitly consumes the incremental graph update result and normalizes the score expression. The real benchmark run passes `3/3` with exit code 0; script basedpyright/Ruff/Ruff-format/pre-commit pass, and whole-tree basedpyright reports `0 errors, 28395 warnings, 0 notes`.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
