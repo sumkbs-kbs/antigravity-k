@@ -110,7 +110,7 @@ class WorktreeManager:
         """주어진 branch_name에 해당하는 worktree 경로를 반환합니다.
 
         worktree가 존재하면 경로를, 없으면 None을 반환합니다.
-        team_manager.py 등에서 task_id로 worktree를 조회할 때 사용됩니다.
+        task API 등에서 task_id로 worktree를 조회할 때 사용됩니다.
 
         Args:
             branch_name: 브랜치명 (또는 task_id)
