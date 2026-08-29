@@ -28,7 +28,7 @@ class TestEstimateText:
         assert TokenEstimator.estimate_text(text) == 18
 
     @pytest.mark.parametrize("payload", ["hello world", "안녕하세요", "x"])
-    def test_non_empty_text_never_estimates_zero(self, payload):
+    def test_non_empty_text_never_estimates_zero(self, payload: str):
         assert TokenEstimator.estimate_text(payload) >= 1
 
 
