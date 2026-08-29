@@ -37,6 +37,7 @@ _TOOL_EVIDENCE_TAIL_CHARS: Final = 800
 _TOOL_EVIDENCE_FOCUS_CHARS: Final = 900
 _TOOL_EVIDENCE_MAX_FOCUSES: Final = 2
 _TOOL_SOURCE_FIELDS: Final = ("file_path", "path", "url", "query", "command")
+_MAX_TOOL_LOOP_STEPS: Final[int] = 50
 _FOCUS_TERM_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{2,}|[가-힣]{2,}")
 _AUTHORITATIVE_PROJECT_VALUE: Final[re.Pattern[str]] = re.compile(
     r"\[resolved:project:(?:decision|fact):[^\]]+ source=project scope=project]\s*(?P<value>[^\n]{1,120})",
@@ -265,6 +266,7 @@ class ToolLoopEngine:
             Streaming text chunks and tool-execution status messages.
 
         """
+        max_steps = max(1, min(int(max_steps), _MAX_TOOL_LOOP_STEPS))
         started_at = time.monotonic()
         task_id = self._task_id()
         self._transition_task_state("running")

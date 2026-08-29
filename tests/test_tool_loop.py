@@ -1016,6 +1016,27 @@ class TestToolLoopEngineRunLoop:
         results = self._run(max_steps=1)
         assert any("Step Limit" in r for r in results)
 
+    def test_excessive_max_steps_is_bounded(self):
+        tool_xml = (
+            "<action_call>\n<tool_call>\n"
+            '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
+            "</tool_call>\n</action_call>\n"
+        )
+        self.mock_orch.manager.stream_generate.side_effect = lambda **kwargs: iter([tool_xml])
+        self.mock_orch.ctx.tool_executor.execute_async.return_value = "result"
+
+        results = self._run(max_steps=51)
+
+        assert any("최대 도구 호출 횟수(50)" in r for r in results)
+        assert self.mock_orch.manager.stream_generate.call_count == 50
+
+    def test_non_positive_max_steps_still_runs_once(self):
+        self.mock_orch.manager.stream_generate.return_value = iter(["completed"])
+
+        self._run(max_steps=0)
+
+        assert self.mock_orch.manager.stream_generate.call_count == 1
+
     def test_empty_messages_post_loop(self):
         """messages가 비어 있으면 post_loop는 user_task=''로 실행."""
         self.mock_orch.manager.stream_generate.return_value = iter(["output"])
