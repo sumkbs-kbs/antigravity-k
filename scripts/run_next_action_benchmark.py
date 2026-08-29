@@ -30,7 +30,9 @@ def run_next_action_benchmark():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
         (root / "src").mkdir()
-        (root / "src" / "crypto.py").write_text("async def decrypt(): import time; time.sleep(1)\n", encoding="utf-8")
+        _ = (root / "src" / "crypto.py").write_text(
+            "async def decrypt(): import time; time.sleep(1)\n", encoding="utf-8"
+        )
 
         recommender = NextActionRecommender(root)
         batch = recommender.synthesize_recommendations(
