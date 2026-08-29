@@ -20,7 +20,7 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, final
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +190,7 @@ class InstalledSkill:
 # ─── 메인 클라이언트 ──────────────────────────────────────────────────
 
 
+@final
 class SkillMarketClient:
     """npm Registry 기반 Skill Marketplace 클라이언트.
 
@@ -237,7 +238,7 @@ class SkillMarketClient:
 
         # 점수 정렬: AGK 스킬 우선, 설명 일치도
         query_lower = query.lower()
-        scored = []
+        scored: list[tuple[int, SkillListing]] = []
         for r in results:
             score = 0
             if r.is_agk_skill:
@@ -385,7 +386,7 @@ class SkillMarketClient:
         installed = self.get_installed(project_root)
         return any(s.skill_name == skill_name for s in installed)
 
-    def record_installation(self, package_name: str, version: str, install_path: str):
+    def record_installation(self, package_name: str, version: str, install_path: str) -> None:
         """스킬 설치를 상태 파일에 기록합니다.
 
         Args:
@@ -416,12 +417,12 @@ class SkillMarketClient:
 
         try:
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+            _ = state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("[SkillMarket] Installation recorded: %s@%s", package_name, version)
         except Exception as e:
             logger.warning("[SkillMarket] Failed to record installation: %s", e)
 
-    def remove_installation(self, skill_name: str):
+    def remove_installation(self, skill_name: str) -> None:
         """스킬 설치 기록을 제거합니다.
 
         Args:
@@ -433,8 +434,8 @@ class SkillMarketClient:
 
         try:
             state = json.loads(state_file.read_text(encoding="utf-8"))
-            state.get("installed", {}).pop(skill_name, None)
-            state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+            _ = state.get("installed", {}).pop(skill_name, None)
+            _ = state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
             logger.info("[SkillMarket] Installation removed: %s", skill_name)
         except Exception as e:
             logger.warning("[SkillMarket] Failed to remove installation: %s", e)
@@ -457,6 +458,7 @@ class SkillMarketClient:
         ]
 
         for i, r in enumerate(results[:15], 1):
+            _ = i
             installed_mark = "✅" if self.is_installed(r.skill_name) else "📦"
             version = r.version
             desc = (r.description[:80] + "...") if len(r.description) > 80 else r.description
