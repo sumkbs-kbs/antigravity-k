@@ -28,11 +28,11 @@ def _command(name="tools", category="session", usage="/tools", description="ÎèÑÍ
 
 class _Host(SlashCommandSessionMixin):
     def __init__(self, *, commands=None, tools=None, session=None, shaper=None, model=None):
-        self._commands = commands or {}
-        self._tool_registry = tools
-        self._session_manager = session
-        self._context_shaper = shaper
-        self._model_manager = model
+        setattr(self, "_commands", commands or {})
+        setattr(self, "_tool_registry", tools)
+        setattr(self, "_session_manager", session)
+        setattr(self, "_context_shaper", shaper)
+        setattr(self, "_model_manager", model)
 
 
 @pytest.fixture
