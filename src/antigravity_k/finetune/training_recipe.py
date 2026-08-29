@@ -98,10 +98,14 @@ def resolve_training_recipe(recipe: TrainingRecipe, *, resume: bool = False) -> 
     resume_source_sha256 = hashlib.sha256(resume_adapter_path.read_bytes()).hexdigest() if resume_adapter_path else None
     recipe_canonical = recipe.model_dump_json(exclude={"dataset"})
     recipe_sha256 = hashlib.sha256(recipe_canonical.encode("utf-8")).hexdigest()
+    try:
+        mlx_lm_version = importlib.metadata.version("mlx_lm")
+    except importlib.metadata.PackageNotFoundError:
+        mlx_lm_version = "unknown"
     environment = {
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "mlx_lm": importlib.metadata.version("mlx_lm"),
+        "mlx_lm": mlx_lm_version,
     }
     command: tuple[str, ...] = (
         sys.executable,

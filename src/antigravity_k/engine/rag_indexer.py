@@ -236,7 +236,14 @@ class RAGIndexer:
 
     def _annotate_chunks(self, chunks: list[CodeChunk], source_hash: str) -> None:
         indexed_at = datetime.now(UTC).isoformat()
-        for chunk in chunks:
+        seen_ids: set[str] = set()
+        for index, chunk in enumerate(chunks):
+            if chunk.chunk_id in seen_ids:
+                chunk.chunk_id = self._make_id(
+                    chunk.file_path,
+                    f"dedupe_{chunk.chunk_id}_{chunk.start_line}_{chunk.end_line}_{index}",
+                )
+            seen_ids.add(chunk.chunk_id)
             chunk.metadata.update(
                 {
                     "source_hash": source_hash,

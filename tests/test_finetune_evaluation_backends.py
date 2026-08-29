@@ -252,6 +252,7 @@ def test_mlx_inference_uses_revision_for_base_and_adapter_for_tuned(
 ) -> None:
     runtime = FakeMlxRuntime()
     adapter_path = tmp_path / "adapter"
+    monkeypatch.setattr("antigravity_k.finetune.evaluation_backends._load_mlx_runtime", lambda: runtime)
     inference = MlxEvaluationInference(
         base_model="/models/base",
         base_revision="sha256:base-revision",
