@@ -3,12 +3,10 @@
     "case_id": "identifier-recall",
     "query": "context artifact recall",
     "relevant_sources": [
-      "src/antigravity_k/engine/context_artifact_recall.py",
-      "src/antigravity_k/engine/rag_indexer.py"
+      "src/antigravity_k/engine/benchmark_harness.py"
     ],
     "graded_relevance": {
-      "src/antigravity_k/engine/context_artifact_recall.py": 3,
-      "src/antigravity_k/engine/rag_indexer.py": 2
+      "src/antigravity_k/engine/benchmark_harness.py": 3
     }
   },
   {
@@ -28,11 +26,11 @@
     "query": "artifact provenance source sha256",
     "relevant_sources": [
       "src/antigravity_k/engine/rag_indexer.py",
-      "src/antigravity_k/engine/context_artifact_store.py"
+      "src/antigravity_k/engine/model_memory_calibration.py"
     ],
     "graded_relevance": {
       "src/antigravity_k/engine/rag_indexer.py": 3,
-      "src/antigravity_k/engine/context_artifact_store.py": 1
+      "src/antigravity_k/engine/model_memory_calibration.py": 1
     }
   }
 ]
