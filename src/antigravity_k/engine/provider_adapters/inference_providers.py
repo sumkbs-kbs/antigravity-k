@@ -18,15 +18,10 @@ Message = dict[str, Any]
 Prompt = str | list[Message]
 
 
-class ProviderProfileLike(Protocol):
-    name: str
-    repo: str
-
-
 class LoadedModelLike(Protocol):
-    profile: ProviderProfileLike
-    model: object
-    tokenizer: object
+    profile: Any
+    model: Any
+    tokenizer: Any
 
 
 class BaseInferenceProvider(ABC):
