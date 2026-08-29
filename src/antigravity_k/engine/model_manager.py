@@ -144,10 +144,9 @@ class ModelManager:
         # 레지스트리에서 프로필 확인
         profile = self._registry.get_model(name)
         if profile is None:
-            raise ValueError(
-                f"모델 '{name}'이 config.yaml에 등록되어 있지 않습니다.\n"
-                f"등록된 모델: {[m.name for m in self._registry.list_models()]}",
-            )
+            registered_models = [m.name for m in self._registry.list_models()]
+            message = f"모델 '{name}'이 config.yaml에 등록되어 있지 않습니다.\n등록된 모델: {registered_models}"
+            raise ValueError(message)
 
         # 메모리 확보
         self._ensure_memory(profile.estimated_memory_gb)
@@ -1492,7 +1491,7 @@ class ModelManager:
 
         is_openrouter = self._is_openrouter()
         api_msgs = self._prepare_stream_messages(loaded, prompt, kwargs)
-        req, model_name = self._build_stream_request(loaded, api_msgs, kwargs, is_openrouter)
+        req, _ = self._build_stream_request(loaded, api_msgs, kwargs, is_openrouter)
 
         try:
             if is_openrouter:
@@ -1723,8 +1722,7 @@ class ModelManager:
             )
         except (ImportError, OSError, RuntimeError, ValueError) as exc:
             raise RuntimeError(
-                f"Transformers 모델 '{load_path}'을 직접 로드하지 못했습니다. "
-                "transformers와 torch가 설치되어 있는지 확인하세요."
+                f"Transformers 모델 '{load_path}'을 직접 로드하지 못했습니다. transformers와 torch가 설치되어 있는지 확인하세요."
             ) from exc
 
         if adapter_base:
