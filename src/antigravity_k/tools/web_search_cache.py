@@ -11,6 +11,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from .web_search_models import SearchResponse, SearchResult
 
@@ -221,7 +222,7 @@ class SearchCache:
     """
 
     def __init__(self, ttl_hours: int = 24) -> None:
-        self.ttl_hours = ttl_hours
+        self.ttl_hours: int = ttl_hours
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     def _cache_key(self, query: str) -> str:
@@ -243,8 +244,8 @@ class SearchCache:
             return None
 
         try:
-            data = json.loads(cache_file.read_text(encoding="utf-8"))
-            cached_time = datetime.fromisoformat(data.get("cached_at", ""))
+            data = cast(dict[str, object], json.loads(cache_file.read_text(encoding="utf-8")))
+            cached_time = datetime.fromisoformat(str(data.get("cached_at", "")))
             if cached_time.tzinfo is None:
                 cached_time = cached_time.replace(tzinfo=UTC)
             age_hours = (datetime.now(UTC) - cached_time).total_seconds() / 3600
@@ -253,12 +254,33 @@ class SearchCache:
                 cache_file.unlink(missing_ok=True)
                 return None
 
-            results = [SearchResult(**r) for r in data.get("results", [])]
+            raw_results = data.get("results", [])
+            result_items = cast(list[object], raw_results) if isinstance(raw_results, list) else []
+            results: list[SearchResult] = []
+            for item in result_items:
+                if not isinstance(item, dict):
+                    continue
+                payload = cast(dict[str, object], item)
+                results.append(
+                    SearchResult(
+                        title=str(payload.get("title", "")),
+                        url=str(payload.get("url", "")),
+                        snippet=str(payload.get("snippet", "")),
+                        source=str(payload.get("source", "")),
+                        timestamp=str(payload.get("timestamp", "")),
+                        relevance_score=float(str(payload.get("relevance_score", 0.0) or 0.0)),
+                        canonical_url=str(payload.get("canonical_url", "")),
+                        source_id=str(payload.get("source_id", "")),
+                        domain=str(payload.get("domain", "")),
+                        authority_score=float(str(payload.get("authority_score", 0.0) or 0.0)),
+                        ranking_score=float(str(payload.get("ranking_score", 0.0) or 0.0)),
+                    )
+                )
             return SearchResponse(
-                query=data["query"],
+                query=str(data["query"]),
                 results=results,
                 total_results=len(results),
-                engine=data.get("engine", "cache"),
+                engine=str(data.get("engine", "cache")),
                 cached=True,
                 stale=age_hours > effective_ttl,
             )
@@ -314,7 +336,7 @@ class SearchCache:
                 for r in response.results
             ],
         }
-        cache_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _ = cache_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def clear(self, query: str | None = None):
         """캐시를 정리합니다.
