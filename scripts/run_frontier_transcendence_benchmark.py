@@ -57,7 +57,7 @@ def run_transcendence_benchmark():
     # 3. Deep Code & Signature Indexer
     print("\n[3/3] Deep Code & Type Signature Indexer (<1ms whole repo)...")
     with tempfile.TemporaryDirectory() as tmpdir:
-        (Path(tmpdir) / "api.py").write_text(
+        _ = (Path(tmpdir) / "api.py").write_text(
             "def route_req(url: str, retry: int = 3) -> dict:\n    '''Dispatch request.'''\n    return {}\n"
         )
         indexer = DeepCodeIndexer(Path(tmpdir))
@@ -67,7 +67,7 @@ def run_transcendence_benchmark():
             score += 1
 
     print("\n" + "=" * 80)
-    print(f"🏆 FRONTIER TRANSCENDENCE SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 FRONTIER TRANSCENDENCE SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 
