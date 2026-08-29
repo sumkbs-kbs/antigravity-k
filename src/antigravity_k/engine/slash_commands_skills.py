@@ -109,10 +109,10 @@ class SlashCommandSkillsMixin:
             query = " ".join(rest).strip()
             if not query:
                 return "Usage: `/market search <query>`"
-            results = registry.search(query)
-            if isinstance(results, list) and results and "error" not in results[0]:
+            search_results = registry.search(query)
+            if isinstance(search_results, list) and search_results and "error" not in search_results[0]:
                 lines = ["🔍 **Skill Marketplace 검색 결과**", ""]
-                for result in results[:15]:
+                for result in search_results[:15]:
                     name = str(result.get("name", "unknown"))
                     version = str(result.get("version", "0.0.0"))
                     description = str(result.get("description", ""))
@@ -120,8 +120,8 @@ class SlashCommandSkillsMixin:
                     if len(description) > 80:
                         description = description[:80] + "..."
                     lines.extend([f"  {installed_mark} `{name}@{version}`", f"     {description}", ""])
-                if len(results) > 15:
-                    lines.append(f"  ... 외 {len(results) - 15}개 결과")
+                if len(search_results) > 15:
+                    lines.append(f"  ... 외 {len(search_results) - 15}개 결과")
                 return "\n".join(lines)
             return "🔍 검색 결과가 없습니다."
 
@@ -129,11 +129,11 @@ class SlashCommandSkillsMixin:
             if not rest:
                 return "Usage: `/market install <package>`"
             package = rest[0]
-            result = registry.install(package)
-            if result.get("success"):
-                return f"✅ **Install complete**\n\n{result.get('summary', '')}"
-            error = result.get("error", "Unknown error")
-            warnings = result.get("warnings", [])
+            install_result = registry.install(package)
+            if install_result.get("success"):
+                return f"✅ **Install complete**\n\n{install_result.get('summary', '')}"
+            error = install_result.get("error", "Unknown error")
+            warnings = install_result.get("warnings", [])
             msg = f"❌ Install failed: {error}"
             if warnings:
                 msg += "\n\n**Warnings:**\n" + "\n".join(f"- {w}" for w in warnings)
@@ -143,10 +143,10 @@ class SlashCommandSkillsMixin:
             if not rest:
                 return "Usage: `/market remove <name>`"
             name = rest[0]
-            result = registry.remove(name)
-            if result.get("success"):
-                return f"✅ **Removed**\n\n{result.get('summary', '')}"
-            return f"❌ Remove failed: {result.get('error', 'Unknown error')}"
+            remove_result = registry.remove(name)
+            if remove_result.get("success"):
+                return f"✅ **Removed**\n\n{remove_result.get('summary', '')}"
+            return f"❌ Remove failed: {remove_result.get('error', 'Unknown error')}"
 
         elif sub in ("list", "ls"):
             installed = registry.list_installed()
@@ -189,12 +189,12 @@ class SlashCommandSkillsMixin:
         elif sub == "update":
             if rest:
                 name = rest[0]
-                result = registry.update(name)
-                if result.get("success"):
-                    return f"✅ **Updated**\n\n{result.get('summary', '')}"
-                return f"❌ Update failed: {result.get('error', 'Unknown error')}"
-            results = registry.update_all()
-            updated = [r for r in results if r.get("success")]
+                update_result = registry.update(name)
+                if update_result.get("success"):
+                    return f"✅ **Updated**\n\n{update_result.get('summary', '')}"
+                return f"❌ Update failed: {update_result.get('error', 'Unknown error')}"
+            update_results = registry.update_all()
+            updated = [r for r in update_results if r.get("success")]
             if updated:
                 lines = ["✅ **업데이트 완료**", ""]
                 for r in updated:

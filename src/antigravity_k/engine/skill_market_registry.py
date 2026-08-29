@@ -41,6 +41,21 @@ class InstallResponse(TypedDict, total=False):
     summary: str
 
 
+class SearchResponse(TypedDict, total=False):
+    error: str
+    name: str
+    skill_name: str
+    version: str
+    description: str
+    keywords: list[str]
+    publisher: str
+    date: str
+    npm_url: str
+    homepage: str
+    repository: str
+    is_installed: bool
+
+
 class MarketClientProtocol(Protocol):
     def search(self, query: str, limit: int = 20) -> list[SkillListing]: ...
 
@@ -192,7 +207,7 @@ class SkillMarketRegistry:
 
     # ─── 검색 ───────────────────────────────────────────────────────
 
-    def search(self, query: str, limit: int = 20) -> list[JsonObject]:
+    def search(self, query: str, limit: int = 20) -> list[SearchResponse]:
         """npm 레지스트리에서 스킬을 검색합니다.
 
         Args:
@@ -208,13 +223,23 @@ class SkillMarketRegistry:
 
         try:
             results = self.market_client.search(query, limit)
-            return [
-                {
-                    **r.to_dict(),
-                    "is_installed": self._is_installed(r.skill_name),
+            response: list[SearchResponse] = []
+            for listing in results:
+                item: SearchResponse = {
+                    "name": listing.name,
+                    "skill_name": listing.skill_name,
+                    "version": listing.version,
+                    "description": listing.description,
+                    "keywords": listing.keywords,
+                    "publisher": listing.publisher,
+                    "date": listing.date,
+                    "npm_url": listing.npm_url,
+                    "homepage": listing.homepage,
+                    "repository": listing.repository,
+                    "is_installed": self._is_installed(listing.skill_name),
                 }
-                for r in results
-            ]
+                response.append(item)
+            return response
         except Exception as e:
             logger.exception("[SkillRegistry] Search failed")
             return [{"error": str(e)}]
