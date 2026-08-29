@@ -6,6 +6,8 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+- 최신 전체 basedpyright 재측정은 `0 errors, 25498 warnings, 0 notes`이며, `tests/test_max_engine.py`의 보호 메서드·MAX 핸들러 경계를 `9ecfb4e` 독립 커밋으로 정리해 해당 파일 경고를 `45 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
+
 ## 범위
 
 - `git status --short` 기준 244개 dirty path를 작성자와 관계없이 재분류했다.
