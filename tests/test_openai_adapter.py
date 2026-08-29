@@ -1,7 +1,7 @@
 """Tests for the OpenAI adapter."""
 
 import json
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 
@@ -118,14 +118,15 @@ class TestTranslateResponse:
             ],
         }
         result = self.adapter.translate_response(resp)
-        assert len(result["content"]) == 2
+        content = cast(list[object], cast(object, result["content"]))
+        assert len(content) == 2
         assert result["content"][0]["type"] == "text"
         assert result["content"][1]["type"] == "tool_use"
         assert result["content"][1]["name"] == "get_weather"
         assert result["content"][1]["input"]["loc"] == "Seoul"
 
     def test_empty_choices(self):
-        resp = {"id": "x", "model": "y", "choices": []}
+        resp: dict[str, object] = {"id": "x", "model": "y", "choices": []}
         result = self.adapter.translate_response(resp)
         assert result == resp
 
