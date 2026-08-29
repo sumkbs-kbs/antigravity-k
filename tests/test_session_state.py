@@ -4,6 +4,8 @@
 stale 바인딩이 발생하지 않음을 검증한다.
 """
 
+from typing import Callable, cast
+
 from antigravity_k.api.routes import session_state
 
 
@@ -28,7 +30,11 @@ class TestSharedSessionBinding:
         before = session_state.get_active_session()
         import antigravity_k.api.routes.agent_stream_api as stream_api
 
-        stream_api.reset_active_session()
+        reset_active_session = cast(
+            Callable[[], session_state.ActiveAgentSession],
+            getattr(stream_api, "reset_active_session"),
+        )
+        _ = reset_active_session()
         after = session_state.get_active_session()
         assert after is before
 
