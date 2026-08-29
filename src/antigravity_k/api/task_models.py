@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-from typing import ClassVar, Literal, Self
+from typing import ClassVar, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator
 
-from antigravity_k.engine.task_state_store import ExecutionEventRecord
+from antigravity_k.engine.task_events import ExecutionEventRecord
 
 _JSON_VALUE_ADAPTER: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 _TASK_DATA_ADAPTER: TypeAdapter[dict[str, JsonValue]] = TypeAdapter(dict[str, JsonValue])
 _TASK_LIST_ADAPTER: TypeAdapter[list[dict[str, JsonValue]]] = TypeAdapter(list[dict[str, JsonValue]])
+_MAX_TASK_CONTEXT_BYTES: Final[int] = 64 * 1024
 
 
 class TaskSubmitRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    prompt: str
+    prompt: str = Field(max_length=32_000)
     context: dict[str, JsonValue] = Field(default_factory=dict)
-    model: str = ""
+    model: str = Field(default="", max_length=128)
     use_worktree: bool = False
-    idempotency_key: str | None = None
+    idempotency_key: str | None = Field(default=None, max_length=256)
 
     @field_validator("prompt")
     @classmethod
@@ -27,6 +28,13 @@ class TaskSubmitRequest(BaseModel):
         if not prompt:
             raise ValueError("prompt must not be blank")
         return prompt
+
+    @field_validator("context")
+    @classmethod
+    def limit_context_size(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if len(_TASK_DATA_ADAPTER.dump_json(value)) > _MAX_TASK_CONTEXT_BYTES:
+            raise ValueError("context exceeds the maximum size")
+        return value
 
 
 class TaskSubmitResponse(BaseModel):
@@ -41,10 +49,10 @@ class BlankTaskForkPromptError(ValueError):
 class TaskForkRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
-    prompt: str | None = None
-    model: str = ""
+    prompt: str | None = Field(default=None, max_length=32_000)
+    model: str = Field(default="", max_length=128)
     use_worktree: bool = False
-    idempotency_key: str | None = None
+    idempotency_key: str | None = Field(default=None, max_length=256)
 
     @field_validator("prompt")
     @classmethod
@@ -66,10 +74,10 @@ class TaskForkResponse(BaseModel):
 
 
 class TaskBenchmarkRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    model: str = Field(default="qwen3.6:latest", min_length=1)
-    idempotency_key: str | None = None
+    model: str = Field(default="qwen3.6:latest", min_length=1, max_length=128)
+    idempotency_key: str | None = Field(default=None, max_length=256)
 
 
 class TaskEvent(BaseModel):

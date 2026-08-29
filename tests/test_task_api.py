@@ -97,6 +97,42 @@ def test_submit_task_rejects_blank_prompt(client: TestClient, runtime: FakeTaskR
     assert runtime.submit_calls == []
 
 
+def test_submit_task_rejects_overlong_prompt_at_api_boundary(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    response = client.post("/api/tasks/submit", json={"prompt": "x" * 32_001})
+
+    assert response.status_code == 422
+    assert runtime.submit_calls == []
+
+
+def test_submit_task_rejects_oversized_context_at_api_boundary(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    response = client.post(
+        "/api/tasks/submit",
+        json={"prompt": "inspect", "context": {"payload": "x" * 66_000}},
+    )
+
+    assert response.status_code == 422
+    assert runtime.submit_calls == []
+
+
+def test_fork_task_rejects_overlong_prompt_at_api_boundary(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    response = client.post(
+        "/api/tasks/task-source/fork",
+        json={"prompt": "x" * 32_001},
+    )
+
+    assert response.status_code == 422
+    assert runtime.submit_calls == []
+
+
 def test_fork_task_submits_source_snapshot_without_mutating_source(
     client: TestClient,
     runtime: FakeTaskRuntime,
