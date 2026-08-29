@@ -1172,7 +1172,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self._orch().manager.stream_generate.return_value = iter([tool_xml])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter([tool_xml]))
         results = self._run()
         result_text = " ".join(results)
         assert "tool" in result_text.lower() or "실행" in result_text
@@ -1188,7 +1188,7 @@ class TestToolLoopEngineRunLoop:
             '{"name": "write_file", "arguments": {"path": "f.txt", "waitForPreviousTools": true}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self._orch().manager.stream_generate.return_value = iter([tool_xml])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter([tool_xml]))
         results = self._run()
         result_text = " ".join(results)
         # Should have executed both tools
@@ -1211,8 +1211,12 @@ class TestToolLoopEngineRunLoop:
             # stream_generate returns a RaisingIter — exception is raised
             # INSIDE the for-loop try/except, not during the call (which
             # is outside the try block)
-            self._orch().manager.stream_generate.return_value = _RaisingIter(
-                RetryableError("timeout"),
+            _set_mock_return(
+                self._orch(),
+                ("manager", "stream_generate"),
+                _RaisingIter(
+                    RetryableError("timeout"),
+                ),
             )
             results = self._run(max_steps=3)
             assert any("재시도" in r or "일시적" in r for r in results)
@@ -1230,8 +1234,12 @@ class TestToolLoopEngineRunLoop:
             return ClassifiedError(reason=FailoverReason.format_error, retryable=False)
 
         with patch("antigravity_k.engine.tool_loop.classify_api_error", side_effect=mock_classify):
-            self._orch().manager.stream_generate.return_value = _RaisingIter(
-                FatalError("bad request"),
+            _set_mock_return(
+                self._orch(),
+                ("manager", "stream_generate"),
+                _RaisingIter(
+                    FatalError("bad request"),
+                ),
             )
             results = self._run()
             assert any("에러" in r or "오류" in r for r in results)
@@ -1249,14 +1257,18 @@ class TestToolLoopEngineRunLoop:
             return ClassifiedError(reason=FailoverReason.context_overflow, retryable=True, should_compress=True)
 
         mock_shaper = MagicMock()
-        mock_shaper.shape.return_value = [{"role": "user", "content": "compressed"}]
-        self._orch().context_shaper = mock_shaper
+        _set_mock_return(mock_shaper, ("shape",), [{"role": "user", "content": "compressed"}])
+        _set_mock_attr(self._orch(), ("context_shaper",), mock_shaper)
 
         # stream_generate returns RaisingIter on 1st call, normal iter on 2nd
-        self._orch().manager.stream_generate.side_effect = [
-            _RaisingIter(ContextOverflow("context too long")),
-            iter(["after compress"]),
-        ]
+        _set_mock_side_effect(
+            self._orch(),
+            ("manager", "stream_generate"),
+            [
+                _RaisingIter(ContextOverflow("context too long")),
+                iter(["after compress"]),
+            ],
+        )
 
         with patch("antigravity_k.engine.tool_loop.classify_api_error", side_effect=mock_classify):
             results = self._run(max_steps=3)
