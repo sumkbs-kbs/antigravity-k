@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `0f16dff`; whole-tree basedpyright reports `0 errors, 27278 warnings, 0 notes`. `tests/test_data_extractor.py` now accesses protected TOP 1 JSON helpers through `TypedDict`/callable adapters; its 100-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `12 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `6a52008`; whole-tree basedpyright reports `0 errors, 27290 warnings, 0 notes`. `tests/test_tdd_verifier.py` now accesses the protected pytest parser through an explicit callable adapter; its 2-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `0dcf186`; whole-tree basedpyright reports `0 errors, 27292 warnings, 0 notes`. `tests/test_structural_snapshot.py` now consumes temporary source/README write results explicitly; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
