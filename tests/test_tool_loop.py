@@ -134,6 +134,26 @@ def _outcome_recorder(outcomes: list[TaskOutcome]) -> TaskOutcomeRecorder:
     return cast(TaskOutcomeRecorder, record)
 
 
+def _mock_path(root: MagicMock, path: tuple[str, ...]) -> MagicMock:
+    current: object = root
+    for name in path:
+        current = cast(MagicMock, cast(object, getattr(current, name)))
+    return cast(MagicMock, current)
+
+
+def _set_mock_return(root: MagicMock, path: tuple[str, ...], value: object) -> None:
+    setattr(_mock_path(root, path), "return_value", value)
+
+
+def _set_mock_side_effect(root: MagicMock, path: tuple[str, ...], value: object) -> None:
+    setattr(_mock_path(root, path), "side_effect", value)
+
+
+def _assert_mock_called_once_with(root: MagicMock, path: tuple[str, ...], **kwargs: object) -> None:
+    method = cast(Callable[..., object], cast(object, getattr(_mock_path(root, path), "assert_called_once_with")))
+    method(**kwargs)
+
+
 class _RaisingIter:
     """Iterator that raises exc on first __next__().
 
@@ -283,36 +303,36 @@ class TestToolLoopEngineNativeToolsKwargs:
         assert result == {}
 
     def test_enabled_but_unsupported_provider(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "mlx"
-        mock_orch.manager._registry.get_model.return_value = profile
+        setattr(profile, "provider", "mlx")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
         engine = ToolLoopEngine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_enabled_with_openrouter_success(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "openrouter"
-        mock_orch.manager._registry.get_model.return_value = profile
+        setattr(profile, "provider", "openrouter")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
         tool_registry = MagicMock()
-        tool_registry.to_openai_schemas.return_value = [{"name": "run_bash"}]
-        mock_orch.tool_registry = tool_registry
+        _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "run_bash"}])
+        setattr(mock_orch, "tool_registry", tool_registry)
         engine = ToolLoopEngine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert "tools" in result
         assert result["tools"] == [{"name": "run_bash"}]
 
     def test_enabled_with_ollama_success(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "ollama"
-        mock_orch.manager._registry.get_model.return_value = profile
-        mock_orch.manager.provider_capability.return_value = {"native_tool_calling": "supported"}
+        setattr(profile, "provider", "ollama")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
+        _set_mock_return(mock_orch, ("manager", "provider_capability"), {"native_tool_calling": "supported"})
         tool_registry = MagicMock()
-        tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
-        mock_orch.tool_registry = tool_registry
+        _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
+        setattr(mock_orch, "tool_registry", tool_registry)
         engine = ToolLoopEngine(mock_orch)
 
         result = _native_tools_kwargs(engine, "qwen3.6:latest")
@@ -320,29 +340,29 @@ class TestToolLoopEngineNativeToolsKwargs:
         assert result["tools"] == [{"name": "read_file"}]
 
     def test_enabled_ollama_limits_schemas_to_required_tools(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "ollama"
-        mock_orch.manager._registry.get_model.return_value = profile
-        mock_orch.manager.provider_capability.return_value = {"native_tool_calling": "supported"}
+        setattr(profile, "provider", "ollama")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
+        _set_mock_return(mock_orch, ("manager", "provider_capability"), {"native_tool_calling": "supported"})
         tool_registry = MagicMock()
-        tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
-        mock_orch.tool_registry = tool_registry
+        _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
+        setattr(mock_orch, "tool_registry", tool_registry)
 
         result = _native_tools_kwargs(ToolLoopEngine(mock_orch), "qwen3.6:latest", ("read_file",))
 
         assert result["tools"] == [{"name": "read_file"}]
-        tool_registry.to_openai_schemas.assert_called_once_with(names=["read_file"])
+        _assert_mock_called_once_with(tool_registry, ("to_openai_schemas",), names=["read_file"])
 
     def test_enabled_with_lmstudio_native_capability_success(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "lmstudio"
-        mock_orch.manager._registry.get_model.return_value = profile
-        mock_orch.manager.provider_capability.return_value = {"native_tool_calling": "supported"}
+        setattr(profile, "provider", "lmstudio")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
+        _set_mock_return(mock_orch, ("manager", "provider_capability"), {"native_tool_calling": "supported"})
         tool_registry = MagicMock()
-        tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
-        mock_orch.tool_registry = tool_registry
+        _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
+        setattr(mock_orch, "tool_registry", tool_registry)
         engine = ToolLoopEngine(mock_orch)
 
         result = _native_tools_kwargs(engine, "lmstudio/qwen3.6")
@@ -350,14 +370,14 @@ class TestToolLoopEngineNativeToolsKwargs:
         assert result["tools"] == [{"name": "read_file"}]
 
     def test_enabled_with_explicitly_unsupported_local_capability_uses_xml(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "ollama"
-        mock_orch.manager._registry.get_model.return_value = profile
-        mock_orch.manager.provider_capability.return_value = {"native_tool_calling": "unsupported"}
+        setattr(profile, "provider", "ollama")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
+        _set_mock_return(mock_orch, ("manager", "provider_capability"), {"native_tool_calling": "unsupported"})
         tool_registry = MagicMock()
-        tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
-        mock_orch.tool_registry = tool_registry
+        _set_mock_return(tool_registry, ("to_openai_schemas",), [{"name": "read_file"}])
+        setattr(mock_orch, "tool_registry", tool_registry)
         engine = ToolLoopEngine(mock_orch)
 
         result = _native_tools_kwargs(engine, "legacy-local")
@@ -365,26 +385,26 @@ class TestToolLoopEngineNativeToolsKwargs:
         assert result == {}
 
     def test_enabled_with_openrouter_empty_schemas(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
-        profile.provider = "openrouter"
-        mock_orch.manager._registry.get_model.return_value = profile
+        setattr(profile, "provider", "openrouter")
+        _set_mock_return(mock_orch, ("manager", "_registry", "get_model"), profile)
         tool_registry = MagicMock()
-        tool_registry.to_openai_schemas.return_value = []
-        mock_orch.tool_registry = tool_registry
+        _set_mock_return(tool_registry, ("to_openai_schemas",), [])
+        setattr(mock_orch, "tool_registry", tool_registry)
         engine = ToolLoopEngine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_registry_get_model_raises_exception(self, mock_orch: MagicMock):
-        mock_orch.config = {"tool_loop": {"native_function_calling": True}}
-        mock_orch.manager._registry.get_model.side_effect = ValueError("not found")
+        setattr(mock_orch, "config", {"tool_loop": {"native_function_calling": True}})
+        _set_mock_side_effect(mock_orch, ("manager", "_registry", "get_model"), ValueError("not found"))
         engine = ToolLoopEngine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
 
     def test_config_not_dict(self, mock_orch: MagicMock):
-        mock_orch.config = None
+        setattr(mock_orch, "config", None)
         engine = ToolLoopEngine(mock_orch)
         result = _native_tools_kwargs(engine, "some-model")
         assert result == {}
