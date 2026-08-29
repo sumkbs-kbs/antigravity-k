@@ -3,6 +3,8 @@
 전략 추천 로직, 알 수 없는 전략 폴백, 파이프라인/토론 흐름을 검증합니다.
 """
 
+from typing import ClassVar
+
 from antigravity_k.engine.delegation_engine import (
     DelegationEngine,
     DelegationResult,
@@ -14,18 +16,17 @@ class MockOrchestrator:
     """DelegationEngine 테스트용 최소 모의 오케스트레이터."""
 
     def __init__(self):
-        self.manager = None
-        self._last_agent_output = ""
-        self._max_engine = None
-        self.config = {}
-        self.tool_registry = None
+        self.manager: object | None = None
+        self._last_agent_output: str = ""
+        self._max_engine: object | None = None
+        self.config: dict[str, object] = {}
+        self.tool_registry: object | None = None
 
 
 class TestRecommendStrategy:
     """recommend_strategy 결정적 전략 선택 검증."""
 
-    def setup_method(self):
-        self.engine = DelegationEngine(MockOrchestrator())
+    engine: ClassVar[DelegationEngine] = DelegationEngine(MockOrchestrator())
 
     def test_simple_coding_is_single(self):
         s = self.engine.recommend_strategy("coding", "함수 하나 작성해줘")
@@ -77,5 +78,7 @@ class TestDelegationResult:
     def test_metadata_not_shared_between_instances(self):
         r1 = DelegationResult(strategy=DelegationStrategy.SINGLE, success=True)
         r2 = DelegationResult(strategy=DelegationStrategy.SINGLE, success=True)
+        assert r1.metadata is not None
+        assert r2.metadata is not None
         r1.metadata["x"] = 1
         assert "x" not in r2.metadata
