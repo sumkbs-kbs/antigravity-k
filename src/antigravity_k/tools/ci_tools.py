@@ -3,11 +3,13 @@
 import logging
 import os
 import subprocess
-from typing import Any
+from collections.abc import Callable
+from typing import Any, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
+Detection = tuple[str, Callable[[str], bool], str]
 
 
 class TestRunnerTool(BaseTool):
@@ -62,6 +64,7 @@ class TestRunnerTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -72,6 +75,7 @@ class TestRunnerTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -82,6 +86,7 @@ class TestRunnerTool(BaseTool):
         return self._description
 
     @property
+    @override
     def parameters_schema(self) -> dict[str, Any]:
         """Parameters Schema.
 
@@ -93,7 +98,7 @@ class TestRunnerTool(BaseTool):
 
     def _detect_test_framework(self, path: str) -> str | None:
         """프로젝트 파일을 분석하여 테스트 프레임워크와 명령을 자동 감지합니다."""
-        detections = [
+        detections: list[Detection] = [
             # (파일, 조건, 명령)
             ("package.json", lambda c: "jest" in c or '"test"' in c, "npm test"),
             ("package.json", lambda c: "vitest" in c, "npx vitest run"),
@@ -190,6 +195,7 @@ class TestRunnerTool(BaseTool):
         )
         return result
 
+    @override
     def execute(self, **kwargs) -> Any:
         """Execute.
 
@@ -302,6 +308,7 @@ class AutoLintTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -312,6 +319,7 @@ class AutoLintTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -322,6 +330,7 @@ class AutoLintTool(BaseTool):
         return self._description
 
     @property
+    @override
     def parameters_schema(self) -> dict[str, Any]:
         """Parameters Schema.
 
@@ -333,7 +342,7 @@ class AutoLintTool(BaseTool):
 
     def _detect_linters(self, path: str) -> list[dict[str, str]]:
         """프로젝트 린트 도구 자동 감지."""
-        linters = []
+        linters: list[dict[str, str]] = []
 
         # Python
         if os.path.exists(os.path.join(path, "pyproject.toml")):
@@ -400,6 +409,7 @@ class AutoLintTool(BaseTool):
 
         return linters
 
+    @override
     def execute(self, **kwargs) -> Any:
         """Execute.
 
@@ -418,7 +428,7 @@ class AutoLintTool(BaseTool):
         if not linters:
             return "⚠️ 린트 도구를 자동 감지할 수 없습니다. 프로젝트에 lint 설정 파일이 없습니다."
 
-        results = []
+        results: list[str] = []
         for linter in linters:
             cmd = linter["fix_cmd"] if fix else linter["cmd"]
             if file_path:
@@ -499,6 +509,7 @@ class PRCreationTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -509,6 +520,7 @@ class PRCreationTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -519,6 +531,7 @@ class PRCreationTool(BaseTool):
         return self._description
 
     @property
+    @override
     def parameters_schema(self) -> dict[str, Any]:
         """Parameters Schema.
 
@@ -528,6 +541,7 @@ class PRCreationTool(BaseTool):
         """
         return self._schema
 
+    @override
     def execute(self, **kwargs) -> Any:
         """Execute.
 
@@ -544,7 +558,7 @@ class PRCreationTool(BaseTool):
         draft = kwargs.get("draft", False)
         path = kwargs.get("path", ".")
 
-        def _git(args):
+        def _git(args: list[str]) -> str:
             r = subprocess.run(["git"] + args, cwd=path, capture_output=True, text=True, timeout=15)
             return r.stdout.strip()
 
