@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -27,7 +27,7 @@ from .local_runtime import LocalRuntimeSupervisor
 from .long_context_policy import LongContextExecutionPlan, build_long_context_plan
 from .memory_policy import MemoryPolicy
 from .model_registry import ModelProfile, ModelRegistry
-from .model_router import AllModelsUnavailableError, ModelRouter, RouteStrategy
+from .model_router import AllModelsUnavailableError, ModelCombo, ModelRouter, RouteStrategy
 from .provider_adapters.inference_providers import BaseInferenceProvider
 from .provider_capabilities import LocalProviderCapabilityProbe, ProviderCapability
 from .usage_tracker import UsageTracker
@@ -371,7 +371,7 @@ class ModelManager:
         self,
         prompt: str,
         combo_name: str | None,
-        combo,
+        combo: ModelCombo | None,
         used_model: str,
         response_text: str,
         kwargs: Payload,
@@ -484,7 +484,7 @@ class ModelManager:
             return heuristic_score
         return score
 
-    def generate(self, prompt: str, target: str, **kwargs) -> str:
+    def generate(self, prompt: str, target: str, **kwargs: Any) -> str:
         """텍스트 생성 수행.
 
         Args:
@@ -573,7 +573,7 @@ class ModelManager:
                 logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
             raise
 
-    def generate_collective(self, prompt: str, target: str, **kwargs) -> str:
+    def generate_collective(self, prompt: str, target: str, **kwargs: Any) -> str:
         """여러 모델의 제안, 비판, 최종 합성을 거쳐 답변을 생성합니다."""
         cfg = self._collective_config()
         combo = self.router.get_combo(target)
@@ -630,7 +630,7 @@ class ModelManager:
             generation_kwargs=kwargs,
         )
 
-    def stream_generate(self, prompt: str, target: str, **kwargs):
+    def stream_generate(self, prompt: str, target: str, **kwargs: Any) -> Iterator[str]:
         """텍스트 생성 수행 (스트리밍)."""
         collective_internal = bool(kwargs.pop("_collective_internal", False))
         if not self.router.get_combo(target) and not self._registry.model_exists(target):
@@ -789,7 +789,7 @@ class ModelManager:
         prompt: str,
         target: str,
         verifier_fn: Callable[[str], "VerificationOutcome"] | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> str:
         """실행 검증 기반 Best-of-N 증폭으로 답변을 생성한다.
 
@@ -859,7 +859,7 @@ class ModelManager:
         )
         return trace.selected
 
-    def generate_self_consistent(self, prompt: str, target: str, **kwargs) -> str:
+    def generate_self_consistent(self, prompt: str, target: str, **kwargs: Any) -> str:
         """단일 모델 N샘플링 self-consistency 증폭으로 답변을 생성한다.
 
         amplification.self_consistency.enabled가 false(기본)면 일반 generate로 폴백.
@@ -892,7 +892,7 @@ class ModelManager:
         )
         return trace.selected
 
-    def generate_decomposed(self, prompt: str, target: str, *, force: bool = False, **kwargs) -> str:
+    def generate_decomposed(self, prompt: str, target: str, *, force: bool = False, **kwargs: Any) -> str:
         """복잡 작업을 단계 분해 후 단계별 실행해 통합 답변을 생성한다.
 
         amplification.task_decomposition.enabled가 false면
@@ -1001,7 +1001,7 @@ class ModelManager:
         base = re.sub(r"/v\d+$", "", base)
         return base
 
-    def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
+    def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs: Any) -> str:
         """내부 텍스트 생성 로직 — per-model provider 위임 (작업 2).
 
         멀티 프로바이더 지원: loaded.profile.provider에 따라 적절한 프로바이더로 위임.
@@ -1023,7 +1023,7 @@ class ModelManager:
         # 폴백: 레거시 인라인 경로 (provider 결정 실패 시)
         return self._do_ollama_generate(loaded, prompt, **kwargs)
 
-    def _do_stream_generate(self, loaded: LoadedModel, prompt: str, **kwargs):
+    def _do_stream_generate(self, loaded: LoadedModel, prompt: str, **kwargs: Any) -> Iterator[str]:
         """내부 텍스트 생성 로직 (스트리밍) — per-model provider 위임 (작업 2)."""
         if self._uses_anthropic_direct(loaded):
             yield from self._do_anthropic_stream(loaded, prompt, **kwargs)
