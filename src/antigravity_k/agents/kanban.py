@@ -52,11 +52,13 @@ class KanbanBoard:
                     )
                 """
                 )
-                # 마이그레이션: 기존 테이블에 worktree_branch 컬럼 추가 시도
-                try:
-                    conn.execute("ALTER TABLE tasks ADD COLUMN worktree_branch TEXT")
-                except sqlite3.OperationalError:
-                    logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
+                if "worktree_branch" not in columns:
+                    try:
+                        conn.execute("ALTER TABLE tasks ADD COLUMN worktree_branch TEXT")
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column name" not in str(exc).lower():
+                            raise
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS task_history (
