@@ -5,7 +5,7 @@ from antigravity_k.engine.code_intel.impact_analyzer import ImpactAnalyzer
 
 class TestImpactAnalyzer:
     def test_analyze_returns_expected_structure(self):
-        graph = {}
+        graph: dict[str, object] = {}
         analyzer = ImpactAnalyzer(graph)
         result = analyzer.analyze("some_symbol")
         assert isinstance(result, dict)
@@ -18,7 +18,7 @@ class TestImpactAnalyzer:
         assert result["blast_radius"] == 3
 
     def test_analyze_with_max_depth(self):
-        graph = {}
+        graph: dict[str, object] = {}
         analyzer = ImpactAnalyzer(graph)
         result = analyzer.analyze("symbol", max_depth=3)
         assert result["risk_level"] == "MEDIUM"
