@@ -9,7 +9,7 @@ date: 2026-08-29
 ## 현재 기준
 
 - 최신 검증 커밋: `1539306` (model manager 진단 경계 정리; 이후 tool-loop 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
-- 전체 `basedpyright`: `0 errors, 25001 warnings, 0 notes` (provider stream 경계와 model manager·lintai scanner·call hierarchy·장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 단계적으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
+- 전체 `basedpyright`: `0 errors, 24995 warnings, 0 notes` (provider stream 경계와 model manager·lintai scanner·call hierarchy·impact analyzer·장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 단계적으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
@@ -67,8 +67,9 @@ date: 2026-08-29
 2. `src/antigravity_k/engine/model_manager.py`의 암시적 문자열 연결·미사용 반환값 진단 3건을 제거해 파일 경고를 `251 → 248`로 줄였다. 관련 lifecycle/generate/stream 테스트 83개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 3. `src/antigravity_k/security/lintai_scanner.py`의 JSON 출력·실행 파일 경계를 명시해 파일 경고를 `5 → 0`으로 줄였다. 관련 3개 테스트와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 4. `src/antigravity_k/engine/call_hierarchy_graph.py`의 AST visitor override·속성·미사용 결과를 명시해 파일 경고를 `6 → 0`으로 줄였다. 관련 테스트 1개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
-5. 대시보드 중첩 DOMPurify 취약점은 `707a312` override로 해결했고 production audit은 0건이다. 현재 추가 잔여는 stale `build/` 산출물 방지와 dirty working-tree 릴리스 검증이다.
-6. codebase-memory MCP transport 복구 후 repository re-index와 호출 경로 재검증을 수행한다.
+5. `src/antigravity_k/engine/code_intel/impact_analyzer.py`의 graph·JSON 반환 경계를 명시하고 미사용 입력을 소비하도록 정리해 파일 경고를 `6 → 0`으로 줄였다. 관련 테스트 2개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
+6. 대시보드 중첩 DOMPurify 취약점은 `707a312` override로 해결했고 production audit은 0건이다. 현재 추가 잔여는 stale `build/` 산출물 방지와 dirty working-tree 릴리스 검증이다.
+7. codebase-memory MCP transport 복구 후 repository re-index와 호출 경로 재검증을 수행한다.
 
 ## 최근 완료 단위
 
