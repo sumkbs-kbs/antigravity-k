@@ -16,7 +16,7 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import safe_urlopen
@@ -81,6 +81,7 @@ class SystemControlTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -91,6 +92,7 @@ class SystemControlTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -101,6 +103,7 @@ class SystemControlTool(BaseTool):
         return self._description
 
     @property
+    @override
     def parameters_schema(self) -> dict[str, Any]:
         """Parameters Schema.
 
@@ -110,7 +113,8 @@ class SystemControlTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> Any:
         """Execute.
 
         Args:
@@ -139,7 +143,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 시스템 정보 ──────────────
 
-    def _action_get_system_info(self, **kwargs) -> dict[str, Any]:
+    def _action_get_system_info(self, **kwargs: object) -> dict[str, Any]:
         """CPU, 메모리, 디스크, GPU 등 시스템 정보를 수집합니다."""
         info: dict[str, Any] = {
             "platform": platform.platform(),
@@ -233,7 +237,7 @@ class SystemControlTool(BaseTool):
 
         return {"status": "ok", "system_info": info}
 
-    def _action_get_env_status(self, **kwargs) -> dict[str, Any]:
+    def _action_get_env_status(self, **kwargs: object) -> dict[str, Any]:
         """현재 Antigravity-K 환경 설정 상태를 조회합니다."""
         config_path = self._find_config_path()
         status: dict[str, Any] = {"config_path": config_path, "settings": {}}
@@ -253,7 +257,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 앱 관리 ──────────────
 
-    def _action_get_running_apps(self, **kwargs) -> dict[str, Any]:
+    def _action_get_running_apps(self, **kwargs: object) -> dict[str, Any]:
         """실행 중인 앱 목록을 반환합니다."""
         apps = []
         if platform.system() == "Darwin":
@@ -285,7 +289,7 @@ class SystemControlTool(BaseTool):
 
         return {"status": "ok", "running_apps": sorted(apps)}
 
-    def _action_launch_app(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_launch_app(self, target: str = "", **kwargs: object) -> dict[str, Any]:
         """앱을 실행합니다."""
         if not target:
             return {"error": "No app name specified."}
@@ -300,7 +304,7 @@ class SystemControlTool(BaseTool):
         else:
             return {"error": f"App launch not supported on {platform.system()}"}
 
-    def _action_kill_app(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_kill_app(self, target: str = "", **kwargs: object) -> dict[str, Any]:
         """앱을 종료합니다. 사용자 이익 보호: 시스템 핵심 프로세스는 차단됩니다."""
         if not target:
             return {"error": "No app name specified."}
@@ -333,7 +337,7 @@ class SystemControlTool(BaseTool):
         else:
             return {"error": f"App management not supported on {platform.system()}"}
 
-    def _action_open_url(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_open_url(self, target: str = "", **kwargs: object) -> dict[str, Any]:
         """기본 브라우저에서 URL을 엽니다."""
         if not target:
             return {"error": "No URL specified."}
@@ -348,7 +352,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 클립보드 ──────────────
 
-    def _action_get_clipboard(self, **kwargs) -> dict[str, Any]:
+    def _action_get_clipboard(self, **kwargs: object) -> dict[str, Any]:
         """클립보드 내용을 읽습니다."""
         try:
             if platform.system() == "Darwin":
@@ -360,7 +364,7 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"Clipboard read failed: {e}"}
 
-    def _action_set_clipboard(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_set_clipboard(self, target: str = "", **kwargs: object) -> dict[str, Any]:
         """클립보드에 텍스트를 설정합니다."""
         if not target:
             return {"error": "No text specified."}
@@ -381,7 +385,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 시스템 설정 ──────────────
 
-    def _action_set_volume(self, value: str = "", **kwargs) -> dict[str, Any]:
+    def _action_set_volume(self, value: str = "", **kwargs: object) -> dict[str, Any]:
         """볼륨을 조절합니다 (0-100)."""
         try:
             level = int(value) if value else 50
@@ -394,7 +398,7 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"Volume control failed: {e}"}
 
-    def _action_toggle_wifi(self, value: str = "", **kwargs) -> dict[str, Any]:
+    def _action_toggle_wifi(self, value: str = "", **kwargs: object) -> dict[str, Any]:
         """WiFi를 켜거나 끕니다."""
         if platform.system() != "Darwin":
             return {"error": f"WiFi control not supported on {platform.system()}"}
@@ -406,7 +410,7 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"WiFi toggle failed: {e}"}
 
-    def _action_manage_notifications(self, value: str = "", **kwargs) -> dict[str, Any]:
+    def _action_manage_notifications(self, value: str = "", **kwargs: object) -> dict[str, Any]:
         """방해금지 모드를 토글합니다."""
         if platform.system() != "Darwin":
             return {"error": f"Notification control not supported on {platform.system()}"}
@@ -432,7 +436,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 환경 자동 최적화 (사용자 피드백 반영) ──────────────
 
-    def _action_auto_optimize(self, **kwargs) -> dict[str, Any]:
+    def _action_auto_optimize(self, **kwargs: object) -> dict[str, Any]:
         """시스템 리소스를 감지하고 Antigravity-K config.yaml을 자동 최적화합니다.
 
         사용자 이익 원칙:
