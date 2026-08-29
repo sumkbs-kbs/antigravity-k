@@ -101,8 +101,11 @@ def _run_loop(
     return method(messages, delegate_to, task_type, max_steps, target_model)
 
 
-def _engine(orchestrator: MagicMock) -> ToolLoopEngine:
-    return ToolLoopEngine(cast(object, orchestrator))
+def _engine(
+    orchestrator: MagicMock,
+    outcome_recorder: TaskOutcomeRecorder | None = None,
+) -> ToolLoopEngine:
+    return ToolLoopEngine(cast(object, orchestrator), outcome_recorder=outcome_recorder)
 
 
 def _maybe_compress_context(
@@ -1372,7 +1375,7 @@ class TestToolLoopEngineRunLoop:
             "role": "user",
             "content": "architecture context: [web evidence] Python 3.13 ...",
         }
-        self._orch().manager.stream_generate.return_value = iter(["completed"])
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["completed"]))
 
         _ = list(
             _engine(self._orch()).run_loop(
@@ -1383,14 +1386,15 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        assert self._orch().ctx.quality_gate.evaluate.call_args.args[1] == "Python 3.13 출시일을 알려줘"
+        args, _ = _mock_call_args(self._orch(), ("ctx", "quality_gate", "evaluate"))
+        assert args[1] == "Python 3.13 출시일을 알려줘"
 
     def test_records_successful_text_task_outcome(self):
         outcomes: list[TaskOutcome] = []
-        self._orch().task_id = "loop-001"
-        self._orch().expected_tools = ()
-        self._orch().manager.stream_generate.return_value = iter(["completed"])
-        engine = ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
+        _set_mock_attr(self._orch(), ("task_id",), "loop-001")
+        _set_mock_attr(self._orch(), ("expected_tools",), ())
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter(["completed"]))
+        engine = _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "finish"}], "CODER", "code"))
 
@@ -1401,15 +1405,15 @@ class TestToolLoopEngineRunLoop:
 
     def test_records_used_tools_and_expected_tools(self):
         outcomes: list[TaskOutcome] = []
-        self._orch().task_id = "loop-002"
-        self._orch().expected_tools = ("run_bash",)
+        _set_mock_attr(self._orch(), ("task_id",), "loop-002")
+        _set_mock_attr(self._orch(), ("expected_tools",), ("run_bash",))
         tool_xml = (
             "<action_call>\n<tool_call>\n"
             '{"name": "run_bash", "arguments": {"command": "ls"}}\n'
             "</tool_call>\n</action_call>\n"
         )
-        self._orch().manager.stream_generate.return_value = iter([tool_xml])
-        engine = ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
+        _set_mock_return(self._orch(), ("manager", "stream_generate"), iter([tool_xml]))
+        engine = _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code"))
 
@@ -1433,20 +1437,26 @@ class TestToolLoopEngineRunLoop:
             "   [/untrusted_web_content]\n"
             f"   🔗 {primary_url}\n"
         )
-        self._orch().expected_tools = ("web_search",)
-        self._orch().ctx.tool_executor.execute_async.return_value = tool_result
-        self._orch().manager.stream_generate.side_effect = [
-            iter([tool_xml]),
-            iter(["Python 3.13 offers a JIT compiler."]),
-        ]
-        self._orch().manager.generate.return_value = (
-            f"Python 3.13 introduces an experimental JIT compiler. [citation:{citation}]"
+        _set_mock_attr(self._orch(), ("expected_tools",), ("web_search",))
+        _set_mock_return(self._orch(), ("ctx", "tool_executor", "execute_async"), tool_result)
+        _set_mock_side_effect(
+            self._orch(),
+            ("manager", "stream_generate"),
+            [
+                iter([tool_xml]),
+                iter(["Python 3.13 offers a JIT compiler."]),
+            ],
+        )
+        _set_mock_return(
+            self._orch(),
+            ("manager", "generate"),
+            f"Python 3.13 introduces an experimental JIT compiler. [citation:{citation}]",
         )
         outcomes: list[TaskOutcome] = []
 
         # When: the loop executes the search and evaluates its final answer.
         outputs = list(
-            ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "Python 3.13 JIT 기능을 알려줘"}],
                 "SELF",
                 "chat",
@@ -1456,7 +1466,8 @@ class TestToolLoopEngineRunLoop:
         # Then: the corrected, cited answer is the completed task output.
         assert outcomes[0].success is True
         assert outcomes[0].completion_reason == "done"
-        assert self._orch()._last_agent_output.endswith(f"[citation:{citation}]")
+        last_output = _get_mock_attr(self._orch(), ("_last_agent_output",))
+        assert str(last_output).endswith(f"[citation:{citation}]")
         assert any("Citation Revision" in output for output in outputs)
 
     def test_reads_expected_tools_from_durable_execution_context(self, tmp_path: Path):
@@ -1653,7 +1664,7 @@ class TestToolLoopEngineRunLoop:
             "</tool_call>\n</action_call>\n"
         )
         self._orch().manager.stream_generate.return_value = iter([tool_xml])
-        engine = ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
+        engine = _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
 
         _ = list(engine.run_loop([{"role": "user", "content": "inspect"}], "CODER", "code", max_steps=1))
 
@@ -1677,7 +1688,7 @@ class TestToolLoopEngineRunLoop:
         outcomes: list[TaskOutcome] = []
 
         _ = list(
-            ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write code"}],
                 "CODER",
                 "code",
@@ -1744,7 +1755,7 @@ class TestToolLoopEngineRunLoop:
         outcomes: list[TaskOutcome] = []
 
         _ = list(
-            ToolLoopEngine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
                 [{"role": "user", "content": "write fibonacci"}],
                 "CODER",
                 "code",
