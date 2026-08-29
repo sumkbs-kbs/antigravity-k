@@ -17,14 +17,12 @@ def test_returns_wrapped_argv_when_enabled_on_darwin(monkeypatch):
 
     if platform.system() != "Darwin":
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None)
-        import antigravity_k.tools.terminal_tools as tt
-
         orig = platform.system
-        monkeypatch.setattr(tt.platform, "system", lambda: "Darwin")
+        monkeypatch.setattr(platform, "system", lambda: "Darwin")
         try:
             result = _assert_wrapped(monkeypatch)
         finally:
-            monkeypatch.setattr(tt.platform, "system", orig)
+            monkeypatch.setattr(platform, "system", orig)
     else:
         result = _assert_wrapped(monkeypatch)
 
