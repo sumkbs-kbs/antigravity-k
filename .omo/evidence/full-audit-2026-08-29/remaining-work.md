@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `1ae894b` (웹 검색 품질 테스트 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 27344 warnings, 0 notes` (웹 검색 품질 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `264db1a` (context budget 테스트 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 27341 warnings, 0 notes` (웹 검색 품질 테스트와 context budget 테스트는 0건으로 정리됨; KTX 예약 테스트는 46건 동적 wrapper Any 경고, 특허 검색 테스트는 69건 동적 wrapper Any 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, 장학금 필터는 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 665건 동적 MagicMock/Any·보호 메서드 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -50,6 +50,7 @@ date: 2026-08-29
 
 ## 최근 완료 단위
 
+- `264db1a`: `tests/test_context_budget.py`의 마지막 미타입 `tmp_path` fixture를 `Path`로 명시했다. 8개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `3 → 0`, 전체 basedpyright는 `0 errors, 27341 warnings, 0 notes`로 감소했다.
 - `1ae894b`: `tests/test_web_search_quality.py`의 golden fixture 입력, 네트워크·검색 콜백, private API adapter, AsyncMock 호출 결과를 명시적으로 타입화했다. 46개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `176 → 0`, 전체 basedpyright는 `0 errors, 27344 warnings, 0 notes`로 감소했다.
 - `43a5b86`: `tests/test_error_classifier.py`의 HTTP 응답 테스트 double을 `@final`로 명시해 클래스 속성 추론 경고 4건을 제거했다. 51개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 27520 warnings, 0 notes`다.
 - `fba94e3`: `tests/test_rag.py`의 Chroma 임시 디렉터리 fixture를 `Iterator[str]`로 명시했다. RAG 3개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했고 파일 경고가 `3 → 0`으로 감소했다.

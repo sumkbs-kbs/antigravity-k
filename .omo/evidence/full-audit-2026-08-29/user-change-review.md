@@ -37,7 +37,7 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 기준선: `4804 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 27344 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 27341 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0. 중첩 `monaco-editor → dompurify`와 `typed-rest-client → qs` 경로가 남아 있으며, dry-run은 118개 패키지 추가와 Monaco major 변경을 제안했다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.
