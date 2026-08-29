@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, TypeAlias, final
 
 if TYPE_CHECKING:
     from antigravity_k.engine.best_of_n_verifier import VerificationOutcome
@@ -36,6 +36,8 @@ logger = logging.getLogger("antigravity_k.model_manager")
 
 Message = dict[str, Any]
 Payload = dict[str, Any]
+DynamicValue: TypeAlias = Any
+JsonMap: TypeAlias = dict[str, Any]
 
 
 # ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
@@ -48,8 +50,8 @@ class LoadedModel:
     """현재 메모리에 로드된 모델 정보."""
 
     profile: ModelProfile
-    model: Any = None  # mlx_lm 모델 객체
-    tokenizer: Any = None  # 토크나이저
+    model: DynamicValue = None  # mlx_lm 모델 객체
+    tokenizer: DynamicValue = None  # 토크나이저
     loaded_at: float = 0.0  # 로드 시각 (timestamp)
     last_used_at: float = 0.0  # 마지막 사용 시각
     actual_memory_gb: float = 0.0
@@ -484,7 +486,7 @@ class ModelManager:
             return heuristic_score
         return score
 
-    def generate(self, prompt: str, target: str, **kwargs: Any) -> str:
+    def generate(self, prompt: str, target: str, **kwargs: DynamicValue) -> str:
         """텍스트 생성 수행.
 
         Args:
@@ -573,7 +575,7 @@ class ModelManager:
                 logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
             raise
 
-    def generate_collective(self, prompt: str, target: str, **kwargs: Any) -> str:
+    def generate_collective(self, prompt: str, target: str, **kwargs: DynamicValue) -> str:
         """여러 모델의 제안, 비판, 최종 합성을 거쳐 답변을 생성합니다."""
         cfg = self._collective_config()
         combo = self.router.get_combo(target)
@@ -630,7 +632,7 @@ class ModelManager:
             generation_kwargs=kwargs,
         )
 
-    def stream_generate(self, prompt: str, target: str, **kwargs: Any) -> Iterator[str]:
+    def stream_generate(self, prompt: str, target: str, **kwargs: DynamicValue) -> Iterator[str]:
         """텍스트 생성 수행 (스트리밍)."""
         collective_internal = bool(kwargs.pop("_collective_internal", False))
         if not self.router.get_combo(target) and not self._registry.model_exists(target):
@@ -722,7 +724,7 @@ class ModelManager:
         cfg = raw.get("collective_intelligence", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _self_consistency_config(self) -> dict[str, Any]:
+    def _self_consistency_config(self) -> JsonMap:
         """amplification.self_consistency 섹션을 반환한다."""
         raw = getattr(self._registry, "_raw", {})
         amp = raw.get("amplification", {})
@@ -731,7 +733,7 @@ class ModelManager:
         cfg = amp.get("self_consistency", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _task_decomposition_config(self) -> dict[str, Any]:
+    def _task_decomposition_config(self) -> JsonMap:
         """amplification.task_decomposition 섹션을 반환한다."""
         raw = getattr(self._registry, "_raw", {})
         amp = raw.get("amplification", {})
@@ -740,7 +742,7 @@ class ModelManager:
         cfg = amp.get("task_decomposition", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _best_of_n_config(self) -> dict[str, Any]:
+    def _best_of_n_config(self) -> JsonMap:
         """amplification.best_of_n 섹션을 반환한다."""
         raw = getattr(self._registry, "_raw", {})
         amp = raw.get("amplification", {})
@@ -751,7 +753,7 @@ class ModelManager:
 
     def _resolve_bon_verifier(
         self,
-        cfg: dict[str, Any],
+        cfg: JsonMap,
         make_syntax_verifier,
         language: str,
         make_answer_patch_verifier,
@@ -789,7 +791,7 @@ class ModelManager:
         prompt: str,
         target: str,
         verifier_fn: Callable[[str], "VerificationOutcome"] | None = None,
-        **kwargs: Any,
+        **kwargs: DynamicValue,
     ) -> str:
         """실행 검증 기반 Best-of-N 증폭으로 답변을 생성한다.
 
@@ -859,7 +861,7 @@ class ModelManager:
         )
         return trace.selected
 
-    def generate_self_consistent(self, prompt: str, target: str, **kwargs: Any) -> str:
+    def generate_self_consistent(self, prompt: str, target: str, **kwargs: DynamicValue) -> str:
         """단일 모델 N샘플링 self-consistency 증폭으로 답변을 생성한다.
 
         amplification.self_consistency.enabled가 false(기본)면 일반 generate로 폴백.
@@ -892,7 +894,7 @@ class ModelManager:
         )
         return trace.selected
 
-    def generate_decomposed(self, prompt: str, target: str, *, force: bool = False, **kwargs: Any) -> str:
+    def generate_decomposed(self, prompt: str, target: str, *, force: bool = False, **kwargs: DynamicValue) -> str:
         """복잡 작업을 단계 분해 후 단계별 실행해 통합 답변을 생성한다.
 
         amplification.task_decomposition.enabled가 false면
@@ -1001,7 +1003,7 @@ class ModelManager:
         base = re.sub(r"/v\d+$", "", base)
         return base
 
-    def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs: Any) -> str:
+    def _do_generate(self, loaded: LoadedModel, prompt: str, **kwargs: DynamicValue) -> str:
         """내부 텍스트 생성 로직 — per-model provider 위임 (작업 2).
 
         멀티 프로바이더 지원: loaded.profile.provider에 따라 적절한 프로바이더로 위임.
@@ -1023,7 +1025,7 @@ class ModelManager:
         # 폴백: 레거시 인라인 경로 (provider 결정 실패 시)
         return self._do_ollama_generate(loaded, prompt, **kwargs)
 
-    def _do_stream_generate(self, loaded: LoadedModel, prompt: str, **kwargs: Any) -> Iterator[str]:
+    def _do_stream_generate(self, loaded: LoadedModel, prompt: str, **kwargs: DynamicValue) -> Iterator[str]:
         """내부 텍스트 생성 로직 (스트리밍) — per-model provider 위임 (작업 2)."""
         if self._uses_anthropic_direct(loaded):
             yield from self._do_anthropic_stream(loaded, prompt, **kwargs)
@@ -1038,7 +1040,7 @@ class ModelManager:
         # 폴백: 레거시 인라인 경로
         yield from self._do_ollama_stream(loaded, prompt, **kwargs)
 
-    def _provider_kwargs(self, loaded: LoadedModel, kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _provider_kwargs(self, loaded: LoadedModel, kwargs: JsonMap) -> JsonMap:
         if "execution_plan" in kwargs:
             return kwargs
         plan = self.long_context_plan(loaded.profile.name)
@@ -1069,7 +1071,7 @@ class ModelManager:
             # 컨텍스트 매니저 대신 직접 Span 생성 후 finalize (이미 측정 완료된 값)
             from .tracing import Span
 
-            attributes: dict[str, Any] = {
+            attributes: JsonMap = {
                 "model": model,
                 "combo": combo or "",
                 "fallback_depth": fallback_depth,
@@ -1663,7 +1665,7 @@ class ModelManager:
             unload_fn=self.unload,
         )
 
-    def _load_mlx_model(self, profile: ModelProfile) -> tuple[Any, Any]:
+    def _load_mlx_model(self, profile: ModelProfile) -> tuple[DynamicValue, DynamicValue]:
         """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)."""
         import platform
 
@@ -1694,7 +1696,7 @@ class ModelManager:
             logger.warning("mlx_lm 미설치. Ollama 어댑터 반환.")
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
 
-    def _load_transformers_model(self, profile: ModelProfile) -> tuple[Any, Any]:
+    def _load_transformers_model(self, profile: ModelProfile) -> tuple[DynamicValue, DynamicValue]:
         model_path = Path(profile.repo)
         load_path = profile.repo
         adapter_config_path = model_path / "adapter_config.json"
@@ -1733,7 +1735,7 @@ class ModelManager:
                 raise RuntimeError("Unsloth LoRA를 적용하려면 peft가 필요합니다.") from exc
         return model, tokenizer
 
-    def _load_embedding_model(self, profile: ModelProfile) -> tuple[Any, Any]:
+    def _load_embedding_model(self, profile: ModelProfile) -> tuple[DynamicValue, DynamicValue]:
         """임베딩 모델 로드 (Mac 전용)."""
         try:
             SentenceTransformer = import_module("sentence_transformers").__dict__["SentenceTransformer"]
