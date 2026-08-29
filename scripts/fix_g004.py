@@ -32,7 +32,7 @@ def convert_fstring(fs: ast.JoinedStr) -> tuple[str, list[str]]:
     exprs: list[str] = []
     for v in fs.values:
         if isinstance(v, ast.Constant):
-            parts.append(v.value if v.value is not None else "None")
+            parts.append(v.value if isinstance(v.value, str) else str(v.value))
         elif isinstance(v, ast.FormattedValue):
             conv = {114: "%r", 115: "%s", 97: "%a"}.get(v.conversion, "%s") if v.conversion != -1 else "%s"
             parts.append(conv)

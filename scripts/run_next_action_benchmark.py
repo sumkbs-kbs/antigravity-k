@@ -54,12 +54,12 @@ def run_next_action_benchmark():
         # 3. Rich Flight Deck Rendering
         print("\n[3/3] Verifying Flight Deck Panel Rendering...")
         panel = FlightDeckRenderer.render_recommendations_panel(batch.format_cli_panel())
-        if panel and "PROACTIVE NEXT-ACTIONS" in panel.title:
+        if panel and "PROACTIVE NEXT-ACTIONS" in str(panel.title or ""):
             print("  ✅ Passed (Rendered beautiful high-visibility recommendation cockpit)")
             score += 1
 
     print("\n" + "=" * 80)
-    print(f"🏆 NEXT-ACTION RECOMMENDATION SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 NEXT-ACTION RECOMMENDATION SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 80)
     return score == total
 

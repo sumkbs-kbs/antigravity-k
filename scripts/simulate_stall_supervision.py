@@ -40,11 +40,11 @@ def _sequential_executor(outcomes: list[bool]):
     return executor
 
 
-def _subgoals(n: int) -> list[dict]:
+def _subgoals(n: int) -> list[dict[str, object]]:
     return [{"id": f"s{i}", "desc": f"independent step {i}"} for i in range(1, n + 1)]
 
 
-def scenario_healthy() -> dict:
+def scenario_healthy() -> dict[str, object]:
     report = _controller().launch_mission("healthy mission", _subgoals(3), _sequential_executor([True] * 3))
     return {
         "scenario": "healthy",
@@ -54,7 +54,7 @@ def scenario_healthy() -> dict:
     }
 
 
-def scenario_flaky_recovered() -> dict:
+def scenario_flaky_recovered() -> dict[str, object]:
     """각 서브골이 1회 실패 후 재시도 성공 — 시도 예산 안에서 회복된다."""
     seen: dict[str, int] = {}
 
@@ -72,7 +72,7 @@ def scenario_flaky_recovered() -> dict:
     }
 
 
-def scenario_no_progress_intervention() -> dict:
+def scenario_no_progress_intervention() -> dict[str, object]:
     """연속 5회 실패 → 무진행 개입 1회 발화 후 나머지 서브골 완주."""
     # s1(영구실패) s2(영구실패) s3(1회실책→재시도성공) s4 s5
     outcomes = [False, False, False, False, False, True, True, True]

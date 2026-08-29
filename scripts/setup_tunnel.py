@@ -75,6 +75,7 @@ def run_login():
         stderr=subprocess.PIPE,
         text=True,
     )
+    assert process.stdout is not None
 
     auth_url = None
     # Parse output to find the URL
