@@ -28,7 +28,10 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path
+from types import ModuleType
+from typing import Protocol, TypedDict, cast
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_MODULE = ROOT / "tests" / "test_tool_sandbox_coverage.py"
@@ -44,7 +47,26 @@ CATEGORY_ORDER = [
 UNCLASSIFIED = "미분류"
 
 
-def load_audit_module(path: Path, name: str = "agk_sandbox_coverage"):
+class AuditRule(Protocol):
+    category: str
+    reason: str
+
+
+class AuditModule(Protocol):
+    SRC_DIR: Path
+    ALLOWLIST: Mapping[str, AuditRule]
+
+    def scan_source(self) -> dict[str, tuple[list[str], bool]]: ...
+
+
+class Snapshot(TypedDict):
+    sites: dict[str, tuple[list[str], bool]]
+    by_cat: dict[str, list[str]]
+    calls: Counter[tuple[str, str]]
+    model_code: dict[str, str]
+
+
+def load_audit_module(path: Path, name: str = "agk_sandbox_coverage") -> tuple[ModuleType | None, str | None]:
     """감사 테스트 모듈을 pytest 없이 임포트해 (module, error) 반환.
 
     주의: dataclass 처리를 위해 반드시 sys.modules에 등록한 뒤 exec 해야 한다.
@@ -56,18 +78,18 @@ def load_audit_module(path: Path, name: str = "agk_sandbox_coverage"):
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     try:
-        spec.loader.exec_module(mod)
+        _ = spec.loader.exec_module(mod)
     except Exception as exc:  # noqa: BLE001 — 리포트는 게이트가 아니므로 유연하게
-        sys.modules.pop(name, None)
+        _ = sys.modules.pop(name, None)
         return None, f"{type(exc).__name__}: {exc}"
     return mod, None
 
 
-def snapshot(mod) -> dict:
+def snapshot(mod: AuditModule) -> Snapshot:
     """스캐너+ALLOWLIST 모듈에서 카테고리별 스냅샷을 뽑는다."""
     sites = mod.scan_source()  # {rel_path: ([calls], has_shell_true)}
     by_cat: dict[str, list[str]] = defaultdict(list)
-    for rel_path, (calls, shell) in sorted(sites.items()):
+    for rel_path, (calls, _shell) in sorted(sites.items()):
         rule = mod.ALLOWLIST.get(rel_path)
         cat = rule.category if rule else UNCLASSIFIED
         by_cat[cat].append(rel_path)
@@ -75,47 +97,46 @@ def snapshot(mod) -> dict:
     for rel_path, (calls, _shell) in sites.items():
         for c in calls:
             call_counter[(rel_path, c)] = 1
-    model_code = {
-        k: r.reason
-        for k, r in getattr(mod, "ALLOWLIST", {}).items()
-        if getattr(r, "category", None) == "model_code_exec"
-    }
+    model_code = {k: r.reason for k, r in mod.ALLOWLIST.items() if r.category == "model_code_exec"}
     return {"sites": sites, "by_cat": dict(by_cat), "calls": call_counter, "model_code": model_code}
 
 
-def scan_tree_at(ref: str | None):
+def scan_tree_at(ref: str | None) -> tuple[Snapshot, str | None]:
     """ref가 주어지면 git archive 익스포트 트리를, 아니면 현재 작업 트리를 스캔한다."""
     if ref is None:
         mod, err = load_audit_module(TEST_MODULE)
         if mod is None:
             raise SystemExit(f"감사 모듈 로드 실패: {err}")
-        return snapshot(mod), None
+        return snapshot(cast(AuditModule, cast(object, mod))), None
     tmp = tempfile.mkdtemp(prefix="agk-surface-base-")
     archive = subprocess.run(["git", "archive", "--format=tar", ref], cwd=ROOT, check=True, capture_output=True)
     tar_path = Path(tmp) / "base.tar"
-    tar_path.write_bytes(archive.stdout)
-    subprocess.run(["tar", "-xf", str(tar_path), "-C", tmp], check=True)
+    _ = tar_path.write_bytes(archive.stdout)
+    _ = subprocess.run(["tar", "-xf", str(tar_path), "-C", tmp], check=True)
     base_test = Path(tmp) / "tests" / "test_tool_sandbox_coverage.py"
     mod, err = load_audit_module(base_test, name="agk_sandbox_coverage_base")
     if mod is not None and callable(getattr(mod, "scan_source", None)):
-        snap = snapshot(mod)
+        snap = snapshot(cast(AuditModule, cast(object, mod)))
         return snap, tmp
     # 베이스에 구버전/부재 감사 모듈 → 현재 스캐너로만 사이트 수집(카테고리는 현재 기준)
     cur_mod, _ = load_audit_module(TEST_MODULE)
     assert cur_mod is not None
-    old_src = cur_mod.SRC_DIR
-    cur_mod.SRC_DIR = Path(tmp) / "src" / "antigravity_k"
+    current = cast(AuditModule, cast(object, cur_mod))
+    old_src = current.SRC_DIR
+    current.SRC_DIR = Path(tmp) / "src" / "antigravity_k"
     try:
-        snap = snapshot(cur_mod)
+        snap = snapshot(current)
         snap["model_code"] = {}
     finally:
-        cur_mod.SRC_DIR = old_src
+        current.SRC_DIR = old_src
     return snap, tmp
 
 
-def category_table(now: dict, base: dict | None) -> list[dict]:
-    cats = set(now["by_cat"]) | (set(base["by_cat"]) if base else set())
-    rows = []
+def category_table(now: Snapshot, base: Snapshot | None) -> list[dict[str, int | str | None]]:
+    cats: set[str] = set(now["by_cat"])
+    if base:
+        cats.update(base["by_cat"])
+    rows: list[dict[str, int | str | None]] = []
     for cat in CATEGORY_ORDER + sorted(cats - set(CATEGORY_ORDER)):
         n_now = len(now["by_cat"].get(cat, []))
         n_base = len(base["by_cat"].get(cat, [])) if base else None
@@ -124,7 +145,7 @@ def category_table(now: dict, base: dict | None) -> list[dict]:
     return rows
 
 
-def site_diff(now: dict, base: dict) -> tuple[list[str], list[str]]:
+def site_diff(now: Snapshot, base: Snapshot) -> tuple[list[str], list[str]]:
     """실행 지점(파일×호출심볼) 다중집합 차집합 → (신규, 제거) 목록."""
     added = sorted((f"{p} :: {c}" for (p, c), n in now["calls"].items() if n > base["calls"].get((p, c), 0)))
     removed = sorted((f"{p} :: {c}" for (p, c), n in base["calls"].items() if n > now["calls"].get((p, c), 0)))
@@ -132,8 +153,8 @@ def site_diff(now: dict, base: dict) -> tuple[list[str], list[str]]:
 
 
 def render_md(
-    rows: list[dict],
-    now: dict,
+    rows: list[dict[str, int | str | None]],
+    now: Snapshot,
     added: list[str],
     removed: list[str],
     ref: str | None,
@@ -201,17 +222,19 @@ def render_md(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", default=None, help="비교할 베이스 ref (예: origin/main)")
-    parser.add_argument("--out-dir", default=".tmp/security-surface")
+    _ = parser.add_argument("--base", default=None, help="비교할 베이스 ref (예: origin/main)")
+    _ = parser.add_argument("--out-dir", default=".tmp/security-surface")
     args = parser.parse_args()
+    base_ref = cast(str | None, args.base)
+    out_dir_name = cast(str, args.out_dir)
 
     now_snap, _ = scan_tree_at(None)
     base_snap, tmp = (None, None)
     base_commit = None
     load_note = None
-    if args.base:
-        base_snap, tmp = scan_tree_at(args.base)
-        cp = subprocess.run(["git", "rev-parse", args.base], cwd=ROOT, capture_output=True, text=True)
+    if base_ref:
+        base_snap, tmp = scan_tree_at(base_ref)
+        cp = subprocess.run(["git", "rev-parse", base_ref], cwd=ROOT, capture_output=True, text=True)
         base_commit = cp.stdout.strip() if cp.returncode == 0 else None
         if not base_snap.get("model_code"):
             load_note = "구버전 — 카테고리는 현재 ALLOWLIST 기준 추정"
@@ -222,14 +245,14 @@ def main() -> int:
     if base_snap is not None:
         added, removed = site_diff(now_snap, base_snap)
 
-    md = render_md(rows, now_snap, added, removed, args.base, base_commit, load_note)
+    md = render_md(rows, now_snap, added, removed, base_ref, base_commit, load_note)
     print(md)
 
-    out_dir = ROOT / args.out_dir
+    out_dir = ROOT / out_dir_name
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "generated_at": _dt.datetime.now().isoformat(timespec="seconds"),
-        "base_ref": args.base,
+        "base_ref": base_ref,
         "base_commit": base_commit,
         "categories": rows,
         "total_files": sum(len(v) for v in now_snap["by_cat"].values()),
@@ -239,12 +262,12 @@ def main() -> int:
         "removed_sites_vs_base": removed,
         "sites_detail": {p: {"calls": c, "shell": s} for p, (c, s) in now_snap["sites"].items()},
     }
-    (out_dir / "report.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    (out_dir / "report.md").write_text(md + "\n", encoding="utf-8")
+    _ = (out_dir / "report.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _ = (out_dir / "report.md").write_text(md + "\n", encoding="utf-8")
     print(f"\n아티팩트 저장: {out_dir}/report.md · report.json", file=sys.stderr)
 
     if tmp:
-        subprocess.run(["rm", "-rf", tmp], check=False)
+        _ = subprocess.run(["rm", "-rf", tmp], check=False)
     return 0
 
 
