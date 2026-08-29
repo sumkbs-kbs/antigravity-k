@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `019953f` (system-memory API 테스트 fixture 경계 기록 포함)
-- 전체 `basedpyright`: `0 errors, 32203 warnings, 0 notes`
+- 최신 검증 커밋: `aa8fb2a` (web-search 테스트 fixture 및 실행 입력 경계 기록 포함)
+- 전체 `basedpyright`: `0 errors, 31827 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -52,3 +52,4 @@ date: 2026-08-29
 - `04c321d`: `tests/test_data_extractor.py` fixture parameters are typed, an optional TOP-1 extraction result is asserted before use, and an implicit string concatenation is made explicit; 100 tests passed, Ruff/Ruff-format/pre-commit passed, file warnings reduced `503 → 12`, and whole-tree basedpyright is now `0 errors, 32655 warnings, 0 notes`. The remaining 12 warnings are protected helper accesses in focused extraction tests.
 - `8f92f65`: secure-key test fixtures and injected parameters use explicit `Path`, `CompletedProcess`, `str`, and `pytest.MonkeyPatch` contracts; 45 security tests passed, Ruff and other pre-commit hooks passed, file warnings reduced `448 → 166`, and whole-tree basedpyright is now `0 errors, 32373 warnings, 0 notes`. Ruff-format was skipped only to preserve a pre-existing user-owned formatting hunk in the same file; dynamic lambda, side-effect fixture, private API, and unused-call-result warnings remain.
 - `019953f`: system-memory API client/audit fixtures, manager override payloads, injected test parameters, and local capture maps use explicit contracts; the current 53-test suite passed, Ruff and remaining pre-commit hooks passed, file warnings reduced `391 → 221`, and whole-tree basedpyright is now `0 errors, 32203 warnings, 0 notes`. User-added API coverage remains unstaged; Ruff-format was skipped to avoid rewriting unrelated user-owned formatting in the same file.
+- `aa8fb2a`: `tests/test_web_search.py` now uses explicit fixture, callback, HTTP-client factory, and result contracts; `WebSearchTool.execute` validates string query inputs and returns `str`. The web-search suite passed 76 tests, Ruff/Ruff-format/mypy and pre-commit hooks passed, file basedpyright warnings reduced `359 → 16`, and whole-tree basedpyright is now `0 errors, 31827 warnings, 0 notes`. The remaining 16 file warnings are intentional private-method test accesses.
