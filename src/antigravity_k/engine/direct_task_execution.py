@@ -44,10 +44,12 @@ class MaxRunResultPort(Protocol):
 
 
 class MaxEnginePort(Protocol):
+    def set_max_workers(self, n: int) -> None: ...
+
     def run(
         self,
         task_spec: dict[str, object],
-        orchestrator: StreamOrchestratorPort,
+        orchestrator: object | None = None,
     ) -> MaxRunResultPort: ...
 
 

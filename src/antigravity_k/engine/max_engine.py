@@ -19,15 +19,14 @@ Codebuff의 MAX 모드에서 영감을 받은 병렬 편집 시스템:
 import logging
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Protocol, TypeAlias, TypedDict, TypeGuard, final, runtime_checkable
 
 logger = logging.getLogger("antigravity_k.max_engine")
 
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
-JsonMap: TypeAlias = dict[str, JsonValue]
+JsonMap: TypeAlias = dict[str, object]
 Message: TypeAlias = dict[str, str]
 
 
@@ -77,20 +76,29 @@ class RoleModelResolver(Protocol):
     def __call__(self, role: str) -> str: ...
 
 
-def _as_str(value: JsonValue, default: str = "") -> str:
+def _is_max_orchestrator(value: object) -> TypeGuard[MaxOrchestratorProtocol]:
+    return (
+        value is not None
+        and hasattr(value, "manager")
+        and hasattr(value, "ctx")
+        and callable(getattr(value, "_get_model_for_role", None))
+    )
+
+
+def _as_str(value: object, default: str = "") -> str:
     return value if isinstance(value, str) else default
 
 
-def _as_int(value: JsonValue, default: int) -> int:
+def _as_int(value: object, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
-def _as_messages(value: JsonValue) -> list[Message]:
-    if not isinstance(value, list):
+def _as_messages(value: object) -> list[Message]:
+    if not _is_object_list(value):
         return []
     messages: list[Message] = []
     for item in value:
-        if not isinstance(item, dict):
+        if not _is_string_mapping(item):
             continue
         role = item.get("role")
         content = item.get("content")
@@ -250,7 +258,7 @@ class MaxModeEngine:
     def run(
         self,
         task_spec: JsonMap,
-        orchestrator: MaxOrchestratorProtocol | None = None,
+        orchestrator: object | None = None,
     ) -> MaxRunResult:
         """MAX 모드 병렬 실행.
 
@@ -276,7 +284,7 @@ class MaxModeEngine:
         max_steps = _as_int(task_spec.get("max_steps"), 15)
         target_model = _as_str(task_spec.get("target_model"), "")
 
-        if not orchestrator or not self.manager:
+        if not self.manager or not _is_max_orchestrator(orchestrator):
             return MaxRunResult(
                 total_workers=0,
                 successful=0,
@@ -523,14 +531,13 @@ class MaxModeEngine:
         """단일 워커를 실행합니다."""
         model = config.get("model", "default")
         strategy = config.get("strategy", "default")
-        temperature = float(config.get("temperature", 0.4))
 
         # 워커별 전략이 담긴 프롬프트 주입
         worker_prompt = self._build_worker_prompt(
             original_prompt=prompt,
             model=model,
             strategy=strategy,
-            _temperature=temperature,
+            _temperature=float(config.get("temperature", 0.4)),
         )
 
         worker_messages = list(messages)
@@ -619,7 +626,7 @@ class MaxModeEngine:
         prompt: str,
         results: list[WorkerResult],
         delegate_to: str,
-        orchestrator: MaxOrchestratorProtocol,
+        orchestrator: MaxOrchestratorProtocol | None,
     ) -> int:
         """Selector: 모든 결과를 검토하고 최적 인덱스를 반환합니다.
 
@@ -660,6 +667,9 @@ class MaxModeEngine:
         try:
             # QA 모델로 Selector 실행
             qa_model = self._get_qa_model(delegate_to, orchestrator)
+
+            if orchestrator is None:
+                return 0
 
             # 비용 게이트: selector LLM 호출 전 예산 확인 (추가 비용 보호)
             cost_guard = orchestrator.ctx.cost_guard
@@ -705,8 +715,10 @@ class MaxModeEngine:
             logger.debug("[MAX] Selector failed, using first result")
             return 0
 
-    def _get_qa_model(self, _delegate_to: str, orchestrator: MaxOrchestratorProtocol) -> str:
+    def _get_qa_model(self, _delegate_to: str, orchestrator: MaxOrchestratorProtocol | None) -> str:
         """Selector용 QA 모델을 반환합니다."""
+        if orchestrator is None:
+            return "default"
         resolver: object = getattr(orchestrator, "_get_model_for_role", None)
         if isinstance(resolver, RoleModelResolver):
             return resolver("QA")
@@ -716,7 +728,7 @@ class MaxModeEngine:
         self,
         results: list[WorkerResult],
         selected_idx: int,
-        configs: list[WorkerConfig],
+        configs: Sequence[Mapping[str, object]],
     ) -> str:
         """MAX 모드 실행 트레이스를 포맷팅합니다."""
         _ = configs

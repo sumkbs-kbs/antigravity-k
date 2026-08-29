@@ -12,6 +12,7 @@ from antigravity_k.agents.personas import get_orchestrator_prompt
 from antigravity_k.engine.capacity_flow import CapacityCheckpoint
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
 from antigravity_k.engine.context_budget import context_budget_for_model
+from antigravity_k.engine.direct_task_execution import MaxEnginePort
 from antigravity_k.engine.engine_context import EngineContext
 from antigravity_k.engine.memory_provider import MemoryManager
 from antigravity_k.engine.memory_recorder import MemoryRecorder
@@ -125,7 +126,7 @@ class OrchestratorAgent:
         self._code_tree_indexer = None
 
         # ─── P4: MAX Mode Parallel Engine (지연 초기화) ───
-        self._max_engine = None
+        self._max_engine: MaxEnginePort | None = None
 
         # ─── P1-2: 통합 위임 엔진 (지연 초기화) ───
         self._delegation_engine = None
@@ -720,7 +721,7 @@ class OrchestratorAgent:
         return self._code_tree_indexer
 
     @property
-    def max_engine(self):
+    def max_engine(self) -> MaxEnginePort | None:
         """MaxModeEngine 지연 초기화 (P4: MAX Mode 병렬 편집).
 
         여러 워커를 병렬로 실행하고 Selector가 최적 결과를 선정합니다.
