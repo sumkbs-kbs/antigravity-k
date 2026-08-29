@@ -104,7 +104,7 @@ class ContextArtifactStore:
         max_total_bytes: int = 256 * 1024 * 1024,
     ):
         self.root: Path = Path(root)
-        self._retention_policy = ArtifactRetentionPolicy(
+        self._retention_policy: ArtifactRetentionPolicy = ArtifactRetentionPolicy(
             max_artifacts=max_artifacts,
             max_total_bytes=max_total_bytes,
         )
