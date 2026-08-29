@@ -8,8 +8,14 @@ Python), but we verify the server-side posture that complements it.
 
 from __future__ import annotations
 
+import asyncio
+import json
+from typing import cast
+
 import pytest
+from fastapi import Request as FastAPIRequest
 from fastapi.testclient import TestClient
+from starlette.datastructures import State
 
 
 @pytest.fixture(scope="module")
@@ -86,19 +92,22 @@ def test_500_response_has_no_detail_field(client: TestClient):
     This is verified more directly in test_observability.py, but we add a
     quick check here that the error handler contract holds: no 'detail'.
     """
-    import asyncio
-    import json
-
     from antigravity_k.api.error_handler import global_exception_handler
 
     class FakeRequest:
         method = "GET"
         url = type("U", (), {"path": "/x", "__str__": lambda self: "/x"})()
 
-    response = asyncio.run(global_exception_handler(FakeRequest(), ValueError("leak-test-secret")))
-    body = json.loads(response.body)
+    response = asyncio.run(
+        global_exception_handler(
+            cast(FastAPIRequest[State], cast(object, FakeRequest())),
+            ValueError("leak-test-secret"),
+        )
+    )
+    raw_body = bytes(response.body)
+    body = json.loads(raw_body)
     # Safe detail message (generic, not raw exception) is allowed
     assert body.get("detail") == "Internal Server Error"
     assert body.get("error") == "internal_error"
-    assert "leak-test-secret" not in response.body.decode()
+    assert "leak-test-secret" not in raw_body.decode()
     assert "correlation_id" in body

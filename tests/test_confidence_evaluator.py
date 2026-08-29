@@ -53,7 +53,9 @@ def test_router_selects_only_20b_or_larger_evaluator():
     registry = _make_registry()
     router = ModelRouter(registry)
 
-    assert router.select_confidence_evaluator().name == "qwen3.6:latest"
+    selected = router.select_confidence_evaluator()
+    assert selected is not None
+    assert selected.name == "qwen3.6:latest"
     assert router.select_confidence_evaluator("worker-4b") is None
 
 

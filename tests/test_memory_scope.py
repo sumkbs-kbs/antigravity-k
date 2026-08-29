@@ -1,7 +1,10 @@
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Request as FastAPIRequest
+from starlette.datastructures import State
 
 from antigravity_k.engine.memory_provider import (
     BuiltinMemoryProvider,
@@ -211,11 +214,11 @@ async def test_memory_purge_route_returns_audited_report(tmp_path: Path, monkeyp
     monkeypatch.setattr(system_api, "_get_memory_manager", lambda: manager)
     monkeypatch.setattr(system_api, "get_audit_logger", lambda: audit_logger)
 
-    class Request:
+    class RequestStub:
         async def json(self):
             return {"scope": "global"}
 
-    result = await system_api.purge_memory(Request())
+    result = await system_api.purge_memory(cast(FastAPIRequest[State], cast(object, RequestStub())))
 
     assert result == {
         "ok": True,

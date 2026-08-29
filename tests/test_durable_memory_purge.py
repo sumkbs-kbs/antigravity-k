@@ -1,8 +1,11 @@
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock
 
 import networkx as nx
 import pytest
+from fastapi import Request as FastAPIRequest
+from starlette.datastructures import State
 
 from antigravity_k.engine.durable_memory import DurableMemoryProvider
 from antigravity_k.engine.gbrain import GBrain
@@ -29,10 +32,13 @@ def test_memory_service_clear_all_removes_rows_and_embeddings(tmp_path: Path):
 
 def test_vector_store_clear_deletes_all_collection_ids():
     class Collection:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
         def get(self):
             return {"ids": ["one", "two"]}
 
-        def delete(self, ids):
+        def delete(self, ids: list[str]) -> None:
             self.deleted = ids
 
     store = object.__new__(VectorStore)
@@ -57,10 +63,13 @@ def test_wiki_clear_all_removes_entries_and_generated_markdown(tmp_path: Path, m
 
 def test_gbrain_clear_all_removes_graph_and_vectors():
     class Collection:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
         def get(self):
             return {"ids": ["one", "two"]}
 
-        def delete(self, ids):
+        def delete(self, ids: list[str]) -> None:
             self.deleted = ids
 
     brain = object.__new__(GBrain)
@@ -145,11 +154,11 @@ async def test_memory_purge_route_reports_durable_provider_counts(monkeypatch):
     monkeypatch.setattr(system_api, "_get_memory_manager", lambda: manager)
     monkeypatch.setattr(system_api, "get_audit_logger", lambda: audit_logger)
 
-    class Request:
+    class RequestStub:
         async def json(self):
             return {"scope": "all"}
 
-    result = await system_api.purge_memory(Request())
+    result = await system_api.purge_memory(cast(FastAPIRequest[State], cast(object, RequestStub())))
 
     assert result["deleted"] == {"wiki": 4}
     audit_logger.log_event.assert_called_once_with(
