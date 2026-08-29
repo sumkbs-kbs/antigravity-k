@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `902210f` (CI/config editor/tiptap/task state/KTX/특허 검색 테스트 typed adapter 정리 포함)
-- 전체 `basedpyright`: `0 errors, 26562 warnings, 0 notes` (CI 도구·config editor·tiptap 패턴·task state·KTX·특허 검색 테스트까지 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, 속어 검색 테스트는 198건 동적 스킬 모듈 Any 경고, tool-loop 테스트는 611건 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `f9ea9b8` (CI/config editor/tiptap/task state/KTX/특허 검색/속어 검색 테스트 typed adapter 정리 포함)
+- 전체 `basedpyright`: `0 errors, 26364 warnings, 0 notes` (CI 도구·config editor·tiptap 패턴·task state·KTX·특허 검색·속어 검색 테스트까지 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 611건 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -49,6 +49,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `f9ea9b8`: `.agent/skills/k-skill/scripts/test_korean_slang_writing.py`의 동적 속어 검색·조회·HTTP 모듈과 JSON 결과 경계를 `TypedDict`/callable adapter로 정리했다. 51개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `198 → 0`, 전체 basedpyright는 `0 errors, 26364 warnings, 0 notes`다.
 
 - `902210f`: `.agent/skills/k-skill/scripts/test_patent_search.py`의 동적 특허 검색 모듈, 데이터 클래스 생성자, XML fetcher, CLI 인자 경계를 `Protocol`/callable adapter로 정리했다. 16개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `69 → 0`, 전체 basedpyright는 `0 errors, 26562 warnings, 0 notes`다.
 
