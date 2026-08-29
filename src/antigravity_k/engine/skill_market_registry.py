@@ -20,12 +20,25 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Protocol, TypeAlias, final
+from typing import Protocol, TypeAlias, TypedDict, final
 
 from antigravity_k.engine.skill_installer import InstallResult
 from antigravity_k.engine.skill_market_client import InstalledSkill, SkillDetail, SkillListing
 
 JsonObject: TypeAlias = Mapping[str, object]
+
+
+class InstallResponse(TypedDict, total=False):
+    success: bool
+    error: str
+    action: str
+    package_name: str
+    skill_name: str
+    version: str
+    install_path: str
+    errors: list[str]
+    warnings: list[str]
+    summary: str
 
 
 class MarketClientProtocol(Protocol):
@@ -240,7 +253,7 @@ class SkillMarketRegistry:
 
     # ─── 설치 / 제거 / 업데이트 ────────────────────────────────────
 
-    def install(self, package_name: str) -> JsonObject:
+    def install(self, package_name: str) -> InstallResponse:
         """스킬을 설치합니다.
 
         SkillInstaller.install()에 위임하고, 설치 후
@@ -272,7 +285,7 @@ class SkillMarketRegistry:
             logger.exception("[SkillRegistry] Install failed")
             return {"success": False, "error": str(e)}
 
-    def remove(self, skill_name: str) -> JsonObject:
+    def remove(self, skill_name: str) -> InstallResponse:
         """설치된 스킬을 제거합니다.
 
         Args:
@@ -299,7 +312,7 @@ class SkillMarketRegistry:
             logger.exception("[SkillRegistry] Remove failed")
             return {"success": False, "error": str(e)}
 
-    def update(self, skill_name: str) -> JsonObject:
+    def update(self, skill_name: str) -> InstallResponse:
         """설치된 스킬을 최신 버전으로 업데이트합니다.
 
         Args:
