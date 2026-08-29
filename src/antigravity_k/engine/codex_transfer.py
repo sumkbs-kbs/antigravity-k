@@ -178,11 +178,12 @@ class CodexTransferEngine:
         )
         for strength in report.strengths:
             lines.append(
-                "| "
-                f"{strength.title} | "
-                f"{strength.behavior} | "
-                f"{strength.antigravity_mapping} | "
-                f"{strength.verification_gate} |",
+                "| {title} | {behavior} | {mapping} | {gate} |".format(
+                    title=strength.title,
+                    behavior=strength.behavior,
+                    mapping=strength.antigravity_mapping,
+                    gate=strength.verification_gate,
+                ),
             )
 
         lines.extend(["", "## Zero-Error Completion Gates"])
