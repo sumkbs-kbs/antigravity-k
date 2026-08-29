@@ -46,6 +46,7 @@ date: 2026-08-29
 
 4. **244개 사용자 변경사항 파일별 검토**
    - `git status --short` 기준으로 src/tests/dashboard/docs/data/scripts/.tmp 및 단일 파일을 분류한다.
+   - 미추적 JS/TS 30개는 모두 `dashboard_dist/assets` 생성 산출물로 확인했으며, 대시보드 build/typecheck 검증 범위로 처리한다.
    - 기존 변경은 누가 만들었는지와 무관하게 검토하되, 명시적 소유권 확인 없이는 stage/commit/revert하지 않는다.
    - 완료: 파일별 위험·테스트·커밋 후보 목록과 독립 커밋 정책을 ledger에 기록
 

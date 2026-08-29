@@ -17,7 +17,7 @@ date: 2026-08-30
 - `git status --short` 기준 244개 dirty path를 작성자와 관계없이 재분류했다.
 - 집계는 `src` 148, `tests` 60, `dashboard` 19, `scripts` 3, `.tmp` 2, 기타 12다.
 - 상태는 수정 144, 삭제 42, 서브모듈 변경 2, 미추적 56이다.
-- 미추적 Python 21개와 JS/TS 30개는 전체 정적 진단·pytest/Vitest 탐색 범위에 포함됐지만 아직 독립 커밋하지 않았다.
+- 미추적 Python 21개는 전체 정적 진단·pytest 탐색 범위에 포함됐지만 아직 독립 커밋하지 않았다. 미추적 JS/TS 30개는 모두 `src/antigravity_k/dashboard_dist/assets` 빌드 산출물이며, 대시보드 typecheck/lint/Vitest/build로 검증하고 소스 커밋에서는 제외한다.
 - 현재 Git tracked+untracked Python 871개를 AST 문법 검사했다. 현존 파일의 문법 오류는 0건이며, 삭제 상태라 읽을 수 없는 tracked 경로 12개(`src/antigravity_k/agents/{commands,coordinator,team_manager}.py`, `src/antigravity_k/engine/{json_logger,logging_util,memory_hygiene}.py`, `src/antigravity_k/integrations/{discord_bot,slack_bot}.py`, `src/antigravity_k/knowledge/artifact_service.py`, `src/antigravity_k/scripts/ingest_obsidian.py`, `tests/test_{commands,multi_agent}.py`)는 외부 호환성 검토 잔여 항목으로 분리했다.
 - 최종 게이트에서 전체 pytest `4806 passed, 6 skipped`, 대시보드 588개 테스트·typecheck·lint·build, 전역 Ruff가 통과했다. 사용자 dirty path 244개는 stage/revert하지 않았고, 생성된 dashboard_dist trailing whitespace 4건만 보류 위험으로 남겼다. production `npm audit --omit=dev`는 `0 vulnerabilities`다.
 - 앱 재시작 뒤에도 codebase-memory MCP `list_projects`가 `Transport closed`로 실패했다. 소스 `src/antigravity_k/engine/tool_loop.py` 경고는 `369 → 14`로 축소했으며, 남은 보호 멤버·동적 외부 경계는 사용자 변경 소유권 확인 후 처리한다.
