@@ -16,12 +16,15 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Any, final, override
+from typing import Any, Callable, TypeAlias, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
+
+JsonMap: TypeAlias = dict[str, Any]
+ActionHandler: TypeAlias = Callable[..., JsonMap]
 
 
 @final
@@ -48,7 +51,7 @@ class SystemControlTool(BaseTool):
             "and auto-tune the Antigravity-K configuration for optimal performance. "
             "Always acts in the user's best interest."
         )
-        self._schema: dict[str, Any] = {
+        self._schema: JsonMap = {
             "type": "object",
             "properties": {
                 "action": {
@@ -105,7 +108,7 @@ class SystemControlTool(BaseTool):
 
     @property
     @override
-    def parameters_schema(self) -> dict[str, Any]:
+    def parameters_schema(self) -> JsonMap:
         """Parameters Schema.
 
         Returns:
@@ -115,7 +118,7 @@ class SystemControlTool(BaseTool):
         return self._schema
 
     @override
-    def execute(self, **kwargs: object) -> Any:
+    def execute(self, **kwargs: object) -> JsonMap:
         """Execute.
 
         Args:
@@ -125,14 +128,31 @@ class SystemControlTool(BaseTool):
             Any: The any result.
 
         """
-        action = kwargs.get("action")
-        target = kwargs.get("target", "")
-        value = kwargs.get("value", "")
+        raw_action = kwargs.get("action")
+        action = raw_action if isinstance(raw_action, str) else ""
+        raw_target = kwargs.get("target", "")
+        target = raw_target if isinstance(raw_target, str) else ""
+        raw_value = kwargs.get("value", "")
+        value = raw_value if isinstance(raw_value, str) else ""
 
         if not action:
             return {"error": "No action specified."}
 
-        handler = getattr(self, f"_action_{action}", None)
+        handlers: dict[str, ActionHandler] = {
+            "get_system_info": self._action_get_system_info,
+            "get_running_apps": self._action_get_running_apps,
+            "launch_app": self._action_launch_app,
+            "kill_app": self._action_kill_app,
+            "open_url": self._action_open_url,
+            "get_clipboard": self._action_get_clipboard,
+            "set_clipboard": self._action_set_clipboard,
+            "set_volume": self._action_set_volume,
+            "toggle_wifi": self._action_toggle_wifi,
+            "manage_notifications": self._action_manage_notifications,
+            "auto_optimize": self._action_auto_optimize,
+            "get_env_status": self._action_get_env_status,
+        }
+        handler = handlers.get(action)
         if handler is None:
             return {"error": f"Unknown action: {action}"}
 
@@ -144,9 +164,9 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 시스템 정보 ──────────────
 
-    def _action_get_system_info(self, **kwargs: object) -> dict[str, Any]:
+    def _action_get_system_info(self, **_kwargs: object) -> JsonMap:
         """CPU, 메모리, 디스크, GPU 등 시스템 정보를 수집합니다."""
-        info: dict[str, Any] = {
+        info: JsonMap = {
             "platform": platform.platform(),
             "architecture": platform.machine(),
             "processor": platform.processor(),
@@ -238,10 +258,10 @@ class SystemControlTool(BaseTool):
 
         return {"status": "ok", "system_info": info}
 
-    def _action_get_env_status(self, **kwargs: object) -> dict[str, Any]:
+    def _action_get_env_status(self, **_kwargs: object) -> JsonMap:
         """현재 Antigravity-K 환경 설정 상태를 조회합니다."""
         config_path = self._find_config_path()
-        status: dict[str, Any] = {"config_path": config_path, "settings": {}}
+        status: JsonMap = {"config_path": config_path, "settings": {}}
 
         if config_path and os.path.exists(config_path):
             import yaml
@@ -258,7 +278,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 앱 관리 ──────────────
 
-    def _action_get_running_apps(self, **kwargs: object) -> dict[str, Any]:
+    def _action_get_running_apps(self, **_kwargs: object) -> JsonMap:
         """실행 중인 앱 목록을 반환합니다."""
         apps: list[str] = []
         if platform.system() == "Darwin":
@@ -292,7 +312,7 @@ class SystemControlTool(BaseTool):
 
         return {"status": "ok", "running_apps": sorted(apps)}
 
-    def _action_launch_app(self, target: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_launch_app(self, target: str = "", **_kwargs: object) -> JsonMap:
         """앱을 실행합니다."""
         if not target:
             return {"error": "No app name specified."}
@@ -307,7 +327,7 @@ class SystemControlTool(BaseTool):
         else:
             return {"error": f"App launch not supported on {platform.system()}"}
 
-    def _action_kill_app(self, target: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_kill_app(self, target: str = "", **_kwargs: object) -> JsonMap:
         """앱을 종료합니다. 사용자 이익 보호: 시스템 핵심 프로세스는 차단됩니다."""
         if not target:
             return {"error": "No app name specified."}
@@ -340,7 +360,7 @@ class SystemControlTool(BaseTool):
         else:
             return {"error": f"App management not supported on {platform.system()}"}
 
-    def _action_open_url(self, target: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_open_url(self, target: str = "", **_kwargs: object) -> JsonMap:
         """기본 브라우저에서 URL을 엽니다."""
         if not target:
             return {"error": "No URL specified."}
@@ -355,7 +375,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 클립보드 ──────────────
 
-    def _action_get_clipboard(self, **kwargs: object) -> dict[str, Any]:
+    def _action_get_clipboard(self, **_kwargs: object) -> JsonMap:
         """클립보드 내용을 읽습니다."""
         try:
             if platform.system() == "Darwin":
@@ -367,7 +387,7 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"Clipboard read failed: {e}"}
 
-    def _action_set_clipboard(self, target: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_set_clipboard(self, target: str = "", **_kwargs: object) -> JsonMap:
         """클립보드에 텍스트를 설정합니다."""
         if not target:
             return {"error": "No text specified."}
@@ -388,7 +408,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 시스템 설정 ──────────────
 
-    def _action_set_volume(self, value: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_set_volume(self, value: str = "", **_kwargs: object) -> JsonMap:
         """볼륨을 조절합니다 (0-100)."""
         try:
             level = int(value) if value else 50
@@ -401,7 +421,7 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"Volume control failed: {e}"}
 
-    def _action_toggle_wifi(self, value: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_toggle_wifi(self, value: str = "", **_kwargs: object) -> JsonMap:
         """WiFi를 켜거나 끕니다."""
         if platform.system() != "Darwin":
             return {"error": f"WiFi control not supported on {platform.system()}"}
@@ -413,7 +433,7 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"WiFi toggle failed: {e}"}
 
-    def _action_manage_notifications(self, value: str = "", **kwargs: object) -> dict[str, Any]:
+    def _action_manage_notifications(self, value: str = "", **_kwargs: object) -> JsonMap:
         """방해금지 모드를 토글합니다."""
         if platform.system() != "Darwin":
             return {"error": f"Notification control not supported on {platform.system()}"}
@@ -439,7 +459,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 환경 자동 최적화 (사용자 피드백 반영) ──────────────
 
-    def _action_auto_optimize(self, **kwargs: object) -> dict[str, Any]:
+    def _action_auto_optimize(self, **_kwargs: object) -> JsonMap:
         """시스템 리소스를 감지하고 Antigravity-K config.yaml을 자동 최적화합니다.
 
         사용자 이익 원칙:
@@ -455,7 +475,7 @@ class SystemControlTool(BaseTool):
 
         # 2. 최적 설정 계산
         optimizations: list[str] = []
-        recommended: dict[str, Any] = {}
+        recommended: JsonMap = {}
 
         # 메모리 기반 컨텍스트 크기 결정
         total_mem = sys_info.get("memory", {}).get("total_gb", 8)
