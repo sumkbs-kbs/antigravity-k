@@ -9,6 +9,7 @@ import pathlib
 import sys
 import unittest
 import urllib.parse
+from typing import Any
 from unittest import mock
 
 SKILL_ROOT = pathlib.Path(__file__).resolve().parents[1] / "korean-slang-writing"
@@ -53,7 +54,7 @@ def make_entry(
     namuwiki_url: str = "https://namu.wiki/w/test",
     era: str = "2020",
     still_usable: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     return {
         "term": term,
         "aliases": list(aliases or []),
@@ -69,7 +70,7 @@ def make_entry(
     }
 
 
-def make_index(entries: list[dict]) -> dict:
+def make_index(entries: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "schema_version": "1.0",
         "source": "test-fixture",
@@ -80,6 +81,9 @@ def make_index(entries: list[dict]) -> dict:
 
 
 class SeedIndexShapeTest(unittest.TestCase):
+    seed_path: pathlib.Path = pathlib.Path()
+    seed: dict[str, Any] = {}
+
     def setUp(self) -> None:
         self.seed_path = DATA_DIR / "seed-slang.json"
         with self.seed_path.open(encoding="utf-8") as fh:
@@ -163,6 +167,8 @@ class SeedIndexShapeTest(unittest.TestCase):
 
 
 class SearchQueryMatchingTest(unittest.TestCase):
+    index: dict[str, Any] = {}
+
     def setUp(self) -> None:
         self.index = make_index(
             [
@@ -222,6 +228,8 @@ class SearchQueryMatchingTest(unittest.TestCase):
 
 
 class SearchFilterTest(unittest.TestCase):
+    index: dict[str, Any] = {}
+
     def setUp(self) -> None:
         self.index = make_index(
             [
@@ -317,6 +325,8 @@ class SearchFilterTest(unittest.TestCase):
 
 
 class SearchCliTest(unittest.TestCase):
+    fixture_path: pathlib.Path = pathlib.Path()
+
     def setUp(self) -> None:
         self.fixture_path = pathlib.Path(__file__).resolve().parent / "fixtures" / "slang-fixture.json"
         self.fixture_path.parent.mkdir(parents=True, exist_ok=True)
