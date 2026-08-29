@@ -27,7 +27,7 @@ def _profile(name: str, role: str = "reasoning") -> ModelProfile:
 
 
 @pytest.fixture
-def mock_registry():
+def mock_registry() -> MagicMock:
     registry = MagicMock(spec=ModelRegistry)
     registry.memory_config = MagicMock()
     registry.memory_config.max_loaded_gb = 1000
@@ -45,7 +45,7 @@ def mock_registry():
 
 
 @pytest.fixture
-def setup_manager(mock_registry):
+def setup_manager(mock_registry: MagicMock) -> ModelManager:
     router = ModelRouter(mock_registry)
     tracker = UsageTracker(db_path=None)
     manager = ModelManager(registry=mock_registry, router=router, tracker=tracker)
@@ -54,32 +54,28 @@ def setup_manager(mock_registry):
     return manager
 
 
-def _make_cm(payload: dict[str, object]) -> MagicMock:
-    """safe_urlopen 반환값을 흉내 내는 컨텍스트 매니저 mock."""
-    cm = MagicMock()
-    cm.read.return_value = json.dumps(payload).encode("utf-8")
-    cm.__enter__.return_value = cm
-    return cm
-
-
 # ─── 모델 생명주기 ────────────────────────────────────────────────
 
 
 class TestModelLifecycle:
-    def test_load_new_model_creates_loaded_entry(self, setup_manager):
+    def test_load_new_model_creates_loaded_entry(self, setup_manager: ModelManager):
         loaded = setup_manager.load("model-a")
 
         assert loaded.profile.name == "model-a"
         assert setup_manager.is_loaded("model-a") or "model-a" in setup_manager._loaded
 
-    def test_load_reuses_cached_instance_without_reload(self, setup_manager):
+    def test_load_reuses_cached_instance_without_reload(self, setup_manager: ModelManager):
         first = setup_manager.load("model-a")
         second = setup_manager.load("model-a")
 
         assert first is second
-        assert setup_manager._load_mlx_model.call_count == 1
+        loader = setup_manager.__dict__["_load_mlx_model"]
+        assert isinstance(loader, MagicMock)
+        assert loader.call_count == 1
 
-    def test_load_unknown_model_raises_with_registered_names(self, setup_manager, mock_registry):
+    def test_load_unknown_model_raises_with_registered_names(
+        self, setup_manager: ModelManager, mock_registry: MagicMock
+    ):
         with pytest.raises(ValueError) as excinfo:
             setup_manager.load("no-such-model")
 
@@ -87,15 +83,15 @@ class TestModelLifecycle:
         assert "no-such-model" in message
         assert "model-a" in message
 
-    def test_unload_not_loaded_returns_false(self, setup_manager):
+    def test_unload_not_loaded_returns_false(self, setup_manager: ModelManager):
         assert setup_manager.unload("model-a") is False
 
-    def test_unload_removes_and_reports_true(self, setup_manager):
+    def test_unload_removes_and_reports_true(self, setup_manager: ModelManager):
         setup_manager.load("model-a")
         assert setup_manager.unload("model-a") is True
         assert "model-a" not in setup_manager._loaded
 
-    def test_swap_replaces_same_role_models(self, setup_manager):
+    def test_swap_replaces_same_role_models(self, setup_manager: ModelManager):
         setup_manager.load("model-a")
         setup_manager.load("model-b")
 
@@ -105,53 +101,58 @@ class TestModelLifecycle:
         assert "model-a" not in setup_manager._loaded
         assert "model-b" not in setup_manager._loaded
 
-    def test_swap_unknown_model_raises_value_error(self, setup_manager):
+    def test_swap_unknown_model_raises_value_error(self, setup_manager: ModelManager):
         with pytest.raises(ValueError):
             setup_manager.swap("ghost")
 
-    def test_get_by_role_returns_matching_loaded_model(self, setup_manager):
+    def test_get_by_role_returns_matching_loaded_model(self, setup_manager: ModelManager):
         loaded = setup_manager.load("model-c")
         found = setup_manager.get_by_role("coding")
 
         assert found is loaded
 
-    def test_get_by_role_loads_default_when_nothing_loaded(self, setup_manager, mock_registry):
+    def test_get_by_role_loads_default_when_nothing_loaded(self, setup_manager: ModelManager, mock_registry: MagicMock):
         mock_registry.get_default.return_value = _profile("model-a")
 
         found = setup_manager.get_by_role("reasoning")
 
+        assert found is not None
         assert found.profile.name == "model-a"
 
-    def test_get_by_role_returns_none_without_default(self, setup_manager, mock_registry):
+    def test_get_by_role_returns_none_without_default(self, setup_manager: ModelManager, mock_registry: MagicMock):
         mock_registry.get_default.return_value = None
 
         assert setup_manager.get_by_role("vision") is None
 
 
 class TestTargetResolution:
-    def test_get_target_for_role_uses_agent_models_mapping(self, setup_manager, mock_registry):
+    def test_get_target_for_role_uses_agent_models_mapping(self, setup_manager: ModelManager, mock_registry: MagicMock):
         mock_registry._raw = {"agent_models": {"coding": "model-c"}}
 
         assert setup_manager.get_target_for_role("coding") == "model-c"
 
-    def test_get_target_for_role_accepts_case_variants(self, setup_manager, mock_registry):
+    def test_get_target_for_role_accepts_case_variants(self, setup_manager: ModelManager, mock_registry: MagicMock):
         mock_registry._raw = {"agent_models": {"CODING": "model-c"}}
 
         assert setup_manager.get_target_for_role("coding") == "model-c"
 
-    def test_get_target_for_role_falls_back_to_default_profile(self, setup_manager, mock_registry):
+    def test_get_target_for_role_falls_back_to_default_profile(
+        self, setup_manager: ModelManager, mock_registry: MagicMock
+    ):
         mock_registry._raw = {}
         mock_registry.get_default.return_value = _profile("model-b")
 
         assert setup_manager.get_target_for_role("unknown-role") == "model-b"
 
-    def test_get_target_for_role_final_literal(self, setup_manager, mock_registry):
+    def test_get_target_for_role_final_literal(self, setup_manager: ModelManager, mock_registry: MagicMock):
         mock_registry._raw = {}
         mock_registry.get_default.return_value = None
 
         assert setup_manager.get_target_for_role("unknown-role") == "default_model"
 
-    def test_get_target_for_role_recovers_from_unregistered_configured_target(self, setup_manager, mock_registry):
+    def test_get_target_for_role_recovers_from_unregistered_configured_target(
+        self, setup_manager: ModelManager, mock_registry: MagicMock
+    ):
         mock_registry._raw = {"agent_models": {"coding": "missing-local"}}
         discovered = _profile("discovered-local:7b", role="coding")
         discovered.provider = "ollama"
@@ -163,19 +164,19 @@ class TestTargetResolution:
 
 
 class TestPrefetch:
-    def test_prefetch_already_loaded_returns_true(self, setup_manager):
+    def test_prefetch_already_loaded_returns_true(self, setup_manager: ModelManager):
         setup_manager.load("model-a")
         assert setup_manager.prefetch("model-a") is True
 
-    def test_prefetch_unknown_model_returns_false(self, setup_manager):
+    def test_prefetch_unknown_model_returns_false(self, setup_manager: ModelManager):
         assert setup_manager.prefetch("ghost") is False
 
-    def test_prefetch_denied_when_memory_insufficient(self, setup_manager, mock_registry):
+    def test_prefetch_denied_when_memory_insufficient(self, setup_manager: ModelManager, mock_registry: MagicMock):
         mock_registry.memory_config.max_loaded_gb = 0
 
         assert setup_manager.prefetch("model-a") is False
 
-    def test_prefetch_success_loads_model(self, setup_manager):
+    def test_prefetch_success_loads_model(self, setup_manager: ModelManager):
         assert setup_manager.prefetch("model-a") is True
         assert "model-a" in setup_manager._loaded
 
@@ -184,7 +185,7 @@ class TestPrefetch:
 
 
 class TestGenerateErrorPaths:
-    def test_single_model_failure_records_and_raises(self, setup_manager):
+    def test_single_model_failure_records_and_raises(self, setup_manager: ModelManager):
         manager = setup_manager
         manager._do_generate = MagicMock(side_effect=RuntimeError("boom"))
 
@@ -194,7 +195,7 @@ class TestGenerateErrorPaths:
         recent = manager.tracker.get_recent(1)
         assert recent[0].success is False
 
-    def test_all_models_unavailable_propagates(self, setup_manager, mock_registry):
+    def test_all_models_unavailable_propagates(self, setup_manager: ModelManager, mock_registry: MagicMock):
         manager = setup_manager
         manager.router.route_single = MagicMock(side_effect=AllModelsUnavailableError("combo", ["model-a"]))
 
@@ -206,7 +207,7 @@ class TestGenerateErrorPaths:
 
 
 @pytest.fixture
-def cascading_manager(setup_manager):
+def cascading_manager(setup_manager: ModelManager) -> ModelManager:
     combo = ModelCombo(
         name="cascade-combo",
         models=["model-a", "model-b"],
@@ -220,7 +221,7 @@ def cascading_manager(setup_manager):
 
 
 class TestCascadeEscalation:
-    def test_escalates_low_confidence_to_upper_tier(self, cascading_manager):
+    def test_escalates_low_confidence_to_upper_tier(self, cascading_manager: ModelManager):
         weak = "모르겠습니다"
         strong = (
             "정답은 다음과 같습니다. 이 문제의 핵심 원리는 보존 법칙이며, "
@@ -233,7 +234,7 @@ class TestCascadeEscalation:
         assert result == strong
         assert cascading_manager._do_generate.call_count == 2
 
-    def test_disabled_cascade_keeps_original_response(self, cascading_manager):
+    def test_disabled_cascade_keeps_original_response(self, cascading_manager: ModelManager):
         cascading_manager.router.cascade_on_low_confidence = False
         cascading_manager._do_generate = MagicMock(return_value="모르겠습니다")
 
@@ -242,7 +243,7 @@ class TestCascadeEscalation:
         assert result == "모르겠습니다"
         assert cascading_manager._do_generate.call_count == 1
 
-    def test_stops_when_no_upper_tier_exists(self, cascading_manager):
+    def test_stops_when_no_upper_tier_exists(self, cascading_manager: ModelManager):
         cascading_manager.router.cascade_max_escalations = 3
         cascading_manager._do_generate = MagicMock(return_value="모르겠습니다")
         cascading_manager.router.escalate = MagicMock(return_value=None)
@@ -252,7 +253,7 @@ class TestCascadeEscalation:
         assert result == "모르겠습니다"
         assert cascading_manager.router.escalate.call_count == 1
 
-    def test_upper_tier_failure_returns_last_good_response(self, cascading_manager):
+    def test_upper_tier_failure_returns_last_good_response(self, cascading_manager: ModelManager):
         weak = "모르겠습니다"
         cascading_manager._do_generate = MagicMock(side_effect=[weak, RuntimeError("tier-2 down")])
         cascading_manager.router.mark_failure = MagicMock()
@@ -265,7 +266,7 @@ class TestCascadeEscalation:
 
 
 class TestConfidenceEstimation:
-    def test_heuristic_used_when_evaluator_missing(self, cascading_manager):
+    def test_heuristic_used_when_evaluator_missing(self, cascading_manager: ModelManager):
         cascading_manager.router.confidence_evaluator_enabled = True
         cascading_manager.router.select_confidence_evaluator = MagicMock(return_value=None)
 
@@ -273,7 +274,7 @@ class TestConfidenceEstimation:
 
         assert 0.0 <= score <= 1.0
 
-    def test_evaluator_exception_falls_back_to_heuristic(self, cascading_manager):
+    def test_evaluator_exception_falls_back_to_heuristic(self, cascading_manager: ModelManager):
         evaluator_profile = _profile("model-c")
         cascading_manager.router.confidence_evaluator_enabled = True
         cascading_manager.router.select_confidence_evaluator = MagicMock(return_value=evaluator_profile)
@@ -288,7 +289,7 @@ class TestConfidenceEstimation:
 
 
 class TestCollectiveFallback:
-    def test_below_min_participants_falls_back_to_single(self, setup_manager):
+    def test_below_min_participants_falls_back_to_single(self, setup_manager: ModelManager):
         combo = ModelCombo(
             name="tiny-swarm",
             models=["model-a"],
@@ -306,7 +307,7 @@ class TestCollectiveFallback:
 
 
 class TestProviderDelegation:
-    def test_do_generate_falls_back_to_legacy_path_without_provider(self, setup_manager):
+    def test_do_generate_falls_back_to_legacy_path_without_provider(self, setup_manager: ModelManager):
         manager = setup_manager
         manager._get_provider = MagicMock(return_value=None)
         manager._uses_anthropic_direct = MagicMock(return_value=False)
@@ -318,7 +319,7 @@ class TestProviderDelegation:
         assert result == "legacy output"
         manager._do_ollama_generate.assert_called_once()
 
-    def test_available_combo_or_models_prefers_existing_combo(self, setup_manager):
+    def test_available_combo_or_models_prefers_existing_combo(self, setup_manager: ModelManager):
         critic = ModelCombo(
             name="critic-pair",
             models=["model-b", "model-c"],
@@ -330,7 +331,7 @@ class TestProviderDelegation:
 
         assert resolved == ["model-b", "model-c"]
 
-    def test_available_combo_or_models_falls_back_without_combo(self, setup_manager):
+    def test_available_combo_or_models_falls_back_without_combo(self, setup_manager: ModelManager):
         assert setup_manager._available_combo_or_models("missing-combo", ["m"]) == ["m"]
 
     def test_ollama_native_base_strips_version_suffix(self):
@@ -355,7 +356,7 @@ def http_env():
 
 
 class TestLegacyOllamaGenerate:
-    def test_posts_payload_and_returns_content(self, setup_manager, http_env):
+    def test_posts_payload_and_returns_content(self, setup_manager: ModelManager, http_env: None):
         cm = _make_http({"choices": [{"message": {"content": "안녕하세요"}}]})
         loaded = setup_manager.load("model-a")
 
@@ -370,7 +371,7 @@ class TestLegacyOllamaGenerate:
         assert body["stream"] is False
         assert body["messages"][-1] == {"role": "user", "content": "인사해줘"}
 
-    def test_raw_messages_prepend_system_prompt(self, setup_manager, http_env):
+    def test_raw_messages_prepend_system_prompt(self, setup_manager: ModelManager, http_env: None):
         cm = _make_http({"choices": [{"message": {"content": "ok"}}]})
         loaded = setup_manager.load("model-a")
         raw = [{"role": "user", "content": "hi"}]
@@ -384,7 +385,7 @@ class TestLegacyOllamaGenerate:
         assert messages[0]["content"] == "시스템 지침"
         assert messages[1] == {"role": "user", "content": "hi"}
 
-    def test_json_schema_forces_format_field(self, setup_manager, http_env):
+    def test_json_schema_forces_format_field(self, setup_manager: ModelManager, http_env: None):
         cm = _make_http({"choices": [{"message": {"content": "{}"}}]})
         schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
         loaded = setup_manager.load("model-a")
@@ -395,7 +396,7 @@ class TestLegacyOllamaGenerate:
         body = json.loads(up.call_args.args[0].data.decode("utf-8"))
         assert body["format"] == schema
 
-    def test_http_failure_returns_api_error_string(self, setup_manager, http_env):
+    def test_http_failure_returns_api_error_string(self, setup_manager: ModelManager, http_env: None):
         failing = MagicMock()
         failing.__enter__.side_effect = OSError("connection refused")
         loaded = setup_manager.load("model-a")
@@ -406,7 +407,7 @@ class TestLegacyOllamaGenerate:
         assert result.startswith("[API Error for model-a]")
         assert "connection refused" in result
 
-    def test_hidden_thinking_only_output_is_flagged_as_error(self, setup_manager, http_env):
+    def test_hidden_thinking_only_output_is_flagged_as_error(self, setup_manager: ModelManager, http_env: None):
         cm = _make_http({"choices": [{"message": {"content": "", "thinking": "비밀 추론"}}]})
         loaded = setup_manager.load("model-a")
 
@@ -415,10 +416,12 @@ class TestLegacyOllamaGenerate:
 
         assert "[API Error for model-a]" in result
 
-    def test_qwen3_messages_receive_direct_answer_directive(self, setup_manager, http_env):
+    def test_qwen3_messages_receive_direct_answer_directive(self, setup_manager: ModelManager, http_env: None):
         cm = _make_http({"choices": [{"message": {"content": "답변"}}]})
         profile = _profile("qwen3-test")
-        setup_manager._registry.get_model.side_effect = lambda x: profile if x == "qwen3-test" else None
+        registry = setup_manager.__dict__["_registry"]
+        assert isinstance(registry, MagicMock)
+        registry.get_model.side_effect = lambda x: profile if x == "qwen3-test" else None
         loaded = setup_manager.load("qwen3-test")
 
         with patch("antigravity_k.engine.model_manager.safe_urlopen", return_value=cm) as up:
@@ -440,7 +443,7 @@ def _make_http(payload: dict[str, object]) -> MagicMock:
 
 
 class TestStatusSurface:
-    def test_status_reports_loaded_models_and_memory(self, setup_manager):
+    def test_status_reports_loaded_models_and_memory(self, setup_manager: ModelManager):
         setup_manager.load("model-a")
 
         status = setup_manager.status()
@@ -451,18 +454,20 @@ class TestStatusSurface:
         assert "routing" in status
         assert "provider_capabilities" in status
 
-    def test_get_model_info_aliases_status(self, setup_manager):
+    def test_get_model_info_aliases_status(self, setup_manager: ModelManager):
         assert setup_manager.get_model_info() == setup_manager.status()
 
-    def test_loaded_names_reflect_state(self, setup_manager):
+    def test_loaded_names_reflect_state(self, setup_manager: ModelManager):
         assert setup_manager.loaded_names() == []
         setup_manager.load("model-a")
         assert setup_manager.loaded_names() == ["model-a"]
 
-    def test_provider_capability_unknown_model_returns_none(self, setup_manager):
+    def test_provider_capability_unknown_model_returns_none(self, setup_manager: ModelManager):
         assert setup_manager.provider_capability("ghost") is None
 
-    def test_is_loaded_shortcircuits_for_local_runtime_profiles(self, setup_manager, mock_registry):
+    def test_is_loaded_shortcircuits_for_local_runtime_profiles(
+        self, setup_manager: ModelManager, mock_registry: MagicMock
+    ):
         local_profile = _profile("lmstudio-model")
         local_profile.provider = "lmstudio"
         mock_registry.get_model.side_effect = lambda x: local_profile if x == "lmstudio-model" else None
