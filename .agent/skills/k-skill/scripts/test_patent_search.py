@@ -1,25 +1,79 @@
+from __future__ import annotations
+
 import contextlib
 import importlib
 import io
 import unittest
 import urllib.request
+from collections.abc import Callable, Sequence
 from types import TracebackType
+from typing import Protocol, cast
 from unittest import mock
 
 patent_search = importlib.import_module("scripts.patent_search")
-PatentDetail = patent_search.PatentDetail
-PatentSearchResponse = patent_search.PatentSearchResponse
-PatentSearchResult = patent_search.PatentSearchResult
-build_detail_params = patent_search.build_detail_params
-build_search_params = patent_search.build_search_params
-fetch_xml = patent_search.fetch_xml
-get_patent_detail = patent_search.get_patent_detail
-main = patent_search.main
-parse_args = patent_search.parse_args
-parse_patent_detail_response = patent_search.parse_patent_detail_response
-parse_patent_search_response = patent_search.parse_patent_search_response
-resolve_service_key = patent_search.resolve_service_key
-search_patents = patent_search.search_patents
+
+
+class _PatentSearchResult(Protocol):
+    application_number: str
+    invention_title: str | None
+    abstract_text: str | None
+    applicant_name: str | None
+
+
+class _PatentSearchResponse(Protocol):
+    query: str
+    total_count: int
+    page_no: int
+    num_of_rows: int
+    items: list[_PatentSearchResult]
+
+
+class _PatentDetail(Protocol):
+    application_number: str
+    invention_title: str | None
+    register_status: str | None
+    big_drawing: str | None
+
+
+class _CliArgs(Protocol):
+    query: str | None
+    year: int | None
+    num_rows: int
+    application_number: str | None
+
+
+class _XmlFetcher(Protocol):
+    def __call__(self, url: str, params: dict[str, str], timeout: int = 30) -> str: ...
+
+
+PatentDetail = cast(type[_PatentDetail], getattr(patent_search, "PatentDetail"))
+PatentSearchResponse = cast(type[_PatentSearchResponse], getattr(patent_search, "PatentSearchResponse"))
+PatentSearchResult = cast(type[_PatentSearchResult], getattr(patent_search, "PatentSearchResult"))
+build_detail_params = cast(Callable[..., dict[str, str]], getattr(patent_search, "build_detail_params"))
+build_search_params = cast(Callable[..., dict[str, str]], getattr(patent_search, "build_search_params"))
+fetch_xml = cast(_XmlFetcher, getattr(patent_search, "fetch_xml"))
+get_patent_detail = cast(Callable[..., _PatentDetail], getattr(patent_search, "get_patent_detail"))
+main = cast(Callable[[Sequence[str] | None], int], getattr(patent_search, "main"))
+parse_args = cast(Callable[[Sequence[str] | None], _CliArgs], getattr(patent_search, "parse_args"))
+parse_patent_detail_response = cast(
+    Callable[[str], _PatentDetail], getattr(patent_search, "parse_patent_detail_response")
+)
+parse_patent_search_response = cast(
+    Callable[..., _PatentSearchResponse], getattr(patent_search, "parse_patent_search_response")
+)
+resolve_service_key = cast(Callable[..., str], getattr(patent_search, "resolve_service_key"))
+search_patents = cast(Callable[..., _PatentSearchResponse], getattr(patent_search, "search_patents"))
+
+
+def _make_search_result(**kwargs: object) -> _PatentSearchResult:
+    factory = cast(Callable[..., _PatentSearchResult], PatentSearchResult)
+    return factory(**kwargs)
+
+
+def _make_search_response(**kwargs: object) -> _PatentSearchResponse:
+    factory = cast(Callable[..., _PatentSearchResponse], PatentSearchResponse)
+    return factory(**kwargs)
+
 
 SAMPLE_SEARCH_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <response>
@@ -158,7 +212,7 @@ class RequestBuilderTest(unittest.TestCase):
 
     def test_build_search_params_requires_at_least_one_document_type(self):
         with self.assertRaisesRegex(ValueError, "At least one of patent or utility"):
-            build_search_params(
+            _ = build_search_params(
                 query="배터리",
                 patent=False,
                 utility=False,
@@ -202,7 +256,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
             return FakeResponse()
 
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            fetch_xml(
+            _ = fetch_xml(
                 "https://example.test/patent",
                 build_search_params(query="배터리", service_key=resolve_service_key("abc%2Bdef%3D%3D")),
                 timeout=7,
@@ -240,7 +294,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
             return FakeResponse()
 
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            fetch_xml(
+            _ = fetch_xml(
                 "https://example.test/patent",
                 build_search_params(query="배터리", service_key="abc%2Bdef%3D%3D"),
             )
@@ -274,7 +328,7 @@ class ServiceKeyEncodingTest(unittest.TestCase):
             return FakeResponse()
 
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            fetch_xml(
+            _ = fetch_xml(
                 "https://example.test/patent",
                 build_detail_params(application_number="1020240001234", service_key="abc%2Bdef%3D%3D"),
             )
@@ -326,7 +380,7 @@ class PatentSearchWorkflowTest(unittest.TestCase):
             return SAMPLE_AUTH_ERROR_XML
 
         with self.assertRaisesRegex(RuntimeError, "SERVICE KEY IS NOT REGISTERED ERROR"):
-            search_patents(
+            _ = search_patents(
                 "배터리",
                 service_key="bad-key",
                 fetcher=fake_auth_fetcher,
@@ -345,13 +399,13 @@ class CliTest(unittest.TestCase):
 
     def test_main_prints_query_report_as_json(self):
         with mock.patch("scripts.patent_search.search_patents") as search_mock:
-            search_mock.return_value = PatentSearchResponse(
+            search_mock.return_value = _make_search_response(
                 query="배터리",
                 page_no=1,
                 num_of_rows=1,
                 total_count=1,
                 items=[
-                    PatentSearchResult(
+                    _make_search_result(
                         index_no=1,
                         application_number="1020240001234",
                         invention_title="이차 전지 배터리 팩",
