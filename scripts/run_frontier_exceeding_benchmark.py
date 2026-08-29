@@ -35,7 +35,7 @@ def run_exceeding_benchmark():
         root = Path(tmpdir)
         graph = IncrementalCodeGraph(root)
         start = time.perf_counter()
-        graph.update_file("router.py", content="class ApiRouter:\n    def route(self):\n        pass\n")
+        _ = graph.update_file("router.py", content="class ApiRouter:\n    def route(self):\n        pass\n")
         elapsed_ms = (time.perf_counter() - start) * 1000
         syms = graph.lookup_symbol("ApiRouter")
         if len(syms) == 1 and elapsed_ms < 50.0:
@@ -76,7 +76,7 @@ def run_exceeding_benchmark():
         print("  ❌ Speculative branching test failed")
 
     print("\n" + "=" * 70)
-    print(f"🏆 Frontier-Exceeding Score: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 Frontier-Exceeding Score: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 70)
     return score == total
 
