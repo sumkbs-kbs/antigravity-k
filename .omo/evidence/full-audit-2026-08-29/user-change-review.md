@@ -21,7 +21,7 @@ date: 2026-08-30
 - 현재 Git tracked+untracked Python 871개를 AST 문법 검사했다. 현존 파일의 문법 오류는 0건이며, 삭제 상태라 읽을 수 없는 tracked 경로 12개(`src/antigravity_k/agents/{commands,coordinator,team_manager}.py`, `src/antigravity_k/engine/{json_logger,logging_util,memory_hygiene}.py`, `src/antigravity_k/integrations/{discord_bot,slack_bot}.py`, `src/antigravity_k/knowledge/artifact_service.py`, `src/antigravity_k/scripts/ingest_obsidian.py`, `tests/test_{commands,multi_agent}.py`)는 외부 호환성 검토 잔여 항목으로 분리했다.
 - 최종 게이트에서 전체 pytest `4806 passed, 6 skipped`, 대시보드 588개 테스트·typecheck·lint·build, 전역 Ruff가 통과했다. 사용자 dirty path 244개는 stage/revert하지 않았고, 생성된 dashboard_dist trailing whitespace 4건만 보류 위험으로 남겼다. production `npm audit --omit=dev`는 `0 vulnerabilities`다.
 - 앱 재시작 뒤에도 codebase-memory MCP `list_projects`가 `Transport closed`로 실패했다. 소스 `src/antigravity_k/engine/tool_loop.py` 경고는 `369 → 13`으로 축소했으며, 남은 보호 멤버·동적 외부 경계는 사용자 변경 소유권 확인 후 처리한다.
-- 최신 전체 basedpyright 재측정은 `0 errors, 25044 warnings, 0 notes`이며, `tests/test_tool_loop.py`의 direct-response·context-compression 및 공용 fixture 경계를 `8211882` 독립 커밋으로 정리하고 source tool-loop 경계를 추가 보강해 해당 테스트 파일 경고를 `119 → 0`, 소스 파일 경고를 `369 → 13`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
+- 최신 전체 basedpyright 재측정은 `0 errors, 25015 warnings, 0 notes`이며, provider stream 경계 보강(`8b3a26a`)과 `tests/test_tool_loop.py`의 direct-response·context-compression 및 공용 fixture 경계(`8211882`)를 통해 해당 테스트 파일 경고를 `119 → 0`, 소스 tool-loop 파일 경고를 `369 → 13`, provider 파일 경고를 `276 → 247`로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25662 warnings, 0 notes`이며, 장학금 필터 구현의 JSON·argparse 경계를 `eec4dec` 독립 커밋으로 정리해 해당 파일 경고를 `210 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25872 warnings, 0 notes`이며, durable resume/quality failure fixture 정리는 사용자 dirty path를 건드리지 않고 `0bfba41` 독립 커밋으로 분리했다. 해당 파일 경고는 `133 → 119`으로 감소했다.
 - 최신 전체 basedpyright 재측정은 `0 errors, 25886 warnings, 0 notes`이며, Qwen scratchpad 실행 fixture 정리는 사용자 dirty path를 건드리지 않고 `dfbc1e8` 독립 커밋으로 분리했다. 해당 파일 경고는 `156 → 133`으로 감소했다.
@@ -61,7 +61,7 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 25044 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 25015 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities`. 중첩 `monaco-editor → dompurify`는 `707a312`의 `3.4.14` override로 해소했고 Monaco major 변경은 하지 않았다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.

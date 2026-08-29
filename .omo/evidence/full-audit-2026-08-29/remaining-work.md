@@ -9,7 +9,7 @@ date: 2026-08-29
 ## 현재 기준
 
 - 최신 검증 커밋: `707a312` (Monaco 중첩 DOMPurIFY override 반영; 이후 tool-loop 타입 경계는 사용자 dirty 파일과 겹쳐 미커밋)
-- 전체 `basedpyright`: `0 errors, 25044 warnings, 0 notes` (장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 0건으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
+- 전체 `basedpyright`: `0 errors, 25015 warnings, 0 notes` (provider stream 경계와 장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 단계적으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
@@ -70,7 +70,8 @@ date: 2026-08-29
 
 - `54cbcd7`: `.agent/skills/k-skill/scripts/ktx_booking.py`의 `korail2`/PyCryptodome 동적 의존성, JSON 응답, 열차·예약 생성기, argparse 핸들러 경계를 typed Protocol/JSON boundary helper로 전환했다. 11개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했으며 파일 경고가 `97 → 0`, 전체 basedpyright는 `0 errors, 25401 warnings, 0 notes`다.
 
-- 2026-08-30 source 경계 continuation: `tool_loop.py`의 manager/context/quality/capacity/incremental-graph Protocol을 보강하고 `ToolCall.arguments`를 재귀 JSON 값으로 명시했다. 이벤트 발행·JSON checkpoint·expected-tools 경계와 의도적 반환값 소비도 정리했다. `tests/test_tool_loop.py` 90개, 전체 pytest `4806 passed, 6 skipped`, Ruff/Ruff-format/mypy가 통과했으며 `tool_loop.py` 파일 경고는 `369 → 13`, 전체 basedpyright는 `0 errors, 25044 warnings, 0 notes`다. 생성자 입력과 state-store는 다양한 기존 테스트 double 호환을 위해 동적 경계로 유지했다. `tool_loop.py`와 `task_execution_context.py`는 기존 사용자 변경과 겹쳐 미커밋이며, parser 타입 보강은 `2843ddc`에 기록했다.
+- 2026-08-30 source 경계 continuation: `tool_loop.py`의 manager/context/quality/capacity/incremental-graph Protocol을 보강하고 `ToolCall.arguments`를 재귀 JSON 값으로 명시했다. 이벤트 발행·JSON checkpoint·expected-tools 경계와 의도적 반환값 소비도 정리했다. `tests/test_tool_loop.py` 90개, 전체 pytest `4806 passed, 6 skipped`, Ruff/Ruff-format/mypy가 통과했으며 `tool_loop.py` 파일 경고는 `369 → 13`, 전체 basedpyright는 `0 errors, 25015 warnings, 0 notes`다. 생성자 입력과 state-store는 다양한 기존 테스트 double 호환을 위해 동적 경계로 유지했다. `tool_loop.py`와 `task_execution_context.py`는 기존 사용자 변경과 겹쳐 미커밋이며, parser 타입 보강은 `2843ddc`에 기록했다.
+- 2026-08-30 provider 경계 continuation: `inference_providers.py`의 native tool-call arguments, Ollama stream response/kwargs, NIM stream 반환값을 명시 타입으로 보강하고 스트림 bytes/text 변수 혼동을 제거했다. 관련 provider·local discovery·model stream 테스트 50개와 Ruff/format/mypy/pre-commit이 통과했으며 파일 경고가 `276 → 247`, 전체 basedpyright가 `0 errors, 25015 warnings, 0 notes`로 감소했다. 변경은 clean 파일 독립 커밋 `8b3a26a`에 기록했다.
 - 2026-08-30 dashboard dependency continuation: `707a312`에서 `monaco-editor@0.56.0`의 중첩 `dompurify@3.4.8`을 `3.4.14` override로 고정했다. `npm audit --omit=dev`와 `npm ci --dry-run`이 성공하고, typecheck/lint/Vitest 588개/build도 통과했다. 대시보드 production 취약점은 `2 → 0`으로 해소됐으며 생성된 `dashboard_dist`와 `node_modules` 변경은 사용자 dirty 산출물로 stage하지 않았다.
 - 2026-08-30 high-risk regression continuation: RAG 증분/하위 디렉터리·provenance·retrieval, long-context, Git API, system API 회귀 145개가 통과했다. `PYTHONPATH=src python -m antigravity_k.cli --help`와 `OrchestratorAgent`/`ModelRouter` import smoke도 성공했다. 마지막 codebase-memory `list_projects` 재시도는 다시 `Transport closed`였고, 외부 호환성 재색인은 복구 전까지 보류한다.
 
