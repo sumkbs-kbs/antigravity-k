@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from typing import Any
 
 # 프로젝트 루트를 sys.path에 추가
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -27,6 +28,8 @@ if SRC_ROOT not in sys.path:
 
 class TestPermissionGate(unittest.TestCase):
     """3-Tier 권한 모델 테스트."""
+
+    gate: Any = None
 
     def setUp(self):
         from antigravity_k.tools.permission_gate import PermissionGate
@@ -94,6 +97,9 @@ class TestPermissionGate(unittest.TestCase):
 class TestContextShaper(unittest.TestCase):
     """5-Stage 컨텍스트 압축 파이프라인 테스트."""
 
+    tmp_dir: Any = None
+    shaper: Any = None
+
     def setUp(self):
         from antigravity_k.engine.context_shaper import ContextShaper
 
@@ -135,7 +141,9 @@ class TestContextShaper(unittest.TestCase):
         ]
         result = self.shaper._context_collapse(msgs)
         tool_msg = [m for m in result if m["role"] == "tool"][0]
-        self.assertIn("ref:", tool_msg["content"])
+        content = tool_msg.get("content")
+        self.assertIsInstance(content, str)
+        self.assertIn("ref:", content)
         # 저장된 파일 확인
         json_files = [f for f in os.listdir(self.tmp_dir) if f.endswith(".json")]
         self.assertGreater(len(json_files), 0)
@@ -150,6 +158,7 @@ class TestContextShaper(unittest.TestCase):
         with open(ref_path, "w") as f:
             json.dump({"content": content, "ts": 0}, f)
         restored = self.shaper.restore_collapsed(ref_id)
+        self.assertIsNotNone(restored)
         self.assertEqual(restored, content)
 
     def test_micro_compact_merges_tools(self):
@@ -192,6 +201,10 @@ class TestContextShaper(unittest.TestCase):
 
 class TestSessionManager(unittest.TestCase):
     """3-Tier 메모리 모델 + 세션 영속성 테스트."""
+
+    tmp_dir: Any = None
+    sm: Any = None
+    project_dir: Any = None
 
     def setUp(self):
         from antigravity_k.engine.session_manager import SessionManager
@@ -280,6 +293,8 @@ class TestSessionManager(unittest.TestCase):
 
 class TestSlashCommands(unittest.TestCase):
     """슬래시 커맨드 레지스트리 테스트."""
+
+    registry: Any = None
 
     def setUp(self):
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
@@ -379,6 +394,10 @@ class TestSlashCommands(unittest.TestCase):
 
 class TestE2EWorkflow(unittest.TestCase):
     """전체 워크플로우: 세션 → 컨텍스트 관리 → 슬래시 커맨드."""
+
+    tmp_dir: Any = None
+    session_dir: Any = None
+    context_dir: Any = None
 
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp()
