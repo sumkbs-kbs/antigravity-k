@@ -235,6 +235,11 @@ def _mock_call_args(root: MagicMock, path: tuple[str, ...]) -> tuple[tuple[objec
     return args, kwargs
 
 
+def _mock_call_kwargs_list(root: MagicMock, path: tuple[str, ...]) -> list[dict[str, object]]:
+    raw_calls = cast(object, getattr(_mock_path(root, path), "call_args_list"))
+    return [cast(dict[str, object], getattr(call, "kwargs")) for call in cast(list[object], raw_calls)]
+
+
 class _RaisingIter:
     """Iterator that raises exc on first __next__().
 
@@ -1520,17 +1525,21 @@ class TestToolLoopEngineRunLoop:
             '{"expected_tools": ["read_file"]}',
             "",
         )
-        self._orch().task_execution_context = TaskExecutionContext("read-once", store)
-        self._orch().config = {"tool_loop": {"native_function_calling": True}}
+        _set_mock_attr(self._orch(), ("task_execution_context",), TaskExecutionContext("read-once", store))
+        _set_mock_attr(self._orch(), ("config",), {"tool_loop": {"native_function_calling": True}})
         profile = MagicMock()
         profile.provider = "ollama"
-        self._orch().manager._registry.get_model.return_value = profile
-        self._orch().manager.provider_capability.return_value = {"native_tool_calling": "supported"}
-        self._orch().tool_registry.to_openai_schemas.return_value = [{"name": "read_file"}]
-        self._orch().ctx.tool_executor.execute_async.return_value = "README contents"
-        self._orch().ctx.quality_gate = None
+        _set_mock_return(self._orch(), ("manager", "_registry", "get_model"), profile)
+        _set_mock_return(self._orch(), ("manager", "provider_capability"), {"native_tool_calling": "supported"})
+        _set_mock_return(self._orch(), ("tool_registry", "to_openai_schemas"), [{"name": "read_file"}])
+        _set_mock_return(self._orch(), ("ctx", "tool_executor", "execute_async"), "README contents")
+        _set_mock_attr(self._orch(), ("ctx", "quality_gate"), None)
         tool_call = '<tool_call>\n{"name": "read_file", "arguments": {"file_path": "README.md"}}\n</tool_call>\n'
-        self._orch().manager.stream_generate.side_effect = [iter([tool_call]), iter(["grounded summary"])]
+        _set_mock_side_effect(
+            self._orch(),
+            ("manager", "stream_generate"),
+            [iter([tool_call]), iter(["grounded summary"])],
+        )
 
         _ = list(
             _engine(self._orch()).run_loop(
@@ -1541,9 +1550,9 @@ class TestToolLoopEngineRunLoop:
             )
         )
 
-        first_call, second_call = self._orch().manager.stream_generate.call_args_list
-        assert first_call.kwargs["tools"] == [{"name": "read_file"}]
-        assert "tools" not in second_call.kwargs
+        first_kwargs, second_kwargs = _mock_call_kwargs_list(self._orch(), ("manager", "stream_generate"))
+        assert first_kwargs["tools"] == [{"name": "read_file"}]
+        assert "tools" not in second_kwargs
 
     def test_recovers_a_qwen_scratchpad_action_for_one_required_tool(self, tmp_path: Path):
         # Given: Qwen plans the sole required read instead of emitting its tool-call tag.
