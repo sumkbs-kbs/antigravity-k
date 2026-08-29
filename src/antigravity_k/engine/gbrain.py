@@ -5,11 +5,17 @@ import concurrent.futures
 import logging
 import threading
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast, final
 
 import networkx as nx
 
 logger = logging.getLogger(__name__)
+
+GraphAttributes = dict[str, str | int | float | bool]
+if TYPE_CHECKING:
+    Graph: TypeAlias = nx.DiGraph[str, GraphAttributes]
+else:
+    Graph = nx.DiGraph
 
 # 선택적 의존성. import 실패 시 전체 런타임 부팅을 막지 않도록 방어 로드 (graceful degradation).
 chromadb: Any = None
@@ -31,6 +37,7 @@ except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존�
     _chroma_import_error = _chroma_exc
 
 
+@final
 class GBrain:
     """Antigravity-K Graph + Vector Memory (GBrain).
 
@@ -50,9 +57,10 @@ class GBrain:
         self.graph_file = self.storage_dir / "knowledge_graph.graphml"
 
         # 그래프 데이터베이스 초기화
+        self.graph: Graph
         if self.graph_file.exists():
             try:
-                self.graph = nx.read_graphml(str(self.graph_file))
+                self.graph = nx.DiGraph(nx.read_graphml(str(self.graph_file)))
             except Exception:
                 logger.exception("[GBrain] Failed to load graph")
                 self.graph = nx.DiGraph()
@@ -85,7 +93,7 @@ class GBrain:
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._closed = False
 
-    def close(self):
+    def close(self) -> None:
         """ChromaDB 클라이언트 연결과 스레드 풀을 정리합니다."""
         if self._closed:
             return
@@ -99,14 +107,14 @@ class GBrain:
         try:
             close = getattr(self.chroma_client, "close", None)
             if callable(close):
-                close()
+                _ = close()
         except Exception:
             logger.exception("[GBrain] chromadb client close 실패")
         finally:
             try:
                 clear_system_cache = getattr(SharedSystemClient, "clear_system_cache", None)
                 if callable(clear_system_cache):
-                    clear_system_cache()
+                    _ = clear_system_cache()
             except Exception:
                 logger.exception("[GBrain] clear_system_cache 실패")
             self.chroma_client = None
@@ -114,20 +122,20 @@ class GBrain:
     def __del__(self):
         self.close()
 
-    def _save_graph(self):
+    def _save_graph(self) -> None:
         """그래프를 백그라운드 스레드에서 디스크에 저장합니다."""
         # Mutation 방지를 위해 얕은 복사본을 만들어 넘깁니다.
         # (노드 속성까지 완전 복사가 필요하면 deepcopy를 써야 하지만, graphml 특성상 copy()로 충분합니다)
         graph_copy = self.graph.copy()
 
-        def write_task(g):
+        def write_task(g: Graph) -> None:
             with self._save_lock:
                 try:
                     nx.write_graphml(g, str(self.graph_file))
                 except Exception:
                     logger.exception("[GBrain] Failed to save graph background")
 
-        self._executor.submit(write_task, graph_copy)
+        _ = self._executor.submit(write_task, graph_copy)
 
     def add_node(
         self,
@@ -135,7 +143,7 @@ class GBrain:
         label: str,
         content: str,
         metadata: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         """그래프와 벡터DB에 노드를 추가합니다.
 
         label: "failure", "user_pref", "concept", etc.
@@ -157,7 +165,7 @@ class GBrain:
         self._save_graph()
         logger.debug("[GBrain] Added node: %s (%s)", node_id, label)
 
-    def add_edge(self, source_id: str, target_id: str, relation: str):
+    def add_edge(self, source_id: str, target_id: str, relation: str) -> None:
         """두 노드 간에 관계를 추가합니다."""
         if not self.graph.has_node(source_id) or not self.graph.has_node(target_id):
             logger.warning(
@@ -167,7 +175,7 @@ class GBrain:
             )
             return
 
-        self.graph.add_edge(source_id, target_id, relation=relation)
+        _ = self.graph.add_edge(source_id, target_id, relation=relation)
         self._save_graph()
 
     def search_semantic(
@@ -175,7 +183,7 @@ class GBrain:
         query: str,
         limit: int = 3,
         filter_label: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphAttributes]:
         """의미론적 검색을 통해 노드를 찾습니다."""
         if self.collection is None or self.collection.count() == 0:
             return []
@@ -188,7 +196,7 @@ class GBrain:
             where=cast(Any, where),
         )
 
-        matched_nodes = []
+        matched_nodes: list[GraphAttributes] = []
         if results and results["ids"] and len(results["ids"]) > 0:
             for i, doc_id in enumerate(results["ids"][0]):
                 if self.graph.has_node(doc_id):
@@ -199,12 +207,13 @@ class GBrain:
 
         return matched_nodes
 
-    def get_related(self, node_id: str, max_depth: int = 1) -> list[dict[str, Any]]:
+    def get_related(self, node_id: str, max_depth: int = 1) -> list[GraphAttributes]:
         """특정 노드와 연결된 그래프 이웃을 반환합니다."""
+        _ = max_depth
         if not self.graph.has_node(node_id):
             return []
 
-        related = []
+        related: list[GraphAttributes] = []
         # 간단한 1-hop 조회
         for neighbor in self.graph.neighbors(node_id):
             edge_data = self.graph.get_edge_data(node_id, neighbor)
@@ -225,14 +234,14 @@ class GBrain:
         self._save_graph()
         return deleted
 
-    def export_all(self) -> list[dict[str, Any]]:
+    def export_all(self) -> list[GraphAttributes]:
         return [{"id": node_id, **dict(data)} for node_id, data in self.graph.nodes(data=True)]
 
     def redact_all(self) -> int:
         from antigravity_k.engine.secret_scanner import redact_full
 
         changed = 0
-        for node_id, data in self.graph.nodes(data=True):
+        for _node_id, data in self.graph.nodes(data=True):
             for key, value in list(data.items()):
                 if isinstance(value, str):
                     redacted = redact_full(value)
@@ -270,7 +279,7 @@ global_gbrain = GBrain()
 def _close_global_gbrain():
     """프로세스 종료 시 전역 GBrain의 리소스를 정리합니다."""
     try:
-        global_gbrain.close()
+        _ = global_gbrain.close()
     except Exception:
         logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
