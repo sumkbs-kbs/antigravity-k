@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `52ad6ea`; whole-tree basedpyright reports `0 errors, 27530 warnings, 0 notes`. `tests/test_mode_manager.py` now explicitly consumes five intentional state-transition return values; its 27-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `a4b6310`; whole-tree basedpyright reports `0 errors, 27535 warnings, 0 notes`. `tests/test_vault.py` now types the VaultEngine fixture, concurrent writer callbacks, subprocess spy, monkeypatch callback, and intentional side-effect returns. Its 12-test suite, Ruff, Ruff-format, py_compile, and pre-commit pass; file warnings fell `116 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `95377c7`; whole-tree basedpyright reports `0 errors, 27651 warnings, 0 notes`. `test_sillok_search.py` now has a `.pyi` contract for the dynamic `exec` wrapper plus typed HTTP response/request doubles; its 13-test suite, Ruff, Ruff-format, py_compile, and pre-commit pass, and file warnings fell `111 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
