@@ -16,6 +16,8 @@ date: 2026-08-30
 
 - 최신 전체 basedpyright 재측정은 `0 errors, 25007 warnings, 0 notes`이며, clean 파일 `src/antigravity_k/security/lintai_scanner.py`의 실행 파일·JSON 출력 경계를 명시해 `3934a78` 독립 커밋으로 정리했다. 해당 3개 테스트와 Ruff, Ruff-format, mypy, pre-commit이 통과했고 파일 경고는 `5 → 0`으로 감소했다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
 
+- 최신 전체 basedpyright 재측정은 `0 errors, 25001 warnings, 0 notes`이며, clean 파일 `src/antigravity_k/engine/call_hierarchy_graph.py`의 AST visitor override·속성·미사용 결과를 `852224f` 독립 커밋으로 정리했다. 해당 테스트 1개와 Ruff, Ruff-format, mypy, pre-commit이 통과했고 파일 경고는 `6 → 0`으로 감소했다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
+
 ## 범위
 
 - `git status --short` 기준 244개 dirty path를 작성자와 관계없이 재분류했다.
@@ -65,7 +67,7 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 25007 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 25001 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities`. 중첩 `monaco-editor → dompurify`는 `707a312`의 `3.4.14` override로 해소했고 Monaco major 변경은 하지 않았다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.
