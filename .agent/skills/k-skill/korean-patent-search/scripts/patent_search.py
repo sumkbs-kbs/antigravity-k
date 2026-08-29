@@ -10,7 +10,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
-from typing import Callable
+from typing import Callable, Sequence
 
 SERVICE_KEY_ENV_VAR = "KIPRIS_PLUS_API_KEY"
 DEFAULT_TIMEOUT = 30
@@ -187,7 +187,7 @@ def normalize_tag(tag_name: str) -> str:
     return tag_name.casefold()
 
 
-def iter_children(element: ET.Element | XmlNode | None) -> list[ET.Element | XmlNode]:
+def iter_children(element: ET.Element | XmlNode | None) -> Sequence[ET.Element | XmlNode]:
     if element is None:
         return []
     if isinstance(element, XmlNode):

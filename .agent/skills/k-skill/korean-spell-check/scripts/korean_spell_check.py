@@ -11,7 +11,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from html import unescape
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 DEFAULT_RESULTS_URL = "https://nara-speller.co.kr/old_speller/results"
 DEFAULT_MAX_CHARS = 1500
@@ -219,7 +219,7 @@ def fetch_spell_check_html(
         raise RuntimeError(f"The spell-check service returned HTTP {error.code}.") from error
 
 
-def extract_result_payload(html: str) -> list[dict]:
+def extract_result_payload(html: str) -> list[dict[str, Any]]:
     match = RESULT_PAYLOAD_PATTERN.search(html)
 
     if not match:
@@ -235,7 +235,7 @@ def extract_result_payload(html: str) -> list[dict]:
     return payload
 
 
-def apply_page_corrections(page: dict) -> str:
+def apply_page_corrections(page: dict[str, Any]) -> str:
     source = str(page.get("str", ""))
     corrected = source
 
@@ -329,7 +329,7 @@ def preserve_original_layout(original: str, suggestion: str) -> str:
     return "".join(merged)
 
 
-def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
+def apply_chunk_corrections(chunk: str, pages: list[dict[str, Any]]) -> str:
     combined_source = "".join(str(page.get("str", "")) for page in pages)
     fallback = "".join(apply_page_corrections(page) for page in pages) or chunk
 
@@ -361,9 +361,9 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
             end += page_offset
 
             visible_ordinals = [
-                source_visible_lookup[index]
+                ordinal
                 for index in range(start, min(end + 1, len(source_visible_lookup)))
-                if source_visible_lookup[index] is not None
+                if (ordinal := source_visible_lookup[index]) is not None
             ]
 
             if not visible_ordinals:
@@ -404,7 +404,13 @@ def apply_chunk_corrections(chunk: str, pages: list[dict]) -> str:
     return corrected
 
 
-def build_issue(chunk_index: int, page_index: int, issue_index: int, page: dict, error: dict) -> SpellCheckIssue:
+def build_issue(
+    chunk_index: int,
+    page_index: int,
+    issue_index: int,
+    page: dict[str, Any],
+    error: dict[str, Any],
+) -> SpellCheckIssue:
     return SpellCheckIssue(
         chunk_index=chunk_index,
         page_index=page_index,
@@ -429,11 +435,11 @@ def check_text(
     throttle_seconds: float = DEFAULT_THROTTLE_SECONDS,
     requester: Callable[..., str] = fetch_spell_check_html,
     sleep_fn: Callable[[float], None] = time.sleep,
-) -> dict:
+) -> dict[str, Any]:
     chunks = split_text_into_chunks(text, max_chars=max_chars)
     corrected_chunks: list[str] = []
     issues: list[SpellCheckIssue] = []
-    chunk_reports: list[dict] = []
+    chunk_reports: list[dict[str, Any]] = []
 
     for chunk_index, chunk in enumerate(chunks):
         if chunk_index > 0 and throttle_seconds > 0:
@@ -494,14 +500,14 @@ def load_input(args: argparse.Namespace) -> str:
     return Path(args.file).read_text(encoding="utf-8")
 
 
-def serialize_report(report: dict) -> dict:
+def serialize_report(report: dict[str, Any]) -> dict[str, Any]:
     return {
         **report,
         "issues": [asdict(issue) for issue in report["issues"]],
     }
 
 
-def print_text_report(report: dict) -> None:
+def print_text_report(report: dict[str, Any]) -> None:
     print("# corrected_text")
     print(report["corrected_text"])
     print()

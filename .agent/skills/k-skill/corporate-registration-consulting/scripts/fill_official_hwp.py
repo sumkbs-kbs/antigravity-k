@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
@@ -21,7 +22,7 @@ DEFAULT_FORM = OFFICIAL_DIR / "form-65-1-stock-company-incorporation-promoter.hw
 DEFAULT_MAP = OFFICIAL_DIR / "form-65-1-fill-map.json"
 
 
-def load_json(path: Path) -> dict:
+def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -36,7 +37,7 @@ def stringify(value) -> str:
     return str(value)
 
 
-def run_set_cell(current: Path, output: Path, spec: dict, text: str, cwd: Path) -> None:
+def run_set_cell(current: Path, output: Path, spec: dict[str, Any], text: str, cwd: Path) -> None:
     cmd = [
         "npx",
         "k-skill-rhwp",
@@ -59,7 +60,7 @@ def run_set_cell(current: Path, output: Path, spec: dict, text: str, cwd: Path) 
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
 
-def fill_form(data: dict, form_path: Path, map_path: Path, output_path: Path, cwd: Path) -> list[str]:
+def fill_form(data: dict[str, Any], form_path: Path, map_path: Path, output_path: Path, cwd: Path) -> list[str]:
     fill_map = load_json(map_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = output_path.with_suffix(output_path.suffix + ".tmp")

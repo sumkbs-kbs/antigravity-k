@@ -9,7 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from html import unescape
-from typing import Any
+from typing import Any, Mapping
 
 PROXY_BASE_URL_ENV_VAR = "KSKILL_PROXY_BASE_URL"
 DEFAULT_PROXY_BASE_URL = "https://k-skill-proxy.nomadamas.org"
@@ -31,9 +31,9 @@ def summarize_text(value: Any) -> str:
     return text
 
 
-def resolve_proxy_base_url(explicit_base_url: str | None = None, env: dict[str, str] | None = None) -> str:
-    env = env or os.environ
-    candidate = summarize_text(explicit_base_url or env.get(PROXY_BASE_URL_ENV_VAR))
+def resolve_proxy_base_url(explicit_base_url: str | None = None, env: Mapping[str, str] | None = None) -> str:
+    environment = env or os.environ
+    candidate = summarize_text(explicit_base_url or environment.get(PROXY_BASE_URL_ENV_VAR))
     if candidate.casefold() in {"off", "false", "0", "disable", "disabled", "none"}:
         raise ValueError("KSKILL_PROXY_BASE_URL 가 비활성화되어 있습니다.")
     if candidate and candidate != "replace-me":

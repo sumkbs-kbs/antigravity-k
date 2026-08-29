@@ -469,7 +469,7 @@ def search_sillok(
     limit: int = DEFAULT_LIMIT,
     search_type: str = "k",
     timeout: int = DEFAULT_TIMEOUT,
-) -> dict:
+) -> dict[str, Any]:
     opener = build_http_client()
     reports: list[SearchReport] = []
     filtered_results: list[SearchResult] = []
