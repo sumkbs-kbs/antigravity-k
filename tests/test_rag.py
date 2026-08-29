@@ -2,6 +2,8 @@ import tempfile
 
 import pytest
 
+pytest.importorskip("chromadb", reason="chromadb not installed (install the rag extra)")
+
 from antigravity_k.engine.chunker import MarkdownChunker
 from antigravity_k.engine.vault import VaultEngine
 from antigravity_k.engine.vector_store import VectorStore

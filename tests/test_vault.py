@@ -11,7 +11,7 @@ from antigravity_k.engine.vault import VaultCommitError, VaultEngine
 def vault_engine():
     # Use a temporary directory for testing the vault
     with tempfile.TemporaryDirectory() as tmpdir:
-        engine = VaultEngine(tmpdir)
+        engine = VaultEngine(tmpdir, sync_rag=False)
         yield engine
 
 

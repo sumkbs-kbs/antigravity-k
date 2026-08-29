@@ -483,6 +483,7 @@ _THRESHOLD_RAG = _threshold(_NAME_RAG, 3000.0)  # 3000ms (includes ChromaDB inde
 @pytest.mark.slow
 def test_rag_total_latency():
     """RAG pipeline 전체 latency (index_project + search + format_context) 검증."""
+    pytest.importorskip("chromadb", reason="chromadb not installed (install the rag extra)")
     from antigravity_k.engine.rag_indexer import RAGIndexer
     from antigravity_k.engine.vector_store import VectorStore
 
@@ -564,6 +565,7 @@ def test_rag_chunk_markdown_latency():
 @pytest.mark.benchmark
 def test_rag_search_semantic_latency():
     """VectorStore.search() — 시맨틱 검색 latency 검증."""
+    pytest.importorskip("chromadb", reason="chromadb not installed (install the rag extra)")
     from antigravity_k.engine.rag_indexer import RAGIndexer
     from antigravity_k.engine.vector_store import VectorStore
 
@@ -592,6 +594,7 @@ def test_rag_search_semantic_latency():
 @pytest.mark.benchmark
 def test_rag_hybrid_search_latency():
     """RAGIndexer._hybrid_search_rrf() — 하이브리드 검색 latency 검증."""
+    pytest.importorskip("chromadb", reason="chromadb not installed (install the rag extra)")
     from antigravity_k.engine.rag_indexer import RAGIndexer
     from antigravity_k.engine.vector_store import VectorStore
 
