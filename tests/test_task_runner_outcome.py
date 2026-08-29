@@ -1,13 +1,17 @@
 import json
+from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
+from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.self_capability import is_self_capability_request
 from antigravity_k.engine.task_runner import BackgroundTask, BackgroundTaskRunner, TaskStatus
 from antigravity_k.engine.task_state_store import TaskExecutionContext
 
 
 class FakeOrchestrator:
-    def run_stream(self, messages, target_model):
+    def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+        del messages, target_model
         return iter(
             [
                 "finished output\n",
@@ -16,8 +20,8 @@ class FakeOrchestrator:
         )
 
 
-def test_runner_records_successful_task_outcome(tmp_path):
-    outcomes = []
+def test_runner_records_successful_task_outcome(tmp_path: Path):
+    outcomes: list[TaskOutcome] = []
     runner = BackgroundTaskRunner(
         db_path=str(tmp_path / "tasks.db"),
         outcome_recorder=outcomes.append,
@@ -43,12 +47,12 @@ def test_runner_records_successful_task_outcome(tmp_path):
     assert outcomes[0].calibration_eligible is False
 
 
-def test_runner_redacts_secrets_before_persisting_task_artifact(tmp_path):
+def test_runner_redacts_secrets_before_persisting_task_artifact(tmp_path: Path):
     class FakeVault:
-        def __init__(self):
-            self.write_calls = []
+        def __init__(self) -> None:
+            self.write_calls: list[dict[str, object]] = []
 
-        def write_note(self, **kwargs):
+        def write_note(self, **kwargs: object) -> None:
             self.write_calls.append(kwargs)
 
     api_secret = "sk-proj-" + "a" * 24
@@ -71,13 +75,14 @@ def test_runner_redacts_secrets_before_persisting_task_artifact(tmp_path):
 
     assert len(vault.write_calls) == 1
     content = vault.write_calls[0]["content"]
+    assert isinstance(content, str)
     for secret in (api_secret, context_secret, "nested-secret", output_secret, "password-secret", "url-secret"):
         assert secret not in content
     assert "<REDACTED>" in content
 
 
-def test_runner_records_benchmark_case_id_instead_of_ephemeral_task_id(tmp_path):
-    outcomes = []
+def test_runner_records_benchmark_case_id_instead_of_ephemeral_task_id(tmp_path: Path):
+    outcomes: list[TaskOutcome] = []
     runner = BackgroundTaskRunner(
         db_path=str(tmp_path / "tasks.db"),
         outcome_recorder=outcomes.append,
@@ -97,24 +102,25 @@ def test_runner_records_benchmark_case_id_instead_of_ephemeral_task_id(tmp_path)
     assert outcomes[0].calibration_eligible is True
 
 
-def test_runner_rejects_invalid_benchmark_output_without_persisting_memory(tmp_path):
+def test_runner_rejects_invalid_benchmark_output_without_persisting_memory(tmp_path: Path):
     class EmptyResponseOrchestrator:
-        def run_stream(self, messages, target_model):
+        def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+            del messages, target_model
             return iter(["</think>"])
 
     class FakeVault:
-        def __init__(self):
-            self.snapshot_messages = []
-            self.write_calls = []
+        def __init__(self) -> None:
+            self.snapshot_messages: list[str] = []
+            self.write_calls: list[dict[str, object]] = []
 
-        def create_snapshot(self, message):
+        def create_snapshot(self, message: str) -> str:
             self.snapshot_messages.append(message)
             return "snapshot-1"
 
-        def write_note(self, **kwargs):
+        def write_note(self, **kwargs: object) -> None:
             self.write_calls.append(kwargs)
 
-    outcomes = []
+    outcomes: list[TaskOutcome] = []
     vault = FakeVault()
     runner = BackgroundTaskRunner(
         db_path=str(tmp_path / "tasks.db"),
@@ -144,12 +150,13 @@ def test_runner_rejects_invalid_benchmark_output_without_persisting_memory(tmp_p
     assert vault.write_calls == []
 
 
-def test_runner_keeps_execution_context_out_of_user_intent(tmp_path):
+def test_runner_keeps_execution_context_out_of_user_intent(tmp_path: Path):
     class CapturingOrchestrator:
-        def __init__(self):
-            self.messages = []
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = []
 
-        def run_stream(self, messages, target_model):
+        def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+            del target_model
             self.messages = messages
             return iter(["completed"])
 
@@ -169,12 +176,13 @@ def test_runner_keeps_execution_context_out_of_user_intent(tmp_path):
     assert orchestrator.messages[1]["role"] == "system"
 
 
-def test_runner_marks_answer_only_task_as_direct_response(tmp_path):
+def test_runner_marks_answer_only_task_as_direct_response(tmp_path: Path):
     class CapturingOrchestrator:
-        def __init__(self):
-            self.messages = []
+        def __init__(self) -> None:
+            self.messages: list[dict[str, str]] = []
 
-        def run_stream(self, messages, target_model):
+        def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+            del target_model
             self.messages = messages
             return iter(["completed"])
 
@@ -193,8 +201,8 @@ def test_runner_marks_answer_only_task_as_direct_response(tmp_path):
     assert execution_context["direct_response"] is True
 
 
-def test_runner_records_failed_task_outcome(tmp_path):
-    outcomes = []
+def test_runner_records_failed_task_outcome(tmp_path: Path):
+    outcomes: list[TaskOutcome] = []
     runner = BackgroundTaskRunner(
         db_path=str(tmp_path / "tasks.db"),
         outcome_recorder=outcomes.append,
@@ -212,7 +220,7 @@ def test_runner_records_failed_task_outcome(tmp_path):
     assert "Orchestrator is required" in outcomes[0].error
 
 
-def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path):
+def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path: Path):
     class QualityFailingOrchestrator:
         vault_engine = None
 
@@ -220,14 +228,15 @@ def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path)
             self.task_execution_context: TaskExecutionContext | None = None
 
         @contextmanager
-        def bind_task_execution(self, task_id, state_store):
+        def bind_task_execution(self, task_id: str, state_store: object) -> Iterator[None]:
             self.task_execution_context = TaskExecutionContext(task_id, state_store)
             try:
                 yield
             finally:
                 self.task_execution_context = None
 
-        def run_stream(self, messages, target_model):
+        def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+            del messages, target_model
             assert self.task_execution_context is not None
             self.task_execution_context.state_store.transition(
                 self.task_execution_context.task_id,
@@ -238,17 +247,18 @@ def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path)
             return iter(["invalid output"])
 
     class FakeVault:
-        def __init__(self):
-            self.restored = []
+        def __init__(self) -> None:
+            self.restored: list[str] = []
 
-        def create_snapshot(self, message):
+        def create_snapshot(self, message: str) -> str:
+            del message
             return "snapshot-quality"
 
-        def restore_snapshot(self, snapshot_hash):
+        def restore_snapshot(self, snapshot_hash: str) -> bool:
             self.restored.append(snapshot_hash)
             return True
 
-    outcomes = []
+    outcomes: list[TaskOutcome] = []
     vault = FakeVault()
     runner = BackgroundTaskRunner(
         db_path=str(tmp_path / "tasks.db"),
@@ -272,19 +282,21 @@ def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path)
     assert vault.restored == ["snapshot-quality"]
 
 
-def test_runner_rolls_back_snapshot_on_failure(tmp_path):
+def test_runner_rolls_back_snapshot_on_failure(tmp_path: Path):
     class FailingOrchestrator:
-        def run_stream(self, messages, target_model):
+        def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+            del messages, target_model
             raise RuntimeError("model execution failed")
 
     class FakeVault:
-        def __init__(self):
-            self.restored = []
+        def __init__(self) -> None:
+            self.restored: list[str] = []
 
-        def create_snapshot(self, message):
+        def create_snapshot(self, message: str) -> str:
+            del message
             return "snapshot-1"
 
-        def restore_snapshot(self, snapshot_hash):
+        def restore_snapshot(self, snapshot_hash: str) -> bool:
             self.restored.append(snapshot_hash)
             return True
 
@@ -300,8 +312,8 @@ def test_runner_rolls_back_snapshot_on_failure(tmp_path):
     assert vault.restored == ["snapshot-1"]
 
 
-def test_runner_records_cancelled_task_outcome(tmp_path):
-    outcomes = []
+def test_runner_records_cancelled_task_outcome(tmp_path: Path):
+    outcomes: list[TaskOutcome] = []
     runner = BackgroundTaskRunner(
         db_path=str(tmp_path / "tasks.db"),
         outcome_recorder=outcomes.append,
@@ -319,7 +331,7 @@ def test_runner_records_cancelled_task_outcome(tmp_path):
     assert outcomes[0].completion_reason == "cancelled"
 
 
-def test_runner_cancel_keeps_in_memory_status_in_sync_with_durable_state(tmp_path):
+def test_runner_cancel_keeps_in_memory_status_in_sync_with_durable_state(tmp_path: Path):
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
     task_id = "task-cancel-api"
     runner.state_store.create_task(task_id, "cancel me", "pending", "2026-01-01T00:00:00")
