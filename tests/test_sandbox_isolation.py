@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import re
 import shutil
@@ -69,14 +70,14 @@ class TestWriteWhitelist:
             "/var/tmp",
             "/private/tmp",
             "/private/var/folders",
-            shutil.os.path.expanduser("~/.cache"),
+            os.path.expanduser("~/.cache"),
         }
         assert _writable_subpaths(profile) == expected
 
     def test_home_other_than_cache_is_not_writable(self):
         runner = SandboxRunner(project_root="/custom/proj", enabled=True)
         profile = runner._build_seatbelt_profile()
-        home = shutil.os.path.expanduser("~")
+        home = os.path.expanduser("~")
         assert "/.ssh" not in profile
         assert home not in _writable_subpaths(profile)
 
