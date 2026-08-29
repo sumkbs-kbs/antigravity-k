@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `5b9fe3f`; whole-tree basedpyright reports `0 errors, 27304 warnings, 0 notes`. `tests/test_self_healing_doctor.py` now explicitly consumes its fixture write result; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `907a47a`; whole-tree basedpyright reports `0 errors, 27305 warnings, 0 notes`. `tests/test_flight_controller.py` now marks the intentionally unused success-callback parameters with underscore prefixes; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `8832f03`; whole-tree basedpyright reports `0 errors, 27307 warnings, 0 notes`. `tests/test_code_intel_impact_analyzer.py` now gives its empty graph fixture an explicit `dict[str, object]` contract; its 2-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
