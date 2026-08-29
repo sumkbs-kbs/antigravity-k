@@ -117,7 +117,8 @@ class TestD9_SkillInstaller:
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("# Safe skill\n\nUseful instructions.")
 
-        report = SkillInstaller._security_scan(None, skill_dir, "test-skill")
+        installer = SkillInstaller()
+        report = installer._security_scan(skill_dir, "test-skill")
         assert report.passed is True
         assert len(report.errors) == 0
 
@@ -129,7 +130,8 @@ class TestD9_SkillInstaller:
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("# Suspicious\n\nRun: rm -rf /\n")
 
-        report = SkillInstaller._security_scan(None, skill_dir, "test-skill")
+        installer = SkillInstaller()
+        report = installer._security_scan(skill_dir, "test-skill")
         # rm -rf / should be detected as error level
         assert len(report.errors) >= 1
 
@@ -149,7 +151,8 @@ class TestD9_SkillInstaller:
         )
         security = SecurityReport(passed=True)
 
-        SkillInstaller._write_meta(None, dest_dir, "@antigravity-k/skill-test", validation, security)
+        installer = SkillInstaller()
+        installer._write_meta(dest_dir, "@antigravity-k/skill-test", validation, security)
         meta_path = dest_dir / ".agk_meta.json"
         assert meta_path.exists()
         meta = json.loads(meta_path.read_text(encoding="utf-8"))

@@ -63,6 +63,36 @@ class TestOrchestratorRAGIntegration:
         assert "vault_init" in ctx.rag_context
         mock_indexer.format_context.assert_called_once_with("vault engine 구조 분석")
 
+    def test_context_enrich_selects_long_context_retrieval_plan(self):
+        from antigravity_k.engine.orchestrator_handlers import context_enrich_handler
+        from antigravity_k.engine.state_graph import StateContext
+
+        user_msg = "long context retrieval"
+        ctx = StateContext(
+            messages=[{"role": "user", "content": user_msg}],
+            user_message=user_msg,
+            target_model="qwen3.8:27b",
+            custom_messages=[{"role": "user", "content": user_msg}],
+        )
+        mock_indexer = MagicMock()
+        mock_indexer.format_context.return_value = "<relevant_code>needle</relevant_code>"
+        orch = MagicMock()
+        orch.ctx.ki_engine.build_ki_prompt.return_value = ""
+        orch.vault_engine = None
+        orch.project_root = "/tmp"
+        orch._rag_indexer = mock_indexer
+        orch.manager.long_context_plan.return_value = {
+            "strategy": "retrieval_fallback",
+            "retrieval_mode": "long_context",
+            "candidate_pool": 64,
+        }
+
+        context_enrich_handler(ctx, orch)
+
+        mock_indexer.format_context.assert_called_once_with(
+            user_msg, n_results=5, mode="long_context", candidate_pool=64
+        )
+
     def test_rag_recall_benchmark(self):
         """RAG 인덱서가 관련된 코드를 상위 5개(recall@5) 이내에 반환하는지 벤치마크 테스트합니다."""
         from antigravity_k.engine.rag_indexer import CodeChunk, RAGIndexer
@@ -367,7 +397,7 @@ class TestStateGraphCoVWiring:
         # 2. QUALITY_CHECK 실행 및 루프백 검증
         handler = graph._nodes[AgentState.QUALITY_CHECK]
         gen = handler(ctx, None)
-        output = "".join(list(gen))
+        output = "" if gen is None else "".join(gen)
 
         assert "에러 복구 루프" in output
         assert ctx.retry_count == 1
@@ -385,7 +415,7 @@ class TestStateGraphCoVWiring:
         ctx._loop_back = False
 
         gen = handler(ctx, None)
-        output = "".join(list(gen))
+        output = "" if gen is None else "".join(gen)
 
         assert "최대 재시도" in output
         assert ctx._loop_back is False

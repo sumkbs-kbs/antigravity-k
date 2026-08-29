@@ -1,15 +1,15 @@
 """시스템 통합 업그레이드 테스트.
 ================================
 이전 세션(tiptap-vuetify 패턴)에서 만든 모듈들이
-실제 핵심 시스템(AppConfig, TeamManager, BaseAgent, SkillsRegistry)에
+실제 핵심 시스템(AppConfig, BaseAgent, SkillsRegistry)에
 올바르게 통합되었는지 검증합니다.
 
 검증 대상:
   A) AppConfig — I18nConfig, max_tool_risk 추가
-  B) TeamManager — ToolRegistry/I18n 자동 초기화
   C) BaseAgent — I18n 기반 다국어 추론 지시문
   D) SkillsRegistry — validate_skill_tools() 연동
   E) ComputerUseTool — 메타데이터 적용 확인
+  (B) TeamManager 섹션은 모듈 삭제(2026-08-25 삭제 감사 A티어)로 제거됨
 """
 
 import os
@@ -20,7 +20,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from antigravity_k.config import AppConfig, I18nConfig
-from antigravity_k.i18n import I18n, set_locale
+from antigravity_k.i18n import set_locale
 from antigravity_k.tools.base_tool import RenderIn, RiskLevel, ToolCategory
 from antigravity_k.tools.tool_registry import ToolRegistry
 
@@ -111,57 +111,6 @@ class TestAppConfigIntegration:
         assert "언어" in summary
 
 
-# ═══════════════ B) TeamManager ToolRegistry 통합 테스트 ═══════════════
-
-
-class TestTeamManagerToolRegistry:
-    """TeamManager가 ToolRegistry와 I18n을 올바르게 초기화하는지 검증."""
-
-    def test_tool_registry_exists(self):
-        """TeamManager에 tool_registry 속성이 존재하는지 확인."""
-        # 직접 import 대신 모듈 로드 테스트
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        assert hasattr(tm, "tool_registry")
-        assert isinstance(tm.tool_registry, ToolRegistry)
-
-    def test_system_tools_auto_registered(self):
-        """시스템 도구들이 자동으로 등록되었는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        assert "read_file" in tm.tool_registry
-        assert "replace_file_content" in tm.tool_registry
-        assert "run_bash_command" in tm.tool_registry
-
-    def test_i18n_exists(self):
-        """TeamManager에 i18n 인스턴스가 존재하는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        assert hasattr(tm, "i18n")
-        assert isinstance(tm.i18n, I18n)
-
-    def test_get_tools_for_role(self):
-        """역할 기반 도구 필터링이 동작하는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        tools = tm.get_tools_for_role("WORKER")
-        # max_tool_risk=high이므로 CRITICAL 도구는 제외
-        for tool in tools:
-            assert tool.risk_level != RiskLevel.CRITICAL
-
-    def test_tool_registry_summary(self):
-        """ToolRegistry 요약이 올바르게 생성되는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        summary = tm.tool_registry.summary()
-        assert "tools installed" in summary
-
-
 # ═══════════════ C) BaseAgent I18n 통합 테스트 ═══════════════
 
 
@@ -239,8 +188,8 @@ class TestSkillsRegistryIntegration:
 
         registry = SkillsRegistry.__new__(SkillsRegistry)
         registry.profiles = {}
-        registry.skills_dir = None
-        registry.scanner = None
+        setattr(registry, "skills_dir", None)
+        setattr(registry, "scanner", None)
 
         # 가짜 프로필 추가
         registry.profiles["TEST_SKILL"] = SkillProfile(
@@ -266,8 +215,8 @@ class TestSkillsRegistryIntegration:
 
         registry = SkillsRegistry.__new__(SkillsRegistry)
         registry.profiles = {}
-        registry.skills_dir = None
-        registry.scanner = None
+        setattr(registry, "skills_dir", None)
+        setattr(registry, "scanner", None)
 
         registry.profiles["VALID_SKILL"] = SkillProfile(
             name="VALID_SKILL",

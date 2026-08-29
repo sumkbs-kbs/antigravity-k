@@ -143,7 +143,7 @@ class TestPipelinePath:
             single_calls.append((role, [m.get("content", "") for m in msgs]))
             yield from orig_single(msgs, role, task_type, max_steps, target_model)
 
-        engine._delegate_single = spy_single
+        setattr(engine, "_delegate_single", spy_single)
 
         gen = engine._delegate_pipeline(
             messages,

@@ -1,3 +1,7 @@
+from typing import cast
+
+from mcp.client.session import ClientSession
+
 from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
 from antigravity_k.tools.base_tool import RiskLevel
@@ -77,7 +81,7 @@ def test_mcp_tool_annotations_drive_risk_metadata():
         name="safe_read",
         description="Read only MCP tool",
         schema={"type": "object"},
-        mcp_client=object(),
+        mcp_client=cast(ClientSession, cast(object, object())),
         server_name="local",
         transport="stdio",
         annotations={"readOnlyHint": True},
@@ -86,7 +90,7 @@ def test_mcp_tool_annotations_drive_risk_metadata():
         name="danger_write",
         description="Destructive MCP tool",
         schema={"type": "object"},
-        mcp_client=object(),
+        mcp_client=cast(ClientSession, cast(object, object())),
         server_name="remote",
         transport="http",
         annotations={"destructiveHint": True},

@@ -132,13 +132,13 @@ class TestGetSystemInfo:
             mock_mem.total = 16 * 1024**3
             mock_mem.available = 8 * 1024**3
             mock_mem.percent = 50.0
-            psutil.virtual_memory.return_value = mock_mem
+            setattr(psutil, "virtual_memory", MagicMock(return_value=mock_mem))
 
             mock_disk = MagicMock()
             mock_disk.total = 500 * 1024**3
             mock_disk.free = 200 * 1024**3
             mock_disk.percent = 60.0
-            psutil.disk_usage.return_value = mock_disk
+            setattr(psutil, "disk_usage", MagicMock(return_value=mock_disk))
 
             result = tool._action_get_system_info()
             info = result["system_info"]

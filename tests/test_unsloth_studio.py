@@ -17,6 +17,7 @@ from antigravity_k.engine.provider_adapters.unsloth_studio_contracts import (
     UnslothStudioPermissionDenied,
     UnslothStudioSettings,
     UnslothStudioSnapshot,
+    UnslothStudioToolResult,
     normalize_unsloth_mcp_url,
 )
 from antigravity_k.tools.base_tool import RiskLevel, ToolCategory
@@ -150,7 +151,7 @@ def test_api_exposes_snapshot_without_secret_and_records_audit() -> None:
             allowed_tools=UNSLOTH_STUDIO_READ_TOOLS,
             available_tools=UNSLOTH_STUDIO_READ_TOOLS,
             results=tuple(
-                {"tool": tool.value, "ok": True, "data": {"state": "idle"}, "error": None}
+                UnslothStudioToolResult(tool=tool, ok=True, data={"state": "idle"}, error=None)
                 for tool in UNSLOTH_STUDIO_READ_TOOLS
             ),
             error=None,

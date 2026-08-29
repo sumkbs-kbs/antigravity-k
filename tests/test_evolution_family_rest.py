@@ -69,15 +69,16 @@ class TestAgentFabric:
                 captured["msg"] = user_msg
                 return "실행 결과물"
 
-        fabric.get_or_create = lambda role: FakeAgent()
+        setattr(fabric, "get_or_create", lambda role: FakeAgent())
 
         chunks = list(fabric.execute_single("worker", [{"role": "user", "content": "작업해줘"}]))
 
         assert chunks == ["실행 결과물"]
         assert captured["msg"] == "작업해줘"
-        tasks = fabric.kanban.list_tasks() if hasattr(fabric.kanban, "list_tasks") else None
+        list_tasks = getattr(fabric.kanban, "list_tasks", None)
+        tasks = list_tasks() if callable(list_tasks) else None
         # Kanban 상태: 성공 시 REVIEW로 이동했는지 MessageBus 발행으로 간접 확인
-        published = fabric.message_bus._messages if hasattr(fabric.message_bus, "_messages") else None
+        published = getattr(fabric.message_bus, "_messages", None)
         assert tasks is not None or published is not None or True  # 구조 차이 허용
 
     def test_execute_single_error_yields_error_chunk(self):
@@ -87,7 +88,7 @@ class TestAgentFabric:
             def run(self, user_msg, model_manager=None):
                 raise RuntimeError("폭발")
 
-        fabric.get_or_create = lambda role: BoomAgent()
+        setattr(fabric, "get_or_create", lambda role: BoomAgent())
 
         chunks = list(fabric.execute_single("worker", [{"role": "user", "content": "x"}]))
 

@@ -173,7 +173,7 @@ def harness(tmp_path):
     harness = BenchmarkHarness(
         model_manager=MagicMock(), db_path=tmp_path / "bench.db", task_calibration_updater=update
     )
-    harness._captured = captured  # type: ignore[attr-defined]
+    setattr(harness, "_captured", captured)
     return harness
 
 

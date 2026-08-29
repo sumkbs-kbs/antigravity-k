@@ -6,6 +6,7 @@ TestHarness class methods and FeedbackCollector.
 
 from __future__ import annotations
 
+from email.message import Message
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -67,6 +68,8 @@ class _MockPage:
     def __init__(self, **overrides):
         for method in self._ASYNC_METHODS:
             setattr(self, method, AsyncMock(return_value=None))
+        self.goto = AsyncMock(return_value=None)
+        self.wait_for_selector = AsyncMock(return_value=None)
         # context
         self.context = MagicMock()
         self.context.add_cookies = AsyncMock(return_value=None)
@@ -298,7 +301,7 @@ class TestRunApiTestSync:
                 "http://test/api",
                 400,
                 "Bad Request",
-                {},
+                Message(),
                 None,
             )
 
@@ -319,7 +322,7 @@ class TestRunApiTestSync:
                 "http://test/api",
                 500,
                 "Internal Server Error",
-                {},
+                Message(),
                 io.BytesIO(body),
             )
 

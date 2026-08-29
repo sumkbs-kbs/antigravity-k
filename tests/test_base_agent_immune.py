@@ -105,8 +105,13 @@ class TestRunWithModelManager:
         assert result.startswith("Error:")
 
     def test_dummy_model_triggers_mock_run(self, agent):
-        dummy_model = MagicMock()
-        dummy_model.__repr__ = lambda self: "Dummy(model)"
+        class DummyModel:
+            name = "Dummy"
+
+            def __repr__(self) -> str:
+                return "Dummy(model)"
+
+        dummy_model = DummyModel()
         loaded = SimpleNamespace(model=dummy_model, tokenizer=None)
         manager = MagicMock()
         manager.get.return_value = loaded

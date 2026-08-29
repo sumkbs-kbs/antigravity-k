@@ -177,7 +177,11 @@ class TestManagerIntegration:
         }
         manager._self_consistency_config = lambda: {"enabled": False}
 
+        call_count = 0
+
         def fake(loaded, prompt, **kwargs):
+            nonlocal call_count
+            call_count += 1
             if "분해하세요" in prompt:
                 return '["저장소 분석", "변경 계획 수립"]'
             if "[이번 단계]" in prompt:
@@ -248,12 +252,16 @@ class TestManagerIntegration:
         }
         manager._self_consistency_config = lambda: {"enabled": False}
 
+        call_count = 0
+
         def fake(loaded, prompt, **kwargs):
+            nonlocal call_count
+            call_count += 1
             if "분해하세요" in prompt:
                 return '["Command 핸들러 정의", "Event Store 구현"]'
             if "[1단계 결과]" not in prompt and "[이번 단계] Event Store" in prompt:
                 raise AssertionError("2단계 프롬프트에 1단계 결과가 없다")
-            return "STEP_OUTPUT_" + str(manager._do_generate.call_count)
+            return "STEP_OUTPUT_" + str(call_count)
 
         manager._do_generate = MagicMock(side_effect=fake)
         out = manager.generate_decomposed(

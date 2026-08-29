@@ -31,6 +31,11 @@ def make_service(tmp_path: Path) -> tuple[ScheduledJobService, FakeAgentRuntime]
     return service, runtime
 
 
+def _unused_status(task_id: str) -> dict[str, object]:
+    del task_id
+    return {}
+
+
 def test_interval_job_persists_and_submits_with_selected_model(tmp_path: Path) -> None:
     service, runtime = make_service(tmp_path)
     now = datetime(2026, 8, 27, 12, 0, tzinfo=UTC)
@@ -130,7 +135,7 @@ def test_command_job_records_completed_output_without_agent(tmp_path: Path) -> N
         calls.append(command)
         return 0, "healthy", ""
 
-    service = ScheduledJobService(store, lambda **_: "unused", lambda _: None, command_runner=run_command)
+    service = ScheduledJobService(store, lambda **_: "unused", _unused_status, command_runner=run_command)
     job = service.create_job(
         JobCreate(
             name="health script",
@@ -175,7 +180,7 @@ def test_completed_job_delivers_signed_webhook_payload(tmp_path: Path, monkeypat
     service = ScheduledJobService(
         store,
         lambda **_: "unused",
-        lambda _: None,
+        _unused_status,
         command_runner=lambda _: (0, "delivered output", ""),
         delivery_sender=deliver,
     )

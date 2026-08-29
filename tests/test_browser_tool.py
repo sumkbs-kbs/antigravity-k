@@ -9,6 +9,7 @@ Covers:
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -141,7 +142,7 @@ class TestBrowserToolFormatA11yTree:
 
 
 @pytest.fixture
-def mock_setup() -> tuple[MagicMock, MagicMock]:
+def mock_setup() -> Generator[tuple[MagicMock, MagicMock], None, None]:
     """Fixture: patch sync_playwright and return (mock_pw_instance, mock_page)."""
     with patch("playwright.sync_api.sync_playwright") as mp:
         page = MagicMock()

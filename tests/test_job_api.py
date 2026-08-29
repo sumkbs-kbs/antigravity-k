@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import JsonValue
 
 from antigravity_k.api.routes import job_api
 from antigravity_k.engine.scheduled_job_service import ScheduledJobService
@@ -13,16 +12,32 @@ from antigravity_k.engine.scheduled_job_store import ScheduledJobStore
 
 class FakeRuntime:
     def __init__(self) -> None:
-        self.calls: list[dict[str, JsonValue]] = []
+        self.calls: list[dict[str, object]] = []
         self.status = "done"
         self.output = "api output"
         self.error = "runtime failure"
 
-    def submit_task(self, **kwargs: JsonValue) -> str:
-        self.calls.append(kwargs)
+    def submit_task(
+        self,
+        *,
+        prompt: str,
+        context: dict[str, object],
+        target_model: str,
+        use_worktree: bool,
+        idempotency_key: str,
+    ) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "context": context,
+                "target_model": target_model,
+                "use_worktree": use_worktree,
+                "idempotency_key": idempotency_key,
+            }
+        )
         return "task-api-1"
 
-    def get_task_status(self, task_id: str) -> dict[str, JsonValue]:
+    def get_task_status(self, task_id: str) -> dict[str, object]:
         return {
             "task_id": task_id,
             "status": self.status,
