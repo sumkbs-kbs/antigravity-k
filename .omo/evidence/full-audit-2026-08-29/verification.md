@@ -1,6 +1,6 @@
 # Full audit continuation evidence
 
-- Current continuation checkpoint: `a146bfb`; whole-tree basedpyright reports `0 errors, 28229 warnings, 0 notes`. MAX-engine tests pass 43 tests with 45 intentional protected/private boundary warnings; KTX skill tests pass 11 with 269 dynamic optional-dependency/argparse warnings. Ruff, Ruff-format, mypy, py_compile, and pre-commit passed. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+- Current continuation checkpoint: `9f771d8`; whole-tree basedpyright reports `0 errors, 28057 warnings, 0 notes`. MAX-engine tests pass 43 tests with 45 intentional protected/private boundary warnings; KTX skill tests pass 11 with 97 optional-dependency/third-party warnings. KTX train/reservation Protocol boundaries and command payload guards are verified by Ruff, Ruff-format, mypy, py_compile, and pre-commit. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - HEAD reviewed: `6d3680ca90e9c78bc2b5f31edb226fad8d0c355f`
 - Review snapshot: `/tmp/agk-review-ownership.OhyNJI` (HEAD plus 170 tracked edits and 30 untracked paths copied from the user worktree).
