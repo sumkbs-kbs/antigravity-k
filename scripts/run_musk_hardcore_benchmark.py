@@ -32,7 +32,7 @@ def run_musk_benchmark():
     print("\n[1/3] Testing Zero-Latency Fast-Path Kernel (<5ms)...")
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "telemetry.py").write_text(
+        _ = (root / "telemetry.py").write_text(
             "class RaptorTelemetry:\n    def read_pressure(self): pass\n", encoding="utf-8"
         )
         kernel = FastPathKernel(root)
@@ -74,7 +74,7 @@ def run_musk_benchmark():
         print("  ❌ Flight controller failed")
 
     print("\n" + "=" * 75)
-    print(f"🏆 HARDCORE FIRST-PRINCIPLES SCORE: {passed}/{total} ({(passed/total)*100:.0f}%)")
+    print(f"🏆 HARDCORE FIRST-PRINCIPLES SCORE: {passed}/{total} ({(passed / total) * 100:.0f}%)")
     print("=" * 75)
     return passed == total
 
