@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `6380828` (usage-tracker side-effect 호출 정리 포함)
-- 전체 `basedpyright`: `0 errors, 31466 warnings, 0 notes`
+- 최신 검증 커밋: `f579d9e` (D1/D2/D4 통합 테스트 타입 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 30994 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -56,6 +56,7 @@ date: 2026-08-29
 - `9e7e90a`: `tests/test_api_server.py` fixture and endpoint parameters now use explicit `TestClient`, `MagicMock`, `ProtocolTranslator`, `pytest.MonkeyPatch`, and recursive JSON-value contracts. The API server suite passed 36 tests with 2 environment skips and one pre-existing Starlette/httpx deprecation warning; Ruff, Ruff-format, mypy, and pre-commit hooks passed; file basedpyright warnings reduced `313 → 73`; whole-tree basedpyright is now `0 errors, 31587 warnings, 0 notes`. Remaining diagnostics are dynamic MagicMock/response JSON and intentional private registry accesses.
 - `bee68ac`: `tests/test_usage_tracker.py` tracker fixtures and dependent test parameters use explicit `UsageTracker` and `Path` contracts. The usage-tracker suite passed 20 tests; Ruff, Ruff-format, and pre-commit hooks passed; file basedpyright warnings reduced `129 → 33`; whole-tree basedpyright is now `0 errors, 31490 warnings, 0 notes`. Remaining diagnostics are intentional side-effect fixture calls, protected record assertions, and partially typed pytest helpers.
 - `6380828`: unconsumed `UsageTracker.record` results in `tests/test_usage_tracker.py` are explicitly assigned to `_`, preserving side-effect intent. The usage-tracker suite passed 20 tests, Ruff and all pre-commit hooks passed, file basedpyright warnings reduced `33 → 8`, and whole-tree basedpyright is now `0 errors, 31466 warnings, 0 notes`. Remaining diagnostics are five protected `_records` assertions, two partially typed pytest members, and one unused call result.
+- `f579d9e`: `tests/test_integration_d1_d2_d4.py` fixtures, injected parameters, listener callbacks, and intentional side-effect calls use explicit contracts; the D1/D2/D4 integration suite passed 48 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `472 → 0`, and whole-tree basedpyright is now `0 errors, 30994 warnings, 0 notes`.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
