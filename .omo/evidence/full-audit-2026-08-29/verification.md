@@ -1,6 +1,7 @@
 # Full audit continuation evidence
 
 - Final gate at current code HEAD (`8211882` plus audit docs): full `pytest -q` completed with `4806 passed, 6 skipped` in 18m33s; only the pre-existing Starlette/httpx deprecation warning remains. Dashboard typecheck, lint, Vitest (`42 files / 588 tests`), and production build passed; production-only `npm audit` reports 1 low and 1 moderate issue in the nested Monaco DOMPurify path. Global Ruff passed, and `git diff --check` passed outside four pre-existing generated dashboard_dist trailing-whitespace lines. Worktree remains 244 dirty user paths.
+- Transport recovery check after app restart: `mcp__codebase_memory_mcp__list_projects` still fails with `Transport closed`; re-index and graph-based impact analysis remain blocked on MCP session recovery. Shell/LSP/test evidence remains valid for the completed scoped changes.
 
 - Current continuation checkpoint: `8211882`; whole-tree basedpyright reports `0 errors, 25543 warnings, 0 notes`. `tests/test_tool_loop.py` direct-response, quality-revision, durable approval, context-compression, event-bus, and fixture boundaries now use shared typed helpers; its 90-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `119 → 0`. Worktree remains 244 dirty user paths; dashboard nested advisories and `Transport closed` remain.
 

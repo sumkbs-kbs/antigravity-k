@@ -9,12 +9,13 @@ date: 2026-08-29
 ## 현재 기준
 
 - 최신 검증 커밋: `8211882` (tool-loop 전체 테스트의 중첩 mock 경계를 공용 typed helper로 정리)
-- 전체 `basedpyright`: `0 errors, 25543 warnings, 0 notes` (장학금 필터 구현과 tool-loop 테스트 파일 경고를 각각 0건으로 축소; MAX 테스트·KTX 스킬·대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
+- 전체 `basedpyright`: `0 errors, 25543 warnings, 0 notes` (장학금 필터 구현과 tool-loop 테스트 파일 경고를 각각 0건으로 축소; 소스 `src/antigravity_k/engine/tool_loop.py` 369건 등 기존 경고, MAX 테스트·KTX 스킬·대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
 - codebase-memory MCP: `Transport closed` 상태로 인덱스 영향 분석이 일시 중단됨
+- 앱 재시작 후 `mcp__codebase_memory_mcp__list_projects`를 재시도했지만 동일하게 `Transport closed`가 재현됐다. 외부 MCP 프로세스/세션 복구 전까지 shell·LSP·회귀 테스트 증빙으로 보완한다.
 
 ## 대시보드 의존성 감사 결과
 
@@ -56,6 +57,13 @@ date: 2026-08-29
 - 최신 HEAD 기준 전체 pytest는 `4806 passed, 6 skipped`로 완료됐고, 기존 Starlette/httpx deprecation warning 1건만 관찰됐다.
 - 대시보드 typecheck·lint·Vitest(`42 files / 588 tests`)·production build는 통과했다. production 의존성 audit은 low 1, moderate 1이며, Monaco 중첩 DOMPurify 경로의 강제 major 변경은 승인 전까지 보류한다.
 - 전역 Ruff는 통과했고, 사용자 변경 경로를 포함한 `git diff --check`는 dashboard_dist 생성 파일의 기존 trailing whitespace 4건을 제외하고 통과했다.
+
+## 다음 우선순위
+
+1. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리하고 369건 경고를 단계적으로 축소한다. 해당 파일은 사용자 변경과 겹치므로 hunk 단위 검토 후 독립 커밋한다.
+2. MAX 테스트·KTX optional third-party 경계의 잔여 경고를 같은 방식으로 정리한다.
+3. dashboard 중첩 DOMPurify 취약점은 Monaco major 변경 영향 검토 및 사용자 승인 후 lockfile 단위로 처리한다.
+4. codebase-memory MCP transport 복구 후 repository re-index와 호출 경로 재검증을 수행한다.
 
 ## 최근 완료 단위
 
