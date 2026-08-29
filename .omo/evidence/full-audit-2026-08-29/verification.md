@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current continuation checkpoint: `ab613d4`; whole-tree basedpyright reports `0 errors, 27302 warnings, 0 notes`. `tests/test_mcp_capability.py` now uses direct `ClientSession` boundary casts for test doubles; its 5-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
+
 - Current continuation checkpoint: `5b9fe3f`; whole-tree basedpyright reports `0 errors, 27304 warnings, 0 notes`. `tests/test_self_healing_doctor.py` now explicitly consumes its fixture write result; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `1 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
 
 - Current continuation checkpoint: `907a47a`; whole-tree basedpyright reports `0 errors, 27305 warnings, 0 notes`. `tests/test_flight_controller.py` now marks the intentionally unused success-callback parameters with underscore prefixes; its 1-test suite, Ruff, Ruff-format, basedpyright, and pre-commit pass, and file warnings fell `2 → 0`. Worktree remains 244 dirty paths, dashboard nested advisories remain, and codebase-memory MCP still reports `Transport closed`.
