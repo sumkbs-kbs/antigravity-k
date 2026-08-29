@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `3c60be7` (model manager 생성/폴백 테스트 타입 경계 정리 포함)
-- 전체 `basedpyright`: `0 errors, 29909 warnings, 0 notes`
+- 최신 검증 커밋: `ef04259` (Week2 마켓플레이스 E2E 테스트 타입 경계 정리 포함)
+- 전체 `basedpyright`: `0 errors, 29709 warnings, 0 notes`
 - 전체 pytest 기준선: `4803 passed, 6 skipped` (최신 소스 단위 회귀는 별도 재실행 기록)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -63,6 +63,7 @@ date: 2026-08-29
 - `f081db0`: `tests/test_model_manager_stream.py` types registry/manager/stream fixtures and injected parameters, narrows optional thinking budget and request bytes before use, and preserves config fixture side effects. The model-stream suite passed 25 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `248 → 102`, and whole-tree basedpyright is now `0 errors, 30243 warnings, 0 notes`; residuals are protected private stream coverage and dynamic provider mocks.
 - `7b22715`: `tests/test_benchmark_harness.py` annotates benchmark/model-manager/path fixtures and injected parameters, and uses a model-manager spec for the shared mock. The benchmark harness suite passed 37 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `248 → 95` (the unstaged user-added provider-error test remains preserved), and whole-tree basedpyright is now `0 errors, 30090 warnings, 0 notes`; residuals are protected private harness access and dynamic mock members.
 - `3c60be7`: `tests/test_model_manager_generate.py` annotates registry/manager/patch fixtures and injected parameters, types fallback side-effect callbacks, and narrows mocked call assertions through explicit `MagicMock` boundaries. The generation/fallback suite passed 15 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `238 → 57`, and whole-tree basedpyright is now `0 errors, 29909 warnings, 0 notes`; residuals are protected ModelManager internals and dynamic provider/runtime mocks.
+- `ef04259`: `tests/test_week2_e2e.py` annotates all temporary-path fixtures, marks file/registry side-effect results as intentionally consumed, and makes multi-line fixture content explicit. The Week2 marketplace E2E suite passed 55 tests, Ruff/Ruff-format/pre-commit passed, file basedpyright warnings reduced `235 → 35`, and whole-tree basedpyright is now `0 errors, 29709 warnings, 0 notes`; residuals are protected private API coverage and three dynamic JSON values.
 
 ## 사용자 변경 244개 1차 분류 (현재 작업트리)
 
