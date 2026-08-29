@@ -145,6 +145,7 @@ class TestAgentTracer:
             s.set_output("done")
         assert len(tracer._traces) == 0  # not ended yet
         trace = tracer.end_trace()
+        assert trace is not None
         assert len(trace.spans) == 1
         assert trace.spans[0].name == "my_span"
 
@@ -155,6 +156,7 @@ class TestAgentTracer:
             with tracer.span("failing"):
                 raise ValueError("oops")
         trace = tracer.end_trace()
+        assert trace is not None
         assert trace.spans[0].status == "error"
 
     def test_start_end_span_manual(self):
@@ -164,6 +166,7 @@ class TestAgentTracer:
         assert s.name == "manual"
         tracer.end_span(s)
         trace = tracer.end_trace()
+        assert trace is not None
         assert len(trace.spans) == 1
 
     def test_get_recent_traces(self):
@@ -215,6 +218,7 @@ class TestTracedDecorator:
         result = my_func(5)
         assert result == 10
         trace = tracer.end_trace()
+        assert trace is not None
         assert len(trace.spans) == 1
         assert trace.spans[0].name == "my_func"
 
@@ -228,6 +232,7 @@ class TestTracedDecorator:
 
         assert foo() == "ok"
         trace = tracer.end_trace()
+        assert trace is not None
         assert trace.spans[0].name == "custom_name"
 
 
