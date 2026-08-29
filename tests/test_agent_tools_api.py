@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -24,6 +25,15 @@ def _auth_headers() -> dict[str, str]:
     return {"X-Access-Pin": config.security.access_pin}
 
 
+def _browser_session_key(session_id: str) -> str:
+    subject = "pin-user" if config.security.access_pin else "loopback"
+    return hashlib.sha256(f"{subject}:{session_id}".encode("utf-8")).hexdigest()
+
+
+def _browser_headers(session_id: str) -> dict[str, str]:
+    return {**_auth_headers(), "X-AGK-Browser-Session": session_id}
+
+
 def test_missing_playwright_executable_is_service_unavailable() -> None:
     error = RuntimeError("Executable doesn't exist at /tmp/chromium")
 
@@ -40,37 +50,49 @@ async def test_accessibility_tree_uses_current_playwright_aria_snapshot() -> Non
 
 
 def test_vision_analyze_without_screenshot_returns_400():
-    agent_tools.browser_state.page = None
+    session_id = "vision-test"
+    session_key = _browser_session_key(session_id)
+    agent_tools.browser_sessions.get(session_key).page = None
 
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/agent/tools/browser/vision-analyze",
-            json={"prompt": "check the UI"},
-            headers=_auth_headers(),
-        )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/agent/tools/browser/vision-analyze",
+                json={"prompt": "check the UI"},
+                headers=_browser_headers(session_id),
+            )
+    finally:
+        agent_tools.browser_sessions.discard(session_key)
 
     assert response.status_code == 400
     assert "No screenshot" in response.json()["detail"]
 
 
 def test_browser_action_requires_launch_returns_400():
-    agent_tools.browser_state.page = None
+    session_id = "snapshot-test"
+    session_key = _browser_session_key(session_id)
+    agent_tools.browser_sessions.get(session_key).page = None
 
-    with TestClient(app) as client:
-        response = client.post(
-            "/api/agent/tools/browser/action",
-            json={"action": "snapshot"},
-            headers=_auth_headers(),
-        )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/agent/tools/browser/action",
+                json={"action": "snapshot"},
+                headers=_browser_headers(session_id),
+            )
+    finally:
+        agent_tools.browser_sessions.discard(session_key)
 
     assert response.status_code == 400
     assert "Browser is not launched" in response.json()["detail"]
 
 
 def test_browser_navigation_honors_permission_denial_before_side_effect(monkeypatch):
+    session_id = "navigation-test"
+    session_key = _browser_session_key(session_id)
     page = MagicMock()
     page.goto = AsyncMock()
-    agent_tools.browser_state.page = page
+    agent_tools.browser_sessions.get(session_key).page = page
 
     gate = MagicMock()
     gate.decide.return_value = MagicMock(permission=Permission.DENY)
@@ -81,10 +103,10 @@ def test_browser_navigation_honors_permission_denial_before_side_effect(monkeypa
             response = client.post(
                 "/api/agent/tools/browser/action",
                 json={"action": "goto", "url": "https://example.com"},
-                headers=_auth_headers(),
+                headers=_browser_headers(session_id),
             )
     finally:
-        agent_tools.browser_state.page = None
+        agent_tools.browser_sessions.discard(session_key)
 
     assert response.status_code == 403
     page.goto.assert_not_awaited()

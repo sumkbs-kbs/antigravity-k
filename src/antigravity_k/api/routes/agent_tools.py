@@ -44,13 +44,13 @@ def _browser_session_id(request: Request | None) -> str:
     if request is None:
         return "default"
     raw_session_id = request.headers.get(_BROWSER_SESSION_HEADER, "").strip()
-    if not raw_session_id:
-        return "default"
     if len(raw_session_id) > _MAX_BROWSER_SESSION_ID_LENGTH:
         raise HTTPException(status_code=400, detail="Browser session identifier is too long")
     auth_subject = getattr(request.state, "auth_subject", "anonymous")
     if not isinstance(auth_subject, str) or not auth_subject:
         auth_subject = "anonymous"
+    if not raw_session_id:
+        raw_session_id = "default"
     session_key = f"{auth_subject}:{raw_session_id}"
     return hashlib.sha256(session_key.encode("utf-8")).hexdigest()
 
