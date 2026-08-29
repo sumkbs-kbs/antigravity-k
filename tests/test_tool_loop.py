@@ -12,7 +12,7 @@ Covers:
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Awaitable, Generator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, cast
@@ -25,7 +25,7 @@ from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
 from antigravity_k.engine.task_context_snapshot import load_task_context_snapshot
 from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStateStore
 from antigravity_k.engine.tool_call_parser import ToolCall
-from antigravity_k.engine.tool_loop import TaskOutcomeRecorder, ToolLoopEngine
+from antigravity_k.engine.tool_loop import TaskOutcomeRecorder, ToolExecutionResult, ToolLoopEngine
 
 
 def _format_tool_response(
@@ -48,6 +48,82 @@ def _native_tools_kwargs(
         getattr(engine, "_native_tools_kwargs"),
     )
     return method(delegate_model, required_tools)
+
+
+def _post_loop_checks(
+    engine: ToolLoopEngine,
+    messages: list[dict[str, str]],
+    task_type: str,
+    full_output: str,
+    user_task: str,
+    delegate_model: str | None = None,
+    evidence_context: str = "",
+) -> Generator[str, None, QualityScore | None]:
+    method = cast(
+        Callable[
+            [list[dict[str, str]], str, str, str, str | None, str],
+            Generator[str, None, QualityScore | None],
+        ],
+        getattr(engine, "_post_loop_checks"),
+    )
+    return method(messages, task_type, full_output, user_task, delegate_model, evidence_context)
+
+
+def _quality_revision(
+    engine: ToolLoopEngine,
+    user_task: str,
+    full_output: str,
+    feedback: str,
+    delegate_model: str | None,
+    evidence_context: str = "",
+) -> str:
+    method = cast(Callable[[str, str, str, str | None, str], str], getattr(engine, "_quality_revision"))
+    return method(user_task, full_output, feedback, delegate_model, evidence_context)
+
+
+async def _run_tool_task_async(engine: ToolLoopEngine, tool_call: ToolCall) -> ToolExecutionResult:
+    method = cast(Callable[[ToolCall], Awaitable[ToolExecutionResult]], getattr(engine, "_run_tool_task_async"))
+    return await method(tool_call)
+
+
+def _maybe_compress_context(
+    engine: ToolLoopEngine,
+    shaped_messages: list[dict[str, str]],
+    prompt_str: str,
+    delegate_model: str,
+    task_type: str,
+    system_prompt: str,
+    tool_prompt: str,
+    skill_prompts: str,
+    focus_terms: tuple[str, ...] = (),
+) -> tuple[list[dict[str, str]], str, float | None, float | None]:
+    method = cast(
+        Callable[
+            [list[dict[str, str]], str, str, str, str, str, str, tuple[str, ...]],
+            tuple[list[dict[str, str]], str, float | None, float | None],
+        ],
+        getattr(engine, "_maybe_compress_context"),
+    )
+    return method(
+        shaped_messages,
+        prompt_str,
+        delegate_model,
+        task_type,
+        system_prompt,
+        tool_prompt,
+        skill_prompts,
+        focus_terms,
+    )
+
+
+def _refresh_checkpoint_context(engine: ToolLoopEngine, messages: list[dict[str, str]]) -> None:
+    method = cast(Callable[[list[dict[str, str]]], None], getattr(engine, "_refresh_checkpoint_context"))
+    method(messages)
+
+
+def _expected_tools(engine: ToolLoopEngine) -> tuple[str, ...]:
+    method = cast(Callable[[], tuple[str, ...]], getattr(engine, "_expected_tools"))
+    return method()
 
 
 def _outcome_recorder(outcomes: list[TaskOutcome]) -> TaskOutcomeRecorder:
@@ -334,7 +410,8 @@ class TestToolLoopEnginePostLoopChecks:
 
         # When: model correction and claim filtering cannot retain a factual claim.
         outputs = list(
-            engine._post_loop_checks(
+            _post_loop_checks(
+                engine,
                 [{"role": "user", "content": "Python 3.13 JIT 기능을 알려줘"}],
                 "search",
                 invalid_output,
@@ -345,7 +422,7 @@ class TestToolLoopEnginePostLoopChecks:
         )
 
         # Then: only an exact source title and its known ID are returned.
-        assert engine._citation_validation_failed is False
+        assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
         assert mock_orch._last_agent_output == "- Python 3.13 release notes [citation:python-docs]"
         assert mock_orch.ctx.analysis["citation_recovery"] == "deterministic_source_titles"
         assert any("Citation Recovery" in output for output in outputs)
@@ -370,7 +447,8 @@ class TestToolLoopEnginePostLoopChecks:
 
         # When: the model revision preserves invalid citations and unsupported content.
         outputs = list(
-            engine._post_loop_checks(
+            _post_loop_checks(
+                engine,
                 [{"role": "user", "content": "Python 3.13 JIT 기능을 알려줘"}],
                 "chat",
                 invalid_output,
@@ -381,7 +459,7 @@ class TestToolLoopEnginePostLoopChecks:
         )
 
         # Then: only the mechanically supported claim remains with its known citation.
-        assert engine._citation_validation_failed is False
+        assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
         assert mock_orch._last_agent_output == (
             "- Python 3.13 introduces an experimental JIT compiler. [citation:python-docs]"
         )
@@ -405,7 +483,8 @@ class TestToolLoopEnginePostLoopChecks:
 
         # When: post-loop checks receive an unsupported factual claim.
         outputs = list(
-            engine._post_loop_checks(
+            _post_loop_checks(
+                engine,
                 [{"role": "user", "content": "Python 3.13의 JIT 기능을 알려줘"}],
                 "chat",
                 "Python 3.13 offers a JIT compiler.",
@@ -416,7 +495,7 @@ class TestToolLoopEnginePostLoopChecks:
         )
 
         # Then: the corrected answer is grounded and replaces the original output.
-        assert engine._citation_validation_failed is False
+        assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
         assert mock_orch._last_agent_output.endswith("[citation:python-docs]")
         assert any("Citation Revision" in output for output in outputs)
 
@@ -436,7 +515,8 @@ class TestToolLoopEnginePostLoopChecks:
         )
 
         _ = list(
-            ToolLoopEngine(orchestrator)._post_loop_checks(
+            _post_loop_checks(
+                ToolLoopEngine(orchestrator),
                 [{"role": "user", "content": "write code"}],
                 "code",
                 "```python\ndef valid():\n    return 1\n```",
@@ -449,20 +529,20 @@ class TestToolLoopEnginePostLoopChecks:
     def test_cognitive_loop_reflect_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         mock_orch.ctx.cognitive_loop.reflect.assert_called_once_with("do something", "output")
 
     def test_quality_gate_evaluate_called(self, mock_orch: MagicMock):
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.evaluate.assert_called_once()
 
     def test_quality_gate_user_message_yielded(self, mock_orch: MagicMock):
         mock_orch.ctx.quality_gate.evaluate.return_value.user_message = "Quality issue detected"
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        res = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        res = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         assert any("Quality issue detected" in r for r in res)
 
     def test_quality_gate_retry_marked(self, mock_orch: MagicMock):
@@ -471,7 +551,7 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.quality_gate.evaluate.return_value.user_message = ""
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.mark_retry.assert_called_once()
 
     def test_quality_gate_revision_replaces_output_and_outcome(self, mock_orch: MagicMock):
@@ -508,7 +588,8 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.manager.generate.side_effect = ["개선되었지만 중국어 포함", "최종 한국어 답변"]
 
         chunks = list(
-            ToolLoopEngine(mock_orch)._post_loop_checks(
+            _post_loop_checks(
+                ToolLoopEngine(mock_orch),
                 [{"role": "user", "content": "request"}],
                 "coding",
                 "draft",
@@ -526,7 +607,8 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.quality_gate.evaluate.return_value = initial
 
         _ = list(
-            ToolLoopEngine(mock_orch)._post_loop_checks(
+            _post_loop_checks(
+                ToolLoopEngine(mock_orch),
                 [{"role": "user", "content": "request"}],
                 "coding",
                 "시간复杂도와 공간复杂도를 설명합니다.",
@@ -540,7 +622,8 @@ class TestToolLoopEnginePostLoopChecks:
     def test_qwen_quality_revision_uses_measured_stable_sampling(self, mock_orch: MagicMock):
         mock_orch.manager.generate.return_value = "revised"
 
-        _ = ToolLoopEngine(mock_orch)._quality_revision(
+        _ = _quality_revision(
+            ToolLoopEngine(mock_orch),
             "request",
             "draft",
             "feedback",
@@ -598,7 +681,8 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.manager.generate_decomposed.return_value = "분해로 복구된 워크플로"
 
         chunks = list(
-            ToolLoopEngine(mock_orch)._post_loop_checks(
+            _post_loop_checks(
+                ToolLoopEngine(mock_orch),
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -623,7 +707,8 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.manager.generate.return_value = "여전히 부족한 재생성"
 
         _ = list(
-            ToolLoopEngine(mock_orch)._post_loop_checks(
+            _post_loop_checks(
+                ToolLoopEngine(mock_orch),
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -649,7 +734,8 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch._last_agent_output = "초안"
 
         _ = list(
-            ToolLoopEngine(mock_orch)._post_loop_checks(
+            _post_loop_checks(
+                ToolLoopEngine(mock_orch),
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -678,7 +764,8 @@ class TestToolLoopEnginePostLoopChecks:
 
         # When: post-loop checks run with that execution evidence present.
         _ = list(
-            engine._post_loop_checks(
+            _post_loop_checks(
+                engine,
                 [{"role": "user", "content": ""}],
                 "code",
                 "초안 5050",
@@ -701,14 +788,14 @@ class TestToolLoopEnginePostLoopChecks:
         }
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         mock_orch.ctx.decision_anchor.add.assert_called_once()
 
     def test_event_bus_published(self, mock_orch: MagicMock):
         with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
             engine = ToolLoopEngine(mock_orch)
             messages = [{"role": "user", "content": "do something"}]
-            _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+            _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
             mock_bus.publish.assert_called_once_with(
                 "AgentTurnCompleted",
                 user_message="do something",
@@ -720,26 +807,26 @@ class TestToolLoopEnginePostLoopChecks:
         mock_orch.ctx.cognitive_loop.reflect.side_effect = RuntimeError("reflect fail")
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
         mock_orch.ctx.quality_gate.evaluate.assert_called_once()
 
     def test_no_cognitive_loop_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.cognitive_loop = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
     def test_no_quality_gate_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.quality_gate = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
     def test_no_decision_anchor_skips(self, mock_orch: MagicMock):
         mock_orch.ctx.decision_anchor = None
         engine = ToolLoopEngine(mock_orch)
         messages = [{"role": "user", "content": "do something"}]
-        _ = list(engine._post_loop_checks(messages, "code", "output", "do something"))
+        _ = list(_post_loop_checks(engine, messages, "code", "output", "do something"))
 
 
 # ─── Run Tool Task Async ────────────────────────────────────────
@@ -761,7 +848,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         mock_orch.task_execution_context = TaskExecutionContext("benchmark-read-only", store)
         tc = ToolCall(name="write_file", arguments={"path": "result.py", "content": "print('changed')"})
 
-        _, pre_decision, _, tool_result, blocked = await ToolLoopEngine(mock_orch)._run_tool_task_async(tc)
+        _, pre_decision, _, tool_result, blocked = await _run_tool_task_async(ToolLoopEngine(mock_orch), tc)
 
         assert blocked is True
         assert pre_decision is None
@@ -788,7 +875,7 @@ class TestToolLoopEngineRunToolTaskAsync:
 
         tc = ToolCall(name="run_bash", arguments={"command": "ls"})
         engine = ToolLoopEngine(mock_orch)
-        result = await engine._run_tool_task_async(tc)
+        result = await _run_tool_task_async(engine, tc)
         _, _, _, synthetic, blocked = result
         assert blocked is True
         assert "blocked" in str(synthetic).lower()
@@ -801,7 +888,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         mock_orch.ctx.tool_executor.execute_async.return_value = "command output"
         tc = ToolCall(name="run_bash", arguments={"command": "ls"})
         engine = ToolLoopEngine(mock_orch)
-        result = await engine._run_tool_task_async(tc)
+        result = await _run_tool_task_async(engine, tc)
         _, _, _, tool_result, blocked = result
         assert blocked is False
         assert tool_result == "command output"
@@ -815,7 +902,7 @@ class TestToolLoopEngineRunToolTaskAsync:
         mock_orch.ctx.cognitive_loop.verify_tool_result.side_effect = ValueError("verify fail")
         tc = ToolCall(name="search", arguments={"query": "test"})
         engine = ToolLoopEngine(mock_orch)
-        result = await engine._run_tool_task_async(tc)
+        result = await _run_tool_task_async(engine, tc)
         _, _, _, tool_result, blocked = result
         assert blocked is False
         assert tool_result is not None
@@ -828,7 +915,7 @@ class TestToolLoopEngineRunToolTaskAsync:
             mock_bus.publish.side_effect = RuntimeError("bus down")
             tc = ToolCall(name="bash", arguments={"cmd": "ls"})
             engine = ToolLoopEngine(mock_orch)
-            result = await engine._run_tool_task_async(tc)
+            result = await _run_tool_task_async(engine, tc)
             _, _, _, tool_result, _ = result
             assert tool_result is not None
 
@@ -1208,7 +1295,7 @@ class TestToolLoopEngineRunLoop:
         )
         self.mock_orch.task_execution_context = TaskExecutionContext("tool-contract", store)
 
-        expected_tools = ToolLoopEngine(self.mock_orch)._expected_tools()
+        expected_tools = _expected_tools(ToolLoopEngine(self.mock_orch))
 
         assert expected_tools == ("read_file",)
 
@@ -1694,7 +1781,8 @@ class TestToolLoopEngineContextCompression:
         mock_orch._rebuild_prompt.return_value = "rebuilt-prompt"
         engine = ToolLoopEngine(mock_orch)
 
-        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+        shaped, prompt, usage_before, usage_after = _maybe_compress_context(
+            engine,
             self._long_messages(),
             "orig-prompt",
             "qwen3.6:latest",
@@ -1728,7 +1816,8 @@ class TestToolLoopEngineContextCompression:
         mock_orch.context_compressor_for.return_value = compressor
         mock_orch._rebuild_prompt.return_value = "rebuilt-prompt"
 
-        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
+        shaped, prompt, usage_before, usage_after = _maybe_compress_context(
+            engine,
             [
                 {"role": "user", "content": "inspect agent_models routing"},
                 {"role": "assistant", "content": formatted},
@@ -1757,8 +1846,8 @@ class TestToolLoopEngineContextCompression:
         engine = ToolLoopEngine(mock_orch)
 
         messages = [{"role": "user", "content": "short"}]
-        shaped, prompt, usage_before, usage_after = engine._maybe_compress_context(
-            messages, "orig-prompt", "qwen3.6:latest", "code", "sys", "tools", "skills"
+        shaped, prompt, usage_before, usage_after = _maybe_compress_context(
+            engine, messages, "orig-prompt", "qwen3.6:latest", "code", "sys", "tools", "skills"
         )
 
         assert usage_before is None and usage_after is None
@@ -1769,8 +1858,8 @@ class TestToolLoopEngineContextCompression:
         engine = ToolLoopEngine(mock_orch)  # context_compressor_for → MagicMock
 
         messages = [{"role": "user", "content": "x"}]
-        shaped, prompt, usage_before, _usage_after = engine._maybe_compress_context(
-            messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
+        shaped, prompt, usage_before, _usage_after = _maybe_compress_context(
+            engine, messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
         )
 
         assert usage_before is None
@@ -1782,8 +1871,8 @@ class TestToolLoopEngineContextCompression:
         engine = ToolLoopEngine(mock_orch)
 
         messages = [{"role": "user", "content": "x"}]
-        shaped, prompt, usage_before, _usage_after = engine._maybe_compress_context(
-            messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
+        shaped, prompt, usage_before, _usage_after = _maybe_compress_context(
+            engine, messages, "p", "qwen3.6:latest", "code", "s", "t", "k"
         )
 
         assert usage_before is None
@@ -1794,7 +1883,8 @@ class TestToolLoopEngineContextCompression:
         messages = [{"role": "user", "content": f"turn-{index}"} for index in range(300)]
 
         engine = ToolLoopEngine(mock_orch)
-        engine._refresh_checkpoint_context(messages)
+        _refresh_checkpoint_context(engine, messages)
 
-        assert len(engine._checkpoint_messages) == 256
-        assert engine._checkpoint_messages[-1]["content"] == "turn-299"
+        checkpoint_messages = cast(list[dict[str, str]], getattr(engine, "_checkpoint_messages"))
+        assert len(checkpoint_messages) == 256
+        assert checkpoint_messages[-1]["content"] == "turn-299"
