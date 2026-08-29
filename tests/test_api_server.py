@@ -73,6 +73,14 @@ def test_health_check_root_alias(client):
     assert "cov_active" in data
 
 
+def test_dashboard_spa_deep_link_serves_index(client):
+    response = client.get("/agent")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "<html" in response.text.lower()
+
+
 def test_api_routes_require_access_pin_without_auth_header():
     if not config.security.access_pin:
         pytest.skip("Access PIN is disabled for this environment")
@@ -138,6 +146,18 @@ def test_env_settings_honors_permission_denial_before_file_write(client, monkeyp
     )
 
     assert response.status_code == 403
+
+
+def test_env_settings_rejects_non_object_payload(client):
+    response = client.post("/api/settings/env", json=[])
+
+    assert response.status_code == 400
+
+
+def test_env_settings_rejects_non_string_value(client):
+    response = client.post("/api/settings/env", json={"OPENAI_API_KEY": 123})
+
+    assert response.status_code == 400
 
 
 def test_kanban_tasks_are_project_scoped_cancelled_and_removable(client):
@@ -257,6 +277,54 @@ def test_chat_completions_openai_format(client, mock_manager):
     assert kwargs["temperature"] == 0.8
     # Prompt string 확인 (간단하게 포함 여부만)
     assert "Hello, Antigravity!" in kwargs["prompt"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"model": 123, "messages": []},
+        {"model": "test-combo", "messages": "not-an-array"},
+        {"model": "test-combo", "messages": [None]},
+        {"model": "test-combo", "messages": [{"role": 1, "content": "hello"}]},
+        {"model": "test-combo", "messages": [{"role": "user", "content": ["hello"]}]},
+        {"model": "test-combo", "messages": [], "stream": "false"},
+    ],
+)
+def test_chat_completions_rejects_malformed_payload(client, payload):
+    response = client.post("/v1/chat/completions", json=payload)
+
+    assert response.status_code == 400
+
+
+def test_chat_completions_rejects_malformed_json(client):
+    response = client.post("/v1/chat/completions", content="{")
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("payload", [[], {"name": 123}, {"name": "test-combo", "role": 123}])
+def test_set_default_model_rejects_malformed_payload(client, payload):
+    response = client.post("/api/models/default", json=payload)
+
+    assert response.status_code == 400
+
+
+def test_set_default_model_rejects_malformed_json(client):
+    response = client.post("/api/models/default", content="{")
+
+    assert response.status_code == 400
+
+
+def test_chat_reconnect_endpoint_uses_shared_session_state(client):
+    from antigravity_k.api.routes.session_state import reset_active_session
+
+    reset_active_session()
+
+    response = client.get("/v1/chat/completions/reconnect")
+
+    assert response.status_code == 200
+    assert "data: [DONE]" in response.text
 
 
 def test_chat_completions_routes_slash_goal(client, mock_manager):

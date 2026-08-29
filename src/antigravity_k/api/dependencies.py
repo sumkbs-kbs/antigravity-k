@@ -27,6 +27,7 @@ from antigravity_k.engine.scheduled_job_service import ScheduledJobService
 from antigravity_k.engine.session_manager import SessionManager
 from antigravity_k.engine.skill_loader import SkillLoader
 from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.engine.voice_service import VoiceService
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger("antigravity_k.api.dependencies")
@@ -43,6 +44,7 @@ _session_manager: SessionManager | None = None
 _orchestrator: OrchestratorAgent | None = None
 _agent_runtime: AgentRuntime | None = None
 _scheduled_job_service: ScheduledJobService | None = None
+_voice_service: VoiceService | None = None
 _benchmark_harness: BenchmarkHarness | None = None
 _memory_manager: MemoryManager | None = None
 _mode_manager: Any | None = None
@@ -413,6 +415,13 @@ def get_scheduled_job_service() -> ScheduledJobService:
             runtime.get_task_status,
         )
     return _scheduled_job_service
+
+
+def get_voice_service() -> VoiceService:
+    global _voice_service
+    if _voice_service is None:
+        _voice_service = VoiceService()
+    return _voice_service
 
 
 def get_translator() -> ProtocolTranslator:

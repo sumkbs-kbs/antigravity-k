@@ -6,11 +6,15 @@ import os
 import time
 import urllib.request
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal, NotRequired, Protocol, TypedDict
 from urllib.error import HTTPError, URLError
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
 
+from antigravity_k.engine.long_context_capabilities import LongContextCapability, derive_long_context_capability
+from antigravity_k.engine.long_context_metadata import infer_long_context_capabilities
+from antigravity_k.engine.long_context_policy import LongContextExecutionPlan
 from antigravity_k.engine.provider_adapters.unsloth_provider import (
     ProviderConfigValue,
     UnslothEndpointError,
@@ -24,6 +28,12 @@ if TYPE_CHECKING:
 
 NativeToolCalling = Literal["supported", "unsupported", "unknown"]
 RuntimeStatus = Literal["available", "unavailable", "not_required"]
+
+_LOCAL_METADATA_ADAPTER = TypeAdapter(dict[str, JsonValue])
+
+
+def _has_transformers_weights(model_path: Path) -> bool:
+    return any(model_path.glob("*.safetensors"))
 
 
 class ProviderCapability(TypedDict):
@@ -41,6 +51,8 @@ class ProviderCapability(TypedDict):
     reported_device: NotRequired[str]
     reported_quantization: NotRequired[str]
     reported_context_length: NotRequired[int]
+    long_context: NotRequired[LongContextCapability]
+    long_context_plan: NotRequired[LongContextExecutionPlan]
 
 
 class ProviderConfigRegistry(Protocol):
@@ -57,6 +69,12 @@ class _UnslothModelMetadata(BaseModel):
     context_length: int | None = None
     capabilities: tuple[str, ...] = ()
     supports_tools: bool | None = None
+    attention_type: str | None = None
+    attention_mechanism: str | None = None
+    sparse_attention: bool | None = None
+    linear_attention: bool | None = None
+    kv_cache_compression: bool | None = None
+    kv_cache_quantization: bool | None = None
 
 
 class _UnslothModelList(BaseModel):
@@ -82,13 +100,13 @@ def remediation_hint(profile: ModelProfile, capability: ProviderCapability) -> s
             loaded_ids = capability.get("reported_model_ids", [])
             if loaded_ids:
                 loaded_id = loaded_ids[0]
-                return (
-                    f"LM Studio에서 {loaded_id}를 로드하거나 " f"config.yaml의 {profile.name} repo를 같은 식별자로 변경"
-                )
+                return f"LM Studio에서 {loaded_id}를 로드하거나 config.yaml의 {profile.name} repo를 같은 식별자로 변경"
             if "not loaded" in detail or "no loaded models" in detail:
                 return "LM Studio에서 모델을 로드한 뒤 다시 진단"
             return "LM Studio Local Server를 127.0.0.1:1234/v1에서 시작"
         case "unsloth":
+            if "adapter" in detail or "transformers" in detail:
+                return "uv sync --extra transformers"
             if "not configured" in detail:
                 return "UNSLOTH_API_BASE를 loopback OpenAI API 주소로 설정"
             if "401" in detail or "403" in detail:
@@ -98,6 +116,8 @@ def remediation_hint(profile: ModelProfile, capability: ProviderCapability) -> s
             return "별도 Unsloth API 프로세스를 시작한 뒤 다시 진단"
         case "mlx":
             return "uv sync --extra mlx"
+        case "transformers":
+            return "uv sync --extra transformers"
         case _:
             return ""
 
@@ -121,12 +141,24 @@ class LocalProviderCapabilityProbe:
         match provider:
             case "ollama":
                 capability = self._probe_ollama(profile)
-            case "lmstudio" | "lm_studio":
+            case (
+                "lmstudio"
+                | "lm_studio"
+                | "llama.cpp"
+                | "llamacpp"
+                | "openai-compatible-local"
+                | "vllm"
+                | "tgi"
+                | "koboldcpp"
+                | "text-generation-webui"
+            ):
                 capability = self._probe_lmstudio(profile)
             case "unsloth":
                 capability = self._probe_unsloth(profile)
             case "mlx":
                 capability = self._probe_mlx(profile)
+            case "transformers":
+                capability = self._probe_transformers(profile)
             case _:
                 capability = self._static_unknown(profile)
 
@@ -239,6 +271,20 @@ class LocalProviderCapabilityProbe:
         )
 
     def _probe_unsloth(self, profile: ModelProfile) -> ProviderCapability:
+        model_path = Path(profile.repo)
+        has_adapter = (model_path / "adapter_config.json").is_file()
+        if has_adapter or ((model_path / "config.json").is_file() and _has_transformers_weights(model_path)):
+            return self._probe_local_transformers(
+                profile,
+                required_packages=("transformers", "torch", "peft") if has_adapter else ("transformers", "torch"),
+                source="unsloth:local-adapter" if has_adapter else "unsloth:local-transformers",
+                missing_detail=(
+                    "Unsloth adapter를 직접 로드하려면 transformers, torch, peft가 필요합니다."
+                    if has_adapter
+                    else "Unsloth 모델을 직접 로드하려면 transformers와 torch가 필요합니다."
+                ),
+            )
+
         provider_config = self._registry.get_provider_config(profile.backend)
         try:
             api_base, api_key = resolve_unsloth_settings(profile, provider_config)
@@ -293,6 +339,18 @@ class LocalProviderCapabilityProbe:
             )
 
         capabilities = [item.casefold() for item in matched.capabilities]
+        metadata: dict[str, JsonValue] = {
+            "capabilities": list(matched.capabilities),
+            "attention_type": matched.attention_type,
+            "attention_mechanism": matched.attention_mechanism,
+            "sparse_attention": matched.sparse_attention,
+            "linear_attention": matched.linear_attention,
+            "kv_cache_compression": matched.kv_cache_compression,
+            "kv_cache_quantization": matched.kv_cache_quantization,
+        }
+        for capability_name in infer_long_context_capabilities(metadata):
+            if capability_name not in capabilities:
+                capabilities.append(capability_name)
         if matched.supports_tools is True and "tools" not in capabilities:
             capabilities.append("tools")
         capability = self._capability(
@@ -314,6 +372,63 @@ class LocalProviderCapabilityProbe:
         if matched.context_length is not None and matched.context_length > 0:
             capability["reported_context_length"] = matched.context_length
         return capability
+
+    def _probe_transformers(self, profile: ModelProfile) -> ProviderCapability:
+        return self._probe_local_transformers(
+            profile,
+            required_packages=("transformers", "torch"),
+            source="transformers:direct",
+            missing_detail="Transformers 모델을 직접 로드하려면 transformers와 torch가 필요합니다.",
+        )
+
+    def _probe_local_transformers(
+        self,
+        profile: ModelProfile,
+        *,
+        required_packages: tuple[str, ...],
+        source: str,
+        missing_detail: str,
+    ) -> ProviderCapability:
+        model_path = Path(profile.repo)
+        if not model_path.is_dir():
+            return self._capability(
+                profile,
+                "unsupported",
+                "unavailable",
+                source,
+                f"로컬 모델 디렉터리가 없습니다: {profile.repo}",
+            )
+
+        missing = [package for package in required_packages if importlib.util.find_spec(package) is None]
+        if missing:
+            return self._capability(
+                profile,
+                "unsupported",
+                "unavailable",
+                source,
+                f"{missing_detail} 누락: {', '.join(missing)}",
+            )
+
+        has_config = (model_path / "config.json").is_file()
+        has_weights = _has_transformers_weights(model_path)
+        if not has_config or not has_weights:
+            return self._capability(
+                profile,
+                "unsupported",
+                "unavailable",
+                source,
+                "로컬 모델에 config.json 또는 Transformers 가중치 파일이 없습니다.",
+            )
+
+        capabilities = self._local_reported_capabilities(model_path)
+        return self._capability(
+            profile,
+            "unsupported",
+            "available",
+            source,
+            "선택 시 별도 서버 없이 Transformers 런타임에서 직접 로드합니다.",
+            capabilities,
+        )
 
     def _static_unknown(self, profile: ModelProfile) -> ProviderCapability:
         return self._capability(
@@ -370,6 +485,20 @@ class LocalProviderCapabilityProbe:
         return capabilities
 
     @staticmethod
+    def _local_reported_capabilities(model_path: Path) -> list[str]:
+        capabilities: set[str] = set()
+        for filename in ("config.json", "model_config.json", "adapter_config.json"):
+            config_path = model_path / filename
+            if not config_path.is_file():
+                continue
+            try:
+                payload = _LOCAL_METADATA_ADAPTER.validate_json(config_path.read_bytes())
+            except (OSError, UnicodeError, ValidationError):
+                continue
+            capabilities.update(infer_long_context_capabilities(payload))
+        return sorted(capabilities)
+
+    @staticmethod
     def _capability(
         profile: ModelProfile,
         native_tool_calling: NativeToolCalling,
@@ -380,6 +509,7 @@ class LocalProviderCapabilityProbe:
         reported_model_count: int = 0,
         reported_model_ids: list[str] | None = None,
     ) -> ProviderCapability:
+        capabilities = reported_capabilities or []
         return {
             "model": profile.name,
             "provider": profile.backend,
@@ -388,9 +518,10 @@ class LocalProviderCapabilityProbe:
             "runtime_status": runtime_status,
             "source": source,
             "detail": detail,
-            "reported_capabilities": reported_capabilities or [],
+            "reported_capabilities": capabilities,
             "reported_model_count": reported_model_count,
             "reported_model_ids": reported_model_ids or [],
+            "long_context": derive_long_context_capability(profile.backend, runtime_status, capabilities),
         }
 
     def _unavailable(self, profile: ModelProfile, source: str, exc: BaseException) -> ProviderCapability:

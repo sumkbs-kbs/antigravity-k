@@ -35,7 +35,7 @@ class AgentFabric:
     """Hybrid Multi-Agent Fabric.
 
     CrewAI + AutoGen + LangGraph 패턴을 융합한 에이전트 라이프사이클 관리자.
-    orchestrator.py의 에이전트 관리 로직과 agents/team_manager.py를 통합합니다.
+    오케스트레이터의 에이전트 관리 로직과 Fabric 실행 계층을 통합합니다.
 
     핵심 원칙:
     - Single Source of Truth: personas.py에서 역할 정의

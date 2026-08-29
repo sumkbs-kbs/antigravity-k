@@ -19,12 +19,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import inspect
 import json
 import logging
 import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from antigravity_k.tools.egress_policy import validate_httpx_request_async
@@ -194,6 +196,7 @@ class AutonomousQAEngine:
         coding_model: str = "qwen3.6:latest",
         max_iterations: int = 3,
         project_root: str = "",
+        model_manager: Any | None = None,
     ):
         """Initialize the AutonomousQAEngine.
 
@@ -211,9 +214,19 @@ class AutonomousQAEngine:
         self.vision_model = vision_model
         self.coding_model = coding_model
         self.max_iterations = max_iterations
+        self.model_manager = model_manager
         self.project_root = project_root or os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         )
+
+    def _resolve_model_target(self, requested: str, role: str, default_role: str) -> str:
+        if self.model_manager is None or requested not in {"", "qwen3.6:latest"}:
+            return requested
+        try:
+            return self.model_manager.get_target_for_role(role, default_role=default_role)
+        except Exception:
+            logger.warning("ModelManager target resolution failed for %s", role, exc_info=True)
+            return requested
 
     async def run_full_loop(self, url: str = "") -> AutonomousQAReport:
         """완전 자율 루프를 실행합니다."""
@@ -343,6 +356,41 @@ class AutonomousQAEngine:
         )
 
         try:
+            if self.model_manager is not None:
+                target = self._resolve_model_target(self.vision_model, "vision", "vision")
+                try:
+                    content = await asyncio.to_thread(
+                        self.model_manager.generate,
+                        prompt,
+                        target=target,
+                        raw_messages=[
+                            {"role": "user", "content": prompt, "images": [screenshot_b64]},
+                        ],
+                        max_tokens=2048,
+                        temperature=0.2,
+                    )
+                    if inspect.isawaitable(content):
+                        content = await content
+                    if isinstance(content, str) and content.strip():
+                        import re
+
+                        json_match = re.search(r"\[.*\]", content, re.DOTALL)
+                        if json_match:
+                            defects_raw = json.loads(json_match.group())
+                            return [
+                                UIDefect(
+                                    description=d.get("description", ""),
+                                    severity=d.get("severity", "medium"),
+                                    suggested_fix=d.get("suggested_fix", ""),
+                                    file_path=d.get("file_hint", ""),
+                                )
+                                for d in defects_raw
+                                if d.get("description")
+                            ]
+                        return []
+                except Exception:
+                    logger.warning("ModelManager vision analysis failed, HTTP fallback", exc_info=True)
+
             async with httpx.AsyncClient(
                 timeout=120.0,
                 event_hooks={"request": [validate_httpx_request_async]},
@@ -408,6 +456,28 @@ class AutonomousQAEngine:
         )
 
         try:
+            if self.model_manager is not None:
+                target = self._resolve_model_target(self.coding_model, "coding", "coding")
+                try:
+                    content = await asyncio.to_thread(
+                        self.model_manager.generate,
+                        prompt,
+                        target=target,
+                        max_tokens=2048,
+                        temperature=0.2,
+                    )
+                    if inspect.isawaitable(content):
+                        content = await content
+                    if isinstance(content, str) and content.strip():
+                        import re
+
+                        json_match = re.search(r"\[.*\]", content, re.DOTALL)
+                        if json_match:
+                            return json.loads(json_match.group())
+                        return []
+                except Exception:
+                    logger.warning("ModelManager code-fix generation failed, HTTP fallback", exc_info=True)
+
             async with httpx.AsyncClient(
                 timeout=120.0,
                 event_hooks={"request": [validate_httpx_request_async]},
@@ -441,7 +511,17 @@ class AutonomousQAEngine:
 
     def _apply_patch(self, patch: dict[str, str]) -> bool:
         """코드 패치를 파일에 적용합니다."""
-        file_path = os.path.join(self.project_root, patch.get("file", ""))
+        project_root = Path(self.project_root).resolve()
+        candidate = Path(patch.get("file", ""))
+        if candidate.is_absolute():
+            logger.warning("Patch skip: absolute paths are not allowed — %s", candidate)
+            return False
+        file_path = (project_root / candidate).resolve()
+        try:
+            file_path.relative_to(project_root)
+        except ValueError:
+            logger.warning("Patch skip: path escapes project root — %s", candidate)
+            return False
         search = patch.get("search", "")
         replace = patch.get("replace", "")
 

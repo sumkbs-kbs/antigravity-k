@@ -3,6 +3,8 @@
 import asyncio
 import logging
 import os
+import re
+from pathlib import Path
 from typing import Any, cast
 
 import anyio
@@ -14,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
 load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
 
@@ -38,6 +42,15 @@ async def lifespan(app: FastAPI):
         app (FastAPI): FastAPI app.
 
     """
+    from antigravity_k.api.startup_security import validate_startup_security
+
+    validate_startup_security(
+        host=config.server.host,
+        environment=os.environ.get("AGK_ENV", "development"),
+        access_pin=config.security.access_pin,
+        pin_hash_file=Path(config.security.pin_hash_file),
+    )
+
     # Startup — Sidabari 패턴 기반 서브시스템 초기화
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     vault_data_dir = os.path.join(project_root, "vault_data")
@@ -85,7 +98,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.event_bus import bridge_to_hook_event_bus
 
-        bridge_to_hook_event_bus()
+        bridge_to_hook_event_bus(project_root=project_root)
         logger.info("[Startup] EventBus dual-sync bridge established")
     except Exception:
         logger.exception("[Startup] EventBus bridge skipped")
@@ -367,6 +380,15 @@ def _is_protected_path(path: str) -> bool:
     return path.startswith(_PROTECTED_PREFIXES)
 
 
+def _metric_path(request: Request) -> str:
+    """Return a bounded-cardinality route label for an HTTP request."""
+    route = request.scope.get("route")
+    template = getattr(route, "path", None)
+    if isinstance(template, str) and template:
+        return template
+    return re.sub(r"/(?:[0-9]+|[0-9a-f]{8,})(?=/|$)", "/:id", request.url.path)
+
+
 @app.middleware("http")
 async def verify_access_token(request: Request, call_next):
     """Authenticate requests to protected paths via bearer token (or legacy PIN).
@@ -425,10 +447,9 @@ async def metrics_middleware(request: Request, call_next):
     finally:
         elapsed = asyncio.get_event_loop().time() - start
         requests_in_flight().dec()
-        # Normalize path templates to avoid high-cardinality label explosion.
-        # Use the raw path with query stripped; route templating would be ideal
-        # but the middleware runs before route resolution.
-        path = request.url.path
+        # Prefer the resolved route template; only fall back to a bounded
+        # identifier scrubber for unmatched or mounted paths.
+        path = _metric_path(request)
         request_counter().labels(method=request.method, path=path, status=status_code).inc()
         request_latency().labels(method=request.method, path=path).observe(elapsed)
 
@@ -609,13 +630,19 @@ async def reverse_proxy_ide(request: Request, path: str):
 
 
 # --- STATIC FILES FOR DASHBOARD ---
-dashboard_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "dashboard",
-    "dist",
-)
-if os.path.exists(dashboard_path):
-    app.mount("/", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
+dashboard_path = Path(__file__).resolve().parents[1] / "dashboard_dist"
+if dashboard_path.is_dir():
+
+    class _DashboardStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope: Scope) -> Response:
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404 and "." not in Path(path).name:
+                    return await super().get_response("index.html", scope)
+                raise
+
+    app.mount("/", _DashboardStaticFiles(directory=dashboard_path, html=True), name="dashboard")
 else:
     logger.warning(
         "Dashboard build not found at %s. Please run npm run build in dashboard/",
@@ -625,10 +652,18 @@ else:
 if __name__ == "__main__":
     import uvicorn
 
+    from antigravity_k.api.startup_security import validate_startup_security
+
+    validate_startup_security(
+        host=config.server.host,
+        environment=os.environ.get("AGK_ENV", "development"),
+        access_pin=config.security.access_pin,
+        pin_hash_file=Path(config.security.pin_hash_file),
+    )
     uvicorn.run(
         "antigravity_k.api.server:app",
-        host="0.0.0.0",
-        port=8000,
+        host=config.server.host,
+        port=config.server.port,
         reload=True,
         reload_dirs=["src", "config.yaml"],
     )

@@ -2,7 +2,7 @@
 #
 # This file is a convenience mirror of pyproject.toml for environments that use
 # pip install -r directly. The canonical source of truth is pyproject.toml.
-# For the full install:  pip install -e ".[dev,rag,mlx,integrations,finetune]"
+# For the full install:  pip install -e ".[dev,rag,mlx,mlx-media,finetune]"
 
 # ── Core (runtime) ──────────────────────────────────────────────
 fastapi>=0.115.0,<1.0
@@ -29,9 +29,11 @@ prometheus_client>=0.21.0,<1.0
 croniter>=6.0.0,<7.0
 
 # ── MLX (Apple Silicon) ─────────────────────────────────────────
-mlx>=0.22.0,<1.0
+mlx>=0.32.0,<0.33.0; sys_platform == "darwin"
+mlx>=0.30.3,<0.32.0; sys_platform != "darwin"
 mlx-lm>=0.31.0,<1.0
 mlx-vlm>=0.2.0,<0.3
+mflux>=0.19.1,<0.20.0
 
 # ── RAG ─────────────────────────────────────────────────────────
 chromadb>=1.5.0,<2.0
@@ -40,13 +42,6 @@ python-docx>=1.1.0,<2.0
 pymupdf>=1.24.0,<2.0
 openpyxl>=3.1.0,<4.0
 markdown>=3.7,<4.0
-
-# ── Integrations (optional) ─────────────────────────────────────
-discord.py>=2.4.0,<3.0
-slack_sdk>=3.27.0,<4.0
-slack_bolt>=1.20.0,<2.0
-markdownify>=0.14.1,<1.0
-beautifulsoup4>=4.12.0,<5.0
 
 # ── Finetune (optional) ─────────────────────────────────────────
 datasets>=2.19.0,<4.0

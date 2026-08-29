@@ -7,7 +7,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from importlib import import_module
-from typing import Any
+from typing import Any, override
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
 from antigravity_k.tools.egress_policy import safe_urlopen
@@ -15,6 +15,7 @@ from antigravity_k.tools.egress_policy import safe_urlopen
 logger = logging.getLogger("antigravity_k.inference_providers")
 
 Message = dict[str, Any]
+Prompt = str | list[Message]
 
 
 class BaseInferenceProvider(ABC):
@@ -24,7 +25,7 @@ class BaseInferenceProvider(ABC):
     """
 
     @abstractmethod
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -39,7 +40,7 @@ class BaseInferenceProvider(ABC):
         pass
 
     @abstractmethod
-    def stream_generate(self, loaded, prompt, **kwargs) -> Iterator[str]:
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -123,7 +124,8 @@ class AnthropicProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -140,7 +142,8 @@ class AnthropicProvider(BaseInferenceProvider):
             result += chunk
         return result
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -227,11 +230,12 @@ class OpenRouterProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
-    requires_api_key = True
-    includes_openrouter_attribution = True
-    forwards_native_tools = True
+    requires_api_key: bool = True
+    includes_openrouter_attribution: bool = True
+    forwards_native_tools: bool = True
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -266,7 +270,8 @@ class OpenRouterProvider(BaseInferenceProvider):
             api_key = get_api_key("openrouter") or ""
         return base_url, api_key
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -435,7 +440,8 @@ class OllamaProvider(BaseInferenceProvider):
             kwargs.get("context_token_limit"),
         ).token_limit
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -666,7 +672,8 @@ class OllamaProvider(BaseInferenceProvider):
             return ""
         return self._native_tool_call_xml(tool_name, arguments)
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -778,8 +785,8 @@ class NimProvider(BaseInferenceProvider):
     """
 
     # NIM 무료 티어 rate limit: 분당 40 요청 (초당 약 0.67)
-    _RATE_LIMIT_RPM = 40
-    _RATE_LIMIT_WINDOW_SEC = 60.0
+    _RATE_LIMIT_RPM: int = 40
+    _RATE_LIMIT_WINDOW_SEC: float = 60.0
 
     def __init__(self):
         """Initialize the NimProvider — 분당 rate 카운터 초기화."""
@@ -822,7 +829,8 @@ class NimProvider(BaseInferenceProvider):
 
         return base_url, api_key
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -841,7 +849,8 @@ class NimProvider(BaseInferenceProvider):
             result += chunk
         return result
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -972,6 +981,7 @@ class OpenAIDirectProvider(OpenRouterProvider):
     HTTP-Referer/X-Title 헤더 없음.
     """
 
+    @override
     def _resolve_endpoint(self, loaded):
         """OpenAI 직접 엔드포인트와 키를 해석."""
         import os
@@ -991,7 +1001,8 @@ class OpenAIDirectProvider(OpenRouterProvider):
                 api_key = ""
         return base_url, api_key
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
         """OpenAI 직접 스트리밍 (HTTP-Referer 헤더 없음)."""
         base_url, api_key = self._resolve_endpoint(loaded)
         if not api_key:
@@ -1091,6 +1102,7 @@ class GeminiProvider(OpenAIDirectProvider):
     base_url: https://generativelanguage.googleapis.com/v1beta/openai
     """
 
+    @override
     def _resolve_endpoint(self, loaded):
         import os
 
@@ -1116,6 +1128,7 @@ class ZaiProvider(OpenAIDirectProvider):
     base_url: https://open.bigmodel.cn/api/paas/v4
     """
 
+    @override
     def _resolve_endpoint(self, loaded):
         import os
 
@@ -1135,9 +1148,10 @@ class ZaiProvider(OpenAIDirectProvider):
 
 
 class LMStudioProvider(OpenRouterProvider):
-    requires_api_key = False
-    includes_openrouter_attribution = False
+    requires_api_key: bool = False
+    includes_openrouter_attribution: bool = False
 
+    @override
     def _resolve_endpoint(self, loaded):
         import os
 
@@ -1167,7 +1181,8 @@ class LMStudioProvider(OpenRouterProvider):
 
 
 class MlxProvider(BaseInferenceProvider):
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded, prompt: Prompt, **kwargs) -> str:
         """Generate.
 
         Args:
@@ -1192,7 +1207,8 @@ class MlxProvider(BaseInferenceProvider):
         except ImportError as exc:
             raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded, prompt: Prompt, **kwargs):
         """Stream Generate.
 
         Args:
@@ -1251,14 +1267,35 @@ def get_inference_provider(loaded) -> BaseInferenceProvider:
         return GeminiProvider()
     if provider == "zai":
         return ZaiProvider()
-    if provider in {"lmstudio", "lm_studio"}:
+    if provider in {
+        "lmstudio",
+        "lm_studio",
+        "llama.cpp",
+        "llamacpp",
+        "openai-compatible-local",
+        "vllm",
+        "tgi",
+        "koboldcpp",
+        "text-generation-webui",
+    }:
         return LMStudioProvider()
     if provider == "unsloth":
-        from .unsloth_provider import UnslothProvider
+        from pathlib import Path
 
-        return UnslothProvider()
+        local_repo = Path(getattr(profile, "repo", ""))
+        if (local_repo / "adapter_config.json").is_file() or (
+            (local_repo / "config.json").is_file()
+            and any(local_repo.glob(pattern) for pattern in ("*.safetensors", "*.bin", "*.pt", "*.pth"))
+        ):
+            transformers_module = import_module(".transformers_provider", package=__package__)
+            return transformers_module.TransformersProvider()
+        unsloth_module = import_module(".unsloth_provider", package=__package__)
+        return unsloth_module.UnslothProvider()
     if provider == "mlx":
         return MlxProvider()
+    if provider == "transformers":
+        transformers_module = import_module(".transformers_provider", package=__package__)
+        return transformers_module.TransformersProvider()
 
     # 2. 레거시 휴리스틱 폴백 (provider 필드가 빈 경우)
     if profile.name.startswith("claude") and "anthropic/" not in (profile.repo or "").lower():

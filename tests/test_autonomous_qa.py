@@ -230,6 +230,16 @@ class TestApplyPatch:
         result = engine._apply_patch({"file": "test.py", "search": "", "replace": "y"})
         assert result is False
 
+    def test_patch_rejects_path_escape(self, tmp_path):
+        engine = AutonomousQAEngine(project_root=str(tmp_path))
+        outside = tmp_path.parent / "outside.py"
+        outside.write_text("original", encoding="utf-8")
+
+        result = engine._apply_patch({"file": "../outside.py", "search": "original", "replace": "changed"})
+
+        assert result is False
+        assert outside.read_text(encoding="utf-8") == "original"
+
 
 # ---------------------------------------------------------------------------
 # AutonomousQAEngine — __init__

@@ -38,9 +38,18 @@ dependencies = [
 [project.optional-dependencies]
 # Apple Silicon MLX 추론 (Mac 전용)
 mlx = [
-    "mlx>=0.22.0,<1.0",
+    "mlx>=0.32.0,<0.33.0; sys_platform == 'darwin'",
+    "mlx>=0.30.3,<0.32.0; sys_platform != 'darwin'",
     "mlx-lm>=0.31.0,<1.0",
     "mlx-vlm>=0.2.0,<0.3",
+]
+mlx-media = [
+    "mflux>=0.19.1,<0.20.0",
+]
+transformers = [
+    "torch>=2.4.0,<3.0",
+    "transformers>=4.48.0",
+    "peft>=0.14.0,<1.0",
 ]
 # RAG / 문서 파싱
 rag = [
@@ -64,14 +73,6 @@ dev = [
     "requests>=2.32.0,<3.0",
     "playwright>=1.40.0,<2.0",
 ]
-# 외부 통합 (Discord/Slack 봇, 웹 스크래핑) — 선택적
-integrations = [
-    "discord.py>=2.4.0,<3.0",
-    "slack_sdk>=3.27.0,<4.0",
-    "slack_bolt>=1.20.0,<2.0",
-    "markdownify>=0.14.1,<1.0",
-    "beautifulsoup4>=4.12.0,<5.0",
-]
 # 파인튜닝 (데이터셋 처리, LoRA) — 선택적
 finetune = [
     "datasets>=2.19.0,<4.0",
@@ -85,7 +86,16 @@ agk = "antigravity_k.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-antigravity_k = ["config.yaml", "py.typed"]
+antigravity_k = [
+    "config.yaml",
+    "py.typed",
+    "dashboard_dist/*",
+    "dashboard_dist/assets/*",
+    "prompts/*",
+    "prompts/roles/*",
+    "data/benchmarks/local-model-stable-simple.json",
+    "data/benchmarks/local-model-frontier.json",
+]
 
 [tool.setuptools.dynamic]
 # Single source of truth: src/antigravity_k/__init__.py::__version__

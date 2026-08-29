@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
@@ -7,6 +8,9 @@ from antigravity_k.api.routes.agent_tools import (
     AutonomousQARequest,
     TDDGenerateRequest,
     VisionAnalyzeRequest,
+    _accessibility_tree,
+    _browser_error_status,
+    _guard_browser_route,
 )
 from antigravity_k.api.server import app
 from antigravity_k.config import config
@@ -18,6 +22,21 @@ def _auth_headers() -> dict[str, str]:
     if not config.security.access_pin:
         return {}
     return {"X-Access-Pin": config.security.access_pin}
+
+
+def test_missing_playwright_executable_is_service_unavailable() -> None:
+    error = RuntimeError("Executable doesn't exist at /tmp/chromium")
+
+    assert _browser_error_status(error) == 503
+    assert _browser_error_status(RuntimeError("browser crashed")) == 500
+
+
+async def test_accessibility_tree_uses_current_playwright_aria_snapshot() -> None:
+    page = MagicMock()
+    page.aria_snapshot = AsyncMock(return_value="- document")
+    del page.accessibility
+
+    assert await _accessibility_tree(page) == "- document"
 
 
 def test_vision_analyze_without_screenshot_returns_400():
@@ -69,6 +88,32 @@ def test_browser_navigation_honors_permission_denial_before_side_effect(monkeypa
 
     assert response.status_code == 403
     page.goto.assert_not_awaited()
+
+
+async def test_browser_route_aborts_non_http_schemes():
+    route = MagicMock()
+    route.abort = AsyncMock()
+    route.continue_ = AsyncMock()
+    request = MagicMock(url="file:///etc/passwd")
+
+    await _guard_browser_route(route, request)
+
+    route.abort.assert_awaited_once_with(error_code="blockedbyclient")
+    route.continue_.assert_not_awaited()
+
+
+def test_tdd_generate_rejects_target_outside_project_before_engine(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(config.paths, "project_root", tmp_path)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/agent/tools/tdd-generate",
+            json={"prompt": "write code", "target_file_path": "/tmp/escape.py"},
+            headers=_auth_headers(),
+        )
+
+    assert response.status_code == 403
+    assert "project root" in response.json()["detail"]
 
 
 def test_autonomous_qa_honors_permission_denial_before_engine_start(monkeypatch):

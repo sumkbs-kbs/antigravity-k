@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from antigravity_k.api.dependencies import get_agent_runtime
+from antigravity_k.api.routes.session_state import close_unauthorized_ws
 from antigravity_k.api.task_models import (
     TaskActionResponse,
     TaskBenchmarkRequest,
@@ -220,7 +221,8 @@ async def stream_task_events_websocket(
     if runtime.get_task_status(task_id) is None:
         await websocket.close(code=1008, reason="Task not found")
         return
-    await websocket.accept()
+    if await close_unauthorized_ws(websocket):
+        return
     sequence = after_sequence
     try:
         while True:

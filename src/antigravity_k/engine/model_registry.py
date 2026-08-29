@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeAlias
@@ -17,6 +17,8 @@ import yaml
 from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
 from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 from antigravity_k.runtime_paths import default_config_path as _default_config_path
+
+from .local_model_discovery import DiscoveredLocalModel, LocalModelDiscovery
 
 logger = logging.getLogger("antigravity_k.model_registry")
 
@@ -154,7 +156,22 @@ class ModelProfile:
     def is_local(self) -> bool:
         """Whether this profile is backed by a local runtime."""
         provider = (self.provider or "").lower()
-        if provider in {"ollama", "mlx", "llama.cpp", "llamacpp", "lmstudio", "lm_studio", "unsloth", "local"}:
+        if provider in {
+            "ollama",
+            "mlx",
+            "llama.cpp",
+            "llamacpp",
+            "lmstudio",
+            "lm_studio",
+            "unsloth",
+            "transformers",
+            "vllm",
+            "tgi",
+            "koboldcpp",
+            "text-generation-webui",
+            "openai-compatible-local",
+            "local",
+        }:
             return True
         if provider:
             return False
@@ -538,7 +555,46 @@ class ModelRegistry:
             ModelProfile | None: The modelprofile | none result.
 
         """
-        return self._models.get(name)
+        profile = self._models.get(name)
+        if profile is not None:
+            return profile
+        for candidate in self._models.values():
+            if candidate.repo == name:
+                return candidate
+        return None
+
+    def merge_discovered_models(
+        self,
+        discovered: Iterable[DiscoveredLocalModel],
+    ) -> tuple[ModelProfile, ...]:
+        added: list[ModelProfile] = []
+        for item in discovered:
+            if not item.name or self.get_model(item.name) is not None or self.get_model(item.repo) is not None:
+                continue
+            profile = ModelProfile(
+                name=item.name,
+                repo=item.repo or item.name,
+                role=item.role or "reasoning",
+                quantization=item.quantization,
+                estimated_memory_gb=item.estimated_memory_gb,
+                parameter_count_b=item.parameter_count_b,
+                context_length=item.context_length,
+                description=f"Auto-discovered local model ({item.source or item.provider})",
+                provider=item.provider,
+                api_base=item.api_base,
+                roles=(item.role,) if item.role else ("reasoning",),
+            )
+            self._models[profile.name] = profile
+            added.append(profile)
+        return tuple(added)
+
+    def refresh_local_models(
+        self,
+        *,
+        discovery: LocalModelDiscovery | None = None,
+    ) -> tuple[ModelProfile, ...]:
+        source = discovery or LocalModelDiscovery()
+        return self.merge_discovered_models(source.discover())
 
     def get_adapter_for_model(self, name: str) -> BaseProviderAdapter | None:
         """주어진 모델이 어떤 API 규격을 사용하는지에 따라 적절한 변환 어댑터를 반환합니다.
@@ -660,7 +716,7 @@ class ModelRegistry:
             bool: The bool result.
 
         """
-        return name in self._models
+        return self.get_model(name) is not None
 
     @property
     def defaults(self) -> DefaultModels:

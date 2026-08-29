@@ -6,19 +6,25 @@
 from __future__ import annotations
 
 import gc
+import json
 import logging
+import os
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, final
 
 if TYPE_CHECKING:
     from antigravity_k.engine.best_of_n_verifier import VerificationOutcome
 
 from ..tools.egress_policy import safe_urlopen
 from .collective_intelligence import CollectiveIntelligenceEngine
+from .context_budget import context_budget_for_model
+from .local_runtime import LocalRuntimeSupervisor
+from .long_context_policy import LongContextExecutionPlan, build_long_context_plan
 from .memory_policy import MemoryPolicy
 from .model_registry import ModelProfile, ModelRegistry
 from .model_router import AllModelsUnavailableError, ModelRouter, RouteStrategy
@@ -53,6 +59,7 @@ class LoadedModel:
         self.last_used_at = time.time()
 
 
+@final
 class ModelManager:
     """동적 모델 로드/언로드 매니저.
 
@@ -93,6 +100,25 @@ class ModelManager:
         self.router = router or ModelRouter(registry)
         self.tracker = tracker or UsageTracker()
         self._capability_probe = LocalProviderCapabilityProbe(registry)
+        self._local_discovery_at = 0.0
+        self._runtime_supervisor = LocalRuntimeSupervisor()
+
+    def discover_local_models(self, *, refresh: bool = False) -> tuple[ModelProfile, ...]:
+        enabled = os.getenv("AGK_AUTO_DISCOVER_LOCAL_MODELS", "true").casefold() not in {"0", "false", "no", "off"}
+        if not enabled:
+            return ()
+        now = time.monotonic()
+        try:
+            ttl = max(0.0, float(os.getenv("AGK_LOCAL_MODEL_DISCOVERY_TTL", "30")))
+        except ValueError:
+            ttl = 30.0
+        if not refresh and now - self._local_discovery_at < ttl:
+            return ()
+        added = self._registry.refresh_local_models()
+        self._local_discovery_at = now
+        if added:
+            self._capability_probe.clear()
+        return added
 
     def reload(self) -> None:
         """설정 파일 변경 후 레지스트리 및 라우터를 핫 리로드합니다."""
@@ -123,6 +149,7 @@ class ModelManager:
 
         # 메모리 확보
         self._ensure_memory(profile.estimated_memory_gb)
+        _ = self._runtime_supervisor.ensure_available(profile)
 
         # 실제 모델 로드
         logger.info("[%s] 로드 시작 (예상 %sGB)...", name, profile.estimated_memory_gb)
@@ -152,7 +179,7 @@ class ModelManager:
         # 모델 객체 해제
         del loaded.model
         del loaded.tokenizer
-        gc.collect()
+        _ = gc.collect()
 
         logger.info("[%s] 언로드 완료 (%sGB 해제)", name, loaded.actual_memory_gb)
         return True
@@ -173,7 +200,7 @@ class ModelManager:
         ]
         for name in to_unload:
             logger.info("[%s] → [%s] 교체를 위해 언로드", name, new_name)
-            self.unload(name)
+            _ = self.unload(name)
 
         return self.load(new_name)
 
@@ -205,15 +232,42 @@ class ModelManager:
         """
         raw = getattr(self._registry, "_raw", {})
         agent_models = raw.get("agent_models", {})
+        configured: list[str] = []
+
+        def registered(target: str) -> bool:
+            return bool(self.router.get_combo(target)) or self._registry.get_model(target) is not None
+
         if isinstance(agent_models, dict):
             for key in (role_name, role_name.upper(), role_name.lower(), "default"):
                 value = agent_models.get(key)
                 if isinstance(value, str) and value:
-                    return value
+                    configured.append(value)
+                    if registered(value):
+                        return value
+
+        added = self.discover_local_models() if configured else ()
+        for value in configured:
+            if registered(value):
+                return value
 
         default = self._registry.get_default(default_role)
-        if default:
+        if isinstance(default, ModelProfile):
             return default.name
+
+        discovered = [item for item in added if isinstance(item, ModelProfile)]
+        discovered.extend(
+            item
+            for item in self._registry.list_models()
+            if isinstance(item, ModelProfile) and item.is_local and item not in discovered
+        )
+        for profile in discovered:
+            roles = profile.supported_roles
+            if role_name in roles or default_role in roles:
+                return profile.name
+        if discovered:
+            return discovered[0].name
+        if configured:
+            return configured[0]
         return "default_model"
 
     def prefetch(self, name: str) -> bool:
@@ -236,14 +290,14 @@ class ModelManager:
             if self._mem_config.auto_unload:
                 logger.info("[%s] 프리패치를 위해 기존 모델 자동 교체 시도", name)
                 try:
-                    self.load(name)
+                    _ = self.load(name)
                     return True
                 except MemoryError:
                     return False
             return False
 
         try:
-            self.load(name)
+            _ = self.load(name)
             return True
         except Exception:
             logger.exception("Prefetch 실패 [%s]", name)
@@ -266,7 +320,7 @@ class ModelManager:
         """Record usage + tracing for a successful inference call."""
         resolved_tokens_in = len(prompt) // 4 if tokens_in is None else tokens_in
         resolved_tokens_out = len(response) // 4 if tokens_out is None else tokens_out
-        self.tracker.record(
+        _ = self.tracker.record(
             model_name=model,
             tokens_in=resolved_tokens_in,
             tokens_out=resolved_tokens_out,
@@ -295,7 +349,7 @@ class ModelManager:
         fallback_depth: int,
     ) -> None:
         """Record usage + tracing for a failed inference call."""
-        self.tracker.record(
+        _ = self.tracker.record(
             model_name=model,
             latency_ms=latency_ms,
             success=False,
@@ -443,6 +497,8 @@ class ModelManager:
 
         """
         collective_internal = bool(kwargs.pop("_collective_internal", False))
+        if not self.router.get_combo(target) and not self._registry.model_exists(target):
+            _ = self.discover_local_models()
         combo = self.router.get_combo(target)
         if combo and combo.strategy == RouteStrategy.COLLECTIVE and not collective_internal:
             return self.generate_collective(prompt, target, **kwargs)
@@ -577,6 +633,8 @@ class ModelManager:
     def stream_generate(self, prompt: str, target: str, **kwargs):
         """텍스트 생성 수행 (스트리밍)."""
         collective_internal = bool(kwargs.pop("_collective_internal", False))
+        if not self.router.get_combo(target) and not self._registry.model_exists(target):
+            _ = self.discover_local_models()
         combo = self.router.get_combo(target)
         if combo and combo.strategy == RouteStrategy.COLLECTIVE and not collective_internal:
             try:
@@ -664,7 +722,7 @@ class ModelManager:
         cfg = raw.get("collective_intelligence", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _self_consistency_config(self) -> dict:
+    def _self_consistency_config(self) -> dict[str, Any]:
         """amplification.self_consistency 섹션을 반환한다."""
         raw = getattr(self._registry, "_raw", {})
         amp = raw.get("amplification", {})
@@ -673,7 +731,7 @@ class ModelManager:
         cfg = amp.get("self_consistency", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _task_decomposition_config(self) -> dict:
+    def _task_decomposition_config(self) -> dict[str, Any]:
         """amplification.task_decomposition 섹션을 반환한다."""
         raw = getattr(self._registry, "_raw", {})
         amp = raw.get("amplification", {})
@@ -682,7 +740,7 @@ class ModelManager:
         cfg = amp.get("task_decomposition", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _best_of_n_config(self) -> dict:
+    def _best_of_n_config(self) -> dict[str, Any]:
         """amplification.best_of_n 섹션을 반환한다."""
         raw = getattr(self._registry, "_raw", {})
         amp = raw.get("amplification", {})
@@ -691,7 +749,13 @@ class ModelManager:
         cfg = amp.get("best_of_n", {})
         return cfg if isinstance(cfg, dict) else {}
 
-    def _resolve_bon_verifier(self, cfg: dict, make_syntax_verifier, language: str, make_answer_patch_verifier):
+    def _resolve_bon_verifier(
+        self,
+        cfg: dict[str, Any],
+        make_syntax_verifier,
+        language: str,
+        make_answer_patch_verifier,
+    ):
         """best_of_n.verifier 설정에 따라 검증자를 선택한다.
 
         "syntax"(기본): 구문 검사. "worktree_tests": 답변 파일 블록을 git
@@ -953,7 +1017,8 @@ class ModelManager:
         # per-model provider 기반 위임 (ollama/openrouter/nim/mlx)
         provider = self._get_provider(loaded)
         if provider is not None:
-            return provider.generate(loaded, prompt, **kwargs)
+            provider_kwargs = self._provider_kwargs(loaded, kwargs)
+            return provider.generate(loaded, prompt, **provider_kwargs)
 
         # 폴백: 레거시 인라인 경로 (provider 결정 실패 시)
         return self._do_ollama_generate(loaded, prompt, **kwargs)
@@ -966,11 +1031,20 @@ class ModelManager:
 
         provider = self._get_provider(loaded)
         if provider is not None:
-            yield from provider.stream_generate(loaded, prompt, **kwargs)
+            provider_kwargs = self._provider_kwargs(loaded, kwargs)
+            yield from provider.stream_generate(loaded, prompt, **provider_kwargs)
             return
 
         # 폴백: 레거시 인라인 경로
         yield from self._do_ollama_stream(loaded, prompt, **kwargs)
+
+    def _provider_kwargs(self, loaded: LoadedModel, kwargs: dict[str, Any]) -> dict[str, Any]:
+        if "execution_plan" in kwargs:
+            return kwargs
+        plan = self.long_context_plan(loaded.profile.name)
+        if plan is None:
+            return kwargs
+        return {**kwargs, "execution_plan": plan}
 
     def _trace_llm_call(
         self,
@@ -1499,6 +1573,19 @@ class ModelManager:
             capabilities[profile.name] = self._provider_capability_for_profile(profile, refresh=refresh)
         return capabilities
 
+    def long_context_plan(self, name: str, *, refresh: bool = False) -> LongContextExecutionPlan | None:
+        capability = self.provider_capability(name, refresh=refresh)
+        if capability is None:
+            return None
+        plan = capability.get("long_context_plan")
+        if plan is not None:
+            return plan
+        profile = self._registry.get_model(name)
+        if profile is None:
+            return None
+        budget = context_budget_for_model(getattr(self._registry, "_raw", {}), profile.name)
+        return build_long_context_plan(capability.get("long_context"), budget)
+
     def provider_capability(self, name: str, *, refresh: bool = False) -> ProviderCapability | None:
         profile = self._registry.get_model(name)
         if profile is None:
@@ -1507,6 +1594,8 @@ class ModelManager:
 
     def _provider_capability_for_profile(self, profile: ModelProfile, *, refresh: bool) -> ProviderCapability:
         capability = self._capability_probe.observe(profile, refresh=refresh)
+        budget = context_budget_for_model(getattr(self._registry, "_raw", {}), profile.name)
+        capability["long_context_plan"] = build_long_context_plan(capability.get("long_context"), budget)
         self.router.set_provider_capability(profile.name, capability)
         return capability
 
@@ -1573,6 +1662,15 @@ class ModelManager:
         """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)."""
         import platform
 
+        if profile.provider == "transformers" or (
+            profile.provider == "unsloth"
+            and (
+                (Path(profile.repo) / "adapter_config.json").is_file()
+                or ((Path(profile.repo) / "config.json").is_file() and any(Path(profile.repo).glob("*.safetensors")))
+            )
+        ):
+            return self._load_transformers_model(profile)
+
         if profile.provider != "mlx" or platform.system() != "Darwin":
             logger.info("[%s] 외부 API 어댑터 모드를 사용합니다.", profile.name)
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
@@ -1590,6 +1688,45 @@ class ModelManager:
                 raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first")
             logger.warning("mlx_lm 미설치. Ollama 어댑터 반환.")
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
+
+    def _load_transformers_model(self, profile: ModelProfile) -> tuple[Any, Any]:
+        model_path = Path(profile.repo)
+        load_path = profile.repo
+        adapter_config_path = model_path / "adapter_config.json"
+        adapter_base = ""
+        if adapter_config_path.is_file():
+            try:
+                raw_config = json.loads(adapter_config_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise RuntimeError(f"Unsloth adapter 설정을 읽지 못했습니다: {adapter_config_path}") from exc
+            if isinstance(raw_config, dict) and isinstance(raw_config.get("base_model_name_or_path"), str):
+                adapter_base = raw_config["base_model_name_or_path"]
+            if not adapter_base:
+                raise RuntimeError("Unsloth adapter에 base_model_name_or_path가 없습니다.")
+            load_path = adapter_base
+
+        try:
+            transformers = import_module("transformers")
+            tokenizer = transformers.AutoTokenizer.from_pretrained(load_path, local_files_only=True)
+            model = transformers.AutoModelForCausalLM.from_pretrained(
+                load_path,
+                torch_dtype="auto",
+                local_files_only=True,
+                use_safetensors=True,
+            )
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            raise RuntimeError(
+                f"Transformers 모델 '{load_path}'을 직접 로드하지 못했습니다. "
+                "transformers와 torch가 설치되어 있는지 확인하세요."
+            ) from exc
+
+        if adapter_base:
+            try:
+                peft = import_module("peft")
+                model = peft.PeftModel.from_pretrained(model, profile.repo, local_files_only=True)
+            except (ImportError, OSError, RuntimeError, ValueError) as exc:
+                raise RuntimeError("Unsloth LoRA를 적용하려면 peft가 필요합니다.") from exc
+        return model, tokenizer
 
     def _load_embedding_model(self, profile: ModelProfile) -> tuple[Any, Any]:
         """임베딩 모델 로드 (Mac 전용)."""
