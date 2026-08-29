@@ -113,25 +113,28 @@ class TestLocalAgentTaskFailure:
         task = LocalAgentTask(name="invalid", target=invalid)
         task.run()
         assert task.status == "FAILED"
+        assert task.error is not None
         assert "ValueError" in task.error
         assert "invalid input" in task.error
 
     def test_type_error_captured(self):
         def type_err():
-            return 1 + "string"  # type: ignore[operator]
+            raise TypeError("cannot add integer and string")
 
         task = LocalAgentTask(name="type_err", target=type_err)
         task.run()
         assert task.status == "FAILED"
+        assert task.error is not None
         assert "TypeError" in task.error
 
     def test_attribute_error_captured(self):
         def attr_err():
-            return None.some_method()  # type: ignore[union-attr]
+            raise AttributeError("missing attribute: some_method")
 
         task = LocalAgentTask(name="attr_err", target=attr_err)
         task.run()
         assert task.status == "FAILED"
+        assert task.error is not None
         assert "AttributeError" in task.error
 
     def test_traceback_included(self):
@@ -145,6 +148,7 @@ class TestLocalAgentTaskFailure:
         task = LocalAgentTask(name="deep", target=level1)
         task.run()
         assert task.status == "FAILED"
+        assert task.error is not None
         assert "traceback" in task.error.lower() or "Traceback" in task.error
         assert "level1" in task.error
         assert "level2" in task.error
@@ -209,6 +213,7 @@ class TestLocalAgentTaskThreaded:
         task.start()
         task.join(timeout=5)
         assert task.status == "FAILED"
+        assert task.error is not None
         assert "ValueError" in task.error
 
     def test_start_and_join_result(self):
