@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 커밋: `3b8cca1` (CI/config editor/tiptap/task state/KTX/특허 검색/속어 검색/native-tools·fixture·post-loop·quality-gate tool-loop 테스트 typed adapter 정리 포함)
-- 전체 `basedpyright`: `0 errors, 26228 warnings, 0 notes` (CI 도구·config editor·tiptap 패턴·task state·KTX·특허 검색·속어 검색 테스트와 tool-loop native-tools·fixture·post-loop·quality-gate 구간까지 0건으로 정리됨; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 475건 잔여 동적 MagicMock/Any 경고, MAX 테스트는 45건 보호 메서드 경고, KTX 스킬은 97건 외부 모듈 동적 타입 경고 잔존)
+- 최신 검증 커밋: `953cff5` (tool-loop 비동기 실행 테스트의 guardrail·executor·cognitive verification mock 경계를 typed helper로 정리)
+- 전체 `basedpyright`: `0 errors, 26149 warnings, 0 notes` (tool-loop 테스트 파일 경고 425건에서 396건으로 감소; 장학금 필터 구현은 210건 구조화되지 않은 입력/argparse 경계 경고, tool-loop 테스트는 396건 잔여 동적 MagicMock/Any 경고, MAX 테스트·KTX 스킬·대시보드 중첩 의존성 및 Transport closed는 계속 잔존)
 - 전체 pytest 기준선: `4804 passed, 6 skipped` (최신 RAG 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit`: low 1, moderate 3, high 0, critical 0
@@ -51,6 +51,8 @@ date: 2026-08-29
    - 잔여 경고/감사/Transport 제한을 숨기지 않고 최종 보고서에 남긴다.
 
 ## 최근 완료 단위
+
+- `953cff5`: `tests/test_tool_loop.py`의 비동기 tool 실행 테스트에서 guardrail·executor·cognitive verification·event bus 중첩 mock 접근을 공용 typed helper로 전환했다. 90개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `425 → 396`, 전체 basedpyright는 `0 errors, 26149 warnings, 0 notes`다.
 
 - `3b8cca1`: `tests/test_tool_loop.py` quality-gate 테스트의 mock 반환값·재시도 설정·호출 인자 검증을 typed helper로 전환했다. 90개 테스트, Ruff, Ruff-format, basedpyright, pre-commit이 통과했으며 파일 경고가 `535 → 475`, 전체 basedpyright는 `0 errors, 26228 warnings, 0 notes`다.
 
