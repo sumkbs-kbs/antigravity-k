@@ -12,15 +12,15 @@ import string
 import sys
 import time
 from functools import reduce
-from typing import Any
+from typing import Any, final
 
 _aes: Any = None
 _pad: Any = None
 _crypto_import_error: ModuleNotFoundError | None = None
 try:
-    _crypto_cipher = importlib.import_module("Crypto.Cipher")
+    _crypto_cipher = importlib.import_module("Crypto.Cipher.AES")
     _crypto_padding = importlib.import_module("Crypto.Util.Padding")
-    _aes = _crypto_cipher.AES
+    _aes = _crypto_cipher
     _pad = _crypto_padding.pad
 except ModuleNotFoundError as exc:
     _crypto_import_error = exc
@@ -83,12 +83,14 @@ except ModuleNotFoundError as exc:
     class SeniorPassenger(Passenger):
         pass
 
+    @final
     class ReserveOption:
         GENERAL_FIRST = "GENERAL_FIRST"
         GENERAL_ONLY = "GENERAL_ONLY"
         SPECIAL_FIRST = "SPECIAL_FIRST"
         SPECIAL_ONLY = "SPECIAL_ONLY"
 
+    @final
     class TrainType:
         # Fallback constants used only when korail2 is missing so module
         # import succeeds and ensure_runtime_dependencies() can surface
@@ -108,6 +110,7 @@ except ModuleNotFoundError as exc:
         def __init__(self, *args, **kwargs):
             raise ModuleNotFoundError("korail2")
 
+    @final
     class _FallbackKorailModule:
         EMAIL_REGEX = re.compile(r".+@.+")
         PHONE_NUMBER_REGEX = re.compile(r"^\d+$")
@@ -179,6 +182,7 @@ def ensure_runtime_dependencies() -> None:
         )
 
 
+@final
 class DynaPathMasterEngine:
     APP_ID = "com.korail.talk"
     AS_VALUE = "%5B38ff229cb34c7dda8e28220a2d750cce%5D"
@@ -289,6 +293,7 @@ class DynaPathMasterEngine:
         return f"bEeEP{self.table[len(key_encoded)]}{key_encoded}{body_encoded}"
 
 
+@final
 class PatchedKorail(Korail):
     _device = "AD"
     _version = "250601002"
