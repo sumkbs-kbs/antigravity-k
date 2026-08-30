@@ -6,7 +6,7 @@ import re
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, final
 
 from antigravity_k.agents.personas import get_orchestrator_prompt
 from antigravity_k.engine.capacity_flow import CapacityCheckpoint
@@ -35,6 +35,7 @@ from antigravity_k.engine.task_state_store import (
 logger = logging.getLogger("antigravity_k.orchestrator")
 
 
+@final
 class OrchestratorAgent:
     """CEO 기반 멀티 에이전트 오케스트레이터.
 
