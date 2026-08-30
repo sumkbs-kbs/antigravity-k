@@ -452,10 +452,8 @@ class OllamaProvider(BaseInferenceProvider):
 
             registry = ModelRegistry()
             prov_cfg = registry.get_provider_config(provider)
-            if isinstance(prov_cfg, dict):
-                base_url = prov_cfg.get("base_url")
-                return base_url if isinstance(base_url, str) else ""
-            return ""
+            base_url = prov_cfg.get("base_url")
+            return base_url if isinstance(base_url, str) else ""
         except Exception:
             return ""
 
