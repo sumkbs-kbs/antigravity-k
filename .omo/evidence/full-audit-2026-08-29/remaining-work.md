@@ -9,7 +9,7 @@ date: 2026-08-29
 ## 현재 기준
 
 - 최신 검증 코드 커밋: `c1fc1bf` (AgentFabric 오케스트레이션 테스트 경계 보강; 이후 사용자 dirty 파일 continuation은 미커밋)
-- 전체 `basedpyright`: `0 errors, 23377 warnings, 0 notes` (사용자 변경 테스트 경계 `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`를 추가 정리했으며, 전체 경고는 다른 사용자 변경 파일과 동적 소스 경계에 잔존)
+- 전체 `basedpyright`: `0 errors, 23177 warnings, 0 notes` (사용자 변경 테스트 경계와 `src/antigravity_k/finetune/trainer.py`를 추가 정리했으며, 전체 경고는 다른 사용자 변경 파일과 동적 소스 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
@@ -69,6 +69,8 @@ date: 2026-08-29
 
 - working-tree continuation: `tests/test_system_api_memory_suite.py`의 FastAPI 응답 JSON, MagicMock 메서드, 시스템/메모리·보안 입력 경계를 명시 타입으로 전환했다. 파일 basedpyright `0 errors, 0 warnings`, Ruff, Ruff-format, mypy, pre-commit이 통과했고 53개 테스트가 통과했다. 사용자 변경 파일과 겹쳐 자동 stage/commit하지 않았으며, 전체 basedpyright는 `0 errors, 23377 warnings, 0 notes`로 `221`건 감소했다.
 
+- working-tree continuation: `src/antigravity_k/finetune/trainer.py`의 데이터셋 JSON, MLX subprocess, 학습 결과, CLI Namespace 경계를 명시 타입으로 전환했다. 파일 basedpyright `0 errors, 0 warnings`, Ruff, Ruff-format, mypy, pre-commit과 CLI `--help` smoke가 통과했고 관련 finetune 회귀 61개가 통과했다. 사용자 변경 파일과 겹쳐 자동 stage/commit하지 않았으며, 전체 basedpyright는 `0 errors, 23177 warnings, 0 notes`로 `200`건 감소했다.
+
 - `9456266`: `tests/test_phase1_e2e.py`의 SkillInstaller/SkillPublisher private 호출, JSON·subprocess·파일 쓰기 경계를 typed callable/cast와 명시적 결과 소비로 정리했다. 36개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `66 → 0`.
 - `49fe488`: `tests/test_skill_installer.py`의 private 메서드·mock·JSON·파일/디렉터리 반환 경계를 typed adapter와 명시적 결과 소비로 정리했다. 77개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
 - `c1fc1bf`: `tests/test_agent_fabric_orchestration.py`의 fake agent, orchestrator protocol, 동적 메서드 교체, registry 접근 경계를 명시했다. 11개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
@@ -76,7 +78,7 @@ date: 2026-08-29
 
 ## 다음 우선순위
 
-1. 사용자 dirty 파일 244개(특히 `src/antigravity_k/finetune/trainer.py`, `src/antigravity_k/api/routes/system_api.py`)의 경고는 소유권과 hunk를 확인한 뒤에만 단계적으로 정리한다. `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`는 working-tree에서 0 warnings까지 정리했지만 사용자 변경과 겹쳐 자동 stage/revert하지 않았다.
+1. 사용자 dirty 파일 244개(특히 `src/antigravity_k/api/routes/system_api.py`)의 경고는 소유권과 hunk를 확인한 뒤에만 단계적으로 정리한다. `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`, `src/antigravity_k/finetune/trainer.py`는 working-tree에서 0 warnings까지 정리했지만 사용자 변경과 겹쳐 자동 stage/revert하지 않았다.
 2. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 13`으로 축소했다. 남은 경고는 보호 메서드, 생성자 호환용 동적 경계, JSON decoder·이벤트 버스·state-store의 외부 타입 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
 2. `src/antigravity_k/engine/model_manager.py`의 암시적 문자열 연결·미사용 반환값 진단 3건을 제거해 파일 경고를 `251 → 248`로 줄였다. 관련 lifecycle/generate/stream 테스트 83개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 3. `src/antigravity_k/security/lintai_scanner.py`의 JSON 출력·실행 파일 경계를 명시해 파일 경고를 `5 → 0`으로 줄였다. 관련 3개 테스트와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
