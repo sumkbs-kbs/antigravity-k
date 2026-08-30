@@ -6,6 +6,8 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+- working-tree continuation on `2026-08-30`: `tests/test_git_api_endpoints.py`의 Git API HTTP JSON, 임시 저장소 fixture, subprocess, private helper 경계를 타입화했다. 28개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23598 warnings, 0 notes`로 `281`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
+
 - working-tree continuation on `2026-08-30`: `tests/test_system_api_skills.py`의 HTTP JSON/pytest fixture/SkillLoader·Registry·Publisher double 경계를 타입화했다. 20개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23879 warnings, 0 notes`로 `295`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
 
 - 최신 전체 basedpyright 재측정은 `0 errors, 24174 warnings, 0 notes`이며, clean 테스트 파일 `tests/test_agent_fabric_orchestration.py`를 `c1fc1bf`로 정리해 fake agent/orchestrator protocol과 동적 메서드 경계를 0 warnings로 만들었다. 11개 테스트와 Ruff/Ruff-format/mypy/pre-commit이 통과했고, 사용자 dirty path 244개는 그대로 보존했다.

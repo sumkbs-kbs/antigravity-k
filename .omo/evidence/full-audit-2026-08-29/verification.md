@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Working-tree continuation on `2026-08-30`: `tests/test_git_api_endpoints.py` now uses explicit Git API JSON, temporary repository, subprocess, and private-helper contracts. The focused suite passed `28` tests; Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, and pre-commit passed. Whole-tree basedpyright fell `23879 → 23598` warnings with `0 errors, 0 notes`. The file overlaps user-owned changes and remains unstaged.
+
 - Working-tree continuation on `2026-08-30`: `tests/test_system_api_skills.py` now uses explicit HTTP JSON, pytest fixture, SkillLoader/Registry/Publisher test-double, and publish-result contracts. The focused suite passed `20` tests; Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, and pre-commit passed. Whole-tree basedpyright fell `24174 → 23879` warnings with `0 errors, 0 notes`. The file overlaps user-owned changes and remains unstaged.
 
 - Current continuation checkpoint: `e5efbe4`; whole-tree basedpyright reports `0 errors, 24970 warnings, 0 notes`. Provider profile/config boundaries were narrowed without behavior changes; provider regression suites passed (`93`, including `10` inference-provider tests), and Ruff, Ruff-format, mypy, and pre-commit passed. Provider diagnostics decreased `247 → 235` in the focused file check.
