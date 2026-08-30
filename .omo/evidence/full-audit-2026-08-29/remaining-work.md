@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 코드 커밋: `f6b83a0` (debate demo checkpoint 안전성 정리; 증적 문서 커밋은 `a687e60`)
-- 전체 `basedpyright`: `0 errors, 24982 warnings, 0 notes` (provider stream 경계와 model manager·lintai scanner·call hierarchy·impact analyzer·token bucket·debate demo·장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 단계적으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
+- 최신 검증 코드 커밋: `e5efbe4` (provider 설정 경계 보강; 이전 debate demo checkpoint는 `f6b83a0`, 증적 문서 커밋은 `313fae8`)
+- 전체 `basedpyright`: `0 errors, 24970 warnings, 0 notes` (provider stream 경계와 model manager·lintai scanner·call hierarchy·impact analyzer·token bucket·debate demo·장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 단계적으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)

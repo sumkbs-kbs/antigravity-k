@@ -6,6 +6,8 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+- 최신 전체 basedpyright 재측정은 `0 errors, 24970 warnings, 0 notes`이며, clean provider 파일의 `_apply_dynamic_inference_config` 프로필 경계와 Ollama provider 설정 URL 반환값을 `e7262f7`·`e5efbe4` 독립 커밋으로 좁혔다. provider 회귀 93개(추가 inference 테스트 10개)와 Ruff, Ruff-format, mypy, pre-commit이 통과했고 provider 전역 진단은 `247 → 235`로 감소했다. 사용자 dirty path는 계속 보존했다.
+
 - 최신 전체 basedpyright 재측정은 `0 errors, 24985 warnings, 0 notes`이며, clean 파일 `scripts/demo_debate_run.py`의 deprecated `os.system`과 기본 자동 커밋 부작용을 `f6b83a0` 독립 커밋으로 제거했다. `create_git_checkpoint=True`에서만 Git checkpoint를 실행하도록 바꾸고 격리 기본 실행·명시적 checkpoint smoke를 통과했으며, 파일 경고는 `5 → 0`으로 감소했다. 사용자 dirty path는 기존 변경을 포함해 보존했다.
 
 - 최신 전체 basedpyright 재측정은 `0 errors, 25401 warnings, 0 notes`이며, `.agent/skills/k-skill/scripts/ktx_booking.py`의 optional 의존성·JSON 응답 경계를 `54cbcd7` 독립 커밋으로 정리해 해당 파일 경고를 `97 → 0`으로 낮췄다. 사용자 dirty path 244개는 계속 stage/revert하지 않았다.
@@ -73,7 +75,7 @@ date: 2026-08-30
 ## 검증 결과
 
 - 전체 pytest 최종 게이트: `4806 passed, 6 skipped`.
-- 최신 전체 basedpyright: `0 errors, 24982 warnings, 0 notes`.
+- 최신 전체 basedpyright: `0 errors, 24970 warnings, 0 notes`.
 - 대시보드 typecheck/lint/Vitest/build 통과.
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities`. 중첩 `monaco-editor → dompurify`는 `707a312`의 `3.4.14` override로 해소했고 Monaco major 변경은 하지 않았다.
 - `git diff --check`는 생성된 `dashboard_dist/assets/api-client-CWhh0G02.js`의 기존 trailing whitespace 4건을 제외한 사용자 코드 경로에서 통과한다.
