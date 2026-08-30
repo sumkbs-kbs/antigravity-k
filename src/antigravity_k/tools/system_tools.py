@@ -3,7 +3,7 @@
 import logging
 import os
 import subprocess
-from typing import Any
+from typing import Any, Protocol, TypeAlias, cast, final, override
 
 from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
 
@@ -11,7 +11,19 @@ from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
+ToolValue: TypeAlias = object
+ToolSchema: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
 
+
+class _OrchestratorLike(Protocol):
+    def run_sync(self, messages: list[dict[str, object]], *, target_model: object) -> str: ...
+
+
+class _OrchestratorFactory(Protocol):
+    def __call__(self, *, model_manager: object) -> _OrchestratorLike: ...
+
+
+@final
 class ReadFileTool(BaseTool):
     """Readfiletool.
 
@@ -23,6 +35,9 @@ class ReadFileTool(BaseTool):
     risk_level = RiskLevel.SAFE
     icon = "📄"
     tags = ["file", "read", "io", "view"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ReadFileTool."""
@@ -52,6 +67,7 @@ class ReadFileTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -62,6 +78,7 @@ class ReadFileTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -72,7 +89,8 @@ class ReadFileTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -81,7 +99,8 @@ class ReadFileTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -91,9 +110,9 @@ class ReadFileTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path")
-        start_line = kwargs.get("start_line")
-        end_line = kwargs.get("end_line")
+        file_path = cast(str | os.PathLike[str] | None, kwargs.get("file_path"))
+        start_line = cast(int | None, kwargs.get("start_line"))
+        end_line = cast(int | None, kwargs.get("end_line"))
 
         if not file_path or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
@@ -126,6 +145,7 @@ class ReadFileTool(BaseTool):
             return f"Error reading file: {e}"
 
 
+@final
 class ReplaceFileContentTool(BaseTool):
     """Replacefilecontenttool.
 
@@ -137,6 +157,9 @@ class ReplaceFileContentTool(BaseTool):
     risk_level = RiskLevel.LOW
     icon = "✏️"
     tags = ["file", "write", "edit"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ReplaceFileContentTool."""
@@ -163,6 +186,7 @@ class ReplaceFileContentTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -173,6 +197,7 @@ class ReplaceFileContentTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -183,7 +208,8 @@ class ReplaceFileContentTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -192,7 +218,8 @@ class ReplaceFileContentTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -202,9 +229,9 @@ class ReplaceFileContentTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path")
-        target_text = kwargs.get("target_text", "")
-        replacement_text = kwargs.get("replacement_text", "")
+        file_path = cast(str | os.PathLike[str] | None, kwargs.get("file_path"))
+        target_text = cast(str, kwargs.get("target_text", ""))
+        replacement_text = cast(str, kwargs.get("replacement_text", ""))
 
         if not file_path:
             return "Error: No file_path provided."
@@ -221,7 +248,7 @@ class ReplaceFileContentTool(BaseTool):
             new_content = content.replace(target_text, replacement_text)
 
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+                _ = f.write(new_content)
 
             return f"Successfully updated {file_path}."
         except Exception as e:
@@ -229,6 +256,7 @@ class ReplaceFileContentTool(BaseTool):
             return f"Error replacing content: {e}"
 
 
+@final
 class RunBashCommandTool(BaseTool):
     """Runbashcommandtool.
 
@@ -240,6 +268,10 @@ class RunBashCommandTool(BaseTool):
     risk_level = RiskLevel.HIGH
     icon = "⚡"
     tags = ["shell", "command", "bash", "exec"]
+    _execution_permit: object
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the RunBashCommandTool."""
@@ -261,6 +293,7 @@ class RunBashCommandTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -271,6 +304,7 @@ class RunBashCommandTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -281,7 +315,8 @@ class RunBashCommandTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -290,7 +325,8 @@ class RunBashCommandTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -300,7 +336,7 @@ class RunBashCommandTool(BaseTool):
             Any: The any result.
 
         """
-        command = kwargs.get("command")
+        command = cast(str, kwargs.get("command", ""))
         if not command:
             return "Error: No command provided."
 
@@ -379,6 +415,7 @@ class RunBashCommandTool(BaseTool):
             return "Error: sandbox execution failed; raw execution is disabled."
 
 
+@final
 class ListDirectoryTool(BaseTool):
     """디렉토리 탐색 도구.
 
@@ -390,6 +427,9 @@ class ListDirectoryTool(BaseTool):
     risk_level = RiskLevel.SAFE
     icon = "📂"
     tags = ["directory", "list", "explore", "tree"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ListDirectoryTool."""
@@ -422,6 +462,7 @@ class ListDirectoryTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -432,6 +473,7 @@ class ListDirectoryTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -442,7 +484,8 @@ class ListDirectoryTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -451,7 +494,8 @@ class ListDirectoryTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -461,9 +505,9 @@ class ListDirectoryTool(BaseTool):
             Any: The any result.
 
         """
-        path = kwargs.get("path", ".")
-        recursive = kwargs.get("recursive", False)
-        max_depth = kwargs.get("max_depth", 3)
+        path = cast(str, kwargs.get("path", "."))
+        recursive = cast(bool, kwargs.get("recursive", False))
+        max_depth = cast(int, kwargs.get("max_depth", 3))
 
         IGNORE = {
             ".git",
@@ -483,21 +527,22 @@ class ListDirectoryTool(BaseTool):
         if not os.path.isdir(path):
             return f"Error: '{path}' is not a directory."
 
-        def _format_size(size):
+        def _format_size(size: float) -> str:
             for unit in ["B", "KB", "MB", "GB"]:
                 if size < 1024:
                     return f"{size:.0f}{unit}"
                 size /= 1024
             return f"{size:.1f}TB"
 
-        def _list(dir_path, depth=0):
-            items = []
+        def _list(dir_path: str, depth: int = 0) -> list[str]:
+            items: list[str] = []
             try:
                 entries = sorted(os.listdir(dir_path))
             except PermissionError:
                 return [f"{'  ' * depth}[Permission denied]"]
 
-            dirs, files = [], []
+            dirs: list[str] = []
+            files: list[str] = []
             for e in entries:
                 if e in IGNORE or e.startswith("."):
                     continue
@@ -536,6 +581,7 @@ class ListDirectoryTool(BaseTool):
         return header + "\n".join(lines[:200])  # 최대 200항목
 
 
+@final
 class NaturalLanguageBashTool(BaseTool):
     """AiShell: Natural Language to Bash Command Tool.
 
@@ -548,6 +594,9 @@ class NaturalLanguageBashTool(BaseTool):
     risk_level = RiskLevel.MEDIUM
     icon = "🤖"
     tags = ["bash", "shell", "nlp", "aishell"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the NaturalLanguageBashTool."""
@@ -569,6 +618,7 @@ class NaturalLanguageBashTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -579,6 +629,7 @@ class NaturalLanguageBashTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -589,7 +640,8 @@ class NaturalLanguageBashTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -598,7 +650,8 @@ class NaturalLanguageBashTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -608,7 +661,7 @@ class NaturalLanguageBashTool(BaseTool):
             Any: The any result.
 
         """
-        intent = kwargs.get("intent")
+        intent = cast(str, kwargs.get("intent", ""))
         if not intent:
             return "Error: No intent provided."
 
