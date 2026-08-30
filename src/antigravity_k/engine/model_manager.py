@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias, final
+from typing import TYPE_CHECKING, Any, TypeAlias, cast, final
 
 if TYPE_CHECKING:
     from antigravity_k.engine.best_of_n_verifier import VerificationOutcome
@@ -37,7 +37,51 @@ logger = logging.getLogger("antigravity_k.model_manager")
 Message = dict[str, Any]
 Payload = dict[str, Any]
 DynamicValue: TypeAlias = Any
-JsonMap: TypeAlias = dict[str, Any]
+JsonMap: TypeAlias = dict[str, object]
+
+
+def _as_float(value: object, default: float) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return default
+
+
+def _as_int(value: object, default: int) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    return default
+
+
+def _as_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _as_json_map(value: object) -> JsonMap:
+    return cast(JsonMap, value) if isinstance(value, dict) else {}
 
 
 # ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
@@ -231,7 +275,7 @@ class ModelManager:
         config.yaml의 agent_models는 단일 모델뿐 아니라 콤보 이름도 허용합니다.
         콤보가 반환되면 generate()/stream_generate()가 해당 전략에 따라 처리합니다.
         """
-        raw = getattr(self._registry, "_raw", {})
+        raw = _as_json_map(cast(object, getattr(self._registry, "_raw", {})))
         agent_models = raw.get("agent_models", {})
         configured: list[str] = []
 
@@ -239,8 +283,9 @@ class ModelManager:
             return bool(self.router.get_combo(target)) or self._registry.get_model(target) is not None
 
         if isinstance(agent_models, dict):
+            agent_models_map = cast(dict[str, object], agent_models)
             for key in (role_name, role_name.upper(), role_name.lower(), "default"):
-                value = agent_models.get(key)
+                value = agent_models_map.get(key)
                 if isinstance(value, str) and value:
                     configured.append(value)
                     if registered(value):
@@ -252,15 +297,11 @@ class ModelManager:
                 return value
 
         default = self._registry.get_default(default_role)
-        if isinstance(default, ModelProfile):
+        if default is not None and isinstance(getattr(default, "name", None), str):
             return default.name
 
-        discovered = [item for item in added if isinstance(item, ModelProfile)]
-        discovered.extend(
-            item
-            for item in self._registry.list_models()
-            if isinstance(item, ModelProfile) and item.is_local and item not in discovered
-        )
+        discovered = list(added)
+        discovered.extend(item for item in self._registry.list_models() if item.is_local and item not in discovered)
         for profile in discovered:
             roles = profile.supported_roles
             if role_name in roles or default_role in roles:
@@ -583,9 +624,9 @@ class ModelManager:
         else:
             participants = [target]
 
-        min_participants = int(cfg.get("min_participants", 2))
-        max_proposers = int(cfg.get("max_proposers", 3))
-        max_critics = int(cfg.get("max_critics", 2))
+        min_participants = _as_int(cfg.get("min_participants", 2), 2)
+        max_proposers = _as_int(cfg.get("max_proposers", 3), 3)
+        max_critics = _as_int(cfg.get("max_critics", 2), 2)
 
         if len(participants) < min_participants:
             logger.warning(
@@ -601,7 +642,7 @@ class ModelManager:
                 **kwargs,
             )
 
-        critic_combo = cfg.get("critic_combo", "critic-swarm")
+        critic_combo = str(cfg.get("critic_combo", "critic-swarm"))
         critics = self._available_combo_or_models(critic_combo, participants)
         arbiter = str(cfg.get("arbiter_combo", "supreme-court"))
         if not self.router.get_combo(arbiter) and self._registry.get_model(arbiter) is None:
@@ -627,7 +668,7 @@ class ModelManager:
             max_proposers=max_proposers,
             max_critics=max_critics,
             min_participants=min_participants,
-            expose_trace=bool(cfg.get("expose_trace", True)),
+            expose_trace=_as_bool(cfg.get("expose_trace", True), True),
             generation_kwargs=kwargs,
         )
 
@@ -643,7 +684,7 @@ class ModelManager:
             except Exception as e:
                 logger.exception("Unhandled exception")
                 text = f"[API Error] 집단지성 실행 중 오류가 발생했습니다: {e}"
-            chunk_size = int(kwargs.get("stream_chunk_size", 256))
+            chunk_size = _as_int(cast(object, kwargs.get("stream_chunk_size", 256)), 256)
             for idx in range(0, len(text), chunk_size):
                 yield text[idx : idx + chunk_size]
             return
@@ -718,37 +759,40 @@ class ModelManager:
                 logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
                 raise
 
-    def _collective_config(self) -> Payload:
-        raw = getattr(self._registry, "_raw", {})
+    def _collective_config(self) -> JsonMap:
+        raw = _as_json_map(cast(object, getattr(self._registry, "_raw", {})))
         cfg = raw.get("collective_intelligence", {})
-        return cfg if isinstance(cfg, dict) else {}
+        return _as_json_map(cfg)
 
     def _self_consistency_config(self) -> JsonMap:
         """amplification.self_consistency 섹션을 반환한다."""
-        raw = getattr(self._registry, "_raw", {})
+        raw = _as_json_map(cast(object, getattr(self._registry, "_raw", {})))
         amp = raw.get("amplification", {})
         if not isinstance(amp, dict):
             return {}
-        cfg = amp.get("self_consistency", {})
-        return cfg if isinstance(cfg, dict) else {}
+        amp_map = cast(dict[str, object], amp)
+        cfg = amp_map.get("self_consistency", {})
+        return _as_json_map(cfg)
 
     def _task_decomposition_config(self) -> JsonMap:
         """amplification.task_decomposition 섹션을 반환한다."""
-        raw = getattr(self._registry, "_raw", {})
+        raw = _as_json_map(cast(object, getattr(self._registry, "_raw", {})))
         amp = raw.get("amplification", {})
         if not isinstance(amp, dict):
             return {}
-        cfg = amp.get("task_decomposition", {})
-        return cfg if isinstance(cfg, dict) else {}
+        amp_map = cast(dict[str, object], amp)
+        cfg = amp_map.get("task_decomposition", {})
+        return _as_json_map(cfg)
 
     def _best_of_n_config(self) -> JsonMap:
         """amplification.best_of_n 섹션을 반환한다."""
-        raw = getattr(self._registry, "_raw", {})
+        raw = _as_json_map(cast(object, getattr(self._registry, "_raw", {})))
         amp = raw.get("amplification", {})
         if not isinstance(amp, dict):
             return {}
-        cfg = amp.get("best_of_n", {})
-        return cfg if isinstance(cfg, dict) else {}
+        amp_map = cast(dict[str, object], amp)
+        cfg = amp_map.get("best_of_n", {})
+        return _as_json_map(cfg)
 
     def _resolve_bon_verifier(
         self,
@@ -779,7 +823,7 @@ class ModelManager:
             return make_answer_patch_verifier(
                 project_root,
                 test_command,
-                timeout_sec=float(cfg.get("test_timeout_sec", 120)),
+                timeout_sec=_as_float(cfg.get("test_timeout_sec", 120), 120.0),
             )
         except (TypeError, ValueError) as exc:
             logger.warning("worktree_tests 검증자 생성 실패(%s) — 구문 검사로 폴백", exc)
@@ -815,7 +859,7 @@ class ModelManager:
             from antigravity_k.engine.chain_of_verification import estimate_complexity
 
             try:
-                if estimate_complexity(prompt) < float(threshold):
+                if estimate_complexity(prompt) < _as_float(threshold, 0.0):
                     return self.generate(prompt, target, **kwargs)
             except (TypeError, ValueError):
                 logger.warning("best_of_n.complexity_threshold 무시(잘못된 값): %r", threshold)
@@ -848,7 +892,7 @@ class ModelManager:
         trace = engine.run(
             prompt,
             feedback_loop=bool(cfg.get("feedback_loop", True)),
-            max_feedback_rounds=int(cfg.get("max_feedback_rounds", 1)),
+            max_feedback_rounds=_as_int(cfg.get("max_feedback_rounds", 1), 1),
         )
         if trace.skipped or not trace.selected:
             return self.generate(prompt, target, **kwargs)
@@ -912,8 +956,8 @@ class ModelManager:
 
         decomposer = LlmTaskDecomposer(
             generate_fn=_gen,
-            min_steps=int(cfg.get("min_steps", 2) or 2),
-            max_steps=int(cfg.get("max_steps", 6) or 6),
+            min_steps=_as_int(cfg.get("min_steps", 2) or 2, 2),
+            max_steps=_as_int(cfg.get("max_steps", 6) or 6, 6),
         )
         dec = decomposer.decompose(prompt)
         if dec.skipped or not dec.steps:
