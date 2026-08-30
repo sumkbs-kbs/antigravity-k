@@ -87,7 +87,7 @@ class BaseInferenceProvider(ABC):
 
     def _apply_dynamic_inference_config(
         self,
-        loaded_profile: DynamicValue,
+        loaded_profile: ModelProfile,
         prompt_or_messages: Prompt,
         kwargs: JsonMap,
     ) -> DynamicConfig:
