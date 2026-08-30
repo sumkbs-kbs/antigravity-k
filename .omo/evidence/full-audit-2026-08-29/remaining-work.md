@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 코드 커밋: `e5efbe4` (provider 설정 경계 보강; 이전 debate demo checkpoint는 `f6b83a0`, 증적 문서 커밋은 `313fae8`)
-- 전체 `basedpyright`: `0 errors, 24970 warnings, 0 notes` (provider stream 경계와 model manager·lintai scanner·call hierarchy·impact analyzer·token bucket·debate demo·장학금 필터·tool-loop·MAX 테스트·KTX 구현 파일 경고를 단계적으로 축소; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
+- 최신 검증 코드 커밋: `49fe488` (SkillInstaller 테스트 경계 보강; 직전 Phase 1 E2E 커밋은 `9456266`, provider 설정 경계는 `e5efbe4`)
+- 전체 `basedpyright`: `0 errors, 24322 warnings, 0 notes` (Phase 1 E2E·SkillInstaller 테스트 경계를 추가로 정리; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
@@ -61,9 +61,16 @@ date: 2026-08-29
 - 대시보드 typecheck·lint·Vitest(`42 files / 588 tests`)·production build와 `npm audit --omit=dev`(`0 vulnerabilities`)가 통과했다. Monaco 버전은 `0.56.0`으로 유지했다.
 - 전역 Ruff는 통과했고, 사용자 변경 경로를 포함한 `git diff --check`는 dashboard_dist 생성 파일의 기존 trailing whitespace 4건을 제외하고 통과했다.
 
+## 2026-08-30 최신 clean 파일 경계 정리
+
+- `9456266`: `tests/test_phase1_e2e.py`의 SkillInstaller/SkillPublisher private 호출, JSON·subprocess·파일 쓰기 경계를 typed callable/cast와 명시적 결과 소비로 정리했다. 36개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `66 → 0`.
+- `49fe488`: `tests/test_skill_installer.py`의 private 메서드·mock·JSON·파일/디렉터리 반환 경계를 typed adapter와 명시적 결과 소비로 정리했다. 77개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
+- 두 커밋 후 전체 basedpyright는 `0 errors, 24322 warnings, 0 notes`; 사용자 dirty path 244개는 계속 보존·미스테이지 상태다.
+
 ## 다음 우선순위
 
-1. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 13`으로 축소했다. 남은 경고는 보호 메서드, 생성자 호환용 동적 경계, JSON decoder·이벤트 버스·state-store의 외부 타입 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
+1. 사용자 dirty 파일 244개(특히 `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`, `src/antigravity_k/finetune/trainer.py`, `src/antigravity_k/api/routes/system_api.py`)의 경고는 소유권과 hunk를 확인한 뒤에만 단계적으로 정리한다. 현재 최고 경고 파일은 사용자 변경과 겹치므로 자동 stage/revert하지 않는다.
+2. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 13`으로 축소했다. 남은 경고는 보호 메서드, 생성자 호환용 동적 경계, JSON decoder·이벤트 버스·state-store의 외부 타입 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
 2. `src/antigravity_k/engine/model_manager.py`의 암시적 문자열 연결·미사용 반환값 진단 3건을 제거해 파일 경고를 `251 → 248`로 줄였다. 관련 lifecycle/generate/stream 테스트 83개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 3. `src/antigravity_k/security/lintai_scanner.py`의 JSON 출력·실행 파일 경계를 명시해 파일 경고를 `5 → 0`으로 줄였다. 관련 3개 테스트와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 4. `src/antigravity_k/engine/call_hierarchy_graph.py`의 AST visitor override·속성·미사용 결과를 명시해 파일 경고를 `6 → 0`으로 줄였다. 관련 테스트 1개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.

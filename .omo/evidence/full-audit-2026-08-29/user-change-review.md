@@ -6,6 +6,8 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+- 최신 전체 basedpyright 재측정은 `0 errors, 24322 warnings, 0 notes`이며, clean 테스트 파일 `tests/test_phase1_e2e.py`와 `tests/test_skill_installer.py`의 private 메서드·JSON·mock·파일 반환 경계를 `9456266`·`49fe488` 독립 커밋으로 정리해 두 파일 모두 0 warnings를 확인했다. 사용자 dirty path 244개는 누가 변경했는지와 무관하게 검토 목록에 포함하되 stage/revert하지 않았다.
+
 - 최신 전체 basedpyright 재측정은 `0 errors, 24970 warnings, 0 notes`이며, clean provider 파일의 `_apply_dynamic_inference_config` 프로필 경계와 Ollama provider 설정 URL 반환값을 `e7262f7`·`e5efbe4` 독립 커밋으로 좁혔다. provider 회귀 93개(추가 inference 테스트 10개)와 Ruff, Ruff-format, mypy, pre-commit이 통과했고 provider 전역 진단은 `247 → 235`로 감소했다. 사용자 dirty path는 계속 보존했다.
 
 - 최신 전체 basedpyright 재측정은 `0 errors, 24985 warnings, 0 notes`이며, clean 파일 `scripts/demo_debate_run.py`의 deprecated `os.system`과 기본 자동 커밋 부작용을 `f6b83a0` 독립 커밋으로 제거했다. `create_git_checkpoint=True`에서만 Git checkpoint를 실행하도록 바꾸고 격리 기본 실행·명시적 checkpoint smoke를 통과했으며, 파일 경고는 `5 → 0`으로 감소했다. 사용자 dirty path는 기존 변경을 포함해 보존했다.
