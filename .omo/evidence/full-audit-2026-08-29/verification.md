@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Working-tree continuation on `2026-08-30`: `tests/test_system_api_memory_suite.py` now uses explicit HTTP JSON, MagicMock method, and system/memory/security input contracts. The focused suite passed `53` tests; Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, and all pre-commit hooks passed. Whole-tree basedpyright fell `23598 → 23377` warnings with `0 errors, 0 notes`. The file overlaps user-owned changes and remains unstaged. `codebase-memory` `list_projects` recovered in this session; re-index/impact refresh remains queued.
+
 - Working-tree continuation on `2026-08-30`: `tests/test_git_api_endpoints.py` now uses explicit Git API JSON, temporary repository, subprocess, and private-helper contracts. The focused suite passed `28` tests; Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, and pre-commit passed. Whole-tree basedpyright fell `23879 → 23598` warnings with `0 errors, 0 notes`. The file overlaps user-owned changes and remains unstaged.
 
 - Working-tree continuation on `2026-08-30`: `tests/test_system_api_skills.py` now uses explicit HTTP JSON, pytest fixture, SkillLoader/Registry/Publisher test-double, and publish-result contracts. The focused suite passed `20` tests; Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, and pre-commit passed. Whole-tree basedpyright fell `24174 → 23879` warnings with `0 errors, 0 notes`. The file overlaps user-owned changes and remains unstaged.

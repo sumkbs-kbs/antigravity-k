@@ -8,15 +8,15 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 코드 커밋: `c1fc1bf` (AgentFabric 오케스트레이션 테스트 경계 보강; 직전 SkillInstaller 커밋은 `49fe488`)
-- 전체 `basedpyright`: `0 errors, 23598 warnings, 0 notes` (사용자 변경 테스트 경계 `tests/test_system_api_skills.py`와 `tests/test_git_api_endpoints.py`를 추가 정리했으며, 전체 경고는 다른 사용자 변경 파일과 동적 소스 경계에 잔존)
+- 최신 검증 코드 커밋: `c1fc1bf` (AgentFabric 오케스트레이션 테스트 경계 보강; 이후 사용자 dirty 파일 continuation은 미커밋)
+- 전체 `basedpyright`: `0 errors, 23377 warnings, 0 notes` (사용자 변경 테스트 경계 `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`를 추가 정리했으며, 전체 경고는 다른 사용자 변경 파일과 동적 소스 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
 - 사용자 소유 dirty path: 244개. 생성된 `src/antigravity_k/dashboard_dist/` 산출물도 포함
 - Git tracked+untracked Python 871개 AST 검사에서 현존 파일 문법 오류 0건을 확인했다. 삭제 상태인 tracked Python 12개는 외부 호환성 검토 대상으로 남아 있다.
-- codebase-memory MCP: `Transport closed` 상태로 인덱스 영향 분석이 일시 중단됨
-- 앱 재시작 후 `mcp__codebase_memory_mcp__list_projects`와 `index_repository(mode=fast)`를 재시도했지만 모두 `Transport closed`가 재현됐다. 외부 MCP 프로세스/세션 복구 전까지 shell·LSP·회귀 테스트 증빙으로 보완한다.
+- codebase-memory MCP: 이번 continuation에서 `list_projects`가 정상 응답해 프로젝트 인덱스가 확인됐다. 편집된 테스트 파일의 재색인·영향 분석은 변경 안정화 후 `index_status`/`detect_changes`로 이어간다.
+- 이전 앱 재시작 직후에는 `Transport closed`가 재현됐지만 현재 세션에서는 복구됐다. 재발 시 외부 MCP 프로세스/세션 복구 전까지 shell·LSP·회귀 테스트 증빙으로 보완한다.
 - working tree 패키징 검증에서 오래된 무시된 `build/`가 남아 있으면 `pip wheel .` 결과에 이미 삭제된 모듈 10개가 다시 포함되는 현상을 확인했다. 깨끗한 소스 export를 별도 임시 디렉터리에서 빌드하면 `agk = antigravity_k.cli:app` entry-point가 유지되고 삭제 모듈은 포함되지 않는다. 따라서 현재 dirty 변경을 릴리스 검증할 때는 clean export/clean build base를 강제해야 하며, 기존 `scripts/verify_clean_machine.sh`의 `git archive HEAD` 검증은 미커밋 working-tree 변경을 포함하지 않는다는 제한을 최종 게이트에 명시한다.
 
 ## 대시보드 의존성 감사 결과
@@ -67,6 +67,8 @@ date: 2026-08-29
 
 - working-tree continuation: `tests/test_system_api_skills.py`의 FastAPI 응답 JSON, pytest fixture, SkillLoader/Registry/Publisher 테스트 double 경계를 명시 타입으로 전환했다. 파일 basedpyright `0 errors, 0 warnings`, Ruff, Ruff-format, mypy, pre-commit이 통과했고 20개 테스트가 통과했다. 사용자 변경 파일과 겹쳐 자동 stage/commit하지 않았으며, 전체 basedpyright는 `0 errors, 23879 warnings, 0 notes`로 `295`건 감소했다.
 
+- working-tree continuation: `tests/test_system_api_memory_suite.py`의 FastAPI 응답 JSON, MagicMock 메서드, 시스템/메모리·보안 입력 경계를 명시 타입으로 전환했다. 파일 basedpyright `0 errors, 0 warnings`, Ruff, Ruff-format, mypy, pre-commit이 통과했고 53개 테스트가 통과했다. 사용자 변경 파일과 겹쳐 자동 stage/commit하지 않았으며, 전체 basedpyright는 `0 errors, 23377 warnings, 0 notes`로 `221`건 감소했다.
+
 - `9456266`: `tests/test_phase1_e2e.py`의 SkillInstaller/SkillPublisher private 호출, JSON·subprocess·파일 쓰기 경계를 typed callable/cast와 명시적 결과 소비로 정리했다. 36개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `66 → 0`.
 - `49fe488`: `tests/test_skill_installer.py`의 private 메서드·mock·JSON·파일/디렉터리 반환 경계를 typed adapter와 명시적 결과 소비로 정리했다. 77개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
 - `c1fc1bf`: `tests/test_agent_fabric_orchestration.py`의 fake agent, orchestrator protocol, 동적 메서드 교체, registry 접근 경계를 명시했다. 11개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
@@ -74,7 +76,7 @@ date: 2026-08-29
 
 ## 다음 우선순위
 
-1. 사용자 dirty 파일 244개(특히 `tests/test_system_api_memory_suite.py`, `src/antigravity_k/finetune/trainer.py`, `src/antigravity_k/api/routes/system_api.py`)의 경고는 소유권과 hunk를 확인한 뒤에만 단계적으로 정리한다. `tests/test_system_api_skills.py`와 `tests/test_git_api_endpoints.py`는 working-tree에서 0 warnings까지 정리했지만 사용자 변경과 겹쳐 자동 stage/revert하지 않았다.
+1. 사용자 dirty 파일 244개(특히 `src/antigravity_k/finetune/trainer.py`, `src/antigravity_k/api/routes/system_api.py`)의 경고는 소유권과 hunk를 확인한 뒤에만 단계적으로 정리한다. `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`는 working-tree에서 0 warnings까지 정리했지만 사용자 변경과 겹쳐 자동 stage/revert하지 않았다.
 2. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 13`으로 축소했다. 남은 경고는 보호 메서드, 생성자 호환용 동적 경계, JSON decoder·이벤트 버스·state-store의 외부 타입 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
 2. `src/antigravity_k/engine/model_manager.py`의 암시적 문자열 연결·미사용 반환값 진단 3건을 제거해 파일 경고를 `251 → 248`로 줄였다. 관련 lifecycle/generate/stream 테스트 83개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 3. `src/antigravity_k/security/lintai_scanner.py`의 JSON 출력·실행 파일 경계를 명시해 파일 경고를 `5 → 0`으로 줄였다. 관련 3개 테스트와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.

@@ -6,6 +6,8 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+- working-tree continuation on `2026-08-30`: `tests/test_system_api_memory_suite.py`의 FastAPI 응답 JSON, MagicMock 메서드, 시스템/메모리·보안 입력 경계를 명시 타입으로 전환했다. 53개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23377 warnings, 0 notes`로 `221`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
+
 - working-tree continuation on `2026-08-30`: `tests/test_git_api_endpoints.py`의 Git API HTTP JSON, 임시 저장소 fixture, subprocess, private helper 경계를 타입화했다. 28개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23598 warnings, 0 notes`로 `281`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
 
 - working-tree continuation on `2026-08-30`: `tests/test_system_api_skills.py`의 HTTP JSON/pytest fixture/SkillLoader·Registry·Publisher double 경계를 타입화했다. 20개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23879 warnings, 0 notes`로 `295`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
