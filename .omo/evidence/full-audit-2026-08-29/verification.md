@@ -1,5 +1,7 @@
 # Full audit continuation evidence
 
+- Current working-tree diagnostic measurement: whole-tree basedpyright reports `0 errors, 24982 warnings, 0 notes`. The largest remaining files are `tests/test_system_api_skills.py` (295), `tests/test_git_api_endpoints.py` (281), `src/antigravity_k/engine/model_manager.py` (248), and `src/antigravity_k/engine/provider_adapters/inference_providers.py` (247); they are concentrated in dynamic test mocks, provider boundaries, and user-owned changes.
+
 - Current continuation checkpoint: `f6b83a0`; whole-tree basedpyright reports `0 errors, 24985 warnings, 0 notes`. `scripts/demo_debate_run.py` now avoids implicit Git mutation and deprecated `os.system`; only `create_git_checkpoint=True` performs the checkpoint. Isolated default and explicit-checkpoint smoke checks passed, and file warnings fell `5 → 0`. User-owned dirty paths remain preserved.
 
 - Current continuation checkpoint: `1539306`; whole-tree basedpyright reports `0 errors, 25012 warnings, 0 notes`. `src/antigravity_k/engine/model_manager.py` removed two implicit string-concatenation diagnostics and one unused request-model result; lifecycle/generate/stream tests passed (`83`), Ruff/Ruff-format/mypy/pre-commit passed, and file warnings fell `251 → 248`. A current working-tree wheel built with stale ignored `build/` re-included 10 deleted modules, while a clean source export wheel had the correct payload and `agk` entry-point; this packaging gap is now a release-gate item.
