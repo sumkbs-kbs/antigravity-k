@@ -295,3 +295,4 @@ date: 2026-08-29
 - `src/antigravity_k/engine/model_manager.py`의 설정·라우팅·JSON 경계를 명시적 타입 헬퍼와 mock 호환 조건으로 정리해 파일 basedpyright 경고를 `248 → 212`로 줄였다.
 - 모델 수명주기·생성·스트리밍 회귀 테스트 `83 passed`; Ruff, Ruff-format, mypy, pre-commit 및 파일 basedpyright `0 errors/0 warnings`를 통과했다.
 - 전체 basedpyright는 `0 errors, 22944 warnings, 0 notes`; 다음 우선순위는 `inference_providers.py`(235 warnings)이며, 사용자 dirty path 244개는 계속 미스테이지로 보존한다.
+- 커밋 훅의 전체 mypy 단계에서는 변경하지 않은 `src/antigravity_k/engine/tool_loop.py:590`의 기존 대입 타입 오류가 관찰됐다. `model_manager.py` 파일 단위 mypy와 pre-commit은 통과했으며, 이 잔여 오류는 다음 우선순위에서 별도 처리한다.
