@@ -98,3 +98,4 @@ date: 2026-08-30
 2. 결함 수정과 새 회귀 테스트만 독립 커밋하며, 혼합 파일은 `git apply --cached`로 해당 hunk만 stage한다.
 3. 생성물·lockfile·대규모 데이터는 별도 승인 없이는 커밋하지 않는다.
 4. 각 단위는 focused test, Ruff, basedpyright, pre-commit 결과와 제한사항을 ledger에 기록한다.
+- System API/trainer continuation (2026-08-30): `src/antigravity_k/api/routes/system_api.py`의 경고 197건을 JSON/YAML, PTY, 로그·설정, 하네스 경계로 분류해 0건으로 정리했다. 관련 API 회귀 110개가 통과했고 Ruff/Ruff-format/mypy/pre-commit 및 파일 basedpyright 0/0을 확인했다. `trainer.py`는 평가 백엔드 inference callable 계약을 추가해 pre-commit mypy 오류도 해소했으며 파일 basedpyright 0/0이다. 전체 basedpyright는 22,980 warnings, 0 errors이며 사용자 dirty path 244개는 그대로 미스테이지 상태다.

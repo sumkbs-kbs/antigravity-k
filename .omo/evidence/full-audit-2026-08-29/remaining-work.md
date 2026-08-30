@@ -61,6 +61,13 @@ date: 2026-08-29
 - 대시보드 typecheck·lint·Vitest(`42 files / 588 tests`)·production build와 `npm audit --omit=dev`(`0 vulnerabilities`)가 통과했다. Monaco 버전은 `0.56.0`으로 유지했다.
 - 전역 Ruff는 통과했고, 사용자 변경 경로를 포함한 `git diff --check`는 dashboard_dist 생성 파일의 기존 trailing whitespace 4건을 제외하고 통과했다.
 
+## 2026-08-30 system API 경계 정리
+
+- working-tree continuation: `src/antigravity_k/api/routes/system_api.py`의 Pydantic request 모델, JSON/YAML 경계, 캐시 데코레이터, WebSocket PTY side effect, 로그·설정·하네스 응답을 명시 타입으로 좁혔다. `system_api.py` basedpyright 경고는 `197 → 0`이 되었고, Ruff, Ruff-format, mypy, pre-commit이 통과했다.
+- 연관 회귀 스위트 `tests/test_system_api_memory_suite.py`, `tests/test_system_api_skills.py`, `tests/test_models_system_api.py`, `tests/test_git_api_endpoints.py`는 `110 passed`로 완료됐다. 전체 basedpyright는 `0 errors, 22980 warnings, 0 notes`로 감소했다.
+- 같은 pre-commit 실행에서 발견된 `trainer.py` 평가 백엔드 inference 변수의 mypy 다형성 대입 오류도 `Callable[[EvaluationCase, CandidateKind], str]` 계약으로 보강해 해결했다. trainer와 system_api 파일 진단은 모두 `0 errors, 0 warnings`다.
+- 사용자 소유 dirty path는 `244`개로 변함없이 보존됐고, 두 Python 파일의 변경은 기존 사용자 변경과 겹쳐 자동 stage/commit하지 않았다.
+
 ## 2026-08-30 최신 clean 파일 경계 정리
 
 - working-tree continuation: `tests/test_git_api_endpoints.py`의 Git API HTTP JSON, 임시 저장소 fixture, subprocess, private helper 경계를 명시 타입으로 전환했다. 파일 basedpyright `0 errors, 0 warnings`, Ruff, Ruff-format, mypy, pre-commit이 통과했고 28개 테스트가 통과했다. 사용자 변경 파일과 겹쳐 자동 stage/commit하지 않았으며, 전체 basedpyright는 `0 errors, 23598 warnings, 0 notes`로 추가 `281`건 감소했다.
@@ -78,7 +85,7 @@ date: 2026-08-29
 
 ## 다음 우선순위
 
-1. 사용자 dirty 파일 244개(특히 `src/antigravity_k/api/routes/system_api.py`)의 경고는 소유권과 hunk를 확인한 뒤에만 단계적으로 정리한다. `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`, `src/antigravity_k/finetune/trainer.py`는 working-tree에서 0 warnings까지 정리했지만 사용자 변경과 겹쳐 자동 stage/revert하지 않았다.
+1. 사용자 dirty 파일 244개 중 아직 남은 경고를 고경고·고위험 순으로 단계적으로 정리한다. `system_api.py`, `trainer.py`, `tests/test_system_api_skills.py`, `tests/test_git_api_endpoints.py`, `tests/test_system_api_memory_suite.py`는 working-tree에서 0 warnings까지 정리했지만 사용자 변경과 겹쳐 자동 stage/revert하지 않았다.
 2. `src/antigravity_k/engine/tool_loop.py` 소스의 orchestrator/manager 동적 경계를 Protocol로 분리해 파일 경고를 `369 → 13`으로 축소했다. 남은 경고는 보호 메서드, 생성자 호환용 동적 경계, JSON decoder·이벤트 버스·state-store의 외부 타입 경계이며, 파일이 사용자 변경과 겹쳐 현재 미커밋이다. 다음 단계는 소유권 확인 후 hunk 단위 독립 커밋이다.
 2. `src/antigravity_k/engine/model_manager.py`의 암시적 문자열 연결·미사용 반환값 진단 3건을 제거해 파일 경고를 `251 → 248`로 줄였다. 관련 lifecycle/generate/stream 테스트 83개와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
 3. `src/antigravity_k/security/lintai_scanner.py`의 JSON 출력·실행 파일 경계를 명시해 파일 경고를 `5 → 0`으로 줄였다. 관련 3개 테스트와 Ruff, Ruff-format, mypy, pre-commit이 통과했다.
