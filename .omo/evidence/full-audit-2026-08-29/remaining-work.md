@@ -302,3 +302,9 @@ date: 2026-08-29
 - `src/antigravity_k/engine/provider_adapters/inference_providers.py`의 provider registry 설정 조회에서 반환 계약상 불필요한 `isinstance` 분기를 제거했다. 파일 basedpyright 경고는 `235 → 234`로 감소했다.
 - inference-provider 회귀 테스트 `10 passed`; Ruff, Ruff-format, mypy, pre-commit 및 파일 basedpyright `0 errors/0 warnings`를 통과했다. 광범위한 `Any` 제거는 실제 SDK/스트리밍 payload 계약을 깨뜨릴 수 있어 다음 단위에서 경계별 cast/protocol로 분리한다.
 - 전체 basedpyright 재측정은 다음 전체 게이트에서 갱신하며, 사용자 dirty path 244개는 계속 미스테이지로 보존한다.
+
+## Orchestrator agent audit continuation (2026-08-30)
+
+- `src/antigravity_k/engine/orchestrator/agent.py`는 그래프상 상속 구현이 없는 최종 오케스트레이터라 `@final`을 선언했다. 클래스 속성 관련 basedpyright 경고가 `191 → 168`로 감소했다.
+- 오케스트레이터·스트리밍·subagent 회귀 테스트 `22 passed`; Ruff, Ruff-format, 파일 mypy, pre-commit 및 파일 basedpyright `0 errors/0 warnings`를 통과했다.
+- 전체 basedpyright는 `0 errors, 22920 warnings, 0 notes`. 기존 사용자 변경(툴 마스킹 phase, long-context shaping 등)은 커밋에서 분리해 dirty path 244개로 복원했으며, `@final`만 `2b005ab`에 기록했다.
