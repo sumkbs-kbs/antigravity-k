@@ -8,8 +8,8 @@ date: 2026-08-29
 
 ## 현재 기준
 
-- 최신 검증 코드 커밋: `49fe488` (SkillInstaller 테스트 경계 보강; 직전 Phase 1 E2E 커밋은 `9456266`, provider 설정 경계는 `e5efbe4`)
-- 전체 `basedpyright`: `0 errors, 24322 warnings, 0 notes` (Phase 1 E2E·SkillInstaller 테스트 경계를 추가로 정리; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
+- 최신 검증 코드 커밋: `c1fc1bf` (AgentFabric 오케스트레이션 테스트 경계 보강; 직전 SkillInstaller 커밋은 `49fe488`)
+- 전체 `basedpyright`: `0 errors, 24174 warnings, 0 notes` (AgentFabric·Phase 1 E2E·SkillInstaller 테스트 경계를 추가로 정리; 전체 경고는 사용자 변경 파일과 동적 테스트 경계에 잔존)
 - 전체 pytest 기준선: `4806 passed, 6 skipped` (최신 tool-loop·장학금 회귀 포함)
 - 대시보드: typecheck, lint, Vitest `42 files / 588 tests`, production build 통과
 - 대시보드 `npm audit --omit=dev`: `0 vulnerabilities` (Monaco major 변경 없이 override 적용)
@@ -65,7 +65,8 @@ date: 2026-08-29
 
 - `9456266`: `tests/test_phase1_e2e.py`의 SkillInstaller/SkillPublisher private 호출, JSON·subprocess·파일 쓰기 경계를 typed callable/cast와 명시적 결과 소비로 정리했다. 36개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `66 → 0`.
 - `49fe488`: `tests/test_skill_installer.py`의 private 메서드·mock·JSON·파일/디렉터리 반환 경계를 typed adapter와 명시적 결과 소비로 정리했다. 77개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
-- 두 커밋 후 전체 basedpyright는 `0 errors, 24322 warnings, 0 notes`; 사용자 dirty path 244개는 계속 보존·미스테이지 상태다.
+- `c1fc1bf`: `tests/test_agent_fabric_orchestration.py`의 fake agent, orchestrator protocol, 동적 메서드 교체, registry 접근 경계를 명시했다. 11개 테스트, Ruff, Ruff-format, mypy, basedpyright 0 warnings, pre-commit 통과. 파일 경고 `148 → 0`.
+- 세 커밋 후 전체 basedpyright는 `0 errors, 24174 warnings, 0 notes`; 사용자 dirty path 244개는 계속 보존·미스테이지 상태다.
 
 ## 다음 우선순위
 
