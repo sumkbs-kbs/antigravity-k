@@ -289,3 +289,9 @@ date: 2026-08-29
 - 삭제된 핵심 소스/테스트: `agents/commands.py`, `agents/coordinator.py`, `agents/team_manager.py`, `engine/{json_logger,logging_util,memory_hygiene}.py`, `integrations/{discord_bot,slack_bot}.py`, `knowledge/artifact_service.py`, `scripts/ingest_obsidian.py`, `tests/{test_commands,test_multi_agent}.py`. 현재 `src/tests/scripts/.agent`에서 이 모듈을 직접 import하는 참조는 확인되지 않았지만, 패키지 외부 사용 가능성은 별도 import/배포 검증이 필요하다.
 - `dashboard_dist`는 기존 해시 산출물 삭제와 새 해시 산출물 추가가 함께 발생했다. 빌드 결과 churn으로 분류하고, 소스 대시보드 검증과 별도로 승인 전까지 stage하지 않는다.
 - `src` 148개는 API·엔진·에이전트·도구로 분리해 각 diff와 회귀 테스트를 매칭해야 한다. 현재까지 사용자 변경을 포함한 전체 dirty tree를 임의로 stage/revert하지 않았다.
+
+## Model manager audit continuation (2026-08-30)
+
+- `src/antigravity_k/engine/model_manager.py`의 설정·라우팅·JSON 경계를 명시적 타입 헬퍼와 mock 호환 조건으로 정리해 파일 basedpyright 경고를 `248 → 212`로 줄였다.
+- 모델 수명주기·생성·스트리밍 회귀 테스트 `83 passed`; Ruff, Ruff-format, mypy, pre-commit 및 파일 basedpyright `0 errors/0 warnings`를 통과했다.
+- 전체 basedpyright는 `0 errors, 22944 warnings, 0 notes`; 다음 우선순위는 `inference_providers.py`(235 warnings)이며, 사용자 dirty path 244개는 계속 미스테이지로 보존한다.
