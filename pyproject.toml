@@ -99,6 +99,7 @@ antigravity_k = [
 ]
 
 [tool.basedpyright]
+include = ["src", "scripts"]
 exclude = [
     ".venv",
     ".git",

@@ -354,6 +354,9 @@ _PUBLIC_EXACT_PATHS = frozenset(
     {
         "/api/auth/login",
         "/api/auth/token",
+        "/api/remote/pairing/complete",
+        "/api/remote/pairing/relay",
+        "/api/remote/pairing/relay/poll",
         "/health",
         "/v1/health",
         "/api/health/deep",

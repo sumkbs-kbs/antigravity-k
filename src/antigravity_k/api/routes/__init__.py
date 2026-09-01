@@ -19,6 +19,7 @@ from .git_api import router as git_router
 from .job_api import router as job_api_router
 from .kanban_api import router as kanban_api_router
 from .models_api import router as models_router
+from .remote_pairing_api import router as remote_pairing_router
 from .security_api import router as security_router
 from .system_api import router as system_api_router
 from .task_api import router as task_api_router
@@ -50,6 +51,7 @@ api_router.include_router(agent_tools_router, tags=["agent_tools"])
 api_router.include_router(evolution_router, tags=["agent_tools"])
 api_router.include_router(agent_activity_router, tags=["agent_activity"])
 api_router.include_router(workspace_links_router, tags=["workspaces"])
+api_router.include_router(remote_pairing_router, tags=["remote"])
 api_router.include_router(approval_router, tags=["approval"])
 api_router.include_router(git_router, tags=["git"])
 api_router.include_router(code_router, tags=["code"])
