@@ -1,23 +1,32 @@
 """Typed configuration readers shared by orchestrator handlers."""
 
+from collections.abc import Mapping
+from typing import Protocol, cast
+
 from antigravity_k.engine.memory_contracts import JsonValue
 
+__all__ = ["_amplification_section", "_cov_settings", "_dict_value", "_raw_config", "cov_settings"]
 
-def _raw_config(orch) -> dict[str, JsonValue]:
+
+class OrchestratorConfigLike(Protocol):
+    config: Mapping[str, JsonValue] | None
+
+
+def _raw_config(orch: OrchestratorConfigLike) -> Mapping[str, JsonValue]:
     config = getattr(orch, "config", None)
-    return config if isinstance(config, dict) else {}
+    return cast(Mapping[str, JsonValue], config) if isinstance(config, Mapping) else {}
 
 
 def _dict_value(value: JsonValue | None) -> dict[str, JsonValue]:
     return value if isinstance(value, dict) else {}
 
 
-def _amplification_section(orch, name: str) -> dict[str, JsonValue]:
+def _amplification_section(orch: OrchestratorConfigLike, name: str) -> dict[str, JsonValue]:
     amplification = _dict_value(_raw_config(orch).get("amplification"))
     return _dict_value(amplification.get(name))
 
 
-def _cov_settings(orch) -> tuple[bool, str, int, float, int]:
+def cov_settings(orch: OrchestratorConfigLike) -> tuple[bool, str, int, float, int]:
     cov = _amplification_section(orch, "cov")
     raw = _raw_config(orch)
     enabled = bool(cov.get("enabled", True))
@@ -35,3 +44,6 @@ def _cov_settings(orch) -> tuple[bool, str, int, float, int]:
     threshold = float(threshold_value) if isinstance(threshold_value, (int, float)) else 0.4
     max_iter = int(max_iter_value) if isinstance(max_iter_value, (int, float)) else 2
     return enabled, model, min_len, threshold, max_iter
+
+
+_cov_settings = cov_settings

@@ -16,11 +16,65 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, final
+from typing import Literal, NotRequired, TypedDict, cast, final
 
 logger = logging.getLogger("data_extractor")
+
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+type MetricKey = Literal[
+    "total_calls",
+    "stock_attempts",
+    "stock_success",
+    "weather_attempts",
+    "weather_success",
+    "exchange_attempts",
+    "exchange_success",
+    "date_attempts",
+    "date_found",
+    "errors",
+    "speculative_filtered",
+]
+
+
+class _RecentCall(TypedDict):
+    timestamp: str
+    type: str
+    success: bool
+
+
+class _SuccessRates(TypedDict):
+    stock: float
+    weather: float
+    exchange: float
+    overall: float
+
+
+class _MetricsState(TypedDict):
+    total_calls: int
+    stock_attempts: int
+    stock_success: int
+    weather_attempts: int
+    weather_success: int
+    exchange_attempts: int
+    exchange_success: int
+    date_attempts: int
+    date_found: int
+    errors: int
+    speculative_filtered: int
+    recent_calls: list[_RecentCall]
+    success_rates: NotRequired[_SuccessRates]
+    total_attempts: NotRequired[int]
+    total_successes: NotRequired[int]
+
+
+def _as_json_object(value: object) -> dict[str, JsonValue] | None:
+    if not isinstance(value, dict):
+        return None
+    items = cast(Mapping[object, object], value).items()
+    return {key: cast(JsonValue, item) for key, item in items if isinstance(key, str)}
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────
 
@@ -212,7 +266,7 @@ class ExtractionMetrics:
     """
 
     _lock = threading.Lock()
-    _metrics: dict[str, Any] = {
+    _metrics: _MetricsState = {
         # 호출 카운트
         "total_calls": 0,
         "stock_attempts": 0,
@@ -231,9 +285,10 @@ class ExtractionMetrics:
     }
 
     @classmethod
-    def increment(cls, key: str, delta: int = 1) -> None:
+    def increment(cls, key: MetricKey, delta: int = 1) -> None:
         with cls._lock:
-            cls._metrics[key] = cls._metrics.get(key, 0) + delta
+            value = cls._metrics[key]
+            cls._metrics[key] = value + delta
 
     @classmethod
     def record_call(cls, call_type: str, success: bool) -> None:
@@ -252,10 +307,10 @@ class ExtractionMetrics:
                 cls._metrics["recent_calls"] = cls._metrics["recent_calls"][-50:]
 
     @classmethod
-    def get_stats(cls) -> dict[str, Any]:
+    def get_stats(cls) -> _MetricsState:
         """현재까지 수집된 모든 메트릭 통계를 반환합니다."""
         with cls._lock:
-            stats = dict(cls._metrics)
+            stats = cls._metrics.copy()
 
             # 각 타입별 성공률 계산
             stock_rate = 0.0
@@ -299,7 +354,21 @@ class ExtractionMetrics:
     def reset(cls) -> None:
         """모든 메트릭을 초기화합니다 (테스트용)."""
         with cls._lock:
-            cls._metrics = {k: (0 if isinstance(v, int) else []) for k, v in cls._metrics.items()}
+            for key in (
+                "total_calls",
+                "stock_attempts",
+                "stock_success",
+                "weather_attempts",
+                "weather_success",
+                "exchange_attempts",
+                "exchange_success",
+                "date_attempts",
+                "date_found",
+                "errors",
+                "speculative_filtered",
+            ):
+                cls._metrics[key] = 0
+            cls._metrics["recent_calls"] = []
 
 
 # ─── 추출기 ────────────────────────────────────────────────────────
@@ -448,11 +517,13 @@ class DataExtractor:
     def _load_stock_names(self) -> None:
         """stock_code_validator에서 종목명-코드 매핑을 가져옵니다."""
         try:
-            from antigravity_k.engine.stock_code_validator import _STOCK_CODE_MAP, _STOCK_NAME_TO_CODE
+            from antigravity_k.engine import stock_code_validator
 
-            self._stock_names = dict(_STOCK_NAME_TO_CODE)
+            name_to_code = cast(dict[str, str], getattr(stock_code_validator, "_STOCK_NAME_TO_CODE"))
+            code_map = cast(dict[str, str], getattr(stock_code_validator, "_STOCK_CODE_MAP"))
+            self._stock_names = dict(name_to_code)
             # 코드→이름 역방향도 추가
-            for code, name in _STOCK_CODE_MAP.items():
+            for code, name in code_map.items():
                 self._stock_names[code] = name
                 self._stock_names[name] = code
         except ImportError:
@@ -501,7 +572,7 @@ class DataExtractor:
 
     # ─── TOP 1 JSON 블록 추출 ──────────────────────────────────
 
-    def _extract_top1_json(self, text: str) -> dict[str, Any] | None:
+    def _extract_top1_json(self, text: str) -> dict[str, JsonValue] | None:
         """검색 결과 텍스트에서 TOP 1 심층 분석의 JSON 블록을 추출합니다.
 
         웹 검색 결과의 'Markdown Content:' 섹션에 포함된
@@ -547,8 +618,8 @@ class DataExtractor:
         if json_end > 0:
             json_str = after_content[brace_start:json_end]
             try:
-                data = json.loads(json_str)
-                if isinstance(data, dict) and "answer" in data:
+                data = _as_json_object(cast(object, json.loads(json_str)))
+                if data is not None and "answer" in data:
                     return data
             except (json.JSONDecodeError, ValueError):
                 logger.debug("TOP 1 JSON 파싱 실패 (truncated?)", exc_info=True)
@@ -591,7 +662,7 @@ class DataExtractor:
 
         return None
 
-    def _extract_answer_texts(self, data: dict[str, Any]) -> list[str]:
+    def _extract_answer_texts(self, data: dict[str, JsonValue]) -> list[str]:
         """TOP 1 JSON에서 answer.text와 results content를 텍스트 리스트로 추출합니다.
 
         Args:
@@ -714,7 +785,7 @@ class DataExtractor:
                     continue
 
     def _extract_from_top1_json(
-        self, data: dict[str, Any], source_index: int = 0, raw_text: str = ""
+        self, data: dict[str, JsonValue], source_index: int = 0, raw_text: str = ""
     ) -> ExtractedStockPrice | None:
         """TOP 1 JSON의 answer.text에서 주식 가격 데이터를 추출합니다.
 

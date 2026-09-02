@@ -22,13 +22,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("antigravity_k.orchestrator.setup")
 
 
-class _ManagerInput(Protocol):
-    ...
+class _ManagerInput(Protocol): ...
+
 
 def _json_mapping(value: JsonValue) -> Mapping[str, JsonValue]:
     if isinstance(value, dict):
         return value
     return {}
+
 
 # ─── Planning Mode fallback prompt (ArtifactEngine 미사용 시) ──────────
 
@@ -45,11 +46,7 @@ PLANNING_MODE_BLOCK = (
 def load_agent_models(config: Mapping[str, JsonValue]) -> dict[str, str]:
     """Config dict에서 역할별 모델 매핑을 추출합니다."""
     raw_models = _json_mapping(config.get("agent_models", {}))
-    return {
-        role: model
-        for role, model in raw_models.items()
-        if isinstance(model, str)
-    }
+    return {role: model for role, model in raw_models.items() if isinstance(model, str)}
 
 
 def create_state_graph():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import final, override
 
 import anyio
 import httpx
@@ -39,28 +40,34 @@ _CONNECTION_ERRORS = (
 )
 
 
+@final
 class _ReadToolDescriptor(BaseTool):
-    category = ToolCategory.DATA
-    render_in = RenderIn.BACKGROUND
-    risk_level = RiskLevel.SAFE
-    tags = ["unsloth", "studio", "mcp", "read-only"]
+    category: ToolCategory = ToolCategory.DATA
+    render_in: RenderIn = RenderIn.BACKGROUND
+    risk_level: RiskLevel = RiskLevel.SAFE
+    tags: list[str] = ["unsloth", "studio", "mcp", "read-only"]
+    _tool: UnslothStudioReadTool
 
     def __init__(self, tool: UnslothStudioReadTool) -> None:
         self._tool = tool
 
     @property
+    @override
     def name(self) -> str:
         return self._tool.value
 
     @property
+    @override
     def description(self) -> str:
         return "Read local Unsloth Studio status without changing server state."
 
     @property
+    @override
     def parameters_schema(self) -> dict[str, JsonValue]:
         return {"type": "object", "additionalProperties": False}
 
-    def execute(self, **kwargs: JsonValue) -> JsonValue:
+    @override
+    def execute(self, **kwargs: object) -> JsonValue:
         raise _DescriptorExecutionError(
             "Unsloth Studio descriptors cannot execute outside the guarded adapter.",
         )
@@ -90,7 +97,12 @@ def _payload_from(result: CallToolResult) -> JsonValue | None:
     return _JSON_VALUE.validate_python(texts)
 
 
+@final
 class UnslothStudioService:
+    _settings: UnslothStudioSettings
+    _manager: MCPSessionManager
+    _registry: ToolRegistry
+
     def __init__(
         self,
         *,
@@ -122,7 +134,7 @@ class UnslothStudioService:
             connected = True
             advertised = {tool.name for tool in (await session.list_tools()).tools}
             available_tools = tuple(tool for tool in UNSLOTH_STUDIO_READ_TOOLS if tool.value in advertised)
-            results = []
+            results: list[UnslothStudioToolResult] = []
             for tool in UNSLOTH_STUDIO_READ_TOOLS:
                 if tool not in available_tools:
                     results.append(UnslothStudioToolResult(tool=tool, ok=False, error="not_advertised"))

@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from mcp.client.session import ClientSession
-from mcp.types import CallToolResult, ListToolsResult, Tool
+from mcp.types import CallToolResult
 from pydantic import SecretStr, ValidationError
 
 from antigravity_k.engine.approval_manager import ApprovalDecision, ApprovalManager
@@ -30,8 +29,9 @@ from antigravity_k.tools.mcp_session_manager import MCPSessionManager
 from antigravity_k.tools.tool_contracts import Permission, PermissionDecision, ToolSpec
 from antigravity_k.tools.tool_registry import ToolRegistry
 
+from .test_unsloth_training_doubles import AsyncCallRecorder, SessionDouble
 
-@dataclass(frozen=True, slots=True)
+
 class _MemoryProbe:
     def snapshot(self) -> UnslothMemorySnapshot:
         return UnslothMemorySnapshot(total_bytes=1_000, available_bytes=900)
@@ -41,9 +41,8 @@ class _MemoryProbe:
 class _Harness:
     service: UnslothTrainingService
     broker: UnslothResourceBroker
-    session: MagicMock
-    manager: MagicMock
-    registry: MagicMock
+    session_call_tool: AsyncCallRecorder[CallToolResult]
+    manager_connect: AsyncCallRecorder[SessionDouble]
 
 
 def _request(idempotency_key: str = "training-service-0001") -> UnslothTrainingStartRequest:
@@ -161,18 +160,13 @@ def _harness(
     call_result: CallToolResult,
 ) -> _Harness:
     broker = UnslothResourceBroker(tmp_path / "resources.sqlite3", _MemoryProbe())
-    session = MagicMock(spec=ClientSession)
-    session.list_tools = AsyncMock(
-        return_value=ListToolsResult(
-            tools=[Tool(name="start_training", description="start", inputSchema={"type": "object"})],
-        ),
-    )
-    session.call_tool = AsyncMock(return_value=call_result)
+    session = SessionDouble.with_result(call_result)
     manager = MagicMock(spec=MCPSessionManager)
-    manager.connect_streamable_http = AsyncMock(return_value=session)
-    manager.disconnect_server = AsyncMock()
+    manager_connect = AsyncCallRecorder(session)
+    manager.connect_streamable_http = manager_connect
+    manager.disconnect_server = AsyncCallRecorder(None)
     registry = MagicMock(spec=ToolRegistry)
-    registry.authorize_tool.return_value = _policy_prompt()
+    registry.authorize_tool = MagicMock(return_value=_policy_prompt())
     service = UnslothTrainingService(
         settings=UnslothStudioSettings(token=SecretStr("studio-secret"), write_tools_enabled=True),
         manager=manager,
@@ -180,7 +174,7 @@ def _harness(
         broker=broker,
         approvals=approvals,
     )
-    return _Harness(service=service, broker=broker, session=session, manager=manager, registry=registry)
+    return _Harness(service, broker, session.call_tool, manager_connect)
 
 
 @pytest.mark.asyncio
@@ -202,8 +196,14 @@ async def test_approved_training_binds_the_remote_job_to_the_reservation(tmp_pat
     assert outcome.state is UnslothTrainingLaunchState.STARTED
     assert outcome.resource_job_id == "job-1"
     assert harness.broker.status().active_reservations[0].resource_job_id == "job-1"
-    harness.session.call_tool.assert_awaited_once()
-    arguments = harness.session.call_tool.await_args.kwargs["arguments"]["config"]
+    harness.session_call_tool.assert_awaited_once()
+    call = harness.session_call_tool.await_args
+    assert call is not None
+    arguments_value = call.kwargs.get("arguments")
+    assert isinstance(arguments_value, dict)
+    config = arguments_value.get("config")
+    assert isinstance(config, dict)
+    arguments = config
     assert arguments["start_request_id"] == request.admission.idempotency_key
     assert arguments["load_in_4bit"] is True
     assert arguments["trust_remote_code"] is False
@@ -224,13 +224,13 @@ async def test_bound_job_replay_does_not_call_remote_training_twice(tmp_path: Pa
         ),
     )
     _ = await harness.service.launch(request)
-    harness.session.call_tool.reset_mock()
+    harness.session_call_tool.reset_mock()
 
     replay = await harness.service.launch(request)
 
     assert replay.state is UnslothTrainingLaunchState.IDEMPOTENT_REPLAY
     assert replay.resource_job_id == "job-replay"
-    harness.session.call_tool.assert_not_awaited()
+    harness.session_call_tool.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -267,7 +267,7 @@ async def test_connection_loss_after_remote_call_keeps_reservation_for_safe_repl
         approvals,
         CallToolResult(content=[], structuredContent=None, isError=False),
     )
-    harness.session.call_tool.side_effect = OSError("connection lost")
+    harness.session_call_tool.side_effect = OSError("connection lost")
 
     outcome = await harness.service.launch(request)
 
@@ -290,4 +290,4 @@ async def test_approval_is_bound_to_the_exact_training_request(tmp_path: Path) -
 
     assert outcome.state is UnslothTrainingLaunchState.APPROVAL_DENIED
     assert harness.broker.status().active_reservations == ()
-    harness.manager.connect_streamable_http.assert_not_awaited()
+    harness.manager_connect.assert_not_awaited()

@@ -100,7 +100,9 @@ def main() -> int:
     print()
     print(f"baseline(1샘플): {baseline_correct}/{len(QUESTIONS)} 정답, 평균 {statistics.mean(baseline_lat):.1f}초")
     print(f"SC(n={args.n_samples})   : {sc_correct}/{len(QUESTIONS)} 정답, 평균 {statistics.mean(sc_lat):.1f}초")
-    print(f"델타: {sc_correct - baseline_correct:+d} | 지연 배율: {statistics.mean(sc_lat) / max(statistics.mean(baseline_lat), 0.001):.2f}x")
+    print(
+        f"델타: {sc_correct - baseline_correct:+d} | 지연 배율: {statistics.mean(sc_lat) / max(statistics.mean(baseline_lat), 0.001):.2f}x"
+    )
 
     if args.output:
         payload = {

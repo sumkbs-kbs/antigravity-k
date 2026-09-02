@@ -14,6 +14,7 @@ import re
 import time
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
+from typing import cast, final, override
 from urllib.parse import parse_qs, quote_plus, urljoin, urlsplit
 
 import anyio
@@ -47,6 +48,29 @@ from .web_search_quality import (
 logger = logging.getLogger("web_search")
 
 
+def _json_object(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw: dict[object, object] = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _json_list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        return []
+    raw: list[object] = cast(list[object], value)
+    return list(raw)
+
+
+def _json_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _json_float(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float)) else default
+
+
+@final
 class WebSearchEngine:
     """통합 웹 검색 엔진.
 
@@ -86,7 +110,7 @@ class WebSearchEngine:
         return time.monotonic() >= self._provider_cooldowns.get(provider, 0.0)
 
     def _provider_succeeded(self, provider: str) -> None:
-        self._provider_cooldowns.pop(provider, None)
+        _ = self._provider_cooldowns.pop(provider, None)
 
     def _provider_failed(self, provider: str) -> None:
         self._provider_cooldowns[provider] = time.monotonic() + 30.0
@@ -107,7 +131,7 @@ class WebSearchEngine:
             )
         return self._client
 
-    async def close(self):
+    async def close(self) -> None:
         """HTTP 클라이언트 종료."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
@@ -170,8 +194,8 @@ class WebSearchEngine:
                 re.DOTALL,
             )
 
-            titles = title_pattern.findall(html)
-            snippets = snippet_pattern.findall(html)
+            titles: list[tuple[str, str]] = title_pattern.findall(html)
+            snippets: list[str] = snippet_pattern.findall(html)
 
             for i, (url_raw, title_html) in enumerate(titles[: self.fetch_results]):
                 title = re.sub(r"<[^>]+>", "", title_html).strip()
@@ -297,16 +321,17 @@ class WebSearchEngine:
                 return results
             self._provider_succeeded("tavily")
 
-            data = resp.json()
-            for i, item in enumerate(data.get("results", [])[: self.fetch_results]):
+            data = _json_object(cast(object, resp.json()))
+            for i, item in enumerate(_json_list(data.get("results"))[: self.fetch_results]):
+                item_data = _json_object(item)
                 results.append(
                     SearchResult(
-                        title=item.get("title", ""),
-                        url=item.get("url", ""),
-                        snippet=item.get("content", ""),
+                        title=_json_text(item_data.get("title")),
+                        url=_json_text(item_data.get("url")),
+                        snippet=_json_text(item_data.get("content")),
                         source="Tavily AI",
                         timestamp=datetime.now(UTC).isoformat(),
-                        relevance_score=item.get("score", 1.0 - i * 0.1),
+                        relevance_score=_json_float(item_data.get("score"), 1.0 - i * 0.1),
                     ),
                 )
         except httpx.RequestError:
@@ -335,26 +360,21 @@ class WebSearchEngine:
                 self._provider_failed("self_hosted")
                 return []
 
-            payload = response.json()
-            items = payload.get("results", []) if isinstance(payload, dict) else []
+            payload = _json_object(cast(object, response.json()))
+            items = _json_list(payload.get("results"))
             results: list[SearchResult] = []
             for index, item in enumerate(items[: self.fetch_results]):
-                if not isinstance(item, dict):
-                    continue
-                url = str(item.get("url", ""))
-                title = str(item.get("title", ""))
+                item_data = _json_object(item)
+                url = _json_text(item_data.get("url"))
+                title = _json_text(item_data.get("title"))
                 if not url or not title:
                     continue
-                score = item.get("score", 1.0 - (index * 0.08))
-                try:
-                    relevance_score = float(score)
-                except (TypeError, ValueError):
-                    relevance_score = 1.0 - (index * 0.08)
+                relevance_score = _json_float(item_data.get("score"), 1.0 - (index * 0.08))
                 results.append(
                     SearchResult(
                         title=title,
                         url=url,
-                        snippet=str(item.get("content", "")),
+                        snippet=_json_text(item_data.get("content")),
                         source="Antigravity Search",
                         timestamp=datetime.now(UTC).isoformat(),
                         relevance_score=max(0.0, min(1.0, relevance_score)),
@@ -391,16 +411,17 @@ class WebSearchEngine:
                 return results
             self._provider_succeeded("searxng")
 
-            data = resp.json()
-            for i, item in enumerate(data.get("results", [])[: self.max_results]):
+            data = _json_object(cast(object, resp.json()))
+            for i, item in enumerate(_json_list(data.get("results"))[: self.max_results]):
+                item_data = _json_object(item)
                 results.append(
                     SearchResult(
-                        title=item.get("title", ""),
-                        url=item.get("url", ""),
-                        snippet=item.get("content", ""),
-                        source=f"SearXNG/{item.get('engine', '')}",
+                        title=_json_text(item_data.get("title")),
+                        url=_json_text(item_data.get("url")),
+                        snippet=_json_text(item_data.get("content")),
+                        source=f"SearXNG/{_json_text(item_data.get('engine'))}",
                         timestamp=datetime.now(UTC).isoformat(),
-                        relevance_score=item.get("score", 1.0 - i * 0.1),
+                        relevance_score=_json_float(item_data.get("score"), 1.0 - i * 0.1),
                     ),
                 )
         except httpx.RequestError:
@@ -435,21 +456,24 @@ class WebSearchEngine:
                 return results
             self._provider_succeeded("jina")
 
-            data = resp.json()
-            items = data if isinstance(data, list) else data.get("data", data.get("results", []))
+            raw_data = cast(object, resp.json())
+            data = _json_object(raw_data)
+            items = _json_list(cast(list[object], raw_data)) if isinstance(raw_data, list) else _json_list(
+                data.get("data", data.get("results")),
+            )
 
             for i, item in enumerate(items[: self.fetch_results]):
-                if isinstance(item, dict):
-                    results.append(
-                        SearchResult(
-                            title=item.get("title", ""),
-                            url=item.get("url", ""),
-                            snippet=str(item.get("description", item.get("content", "")) or "")[:300],
-                            source="Jina Search",
-                            timestamp=datetime.now(UTC).isoformat(),
-                            relevance_score=1.0 - (i * 0.08),
-                        ),
-                    )
+                item_data = _json_object(item)
+                results.append(
+                    SearchResult(
+                        title=_json_text(item_data.get("title")),
+                        url=_json_text(item_data.get("url")),
+                        snippet=_json_text(item_data.get("description", item_data.get("content")))[:300],
+                        source="Jina Search",
+                        timestamp=datetime.now(UTC).isoformat(),
+                        relevance_score=1.0 - (i * 0.08),
+                    ),
+                )
         except (httpx.RequestError, json.JSONDecodeError):
             self._provider_failed("jina")
             logger.warning("Jina Search 오류 (폴백 전환)")
@@ -458,7 +482,7 @@ class WebSearchEngine:
 
     # ─── Jina Reader ──────────────────────────────────────────────
 
-    def _extract_content_jina(self, url: str, max_chars: int = 2000) -> str:
+    def extract_content_jina(self, url: str, max_chars: int = 2000) -> str:
         """Jina Reader (r.jina.ai) — URL을 클린 마크다운으로 변환."""
         if resolve_public_http_url_sync(url) is None:
             return ""
@@ -482,6 +506,8 @@ class WebSearchEngine:
         except httpx.RequestError:
             logger.warning("Jina Reader 오류", exc_info=True)
             return ""
+
+    _extract_content_jina = extract_content_jina
 
     # ─── 통합 검색 ───────────────────────────────────────────────
 
@@ -692,21 +718,23 @@ def _boost_by_trusted_domains(results: list[SearchResult], query: str):
 # ─── 웹 페이지 스크래핑 ──────────────────────────────────────────
 
 
+@final
 class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
-    def __init__(self, delegate=None) -> None:
+    def __init__(self, delegate: httpcore.AsyncNetworkBackend | None = None) -> None:
         self._delegate = delegate or AutoBackend()
         self._pins: dict[str, str] = {}
 
     def pin(self, hostname: str, address: str) -> None:
         self._pins[hostname.rstrip(".").lower()] = address
 
+    @override
     async def connect_tcp(
         self,
         host: str,
         port: int,
         timeout: float | None = None,
         local_address: str | None = None,
-        socket_options=None,
+        socket_options: Iterable[tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]] | None = None,
     ) -> httpcore.AsyncNetworkStream:
         address = self._pins.get(host.rstrip(".").lower())
         if address is None:
@@ -719,23 +747,32 @@ class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
             socket_options=socket_options,
         )
 
-    async def connect_unix_socket(self, path: str, timeout: float | None = None, socket_options=None):
+    @override
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
         return await self._delegate.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
 
+    @override
     async def sleep(self, seconds: float) -> None:
         await self._delegate.sleep(seconds)
 
 
+@final
 class _PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
     def __init__(self) -> None:
         super().__init__(trust_env=False)
-        self._pinned_backend = _PinnedNetworkBackend()
-        self._pool._network_backend = self._pinned_backend
+        self._pinned_backend: _PinnedNetworkBackend = _PinnedNetworkBackend()
+        setattr(self._pool, "_network_backend", self._pinned_backend)
 
     def pin(self, hostname: str, address: str) -> None:
         self._pinned_backend.pin(hostname, address)
 
 
+@final
 class PageScraper:
     """검색 결과 URL의 본문을 추출합니다. (httpx + 정규식)"""
 
@@ -789,7 +826,7 @@ class PageScraper:
                 return f"[스크래핑 오류: {e}]"
 
             if 300 <= resp.status_code < 400:
-                location = resp.headers.get("location", "")
+                location = str(cast(object, resp.headers.get("location", "")))
                 if not location:
                     return f"[HTTP {resp.status_code}]"
                 current_url = urljoin(current_url, location)

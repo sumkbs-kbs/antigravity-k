@@ -24,14 +24,118 @@ import json
 import logging
 import os
 import time
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Final, Protocol, TypedDict, cast, final
 
 from antigravity_k.tools.egress_policy import validate_httpx_request_async
 
 logger = logging.getLogger("antigravity_k.autonomous_qa")
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page
+
+
+class _ModelManagerLike(Protocol):
+    def get_target_for_role(self, role_name: str, default_role: str = "reasoning") -> str: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+class _AttemptReport(TypedDict):
+    iteration: int
+    defects: int
+    patches: int
+    resolved: bool
+    visual_diff: float
+    duration_ms: float
+
+
+class _ReportDict(TypedDict):
+    url: str
+    status: str
+    total_iterations: int
+    total_defects_found: int
+    total_fixes_applied: int
+    total_resolved: int
+    performance: dict[str, object]
+    viewport_results: dict[str, "_ViewportResult"]
+    console_errors_count: int
+    duration_ms: float
+    attempts: list[_AttemptReport]
+
+
+_ViewportResult = TypedDict(
+    "_ViewportResult",
+    {
+        "viewport": dict[str, int],
+        "horizontal_overflow": bool,
+        "app_visible": bool,
+        "pass": bool,
+        "summary": str,
+    },
+)
+
+
+def _object_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    mapping = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in mapping.items()}
+
+
+def _text_field(value: object, key: str, default: str = "") -> str:
+    candidate = _object_dict(value).get(key, default)
+    return candidate if isinstance(candidate, str) else default
+
+
+def _bool_field(value: object, key: str, default: bool = False) -> bool:
+    candidate = _object_dict(value).get(key, default)
+    return candidate if isinstance(candidate, bool) else default
+
+
+def _defects_from_json(value: object) -> list["UIDefect"]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    defects: list[UIDefect] = []
+    for item in items:
+        description = _text_field(item, "description")
+        if description:
+            defects.append(
+                UIDefect(
+                    description=description,
+                    severity=_text_field(item, "severity", "medium"),
+                    suggested_fix=_text_field(item, "suggested_fix"),
+                    file_path=_text_field(item, "file_hint"),
+                ),
+            )
+    return defects
+
+
+def _json_array_text(value: str) -> object:
+    import re
+
+    json_match = re.search(r"\[.*\]", value, re.DOTALL)
+    return cast(object, json.loads(json_match.group())) if json_match else []
+
+
+def _patches_from_json(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    patches: list[dict[str, str]] = []
+    for item in items:
+        patch = {
+            "file": _text_field(item, "file"),
+            "search": _text_field(item, "search"),
+            "replace": _text_field(item, "replace"),
+        }
+        if patch["file"] and patch["search"]:
+            patches.append(patch)
+    return patches
 
 
 # ─── 데이터 모델 ───────────────────────────────────────────────
@@ -88,13 +192,13 @@ class AutonomousQAReport:
     total_resolved: int = 0
     status: FixStatus = FixStatus.PENDING
     attempts: list[FixAttempt] = field(default_factory=list)
-    performance_metrics: dict[str, Any] = field(default_factory=dict)
-    viewport_results: dict[str, Any] = field(default_factory=dict)
-    console_errors: list[dict[str, Any]] = field(default_factory=list)
+    performance_metrics: dict[str, object] = field(default_factory=dict)
+    viewport_results: dict[str, dict[str, object]] = field(default_factory=dict)
+    console_errors: list[dict[str, object]] = field(default_factory=list)
     duration_ms: float = 0
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> _ReportDict:
         """To Dict.
 
         Returns:
@@ -109,7 +213,10 @@ class AutonomousQAReport:
             "total_fixes_applied": self.total_fixes_applied,
             "total_resolved": self.total_resolved,
             "performance": self.performance_metrics,
-            "viewport_results": self.viewport_results,
+            "viewport_results": {
+                name: cast(_ViewportResult, cast(object, result))
+                for name, result in self.viewport_results.items()
+            },
             "console_errors_count": len(self.console_errors),
             "duration_ms": round(self.duration_ms, 1),
             "attempts": [
@@ -156,8 +263,8 @@ class AutonomousQAReport:
         if self.viewport_results:
             lines.append("## 📱 반응형 테스트")
             for vp, result in self.viewport_results.items():
-                vp_icon = "✅" if result.get("pass") else "⚠️"
-                lines.append(f"- {vp_icon} **{vp}**: {result.get('summary', 'N/A')}")
+                vp_icon = "✅" if _bool_field(result, "pass") else "⚠️"
+                lines.append(f"- {vp_icon} **{vp}**: {_text_field(result, 'summary', 'N/A')}")
             lines.append("")
 
         for attempt in self.attempts:
@@ -176,13 +283,14 @@ class AutonomousQAReport:
 # ─── 자율 QA 루프 엔진 ────────────────────────────────────────
 
 
+@final
 class AutonomousQAEngine:
     """완전 자율 폐쇄 루프 QA 엔진.
 
     Screenshot → Vision → CodeFix → Apply → Re-test → Verify
     """
 
-    VIEWPORTS = {
+    VIEWPORTS: Final[dict[str, dict[str, int]]] = {
         "desktop": {"width": 1280, "height": 800},
         "tablet": {"width": 768, "height": 1024},
         "mobile": {"width": 375, "height": 812},
@@ -196,7 +304,7 @@ class AutonomousQAEngine:
         coding_model: str = "qwen3.6:latest",
         max_iterations: int = 3,
         project_root: str = "",
-        model_manager: Any | None = None,
+        model_manager: _ModelManagerLike | None = None,
     ):
         """Initialize the AutonomousQAEngine.
 
@@ -209,13 +317,13 @@ class AutonomousQAEngine:
             project_root (str): str project root.
 
         """
-        self.dashboard_url = dashboard_url
-        self.ollama_url = ollama_url
-        self.vision_model = vision_model
-        self.coding_model = coding_model
-        self.max_iterations = max_iterations
-        self.model_manager = model_manager
-        self.project_root = project_root or os.path.dirname(
+        self.dashboard_url: str = dashboard_url
+        self.ollama_url: str = ollama_url
+        self.vision_model: str = vision_model
+        self.coding_model: str = coding_model
+        self.max_iterations: int = max_iterations
+        self.model_manager: _ModelManagerLike | None = model_manager
+        self.project_root: str = project_root or os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         )
 
@@ -248,17 +356,21 @@ class AutonomousQAEngine:
             page = await context.new_page()
 
             # 콘솔 에러 수집
-            console_errors = []
-            page.on(
-                "console",
-                lambda msg: (
-                    console_errors.append({"type": msg.type, "text": msg.text})
-                    if msg.type in ("error", "warning")
-                    else None
-                ),
-            )
+            console_errors: list[dict[str, object]] = []
 
-            await page.goto(target_url, wait_until="networkidle", timeout=30000)
+            def capture_console(message: object) -> None:
+                message_type = getattr(message, "type", "")
+                if message_type in ("error", "warning"):
+                    console_errors.append(
+                        {
+                            "type": message_type,
+                            "text": getattr(message, "text", ""),
+                        },
+                    )
+
+            page.on("console", capture_console)
+
+            _ = await page.goto(target_url, wait_until="networkidle", timeout=30000)
 
             # ── 성능 메트릭 수집 ──
             report.performance_metrics = await self._collect_performance(page)
@@ -297,10 +409,10 @@ class AutonomousQAEngine:
 
                 # Step 4: 패치 적용
                 for patch in patches:
-                    self._apply_patch(patch)
+                    _ = self._apply_patch(patch)
 
                 # Step 5: 리로드 후 재검증
-                await page.reload(wait_until="networkidle", timeout=15000)
+                _ = await page.reload(wait_until="networkidle", timeout=15000)
                 await asyncio.sleep(1)
 
                 report.status = FixStatus.VERIFYING
@@ -328,7 +440,10 @@ class AutonomousQAEngine:
                     break
 
             # ── 반응형 테스트 ──
-            report.viewport_results = await self._test_viewports(page, target_url)
+            report.viewport_results = cast(
+                dict[str, dict[str, object]],
+                cast(object, await self._test_viewports(page, target_url)),
+            )
 
             report.console_errors = console_errors
             await browser.close()
@@ -359,7 +474,7 @@ class AutonomousQAEngine:
             if self.model_manager is not None:
                 target = self._resolve_model_target(self.vision_model, "vision", "vision")
                 try:
-                    content = await asyncio.to_thread(
+                    content: object = await asyncio.to_thread(
                         self.model_manager.generate,
                         prompt,
                         target=target,
@@ -370,24 +485,9 @@ class AutonomousQAEngine:
                         temperature=0.2,
                     )
                     if inspect.isawaitable(content):
-                        content = await content
+                        content = await cast(Awaitable[object], content)
                     if isinstance(content, str) and content.strip():
-                        import re
-
-                        json_match = re.search(r"\[.*\]", content, re.DOTALL)
-                        if json_match:
-                            defects_raw = json.loads(json_match.group())
-                            return [
-                                UIDefect(
-                                    description=d.get("description", ""),
-                                    severity=d.get("severity", "medium"),
-                                    suggested_fix=d.get("suggested_fix", ""),
-                                    file_path=d.get("file_hint", ""),
-                                )
-                                for d in defects_raw
-                                if d.get("description")
-                            ]
-                        return []
+                        return _defects_from_json(_json_array_text(content))
                 except Exception:
                     logger.warning("ModelManager vision analysis failed, HTTP fallback", exc_info=True)
 
@@ -414,25 +514,9 @@ class AutonomousQAEngine:
                 logger.error("Vision API error: %s", resp.status_code)
                 return []
 
-            content = resp.json().get("message", {}).get("content", "[]")
-
-            # JSON 파싱 시도
-            import re
-
-            json_match = re.search(r"\[.*\]", content, re.DOTALL)
-            if json_match:
-                defects_raw = json.loads(json_match.group())
-                return [
-                    UIDefect(
-                        description=d.get("description", ""),
-                        severity=d.get("severity", "medium"),
-                        suggested_fix=d.get("suggested_fix", ""),
-                        file_path=d.get("file_hint", ""),
-                    )
-                    for d in defects_raw
-                    if d.get("description")
-                ]
-            return []
+            response_data = _object_dict(cast(object, resp.json()))
+            content = _text_field(response_data.get("message"), "content", "[]")
+            return _defects_from_json(_json_array_text(content))
 
         except (httpx.RequestError, json.JSONDecodeError, KeyError):
             logger.warning("Vision analysis failed", exc_info=True)
@@ -459,7 +543,7 @@ class AutonomousQAEngine:
             if self.model_manager is not None:
                 target = self._resolve_model_target(self.coding_model, "coding", "coding")
                 try:
-                    content = await asyncio.to_thread(
+                    content: object = await asyncio.to_thread(
                         self.model_manager.generate,
                         prompt,
                         target=target,
@@ -467,14 +551,9 @@ class AutonomousQAEngine:
                         temperature=0.2,
                     )
                     if inspect.isawaitable(content):
-                        content = await content
+                        content = await cast(Awaitable[object], content)
                     if isinstance(content, str) and content.strip():
-                        import re
-
-                        json_match = re.search(r"\[.*\]", content, re.DOTALL)
-                        if json_match:
-                            return json.loads(json_match.group())
-                        return []
+                        return _patches_from_json(_json_array_text(content))
                 except Exception:
                     logger.warning("ModelManager code-fix generation failed, HTTP fallback", exc_info=True)
 
@@ -494,14 +573,9 @@ class AutonomousQAEngine:
             if resp.status_code != 200:
                 return []
 
-            content = resp.json().get("message", {}).get("content", "[]")
-
-            import re
-
-            json_match = re.search(r"\[.*\]", content, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            return []
+            response_data = _object_dict(cast(object, resp.json()))
+            content = _text_field(response_data.get("message"), "content", "[]")
+            return _patches_from_json(_json_array_text(content))
 
         except (httpx.RequestError, json.JSONDecodeError, KeyError):
             logger.warning("Code fix generation failed", exc_info=True)
@@ -518,7 +592,7 @@ class AutonomousQAEngine:
             return False
         file_path = (project_root / candidate).resolve()
         try:
-            file_path.relative_to(project_root)
+            _ = file_path.relative_to(project_root)
         except ValueError:
             logger.warning("Patch skip: path escapes project root — %s", candidate)
             return False
@@ -539,7 +613,7 @@ class AutonomousQAEngine:
 
             new_content = content.replace(search, replace, 1)
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+                _ = f.write(new_content)
 
             logger.info("[AutonomousQA] Patch applied: %s", file_path)
             return True
@@ -574,10 +648,11 @@ class AutonomousQAEngine:
 
     # ─── 성능 메트릭 ───────────────────────────────────────────
 
-    async def _collect_performance(self, page) -> dict[str, Any]:
+    async def _collect_performance(self, page: object) -> dict[str, object]:
         """Core Web Vitals 및 로딩 성능을 측정합니다."""
         try:
-            metrics = await page.evaluate(
+            typed_page = cast("Page", page)
+            metrics: object = cast(object, await typed_page.evaluate(
                 """() => {
 
                 const perf = performance.getEntriesByType('navigation')[0];
@@ -591,30 +666,34 @@ class AutonomousQAEngine:
                     js_heap_mb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
                 };
             }""",
-            )
-            return metrics
+            ))
+            return _object_dict(metrics)
         except (TimeoutError, AttributeError, TypeError, ValueError) as e:
             logger.warning("Performance collection failed: %s", e, exc_info=True)
             return {}
 
     # ─── 반응형 테스트 ─────────────────────────────────────────
 
-    async def _test_viewports(self, page, url: str) -> dict[str, Any]:
+    async def _test_viewports(self, page: object, url: str) -> dict[str, _ViewportResult]:
         """다중 뷰포트에서 레이아웃 검증을 수행합니다."""
-        results = {}
+        from playwright.async_api import ViewportSize
+
+        typed_page = cast("Page", page)
+        results: dict[str, _ViewportResult] = {}
         for name, vp in self.VIEWPORTS.items():
             try:
-                await page.set_viewport_size(vp)
-                await page.goto(url, wait_until="networkidle", timeout=15000)
+                await typed_page.set_viewport_size(cast(ViewportSize, cast(object, vp)))
+                _ = await typed_page.goto(url, wait_until="networkidle", timeout=15000)
 
                 # 가로 스크롤 발생 여부 확인 (레이아웃 깨짐 지표)
-                overflow = await page.evaluate(
+                overflow_value = cast(object, await typed_page.evaluate(
                     "() => document.documentElement.scrollWidth > document.documentElement.clientWidth",
-                )
+                ))
+                overflow = bool(overflow_value)
                 # 주요 요소 가시성 확인
-                app_visible = await page.query_selector("#app")
+                app_visible = await typed_page.query_selector("#app")
 
-                results[name] = {
+                results[name] = cast(_ViewportResult, cast(object, {
                     "viewport": vp,
                     "horizontal_overflow": overflow,
                     "app_visible": app_visible is not None,
@@ -626,9 +705,9 @@ class AutonomousQAEngine:
                         if overflow
                         else "App not visible"
                     ),
-                }
+                }))
             except (TimeoutError, ConnectionError, AttributeError, ValueError) as e:
                 logger.warning("Viewport test failed for %s: %s", name, e, exc_info=True)
-                results[name] = {"pass": False, "summary": str(e)}
+                results[name] = cast(_ViewportResult, cast(object, {"pass": False, "summary": str(e)}))
 
         return results

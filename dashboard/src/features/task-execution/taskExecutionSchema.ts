@@ -34,6 +34,7 @@ export const TaskEventsResponseSchema = z.object({
   task_id: TaskIdSchema,
   events: z.array(TaskEventSchema).readonly(),
   last_sequence: z.number().int().nonnegative(),
+  has_more: z.boolean(),
 }).readonly();
 
 export const TaskSummarySchema = z.object({

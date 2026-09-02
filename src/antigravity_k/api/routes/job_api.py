@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from antigravity_k.api.dependencies import get_scheduled_job_service
@@ -15,6 +17,10 @@ from antigravity_k.engine.scheduled_job_operations import (
 )
 
 router = APIRouter(prefix="/api/jobs")
+LimitParam = Annotated[int, Query(ge=1, le=500)]
+RunWindowParam = Annotated[int, Query(ge=1, le=10_000)]
+StaleAfterParam = Annotated[int, Query(ge=1, le=604_800)]
+FailureRateParam = Annotated[float, Query(ge=0.0, le=1.0)]
 
 
 def _require_job(job_id: str) -> ScheduledJob:
@@ -30,15 +36,15 @@ def create_job(request: JobCreate) -> ScheduledJob:
 
 
 @router.get("", response_model=list[ScheduledJob])
-def list_jobs(limit: int = Query(default=100, ge=1, le=500)) -> list[ScheduledJob]:
+def list_jobs(limit: LimitParam = 100) -> list[ScheduledJob]:
     return get_scheduled_job_service().list_jobs(limit)
 
 
 @router.get("/health", response_model=JobHealthSummary)
 def get_job_health(
-    run_window: int = Query(default=500, ge=1, le=10_000),
-    stale_after_seconds: int = Query(default=900, ge=1, le=604_800),
-    maximum_failure_rate: float = Query(default=0.05, ge=0.0, le=1.0),
+    run_window: RunWindowParam = 500,
+    stale_after_seconds: StaleAfterParam = 900,
+    maximum_failure_rate: FailureRateParam = 0.05,
 ) -> JobHealthSummary:
     service = get_scheduled_job_service()
     return ScheduledJobOperations(service).health(
@@ -57,7 +63,7 @@ def get_job(job_id: str) -> ScheduledJob:
 
 @router.patch("/{job_id}", response_model=ScheduledJob)
 def update_job(job_id: str, request: JobUpdate) -> ScheduledJob:
-    _require_job(job_id)
+    _ = _require_job(job_id)
     return get_scheduled_job_service().update_job(job_id, request)
 
 
@@ -70,25 +76,25 @@ def delete_job(job_id: str) -> Response:
 
 @router.post("/{job_id}/pause", response_model=ScheduledJob)
 def pause_job(job_id: str) -> ScheduledJob:
-    _require_job(job_id)
+    _ = _require_job(job_id)
     return get_scheduled_job_service().pause_job(job_id)
 
 
 @router.post("/{job_id}/resume", response_model=ScheduledJob)
 def resume_job(job_id: str) -> ScheduledJob:
-    _require_job(job_id)
+    _ = _require_job(job_id)
     return get_scheduled_job_service().resume_job(job_id)
 
 
 @router.post("/{job_id}/trigger", response_model=JobRun, status_code=status.HTTP_202_ACCEPTED)
 def trigger_job(job_id: str) -> JobRun:
-    _require_job(job_id)
+    _ = _require_job(job_id)
     return get_scheduled_job_service().trigger_job(job_id)
 
 
 @router.get("/{job_id}/runs", response_model=list[JobRun])
-def list_job_runs(job_id: str, limit: int = Query(default=100, ge=1, le=500)) -> list[JobRun]:
-    _require_job(job_id)
+def list_job_runs(job_id: str, limit: LimitParam = 100) -> list[JobRun]:
+    _ = _require_job(job_id)
     return get_scheduled_job_service().list_runs(job_id, limit)
 
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Annotated, ClassVar
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/alerts")
 
 
 class AlertAcknowledgementResponse(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     alert_id: str
     acknowledged: bool
@@ -28,7 +29,7 @@ def _get_alert_store() -> OperationalAlertStore:
 @router.get("", response_model=list[OperationalAlert])
 async def list_operational_alerts(
     include_acknowledged: bool = False,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[OperationalAlert]:
     try:
         alerts = _get_alert_store().list_alerts(

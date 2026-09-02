@@ -23,7 +23,9 @@
 import os
 import tempfile
 import time
-from unittest.mock import MagicMock
+from collections.abc import Callable
+from types import TracebackType
+from typing import Self, cast
 
 import pytest
 
@@ -31,6 +33,40 @@ import pytest
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # sys.path는 conftest.py에서 src/를 이미 추가합니다.
+
+
+class _GeneratorDouble:
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str:
+        _ = (prompt, target, kwargs)
+        return "BUGS: None\nTYPES: None\nQUALITY: None"
+
+
+class _ManagerDouble:
+    _loaded_models: dict[str, object]
+
+    def __init__(self, loaded_models: dict[str, object] | None = None) -> None:
+        self._loaded_models = loaded_models or {}
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str:
+        _ = (prompt, target, kwargs)
+        return "SELECTED: 1\nREASON: Best"
+
+
+class _ContextDouble:
+    cost_guard: None = None
+
+
+class _OrchestratorDouble:
+    manager: _ManagerDouble
+    ctx: _ContextDouble
+
+    def __init__(self, manager: _ManagerDouble) -> None:
+        self.manager = manager
+        self.ctx = _ContextDouble()
+
+    def _get_model_for_role(self, role: str) -> str:
+        _ = role
+        return "qa-model"
 
 
 # ─── 임계값 설정 (환경 변수로 오버라이드 가능) ─────────────────
@@ -86,7 +122,7 @@ def _create_rag_test_project(tmpdir: str) -> dict[str, str]:
         full_path = os.path.join(tmpdir, rel_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         with open(full_path, "w", encoding="utf-8") as f:
-            f.write(content)
+            _ = f.write(content)
 
     return files
 
@@ -104,11 +140,16 @@ class _Timer:
         self._start = 0.0
         self._elapsed = 0.0
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self._start = time.perf_counter()
         return self
 
-    def __exit__(self, *args):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self._elapsed = (time.perf_counter() - self._start) * 1000
 
     @property
@@ -134,10 +175,10 @@ def test_context_enrich_total_latency():
     t_total = _Timer()
     with t_total:
         indexer = CodeTreeIndexer(PROJECT_ROOT)
-        indexer.build_tree()
+        _ = indexer.build_tree()
         related = indexer.search("benchmark performance test", max_files=8)
         summarizer = FileSummarizer()
-        summarizer.summarize_files(related, PROJECT_ROOT, query="benchmark")
+        _ = summarizer.summarize_files(related, PROJECT_ROOT, query="benchmark")
 
     total_ms = t_total.ms
     assert total_ms < _THRESHOLD_CTX, (
@@ -151,7 +192,7 @@ def test_context_enrich_search_latency():
     from antigravity_k.engine.code_tree_indexer import CodeTreeIndexer
 
     indexer = CodeTreeIndexer(PROJECT_ROOT)
-    indexer.build_tree()
+    _ = indexer.build_tree()
 
     queries = [
         "benchmark performance test",
@@ -160,7 +201,7 @@ def test_context_enrich_search_latency():
         "user authentication",
     ]
 
-    times_ms = []
+    times_ms: list[float] = []
     for q in queries:
         t = _Timer()
         with t:
@@ -186,22 +227,22 @@ def test_context_enrich_build_tree_latency():
         for i in range(10):
             p = os.path.join(tmpdir, f"mod{i}.py")
             with open(p, "w") as f:
-                f.write(f"def func_{i}():\n    return {i}\n\n")
-                f.write(f"class Class{i}:\n    pass\n")
+                _ = f.write(f"def func_{i}():\n    return {i}\n\n")
+                _ = f.write(f"class Class{i}:\n    pass\n")
 
         # 깨끗한 인덱서로 첫 빌드
         indexer = CodeTreeIndexer(tmpdir)
 
         t = _Timer()
         with t:
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
         assert t.ms < 300.0, f"first build_tree latency {t.ms:.1f}ms exceeds 300ms"
 
         # 캐시 히트 검증
         t_cache = _Timer()
         with t_cache:
-            indexer.build_tree()
+            _ = indexer.build_tree()
 
         assert t_cache.ms < 10.0, f"cached build_tree latency {t_cache.ms:.2f}ms exceeds 10ms"
 
@@ -220,13 +261,12 @@ def test_code_review_total_latency():
     """code_review 전체 latency가 임계값 이하인지 검증."""
     import subprocess
 
-    mock_manager = MagicMock()
-    mock_manager.generate.return_value = "BUGS: None\nTYPES: None\nQUALITY: None"
+    mock_manager = _GeneratorDouble()
 
     t_total = _Timer()
     with t_total:
         # Git diff --stat
-        subprocess.run(
+        _ = subprocess.run(
             ["git", "diff", "--stat"],
             cwd=PROJECT_ROOT,
             capture_output=True,
@@ -255,7 +295,7 @@ QUALITY: <quality concern or None>
 ```diff
 {diff_content[:2000]}
 ```"""
-        _ = mock_manager.generate(
+    _ = mock_manager.generate(
             prompt=review_prompt,
             target="qa-model",
             max_tokens=256,
@@ -272,7 +312,7 @@ def test_code_review_git_diff_latency():
 
     t_stat = _Timer()
     with t_stat:
-        subprocess.run(
+        _ = subprocess.run(
             ["git", "diff", "--stat"],
             cwd=PROJECT_ROOT,
             capture_output=True,
@@ -283,7 +323,7 @@ def test_code_review_git_diff_latency():
 
     t_detail = _Timer()
     with t_detail:
-        subprocess.run(
+        _ = subprocess.run(
             ["git", "diff"],
             cwd=PROJECT_ROOT,
             capture_output=True,
@@ -296,10 +336,7 @@ def test_code_review_git_diff_latency():
 @pytest.mark.benchmark
 def test_code_review_mock_llm_latency():
     """모의 LLM 리뷰 호출 latency 검증 (서브 밀리초여야 함)."""
-    from unittest.mock import MagicMock
-
-    mock_manager = MagicMock()
-    mock_manager.generate.return_value = "BUGS: None\nTYPES: None\nQUALITY: None"
+    mock_manager = _GeneratorDouble()
 
     t = _Timer()
     with t:
@@ -324,26 +361,19 @@ _THRESHOLD_MAX = _threshold(_NAME_MAX, 50.0)  # 50ms (주로 mock 호출)
 @pytest.mark.benchmark
 def test_max_engine_total_latency():
     """max_engine run() 전체 latency가 임계값 이하인지 검증."""
-    from antigravity_k.engine.max_engine import (
-        MaxModeEngine,
-        WorkerResult,
-    )
+    from antigravity_k.engine.max_engine import MaxModeEngine, WorkerResult
 
-    mgr = MagicMock()
-    mgr._loaded_models = {"model-a": {}, "model-b": {}}
+    mgr = _ManagerDouble({"model-a": {}, "model-b": {}})
 
     engine = MaxModeEngine(mgr, project_root=PROJECT_ROOT)
-    engine._get_available_models = lambda: ["model-a", "model-b"]
+    setattr(engine, "_get_available_models", lambda: ["model-a", "model-b"])
 
-    def mock_run_worker(*args, **kwargs):
+    def mock_run_worker(*_args: object, **_kwargs: object) -> WorkerResult:
         return WorkerResult(0, "model-a", "default", "output result", 0.3)
 
-    engine._run_worker = mock_run_worker
+    setattr(engine, "_run_worker", mock_run_worker)
 
-    mock_orch = MagicMock()
-    mock_orch.manager = mgr
-    mock_orch._get_model_for_role = lambda role: "qa-model"
-    mock_orch.manager.generate.return_value = "SELECTED: 1\nREASON: Best"
+    mock_orch = _OrchestratorDouble(mgr)
 
     t = _Timer()
     with t:
@@ -369,24 +399,24 @@ def test_max_engine_total_latency():
 @pytest.mark.benchmark
 def test_max_engine_worker_config_latency():
     """_build_worker_configs() latency 검증."""
-    from antigravity_k.engine.max_engine import MaxModeEngine
+    from antigravity_k.engine.max_engine import MaxModeEngine, WorkerConfig
 
-    mgr = MagicMock()
-    mgr._loaded_models = {"a": {}, "b": {}, "c": {}}
+    mgr = _ManagerDouble({"a": {}, "b": {}, "c": {}})
     engine = MaxModeEngine(mgr)
+    build_worker_configs = cast(Callable[[str, str], list[WorkerConfig]], getattr(engine, "_build_worker_configs"))
 
     # 1개 모델
-    engine._get_available_models = lambda: ["a"]
+    setattr(engine, "_get_available_models", lambda: ["a"])
     t1 = _Timer()
     with t1:
-        _ = engine._build_worker_configs("WORKER", "a")
+        _ = build_worker_configs("WORKER", "a")
     assert t1.ms < 10.0, f"1 model config latency {t1.ms:.3f}ms"
 
     # 3개 모델
-    engine._get_available_models = lambda: ["a", "b", "c"]
+    setattr(engine, "_get_available_models", lambda: ["a", "b", "c"])
     t3 = _Timer()
     with t3:
-        _ = engine._build_worker_configs("WORKER", "a")
+        _ = build_worker_configs("WORKER", "a")
     assert t3.ms < 10.0, f"3 model config latency {t3.ms:.3f}ms"
 
 
@@ -396,11 +426,12 @@ def test_max_engine_prompt_building_latency():
     from antigravity_k.engine.max_engine import MaxModeEngine
 
     engine = MaxModeEngine(None)
+    build_worker_prompt = cast(Callable[[str, str, str, float], str], getattr(engine, "_build_worker_prompt"))
 
     for strategy in ("default", "creative", "safe", "balanced"):
         t = _Timer()
         with t:
-            _ = engine._build_worker_prompt(
+            _ = build_worker_prompt(
                 "Create a test function",
                 "model-a",
                 strategy,
@@ -417,18 +448,16 @@ def test_max_engine_selector_latency():
         WorkerResult,
     )
 
-    mgr = MagicMock()
-    mgr.generate.return_value = "SELECTED: 1\nREASON: Best"
+    mgr = _ManagerDouble()
     engine = MaxModeEngine(mgr)
 
-    qa_orch = MagicMock()
-    qa_orch.manager = mgr
-    qa_orch._get_model_for_role = lambda role: "qa-model"
+    qa_orch = _OrchestratorDouble(mgr)
+    select_best = cast(Callable[..., int], getattr(engine, "_select_best"))
 
     # 2개 후보
     t2 = _Timer()
     with t2:
-        _ = engine._select_best(
+        _ = select_best(
             "task",
             [
                 WorkerResult(0, "a", "default", "short", 0.5),
@@ -442,7 +471,7 @@ def test_max_engine_selector_latency():
     # 3개 후보
     t3 = _Timer()
     with t3:
-        _ = engine._select_best(
+        _ = select_best(
             "task",
             [
                 WorkerResult(0, "a", "default", "first", 0.5),
@@ -464,6 +493,7 @@ def test_max_engine_format_trace_latency():
     )
 
     engine = MaxModeEngine(None)
+    format_trace = cast(Callable[..., str], getattr(engine, "_format_trace"))
     results = [
         WorkerResult(0, "a", "default", "out1", 1.0),
         WorkerResult(1, "b", "creative", "out2", 2.0),
@@ -472,7 +502,7 @@ def test_max_engine_format_trace_latency():
 
     t = _Timer()
     with t:
-        trace = engine._format_trace(results, 1, configs)
+        trace = format_trace(results, 1, configs)
 
     assert t.ms < 5.0, f"format_trace latency {t.ms:.3f}ms exceeds 5ms"
     assert "SELECTED" in trace
@@ -495,18 +525,18 @@ def test_rag_total_latency():
     from antigravity_k.engine.vector_store import VectorStore
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        _create_rag_test_project(tmpdir)
+        _ = _create_rag_test_project(tmpdir)
 
         store = VectorStore(persist_directory=os.path.join(tmpdir, ".chroma"), collection_name="test_rag")
         indexer = RAGIndexer(tmpdir, vector_store=store)
 
         t_total = _Timer()
         with t_total:
-            indexer.index_project()
-            store.search("process data", n_results=5)
-            indexer.format_context("Handler processing", n_results=3, max_chars=3000)
+            _ = indexer.index_project()
+            _ = store.search("process data", n_results=5)
+            _ = indexer.format_context("Handler processing", n_results=3, max_chars=3000)
 
-        store.close()
+        _ = store.close()
 
     total_ms = t_total.ms
     assert total_ms < _THRESHOLD_RAG, (
@@ -517,7 +547,7 @@ def test_rag_total_latency():
 @pytest.mark.benchmark
 def test_rag_chunk_python_latency():
     """RAGIndexer._chunk_python() — 단일 Python 파일 청킹 latency 검증."""
-    from antigravity_k.engine.rag_indexer import RAGIndexer
+    from antigravity_k.engine.rag_indexer import CodeChunk, RAGIndexer
 
     indexer = RAGIndexer("/tmp", vector_store=None)
 
@@ -533,9 +563,10 @@ def test_rag_chunk_python_latency():
         "        return {'status': 'ok'}\n"
     )
 
+    chunk_python = cast(Callable[[str, str], list[CodeChunk]], getattr(indexer, "_chunk_python"))
     t = _Timer()
     with t:
-        chunks = indexer._chunk_python("test.py", content)
+        chunks = chunk_python("test.py", content)
 
     assert t.ms < 50.0, f"chunk_python latency {t.ms:.3f}ms exceeds 50ms"
     assert len(chunks) >= 2  # header + function + class
@@ -544,7 +575,7 @@ def test_rag_chunk_python_latency():
 @pytest.mark.benchmark
 def test_rag_chunk_markdown_latency():
     """RAGIndexer._chunk_markdown() — 단일 Markdown 파일 청킹 latency 검증."""
-    from antigravity_k.engine.rag_indexer import RAGIndexer
+    from antigravity_k.engine.rag_indexer import CodeChunk, RAGIndexer
 
     indexer = RAGIndexer("/tmp", vector_store=None)
 
@@ -561,9 +592,10 @@ def test_rag_chunk_markdown_latency():
         "More content.\n"
     )
 
+    chunk_markdown = cast(Callable[[str, str], list[CodeChunk]], getattr(indexer, "_chunk_markdown"))
     t = _Timer()
     with t:
-        chunks = indexer._chunk_markdown("doc.md", content)
+        chunks = chunk_markdown("doc.md", content)
 
     assert t.ms < 20.0, f"chunk_markdown latency {t.ms:.3f}ms exceeds 20ms"
     assert len(chunks) >= 1
@@ -577,22 +609,22 @@ def test_rag_search_semantic_latency():
     from antigravity_k.engine.vector_store import VectorStore
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        _create_rag_test_project(tmpdir)
+        _ = _create_rag_test_project(tmpdir)
 
         store = VectorStore(persist_directory=os.path.join(tmpdir, ".chroma"), collection_name="test_semantic")
         indexer = RAGIndexer(tmpdir, vector_store=store)
-        indexer.index_project()
+        _ = indexer.index_project()
 
         queries = ["process data", "handler method", "module implementation", "data processing"]
 
-        times_ms = []
+        times_ms: list[float] = []
         for q in queries:
             t = _Timer()
             with t:
                 _ = store.search(q, n_results=5)
             times_ms.append(t.ms)
 
-        store.close()
+        _ = store.close()
 
     avg_search_ms = sum(times_ms) / len(times_ms) if times_ms else 0
     assert avg_search_ms < 200.0, f"semantic search avg latency {avg_search_ms:.2f}ms exceeds 200ms"
@@ -606,16 +638,17 @@ def test_rag_hybrid_search_latency():
     from antigravity_k.engine.vector_store import VectorStore
 
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
-        _create_rag_test_project(tmpdir)
+        _ = _create_rag_test_project(tmpdir)
 
         store = VectorStore(persist_directory=os.path.join(tmpdir, ".chroma"), collection_name="test_hybrid")
         indexer = RAGIndexer(tmpdir, vector_store=store)
-        indexer.index_project()
+        _ = indexer.index_project()
 
         t = _Timer()
+        hybrid_search = cast(Callable[[str, int], list[dict[str, object]]], getattr(indexer, "_hybrid_search_rrf"))
         with t:
-            _hybrid_results = indexer._hybrid_search_rrf("Handler validate process", n_results=5)
+            _hybrid_results = hybrid_search("Handler validate process", 5)
 
-        store.close()
+        _ = store.close()
 
     assert t.ms < 500.0, f"hybrid search latency {t.ms:.3f}ms exceeds 500ms"

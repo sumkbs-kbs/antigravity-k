@@ -351,19 +351,13 @@ def format_code_correction(validation: QueryValidationResult) -> str:
     if not validation.needs_correction or not validation.codes_found:
         return ""
 
-    corrections = []
+    corrections: list[str] = []
     for v in validation.codes_found:
         if v.needs_correction:
             if v.suggested_code:
-                corrections.append(
-                    f"⚠️ 종목코드 '{v.original_code}'이(가) 잘못되었습니다 → "
-                    f"올바른 코드: **{v.suggested_code} ({v.suggested_name})**"
-                )
+                corrections.append(f"⚠️ 종목코드 '{v.original_code}'이(가) 잘못되었습니다 → 올바른 코드: **{v.suggested_code} ({v.suggested_name})**")
             else:
-                corrections.append(
-                    f"⚠️ 종목코드 '{v.original_code}'은(는) 대조표에 없는 코드입니다. "
-                    f"올바른 6자리 코드인지 다시 확인해주세요."
-                )
+                corrections.append(f"⚠️ 종목코드 '{v.original_code}'은(는) 대조표에 없는 코드입니다. 올바른 6자리 코드인지 다시 확인해주세요.")
 
     messages = [
         "[종목코드 검증 결과]",

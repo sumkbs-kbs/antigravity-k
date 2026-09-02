@@ -462,9 +462,7 @@ class TestGeneralizedSelfConsistencyPath:
 
         return make
 
-    def test_non_qwen_model_uses_self_consistency_when_enabled(
-        self, _orch_factory: Callable[..., _OrchestratorDouble]
-    ):
+    def test_non_qwen_model_uses_self_consistency_when_enabled(self, _orch_factory: Callable[..., _OrchestratorDouble]):
         # config 켜짐 + 비-qwen 모델 → generate_self_consistent 호출.
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
@@ -484,9 +482,7 @@ class TestGeneralizedSelfConsistencyPath:
         assert orch.manager.self_consistent_calls == 1
         # 핵심: 직접 응답이 self-consistent 경로를 탔다 (revision 호출은 별개).
 
-    def test_non_qwen_model_falls_back_when_disabled(
-        self, _orch_factory: Callable[..., _OrchestratorDouble]
-    ):
+    def test_non_qwen_model_falls_back_when_disabled(self, _orch_factory: Callable[..., _OrchestratorDouble]):
         # config 꺼짐 + 비-qwen 모델 → 일반 generate (self-consistent 미호출).
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
@@ -507,9 +503,7 @@ class TestGeneralizedSelfConsistencyPath:
         assert orch.manager.generate_calls == 1
         # 핵심: 비활성 시 self-consistent 경로를 타지 않는다.
 
-    def test_qwen_model_still_works_when_enabled(
-        self, _orch_factory: Callable[..., _OrchestratorDouble]
-    ):
+    def test_qwen_model_still_works_when_enabled(self, _orch_factory: Callable[..., _OrchestratorDouble]):
         # qwen 모델 + config 켜짐 → 여전히 generate_self_consistent (회귀 방지).
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 

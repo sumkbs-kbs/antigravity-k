@@ -7,9 +7,12 @@ WebSocket 인증 헬퍼를 담는 중립 모듈이다. 라우트 모듈 간에�
 
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.agent_runtime import OrchestratorPort
 
 logger = logging.getLogger("antigravity_k.api.session_state")
 
@@ -17,14 +20,14 @@ logger = logging.getLogger("antigravity_k.api.session_state")
 class ActiveAgentSession:
     """Holds the currently active agent session state for streaming."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the ActiveAgentSession."""
-        self.q = ""
-        self.is_active = False
+        self.q: str = ""
+        self.is_active: bool = False
         self.history: list[str] = []
-        self.done = False
+        self.done: bool = False
         self.error: str | None = None
-        self.orchestrator: Any | None = None
+        self.orchestrator: OrchestratorPort | None = None
 
 
 _active_session = ActiveAgentSession()

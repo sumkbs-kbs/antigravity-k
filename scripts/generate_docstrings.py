@@ -26,23 +26,115 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Optional
+from typing import Protocol, TypedDict, cast
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class _ParamContext(TypedDict):
+    name: str
+    type: str
+    kind: str
+
+
+class _ModuleContext(TypedDict):
+    name: str
+    path: str
+
+
+class _ClassContext(TypedDict):
+    name: str
+    bases: list[str]
+
+
+class _FunctionContext(TypedDict):
+    name: str
+    params: list[_ParamContext]
+    return_type: str
+    is_method: bool
+    is_async: bool
+    decorator_names: list[str]
+
+
+GenerationContext = TypedDict(
+    "GenerationContext",
+    {
+        "error": str,
+        "file": str,
+        "line": int,
+        "code_prefix": str,
+        "type": str,
+        "module": _ModuleContext,
+        "class": _ClassContext,
+        "function": _FunctionContext,
+        "class_name": str | None,
+        "ast_type": str,
+    },
+    total=False,
+)
+
+
+class _RuffLocation(TypedDict):
+    row: int
+
+
+class _RuffViolation(TypedDict):
+    filename: str
+    code: str
+    message: str
+    location: _RuffLocation
+
+
+class _CliArgs(Protocol):
+    ai: bool
+    dry_run: bool
+    check: bool
+    path: str
+    verbose: bool
+
+
+class _OpenAIMessage(Protocol):
+    content: str | None
+
+
+class _OpenAIChoice(Protocol):
+    message: _OpenAIMessage
+
+
+class _OpenAIResponse(Protocol):
+    choices: list[_OpenAIChoice]
+
+
+class _OpenAICompletions(Protocol):
+    def create(self, **kwargs: object) -> _OpenAIResponse: ...
+
+
+
+class _OpenAIChat(Protocol):
+    completions: _OpenAICompletions
+
+
+class _OpenAIClient(Protocol):
+    chat: _OpenAIChat
+
+
+class _OpenAIModule(Protocol):
+    OpenAI: Callable[..., _OpenAIClient]
 
 
 # ─── Violation Detection ─────────────────────────────────────────────────
 
 
-def get_ruff_violations(paths: list[str]) -> list[dict[str, Any]]:
+def get_ruff_violations(paths: list[str]) -> list[_RuffViolation]:
     """Run ruff --select=D and return parsed JSON violations."""
     cmd = ["ruff", "check", "--select=D", "--output-format=json", *paths]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
     if result.returncode == 0:
         return []  # no violations
     try:
-        return json.loads(result.stdout)
+        return cast(list[_RuffViolation], json.loads(result.stdout))
     except json.JSONDecodeError:
         print(f"⚠ Failed to parse ruff output: {result.stdout[:200]}", file=sys.stderr)
         return []
@@ -51,13 +143,13 @@ def get_ruff_violations(paths: list[str]) -> list[dict[str, Any]]:
 # ─── AST Context Extraction ──────────────────────────────────────────────
 
 
-def find_node_at_line(tree: ast.AST, line: int) -> Optional[ast.AST]:
+def find_node_at_line(tree: ast.AST, line: int) -> ast.AST | None:
     """Find the outermost AST definition node starting at the given line.
 
     Performs an explicit DFS over child nodes (not via ast.walk which is
     order-undefined), returning the outermost Definition/ClassDef/FunctionDef/Module.
     """
-    candidate: Optional[ast.AST] = None
+    candidate: ast.AST | None = None
 
     def _search(node: ast.AST) -> None:
         nonlocal candidate
@@ -73,7 +165,7 @@ def find_node_at_line(tree: ast.AST, line: int) -> Optional[ast.AST]:
     return candidate
 
 
-def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any]:
+def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> _FunctionContext:
     """Extract context from a function/method definition node.
 
     Collects all parameter kinds: positional, positional-only, vararg (*args),
@@ -81,7 +173,7 @@ def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[s
     to allow the docstring formatter to emit the correct prefix.
     """
     args = node.args
-    params = []
+    params: list[_ParamContext] = []
 
     def _add(name: str, type_str: str, kind: str) -> None:
         params.append({"name": name, "type": type_str, "kind": kind})
@@ -121,7 +213,7 @@ def get_function_context(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[s
     }
 
 
-def get_class_context(node: ast.ClassDef) -> dict[str, Any]:
+def get_class_context(node: ast.ClassDef) -> _ClassContext:
     """Extract context from a class definition node."""
     bases = [ast.unparse(b) for b in node.bases]
     return {
@@ -130,7 +222,7 @@ def get_class_context(node: ast.ClassDef) -> dict[str, Any]:
     }
 
 
-def get_module_context(filepath: Path) -> dict[str, str]:
+def get_module_context(filepath: Path) -> _ModuleContext:
     """Extract module-level context."""
     # Try to infer module purpose from filename and imports
     return {
@@ -139,7 +231,7 @@ def get_module_context(filepath: Path) -> dict[str, str]:
     }
 
 
-def extract_context(filepath: Path, line: int, code: str) -> dict[str, Any]:
+def extract_context(filepath: Path, line: int, code: str) -> GenerationContext:
     """Extract context for a violation at the given line."""
     try:
         tree = ast.parse(code)
@@ -151,13 +243,10 @@ def extract_context(filepath: Path, line: int, code: str) -> dict[str, Any]:
     # Python 3.12+ ast.Module may lack lineno attribute, so find_node_at_line
     # won't match it. Fall back to treating the root tree as a module when the
     # violation is at module level (D100 / D104) and no node was found.
-    if node is None and isinstance(tree, ast.Module):
+    if node is None:
         node = tree
 
-    if node is None:
-        return {"error": f"No node found at line {line}"}
-
-    context: dict[str, Any] = {
+    context: GenerationContext = {
         "file": str(filepath.relative_to(PROJECT_ROOT)),
         "line": line,
         "code_prefix": _get_code_prefix(code, line),
@@ -195,7 +284,7 @@ def _is_method(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return bool(args.args and args.args[0].arg in ("self", "cls"))
 
 
-def _find_enclosing_class(tree: ast.AST, func_node: ast.AST) -> Optional[str]:
+def _find_enclosing_class(tree: ast.AST, func_node: ast.AST) -> str | None:
     """Find the enclosing class name for a method."""
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
@@ -208,7 +297,7 @@ def _find_enclosing_class(tree: ast.AST, func_node: ast.AST) -> Optional[str]:
 # ─── Docstring Generation ────────────────────────────────────────────────
 
 
-def generate_docstring(context: dict[str, Any], ai_mode: bool = False) -> Optional[str]:
+def generate_docstring(context: GenerationContext, ai_mode: bool = False) -> str | None:
     """Generate a Google-style docstring for the given context."""
     vtype = context.get("type")
 
@@ -226,7 +315,7 @@ def _snake_to_title(name: str) -> str:
     return name.replace("_", " ").title().strip()
 
 
-def _gen_module_docstring(ctx: dict[str, Any]) -> str:
+def _gen_module_docstring(ctx: GenerationContext) -> str:
     """Generate a single-line module docstring.
 
     Uses single-line format (no D205 issue for single-line docstrings).
@@ -251,7 +340,7 @@ def _gen_module_docstring(ctx: dict[str, Any]) -> str:
     return _ensure_docstring_compliance(result)
 
 
-def _gen_class_docstring(ctx: dict[str, Any]) -> str:
+def _gen_class_docstring(ctx: GenerationContext) -> str:
     """Generate a class docstring from context.
 
     Generates Google-style docstrings that comply with D205
@@ -275,12 +364,13 @@ def _gen_class_docstring(ctx: dict[str, Any]) -> str:
     return _ensure_docstring_compliance(result)
 
 
-def _gen_function_docstring(ctx: dict[str, Any], ai_mode: bool = False) -> str:
+def _gen_function_docstring(ctx: GenerationContext, ai_mode: bool = False) -> str:
     """Generate a function/method docstring from context.
 
     Generates Google-style docstrings that comply with D205
     (blank line between summary line and description).
     """
+    _ = ai_mode
     func = ctx.get("function", {})
     name = func.get("name", "")
     params = func.get("params", [])
@@ -294,7 +384,7 @@ def _gen_function_docstring(ctx: dict[str, Any], ai_mode: bool = False) -> str:
     # Build Google-style docstring.
     # The empty string after summary creates the required D205 blank line
     # between summary and body (Args/Returns sections).
-    docstring_parts = [summary, ""]
+    docstring_parts: list[str] = [summary, ""]
 
     # Args section (skip self/cls for methods)
     args_section = _gen_args_section(params, is_method)
@@ -311,8 +401,9 @@ def _gen_function_docstring(ctx: dict[str, Any], ai_mode: bool = False) -> str:
     return _ensure_docstring_compliance(result)
 
 
-def _gen_summary_line(name: str, return_type: str, is_method: bool, class_name: Optional[str]) -> str:
+def _gen_summary_line(name: str, return_type: str, is_method: bool, class_name: str | None) -> str:
     """Generate the summary line from function name and context."""
+    _ = is_method
     # Strip common prefixes like 'get_', 'set_', 'is_', 'has_'
     verb_map = {
         "get": "Retrieve",
@@ -410,7 +501,7 @@ def _gen_summary_line(name: str, return_type: str, is_method: bool, class_name: 
     return f"{desc.title()}."
 
 
-def _gen_args_section(params: list[dict[str, Any]], is_method: bool) -> Optional[str]:
+def _gen_args_section(params: list[_ParamContext], is_method: bool) -> str | None:
     """Generate the Args section of a Google-style docstring.
 
     Handles all parameter kinds: regular, *args (vararg), **kwargs (kwarg),
@@ -421,7 +512,7 @@ def _gen_args_section(params: list[dict[str, Any]], is_method: bool) -> Optional
     if not visible_params:
         return None
 
-    lines = ["Args:"]
+    lines: list[str] = ["Args:"]
     for p in visible_params:
         # Determine display name with proper prefix for vararg/kwarg
         kind = p.get("kind", "regular")
@@ -435,7 +526,7 @@ def _gen_args_section(params: list[dict[str, Any]], is_method: bool) -> Optional
         type_hint = f" ({p['type']})" if p["type"] else ""
 
         # Build a meaningful description from type hint + param name
-        desc_parts = []
+        desc_parts: list[str] = []
         if p["type"] and p["type"] != "Any":
             desc_parts.append(p["type"])
         if p["name"]:
@@ -447,7 +538,7 @@ def _gen_args_section(params: list[dict[str, Any]], is_method: bool) -> Optional
     return "\n    ".join(lines)
 
 
-def _gen_returns_section(return_type: str) -> Optional[str]:
+def _gen_returns_section(return_type: str) -> str | None:
     """Generate the Returns section of a Google-style docstring."""
     if not return_type or return_type == "None":
         return None
@@ -460,7 +551,7 @@ def _gen_returns_section(return_type: str) -> Optional[str]:
 # ─── Docstring Insertion ─────────────────────────────────────────────────
 
 
-def insert_docstring(line: int, docstring: str, code: str, is_module: bool = False) -> Optional[str]:
+def insert_docstring(line: int, docstring: str, code: str, is_module: bool = False) -> str | None:
     """Insert a docstring at the given line in the source code."""
     lines = code.splitlines()
     if line < 1 or line > len(lines):
@@ -559,7 +650,7 @@ def _ensure_docstring_compliance(docstring: str) -> str:
         lines[first_content_idx] = lines[first_content_idx].replace("..", ".")
 
     # --- D205: Ensure blank line between summary and next non-empty body line ---
-    if first_content_idx is not None and first_content_idx + 1 < len(lines):
+    if first_content_idx + 1 < len(lines):
         next_line = lines[first_content_idx + 1].strip()
         # If the next non-empty line is NOT blank (empty string), insert one
         if next_line and not next_line.startswith('"""'):
@@ -585,7 +676,7 @@ def _ensure_docstring_compliance(docstring: str) -> str:
 # ─── AI Mode ─────────────────────────────────────────────────────────────
 
 
-def generate_ai_docstring(context: dict[str, Any]) -> Optional[str]:
+def generate_ai_docstring(context: GenerationContext) -> str | None:
     """Generate a docstring using an LLM (OpenAI-compatible API)."""
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -595,9 +686,8 @@ def generate_ai_docstring(context: dict[str, Any]) -> Optional[str]:
     prompt = _build_ai_prompt(context)
     try:
         # Try OpenAI-compatible API first
-        OpenAI = importlib.import_module("openai").OpenAI
-
-        client = OpenAI(api_key=api_key, base_url=os.environ.get("OPENAI_BASE_URL"))
+        openai_module = cast(_OpenAIModule, cast(object, importlib.import_module("openai")))
+        client = openai_module.OpenAI(api_key=api_key, base_url=os.environ.get("OPENAI_BASE_URL"))
         response = client.chat.completions.create(
             model=os.environ.get("DOCSTRING_MODEL", "gpt-4o-mini"),
             messages=[
@@ -610,7 +700,8 @@ def generate_ai_docstring(context: dict[str, Any]) -> Optional[str]:
             temperature=0.3,
             max_tokens=350,
         )
-        docstring = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content or ""
+        docstring = content.strip()
         # Clean up if the AI wraps in markdown
         docstring = docstring.strip("`").strip()
         if not docstring.startswith('"""'):
@@ -624,7 +715,7 @@ def generate_ai_docstring(context: dict[str, Any]) -> Optional[str]:
         return generate_docstring(context, ai_mode=False)
 
 
-def _build_ai_prompt(context: dict[str, Any]) -> str:
+def _build_ai_prompt(context: GenerationContext) -> str:
     """Build a prompt for the AI describing what docstring to generate."""
     vtype = context.get("type")
 
@@ -646,22 +737,22 @@ def _build_ai_prompt(context: dict[str, Any]) -> str:
 # ─── Main ────────────────────────────────────────────────────────────────
 
 
-def get_violations_by_file(violations: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def get_violations_by_file(violations: list[_RuffViolation]) -> dict[str, list[_RuffViolation]]:
     """Group violations by file path."""
-    by_file: dict[str, list[dict[str, Any]]] = {}
+    by_file: dict[str, list[_RuffViolation]] = {}
     for v in violations:
         by_file.setdefault(v["filename"], []).append(v)
     return by_file
 
 
-def main():
+def _main() -> None:
     parser = argparse.ArgumentParser(description="Auto-generate missing Python docstrings")
-    parser.add_argument("--ai", action="store_true", help="Use AI for descriptive docstrings")
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
-    parser.add_argument("--check", action="store_true", help="Exit 1 if any missing docstrings")
-    parser.add_argument("--path", default="src/", help="Target path (default: src/)")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
-    args = parser.parse_args()
+    _ = parser.add_argument("--ai", action="store_true", help="Use AI for descriptive docstrings")
+    _ = parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
+    _ = parser.add_argument("--check", action="store_true", help="Exit 1 if any missing docstrings")
+    _ = parser.add_argument("--path", default="src/", help="Target path (default: src/)")
+    _ = parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    args = cast(_CliArgs, cast(object, parser.parse_args()))
 
     target_paths = args.path.split(",")
 
@@ -767,7 +858,7 @@ def main():
             if args.dry_run:
                 print(f"\n📄 {filepath.relative_to(PROJECT_ROOT)}: {file_fixed} docstrings (dry-run)")
             else:
-                filepath.write_text(code)
+                _ = filepath.write_text(code)
                 print(f"📄 {filepath.relative_to(PROJECT_ROOT)}: {file_fixed} docstrings written")
 
     print(f"\n{'=' * 50}")
@@ -783,4 +874,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _main()

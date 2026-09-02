@@ -48,7 +48,10 @@ class TestNextActionPurity:
             [
                 {"role": "user", "content": "config.yaml에서 포트를 수정해줘"},
                 {"role": "assistant", "content": "<tool_call>{}</tool_call>"},
-                {"role": "user", "content": "<tool_response>[TOOL_EVIDENCE] {\"tool\": \"read_file\"} Successfully read 400 lines..."},
+                {
+                    "role": "user",
+                    "content": '<tool_response>[TOOL_EVIDENCE] {"tool": "read_file"} Successfully read 400 lines...',
+                },
             ]
         )
         assert "config.yaml" in state.next_action

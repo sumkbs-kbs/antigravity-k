@@ -3,7 +3,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Generic, TypeVar
+
+
+def _empty_json_map() -> dict[str, object]:
+    return {}
+
+
+ToolArgument = TypeVar("ToolArgument")
 
 
 class Permission(str, Enum):
@@ -19,13 +26,13 @@ class ToolSpec:
     category: str = "custom"
     description: str = ""
     requires_approval: bool = False
-    parameters_schema: Mapping[str, Any] = field(default_factory=dict)
+    parameters_schema: Mapping[str, object] = field(default_factory=_empty_json_map)
 
 
 @dataclass(frozen=True, slots=True)
-class ToolInvocation:
+class ToolInvocation(Generic[ToolArgument]):
     spec: ToolSpec
-    arguments: Mapping[str, Any]
+    arguments: Mapping[str, ToolArgument]
     objective: str = ""
 
 

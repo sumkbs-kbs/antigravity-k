@@ -18,8 +18,9 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import ClassVar, cast
 
 logger = logging.getLogger("antigravity_k.engine.claude_deny_patterns")
 
@@ -27,6 +28,13 @@ RULES_MARKER_KEY = "_antigravity_managed"
 
 # 레거시 마커 키 (Sidabari 호환)
 LEGACY_MARKER_KEYS = {"_sidabari_managed"}
+
+
+def _as_object_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    items = cast(Mapping[object, object], value).items()
+    return {str(key): item for key, item in items}
 
 
 def deny_patterns() -> list[str]:
@@ -142,7 +150,11 @@ LEGACY_REMOVED_PATTERNS: list[str] = [
 class DenyInstallReport:
     """deny 패턴 설치 결과 리포트."""
 
-    __slots__ = ("installed_path", "created", "backed_up_path", "deny_count")
+    __slots__: ClassVar[tuple[str, ...]] = ("installed_path", "created", "backed_up_path", "deny_count")
+    installed_path: str
+    created: bool
+    backed_up_path: str | None
+    deny_count: int
 
     def __init__(
         self,
@@ -165,7 +177,7 @@ class DenyInstallReport:
         self.backed_up_path = backed_up_path
         self.deny_count = deny_count
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
@@ -195,7 +207,7 @@ def validate_directory(directory: str) -> Path:
     return path
 
 
-def _merge_deny(existing: dict[str, Any], new_patterns: list[str]) -> int:
+def _merge_deny(existing: dict[str, object], new_patterns: list[str]) -> int:
     """기존 설정에 deny 패턴을 병합합니다.
 
     Sidabari의 merge_deny 로직 이식:
@@ -208,24 +220,21 @@ def _merge_deny(existing: dict[str, Any], new_patterns: list[str]) -> int:
         새로 추가된 패턴 수
 
     """
-    permissions = existing.setdefault("permissions", {})
-    if not isinstance(permissions, dict):
-        permissions = {}
-        existing["permissions"] = permissions
+    permissions = _as_object_dict(existing.get("permissions", {}))
+    existing["permissions"] = permissions
 
     # 1) 이전 marker의 installed_patterns 회수
     prev_installed: set[str] = set()
     for marker_key in [RULES_MARKER_KEY] + list(LEGACY_MARKER_KEYS):
-        marker = permissions.get(marker_key, {})
-        if isinstance(marker, dict):
+        marker = _as_object_dict(permissions.get(marker_key, {}))
+        if marker:
             installed_list = marker.get("installed_patterns", [])
             if isinstance(installed_list, list):
-                prev_installed.update(p for p in installed_list if isinstance(p, str))
+                prev_installed.update(p for p in cast(list[object], installed_list) if isinstance(p, str))
 
-    deny_list = permissions.setdefault("deny", [])
-    if not isinstance(deny_list, list):
-        deny_list = []
-        permissions["deny"] = deny_list
+    deny_value = permissions.get("deny", [])
+    deny_list: list[object] = cast(list[object], deny_value) if isinstance(deny_value, list) else []
+    permissions["deny"] = deny_list
 
     # 1a) 이전 _antigravity 패턴 제거
     if prev_installed:
@@ -233,7 +242,7 @@ def _merge_deny(existing: dict[str, Any], new_patterns: list[str]) -> int:
 
     # 1b) 레거시 마커 키 제거
     for legacy_key in LEGACY_MARKER_KEYS:
-        permissions.pop(legacy_key, None)
+        _ = permissions.pop(legacy_key, None)
 
     # 2) 코드 변경으로 삭제된 레거시 패턴 제거
     deny_list[:] = [d for d in deny_list if not (isinstance(d, str) and d in LEGACY_REMOVED_PATTERNS)]
@@ -262,10 +271,10 @@ def _write_with_backup(path: Path, content: bytes) -> str | None:
     backup_path = None
     if path.exists():
         bak = path.with_suffix(".local.json.antigravity-bak")
-        shutil.copy2(path, bak)
+        _ = shutil.copy2(path, bak)
         backup_path = str(bak)
 
-    path.write_bytes(content)
+    _ = path.write_bytes(content)
     return backup_path
 
 
@@ -291,12 +300,13 @@ def install_deny_rules(directory: str) -> DenyInstallReport:
     if settings_path.exists():
         raw = settings_path.read_text(encoding="utf-8").strip()
         if not raw:
-            root: dict[str, Any] = {}
+            root: dict[str, object] = {}
             created = True
         else:
-            root = json.loads(raw)
-            if not isinstance(root, dict):
+            payload = cast(object, json.loads(raw))
+            if not isinstance(payload, dict):
                 raise ValueError("settings.local.json이 객체가 아닙니다")
+            root = _as_object_dict(cast(object, payload))
             created = False
     else:
         root = {}
@@ -333,13 +343,16 @@ def get_deny_rules_status(directory: str) -> DenyInstallReport | None:
         return None
 
     try:
-        parsed = json.loads(raw)
+        parsed = cast(object, json.loads(raw))
     except json.JSONDecodeError:
         return None
 
-    permissions = parsed.get("permissions", {})
+    if not isinstance(parsed, dict):
+        return None
+    parsed_mapping = cast(dict[str, object], parsed)
+    permissions = _as_object_dict(parsed_mapping.get("permissions", {}))
     deny_list = permissions.get("deny", [])
-    deny_count = len(deny_list) if isinstance(deny_list, list) else 0
+    deny_count = len(cast(list[object], deny_list)) if isinstance(deny_list, list) else 0
 
     managed = RULES_MARKER_KEY in permissions
     if not managed and deny_count == 0:
@@ -359,7 +372,7 @@ def get_blocked_patterns_for_runtime() -> list[str]:
     deny 패턴에서 Bash() 접두사를 제거한 순수 glob 패턴.
     fnmatch로 매칭할 수 있는 형식으로 반환합니다.
     """
-    result = []
+    result: list[str] = []
     for pat in deny_patterns():
         if pat.startswith("Bash(") and pat.endswith(")"):
             inner = pat[5:-1]

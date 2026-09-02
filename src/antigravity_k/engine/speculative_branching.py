@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from antigravity_k.engine.sandbox import run_sandboxed_argv
+
 logger = logging.getLogger("antigravity_k.speculative_branching")
 
 PatchGenerator = Callable[[Path], bool]
@@ -41,7 +43,7 @@ class Workspace:
         """작업 공간을 정리한다. worktree면 git에서 먼저 제거한다."""
         if self._cleanup_cmd:
             try:
-                subprocess.run(
+                _ = subprocess.run(
                     self._cleanup_cmd,
                     capture_output=True,
                     text=True,
@@ -73,8 +75,8 @@ class SpeculativeResult:
 class SpeculativeBranchingEngine:
     """Coordinates parallel branch creation, test execution, and atomic merging."""
 
-    def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
+    def __init__(self, project_root: str | Path) -> None:
+        self.project_root: Path = Path(project_root).resolve()
 
     # ─── 작업 공간 준비 ───────────────────────────────────────────────
 
@@ -148,20 +150,14 @@ class SpeculativeBranchingEngine:
             return name, False, f"Hypothesis '{name}' failed during patch generation.", workspace
 
         try:
-            res = subprocess.run(
-                cmd,
-                cwd=workspace.path,
-                capture_output=True,
-                text=True,
-                timeout=timeout_sec,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
+            res = run_sandboxed_argv(cmd, cwd=str(workspace.path), timeout=timeout_sec)
+        except OSError:
+            return name, False, f"Hypothesis '{name}' test spawn failed.", workspace
+        if res.timed_out:
             return name, False, f"Hypothesis '{name}' timed out after {timeout_sec:.0f}s", workspace
-        except Exception as ex:
-            return name, False, f"Hypothesis '{name}' test spawn failed: {ex}", workspace
-
-        if res.returncode == 0:
+        if res.error and res.return_code == -1:
+            return name, False, f"Hypothesis '{name}' test spawn failed: {res.error}", workspace
+        if res.return_code == 0:
             return name, True, "", workspace
         output = (res.stderr or res.stdout).strip()
         short_err = output.splitlines()[-1] if output else "Tests failed"

@@ -3,9 +3,10 @@
 import json
 import logging
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Final, Self, TypedDict, cast
 
 logger = logging.getLogger("antigravity_k.engine.audit_logger")
 
@@ -14,41 +15,58 @@ logger = logging.getLogger("antigravity_k.engine.audit_logger")
 class ActivityId:
     """Enumeration of auditable activity types."""
 
-    UNKNOWN = 0
-    OPEN = 1
-    EXECUTE = 2
-    READ = 3
-    WRITE = 4
-    CONNECT = 5
+    UNKNOWN: Final = 0
+    OPEN: Final = 1
+    EXECUTE: Final = 2
+    READ: Final = 3
+    WRITE: Final = 4
+    CONNECT: Final = 5
 
 
 class ActionId:
     """Enumeration of auditable action types."""
 
-    UNKNOWN = 0
-    ALLOWED = 1
-    DENIED = 2
-    ERROR = 3
+    UNKNOWN: Final = 0
+    ALLOWED: Final = 1
+    DENIED: Final = 2
+    ERROR: Final = 3
 
 
 class SeverityId:
     """Enumeration of audit event severity levels."""
 
-    UNKNOWN = 0
-    INFORMATIONAL = 1
-    LOW = 2
-    MEDIUM = 3
-    HIGH = 4
-    CRITICAL = 5
-    FATAL = 6
+    UNKNOWN: Final = 0
+    INFORMATIONAL: Final = 1
+    LOW: Final = 2
+    MEDIUM: Final = 3
+    HIGH: Final = 4
+    CRITICAL: Final = 5
+    FATAL: Final = 6
 
 
 class StatusId:
     """Enumeration of audit event outcome statuses."""
 
-    UNKNOWN = 0
-    SUCCESS = 1
-    FAILURE = 2
+    UNKNOWN: Final = 0
+    SUCCESS: Final = 1
+    FAILURE: Final = 2
+
+
+class AuditEvent(TypedDict, total=False):
+    metadata: dict[str, object]
+    class_uid: int
+    class_name: str
+    severity_id: int
+    status_id: int
+    time: int
+    unmapped: dict[str, object]
+    activity_id: int
+    action_id: int
+    message: str
+    finding: dict[str, str]
+    event_type: str
+    details: dict[str, object]
+    timestamp: str
 
 
 class OCSFEventBuilder:
@@ -62,7 +80,8 @@ class OCSFEventBuilder:
             class_name (str): str class name.
 
         """
-        self.event: dict[str, Any] = {
+        self._unmapped: dict[str, object] = {}
+        self.event: AuditEvent = {
             "metadata": {
                 "version": "1.1.0",
                 "product": {"name": "Antigravity-K", "vendor_name": "Antigravity"},
@@ -72,10 +91,10 @@ class OCSFEventBuilder:
             "severity_id": SeverityId.INFORMATIONAL,
             "status_id": StatusId.SUCCESS,
             "time": int(time.time() * 1000),
-            "unmapped": {},
+            "unmapped": self._unmapped,
         }
 
-    def activity(self, activity_id: int):
+    def activity(self, activity_id: int) -> Self:
         """Activity.
 
         Args:
@@ -85,7 +104,7 @@ class OCSFEventBuilder:
         self.event["activity_id"] = activity_id
         return self
 
-    def action(self, action_id: int):
+    def action(self, action_id: int) -> Self:
         """Set the action.
 
         Args:
@@ -95,7 +114,7 @@ class OCSFEventBuilder:
         self.event["action_id"] = action_id
         return self
 
-    def severity(self, severity_id: int):
+    def severity(self, severity_id: int) -> Self:
         """Severity.
 
         Args:
@@ -105,7 +124,7 @@ class OCSFEventBuilder:
         self.event["severity_id"] = severity_id
         return self
 
-    def status(self, status_id: int):
+    def status(self, status_id: int) -> Self:
         """Status.
 
         Args:
@@ -115,7 +134,7 @@ class OCSFEventBuilder:
         self.event["status_id"] = status_id
         return self
 
-    def message(self, msg: str):
+    def message(self, msg: str) -> Self:
         """Message.
 
         Args:
@@ -125,7 +144,7 @@ class OCSFEventBuilder:
         self.event["message"] = msg
         return self
 
-    def unmapped(self, key: str, value: Any):
+    def unmapped(self, key: str, value: object) -> Self:
         """Unmapped.
 
         Args:
@@ -133,10 +152,10 @@ class OCSFEventBuilder:
             value (Any): value.
 
         """
-        self.event["unmapped"][key] = value
+        self._unmapped[key] = value
         return self
 
-    def build(self) -> dict[str, Any]:
+    def build(self) -> AuditEvent:
         """Build.
 
         Returns:
@@ -156,14 +175,14 @@ class ToolExecutionActivityBuilder(OCSFEventBuilder):
         """Initialize the ToolExecutionActivityBuilder."""
         super().__init__(1007, "Tool Execution Activity")
 
-    def tool_name(self, name: str):
+    def tool_name(self, name: str) -> Self:
         """Tool Name.
 
         Args:
             name (str): str name.
 
         """
-        self.unmapped("tool_name", name)
+        _ = self.unmapped("tool_name", name)
         return self
 
 
@@ -177,7 +196,7 @@ class SecurityDetectionBuilder(OCSFEventBuilder):
         """Initialize the SecurityDetectionBuilder."""
         super().__init__(2001, "Security Detection Finding")
 
-    def finding_info(self, title: str, description: str):
+    def finding_info(self, title: str, description: str) -> Self:
         """Set finding info.
 
         Args:
@@ -199,37 +218,43 @@ class AuditLogger:
             log_dir (str): str log dir.
 
         """
-        self.log_dir = Path(log_dir)
+        self.log_dir: Path = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.log_file = self.log_dir / f"audit_ocsf_{datetime.now().strftime('%Y%m')}.jsonl"
+        self.log_file: Path = self.log_dir / f"audit_ocsf_{datetime.now().strftime('%Y%m')}.jsonl"
 
-    def _mask_sensitive_data(self, data: Any) -> Any:
+    def _mask_sensitive_data(self, data: object) -> object:
         if isinstance(data, dict):
-            masked = {}
-            for k, v in data.items():
-                if any(sec in k.lower() for sec in ["key", "token", "password", "secret", "credential"]):
-                    masked[k] = "***MASKED***"
+            masked: dict[str, object] = {}
+            data_dict = cast(dict[object, object], data)
+            for k, v in data_dict.items():
+                key = str(k)
+                if any(sec in key.lower() for sec in ["key", "token", "password", "secret", "credential"]):
+                    masked[key] = "***MASKED***"
                 else:
-                    masked[k] = self._mask_sensitive_data(v)
+                    masked[key] = self._mask_sensitive_data(v)
             return masked
         elif isinstance(data, list):
-            return [self._mask_sensitive_data(item) for item in data]
+            items = cast(list[object], data)
+            return [self._mask_sensitive_data(item) for item in items]
         return data
 
-    def log_event(self, event_type: str, details: dict[str, Any]):
+    def log_event(self, event_type: str, details: Mapping[str, object]) -> None:
         """Legacy compatibility method. Routes to OCSF format where possible."""
         masked_details = self._mask_sensitive_data(details)
+        masked_mapping = cast(dict[str, object], masked_details) if isinstance(masked_details, dict) else {}
         builder = OCSFEventBuilder(9999, "Legacy Event")
-        builder.message(f"Legacy Event: {event_type}")
-        for k, v in masked_details.items():
-            builder.unmapped(k, v)
+        _ = builder.message(f"Legacy Event: {event_type}")
+        for k, v in masked_mapping.items():
+            _ = builder.unmapped(k, v)
         event = builder.build()
         event["event_type"] = event_type
-        event["details"] = masked_details
-        event["timestamp"] = datetime.fromtimestamp(event["time"] / 1000).isoformat()
+        event["details"] = masked_mapping
+        event_time = event.get("time")
+        timestamp_ms = event_time if isinstance(event_time, (int, float)) else time.time() * 1000
+        event["timestamp"] = datetime.fromtimestamp(timestamp_ms / 1000).isoformat()
         self.emit(event)
 
-    def emit(self, event_dict: dict[str, Any]):
+    def emit(self, event_dict: Mapping[str, object]) -> None:
         """Emit an OCSF structured event dictionary.
 
         JSONL 파일 + SQLite 듀얼 싱크 (Sidabari audit_log.rs 패턴).
@@ -237,7 +262,7 @@ class AuditLogger:
         """
         try:
             with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(event_dict, ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(event_dict, ensure_ascii=False) + "\n")
         except Exception:
             logger.exception("Failed to write audit log")
 
@@ -246,8 +271,8 @@ class AuditLogger:
             from antigravity_k.engine.audit_db import get_audit_db
 
             db = get_audit_db()
-            if db._initialized:
-                db.insert_from_dict(event_dict)
+            if bool(getattr(db, "_initialized", False)):
+                db.insert_from_dict(dict(event_dict))
         except ImportError:
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         except Exception as e:

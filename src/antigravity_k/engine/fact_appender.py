@@ -7,24 +7,32 @@
 """
 
 import logging
+from typing import Protocol, final
+
+from antigravity_k.engine.vault import VaultEngine
 
 logger = logging.getLogger(__name__)
 
 
+class _ManagerInput(Protocol):
+    ...
+
+
+@final
 class FactAppender:
     """LLM 응답 및 도구 실행 결과에서 유의미한 사실을 추출/추가합니다."""
 
-    def __init__(self, vault_engine=None):
+    def __init__(self, vault_engine: VaultEngine | None = None) -> None:
         """Initialize the FactAppender.
 
         Args:
             vault_engine: vault engine.
 
         """
-        self.vault_engine = vault_engine
-        self.session_facts = []
+        self.vault_engine: VaultEngine | None = vault_engine
+        self.session_facts: list[str] = []
 
-    def append_fact(self, fact_text: str):
+    def append_fact(self, fact_text: str) -> None:
         """세션 컨텍스트에 새로운 사실을 추가합니다."""
         if fact_text and fact_text not in self.session_facts:
             self.session_facts.append(fact_text)
@@ -39,7 +47,7 @@ class FactAppender:
         return f"\n[Learned Facts in Current Session]\n{facts}\n"
 
 
-def initialize_fact_appender(manager, project_root: str) -> FactAppender:
+def initialize_fact_appender(manager: _ManagerInput | None, project_root: str) -> FactAppender:
     """Initialize a FactAppender with the given manager and project root.
 
     Args:
@@ -50,4 +58,6 @@ def initialize_fact_appender(manager, project_root: str) -> FactAppender:
         FactAppender instance
 
     """
+    _ = manager
+    _ = project_root
     return FactAppender()

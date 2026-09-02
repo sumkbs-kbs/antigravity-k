@@ -7,25 +7,37 @@ Memory, Toolset, Harness, Shields, Security, Slash, Session, Code Intel, System 
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Protocol, TypeVar, cast
 
 import psutil
 import yaml
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+)
 
 from antigravity_k import __version__
 from antigravity_k.api.dependencies import (
-    __get_skill_loader,
-    __get_tool_registry,
-    _get_context_shaper,
-    _get_session_manager,
+    __get_skill_loader,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
+    __get_tool_registry,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
+    _get_context_shaper,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
+    _get_session_manager,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
     get_agent_runtime,
     get_model_manager,
     get_vault_engine,
@@ -39,11 +51,155 @@ from antigravity_k.engine.api_cache import TAG_SKILLS, TAG_SYSTEM, api_cache, ca
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.log_level_manager import LogLevelManager
 from antigravity_k.engine.memory_provider import normalize_memory_scope
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.engine.runtime_recovery import SystemHealth
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
 logger = logging.getLogger("antigravity_k.api.system_api")
 router = APIRouter()
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+JSONDict = dict[str, object]
+
+
+class _SkillValidationLike(Protocol):
+    valid: bool
+    has_skill_md: bool
+    has_readme: bool
+    version: str
+    tool_count: int
+    warnings: list[str]
+
+
+def _validate_skill(publisher: object, skill_dir: object, skill_name: str) -> _SkillValidationLike:
+    validator = cast(Callable[[object, str], _SkillValidationLike], getattr(publisher, "_validate_for_publish"))
+    return validator(skill_dir, skill_name)
+
+
+def _as_json_object(value: object) -> JSONDict:
+    return cast(JSONDict, value) if isinstance(value, dict) else {}
+
+
+def _call_noarg(value: object, method_name: str) -> object:
+    method = getattr(value, method_name, None)
+    return method() if callable(method) else None
+
+
+def _cached(*, ttl: float, tags: list[str]) -> Callable[[Callable[..., object]], Callable[..., object]]:
+    return cast(Callable[[Callable[..., object]], Callable[..., object]], cached(ttl=ttl, tags=tags))
+
+
+class _ToolsetActivationRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+    name: StrictStr = "full"
+
+
+class _MemoryScopeRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    scope: StrictStr = "all"
+
+
+class _MemoryRetentionRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    max_age_days: StrictInt = Field(ge=0)
+
+
+class _SkillInstallRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    package_name: StrictStr = ""
+
+
+class _SkillRemoveRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    skill_name: StrictStr = ""
+
+
+class _SkillPublishNpmRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    skill_name: StrictStr = ""
+    version: StrictStr | None = None
+    tag: StrictStr = "latest"
+    dry_run: StrictBool = False
+
+
+class _SkillPublishGithubRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    skill_name: StrictStr = ""
+    repo: StrictStr = ""
+    base_branch: StrictStr = "main"
+    draft: StrictBool = False
+    title: StrictStr | None = None
+    body: StrictStr | None = None
+    dry_run: StrictBool = False
+
+
+class _SystemModeRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    mode: StrictStr = ""
+    reason: StrictStr = "사용자 수동 전환"
+
+
+class _LogLevelRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    name: StrictStr = ""
+    level: StrictStr | StrictInt = "INFO"
+
+
+class _LogLevelAllRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    level: StrictStr | StrictInt = "INFO"
+
+
+class _DebugModeRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    action: StrictStr = ""
+
+
+class _CodeIntelIndexRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    repo_path: StrictStr = "."
+    force: StrictBool = False
+
+
+class _CodeIntelImpactRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    repo_path: StrictStr = "."
+    symbol_id: StrictStr = ""
+    max_depth: StrictInt = Field(default=5, ge=0)
+
+
+class _ShieldsDownRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    reason: StrictStr | None = None
+    timeout_seconds: StrictInt | None = None
+    target_toolset: StrictStr = "full"
+
+
+class _EnvSettingsRequest(RootModel[dict[StrictStr, StrictStr]]):
+    root: dict[StrictStr, StrictStr]
+
+
+class _StripConfigRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    config: JsonValue = {}
+
+
+class _SecurityScanRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    text: StrictStr = ""
+    redact_mode: Literal["partial", "full"] = "partial"
+
+
+class _ExtractionABTestRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    version_label: StrictStr = "api"
+
+
+class _SearchExtractRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    query: StrictStr = ""
 
 
 # ─── Helpers ────────────────────────────────────────────────────
@@ -53,7 +209,14 @@ def _permission_gate() -> PermissionGate:
     return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+async def _parse_json_body(request: Request, model: type[_ModelT]) -> _ModelT:
+    try:
+        return model.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
+
+
+def _require_allowed(tool_name: str, args: JSONDict, risk_level: str) -> None:
     decision = _permission_gate().decide(
         ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
     )
@@ -64,7 +227,7 @@ def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> N
         )
 
 
-def _get_slash_registry():
+def _get_slash_registry() -> SlashCommandRegistry:
     from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
     return SlashCommandRegistry(
@@ -93,8 +256,10 @@ def _get_toolset_manager():
         )
         if os.path.exists(config_file):
             with open(config_file, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f)
-            return ToolsetManager.from_config(cfg.get("toolsets", {}))
+                cfg: JSONDict = _as_json_object(cast(object, yaml.safe_load(f)))
+            toolsets = cfg.get("toolsets", {})
+            if isinstance(toolsets, dict):
+                return ToolsetManager.from_config(cast(dict[str, object], toolsets))
     except Exception:
         logger.exception("Unhandled exception")
         pass
@@ -111,12 +276,15 @@ def _get_shields_manager():
             ),
             "config.yaml",
         )
-        shields_config = {}
+        shields_config: dict[str, object] = {}
         if os.path.exists(config_file):
             with open(config_file, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-            shields_config = cfg.get("shields", {})
-        return ShieldsManager.from_config(
+                cfg: JSONDict = _as_json_object(yaml.safe_load(f) or {})
+            configured_shields = cfg.get("shields", {})
+            if isinstance(configured_shields, dict):
+                shields_config = cast(dict[str, object], configured_shields)
+        from_config = cast(Callable[..., ShieldsManager], ShieldsManager.from_config)
+        return from_config(
             shields_config,
             toolset_manager=_get_toolset_manager(),
         )
@@ -140,16 +308,16 @@ async def slash_command(request: Request):
     """Slash Command.
 
     Args:
-        request (Request): Request request.
+        payload (_ToolsetActivationRequest): Validated activation request.
 
     """
-    body = await request.json()
-    text = body.get("command") or body.get("input") or body.get("text") or ""
+    body = _as_json_object(cast(object, await request.json()))
+    raw_text = body.get("command") or body.get("input") or body.get("text") or ""
+    text = raw_text if isinstance(raw_text, str) else ""
     registry = _get_slash_registry()
-    result: object = registry.execute(text)
-    if not isinstance(result, str) and isinstance(result, Iterable):
-        result = "".join(str(chunk) for chunk in result)
-    return {"ok": True, "result": str(result)}
+    result: str | Iterator[str] = registry.execute(text)
+    rendered = result if isinstance(result, str) else "".join(str(chunk) for chunk in result)
+    return {"ok": True, "result": rendered}
 
 
 @router.get("/api/slash/completions")
@@ -175,18 +343,21 @@ async def session_info():
 async def session_messages():
     """Session Messages."""
     sm = _get_session_manager()
-    sm.start_session(resume=True)
+    _ = sm.start_session(resume=True)
     msgs = sm.get_messages()
-    dicts: list[dict[str, Any]] = []
-    for message in msgs or []:
-        to_simple_dict = getattr(message, "to_simple_dict", None)
+    dicts: list[JSONDict] = []
+    messages: list[object] = cast(list[object], msgs or [])
+    for message_value in messages:
+        to_simple_dict = getattr(message_value, "to_simple_dict", None)
         if callable(to_simple_dict):
-            simple_message = to_simple_dict()
-            dicts.append(simple_message if isinstance(simple_message, dict) else {"value": str(simple_message)})
-        elif isinstance(message, dict):
-            dicts.append(message)
+            simple_message: object = to_simple_dict()
+            dicts.append(
+                cast(JSONDict, simple_message) if isinstance(simple_message, dict) else {"value": str(simple_message)}
+            )
+        elif isinstance(message_value, dict):
+            dicts.append(cast(JSONDict, message_value))
         else:
-            dicts.append({"value": str(message)})
+            dicts.append({"value": str(message_value)})
     return {"ok": True, "messages": dicts}
 
 
@@ -223,10 +394,8 @@ async def recall_memory(query: str = ""):
 
 @router.delete("/api/memory")
 async def purge_memory(request: Request):
-    body = await request.json()
-    scope = body.get("scope", "all") if isinstance(body, dict) else "all"
-    if not isinstance(scope, str):
-        raise HTTPException(status_code=400, detail="scope must be a string")
+    payload = await _parse_json_body(request, _MemoryScopeRequest)
+    scope = payload.scope
     try:
         normalized_scope = normalize_memory_scope(scope)
     except ValueError as exc:
@@ -265,10 +434,8 @@ async def export_memory(scope: str = "all", include_vault_assets: bool = False):
 
 @router.post("/api/memory/redact")
 async def redact_memory(request: Request):
-    body = await request.json()
-    scope = body.get("scope", "all") if isinstance(body, dict) else "all"
-    if not isinstance(scope, str):
-        raise HTTPException(status_code=400, detail="scope must be a string")
+    payload = await _parse_json_body(request, _MemoryScopeRequest)
+    scope = payload.scope
     try:
         normalized_scope = normalize_memory_scope(scope)
     except ValueError as exc:
@@ -280,10 +447,8 @@ async def redact_memory(request: Request):
 
 @router.post("/api/memory/retention")
 async def apply_memory_retention(request: Request):
-    body = await request.json()
-    max_age_days = body.get("max_age_days") if isinstance(body, dict) else None
-    if isinstance(max_age_days, bool) or not isinstance(max_age_days, int) or max_age_days < 0:
-        raise HTTPException(status_code=400, detail="max_age_days must be a non-negative integer")
+    payload = await _parse_json_body(request, _MemoryRetentionRequest)
+    max_age_days = payload.max_age_days
     report = _get_memory_manager().apply_retention(max_age_days)
     get_audit_logger().log_event(
         "memory_retention",
@@ -329,25 +494,23 @@ async def delete_memory_entry(provider: str, key: str):
 
 
 @router.get("/api/toolsets")
-@cached(ttl=30, tags=[TAG_SYSTEM])
-async def list_toolsets():
+@_cached(ttl=30, tags=[TAG_SYSTEM])
+async def list_toolsets() -> JSONDict:
     """List Toolsets."""
     ts = _get_toolset_manager()
     return {"toolsets": ts.list_toolsets(), "active": ts.active_toolset}
 
 
 @router.post("/api/toolsets/activate")
-async def activate_toolset(request: Request):
+async def activate_toolset(payload: _ToolsetActivationRequest):
     """Activate Toolset.
 
     Args:
         request (Request): Request request.
 
     """
-    body = await request.json()
-    name = body.get("name", "full")
     ts = _get_toolset_manager()
-    success = ts.set_active(name)
+    success = ts.set_active(payload.name)
     return {
         "success": success,
         "active": ts.active_toolset,
@@ -380,7 +543,7 @@ async def harness_self_test(request: Request):
 
     """
     try:
-        body = await request.json()
+        body = _as_json_object(cast(object, await request.json()))
     except Exception:
         logger.exception("Unhandled exception")
         body = {}
@@ -434,8 +597,8 @@ async def system_status():
         return {
             "ok": True,
             "status": "online",
-            "memory_mb": mem_info.percent,  # Returns percentage despite the legacy key name
-            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "memory_mb": cast(float, mem_info.percent),  # Returns percentage despite the legacy key name
+            "cpu_percent": await asyncio.to_thread(psutil.cpu_percent, interval=0.1),
             "total_tokens": total_tokens,
             "uptime_seconds": uptime_seconds,
             "version": __version__,
@@ -473,8 +636,8 @@ async def system_restart(background_tasks: BackgroundTasks):
 
 
 @router.get("/api/system/skills")
-@cached(ttl=60, tags=[TAG_SKILLS])
-async def system_skills():
+@_cached(ttl=60, tags=[TAG_SKILLS])
+async def system_skills() -> JSONDict:
     """SkillLoader.list_skills() 결과를 JSON으로 반환합니다.
 
     Phase 1 D16: Dashboard Skills Browser에서 사용.
@@ -490,8 +653,8 @@ async def system_skills():
 
 
 @router.get("/api/system/skills/installed")
-@cached(ttl=60, tags=[TAG_SKILLS])
-async def system_skills_installed():
+@_cached(ttl=60, tags=[TAG_SKILLS])
+async def system_skills_installed() -> JSONDict:
     """SkillMarketRegistry.list_installed() 결과를 JSON으로 반환합니다.
 
     Phase 1 D16: Dashboard Skills Browser — Marketplace 탭에서 사용.
@@ -514,9 +677,9 @@ async def system_skills_installed():
             skill_loader=sl,
         )
         installed = registry.list_installed()
-        result = []
+        result: list[JSONDict] = []
         for skill in installed:
-            s = {
+            s: JSONDict = {
                 "name": skill.skill_name,
                 "version": skill.version,
                 "is_loaded": skill.is_loaded,
@@ -531,8 +694,8 @@ async def system_skills_installed():
 
 
 @router.get("/api/system/skills/mcp")
-@cached(ttl=30, tags=[TAG_SKILLS])
-async def system_skills_mcp():
+@_cached(ttl=30, tags=[TAG_SKILLS])
+async def system_skills_mcp() -> JSONDict:
     """MCPServerRegistry.list_skills_with_mcp() 결과를 JSON으로 반환합니다.
 
     Phase 1 D16: Dashboard Skills Browser — MCP Servers 탭에서 사용.
@@ -551,9 +714,9 @@ async def system_skills_mcp():
 
 @router.get("/api/system/skills/search")
 async def system_skills_search(
-    q: str = Query("", description="Search query for npm skill packages"),
-    limit: int = Query(15, ge=1, le=50, description="Max results"),
-):
+    q: Annotated[str, Query(description="Search query for npm skill packages")] = "",
+    limit: Annotated[int, Query(ge=1, le=50, description="Max results")] = 15,
+) -> JSONDict:
     """npm 레지스트리에서 @antigravity-k/skill-* 패키지를 검색합니다.
 
     Phase 1 D20: Dashboard Skills Browser — Search tab에서 실시간 검색.
@@ -577,8 +740,8 @@ async def system_skills_install(request: Request):
     Phase 1 D20: Dashboard Skills Browser — Install 버튼.
     """
     try:
-        body = await request.json()
-        package_name = body.get("package_name", "")
+        payload = await _parse_json_body(request, _SkillInstallRequest)
+        package_name = payload.package_name
         if not package_name:
             return {"ok": False, "error": "package_name is required"}
         _require_allowed("install_skill", {"package_name": package_name}, "critical")
@@ -612,8 +775,8 @@ async def system_skills_remove(request: Request):
     Phase 1 D20: Dashboard Skills Browser — Remove 버튼.
     """
     try:
-        body = await request.json()
-        skill_name = body.get("skill_name", "")
+        payload = await _parse_json_body(request, _SkillRemoveRequest)
+        skill_name = payload.skill_name
         if not skill_name:
             return {"ok": False, "error": "skill_name is required"}
         _require_allowed("remove_skill", {"skill_name": skill_name}, "critical")
@@ -644,8 +807,8 @@ async def system_skills_remove(request: Request):
 
 
 @router.get("/api/system/skills/local")
-@cached(ttl=30, tags=[TAG_SKILLS])
-async def system_skills_local():
+@_cached(ttl=30, tags=[TAG_SKILLS])
+async def system_skills_local() -> JSONDict:
     """로컬 스킬 디렉토리 목록을 반환합니다 (publish 가능한 스킬).
 
     Phase 1 D17: 로컬 .agent/skills/ 디렉토리에서 publish 가능한 스킬을 검색.
@@ -655,13 +818,13 @@ async def system_skills_local():
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
         publisher = SkillPublisher(project_root=os.getcwd())
-        local_skills = []
+        local_skills: list[JSONDict] = []
 
         # market/ 디렉토리 검색
         if publisher.market_dir.exists():
             for skill_dir in publisher.market_dir.iterdir():
                 if skill_dir.is_dir():
-                    validation = publisher._validate_for_publish(skill_dir, skill_dir.name)
+                    validation = _validate_skill(publisher, skill_dir, skill_dir.name)
                     local_skills.append(
                         {
                             "name": skill_dir.name,
@@ -685,7 +848,7 @@ async def system_skills_local():
                         continue
                     already_listed = any(s["name"] == skill_dir.name for s in local_skills)
                     if not already_listed:
-                        validation = publisher._validate_for_publish(skill_dir, skill_dir.name)
+                        validation = _validate_skill(publisher, skill_dir, skill_dir.name)
                         local_skills.append(
                             {
                                 "name": skill_dir.name,
@@ -708,8 +871,8 @@ async def system_skills_local():
 
 @router.get("/api/system/skills/local/check")
 async def system_skills_local_check(
-    since: str = Query("", description="ISO timestamp or empty for full list"),
-):
+    since: Annotated[str, Query(description="ISO timestamp or empty for full list")] = "",
+) -> JSONDict:
     """로컬 스킬 디렉토리 변경 내역을 반환합니다.
 
     Phase 1 D18: Skill auto-discovery — since 시점 이후 변경된 스킬 목록.
@@ -726,7 +889,7 @@ async def system_skills_local_check(
         from antigravity_k.engine.skill_publisher import SkillPublisher
 
         publisher = SkillPublisher(project_root=os.getcwd())
-        current_skills: list[dict[str, Any]] = []
+        current_skills: list[JSONDict] = []
         seen_names: set[str] = set()
 
         # market/ 디렉토리 검색
@@ -734,7 +897,7 @@ async def system_skills_local_check(
             for skill_dir in publisher.market_dir.iterdir():
                 if skill_dir.is_dir() and skill_dir.name not in seen_names:
                     seen_names.add(skill_dir.name)
-                    validation = publisher._validate_for_publish(skill_dir, skill_dir.name)
+                    validation = _validate_skill(publisher, skill_dir, skill_dir.name)
                     current_skills.append(
                         {
                             "name": skill_dir.name,
@@ -752,7 +915,7 @@ async def system_skills_local_check(
                     if skill_dir.name == "market" or skill_dir.name in seen_names:
                         continue
                     seen_names.add(skill_dir.name)
-                    validation = publisher._validate_for_publish(skill_dir, skill_dir.name)
+                    validation = _validate_skill(publisher, skill_dir, skill_dir.name)
                     current_skills.append(
                         {
                             "name": skill_dir.name,
@@ -766,9 +929,9 @@ async def system_skills_local_check(
         checked_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         # since가 있으면 변경 탐지
-        new_skills: list[dict[str, Any]] = []
-        removed_skills: list[dict[str, Any]] = []
-        changed_skills: list[dict[str, Any]] = []
+        new_skills: list[JSONDict] = []
+        removed_skills: list[JSONDict] = []
+        changed_skills: list[JSONDict] = []
         has_changes = False
 
         if since:
@@ -777,7 +940,7 @@ async def system_skills_local_check(
             except ValueError:
                 since_ts = 0.0
 
-            new_skills = [s for s in current_skills if s["mtime"] > since_ts]
+            new_skills = [s for s in current_skills if cast(float, s["mtime"]) > since_ts]
             has_changes = bool(new_skills) or bool(removed_skills) or bool(changed_skills)
 
         return {
@@ -812,13 +975,13 @@ async def system_skills_publish_npm(request: Request):
         dict: {ok, publish_result: {success, action, package_name, version, errors, warnings, ...}}
     """
     try:
-        body = await request.json()
-        skill_name = body.get("skill_name", "")
+        payload = await _parse_json_body(request, _SkillPublishNpmRequest)
+        skill_name = payload.skill_name
         if not skill_name:
             return {"ok": False, "error": "skill_name is required"}
         _require_allowed(
             "publish_skill_npm",
-            {"skill_name": skill_name, "tag": body.get("tag", "latest")},
+            {"skill_name": skill_name, "tag": payload.tag},
             "critical",
         )
 
@@ -827,9 +990,9 @@ async def system_skills_publish_npm(request: Request):
         publisher = SkillPublisher(project_root=os.getcwd())
         result = publisher.publish_to_npm(
             skill_name,
-            version=body.get("version"),
-            tag=body.get("tag", "latest"),
-            dry_run=body.get("dry_run", False),
+            version=payload.version,
+            tag=payload.tag,
+            dry_run=payload.dry_run,
         )
 
         return {
@@ -873,16 +1036,16 @@ async def system_skills_publish_github(request: Request):
         dict: {ok, publish_result: {success, action, skill_name, pr_url, errors, ...}}
     """
     try:
-        body = await request.json()
-        skill_name = body.get("skill_name", "")
-        repo = body.get("repo", "")
+        payload = await _parse_json_body(request, _SkillPublishGithubRequest)
+        skill_name = payload.skill_name
+        repo = payload.repo
         if not skill_name:
             return {"ok": False, "error": "skill_name is required"}
-        if not repo and not body.get("dry_run", False):
+        if not repo and not payload.dry_run:
             return {"ok": False, "error": "repo is required (e.g. 'org/skills-repo')"}
         _require_allowed(
             "publish_skill_github",
-            {"skill_name": skill_name, "repo": repo, "draft": body.get("draft", False)},
+            {"skill_name": skill_name, "repo": repo, "draft": payload.draft},
             "critical",
         )
 
@@ -892,11 +1055,11 @@ async def system_skills_publish_github(request: Request):
         result = publisher.publish_to_github(
             skill_name,
             repo=repo,
-            base_branch=body.get("base_branch", "main"),
-            draft=body.get("draft", False),
-            title=body.get("title"),
-            body=body.get("body"),
-            dry_run=body.get("dry_run", False),
+            base_branch=payload.base_branch,
+            draft=payload.draft,
+            title=payload.title,
+            body=payload.body,
+            dry_run=payload.dry_run,
         )
 
         return {
@@ -920,7 +1083,7 @@ async def system_skills_publish_github(request: Request):
 
 
 @router.get("/api/system/mode/history")
-async def system_mode_history():
+async def system_mode_history() -> JSONDict:
     """ModeManager의 전체 모드 히스토리를 반환합니다.
 
     Phase 1 D16: Dashboard Mode Indicator 확장 — 히스토리 렌더링용.
@@ -946,11 +1109,9 @@ async def system_mode_history():
 
 # ─── System API ─────────────────────────────────────────────────
 
-START_TIME = time.time()
-
 
 @router.get("/api/system/mode")
-async def system_mode():
+async def system_mode() -> JSONDict:
     """현재 실행 모드(Plan/Build/Interactive)를 반환합니다.
 
     Phase 1 D7: Dashboard WebSocket이 초기 연결 시 현재 모드를 가져오기 위해 사용.
@@ -990,10 +1151,10 @@ async def set_system_mode(request: Request):
 
     대시보드의 모드 인디케이터 클릭 시 호출됩니다.
     """
+    payload = await _parse_json_body(request, _SystemModeRequest)
     try:
-        body = await request.json()
-        target_mode = body.get("mode", "").lower()
-        reason = body.get("reason", "사용자 수동 전환")
+        target_mode = payload.mode.lower()
+        reason = payload.reason
 
         if target_mode not in ("interactive", "plan", "build"):
             return {"ok": False, "error": f"알 수 없는 모드: {target_mode}. interactive/plan/build 중 하나."}
@@ -1002,11 +1163,11 @@ async def set_system_mode(request: Request):
 
         mgr = get_mode_manager()
         if target_mode == "plan":
-            mgr.switch_to_plan(reason=reason)
+            _ = mgr.switch_to_plan(reason=reason)
         elif target_mode == "build":
-            mgr.switch_to_build(reason=reason)
+            _ = mgr.switch_to_build(reason=reason)
         else:
-            mgr.switch_to_interactive(reason=reason)
+            _ = mgr.switch_to_interactive(reason=reason)
 
         logger.info("모드 전환 (수동): %s → %s", target_mode, reason)
         return {
@@ -1035,13 +1196,11 @@ async def run_extraction_ab_test(request: Request):
             report: ABTestReport.to_dict()
         }
     """
+    payload = await _parse_json_body(request, _ExtractionABTestRequest)
     try:
         from antigravity_k.engine.extraction_ab_test import run_builtin_suite
 
-        body = await request.json()
-        version_label = body.get("version_label", "api")
-
-        report = run_builtin_suite(version_label=version_label)
+        report = run_builtin_suite(version_label=payload.version_label)
         logger.info("A/B 테스트 완료: %d개 케이스, 정확도 %.1f%%", report.total_cases, report.avg_accuracy)
         return {"ok": True, "report": report.to_dict()}
     except Exception as e:
@@ -1050,7 +1209,7 @@ async def run_extraction_ab_test(request: Request):
 
 
 @router.get("/api/system/cache-stats")
-@cached(ttl=10, tags=[TAG_SYSTEM])
+@_cached(ttl=10, tags=[TAG_SYSTEM])
 async def system_cache_stats():
     """API 응답 캐시 통계를 반환합니다 (Phase 28 / Phase 29).
 
@@ -1127,7 +1286,7 @@ async def get_pipeline_timing():
 
 
 @router.get("/api/system/log-level")
-async def system_log_level_list():
+async def system_log_level_list() -> JSONDict:
     """모든 antigravity_k.* 로거의 현재 로그 레벨을 반환합니다.
 
     LogLevelManager.discover_loggers()를 통해 현재 실행 중인
@@ -1158,7 +1317,7 @@ async def system_log_level_list():
 
 
 @router.post("/api/system/log-level")
-async def system_log_level_set(request: Request):
+async def system_log_level_set(request: Request) -> JSONDict:
     """특정 로거의 로그 레벨을 변경합니다.
 
     로거 이름과 대상 레벨을 지정하여 동적으로 로깅 레벨을 변경합니다.
@@ -1175,22 +1334,22 @@ async def system_log_level_set(request: Request):
                      previous_level_name, current_level_name}
         }
     """
+    payload = await _parse_json_body(request, _LogLevelRequest)
     try:
-        body = await request.json()
-        logger_name = body.get("name", "")
-        level = body.get("level", "INFO")
+        logger_name = payload.name
+        level = payload.level
 
         if not logger_name:
             return {"ok": False, "error": "name is required"}
         if isinstance(level, str) and level.upper() not in LogLevelManager.LEVEL_NAMES:
             return {"ok": False, "error": f"Invalid level: {level}. Use DEBUG/INFO/WARNING/ERROR/CRITICAL"}
 
-        result = LogLevelManager.set_level(logger_name, level)
+        result = _as_json_object(cast(object, LogLevelManager.set_level(logger_name, level)))
         logger.info(
             "Log level changed: %s %s -> %s",
             logger_name,
-            result["previous_level_name"],
-            result["current_level_name"],
+            str(result.get("previous_level_name", "")),
+            str(result.get("current_level_name", "")),
         )
         return {"ok": True, "result": result}
     except Exception as e:
@@ -1199,7 +1358,7 @@ async def system_log_level_set(request: Request):
 
 
 @router.post("/api/system/log-level/all")
-async def system_log_level_set_all(request: Request):
+async def system_log_level_set_all(request: Request) -> JSONDict:
     """모든 antigravity_k.* 로거의 로그 레벨을 한 번에 변경합니다.
 
     디버깅이 필요할 때 전체 로거를 DEBUG로 변경하거나,
@@ -1214,15 +1373,20 @@ async def system_log_level_set_all(request: Request):
             result: {target_level, target_level_name, updated_count, loggers: [...]}
         }
     """
+    payload = await _parse_json_body(request, _LogLevelAllRequest)
     try:
-        body = await request.json()
-        level = body.get("level", "INFO")
+        level = payload.level
 
         if isinstance(level, str) and level.upper() not in LogLevelManager.LEVEL_NAMES:
             return {"ok": False, "error": f"Invalid level: {level}. Use DEBUG/INFO/WARNING/ERROR/CRITICAL"}
 
-        result = LogLevelManager.set_all_levels(level)
-        logger.info("All log levels changed: %s (%d loggers)", result["target_level_name"], result["updated_count"])
+        result = _as_json_object(cast(object, LogLevelManager.set_all_levels(level)))
+        updated_count = result.get("updated_count", 0)
+        logger.info(
+            "All log levels changed: %s (%d loggers)",
+            str(result.get("target_level_name", "")),
+            updated_count if isinstance(updated_count, int) else 0,
+        )
         return {"ok": True, "result": result}
     except Exception as e:
         logger.error("Log level set-all error: %s", e)
@@ -1230,7 +1394,7 @@ async def system_log_level_set_all(request: Request):
 
 
 @router.post("/api/system/debug-mode")
-async def system_debug_mode(request: Request):
+async def system_debug_mode(request: Request) -> JSONDict:
     """디버그 모드를 활성화/비활성화합니다.
 
     디버그 모드가 활성화되면 모든 antigravity_k.* 로거가 DEBUG 레벨로 설정되고,
@@ -1246,18 +1410,18 @@ async def system_debug_mode(request: Request):
             result: {success, message, updated_count / restored_count}
         }
     """
+    payload = await _parse_json_body(request, _DebugModeRequest)
     try:
-        body = await request.json()
-        action = body.get("action", "").lower()
+        action = payload.action.lower()
 
         if action == "enable":
-            result = LogLevelManager.enable_debug_mode()
+            result = _as_json_object(cast(object, LogLevelManager.enable_debug_mode()))
         elif action == "disable":
-            result = LogLevelManager.disable_debug_mode()
+            result = _as_json_object(cast(object, LogLevelManager.disable_debug_mode()))
         else:
             return {"ok": False, "error": "action must be 'enable' or 'disable'"}
 
-        logger.info("Debug mode %s: %s", action, result.get("message", ""))
+        logger.info("Debug mode %s: %s", action, str(result.get("message", "")))
         return {
             "ok": True,
             "debug_mode": LogLevelManager.is_debug_mode(),
@@ -1336,6 +1500,8 @@ async def search_and_extract(request: Request):
             has_top1_json: bool,  # TOP 1 JSON 발견 여부
         }
     """
+    payload = await _parse_json_body(request, _SearchExtractRequest)
+
     import asyncio
     import time as _time
 
@@ -1343,8 +1509,7 @@ async def search_and_extract(request: Request):
     from antigravity_k.engine.pipeline_timer import PipelineTimer
     from antigravity_k.tools.web_search import WebSearchTool
 
-    body = await request.json()
-    query = body.get("query", "")
+    query = payload.query
     if not query or not query.strip():
         return {"ok": False, "error": "query is required"}
 
@@ -1365,7 +1530,8 @@ async def search_and_extract(request: Request):
         # 2. TOP 1 JSON 확인
         _t0 = _time.perf_counter()
         extractor = DataExtractor()
-        has_top1 = extractor._extract_top1_json(search_res) is not None
+        extract_top1_json = cast(Callable[[str], object], getattr(extractor, "_extract_top1_json"))
+        has_top1 = extract_top1_json(search_res) is not None
         _d = (_time.perf_counter() - _t0) * 1000
         PipelineTimer.record("top1_json", _d)
         pipeline_timings["top1_json_ms"] = round(_d, 1)
@@ -1378,7 +1544,7 @@ async def search_and_extract(request: Request):
         pipeline_timings["extract_all_ms"] = round(_d, 1)
 
         # 4. 결과 직렬화
-        stock_prices = []
+        stock_prices: list[JSONDict] = []
         for sp in result.stock_prices:
             stock_prices.append(
                 {
@@ -1394,7 +1560,7 @@ async def search_and_extract(request: Request):
                 },
             )
 
-        weather_list = []
+        weather_list: list[JSONDict] = []
         for w in result.weather:
             weather_list.append(
                 {
@@ -1406,7 +1572,7 @@ async def search_and_extract(request: Request):
                 },
             )
 
-        exchange_list = []
+        exchange_list: list[JSONDict] = []
         for er in result.exchange_rates:
             exchange_list.append(
                 {
@@ -1463,7 +1629,6 @@ async def get_system_status_extended():
 
 # ─── Terminal WebSocket (PTY-based) ──────────────────────────────
 
-import asyncio
 import fcntl
 import pty
 import struct
@@ -1488,16 +1653,17 @@ async def websocket_terminal(websocket: WebSocket):
         await websocket.close(code=1008, reason="Terminal WebSocket is disabled")
         return
 
-    await websocket.accept()
+    if not getattr(websocket.state, "agk_accepted", False):
+        await websocket.accept()
 
     master, slave = pty.openpty()
     shell = os.environ.get("SHELL", "/bin/zsh")
     pid = os.fork()
     if pid == 0:
         os.setsid()
-        os.dup2(slave, 0)
-        os.dup2(slave, 1)
-        os.dup2(slave, 2)
+        _ = os.dup2(slave, 0)
+        _ = os.dup2(slave, 1)
+        _ = os.dup2(slave, 2)
         os.close(master)
         os.close(slave)
         os.execlp(shell, shell)
@@ -1509,20 +1675,20 @@ async def websocket_terminal(websocket: WebSocket):
         try:
             data = os.read(master, 1024)
             if data:
-                asyncio.create_task(
+                _ = asyncio.create_task(
                     websocket.send_text(data.decode("utf-8", errors="replace")),
                 )
             else:
-                loop.remove_reader(master)
+                _ = loop.remove_reader(master)
         except Exception:
             logger.exception("Unhandled exception")
-            loop.remove_reader(master)
+            _ = loop.remove_reader(master)
 
     loop.add_reader(master, pty_output_callback)
 
     def _cleanup_pty():
         try:
-            loop.remove_reader(master)
+            _ = loop.remove_reader(master)
         except Exception:
             logger.exception("Unhandled exception")
             pass
@@ -1555,15 +1721,17 @@ async def websocket_terminal(websocket: WebSocket):
                 try:
                     import json
 
-                    msg = json.loads(data)
-                    cols = msg.get("cols", 80)
-                    rows = msg.get("rows", 24)
+                    msg = _as_json_object(cast(object, json.loads(data)))
+                    cols_value = msg.get("cols", 80)
+                    rows_value = msg.get("rows", 24)
+                    cols = int(cols_value) if isinstance(cols_value, (int, float, str)) else 80
+                    rows = int(rows_value) if isinstance(rows_value, (int, float, str)) else 24
                     winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                    fcntl.ioctl(master, termios.TIOCSWINSZ, winsize)
+                    _ = fcntl.ioctl(master, termios.TIOCSWINSZ, winsize)
                 except Exception:
                     logger.exception("Resize error")
             else:
-                os.write(master, data.encode("utf-8"))
+                _ = os.write(master, data.encode("utf-8"))
     except (WebSocketDisconnect, asyncio.CancelledError):
         _cleanup_pty()
     except Exception:
@@ -1582,14 +1750,12 @@ async def code_intel_index(request: Request):
         request (Request): Request request.
 
     """
+    payload = await _parse_json_body(request, _CodeIntelIndexRequest)
     try:
         from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
-        data = await request.json()
-        repo_path = data.get("repo_path", ".")
-        force = data.get("force", False)
         pipeline = CodeIndexPipeline()
-        result = pipeline.run(repo_path, force=force)
+        result = pipeline.run(payload.repo_path, force=payload.force)
         return result
     except ImportError:
         raise HTTPException(status_code=501, detail="Code Intel not installed")
@@ -1638,23 +1804,20 @@ async def code_intel_impact(request: Request):
         request (Request): Request request.
 
     """
+    payload = await _parse_json_body(request, _CodeIntelImpactRequest)
     try:
         from antigravity_k.engine.code_intel.impact_analyzer import ImpactAnalyzer
         from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
-        data = await request.json()
-        repo_path = data.get("repo_path", ".")
-        symbol_id = data.get("symbol_id", "")
-        max_depth = data.get("max_depth", 5)
         pipeline = CodeIndexPipeline()
-        loaded = pipeline.load_existing(repo_path)
+        loaded = pipeline.load_existing(payload.repo_path)
         if not loaded:
             raise HTTPException(
                 status_code=404,
-                detail=f"'{repo_path}'의 인덱스가 없습니다.",
+                detail=f"'{payload.repo_path}'의 인덱스가 없습니다.",
             )
         analyzer = ImpactAnalyzer(pipeline.graph)
-        result = analyzer.analyze(symbol_id, max_depth=max_depth)
+        result = analyzer.analyze(payload.symbol_id, max_depth=payload.max_depth)
         return result
     except HTTPException:
         raise
@@ -1681,13 +1844,21 @@ async def shields_down(request: Request):
         request (Request): Request request.
 
     """
-    body = await request.json()
-    _require_allowed("shields_down", body, "critical")
+    payload = await _parse_json_body(request, _ShieldsDownRequest)
+    _require_allowed(
+        "shields_down",
+        {
+            "reason": payload.reason,
+            "timeout_seconds": payload.timeout_seconds,
+            "target_toolset": payload.target_toolset,
+        },
+        "critical",
+    )
     shields = _get_shields_manager()
-    shields.shields_down(
-        reason=body.get("reason"),
-        timeout_seconds=body.get("timeout_seconds"),
-        target_toolset=body.get("target_toolset", "full"),
+    _ = shields.shields_down(
+        reason=payload.reason,
+        timeout_seconds=payload.timeout_seconds,
+        target_toolset=payload.target_toolset,
     )
     return shields.status()
 
@@ -1697,12 +1868,12 @@ async def shields_up():
     """Shields Up."""
     _require_allowed("shields_up", {}, "high")
     shields = _get_shields_manager()
-    shields.shields_up(restored_by="api_operator")
+    _ = shields.shields_up(restored_by="api_operator")
     return shields.status()
 
 
 @router.get("/api/shields/audit")
-async def get_shields_audit(limit: int = Query(default=50, ge=1, le=500)):
+async def get_shields_audit(limit: Annotated[int, Query(ge=1, le=500)] = 50) -> JSONDict:
     """Retrieve shields audit.
 
     Args:
@@ -1715,15 +1886,7 @@ async def get_shields_audit(limit: int = Query(default=50, ge=1, le=500)):
 
 @router.post("/api/security/scan")
 async def scan_text_for_secrets(request: Request):
-    """Scan Text For Secrets.
-
-    Args:
-        request (Request): Request request.
-
-    """
-    body = await request.json()
-    text = body.get("text", "")
-    mode = body.get("redact_mode", "partial")
+    payload = await _parse_json_body(request, _SecurityScanRequest)
 
     from antigravity_k.engine.secret_scanner import (
         redact,
@@ -1731,8 +1894,8 @@ async def scan_text_for_secrets(request: Request):
         scan_for_secrets,
     )
 
-    matches = scan_for_secrets(text)
-    redacted_text = redact(text) if mode == "partial" else redact_full(text)
+    matches = scan_for_secrets(payload.text)
+    redacted_text = redact(payload.text) if payload.redact_mode == "partial" else redact_full(payload.text)
     return {
         "secrets_found": len(matches),
         "matches": [{"pattern": m.pattern, "redacted": m.redacted} for m in matches],
@@ -1742,26 +1905,20 @@ async def scan_text_for_secrets(request: Request):
 
 @router.post("/api/security/strip-config")
 async def strip_config_credentials(request: Request):
-    """Strip Config Credentials.
-
-    Args:
-        request (Request): Request request.
-
-    """
-    body = await request.json()
-    config_data = body.get("config", {})
+    payload = await _parse_json_body(request, _StripConfigRequest)
     from antigravity_k.engine.secret_scanner import strip_credentials
 
-    return {"sanitized": strip_credentials(config_data)}
+    return {"sanitized": strip_credentials(payload.config)}
 
 
 @router.get("/api/health/deep")
-async def get_deep_health():
+async def get_deep_health() -> JSONDict:
     """Retrieve deep health."""
     try:
-        from antigravity_k.engine.runtime_recovery import deep_health_check
+        from antigravity_k.engine import runtime_recovery
 
-        health = deep_health_check(
+        health_checker = cast(Callable[..., "SystemHealth"], getattr(runtime_recovery, "deep_health_check"))
+        health = health_checker(
             model_manager=get_model_manager(),
             session_manager=_get_session_manager(),
             memory_manager=_get_memory_manager(),
@@ -1787,7 +1944,7 @@ async def get_deep_health():
 
 
 @router.get("/api/harness/status")
-async def get_live_harness_status():
+async def get_live_harness_status() -> JSONDict:
     """Retrieve live harness status."""
     session = get_active_session()
     if not session.is_active or not session.orchestrator:
@@ -1802,25 +1959,38 @@ async def get_live_harness_status():
             "cache_hit_rate": 0,
             "overall_health": "healthy",
         }
-    orch = session.orchestrator
+    orch = cast(object, session.orchestrator)
     phase = "bypass"
-    if hasattr(orch, "plan_guard") and orch.plan_guard:
-        phase = orch.plan_guard.get_phase().value
+    plan_guard = cast(object, getattr(orch, "plan_guard", None))
+    if plan_guard:
+        phase_value = getattr(_call_noarg(plan_guard, "get_phase"), "value", None)
+        if isinstance(phase_value, str):
+            phase = phase_value
     gates_passed = 0
     gates_total = 0
     tools_allowed = 0
     tools_blocked = 0
     overall_health = "healthy"
-    if hasattr(orch, "harness") and orch.harness:
-        stats = orch.harness.get_stats()
-        gates_passed = stats.get("gates_passed", 0)
-        gates_total = stats.get("gates_total", 0)
-        tools_allowed = stats.get("tools_allowed", 0)
-        tools_blocked = stats.get("tools_blocked", 0)
-        overall_health = orch.harness.get_harness_status().overall_health
+    harness = cast(object, getattr(orch, "harness", None))
+    if harness:
+        stats = _as_json_object(_call_noarg(harness, "get_stats"))
+        gates_passed_value = stats.get("gates_passed", 0)
+        gates_total_value = stats.get("gates_total", 0)
+        tools_allowed_value = stats.get("tools_allowed", 0)
+        tools_blocked_value = stats.get("tools_blocked", 0)
+        gates_passed = gates_passed_value if isinstance(gates_passed_value, int) else 0
+        gates_total = gates_total_value if isinstance(gates_total_value, int) else 0
+        tools_allowed = tools_allowed_value if isinstance(tools_allowed_value, int) else 0
+        tools_blocked = tools_blocked_value if isinstance(tools_blocked_value, int) else 0
+        health_value = getattr(_call_noarg(harness, "get_harness_status"), "overall_health", None)
+        if isinstance(health_value, str):
+            overall_health = health_value
     anchors_count = 0
-    if hasattr(orch, "ctx") and hasattr(orch.ctx, "decision_anchor"):
-        anchors_count = len(orch.ctx.decision_anchor.get_all())
+    ctx = cast(object, getattr(orch, "ctx", None))
+    decision_anchor = cast(object, getattr(ctx, "decision_anchor", None))
+    anchors = _call_noarg(decision_anchor, "get_all") if decision_anchor is not None else None
+    if isinstance(anchors, list):
+        anchors_count = len(cast(list[object], anchors))
     return {
         "ok": True,
         "phase": phase,
@@ -1860,7 +2030,7 @@ async def get_logs(lines: int = 100):
 
 
 @router.get("/api/settings")
-async def get_settings():
+async def get_settings() -> JSONDict:
     """Retrieve settings — .env에서 API 키 상태를 포함하여 반환."""
     # __file__ = src/antigravity_k/api/routes/legacy.py → 5번 dirname = 프로젝트 루트
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
@@ -1869,7 +2039,7 @@ async def get_settings():
         return {"settings": {}}
     try:
         with open(config_file, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
+            cfg = _as_json_object(cast(object, yaml.safe_load(f)))
 
         # .env에서 API 키 상태 확인 (마스킹)
         env_keys = [
@@ -1880,7 +2050,7 @@ async def get_settings():
             "ZAI_API_KEY",
             "ANTHROPIC_API_KEY",
         ]
-        api_keys = {}
+        api_keys: dict[str, str] = {}
         for k in env_keys:
             val = os.environ.get(k, "")
             if val and len(val) > 4:
@@ -1890,9 +2060,12 @@ async def get_settings():
             else:
                 api_keys[k] = ""
         cfg["api_keys"] = api_keys
-        cfg.setdefault("model", {})
-        cfg["model"]["name"] = cfg.get("defaults", {}).get("reasoning", "")
-        cfg["model"]["provider"] = cfg.get("model", {}).get("api_engine", "")
+        model = _as_json_object(cfg.get("model"))
+        cfg["model"] = model
+        defaults = cfg.get("defaults", {})
+        defaults_obj: JSONDict = _as_json_object(defaults)
+        model["name"] = defaults_obj.get("reasoning", "")
+        model["provider"] = model.get("api_engine", "")
         return {"settings": cfg}
     except Exception as e:
         logger.exception("Unhandled exception")
@@ -1902,10 +2075,7 @@ async def get_settings():
 @router.post("/api/settings/env")
 async def save_env_settings(request: Request):
     """사용자가 설정한 API 키 등을 .env 파일에 저장합니다."""
-    try:
-        body = await request.json()
-    except Exception:
-        return {"ok": False, "error": "Invalid JSON"}
+    body = (await _parse_json_body(request, _EnvSettingsRequest)).root
 
     _require_allowed(
         "save_env_settings",
@@ -1917,7 +2087,7 @@ async def save_env_settings(request: Request):
     env_path = os.path.join(project_root, ".env")
 
     # 기존 .env 읽기
-    existing_lines = []
+    existing_lines: list[str] = []
     existing_keys: dict[str, int] = {}
     if os.path.exists(env_path):
         with open(env_path, encoding="utf-8") as f:
@@ -1950,6 +2120,6 @@ async def save_env_settings(request: Request):
             updated_count += 1
 
     with open(env_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(existing_lines) + "\n")
+        _ = f.write("\n".join(existing_lines) + "\n")
 
     return {"ok": True, "updated": updated_count, "message": "설정이 .env에 저장되었습니다."}

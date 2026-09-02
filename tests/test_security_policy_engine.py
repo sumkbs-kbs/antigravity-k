@@ -4,6 +4,7 @@
 Fail-Closed 동작, 커맨드/도메인 차단 규칙을 검증한다.
 """
 
+from pathlib import Path
 from typing import cast
 
 import yaml
@@ -52,9 +53,9 @@ class TestEffectivePermission:
 
 
 class TestFailClosed:
-    def test_corrupt_policy_yaml_blocks_everything(self, tmp_path):
+    def test_corrupt_policy_yaml_blocks_everything(self, tmp_path: Path):
         policy_file = tmp_path / "broken.yaml"
-        policy_file.write_text("process: [unclosed", encoding="utf-8")
+        _ = policy_file.write_text("process: [unclosed", encoding="utf-8")
 
         engine = SecurityPolicyEngine(policy_file=str(policy_file))
 
@@ -62,7 +63,7 @@ class TestFailClosed:
         assert engine.is_command_allowed("echo hi") is False
         assert engine.is_domain_allowed("example.com") is False
 
-    def test_missing_policy_file_keeps_safe_defaults(self, tmp_path):
+    def test_missing_policy_file_keeps_safe_defaults(self, tmp_path: Path):
         engine = SecurityPolicyEngine(policy_file=str(tmp_path / "absent.yaml"))
 
         assert engine.is_fail_closed is False
@@ -72,14 +73,14 @@ class TestFailClosed:
 # ── 커맨드/도메인 규칙 ────────────────────────────────────────────
 
 
-def _engine_with(tmp_path, policy: dict[str, object]) -> SecurityPolicyEngine:
+def _engine_with(tmp_path: Path, policy: dict[str, object]) -> SecurityPolicyEngine:
     policy_file = tmp_path / "policy.yaml"
-    policy_file.write_text(yaml.safe_dump(policy), encoding="utf-8")
+    _ = policy_file.write_text(yaml.safe_dump(policy), encoding="utf-8")
     return SecurityPolicyEngine(policy_file=str(policy_file))
 
 
 class TestCommandRules:
-    def test_blocked_command_substring_is_denied(self, tmp_path):
+    def test_blocked_command_substring_is_denied(self, tmp_path: Path):
         engine = _engine_with(tmp_path, {"process": {"blocked_commands": ["mkfs", "shutdown"]}})
 
         assert engine.is_command_allowed("sudo shutdown now") is False
@@ -88,7 +89,7 @@ class TestCommandRules:
 
 
 class TestDomainRules:
-    def test_blocked_domain_denied_even_in_allow_all_mode(self, tmp_path):
+    def test_blocked_domain_denied_even_in_allow_all_mode(self, tmp_path: Path):
         engine = _engine_with(
             tmp_path,
             {"network": {"allowed_domains": [], "blocked_domains": ["evil.io"]}},
@@ -97,7 +98,7 @@ class TestDomainRules:
         assert engine.is_domain_allowed("sub.evil.io") is False
         assert engine.is_domain_allowed("example.com") is True
 
-    def test_non_empty_allow_list_becomes_default_deny(self, tmp_path):
+    def test_non_empty_allow_list_becomes_default_deny(self, tmp_path: Path):
         engine = _engine_with(
             tmp_path,
             {
@@ -116,7 +117,7 @@ class TestDomainRules:
 
 
 class TestToolPermissionEngine:
-    def test_set_permission_canonicalizes_name_and_get_returns_it(self, tmp_path):
+    def test_set_permission_canonicalizes_name_and_get_returns_it(self, tmp_path: Path):
         engine = SecurityPolicyEngine(policy_file=str(tmp_path / "absent.yaml"))
 
         engine.set_tool_permission("write-file", PermissionState.ALWAYS_ALLOW)
@@ -124,19 +125,19 @@ class TestToolPermissionEngine:
         assert engine.get_tool_permission("write_file") == PermissionState.ALWAYS_ALLOW
         assert engine.is_tool_auto_allowed("write_file") is True
 
-    def test_disabled_tool_is_not_allowed(self, tmp_path):
+    def test_disabled_tool_is_not_allowed(self, tmp_path: Path):
         engine = SecurityPolicyEngine(policy_file=str(tmp_path / "absent.yaml"))
         engine.set_tool_permission("run_bash_command", PermissionState.DISABLED)
 
         assert engine.is_tool_allowed("run_bash_command") is False
 
-    def test_ask_each_time_tool_is_allowed_but_not_auto(self, tmp_path):
+    def test_ask_each_time_tool_is_allowed_but_not_auto(self, tmp_path: Path):
         engine = SecurityPolicyEngine(policy_file=str(tmp_path / "absent.yaml"))
 
         assert engine.is_tool_allowed("run_bash_command") is True
         assert engine.is_tool_auto_allowed("run_bash_command") is False
 
-    def test_valid_policy_load_updates_rules(self, tmp_path):
+    def test_valid_policy_load_updates_rules(self, tmp_path: Path):
         engine = _engine_with(
             tmp_path,
             {
@@ -147,6 +148,6 @@ class TestToolPermissionEngine:
         )
 
         assert engine.is_fail_closed is False
-        filesystem = cast(dict[str, list[str]], cast(object, engine.policy["filesystem"]))
+        filesystem = cast(dict[str, list[str]], engine.policy["filesystem"])
         assert filesystem["allowed_paths"] == ["/tmp"]
         assert engine.is_command_allowed("run danger script") is False

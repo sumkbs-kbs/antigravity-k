@@ -11,7 +11,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class DialecticalPrompt:
     instructions: str
     expected_format: str
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         return {
             "phase": self.phase,
             "prompt": self.prompt,
@@ -64,11 +64,11 @@ class DialecticResult:
     thesis: str = ""
     antithesis: str = ""
     synthesis: str = ""
-    contradictions: List[Contradiction] = field(default_factory=list)
-    research_proposals: List[ResearchProposal] = field(default_factory=list)
-    council_critiques: Dict[str, str] = field(default_factory=dict)
+    contradictions: list[Contradiction] = field(default_factory=list)
+    research_proposals: list[ResearchProposal] = field(default_factory=list)
+    council_critiques: dict[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "query": self.query,
             "thesis": self.thesis,
@@ -87,15 +87,15 @@ class AutocodingState:
 
     session_id: str
     requirements: str
-    session_name: Optional[str] = None
+    session_name: str | None = None
     current_turn: int = 0
     max_turns: int = 5
     phase: str = AutocodingPhase.PLAYER.value
-    turn_history: List[Dict[str, Any]] = field(default_factory=list)
-    last_coach_feedback: Optional[str] = None
+    turn_history: list[dict[str, object]] = field(default_factory=list)
+    last_coach_feedback: str | None = None
 
     @classmethod
-    def create(cls, requirements: str, max_turns: int = 5, session_name: Optional[str] = None) -> "AutocodingState":
+    def create(cls, requirements: str, max_turns: int = 5, session_name: str | None = None) -> "AutocodingState":
         return cls(
             session_id=str(uuid.uuid4()),
             session_name=session_name,
@@ -162,7 +162,7 @@ class AutocodingState:
 class DialecticEngine:
     """변증법적 추론 엔진 — Hegelion PromptDrivenDialectic 네이티브 이식."""
 
-    COUNCIL_MEMBERS = [
+    COUNCIL_MEMBERS: ClassVar[list[dict[str, str]]] = [
         {
             "name": "The Logician",
             "expertise": "논리적 일관성 및 형식적 추론",
@@ -205,13 +205,14 @@ Structure as: ## THESIS / ## ANTITHESIS / ## SYNTHESIS / ## CONTRADICTIONS IDENT
 
 Begin now."""
 
-    def create_workflow(self, query: str, use_council: bool = False, use_search: bool = False) -> Dict[str, Any]:
-        workflow: Dict[str, Any] = {
+    def create_workflow(self, query: str, use_council: bool = False, use_search: bool = False) -> dict[str, object]:
+        steps: list[dict[str, object]] = []
+        workflow: dict[str, object] = {
             "query": query,
             "workflow_type": "prompt_driven_dialectic",
-            "steps": [],
+            "steps": steps,
         }
-        workflow["steps"].append(
+        steps.append(
             {
                 "step": 1,
                 "name": "Generate Thesis",
@@ -220,7 +221,7 @@ Begin now."""
         )
         if use_council:
             for i, m in enumerate(self.COUNCIL_MEMBERS):
-                workflow["steps"].append(
+                steps.append(
                     {
                         "step": 2 + i,
                         "name": f"Council: {m['name']}",
@@ -229,7 +230,7 @@ Begin now."""
                 )
             syn_step = 2 + len(self.COUNCIL_MEMBERS)
         else:
-            workflow["steps"].append(
+            steps.append(
                 {
                     "step": 2,
                     "name": "Generate Antithesis",
@@ -237,7 +238,7 @@ Begin now."""
                 }
             )
             syn_step = 3
-        workflow["steps"].append(
+        steps.append(
             {
                 "step": syn_step,
                 "name": "Generate Synthesis",
@@ -318,8 +319,8 @@ Begin now."""
         )
 
     @staticmethod
-    def _split_sections(text: str) -> Dict[str, str]:
-        sections: Dict[str, str] = {}
+    def _split_sections(text: str) -> dict[str, str]:
+        sections: dict[str, str] = {}
         pattern = re.compile(r"^##\s+(.+)$", re.MULTILINE)
         matches = list(pattern.finditer(text))
         for i, match in enumerate(matches):
@@ -334,7 +335,7 @@ Begin now."""
         return sections
 
     @staticmethod
-    def _parse_contradictions(text: str) -> List[Contradiction]:
+    def _parse_contradictions(text: str) -> list[Contradiction]:
         pattern = re.compile(
             r"CONTRADICTION:\s*(.+?)(?:\n|$)\s*EVIDENCE:\s*(.+?)(?=\nCONTRADICTION:|\n##|\Z)",
             re.DOTALL,
@@ -344,7 +345,7 @@ Begin now."""
         ]
 
     @staticmethod
-    def _parse_research_proposals(text: str) -> List[ResearchProposal]:
+    def _parse_research_proposals(text: str) -> list[ResearchProposal]:
         pattern = re.compile(
             r"RESEARCH_PROPOSAL:\s*(.+?)(?:\n|$)\s*TESTABLE_PREDICTION:\s*(.+?)(?=\nRESEARCH_PROPOSAL:|\n##|\Z)",
             re.DOTALL,

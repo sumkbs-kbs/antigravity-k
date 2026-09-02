@@ -1,5 +1,7 @@
 import hashlib
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,14 +13,21 @@ from antigravity_k.api.routes.agent_tools import (
     AutonomousQARequest,
     TDDGenerateRequest,
     VisionAnalyzeRequest,
-    _accessibility_tree,
-    _browser_error_status,
-    _guard_browser_route,
 )
 from antigravity_k.api.server import app
 from antigravity_k.config import config
 from antigravity_k.engine.sandbox import SandboxResult
-from antigravity_k.tools.permission_gate import Permission
+from antigravity_k.tools.tool_contracts import Permission
+
+_accessibility_tree = cast(
+    Callable[[object], Awaitable[str]],
+    getattr(agent_tools, "_accessibility_tree"),
+)
+_browser_error_status = cast(Callable[[Exception], int], getattr(agent_tools, "_browser_error_status"))
+_guard_browser_route = cast(
+    Callable[[object, object], Awaitable[None]],
+    getattr(agent_tools, "_guard_browser_route"),
+)
 
 
 def _auth_headers() -> dict[str, str]:
@@ -54,7 +63,9 @@ async def test_accessibility_tree_uses_current_playwright_aria_snapshot() -> Non
 def test_vision_analyze_without_screenshot_returns_400():
     session_id = "vision-test"
     session_key = _browser_session_key(session_id)
-    agent_tools.browser_sessions.get(session_key).page = None
+    session = agent_tools.browser_sessions.get(session_key)
+    assert session is not None
+    session.page = None
 
     try:
         with TestClient(app) as client:
@@ -64,7 +75,7 @@ def test_vision_analyze_without_screenshot_returns_400():
                 headers=_browser_headers(session_id),
             )
     finally:
-        agent_tools.browser_sessions.discard(session_key)
+        _ = agent_tools.browser_sessions.discard(session_key)
 
     assert response.status_code == 400
     assert "No screenshot" in response.json()["detail"]
@@ -73,7 +84,9 @@ def test_vision_analyze_without_screenshot_returns_400():
 def test_browser_action_requires_launch_returns_400():
     session_id = "snapshot-test"
     session_key = _browser_session_key(session_id)
-    agent_tools.browser_sessions.get(session_key).page = None
+    session = agent_tools.browser_sessions.get(session_key)
+    assert session is not None
+    session.page = None
 
     try:
         with TestClient(app) as client:
@@ -83,21 +96,23 @@ def test_browser_action_requires_launch_returns_400():
                 headers=_browser_headers(session_id),
             )
     finally:
-        agent_tools.browser_sessions.discard(session_key)
+        _ = agent_tools.browser_sessions.discard(session_key)
 
     assert response.status_code == 400
     assert "Browser is not launched" in response.json()["detail"]
 
 
-def test_browser_navigation_honors_permission_denial_before_side_effect(monkeypatch):
+def test_browser_navigation_honors_permission_denial_before_side_effect(monkeypatch: pytest.MonkeyPatch) -> None:
     session_id = "navigation-test"
     session_key = _browser_session_key(session_id)
     page = MagicMock()
     page.goto = AsyncMock()
-    agent_tools.browser_sessions.get(session_key).page = page
+    session = agent_tools.browser_sessions.get(session_key)
+    assert session is not None
+    session.page = page
 
     gate = MagicMock()
-    gate.decide.return_value = MagicMock(permission=Permission.DENY)
+    cast(MagicMock, gate.decide).return_value = MagicMock(permission=Permission.DENY)
     monkeypatch.setattr(agent_tools, "_permission_gate", lambda: gate)
 
     try:
@@ -108,10 +123,10 @@ def test_browser_navigation_honors_permission_denial_before_side_effect(monkeypa
                 headers=_browser_headers(session_id),
             )
     finally:
-        agent_tools.browser_sessions.discard(session_key)
+        _ = agent_tools.browser_sessions.discard(session_key)
 
     assert response.status_code == 403
-    page.goto.assert_not_awaited()
+    cast(AsyncMock, page.goto).assert_not_awaited()
 
 
 async def test_browser_route_aborts_non_http_schemes():
@@ -122,11 +137,13 @@ async def test_browser_route_aborts_non_http_schemes():
 
     await _guard_browser_route(route, request)
 
-    route.abort.assert_awaited_once_with(error_code="blockedbyclient")
-    route.continue_.assert_not_awaited()
+    cast(AsyncMock, route.abort).assert_awaited_once_with(error_code="blockedbyclient")
+    cast(AsyncMock, route.continue_).assert_not_awaited()
 
 
-def test_tdd_generate_rejects_target_outside_project_before_engine(monkeypatch, tmp_path: Path):
+def test_tdd_generate_rejects_target_outside_project_before_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(config.paths, "project_root", tmp_path)
 
     with TestClient(app) as client:
@@ -140,9 +157,9 @@ def test_tdd_generate_rejects_target_outside_project_before_engine(monkeypatch, 
     assert "project root" in response.json()["detail"]
 
 
-def test_autonomous_qa_honors_permission_denial_before_engine_start(monkeypatch):
+def test_autonomous_qa_honors_permission_denial_before_engine_start(monkeypatch: pytest.MonkeyPatch) -> None:
     gate = MagicMock()
-    gate.decide.return_value = MagicMock(permission=Permission.DENY)
+    cast(MagicMock, gate.decide).return_value = MagicMock(permission=Permission.DENY)
     monkeypatch.setattr(agent_tools, "_permission_gate", lambda: gate)
 
     with TestClient(app) as client:
@@ -155,9 +172,9 @@ def test_autonomous_qa_honors_permission_denial_before_engine_start(monkeypatch)
     assert response.status_code == 403
 
 
-def test_external_brain_send_honors_permission_denial_before_adapter_start(monkeypatch):
+def test_external_brain_send_honors_permission_denial_before_adapter_start(monkeypatch: pytest.MonkeyPatch) -> None:
     gate = MagicMock()
-    gate.decide.return_value = MagicMock(permission=Permission.DENY)
+    cast(MagicMock, gate.decide).return_value = MagicMock(permission=Permission.DENY)
     monkeypatch.setattr(agent_tools, "_permission_gate", lambda: gate)
 
     with TestClient(app) as client:
@@ -170,9 +187,9 @@ def test_external_brain_send_honors_permission_denial_before_adapter_start(monke
     assert response.status_code == 403
 
 
-def test_tdd_generate_honors_permission_denial_before_engine_start(monkeypatch):
+def test_tdd_generate_honors_permission_denial_before_engine_start(monkeypatch: pytest.MonkeyPatch) -> None:
     gate = MagicMock()
-    gate.decide.return_value = MagicMock(permission=Permission.DENY)
+    cast(MagicMock, gate.decide).return_value = MagicMock(permission=Permission.DENY)
     monkeypatch.setattr(agent_tools, "_permission_gate", lambda: gate)
 
     with TestClient(app) as client:
@@ -194,23 +211,27 @@ def test_agent_model_defaults_prioritize_local_qwen():
 
 @pytest.mark.parametrize("request_model", [AutonomousQARequest, TDDGenerateRequest])
 @pytest.mark.parametrize("max_iterations", [0, 11])
-def test_autonomous_loop_iteration_budget_is_bounded(request_model, max_iterations):
-    payload = {"max_iterations": max_iterations}
+def test_autonomous_loop_iteration_budget_is_bounded(
+    request_model: Callable[..., object], max_iterations: int
+) -> None:
+    payload: dict[str, object] = {"max_iterations": max_iterations}
     if request_model is TDDGenerateRequest:
         payload["prompt"] = "write a test"
 
     with pytest.raises(ValidationError):
-        request_model(**payload)
+        _ = request_model(**payload)
 
 
-def test_agent_fs_write_and_read_are_limited_to_project_root(tmp_path, monkeypatch):
+def test_agent_fs_write_and_read_are_limited_to_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
-    monkeypatch.setattr(agent_tools.config.paths, "project_root", project_root)
+    monkeypatch.setattr(config.paths, "project_root", project_root)
 
     target = project_root / "qa-note.txt"
     outside = tmp_path / "outside.txt"
-    outside.write_text("secret", encoding="utf-8")
+    _ = outside.write_text("secret", encoding="utf-8")
 
     with TestClient(app) as client:
         write_response = client.post(
@@ -252,15 +273,17 @@ def test_agent_shell_blocks_dangerous_commands():
     assert response.status_code == 403
 
 
-def test_agent_shell_uses_sandbox_runner_and_clamps_timeout(tmp_path, monkeypatch):
-    monkeypatch.setattr(agent_tools.config.paths, "project_root", tmp_path)
-    calls = {}
+def test_agent_shell_uses_sandbox_runner_and_clamps_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config.paths, "project_root", tmp_path)
+    calls: dict[str, object] = {}
 
     class FakeSandboxRunner:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs: object) -> None:
             calls["init"] = kwargs
 
-        def execute(self, command, **kwargs):
+        def execute(self, command: str, **kwargs: object) -> SandboxResult:
             calls["execute"] = {"command": command, **kwargs}
             return SandboxResult(success=True, stdout="sandbox-ok", sandboxed=True)
 
@@ -276,16 +299,19 @@ def test_agent_shell_uses_sandbox_runner_and_clamps_timeout(tmp_path, monkeypatc
     assert response.status_code == 200
     assert response.json()["sandboxed"] is True
     assert response.json()["stdout"] == "sandbox-ok"
-    assert calls["execute"]["cwd"] == str(tmp_path)
-    assert calls["execute"]["timeout"] == config.security.max_execution_time
+    execute_call = cast(dict[str, object], calls["execute"])
+    assert execute_call["cwd"] == str(tmp_path)
+    assert execute_call["timeout"] == config.security.max_execution_time
 
 
-def test_agent_shell_rejects_cwd_outside_project_root(tmp_path, monkeypatch):
+def test_agent_shell_rejects_cwd_outside_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project_root = tmp_path / "project"
     project_root.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    monkeypatch.setattr(agent_tools.config.paths, "project_root", project_root)
+    monkeypatch.setattr(config.paths, "project_root", project_root)
 
     with TestClient(app) as client:
         response = client.post(

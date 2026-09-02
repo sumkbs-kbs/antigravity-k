@@ -206,11 +206,45 @@ jobs:
           python -c "from antigravity_k import __version__; print(f'Package version: {__version__}')" 2>/dev/null || \
           python -c "import antigravity_k; print('Package imported successfully')"
 
+      - name: Install provenance verifier
+        run: python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
+
+      - name: Record and verify Python distribution provenance
+        run: |
+          mkdir -p .artifacts
+          python src/antigravity_k/engine/artifact_provenance.py \
+            create dist --root . --output .artifacts/python-dist.json
+          python src/antigravity_k/engine/artifact_provenance.py \
+            verify .artifacts/python-dist.json --root .
+
+      - name: Resolve Python provenance task
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+          CONFIGURED_TASK_ID: ${{ vars.AGK_PROVENANCE_TASK_ID }}
+        run: |
+          if [ -n "$CONFIGURED_TASK_ID" ]; then
+            task_id="$CONFIGURED_TASK_ID"
+          else
+            task_id=$(scripts/register_artifact_provenance_task.sh build "github-${{ github.run_id }}")
+          fi
+          echo "AGK_PROVENANCE_TASK_ID=$task_id" >> "$GITHUB_ENV"
+
+      - name: Publish Python provenance to task event store
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+        run: scripts/publish_artifact_provenance.sh .artifacts/python-dist.json build
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist/
+          path: |
+            dist/
+            .artifacts/python-dist.json
           retention-days: 7
           if-no-files-found: warn
 
@@ -222,6 +256,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Python for provenance gate
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install provenance verifier
+        run: python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -246,6 +288,42 @@ jobs:
 
       - name: Build Dashboard
         run: pnpm --dir dashboard build
+
+      - name: Record and verify dashboard provenance
+        run: |
+          mkdir -p .artifacts
+          python src/antigravity_k/engine/artifact_provenance.py \
+            create dashboard/dist --root . --output .artifacts/dashboard-dist.json
+          python src/antigravity_k/engine/artifact_provenance.py \
+            verify .artifacts/dashboard-dist.json --root .
+
+      - name: Resolve dashboard provenance task
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+          CONFIGURED_TASK_ID: ${{ vars.AGK_PROVENANCE_TASK_ID }}
+        run: |
+          if [ -n "$CONFIGURED_TASK_ID" ]; then
+            task_id="$CONFIGURED_TASK_ID"
+          else
+            task_id=$(scripts/register_artifact_provenance_task.sh ui_bundle "github-${{ github.run_id }}")
+          fi
+          echo "AGK_PROVENANCE_TASK_ID=$task_id" >> "$GITHUB_ENV"
+
+      - name: Publish dashboard provenance to task event store
+        if: ${{ vars.AGK_PROVENANCE_API_URL != '' }}
+        env:
+          AGK_PROVENANCE_API_URL: ${{ vars.AGK_PROVENANCE_API_URL }}
+          AGK_PROVENANCE_PIN: ${{ secrets.AGK_PROVENANCE_PIN }}
+        run: scripts/publish_artifact_provenance.sh .artifacts/dashboard-dist.json ui_bundle
+
+      - name: Upload dashboard provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-provenance
+          path: .artifacts/dashboard-dist.json
+          retention-days: 7
 
   mutation-test:
     name: "Mutation Test (Stryker)"

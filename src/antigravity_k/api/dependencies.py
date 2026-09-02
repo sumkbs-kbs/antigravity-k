@@ -1,10 +1,15 @@
 """FastAPI dependency injection providers (singletons and getters)."""
 
+from __future__ import annotations
+
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
+
+from pydantic import TypeAdapter, ValidationError
 
 from antigravity_k.engine.agent_runtime import AgentRuntime
 from antigravity_k.engine.benchmark_harness import BenchmarkHarness
@@ -21,7 +26,8 @@ from antigravity_k.engine.memory_provider import (
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.model_registry import ModelRegistry
 from antigravity_k.engine.orchestrator import OrchestratorAgent
-from antigravity_k.engine.project_memory import ProjectMemoryProvider, project_memory_dir
+from antigravity_k.engine.project_memory import ProjectMemoryProvider
+from antigravity_k.engine.project_memory_paths import project_memory_dir
 from antigravity_k.engine.protocol_translator import ProtocolTranslator
 from antigravity_k.engine.scheduled_job_service import ScheduledJobService
 from antigravity_k.engine.session_manager import SessionManager
@@ -31,6 +37,42 @@ from antigravity_k.engine.voice_service import VoiceService
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger("antigravity_k.api.dependencies")
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.mode_manager import ModeManager
+
+
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
+
+
+@runtime_checkable
+class _SlashRegistryLike(Protocol):
+    def bind_runtime(self, runtime: AgentRuntime) -> None: ...
+
+
+@runtime_checkable
+class _RuntimeContextLike(Protocol):
+    slash_commands: _SlashRegistryLike
+
+
+_JSON_VALUE_ADAPTER: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
+_DURABLE_EXPORT_ADAPTER: Final[TypeAdapter[list[dict[str, JsonValue]]]] = TypeAdapter(list[dict[str, JsonValue]])
+
+
+def _json_object(value: JsonValue | None) -> dict[str, JsonValue]:
+    return value if isinstance(value, dict) else {}
+
+
+def _json_text(value: JsonValue | None) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _widen_graph_record(record: Mapping[str, object]) -> dict[str, object]:
+    widened: dict[str, object] = {}
+    for key, value in record.items():
+        widened[key] = value
+    return widened
 
 # Global instances
 model_manager: ModelManager | None = None
@@ -47,10 +89,10 @@ _scheduled_job_service: ScheduledJobService | None = None
 _voice_service: VoiceService | None = None
 _benchmark_harness: BenchmarkHarness | None = None
 _memory_manager: MemoryManager | None = None
-_mode_manager: Any | None = None
+_mode_manager: ModeManager | None = None
 
 
-def get_mode_manager():
+def get_mode_manager() -> ModeManager:
     """ModeManager 싱글톤을 반환합니다.
 
     Phase 1 D7: Dashboard WebSocket이 실제 실행 모드를 조회하기 위해 사용.
@@ -70,6 +112,9 @@ def _get_session_manager() -> SessionManager:
     if _session_manager is None:
         _session_manager = SessionManager()
     return _session_manager
+
+
+get_session_manager = _get_session_manager
 
 
 def get_memory_manager(project_root: str | None = None) -> MemoryManager:
@@ -163,10 +208,10 @@ def _clear_search_cache() -> int:
     return deleted
 
 
-def _export_memory_service() -> list[dict[str, Any]]:
+def _export_memory_service() -> list[dict[str, JsonValue]]:
     from antigravity_k.knowledge.memory_service import MemoryService
 
-    return MemoryService().export_all()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(MemoryService().export_all())
 
 
 def _redact_memory_service() -> int:
@@ -181,10 +226,10 @@ def _retain_memory_service(max_age_days: int) -> int:
     return MemoryService().apply_retention(max_age_days)
 
 
-def _export_wiki() -> list[dict[str, Any]]:
+def _export_wiki() -> list[dict[str, JsonValue]]:
     from antigravity_k.knowledge.wiki import LLMWiki
 
-    return LLMWiki().export_all()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(LLMWiki().export_all())
 
 
 def _redact_wiki() -> int:
@@ -199,10 +244,12 @@ def _retain_wiki(max_age_days: int) -> int:
     return LLMWiki().apply_retention(max_age_days)
 
 
-def _export_gbrain() -> list[dict[str, Any]]:
+def _export_gbrain() -> list[dict[str, JsonValue]]:
     from antigravity_k.engine.gbrain import global_gbrain
 
-    return global_gbrain.export_all()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(
+        [_widen_graph_record(record) for record in global_gbrain.export_all()],
+    )
 
 
 def _redact_gbrain() -> int:
@@ -211,7 +258,7 @@ def _redact_gbrain() -> int:
     return global_gbrain.redact_all()
 
 
-def _export_project_vector() -> list[dict[str, Any]]:
+def _export_project_vector() -> list[dict[str, JsonValue]]:
     vector_path = Path.cwd() / ".antigravity" / "vault_data"
     if not vector_path.exists():
         return []
@@ -219,7 +266,9 @@ def _export_project_vector() -> list[dict[str, Any]]:
 
     vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
     try:
-        return vector_store.export_all()
+        return _DURABLE_EXPORT_ADAPTER.validate_python(
+            [_widen_graph_record(record) for record in vector_store.export_all()],
+        )
     finally:
         vector_store.close()
 
@@ -237,15 +286,16 @@ def _redact_project_vector() -> int:
         vector_store.close()
 
 
-def _export_search_cache() -> list[dict[str, Any]]:
+def _export_search_cache() -> list[dict[str, JsonValue]]:
     cache_dir = Path.cwd() / "data" / "search_cache"
     if not cache_dir.exists():
         return []
-    records = []
+    records: list[dict[str, JsonValue]] = []
     for cache_file in cache_dir.glob("*.json"):
         try:
-            records.append({"file": cache_file.name, "data": json.loads(cache_file.read_text(encoding="utf-8"))})
-        except (OSError, json.JSONDecodeError):
+            data = _JSON_VALUE_ADAPTER.validate_json(cache_file.read_text(encoding="utf-8"))
+            records.append({"file": cache_file.name, "data": data})
+        except (OSError, ValidationError):
             continue
     return records
 
@@ -258,7 +308,10 @@ def _redact_search_cache() -> int:
         data = json.dumps(record["data"], ensure_ascii=False)
         redacted = redact_full(data)
         if redacted != data:
-            (Path.cwd() / "data" / "search_cache" / record["file"]).write_text(redacted, encoding="utf-8")
+            cache_file = _json_text(record.get("file"))
+            if not cache_file:
+                continue
+            _ = (Path.cwd() / "data" / "search_cache" / cache_file).write_text(redacted, encoding="utf-8")
             changed += 1
     return changed
 
@@ -271,7 +324,7 @@ def _retain_search_cache(max_age_days: int) -> int:
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     deleted = 0
     for record in _export_search_cache():
-        cached_at = record["data"].get("cached_at", "")
+        cached_at = _json_text(_json_object(record.get("data")).get("cached_at"))
         try:
             timestamp = datetime.fromisoformat(cached_at)
             if timestamp.tzinfo is None:
@@ -280,7 +333,10 @@ def _retain_search_cache(max_age_days: int) -> int:
             continue
         if timestamp < cutoff:
             try:
-                (Path.cwd() / "data" / "search_cache" / record["file"]).unlink()
+                cache_file = _json_text(record.get("file"))
+                if not cache_file:
+                    continue
+                (Path.cwd() / "data" / "search_cache" / cache_file).unlink()
                 deleted += 1
             except OSError:
                 continue
@@ -291,8 +347,12 @@ def __get_tool_registry() -> ToolRegistry:
     global _tool_registry
     if _tool_registry is None:
         _tool_registry = ToolRegistry(project_root=os.getcwd())
-        _tool_registry.auto_discover("antigravity_k.tools")
+        _ = _tool_registry.auto_discover("antigravity_k.tools")
     return _tool_registry
+
+
+def get_tool_registry() -> ToolRegistry:
+    return __get_tool_registry()
 
 
 def __get_skill_loader() -> SkillLoader:
@@ -394,8 +454,9 @@ def get_agent_runtime() -> AgentRuntime:
             task_runner,
             task_outcome_recorder=benchmark_harness.record_task_outcome,
         )
-        ctx = getattr(_agent_runtime.orchestrator, "ctx", None)
-        if ctx is not None:
+        context_value = vars(_agent_runtime.orchestrator).get("ctx")
+        if isinstance(context_value, _RuntimeContextLike):
+            ctx = context_value
             ctx.slash_commands.bind_runtime(_agent_runtime)
     return _agent_runtime
 

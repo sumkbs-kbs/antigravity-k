@@ -2,12 +2,26 @@
 
 import os
 import urllib.parse
-from typing import Any
+from typing import TypedDict
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/workspaces")
+
+
+class _IDELinks(TypedDict):
+    vscode: str
+    jetbrains_intellij: str
+    jetbrains_pycharm: str
+    jetbrains_goland: str
+    jetbrains_webstorm: str
+
+
+class _WorkspaceLink(TypedDict):
+    name: str
+    path: str
+    links: _IDELinks
 
 
 @router.get("/links")
@@ -22,7 +36,7 @@ async def get_workspace_links():
     )
     worktrees_dir = os.path.join(project_root, ".ag_worktrees")
 
-    links = []
+    links: list[_WorkspaceLink] = []
 
     # 기본 루트(Main Workspace)
     links.append(_generate_links_for_path(project_root, "Main Workspace"))
@@ -37,7 +51,7 @@ async def get_workspace_links():
     return JSONResponse(content={"ok": True, "workspaces": links})
 
 
-def _generate_links_for_path(absolute_path: str, name: str) -> dict[str, Any]:
+def _generate_links_for_path(absolute_path: str, name: str) -> _WorkspaceLink:
     """주어진 경로에 대한 VS Code 및 JetBrains Gateway 접근 URI를 생성합니다."""
     # URL Encoding for paths
     encoded_path = urllib.parse.quote(absolute_path)

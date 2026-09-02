@@ -8,7 +8,6 @@ useful upgrade map even when the local model or network is unavailable.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -65,7 +64,7 @@ class AgenticTechRadar:
             last_reviewed (str): str last reviewed.
 
         """
-        self.last_reviewed = last_reviewed
+        self.last_reviewed: str = last_reviewed
 
     def evaluate(self, objective: str = "") -> AgenticUpgradeReport:
         """Evaluate.
@@ -231,7 +230,7 @@ class AgenticTechRadar:
 
         return "\n".join(lines)
 
-    def to_dict(self, report: AgenticUpgradeReport) -> dict[str, Any]:
+    def to_dict(self, report: AgenticUpgradeReport) -> dict[str, object]:
         """Return a JSON-friendly form for future API use."""
         return {
             "objective": report.objective,

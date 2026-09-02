@@ -4,7 +4,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useUiStore } from '../../stores/uiStore';
-import { persistAccessPin } from '../../utils/accessPinCredential';
+import { loginWithAccessPin } from '../../utils/accessPinCredential';
 
 const PinModal: React.FC = () => {
   const visible = useUiStore(state => state.pinModalVisible);
@@ -24,15 +24,8 @@ const PinModal: React.FC = () => {
     if (!trimmedPin) return;
 
     try {
-      const res = await fetch('/api/session/info', {
-        headers: { 'X-Access-Pin': trimmedPin },
-      });
-      if (res.ok) {
-        persistAccessPin(trimmedPin);
-        setVisible(false);
-      } else {
-        setError('PIN 번호가 올바르지 않습니다.');
-      }
+      await loginWithAccessPin(trimmedPin);
+      setVisible(false);
     } catch {
       setError('PIN 번호가 올바르지 않습니다.');
     }

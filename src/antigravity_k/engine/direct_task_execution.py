@@ -13,6 +13,7 @@ from typing import Protocol, final, runtime_checkable
 from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.language_normalizer import normalize_streaming_chunks
 from antigravity_k.engine.task_context_snapshot import save_task_context_snapshot
+from antigravity_k.engine.task_execution_context import TaskStateStoreProtocol
 from antigravity_k.engine.task_state_store import (
     TaskExecutionContext,
     TaskStateStore,
@@ -63,7 +64,7 @@ class TaskExecutionBindingPort(Protocol):
     def bind_task_execution(
         self,
         task_id: str,
-        state_store: TaskStateStore,
+        state_store: TaskStateStoreProtocol,
     ) -> AbstractContextManager[None]: ...
 
 
@@ -214,7 +215,7 @@ class DirectTaskExecution:
             escaped = re.escape(tool_name.casefold())
             # "X tool" / "X 도구" form, and Korean instrumental/object particles
             # (X로/으로/을/를) that unambiguously name the tool as the means/object.
-            pattern = rf"(?<!\w){escaped}(?!\w)\s*(?:tool|도구)" rf"|(?<!\w){escaped}(?:로|으로|을|를)"
+            pattern = rf"(?<!\w){escaped}(?!\w)\s*(?:tool|도구)|(?<!\w){escaped}(?:로|으로|을|를)"
             if re.search(pattern, lowered_prompt):
                 contracted.append(tool_name)
         return contracted

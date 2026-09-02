@@ -8,7 +8,9 @@ Tests cover:
 """
 
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from antigravity_k.engine.file_summarizer import FileSummarizer
 
@@ -19,7 +21,7 @@ def _create_test_file(dir_path: str, rel_path: str, content: str) -> str:
     """테스트 파일을 생성하고 절대 경로를 반환합니다."""
     full_path = Path(dir_path) / rel_path
     full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_text(content, encoding="utf-8")
+    _ = full_path.write_text(content, encoding="utf-8")
     return str(full_path)
 
 
@@ -33,7 +35,7 @@ class TestFileSummarizer:
         """50줄 이하 파일이 전체 내용을 포함하는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
             content = "def hello():\n    return 'hello'\n"
-            _create_test_file(tmpdir, "src/hello.py", content)
+            _ = _create_test_file(tmpdir, "src/hello.py", content)
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -50,8 +52,8 @@ class TestFileSummarizer:
     def test_summarize_multiple_files(self):
         """여러 파일 요약 시 모두 포함되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            _create_test_file(tmpdir, "a.py", "def a(): pass\n")
-            _create_test_file(tmpdir, "b.py", "def b(): pass\n")
+            _ = _create_test_file(tmpdir, "a.py", "def a(): pass\n")
+            _ = _create_test_file(tmpdir, "b.py", "def b(): pass\n")
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -71,7 +73,7 @@ class TestFileSummarizer:
             # 210줄 파일 생성
             lines = [f"def func_{i}():\n    pass\n" for i in range(210)]
             content = "".join(lines)
-            _create_test_file(tmpdir, "large.py", content)
+            _ = _create_test_file(tmpdir, "large.py", content)
 
             known_fns = [f"func_{i}" for i in range(10)]
             summarizer = FileSummarizer()
@@ -86,14 +88,14 @@ class TestFileSummarizer:
     def test_summarize_medium_file_shows_key_structure(self):
         """50~200줄 파일이 핵심 구조만 추출되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            lines = []
+            lines: list[str] = []
             lines.append("import os\n")
             lines.append("import sys\n")
             lines.append("\n")
             for i in range(80):
                 lines.append(f"def func_{i}(param_{i}):\n    pass\n")
             content = "".join(lines)
-            _create_test_file(tmpdir, "medium.py", content)
+            _ = _create_test_file(tmpdir, "medium.py", content)
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -127,10 +129,10 @@ class TestFileSummarizer:
     def test_summarize_max_files_capped(self):
         """MAX_SUMMARIZE_FILES(8) 이상의 파일이 제한되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            file_list = []
+            file_list: list[dict[str, object]] = []
             for i in range(12):
                 content = f"def fn_{i}():\n    pass\n"
-                _create_test_file(tmpdir, f"file_{i}.py", content)
+                _ = _create_test_file(tmpdir, f"file_{i}.py", content)
                 file_list.append({"file": f"file_{i}.py", "functions": [f"fn_{i}"], "classes": []})
 
             summarizer = FileSummarizer()
@@ -144,7 +146,7 @@ class TestFileSummarizer:
     def test_summarize_with_query_context(self):
         """query 파라미터가 전달될 때 정상 동작하는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            _create_test_file(tmpdir, "user.py", "def login(): pass\n")
+            _ = _create_test_file(tmpdir, "user.py", "def login(): pass\n")
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -169,9 +171,13 @@ class TestFileSummarizer:
     def test_summarize_single_file_direct(self):
         """_summarize_single_file이 올바른 형식으로 요약하는지 검증."""
         summarizer = FileSummarizer()
+        summarize_single_file = cast(
+            Callable[[str, str, list[str], list[str]], str],
+            getattr(summarizer, "_summarize_single_file"),
+        )
 
         # 50줄 이하
-        small = summarizer._summarize_single_file(
+        small = summarize_single_file(
             "small.py",
             "def small(): pass\n",
             ["small"],
@@ -181,7 +187,7 @@ class TestFileSummarizer:
 
         # 50-200줄 (key structure)
         medium_lines = [f"def fn_{i}():\n    pass\n" for i in range(60)]
-        medium = summarizer._summarize_single_file(
+        medium = summarize_single_file(
             "medium.py",
             "".join(medium_lines),
             [f"fn_{i}" for i in range(60)],
@@ -191,7 +197,7 @@ class TestFileSummarizer:
 
         # 200+줄 (statistical)
         large_lines = [f"def fn_{i}():\n    pass\n" for i in range(220)]
-        large = summarizer._summarize_single_file(
+        large = summarize_single_file(
             "large.py",
             "".join(large_lines),
             [f"fn_{i}" for i in range(10)],
@@ -202,10 +208,10 @@ class TestFileSummarizer:
     def test_summarize_mixed_file_types(self):
         """다양한 파일 형식(JS, TS, Go, Rust)이 정상 요약되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            _create_test_file(tmpdir, "app.js", "function greet() { return 'hi'; }\n")
-            _create_test_file(tmpdir, "server.go", "func main() {\n}\n")
-            _create_test_file(tmpdir, "lib.rs", "pub fn process() -> Result<()> {\n}\n")
-            _create_test_file(tmpdir, "data.json", '{"key": "value"}\n')
+            _ = _create_test_file(tmpdir, "app.js", "function greet() { return 'hi'; }\n")
+            _ = _create_test_file(tmpdir, "server.go", "func main() {\n}\n")
+            _ = _create_test_file(tmpdir, "lib.rs", "pub fn process() -> Result<()> {\n}\n")
+            _ = _create_test_file(tmpdir, "data.json", '{"key": "value"}\n')
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -226,7 +232,7 @@ class TestFileSummarizer:
     def test_summarize_empty_file(self):
         """빈 파일이 정상 처리되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            _create_test_file(tmpdir, "empty.py", "")
+            _ = _create_test_file(tmpdir, "empty.py", "")
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -239,7 +245,7 @@ class TestFileSummarizer:
     def test_context_markup_structure(self):
         """출력에 올바른 마크업 구조가 포함되는지 검증."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            _create_test_file(tmpdir, "test.py", "def test(): pass\n")
+            _ = _create_test_file(tmpdir, "test.py", "def test(): pass\n")
 
             summarizer = FileSummarizer()
             result = summarizer.summarize_files(
@@ -254,6 +260,7 @@ class TestFileSummarizer:
     def test_wrap_code_limits_size(self):
         """_wrap_code가 MAX_SUMMARY_CHARS를 초과하는 내용을 자르는지 검증."""
         huge_content = "x\n" * 5000
-        result = FileSummarizer._wrap_code(huge_content)
+        wrap_code = cast(Callable[[str], str], getattr(FileSummarizer, "_wrap_code"))
+        result = wrap_code(huge_content)
         assert len(result) < len(huge_content)  # 잘렸음
         assert result.endswith("(truncated)\n```") or result.endswith("(truncated)\n```\n")

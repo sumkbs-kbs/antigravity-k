@@ -17,18 +17,165 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import ClassVar, Final, Protocol, TypedDict, cast
 
 from antigravity_k.engine.benchmark_cases import BenchmarkCase, get_suite
 from antigravity_k.engine.model_calibration import TaskBenchmarkMetrics
+from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.prompt_builder import PromptBuilder
 from antigravity_k.engine.quality_gate import QualityGate
 
 logger = logging.getLogger("antigravity_k.benchmark_harness")
+_PROVIDER_ERROR_PREFIX: Final[str] = "[API Error for "
+
+
+class BenchmarkResultDict(TypedDict):
+    case_id: str
+    target: str
+    quality_score: float
+    quality_grade: str
+    latency_ms: float
+    tokens_in: int
+    tokens_out: int
+    output_preview: str
+    timestamp: float
+    issues: list[str]
+    benchmark_score: float
+    keyword_coverage: float
+    passed_keywords: list[str]
+    missing_keywords: list[str]
+    error: str
+    quality_revision_count: int
+    quality_revision_applied: bool
+    verified: bool
+    verified_output: str
+
+
+class TaskOutcomeDict(TypedDict):
+    case_id: str
+    target: str
+    success: bool
+    completion_reason: str
+    expected_tools: tuple[str, ...]
+    used_tools: tuple[str, ...]
+    retry_count: int
+    latency_ms: float
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+    error: str
+    calibration_eligible: bool
+
+
+class TaskBenchmarkReportDict(TypedDict):
+    task_success_rate: float
+    tool_accuracy: float
+    retry_rate: float
+    recovery_success_rate: float
+    avg_latency_ms: float
+    total_tokens: int
+    total_cost_usd: float
+    avg_cost_usd: float
+    error_count: int
+    outcomes: list[TaskOutcomeDict]
+
+
+class BenchmarkReportDict(TypedDict):
+    suite_name: str
+    targets: list[str]
+    started_at: float
+    finished_at: float
+    duration_s: float
+    results: list[BenchmarkResultDict]
+
+
+class AmplificationModeStats(TypedDict):
+    mean_score: float
+    excellent_rate: float
+    fail_rate: float
+    n: int
+
+
+class AmplificationImprovement(TypedDict, total=False):
+    baseline: str
+    mean_delta: float
+    improved: int
+    worse: int
+    same: int
+
+
+class AmplificationStats(TypedDict):
+    by_mode: dict[str, AmplificationModeStats]
+    improvement: AmplificationImprovement
+
+
+class AmplificationOutput(TypedDict):
+    by_case: dict[str, dict[str, "BenchmarkResult"]]
+    summary: str
+    stats: AmplificationStats
+
+
+class BenchmarkResultData(TypedDict, total=False):
+    case_id: str
+    target: str
+    quality_score: float
+    quality_grade: str
+    latency_ms: float
+    tokens_in: int
+    tokens_out: int
+    output_preview: str
+    timestamp: float
+    issues: list[str]
+    benchmark_score: float
+    keyword_coverage: float
+    passed_keywords: list[str]
+    missing_keywords: list[str]
+    error: str
+    quality_revision_count: int
+    quality_revision_applied: bool
+    verified: bool
+    verified_output: str
+
+
+class TaskOutcomeData(TypedDict, total=False):
+    case_id: str
+    target: str
+    success: bool
+    completion_reason: str
+    expected_tools: tuple[str, ...]
+    used_tools: tuple[str, ...]
+    retry_count: int
+    latency_ms: float
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+    error: str
+    calibration_eligible: bool
+
+
+class _OutcomeRecorder(Protocol):
+    @property
+    def outcome_recorder(self) -> Callable[[TaskOutcome], object] | None: ...
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else {}
+
+
+def _as_object_list(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [cast(Mapping[str, object], item) for item in value if isinstance(item, Mapping)]
+
+
+def _as_str_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
 
 
 # ─── 데이터 클래스 ───────────────────────────────────────────────────
@@ -58,14 +205,34 @@ class BenchmarkResult:
     verified: bool = False
     verified_output: str = ""
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> BenchmarkResultDict:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        return asdict(self)
+        return {
+            "case_id": self.case_id,
+            "target": self.target,
+            "quality_score": self.quality_score,
+            "quality_grade": self.quality_grade,
+            "latency_ms": self.latency_ms,
+            "tokens_in": self.tokens_in,
+            "tokens_out": self.tokens_out,
+            "output_preview": self.output_preview,
+            "timestamp": self.timestamp,
+            "issues": list(self.issues),
+            "benchmark_score": self.benchmark_score,
+            "keyword_coverage": self.keyword_coverage,
+            "passed_keywords": list(self.passed_keywords),
+            "missing_keywords": list(self.missing_keywords),
+            "error": self.error,
+            "quality_revision_count": self.quality_revision_count,
+            "quality_revision_applied": self.quality_revision_applied,
+            "verified": self.verified,
+            "verified_output": self.verified_output,
+        }
 
 
 @dataclass(frozen=True)
@@ -108,8 +275,22 @@ class TaskOutcome:
     def tool_accuracy(self) -> float:
         return self.tool_recall
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    def to_dict(self) -> TaskOutcomeDict:
+        return {
+            "case_id": self.case_id,
+            "target": self.target,
+            "success": self.success,
+            "completion_reason": self.completion_reason,
+            "expected_tools": self.expected_tools,
+            "used_tools": self.used_tools,
+            "retry_count": self.retry_count,
+            "latency_ms": self.latency_ms,
+            "tokens_in": self.tokens_in,
+            "tokens_out": self.tokens_out,
+            "cost_usd": self.cost_usd,
+            "error": self.error,
+            "calibration_eligible": self.calibration_eligible,
+        }
 
 
 @dataclass(frozen=True)
@@ -207,7 +388,7 @@ class TaskBenchmarkReport:
             failures.append("total_cost_usd")
         return tuple(failures)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> TaskBenchmarkReportDict:
         return {
             "task_success_rate": self.task_success_rate,
             "tool_accuracy": self.tool_accuracy,
@@ -242,7 +423,7 @@ class BenchmarkReport:
         """
         return self.finished_at - self.started_at
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> BenchmarkReportDict:
         """To Dict.
 
         Returns:
@@ -265,11 +446,16 @@ class BenchmarkReport:
 class BenchmarkHarness:
     """Collective-council vs 단일 모델 벤치마크 실행기."""
 
-    DEFAULT_DB_PATH = Path("data/benchmark_results.json")
+    DEFAULT_DB_PATH: ClassVar[Path] = Path("data/benchmark_results.json")
+    _manager: ModelManager
+    _db_path: Path
+    _quality_gate: QualityGate
+    _task_calibration_updater: Callable[[str, TaskBenchmarkMetrics | None], None] | None
+    _prompt_builder: PromptBuilder
 
     def __init__(
         self,
-        model_manager,
+        model_manager: ModelManager,
         db_path: Path | None = None,
         quality_gate: QualityGate | None = None,
         task_calibration_updater: Callable[[str, TaskBenchmarkMetrics | None], None] | None = None,
@@ -402,7 +588,7 @@ class BenchmarkHarness:
             "|------|---------|---------------|----------|----------------|---------|-------------|---------------|",
         ]
 
-        target_summaries = []
+        target_summaries: list[tuple[str, float, float, float, float]] = []
         for target, results in sorted(targets.items()):
             n = len(results)
             avg_b = sum(r.benchmark_score for r in results) / n
@@ -421,8 +607,8 @@ class BenchmarkHarness:
             leader = max(target_summaries, key=lambda item: item[1])
             lines.insert(
                 1,
-                f"> 현재 우세 타겟: `{leader[0]}` "
-                f"(종합 {leader[1]:.0%}, 품질 {leader[2]:.0%}, 키워드 {leader[3]:.0%}, 평균 {leader[4]:.1f}s)\n",
+                f"> 현재 우세 타겟: `{leader[0]}` (종합 {leader[1]:.0%}, 품질 {leader[2]:.0%}, 키워드 "
+                + f"{leader[3]:.0%}, 평균 {leader[4]:.1f}s)\n",
             )
 
         # ── 과제별 상세 ──
@@ -458,7 +644,7 @@ class BenchmarkHarness:
         case_ids: list[str],
         target: str,
         modes: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> AmplificationOutput:
         """같은 과제를 증폭 모드(cascade on/off)로 실행해 효과를 비교한다.
 
         cascade ON이 낮은 신뢰도 응답을 상위 티어로 재생성해 품질을
@@ -467,10 +653,8 @@ class BenchmarkHarness:
         """
         modes = modes or ["cascade_off", "cascade_on"]
         suite = {c.id: c for c in get_suite("all")}
-        router = getattr(self._manager, "router", None)
-        original = None
-        if router is not None:
-            original = getattr(router, "cascade_on_low_confidence", False)
+        router = self._manager.router
+        original = router.cascade_on_low_confidence
         # revision(재생성 기반) 증폭 비교 모드는 QualityGate.max_retries를 스왑한다.
         # revision_off → 0(루프 미발화), revision_on → 2(재생성 증폭). 원복은 finally에서.
         original_retries = self._quality_gate.max_retries
@@ -483,30 +667,36 @@ class BenchmarkHarness:
                     continue
                 results[cid] = {}
                 for mode in modes:
-                    if router is not None:
-                        router.cascade_on_low_confidence = mode == "cascade_on"
+                    router.cascade_on_low_confidence = mode == "cascade_on"
                     if mode == "revision_off":
                         self._quality_gate.max_retries = 0
                     elif mode == "revision_on":
                         self._quality_gate.max_retries = 2
-                    elif original_retries is not None:
+                    elif mode in ("avo_on", "bon_avo"):
+                        # AVO 감독 재시도 예산. baseline/bon 계열(0회)과의 생성 횟수
+                        # 형평을 위해 2회로 고정한다 — BoN(n=3)과 동일한 상한.
+                        self._quality_gate.max_retries = 2
+                    else:
                         self._quality_gate.max_retries = original_retries
                     # sc_on 모드는 초기 답을 self-consistency(N샘플링)로 생성한다.
                     use_sc = mode == "sc_on"
                     # decomp_on 모드는 초기 답을 LLM 단계 분해 경로로 생성한다.
                     use_td = mode == "decomp_on"
-                    # bon_on 모드는 초기 답을 실행 검증 Best-of-N 경로로 생성한다.
-                    use_bon = mode == "bon_on"
+                    # bon_on/bon_avo 모드는 초기 답을 실행 검증 Best-of-N 경로로 생성한다.
+                    use_bon = mode in ("bon_on", "bon_avo")
+                    # avo_on/bon_avo 모드는 AVO 감독축(반복 차단·유사 오류 클러스터·
+                    # 무진행 윈도우)으로 재시도를 통제한다.
+                    supervised = mode in ("avo_on", "bon_avo")
                     results[cid][mode] = self._execute_single(
                         case,
                         target,
                         self_consistent=use_sc,
                         decomposed=use_td,
                         best_of_n=use_bon,
+                        supervised=supervised,
                     )
         finally:
-            if router is not None and original is not None:
-                router.cascade_on_low_confidence = original
+            router.cascade_on_low_confidence = original
             self._quality_gate.max_retries = original_retries
 
         return {
@@ -519,7 +709,7 @@ class BenchmarkHarness:
         self,
         results: dict[str, dict[str, BenchmarkResult]],
         modes: list[str],
-    ) -> dict[str, Any]:
+    ) -> AmplificationStats:
         """증폭 모드 간 평균 점수/등급 분포/개선 케이스 비율 등 통계.
 
         노이즈가 큰 단일 케이스 측정을 보완하기 위해 여러 케이스에 걸친
@@ -527,7 +717,7 @@ class BenchmarkHarness:
         """
         from statistics import fmean
 
-        mode_stats: dict[str, dict[str, Any]] = {}
+        mode_stats: dict[str, AmplificationModeStats] = {}
         valid = {cid: by for cid, by in results.items() if all(m in by for m in modes)}
         for mode in modes:
             scores = [by[mode].benchmark_score for by in valid.values() if not by[mode].error]
@@ -539,7 +729,7 @@ class BenchmarkHarness:
                 "n": len(scores),
             }
         # 첫 모드를 baseline으로 후속 모드가 얼마나 개선했는지 비율.
-        improvement: dict[str, Any] = {}
+        improvement: AmplificationImprovement = {}
         if len(modes) >= 2 and valid:
             base = modes[0]
             improved = worse = same = 0
@@ -574,12 +764,12 @@ class BenchmarkHarness:
         self._sync_task_calibration(outcome.target)
         return outcome
 
-    def bind_task_runner(self, runner):
-        runner.outcome_recorder = self.record_task_outcome
+    def bind_task_runner(self, runner: _OutcomeRecorder) -> _OutcomeRecorder:
+        setattr(runner, "outcome_recorder", self.record_task_outcome)
         return runner
 
-    def bind_tool_loop(self, tool_loop):
-        tool_loop.outcome_recorder = self.record_task_outcome
+    def bind_tool_loop(self, tool_loop: _OutcomeRecorder) -> _OutcomeRecorder:
+        setattr(tool_loop, "outcome_recorder", self.record_task_outcome)
         return tool_loop
 
     def task_report(self, target: str | None = None) -> TaskBenchmarkReport:
@@ -639,7 +829,7 @@ class BenchmarkHarness:
                 "error_count": report.error_count,
             },
         }
-        destination.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
+        _ = destination.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
         return destination
 
     def task_comparison_table(self) -> str:
@@ -684,21 +874,40 @@ class BenchmarkHarness:
         self_consistent: bool = False,
         decomposed: bool = False,
         best_of_n: bool = False,
+        supervised: bool = False,
     ) -> BenchmarkResult:
-        """단일 과제 × 단일 타겟 실행."""
+        """단일 과제 × 단일 타겟 실행.
+
+        supervised=True면 재시도 루프에 AVO 감독축을 적용한다:
+        실패 결과를 HarnessEnforcer에 적재하고, 임계 도달 시 STALL 전략수정
+        지시문을 feedback에 주입해 구조적으로 다른 시도를 강제한다.
+        """
         start = time.time()
         output = ""
         error = ""
         prompt = self._benchmark_prompt(case)
         quality_revision_count = 0
         quality_revision_applied = False
+        supervisor = None
+        seen_failure_sigs: set[str] = set()
+        if supervised:
+            from antigravity_k.engine.harness_enforcer import HarnessEnforcer
+
+            # 단기 예산(재시작 ≤2회)에서도 감독축이 발화하도록 임계값 보정 —
+            # scripts/simulate_stall_supervision.py의 보정 절차와 동일 원칙.
+            supervisor = HarnessEnforcer(
+                project_root=str(Path.cwd()),
+                no_progress_window=2,
+                error_cluster_threshold=2,
+            )
 
         try:
             gen_kwargs = self._generation_kwargs(target, revision=False)
             # decomposed=True면 복잡 작업을 단계 분해 후 단계별 실행해 통합한다.
             # lh-001류 장기 워크플로 누락 요소 확보가 목적이다.
             if decomposed and hasattr(self._manager, "generate_decomposed"):
-                output = self._manager.generate_decomposed(
+                generate_decomposed = cast(Callable[..., str], self._manager.generate_decomposed)
+                output = generate_decomposed(
                     prompt=prompt,
                     target=target,
                     **gen_kwargs,
@@ -706,7 +915,8 @@ class BenchmarkHarness:
             # best_of_n=True면 실행 검증 Best-of-N 증폭으로 초기 답을 생성한다.
             # 검증자 통과 답변이 실행 가능성을 보장하므로 코드 과제에서 강한 신호다.
             elif best_of_n and hasattr(self._manager, "generate_best_of_n"):
-                output = self._manager.generate_best_of_n(
+                generate_best_of_n = cast(Callable[..., str], self._manager.generate_best_of_n)
+                output = generate_best_of_n(
                     prompt=prompt,
                     target=target,
                     **gen_kwargs,
@@ -725,6 +935,9 @@ class BenchmarkHarness:
                     target=target,
                     **gen_kwargs,
                 )
+            if output.startswith(_PROVIDER_ERROR_PREFIX):
+                error = output
+                output = ""
         except Exception as exc:
             error = str(exc)
             logger.exception("[Benchmark] %s × %s 실행 실패", case.id, target)
@@ -759,6 +972,22 @@ class BenchmarkHarness:
                         f"생성한 코드를 실행한 결과가 기대값과 다릅니다. "
                         f"기대 출력: {case.expected_output!r}. 실행 가능한 올바른 Python 코드를 다시 작성하세요."
                     )
+                if supervisor is not None:
+                    # AVO 감독축 적용: 실패 적재 → 임계 도달 시 1회용 STALL 개입 소비.
+                    # 오류 지문은 누락 키워드/게이트 피드백에서 뽑는다.
+                    failure_sig = (
+                        ",".join(sorted(missing_keywords)) if missing_keywords else (qscore.feedback or "")[:120]
+                    )
+                    supervisor.record_outcome(failed=True, error_text=failure_sig)
+                    intervention = supervisor.consume_pending_intervention()
+                    if intervention and intervention.get("stall"):
+                        feedback = f"{intervention['reason']}\n{feedback}"
+                    elif failure_sig in seen_failure_sigs:
+                        # 클러스터 임계 미달 상태의 동일 지문 재시도도 차단한다.
+                        feedback = (
+                            f"{type(supervisor).build_stall_message('revision')}\n{feedback}"
+                        )
+                    seen_failure_sigs.add(failure_sig)
                 revised = self._quality_revision(case, output, feedback, target)
                 if not revised:
                     continue
@@ -857,7 +1086,7 @@ class BenchmarkHarness:
         except Exception:
             logger.exception("[Benchmark] quality revision failed")
             return ""
-        return candidate.strip() if isinstance(candidate, str) else str(candidate).strip()
+        return candidate.strip()
 
     @staticmethod
     def _generation_kwargs(target: str, *, revision: bool) -> dict[str, object]:
@@ -960,15 +1189,16 @@ class BenchmarkHarness:
         from pathlib import Path
 
         if not expected_output:
-            return True, ""
+            return False, "not_applicable"
         blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", output or "", re.DOTALL)
         if not blocks:
             return False, "no_code_block"
+        blocks = cast(list[str], re.findall(r"```(?:python|py)?\s*\n(.*?)```", output or "", re.DOTALL))
         code = blocks[-1]
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 script = Path(tmp) / "solution.py"
-                script.write_text(code, encoding="utf-8")
+                _ = script.write_text(code, encoding="utf-8")
                 proc = subprocess.run(
                     ["python3", str(script)],
                     capture_output=True,
@@ -1006,10 +1236,12 @@ class BenchmarkHarness:
         """config.yaml에서 벤치마크 비교 대상을 결정합니다."""
         # collective-council + 개별 모델 중 가용한 것
         targets = ["collective-council"]
-        raw = getattr(self._manager._registry, "_raw", {})
-        combo = raw.get("combos", {}).get("collective-council", {})
-        models = combo.get("models", [])
-        targets.extend(models[:3])  # 최대 3개 개별 모델
+        registry = cast(object, getattr(self._manager, "_registry"))
+        raw = _as_mapping(cast(object, getattr(registry, "_raw", {})))
+        combo = _as_mapping(_as_mapping(raw.get("combos")).get("collective-council"))
+        models_value = combo.get("models")
+        if isinstance(models_value, Sequence) and not isinstance(models_value, (str, bytes)):
+            targets.extend(item for item in models_value if isinstance(item, str))
         return targets
 
     # ─── 영속화 ──────────────────────────────────────────────────────
@@ -1020,24 +1252,22 @@ class BenchmarkHarness:
             return
         try:
             with open(self._db_path, encoding="utf-8") as f:
-                data = cast(dict[str, Any], json.load(f))
+                data = _as_mapping(cast(object, json.load(f)))
             self._history = []
             self._task_history = []
-            for raw_result in data.get("results", []):
-                result = BenchmarkResult(**raw_result)
+            for raw_result in _as_object_list(data.get("results")):
+                result = BenchmarkResult(**cast(BenchmarkResultData, raw_result))
                 if "benchmark_score" not in raw_result:
                     result.benchmark_score = result.quality_score
                 if "keyword_coverage" not in raw_result:
                     result.keyword_coverage = 1.0 if result.output_preview and not result.error else 0.0
                 self._history.append(result)
             task_history: list[TaskOutcome] = []
-            for raw_outcome in data.get("task_results", []):
-                if not isinstance(raw_outcome, dict):
-                    continue
-                outcome_data: dict[str, Any] = dict(raw_outcome)
-                outcome_data["expected_tools"] = tuple(outcome_data.get("expected_tools", ()))
-                outcome_data["used_tools"] = tuple(outcome_data.get("used_tools", ()))
-                task_history.append(TaskOutcome(**outcome_data))
+            for raw_outcome in _as_object_list(data.get("task_results")):
+                outcome_data = dict(raw_outcome)
+                outcome_data["expected_tools"] = _as_str_tuple(outcome_data.get("expected_tools"))
+                outcome_data["used_tools"] = _as_str_tuple(outcome_data.get("used_tools"))
+                task_history.append(TaskOutcome(**cast(TaskOutcomeData, cast(object, outcome_data))))
             self._task_history = task_history
             logger.info("[Benchmark] %d개 기존 결과 로드", len(self._history))
         except Exception:

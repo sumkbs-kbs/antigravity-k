@@ -99,5 +99,7 @@ def test_mcp_tool_annotations_drive_risk_metadata():
 
     assert read_only.risk_level == RiskLevel.SAFE
     assert destructive.risk_level == RiskLevel.HIGH
-    assert read_only.to_metadata()["mcp"]["server"] == "local"
-    assert destructive.to_metadata()["mcp"]["authenticated"] is True
+    read_only_mcp = cast(dict[str, object], read_only.to_metadata()["mcp"])
+    destructive_mcp = cast(dict[str, object], destructive.to_metadata()["mcp"])
+    assert read_only_mcp["server"] == "local"
+    assert destructive_mcp["authenticated"] is True

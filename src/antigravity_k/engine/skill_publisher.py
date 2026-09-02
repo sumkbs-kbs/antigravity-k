@@ -19,10 +19,11 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Final, cast
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,15 @@ AGK_SKILL_SCOPE = "@antigravity-k/skill-"
 MARKET_DIR = ".agent/skills/market"
 LOCAL_SKILLS_DIR = ".agent/skills"
 PUBLISH_TEMPLATE_VERSION = "1.0.0"
+
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+
+
+def _as_json_map(value: object) -> dict[str, JsonValue]:
+    if not isinstance(value, Mapping):
+        return {}
+    mapping = cast(Mapping[object, object], value)
+    return {str(key): cast(JsonValue, item) for key, item in mapping.items()}
 
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────────
@@ -112,7 +122,7 @@ class SkillPublisher:
         5. 정리
     """
 
-    SKILL_REQUIRED_FILES = {"SKILL.md"}
+    SKILL_REQUIRED_FILES: Final = {"SKILL.md"}
 
     def __init__(self, project_root: str | None = None):
         """Initialize the SkillPublisher.
@@ -120,9 +130,9 @@ class SkillPublisher:
         Args:
             project_root: 프로젝트 루트 (기본: 현재 디렉토리)
         """
-        self.project_root = Path(project_root or os.getcwd())
-        self.market_dir = self.project_root / MARKET_DIR
-        self.skills_dir = self.project_root / LOCAL_SKILLS_DIR
+        self.project_root: Path = Path(project_root or os.getcwd())
+        self.market_dir: Path = self.project_root / MARKET_DIR
+        self.skills_dir: Path = self.project_root / LOCAL_SKILLS_DIR
 
     # ─── Public API ────────────────────────────────────────────────
 
@@ -159,7 +169,7 @@ class SkillPublisher:
         if not skill_dir:
             result.errors.append(
                 f"스킬 '{skill_name}'을(를) 찾을 수 없습니다. "
-                f"{MARKET_DIR}/{skill_name}/ 또는 {LOCAL_SKILLS_DIR}/{skill_name}/ 경로를 확인하세요."
+                + f"{MARKET_DIR}/{skill_name}/ 또는 {LOCAL_SKILLS_DIR}/{skill_name}/ 경로를 확인하세요."
             )
             return result
 
@@ -249,7 +259,7 @@ class SkillPublisher:
         if not skill_dir:
             result.errors.append(
                 f"스킬 '{skill_name}'을(를) 찾을 수 없습니다. "
-                f"{MARKET_DIR}/{skill_name}/ 또는 {LOCAL_SKILLS_DIR}/{skill_name}/ 경로를 확인하세요."
+                + f"{MARKET_DIR}/{skill_name}/ 또는 {LOCAL_SKILLS_DIR}/{skill_name}/ 경로를 확인하세요."
             )
             return result
 
@@ -403,7 +413,7 @@ class SkillPublisher:
             # package.json 생성
             pkg_json = self._generate_package_json(src, package_name, version, validation)
             pkg_json_path = dest / "package.json"
-            pkg_json_path.write_text(
+            _ = pkg_json_path.write_text(
                 json.dumps(pkg_json, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
@@ -411,33 +421,33 @@ class SkillPublisher:
             # SKILL.md 복사
             skill_md_src = src / "SKILL.md"
             if skill_md_src.exists():
-                shutil.copy2(skill_md_src, dest / "SKILL.md")
+                _ = shutil.copy2(skill_md_src, dest / "SKILL.md")
 
             # README.md (없으면 SKILL.md에서 생성)
             readme_src = src / "README.md"
             if readme_src.exists():
-                shutil.copy2(readme_src, dest / "README.md")
+                _ = shutil.copy2(readme_src, dest / "README.md")
             else:
                 self._generate_readme(dest, validation)
 
             # .agk_meta.json (있으면)
             meta_src = src / ".agk_meta.json"
             if meta_src.exists():
-                shutil.copy2(meta_src, dest / ".agk_meta.json")
+                _ = shutil.copy2(meta_src, dest / ".agk_meta.json")
 
             # references/ (있으면)
             ref_src = src / "references"
             if ref_src.exists() and ref_src.is_dir():
-                shutil.copytree(ref_src, dest / "references", dirs_exist_ok=True)
+                _ = shutil.copytree(ref_src, dest / "references", dirs_exist_ok=True)
 
             # tests/ (있으면)
             tests_src = src / "tests"
             if tests_src.exists() and tests_src.is_dir():
-                shutil.copytree(tests_src, dest / "tests", dirs_exist_ok=True)
+                _ = shutil.copytree(tests_src, dest / "tests", dirs_exist_ok=True)
 
             # .npmignore (보안용)
             npmignore_path = dest / ".npmignore"
-            npmignore_path.write_text(
+            _ = npmignore_path.write_text(
                 "node_modules/\n.npmignore\n.agk_meta.json\n",
                 encoding="utf-8",
             )
@@ -453,7 +463,7 @@ class SkillPublisher:
         package_name: str,
         version: str,
         validation: PublishValidation,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """package.json 콘텐츠를 생성합니다.
 
         기존 package.json이 있으면 병합하고,
@@ -468,11 +478,12 @@ class SkillPublisher:
         Returns:
             package.json dict
         """
-        existing = {}
+        existing: dict[str, JsonValue] = {}
         pkg_json_path = src / "package.json"
         if pkg_json_path.exists():
             try:
-                existing = json.loads(pkg_json_path.read_text(encoding="utf-8"))
+                loaded = cast(object, json.loads(pkg_json_path.read_text(encoding="utf-8")))
+                existing = _as_json_map(loaded)
             except (json.JSONDecodeError, OSError):
                 logger.warning("[SkillPublisher] 스킬 발행 단계 실패 (non-critical)", exc_info=True)
 
@@ -481,7 +492,8 @@ class SkillPublisher:
         display_name = skill_name.replace("-", " ").title()
 
         # SKILL.md에서 description 추출
-        description = existing.get("description", "")
+        description_value = existing.get("description", "")
+        description = str(description_value)
         if not description:
             try:
                 skill_md = src / "SKILL.md"
@@ -493,16 +505,16 @@ class SkillPublisher:
                 logger.warning("[SkillPublisher] 스킬 발행 단계 실패 (non-critical)", exc_info=True)
 
         # antigravityK 메타데이터
-        agk_meta: dict[str, Any] = dict(existing.get("antigravityK", {})) if "antigravityK" in existing else {}
-        agk_meta.setdefault("skill", True)
-        agk_meta.setdefault("displayName", display_name)
-        agk_meta.setdefault("minAgentVersion", "0.1.0")
-        agk_meta.setdefault("riskLevel", "safe")
-        agk_meta.setdefault("trustLevel", "experimental")
-        agk_meta.setdefault("requiresApproval", False)
+        agk_meta = _as_json_map(existing.get("antigravityK", {}))
+        _ = agk_meta.setdefault("skill", True)
+        _ = agk_meta.setdefault("displayName", display_name)
+        _ = agk_meta.setdefault("minAgentVersion", "0.1.0")
+        _ = agk_meta.setdefault("riskLevel", "safe")
+        _ = agk_meta.setdefault("trustLevel", "experimental")
+        _ = agk_meta.setdefault("requiresApproval", False)
 
         # allowed-tools → requiredTools
-        tools = []
+        tools: JsonValue = []
         try:
             skill_md = src / "SKILL.md"
             if skill_md.exists():
@@ -516,7 +528,7 @@ class SkillPublisher:
         except Exception:
             logger.warning("[SkillPublisher] 스킬 발행 단계 실패 (non-critical)", exc_info=True)
 
-        package: dict[str, Any] = {
+        package: dict[str, JsonValue] = {
             "name": package_name,
             "version": version,
             "description": description or f"Antigravity-K skill: {display_name}",
@@ -576,7 +588,7 @@ This skill provides {validation.tool_count} tool(s).
 MIT
 """
         readme_path = dest / "README.md"
-        readme_path.write_text(readme.strip() + "\n", encoding="utf-8")
+        _ = readme_path.write_text(readme.strip() + "\n", encoding="utf-8")
 
     # ─── npm publish ─────────────────────────────────────────────
 
@@ -711,7 +723,7 @@ MIT
                 return None
 
             # 2. 새 브랜치 생성 및 checkout
-            subprocess.run(
+            _ = subprocess.run(
                 ["git", "checkout", "-b", branch_name],
                 cwd=str(clone_dir),
                 capture_output=True,
@@ -728,12 +740,12 @@ MIT
                 if item.name.startswith(".") and item.name not in (".agk_meta.json",):
                     continue  # 숨김 파일 제외 (단, .agk_meta.json은 포함)
                 if item.is_dir():
-                    shutil.copytree(item, skill_dest / item.name, dirs_exist_ok=True)
+                    _ = shutil.copytree(item, skill_dest / item.name, dirs_exist_ok=True)
                 else:
-                    shutil.copy2(item, skill_dest / item.name)
+                    _ = shutil.copy2(item, skill_dest / item.name)
 
             # 4. git add + commit + push
-            subprocess.run(
+            _ = subprocess.run(
                 ["git", "add", "-A"],
                 cwd=str(clone_dir),
                 capture_output=True,
@@ -833,7 +845,7 @@ MIT
         return None
 
     @staticmethod
-    def _parse_frontmatter(content: str) -> dict[str, Any]:
+    def _parse_frontmatter(content: str) -> dict[str, JsonValue]:
         """YAML frontmatter를 파싱합니다.
 
         Args:
@@ -842,7 +854,7 @@ MIT
         Returns:
             frontmatter dict (파싱 실패 시 빈 dict)
         """
-        frontmatter: dict[str, Any] = {}
+        frontmatter: dict[str, JsonValue] = {}
         if not content.startswith("---"):
             return frontmatter
 
@@ -853,9 +865,8 @@ MIT
             if len(parts) >= 2:
                 fm_content = parts[1].strip()
                 if fm_content:
-                    parsed = yaml.safe_load(fm_content)
-                    if isinstance(parsed, dict):
-                        frontmatter = parsed
+                    parsed = cast(object, yaml.safe_load(fm_content))
+                    frontmatter = _as_json_map(parsed)
         except ImportError:
             # yaml 미설치 — 간단한 줄 기반 파싱
             for line in content.split("\n"):

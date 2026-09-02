@@ -667,31 +667,29 @@ class NaturalLanguageBashTool(BaseTool):
 
         try:
             from ..engine.model_manager import ModelManager
-            from ..engine.orchestrator import OrchestratorAgent
 
             prompt = (
                 "Translate the following task to a macOS shell command. Users provide a text-query as input.\nProvide ONLY the"  # noqa: E501
-                "command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
+                f"command in ONE LINE, with no explanation:\n\nOne-line command for: {intent}"
             )
 
             try:
-                # Use default ModelManager and Orchestrator
                 from ..engine.model_registry import ModelRegistry
 
                 model_manager = ModelManager(registry=ModelRegistry())
-                orchestrator = OrchestratorAgent(model_manager=model_manager)
+                orchestrator_module = cast(
+                    object,
+                    __import__(
+                        "antigravity_k.engine.orchestrator",
+                        fromlist=["OrchestratorAgent"],
+                    ),
+                )
+                module_dict = cast(dict[str, object], getattr(orchestrator_module, "__dict__", {}))
+                orchestrator_factory = cast(_OrchestratorFactory, module_dict["OrchestratorAgent"])
+                orchestrator = orchestrator_factory(model_manager=model_manager)
+                target_model = model_manager.get_target_for_role("natural_language_bash", default_role="coding")
 
-                try:
-                    registry = model_manager._registry
-                    if registry is not None:
-                        info = registry.list_models()
-                        target_model = info[0].name if info else "qwen3.6:latest"
-                    else:
-                        target_model = "qwen3.6:latest"
-                except Exception:
-                    target_model = "qwen3.6:latest"
-
-                messages = [{"role": "user", "content": prompt}]
+                messages: list[dict[str, object]] = [{"role": "user", "content": prompt}]
                 command = orchestrator.run_sync(messages, target_model=target_model).strip()
 
                 # Remove markdown code blocks if any

@@ -199,9 +199,7 @@ class PromptBuilder:
                 params = cast(Mapping[str, object], raw_params)
             raw_required: object = params.get("required")
             required_values = cast(list[object], raw_required) if isinstance(raw_required, list) else []
-            required = {
-                item for item in required_values if isinstance(item, str)
-            }
+            required = {item for item in required_values if isinstance(item, str)}
             name = schema.get("name")
             description = schema.get("description")
             tool_section += f"- **{name}**: {description}\n"

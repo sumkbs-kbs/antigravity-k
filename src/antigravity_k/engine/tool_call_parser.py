@@ -25,11 +25,7 @@ def _coerce_json_value(value: object) -> JsonValue:
         return [_coerce_json_value(item) for item in cast(list[object], value)]
     if isinstance(value, dict):
         mapping = cast(Mapping[object, object], value)
-        return {
-            key: _coerce_json_value(item)
-            for key, item in mapping.items()
-            if isinstance(key, str)
-        }
+        return {key: _coerce_json_value(item) for key, item in mapping.items() if isinstance(key, str)}
     return str(value)
 
 
@@ -37,11 +33,7 @@ def _json_object(value: object) -> dict[str, JsonValue] | None:
     if not isinstance(value, dict):
         return None
     mapping = cast(Mapping[object, object], value)
-    return {
-        key: _coerce_json_value(item)
-        for key, item in mapping.items()
-        if isinstance(key, str)
-    }
+    return {key: _coerce_json_value(item) for key, item in mapping.items() if isinstance(key, str)}
 
 
 class EventType(Enum):

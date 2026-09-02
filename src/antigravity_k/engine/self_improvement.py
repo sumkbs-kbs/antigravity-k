@@ -19,8 +19,18 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import TypedDict, cast
 
 logger = logging.getLogger("antigravity_k.engine.self_improvement")
+
+
+class TurnRecordPayload(TypedDict):
+    timestamp: float
+    user_request: str
+    grade: str
+    score: float
+    issues: list[str]
+    retry_count: int
 
 
 @dataclass
@@ -50,7 +60,7 @@ class SelfImprovementLoop:
     """자기 개선 피드백 루프."""
 
     # 패턴별 프롬프트 보강 템플릿
-    _REINFORCEMENT_PROMPTS = {
+    _REINFORCEMENT_PROMPTS: dict[str, str] = {
         "비교표": (
             "⚠️ [품질 가이드] 비교 요청에는 반드시 Markdown 비교표(| 항목 | A | B |)를 포함하세요. "
             "비교표 없는 비교 응답은 감점됩니다."
@@ -85,7 +95,7 @@ class SelfImprovementLoop:
             pattern_threshold (int): int pattern threshold.
 
         """
-        self._data_dir = data_dir or os.path.join(
+        self._data_dir: str = data_dir or os.path.join(
             os.path.dirname(__file__),
             "..",
             "..",
@@ -93,8 +103,8 @@ class SelfImprovementLoop:
             "data",
         )
         self._records: list[TurnRecord] = []
-        self._window_size = window_size
-        self._pattern_threshold = pattern_threshold
+        self._window_size: int = window_size
+        self._pattern_threshold: int = pattern_threshold
         self._issue_counter: dict[str, int] = defaultdict(int)
         self._load_history()
 
@@ -130,7 +140,7 @@ class SelfImprovementLoop:
 
     def get_reinforcement_prompt(self) -> str:
         """현재 반복 실패 패턴에 대한 보강 프롬프트를 생성합니다."""
-        prompts = []
+        prompts: list[str] = []
         for pattern, count in self._issue_counter.items():
             if count >= self._pattern_threshold:
                 if pattern in self._REINFORCEMENT_PROMPTS:
@@ -140,7 +150,7 @@ class SelfImprovementLoop:
 
     def get_insights(self) -> list[PatternInsight]:
         """반복 패턴 분석 결과를 반환합니다."""
-        insights = []
+        insights: list[PatternInsight] = []
         for pattern, count in sorted(self._issue_counter.items(), key=lambda x: x[1], reverse=True):
             if count < 2:
                 continue
@@ -201,7 +211,7 @@ class SelfImprovementLoop:
             for insight in insights:
                 lines.append(
                     f"| {insight.pattern_name} | {insight.occurrence_count} | "
-                    f"{insight.avg_score:.3f} | {insight.recommended_prompt[:50]}... |",
+                    + f"{insight.avg_score:.3f} | {insight.recommended_prompt[:50]}... |",
                 )
 
         reinforcement = self.get_reinforcement_prompt()
@@ -249,9 +259,22 @@ class SelfImprovementLoop:
             filepath = os.path.join(self._data_dir, "self_improvement_history.json")
             if os.path.exists(filepath):
                 with open(filepath, encoding="utf-8") as f:
-                    data = json.load(f)
-                self._records = [TurnRecord(**r) for r in data.get("records", [])]
-                self._issue_counter = defaultdict(int, data.get("issue_counter", {}))
+                    data = cast(object, json.load(f))
+                if not isinstance(data, dict):
+                    return
+                payload = cast(dict[str, object], cast(object, data))
+                raw_records = payload.get("records", [])
+                if isinstance(raw_records, list):
+                    records = cast(list[object], cast(object, raw_records))
+                    self._records = [
+                        TurnRecord(**cast(TurnRecordPayload, cast(object, record)))
+                        for record in records
+                        if isinstance(record, dict)
+                    ]
+                raw_counter = payload.get("issue_counter", {})
+                if isinstance(raw_counter, dict):
+                    counter = cast(dict[str, int], cast(object, raw_counter))
+                    self._issue_counter = defaultdict(int, counter)
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("Failed to load improvement history: %s", e)

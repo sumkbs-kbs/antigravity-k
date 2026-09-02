@@ -30,7 +30,7 @@ date: 2026-08-17
 | D | 도구 실행 | **78** | ToolContract/ToolSpec 계약, `permission_gate.py`(3-tier + 위험 명령 블랙리스트 + 보호 경로), PlanGuard, GatePipeline, ImmuneSystem, `tool_registry.py` 자동 발견, `tool_executor.py`(535줄), `test_tool_executor.py`·`test_gate_pipeline.py`·`test_plan_guard.py` 등 10+ 테스트. **P1: 실패 매처(distill 형식) 수정 + 테스트 실측 통과** | 51개 도구 전부의 계약 준수 미확인 |
 | E | RAG | **55** | vault(git-first)+chunker+벡터+event_bus, AST 기반 `rag_indexer`, ChromaDB, `test_rag.py`·`test_rag_provenance.py`·`test_search_benchmark.py` 존재 | 검색 품질 실측치 미확인, 임베딩 모델 bge-m3-4bit 로컬 실행 검증 필요 |
 | F | 평가 | **60** | `quality_gate.py`(795줄) A/B/C/F 등급+verify_fn 자가검증, benchmark_harness, README에 실측 수치 명시. **Phase 0: 스모크에서 "응답 없음"→Quality Revision 재생성 실동작 확인** | 벤치마크 재현 절차·CI 자동화 실행 여부 미확인, 자가검증(경량 모델)의 순환 편향 리스크 |
-| G | UX | **60** | Typer CLI(1258줄, serve/key/memory/task), TUI(textual), dashboard(Vite), flight_deck_renderer, `test_cli_smoke.py`·`test_commands.py` 존재 | TUI·대시보드 시각 완성도 미검증, 명령 팔레트 인덱싱 통합 미확인 |
+| G | UX | **60** | Typer CLI(1258줄, serve/key/memory/task), TUI(textual), dashboard(Vite), flight_deck_renderer, `test_cli_smoke.py` 존재 | TUI·대시보드 시각 완성도 미검증, 명령 팔레트 인덱싱 통합 미확인 |
 | H | 보안 | **72** | `security_policy.py`(239줄) PermissionState 3분류 fail-closed, PIN 인증, secret_scanner, 승인 API(diff 미리보기), egress 정책 검증, sandbox-exec, 감사 로그, 보안 관련 테스트 다수. **Phase 0: doctor 보안 체크(vault/logs 권한, 키 설정) 전부 PASS. E2E 재검증: `make test` 실행 시 승인 요청 발화 실측** | 기본 모드(auto-pilot)와 fail-closed의 균형 미확인 |
 
 **항목 평균: 약 68/100 → 종합 80/100 (가중: 전체 스위트 완전 그린(3,641/0)·config 드리프트 이행·도구 경로 실동작·승인 흐름 발화 실측 반영 가산, fallback 체인 결함 수정 완료·메모리 정제 default 고정 수정 완료 반영)**

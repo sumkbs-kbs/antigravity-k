@@ -10,7 +10,9 @@ import os
 import re
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import TypedDict, final
+
+from pydantic import TypeAdapter, ValidationError
 
 from antigravity_k.engine.gbrain import global_gbrain
 from antigravity_k.engine.preference_memory import extract_explicit_preference_facts
@@ -20,6 +22,24 @@ logger = logging.getLogger(__name__)
 _PROFILE_FILE = ".antigravity/user_profile.json"
 
 
+class _Interaction(TypedDict):
+    message: str
+    task_type: str
+    tools: list[str]
+    time: str
+
+
+class _UserProfile(TypedDict, total=False):
+    stats: dict[str, dict[str, int]]
+    tool_preferences: dict[str, int]
+    created_at: str
+    updated_at: str
+
+
+_PROFILE_ADAPTER: TypeAdapter[_UserProfile] = TypeAdapter(_UserProfile)
+
+
+@final
 class UserIntentModeler:
     """사용자의 소통 스타일, 기술 수준, 선호도를 학습합니다.
 
@@ -38,10 +58,10 @@ class UserIntentModeler:
             project_root (str): str project root.
 
         """
-        self.project_root = project_root
-        self._profile_path = os.path.join(project_root, _PROFILE_FILE)
-        self._profile = self._load_profile()
-        self._session_interactions: list[dict[str, Any]] = []
+        self.project_root: str = project_root
+        self._profile_path: str = os.path.join(project_root, _PROFILE_FILE)
+        self._profile: _UserProfile = self._load_profile()
+        self._session_interactions: list[_Interaction] = []
         self._explicit_preferences: dict[str, str] = {}
 
     def observe(self, user_message: str, task_type: str, tools_used: list[str] | None = None) -> None:
@@ -138,10 +158,10 @@ class UserIntentModeler:
     def build_context(self, preference_overrides: Mapping[str, str] | None = None) -> str:
         """에이전트 시스템 프롬프트에 주입할 사용자 컨텍스트."""
         p = self._profile
-        if not p.get("stats"):
+        stats = p.get("stats", {})
+        if not stats:
             return ""
 
-        stats = p["stats"]
         lines = ["\n<user_profile>"]
 
         # 결정된 프로필 정보만 주입
@@ -179,7 +199,7 @@ class UserIntentModeler:
         # 자주 사용하는 도구
         tool_prefs = p.get("tool_preferences", {})
         if tool_prefs:
-            top_tools = sorted(tool_prefs, key=tool_prefs.get, reverse=True)[:5]
+            top_tools = sorted(tool_prefs, key=lambda item: tool_prefs[item], reverse=True)[:5]
             lines.append(f"자주 사용하는 도구: {', '.join(top_tools)}")
 
         lines.append("이 프로필에 맞춰 응답 깊이와 스타일을 조절하세요.")
@@ -187,13 +207,12 @@ class UserIntentModeler:
 
         return "\n".join(lines) if len(lines) > 3 else ""
 
-    def _update_stat(self, key: str, value: str):
-        if "stats" not in self._profile:
-            self._profile["stats"] = {}
-        if key not in self._profile["stats"]:
-            self._profile["stats"][key] = {}
-
-        counts = self._profile["stats"][key]
+    def _update_stat(self, key: str, value: str) -> None:
+        stats = self._profile.get("stats")
+        if stats is None:
+            stats = {}
+            self._profile["stats"] = stats
+        counts = stats.setdefault(key, {})
         counts[value] = counts.get(value, 0) + 1
 
     def _get_dominant(self, key: str, stats: dict[str, dict[str, int]]) -> str | None:
@@ -202,12 +221,12 @@ class UserIntentModeler:
             return None
         return max(counts, key=lambda item: counts[item])
 
-    def _load_profile(self) -> dict[str, Any]:
+    def _load_profile(self) -> _UserProfile:
         if os.path.exists(self._profile_path):
             try:
-                with open(self._profile_path, encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
+                with open(self._profile_path, "rb") as profile_file:
+                    return _PROFILE_ADAPTER.validate_json(profile_file.read())
+            except (OSError, UnicodeError, ValidationError):
                 logger.exception("Unhandled exception")
         return {
             "stats": {},
@@ -215,7 +234,7 @@ class UserIntentModeler:
             "created_at": datetime.now().astimezone().replace(tzinfo=None).isoformat(),
         }
 
-    def _save_profile(self):
+    def _save_profile(self) -> None:
         try:
             os.makedirs(os.path.dirname(self._profile_path), exist_ok=True)
             self._profile["updated_at"] = datetime.now().astimezone().replace(tzinfo=None).isoformat()
@@ -231,5 +250,5 @@ class UserIntentModeler:
             # 파일 폴백 저장
             with open(self._profile_path, "w", encoding="utf-8") as f:
                 json.dump(self._profile, f, ensure_ascii=False, indent=2)
-        except Exception:
+        except (OSError, TypeError, ValueError):
             logger.exception("[UserModel] Failed to save profile")

@@ -369,14 +369,16 @@ class TestComboAutoLoad:
     """config.yaml에서 콤보 자동 로드 테스트."""
 
     def test_loads_from_raw_config(self) -> None:
-        registry = _RegistryStub(raw={
-            "combos": {
-                "auto-combo": {
-                    "models": ["model-a", "model-b"],
-                    "strategy": "fallback",
+        registry = _RegistryStub(
+            raw={
+                "combos": {
+                    "auto-combo": {
+                        "models": ["model-a", "model-b"],
+                        "strategy": "fallback",
+                    }
                 }
             }
-        })
+        )
 
         router = _make_router(registry)
         combo = router.get_combo("auto-combo")
@@ -443,14 +445,14 @@ def test_enabled_model_policy_prefers_local_20b_qwen_and_excludes_known_out_of_r
     registry = _RegistryStub(
         profiles,
         raw={
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "prefer_local": True,
-                "max_parameter_count_b": 70.0,
-                "min_local_parameter_count_b": 20.0,
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "prefer_local": True,
+                    "max_parameter_count_b": 70.0,
+                    "min_local_parameter_count_b": 20.0,
+                }
             }
-        }
         },
     )
     router = _make_router(registry)
@@ -482,12 +484,12 @@ def test_expected_model_policy_exclusions_are_warned_once(caplog: pytest.LogCapt
     registry = _RegistryStub(
         {profile.name: profile},
         raw={
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "max_parameter_count_b": 70.0,
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "max_parameter_count_b": 70.0,
+                }
             }
-        }
         },
     )
     router = _make_router(registry)
@@ -513,12 +515,12 @@ def test_enabled_model_policy_rejects_direct_model_above_parameter_cap() -> None
     registry = _RegistryStub(
         {profile.name: profile},
         raw={
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "max_parameter_count_b": 70.0,
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "max_parameter_count_b": 70.0,
+                }
             }
-        }
         },
     )
     router = _make_router(registry)
@@ -539,13 +541,13 @@ def test_explicit_small_local_model_can_route_below_quality_floor() -> None:
     registry = _RegistryStub(
         {profile.name: profile},
         raw={
-        "router": {
-            "model_policy": {
-                "enabled": True,
-                "min_local_parameter_count_b": 20.0,
-                "allow_small_local_models": False,
+            "router": {
+                "model_policy": {
+                    "enabled": True,
+                    "min_local_parameter_count_b": 20.0,
+                    "allow_small_local_models": False,
+                }
             }
-        }
         },
     )
     router = _make_router(registry)

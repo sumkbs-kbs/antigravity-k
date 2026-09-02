@@ -1,6 +1,8 @@
 """Tests for the Multiplexer module."""
 
 import tempfile
+from collections.abc import Awaitable, Callable, Iterator
+from typing import cast
 from unittest import mock
 
 import pytest
@@ -10,11 +12,15 @@ from antigravity_k.engine.multiplexer import Multiplexer
 
 def _result(value: object) -> dict[str, str]:
     assert isinstance(value, dict)
-    return value
+    return cast(dict[str, str], value)
+
+
+def _mock_member(value: object, name: str) -> mock.Mock:
+    return cast(mock.Mock, getattr(value, name))
 
 
 @pytest.fixture
-def temp_project_root():
+def temp_project_root() -> Iterator[str]:
     """임시 프로젝트 루트 디렉토리."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield tmpdir
@@ -23,37 +29,37 @@ def temp_project_root():
 class TestMultiplexer:
     """Tests for Multiplexer class."""
 
-    def test_init(self, temp_project_root):
+    def test_init(self, temp_project_root: str) -> None:
         """초기화 시 project_root와 worktree_manager가 설정되어야 함."""
         mux = Multiplexer(project_root=temp_project_root)
         assert mux.project_root == temp_project_root
         assert mux.worktree_manager is not None
         assert mux.active_runners == []
 
-    def test_init_with_base_repo_path(self, temp_project_root):
+    def test_init_with_base_repo_path(self, temp_project_root: str) -> None:
         """base_repo_path가 worktree_manager에 전달되어야 함."""
         mux = Multiplexer(project_root=temp_project_root)
         assert mux.worktree_manager.base_repo_path == temp_project_root
 
     @pytest.mark.asyncio
-    async def test_run_parallel_goals_empty(self, temp_project_root):
+    async def test_run_parallel_goals_empty(self, temp_project_root: str) -> None:
         """빈 goals 리스트로 실행 시 빈 리스트를 반환해야 함."""
         mux = Multiplexer(project_root=temp_project_root)
         results = await mux.run_parallel_goals([])
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_run_parallel_goals_rejects_excessive_fanout(self, temp_project_root):
+    async def test_run_parallel_goals_rejects_excessive_fanout(self, temp_project_root: str) -> None:
         mux = Multiplexer(project_root=temp_project_root)
 
         with mock.patch.object(mux.worktree_manager, "create_worktree") as create_worktree:
             with pytest.raises(ValueError, match="최대 32개"):
-                await mux.run_parallel_goals([{"instruction": "work"}] * 33)
+                _ = await mux.run_parallel_goals([{"instruction": "work"}] * 33)
 
         create_worktree.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_parallel_goals_single(self, temp_project_root):
+    async def test_run_parallel_goals_single(self, temp_project_root: str) -> None:
         """단일 goal 실행 시 worktree 생성 + GoalRunner 실행이 이루어져야 함."""
         mux = Multiplexer(project_root=temp_project_root)
 
@@ -66,7 +72,7 @@ class TestMultiplexer:
                 "antigravity_k.engine.multiplexer.GoalRunner",
                 autospec=True,
             ) as MockRunner:
-                mock_runner_instance = MockRunner.return_value
+                mock_runner_instance = cast(mock.MagicMock, getattr(MockRunner, "return_value"))
                 mock_runner_instance.task_id = "test-task-1"
                 mock_runner_instance.instruction = "do something"
 
@@ -91,7 +97,7 @@ class TestMultiplexer:
                 assert result["status"] == "success"
 
     @pytest.mark.asyncio
-    async def test_run_parallel_goals_multiple(self, temp_project_root):
+    async def test_run_parallel_goals_multiple(self, temp_project_root: str) -> None:
         """여러 goal을 병렬로 실행해야 함."""
         mux = Multiplexer(project_root=temp_project_root)
 
@@ -127,7 +133,7 @@ class TestMultiplexer:
                 assert all(_result(r)["status"] == "success" for r in results)
 
     @pytest.mark.asyncio
-    async def test_run_parallel_goals_with_auto_task_id(self, temp_project_root):
+    async def test_run_parallel_goals_with_auto_task_id(self, temp_project_root: str) -> None:
         """task_id가 없으면 자동 생성되어야 함."""
         mux = Multiplexer(project_root=temp_project_root)
 
@@ -149,7 +155,7 @@ class TestMultiplexer:
                 assert _result(results[0])["status"] == "success"
 
     @pytest.mark.asyncio
-    async def test_single_agent_failure(self, temp_project_root):
+    async def test_single_agent_failure(self, temp_project_root: str) -> None:
         """개별 에이전트 실패 시 전체가 아니라 해당 결과만 실패로 표시되어야 함."""
         mux = Multiplexer(project_root=temp_project_root)
 
@@ -169,7 +175,7 @@ class TestMultiplexer:
                 mock_bad = mock.MagicMock()
                 mock_bad.task_id = "bad-task"
                 mock_bad.instruction = "bad"
-                mock_bad.run.side_effect = RuntimeError("Agent exploded")
+                _mock_member(mock_bad, "run").side_effect = RuntimeError("Agent exploded")
                 MockRunner.side_effect = [mock_good, mock_bad]
 
                 results = await mux.run_parallel_goals(
@@ -186,7 +192,7 @@ class TestMultiplexer:
                 assert "Agent exploded" in bad_result["error"]
 
     @pytest.mark.asyncio
-    async def test_workspace_dir_set_on_runner(self, temp_project_root):
+    async def test_workspace_dir_set_on_runner(self, temp_project_root: str) -> None:
         """각 GoalRunner의 workspace_dir이 worktree 경로로 설정되어야 함."""
         mux = Multiplexer(project_root=temp_project_root)
 
@@ -195,33 +201,37 @@ class TestMultiplexer:
                 "antigravity_k.engine.multiplexer.GoalRunner",
                 autospec=True,
             ) as MockRunner:
-                mock_runner = MockRunner.return_value
+                mock_runner = cast(mock.MagicMock, getattr(MockRunner, "return_value"))
                 mock_runner.task_id = "ws-test"
 
-                await mux.run_parallel_goals(
+                _ = await mux.run_parallel_goals(
                     [{"task_id": "ws-test", "instruction": "test"}],
                 )
 
-                assert mock_runner.workspace_dir == "/tmp/wt/ws"
+                assert cast(str, getattr(mock_runner, "workspace_dir")) == "/tmp/wt/ws"
 
     @pytest.mark.asyncio
-    async def test_run_single_agent_calls_runner_run(self, temp_project_root):
+    async def test_run_single_agent_calls_runner_run(self, temp_project_root: str) -> None:
         """_run_single_agent가 runner.run을 호출해야 함."""
         mux = Multiplexer(project_root=temp_project_root)
         mock_runner = mock.MagicMock()
         mock_runner.task_id = "test"
         mock_runner.instruction = "instruction"
 
-        result = await mux._run_single_agent(mock_runner, "/tmp/worktree")
+        run_single_agent = cast(
+            Callable[[object, str], Awaitable[object]],
+            getattr(mux, "_run_single_agent"),
+        )
+        result = _result(await run_single_agent(mock_runner, "/tmp/worktree"))
 
-        mock_runner.run.assert_called_once_with("instruction")
+        _mock_member(mock_runner, "run").assert_called_once_with("instruction")
         assert result["task_id"] == "test"
         assert result["status"] == "success"
 
     @pytest.mark.asyncio
-    async def test_bound_runtime_path_does_not_construct_goal_runner(self, temp_project_root):
+    async def test_bound_runtime_path_does_not_construct_goal_runner(self, temp_project_root: str) -> None:
         runtime = mock.MagicMock()
-        runtime.goal_contract.return_value = "contract"
+        _mock_member(runtime, "goal_contract").return_value = "contract"
         mux = Multiplexer(project_root=temp_project_root, agent_runtime=runtime)
 
         with mock.patch.object(mux.worktree_manager, "create_worktree", return_value="/tmp/wt/runtime"):
@@ -231,7 +241,7 @@ class TestMultiplexer:
                 )
 
         MockRunner.assert_not_called()
-        runtime.goal_contract.assert_called_once_with(
+        _mock_member(runtime, "goal_contract").assert_called_once_with(
             "inspect",
             {"task_id": "runtime-task", "workspace_dir": "/tmp/wt/runtime"},
         )

@@ -83,3 +83,31 @@ def test_validator_rejects_agpl_text_in_distribution_source() -> None:
             agpl_file.unlink()
         else:
             _ = agpl_file.write_bytes(original)
+
+
+def test_validator_rejects_held_out_dataset_digest_mutation() -> None:
+    dataset_path = PROJECT_ROOT / "data" / "benchmarks" / "held_out_v2.jsonl"
+    original = dataset_path.read_bytes()
+    mutated = original.replace(b"heldout-ko-002", b"heldout-ko-mutated")
+    _ = dataset_path.write_bytes(mutated)
+
+    try:
+        baseline = load_release_baseline(PROJECT_ROOT)
+        with pytest.raises(ReleaseBaselineError, match="digest mismatch: held_out_v2.jsonl"):
+            validate_release_baseline(baseline, PROJECT_ROOT)
+    finally:
+        _ = dataset_path.write_bytes(original)
+
+
+def test_validator_rejects_held_out_freeze_case_id_mutation() -> None:
+    freeze_path = PROJECT_ROOT / "data" / "benchmarks" / "held_out_v2.freeze.json"
+    original = freeze_path.read_bytes()
+    mutated = original.replace(b"heldout-ko-002", b"heldout-ko-mutated")
+    _ = freeze_path.write_bytes(mutated)
+
+    try:
+        baseline = load_release_baseline(PROJECT_ROOT)
+        with pytest.raises(ReleaseBaselineError, match="case IDs mismatch: held_out_v2.jsonl"):
+            validate_release_baseline(baseline, PROJECT_ROOT)
+    finally:
+        _ = freeze_path.write_bytes(original)

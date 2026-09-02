@@ -82,7 +82,7 @@ def compact_text_to_budget(
         match = _TOOL_CALL_BLOCK_RE.search(text)
         if match is None:
             break
-        text = text[: match.start()] + text[match.end():]
+        text = text[: match.start()] + text[match.end() :]
         if estimate_tokens(text) <= token_budget:
             return text
 

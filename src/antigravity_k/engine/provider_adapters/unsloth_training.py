@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import assert_never
+from typing import assert_never, override
 
 from pydantic import JsonValue
 
@@ -29,20 +29,23 @@ from antigravity_k.tools.tool_registry import ToolRegistry
 
 
 class _StartTrainingDescriptor(BaseTool):
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.BACKGROUND
-    risk_level = RiskLevel.CRITICAL
-    tags = ["unsloth", "studio", "mcp", "training", "mutating"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.BACKGROUND
+    risk_level: RiskLevel = RiskLevel.CRITICAL
+    tags: list[str] = ["unsloth", "studio", "mcp", "training", "mutating"]
 
     @property
+    @override
     def name(self) -> str:
         return "start_training"
 
     @property
+    @override
     def description(self) -> str:
         return "Start a resource-intensive local Unsloth training job."
 
     @property
+    @override
     def parameters_schema(self) -> dict[str, JsonValue]:
         return {
             "type": "object",
@@ -51,7 +54,8 @@ class _StartTrainingDescriptor(BaseTool):
             "additionalProperties": False,
         }
 
-    def execute(self, **kwargs: JsonValue) -> JsonValue:
+    @override
+    def execute(self, **kwargs: object) -> JsonValue:
         raise _DescriptorExecutionError(
             "Unsloth training descriptors cannot execute outside the guarded adapter.",
         )
@@ -71,12 +75,12 @@ class UnslothTrainingService:
         broker: UnslothResourceBroker,
         approvals: ApprovalManager,
     ) -> None:
-        self._settings = settings
-        self._manager = manager
-        self._registry = registry
-        self._broker = broker
-        self._approvals = approvals
-        self._remote = UnslothTrainingMCPClient(settings, manager)
+        self._settings: UnslothStudioSettings = settings
+        self._manager: MCPSessionManager = manager
+        self._registry: ToolRegistry = registry
+        self._broker: UnslothResourceBroker = broker
+        self._approvals: ApprovalManager = approvals
+        self._remote: UnslothTrainingMCPClient = UnslothTrainingMCPClient(settings, manager)
 
     async def launch(self, request: UnslothTrainingStartRequest) -> UnslothTrainingStartOutcome:
         if not self._settings.write_tools_enabled:
@@ -121,8 +125,8 @@ class UnslothTrainingService:
                 | UnslothAdmissionCode.RESERVATION_RELEASED
             ):
                 raise _UnexpectedAdmissionError(admission.code.value)
-            case unreachable_admission:
-                assert_never(unreachable_admission)
+            case _:
+                assert_never(admission.code)
 
         remote = await self._remote.start(request.mcp_config())
         match remote:
@@ -156,8 +160,8 @@ class UnslothTrainingService:
                     reservation_id=admission.reservation_id,
                     resource_code=admission.code,
                 )
-            case unreachable_remote:
-                assert_never(unreachable_remote)
+            case _:
+                assert_never(remote)
 
     def _approval_outcome(
         self,
@@ -184,8 +188,8 @@ class UnslothTrainingService:
                     | ApprovalStatus.ALWAYS_ALLOW
                 ):
                     return self._outcome(UnslothTrainingLaunchState.APPROVAL_DENIED)
-                case unreachable_initial_status:
-                    assert_never(unreachable_initial_status)
+                case _:
+                    assert_never(approval_request.status)
 
         stored_approval = self._approvals.get_request(request.approval_id)
         if (
@@ -204,8 +208,8 @@ class UnslothTrainingService:
                 return None
             case ApprovalStatus.DENIED | ApprovalStatus.TIMEOUT | ApprovalStatus.ALWAYS_ALLOW:
                 return self._outcome(UnslothTrainingLaunchState.APPROVAL_DENIED)
-            case unreachable_resolved_status:
-                assert_never(unreachable_resolved_status)
+            case _:
+                assert_never(stored_approval.status)
 
     def _outcome(
         self,

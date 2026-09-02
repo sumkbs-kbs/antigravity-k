@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final, TypedDict
+from typing import Final, TypedDict, cast
 
 RUN_EVENT_SCHEMA_VERSION: Final[int] = 2
 
@@ -47,27 +47,26 @@ _OPTIONAL_EVENT_COLUMNS: Final[tuple[tuple[str, str], ...]] = (
 
 
 def initialize_execution_event_schema(connection: sqlite3.Connection) -> None:
-    connection.execute(
+    _ = connection.execute(
         "CREATE TABLE IF NOT EXISTS task_execution_events ("
-        "sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "schema_version INTEGER NOT NULL DEFAULT 2, "
-        "task_id TEXT NOT NULL, step_id TEXT, agent_id TEXT, parent_id TEXT, "
-        "tool_call_id TEXT, approval_id TEXT, resource_job_id TEXT, correlation_id TEXT, "
-        "event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL)",
+        + "sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
+        + "schema_version INTEGER NOT NULL DEFAULT 2, "
+        + "task_id TEXT NOT NULL, step_id TEXT, agent_id TEXT, parent_id TEXT, "
+        + "tool_call_id TEXT, approval_id TEXT, resource_job_id TEXT, correlation_id TEXT, "
+        + "event_type TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL)",
     )
-    columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(task_execution_events)").fetchall()}
+    table_info_rows = cast(
+        list[sqlite3.Row],
+        connection.execute("PRAGMA table_info(task_execution_events)").fetchall(),
+    )
+    columns = {str(cast(object, row["name"])) for row in table_info_rows}
     if "schema_version" not in columns:
-        connection.execute(
-            "ALTER TABLE task_execution_events " "ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1",
-        )
+        _ = connection.execute("ALTER TABLE task_execution_events ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
     for column_name, column_type in _OPTIONAL_EVENT_COLUMNS:
         if column_name not in columns:
-            connection.execute(
-                f"ALTER TABLE task_execution_events ADD COLUMN {column_name} {column_type}",
-            )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_task_execution_events_task_sequence "
-        "ON task_execution_events (task_id, sequence)",
+            _ = connection.execute(f"ALTER TABLE task_execution_events ADD COLUMN {column_name} {column_type}")
+    _ = connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_task_execution_events_task_sequence ON task_execution_events (task_id, sequence)",
     )
 
 
@@ -81,9 +80,9 @@ def append_execution_event(
     details = metadata or RunEventMetadata()
     cursor = connection.execute(
         "INSERT INTO task_execution_events ("
-        "schema_version, task_id, step_id, agent_id, parent_id, tool_call_id, "
-        "approval_id, resource_job_id, correlation_id, event_type, payload_json, created_at"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        + "schema_version, task_id, step_id, agent_id, parent_id, tool_call_id, "
+        + "approval_id, resource_job_id, correlation_id, event_type, payload_json, created_at) "
+        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             RUN_EVENT_SCHEMA_VERSION,
             task_id,
@@ -115,27 +114,36 @@ def list_execution_events(
         raise ValueError("after_sequence must be non-negative")
     if limit < 1:
         raise ValueError("limit must be positive")
-    rows = connection.execute(
-        "SELECT sequence, schema_version, task_id, step_id, agent_id, parent_id, "
-        "tool_call_id, approval_id, resource_job_id, correlation_id, "
-        "event_type, payload_json, created_at "
-        "FROM task_execution_events "
-        "WHERE task_id = ? AND sequence > ? ORDER BY sequence ASC LIMIT ?",
-        (task_id, after_sequence, limit),
-    ).fetchall()
+    rows = cast(
+        list[sqlite3.Row],
+        connection.execute(
+            "SELECT sequence, schema_version, task_id, step_id, agent_id, parent_id, tool_call_id, approval_id, "
+            + "resource_job_id, correlation_id, event_type, payload_json, created_at FROM task_execution_events "
+            + "WHERE task_id = ? AND sequence > ? ORDER BY sequence ASC LIMIT ?",
+            (task_id, after_sequence, limit),
+        ).fetchall(),
+    )
     return [_row_to_execution_event(row) for row in rows]
 
 
 def _optional_text(row: sqlite3.Row, column: str) -> str | None:
-    value = row[column]
+    value = cast(object, row[column])
     return None if value is None else str(value)
+
+
+def _as_int(value: object) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError("expected integer event field")
 
 
 def _row_to_execution_event(row: sqlite3.Row) -> ExecutionEventRecord:
     return {
-        "sequence": int(row["sequence"]),
-        "schema_version": int(row["schema_version"]),
-        "task_id": str(row["task_id"]),
+        "sequence": _as_int(cast(object, row["sequence"])),
+        "schema_version": _as_int(cast(object, row["schema_version"])),
+        "task_id": str(cast(object, row["task_id"])),
         "step_id": _optional_text(row, "step_id"),
         "agent_id": _optional_text(row, "agent_id"),
         "parent_id": _optional_text(row, "parent_id"),
@@ -143,9 +151,9 @@ def _row_to_execution_event(row: sqlite3.Row) -> ExecutionEventRecord:
         "approval_id": _optional_text(row, "approval_id"),
         "resource_job_id": _optional_text(row, "resource_job_id"),
         "correlation_id": _optional_text(row, "correlation_id"),
-        "event_type": str(row["event_type"]),
-        "payload_json": str(row["payload_json"]),
-        "created_at": str(row["created_at"]),
+        "event_type": str(cast(object, row["event_type"])),
+        "payload_json": str(cast(object, row["payload_json"])),
+        "created_at": str(cast(object, row["created_at"])),
     }
 
 

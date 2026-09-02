@@ -28,6 +28,7 @@ from typing import ClassVar, TypedDict, cast
 
 ROOT_LOGGER_NAME = "antigravity_k"
 
+
 class LogInfo(TypedDict):
     name: str
     level: int
@@ -62,6 +63,7 @@ class DisableDebugResult(TypedDict):
     success: bool
     message: str
     restored_count: int
+
 
 # antigravity_k.* 네임스페이스 아래 주요 서브로거들
 KNOWN_LOGGERS = frozenset(

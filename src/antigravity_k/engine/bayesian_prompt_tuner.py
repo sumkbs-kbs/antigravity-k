@@ -8,11 +8,13 @@ updates to converge on the mathematically optimal prompt for Qwen3.8-27B.
 
 import random
 from dataclasses import dataclass, field
+from typing import override
 
 
 class NoPromptCandidatesError(ValueError):
     """Raised when candidate selection is requested without configuration."""
 
+    @override
     def __str__(self) -> str:
         return "No prompt candidates configured."
 
@@ -35,8 +37,8 @@ class PromptCandidate:
 class BayesianPromptTuner:
     """Explores and optimizes prompt configurations using Bayesian evaluation."""
 
-    def __init__(self, candidates: list[PromptCandidate]):
-        self.candidates = candidates
+    def __init__(self, candidates: list[PromptCandidate]) -> None:
+        self.candidates: list[PromptCandidate] = candidates
 
     def select_next_candidate(self) -> PromptCandidate:
         """Select candidate via Upper Confidence / Thompson-style sampling."""

@@ -18,6 +18,7 @@ class ModelRoutingPolicy:
     prefer_local: bool = True
     max_parameter_count_b: float = 0.0
     min_local_parameter_count_b: float = 0.0
+    allow_small_local_models: bool = False
     # 1k 토큰당 평균 비용 상한(USD). 0.0이면 비용 기준 미적용.
     max_cost_per_1k_tokens_usd: float = 0.0
 
@@ -28,17 +29,24 @@ class ModelRoutingPolicy:
             prefer_local=_as_bool(raw.get("prefer_local"), default=True),
             max_parameter_count_b=_as_non_negative_float(raw.get("max_parameter_count_b")),
             min_local_parameter_count_b=_as_non_negative_float(raw.get("min_local_parameter_count_b")),
+            allow_small_local_models=_as_bool(raw.get("allow_small_local_models"), default=False),
             max_cost_per_1k_tokens_usd=_as_non_negative_float(raw.get("max_cost_per_1k_tokens_usd")),
         )
 
-    def decide(self, profile: ModelProfile) -> ModelPolicyDecision:
+    def decide(self, profile: ModelProfile, *, explicit: bool = False) -> ModelPolicyDecision:
         if not self.enabled:
             return ModelPolicyDecision(allowed=True, reason="policy_disabled")
 
         parameter_count_b = profile.effective_parameter_count_b
         if self.max_parameter_count_b and parameter_count_b > self.max_parameter_count_b:
             return ModelPolicyDecision(allowed=False, reason="parameter_cap_exceeded")
-        if profile.is_local and parameter_count_b and parameter_count_b < self.min_local_parameter_count_b:
+        if (
+            profile.is_local
+            and parameter_count_b
+            and parameter_count_b < self.min_local_parameter_count_b
+            and not self.allow_small_local_models
+            and not explicit
+        ):
             return ModelPolicyDecision(allowed=False, reason="local_parameter_floor_not_met")
         if self.max_cost_per_1k_tokens_usd and profile.cost_per_1k_tokens_usd > self.max_cost_per_1k_tokens_usd:
             return ModelPolicyDecision(allowed=False, reason="cost_cap_exceeded")
@@ -55,6 +63,7 @@ class ModelRoutingPolicy:
             "prefer_local": self.prefer_local,
             "max_parameter_count_b": self.max_parameter_count_b,
             "min_local_parameter_count_b": self.min_local_parameter_count_b,
+            "allow_small_local_models": self.allow_small_local_models,
             "max_cost_per_1k_tokens_usd": self.max_cost_per_1k_tokens_usd,
         }
 

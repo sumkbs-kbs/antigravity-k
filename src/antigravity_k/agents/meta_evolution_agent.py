@@ -5,6 +5,8 @@
 문서(test_process.md 등)를 업데이트하는 자율 진화 에이전트.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -13,9 +15,34 @@ import shutil
 import time
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypeAlias, cast
 
 logger = logging.getLogger("meta_evolution")
+
+JsonObject: TypeAlias = dict[str, object]
+
+
+class _ModelResponse(Protocol):
+    text: str
+
+
+class _ModelManager(Protocol):
+    def generate(self, *, prompt: str, model: str, system_prompt: str) -> _ModelResponse: ...
+
+
+class _ToolExecutor(Protocol):
+    def execute(self, name: str, args: JsonObject) -> str: ...
+
+
+def _as_map(value: object) -> JsonObject:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_text(value: object) -> str:
+    return value if isinstance(value, str) else ""
 
 
 class BackupManager:
@@ -28,8 +55,8 @@ class BackupManager:
             project_root (str): str project root.
 
         """
-        self.project_root = Path(project_root)
-        self.backup_dir = self.project_root / ".evolution_backups"
+        self.project_root: Path = Path(project_root)
+        self.backup_dir: Path = self.project_root / ".evolution_backups"
         self.backup_dir.mkdir(exist_ok=True)
         self.current_snapshot: Path | None = None
 
@@ -44,7 +71,7 @@ class BackupManager:
             if src.exists():
                 dst = snapshot_path / file_rel_path
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
+                _ = shutil.copy2(src, dst)
 
         self.current_snapshot = snapshot_path
         return snapshot_id
@@ -60,7 +87,7 @@ class BackupManager:
                     backup_file = Path(root) / file
                     rel_path = backup_file.relative_to(self.current_snapshot)
                     target_file = self.project_root / rel_path
-                    shutil.copy2(backup_file, target_file)
+                    _ = shutil.copy2(backup_file, target_file)
             return True
         except Exception:
             logger.exception("Rollback failed")
@@ -73,7 +100,7 @@ class MetaEvolutionAgent:
     Planning -> Execution (Edit) -> Test -> Documentation.
     """
 
-    def __init__(self, model_manager, tool_executor, project_root: str = "."):
+    def __init__(self, model_manager: object, tool_executor: object, project_root: str = ".") -> None:
         """Initialize the MetaEvolutionAgent.
 
         Args:
@@ -82,11 +109,11 @@ class MetaEvolutionAgent:
             project_root (str): str project root.
 
         """
-        self.manager = model_manager
-        self.tool_executor = tool_executor
-        self.project_root = project_root
-        self.backup_manager = BackupManager(project_root)
-        self.max_retries = 3
+        self.manager: _ModelManager = cast(_ModelManager, model_manager)
+        self.tool_executor: _ToolExecutor = cast(_ToolExecutor, tool_executor)
+        self.project_root: str = project_root
+        self.backup_manager: BackupManager = BackupManager(project_root)
+        self.max_retries: int = 3
 
     def evolve(self, requirement: str, target_files: list[str] | None = None) -> Generator[str, None, str]:
         """요구사항에 맞춰 코드를 수정하고 검증하는 메인 루프 (Generator로 스트리밍)."""
@@ -101,7 +128,7 @@ class MetaEvolutionAgent:
             ]
 
         yield f"🔒 안전망: 대상 파일 백업 중... ({', '.join(target_files)})\n"
-        self.backup_manager.create_snapshot(target_files)
+        _ = self.backup_manager.create_snapshot(target_files)
 
         retry_count = 0
         success = False
@@ -126,9 +153,10 @@ class MetaEvolutionAgent:
             # 여기서 response 내의 <tool_call>을 파싱하여 tool_executor로 실행
             tool_calls = self._extract_tool_calls(response.text)
             for tc in tool_calls:
-                yield f"🛠️ 도구 실행: {tc['name']}...\n"
+                tool_name = _as_text(tc.get("name"))
+                yield f"🛠️ 도구 실행: {tool_name}...\n"
                 try:
-                    self.tool_executor.execute(tc["name"], tc.get("arguments", {}))
+                    _ = self.tool_executor.execute(tool_name, _as_map(tc.get("arguments", {})))
                 except Exception as e:
                     logger.exception("Unhandled exception")
                     yield f"⚠️ 도구 실행 에러: {e}\n"
@@ -190,17 +218,17 @@ class MetaEvolutionAgent:
         Use <tool_call>{{"name": "write_file", "arguments": {{"file_path": "...", "content": "..."}}}}</tool_call>
         """
 
-    def _extract_tool_calls(self, text: str) -> list[dict[str, Any]]:
-        calls = []
+    def _extract_tool_calls(self, text: str) -> list[JsonObject]:
+        calls: list[JsonObject] = []
         matches = re.finditer(r"<tool_call>\s*({.*?})\s*</tool_call>", text, re.DOTALL)
         for m in matches:
             try:
-                calls.append(json.loads(m.group(1)))
+                calls.append(_as_map(cast(object, json.loads(m.group(1)))))
             except Exception:
                 logger.exception("Unhandled exception")
         return calls
 
-    def _update_documentation(self, requirement: str):
+    def _update_documentation(self, requirement: str) -> None:
         """test_process.md 및 test_report.md를 업데이트하는 로직."""
         test_proc_path = os.path.join(self.project_root, "test_process.md")
         if not os.path.exists(test_proc_path):
@@ -208,9 +236,9 @@ class MetaEvolutionAgent:
 
         try:
             with open(test_proc_path, "a", encoding="utf-8") as f:
-                f.write("\n---\n\n## 🔧 Meta-Evolution 자율 검증 이력\n")
-                f.write(f"- **업데이트 요구사항**: {requirement}\n")
-                f.write("- **상태**: 자동 수정 및 pytest 통과 완료\n")
-                f.write("- **검증결과**: PASS\n")
+                _ = f.write("\n---\n\n## 🔧 Meta-Evolution 자율 검증 이력\n")
+                _ = f.write(f"- **업데이트 요구사항**: {requirement}\n")
+                _ = f.write("- **상태**: 자동 수정 및 pytest 통과 완료\n")
+                _ = f.write("- **검증결과**: PASS\n")
         except Exception:
             logger.exception("Failed to update documentation")

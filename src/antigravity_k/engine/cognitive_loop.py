@@ -54,7 +54,6 @@ class ExecutionTrace(TypedDict):
     timestamp: str
 
 
-
 class ExternalBrainRouterLike(Protocol):
     async def send(self, prompt: str, strategy: str = "fallback") -> BrainResponse: ...
 
@@ -166,7 +165,7 @@ class CognitiveLoop:
         # 에러 감지
         result_lower = result.lower()
 
-            # 명시적 에러
+        # 명시적 에러
         tool_failed, _ = classify_tool_failure(tool_name, result)
         if tool_failed or result.strip().startswith(
             "There was an error",

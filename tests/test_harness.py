@@ -6,7 +6,9 @@ TestHarness class methods and FeedbackCollector.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from email.message import Message
+from typing import Final, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,13 +31,16 @@ def test_harness_domain_types_are_not_pytest_test_classes():
 
 
 @pytest.fixture(autouse=True)
-def _allow_fake_test_hostname(monkeypatch):
-    def resolve(url):
+def _allow_fake_test_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    def resolve(url: str) -> tuple[str, tuple[str, ...]] | None:
         if "://test" in url:
             return url, ("203.0.113.1",)
         return None
 
     monkeypatch.setattr("antigravity_k.tools.egress_policy.resolve_public_http_url_sync", resolve)
+
+
+_AUTOUSE_FIXTURE: Final = _allow_fake_test_hostname
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +55,7 @@ class _MockPage:
     passing it as a keyword argument to the constructor.
     """
 
-    _ASYNC_METHODS = (
+    _ASYNC_METHODS: Final = (
         "goto",
         "title",
         "query_selector",
@@ -65,14 +70,20 @@ class _MockPage:
         "add_init_script",
     )
 
-    def __init__(self, **overrides):
+    goto: AsyncMock
+    wait_for_selector: AsyncMock
+    context: MagicMock
+    locator: MagicMock
+
+    def __init__(self, **overrides: object) -> None:
         for method in self._ASYNC_METHODS:
             setattr(self, method, AsyncMock(return_value=None))
         self.goto = AsyncMock(return_value=None)
         self.wait_for_selector = AsyncMock(return_value=None)
         # context
-        self.context = MagicMock()
-        self.context.add_cookies = AsyncMock(return_value=None)
+        context: MagicMock = MagicMock()
+        self.context = context
+        setattr(context, "add_cookies", AsyncMock(return_value=None))
         # locator
         loc = MagicMock()
         loc.count = AsyncMock(return_value=3)
@@ -80,6 +91,75 @@ class _MockPage:
         # Apply overrides
         for key, val in overrides.items():
             setattr(self, key, val)
+
+
+class _MockHttpResponse:
+    def __init__(self, body: bytes) -> None:
+        self._body: bytes = body
+
+    def __enter__(self) -> _MockHttpResponse:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def read(self, *_: object) -> bytes:
+        return self._body
+
+
+def _request_headers(harness: TestHarness, extra: dict[str, object] | None = None) -> dict[str, object]:
+    method = cast(Callable[[dict[str, object] | None], dict[str, object]], getattr(harness, "_request_headers"))
+    return method(extra)
+
+
+def _run_api_test_sync(harness: TestHarness, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[TestIntent], TestResult], getattr(harness, "_run_api_test_sync"))
+    return method(intent)
+
+
+async def _run_api_test(harness: TestHarness, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[TestIntent], Awaitable[TestResult]], getattr(harness, "_run_api_test"))
+    return await method(intent)
+
+
+async def _goto_dashboard(harness: TestHarness, page: object, timeout_ms: int = 15000) -> None:
+    method = cast(Callable[[object, int], Awaitable[None]], getattr(harness, "_goto_dashboard"))
+    await method(page, timeout_ms)
+
+
+async def _test_dashboard_load(harness: TestHarness, page: object, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[object, TestIntent], Awaitable[TestResult]], getattr(harness, "_test_dashboard_load"))
+    return await method(page, intent)
+
+
+async def _test_chat_send(harness: TestHarness, page: object, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[object, TestIntent], Awaitable[TestResult]], getattr(harness, "_test_chat_send"))
+    return await method(page, intent)
+
+
+async def _test_file_explorer(harness: TestHarness, page: object, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[object, TestIntent], Awaitable[TestResult]], getattr(harness, "_test_file_explorer"))
+    return await method(page, intent)
+
+
+async def _test_terminal_ws(harness: TestHarness, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[TestIntent], Awaitable[TestResult]], getattr(harness, "_test_terminal_ws"))
+    return await method(intent)
+
+
+async def _test_autonomous_qa_dry(harness: TestHarness, page: object, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[object, TestIntent], Awaitable[TestResult]], getattr(harness, "_test_autonomous_qa_dry"))
+    return await method(page, intent)
+
+
+async def _test_responsive(harness: TestHarness, page: object, intent: TestIntent) -> TestResult:
+    method = cast(Callable[[object, TestIntent], Awaitable[TestResult]], getattr(harness, "_test_responsive"))
+    return await method(page, intent)
+
+
+async def _run_browser_tests(harness: TestHarness, intents: list[TestIntent]) -> list[TestResult]:
+    method = cast(Callable[[list[TestIntent]], Awaitable[list[TestResult]]], getattr(harness, "_run_browser_tests"))
+    return await method(intents)
 
 
 # ---------------------------------------------------------------------------
@@ -129,10 +209,11 @@ class TestFeedbackCollector:
             r.passed = 4
             r.failed = 1
             r.total = 5
-            fc.collect(r)
+            _ = fc.collect(r)
         trend = fc.get_trend()
         assert trend["total_runs"] == 3
-        assert len(trend["recent_pass_rates"]) == 3
+        pass_rates = cast(list[float], trend["recent_pass_rates"])
+        assert len(pass_rates) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -166,21 +247,21 @@ class TestHarnessInit:
 
 
 class TestRequestHeaders:
-    def test_without_access_pin_returns_empty(self, monkeypatch):
+    def test_without_access_pin_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("AGK_HARNESS_ACCESS_PIN", raising=False)
         harness = TestHarness()
         harness.access_pin = ""
-        assert harness._request_headers() == {}
+        assert _request_headers(harness) == {}
 
-    def test_with_access_pin(self, monkeypatch):
+    def test_with_access_pin(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AGK_HARNESS_ACCESS_PIN", "test-pin")
         harness = TestHarness()
-        assert harness._request_headers()["X-Access-Pin"] == "test-pin"
+        assert _request_headers(harness)["X-Access-Pin"] == "test-pin"
 
-    def test_with_extra_headers(self, monkeypatch):
+    def test_with_extra_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("AGK_HARNESS_ACCESS_PIN", "pin123")
         harness = TestHarness()
-        headers = harness._request_headers({"Content-Type": "application/json"})
+        headers = _request_headers(harness, {"Content-Type": "application/json"})
         assert headers["Content-Type"] == "application/json"
         assert headers["X-Access-Pin"] == "pin123"
 
@@ -230,14 +311,10 @@ class TestRunApiTestSync:
         intent = TestIntent(id="health_api", intent="health", category="api", priority=1)
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp",
-                (),
-                {"__enter__": lambda s: s, "__exit__": lambda *a: None, "read": lambda *a: b'{"status": "ok"}'},
-            )()
+            mock_resp = _MockHttpResponse(b'{"status": "ok"}')
             mock_urlopen.return_value = mock_resp
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.PASSED
             assert "Health OK" in result.message
 
@@ -246,14 +323,10 @@ class TestRunApiTestSync:
         intent = TestIntent(id="health_api", intent="health", category="api", priority=1)
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp",
-                (),
-                {"__enter__": lambda s: s, "__exit__": lambda *a: None, "read": lambda *a: b'{"status": "error"}'},
-            )()
+            mock_resp = _MockHttpResponse(b'{"status": "error"}')
             mock_urlopen.return_value = mock_resp
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.FAILED
 
     def test_models_api_ok(self):
@@ -261,18 +334,10 @@ class TestRunApiTestSync:
         intent = TestIntent(id="models_api", intent="models", category="api", priority=1)
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp",
-                (),
-                {
-                    "__enter__": lambda s: s,
-                    "__exit__": lambda *a: None,
-                    "read": lambda *a: b'{"data": [{"id": "gpt-4"}]}',
-                },
-            )()
+            mock_resp = _MockHttpResponse(b'{"data": [{"id": "gpt-4"}]}')
             mock_urlopen.return_value = mock_resp
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.PASSED
             assert "1 models" in result.message
 
@@ -281,12 +346,10 @@ class TestRunApiTestSync:
         intent = TestIntent(id="models_api", intent="models", category="api", priority=1)
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp", (), {"__enter__": lambda s: s, "__exit__": lambda *a: None, "read": lambda *a: b'{"data": []}'}
-            )()
+            mock_resp = _MockHttpResponse(b'{"data": []}')
             mock_urlopen.return_value = mock_resp
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.FAILED
             assert "No models" in result.message
 
@@ -305,7 +368,7 @@ class TestRunApiTestSync:
                 None,
             )
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.PASSED
             assert "reachable" in result.message
 
@@ -326,7 +389,7 @@ class TestRunApiTestSync:
                 io.BytesIO(body),
             )
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.PASSED
             assert "screenshot required" in result.message
 
@@ -335,18 +398,10 @@ class TestRunApiTestSync:
         intent = TestIntent(id="external_brain_list", intent="brains", category="api", priority=2)
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp",
-                (),
-                {
-                    "__enter__": lambda s: s,
-                    "__exit__": lambda *a: None,
-                    "read": lambda *a: b'{"brains": [{"name": "gemini"}, {"name": "chatgpt"}, {"name": "local"}]}',
-                },
-            )()
+            mock_resp = _MockHttpResponse(b'{"brains": [{"name": "gemini"}, {"name": "chatgpt"}, {"name": "local"}]}')
             mock_urlopen.return_value = mock_resp
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.PASSED
             assert "gemini" in result.message
 
@@ -355,18 +410,10 @@ class TestRunApiTestSync:
         intent = TestIntent(id="external_brain_list", intent="brains", category="api", priority=2)
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp",
-                (),
-                {
-                    "__enter__": lambda s: s,
-                    "__exit__": lambda *a: None,
-                    "read": lambda *a: b'{"brains": [{"name": "gemini"}]}',
-                },
-            )()
+            mock_resp = _MockHttpResponse(b'{"brains": [{"name": "gemini"}]}')
             mock_urlopen.return_value = mock_resp
 
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.FAILED
             assert "Only 1 brains" in result.message
 
@@ -374,7 +421,7 @@ class TestRunApiTestSync:
         harness = TestHarness(base_url="http://test:8000")
         intent = TestIntent(id="unknown_test", intent="unknown", category="api", priority=3)
 
-        result = harness._run_api_test_sync(intent)
+        result = _run_api_test_sync(harness, intent)
         assert result.status == TestStatus.SKIPPED
         assert "Unknown API test" in result.message
 
@@ -385,7 +432,7 @@ class TestRunApiTestSync:
         intent = TestIntent(id="health_api", intent="health", category="api", priority=1)
 
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
-            result = harness._run_api_test_sync(intent)
+            result = _run_api_test_sync(harness, intent)
             assert result.status == TestStatus.FAILED
             assert "connection refused" in result.message
 
@@ -405,7 +452,7 @@ class TestRunApiTest:
         ):
             import asyncio
 
-            result = asyncio.run(harness._run_api_test(intent))
+            result = asyncio.run(_run_api_test(harness, intent))
             assert result.status == TestStatus.PASSED
 
 
@@ -421,9 +468,11 @@ class TestGotoDashboard:
 
         import asyncio
 
-        asyncio.run(harness._goto_dashboard(page))
-        page.goto.assert_awaited_once_with("http://test:5173", wait_until="domcontentloaded", timeout=15000)
-        page.wait_for_selector.assert_awaited_once_with("#app, #chat-input", timeout=15000)
+        asyncio.run(_goto_dashboard(harness, page))
+        goto = cast(AsyncMock, getattr(page, "goto"))
+        wait_for_selector = cast(AsyncMock, getattr(page, "wait_for_selector"))
+        goto.assert_awaited_once_with("http://test:5173", wait_until="domcontentloaded", timeout=15000)
+        wait_for_selector.assert_awaited_once_with("#app, #chat-input", timeout=15000)
 
 
 class TestDashboardLoad:
@@ -434,7 +483,7 @@ class TestDashboardLoad:
 
         import asyncio
 
-        result = asyncio.run(harness._test_dashboard_load(page, intent))
+        result = asyncio.run(_test_dashboard_load(harness, page, intent))
         assert result.status == TestStatus.PASSED
         assert "Antigravity" in result.message
 
@@ -448,7 +497,7 @@ class TestDashboardLoad:
 
         import asyncio
 
-        result = asyncio.run(harness._test_dashboard_load(page, intent))
+        result = asyncio.run(_test_dashboard_load(harness, page, intent))
         assert result.status == TestStatus.PASSED
         assert "Custom Title" in result.message
 
@@ -462,7 +511,7 @@ class TestDashboardLoad:
 
         import asyncio
 
-        result = asyncio.run(harness._test_dashboard_load(page, intent))
+        result = asyncio.run(_test_dashboard_load(harness, page, intent))
         assert result.status == TestStatus.FAILED
         assert "Other Page" in result.message
 
@@ -484,7 +533,7 @@ class TestChatSend:
         ):
             import asyncio
 
-            result = asyncio.run(harness._test_chat_send(page, intent))
+            result = asyncio.run(_test_chat_send(harness, page, intent))
             assert result.status == TestStatus.PASSED
 
     def test_send_healing_failure(self):
@@ -499,7 +548,7 @@ class TestChatSend:
         ):
             import asyncio
 
-            result = asyncio.run(harness._test_chat_send(page, intent))
+            result = asyncio.run(_test_chat_send(harness, page, intent))
             assert result.status == TestStatus.FAILED
 
 
@@ -513,7 +562,7 @@ class TestFileExplorer:
 
         import asyncio
 
-        result = asyncio.run(harness._test_file_explorer(page, intent))
+        result = asyncio.run(_test_file_explorer(harness, page, intent))
         assert result.status == TestStatus.PASSED
         assert "2\uac1c \ud30c\uc77c" in result.message
 
@@ -526,14 +575,12 @@ class TestFileExplorer:
         )
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_resp = type(
-                "Resp", (), {"__enter__": lambda s: s, "__exit__": lambda *a: None, "read": lambda *a: b'{"files": []}'}
-            )()
+            mock_resp = _MockHttpResponse(b'{"files": []}')
             mock_urlopen.return_value = mock_resp
 
             import asyncio
 
-            result = asyncio.run(harness._test_file_explorer(page, intent))
+            result = asyncio.run(_test_file_explorer(harness, page, intent))
             assert result.status == TestStatus.PASSED
             assert "Explorer \ud328\ub110 \uc874\uc7ac" in result.message
 
@@ -550,7 +597,7 @@ class TestFileExplorer:
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("API error")):
             import asyncio
 
-            result = asyncio.run(harness._test_file_explorer(page, intent))
+            result = asyncio.run(_test_file_explorer(harness, page, intent))
             assert result.status == TestStatus.PASSED
             assert "lazy-load" in result.message
 
@@ -564,14 +611,14 @@ class TestFileExplorer:
 
         import asyncio
 
-        result = asyncio.run(harness._test_file_explorer(page, intent))
+        result = asyncio.run(_test_file_explorer(harness, page, intent))
         assert result.status == TestStatus.FAILED
         assert "\ubc1c\uacac" in result.message
 
 
 class TestTerminalWs:
     @staticmethod
-    def _make_mock_ws_module(recv_return, connect_side_effect=None):
+    def _make_mock_ws_module(recv_return: str, connect_side_effect: BaseException | None = None) -> MagicMock:
         """Create a mock websockets module that works with local import."""
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
@@ -594,7 +641,7 @@ class TestTerminalWs:
         with patch.dict("sys.modules", {"websockets": mock_ws_mod}):
             import asyncio
 
-            result = asyncio.run(harness._test_terminal_ws(intent))
+            result = asyncio.run(_test_terminal_ws(harness, intent))
             assert result.status == TestStatus.PASSED
             assert "WebSocket" in result.message
 
@@ -607,7 +654,7 @@ class TestTerminalWs:
         with patch.dict("sys.modules", {"websockets": mock_ws_mod}):
             import asyncio
 
-            result = asyncio.run(harness._test_terminal_ws(intent))
+            result = asyncio.run(_test_terminal_ws(harness, intent))
             # Source code returns FAILED for empty responses
             assert result.status == TestStatus.FAILED
 
@@ -618,7 +665,7 @@ class TestTerminalWs:
         with patch.dict("sys.modules", {"websockets": None}):
             import asyncio
 
-            result = asyncio.run(harness._test_terminal_ws(intent))
+            result = asyncio.run(_test_terminal_ws(harness, intent))
             assert result.status == TestStatus.SKIPPED
             assert "websockets" in result.message or "playwright" in result.message
 
@@ -634,7 +681,7 @@ class TestTerminalWs:
         with patch.dict("sys.modules", {"websockets": mock_ws_mod}):
             import asyncio
 
-            result = asyncio.run(harness._test_terminal_ws(intent))
+            result = asyncio.run(_test_terminal_ws(harness, intent))
             assert result.status == TestStatus.FAILED
             assert "Connection refused" in result.message
 
@@ -649,7 +696,7 @@ class TestAutonomousQaDry:
         with patch("antigravity_k.engine.autonomous_qa.AutonomousQAEngine", return_value=mock_engine):
             import asyncio
 
-            result = asyncio.run(harness._test_autonomous_qa_dry(page, intent))
+            result = asyncio.run(_test_autonomous_qa_dry(harness, page, intent))
             assert result.status == TestStatus.PASSED
             assert "2000 bytes" in result.message
 
@@ -662,7 +709,7 @@ class TestAutonomousQaDry:
         with patch("antigravity_k.engine.autonomous_qa.AutonomousQAEngine", return_value=mock_engine):
             import asyncio
 
-            result = asyncio.run(harness._test_autonomous_qa_dry(page, intent))
+            result = asyncio.run(_test_autonomous_qa_dry(harness, page, intent))
             assert result.status == TestStatus.FAILED
             assert "\uc2a4\ud06c\ub9b0\uc0f7 \uc2e4\ud328" in result.message
 
@@ -676,7 +723,7 @@ class TestAutonomousQaDry:
         ):
             import asyncio
 
-            result = asyncio.run(harness._test_autonomous_qa_dry(page, intent))
+            result = asyncio.run(_test_autonomous_qa_dry(harness, page, intent))
             assert result.status == TestStatus.FAILED
             assert "Engine init failed" in result.message
 
@@ -692,7 +739,7 @@ class TestResponsive:
 
         import asyncio
 
-        result = asyncio.run(harness._test_responsive(page, intent))
+        result = asyncio.run(_test_responsive(harness, page, intent))
         assert result.status == TestStatus.PASSED
         assert "3/3" in result.message
 
@@ -708,7 +755,7 @@ class TestResponsive:
 
         import asyncio
 
-        result = asyncio.run(harness._test_responsive(page, intent))
+        result = asyncio.run(_test_responsive(harness, page, intent))
         assert result.status == TestStatus.PASSED
         assert "2/3" in result.message
 
@@ -724,7 +771,7 @@ class TestResponsive:
 
         import asyncio
 
-        result = asyncio.run(harness._test_responsive(page, intent))
+        result = asyncio.run(_test_responsive(harness, page, intent))
         assert result.status == TestStatus.FAILED
         assert "0/3" in result.message
 
@@ -778,7 +825,7 @@ class TestRunAll:
         with patch.dict("sys.modules", {"playwright.async_api": None}):
             import asyncio
 
-            result = asyncio.run(harness._run_browser_tests([intent]))
+            result = asyncio.run(_run_browser_tests(harness, [intent]))
             assert len(result) == 1
             assert result[0].status == TestStatus.SKIPPED
             assert "playwright" in result[0].message
@@ -806,12 +853,13 @@ class TestRunAll:
             setattr(harness, method_name, AsyncMock(return_value=TestResult(method_name, TestStatus.PASSED, 100, "ok")))
 
         mock_p = MagicMock()
-        mock_p.chromium = AsyncMock()
+        chromium = AsyncMock()
+        setattr(mock_p, "chromium", chromium)
         mock_browser = AsyncMock()
         mock_page = AsyncMock()
         mock_browser.new_page = AsyncMock(return_value=mock_page)
         mock_browser.close = AsyncMock()
-        mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+        setattr(chromium, "launch", AsyncMock(return_value=mock_browser))
 
         mock_playwright_cls = MagicMock()
         mock_playwright_cls.__aenter__ = AsyncMock(return_value=mock_p)
@@ -820,7 +868,7 @@ class TestRunAll:
         with patch("playwright.async_api.async_playwright", return_value=mock_playwright_cls):
             import asyncio
 
-            results = asyncio.run(harness._run_browser_tests(intents))
+            results = asyncio.run(_run_browser_tests(harness, intents))
             assert len(results) == 7
             passed = [r for r in results if r.status == TestStatus.PASSED]
             assert len(passed) == 6
@@ -832,15 +880,16 @@ class TestRunAll:
         harness = TestHarness(base_url="http://test:8000")
         intent = TestIntent(id="dashboard_load", intent="load", category="ui", priority=1)
 
-        harness._test_dashboard_load = AsyncMock(side_effect=Exception("Unexpected error"))
+        setattr(harness, "_test_dashboard_load", AsyncMock(side_effect=Exception("Unexpected error")))
 
         mock_p = MagicMock()
-        mock_p.chromium = AsyncMock()
+        chromium = AsyncMock()
+        setattr(mock_p, "chromium", chromium)
         mock_browser = AsyncMock()
         mock_page = AsyncMock()
         mock_browser.new_page = AsyncMock(return_value=mock_page)
         mock_browser.close = AsyncMock()
-        mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+        setattr(chromium, "launch", AsyncMock(return_value=mock_browser))
 
         mock_playwright_cls = MagicMock()
         mock_playwright_cls.__aenter__ = AsyncMock(return_value=mock_p)
@@ -849,7 +898,7 @@ class TestRunAll:
         with patch("playwright.async_api.async_playwright", return_value=mock_playwright_cls):
             import asyncio
 
-            results = asyncio.run(harness._run_browser_tests([intent]))
+            results = asyncio.run(_run_browser_tests(harness, [intent]))
             assert len(results) == 1
             assert results[0].status == TestStatus.FAILED
             assert "Unexpected error" in results[0].message

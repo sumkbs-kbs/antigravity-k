@@ -44,6 +44,13 @@ def test_module_cli_models_includes_default_local_qwen_profile() -> None:
     assert "Ollama" in result.stdout
 
 
+def test_model_list_includes_models_discovered_from_local_backends() -> None:
+    result = _run_cli("model", "list")
+
+    assert result.returncode == 0, result.stderr
+    assert "llava:latest" in result.stdout
+
+
 def test_memory_alias_cli_creates_and_lists_project_schema(tmp_path: Path) -> None:
     # Given: an empty project workspace.
     project_root = tmp_path / "project"

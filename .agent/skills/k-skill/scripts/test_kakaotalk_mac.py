@@ -1,16 +1,54 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib
 import io
 import json
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 from unittest import mock
 
-kakaotalk_mac = importlib.import_module("scripts.kakaotalk_mac")
+
+class _DetectionStateLike(Protocol):
+    uuid: str
+    candidate_user_ids: list[int]
+    active_account_hash: str | None
+    database_files: list[Path]
+
+
+class _ResolvedAuthLike(Protocol):
+    user_id: int
+    uuid: str
+    database_path: Path
+    database_name: str
+    key: str
+    source: str
+
+
+class _KakaoTalkModule(Protocol):
+    AuthResolutionError: type[Exception]
+    DetectionState: Callable[..., _DetectionStateLike]
+    ResolvedAuth: Callable[..., _ResolvedAuthLike]
+    parse_plist_xml: Callable[[str], dict[str, object]]
+    collect_candidate_user_ids: Callable[[dict[str, object]], list[int]]
+    find_active_account_hash: Callable[[dict[str, object]], str | None]
+    discover_database_files: Callable[[Path], list[Path]]
+    recover_user_id_from_sha512: Callable[..., int | None]
+    resolve_auth_state: Callable[..., _ResolvedAuthLike]
+    load_cached_auth: Callable[[Path], _ResolvedAuthLike | None]
+    persist_auth_cache: Callable[[_ResolvedAuthLike, Path | None], None]
+    verify_database_access: Callable[[_ResolvedAuthLike], bool]
+    resolve_auth: Callable[..., _ResolvedAuthLike]
+    render_auth: Callable[..., str]
+    build_passthrough_command: Callable[[str, _ResolvedAuthLike, list[str]], list[str]]
+    build_parser: Callable[[], argparse.ArgumentParser]
+
+
+kakaotalk_mac = cast(_KakaoTalkModule, cast(object, importlib.import_module("scripts.kakaotalk_mac")))
 
 
 def sha512_hex(value: int) -> str:
@@ -25,7 +63,7 @@ def make_resolved_auth(
     database_name: str = "db-name",
     key: str = "super-secret",
     source: str = "cache",
-) -> Any:
+) -> _ResolvedAuthLike:
     return kakaotalk_mac.ResolvedAuth(
         user_id=user_id,
         uuid=uuid,
@@ -69,9 +107,9 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
                 root / ("b" * 78 + ".db"),
             ]
             for path in expected:
-                path.write_text("", encoding="utf-8")
-            (root / ("c" * 40)).write_text("", encoding="utf-8")
-            (root / ("d" * 78 + "-wal")).write_text("", encoding="utf-8")
+                _ = path.write_text("", encoding="utf-8")
+            _ = (root / ("c" * 40)).write_text("", encoding="utf-8")
+            _ = (root / ("d" * 78 + "-wal")).write_text("", encoding="utf-8")
 
             discovered = kakaotalk_mac.discover_database_files(root)
 
@@ -97,7 +135,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             cache_path = Path(tempdir) / "auth-cache.json"
             database_path = Path(tempdir) / "kakaotalk.db"
-            database_path.write_text("", encoding="utf-8")
+            _ = database_path.write_text("", encoding="utf-8")
             verification_calls: list[int] = []
 
             state = kakaotalk_mac.DetectionState(
@@ -107,7 +145,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
                 database_files=[database_path],
             )
 
-            def verify(candidate: Any) -> bool:
+            def verify(candidate: _ResolvedAuthLike) -> bool:
                 verification_calls.append(candidate.user_id)
                 return candidate.user_id == target_user_id
 
@@ -120,7 +158,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
                 chunk_size=10000,
             )
 
-            cache_payload = json.loads(cache_path.read_text(encoding="utf-8"))
+            cache_payload = cast(dict[str, object], json.loads(cache_path.read_text(encoding="utf-8")))
 
         self.assertEqual(verification_calls, [111, 222, target_user_id])
         self.assertEqual(resolved.user_id, target_user_id)
@@ -131,23 +169,23 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
     def test_load_cached_auth_treats_corrupt_json_as_cache_miss(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             cache_path = Path(tempdir) / "auth-cache.json"
-            cache_path.write_text("{bad json\n", encoding="utf-8")
+            _ = cache_path.write_text("{bad json\n", encoding="utf-8")
 
             self.assertIsNone(kakaotalk_mac.load_cached_auth(cache_path))
 
     def test_resolve_auth_reuses_detection_when_cache_is_corrupt(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             cache_path = Path(tempdir) / "auth-cache.json"
-            cache_path.write_text("{bad json\n", encoding="utf-8")
+            _ = cache_path.write_text("{bad json\n", encoding="utf-8")
             database_path = Path(tempdir) / "kakaotalk.db"
-            database_path.write_text("", encoding="utf-8")
+            _ = database_path.write_text("", encoding="utf-8")
             resolved = make_resolved_auth(database_path=database_path, source="hash-recovery")
 
             with (
                 mock.patch.object(
                     kakaotalk_mac,
                     "collect_detection_state",
-                    return_value=mock.sentinel.state,
+                    return_value=cast(_DetectionStateLike, mock.sentinel.state),
                 ) as collect_state,
                 mock.patch.object(kakaotalk_mac, "resolve_auth_state", return_value=resolved) as resolve_state,
             ):
@@ -171,7 +209,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             cache_path = Path(tempdir) / "auth-cache.json"
             database_path = Path(tempdir) / "kakaotalk.db"
-            database_path.write_text("", encoding="utf-8")
+            _ = database_path.write_text("", encoding="utf-8")
             persistable = make_resolved_auth(database_path=database_path, source="cache")
             kakaotalk_mac.persist_auth_cache(persistable, cache_path)
             override_result = make_resolved_auth(user_id=999, database_path=database_path, source="candidate")
@@ -180,7 +218,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
                 mock.patch.object(
                     kakaotalk_mac,
                     "collect_detection_state",
-                    return_value=mock.sentinel.state,
+                    return_value=cast(_DetectionStateLike, mock.sentinel.state),
                 ) as collect_state,
                 mock.patch.object(kakaotalk_mac, "resolve_auth_state", return_value=override_result) as resolve_state,
             ):
@@ -197,7 +235,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
             self.assertEqual(resolved, override_result)
             collect_state.assert_called_once_with(None)
             resolve_state.assert_called_once_with(
-                mock.sentinel.state,
+                cast(_DetectionStateLike, mock.sentinel.state),
                 verify_access=kakaotalk_mac.verify_database_access,
                 cache_path=cache_path,
                 user_id_override=999,
@@ -210,7 +248,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             cache_path = Path(tempdir) / "auth-cache.json"
             database_path = Path(tempdir) / "kakaotalk.db"
-            database_path.write_text("", encoding="utf-8")
+            _ = database_path.write_text("", encoding="utf-8")
             persistable = make_resolved_auth(database_path=database_path, source="cache")
             kakaotalk_mac.persist_auth_cache(persistable, cache_path)
             override_result = make_resolved_auth(uuid="override-uuid", database_path=database_path, source="candidate")
@@ -219,7 +257,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
                 mock.patch.object(
                     kakaotalk_mac,
                     "collect_detection_state",
-                    return_value=mock.sentinel.state,
+                    return_value=cast(_DetectionStateLike, mock.sentinel.state),
                 ) as collect_state,
                 mock.patch.object(kakaotalk_mac, "resolve_auth_state", return_value=override_result) as resolve_state,
             ):
@@ -236,7 +274,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
             self.assertEqual(resolved, override_result)
             collect_state.assert_called_once_with("override-uuid")
             resolve_state.assert_called_once_with(
-                mock.sentinel.state,
+                cast(_DetectionStateLike, mock.sentinel.state),
                 verify_access=kakaotalk_mac.verify_database_access,
                 cache_path=cache_path,
                 user_id_override=None,
@@ -258,11 +296,14 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
         auth = make_resolved_auth()
 
         with self.assertRaises(kakaotalk_mac.AuthResolutionError):
-            kakaotalk_mac.build_passthrough_command("query", auth, ["DELETE FROM chat_logs"])
+            _ = kakaotalk_mac.build_passthrough_command("query", auth, ["DELETE FROM chat_logs"])
 
     def test_build_parser_only_exposes_read_only_commands(self) -> None:
         parser = kakaotalk_mac.build_parser()
-        subcommands = parser._subparsers._group_actions[0].choices
+        subparsers = cast(object, getattr(parser, "_subparsers", None))
+        group_actions = cast(list[object], getattr(subparsers, "_group_actions", []))
+        first_action = group_actions[0] if group_actions else None
+        subcommands = cast(dict[str, object], getattr(first_action, "choices", {}))
 
         self.assertEqual(sorted(subcommands), ["auth", "chats", "messages", "schema", "search"])
         self.assertNotIn("query", subcommands)
@@ -275,7 +316,7 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
             self.assertRaises(SystemExit) as exit_context,
             mock.patch("sys.stderr", stderr),
         ):
-            parser.parse_args(["auth", "--max-user-id", "-1"])
+            _ = parser.parse_args(["auth", "--max-user-id", "-1"])
 
         self.assertEqual(exit_context.exception.code, 2)
         self.assertIn("must be non-negative", stderr.getvalue())
@@ -288,11 +329,11 @@ class KakaoTalkMacHelperTests(unittest.TestCase):
             self.assertRaises(SystemExit) as exit_context,
             mock.patch("sys.stderr", stderr),
         ):
-            parser.parse_args(["auth", "--chunk-size", "0"])
+            _ = parser.parse_args(["auth", "--chunk-size", "0"])
 
         self.assertEqual(exit_context.exception.code, 2)
         self.assertIn("must be positive", stderr.getvalue())
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

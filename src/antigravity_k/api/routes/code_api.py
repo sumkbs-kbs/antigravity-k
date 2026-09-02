@@ -4,12 +4,32 @@ Provides an endpoint for generating inline code suggestions
 when the user invokes Ctrl+K (Cursor-style inline edit).
 """
 
+import json
 import logging
+from typing import ClassVar, TypeVar
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, ValidationError
 
 logger = logging.getLogger("antigravity_k.api.code_api")
 router = APIRouter()
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+class _InlineSuggestRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    language: StrictStr = "python"
+    original_code: StrictStr = ""
+    instruction: StrictStr = ""
+    cursor_line: StrictInt = Field(default=1, ge=1)
+    cursor_column: StrictInt = Field(default=0, ge=0)
+
+
+async def _parse_json_body(request: Request, model: type[_ModelT]) -> _ModelT:
+    try:
+        return model.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
 
 
 @router.post("/api/code/inline-suggest")
@@ -31,13 +51,13 @@ async def inline_suggest(request: Request):
     Returns:
         dict: { ok: bool, suggested_code: str, start_line: int, end_line: int }
     """
-    try:
-        body = await request.json()
-        language = body.get("language", "python")
-        original_code = body.get("original_code", "")
-        instruction = body.get("instruction", "")
-        cursor_line = body.get("cursor_line", 1)
+    payload = await _parse_json_body(request, _InlineSuggestRequest)
+    language = payload.language
+    original_code = payload.original_code
+    instruction = payload.instruction
+    cursor_line = payload.cursor_line
 
+    try:
         if not instruction.strip():
             return {"ok": False, "error": "Instruction is required."}
 
@@ -59,7 +79,7 @@ async def inline_suggest(request: Request):
                 f"You are an expert {language} code editor. "
                 f"Given the following code context around line {cursor_line}, "
                 f"apply this edit instruction: '{instruction}'.\n\n"
-                f"```{language}\n" + "\n".join(context_lines) + "\n```\n\n"
+                f"```{language}\n{chr(10).join(context_lines)}\n```\n\n"
                 "Return ONLY the modified lines (the complete new version of "
                 "the affected code section). Do NOT include any explanation, "
                 "markdown formatting, or backticks."
@@ -120,8 +140,8 @@ def _fallback_suggestion(original_code: str, instruction: str, cursor_line: int)
     end = min(len(lines), cursor_line + 3)
     context = lines[start:end]
 
-    result = []
-    for i, line in enumerate(context):
+    result: list[str] = []
+    for line in context:
         result.append(line)
 
     if result:

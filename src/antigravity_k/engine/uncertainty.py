@@ -6,9 +6,12 @@ E-2: 에이전트가 자신의 확신도를 평가하는 메타인지 모듈.
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import final
+
+from pydantic import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ class ConfidenceLevel(Enum):
     LOW = "low"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class UncertaintyResult:
     """Quantified uncertainty assessment for an agent output."""
 
@@ -34,6 +37,7 @@ class UncertaintyResult:
     clarification: str  # 사용자에게 할 확인 질문
 
 
+@final
 class UncertaintyEstimator:
     """에이전트가 '나는 이것을 확실히 알고 있는가?'를 판단합니다.
 
@@ -46,7 +50,7 @@ class UncertaintyEstimator:
 
     def __init__(self):
         """Initialize the UncertaintyEstimator."""
-        self._ambiguity_patterns_ko = [
+        self._ambiguity_patterns_ko: list[str] = [
             r"잘\s*모르겠",
             r"아마",
             r"적당히",
@@ -55,7 +59,7 @@ class UncertaintyEstimator:
             r"그런\s*거",
             r"뭔가",
         ]
-        self._ambiguity_patterns_en = [
+        self._ambiguity_patterns_en: list[str] = [
             r"\bmaybe\b",
             r"\bperhaps\b",
             r"\bsomething like\b",
@@ -67,11 +71,11 @@ class UncertaintyEstimator:
     def estimate(
         self,
         user_message: str,
-        ceo_analysis: dict[str, Any],
+        ceo_analysis: Mapping[str, JsonValue],
         ki_matches: int = 0,
     ) -> UncertaintyResult:
         """사용자 요청에 대한 에이전트의 확신도를 평가합니다."""
-        uncertainties = []
+        uncertainties: list[str] = []
         confidence_score = 1.0
 
         # 1. CEO 분석의 confidence
@@ -118,7 +122,7 @@ class UncertaintyEstimator:
             level = ConfidenceLevel.LOW
 
         should_ask = level == ConfidenceLevel.LOW
-        clarification = self._build_clarification(user_message, uncertainties) if should_ask else ""
+        clarification = self._build_clarification(uncertainties) if should_ask else ""
 
         return UncertaintyResult(
             confidence=level,
@@ -129,17 +133,16 @@ class UncertaintyEstimator:
 
     def format_prompt_injection(self, result: UncertaintyResult) -> str:
         """에이전트 프롬프트에 주입할 불확실성 컨텍스트."""
-        if result.confidence == ConfidenceLevel.HIGH:
+        if result.confidence is ConfidenceLevel.HIGH:
             return ""
+        suffix = {
+            ConfidenceLevel.LOW: "⚠️ 확신도가 낮습니다. 불확실한 부분은 사용자에게 확인하세요.",
+            ConfidenceLevel.MEDIUM: "💡 일부 불확실한 부분이 있습니다. 가정을 명시하세요.",
+        }[result.confidence]
 
-        lines = ["\n<uncertainty_awareness>"]
-        lines.append(f"현재 확신도: {result.confidence.value}")
-        for u in result.uncertainties:
-            lines.append(f"- {u}")
-        if result.confidence == ConfidenceLevel.LOW:
-            lines.append("⚠️ 확신도가 낮습니다. 불확실한 부분은 사용자에게 확인하세요.")
-        elif result.confidence == ConfidenceLevel.MEDIUM:
-            lines.append("💡 일부 불확실한 부분이 있습니다. 가정을 명시하세요.")
+        lines = ["\n<uncertainty_awareness>", f"현재 확신도: {result.confidence.value}"]
+        lines.extend(f"- {uncertainty}" for uncertainty in result.uncertainties)
+        lines.append(suffix)
         lines.append("</uncertainty_awareness>")
         return "\n".join(lines)
 
@@ -207,9 +210,9 @@ class UncertaintyEstimator:
                 return True
         return False
 
-    def _build_clarification(self, user_message: str, uncertainties: list[str]) -> str:
+    def _build_clarification(self, uncertainties: list[str]) -> str:
         """사용자에게 할 확인 질문을 생성합니다."""
-        questions = []
+        questions: list[str] = []
 
         if "모호" in str(uncertainties):
             questions.append("구체적으로 어떤 결과를 원하시나요?")

@@ -1,13 +1,44 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Protocol, cast
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from antigravity_k.engine.provider_adapters.inference_providers import (
     LMStudioProvider,
     OllamaProvider,
     get_inference_provider,
 )
+from antigravity_k.engine.provider_adapters.transformers_provider import TransformersProvider
 from antigravity_k.engine.tool_call_parser import EventType, ToolCallParser
+
+
+class _RequestDouble(Protocol):
+    data: bytes
+    full_url: str
+
+    def get_header(self, name: str) -> str | None: ...
+
+
+def _mock_attr(mock: MagicMock, name: str) -> MagicMock:
+    return cast(MagicMock, getattr(mock, name))
+
+
+def _request_from(urlopen: MagicMock, index: int = 0) -> _RequestDouble:
+    calls = cast(list[object], getattr(urlopen, "call_args_list"))
+    call = calls[index]
+    args = cast(tuple[object, ...], getattr(call, "args"))
+    return cast(_RequestDouble, args[0])
+
+
+def _json_payload(request: _RequestDouble) -> dict[str, object]:
+    return cast(dict[str, object], cast(object, json.loads(request.data.decode())))
+
+
+def _object_mapping(value: object) -> dict[str, object]:
+    return cast(dict[str, object], value)
 
 
 def _loaded_model(context_length: int = 262_144):
@@ -40,7 +71,7 @@ def _loaded_unsloth_model():
 
 def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
     response = MagicMock()
-    response.__iter__.return_value = iter(
+    _mock_attr(response, "__iter__").return_value = iter(
         [
             json.dumps(
                 {
@@ -63,8 +94,8 @@ def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
         ],
     )
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     provider = OllamaProvider()
 
     with patch.object(provider, "_resolve_endpoint", return_value=("http://localhost:11434/v1", "ollama")):
@@ -76,7 +107,7 @@ def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
                 provider.stream_generate(
                     _loaded_model(),
                     "read README",
-                    tools=[
+                    tools=cast(list[dict[str, object]], [
                         {
                             "type": "function",
                             "function": {
@@ -85,12 +116,14 @@ def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
                                 "parameters": {"type": "object", "properties": {}},
                             },
                         },
-                    ],
+                    ]),
                 ),
             )
 
-    request = json.loads(urlopen.call_args.args[0].data.decode())
-    assert request["tools"][0]["function"]["name"] == "read_file"
+    request_payload = _json_payload(_request_from(urlopen))
+    tools_payload = cast(list[dict[str, object]], request_payload["tools"])
+    function_payload = cast(dict[str, object], tools_payload[0]["function"])
+    assert function_payload["name"] == "read_file"
     output = "".join(chunks)
     parser = ToolCallParser()
     events = parser.feed(output) + parser.flush()
@@ -107,7 +140,7 @@ def test_ollama_native_tools_are_sent_and_emitted_as_tool_call():
 def test_ollama_single_native_tool_json_content_is_synthesized_as_a_tool_call():
     # Given: Qwen returns exactly one required tool's arguments as fenced JSON content.
     response = MagicMock()
-    response.__iter__.return_value = iter(
+    _mock_attr(response, "__iter__").return_value = iter(
         [
             json.dumps(
                 {
@@ -119,8 +152,8 @@ def test_ollama_single_native_tool_json_content_is_synthesized_as_a_tool_call():
         ],
     )
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     provider = OllamaProvider()
 
     # When: the adapter streams the native tool response.
@@ -166,12 +199,12 @@ def test_ollama_single_native_tool_json_content_is_synthesized_as_a_tool_call():
 
 def test_qwen_non_stream_generation_uses_native_no_think_endpoint():
     response = MagicMock()
-    response.read.return_value = json.dumps(
+    _mock_attr(response, "read").return_value = json.dumps(
         {"message": {"content": "Python 3.13 was released in 2024.", "thinking": "private plan"}},
     ).encode()
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     provider = OllamaProvider()
 
     with (
@@ -183,8 +216,8 @@ def test_qwen_non_stream_generation_uses_native_no_think_endpoint():
     ):
         result = provider.generate(_loaded_model(), "When was Python 3.13 released?", max_tokens=120)
 
-    request = urlopen.call_args.args[0]
-    payload = json.loads(request.data.decode())
+    request = _request_from(urlopen)
+    payload = _json_payload(request)
     assert request.full_url == "http://localhost:11434/api/chat"
     assert payload["think"] is False
     assert result == "Python 3.13 was released in 2024."
@@ -192,10 +225,10 @@ def test_qwen_non_stream_generation_uses_native_no_think_endpoint():
 
 def test_qwen_native_stream_uses_the_profile_context_budget():
     response = MagicMock()
-    response.__iter__.return_value = iter([json.dumps({"done": True}).encode() + b"\n"])
+    _mock_attr(response, "__iter__").return_value = iter([json.dumps({"done": True}).encode() + b"\n"])
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     provider = OllamaProvider()
 
     with (
@@ -205,21 +238,22 @@ def test_qwen_native_stream_uses_the_profile_context_budget():
             return_value=request_context,
         ) as urlopen,
     ):
-        list(provider.stream_generate(_loaded_model(context_length=16_384), "Hello"))
+        _ = list(provider.stream_generate(_loaded_model(context_length=16_384), "Hello"))
 
-    payload = json.loads(urlopen.call_args.args[0].data.decode())
-    assert payload["options"]["num_ctx"] == 12_288
-    assert payload["options"]["repeat_penalty"] == 1.0
+    payload = _json_payload(_request_from(urlopen))
+    options = _object_mapping(payload["options"])
+    assert options["num_ctx"] == 12_288
+    assert options["repeat_penalty"] == 1.0
 
 
-def test_lmstudio_provider_uses_its_openai_compatible_endpoint(monkeypatch):
+def test_lmstudio_provider_uses_its_openai_compatible_endpoint(monkeypatch: pytest.MonkeyPatch):
     response = MagicMock()
-    response.__iter__.return_value = iter(
+    _mock_attr(response, "__iter__").return_value = iter(
         [b'data: {"choices":[{"delta":{"content":"LM Studio OK"}}]}\n', b"data: [DONE]\n"],
     )
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     monkeypatch.setenv("LM_STUDIO_API_KEY", "test-token")
     provider = LMStudioProvider()
 
@@ -229,22 +263,22 @@ def test_lmstudio_provider_uses_its_openai_compatible_endpoint(monkeypatch):
     ) as urlopen:
         output = "".join(provider.stream_generate(_loaded_lmstudio_model(), "Hello"))
 
-    request = urlopen.call_args.args[0]
-    payload = json.loads(request.data.decode())
+    request = _request_from(urlopen)
+    payload = _json_payload(request)
     assert request.full_url == "http://127.0.0.1:1234/v1/chat/completions"
     assert request.get_header("Authorization") == "Bearer test-token"
     assert payload["model"] == "qwen3.6:latest"
     assert output == "LM Studio OK"
 
 
-def test_lmstudio_provider_allows_a_local_server_without_an_api_token(monkeypatch):
+def test_lmstudio_provider_allows_a_local_server_without_an_api_token(monkeypatch: pytest.MonkeyPatch):
     response = MagicMock()
-    response.__iter__.return_value = iter(
+    _mock_attr(response, "__iter__").return_value = iter(
         [b'data: {"choices":[{"delta":{"content":"LM Studio OK"}}]}\n', b"data: [DONE]\n"],
     )
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     monkeypatch.delenv("LM_STUDIO_API_KEY", raising=False)
     provider = LMStudioProvider()
 
@@ -254,7 +288,7 @@ def test_lmstudio_provider_allows_a_local_server_without_an_api_token(monkeypatc
     ) as urlopen:
         output = "".join(provider.stream_generate(_loaded_lmstudio_model(), "Hello"))
 
-    request = urlopen.call_args.args[0]
+    request = _request_from(urlopen)
     assert request.full_url == "http://127.0.0.1:1234/v1/chat/completions"
     assert request.get_header("Authorization") is None
     assert output == "LM Studio OK"
@@ -264,15 +298,27 @@ def test_lmstudio_profile_selects_the_local_openai_provider():
     assert isinstance(get_inference_provider(_loaded_lmstudio_model()), LMStudioProvider)
 
 
-def test_unsloth_profile_selects_read_only_local_provider(monkeypatch):
+def test_transformers_profile_selects_direct_local_provider(tmp_path: Path):
+    profile = SimpleNamespace(
+        name="local-transformers",
+        repo=str(tmp_path),
+        provider="transformers",
+    )
+
+    provider = get_inference_provider(SimpleNamespace(profile=profile))
+
+    assert isinstance(provider, TransformersProvider)
+
+
+def test_unsloth_profile_selects_read_only_local_provider(monkeypatch: pytest.MonkeyPatch):
     # Given
     response = MagicMock()
-    response.__iter__.return_value = iter(
+    _mock_attr(response, "__iter__").return_value = iter(
         [b'data: {"choices":[{"delta":{"content":"Unsloth OK"}}]}\n', b"data: [DONE]\n"],
     )
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     monkeypatch.setenv("UNSLOTH_API_KEY", "scoped-test-token")
 
     # When
@@ -290,8 +336,8 @@ def test_unsloth_profile_selects_read_only_local_provider(monkeypatch):
         )
 
     # Then
-    request = urlopen.call_args.args[0]
-    payload = json.loads(request.data.decode())
+    request = _request_from(urlopen)
+    payload = _json_payload(request)
     assert type(provider).__name__ == "UnslothProvider"
     assert request.full_url == "http://127.0.0.1:18000/v1/chat/completions"
     assert request.get_header("Authorization") == "Bearer scoped-test-token"
@@ -302,7 +348,7 @@ def test_unsloth_profile_selects_read_only_local_provider(monkeypatch):
 
 def test_ollama_native_tool_rejection_falls_back_to_xml_prompt():
     response = MagicMock()
-    response.__iter__.return_value = iter(
+    _mock_attr(response, "__iter__").return_value = iter(
         [
             json.dumps(
                 {
@@ -314,8 +360,8 @@ def test_ollama_native_tool_rejection_falls_back_to_xml_prompt():
         ],
     )
     request_context = MagicMock()
-    request_context.__enter__.return_value = response
-    request_context.__exit__.return_value = False
+    _mock_attr(request_context, "__enter__").return_value = response
+    _mock_attr(request_context, "__exit__").return_value = False
     provider = OllamaProvider()
 
     with patch.object(provider, "_resolve_endpoint", return_value=("http://localhost:11434/v1", "ollama")):
@@ -332,8 +378,8 @@ def test_ollama_native_tool_rejection_falls_back_to_xml_prompt():
             )
 
     assert len(urlopen.call_args_list) == 2
-    first_request = json.loads(urlopen.call_args_list[0].args[0].data.decode())
-    fallback_request = json.loads(urlopen.call_args_list[1].args[0].data.decode())
+    first_request = _json_payload(_request_from(urlopen, 0))
+    fallback_request = _json_payload(_request_from(urlopen, 1))
     assert "tools" in first_request
     assert "tools" not in fallback_request
     assert "<tool_call>" in "".join(chunks)

@@ -127,15 +127,27 @@ export async function fetchTaskEvents(
   afterSequence: number,
   signal: AbortSignal,
 ): Promise<Readonly<{ events: readonly TaskEvent[]; lastSequence: number }>> {
-  const raw: unknown = await ky.get(`/api/tasks/${encodeURIComponent(taskId)}/events`, {
-    headers: accessHeaders(),
-    searchParams: { after_sequence: afterSequence, limit: 500 },
-    signal,
-    retry: 1,
-    timeout: 10_000,
-  }).json();
-  const response = TaskEventsResponseSchema.parse(raw);
-  return { events: response.events, lastSequence: response.last_sequence };
+  const events: TaskEvent[] = [];
+  let sequence = afterSequence;
+
+  while (true) {
+    const raw: unknown = await ky.get(`/api/tasks/${encodeURIComponent(taskId)}/events`, {
+      headers: accessHeaders(),
+      searchParams: { after_sequence: sequence, limit: 500 },
+      signal,
+      retry: 1,
+      timeout: 10_000,
+    }).json();
+    const response = TaskEventsResponseSchema.parse(raw);
+    events.push(...response.events);
+    if (!response.has_more) {
+      return { events, lastSequence: response.last_sequence };
+    }
+    if (response.last_sequence <= sequence) {
+      throw new TaskEventStreamError('invalid-event', 'Task event replay cursor did not advance.');
+    }
+    sequence = response.last_sequence;
+  }
 }
 
 function frameResult(frame: SseFrame): TaskStreamResult | TaskEvent {

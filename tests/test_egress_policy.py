@@ -93,9 +93,7 @@ class TestSafeUrlopenRetry:
         def fake_urlopen(target, timeout=None):
             calls["n"] += 1
             if calls["n"] == 1:
-                raise urllib.error.HTTPError(
-                    str(target), 429, "Too Many Requests", hdrs=None, fp=None
-                )
+                raise urllib.error.HTTPError(str(target), 429, "Too Many Requests", hdrs=None, fp=None)
             return object()
 
         monkeypatch.setattr(egress_policy.urllib.request, "urlopen", fake_urlopen)
@@ -116,8 +114,11 @@ class TestSafeUrlopenRetry:
 
         def fake_urlopen(target, timeout=None):
             raise urllib.error.HTTPError(
-                str(target), 503, "Service Unavailable",
-                hdrs={"Retry-After": "7"}, fp=None,
+                str(target),
+                503,
+                "Service Unavailable",
+                hdrs={"Retry-After": "7"},
+                fp=None,
             )
 
         monkeypatch.setattr(egress_policy.urllib.request, "urlopen", fake_urlopen)

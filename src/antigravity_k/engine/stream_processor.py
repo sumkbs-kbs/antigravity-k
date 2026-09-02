@@ -17,7 +17,6 @@ LLM 스트리밍 출력의 실시간 정제를 담당합니다.
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ class StreamState:
 
     in_think_block: bool = False
     in_scratch_pad: bool = False
-    seen_blocks: Dict[str, int] = field(default_factory=dict)
+    seen_blocks: dict[str, int] = field(default_factory=dict)
     repetition_detected: bool = False
 
 
@@ -54,12 +53,12 @@ class StreamProcessor:
                 yield output
     """
 
-    def __init__(self, repetition_threshold: int = 3):
-        self._state = StreamState()
-        self._repetition_threshold = repetition_threshold
-        self._buffer = ""
+    def __init__(self, repetition_threshold: int = 3) -> None:
+        self._state: StreamState = StreamState()
+        self._repetition_threshold: int = repetition_threshold
+        self._buffer: str = ""
 
-    def process_text(self, text: str) -> Tuple[str, bool]:
+    def process_text(self, text: str) -> tuple[str, bool]:
         """텍스트 청크를 정제합니다.
 
         Args:
@@ -74,7 +73,7 @@ class StreamProcessor:
             return "", False
 
         self._buffer += text
-        output_parts = []
+        output_parts: list[str] = []
 
         while True:
             if self._state.in_scratch_pad:

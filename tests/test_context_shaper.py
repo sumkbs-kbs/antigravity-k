@@ -73,9 +73,7 @@ class TestShape:
         messages = _make_messages(80, "payload " * 80)
         shaper = ContextShaper(storage_dir=str(tmp_path / "model-context"))
 
-        result = shaper.shape_for_model(
-            messages, cast(Mapping[str, JsonValue], config), "qwen3.6:latest"
-        )
+        result = shaper.shape_for_model(messages, cast(Mapping[str, JsonValue], config), "qwen3.6:latest")
 
         assert shaper._estimate_tokens(result) <= 12_288
 
@@ -111,8 +109,7 @@ class TestShape:
         # Given: an overflow retry has old verified evidence followed by a long conversation.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\n"
+            + "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
@@ -250,13 +247,13 @@ class TestClearOldToolResults:
         # Given: one old message contains two tool responses from a parallel batch.
         first = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"first.py"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\n" + ("a" * 1000) + "\nFIRST_RESULT=41\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
+            + "[UNTRUSTED_TOOL_RESULT]\n"
+            + ("a" * 1000)
+            + "\nFIRST_RESULT=41\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
         second = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"read_file","source":"second.txt"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\n"
+            + "[UNTRUSTED_TOOL_RESULT]\n"
             + ("b" * 1000)
             + "\nSECOND_RESULT=42\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
@@ -279,8 +276,7 @@ class TestClearOldToolResults:
         # Given: an old structured tool response with a verified result at the end.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\n"
+            + "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
@@ -383,8 +379,7 @@ class TestAdaptiveCompressionEvidence:
         # Given: the local summarizer returns fluent prose without the verified result.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\n"
+            + "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
@@ -411,8 +406,7 @@ class TestAdaptiveCompressionEvidence:
         # Given: verified tool evidence falls outside the recent-message retention window.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\n"
+            + "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
@@ -439,8 +433,7 @@ class TestAdaptiveCompressionEvidence:
         # Given: one oversized verified result must fit a small final budget.
         evidence = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
-            +
-            "[UNTRUSTED_TOOL_RESULT]\nBEGIN_RESULT\n"
+            + "[UNTRUSTED_TOOL_RESULT]\nBEGIN_RESULT\n"
             + ("detail " * 300)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )

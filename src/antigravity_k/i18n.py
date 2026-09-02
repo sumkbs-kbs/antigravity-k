@@ -16,7 +16,6 @@ tiptap-vuetify의 i18n 패턴에서 영감:
 
 import locale
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +304,7 @@ class I18n:
             locale_code (str | None): str | None locale code.
 
         """
+        self._locale: str
         if locale_code:
             if locale_code in _TRANSLATIONS:
                 self._locale = locale_code
@@ -344,7 +344,7 @@ class I18n:
             self._locale = value
             logger.info("Locale changed to: %s", value)
 
-    def t(self, key: str, **kwargs) -> str:
+    def t(self, key: str, **kwargs: object) -> str:
         """번역 키에 대응하는 메시지를 반환합니다.
 
         tiptap-vuetify의 i18n 맵핑과 동일한 패턴:
@@ -408,7 +408,7 @@ class I18n:
 
         return _DEFAULT_LOCALE
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self) -> dict[str, object]:
         """현재 i18n 상태 요약."""
         return {
             "current_locale": self._locale,
@@ -436,6 +436,6 @@ def set_locale(locale_code: str):
     get_i18n().locale = locale_code
 
 
-def t(key: str, **kwargs) -> str:
+def t(key: str, **kwargs: object) -> str:
     """글로벌 번역 함수 — 어디서든 바로 호출 가능."""
     return get_i18n().t(key, **kwargs)

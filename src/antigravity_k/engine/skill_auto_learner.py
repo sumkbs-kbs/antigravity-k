@@ -22,12 +22,31 @@ import urllib.request
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Protocol, TypeAlias, TypedDict, cast
 
 from antigravity_k.config import config
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
+
+JsonObject: TypeAlias = dict[str, object]
+
+
+class SkillRecordPayload(TypedDict):
+    name: str
+    description: str
+    source_pattern: list[str]
+    created_at: str
+    use_count: int
+    success_count: int
+    last_used: str
+    file_path: str
+
+
+class SkillModelManager(Protocol):
+    def get_target_for_role(self, role_name: str, *, default_role: str) -> str: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> object: ...
 
 
 @dataclass
@@ -35,7 +54,7 @@ class ToolCall:
     """단일 도구 호출 기록."""
 
     name: str
-    arguments: dict[str, Any]
+    arguments: JsonObject
     result_summary: str = ""
     success: bool = True
     timestamp: str = ""
@@ -48,7 +67,7 @@ class LearnedPattern:
     tool_sequence: list[str]
     frequency: int
     context_keywords: list[str] = field(default_factory=list)
-    example_args: list[dict[str, Any]] = field(default_factory=list)
+    example_args: list[JsonObject] = field(default_factory=list)
 
 
 @dataclass
@@ -73,13 +92,13 @@ class SkillAutoLearner:
     """
 
     # 최소 2회 이상 등장한 시퀀스만 스킬로 추출
-    MIN_PATTERN_FREQUENCY = 2
+    MIN_PATTERN_FREQUENCY: int = 2
     # 패턴에 포함될 최소 도구 호출 수
-    MIN_SEQUENCE_LENGTH = 2
+    MIN_SEQUENCE_LENGTH: int = 2
     # 자동 보존 임계값: 3회 이상 성공적으로 재사용된 스킬만 영구 보존
-    PERMANENT_THRESHOLD = 3
+    PERMANENT_THRESHOLD: int = 3
 
-    def __init__(self, project_root: str, model_manager=None):
+    def __init__(self, project_root: str, model_manager: object | None = None):
         """Initialize the SkillAutoLearner.
 
         Args:
@@ -87,31 +106,80 @@ class SkillAutoLearner:
             model_manager: model manager.
 
         """
-        self.project_root = project_root
-        self.manager = model_manager
-        self._skills_dir = os.path.join(project_root, ".agent", "skills", "auto-learned")
-        self._registry_path = os.path.join(self._skills_dir, "_registry.json")
+        self.project_root: str = project_root
+        self.manager: SkillModelManager | None = (
+            cast(SkillModelManager, model_manager) if model_manager is not None else None
+        )
+        self._skills_dir: str = os.path.join(project_root, ".agent", "skills", "auto-learned")
+        self._registry_path: str = os.path.join(self._skills_dir, "_registry.json")
         self._history: list[list[ToolCall]] = []  # 세션 내 태스크별 도구 호출 이력
         self._current_task_calls: list[ToolCall] = []
         self._registry: dict[str, SkillRecord] = {}
         self._load_registry()
 
-    def _load_registry(self):
+    def _generation_target(self, role_name: str, default_role: str = "code") -> str:
+        configured = os.environ.get("AGK_SKILL_GENERATION_MODEL", "").strip()
+        if configured:
+            return configured
+        if self.manager is not None:
+            resolver = getattr(self.manager, "get_target_for_role", None)
+            if callable(resolver):
+                try:
+                    target = resolver(role_name, default_role=default_role)
+                    if isinstance(target, str) and target.strip():
+                        return target.strip()
+                except (AttributeError, TypeError, ValueError, RuntimeError):
+                    logger.warning("[AutoLearn] Failed to resolve managed model target", exc_info=True)
+        return config.model.code_model or config.model.main_model
+
+    def _generate_with_manager(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+        role_name: str,
+        default_role: str = "code",
+    ) -> str | None:
+        if self.manager is None:
+            return None
+        generate = getattr(self.manager, "generate", None)
+        if not callable(generate):
+            return None
+        try:
+            response = generate(
+                prompt,
+                self._generation_target(role_name, default_role),
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+            logger.warning("[AutoLearn] Managed generation failed; using configured API fallback", exc_info=True)
+            return None
+        return response if isinstance(response, str) else None
+
+    def _load_registry(self) -> None:
         """스킬 레지스트리를 디스크에서 로드합니다."""
         if os.path.exists(self._registry_path):
             try:
                 with open(self._registry_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                for name, rec in data.items():
-                    self._registry[name] = SkillRecord(**rec)
+                    data = cast(object, json.load(f))
+                if not isinstance(data, dict):
+                    return
+                payload = cast(dict[str, object], cast(object, data))
+                for name, rec in payload.items():
+                    if isinstance(rec, dict):
+                        self._registry[name] = SkillRecord(
+                            **cast(SkillRecordPayload, cast(object, rec)),
+                        )
             except Exception:
                 logger.exception("[AutoLearn] Registry load error")
 
-    def _save_registry(self):
+    def _save_registry(self) -> None:
         """스킬 레지스트리를 디스크에 저장합니다."""
         os.makedirs(self._skills_dir, exist_ok=True)
         try:
-            data = {}
+            data: dict[str, JsonObject] = {}
             for name, rec in self._registry.items():
                 data[name] = {
                     "name": rec.name,
@@ -133,7 +201,7 @@ class SkillAutoLearner:
     def record_tool_call(
         self,
         name: str,
-        arguments: dict[str, Any],
+        arguments: JsonObject,
         result: str = "",
         success: bool = True,
     ) -> None:
@@ -162,7 +230,7 @@ class SkillAutoLearner:
 
         # N-gram 기반 시퀀스 추출 (2~5개 도구 조합)
         sequence_counter: Counter[tuple[str, ...]] = Counter()
-        sequence_examples: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        sequence_examples: dict[tuple[str, ...], list[JsonObject]] = {}
 
         for task_calls in self._history:
             tool_names = [c.name for c in task_calls if c.success]
@@ -179,7 +247,7 @@ class SkillAutoLearner:
         # 이미 스킬로 생성된 패턴 필터링
         existing_patterns = {tuple(rec.source_pattern) for rec in self._registry.values()}
 
-        patterns = []
+        patterns: list[LearnedPattern] = []
         for seq, count in sequence_counter.most_common(10):
             if count >= self.MIN_PATTERN_FREQUENCY and seq not in existing_patterns:
                 patterns.append(
@@ -225,21 +293,32 @@ class SkillAutoLearner:
         )
 
         try:
-            default_model = "qwen3.6:latest"
-            data = {
-                "model": default_model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"num_predict": 1024, "temperature": 0.3},
-            }
-            req = urllib.request.Request(
-                f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
-                data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+            skill_content = self._generate_with_manager(
+                prompt,
+                max_tokens=1024,
+                temperature=0.3,
+                role_name="skill_auto_learner",
             )
-            with safe_urlopen(req, timeout=60) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                skill_content = result.get("response", "")
+            if skill_content is None:
+                data = {
+                    "model": self._generation_target("skill_auto_learner"),
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 1024, "temperature": 0.3},
+                }
+                req = urllib.request.Request(
+                    f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
+                    data=json.dumps(data).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with safe_urlopen(req, timeout=60) as resp:
+                    result = cast(object, json.loads(resp.read().decode("utf-8")))
+                    if isinstance(result, dict):
+                        result_map = cast(dict[str, object], cast(object, result))
+                        response = result_map.get("response", "")
+                        skill_content = response if isinstance(response, str) else ""
+                    else:
+                        skill_content = ""
 
             # <think> 태그 제거
             skill_content = re.sub(
@@ -264,7 +343,7 @@ class SkillAutoLearner:
             os.makedirs(skill_dir, exist_ok=True)
             skill_path = os.path.join(skill_dir, "SKILL.md")
             with open(skill_path, "w", encoding="utf-8") as f:
-                f.write(skill_content)
+                _ = f.write(skill_content)
 
             # 레지스트리 등록
             record = SkillRecord(
@@ -318,7 +397,7 @@ class SkillAutoLearner:
 
     # ─── 5. Skill Usage Tracking ───
 
-    def mark_skill_used(self, skill_name: str, success: bool = True):
+    def mark_skill_used(self, skill_name: str, success: bool = True) -> None:
         """스킬 사용을 기록합니다."""
         if skill_name in self._registry:
             rec = self._registry[skill_name]
@@ -335,7 +414,7 @@ class SkillAutoLearner:
 
         30일 이상 사용되지 않은 스킬을 제거합니다.
         """
-        removed = []
+        removed: list[str] = []
         now = datetime.now(UTC).replace(tzinfo=None)
         for name, rec in list(self._registry.items()):
             if rec.success_count >= self.PERMANENT_THRESHOLD:

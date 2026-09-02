@@ -35,6 +35,8 @@ def _shared_model_registry() -> Any:
 
         _shared_model_registry_cache = ModelRegistry()
     return _shared_model_registry_cache
+
+
 DynamicValue: TypeAlias = object
 JsonMap: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
 DynamicConfig: TypeAlias = tuple[str, float, JsonMap | None, str]
@@ -1282,9 +1284,7 @@ class LMStudioProvider(OpenRouterProvider):
         base_url = getattr(profile, "api_base", "") or ""
         if not base_url:
             try:
-                base_url = cast(
-                    str, _shared_model_registry().get_provider_config("lmstudio").get("base_url", "")
-                )
+                base_url = cast(str, _shared_model_registry().get_provider_config("lmstudio").get("base_url", ""))
             except (ImportError, OSError, RuntimeError, TypeError, ValueError):
                 base_url = ""
         if not base_url:

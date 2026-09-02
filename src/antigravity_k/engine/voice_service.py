@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import os
 import shlex
 import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from antigravity_k.engine.sandbox import SandboxRunner
 
@@ -21,6 +22,7 @@ class VoiceExecutionError(RuntimeError):
 
 Transcriber = Callable[[bytes, str], str]
 Synthesizer = Callable[[str], bytes]
+_JSON_VALUE_ADAPTER: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 
 class VoiceService:
@@ -28,9 +30,9 @@ class VoiceService:
         self,
         transcriber: Transcriber | None = None,
         synthesizer: Synthesizer | None = None,
-    ):
-        self._transcriber = transcriber or _configured_transcriber
-        self._synthesizer = synthesizer or _macos_synthesizer
+    ) -> None:
+        self._transcriber: Transcriber = transcriber or _configured_transcriber
+        self._synthesizer: Synthesizer = synthesizer or _macos_synthesizer
 
     def transcribe(self, audio: bytes, suffix: str = ".wav") -> str:
         transcript = self._transcriber(audio, suffix).strip()
@@ -50,16 +52,21 @@ def _configured_transcriber(audio: bytes, suffix: str) -> str:
     if not raw_command:
         raise VoiceUnavailableError("speech-to-text is not configured; set AGK_STT_COMMAND_JSON to a JSON argv array")
     try:
-        command = json.loads(raw_command)
-    except json.JSONDecodeError as error:
+        parsed = _JSON_VALUE_ADAPTER.validate_json(raw_command)
+    except ValidationError as error:
         raise VoiceUnavailableError("AGK_STT_COMMAND_JSON is not valid JSON") from error
-    if not isinstance(command, list) or not command or not all(isinstance(item, str) and item for item in command):
+    if not isinstance(parsed, list) or not parsed:
         raise VoiceUnavailableError("AGK_STT_COMMAND_JSON must be a non-empty JSON string array")
+    command: list[str] = []
+    for item in parsed:
+        if not isinstance(item, str) or not item:
+            raise VoiceUnavailableError("AGK_STT_COMMAND_JSON must be a non-empty JSON string array")
+        command.append(item)
 
     path = ""
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as audio_file:
-            audio_file.write(audio)
+            _ = audio_file.write(audio)
             path = audio_file.name
         result = SandboxRunner(
             project_root=os.getcwd(),

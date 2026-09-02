@@ -3,11 +3,32 @@
 import hashlib
 import logging
 import os
-from typing import Any
+from typing import cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
+
+Params = dict[str, object]
+Schema = dict[str, object]
+
+
+def _text(params: Params, key: str, default: str = "") -> str:
+    value = params.get(key)
+    return value if isinstance(value, str) else default
+
+
+def _mapping_chunks(value: object) -> list[Params] | None:
+    if not isinstance(value, list):
+        return None
+    raw: list[object] = cast(list[object], value)
+    chunks: list[Params] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        raw_item: dict[object, object] = cast(dict[object, object], item)
+        chunks.append({str(key): child for key, child in raw_item.items()})
+    return chunks
 
 
 def compute_line_hash(line: str) -> str:
@@ -16,6 +37,7 @@ def compute_line_hash(line: str) -> str:
     return hashlib.md5(line.encode("utf-8")).hexdigest()[:4].upper()
 
 
+@final
 class ReadHashFileTool(BaseTool):
     """Readhashfiletool.
 
@@ -31,11 +53,11 @@ class ReadHashFileTool(BaseTool):
     def __init__(self):
         """Initialize the ReadHashFileTool."""
         super().__init__()
-        self._name = "read_hash_file"
-        self._description = (
+        self._name: str = "read_hash_file"
+        self._description: str = (
             "Reads a file and prepends each line with a unique content hash. Use this to prepare for HashlineEditTool."
         )
-        self._schema = {
+        self._schema: Schema = {
             "type": "object",
             "properties": {
                 "file_path": {
@@ -47,6 +69,7 @@ class ReadHashFileTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -57,6 +80,7 @@ class ReadHashFileTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -67,7 +91,8 @@ class ReadHashFileTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> Schema:
         """Parameters Schema.
 
         Returns:
@@ -76,7 +101,8 @@ class ReadHashFileTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -86,15 +112,16 @@ class ReadHashFileTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path")
-        if file_path is None or not os.path.exists(file_path):
+        params: Params = kwargs
+        file_path = params.get("file_path")
+        if not isinstance(file_path, str) or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
 
         try:
             with open(file_path, encoding="utf-8") as f:
                 lines = f.readlines()
 
-            hashed_lines = []
+            hashed_lines: list[str] = []
             for i, line in enumerate(lines):
                 line_content = line.rstrip("\n")
                 line_hash = compute_line_hash(line_content)
@@ -106,6 +133,7 @@ class ReadHashFileTool(BaseTool):
             return f"Error reading file: {e}"
 
 
+@final
 class HashlineEditTool(BaseTool):
     """Hashlineedittool.
 
@@ -121,11 +149,11 @@ class HashlineEditTool(BaseTool):
     def __init__(self):
         """Initialize the HashlineEditTool."""
         super().__init__()
-        self._name = "hashline_edit"
-        self._description = (
+        self._name: str = "hashline_edit"
+        self._description: str = (
             "Replaces a specific line in a file using its exact content hash to prevent stale-line errors."
         )
-        self._schema = {
+        self._schema: Schema = {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "Path to the file to modify."},
@@ -143,6 +171,7 @@ class HashlineEditTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -153,6 +182,7 @@ class HashlineEditTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -163,7 +193,8 @@ class HashlineEditTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> Schema:
         """Parameters Schema.
 
         Returns:
@@ -172,7 +203,8 @@ class HashlineEditTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -182,15 +214,16 @@ class HashlineEditTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path")
-        line_number = kwargs.get("line_number")
-        expected_hash = kwargs.get("expected_hash", "").upper()
-        replacement_text = kwargs.get("replacement_text", "")
+        params: Params = kwargs
+        file_path = params.get("file_path")
+        line_number = params.get("line_number")
+        expected_hash = _text(params, "expected_hash").upper()
+        replacement_text = _text(params, "replacement_text")
 
-        if file_path is None or not os.path.exists(file_path):
+        if not isinstance(file_path, str) or not os.path.exists(file_path):
             return f"Error: File not found at {file_path}"
 
-        if line_number is None:
+        if not isinstance(line_number, int) or isinstance(line_number, bool):
             return "Error: line_number is required."
 
         try:
@@ -219,6 +252,7 @@ class HashlineEditTool(BaseTool):
             return f"Error modifying file: {e}"
 
 
+@final
 class MultiReplaceFileContentTool(BaseTool):
     """Multireplacefilecontenttool.
 
@@ -234,9 +268,9 @@ class MultiReplaceFileContentTool(BaseTool):
     def __init__(self):
         """Initialize the MultiReplaceFileContentTool."""
         super().__init__()
-        self._name = "multi_replace_file_content"
-        self._description = "Replaces multiple non-contiguous blocks of text in a single file pass."
-        self._schema = {
+        self._name: str = "multi_replace_file_content"
+        self._description: str = "Replaces multiple non-contiguous blocks of text in a single file pass."
+        self._schema: Schema = {
             "type": "object",
             "properties": {
                 "TargetFile": {
@@ -262,6 +296,7 @@ class MultiReplaceFileContentTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -272,6 +307,7 @@ class MultiReplaceFileContentTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -282,7 +318,8 @@ class MultiReplaceFileContentTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> Schema:
         """Parameters Schema.
 
         Returns:
@@ -291,7 +328,8 @@ class MultiReplaceFileContentTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -301,26 +339,29 @@ class MultiReplaceFileContentTool(BaseTool):
             Any: The any result.
 
         """
-        target_file = kwargs.get("TargetFile")
-        chunks = kwargs.get("ReplacementChunks", [])
+        params: Params = kwargs
+        target_file = params.get("TargetFile")
+        chunks = _mapping_chunks(params.get("ReplacementChunks", []))
 
-        if target_file is None or not os.path.exists(target_file):
+        if not isinstance(target_file, str) or not os.path.exists(target_file):
             return f"Error: File not found at {target_file}"
+        if chunks is None:
+            return "Error: ReplacementChunks must be a list of objects."
 
         try:
             with open(target_file, encoding="utf-8") as f:
                 content = f.read()
 
             for chunk in chunks:
-                target = chunk.get("TargetContent", "")
-                repl = chunk.get("ReplacementContent", "")
+                target = _text(chunk, "TargetContent")
+                repl = _text(chunk, "ReplacementContent")
                 if target not in content:
                     return f"Error: TargetContent not found in file: {target[:50]}..."
 
                 content = content.replace(target, repl)
 
             with open(target_file, "w", encoding="utf-8") as f:
-                f.write(content)
+                _ = f.write(content)
 
             return f"Successfully applied {len(chunks)} replacement chunk(s) to {target_file}."
         except Exception as e:

@@ -179,7 +179,8 @@ class TestBaseToolMetadata:
         assert meta["render_in"] == "contextual"
         assert meta["risk_level"] == "high"
         assert meta["icon"] == "⚡"
-        assert "exec" in meta["tags"]
+        tags = cast(list[str], meta["tags"])
+        assert "exec" in tags
 
     def test_to_tool_call_schema(self):
         """LLM 스키마가 여전히 올바르게 동작하는지 확인."""

@@ -1028,9 +1028,7 @@ class ModelManager:
             return self.generate(sample_prompt, target, **merged)
 
         sc_config = {
-            key: value
-            for key, value in cfg.items()
-            if isinstance(value, (str, int, float, bool)) or value is None
+            key: value for key, value in cfg.items() if isinstance(value, (str, int, float, bool)) or value is None
         }
         sc_kwargs = config_to_engine_kwargs(sc_config)
         engine = SelfConsistencyEngine(

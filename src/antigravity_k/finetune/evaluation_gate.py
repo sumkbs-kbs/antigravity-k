@@ -236,8 +236,7 @@ def build_promotion_decision(
         reasons.append("overall improvement below minimum")
     if statistical_evidence.observation_count < active_policy.minimum_case_count:
         reasons.append(
-            "insufficient evaluation cases: "
-            f"{statistical_evidence.observation_count} < {active_policy.minimum_case_count}",
+            f"insufficient evaluation cases: {statistical_evidence.observation_count} < {active_policy.minimum_case_count}",
         )
     if statistical_evidence.confidence_lower_bound < active_policy.minimum_overall_improvement:
         reasons.append("paired improvement confidence lower bound below minimum")

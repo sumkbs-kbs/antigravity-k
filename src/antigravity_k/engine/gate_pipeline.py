@@ -33,9 +33,67 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, TypeAlias, runtime_checkable
 
 logger = logging.getLogger("antigravity_k.engine.gate_pipeline")
+
+GateValue: TypeAlias = str | int | float | bool | None | list["GateValue"] | dict[str, "GateValue"]
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _as_text(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return value if isinstance(value, str) else str(value)
+
+
+def _empty_gate_args() -> dict[str, GateValue]:
+    return {}
+
+
+class _GuardrailDecisionLike(Protocol):
+    should_halt: bool
+    message: str
+    code: str
+
+
+class _GuardrailsLike(Protocol):
+    def before_call(self, tool_name: str, args: Mapping[str, object]) -> _GuardrailDecisionLike: ...
+
+
+class _CostDecisionLike(Protocol):
+    allowed: bool
+    reason: str
+    estimated_cost_usd: float
+    remaining_budget_usd: float
+    daily_spend_usd: float
+
+
+class _CostGuardLike(Protocol):
+    def check_budget(
+        self,
+        *,
+        model: str,
+        tokens_in: int,
+        tokens_out: int,
+        user_id: str,
+    ) -> _CostDecisionLike: ...
+
+
+class _SecurityPolicyLike(Protocol):
+    def is_command_allowed(self, command: str) -> bool: ...
+
+    def is_domain_allowed(self, domain: str) -> bool: ...
 
 
 # ── 게이트 판정 ──
@@ -65,7 +123,7 @@ class GateDecision:
     gate_name: str = ""
     resume_kind: ResumeKind | None = None
     allow_always: bool = False  # "항상 허용" 옵션 제공 여부
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, GateValue] = field(default_factory=dict)
 
     @property
     def is_allowed(self) -> bool:
@@ -97,7 +155,7 @@ class GateDecision:
         """
         return self.action == GateAction.DENY
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, GateValue]:
         """To Dict.
 
         Returns:
@@ -121,7 +179,7 @@ class GateContext:
     """게이트 평가에 필요한 컨텍스트."""
 
     tool_name: str
-    args: Mapping[str, Any] = field(default_factory=dict)
+    args: Mapping[str, object] = field(default_factory=_empty_gate_args)
     user_id: str = "default"
     session_id: str = ""
     execution_mode: str = "interactive"  # interactive / autonomous / container
@@ -161,14 +219,14 @@ class RateLimitGate:
     Priority: 50 (가장 먼저 실행 — 빠른 거부).
     """
 
-    def __init__(self, guardrails=None):
+    def __init__(self, guardrails: _GuardrailsLike | None = None) -> None:
         """Initialize the RateLimitGate.
 
         Args:
             guardrails: guardrails.
 
         """
-        self._guardrails = guardrails
+        self._guardrails: _GuardrailsLike | None = guardrails
 
     def name(self) -> str:
         """Name.
@@ -217,12 +275,6 @@ class RateLimitGate:
             from antigravity_k.engine.execution_mode import BUILD_RESTRICTED_TOOLS
 
             if ctx.tool_name in BUILD_RESTRICTED_TOOLS:
-                if ctx.execution_mode == "autonomous":
-                    return GateDecision(
-                        action=GateAction.DENY,
-                        reason=f"도구 '{ctx.tool_name}'은(는) BUILD 모드에서 명시적 승인이 필요합니다.",
-                        gate_name=self.name(),
-                    )
                 return GateDecision(
                     action=GateAction.PAUSE,
                     reason=f"도구 '{ctx.tool_name}'은(는) BUILD 모드에서 승인이 필요합니다.",
@@ -252,14 +304,14 @@ class CostBudgetGate:
     Priority: 80 (레이트 리밋 후, 승인 전).
     """
 
-    def __init__(self, cost_guard=None):
+    def __init__(self, cost_guard: _CostGuardLike | None = None) -> None:
         """Initialize the CostBudgetGate.
 
         Args:
             cost_guard: cost guard.
 
         """
-        self._cost_guard = cost_guard
+        self._cost_guard: _CostGuardLike | None = cost_guard
 
     def name(self) -> str:
         """Name.
@@ -301,9 +353,9 @@ class CostBudgetGate:
             return GateDecision(gate_name=self.name())
 
         # ctx.args에서 토큰 추정 정보 추출 (있으면 사용, 없으면 기본값)
-        tokens_in = int(ctx.args.get("_estimated_tokens_in", 0))
-        tokens_out = int(ctx.args.get("_estimated_tokens_out", 0))
-        model = str(ctx.args.get("model", ctx.args.get("target", "default")))
+        tokens_in = _as_int(ctx.args.get("_estimated_tokens_in", 0))
+        tokens_out = _as_int(ctx.args.get("_estimated_tokens_out", 0))
+        model = _as_text(ctx.args.get("model", ctx.args.get("target", "default")), "default")
 
         try:
             decision = self._cost_guard.check_budget(
@@ -468,14 +520,14 @@ class SecurityPolicyGate:
     Priority: 150 (승인 후).
     """
 
-    def __init__(self, policy_engine=None):
+    def __init__(self, policy_engine: _SecurityPolicyLike | None = None) -> None:
         """Initialize the SecurityPolicyGate.
 
         Args:
             policy_engine: policy engine.
 
         """
-        self._policy_engine = policy_engine
+        self._policy_engine: _SecurityPolicyLike | None = policy_engine
 
     def name(self) -> str:
         """Name.
@@ -510,7 +562,7 @@ class SecurityPolicyGate:
 
         # 커맨드 실행 도구
         if ctx.tool_name in {"run_bash_command", "run_persistent_command"}:
-            cmd = ctx.args.get("command", "")
+            cmd = _as_text(ctx.args.get("command", ""))
             if cmd and not self._policy_engine.is_command_allowed(cmd):
                 return GateDecision(
                     action=GateAction.DENY,
@@ -520,7 +572,7 @@ class SecurityPolicyGate:
 
         # 네트워크 도구
         if ctx.tool_name in {"web_search", "web_scrape", "fetch_dom"}:
-            url = ctx.args.get("url", "") or ctx.args.get("query", "")
+            url = _as_text(ctx.args.get("url", "") or ctx.args.get("query", ""))
             if url and not self._policy_engine.is_domain_allowed(url):
                 return GateDecision(
                     action=GateAction.DENY,
@@ -543,10 +595,10 @@ class GatePipeline:
 
     def __init__(self) -> None:
         """Initialize the GatePipeline."""
-        self._gates: list[Any] = []  # ExecutionGate instances
-        self._sorted = False
+        self._gates: list[ExecutionGate] = []
+        self._sorted: bool = False
 
-    def add_gate(self, gate) -> "GatePipeline":
+    def add_gate(self, gate: ExecutionGate) -> "GatePipeline":
         """게이트를 파이프라인에 추가합니다."""
         self._gates.append(gate)
         self._sorted = False
@@ -555,7 +607,7 @@ class GatePipeline:
     def _ensure_sorted(self) -> None:
         """게이트를 우선순위순으로 정렬합니다."""
         if not self._sorted:
-            self._gates.sort(key=lambda g: g.priority())
+            self._gates.sort(key=lambda gate: gate.priority())
             self._sorted = True
 
     def evaluate(self, ctx: GateContext) -> GateDecision:
@@ -584,27 +636,27 @@ class GatePipeline:
 
         return GateDecision(gate_name="pipeline", reason="all_gates_passed")
 
-    def list_gates(self) -> list[dict[str, Any]]:
+    def list_gates(self) -> list[dict[str, str | int]]:
         """등록된 게이트 목록을 반환합니다."""
         self._ensure_sorted()
-        return [{"name": g.name(), "priority": g.priority()} for g in self._gates]
+        return [{"name": gate.name(), "priority": gate.priority()} for gate in self._gates]
 
 
 # ── 팩토리 ──
 
 
 def create_default_pipeline(
-    guardrails=None,
-    cost_guard=None,
-    policy_engine=None,
+    guardrails: _GuardrailsLike | None = None,
+    cost_guard: _CostGuardLike | None = None,
+    policy_engine: _SecurityPolicyLike | None = None,
 ) -> GatePipeline:
     """기본 게이트 파이프라인을 생성합니다.
 
     IronClaw의 기본 게이트 구성을 재현합니다.
     """
     pipeline = GatePipeline()
-    pipeline.add_gate(RateLimitGate(guardrails))
-    pipeline.add_gate(CostBudgetGate(cost_guard))
-    pipeline.add_gate(ApprovalGate())
-    pipeline.add_gate(SecurityPolicyGate(policy_engine))
+    _ = pipeline.add_gate(RateLimitGate(guardrails))
+    _ = pipeline.add_gate(CostBudgetGate(cost_guard))
+    _ = pipeline.add_gate(ApprovalGate())
+    _ = pipeline.add_gate(SecurityPolicyGate(policy_engine))
     return pipeline

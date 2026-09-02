@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from enum import StrEnum
 from ipaddress import ip_address
+from typing import ClassVar, override
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, JsonValue, SecretStr, field_validator
@@ -66,7 +67,7 @@ def normalize_unsloth_mcp_url(raw_url: str) -> str:
 
 
 class UnslothStudioSettings(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     endpoint: str = DEFAULT_UNSLOTH_STUDIO_ENDPOINT
     token: SecretStr | None = None
@@ -111,7 +112,7 @@ class UnslothStudioSettings(BaseModel):
 
 
 class UnslothStudioToolResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     tool: UnslothStudioReadTool
     ok: bool
@@ -120,7 +121,7 @@ class UnslothStudioToolResult(BaseModel):
 
 
 class UnslothStudioSnapshot(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     configured: bool
     available: bool
@@ -136,5 +137,6 @@ class UnslothStudioPermissionDenied(Exception):
     tool: UnslothStudioReadTool
     source: str
 
+    @override
     def __str__(self) -> str:
         return f"Permission denied for Unsloth Studio read tool: {self.tool.value}"

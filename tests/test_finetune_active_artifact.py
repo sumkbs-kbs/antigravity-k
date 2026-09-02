@@ -21,6 +21,19 @@ from antigravity_k.finetune.artifact_lifecycle import (
     FusedArtifactResult,
     FusedArtifactStatus,
 )
+from antigravity_k.finetune.evaluation_gate import (
+    CategoryComparison,
+    EvaluationCategory,
+    PairedStatisticalEvidence,
+    PromotionBenchmarkResult,
+    PromotionDecision,
+    PromotionGatePolicy,
+)
+from antigravity_k.finetune.promotion_probe import (
+    PromotionProbeTarget,
+    RuntimeProbeResult,
+    RuntimeProbeStatus,
+)
 
 
 def _artifact(output_path: Path, recipe_sha256: str = "b" * 64) -> FusedArtifactResult:
@@ -51,11 +64,107 @@ def _write_artifact(root: Path, name: str, recipe_sha256: str = "b" * 64) -> Pat
     return output_path
 
 
+def _write_decision(root: Path, name: str, contract: ArtifactPromotionContract) -> Path:
+    comparisons = tuple(
+        CategoryComparison(
+            category=category,
+            case_ids=(f"{category.value}-case",),
+            base_score=0.5,
+            tuned_score=1.0,
+            delta=0.5,
+            passed=True,
+        )
+        for category in EvaluationCategory
+    )
+    decision = PromotionDecision(
+        model="active-local",
+        evaluated_model="/models/base",
+        model_revision="sha256:base-revision",
+        recipe_sha256=contract.recipe_sha256,
+        evaluation_pair_sha256=contract.evaluation_sha256,
+        evaluation_sha256="e" * 64,
+        dataset_sha256="a" * 64,
+        policy=PromotionGatePolicy(approved_dataset_sha256="a" * 64),
+        categories=comparisons,
+        missing_categories=(),
+        base_score=0.5,
+        tuned_score=1.0,
+        delta=0.5,
+        statistical_evidence=PairedStatisticalEvidence(
+            observation_count=4,
+            paired_deltas=(0.5, 0.5, 0.5, 0.5),
+            mean_delta=0.5,
+            standard_error=0.0,
+            confidence_lower_bound=0.5,
+            confidence_upper_bound=0.5,
+        ),
+        eligible=True,
+        reasons=(),
+        results=tuple(
+            PromotionBenchmarkResult(
+                case_id=item.category.value,
+                quality_score=item.tuned_score,
+                benchmark_score=item.tuned_score,
+                quality_grade="excellent",
+            )
+            for item in comparisons
+        ),
+    )
+    path = root / f"{name}.decision.json"
+    _ = path.write_text(decision.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def _passing_probe(target: PromotionProbeTarget) -> RuntimeProbeResult:
+    return RuntimeProbeResult(
+        status=RuntimeProbeStatus.PASSED,
+        backend="test",
+        model_name=target.model_name,
+        detail="artifact loaded",
+    )
+
+
+def _promote(
+    artifact_path: Path,
+    *,
+    state_path: Path,
+    contract: ArtifactPromotionContract,
+) -> ActiveArtifactState:
+    outcome = promote_artifact(
+        artifact_path,
+        state_path=state_path,
+        contract=contract,
+        decision_path=_write_decision(state_path.parent, artifact_path.name, contract),
+        probe=_passing_probe,
+    )
+    assert isinstance(outcome, ActiveArtifactState)
+    return outcome
+
+
+def _write_fake_mlx(root: Path) -> Path:
+    module_root = root / "fake-runtime"
+    module_root.mkdir()
+    _ = (module_root / "mlx_lm.py").write_text(
+        "\n".join(
+            (
+                "def load(*, path_or_hf_repo, revision=None, adapter_path=None):",
+                "    return object(), object()",
+                "",
+                "def generate(model, tokenizer, *, prompt, max_tokens, sampler):",
+                "    return 'probe-ok'",
+                "",
+            ),
+        ),
+        encoding="utf-8",
+    )
+    return module_root
+
+
 def test_promotion_writes_validated_active_pointer_atomically(tmp_path: Path) -> None:
     artifact_path = _write_artifact(tmp_path, "candidate")
     state_path = tmp_path / "active.json"
 
-    promoted = promote_artifact(
+    promoted = _promote(
         artifact_path,
         state_path=state_path,
         contract=ArtifactPromotionContract(
@@ -77,7 +186,7 @@ def test_promotion_rejects_missing_manifest_without_state_change(tmp_path: Path)
     state_path = tmp_path / "active.json"
 
     with pytest.raises(ActiveArtifactError, match="Artifact manifest is required"):
-        _ = promote_artifact(
+        _ = _promote(
             tmp_path / "missing",
             state_path=state_path,
             contract=ArtifactPromotionContract(
@@ -93,7 +202,7 @@ def test_promotion_rejects_provenance_mismatch(tmp_path: Path) -> None:
     artifact_path = _write_artifact(tmp_path, "candidate")
 
     with pytest.raises(ActiveArtifactError, match="recipe provenance"):
-        _ = promote_artifact(
+        _ = _promote(
             artifact_path,
             state_path=tmp_path / "active.json",
             contract=ArtifactPromotionContract(
@@ -108,7 +217,7 @@ def test_promotion_rejects_failed_artifact_and_maintains_previous_pointer(
 ) -> None:
     previous = _write_artifact(tmp_path, "previous", "d" * 64)
     state_path = tmp_path / "active.json"
-    original = promote_artifact(
+    original = _promote(
         previous,
         state_path=state_path,
         contract=ArtifactPromotionContract(
@@ -126,7 +235,7 @@ def test_promotion_rejects_failed_artifact_and_maintains_previous_pointer(
     )
 
     with pytest.raises(ActiveArtifactError, match="Successful artifact"):
-        _ = promote_artifact(
+        _ = _promote(
             candidate,
             state_path=state_path,
             contract=ArtifactPromotionContract(
@@ -142,7 +251,7 @@ def test_promotion_and_rollback_preserve_previous_candidate(tmp_path: Path) -> N
     first = _write_artifact(tmp_path, "first", "d" * 64)
     second = _write_artifact(tmp_path, "second")
     state_path = tmp_path / "active.json"
-    _ = promote_artifact(
+    _ = _promote(
         first,
         state_path=state_path,
         contract=ArtifactPromotionContract(
@@ -150,7 +259,7 @@ def test_promotion_and_rollback_preserve_previous_candidate(tmp_path: Path) -> N
             evaluation_sha256="c" * 64,
         ),
     )
-    promoted = promote_artifact(
+    promoted = _promote(
         second,
         state_path=state_path,
         contract=ArtifactPromotionContract(
@@ -171,7 +280,7 @@ def test_promotion_and_rollback_preserve_previous_candidate(tmp_path: Path) -> N
 def test_rollback_rejects_initial_active_pointer(tmp_path: Path) -> None:
     artifact_path = _write_artifact(tmp_path, "candidate")
     state_path = tmp_path / "active.json"
-    _ = promote_artifact(
+    _ = _promote(
         artifact_path,
         state_path=state_path,
         contract=ArtifactPromotionContract(
@@ -210,7 +319,7 @@ def test_concurrent_promotions_produce_one_exact_winner(tmp_path: Path) -> None:
     with ThreadPoolExecutor(max_workers=2) as executor:
 
         def promote(artifact: Path) -> ActiveArtifactState:
-            return promote_artifact(
+            return _promote(
                 artifact,
                 state_path=state_path,
                 contract=contracts[artifact],
@@ -233,6 +342,11 @@ def test_concurrent_promotions_produce_one_exact_winner(tmp_path: Path) -> None:
 def test_promote_cli_and_rollback_cli_use_real_entrypoint(tmp_path: Path) -> None:
     artifact_path = _write_artifact(tmp_path, "candidate")
     state_path = tmp_path / "active.json"
+    contract = ArtifactPromotionContract(
+        recipe_sha256="b" * 64,
+        evaluation_sha256="c" * 64,
+    )
+    runtime = _write_fake_mlx(tmp_path)
     command = [
         sys.executable,
         "-m",
@@ -242,6 +356,8 @@ def test_promote_cli_and_rollback_cli_use_real_entrypoint(tmp_path: Path) -> Non
         str(artifact_path),
         "--state",
         str(state_path),
+        "--decision",
+        str(_write_decision(tmp_path, "candidate", contract)),
         "--recipe-sha256",
         "b" * 64,
         "--evaluation-sha256",
@@ -253,7 +369,7 @@ def test_promote_cli_and_rollback_cli_use_real_entrypoint(tmp_path: Path) -> Non
         capture_output=True,
         text=True,
         check=False,
-        env=os.environ | {"PYTHONPATH": "src"},
+        env=os.environ | {"PYTHONPATH": f"{runtime}:src"},
     )
     saved = ActiveArtifactState.model_validate_json(result.stdout)
 

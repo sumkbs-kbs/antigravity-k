@@ -7,11 +7,23 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, final, override
+from typing import ClassVar, Literal, final, override
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from antigravity_k.finetune.artifact_lifecycle import FusedArtifactResult, FusedArtifactStatus
+from antigravity_k.finetune.evaluation import EvaluationError
+from antigravity_k.finetune.evaluation_gate import (
+    PromotionDecision,
+    load_promotion_decision_artifact,
+    promotion_decision_sha256,
+)
+from antigravity_k.finetune.promotion_probe import (
+    PromotionProbeTarget,
+    RuntimeProbe,
+    RuntimeProbeResult,
+    RuntimeProbeStatus,
+)
 
 
 @final
@@ -49,8 +61,18 @@ class ActiveArtifactState(BaseModel):
     output_path: Path
     recipe_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     evaluation_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    promotion_decision_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     promotion_revision: int = Field(ge=1)
     previous_output_path: Path | None = None
+
+
+class FailedArtifactPromotion(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal[ActiveArtifactStatus.ROLLED_BACK] = ActiveArtifactStatus.ROLLED_BACK
+    candidate: ActiveArtifactState
+    active: ActiveArtifactState | None
+    probe: RuntimeProbeResult
 
 
 _artifact_adapter: TypeAdapter[FusedArtifactResult] = TypeAdapter(FusedArtifactResult)
@@ -99,11 +121,18 @@ def promote_artifact(
     *,
     state_path: Path,
     contract: ArtifactPromotionContract,
-) -> ActiveArtifactState:
+    decision_path: Path,
+    probe: RuntimeProbe,
+) -> ActiveArtifactState | FailedArtifactPromotion:
     with _state_lock(state_path):
         previous = _read_optional_state(state_path)
         artifact = _load_artifact(artifact_path)
         _validate_artifact(artifact, artifact_path=artifact_path, contract=contract)
+        try:
+            decision = load_promotion_decision_artifact(decision_path)
+        except EvaluationError as error:
+            raise ActiveArtifactError(str(error)) from error
+        _validate_decision(decision, artifact=artifact, contract=contract)
         state = ActiveArtifactState(
             status=ActiveArtifactStatus.ACTIVE,
             base_model=artifact.base_model,
@@ -111,11 +140,25 @@ def promote_artifact(
             output_path=artifact_path,
             recipe_sha256=artifact.recipe_sha256,
             evaluation_sha256=artifact.evaluation_sha256,
+            promotion_decision_sha256=promotion_decision_sha256(decision),
             promotion_revision=1 if previous is None else previous.promotion_revision + 1,
             previous_output_path=None if previous is None else previous.output_path,
         )
         _write_state_atomic(state_path, state)
-        return state
+        probe_result = probe(
+            PromotionProbeTarget(
+                output_path=artifact_path,
+                model_name=decision.model,
+            ),
+        )
+        if probe_result.status is RuntimeProbeStatus.PASSED:
+            return state
+        _restore_state(state_path, previous)
+        return FailedArtifactPromotion(
+            candidate=state,
+            active=previous,
+            probe=probe_result,
+        )
 
 
 def rollback_active_artifact(state_path: Path) -> ActiveArtifactState:
@@ -191,6 +234,32 @@ def _validate_artifact(
         raise ActiveArtifactError("Artifact evaluation provenance does not match the promotion contract.")
 
 
+def _validate_decision(
+    decision: PromotionDecision,
+    *,
+    artifact: FusedArtifactResult,
+    contract: ArtifactPromotionContract,
+) -> None:
+    if not decision.eligible:
+        raise ActiveArtifactError("Promotion decision is not eligible.")
+    if decision.evaluated_model != artifact.base_model or decision.model_revision != artifact.base_revision:
+        raise ActiveArtifactError("Promotion decision model provenance does not match the artifact.")
+    if decision.recipe_sha256 != contract.recipe_sha256:
+        raise ActiveArtifactError("Promotion decision recipe provenance does not match the contract.")
+    if decision.evaluation_pair_sha256 != contract.evaluation_sha256:
+        raise ActiveArtifactError("Promotion decision evaluation provenance does not match the contract.")
+
+
+def _restore_state(state_path: Path, previous: ActiveArtifactState | None) -> None:
+    if previous is not None:
+        _write_state_atomic(state_path, previous)
+        return
+    try:
+        state_path.unlink()
+    except FileNotFoundError:
+        return
+
+
 @contextmanager
 def _state_lock(state_path: Path) -> Generator[None]:
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,7 +274,6 @@ def _state_lock(state_path: Path) -> Generator[None]:
 
 def _write_state_atomic(state_path: Path, state: ActiveArtifactState) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_name = ""
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",

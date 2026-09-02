@@ -109,7 +109,8 @@ class ContextArtifactRecall:
         seen: set[str] = set()
         for message in messages:
             content = message.get("content", "")
-            for ref_id in _ARTIFACT_REF_PATTERN.findall(content):
+            ref_ids: list[str] = _ARTIFACT_REF_PATTERN.findall(content)
+            for ref_id in ref_ids:
                 if ref_id not in seen:
                     refs.append(ref_id)
                     seen.add(ref_id)

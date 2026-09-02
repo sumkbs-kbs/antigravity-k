@@ -1,95 +1,199 @@
-"""qwen3.6(로컬) vs frontier 모델 벤치마크 비교.
+"""Run a reproducible paired comparison between a local and frontier model.
 
-같은 벤치마크 케이스로 로컬 모델과 frontier 모델(gpt-4o-mini 등, OpenRouter)을
-비교해 "프론티어 근접도"를 측정한다. 증폭 off(revision_off)로 순수 모델 능력을
-비교한다.
-
-사용:
-    # .env 에 OPENROUTER_API_KEY 필요
+How to run:
     uv run python scripts/run_frontier_comparison.py
-    uv run python scripts/run_frontier_comparison.py --frontier openai/gpt-4o-mini --cases sim-001 lh-001
+    uv run python scripts/run_frontier_comparison.py --frontier openai/gpt-4o-mini
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime, timezone
+import hashlib
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
+
+from antigravity_k.engine.benchmark_cases import BenchmarkCase, get_suite
+from antigravity_k.engine.benchmark_harness import BenchmarkHarness, BenchmarkResult
+from antigravity_k.engine.frontier_evidence import (
+    FrontierEvidence,
+    FrontierEvidencePolicy,
+    FrontierHarnessConfig,
+    FrontierObservation,
+    build_frontier_evidence,
+)
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_registry import ModelRegistry
+from antigravity_k.engine.quality_gate import QualityGate
 
 
-def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--local", default="qwen3.6:latest", help="로컬 모델")
-    p.add_argument("--frontier", default="openai/gpt-4o-mini", help="frontier 모델")
-    p.add_argument(
-        "--cases",
-        nargs="+",
-        default=["sim-001", "lh-001"],
-        help="벤치마크 케이스 ID (default: sim-001 lh-001)",
+class UnknownBenchmarkCaseError(KeyError):
+    def __init__(self, case_ids: tuple[str, ...]):
+        self.case_ids: tuple[str, ...] = case_ids
+        super().__init__(", ".join(case_ids))
+
+
+class BenchmarkExecutionError(RuntimeError):
+    def __init__(self, result: BenchmarkResult):
+        self.case_id: str = result.case_id
+        self.target: str = result.target
+        self.detail: str = result.error or "empty benchmark output"
+        super().__init__(f"{result.case_id} × {result.target}: {self.detail}")
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreResult:
+    score: float
+    grade: str
+    latency_ms: float
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonPlan:
+    local_model: str
+    frontier_model: str
+    cases: tuple[BenchmarkCase, ...]
+    harness: FrontierHarnessConfig
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonCliArgs:
+    local_model: str
+    frontier_model: str
+    case_ids: tuple[str, ...]
+    repetitions: int
+    seed: int
+    maximum_gap: float
+    output: Path
+
+
+class ScoreProvider(Protocol):
+    def score(self, case_id: str, target: str) -> ScoreResult: ...
+
+
+class HarnessScoreProvider:
+    def __init__(self, manager: ModelManager):
+        self._manager: ModelManager = manager
+
+    def score(self, case_id: str, target: str) -> ScoreResult:
+        harness = BenchmarkHarness(
+            self._manager,
+            quality_gate=QualityGate(max_retries=0),
+            db_path=None,
+        )
+        output = harness.compare_amplification([case_id], target, modes=["revision_off"])
+        result = output["by_case"][case_id]["revision_off"]
+        return require_successful_score(result)
+
+
+def require_successful_score(result: BenchmarkResult) -> ScoreResult:
+    if result.error or "empty_output" in result.issues:
+        raise BenchmarkExecutionError(result)
+    return ScoreResult(
+        score=result.benchmark_score,
+        grade=result.quality_grade,
+        latency_ms=result.latency_ms,
     )
-    p.add_argument(
+
+
+def collect_observations(plan: ComparisonPlan, scorer: ScoreProvider) -> tuple[FrontierObservation, ...]:
+    observations: list[FrontierObservation] = []
+    for repetition in range(plan.harness.repetitions):
+        for case_index, case in enumerate(plan.cases):
+            local_first = (repetition + case_index + plan.harness.seed) % 2 == 0
+            if local_first:
+                local = scorer.score(case.id, plan.local_model)
+                frontier = scorer.score(case.id, plan.frontier_model)
+            else:
+                frontier = scorer.score(case.id, plan.frontier_model)
+                local = scorer.score(case.id, plan.local_model)
+            observations.append(
+                FrontierObservation(
+                    case_id=case.id,
+                    repetition=repetition,
+                    local_score=local.score,
+                    frontier_score=frontier.score,
+                    local_latency_ms=local.latency_ms,
+                    frontier_latency_ms=frontier.latency_ms,
+                )
+            )
+            gap = frontier.score - local.score
+            print(f"repeat={repetition + 1} case={case.id} local={local.score:.3f} frontier={frontier.score:.3f} gap={gap:+.3f}")
+    return tuple(observations)
+
+
+def _parse_args() -> ComparisonCliArgs:
+    parser = argparse.ArgumentParser(description=__doc__)
+    _ = parser.add_argument("--local", default="qwen3.8", help="local model registry identifier")
+    _ = parser.add_argument("--frontier", default="openai/gpt-4o-mini", help="frontier model identifier")
+    _ = parser.add_argument("--cases", nargs="*", default=(), help="exact benchmark case IDs")
+    _ = parser.add_argument("--repeats", type=int, default=3)
+    _ = parser.add_argument("--seed", type=int, default=0)
+    _ = parser.add_argument("--maximum-gap", type=float, default=0.05)
+    _ = parser.add_argument(
         "--output",
         type=Path,
         default=Path("data/benchmarks/frontier-comparison.json"),
-        help="결과 JSON 저장 경로",
     )
-    return p.parse_args()
+    values = parser.parse_args()
+    return ComparisonCliArgs(
+        local_model=cast(str, values.local),
+        frontier_model=cast(str, values.frontier),
+        case_ids=tuple(cast(list[str], values.cases)),
+        repetitions=cast(int, values.repeats),
+        seed=cast(int, values.seed),
+        maximum_gap=cast(float, values.maximum_gap),
+        output=cast(Path, values.output),
+    )
 
 
-def _score(harness, case_id: str, target: str) -> dict:
-    out = harness.compare_amplification([case_id], target, modes=["revision_off"])
-    r = out["by_case"][case_id]["revision_off"]
-    return {
-        "score": r.benchmark_score,
-        "grade": r.quality_grade,
-        "latency_ms": r.latency_ms,
-    }
+def _resolve_cases(case_ids: tuple[str, ...]) -> tuple[BenchmarkCase, ...]:
+    cases_by_id = {case.id: case for case in get_suite("all")}
+    selected_ids = case_ids or tuple(case.id for case in get_suite("frontier"))
+    unknown = tuple(case_id for case_id in selected_ids if case_id not in cases_by_id)
+    if unknown:
+        raise UnknownBenchmarkCaseError(unknown)
+    return tuple(cases_by_id[case_id] for case_id in selected_ids)
+
+
+def write_evidence_artifact(evidence: FrontierEvidence, output: Path) -> str:
+    body = f"{evidence.model_dump_json(indent=2)}\n"
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _ = output.write_text(body, encoding="utf-8")
+    _ = output.with_suffix(f"{output.suffix}.sha256").write_text(
+        f"{digest}  {output.name}\n",
+        encoding="utf-8",
+    )
+    return digest
 
 
 def main() -> int:
-    from antigravity_k.engine.benchmark_harness import BenchmarkHarness
-    from antigravity_k.engine.model_manager import ModelManager
-    from antigravity_k.engine.model_registry import ModelRegistry
-    from antigravity_k.engine.quality_gate import QualityGate
-
     args = _parse_args()
-    mgr = ModelManager(ModelRegistry())
-    rows = []
-
-    print(f"{'케이스':<12} {args.local:<20} {args.frontier:<20} 격차")
-    print("-" * 70)
-    for cid in args.cases:
-        # revision_off 로 순수 모델 능력 비교 (공평한 베이스라인)
-        h_local = BenchmarkHarness(mgr, quality_gate=QualityGate(max_retries=0), db_path=None)
-        local = _score(h_local, cid, args.local)
-        h_front = BenchmarkHarness(mgr, quality_gate=QualityGate(max_retries=0), db_path=None)
-        front = _score(h_front, cid, args.frontier)
-        gap = front["score"] - local["score"]
-        rows.append({"case_id": cid, "local": local, "frontier": front, "gap": gap})
-        print(f"{cid:<12} {local['score']:<20.2f} {front['score']:<20.2f} {gap:+.2f}")
-
-    avg_local = sum(r["local"]["score"] for r in rows) / len(rows)
-    avg_front = sum(r["frontier"]["score"] for r in rows) / len(rows)
-    avg_gap = avg_front - avg_local
-    print("-" * 70)
-    print(f"{'평균':<12} {avg_local:<20.2f} {avg_front:<20.2f} {avg_gap:+.2f}")
-    print(f"\n격차 {avg_gap:+.2f} (음수/0이면 로컬이 frontier 도달/초과, 양수가 격차)")
-
-    payload = {
-        "schema_version": 1,
-        "local_model": args.local,
-        "frontier_model": args.frontier,
-        "run_at": datetime.now(timezone.utc).isoformat(),
-        "cases": rows,
-        "avg_local": avg_local,
-        "avg_frontier": avg_front,
-        "avg_gap": avg_gap,
-    }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\n결과 저장: {args.output}")
-    return 0
+    cases = _resolve_cases(args.case_ids)
+    harness = FrontierHarnessConfig(repetitions=args.repetitions, seed=args.seed)
+    plan = ComparisonPlan(
+        local_model=args.local_model,
+        frontier_model=args.frontier_model,
+        cases=cases,
+        harness=harness,
+    )
+    observations = collect_observations(plan, HarnessScoreProvider(ModelManager(ModelRegistry())))
+    evidence = build_frontier_evidence(
+        local_model=plan.local_model,
+        frontier_model=plan.frontier_model,
+        cases=plan.cases,
+        harness=plan.harness,
+        observations=observations,
+        policy=FrontierEvidencePolicy(maximum_acceptable_gap=args.maximum_gap),
+    )
+    evidence_sha256 = write_evidence_artifact(evidence, args.output)
+    verdict = "PASS" if evidence.local_reaches_frontier else "FAIL"
+    print(
+        f"{verdict}: mean_gap={evidence.mean_gap:+.3f}, one_sided_95_upper={evidence.confidence_upper_bound:+.3f}, observations={evidence.observation_count}"
+    )
+    print(f"evidence={args.output} sha256={evidence_sha256}")
+    return 0 if evidence.local_reaches_frontier else 2
 
 
 if __name__ == "__main__":

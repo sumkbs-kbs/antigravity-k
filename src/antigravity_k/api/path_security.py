@@ -22,10 +22,12 @@ def allowed_roots() -> tuple[Path, ...]:
 
 def resolve_allowed_path(raw_path: str | Path) -> Path:
     """Resolve a path and require it to remain below one configured root."""
-    candidate = Path(raw_path).expanduser().resolve()
-    for root in allowed_roots():
+    roots = allowed_roots()
+    path = Path(raw_path).expanduser()
+    candidate = (path if path.is_absolute() else roots[0] / path).resolve()
+    for root in roots:
         try:
-            candidate.relative_to(root)
+            _ = candidate.relative_to(root)
         except ValueError:
             continue
         return candidate

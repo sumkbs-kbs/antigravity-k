@@ -10,9 +10,9 @@ Coverage targets:
   - Edge cases: empty strings, special characters, error paths
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -531,9 +531,11 @@ class TestWebSearchTool:
         assert tool.name == "web_search"
         assert isinstance(tool.description, str)
         assert len(tool.description) > 0
-        schema = tool.parameters_schema
+        schema = cast(Mapping[str, object], tool.parameters_schema)
         assert schema["type"] == "object"
-        assert "query" in schema["properties"]
+        properties = schema["properties"]
+        assert isinstance(properties, Mapping)
+        assert "query" in properties
 
     def test_execute_missing_query(self):
         """query 없이 execute 호출 시 에러 메시지."""

@@ -28,7 +28,7 @@ import logging
 import os
 import stat
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -81,7 +81,20 @@ _FERNET_KEY_LEN = 44
 
 _CURRENT_KDF_VERSION = 3
 
-_KDF_VERSIONS: dict[int, dict[str, Any]] = {
+class _KdfParams(TypedDict):
+    salt: bytes
+    iterations: int
+    label: str
+
+
+class _RotationResult(TypedDict):
+    success: bool
+    rotated: bool
+    services_count: int
+    error: str | None
+
+
+_KDF_VERSIONS: dict[int, _KdfParams] = {
     1: {
         "salt": b"antigravity-k-v1-salt",
         "iterations": 600_000,
@@ -233,7 +246,7 @@ def _get_machine_seed() -> str:
 
         mac = uuid.getnode()
         # 유효한 MAC은 48비트 양의 정수; 0xFF...는 유효하지 않음
-        if isinstance(mac, int) and mac > 0 and mac < (1 << 48):
+        if mac > 0 and mac < (1 << 48):
             logger.debug("Machine seed: MAC address")
             return mac.__str__()
     except Exception:
@@ -319,7 +332,7 @@ def _save_master_key_file(key: bytes, version: int = _CURRENT_KDF_VERSION) -> No
     _VAULT_KEY_DIR.mkdir(parents=True, exist_ok=True)
     # 형식: V{version}:{44바이트 키}
     data = f"V{version}:".encode() + key
-    _MASTER_KEY_FILE.write_bytes(data)
+    _ = _MASTER_KEY_FILE.write_bytes(data)
     try:
         os.chmod(_MASTER_KEY_FILE, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
@@ -352,7 +365,7 @@ def _get_or_create_master_key() -> bytes:
 
     # 새 마스터 키 생성 (최신 KDF 버전)
     machine_seed = _get_machine_seed()
-    _set_keychain_seed(machine_seed)
+    _ = _set_keychain_seed(machine_seed)
 
     key = _derive_key_from_seed(machine_seed, version=_CURRENT_KDF_VERSION)
     _save_master_key_file(key, version=_CURRENT_KDF_VERSION)
@@ -396,7 +409,7 @@ def _load_dotenv() -> dict[str, str]:
 # ─── config.yaml에서 키 로드 ────────────────────────────────────────
 
 
-def _load_config_keys() -> dict[str, Any]:
+def _load_config_keys() -> dict[str, str]:
     """config.yaml의 api_keys 섹션을 로드합니다."""
     config_path = _PROJECT_ROOT / "config.yaml"
     if not config_path.exists():
@@ -404,11 +417,21 @@ def _load_config_keys() -> dict[str, Any]:
     try:
         import yaml
 
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        keys = raw.get("api_keys", {})
+        raw: object = cast(object, yaml.safe_load(config_path.read_text(encoding="utf-8")))
+        if not raw:
+            raw = {}
+        if not isinstance(raw, dict):
+            return {}
+        raw_mapping = cast(dict[object, object], raw)
+        keys = raw_mapping.get("api_keys", {})
         if isinstance(keys, dict):
             # 자리표시자 키는 무시
-            return {k: v for k, v in keys.items() if isinstance(v, str) and not _is_placeholder(v)}
+            mapping = cast(dict[object, object], keys)
+            return {
+                k: v
+                for k, v in mapping.items()
+                if isinstance(k, str) and isinstance(v, str) and not _is_placeholder(v)
+            }
     except Exception:
         logger.exception("Failed to load config keys")
     return {}
@@ -422,7 +445,7 @@ def _is_placeholder(value: str) -> bool:
 # ─── Vault 암호화 저장소 ──────────────────────────────────────────
 
 
-def _load_vault_keys() -> dict[str, Any]:
+def _load_vault_keys() -> dict[str, str]:
     """암호화된 vault 저장소에서 키를 로드합니다."""
     if not _VAULT_DB.exists():
         return {}
@@ -430,20 +453,28 @@ def _load_vault_keys() -> dict[str, Any]:
         cipher = _get_cipher()
         encrypted = _VAULT_DB.read_bytes()
         decrypted = cipher.decrypt(encrypted)
-        return json.loads(decrypted.decode("utf-8"))
+        value: object = cast(object, json.loads(decrypted.decode("utf-8")))
+        if not isinstance(value, dict):
+            return {}
+        mapping = cast(dict[object, object], value)
+        return {
+            key: item
+            for key, item in mapping.items()
+            if isinstance(key, str) and isinstance(item, str)
+        }
     except Exception:
         logger.exception("Failed to load vault keys (may need re-init)")
         return {}
 
 
-def _save_vault_keys(keys: dict[str, Any]) -> None:
+def _save_vault_keys(keys: dict[str, str]) -> None:
     """키를 암호화하여 vault 저장소에 저장합니다."""
     _VAULT_KEY_DIR.mkdir(parents=True, exist_ok=True)
     try:
         cipher = _get_cipher()
         data = json.dumps(keys, ensure_ascii=False).encode("utf-8")
         encrypted = cipher.encrypt(data)
-        _VAULT_DB.write_bytes(encrypted)
+        _ = _VAULT_DB.write_bytes(encrypted)
         try:
             os.chmod(_VAULT_DB, stat.S_IRUSR | stat.S_IWUSR)
         except Exception:
@@ -623,7 +654,7 @@ def get_key_source(service: str) -> str:
 def rotate_master_key(
     new_seed: str | None = None,
     force: bool = False,
-) -> dict[str, Any]:
+) -> _RotationResult:
     """마스터 키를 순환(rotation)하고 모든 vault 데이터를 재암호화합니다.
 
     기존 vault DB(keys.enc)를 읽고 새 마스터 키로 다시 암호화합니다.
@@ -679,7 +710,7 @@ def rotate_master_key(
 
     # 5. 새 마스터 키 저장 (최신 KDF 버전)
     _save_master_key_file(new_key, version=_CURRENT_KDF_VERSION)
-    _set_keychain_seed(seed)
+    _ = _set_keychain_seed(seed)
     logger.info(
         "Master key rotated (force=%s, KDF v%d, new seed: %s...)",
         force,
@@ -694,7 +725,7 @@ def rotate_master_key(
             cipher = Fernet(new_key)
             data = json.dumps(old_keys, ensure_ascii=False).encode("utf-8")
             encrypted = cipher.encrypt(data)
-            _VAULT_DB.write_bytes(encrypted)
+            _ = _VAULT_DB.write_bytes(encrypted)
             try:
                 os.chmod(_VAULT_DB, stat.S_IRUSR | stat.S_IWUSR)
             except Exception:

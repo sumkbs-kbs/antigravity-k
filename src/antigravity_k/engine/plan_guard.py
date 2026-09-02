@@ -9,7 +9,7 @@
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class PlanGuard:
     """
 
     # 파괴적 명령어 패턴 정의 (OpenHuman/Careful Guardrails 기반)
-    DESTRUCTIVE_PATTERNS = [
+    DESTRUCTIVE_PATTERNS: ClassVar[list[str]] = [
         r"rm\s+-r[fF]?",  # 디렉토리 강제 삭제
         r"drop\s+(table|database)",  # SQL Drop
         r"git\s+reset\s+--hard",  # Git 하드 리셋
@@ -42,20 +42,20 @@ class PlanGuard:
         r"chmod\s+-R\s+777",  # 무차별 권한 변경
     ]
 
-    def __init__(self, strict_mode: bool = False):
+    def __init__(self, strict_mode: bool = False) -> None:
         """Initialize the PlanGuard.
 
         Args:
             strict_mode (bool): bool strict mode.
 
         """
-        self.strict_mode = strict_mode
-        self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in self.DESTRUCTIVE_PATTERNS]
+        self.strict_mode: bool = strict_mode
+        self._compiled_patterns: list[re.Pattern[str]] = [re.compile(p, re.IGNORECASE) for p in self.DESTRUCTIVE_PATTERNS]
 
     def evaluate_tool_call(
         self,
         tool_name: str,
-        tool_args: dict[str, Any],
+        tool_args: dict[str, object],
         execution_mode: str | None = None,
     ) -> GuardDecision:
         """도구 호출의 위험도를 평가합니다.
@@ -100,7 +100,8 @@ class PlanGuard:
             "docker_bash_command",
             "interactive_pty",
         ):
-            cmd = tool_args.get("command", "") or tool_args.get("CommandLine", "")
+            raw_cmd = tool_args.get("command") or tool_args.get("CommandLine")
+            cmd = raw_cmd if isinstance(raw_cmd, str) else ""
             if self._is_destructive_command(cmd):
                 return GuardDecision(
                     allows_execution=False,

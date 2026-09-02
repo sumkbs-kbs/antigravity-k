@@ -189,6 +189,7 @@ def _make_executor(tmp_path: Path) -> tuple[ToolExecutor, MagicMock]:
 
 def test_post_execute_records_classified_failure(tmp_path: Path) -> None:
     ex, reg = _make_executor(tmp_path)
+
     def failing_execution(
         _name: str,
         _args: dict[str, object],
@@ -196,8 +197,8 @@ def test_post_execute_records_classified_failure(tmp_path: Path) -> None:
     ) -> tuple[Permission, str]:
         _ = objective
         return (
-        Permission.ALLOW,
-        "Error: [exit_code=1] command timed out",
+            Permission.ALLOW,
+            "Error: [exit_code=1] command timed out",
         )
 
     reg.execute_with_permission = failing_execution
@@ -209,6 +210,7 @@ def test_post_execute_records_classified_failure(tmp_path: Path) -> None:
 
 def test_post_execute_resets_failure_on_success(tmp_path: Path) -> None:
     ex, reg = _make_executor(tmp_path)
+
     def failing_execution(
         _name: str,
         _args: dict[str, object],
@@ -216,8 +218,8 @@ def test_post_execute_resets_failure_on_success(tmp_path: Path) -> None:
     ) -> tuple[Permission, str]:
         _ = objective
         return (
-        Permission.ALLOW,
-        "Error: [exit_code=1] command timed out",
+            Permission.ALLOW,
+            "Error: [exit_code=1] command timed out",
         )
 
     def successful_execution(

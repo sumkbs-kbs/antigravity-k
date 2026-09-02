@@ -4,11 +4,43 @@ import ast
 import logging
 import os
 import time
-from typing import Any
+from typing import Literal, TypedDict
 
 from antigravity_k.engine.code_intel.knowledge_graph import KnowledgeGraph, NodeType
 
 logger = logging.getLogger("antigravity_k.engine.code_intel.pipeline")
+
+
+class _ScanPhase(TypedDict):
+    total_files: int
+    languages: list[str]
+
+
+class _ParsePhase(TypedDict):
+    symbols: int
+    calls: int
+
+
+class _ResolvePhase(TypedDict):
+    resolved_calls: int
+
+
+class _ClusterPhase(TypedDict):
+    communities: int
+    processes: int
+
+
+class _PipelinePhases(TypedDict):
+    scan: _ScanPhase
+    parse: _ParsePhase
+    resolve: _ResolvePhase
+    cluster: _ClusterPhase
+
+
+class PipelineResult(TypedDict):
+    status: Literal["SUCCESS"]
+    elapsed_seconds: float
+    phases: _PipelinePhases
 
 
 class CodeIndexPipeline:
@@ -16,8 +48,8 @@ class CodeIndexPipeline:
 
     def __init__(self):
         """Initialize the CodeIndexPipeline."""
-        self.graph = KnowledgeGraph()
-        self.repo_manager = None
+        self.graph: KnowledgeGraph = KnowledgeGraph()
+        self.repo_manager: None = None
 
     def load_existing(self, repo_path: str) -> bool:
         """Load existing.
@@ -32,10 +64,10 @@ class CodeIndexPipeline:
         # Check if index exists, for mock we just return True and pretend we loaded it
         # In reality this would load from chroma or disk
         if not self.graph.nodes:
-            self.run(repo_path, force=True)
+            _ = self.run(repo_path, force=True)
         return True
 
-    def run(self, repo_path: str, force: bool = False) -> dict[str, Any]:
+    def run(self, repo_path: str, force: bool = False) -> PipelineResult:
         """Run.
 
         Args:
@@ -47,11 +79,12 @@ class CodeIndexPipeline:
 
         """
         logger.info("Running CodeIndexPipeline on %s", repo_path)
+        _ = force
         start_time = time.time()
 
         # 1. Scan files
-        python_files = []
-        for root, dirs, files in os.walk(repo_path):
+        python_files: list[str] = []
+        for root, _dirs, files in os.walk(repo_path):
             if ".git" in root or "__pycache__" in root or "node_modules" in root:
                 continue
             for f in files:
@@ -95,7 +128,7 @@ class CodeIndexPipeline:
                         )
                         self.graph.add_edge(rel_path, cls_id, "CONTAINS")
                         symbols_extracted += 1
-            except Exception:
+            except (OSError, SyntaxError, UnicodeError):
                 logger.exception("Failed to parse %s", py_file)
 
         elapsed = time.time() - start_time

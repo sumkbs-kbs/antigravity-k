@@ -7,6 +7,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { readStoredAccessToken } from '../../utils/accessPinCredential';
 import 'xterm/css/xterm.css';
 
 const TerminalPanel: React.FC = () => {
@@ -80,7 +81,10 @@ const TerminalPanel: React.FC = () => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.port === '5173' || window.location.port === '5174' || window.location.port === '3000'
           ? 'localhost:8000' : window.location.host;
-        const ws = new WebSocket(`${protocol}//${host}/ws/terminal`);
+        const accessToken = readStoredAccessToken();
+        const ws = accessToken === null
+          ? new WebSocket(`${protocol}//${host}/ws/terminal`)
+          : new WebSocket(`${protocol}//${host}/ws/terminal`, [`bearer.${accessToken}`]);
         activeWs = ws;
         wsRef.current = ws;
 

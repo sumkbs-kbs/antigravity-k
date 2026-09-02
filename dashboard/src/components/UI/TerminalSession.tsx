@@ -8,7 +8,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { readStoredAccessPin } from '../../utils/accessPinCredential';
+import { readStoredAccessToken } from '../../utils/accessPinCredential';
 import 'xterm/css/xterm.css';
 
 interface Props {
@@ -96,10 +96,11 @@ const TerminalSession: React.FC<Props> = ({ sessionId }) => {
         const host = window.location.port === '5173' || window.location.port === '5174' || window.location.port === '3000'
           ? 'localhost:8000' : window.location.host;
         const wsUrl = new URL(`${protocol}//${host}/ws/terminal`);
-        const accessPin = readStoredAccessPin();
-        if (accessPin) wsUrl.searchParams.set('pin', accessPin);
+        const accessToken = readStoredAccessToken();
 
-        const ws = new WebSocket(wsUrl);
+        const ws = accessToken === null
+          ? new WebSocket(wsUrl)
+          : new WebSocket(wsUrl, [`bearer.${accessToken}`]);
         wsRef.current = ws;
 
         ws.onopen = () => {

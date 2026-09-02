@@ -10,10 +10,65 @@ These handlers access ``self._model_manager``, ``self._tool_registry``,
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
-from typing import Any, ClassVar
+from collections.abc import Callable, Iterator
+from typing import Protocol, cast
+
+from antigravity_k.engine.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
+
+
+class _ToolLike(Protocol):
+    def execute(self, **kwargs: object) -> str: ...
+
+
+class _ToolRegistryLike(Protocol):
+    def __len__(self) -> int: ...
+
+
+class _SessionManagerLike(Protocol):
+    def get_session_info(self) -> dict[str, object]: ...
+
+
+class _ModeManagerLike(Protocol):
+    is_plan: bool
+
+    def format_status(self) -> str: ...
+
+    def switch_to_plan(self, reason: str) -> bool: ...
+
+    def set_plan_artifact(self, path: str) -> None: ...
+
+    def set_plan_quality_passed(self, passed: bool) -> None: ...
+
+    def switch_to_build(self, plan_artifact_path: str | None = None, reason: str = "") -> bool: ...
+
+    def switch_to_interactive(self, reason: str) -> bool: ...
+
+
+class _ModelManagerLike(Protocol):
+    def get_model_info(self) -> object: ...
+
+
+class _AgentRuntimeLike(Protocol):
+    def goal_contract(self, objective: str, *, context: dict[str, object]) -> str: ...
+
+
+class _SkillLoaderLike(Protocol):
+    def activate(self, skill_name: str) -> object: ...
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _active_model(info: object) -> str:
+    value: object = "default"
+    if isinstance(info, dict):
+        value = cast(dict[str, object], info).get("active_model", "default")
+    else:
+        value = getattr(info, "active_model", "default")
+    return _as_text(value, "default")
 
 
 class SlashCommandWorkflowMixin:
@@ -23,29 +78,33 @@ class SlashCommandWorkflowMixin:
     via cooperative multiple inheritance (MRO).
     """
 
-    # Mixin-required attributes (resolved via MRO at runtime)
-    _tool_registry: ClassVar[Any]
-    _model_manager: ClassVar[Any]
-    _session_manager: ClassVar[Any]
-    _mode_manager: ClassVar[Any]
-    _skill_loader: ClassVar[Any]
-    _agent_runtime: ClassVar[Any]
-    _execute_natural_language: ClassVar[Any]
+    def _get_tool(self, name: str) -> _ToolLike | None:
+        registry = cast(object | None, getattr(self, "_tool_registry", None))
+        if registry is None:
+            return None
+        tools = cast(dict[str, _ToolLike], getattr(registry, "_tools", {}))
+        return tools.get(name)
+
+    def _get_model_manager(self) -> _ModelManagerLike | None:
+        return cast(_ModelManagerLike | None, getattr(self, "_model_manager", None))
+
+    def _get_skill_loader(self) -> _SkillLoaderLike | None:
+        return cast(_SkillLoaderLike | None, getattr(self, "_skill_loader", None))
 
     def _cmd_qa(self, args: list[str]) -> str:
         """대시보드 DOM 기반 자가 점검."""
-        if not self._tool_registry or "fetch_dom" not in self._tool_registry._tools:
+        tool = self._get_tool("fetch_dom")
+        if tool is None:
             return "❌ `fetch_dom` 도구가 레지스트리에 없습니다."
 
         url = args[0] if args else "http://127.0.0.1:8000/"
-        tool = self._tool_registry._tools["fetch_dom"]
 
         goto_res = tool.execute(action="goto", url=url)
         if "Error" in goto_res:
             return f"❌ QA 실패: 접속 중 오류 발생\n\n```text\n{goto_res}\n```"
 
         result = tool.execute(action="extract", selector="#app")
-        tool.execute(action="close")
+        _ = tool.execute(action="close")
 
         if "Error" in result or "error" in result.lower() and "browser" in result.lower():
             return f"❌ QA 실패: DOM 추출 중 오류 발생\n\n```text\n{result}\n```"
@@ -81,24 +140,29 @@ class SlashCommandWorkflowMixin:
         if not objective:
             objective = ""
 
-        context = {}
-        if self._session_manager:
+        context: dict[str, object] = {}
+        session_value = cast(object | None, getattr(self, "_session_manager", None))
+        if session_value:
             try:
-                context["session"] = self._session_manager.get_session_info()
+                session_manager = cast(_SessionManagerLike, session_value)
+                context["session"] = session_manager.get_session_info()
             except Exception:
                 logger.exception("Unhandled exception")
                 context["session"] = "unavailable"
-        if self._tool_registry:
+        tool_registry_value = cast(object | None, getattr(self, "_tool_registry", None))
+        if tool_registry_value:
             try:
-                context["tool_count"] = len(self._tool_registry)
+                context["tool_count"] = len(cast(_ToolRegistryLike, tool_registry_value))
             except Exception:
                 logger.exception("Unhandled exception")
                 context["tool_count"] = "unknown"
 
         from antigravity_k.engine.goal_runner import GoalRunner
 
-        if self._agent_runtime is not None:
-            return self._agent_runtime.goal_contract(objective, context=context)
+        runtime_value = cast(object | None, getattr(self, "_agent_runtime", None))
+        if runtime_value is not None:
+            runtime = cast(_AgentRuntimeLike, runtime_value)
+            return runtime.goal_contract(objective, context=context)
 
         runner = GoalRunner()
         report = runner.run(objective, context=context)
@@ -131,37 +195,44 @@ class SlashCommandWorkflowMixin:
 
     def _mode_status(self) -> str:
         """현재 모드 상태를 반환합니다."""
-        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+        mode_value = cast(object | None, getattr(self, "_mode_manager", None))
+        if mode_value is None:
             return "ModeManager not connected. Use the main session to access mode control."
-        return self._mode_manager.format_status()
+        manager = cast(_ModeManagerLike, mode_value)
+        return manager.format_status()
 
     def _mode_switch_plan(self, args: list[str]) -> str:
         """Plan 모드로 전환합니다."""
-        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+        mode_value = cast(object | None, getattr(self, "_mode_manager", None))
+        if mode_value is None:
             return "ModeManager not connected."
 
         reason = " ".join(args).strip() if args else "사용자 요청 (/plan)"
-        if self._mode_manager.switch_to_plan(reason):
-            return f"✅ **PLAN 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
+        manager = cast(_ModeManagerLike, mode_value)
+        if manager.switch_to_plan(reason):
+            return f"✅ **PLAN 모드로 전환되었습니다.**\n\n{manager.format_status()}"
         return "❌ PLAN 모드 전환에 실패했습니다."
 
     def _mode_switch_build(self, args: list[str]) -> str:
         """Build 모드로 전환합니다."""
-        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+        mode_value = cast(object | None, getattr(self, "_mode_manager", None))
+        if mode_value is None:
             return "ModeManager not connected."
 
         plan_path = args[0] if args else None
         reason = "사용자 요청 (/build)"
 
         if plan_path:
-            self._mode_manager.set_plan_artifact(plan_path)
-            self._mode_manager.set_plan_quality_passed(True)
+            manager = cast(_ModeManagerLike, mode_value)
+            manager.set_plan_artifact(plan_path)
+            manager.set_plan_quality_passed(True)
             reason = f"Plan 아티팩트 '{plan_path}' 기반 Build 모드 전환"
 
-        if self._mode_manager.switch_to_build(plan_artifact_path=plan_path, reason=reason):
-            return f"✅ **BUILD 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
+        manager = cast(_ModeManagerLike, mode_value)
+        if manager.switch_to_build(plan_artifact_path=plan_path, reason=reason):
+            return f"✅ **BUILD 모드로 전환되었습니다.**\n\n{manager.format_status()}"
 
-        if self._mode_manager.is_plan:
+        if manager.is_plan:
             return (
                 "❌ BUILD 모드 전환에 실패했습니다.\n\n"
                 "Plan → Build 자동 전환 조건이 충족되지 않았습니다:\n"
@@ -173,10 +244,12 @@ class SlashCommandWorkflowMixin:
 
     def _mode_switch_interactive(self) -> str:
         """Interactive 모드로 전환합니다."""
-        if not hasattr(self, "_mode_manager") or self._mode_manager is None:
+        mode_value = cast(object | None, getattr(self, "_mode_manager", None))
+        if mode_value is None:
             return "ModeManager not connected."
-        if self._mode_manager.switch_to_interactive("사용자 요청 (/mode interactive)"):
-            return f"✅ **INTERACTIVE 모드로 전환되었습니다.**\n\n{self._mode_manager.format_status()}"
+        manager = cast(_ModeManagerLike, mode_value)
+        if manager.switch_to_interactive("사용자 요청 (/mode interactive)"):
+            return f"✅ **INTERACTIVE 모드로 전환되었습니다.**\n\n{manager.format_status()}"
         return "❌ INTERACTIVE 모드 전환에 실패했습니다."
 
     def _cmd_aishell(self, args: list[str]) -> str:
@@ -185,7 +258,8 @@ class SlashCommandWorkflowMixin:
             return "Usage: `/aishell <자연어 명령어>`"
 
         intent = " ".join(args)
-        if not self._model_manager:
+        model_manager = self._get_model_manager()
+        if model_manager is None:
             return "❌ Error: Model manager is not connected."
 
         prompt = (
@@ -194,17 +268,15 @@ class SlashCommandWorkflowMixin:
             f"Task: {intent}"
         )
 
-        info = self._model_manager.get_model_info()
-        target_model = (
-            info.get("active_model", "default") if isinstance(info, dict) else getattr(info, "active_model", "default")
-        )
+        info = model_manager.get_model_info()
+        target_model = _active_model(info)
         if target_model == "default" or not target_model:
             target_model = "local-model"
 
         try:
             from antigravity_k.engine.orchestrator import OrchestratorAgent
 
-            orchestrator = OrchestratorAgent(model_manager=self._model_manager)
+            orchestrator = OrchestratorAgent(model_manager=cast(ModelManager, model_manager))
             messages = [{"role": "user", "content": prompt}]
             command = orchestrator.run_sync(messages, target_model=target_model).strip()
 
@@ -219,10 +291,10 @@ class SlashCommandWorkflowMixin:
             logger.exception("Unhandled exception")
             return f"❌ 명령어 번역 실패: {e}"
 
-        if not self._tool_registry or "run_bash_command" not in self._tool_registry._tools:
+        tool = self._get_tool("run_bash_command")
+        if tool is None:
             return f"번역된 명령어: `{command}`\n\n(실행 실패: run_bash_command 도구를 찾을 수 없습니다.)"
 
-        tool = self._tool_registry._tools["run_bash_command"]
         output = tool.execute(command=command, background=False)
 
         return (
@@ -234,12 +306,13 @@ class SlashCommandWorkflowMixin:
 
     def _cmd_benchmark(self, args: list[str]) -> str | Iterator[str]:
         """벤치마크 실행/보고서 출력."""
-        if not self._model_manager:
+        model_manager = self._get_model_manager()
+        if model_manager is None:
             return "❌ ModelManager가 필요합니다."
 
         from antigravity_k.engine.benchmark_harness import BenchmarkHarness
 
-        harness = BenchmarkHarness(model_manager=self._model_manager)
+        harness = BenchmarkHarness(model_manager=cast(ModelManager, model_manager))
 
         if not args:
             return (
@@ -316,18 +389,15 @@ class SlashCommandWorkflowMixin:
 
         prompt = engine.create_single_shot_prompt(query, use_council=use_council)
 
-        if self._model_manager:
+        model_manager = self._get_model_manager()
+        if model_manager:
             try:
                 from antigravity_k.engine.orchestrator import OrchestratorAgent
 
-                orchestrator = OrchestratorAgent(model_manager=self._model_manager)
+                orchestrator = OrchestratorAgent(model_manager=cast(ModelManager, model_manager))
                 messages = [{"role": "user", "content": prompt}]
-                info = self._model_manager.get_model_info()
-                target = (
-                    info.get("active_model", "default")
-                    if isinstance(info, dict)
-                    else getattr(info, "active_model", "default")
-                )
+                info = model_manager.get_model_info()
+                target = _active_model(info)
                 raw_result = orchestrator.run_sync(messages, target_model=target)
                 result = engine.parse_structured_response(raw_result, query)
                 return engine.render_markdown(result)
@@ -369,9 +439,10 @@ class SlashCommandWorkflowMixin:
 
         skill_name = skill_maps.get(command_name, command_name)
 
-        if self._skill_loader:
+        skill_loader = self._get_skill_loader()
+        if skill_loader:
             try:
-                self._skill_loader.activate(skill_name)
+                _ = skill_loader.activate(skill_name)
             except Exception:
                 logger.exception("Could not explicitly activate skill %s", skill_name)
 
@@ -380,4 +451,5 @@ class SlashCommandWorkflowMixin:
             f"Please strictly follow the workflow and verification gates defined for this skill.\n"
             f"Task: {prompt}"
         )
-        return self._execute_natural_language(system_injection)
+        handler = cast(Callable[[object, str], str], getattr(self, "_execute_natural_language"))
+        return handler(self, system_injection)

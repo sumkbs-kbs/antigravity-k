@@ -43,6 +43,14 @@ def _str_arg(args: dict[str, ActionValue], key: str, default: str = "") -> str:
     return value if isinstance(value, str) else default
 
 
+def _action_params(kwargs: Mapping[str, object]) -> dict[str, ActionValue]:
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if value is None or isinstance(value, (str, int, float, bool))
+    }
+
+
 @final
 class ComputerUseTool(BaseTool):
     """AI 에이전트가 사용자의 데스크탑을 조작할 수 있는 도구.
@@ -174,9 +182,10 @@ class ComputerUseTool(BaseTool):
         return self._schema
 
     @override
-    def execute(self, **kwargs: ActionValue) -> ActionResult:
+    def execute(self, **kwargs: object) -> ActionResult:
         """액션을 실행합니다."""
-        action_value = kwargs.get("action")
+        params = _action_params(kwargs)
+        action_value = params.get("action")
         if not action_value:
             return {"error": "No action specified."}
         if not isinstance(action_value, str):
@@ -186,13 +195,13 @@ class ComputerUseTool(BaseTool):
         # 해상도 주입 (위험 영역 검사용)
         try:
             screen_w, screen_h = self._drivers.screen.get_screen_size()
-            kwargs["screen_width"] = screen_w
-            kwargs["screen_height"] = screen_h
+            params["screen_width"] = screen_w
+            params["screen_height"] = screen_h
         except Exception:
             logger.exception("Could not get screen size for validation")
 
         # ── 보안 검증 ──
-        validation = self._guard.validate_action(action, kwargs)
+        validation = self._guard.validate_action(action, params)
         if not validation["allowed"]:
             return {"error": f"Action blocked: {validation['reason']}"}
 
@@ -218,7 +227,7 @@ class ComputerUseTool(BaseTool):
             handler = handlers.get(action)
             if handler is None:
                 return {"error": f"Unknown action: {action}"}
-            return handler(**kwargs)
+            return handler(**params)
         except Exception as e:
             logger.error("Computer use error [%s]: %s", action, e, exc_info=True)
             return {"error": f"Failed to execute '{action}': {str(e)}"}

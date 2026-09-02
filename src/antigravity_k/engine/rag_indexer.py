@@ -14,13 +14,17 @@ SurfSense 양분 이식:
 
 import ast
 import hashlib
+import json
 import logging
 import os
 import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypeAlias, cast
+
+from antigravity_k.engine.long_context_fusion import LongContextFusion
 
 logger = logging.getLogger("antigravity_k.rag_indexer")
 
@@ -43,6 +47,23 @@ IGNORE_DIRS = {
 
 # 청크 최대 길이 (토큰 기준 근사치, 1 토큰 ≈ 4 chars)
 MAX_CHUNK_CHARS = 3000  # ~750 tokens
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def _as_record(value: object) -> dict[str, object]:
+    return cast(dict[str, object], value) if isinstance(value, dict) else {}
+
+
+class VectorStoreLike(Protocol):
+    persist_directory: str
+
+    def get_stats(self) -> dict[str, object]: ...
+
+    def search(self, query: str, n_results: int = 5) -> list[dict[str, object]]: ...
+
+    def upsert_chunks(self, chunks: Sequence[Mapping[str, object]]) -> None: ...
+
+    def delete_file_chunks(self, file_path: str) -> None: ...
 
 
 @dataclass
@@ -56,13 +77,19 @@ class CodeChunk:
     content: str
     start_line: int
     end_line: int
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 class RAGIndexer:
     """프로젝트 코드를 청크 단위로 분할하고 VectorStore에 인덱싱합니다."""
 
-    def __init__(self, project_root: str, vector_store=None):
+    def __init__(
+        self,
+        project_root: str,
+        vector_store: object | None = None,
+        batch_size: int = 256,
+        manifest_path: str | None = None,
+    ):
         """Initialize the RAGIndexer.
 
         Args:
@@ -70,9 +97,55 @@ class RAGIndexer:
             vector_store: vector store.
 
         """
-        self.project_root = os.path.abspath(project_root)
-        self.vector_store = vector_store
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        self.project_root: str = os.path.abspath(project_root)
+        self.vector_store: VectorStoreLike | None = cast(VectorStoreLike | None, vector_store)
+        self.batch_size: int = batch_size
+        store_directory = getattr(vector_store, "persist_directory", None)
+        self._manifest_path: Path | None = (
+            Path(manifest_path)
+            if manifest_path
+            else (Path(store_directory) / "rag-manifest.json" if isinstance(store_directory, str) else None)
+        )
         self._file_hashes: dict[str, str] = {}
+        self._long_context_fusion: LongContextFusion = LongContextFusion()
+        self._load_manifest()
+
+    def _load_manifest(self) -> None:
+        if self._manifest_path is None or not self._store_has_chunks() or not self._manifest_path.is_file():
+            return
+        try:
+            payload = cast(object, json.loads(self._manifest_path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            logger.warning("[RAGIndexer] Could not load manifest: %s", self._manifest_path)
+            return
+        files = _as_record(payload).get("files")
+        if isinstance(files, dict):
+            file_map = cast(dict[object, object], files)
+            self._file_hashes = {str(path): value for path, value in file_map.items() if isinstance(value, str)}
+
+    def _store_has_chunks(self) -> bool:
+        if self.vector_store is None:
+            return False
+        stats_fn = cast(Callable[[], dict[str, object]] | None, getattr(self.vector_store, "get_stats", None))
+        if not callable(stats_fn):
+            return False
+        stats = stats_fn()
+        count = stats.get("count")
+        return isinstance(count, int) and count > 0
+
+    def _persist_manifest(self) -> None:
+        if self._manifest_path is None:
+            return
+        payload = {"version": 1, "files": self._file_hashes}
+        try:
+            self._manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = self._manifest_path.with_suffix(".tmp")
+            _ = temporary_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+            _ = temporary_path.replace(self._manifest_path)
+        except OSError:
+            logger.warning("[RAGIndexer] Could not persist manifest: %s", self._manifest_path)
 
     def index_project(self, subdirs: list[str] | None = None) -> int:
         """프로젝트 전체 또는 지정된 하위 디렉토리를 인덱싱합니다.
@@ -87,6 +160,7 @@ class RAGIndexer:
             scan_dirs = [self.project_root]
 
         all_chunks: list[CodeChunk] = []
+        changed_files: list[str] = []
 
         for scan_dir in scan_dirs:
             if not os.path.isdir(scan_dir):
@@ -115,6 +189,7 @@ class RAGIndexer:
                     if self._file_hashes.get(rel_path) == content_hash:
                         continue  # 변경 없음 → 스킵
                     self._file_hashes[rel_path] = content_hash
+                    changed_files.append(rel_path)
 
                     # 파일 유형별 청킹
                     if ext == ".py":
@@ -127,7 +202,11 @@ class RAGIndexer:
                     self._annotate_chunks(chunks, content_hash)
                     all_chunks.extend(chunks)
 
-        # VectorStore에 업서트
+        if self.vector_store:
+            delete_chunks = getattr(self.vector_store, "delete_file_chunks", None)
+            if callable(delete_chunks):
+                for rel_path in changed_files:
+                    _ = delete_chunks(rel_path)
         if self.vector_store and all_chunks:
             store_chunks = [
                 {
@@ -144,9 +223,13 @@ class RAGIndexer:
                 }
                 for c in all_chunks
             ]
-            self.vector_store.upsert_chunks(store_chunks)
+            for start in range(0, len(store_chunks), self.batch_size):
+                self.vector_store.upsert_chunks(
+                    cast(Sequence[Mapping[str, object]], store_chunks[start : start + self.batch_size])
+                )
             logger.info("[RAGIndexer] Indexed %s chunks from project", len(store_chunks))
 
+        self._persist_manifest()
         return len(all_chunks)
 
     def sync(self, subdirs: list[str] | None = None) -> int:
@@ -156,7 +239,7 @@ class RAGIndexer:
         else:
             scan_dirs = [self.project_root]
 
-        current_files = set()
+        current_files: set[str] = set()
         for scan_dir in scan_dirs:
             if not os.path.isdir(scan_dir):
                 continue
@@ -243,7 +326,12 @@ class RAGIndexer:
                 }
                 for c in chunks
             ]
-            self.vector_store.upsert_chunks(store_chunks)
+            for start in range(0, len(store_chunks), self.batch_size):
+                self.vector_store.upsert_chunks(
+                    cast(Sequence[Mapping[str, object]], store_chunks[start : start + self.batch_size])
+                )
+
+        self._persist_manifest()
 
         return len(chunks)
 
@@ -265,12 +353,14 @@ class RAGIndexer:
                 },
             )
 
-    def _attach_provenance(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        enriched: list[dict[str, Any]] = []
+    def _attach_provenance(self, results: list[dict[str, object]]) -> list[dict[str, object]]:
+        enriched: list[dict[str, object]] = []
         for result in results:
-            metadata = result.get("metadata") or {}
-            source = metadata.get("source")
-            source_hash = metadata.get("source_hash")
+            metadata = _as_record(result.get("metadata"))
+            source_value = metadata.get("source")
+            source = source_value if isinstance(source_value, str) else None
+            source_hash_value = metadata.get("source_hash")
+            source_hash = source_hash_value if isinstance(source_hash_value, str) else None
             freshness = "unknown"
 
             if source:
@@ -304,13 +394,13 @@ class RAGIndexer:
     def validate_citations(
         self,
         response: str,
-        results: list[dict[str, Any]],
+        results: list[dict[str, object]],
         require_citation: bool = True,
-    ) -> dict[str, Any]:
-        cited = list(dict.fromkeys(re.findall(r"\[citation:([^\]\s]+)\]", response or "")))
+    ) -> dict[str, object]:
+        cited: list[str] = list(dict.fromkeys(re.findall(r"\[citation:([^\]\s]+)\]", response or "")))
         eligible: dict[str, str] = {}
         for result in results:
-            provenance = result.get("provenance") or {}
+            provenance = _as_record(result.get("provenance"))
             source_id = provenance.get("source_id") or result.get("id")
             if source_id:
                 eligible[str(source_id)] = str(provenance.get("freshness", "unknown"))
@@ -327,7 +417,7 @@ class RAGIndexer:
             "missing_citation": missing_citation,
         }
 
-    def search(self, query: str, n_results: int = 5, mode: str = "hybrid") -> list[dict[str, Any]]:
+    def search(self, query: str, n_results: int = 5, mode: str = "hybrid") -> list[dict[str, object]]:
         """질문과 관련된 코드 청크를 검색합니다.
 
         Args:
@@ -343,80 +433,224 @@ class RAGIndexer:
             results = self._keyword_search(query, n_results)
         elif mode == "semantic":
             results = self.vector_store.search(query, n_results=n_results)
+        elif mode == "long_context":
+            results = self.search_long_context(query, n_results=n_results)
         else:  # hybrid (default)
             results = self._hybrid_search_rrf(query, n_results)
 
         return self._attach_provenance(results)
 
-    def _keyword_search(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
+    def search_long_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        candidate_pool: int = 128,
+    ) -> list[dict[str, object]]:
+        if not self.vector_store or n_results <= 0 or candidate_pool <= 0:
+            return []
+        pool = min(candidate_pool, self._long_context_fusion.config.candidate_pool)
+        result_limit = min(n_results, pool)
+        if result_limit <= 0:
+            return []
+        semantic_results = [
+            result for result in self.vector_store.search(query, n_results=pool) if not self._is_stale_result(result)
+        ]
+        sparse_results = [
+            result for result in self._keyword_search(query, n_results=pool) if not self._is_stale_result(result)
+        ]
+        ranked = self._long_context_fusion.rank(
+            query,
+            cast(Sequence[Mapping[str, JsonValue]], sparse_results),
+            cast(Sequence[Mapping[str, JsonValue]], semantic_results),
+            n_results=result_limit,
+            candidate_pool=candidate_pool,
+        )
+        return cast(list[dict[str, object]], ranked)
+
+    def _keyword_search(self, query: str, n_results: int = 5) -> list[dict[str, object]]:
         """키워드 기반 정확 매칭 검색 (식별자, 함수명, 클래스명 등)."""
         if not self.vector_store:
             return []
 
-        all_chunks = getattr(self.vector_store, "_chunks", None)
+        all_chunks = cast(Sequence[Mapping[str, object]] | None, getattr(self.vector_store, "_chunks", None))
         if all_chunks is None:
             # VectorStore가 내부 청크 목록을 노출하지 않으면 시맨틱으로 폴백
             return self.vector_store.search(query, n_results=n_results)
 
-        query_tokens = query.lower().split()
-        scored: list[tuple[float, dict[str, Any]]] = []
+        query_tokens = self._query_tokens(query)
+        query_token_set = set(query_tokens)
+        normalized_query = " ".join(query_tokens)
+        scored: list[tuple[float, dict[str, object]]] = []
         for chunk in all_chunks:
-            text = chunk.get("text", "").lower()
-            meta = chunk.get("metadata", {})
-            node_name = meta.get("node_name", "").lower()
+            text = str(chunk.get("text", ""))
+            meta = _as_record(chunk.get("metadata"))
+            node_name = str(meta.get("node_name", ""))
+            source = str(meta.get("source", ""))
+            text_tokens = set(self._query_tokens(text))
+            node_tokens = set(self._query_tokens(node_name))
+            source_tokens = set(self._query_tokens(Path(source).stem))
 
             # 식별자 정확 매칭 보너스
             score = 0.0
             for token in query_tokens:
-                if token in node_name:
-                    score += 3.0  # 이름 매칭 가중치
-                if token in text:
+                if token in node_tokens:
+                    score += 5.0
+                elif token in node_name.lower():
+                    score += 2.0
+                if token in text_tokens:
                     score += 1.0
+                if token in source_tokens:
+                    score += 0.5
+
+            if source_tokens:
+                source_overlap = len(query_token_set & source_tokens)
+                score += 2.0 * source_overlap / len(source_tokens)
+                if source_tokens <= query_token_set:
+                    score += 4.0
+
+            normalized_name = " ".join(self._query_tokens(node_name))
+            normalized_text = " ".join(self._query_tokens(text))
+            if normalized_query and normalized_query == normalized_name:
+                score += 8.0
+            elif normalized_query and normalized_query in normalized_text:
+                score += 2.0
 
             if score > 0:
-                scored.append((score, chunk))
+                scored.append((score, dict(chunk)))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item[1] for item in scored[:n_results]]
 
-    def _hybrid_search_rrf(self, query: str, n_results: int = 5) -> list[dict[str, Any]]:
+    def _hybrid_search_rrf(self, query: str, n_results: int = 5) -> list[dict[str, object]]:
         """Hybrid Search with Reciprocal Rank Fusion (SurfSense 패턴).
 
         시맨틱 검색과 키워드 검색 결과를 RRF 공식으로 융합합니다.
         RRF score = 1/(k + rank_semantic) + 1/(k + rank_keyword)
         """
         k = 60  # RRF 상수 (SurfSense 동일)
-        fetch_n = n_results * 3  # 더 많이 가져와서 융합
+        fetch_n = max(n_results * 6, 20)
 
         # 두 검색 채널 실행
         vector_store = self.vector_store
         if vector_store is None:
             return []
-        semantic_results = vector_store.search(query, n_results=fetch_n)
+        expanded_query = self._expand_query(query)
+        semantic_channels = [(1.0, vector_store.search(query, n_results=fetch_n))]
+        if expanded_query and expanded_query != query.strip().lower():
+            semantic_channels.append((0.7, vector_store.search(expanded_query, n_results=fetch_n)))
         keyword_results = self._keyword_search(query, fetch_n)
 
         # 청크 ID → RRF 점수 계산
         rrf_scores: dict[str, float] = {}
-        chunk_map: dict[str, dict[str, Any]] = {}
+        chunk_map: dict[str, dict[str, object]] = {}
 
-        for rank, result in enumerate(semantic_results):
-            cid = result.get("id", str(rank))
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
-            chunk_map[cid] = result
+        for channel_weight, semantic_results in semantic_channels:
+            for rank, result in enumerate(semantic_results):
+                if self._is_stale_result(result):
+                    continue
+                cid = str(result.get("id") or hashlib.sha256(str(result.get("text", "")).encode()).hexdigest()[:16])
+                node_weight = self._retrieval_node_weight(query, result)
+                rrf_scores[cid] = rrf_scores.get(cid, 0.0) + node_weight * channel_weight / (k + rank + 1)
+                _ = chunk_map.setdefault(cid, result)
 
         for rank, result in enumerate(keyword_results):
-            cid = result.get("id", str(hash(result.get("text", "")[:100])))
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            if self._is_stale_result(result):
+                continue
+            cid = str(result.get("id") or hashlib.sha256(str(result.get("text", "")).encode()).hexdigest()[:16])
+            node_weight = self._retrieval_node_weight(query, result)
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + node_weight * 1.2 / (k + rank + 1)
             if cid not in chunk_map:
                 chunk_map[cid] = result
 
         # RRF 점수 기준 정렬
-        sorted_ids = sorted(rrf_scores, key=lambda k: rrf_scores.get(k, 0.0), reverse=True)
-        return [chunk_map[cid] for cid in sorted_ids[:n_results] if cid in chunk_map]
+        sorted_ids = sorted(rrf_scores, key=lambda cid: (-rrf_scores[cid], cid))
+        selected: list[dict[str, object]] = []
+        selected_ids: set[str] = set()
+        source_counts: dict[str, int] = {}
 
-    def format_context(self, query: str, n_results: int = 5, max_chars: int = 6000) -> str:
+        for allow_duplicate in (False, True):
+            for cid in sorted_ids:
+                if cid in selected_ids:
+                    continue
+                candidate = chunk_map.get(cid)
+                if candidate is None:
+                    continue
+                result = candidate
+                metadata = _as_record(result.get("metadata"))
+                source = str(metadata.get("source") or cid)
+                source_count = source_counts.get(source, 0)
+                if source_count >= 2 or (not allow_duplicate and source_count > 0):
+                    continue
+                selected.append(result)
+                selected_ids.add(cid)
+                source_counts[source] = source_count + 1
+                if len(selected) >= n_results:
+                    return selected
+        return selected
+
+    @staticmethod
+    def _retrieval_node_weight(query: str, result: dict[str, object]) -> float:
+        metadata = _as_record(result.get("metadata"))
+        if metadata.get("node_type") != "module_header":
+            return 1.0
+        query_tokens = set(RAGIndexer._query_tokens(query))
+        source_tokens = set(RAGIndexer._query_tokens(str(metadata.get("source", ""))))
+        node_tokens = set(RAGIndexer._query_tokens(str(metadata.get("node_name", ""))))
+        return 1.0 if query_tokens <= source_tokens or query_tokens <= node_tokens else 0.35
+
+    @staticmethod
+    def _query_tokens(value: str) -> tuple[str, ...]:
+        raw_tokens: list[str] = re.findall(r"[A-Za-z][A-Za-z0-9_-]*|[가-힣]{2,}", str(value))
+        tokens: list[str] = []
+        for raw_token in raw_tokens:
+            split_token = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", raw_token)
+            split_token = split_token.replace("_", " ").replace("-", " ")
+            tokens.extend(part.lower() for part in split_token.split() if len(part) > 1)
+        return tuple(dict.fromkeys(tokens))
+
+    @staticmethod
+    def _expand_query(query: str) -> str:
+        aliases: dict[str, tuple[str, ...]] = {
+            "artifact": ("chunk", "manifest"),
+            "compaction": ("compress", "compact"),
+            "context": ("memory", "window"),
+            "provenance": ("citation", "source"),
+            "recall": ("retrieve", "restore"),
+            "retrieval": ("search", "retrieve"),
+        }
+        expanded = dict.fromkeys(RAGIndexer._query_tokens(query))
+        for token in tuple(expanded):
+            expanded.update(dict.fromkeys(aliases.get(token, ())))
+        return " ".join(expanded)
+
+    def _is_stale_result(self, result: dict[str, object]) -> bool:
+        metadata = _as_record(result.get("metadata"))
+        source = metadata.get("source")
+        expected_hash = metadata.get("source_hash")
+        if not isinstance(source, str) or not isinstance(expected_hash, str):
+            return False
+        source_path = Path(source) if os.path.isabs(source) else Path(self.project_root) / source
+        if not source_path.is_file():
+            return False
+        try:
+            current_hash = hashlib.md5(source_path.read_bytes()).hexdigest()
+        except OSError:
+            return False
+        return current_hash != expected_hash
+
+    def format_context(
+        self,
+        query: str,
+        n_results: int = 5,
+        max_chars: int = 6000,
+        mode: str = "hybrid",
+        candidate_pool: int | None = None,
+    ) -> str:
         """검색 결과를 오케스트레이터에 주입할 컨텍스트 문자열로 포맷합니다."""
-        results = self.search(query, n_results=n_results)
+        if mode == "long_context" and candidate_pool is not None:
+            results = self.search_long_context(query, n_results=n_results, candidate_pool=candidate_pool)
+        else:
+            results = self.search(query, n_results=n_results, mode=mode)
         if not results:
             return ""
 
@@ -427,12 +661,12 @@ class RAGIndexer:
         total_chars = 0
         for r in results:
             text = r.get("text", "")
-            meta = r.get("metadata", {})
+            meta = _as_record(r.get("metadata", {}))
             source = meta.get("source", "unknown")
             node_name = meta.get("node_name", "")
             start = meta.get("start_line", "?")
             end = meta.get("end_line", "?")
-            provenance = r.get("provenance") or {}
+            provenance = _as_record(r.get("provenance"))
             source_id = provenance.get("source_id") or r.get("id")
             citation = f" [citation:{source_id}]" if source_id else ""
             freshness = provenance.get("freshness", "unknown")
@@ -504,8 +738,8 @@ class RAGIndexer:
         chunks: list[CodeChunk],
         rel_path: str,
         lines: list[str],
-        node,
-    ):
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
         """함수 노드를 청크로 추출합니다."""
         start = node.lineno - 1  # 0-indexed
         end = node.end_lineno or node.lineno
@@ -527,7 +761,7 @@ class RAGIndexer:
             ),
         )
 
-    def _extract_class_chunk(self, chunks: list[CodeChunk], rel_path: str, lines: list[str], node):
+    def _extract_class_chunk(self, chunks: list[CodeChunk], rel_path: str, lines: list[str], node: ast.ClassDef) -> None:
         """클래스 노드를 청크로 추출합니다. 메서드는 개별 청크로 분리."""
         # 클래스 시그니처 + docstring
         class_start = node.lineno - 1
@@ -569,7 +803,7 @@ class RAGIndexer:
     # ─── Markdown 청킹 (Table-Aware, SurfSense 패턴) ────────
 
     # Markdown 테이블 블록 감지 정규식
-    _TABLE_BLOCK_RE = re.compile(
+    _TABLE_BLOCK_RE: re.Pattern[str] = re.compile(
         r"(?:(?:^|\n)(?=[ \t]*\|)(?:[ \t]*\|[^\n]*\n)+)",
         re.MULTILINE,
     )
@@ -622,7 +856,7 @@ class RAGIndexer:
         self,
         rel_path: str,
         prose: str,
-        char_offset: int = 0,
+        _char_offset: int = 0,
     ) -> list[CodeChunk]:
         """Markdown 산문(비-테이블) 텍스트를 헤딩 기준으로 분할합니다."""
         chunks: list[CodeChunk] = []
@@ -704,7 +938,7 @@ class RAGIndexer:
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     @staticmethod
-    def _decorator_name(node) -> str:
+    def _decorator_name(node: ast.expr) -> str:
         """데코레이터 이름을 추출합니다."""
         if isinstance(node, ast.Name):
             return node.id

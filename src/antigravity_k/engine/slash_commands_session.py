@@ -89,6 +89,10 @@ class _ToolRegistryLike(Protocol):
     def __len__(self) -> int: ...
 
 
+ModelManagerProtocol = _ModelManagerLike
+ToolRegistryProtocol = _ToolRegistryLike
+
+
 class SlashCommandSessionMixin:
     """Session and context management command handlers.
 

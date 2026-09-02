@@ -8,6 +8,15 @@ import subprocess
 logger = logging.getLogger(__name__)
 
 
+def _stderr_text(error: subprocess.CalledProcessError) -> str:
+    raw_stderr: object = error.__dict__.get("stderr")
+    if isinstance(raw_stderr, str):
+        return raw_stderr
+    if isinstance(raw_stderr, bytes):
+        return raw_stderr.decode(errors="replace")
+    return str(error)
+
+
 class WorktreeManager:
     """Git Worktree 기반의 샌드박스 격리 매니저.
 
@@ -15,7 +24,7 @@ class WorktreeManager:
     격리된 환경(Worktree)에서 작업할 수 있도록 지원합니다.
     """
 
-    def __init__(self, base_repo_path: str = ".", worktrees_dir: str = ".ag_worktrees"):
+    def __init__(self, base_repo_path: str = ".", worktrees_dir: str = ".ag_worktrees") -> None:
         """Initialize the WorktreeManager.
 
         Args:
@@ -23,8 +32,8 @@ class WorktreeManager:
             worktrees_dir (str): str worktrees dir.
 
         """
-        self.base_repo_path = base_repo_path
-        self.worktrees_dir = os.path.join(base_repo_path, worktrees_dir)
+        self.base_repo_path: str = base_repo_path
+        self.worktrees_dir: str = os.path.join(base_repo_path, worktrees_dir)
 
         if not os.path.exists(self.worktrees_dir):
             os.makedirs(self.worktrees_dir)
@@ -52,7 +61,7 @@ class WorktreeManager:
         ]
 
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            _ = subprocess.run(cmd, check=True, capture_output=True, text=True)
             logger.info(
                 "[Worktree] Created isolated sandbox at %s on branch %s",
                 worktree_path,
@@ -63,7 +72,7 @@ class WorktreeManager:
             # If branch already exists, we might need to just checkout
             logger.warning(
                 "[Worktree] Failed to create worktree via branch creation. Retrying with existing branch. Err: %s",
-                e.stderr,
+                _stderr_text(e),
             )
             cmd_fallback = [
                 "git",
@@ -75,7 +84,7 @@ class WorktreeManager:
                 branch_name,
             ]
             try:
-                subprocess.run(cmd_fallback, check=True, capture_output=True, text=True)
+                _ = subprocess.run(cmd_fallback, check=True, capture_output=True, text=True)
                 logger.info(
                     "[Worktree] Created sandbox at %s using existing branch %s",
                     worktree_path,
@@ -83,10 +92,10 @@ class WorktreeManager:
                 )
                 return worktree_path
             except subprocess.CalledProcessError as e2:
-                logger.error("[Worktree] Completely failed to create worktree: %s", e2.stderr)
-                raise RuntimeError(f"Worktree creation failed: {e2.stderr}")
+                logger.error("[Worktree] Completely failed to create worktree: %s", _stderr_text(e2))
+                raise RuntimeError(f"Worktree creation failed: {_stderr_text(e2)}") from e2
 
-    def remove_worktree(self, worktree_path: str, force: bool = False):
+    def remove_worktree(self, worktree_path: str, force: bool = False) -> None:
         """사용이 끝난 Git Worktree를 삭제합니다."""
         cmd = ["git", "-C", self.base_repo_path, "worktree", "remove"]
         if force:
@@ -94,10 +103,10 @@ class WorktreeManager:
         cmd.append(worktree_path)
 
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            _ = subprocess.run(cmd, check=True, capture_output=True, text=True)
             logger.info("[Worktree] Removed sandbox at %s", worktree_path)
         except subprocess.CalledProcessError as e:
-            logger.error("[Worktree] Failed to remove worktree: %s", e.stderr)
+            logger.error("[Worktree] Failed to remove worktree: %s", _stderr_text(e))
             # Fallback: force remove dir if git command fails
             if force and os.path.exists(worktree_path):
                 shutil.rmtree(worktree_path)
@@ -135,7 +144,7 @@ class WorktreeManager:
                     path = line[len("worktree ") :]
                     if branch_name in path:
                         return path
-        except Exception:
+        except (OSError, RuntimeError, subprocess.SubprocessError):
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return None

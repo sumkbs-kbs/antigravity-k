@@ -1,11 +1,13 @@
 import subprocess
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Protocol, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from antigravity_k.engine.vault import VaultEngine
-from antigravity_k.engine.vault_privacy import (
+from antigravity_k.engine.vault_privacy_contracts import (
     VaultPrivacyAction,
     VaultPrivacyError,
     VaultPrivacyFailure,
@@ -13,12 +15,33 @@ from antigravity_k.engine.vault_privacy import (
 )
 
 
+class _CallRecord(Protocol):
+    args: tuple[object, ...]
+    kwargs: Mapping[str, object]
+
+
+class _MockCall(Protocol):
+    call_args: _CallRecord | None
+
+
+class _ChunkDocumentMock(_MockCall, Protocol):
+    side_effect: Callable[[object, object, object], list[dict[str, object]]] | None
+
+
+class _ChunkerMock(Protocol):
+    chunk_document: _ChunkDocumentMock
+
+
+class _WikiMock(Protocol):
+    add_entry: _MockCall
+
+
 def _seed_vault(tmp_path: Path, content: str) -> tuple[VaultEngine, Path]:
     vault = VaultEngine(str(tmp_path / "vault"), sync_rag=False)
     note = vault.vault_path / "private.md"
-    note.write_text(f"---\ntitle: Private\n---\n\n{content}\n", encoding="utf-8")
-    subprocess.run(["git", "add", "private.md"], cwd=vault.vault_path, check=True)
-    subprocess.run(
+    _ = note.write_text(f"---\ntitle: Private\n---\n\n{content}\n", encoding="utf-8")
+    _ = subprocess.run(["git", "add", "private.md"], cwd=vault.vault_path, check=True)
+    _ = subprocess.run(
         ["git", "-c", "user.name=AGK Test", "-c", "user.email=test@agk.local", "commit", "-m", "seed"],
         cwd=vault.vault_path,
         check=True,
@@ -35,10 +58,17 @@ def test_vault_redact_restores_derivatives_when_commit_fails(
     vault, note = _seed_vault(tmp_path, "rollback-secret")
     vault.sync_rag = True
     vault.vector_store = MagicMock()
-    vault.chunker = MagicMock(side_effect=lambda *_args: [])
-    vault.chunker.chunk_document.side_effect = lambda _path, _metadata, content: [
-        {"id": content, "text": content, "metadata": {}}
-    ]
+    def no_op(*_args: object) -> list[object]:
+        return []
+
+    vault.chunker = MagicMock(side_effect=no_op)
+    chunker = cast(_ChunkerMock, vault.chunker)
+
+    def make_chunks(_path: object, _metadata: object, content: object) -> list[dict[str, object]]:
+        return [{"id": content, "text": content, "metadata": {}}]
+
+    chunker.chunk_document = MagicMock()
+    chunker.chunk_document.side_effect = make_chunks
     wiki = MagicMock()
     from antigravity_k.engine import vault_privacy
     from antigravity_k.knowledge import wiki as wiki_module
@@ -52,7 +82,7 @@ def test_vault_redact_restores_derivatives_when_commit_fails(
 
     # When: redaction reaches the failed mutation commit.
     with pytest.raises(VaultPrivacyError):
-        vault.apply_privacy_mutation(
+        _ = vault.apply_privacy_mutation(
             VaultPrivacyMutation(
                 action=VaultPrivacyAction.REDACT,
                 paths=("private.md",),
@@ -62,8 +92,14 @@ def test_vault_redact_restores_derivatives_when_commit_fails(
 
     # Then: raw and derivative stores end with the restored original content.
     assert "rollback-secret" in note.read_text(encoding="utf-8")
-    assert "rollback-secret" in vault.chunker.chunk_document.call_args.args[2]
-    assert "rollback-secret" in wiki.add_entry.call_args.kwargs["content"]
+    chunk_call_args = chunker.chunk_document.call_args
+    wiki_call_args = cast(_WikiMock, wiki).add_entry.call_args
+    assert chunk_call_args is not None
+    assert wiki_call_args is not None
+    assert isinstance(chunk_call_args.args[2], str)
+    assert isinstance(wiki_call_args.kwargs["content"], str)
+    assert "rollback-secret" in chunk_call_args.args[2]
+    assert "rollback-secret" in wiki_call_args.kwargs["content"]
 
 
 def test_vault_privacy_refuses_unsafe_restore_target(
@@ -76,7 +112,7 @@ def test_vault_privacy_refuses_unsafe_restore_target(
 
     # When: a privacy mutation would require rollback capability.
     with pytest.raises(VaultPrivacyError) as caught:
-        vault.apply_privacy_mutation(
+        _ = vault.apply_privacy_mutation(
             VaultPrivacyMutation(
                 action=VaultPrivacyAction.PURGE,
                 paths=("private.md",),
@@ -99,9 +135,9 @@ def test_vault_restore_rejects_missing_snapshot_path_before_head_moves(tmp_path:
         text=True,
     ).stdout.strip()
     current = vault.vault_path / "current.md"
-    current.write_text("current", encoding="utf-8")
-    subprocess.run(["git", "add", "current.md"], cwd=vault.vault_path, check=True)
-    subprocess.run(
+    _ = current.write_text("current", encoding="utf-8")
+    _ = subprocess.run(["git", "add", "current.md"], cwd=vault.vault_path, check=True)
+    _ = subprocess.run(
         ["git", "commit", "-m", "current head"],
         cwd=vault.vault_path,
         check=True,
@@ -117,7 +153,7 @@ def test_vault_restore_rejects_missing_snapshot_path_before_head_moves(tmp_path:
 
     # When: restore names a path absent from the selected snapshot.
     with pytest.raises(VaultPrivacyError) as caught:
-        vault.restore_privacy_snapshot(snapshot, ("missing.md",))
+        _ = vault.restore_privacy_snapshot(snapshot, ("missing.md",))
 
     # Then: validation fails without changing the active Git HEAD.
     after = subprocess.run(
@@ -138,7 +174,7 @@ def test_vault_privacy_rejects_case_variant_internal_path(tmp_path: Path) -> Non
 
     # When: the path enters the privacy mutation boundary.
     with pytest.raises(VaultPrivacyError) as caught:
-        vault.apply_privacy_mutation(
+        _ = vault.apply_privacy_mutation(
             VaultPrivacyMutation(
                 action=VaultPrivacyAction.PURGE,
                 paths=(".Git/private.md",),
@@ -156,7 +192,7 @@ def test_vault_rollback_leaves_unselected_untracked_note_untracked(
     # Given: an unrelated untracked note beside a selected committed note.
     vault, _ = _seed_vault(tmp_path, "selected-secret")
     unrelated = vault.vault_path / "unrelated.md"
-    unrelated.write_text("unrelated draft", encoding="utf-8")
+    _ = unrelated.write_text("unrelated draft", encoding="utf-8")
     from antigravity_k.engine import vault_privacy
 
     def fail_commit(*_args: object, **_kwargs: object) -> str:
@@ -166,7 +202,7 @@ def test_vault_rollback_leaves_unselected_untracked_note_untracked(
 
     # When: selected-note redaction rolls back after a commit failure.
     with pytest.raises(VaultPrivacyError):
-        vault.apply_privacy_mutation(
+        _ = vault.apply_privacy_mutation(
             VaultPrivacyMutation(
                 action=VaultPrivacyAction.REDACT,
                 paths=("private.md",),
@@ -198,9 +234,9 @@ def test_vault_restore_preserves_unselected_files_and_creates_commit(tmp_path: P
     ).stdout.strip()
     selected.unlink()
     tracked = vault.vault_path / "tracked.md"
-    tracked.write_text("tracked current", encoding="utf-8")
-    subprocess.run(["git", "add", "--all"], cwd=vault.vault_path, check=True)
-    subprocess.run(
+    _ = tracked.write_text("tracked current", encoding="utf-8")
+    _ = subprocess.run(["git", "add", "--all"], cwd=vault.vault_path, check=True)
+    _ = subprocess.run(
         ["git", "commit", "-m", "purge and continue"],
         cwd=vault.vault_path,
         check=True,
@@ -214,7 +250,7 @@ def test_vault_restore_preserves_unselected_files_and_creates_commit(tmp_path: P
         text=True,
     ).stdout.strip()
     untracked = vault.vault_path / "draft.md"
-    untracked.write_text("draft current", encoding="utf-8")
+    _ = untracked.write_text("draft current", encoding="utf-8")
 
     # When: only the selected note is restored from the privacy snapshot.
     restored = vault.restore_privacy_snapshot(snapshot, ("private.md",))

@@ -13,7 +13,6 @@ through the complete 15-pillar engine harness:
 
 import asyncio
 import sys
-import time
 from pathlib import Path
 
 # Add project root and demo_service to sys.path
@@ -45,7 +44,9 @@ async def run_stress_test():
         impacted_files_count=4,
         cyclomatic_hint=7,
     )
-    print(f"  ⚡ Allocated Budget: Tier={budget.complexity_tier} (Branching={budget.branching_factor}, MCTS Depth={budget.mcts_depth})")
+    print(
+        f"  ⚡ Allocated Budget: Tier={budget.complexity_tier} (Branching={budget.branching_factor}, MCTS Depth={budget.mcts_depth})"
+    )
     if budget.complexity_tier in ("COMPLEX", "EXTREME"):
         score += 1
         print("  ✅ Dynamic compute scaling verified")
@@ -100,7 +101,6 @@ async def run_stress_test():
 
     # 5. Live Asynchronous Functional Execution
     print("\n[5/6] 🧪 Step 5: Live Asynchronous Execution & Microservice Gateway Verification...")
-    from demo_service.auth_engine import SimpleJWTAuthEngine
     from demo_service.gateway_router import MicroserviceGateway
 
     gateway = MicroserviceGateway()
@@ -113,7 +113,13 @@ async def run_stress_test():
     # Invalid auth -> 401
     r3 = await gateway.handle_request("/api/v1/telemetry", auth_token="bad.token")
 
-    if r1.status_code == 200 and not r1.from_cache and r2.status_code == 200 and r2.from_cache and r3.status_code == 401:
+    if (
+        r1.status_code == 200
+        and not r1.from_cache
+        and r2.status_code == 200
+        and r2.from_cache
+        and r3.status_code == 401
+    ):
         score += 1
         print("  ✅ Live multi-file asynchronous microservice execution 100% verified")
 
@@ -133,7 +139,7 @@ async def run_stress_test():
         print("  ✅ Proactive next-action recommendation verified")
 
     print("\n" + "=" * 85)
-    print(f"🏆 REAL-WORLD PRODUCTION STRESS TEST SCORE: {score}/{total} ({(score/total)*100:.0f}%)")
+    print(f"🏆 REAL-WORLD PRODUCTION STRESS TEST SCORE: {score}/{total} ({(score / total) * 100:.0f}%)")
     print("=" * 85)
     return score == total
 

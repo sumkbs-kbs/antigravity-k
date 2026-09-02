@@ -8099,8 +8099,14 @@ html, body {
 }
 
 .approval-queue-actions .is-primary {
-  border-color: var(--accent-color);
-  background: var(--accent-color);
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: #fff;
+}
+
+.approval-queue-actions .is-primary:hover:not(:disabled) {
+  border-color: #5b4bc4;
+  background: #5b4bc4;
 }
 
 .approval-queue-empty,
@@ -8467,6 +8473,12 @@ html, body {
   font-size: var(--text-xs);
 }
 
+@media (max-width: 960px) {
+  .approval-queue-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 767px) {
   .task-execution-shell {
     padding: var(--space-3);
@@ -8479,9 +8491,32 @@ html, body {
     min-inline-size: 0;
   }
 
-  .task-workbench-grid,
-  .approval-queue-layout {
+  .task-workbench-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .approval-queue .diff-viewer-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-inline: var(--space-2);
+  }
+
+  .approval-queue .diff-header-left {
+    flex-basis: 100%;
+  }
+
+  .approval-queue .diff-file-path {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .approval-queue .diff-header-right {
+    margin-inline-start: auto;
+  }
+
+  .approval-queue .diff-desc {
+    display: none;
   }
 
   .task-submit-form > div {

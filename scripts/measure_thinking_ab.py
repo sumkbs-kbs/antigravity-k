@@ -44,6 +44,7 @@ def _any_of(*needles: str) -> Callable[[str], bool]:
     def check(answer: str) -> bool:
         n = _norm(answer)
         return any(_norm(x) in n for x in needles)
+
     return check
 
 
@@ -51,6 +52,7 @@ def _contains(*needles: str) -> Callable[[str], bool]:
     def check(answer: str) -> bool:
         n = _norm(answer)
         return all(_norm(x) in n for x in needles)
+
     return check
 
 
@@ -84,15 +86,13 @@ QUESTIONS: list[Question] = [
     ),
     Question(
         "prob-1",
-        "주머니에 빨간 공 3개, 파란 공 5개가 있다. 임의로 하나 꺼낼 때 파란 공일 확률을 "
-        "기약분수로 답하라.",
+        "주머니에 빨간 공 3개, 파란 공 5개가 있다. 임의로 하나 꺼낼 때 파란 공일 확률을 " "기약분수로 답하라.",
         lambda answer: _contains("5/8")(answer) or _contains("0.625")(answer),
         "확률",
     ),
     Question(
         "codeout-1",
-        "다음 파이썬 코드의 출력을 정확히 답하라:\n\n"
-        "x = [1, 2, 3, 4, 5]\nprint([v * 2 for v in x if v % 2 == 1])\n",
+        "다음 파이썬 코드의 출력을 정확히 답하라:\n\n" "x = [1, 2, 3, 4, 5]\nprint([v * 2 for v in x if v % 2 == 1])\n",
         _contains("[2,6,10]"),
         "코드",
     ),
@@ -175,12 +175,10 @@ def main() -> int:
     print()
 
     off = run_arm(args.model, think=False, repeats=args.repeats)
-    print(f"think=OFF: {off.correct}/{len(QUESTIONS)} 정답, "
-          f"평균 {statistics.mean(off.latencies):.1f}초/호출")
+    print(f"think=OFF: {off.correct}/{len(QUESTIONS)} 정답, " f"평균 {statistics.mean(off.latencies):.1f}초/호출")
 
     on = run_arm(args.model, think=True, repeats=args.repeats)
-    print(f"think=ON : {on.correct}/{len(QUESTIONS)} 정답, "
-          f"평균 {statistics.mean(on.latencies):.1f}초/호출")
+    print(f"think=ON : {on.correct}/{len(QUESTIONS)} 정답, " f"평균 {statistics.mean(on.latencies):.1f}초/호출")
 
     print()
     print("| 문제 | 카테고리 | OFF | ON |")
@@ -201,8 +199,16 @@ def main() -> int:
         payload = {
             "model": args.model,
             "repeats": args.repeats,
-            "off": {"correct": off.correct, "mean_latency": statistics.mean(off.latencies), "per_question": off.per_question},
-            "on": {"correct": on.correct, "mean_latency": statistics.mean(on.latencies), "per_question": on.per_question},
+            "off": {
+                "correct": off.correct,
+                "mean_latency": statistics.mean(off.latencies),
+                "per_question": off.per_question,
+            },
+            "on": {
+                "correct": on.correct,
+                "mean_latency": statistics.mean(on.latencies),
+                "per_question": on.per_question,
+            },
             "delta": delta,
             "latency_ratio": latency_ratio,
         }

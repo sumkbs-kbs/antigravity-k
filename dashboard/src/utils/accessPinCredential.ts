@@ -1,13 +1,28 @@
 const ACCESS_PIN_KEY = 'ag_access_pin';
+const ACCESS_TOKEN_KEY = 'ag_access_token';
 
-function accessPinCookie(value: string, maxAge: number): string {
-  const secure = typeof window !== 'undefined' && window.location.protocol === 'https:'
-    ? '; Secure'
-    : '';
-  return `${ACCESS_PIN_KEY}=${value}; path=/; max-age=${maxAge}; SameSite=Strict${secure}`;
+function clearLegacyAccessPin(): void {
+  try {
+    window.localStorage.removeItem(ACCESS_PIN_KEY);
+  } finally {
+    document.cookie = `${ACCESS_PIN_KEY}=; path=/; max-age=0; SameSite=Strict${
+      window.location.protocol === 'https:' ? '; Secure' : ''
+    }`;
+  }
 }
 
-export function readStoredAccessPin(): string | null {
+export function readStoredAccessToken(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const token = window.sessionStorage.getItem(ACCESS_TOKEN_KEY)?.trim() ?? '';
+    return token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readLegacyAccessPin(): string | null {
   if (typeof window === 'undefined') return null;
 
   try {
@@ -20,20 +35,46 @@ export function readStoredAccessPin(): string | null {
 
 export function createAccessPinHeaders(initial?: HeadersInit): Headers {
   const headers = new Headers(initial);
-  const pin = readStoredAccessPin();
-  if (pin !== null) headers.set('X-Access-Pin', pin);
+  const token = readStoredAccessToken();
+  if (token !== null) headers.set('Authorization', `Bearer ${token}`);
   return headers;
 }
 
-export function persistAccessPin(pin: string): void {
-  window.localStorage.setItem(ACCESS_PIN_KEY, pin);
-  document.cookie = accessPinCookie(pin, 31_536_000);
+export function persistAccessToken(token: string): void {
+  window.sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
+  clearLegacyAccessPin();
 }
 
-export function clearAccessPin(): void {
+export function clearAccessCredential(): void {
   try {
-    window.localStorage.removeItem(ACCESS_PIN_KEY);
+    window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
   } finally {
-    document.cookie = accessPinCookie('', 0);
+    clearLegacyAccessPin();
   }
+}
+
+export const clearAccessPin = clearAccessCredential;
+
+export async function loginWithAccessPin(pin: string): Promise<string> {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+
+  const payload: unknown = await response.json();
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    !('access_token' in payload) ||
+    typeof payload.access_token !== 'string' ||
+    payload.access_token.trim().length === 0
+  ) {
+    throw new Error('Authentication response did not include an access token.');
+  }
+
+  const token = payload.access_token.trim();
+  persistAccessToken(token);
+  return token;
 }

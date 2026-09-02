@@ -21,8 +21,8 @@ from __future__ import annotations
 import logging
 import traceback
 import uuid
+from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
-from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -32,6 +32,10 @@ logger = logging.getLogger("antigravity_k.api.errors")
 # ContextVar holding the current request's correlation id. Set by the
 # correlation-id middleware (registered in server.py) and read by log filters.
 correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="")
+
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | list[str] | list[JsonValue] | dict[str, JsonValue]
+type JsonMap = dict[str, JsonValue]
 
 
 # ─── Structured Exception Hierarchy ───────────────────────────────────────
@@ -49,7 +53,7 @@ class APIError(Exception):
         detail: str | None = None,
         status_code: int | None = None,
         error_code: str | None = None,
-        context: dict[str, Any] | None = None,
+        context: Mapping[str, JsonValue] | None = None,
     ) -> None:
         super().__init__(detail or self.detail)
         if detail is not None:
@@ -58,13 +62,13 @@ class APIError(Exception):
             self.status_code = status_code
         if error_code is not None:
             self.error_code = error_code
-        self.context = context or {}
+        self.context: Mapping[str, JsonValue] = context or {}
 
     # 예약 키 — to_dict()의 최상위 키와 충돌 방지
     _RESERVED_KEYS: frozenset[str] = frozenset({"ok", "error", "detail", "correlation_id"})
 
-    def to_dict(self, correlation_id: str = "") -> dict[str, Any]:
-        result: dict[str, Any] = {
+    def to_dict(self, correlation_id: str = "") -> JsonMap:
+        result: JsonMap = {
             "ok": False,
             "error": self.error_code,
             "detail": self.detail,
@@ -215,6 +219,12 @@ async def http_exception_handler(request: Request, exc: Exception) -> JSONRespon
     )
 
 
+def _mapping_value(value: JsonValue, key: str) -> JsonValue | None:
+    if isinstance(value, dict):
+        return value.get(key)
+    return None
+
+
 async def validation_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle Pydantic/FastAPI validation errors with structured field-level errors."""
     from fastapi.exceptions import RequestValidationError
@@ -223,13 +233,18 @@ async def validation_exception_handler(request: Request, exc: Exception) -> JSON
         return await global_exception_handler(request, exc)
 
     cid = _get_correlation_id()
-    errors = []
-    for err in exc.errors():
+    errors: list[JsonMap] = []
+    raw_errors: Sequence[JsonValue] = exc.errors()
+    for err in raw_errors:
+        loc = _mapping_value(err, "loc")
+        message = _mapping_value(err, "msg")
+        error_type = _mapping_value(err, "type")
+        location = loc if isinstance(loc, (list, tuple)) else []
         errors.append(
             {
-                "field": " -> ".join(str(loc) for loc in err.get("loc", [])),
-                "message": err.get("msg", ""),
-                "type": err.get("type", ""),
+                "field": " -> ".join(str(part) for part in location),
+                "message": message if isinstance(message, str) else str(message or ""),
+                "type": error_type if isinstance(error_type, str) else str(error_type or ""),
             }
         )
 

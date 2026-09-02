@@ -24,11 +24,40 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol, TypeAlias, cast, override
 
 logger = logging.getLogger("antigravity_k.deterministic_worker")
+JsonMap: TypeAlias = dict[str, object]
+
+
+class ModelManagerLike(Protocol):
+    def generate(self, **kwargs: object) -> object: ...
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _as_float(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+def _as_map(value: object) -> JsonMap:
+    if not isinstance(value, Mapping):
+        return {}
+    mapping = cast(Mapping[str, object], value)
+    return dict(mapping)
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else {}
 
 
 # ─── 작업 유형 ───────────────────────────────────────────────────────
@@ -54,7 +83,7 @@ class WorkerDecision:
     """LLM이 내리는 판단 결과 (구조화된 JSON으로 강제)."""
 
     intent: TaskIntent
-    parameters: dict[str, Any] = field(default_factory=dict)
+    parameters: JsonMap = field(default_factory=dict)
     confidence: float = 0.0
     reasoning: str = ""
 
@@ -64,7 +93,7 @@ class WorkerResult:
     """레시피 실행 결과."""
 
     success: bool
-    data: Any = None
+    data: Any = None  # pyright: ignore[reportExplicitAny]
     formatted_output: str = ""
     execution_time_ms: float = 0.0
     recipe_name: str = ""
@@ -96,22 +125,22 @@ class WorkerRecipe(ABC):
 
     @property
     @abstractmethod
-    def parameter_schema(self) -> dict[str, Any]:
+    def parameter_schema(self) -> JsonMap:
         """JSON Schema 형태의 파라미터 정의."""
 
     @abstractmethod
-    def validate(self, params: dict[str, Any]) -> bool:
+    def validate(self, params: JsonMap) -> bool:
         """파라미터 유효성 검증."""
 
     @abstractmethod
-    def execute(self, params: dict[str, Any]) -> WorkerResult:
+    def execute(self, params: JsonMap) -> WorkerResult:
         """결정론적 실행."""
 
     def format_output(self, result: WorkerResult) -> str:
         """결과를 사용자 친화적 마크다운으로 포맷 (오버라이드 가능)."""
         if result.error:
             return f"> [!WARNING]\n> 실행 중 오류: {result.error}"
-        return result.formatted_output or str(result.data)
+        return result.formatted_output or str(cast(object, result.data))
 
 
 # ─── 내장 레시피: 웹 검색 ────────────────────────────────────────────
@@ -121,6 +150,7 @@ class WebSearchRecipe(WorkerRecipe):
     """웹 검색 + 결과 요약 레시피."""
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -131,6 +161,7 @@ class WebSearchRecipe(WorkerRecipe):
         return "web_search"
 
     @property
+    @override
     def intent(self) -> TaskIntent:
         """Intent.
 
@@ -141,7 +172,8 @@ class WebSearchRecipe(WorkerRecipe):
         return TaskIntent.WEB_SEARCH
 
     @property
-    def parameter_schema(self) -> dict[str, Any]:
+    @override
+    def parameter_schema(self) -> JsonMap:
         """Parameter Schema.
 
         Returns:
@@ -157,7 +189,8 @@ class WebSearchRecipe(WorkerRecipe):
             "required": ["query"],
         }
 
-    def validate(self, params: dict[str, Any]) -> bool:
+    @override
+    def validate(self, params: JsonMap) -> bool:
         """Validate.
 
         Args:
@@ -167,9 +200,10 @@ class WebSearchRecipe(WorkerRecipe):
             bool: The bool result.
 
         """
-        return bool(params.get("query", "").strip())
+        return bool(_as_str(params.get("query")).strip())
 
-    def execute(self, params: dict[str, Any]) -> WorkerResult:
+    @override
+    def execute(self, params: JsonMap) -> WorkerResult:
         """Execute.
 
         Args:
@@ -184,7 +218,7 @@ class WebSearchRecipe(WorkerRecipe):
             from antigravity_k.tools.web_search import WebSearchTool
 
             tool = WebSearchTool()
-            raw = tool.execute(query=params["query"])
+            raw = tool.execute(query=_as_str(params.get("query")))
             elapsed = (time.time() - start) * 1000
 
             return WorkerResult(
@@ -209,6 +243,7 @@ class FileReadRecipe(WorkerRecipe):
     """파일 읽기 레시피."""
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -219,6 +254,7 @@ class FileReadRecipe(WorkerRecipe):
         return "file_read"
 
     @property
+    @override
     def intent(self) -> TaskIntent:
         """Intent.
 
@@ -229,7 +265,8 @@ class FileReadRecipe(WorkerRecipe):
         return TaskIntent.FILE_OPERATION
 
     @property
-    def parameter_schema(self) -> dict[str, Any]:
+    @override
+    def parameter_schema(self) -> JsonMap:
         """Parameter Schema.
 
         Returns:
@@ -246,7 +283,8 @@ class FileReadRecipe(WorkerRecipe):
             "required": ["path"],
         }
 
-    def validate(self, params: dict[str, Any]) -> bool:
+    @override
+    def validate(self, params: JsonMap) -> bool:
         """Validate.
 
         Args:
@@ -258,10 +296,11 @@ class FileReadRecipe(WorkerRecipe):
         """
         import os
 
-        path = params.get("path", "")
+        path = _as_str(params.get("path"))
         return bool(path) and os.path.exists(path)
 
-    def execute(self, params: dict[str, Any]) -> WorkerResult:
+    @override
+    def execute(self, params: JsonMap) -> WorkerResult:
         """Execute.
 
         Args:
@@ -273,9 +312,9 @@ class FileReadRecipe(WorkerRecipe):
         """
         start = time.time()
         try:
-            path = params["path"]
-            start_line = params.get("start_line", 1)
-            end_line = params.get("end_line", -1)
+            path = _as_str(params.get("path"))
+            start_line = _as_int(params.get("start_line"), 1)
+            end_line = _as_int(params.get("end_line"), -1)
 
             with open(path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -348,7 +387,7 @@ class DeterministicWorker:
 
     def __init__(
         self,
-        model_manager=None,
+        model_manager: object | None = None,
         judge_model: str = "",
         formatter_model: str = "",
     ):
@@ -360,9 +399,11 @@ class DeterministicWorker:
             formatter_model (str): str formatter model.
 
         """
-        self._manager = model_manager
-        self._judge_model = judge_model
-        self._formatter_model = formatter_model
+        self._manager: ModelManagerLike | None = (
+            cast(ModelManagerLike, model_manager) if model_manager is not None else None
+        )
+        self._judge_model: str = judge_model
+        self._formatter_model: str = formatter_model
         self._recipes: dict[TaskIntent, WorkerRecipe] = {}
 
         # 내장 레시피 자동 등록
@@ -381,7 +422,7 @@ class DeterministicWorker:
             return True
         return False
 
-    def list_recipes(self) -> list[dict[str, Any]]:
+    def list_recipes(self) -> list[JsonMap]:
         """등록된 레시피 목록을 반환합니다."""
         return [
             {
@@ -413,8 +454,14 @@ class DeterministicWorker:
             "각 레시피의 파라미터:\n"
         )
         for recipe in self._recipes.values():
-            props = recipe.parameter_schema.get("properties", {})
-            param_desc = ", ".join(f"{k}: {v.get('description', v.get('type', ''))}" for k, v in props.items())
+            props = recipe.parameter_schema.get("properties")
+            prop_map = _as_mapping(props)
+            param_parts: list[str] = []
+            for key, value in prop_map.items():
+                value_map = _as_mapping(value)
+                description = value_map.get("description", value_map.get("type", ""))
+                param_parts.append(f"{key}: {_as_str(description)}")
+            param_desc = ", ".join(param_parts)
             judge_prompt += f"- {recipe.intent.value}: {param_desc}\n"
 
         judge_prompt += (
@@ -431,8 +478,9 @@ class DeterministicWorker:
             )
 
             # JSON 파싱
-            parsed = json.loads(raw.strip())
-            intent_str = parsed.get("intent", "unknown")
+            parsed_value: object = cast(object, json.loads(_as_str(raw).strip()))
+            parsed = _as_map(parsed_value)
+            intent_str = _as_str(parsed.get("intent"), "unknown")
             try:
                 intent = TaskIntent(intent_str)
             except ValueError:
@@ -440,9 +488,9 @@ class DeterministicWorker:
 
             return WorkerDecision(
                 intent=intent,
-                parameters=parsed.get("parameters", {}),
-                confidence=parsed.get("confidence", 0.5),
-                reasoning=parsed.get("reasoning", ""),
+                parameters=_as_map(parsed.get("parameters")),
+                confidence=_as_float(parsed.get("confidence"), 0.5),
+                reasoning=_as_str(parsed.get("reasoning")),
             )
         except Exception:
             logger.exception("[DeterministicWorker] 판단 실패")
@@ -511,7 +559,7 @@ class DeterministicWorker:
                 task_type="SEARCH",
                 max_tokens=2048,
             )
-            return formatted
+            return _as_str(formatted, result.formatted_output)
         except Exception:
             logger.exception("[DeterministicWorker] 포맷 실패")
             return result.formatted_output
@@ -554,7 +602,7 @@ class DeterministicWorker:
 
         return result
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> JsonMap:
         """워커 상태를 반환합니다."""
         return {
             "registered_recipes": len(self._recipes),

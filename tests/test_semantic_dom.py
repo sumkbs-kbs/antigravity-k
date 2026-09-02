@@ -3,6 +3,9 @@
 Covers pure-logic methods without needing Playwright or browser.
 """
 
+from collections.abc import Callable, Mapping
+from typing import cast
+
 import pytest
 
 from antigravity_k.tools.semantic_dom import (
@@ -12,6 +15,16 @@ from antigravity_k.tools.semantic_dom import (
     SemanticDOMParser,
     SemanticSnapshot,
 )
+
+
+def _intent_score(parser: SemanticDOMParser, element: ElementInfo, intent: str) -> float:
+    scorer = cast(Callable[[ElementInfo, str], float], getattr(parser, "_intent_match_score"))
+    return scorer(element, intent)
+
+
+def _parse_element(parser: SemanticDOMParser, ref: str, raw: Mapping[str, object]) -> ElementInfo:
+    parser_fn = cast(Callable[[str, Mapping[str, object]], ElementInfo], getattr(parser, "_parse_element"))
+    return parser_fn(ref, raw)
 
 # ── BoundingBox ────────────────────────────────────────────────────────
 
@@ -217,39 +230,39 @@ class TestIntentMatchScore:
 
     def test_exact_name_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="Login")
-        score = parser._intent_match_score(el, "login")
+        score = _intent_score(parser, el, "login")
         assert score > 0
 
     def test_no_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="Signup")
-        score = parser._intent_match_score(el, "login")
+        score = _intent_score(parser, el, "login")
         assert score == 0.0
 
     def test_aria_label_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="", aria_label="submit button")
-        score = parser._intent_match_score(el, "submit")
+        score = _intent_score(parser, el, "submit")
         assert score > 0
 
     def test_placeholder_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", placeholder="Enter your email")
-        score = parser._intent_match_score(el, "email")
+        score = _intent_score(parser, el, "email")
         assert score > 0
 
     def test_href_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", href="https://example.com/login")
-        score = parser._intent_match_score(el, "login")
+        score = _intent_score(parser, el, "login")
         assert score > 0
 
     def test_interactable_bonus(self, parser: SemanticDOMParser):
         el1 = ElementInfo(ref="@ref1", name="Submit", is_interactable=True)
         el2 = ElementInfo(ref="@ref2", name="Submit", is_interactable=False)
-        score1 = parser._intent_match_score(el1, "submit")
-        score2 = parser._intent_match_score(el2, "submit")
+        score1 = _intent_score(parser, el1, "submit")
+        score2 = _intent_score(parser, el2, "submit")
         assert score1 > score2
 
     def test_partial_word_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="User Login Form")
-        score = parser._intent_match_score(el, "login form")
+        score = _intent_score(parser, el, "login form")
         assert score > 0.5 * 2.0 * 0.5  # partial word match minimum
 
     def test_mixed_fields(self, parser: SemanticDOMParser):
@@ -260,13 +273,13 @@ class TestIntentMatchScore:
             placeholder="Search...",
             is_interactable=True,
         )
-        score = parser._intent_match_score(el, "search")
+        score = _intent_score(parser, el, "search")
         # name (3.0) + aria_label (2.5) + placeholder (2.0) + interactable bonus (1.2x)
         assert score > 7.0
 
     def test_empty_name_with_match(self, parser: SemanticDOMParser):
         el = ElementInfo(ref="@ref1", name="", aria_label="")
-        score = parser._intent_match_score(el, "anything")
+        score = _intent_score(parser, el, "anything")
         assert score == 0.0
 
 
@@ -331,7 +344,7 @@ class TestParseElement:
             "isInteractive": True,
             "bbox": {"x": 10, "y": 20, "width": 100, "height": 30},
         }
-        el = parser._parse_element("@ref1", raw)
+        el = _parse_element(parser, "@ref1", raw)
         assert el.tag == "button"
         assert el.role == ElementRole.BUTTON
         assert el.name == "Click me"
@@ -342,55 +355,55 @@ class TestParseElement:
 
     def test_input_text(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "text", "name": "username", "placeholder": "Enter user", "isInteractive": True}
-        el = parser._parse_element("@ref2", raw)
+        el = _parse_element(parser, "@ref2", raw)
         assert el.role == ElementRole.INPUT
         assert el.placeholder == "Enter user"
 
     def test_checkbox(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "checkbox", "name": "agree", "isInteractive": True}
-        el = parser._parse_element("@ref3", raw)
+        el = _parse_element(parser, "@ref3", raw)
         assert el.role == ElementRole.CHECKBOX
 
     def test_radio(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "radio", "name": "gender", "isInteractive": True}
-        el = parser._parse_element("@ref4", raw)
+        el = _parse_element(parser, "@ref4", raw)
         assert el.role == ElementRole.RADIO
 
     def test_submit_button(self, parser: SemanticDOMParser):
         raw = {"tag": "input", "type": "submit", "name": "Go", "isInteractive": True}
-        el = parser._parse_element("@ref5", raw)
+        el = _parse_element(parser, "@ref5", raw)
         assert el.role == ElementRole.BUTTON
 
     def test_link(self, parser: SemanticDOMParser):
         raw = {"tag": "a", "href": "https://example.com", "name": "Example", "isInteractive": True}
-        el = parser._parse_element("@ref6", raw)
+        el = _parse_element(parser, "@ref6", raw)
         assert el.role == ElementRole.LINK
         assert el.href == "https://example.com"
 
     def test_heading(self, parser: SemanticDOMParser):
         raw = {"tag": "h1", "name": "Welcome"}
-        el = parser._parse_element("@ref7", raw)
+        el = _parse_element(parser, "@ref7", raw)
         assert el.role == ElementRole.HEADING
         assert el.is_interactable is False
 
     def test_aria_role_priority(self, parser: SemanticDOMParser):
         raw = {"tag": "div", "role": "button", "name": "Custom btn", "isInteractive": True}
-        el = parser._parse_element("@ref8", raw)
+        el = _parse_element(parser, "@ref8", raw)
         assert el.role == ElementRole.BUTTON
 
     def test_unknown_element(self, parser: SemanticDOMParser):
         raw = {"tag": "section", "name": "Content"}
-        el = parser._parse_element("@ref9", raw)
+        el = _parse_element(parser, "@ref9", raw)
         assert el.role == ElementRole.OTHER
 
     def test_disabled_element(self, parser: SemanticDOMParser):
         raw = {"tag": "button", "disabled": True, "isInteractive": False}
-        el = parser._parse_element("@ref10", raw)
+        el = _parse_element(parser, "@ref10", raw)
         assert el.is_disabled is True
 
     def test_missing_bbox(self, parser: SemanticDOMParser):
         raw = {"tag": "div"}
-        el = parser._parse_element("@ref11", raw)
+        el = _parse_element(parser, "@ref11", raw)
         assert el.bbox is not None
         assert el.bbox.x == 0
         assert el.bbox.y == 0

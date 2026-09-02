@@ -18,12 +18,60 @@
 
 import base64
 import logging
+import math
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol, cast
 
 from .semantic_dom import BoundingBox, SemanticDOMParser, SemanticSnapshot
 
 logger = logging.getLogger("antigravity_k.tools.vision_dom")
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_mapping_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    result: list[dict[str, object]] = []
+    for item in items:
+        if isinstance(item, Mapping):
+            result.append(_as_mapping(cast(object, item)))
+    return result
+
+
+def _as_text(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return value if isinstance(value, str) else str(value)
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+class _AsyncPageLike(Protocol):
+    viewport_size: Mapping[str, int] | None
+
+    async def screenshot(self, *, type: str) -> bytes: ...
+
+    async def evaluate(self, expression: str, arg: object = None) -> object: ...
+
+
+class _SyncPageLike(Protocol):
+    viewport_size: Mapping[str, int] | None
+
+    def screenshot(self, *, type: str) -> bytes: ...
+
+    def evaluate(self, expression: str, arg: object = None) -> object: ...
 
 
 # ─── 데이터 모델 ─────────────────────────────────────────────────
@@ -297,17 +345,21 @@ class VisionDOMHybrid:
             dom_parser (SemanticDOMParser): SemanticDOMParser dom parser.
 
         """
-        self.dom_parser = dom_parser or SemanticDOMParser()
+        self.dom_parser: SemanticDOMParser = dom_parser or SemanticDOMParser()
 
     # ─── 메인 분석 ────────────────────────────────────────────
 
-    async def analyze_async(self, page, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis:
+    async def analyze_async(self, page: _AsyncPageLike, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis:
         """비동기: DOM + Vision 융합 분석."""
         analysis = HybridAnalysis()
 
         # 1. 스냅샷 (없으면 생성)
         if snapshot is None:
-            snapshot = await self.dom_parser.snapshot_async(page)
+            snapshot_async = cast(
+                Callable[[_AsyncPageLike], Awaitable[SemanticSnapshot]],
+                self.dom_parser.snapshot_async,
+            )
+            snapshot = await snapshot_async(page)
         analysis.snapshot = snapshot
 
         # 2. 뷰포트 크기
@@ -334,12 +386,13 @@ class VisionDOMHybrid:
 
         return analysis
 
-    def analyze_sync(self, page, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis:
+    def analyze_sync(self, page: _SyncPageLike, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis:
         """동기: DOM + Vision 융합 분석."""
         analysis = HybridAnalysis()
 
         if snapshot is None:
-            snapshot = self.dom_parser.snapshot_sync(page)
+            snapshot_sync = cast(Callable[[_SyncPageLike], SemanticSnapshot], self.dom_parser.snapshot_sync)
+            snapshot = snapshot_sync(page)
         analysis.snapshot = snapshot
 
         try:
@@ -363,10 +416,10 @@ class VisionDOMHybrid:
 
     # ─── Set-of-Mark (SoM) 렌더링 ────────────────────────────
 
-    async def render_som_async(self, page, snapshot: SemanticSnapshot) -> str:
+    async def render_som_async(self, page: _AsyncPageLike, snapshot: SemanticSnapshot) -> str:
         """비동기: 스크린샷에 @ref 번호를 마킹하여 base64 PNG로 반환."""
         # 인터랙티브 요소의 ref → cssSelector 매핑
-        ref_selectors = {}
+        ref_selectors: dict[str, str] = {}
         for ref, el in snapshot.elements.items():
             if el.is_interactable and el.css_selector:
                 ref_selectors[ref] = el.css_selector
@@ -378,13 +431,13 @@ class VisionDOMHybrid:
 
         try:
             # SoM 오버레이 추가
-            await page.evaluate(_SOM_OVERLAY_JS, ref_selectors)
+            _ = await page.evaluate(_SOM_OVERLAY_JS, ref_selectors)
 
             # 마킹된 스크린샷 캡처
             raw = await page.screenshot(type="png")
 
             # 오버레이 제거
-            await page.evaluate(_SOM_CLEANUP_JS)
+            _ = await page.evaluate(_SOM_CLEANUP_JS)
 
             return base64.b64encode(raw).decode("utf-8")
 
@@ -393,9 +446,9 @@ class VisionDOMHybrid:
             raw = await page.screenshot(type="png")
             return base64.b64encode(raw).decode("utf-8")
 
-    def render_som_sync(self, page, snapshot: SemanticSnapshot) -> str:
+    def render_som_sync(self, page: _SyncPageLike, snapshot: SemanticSnapshot) -> str:
         """동기: SoM 마킹 스크린샷."""
-        ref_selectors = {}
+        ref_selectors: dict[str, str] = {}
         for ref, el in snapshot.elements.items():
             if el.is_interactable and el.css_selector:
                 ref_selectors[ref] = el.css_selector
@@ -405,9 +458,9 @@ class VisionDOMHybrid:
             return base64.b64encode(raw).decode("utf-8")
 
         try:
-            page.evaluate(_SOM_OVERLAY_JS, ref_selectors)
+            _ = page.evaluate(_SOM_OVERLAY_JS, ref_selectors)
             raw = page.screenshot(type="png")
-            page.evaluate(_SOM_CLEANUP_JS)
+            _ = page.evaluate(_SOM_CLEANUP_JS)
             return base64.b64encode(raw).decode("utf-8")
         except Exception:
             logger.exception("[VisionDOM] SoM rendering failed")
@@ -416,7 +469,7 @@ class VisionDOMHybrid:
 
     # ─── 장애물 감지 ──────────────────────────────────────────
 
-    async def _detect_obstacles_async(self, page, snapshot: SemanticSnapshot) -> list[Obstacle]:
+    async def _detect_obstacles_async(self, page: _AsyncPageLike, snapshot: SemanticSnapshot) -> list[Obstacle]:
         """비동기: 장애물 감지."""
         try:
             raw_obstacles = await page.evaluate(_OBSTACLE_DETECT_JS)
@@ -426,7 +479,7 @@ class VisionDOMHybrid:
             logger.debug("[VisionDOM] Obstacle detection failed: %s", e)
             return []
 
-    def _detect_obstacles_sync(self, page, snapshot: SemanticSnapshot) -> list[Obstacle]:
+    def _detect_obstacles_sync(self, page: _SyncPageLike, snapshot: SemanticSnapshot) -> list[Obstacle]:
         """동기: 장애물 감지."""
         try:
             raw_obstacles = page.evaluate(_OBSTACLE_DETECT_JS)
@@ -436,39 +489,39 @@ class VisionDOMHybrid:
             logger.debug("[VisionDOM] Obstacle detection failed: %s", e)
             return []
 
-    def _parse_obstacles(self, raw_list: list[dict[str, Any]], snapshot: SemanticSnapshot) -> list[Obstacle]:
+    def _parse_obstacles(self, raw_list: object, snapshot: SemanticSnapshot) -> list[Obstacle]:
         """JS 결과를 Obstacle 객체로 변환."""
-        obstacles = []
-        for raw in raw_list:
+        obstacles: list[Obstacle] = []
+        for raw in _as_mapping_list(raw_list):
             bbox = None
-            if raw.get("bbox"):
-                b = raw["bbox"]
+            b = _as_mapping(raw.get("bbox"))
+            if b:
                 bbox = BoundingBox(
-                    x=b.get("x", 0),
-                    y=b.get("y", 0),
-                    width=b.get("width", 0),
-                    height=b.get("height", 0),
+                    x=_as_float(b.get("x")),
+                    y=_as_float(b.get("y")),
+                    width=_as_float(b.get("width")),
+                    height=_as_float(b.get("height")),
                 )
 
             # 닫기 버튼의 @ref 찾기
             close_ref = ""
-            close_btn = raw.get("closeBtn")
-            if close_btn and close_btn.get("bbox"):
-                cb = close_btn["bbox"]
+            close_btn = _as_mapping(raw.get("closeBtn"))
+            cb = _as_mapping(close_btn.get("bbox"))
+            if cb:
                 # 스냅샷에서 가장 가까운 요소 찾기
                 close_ref = self._find_closest_ref(
                     snapshot,
-                    cb.get("x", 0) + cb.get("width", 0) / 2,
-                    cb.get("y", 0) + cb.get("height", 0) / 2,
+                    _as_float(cb.get("x")) + _as_float(cb.get("width")) / 2,
+                    _as_float(cb.get("y")) + _as_float(cb.get("height")) / 2,
                 )
 
             obstacles.append(
                 Obstacle(
-                    type=raw.get("type", "unknown"),
-                    description=raw.get("description", "")[:100],
+                    type=_as_text(raw.get("type"), "unknown"),
+                    description=_as_text(raw.get("description"))[:100],
                     bbox=bbox,
                     close_ref=close_ref,
-                    blocking=raw.get("type") in ("modal", "overlay"),
+                    blocking=_as_text(raw.get("type")) in ("modal", "overlay"),
                 ),
             )
 
@@ -482,8 +535,9 @@ class VisionDOMHybrid:
         for ref, el in snapshot.elements.items():
             if not el.bbox:
                 continue
-            cx, cy = el.bbox.center
-            dist = ((cx - x) ** 2 + (cy - y) ** 2) ** 0.5
+            cx = _as_float(cast(object, el.bbox.center[0]))
+            cy = _as_float(cast(object, el.bbox.center[1]))
+            dist: float = math.hypot(cx - x, cy - y)
             if dist < best_dist:
                 best_dist = dist
                 best_ref = ref

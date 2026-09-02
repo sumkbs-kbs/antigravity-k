@@ -1,37 +1,45 @@
 import hashlib
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import cast
 
 from antigravity_k.engine.rag_indexer import RAGIndexer
 
 
 class RecordingVectorStore:
     def __init__(self):
-        self.chunks = []
+        self.chunks: list[dict[str, object]] = []
 
-    def delete_file_chunks(self, file_path):
-        self.chunks = [chunk for chunk in self.chunks if chunk["metadata"].get("source") != file_path]
+    def delete_file_chunks(self, file_path: str) -> None:
+        self.chunks = [
+            chunk
+            for chunk in self.chunks
+            if _metadata(chunk).get("source") != file_path
+        ]
 
-    def upsert_chunks(self, chunks):
-        self.chunks.extend(chunks)
+    def upsert_chunks(self, chunks: Sequence[Mapping[str, object]]) -> None:
+        self.chunks.extend(dict(chunk) for chunk in chunks)
 
-    def search(self, query, n_results=5):
+    def search(self, query: str, n_results: int = 5) -> list[dict[str, object]]:
+        _ = query
         return [
             {
-                "id": chunk["id"],
-                "text": chunk["text"],
-                "metadata": chunk["metadata"],
+                "id": chunk.get("id", ""),
+                "text": chunk.get("text", ""),
+                "metadata": _metadata(chunk),
             }
             for chunk in self.chunks[:n_results]
         ]
 
 
-def test_indexed_chunks_expose_provenance_and_freshness(tmp_path):
+def test_indexed_chunks_expose_provenance_and_freshness(tmp_path: Path) -> None:
     source = tmp_path / "module.py"
-    source.write_text("def answer():\n    return 42\n", encoding="utf-8")
+    _ = source.write_text("def answer():\n    return 42\n", encoding="utf-8")
     store = RecordingVectorStore()
     indexer = RAGIndexer(project_root=str(tmp_path), vector_store=store)
 
     assert indexer.index_file("module.py") == 1
-    indexed_metadata = store.chunks[0]["metadata"]
+    indexed_metadata = _metadata(store.chunks[0])
     expected_hash = hashlib.md5(source.read_bytes()).hexdigest()
     assert indexed_metadata["source_hash"] == expected_hash
     assert indexed_metadata["source_type"] == "code"
@@ -51,12 +59,13 @@ def test_indexed_chunks_expose_provenance_and_freshness(tmp_path):
         "freshness": "fresh",
     }
 
-    source.write_text("def answer():\n    return 43\n", encoding="utf-8")
+    _ = source.write_text("def answer():\n    return 43\n", encoding="utf-8")
     stale_result = indexer.search("answer", mode="semantic")[0]
-    assert stale_result["provenance"]["freshness"] == "stale"
+    stale_provenance = cast(dict[str, object], stale_result["provenance"])
+    assert stale_provenance["freshness"] == "stale"
 
 
-def test_format_context_exposes_citation_marker():
+def test_format_context_exposes_citation_marker() -> None:
     store = RecordingVectorStore()
     store.chunks = [
         {
@@ -82,10 +91,10 @@ def test_format_context_exposes_citation_marker():
     assert "Cite code evidence" in context
 
 
-def test_validate_citations_rejects_missing_unknown_and_unverified_sources():
+def test_validate_citations_rejects_missing_unknown_and_unverified_sources() -> None:
     indexer = RAGIndexer(project_root="/tmp")
-    fresh_result = {"id": "fresh", "provenance": {"source_id": "fresh", "freshness": "fresh"}}
-    stale_result = {"id": "stale", "provenance": {"source_id": "stale", "freshness": "stale"}}
+    fresh_result: dict[str, object] = {"id": "fresh", "provenance": {"source_id": "fresh", "freshness": "fresh"}}
+    stale_result: dict[str, object] = {"id": "stale", "provenance": {"source_id": "stale", "freshness": "stale"}}
 
     valid = indexer.validate_citations("Answer [citation:fresh]", [fresh_result])
     missing = indexer.validate_citations("Answer", [fresh_result])
@@ -96,3 +105,8 @@ def test_validate_citations_rejects_missing_unknown_and_unverified_sources():
     assert missing["missing_citation"] is True
     assert invalid["unknown"] == ["unknown"]
     assert stale["unverified"] == ["stale"]
+
+
+def _metadata(chunk: Mapping[str, object]) -> dict[str, object]:
+    value = chunk.get("metadata")
+    return dict(cast(Mapping[str, object], value)) if isinstance(value, Mapping) else {}

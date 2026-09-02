@@ -85,7 +85,7 @@ class ReadContextArtifactTool(BaseTool):
         }
 
     @override
-    def execute(self, **kwargs: JsonValue) -> str:
+    def execute(self, **kwargs: object) -> str:
         request = _ContextArtifactReadRequest.model_validate(kwargs)
         chunk = self._store.read_chunk(request.ref_id, request.chunk_index)
         if chunk is None:

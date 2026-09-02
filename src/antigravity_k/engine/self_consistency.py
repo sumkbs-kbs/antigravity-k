@@ -272,10 +272,7 @@ class SelfConsistencyEngine:
             )
         assignment = self.cluster(samples)
         chosen, confidence, sizes = self.select(samples, assignment)
-        samples = [
-            replace(sample, cluster_id=cid)
-            for sample, cid in zip(samples, assignment, strict=True)
-        ]
+        samples = [replace(sample, cluster_id=cid) for sample, cid in zip(samples, assignment, strict=True)]
         return ConsistencyTrace(
             selected=chosen,
             confidence=confidence,
@@ -295,7 +292,13 @@ def config_to_engine_kwargs(cfg: ConfigInput) -> EngineKwargs:
     out: EngineKwargs = {}
     numeric_values = {
         key: cfg[key]
-        for key in ("n_samples", "base_temperature", "temperature_spread", "similarity_threshold", "complexity_threshold")
+        for key in (
+            "n_samples",
+            "base_temperature",
+            "temperature_spread",
+            "similarity_threshold",
+            "complexity_threshold",
+        )
         if key in cfg and cfg[key] is not None
     }
     for key, raw in numeric_values.items():

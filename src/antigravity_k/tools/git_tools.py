@@ -21,17 +21,17 @@ type ToolValue = str | int | bool | None
 type SchemaValue = str | int | bool | list[str] | Mapping[str, "SchemaValue"]
 
 
-def _str_arg(kwargs: Mapping[str, ToolValue], key: str, default: str) -> str:
+def _str_arg(kwargs: Mapping[str, object], key: str, default: str) -> str:
     value = kwargs.get(key, default)
     return value if isinstance(value, str) else default
 
 
-def _bool_arg(kwargs: Mapping[str, ToolValue], key: str, default: bool) -> bool:
+def _bool_arg(kwargs: Mapping[str, object], key: str, default: bool) -> bool:
     value = kwargs.get(key, default)
     return value if isinstance(value, bool) else default
 
 
-def _int_arg(kwargs: Mapping[str, ToolValue], key: str, default: int) -> int:
+def _int_arg(kwargs: Mapping[str, object], key: str, default: int) -> int:
     value = kwargs.get(key, default)
     return value if isinstance(value, int) and not isinstance(value, bool) else default
 
@@ -122,7 +122,7 @@ class GitStatusTool(BaseTool):
         return self._schema
 
     @override
-    def execute(self, **kwargs: ToolValue) -> str:
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -207,7 +207,7 @@ class GitDiffTool(BaseTool):
         return self._schema
 
     @override
-    def execute(self, **kwargs: ToolValue) -> str:
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -315,7 +315,7 @@ class GitCommitTool(BaseTool):
         return self._schema
 
     @override
-    def execute(self, **kwargs: ToolValue) -> str:
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -415,7 +415,7 @@ class GitLogTool(BaseTool):
         return self._schema
 
     @override
-    def execute(self, **kwargs: ToolValue) -> str:
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:

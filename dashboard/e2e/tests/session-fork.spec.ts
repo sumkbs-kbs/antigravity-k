@@ -43,6 +43,17 @@ function sessionEvent(taskId: string, title: string): Readonly<Record<string, un
   };
 }
 
+async function installAuthenticatedSession(page: Page): Promise<void> {
+  await page.addInitScript(() => sessionStorage.setItem('ag_access_token', 'e2e-token'));
+  await page.route(/\/api\/session\/info(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, session: { subject: 'e2e' } }),
+    });
+  });
+}
+
 async function installSessionForkFixtures(page: Page): Promise<readonly string[]> {
   let forkCreated = false;
   const forkRequests: string[] = [];
@@ -71,7 +82,12 @@ async function installSessionForkFixtures(page: Page): Promise<readonly string[]
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ task_id: taskId, events: [sessionEvent(taskId, title)], last_sequence: 1 }),
+      body: JSON.stringify({
+        task_id: taskId,
+        events: [sessionEvent(taskId, title)],
+        last_sequence: 1,
+        has_more: false,
+      }),
     });
   });
   await page.route(/\/api\/tasks\/(task-source|task-fork)\/events\/stream(?:\?.*)?$/, async (route) => {
@@ -93,7 +109,7 @@ async function installSessionForkFixtures(page: Page): Promise<readonly string[]
 }
 
 test('forks a historical session and preserves source replay', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('ag_access_pin', '0000'));
+  await installAuthenticatedSession(page);
   const forkRequests = await installSessionForkFixtures(page);
   await page.goto('/agent');
 

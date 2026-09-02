@@ -7,19 +7,22 @@ SkillsRegistry도 마켓 스킬을 동적 로드합니다.
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Callable, cast
 
-from ..i18n import t as i18n_t
+from .. import i18n as i18n_module
 from ..security.lintai_scanner import LintaiScanner
+from ..tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 # ─── 상수 ─────────────────────────────────────────────────────────────
 
 MARKET_DIR_NAME = "market"
+type FrontmatterValue = str | list[str]
+i18n_t = cast(Callable[..., str], getattr(i18n_module, "t"))
 
 
-def _parse_yaml_frontmatter(content: str) -> dict[str, Any]:
+def _parse_yaml_frontmatter(content: str) -> dict[str, FrontmatterValue]:
     """SKILL.md 파일의 YAML frontmatter(--- 블록)를 파싱합니다.
 
     예시:
@@ -34,7 +37,7 @@ def _parse_yaml_frontmatter(content: str) -> dict[str, Any]:
     반환: {"name": "MY_SKILL", "description": "...", "tools": [...]}
     본문은 "body" 키에 저장됩니다.
     """
-    result: dict[str, Any] = {}
+    result: dict[str, FrontmatterValue] = {}
 
     # --- 로 시작하고 --- 로 끝나는 블록 추출
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", content, re.DOTALL)
@@ -113,16 +116,16 @@ class SkillProfile:
             validation_logic (list[str] | None): list[str] | None validation logic.
 
         """
-        self.name = name
-        self.description = description
-        self.system_prompt = system_prompt
-        self.tools = tools
-        self.compatibility = compatibility
-        self.references = references or {}
-        self.clarifying_questions = clarifying_questions or []
-        self.validation_logic = validation_logic or []
+        self.name: str = name
+        self.description: str = description
+        self.system_prompt: str = system_prompt
+        self.tools: list[str] = tools
+        self.compatibility: str = compatibility
+        self.references: dict[str, str] = references or {}
+        self.clarifying_questions: list[str] = clarifying_questions or []
+        self.validation_logic: list[str] = validation_logic or []
 
-    def to_metadata(self) -> dict[str, Any]:
+    def to_metadata(self) -> dict[str, object]:
         """UI 대시보드용 메타데이터 딕셔너리."""
         return {
             "name": self.name,
@@ -154,8 +157,8 @@ class SkillsRegistry:
 
         """
         self.profiles: dict[str, SkillProfile] = {}
-        self.skills_dir = Path(skills_dir)
-        self.scanner = LintaiScanner()
+        self.skills_dir: Path = Path(skills_dir)
+        self.scanner: LintaiScanner = LintaiScanner()
         self._initialize_default_profiles()
         self._load_dynamic_skills()
 
@@ -237,14 +240,25 @@ class SkillsRegistry:
             parsed = _parse_yaml_frontmatter(content)
 
             # frontmatter에서 메타데이터 추출
-            description = parsed.get("description", f"Dynamic skill loaded from {file_path.name}")
-            compatibility = parsed.get("compatibility", "")
-            tools = parsed.get("tools", [])
-            if isinstance(tools, str):
-                tools = [t.strip() for t in tools.split(",")]
+            description_value = parsed.get("description")
+            description = (
+                description_value
+                if isinstance(description_value, str)
+                else f"Dynamic skill loaded from {file_path.name}"
+            )
+            compatibility_value = parsed.get("compatibility")
+            compatibility = compatibility_value if isinstance(compatibility_value, str) else ""
+            tools_value = parsed.get("tools")
+            if isinstance(tools_value, str):
+                tools = [t.strip() for t in tools_value.split(",")]
+            elif isinstance(tools_value, list):
+                tools = tools_value
+            else:
+                tools = []
 
             # 본문을 시스템 프롬프트로 사용 (frontmatter 제외)
-            body = parsed.get("body", content)
+            body_value = parsed.get("body")
+            body = body_value if isinstance(body_value, str) else content
 
             # Google Skills 패턴: 본문에서 Clarifying Questions / Validation Logic 섹션 추출
             clarifying_questions = self._extract_section_list(body, "Clarifying Questions")
@@ -325,7 +339,7 @@ class SkillsRegistry:
         skill_file = skill_folder / "SKILL.md"
 
         with open(skill_file, "w", encoding="utf-8") as f:
-            f.write(content)
+            _ = f.write(content)
 
         logger.info("Skill %s saved to %s", name, skill_file)
         self._load_skill_file(skill_file, name)
@@ -390,7 +404,7 @@ class SkillsRegistry:
         """
         return list(self.profiles.keys())
 
-    def to_metadata_list(self) -> list[dict[str, Any]]:
+    def to_metadata_list(self) -> list[dict[str, object]]:
         """UI 대시보드용 전체 스킬 메타데이터 목록."""
         return [p.to_metadata() for p in self.profiles.values()]
 
@@ -412,7 +426,7 @@ class SkillsRegistry:
             return []
         return list(profile.references.keys())
 
-    def validate_skill_tools(self, tool_registry) -> dict[str, list[str]]:
+    def validate_skill_tools(self, tool_registry: ToolRegistry) -> dict[str, list[str]]:
         """등록된 스킬들이 참조하는 도구가 ToolRegistry에 실제 존재하는지 검증합니다.
 
         Returns:
@@ -420,7 +434,7 @@ class SkillsRegistry:
 
         """
         missing_map: dict[str, list[str]] = {}
-        registry_tool_names = set(tool_registry.get_names())
+        registry_tool_names: set[str] = set(tool_registry.get_names())
 
         for profile_name, profile in self.profiles.items():
             missing = [t for t in profile.tools if t not in registry_tool_names]

@@ -48,6 +48,7 @@ describe('shared API client', () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
   });
@@ -57,7 +58,7 @@ describe('shared API client', () => {
   });
 
   it('PIN: preserves the model list URL, PIN header, and array result', async () => {
-    window.localStorage.setItem('ag_access_pin', 'test-pin');
+    window.sessionStorage.setItem('ag_access_token', 'test-token');
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       object: 'list',
       data: [{ id: 'model-a', role: 'coding' }],
@@ -72,8 +73,22 @@ describe('shared API client', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const headers = new Headers(init?.headers);
     expect(url).toBe('/v1/models');
-    expect(headers.get('X-Access-Pin')).toBe('test-pin');
+    expect(headers.get('Authorization')).toBe('Bearer test-token');
     expect(headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it('health accepts an empty backend array returned before models are loaded', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      status: 'ok',
+      backends: [],
+      rag_index_files: 0,
+      cov_active: false,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    await expect(checkHealth()).resolves.toMatchObject({ status: 'ok', backends: [] });
   });
 
   it('PIN: preserves the 401 PIN-required event and HTTP error', async () => {
@@ -95,7 +110,7 @@ describe('shared API client', () => {
   });
 
   it('settings requests use the shared status-checked client', async () => {
-    window.localStorage.setItem('ag_access_pin', 'test-pin');
+    window.sessionStorage.setItem('ag_access_token', 'test-token');
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       settings: { model: { name: 'model-a' } },
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -114,7 +129,7 @@ describe('shared API client', () => {
       body: JSON.stringify({ default_model: 'model-a' }),
     }));
     const [, init] = fetchMock.mock.calls[0];
-    expect(new Headers(init?.headers).get('X-Access-Pin')).toBe('test-pin');
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
   });
 
   it('settings requests reject malformed payloads and non-OK responses before parsing JSON', async () => {
@@ -152,7 +167,7 @@ describe('shared API client', () => {
   );
 
   it('RED: system auth sends the PIN and dispatches the 401 event', async () => {
-    window.localStorage.setItem('ag_access_pin', 'test-pin');
+    window.sessionStorage.setItem('ag_access_token', 'test-token');
     const pinRequired = vi.fn();
     window.addEventListener('agk:pin-required', pinRequired);
     fetchMock.mockResolvedValue(new Response(null, {
@@ -163,7 +178,7 @@ describe('shared API client', () => {
     try {
       await expect(fetchSystemMetrics()).rejects.toThrow('HTTP 401: Unauthorized');
       const [, init] = fetchMock.mock.calls[0];
-      expect(new Headers(init?.headers).get('X-Access-Pin')).toBe('test-pin');
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
       expect(pinRequired).toHaveBeenCalledOnce();
     } finally {
       window.removeEventListener('agk:pin-required', pinRequired);
@@ -171,7 +186,7 @@ describe('shared API client', () => {
   });
 
   it('RED: stream uses named handlers, PIN auth, and ordered chunks', async () => {
-    window.localStorage.setItem('ag_access_pin', 'test-pin');
+    window.sessionStorage.setItem('ag_access_token', 'test-token');
     fetchMock.mockResolvedValue(streamingResponse([
       'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n',
@@ -189,7 +204,7 @@ describe('shared API client', () => {
     );
 
     const [, init] = fetchMock.mock.calls[0];
-    expect(new Headers(init?.headers).get('X-Access-Pin')).toBe('test-pin');
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
     expect(events).toEqual(['chunk:Hel', 'chunk:lo', 'done']);
   });
 

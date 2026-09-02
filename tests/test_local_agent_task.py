@@ -1,8 +1,13 @@
 """Tests for local_agent_task.py — LocalAgentTask."""
 
 import time
+from typing import cast
 
 from antigravity_k.tasks.local_agent_task import LocalAgentTask
+
+
+def _task_result(task: LocalAgentTask) -> object:
+    return cast(object, task.result)
 
 
 class TestLocalAgentTaskInit:
@@ -15,12 +20,12 @@ class TestLocalAgentTaskInit:
         assert task.target is dummy
         assert task.args == ()
         assert task.kwargs == {}
-        assert task.result is None
+        assert _task_result(task) is None
         assert task.error is None
         assert task.status == "PENDING"
 
     def test_initial_state_with_args(self):
-        def dummy(a, b):
+        def dummy(a: int, b: int) -> int:
             return a + b
 
         task = LocalAgentTask(name="add", target=dummy, args=(1, 2), kwargs={"c": 3})
@@ -48,48 +53,49 @@ class TestLocalAgentTaskInit:
 
 class TestLocalAgentTaskRun:
     def test_successful_execution(self):
-        def add(a, b):
+        def add(a: int, b: int) -> int:
             return a + b
 
         task = LocalAgentTask(name="add", target=add, args=(3, 4))
         task.run()
         assert task.status == "COMPLETED"
-        assert task.result == 7
+        assert _task_result(task) == 7
         assert task.error is None
 
     def test_string_return_value(self):
         task = LocalAgentTask(name="str", target=lambda: "hello world")
         task.run()
         assert task.status == "COMPLETED"
-        assert task.result == "hello world"
+        assert _task_result(task) == "hello world"
 
     def test_dict_return_value(self):
         task = LocalAgentTask(name="dict", target=lambda: {"key": "value", "num": 42})
         task.run()
         assert task.status == "COMPLETED"
-        assert task.result["key"] == "value"
-        assert task.result["num"] == 42
+        result = cast(dict[str, object], _task_result(task))
+        assert result["key"] == "value"
+        assert result["num"] == 42
 
     def test_none_return_value(self):
         task = LocalAgentTask(name="none", target=lambda: None)
         task.run()
         assert task.status == "COMPLETED"
-        assert task.result is None
+        assert _task_result(task) is None
 
     def test_list_return_value(self):
         task = LocalAgentTask(name="list", target=lambda: [1, 2, 3])
         task.run()
         assert task.status == "COMPLETED"
-        assert task.result == [1, 2, 3]
+        assert _task_result(task) == [1, 2, 3]
 
     def test_execution_with_kwargs(self):
-        def greet(name, greeting="Hello"):
+        def greet(name: str, greeting: str = "Hello") -> str:
             return f"{greeting}, {name}!"
 
         task = LocalAgentTask(name="greet", target=greet, args=("World",), kwargs={"greeting": "Hi"})
         task.run()
         assert task.status == "COMPLETED"
-        assert task.result == "Hi, World!"
+        assert _task_result(task) == "Hi, World!"
 
 
 class TestLocalAgentTaskFailure:
@@ -101,7 +107,7 @@ class TestLocalAgentTaskFailure:
         task = LocalAgentTask(name="crash", target=crash)
         task.run()
         assert task.status == "FAILED"
-        assert task.result is None
+        assert _task_result(task) is None
         assert task.error is not None
         assert "RuntimeError" in task.error
         assert "boom!" in task.error
@@ -182,16 +188,16 @@ class TestLocalAgentTaskStatusTransitions:
 
         task = LocalAgentTask(name="counter", target=increment)
         task.run()
-        assert task.result == 1
+        assert _task_result(task) == 1
         task.run()
-        assert task.result == 2
+        assert _task_result(task) == 2
 
 
 class TestLocalAgentTaskThreaded:
     """Tests for LocalAgentTask when actually started as a background thread."""
 
     def test_start_and_join_completed(self):
-        def slow_add(a, b):
+        def slow_add(a: int, b: int) -> int:
             time.sleep(0.05)
             return a + b
 
@@ -200,7 +206,7 @@ class TestLocalAgentTaskThreaded:
         task.start()
         task.join(timeout=5)
         assert task.status == "COMPLETED"
-        assert task.result == 30
+        assert _task_result(task) == 30
 
     def test_start_and_join_failed(self):
         def slow_crash():
@@ -224,7 +230,7 @@ class TestLocalAgentTaskThreaded:
         task.daemon = True
         task.start()
         task.join(timeout=5)
-        assert task.result == {"a": 1, "b": 2}
+        assert _task_result(task) == {"a": 1, "b": 2}
 
     def test_join_timeout_does_not_block(self):
         def short_running():

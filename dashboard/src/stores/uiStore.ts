@@ -10,7 +10,7 @@ export type ExecutionMode = 'interactive' | 'plan' | 'build';
 
 export interface SystemStatus {
   healthy: boolean;
-  backends: Record<string, unknown>;
+  backends: Record<string, unknown> | unknown[];
   ragFiles: number;
   covActive: boolean;
   cpuPercent: number;

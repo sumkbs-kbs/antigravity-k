@@ -16,9 +16,10 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import ClassVar, TypeAlias
 
 logger = logging.getLogger("antigravity_k.engine.decision_anchor")
+Message: TypeAlias = dict[str, str]
 
 # ─── 결정 사항 감지 패턴 ───
 _DECISION_PATTERNS = [
@@ -68,9 +69,9 @@ class DecisionAnchor:
     - "API 응답 형식은 JSON으로 통일"
     """
 
-    MAX_ANCHORS = 10  # 앵커도 토큰 예산 소모 → 제한
+    MAX_ANCHORS: ClassVar[int] = 10  # 앵커도 토큰 예산 소모 → 제한
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._anchors: list[Anchor] = []
 
     @property
@@ -128,7 +129,7 @@ class DecisionAnchor:
         """모든 앵커를 초기화합니다."""
         self._anchors.clear()
 
-    def inject_into_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def inject_into_messages(self, messages: list[Message]) -> list[Message]:
         """시스템 프롬프트 바로 뒤에 결정 앵커 블록을 주입합니다.
 
         Anthropic 원칙: 핵심 결정은 항상 컨텍스트 최상단에 배치.
@@ -146,7 +147,7 @@ class DecisionAnchor:
 
         anchor_msg = {"role": "system", "content": "\n".join(lines)}
 
-        result = []
+        result: list[Message] = []
         inserted = False
         for msg in messages:
             result.append(msg)
@@ -265,7 +266,7 @@ class DecisionAnchor:
             lines.append(f"  {a.to_display()}")
         return "\n".join(lines)
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> dict[str, object]:
         """앵커 시스템 통계를 반환합니다."""
         categories: dict[str, int] = {}
         for a in self._anchors:

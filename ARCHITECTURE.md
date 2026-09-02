@@ -1027,7 +1027,7 @@ Phase 19부터 43까지는 기반 시스템이 완성된 이후의 테스트 강
 | `test_verify_endpoint` 405 | `/api/auth/verify` 엔드포인트 미존재 | `auth_routes.py`에 verify_token() 추가 |
 | `test_import_error` mock 실패 | `sync_playwright`가 함수 내 `from ... import`로 import되어 module attribute mock이 무효 | mock 대상 `playwright.sync_api.sync_playwright`로 변경 |
 | E2E smoke 7건 ConnectionError | 기본 포트 8400이 서버(8000)와 불일치 | 포트 8000으로 변경 (server_process fixture 포함) |
-| E2E health version 누락 | health 응답에 version/engine 키 없음 | legacy.py + agent_api.py health에 `__version__` 추가 |
+| E2E health version 누락 | health 응답에 version/engine 키 없음 | `routes/models_api.py` health에 `__version__` 추가 |
 | E2E CORS OPTIONS 차단 | auth middleware가 OPTIONS preflight를 401 차단 | `verify_access_token`에 `request.method == "OPTIONS"` 조기 반환 |
 
 ### 10.4 Phase 39: P0 0% 커버리지 모듈 테스트

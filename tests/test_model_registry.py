@@ -9,6 +9,8 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from antigravity_k.engine.model_registry import (
     DefaultModels,
     ModelProfile,
@@ -40,6 +42,20 @@ def test_default_config_path_falls_back_to_bundled_resource(tmp_path: Path):
     # Then: it falls back to the packaged default rather than raising.
     assert config_path.is_file()
     assert config_path.name == "config.yaml"
+
+
+def test_api_model_manager_uses_packaged_config_outside_workspace(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    from antigravity_k.api import dependencies
+
+    # Given: the installed server starts in a directory without a workspace config.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(dependencies, "model_manager", None)
+
+    # When: the API lazily creates its canonical model manager.
+    manager = dependencies.get_model_manager()
+
+    # Then: construction succeeds from the packaged default config.
+    assert manager is dependencies.model_manager
 
 
 def test_bundled_default_config_matches_repository_default():

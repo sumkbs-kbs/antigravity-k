@@ -76,6 +76,7 @@ The base unit is 4px. Intent uses `--space-1` through `--space-20` from `index.c
 Layout rules:
 
 - The page shell owns vertical scrolling. Internal scroll regions are named and bounded.
+- Wide operational pages use `--content-wide` as their maximum inline size.
 - Task execution uses an intrinsic grid that reflows to one readable column without horizontal page scroll.
 - Agent tree and checklist are content regions. Terminal output is the only nested scroll owner in a terminal card.
 - Grid tracks use overflow-safe intrinsic sizing. Long IDs and output use `overflow-wrap: anywhere`.
@@ -182,6 +183,26 @@ Layout rules:
 - **Accessibility**: risk and tool name are visible text; each decision control includes the request description in its accessible name.
 - **Motion**: none. Resolution removes only the server-confirmed request.
 - **Layout**: queue and detail collapse to one column below tablet width; DiffViewer owns its bounded editor viewport.
+
+### Job Operations Console
+
+- **Structure**: health summary, policy alert, schedule list, and selected execution history.
+- **Variants**: loading, empty, healthy, needs-attention, API error, retry pending.
+- **Spacing**: metric grid uses `--space-3`; panels use `--space-4`; run rows use `--space-2`.
+- **States**: selected schedule, failed run, retrying run, refresh pending.
+- **Accessibility**: policy failures use an alert landmark and visible text; schedule selection uses native buttons; retry controls name the run ID.
+- **Motion**: none; refresh and retry state changes do not animate layout or steal focus.
+- **Layout**: `job-operations-layout` is a responsive two-column `list-detail` primitive that collapses to one column below `768px`; the page shell remains the only vertical scroll owner.
+
+### Persistent Agency Console
+
+- **Structure**: labelled objective form, scheduler state summary, durable context preview, and objective lifecycle list.
+- **Variants**: loading, unavailable, idle, objective-ready, paused, and API error.
+- **Spacing**: panel uses `--space-4`; form controls and objective rows use `--space-2` and `--space-3`.
+- **States**: submitting, refreshing, paused, resumed, validation error, and completed objective.
+- **Accessibility**: objective title has a persistent label; pause/resume is a named button; scheduler state is exposed through `role="status"` text and not color alone.
+- **Motion**: no layout animation; state feedback uses existing control transitions and reduced-motion behavior.
+- **Layout**: intrinsic single-column stack inside the agent page; context preview and long objective text wrap without horizontal overflow.
 
 ## 6. Motion & Interaction
 

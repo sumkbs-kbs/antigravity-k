@@ -121,11 +121,13 @@ class TestCredentialClassification:
         }
 
         cleaned = strip_credentials(payload)
+        user = cleaned["user"]
+        assert isinstance(user, dict)
 
-        assert cleaned["user"]["access_token"] == CREDENTIAL_PLACEHOLDER
-        assert cleaned["user"]["clientSecret"] == CREDENTIAL_PLACEHOLDER
-        assert cleaned["user"]["name"] == "kim"
-        assert cleaned["user"]["tags"] == ["a"]
+        assert user["access_token"] == CREDENTIAL_PLACEHOLDER
+        assert user["clientSecret"] == CREDENTIAL_PLACEHOLDER
+        assert user["name"] == "kim"
+        assert user["tags"] == ["a"]
         assert cleaned["count"] == 3
 
     def test_scalar_passthrough(self):

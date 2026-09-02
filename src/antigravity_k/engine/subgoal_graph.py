@@ -54,9 +54,7 @@ class SubgoalGraph:
         deps = depends_on or []
         unknown = [dep for dep in deps if dep not in self.nodes]
         if unknown:
-            raise ValueError(
-                f"Subgoal '{task_id}' references unknown dependencies: {', '.join(unknown)}"
-            )
+            raise ValueError(f"Subgoal '{task_id}' references unknown dependencies: {', '.join(unknown)}")
         node = SubgoalNode(
             task_id=task_id,
             description=description,

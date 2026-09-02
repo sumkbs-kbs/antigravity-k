@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import ClassVar
+from typing import Callable, ClassVar, Protocol, cast, final, override
 
+import textual.worker as textual_worker
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
@@ -23,9 +24,10 @@ from textual.widgets import (
     RichLog,
     Static,
 )
-from textual.worker import get_current_worker
+from textual.worker import Worker
 
 from antigravity_k import __version__
+from antigravity_k.engine.mode_manager import ModeManager
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
 from .widgets import (
@@ -40,6 +42,10 @@ from .widgets import (
 logger = logging.getLogger("antigravity_k.tui")
 
 
+class _WorkerController(Protocol):
+    def cancel_group(self, node: object, group: str) -> object: ...
+
+
 class HelpScreen(Screen[None]):
     """Modal screen showing available slash commands and keyboard shortcuts."""
 
@@ -48,6 +54,7 @@ class HelpScreen(Screen[None]):
         Binding("q", "dismiss", "Quit"),
     ]
 
+    @override
     def compose(self) -> ComposeResult:
         yield Container(
             Label("[bold]Antigravity-K TUI Help[/bold]", id="help-title"),
@@ -89,8 +96,8 @@ class HelpScreen(Screen[None]):
         container.styles.padding = (2, 4)
         container.styles.margin = (2, 4)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss()
+    def on_button_pressed(self, _event: Button.Pressed) -> None:
+        _ = self.dismiss()
 
 
 class ChatScreen(Screen[None]):
@@ -109,21 +116,22 @@ class ChatScreen(Screen[None]):
         # Phase 1 D6: mode_manager 전달하여 /plan, /build, /status 명령어 동작
         from antigravity_k.engine.mode_manager import ModeManager
 
-        self._mode_manager = ModeManager()
-        self.slash_registry = SlashCommandRegistry(mode_manager=self._mode_manager)
-        self._processing = False
-        self.chat_log = RichLog(
+        self._mode_manager: ModeManager = ModeManager()
+        self.slash_registry: SlashCommandRegistry = SlashCommandRegistry(mode_manager=self._mode_manager)
+        self._processing: bool = False
+        self.chat_log: RichLog = RichLog(
             id="chat-log",
             highlight=True,
             markup=True,
             wrap=True,
             min_width=80,
         )
-        self.suggestion_bar = SuggestionBar()
-        self.input = SlashInput()
-        self.send_btn = Button("Send", variant="primary", id="send-btn")
+        self.suggestion_bar: SuggestionBar = SuggestionBar()
+        self.input: SlashInput = SlashInput()
+        self.send_btn: Button = Button("Send", variant="primary", id="send-btn")
         self.send_btn.styles.width = 10
 
+    @override
     def compose(self) -> ComposeResult:
         """Create the main chat layout."""
         yield Header(show_clock=True)
@@ -151,8 +159,8 @@ class ChatScreen(Screen[None]):
         footer = self.query_one(StatusFooter)
         footer.status_text = "Ready"
         footer.server_status = "online"
-        footer.tools_count = len(self.slash_registry._commands)
-        self.input.focus()
+        footer.tools_count = len(self.slash_registry.get_completions("/"))
+        _ = self.input.focus()
 
     def _setup_styles(self) -> None:
         """Apply styling to the layout."""
@@ -174,22 +182,25 @@ class ChatScreen(Screen[None]):
 
     def _print_welcome(self) -> None:
         """Print welcome message."""
-        welcome = (
-            f"[bold #00ff87]Antigravity-K TUI v{__version__}[/]\n\n"
-            "[dim]Terminal UI for the Local Autonomous Engineering Agent[/dim]\n\n"
-            "Type a [bold]message[/bold] for conversation, or use [bold]/commands[/bold]:\n"
-            "  [dim]/help[/dim]   — Show available commands\n"
-            "  [dim]/tools[/dim]  — List tools\n"
-            "  [dim]/status[/dim] — System status\n"
-            "  [dim]/exit[/dim]   — Quit\n\n"
-            "[dim]Ctrl+Space[/dim] for command completion  |  [dim]Ctrl+P[/dim] for help\n" + "─" * 50
+        welcome = "".join(
+            (
+                f"[bold #00ff87]Antigravity-K TUI v{__version__}[/]\n\n",
+                "[dim]Terminal UI for the Local Autonomous Engineering Agent[/dim]\n\n",
+                "Type a [bold]message[/bold] for conversation, or use [bold]/commands[/bold]:\n",
+                "  [dim]/help[/dim]   — Show available commands\n",
+                "  [dim]/tools[/dim]  — List tools\n",
+                "  [dim]/status[/dim] — System status\n",
+                "  [dim]/exit[/dim]   — Quit\n\n",
+                "[dim]Ctrl+Space[/dim] for command completion  |  [dim]Ctrl+P[/dim] for help\n",
+                "─" * 50,
+            ),
         )
         self._add_message(welcome, "system")
 
     def _add_message(self, content: str, sender: str) -> None:
         """Add a message to the chat log."""
         ts = time.strftime("%H:%M:%S")
-        self.chat_log.write(make_message_bubble(content, sender, timestamp=ts))
+        _ = self.chat_log.write(make_message_bubble(content, sender, timestamp=ts))
 
     def _set_suggestions(self, suggestions: list[str]) -> None:
         """Update follow-up suggestion buttons."""
@@ -199,51 +210,55 @@ class ChatScreen(Screen[None]):
 
     def on_user_message(self, event: UserMessage) -> None:
         """Handle input submission from SlashInput."""
-        self._process_input(event.text)
+        _ = self._process_input(event.text)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
         if event.button.id == "send-btn":
             text = self.input.value.strip()
             if text:
-                self._process_input(text)
+                _ = self._process_input(text)
                 self.input.value = ""
 
     def on_suggestion_clicked(self, event: SuggestionClicked) -> None:
         """Handle follow-up suggestion click."""
-        self._process_input(event.text)
+        _ = self._process_input(event.text)
 
     # ─── Actions ──────────────────────────────────────────────────
 
     def action_open_help(self) -> None:
         """Open the help screen."""
-        self.app.push_screen(HelpScreen())
+        app = cast(App[None], self.app)
+        _ = app.push_screen(HelpScreen())
 
     def action_clear_chat(self) -> None:
         """Clear the chat log."""
-        self.chat_log.clear()
+        _ = self.chat_log.clear()
         self._print_welcome()
 
     def action_quit(self) -> None:
         """Exit the application."""
-        self.app.exit()
+        app = cast(App[None], self.app)
+        app.exit()
 
     def action_interrupt(self) -> None:
         if self.input.value:
             self.input.value = ""
-            self.input.focus()
+            _ = self.input.focus()
             self.query_one(StatusFooter).status_text = "Input cleared · Ctrl+C again to exit"
             return
 
         if self._processing:
-            self.workers.cancel_group(self, "task")
+            workers = cast(_WorkerController, cast(object, self.workers))
+            _ = workers.cancel_group(self, "task")
             self._processing = False
             self._update_input_state(False)
             self.query_one(StatusFooter).status_text = "Task cancelled · Ctrl+C again to exit"
             self._add_message("[yellow]Current task cancelled.[/yellow]", "system")
             return
 
-        self.app.exit()
+        app = cast(App[None], self.app)
+        app.exit()
 
     # ─── Input Processing ─────────────────────────────────────────
 
@@ -253,12 +268,14 @@ class ChatScreen(Screen[None]):
         if self._processing:
             return
         self._processing = True
-        worker = get_current_worker()
+        get_worker = cast(Callable[[], Worker[None]], textual_worker.get_current_worker)
+        worker = get_worker()
+        app = cast(App[None], self.app)
 
         try:
             # Show user message
-            self.app.call_from_thread(self._add_message, text, "user")
-            self.app.call_from_thread(self._update_input_state, True)
+            _ = app.call_from_thread(self._add_message, text, "user")
+            _ = app.call_from_thread(self._update_input_state, True)
 
             # Process
             if text.startswith("/"):
@@ -271,28 +288,28 @@ class ChatScreen(Screen[None]):
 
             # Phase 1 D6: Update status footer with current mode after slash command
             if text.startswith("/") and self._mode_manager:
-                self.app.call_from_thread(
+                _ = app.call_from_thread(
                     self._update_footer_mode,
                     self._mode_manager.current_mode.value,
                 )
 
             # Show response
-            self.app.call_from_thread(self._add_message, response, "assistant")
-            self.app.call_from_thread(self._update_input_state, False)
+            _ = app.call_from_thread(self._add_message, response, "assistant")
+            _ = app.call_from_thread(self._update_input_state, False)
 
             # Generate follow-up suggestions
             suggestions = self._generate_suggestions(text, response)
             if not worker.is_cancelled:
-                self.app.call_from_thread(self._set_suggestions, suggestions)
+                _ = app.call_from_thread(self._set_suggestions, suggestions)
 
         except Exception as e:
             logger.exception("Input processing error")
-            self.app.call_from_thread(
+            _ = app.call_from_thread(
                 self._add_message,
                 f"[red]Error: {e}[/red]",
                 "system",
             )
-            self.app.call_from_thread(self._update_input_state, False)
+            _ = app.call_from_thread(self._update_input_state, False)
         finally:
             self._processing = False
 
@@ -307,7 +324,7 @@ class ChatScreen(Screen[None]):
         else:
             self.input.disabled = False
             self.input.placeholder = "Type a message or /command...  (Ctrl+Space for completions)"
-            self.input.focus()
+            _ = self.input.focus()
             self.send_btn.disabled = False
             status = self.query_one(StatusFooter)
             status.status_text = "Ready"
@@ -325,11 +342,13 @@ class ChatScreen(Screen[None]):
         command = text.strip()
 
         if command == "/exit":
-            self.app.call_from_thread(self.app.exit)
+            app = cast(App[None], self.app)
+            _ = app.call_from_thread(app.exit)
             return "Goodbye! 👋"
 
         if command == "/clear":
-            self.app.call_from_thread(self.action_clear_chat)
+            app = cast(App[None], self.app)
+            _ = app.call_from_thread(self.action_clear_chat)
             return "Chat cleared."
 
         try:
@@ -351,7 +370,7 @@ class ChatScreen(Screen[None]):
             f"[dim]For now, try /commands like /help, /tools, /status.[/dim]"
         )
 
-    def _generate_suggestions(self, user_input: str, response: str) -> list[str]:
+    def _generate_suggestions(self, user_input: str, _response: str) -> list[str]:
         """Generate contextual follow-up suggestions."""
         suggestions = []
 
@@ -381,6 +400,7 @@ class ChatScreen(Screen[None]):
 # ─── Main App ─────────────────────────────────────────────────────────────────
 
 
+@final
 class AgkTUI(App[None]):
     """Antigravity-K Terminal User Interface."""
 
@@ -441,16 +461,16 @@ class AgkTUI(App[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self._model_name = "local"
+        self._model_name: str = "local"
         self.dark = True
 
     def on_mount(self) -> None:
         """Set up the app on startup."""
-        self.push_screen(ChatScreen())
+        _ = self.push_screen(ChatScreen())
 
     def action_show_help(self) -> None:
         """Show help screen."""
-        screen = self.get_screen("chat-screen") if hasattr(self, "get_screen") else None
+        screen = cast(Screen[None], self.screen)
         if isinstance(screen, ChatScreen):
             screen.action_open_help()
 
@@ -461,6 +481,7 @@ class AgkTUI(App[None]):
             return
         self.exit()
 
+    @override
     def action_toggle_dark(self) -> None:
         """Toggle dark mode (always dark for terminal)."""
         self.dark = True

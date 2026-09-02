@@ -27,11 +27,37 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast, final
 
 logger = logging.getLogger("antigravity_k.engine.shields")
+
+
+class _ToolsetManagerLike(Protocol):
+    @property
+    def active_toolset(self) -> str: ...
+
+    def set_active(self, toolset: str, /) -> bool | None: ...
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return cast(Mapping[str, object], value)
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _boolean(value: object, default: bool = False) -> bool:
+    return value if isinstance(value, bool) else default
 
 
 # ── 상수 ──
@@ -98,6 +124,7 @@ class AuditEntry:
 # ── Shields Manager ──
 
 
+@final
 class ShieldsManager:
     """에이전트 보호 레벨 관리자.
 
@@ -107,7 +134,7 @@ class ShieldsManager:
 
     def __init__(
         self,
-        toolset_manager=None,
+        toolset_manager: _ToolsetManagerLike | None = None,
         state_dir: str | None = None,
         default_timeout: int = DEFAULT_TIMEOUT_SECONDS,
         max_timeout: int = MAX_TIMEOUT_SECONDS,
@@ -123,22 +150,22 @@ class ShieldsManager:
             default_safe_toolset (str): str default safe toolset.
 
         """
-        self._toolset_manager = toolset_manager
-        self._state = ShieldsState()
+        self._toolset_manager: _ToolsetManagerLike | None = toolset_manager
+        self._state: ShieldsState = ShieldsState()
         self._audit_log: list[AuditEntry] = []
-        self._default_timeout = default_timeout
-        self._max_timeout = max_timeout
-        self._default_safe_toolset = default_safe_toolset
+        self._default_timeout: int = default_timeout
+        self._max_timeout: int = max_timeout
+        self._default_safe_toolset: str = default_safe_toolset
 
         # 상태 파일 경로
         if state_dir:
-            self._state_dir = Path(state_dir)
+            self._state_dir: Path = Path(state_dir)
         else:
             home = os.environ.get("HOME", "/tmp")
             self._state_dir = Path(home) / ".antigravity-k" / "state"
 
-        self._state_file = self._state_dir / "shields-state.json"
-        self._audit_file = self._state_dir / "shields-audit.jsonl"
+        self._state_file: Path = self._state_dir / "shields-state.json"
+        self._audit_file: Path = self._state_dir / "shields-audit.jsonl"
 
         # 기존 상태 로드
         self._load_state()
@@ -224,7 +251,7 @@ class ShieldsManager:
 
         # ToolsetManager 전환
         if self._toolset_manager:
-            self._toolset_manager.set_active(target_toolset)
+            _ = self._toolset_manager.set_active(target_toolset)
             logger.info("Toolset switched to '%s' (shields down)", target_toolset)
 
         # 감사 로그
@@ -272,7 +299,7 @@ class ShieldsManager:
         # ToolsetManager 복원
         previous_toolset = self._state.previous_toolset or self._default_safe_toolset
         if self._toolset_manager:
-            self._toolset_manager.set_active(previous_toolset)
+            _ = self._toolset_manager.set_active(previous_toolset)
             logger.info("Toolset restored to '%s' (shields up)", previous_toolset)
 
         # 감사 로그
@@ -316,12 +343,12 @@ class ShieldsManager:
 
         if self._state.is_expired:
             logger.warning("Shields timeout expired — auto-restoring to UP")
-            self.shields_up(restored_by="timeout")
+            _ = self.shields_up(restored_by="timeout")
             return True
 
         return False
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> dict[str, object]:
         """현재 Shields 상태를 딕셔너리로 반환합니다."""
         return {
             "shields_down": self._state.shields_down,
@@ -333,7 +360,7 @@ class ShieldsManager:
             "updated_at": self._state.updated_at,
         }
 
-    def get_audit_log(self, limit: int = 50) -> list[dict[str, Any]]:
+    def get_audit_log(self, limit: int = 50) -> list[dict[str, object]]:
         """최근 감사 로그를 반환합니다."""
         entries = self._audit_log[-limit:]
         return [asdict(e) for e in entries]
@@ -341,16 +368,27 @@ class ShieldsManager:
     # ── config.yaml 연동 ──
 
     @classmethod
-    def from_config(cls, config: dict[str, Any] | None = None, **kwargs) -> "ShieldsManager":
+    def from_config(
+        cls,
+        config: Mapping[str, object] | None = None,
+        *,
+        toolset_manager: _ToolsetManagerLike | None = None,
+        state_dir: str | None = None,
+    ) -> "ShieldsManager":
         """config.yaml의 `shields` 섹션에서 인스턴스를 생성합니다."""
         if not isinstance(config, dict):
-            return cls(**kwargs)
+            return cls(toolset_manager=toolset_manager, state_dir=state_dir)
+
+        default_timeout = _optional_int(config.get("default_timeout_seconds"))
+        max_timeout = _optional_int(config.get("max_timeout_seconds"))
+        default_mode = _optional_string(config.get("default_mode"))
 
         return cls(
-            default_timeout=config.get("default_timeout_seconds", DEFAULT_TIMEOUT_SECONDS),
-            max_timeout=config.get("max_timeout_seconds", MAX_TIMEOUT_SECONDS),
-            default_safe_toolset=config.get("default_mode", "safe"),
-            **kwargs,
+            toolset_manager=toolset_manager,
+            state_dir=state_dir,
+            default_timeout=default_timeout if default_timeout is not None else DEFAULT_TIMEOUT_SECONDS,
+            max_timeout=max_timeout if max_timeout is not None else MAX_TIMEOUT_SECONDS,
+            default_safe_toolset=default_mode if default_mode is not None else "safe",
         )
 
     # ── 내부 ──
@@ -359,12 +397,19 @@ class ShieldsManager:
         """파일에서 상태를 로드합니다."""
         if self._state_file.exists():
             try:
-                data = json.loads(self._state_file.read_text())
+                data = _as_mapping(cast(object, json.loads(self._state_file.read_text())))
                 self._state = ShieldsState(
-                    **{k: v for k, v in data.items() if k in ShieldsState.__dataclass_fields__},
+                    shields_down=_boolean(data.get("shields_down")),
+                    shields_down_at=_optional_string(data.get("shields_down_at")),
+                    shields_down_timeout=_optional_int(data.get("shields_down_timeout")),
+                    shields_down_reason=_optional_string(data.get("shields_down_reason")),
+                    previous_toolset=_optional_string(data.get("previous_toolset")),
+                    target_toolset=_optional_string(data.get("target_toolset")),
+                    permanent=_boolean(data.get("permanent")),
+                    updated_at=_optional_string(data.get("updated_at")),
                 )
                 # 로드 직후 타임아웃 확인
-                self.check_timeout()
+                _ = self.check_timeout()
             except Exception as e:
                 logger.exception("Unhandled exception")
                 logger.debug("Failed to load shields state: %s", e)
@@ -373,7 +418,7 @@ class ShieldsManager:
         """상태를 파일에 저장합니다."""
         try:
             self._state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            self._state_file.write_text(json.dumps(asdict(self._state), indent=2, default=str))
+            _ = self._state_file.write_text(json.dumps(asdict(self._state), indent=2, default=str))
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("Failed to save shields state: %s", e)
@@ -383,8 +428,8 @@ class ShieldsManager:
         self._audit_log.append(entry)
         try:
             self._state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            with open(self._audit_file, "a") as f:
-                f.write(json.dumps(asdict(entry), default=str) + "\n")
+            with self._audit_file.open("a", encoding="utf-8") as f:
+                _ = f.write(json.dumps(asdict(entry), default=str) + "\n")
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("Failed to write audit log: %s", e)

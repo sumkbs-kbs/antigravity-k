@@ -18,9 +18,62 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, final
+from typing import TypedDict, cast, final
+
+from antigravity_k.engine.memory_contracts import JsonValue
 
 logger = logging.getLogger(__name__)
+
+
+class SessionMetadata(TypedDict):
+    total_tokens_used: int
+    tools_used: list[str]
+    files_modified: list[str]
+    ended_at: float | None
+
+
+class SessionData(TypedDict):
+    id: str
+    project_path: str
+    project_hash: str
+    created_at: float
+    updated_at: float
+    turn_count: int
+    messages: list[dict[str, str]]
+    working_memory: dict[str, object]
+    metadata: SessionMetadata
+
+
+class SessionInfo(TypedDict):
+    id: str
+    project_path: str
+    turn_count: int
+    created_at: float
+    updated_at: float
+    message_count: int
+    memory_keys: list[str]
+    metadata: dict[str, object]
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast(list[object], value) if isinstance(item, str)]
+
+
+def _message_list(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    messages: list[dict[str, str]] = []
+    for item in cast(list[object], value):
+        if not isinstance(item, dict):
+            continue
+        record = cast(dict[object, object], item)
+        role = record.get("role")
+        content = record.get("content")
+        if isinstance(role, str) and isinstance(content, str):
+            messages.append({"role": role, "content": content})
+    return messages
 
 
 @final
@@ -47,7 +100,7 @@ class SessionManager:
         )
         os.makedirs(self.base_dir, exist_ok=True)
 
-        self._current_session: dict[str, Any] | None = None
+        self._current_session: SessionData | None = None
         self._session_id: str | None = None
 
     # ─────────── 세션 라이프사이클 ───────────
@@ -96,6 +149,7 @@ class SessionManager:
                 "total_tokens_used": 0,
                 "tools_used": [],
                 "files_modified": [],
+                "ended_at": None,
             },
         }
 
@@ -164,7 +218,7 @@ class SessionManager:
 
     # ─────────── Working Memory (장기 기억) ───────────
 
-    def set_memory(self, key: str, value: Any) -> None:
+    def set_memory(self, key: str, value: object) -> None:
         """Working Memory에 값을 저장합니다."""
         if not self._current_session:
             _ = self.start_session()
@@ -175,27 +229,33 @@ class SessionManager:
             "access_count": 1,
         }
 
-    def get_memory(self, key: str, default: Any = None) -> Any:
+    def get_memory(self, key: str, default: object = None) -> object:
         """Working Memory에서 값을 조회합니다."""
         if not self._current_session:
             return default
         if key in self._current_session["working_memory"]:
             mem = self._current_session["working_memory"][key]
             # 만약 예전 포맷의 단순 값이면
-            if not isinstance(mem, dict) or "last_accessed" not in mem:
-                mem = {"value": mem, "last_accessed": time.time(), "access_count": 1}
-                self._current_session["working_memory"][key] = mem
-            else:
-                mem["last_accessed"] = time.time()
-                mem["access_count"] += 1
-            return mem["value"]
+            if isinstance(mem, dict) and "last_accessed" in mem:
+                record = cast(dict[str, object], mem)
+                record["last_accessed"] = time.time()
+                access_count = record.get("access_count", 0)
+                record["access_count"] = access_count + 1 if isinstance(access_count, int) else 1
+                return record.get("value")
+            new_record: dict[str, object] = {
+                "value": mem,
+                "last_accessed": time.time(),
+                "access_count": 1,
+            }
+            self._current_session["working_memory"][key] = new_record
+            return new_record["value"]
         return default
 
-    def get_all_memory(self) -> dict[str, Any]:
+    def get_all_memory(self) -> dict[str, object]:
         """모든 Working Memory를 반환합니다."""
         if not self._current_session:
             return {}
-        result = {}
+        result: dict[str, object] = {}
         for k, v in self._current_session.get("working_memory", {}).items():
             if isinstance(v, dict) and "value" in v:
                 result[k] = v["value"]
@@ -203,7 +263,7 @@ class SessionManager:
                 result[k] = v
         return result
 
-    def get_working_memory(self) -> dict[str, Any]:
+    def get_working_memory(self) -> dict[str, object]:
         """Working Memory를 반환합니다 (get_all_memory의 별칭 — BuiltinMemoryProvider 호환)."""
         return self.get_all_memory()
 
@@ -222,12 +282,15 @@ class SessionManager:
                 if session_path != current_path:
                     try:
                         with session_path.open(encoding="utf-8") as session_file:
-                            data = json.load(session_file)
+                            data = cast(object, json.load(session_file))
                     except (OSError, json.JSONDecodeError):
                         data = {}
                     if isinstance(data, dict):
-                        deleted += len(data.get("messages", []))
-                        deleted += len(data.get("working_memory", {}))
+                        data_dict = cast(dict[str, object], data)
+                        messages = data_dict.get("messages", [])
+                        working_memory = data_dict.get("working_memory", {})
+                        deleted += len(cast(list[object], messages)) if isinstance(messages, list) else 0
+                        deleted += len(cast(dict[object, object], working_memory)) if isinstance(working_memory, dict) else 0
                 session_path.unlink()
             self._current_session = None
             self._session_id = None
@@ -246,6 +309,7 @@ class SessionManager:
                 "total_tokens_used": 0,
                 "tools_used": [],
                 "files_modified": [],
+                "ended_at": None,
             }
         if scope == "working":
             deleted += len(self._current_session.get("working_memory", {}))
@@ -254,28 +318,39 @@ class SessionManager:
         self.save()
         return deleted
 
-    def export_memory(self, scope: str = "all") -> list[dict[str, Any]]:
+    def export_memory(self, scope: str = "all") -> list[dict[str, JsonValue]]:
         if scope not in {"session", "working", "project", "global", "all"}:
             raise ValueError(f"Unsupported memory scope: {scope}")
         if scope in {"project", "global"}:
             return []
         if scope == "all":
-            records = []
+            records: list[dict[str, JsonValue]] = []
             current_path = Path(self.base_dir) / f"{self._session_id}.json"
             for session_path in Path(self.base_dir).glob("*.json"):
                 if session_path == current_path and self._current_session is not None:
-                    records.append({"session_id": session_path.stem, "data": self._current_session})
+                    records.append(
+                        {
+                            "session_id": session_path.stem,
+                            "data": cast(JsonValue, cast(object, self._current_session)),
+                        },
+                    )
                     continue
                 try:
-                    data = json.loads(session_path.read_text(encoding="utf-8"))
+                    data = cast(object, json.loads(session_path.read_text(encoding="utf-8")))
                 except (OSError, json.JSONDecodeError):
                     continue
-                records.append({"session_id": session_path.stem, "data": data})
+                records.append({"session_id": session_path.stem, "data": cast(JsonValue, data)})
             return records
         if not self._current_session:
             return []
         key = "messages" if scope == "session" else "working_memory"
-        return [{"session_id": self._session_id, "scope": scope, "data": self._current_session.get(key, {})}]
+        return [
+            {
+                "session_id": self._session_id,
+                "scope": scope,
+                "data": cast(JsonValue, self._current_session.get(key, {})),
+            },
+        ]
 
     def redact_memory(self, scope: str = "all") -> int:
         records = self.export_memory(scope)
@@ -283,40 +358,47 @@ class SessionManager:
             return 0
         from antigravity_k.engine.secret_scanner import redact_full
 
-        def redact_value(value):
+        def redact_value(value: object) -> tuple[object, int]:
             if isinstance(value, str):
                 redacted = redact_full(value)
                 return redacted, int(redacted != value)
             if isinstance(value, dict):
                 changed = 0
-                result = {}
-                for key, item in value.items():
-                    result[key], count = redact_value(item)
+                object_result: dict[str, object] = {}
+                object_value = cast(dict[object, object], value)
+                for key, item in object_value.items():
+                    redacted_item, count = redact_value(item)
+                    object_result[str(key)] = redacted_item
                     changed += count
-                return result, changed
+                return object_result, changed
             if isinstance(value, list):
                 changed = 0
-                result = []
-                for item in value:
-                    redacted, count = redact_value(item)
-                    result.append(redacted)
+                list_result: list[object] = []
+                list_value = cast(list[object], value)
+                for item in list_value:
+                    redacted_item, count = redact_value(item)
+                    list_result.append(redacted_item)
                     changed += count
-                return result, changed
+                return list_result, changed
             return value, 0
 
         changed = 0
         if scope == "all":
             for record in records:
-                data, count = redact_value(record["data"])
+                data, count = redact_value(cast(object, record["data"]))
                 changed += count
                 path = Path(self.base_dir) / f"{record['session_id']}.json"
                 if path == Path(self.base_dir) / f"{self._session_id}.json" and isinstance(data, dict):
-                    self._current_session = data
+                    self._current_session = cast(SessionData, cast(object, data))
                 _ = path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         elif self._current_session:
-            data = dict(self._current_session)
-            key = "messages" if scope == "session" else "working_memory"
-            data[key], count = redact_value(data.get(key, {}))
+            data = cast(SessionData, cast(object, dict(self._current_session)))
+            if scope == "session":
+                redacted, count = redact_value(data.get("messages", []))
+                data["messages"] = cast(list[dict[str, str]], redacted)
+            else:
+                redacted, count = redact_value(data.get("working_memory", {}))
+                data["working_memory"] = cast(dict[str, object], redacted)
             self._current_session = data
             changed += count
             self.save()
@@ -362,15 +444,18 @@ class SessionManager:
 
     # ─────────── 세션 조회 ───────────
 
-    def list_sessions(self, limit: int = 10) -> list[dict[str, Any]]:
+    def list_sessions(self, limit: int = 10) -> list[dict[str, object]]:
         """최근 세션 목록을 반환합니다."""
-        sessions = []
+        sessions: list[dict[str, object]] = []
         for fname in os.listdir(self.base_dir):
             if fname.endswith(".json"):
                 fpath = os.path.join(self.base_dir, fname)
                 try:
                     with open(fpath, encoding="utf-8") as f:
-                        data = json.load(f)
+                        raw_data = cast(object, json.load(f))
+                    if not isinstance(raw_data, dict):
+                        continue
+                    data = cast(dict[str, object], raw_data)
                     sessions.append(
                         {
                             "id": data.get("id", fname),
@@ -383,7 +468,11 @@ class SessionManager:
                 except (json.JSONDecodeError, KeyError):
                     continue
 
-        sessions.sort(key=lambda s: s["updated_at"], reverse=True)
+        def updated_at(session: dict[str, object]) -> float:
+            value = session.get("updated_at", 0)
+            return float(value) if isinstance(value, (int, float)) else 0.0
+
+        sessions.sort(key=updated_at, reverse=True)
         return sessions[:limit]
 
     def load_session(self, session_id: str) -> bool:
@@ -394,7 +483,7 @@ class SessionManager:
             return True
         return False
 
-    def get_session_info(self) -> dict[str, Any] | None:
+    def get_session_info(self) -> SessionInfo | None:
         """현재 세션 정보를 반환합니다."""
         if not self._current_session:
             return None
@@ -406,7 +495,7 @@ class SessionManager:
             "updated_at": self._current_session.get("updated_at", 0.0),
             "message_count": len(self._current_session.get("messages", [])),
             "memory_keys": list(self._current_session.get("working_memory", {}).keys()),
-            "metadata": self._current_session.get("metadata", {}),
+            "metadata": cast(dict[str, object], cast(object, self._current_session.get("metadata", {}))),
         }
 
     # ─────────── 내부 메서드 ───────────
@@ -426,10 +515,11 @@ class SessionManager:
         """디스크에서 세션을 로드합니다."""
         try:
             with open(fpath, encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict):
+                raw_data = cast(object, json.load(f))
+            if not isinstance(raw_data, dict):
                 raise TypeError("Session file must contain a JSON object")
-            self._current_session = data
+            data = cast(dict[str, object], raw_data)
+            self._current_session = cast(SessionData, cast(object, data))
             session_id = data.get("id")
             self._session_id = session_id if isinstance(session_id, str) else None
         except Exception:
@@ -449,9 +539,7 @@ class SessionManager:
         if candidates:
             candidates.sort(key=lambda x: x[1], reverse=True)
             fpath = candidates[0][0]
-            if fpath is None:
-                return None
-            return str(fpath)
+            return fpath
         return None
 
     # ─────────── 자동 컨텍스트 복원 (P1-5) ───────────
@@ -477,18 +565,26 @@ class SessionManager:
 
         try:
             with open(session_path, encoding="utf-8") as f:
-                prev_session = json.load(f)
+                raw_prev_session = cast(object, json.load(f))
         except Exception:
             logger.exception("Unhandled exception")
             return None
 
-        # 세션 메타데이터 추출
-        meta = prev_session.get("metadata", {})
-        files_modified = meta.get("files_modified", [])
-        tools_used = meta.get("tools_used", [])
-        working_mem = prev_session.get("working_memory", {})
-        messages = prev_session.get("messages", [])
-        turn_count = prev_session.get("turn_count", 0)
+        if not isinstance(raw_prev_session, dict):
+            return None
+        prev_session = cast(dict[str, object], raw_prev_session)
+        meta_value = prev_session.get("metadata", {})
+        meta = cast(dict[str, object], meta_value) if isinstance(meta_value, dict) else {}
+        files_value = meta.get("files_modified", [])
+        files_modified = _string_list(files_value)
+        tools_value = meta.get("tools_used", [])
+        tools_used = _string_list(tools_value)
+        working_value = prev_session.get("working_memory", {})
+        working_mem = cast(dict[str, object], working_value) if isinstance(working_value, dict) else {}
+        messages_value = prev_session.get("messages", [])
+        messages = _message_list(messages_value)
+        turn_value = prev_session.get("turn_count", 0)
+        turn_count = turn_value if isinstance(turn_value, int) else 0
 
         if turn_count == 0:
             return None
@@ -509,9 +605,9 @@ class SessionManager:
         recent_msgs = messages[-10:] if len(messages) > 10 else messages
         if recent_msgs:
             parts.append("\nRecent conversation:")
-            for msg in recent_msgs:
-                role = msg.get("role", "?")
-                content = str(msg.get("content", ""))[:300]
+            for recent_msg in recent_msgs:
+                role = recent_msg.get("role", "?")
+                content = str(recent_msg.get("content", ""))[:300]
                 if role in ("user", "assistant") and content.strip():
                     parts.append(f"  {role}: {content}")
 
@@ -523,12 +619,15 @@ class SessionManager:
 
         # Staleness Tracker (P2-12)
         if working_mem:
-            active_keys = []
+            active_keys: list[str] = []
             now = time.time()
             for k, v in working_mem.items():
                 last_accessed = now
                 if isinstance(v, dict) and "last_accessed" in v:
-                    last_accessed = v["last_accessed"]
+                    memory_record = cast(dict[str, object], v)
+                    candidate = memory_record["last_accessed"]
+                    if isinstance(candidate, (int, float)):
+                        last_accessed = float(candidate)
                 # 7일 이상 경과된 메모리는 Staleness 처리 (배제)
                 if (now - last_accessed) < 7 * 24 * 3600:
                     active_keys.append(k)
@@ -551,7 +650,10 @@ class SessionManager:
                 for p in sorted(patches, key=lambda x: x.stat().st_mtime, reverse=True)[:3]:
                     try:
                         with open(p, encoding="utf-8") as f:
-                            data = json.load(f)
+                            raw_data = cast(object, json.load(f))
+                        if not isinstance(raw_data, dict):
+                            continue
+                        data = cast(dict[str, object], raw_data)
                         parts.append(
                             f"  - Self-Patched {data.get('target_file')}: {data.get('explanation')}",
                         )

@@ -1,12 +1,49 @@
 import importlib
 import unittest
+import urllib.request
+from collections.abc import Callable
+from typing import Protocol, cast
 
-mfds_drug_safety = importlib.import_module("scripts.mfds_drug_safety")
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+type JsonObject = dict[str, JsonValue]
+
+
+class _DrugSafetyModule(Protocol):
+    def build_drug_interview(self, question: str | None = None, symptoms: str | None = None) -> JsonObject: ...
+
+    def lookup_drugs(
+        self,
+        item_names: list[str],
+        *,
+        limit: int = 5,
+        base_url: str | None = None,
+        request_json: Callable[[urllib.request.Request | str], JsonObject],
+    ) -> JsonObject: ...
+
+    def normalize_easy_drug_item(self, item: dict[str, JsonValue]) -> JsonObject: ...
+
+    def normalize_safe_stad_item(self, item: dict[str, JsonValue]) -> JsonObject: ...
+
+    def resolve_proxy_base_url(self, explicit_base_url: str | None = None, env: dict[str, str] | None = None) -> str: ...
+
+
+mfds_drug_safety = cast(_DrugSafetyModule, cast(object, importlib.import_module("scripts.mfds_drug_safety")))
 build_drug_interview = mfds_drug_safety.build_drug_interview
 lookup_drugs = mfds_drug_safety.lookup_drugs
 normalize_easy_drug_item = mfds_drug_safety.normalize_easy_drug_item
 normalize_safe_stad_item = mfds_drug_safety.normalize_safe_stad_item
 resolve_proxy_base_url = mfds_drug_safety.resolve_proxy_base_url
+
+
+def _text(value: JsonValue) -> str:
+    return value if isinstance(value, str) else str(value)
+
+
+def _text_list(payload: JsonObject, key: str) -> list[str]:
+    value = payload.get(key, [])
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 class DrugInterviewTest(unittest.TestCase):
@@ -17,13 +54,15 @@ class DrugInterviewTest(unittest.TestCase):
         )
 
         self.assertEqual(interview["domain"], "drug")
-        self.assertIn("누가 복용하려는지", interview["must_ask"][0])
-        self.assertTrue(any("얼마나" in item for item in interview["must_ask"]))
-        self.assertTrue(any("복용 중인 약" in item for item in interview["must_ask"]))
-        self.assertTrue(any("알레르기" in item for item in interview["must_ask"]))
-        self.assertTrue(any("호흡곤란" in item for item in interview["red_flags"]))
-        self.assertTrue(any("의식" in item for item in interview["red_flags"]))
-        self.assertIn("즉시 119", interview["urgent_action"])
+        must_ask = _text_list(interview, "must_ask")
+        red_flags = _text_list(interview, "red_flags")
+        self.assertIn("누가 복용하려는지", must_ask[0])
+        self.assertTrue(any("얼마나" in item for item in must_ask))
+        self.assertTrue(any("복용 중인 약" in item for item in must_ask))
+        self.assertTrue(any("알레르기" in item for item in must_ask))
+        self.assertTrue(any("호흡곤란" in item for item in red_flags))
+        self.assertTrue(any("의식" in item for item in red_flags))
+        self.assertIn("즉시 119", _text(interview["urgent_action"]))
 
 
 class DrugNormalizationTest(unittest.TestCase):
@@ -43,11 +82,11 @@ class DrugNormalizationTest(unittest.TestCase):
         )
 
         self.assertEqual(item["source"], "drug_easy_info")
-        self.assertEqual(item["item_name"], "타이레놀정160밀리그램")
-        self.assertEqual(item["company_name"], "한국얀센")
-        self.assertIn("발열", item["efficacy"])
-        self.assertIn("해열진통제", item["interactions"])
-        self.assertIn("실온", item["storage"])
+        self.assertEqual(_text(item["item_name"]), "타이레놀정160밀리그램")
+        self.assertEqual(_text(item["company_name"]), "한국얀센")
+        self.assertIn("발열", _text(item["efficacy"]))
+        self.assertIn("해열진통제", _text(item["interactions"]))
+        self.assertIn("실온", _text(item["storage"]))
 
     def test_normalize_safe_stad_item_extracts_store_medicine_fields(self):
         item = normalize_safe_stad_item(
@@ -63,8 +102,8 @@ class DrugNormalizationTest(unittest.TestCase):
         )
 
         self.assertEqual(item["source"], "safe_standby_medicine")
-        self.assertEqual(item["item_name"], "어린이타이레놀현탁액")
-        self.assertIn("아세트아미노펜", item["interactions"])
+        self.assertEqual(_text(item["item_name"]), "어린이타이레놀현탁액")
+        self.assertIn("아세트아미노펜", _text(item["interactions"]))
 
 
 class ProxyResolutionTest(unittest.TestCase):
@@ -75,13 +114,13 @@ class ProxyResolutionTest(unittest.TestCase):
             "https://proxy.example.com",
         )
         with self.assertRaisesRegex(ValueError, "KSKILL_PROXY_BASE_URL"):
-            resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "off"})
+            _ = resolve_proxy_base_url(None, env={"KSKILL_PROXY_BASE_URL": "off"})
 
     def test_lookup_drugs_uses_proxy_route(self):
-        captured = {}
+        captured: dict[str, str] = {}
 
-        def fake_request_json(request):
-            captured["url"] = request.full_url
+        def fake_request_json(request: urllib.request.Request | str) -> JsonObject:
+            captured["url"] = request.full_url if isinstance(request, urllib.request.Request) else request
             return {"items": []}
 
         payload = lookup_drugs(
@@ -99,4 +138,4 @@ class ProxyResolutionTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

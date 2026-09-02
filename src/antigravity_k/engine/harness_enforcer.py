@@ -6,12 +6,28 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import ClassVar, NotRequired, TypedDict
+
+from pydantic import TypeAdapter, ValidationError
+
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
+type JsonMap = dict[str, JsonValue]
 
 
-@dataclass(frozen=True)
+class BoundaryResult(TypedDict):
+    allowed: bool
+    reason: str
+    stall: NotRequired[bool]
+
+
+_GUIDELINES_ADAPTER: TypeAdapter[JsonMap] = TypeAdapter(JsonMap)
+
+
+@dataclass(frozen=True, slots=True)
 class HarnessFeedbackAction:
     """Harnessfeedbackaction."""
 
@@ -48,17 +64,29 @@ class HarnessEnforcer:
     # 연속 실패(무진행) 행동이 이 개수를 채우면 목표 재분해를 요구한다.
     STALL_NO_PROGRESS_WINDOW: ClassVar[int] = 5
 
-    def __init__(self, project_root: str = ".", strict_mode: bool = False):
+    def __init__(
+        self,
+        project_root: str = ".",
+        strict_mode: bool = False,
+        *,
+        no_progress_window: int | None = None,
+        error_cluster_threshold: int | None = None,
+    ):
         """Initialize the HarnessEnforcer.
 
         Args:
             project_root (str): str project root.
             strict_mode (bool): bool strict mode.
+            no_progress_window: 무진행 윈도우 임계값 오버라이드 (기본 클래스 상수).
+                짧은 재시도 예산의 루프에서 감독축을 발화시키기 위한 보정용.
+            error_cluster_threshold: 유사 오류 클러스터 임계값 오버라이드.
 
         """
-        self.project_root = str(Path(project_root).resolve())
-        self.strict_mode = strict_mode
-        self.guidelines: dict[str, Any] = {}
+        self.project_root: str = str(Path(project_root).resolve())
+        self.strict_mode: bool = strict_mode
+        self.no_progress_window: int = int(no_progress_window or self.STALL_NO_PROGRESS_WINDOW)
+        self.error_cluster_threshold: int = int(error_cluster_threshold or self.STALL_ERROR_CLUSTER_THRESHOLD)
+        self.guidelines: JsonMap = {}
         self._call_counts: dict[str, int] = {}
         self._error_clusters: dict[str, int] = {}
         self._outcome_window: list[bool] = []
@@ -74,8 +102,8 @@ class HarnessEnforcer:
             if not path.exists():
                 continue
             try:
-                self.guidelines = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                self.guidelines = _GUIDELINES_ADAPTER.validate_json(path.read_text(encoding="utf-8"))
+            except (OSError, ValidationError, json.JSONDecodeError):
                 self.guidelines = {}
             return
 
@@ -119,13 +147,13 @@ class HarnessEnforcer:
         차단해 강제로 전략수정 한 턴을 벌린다.
         """
         self._outcome_window.append(bool(failed))
-        if len(self._outcome_window) > self.STALL_NO_PROGRESS_WINDOW:
-            self._outcome_window.pop(0)
+        if len(self._outcome_window) > self.no_progress_window:
+            _ = self._outcome_window.pop(0)
 
         if not self._pending_intervention:
-            if len(self._outcome_window) >= self.STALL_NO_PROGRESS_WINDOW and all(self._outcome_window):
+            if len(self._outcome_window) >= self.no_progress_window and all(self._outcome_window):
                 self._pending_intervention = (
-                    f"[STALL DETECTED] 진척 없는 행동 {self.STALL_NO_PROGRESS_WINDOW}개 연속\n"
+                    f"[STALL DETECTED] 진척 없는 행동 {self.no_progress_window}개 연속\n"
                     "[폐기] 현재 접근 방식 자체\n"
                     "[대안 가설] 목표를 서브골로 분해하고, 가장 작은 검증 가능한 단위부터 다시 실행하라."
                 )
@@ -137,16 +165,16 @@ class HarnessEnforcer:
                 self._error_clusters[fingerprint] = count
                 if len(self._error_clusters) > 64:
                     self._error_clusters.clear()
-                if count >= self.STALL_ERROR_CLUSTER_THRESHOLD:
+                if count >= self.error_cluster_threshold:
                     self._error_clusters[fingerprint] = 0
                     self._pending_intervention = (
-                        f"[STALL DETECTED] 유사한 오류 {self.STALL_ERROR_CLUSTER_THRESHOLD}회 반복\n"
+                        f"[STALL DETECTED] 유사한 오류 {self.error_cluster_threshold}회 반복\n"
                         f"[오류 지문] {fingerprint}\n"
                         "[폐기] 같은 원인을 건드리지 않는 표면적 수정\n"
                         "[대안 가설] 오류의 근본 원인을 한 문장으로 분류한 뒤, 그 원인을 직접 제거하는 접근으로 전환하라."
                     )
 
-    def _consume_intervention_if_due(self) -> dict[str, Any] | None:
+    def _consume_intervention_if_due(self) -> BoundaryResult | None:
         """예약된 개입이 있으면 한 번 반환하고 소비한다."""
         if self._pending_intervention:
             message = self._pending_intervention
@@ -154,11 +182,19 @@ class HarnessEnforcer:
             return {"allowed": False, "reason": message, "stall": True}
         return None
 
+    def consume_pending_intervention(self) -> BoundaryResult | None:
+        """예약된 1회용 개입(STALL 지시문)을 반환하고 소비한다 (공개 API).
+
+        미션 루프 밖의 재시도 루프(벤치마크 AVO 모드 등)에서도 동일한
+        감독축(무진행 윈도우·유사 오류 클러스터)을 재사용하기 위한 창구다.
+        """
+        return self._consume_intervention_if_due()
+
     def check_tool_boundary(
         self,
         tool_name: str,
-        tool_args: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        tool_args: Mapping[str, JsonValue] | None = None,
+    ) -> BoundaryResult:
         """Check Tool Boundary.
 
         Args:
@@ -169,7 +205,7 @@ class HarnessEnforcer:
             dict: The dict result. 스톨 감지 시 allowed=False + STALL 지시문.
 
         """
-        args = tool_args or {}
+        args: Mapping[str, JsonValue] = tool_args or {}
         if tool_name in self._BLOCKED_TOOLS:
             return {"allowed": False, "reason": f"{tool_name} is not an agent tool"}
 
@@ -194,7 +230,7 @@ class HarnessEnforcer:
 
         return {"allowed": True, "reason": ""}
 
-    def _is_stalled(self, tool_name: str, args: dict[str, Any]) -> bool:
+    def _is_stalled(self, tool_name: str, args: Mapping[str, JsonValue]) -> bool:
         """동일 (tool, args) 호출 횟수 기반 스톨 판정. 허용 경로만 카운트된다."""
         try:
             payload = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
@@ -229,7 +265,7 @@ class HarnessEnforcer:
         if not target.is_absolute():
             target = Path(self.project_root) / target
         try:
-            os.path.commonpath([self.project_root, str(target.resolve())])
+            _ = os.path.commonpath([self.project_root, str(target.resolve())])
         except ValueError:
             return False
         return os.path.commonpath([self.project_root, str(target.resolve())]) == self.project_root

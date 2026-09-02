@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
@@ -29,7 +30,7 @@ async def get_active_agent():
 
 @router.get("/api/stream_agent")
 async def stream_agent(
-    q: str = Query(None, description="User prompt to the agent"),
+    q: Annotated[str | None, Query(description="User prompt to the agent")] = None,
     reconnect: bool = False,
 ):
     """Server-Sent Events (SSE) endpoint to stream agent thoughts and outputs.
@@ -67,7 +68,7 @@ async def stream_agent(
 
         # Start new session — 바인딩 재할당 대신 동일 객체를 리셋한다
         # (값 복사 임포트 소비자의 stale 바인딩 방지)
-        reset_active_session()
+        _ = reset_active_session()
         active_session.is_active = True
         active_session.q = q
 

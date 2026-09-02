@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
+from typing import cast, final
 
 from antigravity_k.engine.task_events import (
     ExecutionEventRecord,
@@ -35,17 +36,30 @@ from antigravity_k.engine.task_state_types import (
 )
 
 
+def _fetchone(cursor: sqlite3.Cursor) -> sqlite3.Row | None:
+    return cast(sqlite3.Row | None, cursor.fetchone())
+
+
+def _fetchall(cursor: sqlite3.Cursor) -> list[sqlite3.Row]:
+    return cast(list[sqlite3.Row], cursor.fetchall())
+
+
+def _row_value(row: sqlite3.Row, key: str) -> object:
+    return cast(object, row[key])
+
+
+@final
 class TaskStateStore:
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+    def __init__(self, db_path: str) -> None:
+        self.db_path: str = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self) -> Generator[sqlite3.Connection, None, None]:
         connection = sqlite3.connect(self.db_path, check_same_thread=False)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
+        _ = cast(sqlite3.Row | None, connection.execute("PRAGMA journal_mode=WAL").fetchone())
         try:
             yield connection
             connection.commit()
@@ -54,55 +68,55 @@ class TaskStateStore:
 
     def initialize(self) -> None:
         with self._connection() as connection:
-            connection.execute(
+            _ = connection.execute(
                 "CREATE TABLE IF NOT EXISTS task_history ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL UNIQUE, "
-                "prompt TEXT NOT NULL, status TEXT NOT NULL, output TEXT, error TEXT, "
-                "created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT, owner_pid INTEGER, "
-                "owner_subject TEXT NOT NULL DEFAULT 'loopback')",
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL UNIQUE, "
+                + "prompt TEXT NOT NULL, status TEXT NOT NULL, output TEXT, error TEXT, "
+                + "created_at TEXT NOT NULL, completed_at TEXT, updated_at TEXT, owner_pid INTEGER, "
+                + "owner_subject TEXT NOT NULL DEFAULT 'loopback')",
             )
-            connection.execute(
+            _ = connection.execute(
                 "CREATE TABLE IF NOT EXISTS task_checkpoints ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, step INTEGER NOT NULL, "
-                "context_json TEXT NOT NULL, output_so_far TEXT NOT NULL, created_at TEXT NOT NULL)",
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, step INTEGER NOT NULL, "
+                + "context_json TEXT NOT NULL, output_so_far TEXT NOT NULL, created_at TEXT NOT NULL)",
             )
-            connection.execute(
+            _ = connection.execute(
                 "CREATE TABLE IF NOT EXISTS task_idempotency ("
-                "idempotency_key TEXT NOT NULL, owner_subject TEXT NOT NULL DEFAULT 'loopback', "
-                "task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, "
-                "PRIMARY KEY (idempotency_key, owner_subject))",
+                + "idempotency_key TEXT NOT NULL, owner_subject TEXT NOT NULL DEFAULT 'loopback', "
+                + "task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, "
+                + "PRIMARY KEY (idempotency_key, owner_subject))",
             )
             initialize_execution_event_schema(connection)
-            columns = {row["name"] for row in connection.execute("PRAGMA table_info(task_history)").fetchall()}
+            columns = {_row_value(row, "name") for row in _fetchall(connection.execute("PRAGMA table_info(task_history)"))}
             if "updated_at" not in columns:
-                connection.execute("ALTER TABLE task_history ADD COLUMN updated_at TEXT")
-                connection.execute("UPDATE task_history SET updated_at = created_at WHERE updated_at IS NULL")
+                _ = connection.execute("ALTER TABLE task_history ADD COLUMN updated_at TEXT")
+                _ = connection.execute("UPDATE task_history SET updated_at = created_at WHERE updated_at IS NULL")
             if "owner_pid" not in columns:
-                connection.execute("ALTER TABLE task_history ADD COLUMN owner_pid INTEGER")
+                _ = connection.execute("ALTER TABLE task_history ADD COLUMN owner_pid INTEGER")
             if "owner_subject" not in columns:
-                connection.execute("ALTER TABLE task_history ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'")
-            idempotency_info = connection.execute("PRAGMA table_info(task_idempotency)").fetchall()
-            idempotency_columns = {row["name"] for row in idempotency_info}
+                _ = connection.execute("ALTER TABLE task_history ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'")
+            idempotency_info = _fetchall(connection.execute("PRAGMA table_info(task_idempotency)"))
+            idempotency_columns = {_row_value(row, "name") for row in idempotency_info}
             if "owner_subject" not in idempotency_columns:
-                connection.execute(
+                _ = connection.execute(
                     "ALTER TABLE task_idempotency ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'",
                 )
-                idempotency_info = connection.execute("PRAGMA table_info(task_idempotency)").fetchall()
-            if any(row["name"] == "idempotency_key" and row["pk"] == 1 for row in idempotency_info) and not any(
-                row["name"] == "owner_subject" and row["pk"] == 2 for row in idempotency_info
+                idempotency_info = _fetchall(connection.execute("PRAGMA table_info(task_idempotency)"))
+            if any(_row_value(row, "name") == "idempotency_key" and _row_value(row, "pk") == 1 for row in idempotency_info) and not any(
+                _row_value(row, "name") == "owner_subject" and _row_value(row, "pk") == 2 for row in idempotency_info
             ):
-                connection.execute("ALTER TABLE task_idempotency RENAME TO task_idempotency_legacy")
-                connection.execute(
+                _ = connection.execute("ALTER TABLE task_idempotency RENAME TO task_idempotency_legacy")
+                _ = connection.execute(
                     "CREATE TABLE task_idempotency ("
-                    "idempotency_key TEXT NOT NULL, owner_subject TEXT NOT NULL DEFAULT 'loopback', "
-                    "task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, "
-                    "PRIMARY KEY (idempotency_key, owner_subject))",
+                    + "idempotency_key TEXT NOT NULL, owner_subject TEXT NOT NULL DEFAULT 'loopback', "
+                    + "task_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, "
+                    + "PRIMARY KEY (idempotency_key, owner_subject))",
                 )
-                connection.execute(
+                _ = connection.execute(
                     "INSERT INTO task_idempotency (idempotency_key, owner_subject, task_id, created_at) "
-                    "SELECT idempotency_key, owner_subject, task_id, created_at FROM task_idempotency_legacy",
+                    + "SELECT idempotency_key, owner_subject, task_id, created_at FROM task_idempotency_legacy",
                 )
-                connection.execute("DROP TABLE task_idempotency_legacy")
+                _ = connection.execute("DROP TABLE task_idempotency_legacy")
 
     def create_task(
         self,
@@ -118,24 +132,24 @@ class TaskStateStore:
 
         normalized_owner = owner_subject.strip() or "loopback"
         with self._connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            _ = connection.execute("BEGIN IMMEDIATE")
             if idempotency_key:
-                row = connection.execute(
+                row = _fetchone(connection.execute(
                     "SELECT task_id FROM task_idempotency WHERE idempotency_key = ? AND owner_subject = ?",
                     (idempotency_key, normalized_owner),
-                ).fetchone()
+                ))
                 if row:
-                    return str(row["task_id"])
+                    return str(_row_value(row, "task_id"))
 
-            connection.execute(
+            _ = connection.execute(
                 "INSERT INTO task_history (task_id, prompt, status, created_at, updated_at, owner_subject) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                + "VALUES (?, ?, ?, ?, ?, ?)",
                 (task_id, prompt, status, created_at, created_at, normalized_owner),
             )
             if idempotency_key:
-                connection.execute(
+                _ = connection.execute(
                     "INSERT INTO task_idempotency (idempotency_key, owner_subject, task_id, created_at) "
-                    "VALUES (?, ?, ?, ?)",
+                    + "VALUES (?, ?, ?, ?)",
                     (idempotency_key, normalized_owner, task_id, created_at),
                 )
         return task_id
@@ -143,28 +157,28 @@ class TaskStateStore:
     def get_task(self, task_id: str, owner_subject: str | None = None) -> TaskRecord | None:
         with self._connection() as connection:
             if owner_subject is None:
-                row = connection.execute(
+                row = _fetchone(connection.execute(
                     "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    "FROM task_history WHERE task_id = ?",
+                    + "FROM task_history WHERE task_id = ?",
                     (task_id,),
-                ).fetchone()
+                ))
             else:
-                row = connection.execute(
+                row = _fetchone(connection.execute(
                     "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    "FROM task_history WHERE task_id = ? AND owner_subject = ?",
+                    + "FROM task_history WHERE task_id = ? AND owner_subject = ?",
                     (task_id, owner_subject),
-                ).fetchone()
+                ))
         if not row:
             return None
         return {
-            "task_id": str(row["task_id"]),
-            "prompt": str(row["prompt"]),
-            "status": str(row["status"]),
-            "output": str(row["output"] or ""),
-            "error": row["error"],
-            "created_at": str(row["created_at"]),
-            "updated_at": str(row["updated_at"] or row["created_at"]),
-            "completed_at": row["completed_at"],
+            "task_id": str(_row_value(row, "task_id")),
+            "prompt": str(_row_value(row, "prompt")),
+            "status": str(_row_value(row, "status")),
+            "output": str(_row_value(row, "output") or ""),
+            "error": cast(str | None, _row_value(row, "error")),
+            "created_at": str(_row_value(row, "created_at")),
+            "updated_at": str(_row_value(row, "updated_at") or _row_value(row, "created_at")),
+            "completed_at": cast(str | None, _row_value(row, "completed_at")),
         }
 
     def transition(
@@ -178,28 +192,30 @@ class TaskStateStore:
             raise InvalidTaskStatusError(status)
 
         with self._connection() as connection:
-            row = connection.execute(
+            row = _fetchone(connection.execute(
                 "SELECT status, output, error FROM task_history WHERE task_id = ?",
                 (task_id,),
-            ).fetchone()
+            ))
             if not row:
                 return False
 
-            current = str(row["status"])
+            current = str(_row_value(row, "status"))
             if current != status and status not in ALLOWED_TASK_TRANSITIONS.get(current, frozenset()):
                 raise InvalidTaskTransitionError(task_id, current, status)
 
             updated_at = datetime.now(UTC).isoformat()
             completed_at = updated_at if status in TERMINAL_TASK_STATUSES else None
-            connection.execute(
-                "UPDATE task_history SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ? "
-                "WHERE task_id = ?",
+            _ = connection.execute(
+                "UPDATE task_history SET status = ?, output = ?, error = ?, updated_at = ?, completed_at = ?, "
+                + "owner_pid = ? "
+                + "WHERE task_id = ?",
                 (
                     status,
-                    output if output is not None else row["output"],
-                    error if error is not None else row["error"],
+                    output if output is not None else cast(str | None, _row_value(row, "output")),
+                    error if error is not None else cast(str | None, _row_value(row, "error")),
                     updated_at,
                     completed_at,
+                    owner_pid_for_status(status),
                     task_id,
                 ),
             )
@@ -208,24 +224,25 @@ class TaskStateStore:
     def prepare_resume(self, task_id: str, owner_subject: str | None = None) -> bool:
         with self._connection() as connection:
             if owner_subject is None:
-                row = connection.execute(
+                row = _fetchone(connection.execute(
                     "SELECT status, owner_pid FROM task_history WHERE task_id = ?",
                     (task_id,),
-                ).fetchone()
+                ))
             else:
-                row = connection.execute(
+                row = _fetchone(connection.execute(
                     "SELECT status, owner_pid FROM task_history WHERE task_id = ? AND owner_subject = ?",
                     (task_id, owner_subject),
-                ).fetchone()
-            owner_pid = None if not row or row["owner_pid"] is None else int(row["owner_pid"])
-            raw_status = "" if not row else str(row["status"])
+                ))
+            owner_pid_value = _row_value(row, "owner_pid") if row else None
+            owner_pid = None if owner_pid_value is None else int(cast(int, owner_pid_value))
+            raw_status = "" if not row else str(_row_value(row, "status"))
             if not row or not can_prepare_resume(raw_status, owner_pid):
                 return False
 
             cursor = connection.execute(
                 "UPDATE task_history SET status = ?, error = NULL, updated_at = ?, completed_at = NULL, "
-                "owner_pid = ? "
-                "WHERE task_id = ? AND status = ? AND owner_pid IS ?"
+                + "owner_pid = ? "
+                + "WHERE task_id = ? AND status = ? AND owner_pid IS ?"
                 + (" AND owner_subject = ?" if owner_subject is not None else ""),
                 (
                     "resuming",
@@ -242,24 +259,24 @@ class TaskStateStore:
     def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[TaskRecord]:
         with self._connection() as connection:
             if owner_subject is None:
-                rows = connection.execute(
+                rows = _fetchall(connection.execute(
                     "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    "FROM task_history ORDER BY created_at DESC LIMIT ?",
+                    + "FROM task_history ORDER BY created_at DESC LIMIT ?",
                     (limit,),
-                ).fetchall()
+                ))
             else:
-                rows = connection.execute(
+                rows = _fetchall(connection.execute(
                     "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    "FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
+                    + "FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
                     (owner_subject, limit),
-                ).fetchall()
+                ))
         return [self._row_to_task(row) for row in rows]
 
     def save_checkpoint(self, task_id: str, step: int, context_json: str, output: str) -> None:
         with self._connection() as connection:
-            connection.execute(
+            _ = connection.execute(
                 "INSERT INTO task_checkpoints "
-                "(task_id, step, context_json, output_so_far, created_at) VALUES (?, ?, ?, ?, ?)",
+                + "(task_id, step, context_json, output_so_far, created_at) VALUES (?, ?, ?, ?, ?)",
                 (task_id, step, context_json, output, datetime.now(UTC).isoformat()),
             )
 
@@ -267,23 +284,23 @@ class TaskStateStore:
         with self._connection() as connection:
             query = (
                 "SELECT c.task_id, c.step, c.context_json, c.output_so_far, c.created_at "
-                "FROM task_checkpoints c JOIN task_history t ON t.task_id = c.task_id "
-                "WHERE c.task_id = ?"
+                + "FROM task_checkpoints c JOIN task_history t ON t.task_id = c.task_id "
+                + "WHERE c.task_id = ?"
             )
             params: tuple[str, ...] = (task_id,)
             if owner_subject is not None:
                 query += " AND t.owner_subject = ?"
                 params += (owner_subject,)
             query += " ORDER BY c.step DESC LIMIT 1"
-            row = connection.execute(query, params).fetchone()
+            row = _fetchone(connection.execute(query, params))
         if not row:
             return None
         return {
-            "task_id": str(row["task_id"]),
-            "step": int(row["step"]),
-            "context_json": str(row["context_json"]),
-            "output_so_far": str(row["output_so_far"]),
-            "created_at": str(row["created_at"]),
+            "task_id": str(_row_value(row, "task_id")),
+            "step": int(cast(int, _row_value(row, "step"))),
+            "context_json": str(_row_value(row, "context_json")),
+            "output_so_far": str(_row_value(row, "output_so_far")),
+            "created_at": str(_row_value(row, "created_at")),
         }
 
     def append_execution_event(
@@ -316,12 +333,12 @@ class TaskStateStore:
 
     def _row_to_task(self, row: sqlite3.Row) -> TaskRecord:
         return {
-            "task_id": str(row["task_id"]),
-            "prompt": str(row["prompt"]),
-            "status": str(row["status"]),
-            "output": str(row["output"] or ""),
-            "error": row["error"],
-            "created_at": str(row["created_at"]),
-            "updated_at": str(row["updated_at"] or row["created_at"]),
-            "completed_at": row["completed_at"],
+            "task_id": str(_row_value(row, "task_id")),
+            "prompt": str(_row_value(row, "prompt")),
+            "status": str(_row_value(row, "status")),
+            "output": str(_row_value(row, "output") or ""),
+            "error": cast(str | None, _row_value(row, "error")),
+            "created_at": str(_row_value(row, "created_at")),
+            "updated_at": str(_row_value(row, "updated_at") or _row_value(row, "created_at")),
+            "completed_at": cast(str | None, _row_value(row, "completed_at")),
         }

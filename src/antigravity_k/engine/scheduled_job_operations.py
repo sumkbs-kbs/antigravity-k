@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar
+from typing import ClassVar, cast, final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,20 +13,34 @@ from antigravity_k.engine.scheduled_job_models import JobRun, utc_now
 from antigravity_k.engine.scheduled_job_service import ScheduledJobService
 
 
+def _row_value(row: sqlite3.Row, key: str) -> object:
+    return cast(object, row[key])
+
+
+@final
 class JobRunNotFoundError(LookupError):
+    run_id: str
+
     def __init__(self, run_id: str):
         self.run_id = run_id
         super().__init__(run_id)
 
 
+@final
 class JobRunStateError(RuntimeError):
+    run_id: str
+    status: str
+
     def __init__(self, run_id: str, status: str):
         self.run_id = run_id
         self.status = status
         super().__init__(f"run {run_id} is {status}")
 
 
+@final
 class JobRetryInProgressError(RuntimeError):
+    run_id: str
+
     def __init__(self, run_id: str):
         self.run_id = run_id
         super().__init__(run_id)
@@ -78,6 +92,9 @@ class _RetryClaim:
 
 
 class ScheduledJobOperations:
+    _service: ScheduledJobService
+    _db_path: str
+
     def __init__(self, service: ScheduledJobService):
         self._service = service
         self._db_path = service.store.db_path
@@ -90,24 +107,24 @@ class ScheduledJobOperations:
     ) -> JobHealthSummary:
         active_policy = policy or JobHealthPolicy()
         current = (now or utc_now()).astimezone(UTC)
-        self._service.reconcile_runs(now=current)
+        _ = self._service.reconcile_runs(now=current)
         with self._connection() as connection:
-            job_rows = connection.execute(
+            job_rows = cast(list[sqlite3.Row], connection.execute(
                 "SELECT status, COUNT(*) AS count FROM scheduled_jobs GROUP BY status"
-            ).fetchall()
-            run_rows = connection.execute(
+            ).fetchall())
+            run_rows = cast(list[sqlite3.Row], connection.execute(
                 "SELECT status, delivery_status, started_at FROM scheduled_job_runs ORDER BY started_at DESC LIMIT ?",
                 (active_policy.run_window,),
-            ).fetchall()
-        jobs = {str(row["status"]): int(row["count"]) for row in job_rows}
-        succeeded = sum(str(row["status"]) == "succeeded" for row in run_rows)
-        failed = sum(str(row["status"]) == "failed" for row in run_rows)
-        open_runs = sum(str(row["status"]) in {"submitted", "running"} for row in run_rows)
-        delivery_failed = sum(str(row["delivery_status"]) == "failed" for row in run_rows)
+            ).fetchall())
+        jobs = {str(_row_value(row, "status")): int(str(_row_value(row, "count"))) for row in job_rows}
+        succeeded = sum(str(_row_value(row, "status")) == "succeeded" for row in run_rows)
+        failed = sum(str(_row_value(row, "status")) == "failed" for row in run_rows)
+        open_runs = sum(str(_row_value(row, "status")) in {"submitted", "running"} for row in run_rows)
+        delivery_failed = sum(str(_row_value(row, "delivery_status")) == "failed" for row in run_rows)
         stale_cutoff = current - timedelta(seconds=active_policy.stale_after_seconds)
         stale = sum(
-            str(row["status"]) in {"submitted", "running"}
-            and datetime.fromisoformat(str(row["started_at"])).astimezone(UTC) < stale_cutoff
+            str(_row_value(row, "status")) in {"submitted", "running"}
+            and datetime.fromisoformat(str(_row_value(row, "started_at"))).astimezone(UTC) < stale_cutoff
             for row in run_rows
         )
         completed = succeeded + failed
@@ -143,7 +160,7 @@ class ScheduledJobOperations:
         now: datetime | None = None,
     ) -> JobRetryResult:
         current = (now or utc_now()).astimezone(UTC)
-        self._service.reconcile_runs(now=current)
+        _ = self._service.reconcile_runs(now=current)
         source = self._run_state(source_run_id)
         if source is None or source.job_id != job_id:
             raise JobRunNotFoundError(source_run_id)
@@ -169,10 +186,10 @@ class ScheduledJobOperations:
         return JobRetryResult(source_run_id=source_run_id, run=run)
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self) -> Generator[sqlite3.Connection, None, None]:
         connection = sqlite3.connect(self._db_path, check_same_thread=False, timeout=30)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
+        _ = cast(object, connection.execute("PRAGMA journal_mode=WAL").fetchone())
         try:
             yield connection
             connection.commit()
@@ -181,39 +198,39 @@ class ScheduledJobOperations:
 
     def _initialize(self) -> None:
         with self._connection() as connection:
-            connection.execute(
+            _ = connection.execute(
                 "CREATE TABLE IF NOT EXISTS scheduled_job_retries ("
-                "source_run_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, retry_run_id TEXT, created_at TEXT NOT NULL)"
+                + "source_run_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, retry_run_id TEXT, created_at TEXT NOT NULL)"
             )
 
     def _run_state(self, run_id: str) -> _RunState | None:
         with self._connection() as connection:
-            row = connection.execute(
+            row = cast(sqlite3.Row | None, connection.execute(
                 "SELECT job_id, status FROM scheduled_job_runs WHERE run_id = ?",
                 (run_id,),
-            ).fetchone()
+            ).fetchone())
         if row is None:
             return None
-        return _RunState(job_id=str(row["job_id"]), status=str(row["status"]))
+        return _RunState(job_id=str(_row_value(row, "job_id")), status=str(_row_value(row, "status")))
 
     def _claim_retry(self, source_run_id: str, job_id: str, now: datetime) -> _RetryClaim:
         with self._connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            _ = connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO scheduled_job_retries "
-                "(source_run_id, job_id, retry_run_id, created_at) VALUES (?, ?, NULL, ?)",
+                + "(source_run_id, job_id, retry_run_id, created_at) VALUES (?, ?, NULL, ?)",
                 (source_run_id, job_id, now.isoformat()),
             )
-            row = connection.execute(
+            row = cast(sqlite3.Row | None, connection.execute(
                 "SELECT retry_run_id FROM scheduled_job_retries WHERE source_run_id = ?",
                 (source_run_id,),
-            ).fetchone()
-        retry_run_id = None if row is None or row["retry_run_id"] is None else str(row["retry_run_id"])
+            ).fetchone())
+        retry_run_id = None if row is None or _row_value(row, "retry_run_id") is None else str(_row_value(row, "retry_run_id"))
         return _RetryClaim(created=cursor.rowcount == 1, retry_run_id=retry_run_id)
 
     def _bind_retry(self, source_run_id: str, retry_run_id: str) -> None:
         with self._connection() as connection:
-            connection.execute(
+            _ = connection.execute(
                 "UPDATE scheduled_job_retries SET retry_run_id = ? WHERE source_run_id = ?",
                 (retry_run_id, source_run_id),
             )

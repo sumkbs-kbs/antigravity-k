@@ -2,14 +2,21 @@
 # =======================
 # Commercial-grade task runner for development, testing, and deployment
 
-.PHONY: help install dev test test-e2e smoke-cli lint format clean build docker-build \
+.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine lint format clean build docker-build \
         docker-run coverage check ci-setup pre-commit install-script \
-        security audit audit-egress sbom doctor search-quality search-quality-extended search-live search-live-extended search-load claim-quality quality-contract local-benchmark local-benchmark-frontier
+        security audit audit-egress sbom doctor search-quality search-quality-extended search-live search-live-extended search-load claim-quality quality-contract local-rag-quality local-benchmark local-benchmark-frontier frontier-evidence \
+        build-provenance dashboard-build-provenance dashboard-provenance-verify publish-provenance
 
 SHELL := /bin/bash
-PYTHON := python3
+# 프로젝트 venv(uv) 우선 — 시스템 python3는 구버전(union 타입 문법 미지원)일 수 있음
+PYTHON := $(shell command -v uv >/dev/null 2>&1 && echo "uv run python" || echo "python3")
 PACKAGE := antigravity-k
 VENV := .venv
+PROVENANCE_DIR ?= .artifacts
+DASHBOARD_PROVENANCE ?= $(PROVENANCE_DIR)/dashboard-dist.json
+PYTHON_PROVENANCE ?= $(PROVENANCE_DIR)/python-dist.json
+PROVENANCE_MANIFEST ?= $(DASHBOARD_PROVENANCE)
+PROVENANCE_SOURCE ?= ui_bundle
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -37,7 +44,7 @@ install-script: ## Run the one-click installation script (dry-run first)
 # ─── Development ──────────────────────────────────────────────────
 
 dev: ## Start the development server with hot reload
-	uvicorn antigravity_k.api.server:app --reload --host 0.0.0.0 --port 8000
+	uv run agk serve --reload
 
 doctor: ## Run environment diagnostic (checks deps, config, ports, vault)
 	@$(PYTHON) -m antigravity_k.cli doctor
@@ -77,6 +84,9 @@ smoke-cli: ## Verify the documented CLI entrypoint and local Qwen profile
 	uv run agk model list
 	uv run agk doctor
 
+verify-clean-machine: ## 클린머신 재현 검증: HEAD 신규 익스포트 → uv sync(잠금강제) → CLI smoke → API E2E
+	bash scripts/verify_clean_machine.sh $(ARGS)
+
 test-quick: ## Run fast tests (exclude slow/benchmark)
 	$(PYTHON) -m pytest tests/ -v --tb=short -m 'not slow and not benchmark'
 
@@ -98,6 +108,9 @@ search-live-extended: ## Run live provider search benchmark against the expanded
 search-load: ## Run repeated/concurrent live search latency and availability benchmark
 	PYTHONPATH=src $(VENV)/bin/python scripts/run_search_load_benchmark.py
 
+local-rag-quality: ## Run the local-RAG retrieval golden-set benchmark
+	PYTHONPATH=src $(PYTHON) scripts/benchmark_local_rag.py
+
 claim-quality: ## Run deterministic claim grounding and conflict benchmark
 	PYTHONPATH=src $(VENV)/bin/python scripts/run_claim_grounding_benchmark.py
 
@@ -107,11 +120,14 @@ audit-egress: ## Inventory Python HTTP and URL egress call sites
 quality-contract: ## Run agent/search quality contract tests
 	$(VENV)/bin/python -m pytest tests/test_web_search_quality.py tests/test_claim_grounding_benchmark.py tests/test_task_benchmark.py tests/test_long_horizon_benchmark.py -q --tb=short
 
-local-benchmark: ## Run the local-first model benchmark (defaults to qwen3.6:latest)
+local-benchmark: ## Run the local-first model benchmark (defaults to qwen3.8:latest)
 	$(VENV)/bin/python scripts/run_local_model_benchmark.py
 
-local-benchmark-frontier: ## Run the representative local frontier suite (defaults to qwen3.6:latest)
+local-benchmark-frontier: ## Run the representative local frontier suite (defaults to qwen3.8:latest)
 	$(VENV)/bin/python scripts/run_local_model_benchmark.py --suite frontier --output data/benchmarks/local-model-frontier.json
+
+frontier-evidence: ## Run repeated paired local-vs-frontier evidence (pass options with ARGS="...")
+	uv run python scripts/run_frontier_comparison.py $(ARGS)
 
 coverage: ## Run tests with coverage report
 	$(PYTHON) -m pytest tests/ -v --tb=short \
@@ -143,6 +159,23 @@ ci-check: lint format-check typecheck test-quick ## Simulate CI checks locally
 build: ## Build wheel and sdist
 	$(PYTHON) -m pip install build
 	$(PYTHON) -m build
+
+build-provenance: build ## Build Python distributions and verify their provenance manifest
+	@mkdir -p "$(dir $(PYTHON_PROVENANCE))"
+	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py create dist --root . --output "$(PYTHON_PROVENANCE)"
+	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py verify "$(PYTHON_PROVENANCE)" --root .
+
+dashboard-build-provenance: ## Build the dashboard and fail if its provenance manifest is invalid
+	pnpm --dir dashboard build
+	@mkdir -p "$(dir $(DASHBOARD_PROVENANCE))"
+	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py create dashboard/dist --root . --output "$(DASHBOARD_PROVENANCE)"
+	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py verify "$(DASHBOARD_PROVENANCE)" --root .
+
+dashboard-provenance-verify: ## Verify the existing dashboard provenance manifest
+	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py verify "$(DASHBOARD_PROVENANCE)" --root .
+
+publish-provenance: ## Publish a manifest to a configured task event store
+	scripts/publish_artifact_provenance.sh "$(PROVENANCE_MANIFEST)" "$(PROVENANCE_SOURCE)"
 
 clean: ## Clean build artifacts
 	rm -rf dist/ build/ *.egg-info

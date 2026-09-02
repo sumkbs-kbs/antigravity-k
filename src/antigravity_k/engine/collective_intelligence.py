@@ -9,11 +9,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger("antigravity_k.collective_intelligence")
 
-GenerateFn = Callable[[str, str, dict[str, Any]], str]
+GenerateFn = Callable[[str, str, dict[str, object]], str]
 
 
 @dataclass(frozen=True)
@@ -38,14 +37,14 @@ class CollectiveRun:
 class CollectiveIntelligenceEngine:
     """Run proposal, critique, and synthesis rounds across multiple local models."""
 
-    def __init__(self, generate_fn: GenerateFn):
+    def __init__(self, generate_fn: GenerateFn) -> None:
         """Initialize the CollectiveIntelligenceEngine.
 
         Args:
             generate_fn (GenerateFn): GenerateFn generate fn.
 
         """
-        self._generate_fn = generate_fn
+        self._generate_fn: GenerateFn = generate_fn
 
     def run(
         self,
@@ -58,7 +57,7 @@ class CollectiveIntelligenceEngine:
         max_critics: int = 2,
         min_participants: int = 2,
         expose_trace: bool = True,
-        generation_kwargs: dict[str, Any] | None = None,
+        generation_kwargs: dict[str, object] | None = None,
     ) -> str:
         """Execute a collective reasoning run and return the final answer."""
         kwargs = dict(generation_kwargs or {})
@@ -95,7 +94,7 @@ class CollectiveIntelligenceEngine:
         self,
         prompt: str,
         models: list[str],
-        kwargs: dict[str, Any],
+        kwargs: dict[str, object],
     ) -> list[CollectiveEntry]:
         proposals: list[CollectiveEntry] = []
         for model in models:
@@ -112,7 +111,7 @@ class CollectiveIntelligenceEngine:
         prompt: str,
         proposals: list[CollectiveEntry],
         models: list[str],
-        kwargs: dict[str, Any],
+        kwargs: dict[str, object],
     ) -> list[CollectiveEntry]:
         critiques: list[CollectiveEntry] = []
         critique_context = self._format_entries(proposals, "후보 답변")
@@ -131,7 +130,7 @@ class CollectiveIntelligenceEngine:
         proposals: list[CollectiveEntry],
         critiques: list[CollectiveEntry],
         arbiter: str,
-        kwargs: dict[str, Any],
+        kwargs: dict[str, object],
     ) -> str:
         synthesis_prompt = self._synthesis_prompt(
             prompt=prompt,
@@ -144,11 +143,11 @@ class CollectiveIntelligenceEngine:
             return self._fallback_synthesis(proposals, critiques)
         return text
 
-    def _safe_generate(self, target: str, prompt: str, kwargs: dict[str, Any]) -> str:
+    def _safe_generate(self, target: str, prompt: str, kwargs: dict[str, object]) -> str:
         try:
             phase_kwargs = dict(kwargs)
-            phase_kwargs.setdefault("temperature", 0.4)
-            phase_kwargs.setdefault("max_tokens", 2048)
+            _ = phase_kwargs.setdefault("temperature", 0.4)
+            _ = phase_kwargs.setdefault("max_tokens", 2048)
             return self._generate_fn(target, prompt, phase_kwargs)
         except Exception as exc:
             logger.exception("Unhandled exception")

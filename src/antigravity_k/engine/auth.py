@@ -27,7 +27,7 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jwt
 
@@ -144,9 +144,9 @@ class TokenService:
             token_ttl_hours: Token lifetime in hours.
 
         """
-        self._ttl = timedelta(hours=token_ttl_hours)
-        self._lock = threading.Lock()
-        self._secret = self._load_or_create_secret(secret_path)
+        self._ttl: timedelta = timedelta(hours=token_ttl_hours)
+        self._lock: threading.Lock = threading.Lock()
+        self._secret: str = self._load_or_create_secret(secret_path)
 
     @staticmethod
     def _load_or_create_secret(secret_path: str | Path | None) -> str:
@@ -159,6 +159,10 @@ class TokenService:
             if path.exists():
                 content = path.read_text(encoding="utf-8").strip()
                 if content:
+                    try:
+                        path.chmod(_SECRET_FILE_MODE)
+                    except OSError:
+                        logger.warning("Could not restrict token secret permissions on %s", path)
                     return content
         except OSError:
             logger.warning("Could not read token secret from %s; generating new one.", path)
@@ -170,7 +174,7 @@ class TokenService:
             # Write with restricted permissions.
             fd = path.open("w", encoding="utf-8")
             with fd:
-                fd.write(new_secret)
+                _ = fd.write(new_secret)
             try:
                 path.chmod(_SECRET_FILE_MODE)
             except OSError:
@@ -190,7 +194,7 @@ class TokenService:
         """Token lifetime in seconds."""
         return int(self._ttl.total_seconds())
 
-    def issue_token(self, subject: str, *, extra_claims: dict[str, Any] | None = None) -> str:
+    def issue_token(self, subject: str, *, extra_claims: dict[str, object] | None = None) -> str:
         """Issue a signed JWT for ``subject``.
 
         Args:
@@ -202,7 +206,7 @@ class TokenService:
 
         """
         now = datetime.now(timezone.utc)
-        payload: dict[str, Any] = {
+        payload: dict[str, object] = {
             "sub": subject,
             "iat": now,
             "exp": now + self._ttl,
@@ -213,7 +217,7 @@ class TokenService:
         with self._lock:
             return jwt.encode(payload, self._secret, algorithm=_JWT_ALGORITHM)
 
-    def verify_token(self, token: str) -> dict[str, Any] | None:
+    def verify_token(self, token: str) -> dict[str, object] | None:
         """Verify a JWT's signature and expiry.
 
         Args:

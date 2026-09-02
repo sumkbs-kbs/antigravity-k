@@ -193,11 +193,7 @@ def _count_map(value: object) -> Mapping[str, int]:
     if not isinstance(value, Mapping):
         return {}
     raw = cast(Mapping[object, object], value)
-    return {
-        key: item
-        for key, item in raw.items()
-        if isinstance(key, str) and isinstance(item, int)
-    }
+    return {key: item for key, item in raw.items() if isinstance(key, str) and isinstance(item, int)}
 
 
 def _extract_learned_preferences(orch: _OrchestratorLike) -> dict[str, object] | None:

@@ -123,6 +123,7 @@ def _as_text(value: object) -> str:
 def _load_json_object(payload: str) -> JsonObject:
     return _as_json_object(cast(object, json.loads(payload)))
 
+
 # ─── Feedback Collector ────────────────────────────────────────
 
 
@@ -433,11 +434,7 @@ class TestHarness:
                     brains = _as_json_list(data.get("brains", []))
                     elapsed = (time.time() - start) * 1000
                     if len(brains) >= 3:
-                        names = [
-                            _as_text(item.get("name", ""))
-                            for item in brains
-                            if isinstance(item, dict)
-                        ]
+                        names = [_as_text(item.get("name", "")) for item in brains if isinstance(item, dict)]
                         return TestResult(
                             intent.id,
                             TestStatus.PASSED,

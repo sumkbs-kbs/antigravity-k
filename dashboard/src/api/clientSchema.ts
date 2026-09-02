@@ -60,7 +60,7 @@ export const ModelOperationsStatusSchema = z.object({
 export const HealthStatusSchema = z.object({
   status: z.string(),
   version: z.string().optional(),
-  backends: z.record(z.string(), z.unknown()).optional(),
+  backends: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]).optional(),
   rag_index_files: z.number().optional(),
   cov_active: z.boolean().optional(),
   daily_spend_usd: z.number().optional(),

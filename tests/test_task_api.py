@@ -2,17 +2,21 @@ import json
 import typing
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
 from starlette.websockets import WebSocketDisconnect
 
 from antigravity_k.api.routes import task_api
+from antigravity_k.api.task_models import TaskEventsResponse
 
 
 class FakeTaskRuntime:
     def __init__(self) -> None:
         self.submit_calls: list[dict[str, object]] = []
         self.event_calls: list[tuple[str, int, int]] = []
+        self.event_sequences: list[int] = [7]
 
     def submit_task(self, **kwargs: object) -> str:
         self.submit_calls.append(kwargs)
@@ -38,25 +42,28 @@ class FakeTaskRuntime:
         self.event_calls.append((task_id, after_sequence, limit))
         if owner_subject == "foreign":
             return []
-        if after_sequence >= 7:
-            return []
-        return [
-            {
-                "sequence": 7,
-                "schema_version": 2,
-                "task_id": task_id,
-                "step_id": "step-1",
-                "agent_id": "agent-root",
-                "parent_id": None,
-                "tool_call_id": None,
-                "approval_id": None,
-                "resource_job_id": None,
-                "correlation_id": "request-1",
-                "event_type": "task.completed",
-                "payload_json": '{"result":"ok"}',
-                "created_at": "2026-08-20T00:00:00+00:00",
-            },
-        ]
+        records: list[dict[str, object]] = []
+        for sequence in self.event_sequences:
+            if sequence <= after_sequence:
+                continue
+            records.append(
+                {
+                    "sequence": sequence,
+                    "schema_version": 2,
+                    "task_id": task_id,
+                    "step_id": "step-1",
+                    "agent_id": "agent-root",
+                    "parent_id": None,
+                    "tool_call_id": None,
+                    "approval_id": None,
+                    "resource_job_id": None,
+                    "correlation_id": "request-1",
+                    "event_type": "task.completed",
+                    "payload_json": '{"result":"ok"}',
+                    "created_at": "2026-08-20T00:00:00+00:00",
+                },
+            )
+        return records[:limit]
 
     def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[dict[str, object]]:
         if owner_subject == "foreign":
@@ -70,9 +77,11 @@ class FakeTaskRuntime:
         return "source result" if task_id == "task-123" else None
 
     def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+        _ = task_id
         return owner_subject != "foreign"
 
     def resume_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+        _ = task_id
         return owner_subject != "foreign"
 
 
@@ -87,11 +96,14 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> FakeTaskRuntime:
 def client() -> TestClient:
     app = FastAPI()
 
-    @app.middleware("http")
-    async def set_test_auth_subject(request, call_next):
+    async def _set_test_auth_subject(
+        request: Request,
+        call_next: RequestResponseEndpoint,
+    ) -> Response:
         request.state.auth_subject = request.headers.get("X-Test-Subject", "owner")
         return await call_next(request)
 
+    _ = app.middleware("http")(_set_test_auth_subject)
     app.include_router(task_api.router)
     return TestClient(app)
 
@@ -226,8 +238,25 @@ def test_task_event_replay_is_task_scoped_and_decodes_payload(client: TestClient
             },
         ],
         "last_sequence": 7,
+        "has_more": False,
     }
-    assert runtime.event_calls == [("task-123", 3, 25)]
+    assert runtime.event_calls == [("task-123", 3, 26)]
+
+
+def test_task_event_replay_reports_when_another_page_exists(
+    client: TestClient,
+    runtime: FakeTaskRuntime,
+) -> None:
+    runtime.event_sequences = [4, 5, 6]
+
+    response = client.get("/api/tasks/task-123/events?after_sequence=3&limit=2")
+
+    assert response.status_code == 200
+    payload = TaskEventsResponse.model_validate(response.json())
+    assert [event.sequence for event in payload.events] == [4, 5]
+    assert payload.last_sequence == 5
+    assert payload.has_more is True
+    assert runtime.event_calls == [("task-123", 3, 3)]
 
 
 def test_task_event_replay_rejects_unknown_task(client: TestClient, runtime: FakeTaskRuntime) -> None:
@@ -238,6 +267,7 @@ def test_task_event_replay_rejects_unknown_task(client: TestClient, runtime: Fak
 
 
 def test_task_status_rejects_foreign_authenticated_subject(client: TestClient, runtime: FakeTaskRuntime) -> None:
+    _ = runtime
     response = client.get("/api/tasks/task-123/status", headers={"X-Test-Subject": "foreign"})
 
     assert response.status_code == 404
@@ -259,12 +289,14 @@ def test_task_mutation_and_replay_reject_foreign_authenticated_subject(
     method: str,
     path: str,
 ) -> None:
-    response = getattr(client, method)(path, headers={"X-Test-Subject": "foreign"})
+    _ = runtime
+    response = client.request(method.upper(), path, headers={"X-Test-Subject": "foreign"})
 
     assert response.status_code == 404
 
 
 def test_task_listing_is_owner_scoped(client: TestClient, runtime: FakeTaskRuntime) -> None:
+    _ = runtime
     response = client.get("/api/tasks", headers={"X-Test-Subject": "foreign"})
 
     assert response.status_code == 200

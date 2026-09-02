@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -60,7 +60,7 @@ def _transcribe(audio: bytes, suffix: str) -> str:
 @router.post("/transcribe", response_model=VoiceTranscript)
 async def transcribe_voice(
     request: Request,
-    suffix: str = Query(default=".wav", pattern=r"^\.[A-Za-z0-9]{1,8}$"),
+    suffix: Annotated[str, Query(pattern=r"^\.[A-Za-z0-9]{1,8}$")] = ".wav",
 ) -> VoiceTranscript:
     transcript = _transcribe(await _audio_body(request), suffix)
     return VoiceTranscript(transcript=transcript)
@@ -69,8 +69,8 @@ async def transcribe_voice(
 @router.post("/commands", response_model=VoiceCommandAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def submit_voice_command(
     request: Request,
-    suffix: str = Query(default=".wav", pattern=r"^\.[A-Za-z0-9]{1,8}$"),
-    model: str = Query(default="", max_length=200),
+    suffix: Annotated[str, Query(pattern=r"^\.[A-Za-z0-9]{1,8}$")] = ".wav",
+    model: Annotated[str, Query(max_length=200)] = "",
 ) -> VoiceCommandAccepted:
     transcript = _transcribe(await _audio_body(request), suffix)
     service = get_scheduled_job_service()

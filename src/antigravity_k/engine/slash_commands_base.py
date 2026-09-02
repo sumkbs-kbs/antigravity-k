@@ -15,11 +15,28 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterator
-from typing import Any
+from functools import partial
+from typing import Protocol, cast, final
 
 logger = logging.getLogger(__name__)
 
 
+Message = dict[str, object]
+
+
+class _ModelManagerLike(Protocol):
+    def get_model_info(self) -> object: ...
+
+
+class _SessionManagerLike(Protocol):
+    def get_messages(self) -> list[Message]: ...
+
+
+class _AgentRuntimeLike(Protocol):
+    def complete(self, messages: list[Message], *, target_model: str) -> str: ...
+
+
+@final
 class SlashCommand:
     """슬래시 커맨드 정의."""
 
@@ -31,11 +48,11 @@ class SlashCommand:
         usage: str = "",
         category: str = "general",
     ):
-        self.name = name
-        self.description = description
-        self.handler = handler
-        self.usage = usage or f"/{name}"
-        self.category = category
+        self.name: str = name
+        self.description: str = description
+        self.handler: Callable[[list[str]], str | Iterator[str]] = handler
+        self.usage: str = usage or f"/{name}"
+        self.category: str = category
 
 
 # ---------------------------------------------------------------------------
@@ -212,32 +229,32 @@ class SlashCommandRegistryBase:
 
     def __init__(
         self,
-        tool_registry=None,
-        session_manager=None,
-        context_shaper=None,
-        model_manager=None,
-        skill_loader=None,
-        mode_manager=None,
-        agent_runtime=None,
+        tool_registry: object | None = None,
+        session_manager: object | None = None,
+        context_shaper: object | None = None,
+        model_manager: object | None = None,
+        skill_loader: object | None = None,
+        mode_manager: object | None = None,
+        agent_runtime: object | None = None,
     ) -> None:
-        self._commands: dict[str, SlashCommand] = {}
-        self._tool_registry = tool_registry
-        self._session_manager = session_manager
-        self._context_shaper = context_shaper
-        self._model_manager = model_manager
-        self._skill_loader = skill_loader
-        self._mode_manager = mode_manager
-        self._agent_runtime = agent_runtime
+        setattr(self, "_commands", {})
+        setattr(self, "_tool_registry", tool_registry)
+        setattr(self, "_session_manager", session_manager)
+        setattr(self, "_context_shaper", context_shaper)
+        setattr(self, "_model_manager", model_manager)
+        setattr(self, "_skill_loader", skill_loader)
+        setattr(self, "_mode_manager", mode_manager)
+        setattr(self, "_agent_runtime", agent_runtime)
 
         self._register_defaults()
 
-    def bind_runtime(self, runtime: Any) -> None:
-        self._agent_runtime = runtime
+    def bind_runtime(self, runtime: object) -> None:
+        setattr(self, "_agent_runtime", runtime)
 
-    def _register_defaults(self):
+    def _register_defaults(self) -> None:
         """Register all default slash commands from the data table."""
         for name, desc, method_attr, usage, category in _DEFAULT_COMMANDS:
-            handler = getattr(self, method_attr, None)
+            handler = cast(Callable[[list[str]], str | Iterator[str]] | None, getattr(self, method_attr, None))
             if handler is None:
                 logger.warning("Slash command /%s has no handler method %s", name, method_attr)
                 continue
@@ -250,12 +267,12 @@ class SlashCommandRegistryBase:
             # as "plan", "build" etc., which collided — here we use the
             # skill-name as-is but route through _cmd_lifecycle.
             real_name = cmd_name.replace("-lifecycle", "")
-            lifecycle_handler = object.__getattribute__(self, "_cmd_lifecycle")
+            lifecycle_handler = cast(Callable[[str, list[str]], str | Iterator[str]], object.__getattribute__(self, "_cmd_lifecycle"))
             self.register(
                 SlashCommand(
                     name=real_name,
                     description=desc,
-                    handler=lambda args, _n=real_name: lifecycle_handler(_n, args),
+                    handler=partial(lifecycle_handler, real_name),
                     usage=f"/{real_name} [arguments]",
                     category="lifecycle",
                 ),
@@ -263,14 +280,16 @@ class SlashCommandRegistryBase:
 
     def register(self, command: SlashCommand):
         """커맨드를 등록합니다."""
-        self._commands[command.name] = command
+        commands = cast(dict[str, SlashCommand], getattr(self, "_commands"))
+        commands[command.name] = command
 
     def is_command(self, text: str) -> bool:
         """텍스트가 슬래시 커맨드인지 확인합니다."""
         if not text.startswith("/"):
             return False
         cmd_name = text.split()[0][1:]  # / 제거
-        return cmd_name in self._commands
+        commands = cast(dict[str, SlashCommand], getattr(self, "_commands"))
+        return cmd_name in commands
 
     def execute(self, text: str) -> str | Iterator[str]:
         """슬래시 커맨드를 실행하거나 자연어 의도를 처리합니다."""
@@ -288,7 +307,8 @@ class SlashCommandRegistryBase:
         cmd_name = parts[0][1:]  # / 제거
         args = parts[1:]
 
-        command = self._commands.get(cmd_name)
+        commands = cast(dict[str, SlashCommand], getattr(self, "_commands"))
+        command = commands.get(cmd_name)
         if not command:
             return f"Unknown command: /{cmd_name}. Use /help to see available commands."
 
@@ -300,30 +320,37 @@ class SlashCommandRegistryBase:
 
     def _execute_natural_language(self, text: str) -> str:
         """슬래시가 없는 자연어를 받아서 로컬 모델을 통해 자율적으로 도구를 실행하고 답변을 반환합니다."""
-        if not self._model_manager:
+        model_manager = cast(_ModelManagerLike | None, getattr(self, "_model_manager", None))
+        if model_manager is None:
             return "Error: Model manager is not available for natural language execution."
 
-        info = self._model_manager.get_model_info()
-        target_model = (
-            info.get("active_model", "default") if isinstance(info, dict) else getattr(info, "active_model", "default")
-        )
+        info = model_manager.get_model_info()
+        target_model: str
+        if isinstance(info, dict):
+            info_mapping = cast(dict[str, object], info)
+            target_model = cast(str, info_mapping.get("active_model", "default"))
+        else:
+            target_model = cast(str, getattr(info, "active_model", "default"))
         if target_model == "default" or not target_model:
             target_model = "local-model"
 
-        messages = []
-        if self._session_manager:
-            session_msgs = self._session_manager.get_messages()
+        messages: list[Message] = []
+        session_manager = cast(_SessionManagerLike | None, getattr(self, "_session_manager", None))
+        if session_manager is not None:
+            session_msgs = session_manager.get_messages()
             messages = session_msgs[-5:] if len(session_msgs) > 5 else session_msgs
 
         messages.append({"role": "user", "content": text})
 
         try:
-            if self._agent_runtime is not None:
-                return self._agent_runtime.complete(messages, target_model=target_model)
+            agent_runtime = cast(_AgentRuntimeLike | None, getattr(self, "_agent_runtime", None))
+            if agent_runtime is not None:
+                return agent_runtime.complete(messages, target_model=target_model)
             from antigravity_k.engine.orchestrator import OrchestratorAgent
+            from antigravity_k.engine.orchestrator.agent import ModelManagerPort
 
-            orchestrator = OrchestratorAgent(model_manager=self._model_manager)
-            return orchestrator.run_sync(messages, target_model=target_model)
+            orchestrator = OrchestratorAgent(model_manager=cast(ModelManagerPort | None, model_manager))
+            return orchestrator.run_sync(cast(list[dict[str, str]], messages), target_model=target_model)
         except Exception as e:
             logger.error("Natural language execution error: %s", e, exc_info=True)
             return f"자연어 처리 중 오류 발생: {e}"
@@ -333,4 +360,5 @@ class SlashCommandRegistryBase:
         if not prefix.startswith("/"):
             return []
         cmd_prefix = prefix[1:]  # / 제거
-        return [f"/{cmd.name}" for cmd in self._commands.values() if cmd.name.startswith(cmd_prefix)]
+        commands = cast(dict[str, SlashCommand], getattr(self, "_commands"))
+        return [f"/{cmd.name}" for cmd in commands.values() if cmd.name.startswith(cmd_prefix)]

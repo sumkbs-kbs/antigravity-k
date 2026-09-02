@@ -8,7 +8,7 @@ import threading
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Literal, final
+from typing import ClassVar, Final, Literal, final
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
@@ -39,7 +39,7 @@ class OperationalAlertStoreError(RuntimeError):
 class OperationalAlert(BaseModel):
     """One persisted warning or critical operational event."""
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     alert_id: str = Field(min_length=1)
     severity: AlertSeverity
@@ -163,8 +163,8 @@ class OperationalAlertStore:
             separators=(",", ":"),
         )
         try:
-            temporary_path.write_text(payload, encoding="utf-8")
-            temporary_path.replace(self.path)
+            _ = temporary_path.write_text(payload, encoding="utf-8")
+            _ = temporary_path.replace(self.path)
         except OSError as exc:
             raise OperationalAlertStoreError(f"cannot write alert store: {self.path}") from exc
 

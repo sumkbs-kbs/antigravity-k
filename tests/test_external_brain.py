@@ -6,6 +6,7 @@ GUI/브라우저 없이 단위 테스트 가능한 모든 코드 경로 검증.
 
 from __future__ import annotations
 
+from typing import Callable, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,6 +19,17 @@ from antigravity_k.engine.external_brain import (
     GeminiAppAdapter,
     GeminiWebAdapter,
 )
+
+
+def _mock_async(adapter: MagicMock, name: str) -> AsyncMock:
+    return cast(AsyncMock, getattr(adapter, name))
+
+
+def _response_side_effect(text: str, source: str, latency_ms: float = 0.0) -> Callable[[str], BrainResponse]:
+    def respond(_prompt: str) -> BrainResponse:
+        return BrainResponse(text=text, source=source, success=True, latency_ms=latency_ms)
+
+    return respond
 
 # ─── BrainResponse ─────────────────────────────────────────────────
 
@@ -64,7 +76,7 @@ class TestExternalBrainRouterInit:
         assert "chatgpt_web" in names
         assert "gemini_web" in names
 
-    def test_custom_adapters(self, mock_adapter):
+    def test_custom_adapters(self, mock_adapter: MagicMock):
         router = ExternalBrainRouter(adapters=[mock_adapter])
         assert len(router.adapters) == 1
         assert router.adapters[0].name == "mock_brain"
@@ -74,19 +86,19 @@ class TestExternalBrainRouterSendTarget:
     """Router.send() — target 파라미터."""
 
     @pytest.mark.asyncio
-    async def test_target_available(self, mock_adapter):
-        mock_adapter.is_available.return_value = True
-        mock_adapter.send.return_value = BrainResponse(text="ok", source="mock_brain", success=True)
+    async def test_target_available(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = True
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="ok", source="mock_brain", success=True)
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", target="mock_brain")
         assert result.success is True
         assert result.text == "ok"
-        mock_adapter.send.assert_called_once_with("test")
+        _mock_async(mock_adapter, "send").assert_called_once_with("test")
 
     @pytest.mark.asyncio
-    async def test_target_not_available(self, mock_adapter):
-        mock_adapter.is_available.return_value = False
+    async def test_target_not_available(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = False
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", target="mock_brain")
@@ -94,7 +106,7 @@ class TestExternalBrainRouterSendTarget:
         assert "사용 불가" in result.error
 
     @pytest.mark.asyncio
-    async def test_target_not_found(self, mock_adapter):
+    async def test_target_not_found(self, mock_adapter: MagicMock):
         mock_adapter.name = "other_brain"
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
@@ -107,9 +119,9 @@ class TestExternalBrainRouterFallback:
     """Router.send(strategy='fallback') — 폴백 전략."""
 
     @pytest.mark.asyncio
-    async def test_first_adapter_succeeds(self, mock_adapter):
-        mock_adapter.is_available.return_value = True
-        mock_adapter.send.return_value = BrainResponse(text="ok", source="mock_brain", success=True)
+    async def test_first_adapter_succeeds(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = True
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="ok", source="mock_brain", success=True)
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="fallback")
@@ -117,9 +129,9 @@ class TestExternalBrainRouterFallback:
         assert result.text == "ok"
 
     @pytest.mark.asyncio
-    async def test_all_fail(self, mock_adapter):
-        mock_adapter.is_available.return_value = True
-        mock_adapter.send.return_value = BrainResponse(text="", source="mock_brain", success=False, error="fail")
+    async def test_all_fail(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = True
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="", source="mock_brain", success=False, error="fail")
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="fallback")
@@ -131,29 +143,29 @@ class TestExternalBrainRouterFallback:
         a1 = MagicMock(spec=ExternalBrainAdapter)
         a1.name = "brain_a"
         a1.timeout_sec = 30.0
-        a1.is_available = AsyncMock(return_value=False)
-        a1.send = AsyncMock()
+        _mock_async(a1, "is_available").side_effect = lambda: False
+        _mock_async(a1, "send").side_effect = lambda: None
 
         a2 = MagicMock(spec=ExternalBrainAdapter)
         a2.name = "brain_b"
         a2.timeout_sec = 30.0
-        a2.is_available = AsyncMock(return_value=True)
-        a2.send = AsyncMock(return_value=BrainResponse(text="from_b", source="brain_b", success=True))
+        _mock_async(a2, "is_available").side_effect = lambda: True
+        _mock_async(a2, "send").side_effect = _response_side_effect("from_b", "brain_b")
 
         router = ExternalBrainRouter(adapters=[a1, a2])
         result = await router.send("test", strategy="fallback")
         assert result.success is True
         assert result.text == "from_b"
-        a1.send.assert_not_called()
+        _mock_async(a1, "send").assert_not_called()
 
 
 class TestExternalBrainRouterRoundRobin:
     """Router.send(strategy='round-robin') — 순환 전략."""
 
     @pytest.mark.asyncio
-    async def test_single_adapter(self, mock_adapter):
-        mock_adapter.is_available.return_value = True
-        mock_adapter.send.return_value = BrainResponse(text="ok", source="mock_brain", success=True)
+    async def test_single_adapter(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = True
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="ok", source="mock_brain", success=True)
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="round-robin")
@@ -181,8 +193,8 @@ class TestExternalBrainRouterRoundRobin:
         assert r2.text == "b"
 
     @pytest.mark.asyncio
-    async def test_no_available(self, mock_adapter):
-        mock_adapter.is_available.return_value = False
+    async def test_no_available(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = False
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="round-robin")
@@ -198,14 +210,14 @@ class TestExternalBrainRouterCompare:
         a1 = MagicMock(spec=ExternalBrainAdapter)
         a1.name = "brain_a"
         a1.timeout_sec = 30.0
-        a1.is_available = AsyncMock(return_value=True)
-        a1.send = AsyncMock(return_value=BrainResponse(text="result_a", source="brain_a", success=True, latency_ms=100))
+        _mock_async(a1, "is_available").side_effect = lambda: True
+        _mock_async(a1, "send").side_effect = _response_side_effect("result_a", "brain_a", 100)
 
         a2 = MagicMock(spec=ExternalBrainAdapter)
         a2.name = "brain_b"
         a2.timeout_sec = 30.0
-        a2.is_available = AsyncMock(return_value=True)
-        a2.send = AsyncMock(return_value=BrainResponse(text="result_b", source="brain_b", success=True, latency_ms=200))
+        _mock_async(a2, "is_available").side_effect = lambda: True
+        _mock_async(a2, "send").side_effect = _response_side_effect("result_b", "brain_b", 200)
 
         router = ExternalBrainRouter(adapters=[a1, a2])
         result = await router.send("test", strategy="compare")
@@ -215,9 +227,9 @@ class TestExternalBrainRouterCompare:
         assert "brain_b" in result.text
 
     @pytest.mark.asyncio
-    async def test_all_fail(self, mock_adapter):
-        mock_adapter.is_available.return_value = True
-        mock_adapter.send.return_value = BrainResponse(text="", source="mock_brain", success=False, error="fail")
+    async def test_all_fail(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = True
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="", source="mock_brain", success=False, error="fail")
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="compare")
@@ -225,8 +237,8 @@ class TestExternalBrainRouterCompare:
         assert "모든 비교 실패" in result.error
 
     @pytest.mark.asyncio
-    async def test_no_available(self, mock_adapter):
-        mock_adapter.is_available.return_value = False
+    async def test_no_available(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = False
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="compare")
@@ -238,9 +250,9 @@ class TestExternalBrainRouterUnknownStrategy:
     """Router.send() — 알 수 없는 전략 (기본 fallback)."""
 
     @pytest.mark.asyncio
-    async def test_unknown_strategy_falls_back(self, mock_adapter):
-        mock_adapter.is_available.return_value = True
-        mock_adapter.send.return_value = BrainResponse(text="ok", source="mock_brain", success=True)
+    async def test_unknown_strategy_falls_back(self, mock_adapter: MagicMock):
+        _mock_async(mock_adapter, "is_available").return_value = True
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="ok", source="mock_brain", success=True)
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="invalid")

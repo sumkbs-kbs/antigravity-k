@@ -1,14 +1,34 @@
+from __future__ import annotations
+
 import logging
 import os
 import subprocess
 import tempfile
 import uuid
+from collections.abc import Mapping, Sequence
+from io import TextIOBase
 from pathlib import Path
-from typing import Any, Dict
+from typing import ClassVar, TypeAlias, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
+
+JsonScalar: TypeAlias = None | bool | int | float | str
+JsonValue: TypeAlias = JsonScalar | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
+ToolValue: TypeAlias = str | int | float | bool | None
+
+
+def _string_arg(kwargs: Mapping[str, object], key: str, default: str = "") -> str:
+    value = kwargs.get(key)
+    return value if isinstance(value, str) else default
+
+
+def _wait_seconds(kwargs: Mapping[str, object], key: str = "wait_ms", default: int = 500) -> float:
+    value = kwargs.get(key)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(0, value) / 1000.0
+    return default / 1000.0
 
 
 def build_sandbox_argv(command: str) -> tuple[list[str], Path] | None:
@@ -43,19 +63,19 @@ def build_sandbox_argv(command: str) -> tuple[list[str], Path] | None:
         network=getattr(app_config.security, "sandbox_network", "none"),
     )
     try:
-        profile_text = runner._build_seatbelt_profile()
+        profile_text = runner.build_seatbelt_profile()
     except Exception:
         logger.exception("seatbelt 프로파일 생성 실패 — raw 실행으로 폴백")
         return None
 
     fd = tempfile.NamedTemporaryFile(mode="w", suffix=".sb", prefix="agk_term_", delete=False, encoding="utf-8")
     with fd:
-        fd.write(profile_text)
+        _ = fd.write(profile_text)
     profile_path = Path(fd.name)
     return ["sandbox-exec", "-f", str(profile_path), "/bin/sh", "-c", command], profile_path
 
 
-def _cleanup_sandbox_profile(argv: list[str] | None, profile_path: Path | None) -> None:
+def _cleanup_sandbox_profile(profile_path: Path | None) -> None:
     """샌드박스 프로파일 임시 파일을 정리한다."""
     if profile_path is not None:
         try:
@@ -65,8 +85,8 @@ def _cleanup_sandbox_profile(argv: list[str] | None, profile_path: Path | None) 
 
 
 class PersistentTerminalManager:
-    _instance = None
-    terminals: dict[str, Any] = {}
+    _instance: ClassVar[PersistentTerminalManager | None] = None
+    terminals: dict[str, subprocess.Popen[str]] = {}
     _profiles: dict[str, Path | None] = {}
 
     def __new__(cls):
@@ -106,10 +126,12 @@ class PersistentTerminalManager:
                 bufsize=1,
             )
         # Using non-blocking IO for stdout/stderr would be better, but for simplicity:
-        assert process.stdout is not None
-        assert process.stderr is not None
-        os.set_blocking(process.stdout.fileno(), False)
-        os.set_blocking(process.stderr.fileno(), False)
+        stdout = process.stdout
+        stderr = process.stderr
+        assert isinstance(stdout, TextIOBase)
+        assert isinstance(stderr, TextIOBase)
+        os.set_blocking(stdout.fileno(), False)
+        os.set_blocking(stderr.fileno(), False)
 
         self.terminals[term_id] = process
         self._profiles[term_id] = profile_path
@@ -120,33 +142,37 @@ class PersistentTerminalManager:
             return f"Error: Terminal {term_id} not found."
 
         process = self.terminals[term_id]
+        stdout = process.stdout
+        stderr = process.stderr
+        assert isinstance(stdout, TextIOBase)
+        assert isinstance(stderr, TextIOBase)
         output = ""
         try:
             while True:
-                line = process.stdout.readline()
+                line = f"{stdout.readline()}"
                 if not line:
                     break
                 output += line
         except Exception as e:
             logger.exception("Unhandled exception")
-            logger.debug(f"Failed to read stdout for term_id {term_id}: {e}")
+            logger.debug("Failed to read stdout for term_id %s: %s", term_id, e)
 
         try:
             while True:
-                line = process.stderr.readline()
+                line = f"{stderr.readline()}"
                 if not line:
                     break
                 output += line
         except Exception as e:
             logger.exception("Unhandled exception")
-            logger.debug(f"Failed to read stderr for term_id {term_id}: {e}")
+            logger.debug("Failed to read stderr for term_id %s: %s", term_id, e)
 
         if process.poll() is not None:
             output += f"\n[Process exited with code {process.returncode}]"
             del self.terminals[term_id]
             profile = self._profiles.pop(term_id, None)
             if profile is not None:
-                _cleanup_sandbox_profile(None, profile)
+                _cleanup_sandbox_profile(profile)
 
         return output
 
@@ -159,8 +185,9 @@ class PersistentTerminalManager:
             return "Error: Process already exited."
 
         try:
-            process.stdin.write(text + "\n")
-            process.stdin.flush()
+            assert process.stdin is not None
+            _ = process.stdin.write(text + "\n")
+            _ = process.stdin.flush()
             return "Input sent."
         except Exception as e:
             logger.exception("Unhandled exception")
@@ -170,19 +197,19 @@ class PersistentTerminalManager:
 class RunPersistentCommandTool(BaseTool):
     """Run a long-running command in a persistent terminal."""
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.HIGH
-    icon = "🖥️"
-    tags = ["terminal", "bash", "shell", "run", "background"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.HIGH
+    icon: str = "🖥️"
+    tags: list[str] = ["terminal", "bash", "shell", "run", "background"]
 
     def __init__(self):
         super().__init__()
-        self._name = "run_persistent_command"
-        self._description = (
+        self._name: str = "run_persistent_command"
+        self._description: str = (
             "Run a long-running bash command in the background (e.g., servers, watchers). Returns a Terminal ID."
         )
-        self._schema = {
+        self._schema: dict[str, JsonValue] = {
             "type": "object",
             "properties": {
                 "command": {
@@ -199,20 +226,24 @@ class RunPersistentCommandTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, JsonValue]:
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
-        command = kwargs.get("command", "")
-        cwd = kwargs.get("cwd", ".")
+    @override
+    def execute(self, **kwargs: object) -> str:
+        command = _string_arg(kwargs, "command")
+        cwd = _string_arg(kwargs, "cwd", ".")
 
         manager = PersistentTerminalManager()
         try:
@@ -226,17 +257,17 @@ class RunPersistentCommandTool(BaseTool):
 class CheckCommandStatusTool(BaseTool):
     """Check output of a persistent terminal."""
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "👁️"
-    tags = ["terminal", "status", "output", "log"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "👁️"
+    tags: list[str] = ["terminal", "status", "output", "log"]
 
     def __init__(self):
         super().__init__()
-        self._name = "check_command_status"
-        self._description = "Check the recent standard output and error of a persistent terminal by its Terminal ID."
-        self._schema = {
+        self._name: str = "check_command_status"
+        self._description: str = "Check the recent standard output and error of a persistent terminal by its Terminal ID."
+        self._schema: dict[str, JsonValue] = {
             "type": "object",
             "properties": {
                 "terminal_id": {
@@ -248,19 +279,23 @@ class CheckCommandStatusTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, JsonValue]:
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
-        term_id = kwargs.get("terminal_id", "")
+    @override
+    def execute(self, **kwargs: object) -> str:
+        term_id = _string_arg(kwargs, "terminal_id")
         manager = PersistentTerminalManager()
         output = manager.get_output(term_id)
         return output if output.strip() else "[No new output]"
@@ -269,17 +304,17 @@ class CheckCommandStatusTool(BaseTool):
 class SendCommandInputTool(BaseTool):
     """Send input to a persistent terminal."""
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.MEDIUM
-    icon = "⌨️"
-    tags = ["terminal", "input", "stdin"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.MEDIUM
+    icon: str = "⌨️"
+    tags: list[str] = ["terminal", "input", "stdin"]
 
     def __init__(self):
         super().__init__()
-        self._name = "send_command_input"
-        self._description = "Send standard input (stdin) to a running persistent terminal."
-        self._schema = {
+        self._name: str = "send_command_input"
+        self._description: str = "Send standard input (stdin) to a running persistent terminal."
+        self._schema: dict[str, JsonValue] = {
             "type": "object",
             "properties": {
                 "terminal_id": {"type": "string", "description": "The Terminal ID."},
@@ -289,20 +324,24 @@ class SendCommandInputTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, JsonValue]:
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
-        term_id = kwargs.get("terminal_id", "")
-        text = kwargs.get("input_text", "")
+    @override
+    def execute(self, **kwargs: object) -> str:
+        term_id = _string_arg(kwargs, "terminal_id")
+        text = _string_arg(kwargs, "input_text")
         manager = PersistentTerminalManager()
         return manager.send_input(term_id, text)
 
@@ -313,11 +352,11 @@ class InteractivePTYTool(BaseTool):
     단순 subprocess 파이프에서 발생하는 출력 깨짐이나 행(Hang) 현상을 방지합니다.
     """
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.MEDIUM
-    icon = "📟"
-    tags = ["pty", "interactive", "gdb", "shell"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.MEDIUM
+    icon: str = "📟"
+    tags: list[str] = ["pty", "interactive", "gdb", "shell"]
 
     # Class-level state for simplicity. In a real system, use a manager.
     _active_pid: int | None = None
@@ -326,13 +365,13 @@ class InteractivePTYTool(BaseTool):
 
     def __init__(self):
         super().__init__()
-        self._name = "interactive_pty"
-        self._description = (
+        self._name: str = "interactive_pty"
+        self._description: str = (
             "Execute an interactive command (like GDB, radare2, or python REPL) within a pseudo-terminal (PTY) "
             "and wait for its output. Automatically strips ANSI escape sequences so the output is clean for the LLM. "
             "You can send continuous input to an ongoing session."
         )
-        self._schema = {
+        self._schema: dict[str, JsonValue] = {
             "type": "object",
             "properties": {
                 "command": {
@@ -352,21 +391,25 @@ class InteractivePTYTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, JsonValue]:
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
-        command = kwargs.get("command")
-        input_text = kwargs.get("input_text")
-        wait_time = kwargs.get("wait_ms", 500) / 1000.0
+    @override
+    def execute(self, **kwargs: object) -> str:
+        command = _string_arg(kwargs, "command")
+        input_text = _string_arg(kwargs, "input_text")
+        wait_time = _wait_seconds(kwargs)
 
         if not command and not input_text:
             return "Error: You must provide either 'command' (to start) or 'input_text' (to interact)."
@@ -410,11 +453,13 @@ class InteractivePTYTool(BaseTool):
                 return "Error: No active PTY session. Start one by providing a 'command'."
 
             try:
-                os.write(InteractivePTYTool._active_fd, input_text.encode("utf-8"))
+                _ = os.write(InteractivePTYTool._active_fd, input_text.encode("utf-8"))
                 return self._read_until_settled(wait_time)
             except OSError as e:
                 self._cleanup_session()
                 return f"Error writing to PTY: {e}. Session closed."
+
+        return "Error: PTY session did not start."
 
     def _read_until_settled(self, timeout: float) -> str:
         import os
@@ -436,7 +481,7 @@ class InteractivePTYTool(BaseTool):
                     break
                 output += data
             except OSError as e:
-                logger.debug(f"PTY read interrupted or finished: {e}")
+                logger.debug("PTY read interrupted or finished: %s", e)
                 break
             if time.time() - start_time > 5.0:
                 break
@@ -466,5 +511,5 @@ class InteractivePTYTool(BaseTool):
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
             InteractivePTYTool._active_fd = None
         if InteractivePTYTool._active_profile is not None:
-            _cleanup_sandbox_profile(None, InteractivePTYTool._active_profile)
+            _cleanup_sandbox_profile(InteractivePTYTool._active_profile)
             InteractivePTYTool._active_profile = None

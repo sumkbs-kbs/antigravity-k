@@ -4,25 +4,36 @@ HEARTBEAT.md 마크다운 → 구조화 태스크 변환, 인터벌 파싱(국�
 due 판정, executor 실행/실패 기록, Quiet Hours 차단을 검증한다.
 """
 
+from pathlib import Path
+from typing import Callable, cast, final
+
 import pytest
 
-from antigravity_k.engine.heartbeat import HeartbeatMonitor
+from antigravity_k.engine.heartbeat import HeartbeatMonitor, HeartbeatResult, HeartbeatTask
 
 
 @pytest.fixture
-def monitor(tmp_path):
+def monitor(tmp_path: Path) -> HeartbeatMonitor:
     return HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(0, 0))  # quiet 비활성
 
 
-def _write_checklist(tmp_path, content: str):
-    (tmp_path / "HEARTBEAT.md").write_text(content, encoding="utf-8")
+def _write_checklist(tmp_path: Path, content: str) -> None:
+    _ = (tmp_path / "HEARTBEAT.md").write_text(content, encoding="utf-8")
+
+
+def _execute_due_tasks(
+    monitor: HeartbeatMonitor,
+    executor: Callable[[str], object] | None = None,
+) -> list[HeartbeatResult]:
+    execute = cast(Callable[..., list[HeartbeatResult]], getattr(monitor, "execute_due_tasks"))
+    return execute(executor_fn=executor)
 
 
 class TestLoadChecklist:
-    def test_missing_file_returns_empty(self, tmp_path):
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
         assert HeartbeatMonitor(project_root=str(tmp_path)).load_checklist() == []
 
-    def test_parses_sections_and_checkboxes(self, tmp_path):
+    def test_parses_sections_and_checkboxes(self, tmp_path: Path) -> None:
         _write_checklist(
             tmp_path,
             (
@@ -47,7 +58,7 @@ class TestLoadChecklist:
         # 인터벌 표기가 타이틀에서 제거된다
         assert "(매 30분)" not in tasks[0].title
 
-    def test_reload_preserves_last_run_times(self, tmp_path):
+    def test_reload_preserves_last_run_times(self, tmp_path: Path) -> None:
         _write_checklist(tmp_path, "- [ ] 주기 작업")
         monitor = HeartbeatMonitor(project_root=str(tmp_path))
         tasks = monitor.load_checklist()
@@ -72,143 +83,157 @@ class TestIntervalParsing:
             ("느린 점검 (매 45초)", 1),
         ],
     )
-    def test_parse_interval(self, monitor, title, expected):
-        assert monitor._parse_interval(title) == expected
+    def test_parse_interval(self, monitor: HeartbeatMonitor, title: str, expected: int) -> None:
+        parse_interval = cast(Callable[[str], int], getattr(monitor, "_parse_interval"))
+        assert parse_interval(title) == expected
 
-    def test_no_pattern_falls_back_to_default(self, tmp_path):
+    def test_no_pattern_falls_back_to_default(self, tmp_path: Path) -> None:
         monitor = HeartbeatMonitor(project_root=str(tmp_path), default_interval_minutes=42)
-        assert monitor._parse_interval("인터벨 없음") == 42
+        parse_interval = cast(Callable[[str], int], getattr(monitor, "_parse_interval"))
+        assert parse_interval("인터벨 없음") == 42
 
 
 # ─── due 판정 & 실행 ─────────────────────────────────────────────
 
 
 class TestExecuteDueTasks:
-    def test_never_run_task_is_due_and_executed(self, tmp_path):
+    def test_never_run_task_is_due_and_executed(self, tmp_path: Path) -> None:
         _write_checklist(tmp_path, "- [ ] 작업 A")
-        monitor = HeartbeatMonitor(project_root=str(tmp_path))
-        monitor.load_checklist()
+        monitor = HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(0, 0))
+        _ = monitor.load_checklist()
 
-        results = monitor.execute_due_tasks(executor_fn=lambda title: f"완료: {title}")
+        def executor(title: str) -> str:
+            return f"완료: {title}"
+
+        results = _execute_due_tasks(monitor, executor)
 
         assert len(results) == 1
         assert results[0].success is True
         assert "작업 A" in results[0].message
         # 실행 후 last_run 갱신 → 재호출 시 스킵
-        assert monitor.execute_due_tasks(executor_fn=lambda t: "x") == []
+        assert _execute_due_tasks(monitor, lambda _title: "x") == []
 
-    def test_executor_exception_recorded_as_failure(self, tmp_path):
+    def test_executor_exception_recorded_as_failure(self, tmp_path: Path) -> None:
         _write_checklist(tmp_path, "- [ ] 실패할 작업")
-        monitor = HeartbeatMonitor(project_root=str(tmp_path))
-        monitor.load_checklist()
+        monitor = HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(0, 0))
+        _ = monitor.load_checklist()
 
-        def executor(title):
+        def executor(_title: str) -> str:
             raise RuntimeError("executor down")
 
-        results = monitor.execute_due_tasks(executor_fn=executor)
+        results = _execute_due_tasks(monitor, executor)
 
         assert results[0].success is False
         assert "executor down" in results[0].message
 
-    def test_completed_tasks_are_never_due(self, tmp_path):
+    def test_completed_tasks_are_never_due(self, tmp_path: Path) -> None:
         _write_checklist(tmp_path, "- [x] 완료된 작업")
         monitor = HeartbeatMonitor(project_root=str(tmp_path))
-        monitor.load_checklist()
+        _ = monitor.load_checklist()
 
-        assert monitor.execute_due_tasks() == []
+        assert _execute_due_tasks(monitor) == []
 
-    def test_history_capped_at_200(self, tmp_path):
+    def test_history_capped_at_200(self, tmp_path: Path) -> None:
         _write_checklist(tmp_path, "- [ ] 반복 작업")
         monitor = HeartbeatMonitor(project_root=str(tmp_path))
 
         for _ in range(210):
             # reload → force due → execute (이력 200 초과분을 100으로 절단)
-            monitor.load_checklist()
-            monitor._tasks[0].last_run = 0.0
-            monitor.execute_due_tasks(executor_fn=lambda title: "ok")
+            _ = monitor.load_checklist()
+            tasks = cast(list[HeartbeatTask], getattr(monitor, "_tasks"))
+            tasks[0].last_run = 0.0
+            _ = _execute_due_tasks(monitor, lambda _title: "ok")
 
-        assert len(monitor._results_history) <= 200
+        history = cast(list[object], getattr(monitor, "_results_history"))
+        assert len(history) <= 200
 
 
 # ─── Quiet Hours ─────────────────────────────────────────────────
 
 
 class TestQuietHours:
-    def test_midnight_crossing_window(self, tmp_path):
+    def test_midnight_crossing_window(self, tmp_path: Path) -> None:
         monitor = HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(23, 7))
         from antigravity_k.engine import heartbeat as hb
 
-        real_datetime = hb.datetime
+        real_datetime = cast(object, getattr(hb, "datetime"))
 
+        @final
         class FakeDT:
-            hour = 2  # 새벽 2시 → quiet
+            hour: int = 2
 
             @staticmethod
-            def now():
+            def now() -> object:
                 return FakeDT
 
-        hb.datetime = FakeDT
+        setattr(hb, "datetime", FakeDT)
         try:
             assert monitor.is_quiet_hours() is True
             FakeDT.hour = 12
             assert monitor.is_quiet_hours() is False
         finally:
-            hb.datetime = real_datetime
+            setattr(hb, "datetime", real_datetime)
 
-    def test_non_crossing_window(self, tmp_path):
+    def test_non_crossing_window(self, tmp_path: Path) -> None:
         from antigravity_k.engine import heartbeat as hb
 
         monitor = HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(13, 15))
-        real_datetime = hb.datetime
+        real_datetime = cast(object, getattr(hb, "datetime"))
 
+        @final
         class FakeDT:
-            hour = 14
+            hour: int = 14
 
             @staticmethod
-            def now():
+            def now() -> object:
                 return FakeDT
 
-        hb.datetime = FakeDT
+        setattr(hb, "datetime", FakeDT)
         try:
             assert monitor.is_quiet_hours() is True
             FakeDT.hour = 16
             assert monitor.is_quiet_hours() is False
         finally:
-            hb.datetime = real_datetime
+            setattr(hb, "datetime", real_datetime)
 
-    def test_quiet_hours_blocks_execution(self, tmp_path):
+    def test_quiet_hours_blocks_execution(self, tmp_path: Path) -> None:
         from antigravity_k.engine import heartbeat as hb
 
         _write_checklist(tmp_path, "- [ ] 조용한 시간 작업")
         monitor = HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(0, 24) if False else (23, 7))
-        monitor.load_checklist()
+        _ = monitor.load_checklist()
 
-        real_datetime = hb.datetime
+        real_datetime = cast(object, getattr(hb, "datetime"))
 
+        @final
         class FakeDT:
-            hour = 23
+            hour: int = 23
 
             @staticmethod
-            def now():
+            def now() -> object:
                 return FakeDT
 
-        hb.datetime = FakeDT
+        setattr(hb, "datetime", FakeDT)
         try:
-            executed = []
-            results = monitor.execute_due_tasks(executor_fn=lambda t: executed.append(t))
+            executed: list[str] = []
+            def executor(title: str) -> object:
+                executed.append(title)
+                return None
+
+            results = _execute_due_tasks(monitor, executor)
             assert results == [] and not executed
         finally:
-            hb.datetime = real_datetime
+            setattr(hb, "datetime", real_datetime)
 
 
 # ─── 상태 보고 ───────────────────────────────────────────────────
 
 
 class TestGetStatus:
-    def test_status_shape(self, tmp_path):
+    def test_status_shape(self, tmp_path: Path) -> None:
         _write_checklist(tmp_path, "- [ ] 미완료\n- [x] 완료")
-        monitor = HeartbeatMonitor(project_root=str(tmp_path))
-        monitor.load_checklist()
+        monitor = HeartbeatMonitor(project_root=str(tmp_path), quiet_hours=(0, 0))
+        _ = monitor.load_checklist()
 
         status = monitor.get_status()
 

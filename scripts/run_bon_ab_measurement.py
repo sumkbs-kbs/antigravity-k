@@ -22,33 +22,61 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypedDict, cast
 
 
-def _parse_args() -> argparse.Namespace:
+@dataclass(frozen=True)
+class MeasurementArgs:
+    cases: list[str]
+    target: str
+    n_samples: int
+    repeats: int
+    modes: list[str]
+    output: Path
+
+
+class ScoreSummary(TypedDict):
+    mean_score: float
+    scores: list[float]
+
+
+class QualityGateLike(Protocol):
+    max_retries: int
+
+
+def _parse_args() -> MeasurementArgs:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--cases", nargs="+", default=["sim-001", "lh-001"])
-    p.add_argument("--target", default="qwen3.8")
-    p.add_argument("--n-samples", type=int, default=3)
-    p.add_argument("--repeats", type=int, default=1, help="노이즈 감소용 반복 횟수")
-    p.add_argument(
+    _ = p.add_argument("--cases", nargs="+", default=["sim-001", "lh-001"])
+    _ = p.add_argument("--target", default="qwen3.8")
+    _ = p.add_argument("--n-samples", type=int, default=3)
+    _ = p.add_argument("--repeats", type=int, default=1, help="노이즈 감소용 반복 횟수")
+    _ = p.add_argument(
         "--modes",
         nargs="+",
         default=["cascade_off", "bon_on"],
         help="비교할 증폭 팔 목록 (첫 팔이 baseline)",
     )
-    p.add_argument(
+    _ = p.add_argument(
         "--output",
         type=Path,
         default=Path("data/benchmarks/bon-ab-measurement.json"),
     )
-    return p.parse_args()
+    values = cast(dict[str, object], vars(p.parse_args()))
+    return MeasurementArgs(
+        cases=cast(list[str], values["cases"]),
+        target=cast(str, values["target"]),
+        n_samples=cast(int, values["n_samples"]),
+        repeats=cast(int, values["repeats"]),
+        modes=cast(list[str], values["modes"]),
+        output=cast(Path, values["output"]),
+    )
 
 
 def main() -> int:
-    from antigravity_k.engine.benchmark_harness import BenchmarkHarness
+    from antigravity_k.engine.benchmark_harness import AmplificationOutput, BenchmarkHarness
     from antigravity_k.engine.model_manager import ModelManager
     from antigravity_k.engine.model_registry import ModelRegistry
 
@@ -56,12 +84,15 @@ def main() -> int:
     if args.repeats < 1:
         raise SystemExit("--repeats must be at least 1")
     registry = ModelRegistry()
-    raw = getattr(registry, "_raw", None)
+    raw = cast(object, getattr(registry, "_raw", None))
     if isinstance(raw, dict):
-        amp = raw.setdefault("amplification", {})
-        if not isinstance(amp, dict):
+        raw_map = cast(dict[str, object], cast(object, raw))
+        amp_obj = raw_map.setdefault("amplification", {})
+        if isinstance(amp_obj, dict):
+            amp = cast(dict[str, object], cast(object, amp_obj))
+        else:
             amp = {}
-            raw["amplification"] = amp
+            raw_map["amplification"] = amp
         bon_cfg = {
             "enabled": True,
             "n_samples": args.n_samples,
@@ -75,13 +106,14 @@ def main() -> int:
 
     mgr = ModelManager(registry)
     harness = BenchmarkHarness(mgr, db_path=None)
-    harness._quality_gate.max_retries = 0  # 양팔 모두 revision off — BoN 단독 효과 분리
+    quality_gate = cast(QualityGateLike, getattr(harness, "_quality_gate"))
+    quality_gate.max_retries = 0  # 양팔 모두 revision off — BoN 단독 효과 분리
 
     print(
         f"target={args.target} n_samples={args.n_samples} repeats={args.repeats} cases={args.cases} modes={args.modes}"
     )
     acc: dict[str, dict[str, list[float]]] = {cid: {m: [] for m in args.modes} for cid in args.cases}
-    out: dict[str, Any] = {"stats": {}}
+    out: AmplificationOutput = {"by_case": {}, "summary": "", "stats": {"by_mode": {}, "improvement": {}}}
 
     for rep in range(1, args.repeats + 1):
         out = harness.compare_amplification(args.cases, args.target, modes=args.modes)
@@ -94,9 +126,9 @@ def main() -> int:
         print(f"[rep {rep}/{args.repeats}] done")
 
     baseline_mode = args.modes[0]
-    rows = []
+    rows: list[dict[str, object]] = []
     for cid in args.cases:
-        row: dict[str, Any] = {"case": cid, "repeats": args.repeats, "baseline": baseline_mode}
+        row: dict[str, object] = {"case": cid, "repeats": args.repeats, "baseline": baseline_mode}
         for mode in args.modes:
             scores = acc[cid][mode]
             if scores:
@@ -104,11 +136,13 @@ def main() -> int:
                     "mean_score": round(sum(scores) / len(scores), 4),
                     "scores": [round(s, 4) for s in scores],
                 }
-        base = row.get(baseline_mode)
-        deltas = {}
+        base_obj = row.get(baseline_mode)
+        base = cast(ScoreSummary, cast(object, base_obj)) if isinstance(base_obj, dict) else None
+        deltas: dict[str, float] = {}
         if base:
             for mode in args.modes[1:]:
-                arm = row.get(mode)
+                arm_obj = row.get(mode)
+                arm = cast(ScoreSummary, cast(object, arm_obj)) if isinstance(arm_obj, dict) else None
                 if arm:
                     deltas[mode] = round(arm["mean_score"] - base["mean_score"], 4)
         if deltas:
@@ -116,7 +150,7 @@ def main() -> int:
         rows.append(row)
 
     stats = out["stats"]
-    payload = {
+    payload: dict[str, object] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "target": args.target,
         "n_samples": args.n_samples,
@@ -125,7 +159,7 @@ def main() -> int:
         "improvement": stats.get("improvement", {}),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _ = args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(json.dumps(rows, ensure_ascii=False, indent=2))
     print(f"\nimprovement: {json.dumps(stats.get('improvement', {}), ensure_ascii=False)}")

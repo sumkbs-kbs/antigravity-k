@@ -125,7 +125,8 @@ def run_frontier_tests():
     print("\n[8/8] Testing Active Tool Masking...")
     masker = ActiveToolMasker(mode=ExecutionMode.PLAN)
     filtered = masker.filter_tools([{"name": "read_file"}, {"name": "deploy"}, {"name": "payment"}])
-    if len(filtered) == 1 and filtered[0]["name"] == "read_file":
+    filtered_names = [getattr(item, "name", None) for item in filtered]
+    if len(filtered) == 1 and filtered_names == ["read_file"]:
         print("  ✅ Dangerous and non-plan tools filtered in PLAN mode")
         passed_count += 1
     else:

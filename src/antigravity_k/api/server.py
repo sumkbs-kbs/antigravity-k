@@ -4,8 +4,10 @@ import asyncio
 import logging
 import os
 import re
+import threading
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import cast, override
 
 import anyio
 from dotenv import load_dotenv
@@ -17,9 +19,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
 from starlette.types import Scope
 
-load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
+_ = load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
 
 from antigravity_k.config import config
 from antigravity_k.tools.egress_policy import validate_httpx_request_async
@@ -69,7 +73,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.hook_event_bus import init_hook_event_bus
 
-        init_hook_event_bus(vault_data_dir)
+        _ = init_hook_event_bus(vault_data_dir)
         logger.info("[Startup] HookEventBus initialized")
     except Exception:
         logger.exception("[Startup] HookEventBus init skipped")
@@ -78,7 +82,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.audit_db import init_audit_db
 
-        init_audit_db(vault_data_dir)
+        _ = init_audit_db(vault_data_dir)
         logger.info("[Startup] AuditDb initialized")
     except Exception:
         logger.exception("[Startup] AuditDb init skipped")
@@ -89,7 +93,7 @@ async def lifespan(app: FastAPI):
             init_panel_activity_tracker,
         )
 
-        init_panel_activity_tracker()
+        _ = init_panel_activity_tracker()
         logger.info("[Startup] PanelActivityTracker initialized")
     except Exception:
         logger.exception("[Startup] PanelActivityTracker init skipped")
@@ -107,7 +111,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.rag_indexer import RAGIndexer
 
-        async def _bg_index():
+        def _run_index() -> None:
             try:
                 indexer = RAGIndexer(project_root=project_root)
                 count = indexer.index_project()
@@ -115,12 +119,18 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("[RAG] Background indexing failed")
 
-        task = asyncio.create_task(_bg_index())
-        if not hasattr(app.state, "background_tasks"):
-            app.state.background_tasks = set()
-        app.state.background_tasks.add(task)
-        task.add_done_callback(app.state.background_tasks.discard)
-        logger.info("[RAG] Background indexing started")
+        active_indexer = getattr(app.state, "rag_index_thread", None)
+        if not isinstance(active_indexer, threading.Thread) or not active_indexer.is_alive():
+            index_thread = threading.Thread(
+                target=_run_index,
+                name="antigravity-rag-index",
+                daemon=True,
+            )
+            app.state.rag_index_thread = index_thread
+            index_thread.start()
+            logger.info("[RAG] Background indexing started")
+        else:
+            logger.info("[RAG] Background indexing already running")
     except Exception:
         logger.exception("[RAG] Auto-index startup skipped")
 
@@ -167,7 +177,7 @@ async def lifespan(app: FastAPI):
                     from antigravity_k.api.dependencies import get_scheduled_job_service
 
                     service = get_scheduled_job_service()
-                    await asyncio.to_thread(service.tick)
+                    _ = await asyncio.to_thread(service.tick)
                 except Exception:
                     logger.exception("[Jobs] Scheduled job tick failed")
 
@@ -180,16 +190,20 @@ async def lifespan(app: FastAPI):
 
     # Cancel cache cleanup
     if _cache_cleanup_task is not None and not _cache_cleanup_task.done():
-        _cache_cleanup_task.cancel()
+        _ = _cache_cleanup_task.cancel()
     if _scheduled_job_task is not None and not _scheduled_job_task.done():
-        _scheduled_job_task.cancel()
+        _ = _scheduled_job_task.cancel()
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")
-    tasks = [task for task in getattr(app.state, "background_tasks", set()) if not task.done()]
+    background_tasks = cast(
+        set[asyncio.Task[object]],
+        getattr(app.state, "background_tasks", cast(set[asyncio.Task[object]], set())),
+    )
+    tasks: list[asyncio.Task[object]] = [task for task in background_tasks if not task.done()]
     for task in tasks:
-        task.cancel()
+        _ = task.cancel()
     if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        _ = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Sidabari 서브시스템 정리
     try:
@@ -210,7 +224,7 @@ async def lifespan(app: FastAPI):
 
     try:
         if hasattr(app.state, "ide_server"):
-            app.state.ide_server.stop()
+            _ = app.state.ide_server.stop()
     except Exception:
         logger.exception("Unhandled exception")
         pass
@@ -311,11 +325,14 @@ app.add_middleware(
 # slowapi state + middleware registration
 # ---------------------------------------------------------------------------
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, cast(Any, _rate_limit_exceeded_handler))
+app.add_exception_handler(
+    RateLimitExceeded,
+    cast(Callable[[Request, Exception], Response | Awaitable[Response]], _rate_limit_exceeded_handler),
+)
 
 
 @app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
+async def security_headers_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Inject security headers on every response.
 
     The CSP allows the CDN-hosted scripts and inline React style attributes the
@@ -393,7 +410,7 @@ def _metric_path(request: Request) -> str:
 
 
 @app.middleware("http")
-async def verify_access_token(request: Request, call_next):
+async def verify_access_token(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Authenticate requests to protected paths via bearer token (or legacy PIN).
 
     Coverage is widened from the previous ``/api/``-only guard to also include
@@ -423,7 +440,7 @@ async def verify_access_token(request: Request, call_next):
 
 
 @app.middleware("http")
-async def metrics_middleware(request: Request, call_next):
+async def metrics_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Collect RED (Rate, Errors, Duration) metrics for every HTTP request.
 
     Records request count (by method/path/status), latency histogram, and an
@@ -533,8 +550,6 @@ setattr(app, "openapi", _custom_openapi)
 # We expose a plain GET route at exactly /metrics (the ASGI mount from
 # make_asgi_app only serves /metrics/ with a trailing slash, which Prometheus
 # does not send by default).
-from fastapi import Response  # noqa: E402
-
 from antigravity_k.engine.metrics import render_metrics  # noqa: E402
 
 
@@ -561,7 +576,9 @@ from antigravity_k.api.error_handler import (  # noqa: E402
 
 
 @app.middleware("http")
-async def correlation_id_middleware(request: Request, call_next):
+async def correlation_id_middleware(
+    request: Request, call_next: RequestResponseEndpoint
+) -> Response:
     """Assign or propagate a correlation id for every request.
 
     Reads an inbound ``X-Request-Id`` header if present (so callers can trace
@@ -610,7 +627,7 @@ async def reverse_proxy_ide(request: Request, path: str):
     async with httpx.AsyncClient(event_hooks={"request": [validate_httpx_request_async]}) as client:
         # 헤더 조작 시 Host 헤더 등이 충돌할 수 있으므로 필터링 필요
         req_headers = dict(request.headers)
-        req_headers.pop("host", None)
+        _ = req_headers.pop("host", None)
 
         rp_req = client.build_request(
             request.method,
@@ -637,6 +654,7 @@ dashboard_path = Path(__file__).resolve().parents[1] / "dashboard_dist"
 if dashboard_path.is_dir():
 
     class _DashboardStaticFiles(StaticFiles):
+        @override
         async def get_response(self, path: str, scope: Scope) -> Response:
             try:
                 return await super().get_response(path, scope)

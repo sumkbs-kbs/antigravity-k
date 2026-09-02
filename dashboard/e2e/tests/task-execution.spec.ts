@@ -87,7 +87,19 @@ const pendingApproval = {
   status: 'pending',
   created_at: 1_777_000_000,
   timeout_sec: 120,
+  auto_review: null,
 };
+
+async function installAuthenticatedSession(page: Page): Promise<void> {
+  await page.addInitScript(() => sessionStorage.setItem('ag_access_token', 'e2e-token'));
+  await page.route(/\/api\/session\/info(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, session: { subject: 'e2e' } }),
+    });
+  });
+}
 
 async function installTaskFixtures(page: Page, failEvents = false): Promise<void> {
   await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
@@ -101,7 +113,7 @@ async function installTaskFixtures(page: Page, failEvents = false): Promise<void
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ task_id: 'task-ui', events, last_sequence: 5 }),
+      body: JSON.stringify({ task_id: 'task-ui', events, last_sequence: 5, has_more: false }),
     });
   });
   await page.route(/\/api\/tasks\/task-ui\/events\/stream(?:\?.*)?$/, async (route) => {
@@ -120,7 +132,7 @@ async function installTaskFixtures(page: Page, failEvents = false): Promise<void
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('ag_access_pin', '0000'));
+  await installAuthenticatedSession(page);
   await mkdir(artifactDirectory, { recursive: true });
 });
 
@@ -153,6 +165,10 @@ for (const viewport of [
 
     const accessibility = await new AxeBuilder({ page }).include('.task-execution-shell').analyze();
     expect(accessibility.violations).toEqual([]);
+
+    const approveButton = page.getByRole('button', { name: '설정 파일 수정 승인' });
+    await approveButton.hover();
+    await expect(approveButton).toHaveCSS('background-color', 'rgb(91, 75, 196)');
 
     await page.addStyleTag({
       content: `
@@ -219,13 +235,18 @@ test('runs submit, approval, cancel, resume, and reconnect without sequence dupl
   await page.route(/\/api\/tasks\/task-ui\/events(?:\?.*)?$/, async (route) => {
     const cursor = Number(new URL(route.request().url()).searchParams.get('after_sequence') ?? '0');
     replayCursors.push(cursor);
+    const replayEvents = cursor === 0
+      ? events.slice(0, 3)
+      : events.filter((item) => Number(item.sequence) > cursor);
+    const lastSequence = Number(replayEvents.at(-1)?.sequence ?? cursor);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         task_id: 'task-ui',
-        events: events.filter((item) => Number(item.sequence) > cursor),
-        last_sequence: 5,
+        events: replayEvents,
+        last_sequence: lastSequence,
+        has_more: lastSequence < 5,
       }),
     });
   });
@@ -276,7 +297,76 @@ test('runs submit, approval, cancel, resume, and reconnect without sequence dupl
   await expect(page.getByText('스트림 완료')).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText('5 events')).toBeVisible();
   expect(streamAttempts).toBeGreaterThanOrEqual(2);
+  expect(replayCursors).toContain(3);
   expect(replayCursors).toContain(5);
   const accessibility = await new AxeBuilder({ page }).include('.task-execution-shell').analyze();
   expect(accessibility.violations).toEqual([]);
+});
+
+test('repairs a live stream gap with authoritative replay before completing', async ({ page }) => {
+  const replayCursors: number[] = [];
+
+  // Given: the initial replay ends at sequence 2 and the live stream jumps to sequence 4.
+  await installTaskFixtures(page);
+  await page.route(/\/api\/tasks\/task-ui\/events(?:\?.*)?$/, async (route) => {
+    const cursor = Number(new URL(route.request().url()).searchParams.get('after_sequence') ?? '0');
+    replayCursors.push(cursor);
+    const replayEvents = cursor === 0 ? events.slice(0, 2) : events.slice(2, 4);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ task_id: 'task-ui', events: replayEvents, last_sequence: cursor === 0 ? 2 : 4, has_more: false }),
+    });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/events\/stream(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: [
+        `id: 4\nevent: tool.completed\ndata: ${JSON.stringify(events[3])}`,
+        'event: stream.end\ndata: {"task_id":"task-ui","last_sequence":4,"status":"done"}',
+        '',
+      ].join('\n\n'),
+    });
+  });
+
+  // When: the dashboard consumes the replay and the out-of-order live event.
+  await page.goto('/agent');
+
+  // Then: it replays the missing range and renders each event exactly once.
+  await expect(page.getByText('4 events')).toBeVisible({ timeout: 5_000 });
+  expect(replayCursors).toEqual([0, 2]);
+  await expect(page.getByText('스트림 완료')).toBeVisible();
+});
+
+test('does not mark an incomplete terminal replay as complete', async ({ page }) => {
+  const replayCursors: number[] = [];
+
+  // Given: the server reports a terminal cursor that the replay cannot make contiguous.
+  await installTaskFixtures(page);
+  await page.route(/\/api\/tasks\/task-ui\/events(?:\?.*)?$/, async (route) => {
+    const cursor = Number(new URL(route.request().url()).searchParams.get('after_sequence') ?? '0');
+    replayCursors.push(cursor);
+    const replayEvents = cursor === 0 ? [events[0], events[2]] : [events[2]];
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ task_id: 'task-ui', events: replayEvents, last_sequence: cursor === 0 ? 3 : 4, has_more: false }),
+    });
+  });
+  await page.route(/\/api\/tasks\/task-ui\/events\/stream(?:\?.*)?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'event: stream.end\ndata: {"task_id":"task-ui","last_sequence":4,"status":"done"}\n\n',
+    });
+  });
+
+  // When: the dashboard receives the terminal stream frame.
+  await page.goto('/agent');
+
+  // Then: it reports the incomplete replay instead of claiming completion.
+  await expect(page.getByRole('region', { name: '실행 추적' }).getByRole('alert')).toContainText('incomplete');
+  await expect(page.getByText('연결 오류')).toBeVisible();
+  expect(replayCursors).toEqual([0, 1]);
 });

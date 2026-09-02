@@ -32,14 +32,15 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import wraps
-from typing import Any
+from typing import TypeAlias, cast
 
 logger = logging.getLogger("antigravity_k.engine.tracing")
+JsonMap: TypeAlias = dict[str, object]
 
 
 # ─── Span (개별 작업 단위) ──────────────────────────────────────
@@ -64,37 +65,38 @@ class Span:
     duration_ms: float = 0.0
 
     # 입출력
-    input_data: dict[str, Any] = field(default_factory=dict)
-    output_data: dict[str, Any] = field(default_factory=dict)
+    input_data: JsonMap = field(default_factory=dict)
+    output_data: JsonMap = field(default_factory=dict)
 
     # 메타데이터
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: JsonMap = field(default_factory=dict)
     status: str = "ok"  # ok, error
     error_message: str = ""
 
     # 메트릭
     token_count: int = 0
 
-    def set_output(self, output: Any):
+    def set_output(self, output: object) -> None:
         """출력 데이터를 설정합니다."""
         if isinstance(output, str):
             self.output_data["text"] = output[:500]  # 트레이스 크기 제한
         elif isinstance(output, dict):
-            self.output_data = {k: str(v)[:200] for k, v in output.items()}
+            values = cast(dict[str, object], output)
+            self.output_data = {key: str(value)[:200] for key, value in values.items()}
         else:
             self.output_data["value"] = str(output)[:500]
 
-    def set_error(self, error: Exception):
+    def set_error(self, error: Exception) -> None:
         """에러 정보를 기록합니다."""
         self.status = "error"
         self.error_message = f"{type(error).__name__}: {error}"
 
-    def finish(self):
+    def finish(self) -> None:
         """Span을 종료하고 duration을 계산합니다."""
         self.end_time = time.time()
         self.duration_ms = round((self.end_time - self.start_time) * 1000, 1)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonMap:
         """JSON 직렬화 가능한 딕셔너리로 변환합니다."""
         return {
             "span_id": self.span_id,
@@ -135,7 +137,7 @@ class Trace:
     tool_calls: int = 0
     errors: int = 0
 
-    def add_span(self, span: Span):
+    def add_span(self, span: Span) -> None:
         """Span을 트레이스에 추가합니다."""
         span.trace_id = self.trace_id
         self.spans.append(span)
@@ -147,17 +149,17 @@ class Trace:
         if span.status == "error":
             self.errors += 1
 
-    def finish(self):
+    def finish(self) -> None:
         """트레이스를 종료하고 집계 메트릭을 계산합니다."""
         self.ended_at = time.time()
         if self.started_at:
             self.total_duration_ms = round((self.ended_at - self.started_at) * 1000, 1)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonMap:
         """To Dict.
 
         Returns:
-            dict[str, Any]: The dict[str, any] result.
+            dict[str, object]: The trace dictionary result.
 
         """
         return {
@@ -205,8 +207,8 @@ class AgentTracer:
         self._traces: list[Trace] = []
         self._active_trace: Trace | None = None
         self._span_stack: list[Span] = []
-        self._max_traces = max_traces
-        self._persist_dir = persist_dir
+        self._max_traces: int = max_traces
+        self._persist_dir: str | None = persist_dir
 
         if persist_dir:
             os.makedirs(persist_dir, exist_ok=True)
@@ -245,7 +247,7 @@ class AgentTracer:
     # ─── Span 컨텍스트 매니저 ────────────────────────────────
 
     @contextmanager
-    def span(self, name: str, attributes: dict[str, Any] | None = None, span_type: str = "generic"):
+    def span(self, name: str, attributes: JsonMap | None = None, span_type: str = "generic"):
         """Span을 컨텍스트 매니저로 생성합니다.
 
         Usage:
@@ -269,13 +271,13 @@ class AgentTracer:
             raise
         finally:
             s.finish()
-            self._span_stack.pop()
+            _ = self._span_stack.pop()
             if self._active_trace:
                 self._active_trace.add_span(s)
 
     # ─── Span 수동 시작/종료 ────────────────────────────
 
-    def start_span(self, name: str, attributes: dict[str, Any] | None = None, span_type: str = "generic") -> Span:
+    def start_span(self, name: str, attributes: JsonMap | None = None, span_type: str = "generic") -> Span:
         """Create and start a span manually."""
         s = Span(
             name=name,
@@ -287,7 +289,7 @@ class AgentTracer:
         self._span_stack.append(s)
         return s
 
-    def end_span(self, span: Span):
+    def end_span(self, span: Span) -> None:
         """Finish a manually started span."""
         span.finish()
         if span in self._span_stack:
@@ -297,11 +299,11 @@ class AgentTracer:
 
     # ─── 조회 ────────────────────────────────────────────────
 
-    def get_recent_traces(self, n: int = 10) -> list[dict[str, Any]]:
+    def get_recent_traces(self, n: int = 10) -> list[JsonMap]:
         """최근 N개 트레이스를 반환합니다."""
         return [t.to_dict() for t in self._traces[-n:]]
 
-    def get_performance_stats(self) -> dict[str, Any]:
+    def get_performance_stats(self) -> JsonMap:
         """성능 통계를 반환합니다."""
         if not self._traces:
             return {"message": "트레이스 없음"}
@@ -323,14 +325,14 @@ class AgentTracer:
 
     # ─── 내보내기 ────────────────────────────────────────────
 
-    def export_jsonl(self, filepath: str):
+    def export_jsonl(self, filepath: str) -> None:
         """트레이스를 JSONL 형식으로 내보냅니다 (Arize Phoenix, Langfuse 호환)."""
         with open(filepath, "w", encoding="utf-8") as f:
             for trace in self._traces:
-                f.write(json.dumps(trace.to_dict(), ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(trace.to_dict(), ensure_ascii=False) + "\n")
         logger.info("[Tracer] %s개 트레이스 내보내기: %s", len(self._traces), filepath)
 
-    def _persist_trace(self, trace: Trace):
+    def _persist_trace(self, trace: Trace) -> None:
         """트레이스를 디스크에 저장합니다."""
         if not self._persist_dir:
             return
@@ -358,20 +360,20 @@ def traced(tracer: AgentTracer, span_type: str = "generic", name: str | None = N
             ...
     """
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[..., object]) -> Callable[..., object]:
         span_name = name or func.__name__
 
         @wraps(func)
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: object, **kwargs: object) -> object:
             with tracer.span(span_name, {"args_count": len(args)}, span_type=span_type) as s:
                 result = func(*args, **kwargs)
                 s.set_output(result)
                 return result
 
         @wraps(func)
-        async def async_wrapper(*args, **kwargs):
+        async def async_wrapper(*args: object, **kwargs: object) -> object:
             with tracer.span(span_name, {"args_count": len(args)}, span_type=span_type) as s:
-                result = await func(*args, **kwargs)
+                result = await cast(Awaitable[object], func(*args, **kwargs))
                 s.set_output(result)
                 return result
 

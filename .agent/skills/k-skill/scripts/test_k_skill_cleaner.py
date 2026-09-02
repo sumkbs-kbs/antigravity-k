@@ -5,14 +5,71 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import NotRequired, Protocol, TypedDict, cast
 from unittest.mock import patch
 
 k_skill_cleaner = importlib.import_module("k_skill_cleaner")
-AGENT_USAGE_SOURCES = k_skill_cleaner.AGENT_USAGE_SOURCES
-collect_skill_usage = k_skill_cleaner.collect_skill_usage
-find_skill_dirs = k_skill_cleaner.find_skill_dirs
-rank_cleanup_candidates = k_skill_cleaner.rank_cleanup_candidates
+
+
+class AgentUsageSource(TypedDict):
+    agent: str
+    paths: list[str]
+    method: str
+    confidence: str
+    fallback: NotRequired[str]
+
+
+class CleanupCandidate(TypedDict):
+    skill: str
+    action: str
+    trigger_count: int
+    score: int
+    reasons: list[str]
+
+
+class UsageJsonReport(TypedDict):
+    applied: bool
+    path: str
+    caveat: str
+
+
+class ScannedLogsReport(TypedDict):
+    count: int
+    paths: list[str]
+    caveat: str
+
+
+class TimeWindowReport(TypedDict):
+    since: str | None
+    days: int | None
+    scope: str
+    fallback: str
+
+
+class CleanerReport(TypedDict):
+    skill_count: int
+    candidates: list[CleanupCandidate]
+    agent_usage_sources: list[AgentUsageSource]
+    time_window: TimeWindowReport
+    usage_json: UsageJsonReport
+    scanned_logs: ScannedLogsReport
+    safety: str
+
+
+class _CleanerModule(Protocol):
+    AGENT_USAGE_SOURCES: list[AgentUsageSource]
+    collect_skill_usage: Callable[..., dict[str, int]]
+    find_skill_dirs: Callable[[Path | str], list[str]]
+    rank_cleanup_candidates: Callable[..., list[CleanupCandidate]]
+
+
+_typed_cleaner = cast(_CleanerModule, cast(object, k_skill_cleaner))
+AGENT_USAGE_SOURCES = _typed_cleaner.AGENT_USAGE_SOURCES
+collect_skill_usage = _typed_cleaner.collect_skill_usage
+find_skill_dirs = _typed_cleaner.find_skill_dirs
+rank_cleanup_candidates = _typed_cleaner.rank_cleanup_candidates
 
 
 class KSkillCleanerTest(unittest.TestCase):
@@ -20,17 +77,17 @@ class KSkillCleanerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "keep-me").mkdir()
-            (root / "keep-me" / "SKILL.md").write_text("---\nname: keep-me\n", encoding="utf-8")
-            (root / "docs").mkdir()
-            (root / "docs" / "SKILL.md").write_text("not a root skill", encoding="utf-8")
-            (root / "no-skill").mkdir()
+            _ = (root / "keep-me" / "SKILL.md").write_text("---\nname: keep-me\n", encoding="utf-8")
+            _ = (root / "docs").mkdir()
+            _ = (root / "docs" / "SKILL.md").write_text("not a root skill", encoding="utf-8")
+            _ = (root / "no-skill").mkdir()
 
             self.assertEqual(find_skill_dirs(root), ["keep-me"])
 
     def test_collects_counts_from_jsonl_and_plain_agent_logs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "codex.jsonl").write_text(
+            _ = (root / "codex.jsonl").write_text(
                 "\n".join(
                     [
                         json.dumps({"event": "skill_triggered", "skill": "kbo-results"}),
@@ -52,7 +109,7 @@ class KSkillCleanerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             recent_log = root / "recent.jsonl"
-            recent_log.write_text(
+            _ = recent_log.write_text(
                 "\n".join(
                     [
                         json.dumps(
@@ -73,17 +130,17 @@ class KSkillCleanerTest(unittest.TestCase):
                 encoding="utf-8",
             )
             old_log = root / "old.log"
-            old_log.write_text("loaded skill: old-fallback", encoding="utf-8")
+            _ = old_log.write_text("loaded skill: old-fallback", encoding="utf-8")
 
             # Lines without parseable timestamps use file mtime as the fallback signal.
             recent_mtime = 1_776_643_200  # 2026-04-24T00:00:00Z
             old_mtime = 1_766_275_200  # 2025-12-20T00:00:00Z
-            recent_log.touch()
-            old_log.touch()
+            _ = recent_log.touch()
+            _ = old_log.touch()
             import os
 
-            os.utime(recent_log, (recent_mtime, recent_mtime))
-            os.utime(old_log, (old_mtime, old_mtime))
+            _ = os.utime(recent_log, (recent_mtime, recent_mtime))
+            _ = os.utime(old_log, (old_mtime, old_mtime))
 
             counts = collect_skill_usage(
                 [recent_log, old_log],
@@ -99,7 +156,7 @@ class KSkillCleanerTest(unittest.TestCase):
     def test_collect_skill_usage_streams_log_files_without_reading_whole_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             log_path = Path(tmp) / "codex.jsonl"
-            log_path.write_text(json.dumps({"skill": "kbo-results"}) + "\n", encoding="utf-8")
+            _ = log_path.write_text(json.dumps({"skill": "kbo-results"}) + "\n", encoding="utf-8")
 
             with patch.object(
                 Path,
@@ -115,10 +172,10 @@ class KSkillCleanerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             skill_dir = root / "kbo-results"
-            skill_dir.mkdir()
-            (skill_dir / "SKILL.md").write_text("---\nname: kbo-results\n", encoding="utf-8")
+            _ = skill_dir.mkdir()
+            _ = (skill_dir / "SKILL.md").write_text("---\nname: kbo-results\n", encoding="utf-8")
             usage_json = root / "usage.json"
-            usage_json.write_text(json.dumps({"kbo-results": 3}), encoding="utf-8")
+            _ = usage_json.write_text(json.dumps({"kbo-results": 3}), encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -135,8 +192,9 @@ class KSkillCleanerTest(unittest.TestCase):
                 check=True,
                 text=True,
                 capture_output=True,
+                cwd=Path(__file__).resolve().parent,
             )
-            report = json.loads(result.stdout)
+            report = cast(CleanerReport, cast(object, json.loads(result.stdout)))
 
             self.assertTrue(report["usage_json"]["applied"])
             self.assertEqual(report["usage_json"]["path"], str(usage_json))
@@ -171,7 +229,7 @@ class KSkillCleanerTest(unittest.TestCase):
 
         self.assertTrue(expected_agents.issubset(agents))
         for source in AGENT_USAGE_SOURCES:
-            self.assertTrue(source["paths"] or source["fallback"])
+            self.assertTrue(source["paths"] or source.get("fallback"))
             self.assertIn("confidence", source)
 
     def test_skill_local_helper_autodetects_parent_skills_root(self):
@@ -180,16 +238,16 @@ class KSkillCleanerTest(unittest.TestCase):
             cleaner_dir = skills_root / "k-skill-cleaner"
             cleaner_scripts = cleaner_dir / "scripts"
             cleaner_scripts.mkdir(parents=True)
-            (cleaner_dir / "SKILL.md").write_text("---\nname: k-skill-cleaner\n", encoding="utf-8")
-            shutil.copyfile(
+            _ = (cleaner_dir / "SKILL.md").write_text("---\nname: k-skill-cleaner\n", encoding="utf-8")
+            _ = shutil.copyfile(
                 Path(__file__).resolve().parents[1] / "k-skill-cleaner" / "scripts" / "k_skill_cleaner.py",
                 cleaner_scripts / "k_skill_cleaner.py",
             )
 
             for skill in ["kbo-results", "k-skill-setup"]:
                 skill_dir = skills_root / skill
-                skill_dir.mkdir()
-                (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n", encoding="utf-8")
+                _ = skill_dir.mkdir()
+                _ = (skill_dir / "SKILL.md").write_text(f"---\nname: {skill}\n", encoding="utf-8")
 
             result = subprocess.run(
                 [
@@ -207,7 +265,7 @@ class KSkillCleanerTest(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            report = json.loads(result.stdout)
+            report = cast(CleanerReport, cast(object, json.loads(result.stdout)))
 
             self.assertEqual(report["skill_count"], 3)
             self.assertEqual(report["candidates"][0]["skill"], "kbo-results")
@@ -215,4 +273,4 @@ class KSkillCleanerTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

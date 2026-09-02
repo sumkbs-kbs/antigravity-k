@@ -96,8 +96,7 @@ _PATTERNS: list[tuple[FailureCategory, re.Pattern[str]]] = [
     (
         FailureCategory.git_conflict,
         re.compile(
-            r"(?:not a git repository|nothing to commit|Your local changes|"
-            r"merge conflict|fatal:)",
+            r"(?:not a git repository|nothing to commit|Your local changes|merge conflict|fatal:)",
             re.IGNORECASE,
         ),
     ),
@@ -123,8 +122,7 @@ _PATTERNS: list[tuple[FailureCategory, re.Pattern[str]]] = [
     (
         FailureCategory.external_service,
         re.compile(
-            r"(?:connection (?:error|refused|reset)|ECONNREFUSED|no results found|"
-            r"unavailable|HTTP \d{3})",
+            r"(?:connection (?:error|refused|reset)|ECONNREFUSED|no results found|unavailable|HTTP \d{3})",
             re.IGNORECASE,
         ),
     ),
@@ -137,7 +135,7 @@ _PATTERNS: list[tuple[FailureCategory, re.Pattern[str]]] = [
 
 def classify_tool_failure(tool_name: str, result_text: str) -> ClassifiedFailure:
     """도구 실패 문자열을 유형으로 분류합니다."""
-    text = result_text if isinstance(result_text, str) else str(result_text)
+    text = str(result_text)
 
     for category, pattern in _PATTERNS:
         m = pattern.search(text)

@@ -32,7 +32,10 @@ def _profile(name: str, role: str = "reasoning") -> ModelProfile:
 
 
 def _apply_dynamic(manager: ModelManager, *args: object) -> tuple[str, float, dict[str, str | int] | None, str]:
-    method = cast(Callable[..., tuple[str, float, dict[str, str | int] | None, str]], getattr(manager, "_apply_dynamic_inference_config"))
+    method = cast(
+        Callable[..., tuple[str, float, dict[str, str | int] | None, str]],
+        getattr(manager, "_apply_dynamic_inference_config"),
+    )
     return method(*args)
 
 
@@ -87,6 +90,7 @@ def mock_registry() -> MagicMock:
         "claude-x": _profile("claude-x"),
     }
     get_model = cast(MagicMock, getattr(registry, "get_model"))
+
     def get_model_impl(value: object) -> ModelProfile | None:
         return profiles.get(cast(str, value))
 
@@ -142,8 +146,7 @@ def http_env() -> Iterator[None]:
 class TestDynamicInferenceConfig:
     def test_plain_model_keeps_kwargs_temperature(self, manager: ModelManager):
         name, temperature, thinking, attribution = _apply_dynamic(
-            manager,
-            _profile("model-a"), "prompt", {"temperature": 0.3}
+            manager, _profile("model-a"), "prompt", {"temperature": 0.3}
         )
 
         assert name == "model-a"
@@ -158,10 +161,7 @@ class TestDynamicInferenceConfig:
         assert temperature == 1.0
 
     def test_level_suffix_scales_thinking_budget(self, manager: ModelManager):
-        _, temperature, thinking, _ = _apply_dynamic(
-            manager,
-            _profile("qwen3:high"), "prompt", {"max_tokens": 8192}
-        )
+        _, temperature, thinking, _ = _apply_dynamic(manager, _profile("qwen3:high"), "prompt", {"max_tokens": 8192})
 
         assert thinking is not None
         assert isinstance(thinking["budget_tokens"], int)

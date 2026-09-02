@@ -16,15 +16,46 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Any, Callable, TypeAlias, final, override
+from typing import Callable, Protocol, TypeAlias, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 
-JsonMap: TypeAlias = dict[str, Any]
+JsonMap: TypeAlias = dict[str, object]
 ActionHandler: TypeAlias = Callable[..., JsonMap]
+
+
+class _MemoryLike(Protocol):
+    total: int
+    available: int
+    percent: float
+
+
+class _DiskLike(Protocol):
+    total: int
+    free: int
+    percent: float
+
+
+def _as_map(value: object) -> JsonMap:
+    if not isinstance(value, dict):
+        return {}
+    mapping = cast(dict[object, object], value)
+    return {str(key): item for key, item in mapping.items()}
+
+
+def _as_list(value: object) -> list[object]:
+    return list(cast(list[object], value)) if isinstance(value, list) else []
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_number(value: object, default: int | float) -> int | float:
+    return value if isinstance(value, (int, float)) else default
 
 
 @final
@@ -186,14 +217,14 @@ class SystemControlTool(BaseTool):
         try:
             import psutil
 
-            mem = psutil.virtual_memory()
+            mem = cast(_MemoryLike, cast(object, psutil.virtual_memory()))
             info["memory"] = {
                 "total_gb": round(mem.total / (1024**3), 1),
                 "available_gb": round(mem.available / (1024**3), 1),
                 "used_percent": mem.percent,
             }
             # 디스크 정보
-            disk = psutil.disk_usage("/")
+            disk = cast(_DiskLike, cast(object, psutil.disk_usage("/")))
             info["disk"] = {
                 "total_gb": round(disk.total / (1024**3), 1),
                 "free_gb": round(disk.free / (1024**3), 1),
@@ -225,10 +256,10 @@ class SystemControlTool(BaseTool):
                     timeout=10,
                 )
                 if result.returncode == 0:
-                    gpu_data = json.loads(result.stdout)
-                    displays = gpu_data.get("SPDisplaysDataType", [])
+                    gpu_data = _as_map(cast(object, json.loads(result.stdout)))
+                    displays = _as_list(gpu_data.get("SPDisplaysDataType"))
                     if displays:
-                        gpu = displays[0]
+                        gpu = _as_map(displays[0])
                         info["gpu"] = {
                             "name": gpu.get("sppci_model", "Unknown"),
                             "vram": gpu.get("spdisplays_vram", "Unknown"),
@@ -244,13 +275,13 @@ class SystemControlTool(BaseTool):
 
             req = urllib.request.Request("http://localhost:11434/api/tags")
             with safe_urlopen(req, timeout=5) as resp:
-                models = json.loads(resp.read().decode("utf-8"))
+                models = _as_map(cast(object, json.loads(resp.read().decode("utf-8"))))
                 info["ollama_models"] = [
                     {
-                        "name": m["name"],
-                        "size_gb": round(m.get("size", 0) / (1024**3), 1),
+                        "name": _as_str(_as_map(model).get("name")),
+                        "size_gb": round(_as_number(_as_map(model).get("size"), 0) / (1024**3), 1),
                     }
-                    for m in models.get("models", [])
+                    for model in _as_list(models.get("models"))
                 ]
         except Exception:
             logger.exception("Unhandled exception")
@@ -268,7 +299,7 @@ class SystemControlTool(BaseTool):
 
             try:
                 with open(config_path, encoding="utf-8") as f:
-                    config = yaml.safe_load(f) or {}
+                    config = _as_map(cast(object, yaml.safe_load(f) or {}))
                 status["settings"] = config
             except Exception as e:
                 logger.exception("Unhandled exception")
@@ -303,7 +334,7 @@ class SystemControlTool(BaseTool):
                 import psutil
 
                 for proc in psutil.process_iter(["pid", "name"]):
-                    name = proc.info["name"]
+                    name = _as_map(cast(object, proc.info)).get("name")
                     if isinstance(name, str):
                         apps.append(name)
                 apps = list(set(apps))[:50]
@@ -471,14 +502,14 @@ class SystemControlTool(BaseTool):
         import yaml
 
         # 1. 시스템 정보 수집
-        sys_info = self._action_get_system_info()["system_info"]
+        sys_info = _as_map(self._action_get_system_info().get("system_info"))
 
         # 2. 최적 설정 계산
         optimizations: list[str] = []
         recommended: JsonMap = {}
 
         # 메모리 기반 컨텍스트 크기 결정
-        total_mem = sys_info.get("memory", {}).get("total_gb", 8)
+        total_mem = _as_number(_as_map(sys_info.get("memory")).get("total_gb"), 8)
         if total_mem >= 128:
             recommended["context_window"] = 32768
             recommended["max_model_size"] = "70B"
@@ -497,8 +528,8 @@ class SystemControlTool(BaseTool):
             optimizations.append(f"⚠️ 메모리 {total_mem}GB → 컨텍스트 4K, 7B 이하 모델 권장")
 
         # GPU 감지
-        gpu_info = sys_info.get("gpu", {})
-        gpu_name = gpu_info.get("name", "").lower()
+        gpu_info = _as_map(sys_info.get("gpu"))
+        gpu_name = _as_str(gpu_info.get("name")).lower()
         if (
             "apple" in gpu_name
             or "m1" in gpu_name
@@ -510,21 +541,25 @@ class SystemControlTool(BaseTool):
             recommended["gpu_acceleration"] = "mps"
             recommended["keep_alive"] = "30m"
             optimizations.append(
-                f"✅ Apple Silicon GPU 감지 ({gpu_info.get('name', '')}) → MPS 가속 활성화",
+                f"✅ Apple Silicon GPU 감지 ({_as_str(gpu_info.get('name'))}) → MPS 가속 활성화",
             )
         elif gpu_info:
             recommended["gpu_acceleration"] = "cuda"
             optimizations.append("✅ NVIDIA GPU 감지 → CUDA 가속 활성화")
 
         # CPU 코어 기반 병렬 처리
-        cpu_cores = sys_info.get("cpu_cores", 4)
+        cpu_cores = int(_as_number(sys_info.get("cpu_cores"), 4))
         recommended["num_parallel"] = min(cpu_cores, 8)
         optimizations.append(f"✅ CPU {cpu_cores}코어 → 병렬 처리 {recommended['num_parallel']}개")
 
         # Ollama 모델 현황 기반 추천
-        ollama_models = sys_info.get("ollama_models", [])
-        if isinstance(ollama_models, list) and ollama_models:
-            model_names = [m["name"] for m in ollama_models]
+        ollama_models = _as_list(sys_info.get("ollama_models"))
+        if ollama_models:
+            model_names = [
+                name
+                for name in (_as_str(_as_map(model).get("name")) for model in ollama_models)
+                if name
+            ]
             recommended["available_models"] = model_names
             optimizations.append(
                 f"✅ Ollama 모델 {len(model_names)}개 감지: {', '.join(model_names[:5])}",
@@ -537,7 +572,7 @@ class SystemControlTool(BaseTool):
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, encoding="utf-8") as f:
-                    config = yaml.safe_load(f) or {}
+                    config = _as_map(cast(object, yaml.safe_load(f) or {}))
 
                 # 기존 설정 백업
                 backup_path = config_path + ".backup"
@@ -546,18 +581,18 @@ class SystemControlTool(BaseTool):
                     optimizations.append(f"📋 기존 설정 백업: {backup_path}")
 
                 # 최적 설정 적용
-                if "ollama" not in config:
-                    config["ollama"] = {}
-                config["ollama"]["context_window"] = recommended.get("context_window", 8192)
-                config["ollama"]["keep_alive"] = recommended.get("keep_alive", "15m")
+                ollama = _as_map(config.get("ollama"))
+                config["ollama"] = ollama
+                ollama["context_window"] = recommended.get("context_window", 8192)
+                ollama["keep_alive"] = recommended.get("keep_alive", "15m")
 
-                if "performance" not in config:
-                    config["performance"] = {}
-                config["performance"]["num_parallel"] = recommended.get("num_parallel", 4)
-                config["performance"]["max_model_size"] = recommended.get("max_model_size", "14B")
+                performance = _as_map(config.get("performance"))
+                config["performance"] = performance
+                performance["num_parallel"] = recommended.get("num_parallel", 4)
+                performance["max_model_size"] = recommended.get("max_model_size", "14B")
 
                 if recommended.get("gpu_acceleration"):
-                    config["performance"]["gpu_acceleration"] = recommended["gpu_acceleration"]
+                    performance["gpu_acceleration"] = recommended["gpu_acceleration"]
 
                 with open(config_path, "w", encoding="utf-8") as f:
                     yaml.dump(config, f, default_flow_style=False, allow_unicode=True)

@@ -14,6 +14,9 @@
 
 import os
 import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 
@@ -21,8 +24,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from antigravity_k.config import AppConfig, I18nConfig
 from antigravity_k.i18n import set_locale
-from antigravity_k.tools.base_tool import RenderIn, RiskLevel, ToolCategory
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from antigravity_k.tools.tool_registry import ToolRegistry
+
+
+class _ToolInstaller(Protocol):
+    def __call__(self, tool_or_class: type[BaseTool] | BaseTool, **kwargs: object) -> ToolRegistry: ...
+
+
+class _ToolBatchInstaller(Protocol):
+    def __call__(self, *tools: type[BaseTool] | BaseTool) -> ToolRegistry: ...
+
+
+class _SkillToolValidator(Protocol):
+    def __call__(self, tool_registry: ToolRegistry) -> dict[str, list[str]]: ...
 
 # ═══════════════ A) AppConfig 통합 테스트 ═══════════════
 
@@ -42,7 +57,7 @@ class TestAppConfigIntegration:
         assert cfg.i18n.locale == "auto"
         assert cfg.i18n.fallback_locale == "en"
 
-    def test_local_qwen_is_runtime_default(self, monkeypatch):
+    def test_local_qwen_is_runtime_default(self, monkeypatch: pytest.MonkeyPatch):
         for name in (
             "AGK_CONFIG_FILE",
             "AGK_PROVIDER",
@@ -60,7 +75,7 @@ class TestAppConfigIntegration:
         assert cfg.model.api_engine == "ollama"
         assert cfg.model.api_base == "http://localhost:11434/v1"
 
-    def test_lm_studio_engine_uses_its_token_environment_variable(self, monkeypatch):
+    def test_lm_studio_engine_uses_its_token_environment_variable(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("AGK_PROVIDER", "lmstudio")
         monkeypatch.setenv("LM_STUDIO_API_KEY", "test-lmstudio-token")
 
@@ -76,10 +91,10 @@ class TestAppConfigIntegration:
         assert hasattr(cfg.security, "max_tool_risk")
         assert cfg.security.max_tool_risk == "high"
 
-    def test_yaml_config_is_loaded(self, tmp_path, monkeypatch):
+    def test_yaml_config_is_loaded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """AppConfig가 config.yaml 값을 실제 런타임에 반영하는지 확인."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
+        _ = config_file.write_text(
             "security:\n  access_pin: '2468'\nserver:\n  port: 9812\n",
             encoding="utf-8",
         )
@@ -92,10 +107,10 @@ class TestAppConfigIntegration:
         assert cfg.security.access_pin == "2468"
         assert cfg.server.port == 9812
 
-    def test_environment_overrides_yaml_config(self, tmp_path, monkeypatch):
+    def test_environment_overrides_yaml_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """환경변수가 config.yaml보다 높은 우선순위를 갖는지 확인."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("security:\n  access_pin: '2468'\n", encoding="utf-8")
+        _ = config_file.write_text("security:\n  access_pin: '2468'\n", encoding="utf-8")
         monkeypatch.setenv("AGK_CONFIG_FILE", str(config_file))
         monkeypatch.setenv("AGK_SEC_ACCESS_PIN", "env-pin")
 
@@ -128,7 +143,7 @@ class TestBaseAgentI18n:
             system_prompt="테스트 에이전트입니다.",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "한국어로만 답변하세요" in prompt or "출력 품질 규약" in prompt
 
     def test_english_reasoning_prompt(self):
@@ -142,7 +157,7 @@ class TestBaseAgentI18n:
             system_prompt="You are a test agent.",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "highly capable agent" in prompt
 
     def test_japanese_reasoning_prompt(self):
@@ -156,7 +171,7 @@ class TestBaseAgentI18n:
             system_prompt="テストエージェントです。",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "日本語で回答してください" in prompt
 
     def test_fallback_reasoning_prompt(self):
@@ -170,7 +185,7 @@ class TestBaseAgentI18n:
             system_prompt="Agent de test.",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "highly capable agent" in prompt
         # 원복
         set_locale("ko")
@@ -202,9 +217,11 @@ class TestSkillsRegistryIntegration:
         tool_reg = ToolRegistry()
         from antigravity_k.tools.system_tools import ReadFileTool
 
-        tool_reg.install(ReadFileTool)
+        install = cast(_ToolInstaller, tool_reg.install)
+        _ = install(ReadFileTool)
 
-        missing = registry.validate_skill_tools(tool_reg)
+        validate = cast(_SkillToolValidator, registry.validate_skill_tools)
+        missing = validate(tool_reg)
         assert "TEST_SKILL" in missing
         assert "nonexistent_tool" in missing["TEST_SKILL"]
         assert "another_fake" in missing["TEST_SKILL"]
@@ -228,9 +245,11 @@ class TestSkillsRegistryIntegration:
         tool_reg = ToolRegistry()
         from antigravity_k.tools.system_tools import ReadFileTool
 
-        tool_reg.install(ReadFileTool)
+        install = cast(_ToolInstaller, tool_reg.install)
+        _ = install(ReadFileTool)
 
-        missing = registry.validate_skill_tools(tool_reg)
+        validate = cast(_SkillToolValidator, registry.validate_skill_tools)
+        missing = validate(tool_reg)
         assert len(missing) == 0
 
 
@@ -275,8 +294,10 @@ class TestRiskBasedFiltering:
         from antigravity_k.tools.computer_use import ComputerUseTool
         from antigravity_k.tools.system_tools import ReadFileTool, RunBashCommandTool
 
-        reg.install_many(ReadFileTool, RunBashCommandTool)
-        reg.install(ComputerUseTool, force_stub=True)
+        install_many = cast(_ToolBatchInstaller, reg.install_many)
+        _ = install_many(ReadFileTool, RunBashCommandTool)
+        install = cast(_ToolInstaller, reg.install)
+        _ = install(ComputerUseTool, force_stub=True)
 
         safe_tools = reg.filter_by_risk(RiskLevel.HIGH)
         tool_names = [t.name for t in safe_tools]
@@ -290,12 +311,14 @@ class TestRiskBasedFiltering:
         from antigravity_k.tools.computer_use import ComputerUseTool
         from antigravity_k.tools.system_tools import ReadFileTool
 
-        reg.install_many(ReadFileTool)
-        reg.install(ComputerUseTool, force_stub=True)
+        install_many = cast(_ToolBatchInstaller, reg.install_many)
+        _ = install_many(ReadFileTool)
+        install = cast(_ToolInstaller, reg.install)
+        _ = install(ComputerUseTool, force_stub=True)
 
         all_tools = reg.filter_by_risk(RiskLevel.CRITICAL)
         assert len(all_tools) == 2
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    _ = pytest.main([__file__, "-v"])

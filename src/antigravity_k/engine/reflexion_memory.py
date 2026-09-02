@@ -25,9 +25,9 @@ class FailureEpisode:
 class ReflexionMemory:
     """Stores and injects hard negative constraints from previous failures into future prompts."""
 
-    def __init__(self, max_episodes: int = 5):
+    def __init__(self, max_episodes: int = 5) -> None:
         self.episodes: list[FailureEpisode] = []
-        self.max_episodes = max_episodes
+        self.max_episodes: int = max_episodes
 
     def record_failure(
         self,
@@ -50,7 +50,7 @@ class ReflexionMemory:
 
         self.episodes.append(episode)
         if len(self.episodes) > self.max_episodes:
-            self.episodes.pop(0)
+            _ = self.episodes.pop(0)
 
         return episode
 

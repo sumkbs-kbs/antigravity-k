@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable, cast, override
+
 from antigravity_k.engine.self_capability import (
     SelfCapabilityEngine,
     is_self_capability_request,
@@ -8,43 +13,56 @@ from antigravity_k.tools.base_tool import BaseTool, RiskLevel, ToolCategory
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 
+def _install(registry: ToolRegistry, tool: BaseTool) -> None:
+    installer = cast(Callable[[object], ToolRegistry], getattr(registry, "install"))
+    _ = installer(tool)
+
+
 class DummyWriteTool(BaseTool):
-    category = ToolCategory.FILE_IO
-    risk_level = RiskLevel.LOW
+    category: ToolCategory = ToolCategory.FILE_IO
+    risk_level: RiskLevel = RiskLevel.LOW
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "write_file"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Write a file in the current project"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **_kwargs: object) -> str:
         return "ok"
 
 
 class DummyDomTool(BaseTool):
-    category = ToolCategory.WEB
-    risk_level = RiskLevel.SAFE
+    category: ToolCategory = ToolCategory.WEB
+    risk_level: RiskLevel = RiskLevel.SAFE
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "fetch_dom"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Inspect browser DOM for QA"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **_kwargs: object) -> str:
         return "ok"
 
 
@@ -56,10 +74,10 @@ def test_self_capability_request_detection():
     assert not is_self_capability_request("/goal DOM 기능을 테스트해줘")
 
 
-def test_self_capability_report_uses_runtime_tools_and_skills(tmp_path):
+def test_self_capability_report_uses_runtime_tools_and_skills(tmp_path: Path) -> None:
     skill_dir = tmp_path / ".agent" / "skills" / "browser-qa"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: Browser QA
 description: DOM browser testing
@@ -71,8 +89,8 @@ Inspect DOM and console state.
         encoding="utf-8",
     )
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(DummyWriteTool())
-    registry.install(DummyDomTool())
+    _install(registry, DummyWriteTool())
+    _install(registry, DummyDomTool())
     loader = SkillLoader(project_root=str(tmp_path), include_global=False)
 
     snapshot = SelfCapabilityEngine().build(
@@ -92,9 +110,9 @@ Inspect DOM and console state.
     assert "볼륨" not in rendered
 
 
-def test_self_slash_command_reports_runtime_capabilities(tmp_path):
+def test_self_slash_command_reports_runtime_capabilities(tmp_path: Path) -> None:
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(DummyDomTool())
+    _install(registry, DummyDomTool())
     loader = SkillLoader(project_root=str(tmp_path), include_global=False)
     slash = SlashCommandRegistry(tool_registry=registry, skill_loader=loader)
 

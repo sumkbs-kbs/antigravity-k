@@ -7,18 +7,25 @@ in a continuous execution loop until 100% test passing is achieved.
 """
 
 import logging
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import TypeAlias, final
 
 from antigravity_k.engine.atomic_transaction_engine import AtomicTransactionEngine
 from antigravity_k.engine.deep_code_indexer import DeepCodeIndexer
-from antigravity_k.engine.harness_enforcer import HarnessEnforcer
+from antigravity_k.engine.harness_enforcer import BoundaryResult, HarnessEnforcer
 from antigravity_k.engine.reflexion_memory import ReflexionMemory
 from antigravity_k.engine.subgoal_graph import SubgoalGraph
 from antigravity_k.engine.test_time_compute_scaler import ComputeBudget, TestTimeComputeScaler
 
 logger = logging.getLogger(__name__)
+
+SubgoalInput: TypeAlias = Mapping[str, str | list[str]]
+
+
+class _InvalidSubgoalInputError(ValueError):
+    pass
 
 
 @dataclass
@@ -35,12 +42,20 @@ class MissionReport:
     stall_interventions: list[str] = field(default_factory=list)
 
 
+@final
 class AutonomousFlightController:
     """Executes end-to-end engineering missions autonomously without manual prompting."""
 
     # AVO 규칙: 같은 방식 2회 연속 실패하면 3번째는 금지 — 영구 실패로 강등.
     # 그 전까지는 서브골이 재시도 가능 상태로 남아 전략수정 턴을 가질 수 있다.
     MAX_STEP_ATTEMPTS: int = 2
+
+    project_root: Path
+    max_flight_turns: int
+    enforcer: HarnessEnforcer
+    reflexion: ReflexionMemory
+    indexer: DeepCodeIndexer
+    transaction_engine: AtomicTransactionEngine
 
     def __init__(
         self,
@@ -58,7 +73,7 @@ class AutonomousFlightController:
     def launch_mission(
         self,
         goal: str,
-        initial_subgoals: list[dict[str, Any]],
+        initial_subgoals: Sequence[SubgoalInput],
         step_executor: Callable[[str, str], bool],
     ) -> MissionReport:
         """Fly an engineering mission autonomously until all subgoals and TDD pass.
@@ -73,10 +88,17 @@ class AutonomousFlightController:
         """
         dag = SubgoalGraph(goal)
         for sg in initial_subgoals:
-            dag.add_subgoal(
-                task_id=sg["id"],
-                description=sg["desc"],
-                depends_on=sg.get("depends_on", []),
+            task_id = sg["id"]
+            description = sg["desc"]
+            depends_on = sg.get("depends_on", [])
+            if not isinstance(task_id, str) or not isinstance(description, str):
+                raise _InvalidSubgoalInputError("subgoal id and description must be strings")
+            if not isinstance(depends_on, list):
+                raise _InvalidSubgoalInputError("subgoal dependencies must be a string list")
+            _ = dag.add_subgoal(
+                task_id=task_id,
+                description=description,
+                depends_on=depends_on,
             )
 
         # Dynamic Test-Time Compute Budget Scaling (o-series / DeepSeek-R1 law)
@@ -98,7 +120,7 @@ class AutonomousFlightController:
             step_attempts[task_id] = attempts
             if attempts >= self.MAX_STEP_ATTEMPTS:
                 dag.fail_subgoal(task_id, reason)
-                self.reflexion.record_failure(
+                _ = self.reflexion.record_failure(
                     context=description,
                     attempted_action=f"Subgoal {task_id}",
                     failure_reason=reason,
@@ -115,9 +137,11 @@ class AutonomousFlightController:
             turn += 1
 
             # 감독기 개입 소비: 예약된 STALL이 있으면 이 턴은 강제 재계획 턴으로 쓴다.
-            boundary = self.enforcer.check_tool_boundary("flight_step", {"turn": turn})
+            boundary: BoundaryResult = self.enforcer.check_tool_boundary(
+                "flight_step", {"turn": turn}
+            )
             if not boundary.get("allowed", True) and boundary.get("stall"):
-                reason = boundary.get("reason", "")
+                reason = boundary["reason"]
                 stall_interventions.append(reason)
                 logs.append(f"🛑 [Flight Turn {turn}] Supervisor intervention:\n{reason}")
                 continue
@@ -143,7 +167,7 @@ class AutonomousFlightController:
                 continue
 
             if success:
-                dag.complete_subgoal(current_node.task_id)
+                _ = dag.complete_subgoal(current_node.task_id)
                 logs.append(f"✅ [Flight Turn {turn}] Subgoal [{current_node.task_id}] COMPLETED cleanly.")
             else:
                 _record_failure(current_node.task_id, current_node.description, "Step executor returned false")

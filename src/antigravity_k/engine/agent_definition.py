@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import ClassVar, Final, final, override
+from typing import ClassVar, Final, cast, final, override
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -227,7 +227,7 @@ class AgentToolRegistry:
         return self._source.to_openai_schemas(selected)
 
     def to_metadata_list(self) -> list[dict[str, JsonValue]]:
-        return [tool.to_metadata() for tool in self.get_all()]
+        return [cast(dict[str, JsonValue], tool.to_metadata()) for tool in self.get_all()]
 
     def _allowed_names(self, names: list[str] | None) -> list[str]:
         candidates = names if names is not None else sorted(self._allowed_tools)

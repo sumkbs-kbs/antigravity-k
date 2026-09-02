@@ -1,5 +1,7 @@
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,7 +10,7 @@ from fastapi.testclient import TestClient
 from antigravity_k.api.server import app
 from antigravity_k.config import config
 from antigravity_k.engine.vault import VaultEngine
-from antigravity_k.engine.vault_privacy import (
+from antigravity_k.engine.vault_privacy_contracts import (
     VaultPrivacyAction,
     VaultPrivacyError,
     VaultPrivacyFailure,
@@ -16,12 +18,32 @@ from antigravity_k.engine.vault_privacy import (
 )
 
 
+class _MockMethod(Protocol):
+    return_value: object
+    call_args: object
+
+    def __call__(self, *args: object, **kwargs: object) -> object: ...
+
+    def assert_called_once(self) -> None: ...
+
+    def assert_called_once_with(self, *args: object, **kwargs: object) -> None: ...
+
+
+def _mock_method(mock: MagicMock, name: str) -> _MockMethod:
+    return cast(_MockMethod, cast(object, getattr(mock, name)))
+
+
+def _response_json(response: object) -> dict[str, object]:
+    json_method = cast(Callable[[], object], cast(object, getattr(response, "json")))
+    return cast(dict[str, object], json_method())
+
+
 def _seed_vault(tmp_path: Path, content: str = "private payload") -> tuple[VaultEngine, Path]:
     vault = VaultEngine(str(tmp_path / "vault"), sync_rag=False)
     note = vault.vault_path / "private.md"
-    note.write_text(f"---\ntitle: Private\n---\n\n{content}\n", encoding="utf-8")
-    subprocess.run(["git", "add", "private.md"], cwd=vault.vault_path, check=True)
-    subprocess.run(
+    _ = note.write_text(f"---\ntitle: Private\n---\n\n{content}\n", encoding="utf-8")
+    _ = subprocess.run(["git", "add", "private.md"], cwd=vault.vault_path, check=True)
+    _ = subprocess.run(
         ["git", "-c", "user.name=AGK Test", "-c", "user.email=test@agk.local", "commit", "-m", "seed"],
         cwd=vault.vault_path,
         check=True,
@@ -95,7 +117,7 @@ def test_vault_redact_replaces_values_and_preserves_snapshot(
 
     # Then: the active note is safe while the reported snapshot remains restorable.
     assert response.status_code == 200
-    payload = response.json()
+    payload = _response_json(response)
     assert "secret-123" not in note.read_text(encoding="utf-8")
     assert "<REDACTED>" in note.read_text(encoding="utf-8")
     historical = subprocess.run(
@@ -132,7 +154,7 @@ def test_vault_purge_removes_selected_note_and_preserves_snapshot(
 
     # Then: the active file is gone and its pre-mutation snapshot is explicit.
     assert response.status_code == 200
-    payload = response.json()
+    payload = _response_json(response)
     assert not note.exists()
     historical = subprocess.run(
         ["git", "show", f"{payload['snapshot_commit']}:private.md"],
@@ -159,8 +181,8 @@ def test_vault_restore_recovers_selected_snapshot(
         text=True,
     ).stdout.strip()
     note.unlink()
-    subprocess.run(["git", "add", "--all"], cwd=vault.vault_path, check=True)
-    subprocess.run(
+    _ = subprocess.run(["git", "add", "--all"], cwd=vault.vault_path, check=True)
+    _ = subprocess.run(
         ["git", "commit", "-m", "remove note"],
         cwd=vault.vault_path,
         check=True,
@@ -173,7 +195,9 @@ def test_vault_restore_recovers_selected_snapshot(
     vault.sync_rag = True
     vault.vector_store = MagicMock()
     vault.chunker = MagicMock()
-    vault.chunker.chunk_document.return_value = [{"id": "restored", "text": "private payload", "metadata": {}}]
+    _mock_method(vault.chunker, "chunk_document").return_value = [
+        {"id": "restored", "text": "private payload", "metadata": {}}
+    ]
     wiki = MagicMock()
     monkeypatch.setattr(wiki_module, "LLMWiki", lambda: wiki)
 
@@ -191,11 +215,11 @@ def test_vault_restore_recovers_selected_snapshot(
 
     # Then: the selected snapshot becomes active and the note is recovered.
     assert response.status_code == 200
-    assert response.json()["restored"] is True
+    assert _response_json(response)["restored"] is True
     assert note.exists()
-    vault.vector_store.delete_file_chunks_strict.assert_called_once_with("private.md")
-    vault.vector_store.upsert_chunks.assert_called_once()
-    wiki.add_entry.assert_called_once()
+    _mock_method(vault.vector_store, "delete_file_chunks_strict").assert_called_once_with("private.md")
+    _mock_method(vault.vector_store, "upsert_chunks").assert_called_once()
+    _mock_method(wiki, "add_entry").assert_called_once()
 
 
 def test_default_memory_purge_does_not_touch_vault(
@@ -207,7 +231,7 @@ def test_default_memory_purge_does_not_touch_vault(
     from antigravity_k.api.routes import system_api
 
     manager = MagicMock()
-    manager.clear.return_value = {"builtin": 1}
+    _mock_method(manager, "clear").return_value = {"builtin": 1}
     monkeypatch.setattr(system_api, "_get_memory_manager", lambda: manager)
     monkeypatch.setattr(
         system_api,
@@ -222,7 +246,7 @@ def test_default_memory_purge_does_not_touch_vault(
 
     # Then: only the memory manager is cleared and the Vault note remains.
     assert response.status_code == 200
-    manager.clear.assert_called_once_with("all")
+    _mock_method(manager, "clear").assert_called_once_with("all")
     assert note.exists()
 
 
@@ -248,9 +272,9 @@ def test_vault_redact_rolls_back_when_mutation_commit_fails(
 
     # When: the service changes the file but cannot commit the mutation.
     with pytest.raises(VaultPrivacyError):
-        vault.apply_privacy_mutation(
-            vault_privacy.VaultPrivacyMutation(
-                action=vault_privacy.VaultPrivacyAction.REDACT,
+        _ = vault.apply_privacy_mutation(
+            VaultPrivacyMutation(
+                action=VaultPrivacyAction.REDACT,
                 paths=("private.md",),
                 values=("rollback-secret",),
             ),
@@ -277,14 +301,16 @@ def test_vault_redact_replaces_rag_and_wiki_derivatives(
     vault.sync_rag = True
     vault.vector_store = MagicMock()
     vault.chunker = MagicMock()
-    vault.chunker.chunk_document.return_value = [{"id": "safe", "text": "<REDACTED>", "metadata": {}}]
+    _mock_method(vault.chunker, "chunk_document").return_value = [
+        {"id": "safe", "text": "<REDACTED>", "metadata": {}}
+    ]
     wiki = MagicMock()
     from antigravity_k.knowledge import wiki as wiki_module
 
     monkeypatch.setattr(wiki_module, "LLMWiki", lambda: wiki)
 
     # When: exact-value redaction updates the active Vault corpus.
-    vault.apply_privacy_mutation(
+    _ = vault.apply_privacy_mutation(
         VaultPrivacyMutation(
             action=VaultPrivacyAction.REDACT,
             paths=("private.md",),
@@ -294,9 +320,9 @@ def test_vault_redact_replaces_rag_and_wiki_derivatives(
 
     # Then: old derivatives are removed and only redacted content is reindexed.
     source_url = str(vault.vault_path / "private.md")
-    vault.vector_store.delete_file_chunks_strict.assert_called_once_with("private.md")
-    vault.vector_store.upsert_chunks.assert_called_once()
-    wiki.delete_vault_sources.assert_called_once_with((source_url,))
-    wiki.add_entry.assert_called_once()
-    assert "derived-secret" not in str(vault.chunker.chunk_document.call_args)
-    assert "derived-secret" not in str(wiki.add_entry.call_args)
+    _mock_method(vault.vector_store, "delete_file_chunks_strict").assert_called_once_with("private.md")
+    _mock_method(vault.vector_store, "upsert_chunks").assert_called_once()
+    _mock_method(wiki, "delete_vault_sources").assert_called_once_with((source_url,))
+    _mock_method(wiki, "add_entry").assert_called_once()
+    assert "derived-secret" not in str(_mock_method(vault.chunker, "chunk_document").call_args)
+    assert "derived-secret" not in str(_mock_method(wiki, "add_entry").call_args)

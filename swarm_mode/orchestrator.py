@@ -13,12 +13,14 @@ import json
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections.abc import Mapping
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from types import ModuleType
+from typing import TypeAlias, cast
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 log = logging.getLogger("swarm.orchestrator")
@@ -40,6 +42,42 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+WorkerConfigMap: TypeAlias = dict[str, object]
+WorkerRecord: TypeAlias = dict[str, object]
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_mapping_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [_as_mapping(cast(Mapping[object, object], item)) for item in items if isinstance(item, Mapping)]
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_text_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [item for item in items if isinstance(item, str)]
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+def _as_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
 
 class WorkerStatus(str, Enum):
     PENDING = "pending"
@@ -53,39 +91,39 @@ class SwarmRun:
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     started_at: str = field(default_factory=lambda: datetime.now().isoformat())
     status: WorkerStatus = WorkerStatus.PENDING
-    workers: dict[str, dict[str, Any]] = field(default_factory=dict)
-    correlations: list[dict[str, Any]] = field(default_factory=list)
+    workers: dict[str, WorkerRecord] = field(default_factory=dict)
+    correlations: list[WorkerRecord] = field(default_factory=list)
     error_summary: str = field(default="")
     duration_seconds: float = 0.0
     completed_at: str = field(default_factory=lambda: datetime.now().isoformat())
     llm_backend: str = field(default="unknown")  # "local", "openrouter", "mixed"
 
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    def to_dict(self) -> dict[str, object]:
+        return cast(dict[str, object], asdict(self))
 
 
 class SwarmOrchestrator:
     """Manages parallel worker execution and result correlation."""
 
-    def __init__(self, config_path: Optional[str] = None):
-        self.config = self._load_config(config_path)
-        self.swarm_config: dict[str, Any] = self.config.get("swarm", {})
-        self.output_config: dict[str, Any] = self.config.get("output", {})
-        self.lm_config: dict[str, Any] = self.config.get("lm", {})
-        self.timeout: int = self.swarm_config.get("timeout", 300)
-        self.max_workers: int = self.swarm_config.get("max_workers", 4)
-        self.retry_attempts: int = self.swarm_config.get("retry_attempts", 2)
-        self._llm_status: dict[str, Any] = {}
+    def __init__(self, config_path: str | None = None):
+        self.config: dict[str, object] = self._load_config(config_path)
+        self.swarm_config: dict[str, object] = _as_mapping(self.config.get("swarm"))
+        self.output_config: dict[str, object] = _as_mapping(self.config.get("output"))
+        self.lm_config: dict[str, object] = _as_mapping(self.config.get("lm"))
+        self.timeout: int = _as_int(self.swarm_config.get("timeout"), 300)
+        self.max_workers: int = _as_int(self.swarm_config.get("max_workers"), 4)
+        self.retry_attempts: int = _as_int(self.swarm_config.get("retry_attempts"), 2)
+        self._llm_status: dict[str, bool] = {}
 
-    def _load_config(self, config_path: Optional[str]) -> dict[str, Any]:
+    def _load_config(self, config_path: str | None) -> dict[str, object]:
         if config_path and Path(config_path).exists():
-            return json.loads(Path(config_path).read_text())
+            return _as_mapping(cast(object, json.loads(Path(config_path).read_text())))
         config_file = BASE_DIR / "config.json"
         if config_file.exists():
-            return json.loads(config_file.read_text())
+            return _as_mapping(cast(object, json.loads(config_file.read_text())))
         return self._default_config()
 
-    def _default_config(self) -> dict[str, Any]:
+    def _default_config(self) -> dict[str, object]:
         return {
             "swarm": {"max_workers": 4, "timeout": 300},
             "output": {"dir": "outputs"},
@@ -103,7 +141,7 @@ class SwarmOrchestrator:
 
     def get_llm_backend(self) -> str:
         """Determine which LLM backend to use."""
-        strategy = self.lm_config.get("strategy", "local_first_or_fallback")
+        strategy = _as_text(self.lm_config.get("strategy"), "local_first_or_fallback")
 
         if strategy == "or_only":
             return "openrouter"
@@ -121,24 +159,24 @@ class SwarmOrchestrator:
 
         return "error"
 
-    def get_enabled_workers(self) -> list[dict[str, Any]]:
+    def get_enabled_workers(self) -> list[WorkerConfigMap]:
         """Get list of enabled worker configs."""
-        workers_config = self.config.get("workers", [])
-        return [w for w in workers_config if w.get("enabled", True)]
+        workers_config = _as_mapping_list(self.config.get("workers"))
+        return [worker for worker in workers_config if bool(worker.get("enabled", True))]
 
-    def load_worker_class(self, worker_name: str) -> Optional[type]:
+    def load_worker_class(self, worker_name: str) -> type[BaseWorker] | None:
         """Import a worker module and return the BaseWorker subclass."""
         try:
-            mod = __import__(f"swarm_mode.workers.{worker_name}", fromlist=[worker_name])
+            mod = cast(ModuleType, __import__(f"swarm_mode.workers.{worker_name}", fromlist=[worker_name]))
             for attr in dir(mod):
-                obj = getattr(mod, attr)
+                obj = getattr(mod, attr, None)
                 if isinstance(obj, type) and issubclass(obj, BaseWorker) and obj != BaseWorker:
                     return obj
             return None
         except (ImportError, AttributeError):
             return None
 
-    def execute(self, worker_names: Optional[list[str]] = None) -> SwarmRun:
+    def execute(self, worker_names: list[str] | None = None) -> SwarmRun:
         """Run workers in parallel and collect results."""
         run = SwarmRun()
         run.status = WorkerStatus.RUNNING
@@ -158,7 +196,7 @@ class SwarmOrchestrator:
         # Select workers
         all_workers = self.get_enabled_workers()
         if worker_names:
-            workers_to_run = [w for w in all_workers if w["name"] in worker_names]
+            workers_to_run = [worker for worker in all_workers if _as_text(worker.get("name")) in worker_names]
         else:
             workers_to_run = all_workers
 
@@ -170,7 +208,7 @@ class SwarmOrchestrator:
         # Execute in parallel
         results: dict[str, WorkerResult] = {}
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_map = {}
+            future_map: dict[Future[WorkerResult], WorkerConfigMap] = {}
             for worker_cfg in workers_to_run:
                 future = executor.submit(self._run_single_worker, worker_cfg, backend)
                 future_map[future] = worker_cfg
@@ -179,11 +217,13 @@ class SwarmOrchestrator:
                 worker_cfg = future_map[future]
                 try:
                     result = future.result(timeout=self.timeout)
-                    results[worker_cfg["name"]] = result
-                    run.workers[worker_cfg["name"]] = asdict(result)
+                    worker_name = _as_text(worker_cfg.get("name"))
+                    results[worker_name] = result
+                    run.workers[worker_name] = cast(WorkerRecord, asdict(result))
                 except Exception as e:
-                    run.workers[worker_cfg["name"]] = {"status": WorkerStatus.FAILED.value, "error": str(e)}
-                    run.error_summary += f"Worker '{worker_cfg['name']}' failed: {e}\n"
+                    worker_name = _as_text(worker_cfg.get("name"))
+                    run.workers[worker_name] = {"status": WorkerStatus.FAILED.value, "error": str(e)}
+                    run.error_summary += f"Worker '{worker_name}' failed: {e}\n"
 
         # Correlation step if correlator is enabled
         if results.get("financial_analyzer") and results.get("tech_trend_analyzer"):
@@ -196,23 +236,23 @@ class SwarmOrchestrator:
         self._save_output(run)
         return run
 
-    def _run_single_worker(self, worker_cfg: dict[str, Any], backend: str) -> WorkerResult:
+    def _run_single_worker(self, worker_cfg: WorkerConfigMap, backend: str) -> WorkerResult:
         """Run a single worker with retry logic and LLM fallback."""
-        name = worker_cfg["name"]
+        name = _as_text(worker_cfg.get("name"))
         worker_cls = self.load_worker_class(name)
         if not worker_cls:
             return WorkerResult(
                 worker=name, status=WorkerStatus.FAILED.value, duration=0.0, error=f"Worker class not found: {name}"
             )
 
-        worker_instance = worker_cls(worker_cfg.get("params", {}))
-        last_error = None
+        worker_instance = worker_cls(_as_mapping(worker_cfg.get("params")))
+        last_error: Exception | None = None
 
         for attempt in range(1 + self.retry_attempts):
             try:
                 # Pass backend info to worker
-                worker_instance._llm_backend = backend
-                worker_instance._llm_config = self.lm_config
+                setattr(worker_instance, "_llm_backend", backend)
+                setattr(worker_instance, "_llm_config", self.lm_config)
                 result = worker_instance.execute()
                 return result
             except Exception as e:
@@ -224,19 +264,20 @@ class SwarmOrchestrator:
 
         return WorkerResult(worker=name, status=WorkerStatus.FAILED.value, duration=0.0, error=str(last_error))
 
-    def _correlate_results(self, financial_result: WorkerResult, tech_result: WorkerResult) -> list[dict[str, Any]]:
+    def _correlate_results(self, financial_result: WorkerResult, tech_result: WorkerResult) -> list[WorkerRecord]:
         """Find correlations between financial and tech data."""
-        correlations = []
-        fin_data = financial_result.data if financial_result.data else {}
-        tech_data = tech_result.data if tech_result.data else {}
-
-        fin_assets = {
-            k: v for k, v in fin_data.get("market_metrics", {}).items() if isinstance(v, dict) and "change_pct" in v
-        }
-        tech_trends = tech_data.get("trends", [])
+        correlations: list[WorkerRecord] = []
+        fin_data = _as_mapping(cast(object, financial_result.data))
+        tech_data = _as_mapping(cast(object, tech_result.data))
+        market_metrics = _as_mapping(fin_data.get("market_metrics"))
+        fin_assets: dict[str, WorkerRecord] = {}
+        for name, asset in market_metrics.items():
+            if isinstance(asset, Mapping) and "change_pct" in asset:
+                fin_assets[name] = _as_mapping(cast(Mapping[object, object], asset))
+        tech_trends = _as_mapping_list(tech_data.get("trends"))
 
         for trend in tech_trends:
-            trend_assets = trend.get("related_assets", [])
+            trend_assets = _as_text_list(trend.get("related_assets"))
             for asset_name in trend_assets:
                 for name, asset in fin_assets.items():
                     if asset_name.lower() in name.lower():
@@ -244,8 +285,8 @@ class SwarmOrchestrator:
                             {
                                 "tech_trend": trend.get("topic", "unknown"),
                                 "asset": name,
-                                "market_change": asset.get("change_pct", 0),
-                                "confidence": trend.get("confidence", 0.5),
+                                "market_change": _as_float(asset.get("change_pct")),
+                                "confidence": _as_float(trend.get("confidence"), 0.5),
                                 "action": "monitor",
                             }
                         )
@@ -253,14 +294,14 @@ class SwarmOrchestrator:
 
         # Auto-generate actions for high-confidence correlations
         for c in correlations:
-            if c["confidence"] > 0.7:
+            if _as_float(c.get("confidence")) > 0.7:
                 c["action"] = "review_portfolio"
-            elif c.get("market_change", 0) > 5:
+            elif _as_float(c.get("market_change")) > 5:
                 c["action"] = "consider_profit"
 
         return correlations
 
-    def _save_output(self, run: SwarmRun):
+    def _save_output(self, run: SwarmRun) -> None:
         """Save run results as JSON."""
         configured_dir = Path(str(self.output_config.get("dir", "outputs")))
         if configured_dir.is_absolute():
@@ -273,12 +314,12 @@ class SwarmOrchestrator:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         output_file = output_dir / f"run_{ts}_{run.run_id}.json"
-        output_file.write_text(json.dumps(asdict(run), indent=2, ensure_ascii=False))
+        _ = output_file.write_text(json.dumps(asdict(run), indent=2, ensure_ascii=False))
 
         if self.output_config.get("include_wiki_doc"):
             wiki_content = self._generate_wiki_doc(run)
             wiki_file = output_dir / f"run_{ts}_{run.run_id}.md"
-            wiki_file.write_text(wiki_content)
+            _ = wiki_file.write_text(wiki_content)
 
     def _generate_wiki_doc(self, run: SwarmRun) -> str:
         """Generate a Wiki-format markdown doc from run results."""
@@ -300,8 +341,8 @@ class SwarmOrchestrator:
             for c in run.correlations:
                 lines.append(
                     f"- **{c.get('tech_trend', '?')}** ↔ {c.get('asset', '?')} "
-                    f"(변화: {c.get('market_change', 0):+.2f}% | 신뢰도: {c.get('confidence', 0):.1f}) "
-                    f"→ {c.get('action', 'review')}"
+                    + f"(변화: {c.get('market_change', 0):+.2f}% | 신뢰도: {c.get('confidence', 0):.1f}) "
+                    + f"→ {c.get('action', 'review')}"
                 )
 
         return "\n".join(lines)
@@ -319,7 +360,7 @@ class SwarmOrchestrator:
         log.info(f"Goal Mode: '{strategy_desc}'")
 
         # Execute swarm first
-        self.execute()
+        _ = self.execute()
 
         # Run backtest
         bt_result = run_backtest(ticker="005930.KS", strategy="ma_crossover", period=90, config=self.config)
@@ -335,12 +376,14 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Swarm Mode Orchestrator")
-    parser.add_argument("--workers", type=str, default=None, help="Comma-separated worker names (e.g., financial,tech)")
-    parser.add_argument("--config", type=str, default=None, help="Path to config JSON")
+    _ = parser.add_argument("--workers", type=str, default=None, help="Comma-separated worker names (e.g., financial,tech)")
+    _ = parser.add_argument("--config", type=str, default=None, help="Path to config JSON")
     args = parser.parse_args()
 
-    orch = SwarmOrchestrator(args.config)
-    worker_list = args.workers.split(",") if args.workers else None
+    config_path = cast(str | None, args.config)
+    workers_arg = cast(str | None, args.workers)
+    orch = SwarmOrchestrator(config_path)
+    worker_list = workers_arg.split(",") if workers_arg else None
     run = orch.execute(worker_list)
 
     print(json.dumps(asdict(run), indent=2, ensure_ascii=False))

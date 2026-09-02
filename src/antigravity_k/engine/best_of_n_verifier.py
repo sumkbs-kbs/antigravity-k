@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
+
+from antigravity_k.engine.sandbox import run_sandboxed_argv
 
 logger = logging.getLogger("antigravity_k.best_of_n")
 
@@ -85,15 +87,15 @@ _CODE_FENCE = re.compile(r"```(?:\w+)?\s*\n(.*?)```", re.DOTALL)
 
 def extract_code(text: str, language_hint: str = "") -> str:
     """답변에서 코드 블록을 추출한다(전후 공백 제거). 펜스가 없으면 전문 반환."""
-    fences = _CODE_FENCE.findall(text or "")
+    fences = cast(list[str], _CODE_FENCE.findall(text or ""))
     if not fences:
         return (text or "").strip()
     if language_hint:
-        hinted = re.findall(
+        hinted = cast(list[str], re.findall(
             rf"```{re.escape(language_hint)}\s*\n(.*?)```",
             text or "",
             re.DOTALL,
-        )
+        ))
         if hinted:
             return hinted[-1].strip()
     return max(fences, key=len).strip()
@@ -118,26 +120,19 @@ def make_command_verifier(
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / f"candidate.{language_hint or 'txt'}"
-                path.write_text(code, encoding="utf-8")
+                _ = path.write_text(code, encoding="utf-8")
                 argv = [arg.replace("{file}", str(path)) for arg in command]
                 if not uses_placeholder:
                     argv.append(str(path))
-                res = subprocess.run(
-                    argv,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout_sec,
-                    check=False,
-                    cwd=tmp,
-                )
-        except subprocess.TimeoutExpired:
-            return VerificationOutcome(passed=False, score=0.0, detail="verifier timeout")
+                res = run_sandboxed_argv(argv, cwd=tmp, timeout=timeout_sec)
         except OSError as exc:
             return VerificationOutcome(passed=False, score=0.0, detail=f"verifier spawn failed: {exc}")
-        if res.returncode == 0:
+        if res.timed_out:
+            return VerificationOutcome(passed=False, score=0.0, detail="verifier timeout")
+        if res.return_code == 0:
             return VerificationOutcome(passed=True, score=1.0, detail="")
         output = (res.stderr or res.stdout or "").strip()
-        last_line = output.splitlines()[-1] if output else f"exit {res.returncode}"
+        last_line = output.splitlines()[-1] if output else f"exit {res.return_code}"
         return VerificationOutcome(passed=False, score=0.0, detail=last_line[:300])
 
     return verify
@@ -158,7 +153,7 @@ def make_syntax_verifier(language_hint: str = "python") -> Callable[[str], Verif
         import ast
 
         try:
-            ast.parse(code)
+            _ = ast.parse(code)
         except SyntaxError as exc:
             return VerificationOutcome(
                 passed=False,
@@ -199,7 +194,7 @@ def parse_file_blocks(text: str) -> dict[str, str]:
         if ".." in rel_path.split("/"):
             logger.warning("파일 블록 경로에 '..' 포함 — 제외: %s", rel_path)
             continue
-        out.setdefault(rel_path, body.strip("\n") + "\n")
+        _ = out.setdefault(rel_path, body.strip("\n") + "\n")
     return out
 
 
@@ -223,12 +218,12 @@ def make_answer_patch_verifier(
         for rel_path, content in files.items():
             target = (ws_resolved / rel_path).resolve()
             try:
-                target.relative_to(ws_resolved)
+                _ = target.relative_to(ws_resolved)
             except ValueError:
                 logger.warning("패치 경로 탈출 거부: %s", rel_path)
                 return False
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            _ = target.write_text(content, encoding="utf-8")
         return True
 
     return make_worktree_test_verifier(root, apply_fn, test_command, timeout_sec)
@@ -265,25 +260,16 @@ def make_worktree_test_verifier(
                 return VerificationOutcome(passed=False, score=0.0, detail=f"patch apply failed: {exc}")
             if not applied:
                 return VerificationOutcome(passed=False, score=0.0, detail="patch not applicable")
-            import subprocess as _subprocess
-
             try:
-                res = _subprocess.run(
-                    test_command,
-                    cwd=workspace.path,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout_sec,
-                    check=False,
-                )
-            except _subprocess.TimeoutExpired:
-                return VerificationOutcome(passed=False, score=0.0, detail="test timeout")
+                res = run_sandboxed_argv(test_command, cwd=str(workspace.path), timeout=timeout_sec)
             except OSError as exc:
                 return VerificationOutcome(passed=False, score=0.0, detail=f"test spawn failed: {exc}")
-            if res.returncode == 0:
+            if res.timed_out:
+                return VerificationOutcome(passed=False, score=0.0, detail="test timeout")
+            if res.return_code == 0:
                 return VerificationOutcome(passed=True, score=1.0)
             output = (res.stderr or res.stdout or "").strip()
-            last_line = output.splitlines()[-1] if output else f"exit {res.returncode}"
+            last_line = output.splitlines()[-1] if output else f"exit {res.return_code}"
             return VerificationOutcome(passed=False, score=0.0, detail=last_line[:300])
         finally:
             workspace.cleanup()
@@ -306,11 +292,11 @@ class BestOfNVerifier:
         base_temperature: float = 0.7,
         temperature_spread: float = 0.3,
     ):
-        self._generate_fn = generate_fn
-        self._verifier_fn = verifier_fn
-        self.n_samples = max(1, int(n_samples))
-        self.base_temperature = float(base_temperature)
-        self.temperature_spread = float(temperature_spread)
+        self._generate_fn: _GenerateFn | None = generate_fn
+        self._verifier_fn: _VerifyFn | None = verifier_fn
+        self.n_samples: int = max(1, int(n_samples))
+        self.base_temperature: float = float(base_temperature)
+        self.temperature_spread: float = float(temperature_spread)
 
     def set_generate_fn(self, fn: _GenerateFn) -> None:
         self._generate_fn = fn
@@ -323,7 +309,7 @@ class BestOfNVerifier:
         offset = (i / half - 0.5) * 2 * self.temperature_spread
         return max(0.0, min(1.5, self.base_temperature + offset))
 
-    def _sample_one(self, index: int, prompt: str, gen_kwargs: dict) -> CandidateResult:
+    def _sample_one(self, index: int, prompt: str, gen_kwargs: dict[str, object]) -> CandidateResult:
         temp = self._sample_temperature(index)
         if self._generate_fn is None:
             return CandidateResult(index=index, temperature=temp, text="")
@@ -336,7 +322,7 @@ class BestOfNVerifier:
             text = ""
         return CandidateResult(index=index, temperature=temp, text=text)
 
-    def collect_candidates(self, prompt: str, **gen_kwargs) -> list[CandidateResult]:
+    def collect_candidates(self, prompt: str, **gen_kwargs: object) -> list[CandidateResult]:
         """프롬프트를 N회 샘플링해 CandidateResult 리스트를 반환한다.
 
         run()은 조기 종료를 위해 이 메서드 대신 _sample_one을 사용한다.
@@ -350,7 +336,7 @@ class BestOfNVerifier:
         prompt: str,
         feedback_loop: bool = False,
         max_feedback_rounds: int = 1,
-        **gen_kwargs,
+        **gen_kwargs: object,
     ) -> BestOfNTrace:
         """Best-of-N을 실행한다.
 
@@ -469,19 +455,21 @@ class BestOfNVerifier:
         )
 
 
-def config_to_engine_kwargs(cfg: object) -> dict:
+def config_to_engine_kwargs(cfg: object) -> dict[str, object]:
     """amplification.best_of_n config dict를 BestOfNVerifier kwargs로 매핑."""
     if not isinstance(cfg, dict):
         return {}
-    out: dict = {}
-    for key, caster in (
-        ("n_samples", int),
-        ("base_temperature", float),
-        ("temperature_spread", float),
-    ):
-        if cfg.get(key) is not None:
-            try:
-                out[key] = caster(cfg[key])
-            except (TypeError, ValueError):
-                logger.warning("best_of_n.%s 무시(잘못된 값): %r", key, cfg.get(key))
+    config = cast(Mapping[str, object], cfg)
+    out: dict[str, object] = {}
+    for key in ("n_samples", "base_temperature", "temperature_spread"):
+        raw = config.get(key)
+        if raw is None:
+            continue
+        if not isinstance(raw, (str, int, float)):
+            logger.warning("best_of_n.%s 무시(잘못된 값): %r", key, raw)
+            continue
+        try:
+            out[key] = int(raw) if key == "n_samples" else float(raw)
+        except (TypeError, ValueError):
+            logger.warning("best_of_n.%s 무시(잘못된 값): %r", key, raw)
     return out

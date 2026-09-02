@@ -2,16 +2,17 @@
 
 import json
 import logging
-import os
-from typing import Any
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Annotated, ClassVar, TypedDict, cast
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError
 
 from antigravity_k import __version__
+from antigravity_k.api import dependencies as api_dependencies
 from antigravity_k.api.dependencies import (
-    __get_tool_registry,
     get_agent_runtime,
     get_embedding_engine,
     get_model_manager,
@@ -20,9 +21,43 @@ from antigravity_k.api.dependencies import (
 )
 from antigravity_k.api.models import EmbeddingData, EmbeddingRequest, EmbeddingResponse, UsageStats
 from antigravity_k.config import config
+from antigravity_k.engine.agent_runtime import AgentRuntime
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.embeddings import EmbeddingEngine
 from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_registry import ModelRegistry
+from antigravity_k.engine.provider_capabilities import ProviderCapability
+from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.tools.tool_registry import ToolRegistry
+
+get_tool_registry = cast(Callable[[], ToolRegistry], getattr(api_dependencies, "__get_tool_registry"))
+
+
+def _as_object_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    items = cast(Mapping[object, object], value).items()
+    return {str(key): item for key, item in items}
+
+
+class OperationalMetric(TypedDict):
+    model: str
+    outcome_count: int
+    task_success_rate: float | None
+    tool_accuracy: float | None
+    retry_rate: float | None
+
+
+class QualityCalibrationStatus(TypedDict):
+    enabled: bool
+    eligible_models: list[str]
+    ineligible_models: list[str]
+    operational_metrics: list[OperationalMetric]
+
+
+class ModelOperationsResponse(TypedDict):
+    provider_capabilities: dict[str, ProviderCapability]
+    quality_calibration: QualityCalibrationStatus
 
 router = APIRouter()
 logger = logging.getLogger("antigravity_k.api.routes.models")
@@ -30,21 +65,22 @@ logger = logging.getLogger("antigravity_k.api.routes.models")
 
 @router.get("/health")
 @router.get("/v1/health")
-def health_check():
+def health_check() -> dict[str, object]:
     """Health Check."""
     manager = get_model_manager()
     info = manager.status() if manager else {}
-    backends = info.get("loaded_models", {}) if isinstance(info, dict) else {}
+    backends = info.get("loaded_models", {})
 
     # 시스템 상태 추가 (RAG, CoV)
     orchestrator = get_orchestrator()
     rag_files = 0
     cov_active = False
     if orchestrator:
-        rag_indexer = getattr(orchestrator, "_rag_indexer", None)
+        rag_indexer: object = getattr(cast(object, orchestrator), "_rag_indexer", None)
         if rag_indexer:
-            rag_files = len(getattr(rag_indexer, "_file_hashes", {}))
-        if getattr(orchestrator, "_cov_engine", None):
+            file_hashes = getattr(rag_indexer, "_file_hashes", {})
+            rag_files = len(cast(Mapping[object, object], file_hashes)) if isinstance(file_hashes, Mapping) else 0
+        if getattr(cast(object, orchestrator), "_cov_engine", None):
             cov_active = True
 
     return {
@@ -66,25 +102,33 @@ class WakeRequest(BaseModel):
         ...,
         description="Type of event (e.g. 'file_changed', 'lint_error', 'comment')",
     )
-    payload: dict[str, Any] = Field(..., description="Detailed payload for the event")
+    payload: dict[str, object] = Field(..., description="Detailed payload for the event")
     target_model: str = Field(
         default="qwen3.6:latest",
         description="Model to use for the wake task",
     )
 
 
+class _SetDefaultModelRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", strict=True)
+
+    name: StrictStr | None = None
+    role: StrictStr | None = None
+
+
 @router.post("/api/agent/wake")
 async def wake_agent(
     req: WakeRequest,
-    manager: ModelManager = Depends(get_model_manager),
-    registry: Any = Depends(__get_tool_registry),
-    vault: Any = Depends(get_vault_engine),
-):
+    manager: Annotated[ModelManager, Depends(get_model_manager)],
+    registry: Annotated[ToolRegistry, Depends(get_tool_registry)],
+    vault: Annotated[VaultEngine | None, Depends(get_vault_engine)],
+) -> dict[str, object]:
     """Paperclip의 Comment-driven Wake 개념을 포팅.
 
     특정 시스템 이벤트 발생 시 에이전트가 백그라운드에서 즉시 기상하여 태스크를 수행합니다.
     """
-    runtime = get_agent_runtime()
+    _ = (manager, registry, vault)
+    runtime: AgentRuntime = get_agent_runtime()
 
     payload_str = json.dumps(req.payload, ensure_ascii=False)
     prompt = (
@@ -107,14 +151,16 @@ async def wake_agent(
 
 
 @router.get("/v1/models")
-def list_models(manager: ModelManager = Depends(get_model_manager)):
+def list_models(manager: Annotated[ModelManager, Depends(get_model_manager)]) -> dict[str, object]:
     """설치/로드된 모델 목록 반환."""
     import time
 
-    models = manager._registry.list_models()
+    _ = manager.discover_local_models()
+    model_registry = cast(ModelRegistry, getattr(cast(object, manager), "_registry"))
+    models = model_registry.list_models()
     provider_capabilities = manager.provider_capabilities()
     # Ensure it follows OpenAI-like format
-    formatted_data = []
+    formatted_data: list[dict[str, object]] = []
     for m in models:
         formatted_data.append(
             {
@@ -131,23 +177,24 @@ def list_models(manager: ModelManager = Depends(get_model_manager)):
     return {"object": "list", "data": formatted_data}
 
 
-@router.get("/v1/models/operations")
+@router.get("/v1/models/operations", response_model=None)
 def model_operations_status(
-    manager: ModelManager = Depends(get_model_manager),
+    manager: Annotated[ModelManager, Depends(get_model_manager)],
     refresh: bool = False,
-) -> dict[str, Any]:
+) -> ModelOperationsResponse:
     routing_status = manager.router.status()
+    quality_calibration = cast(QualityCalibrationStatus, routing_status.get("quality_calibration", {}))
     return {
         "provider_capabilities": manager.provider_capabilities(refresh=refresh),
-        "quality_calibration": routing_status.get("quality_calibration", {}),
+        "quality_calibration": quality_calibration,
     }
 
 
 @router.post("/v1/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(
     request: EmbeddingRequest,
-    engine: EmbeddingEngine = Depends(get_embedding_engine),
-):
+    engine: Annotated[EmbeddingEngine, Depends(get_embedding_engine)],
+) -> EmbeddingResponse:
     """Create embeddings.
 
     Args:
@@ -163,7 +210,7 @@ async def create_embeddings(
         embeddings = engine.embed(request.input, request.model)
 
         # Format response
-        data = []
+        data: list[EmbeddingData] = []
         for i, emb in enumerate(embeddings):
             data.append(EmbeddingData(embedding=emb, index=i))
 
@@ -181,7 +228,7 @@ async def create_embeddings(
 
 
 @router.post("/api/models/default")
-async def set_default_model(request: Request):
+async def set_default_model(request: Request) -> dict[str, object]:
     """Set default model for a role in config.yaml.
 
     Body:
@@ -189,8 +236,17 @@ async def set_default_model(request: Request):
         role: optional role override (default: auto-detect from registry)
     """
     try:
-        body = await request.json()
-        name = body.get("name", "")
+        raw_body = cast(object, await request.json())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+
+    try:
+        body = _SetDefaultModelRequest.model_validate(raw_body)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail="Request body must be an object") from exc
+
+    try:
+        name = body.name or ""
         if not name:
             raise HTTPException(status_code=400, detail="'name' is required")
 
@@ -201,19 +257,20 @@ async def set_default_model(request: Request):
         if not model:
             raise HTTPException(status_code=404, detail=f"Model '{name}' not found in registry")
 
-        role = body.get("role", model.role)
-        config_file = os.path.join(config.paths.project_root, "config.yaml")
+        role = body.role if body.role is not None else model.role
+        config_file = Path(config.paths.project_root) / "config.yaml"
 
-        with open(config_file, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
+        with config_file.open(encoding="utf-8") as f:
+            cfg = _as_object_mapping(cast(object, yaml.safe_load(f) or {}))
 
-        if "defaults" not in cfg or not isinstance(cfg["defaults"], dict):
-            cfg["defaults"] = {}
+        defaults_value = cfg.get("defaults")
+        defaults = _as_object_mapping(defaults_value)
+        cfg["defaults"] = defaults
 
-        old_default = cfg["defaults"].get(role, "(없음)")
-        cfg["defaults"][role] = name
+        old_default = defaults.get(role, "(없음)")
+        defaults[role] = name
 
-        with open(config_file, "w", encoding="utf-8") as f:
+        with config_file.open("w", encoding="utf-8") as f:
             yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
         # Re-registry reload

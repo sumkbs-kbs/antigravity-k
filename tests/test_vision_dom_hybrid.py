@@ -8,6 +8,9 @@ Coverage targets:
   - VisionDOMHybrid._judge_page_state(): state determination
 """
 
+from collections.abc import Callable
+from typing import cast
+
 import pytest
 
 from antigravity_k.tools.semantic_dom import BoundingBox, SemanticSnapshot
@@ -16,6 +19,36 @@ from antigravity_k.tools.vision_dom_hybrid import (
     Obstacle,
     VisionDOMHybrid,
 )
+
+
+def _parse_obstacles(
+    hybrid: VisionDOMHybrid,
+    raw_list: object,
+    snapshot: SemanticSnapshot,
+) -> list[Obstacle]:
+    parser = cast(
+        Callable[[object, SemanticSnapshot], list[Obstacle]],
+        getattr(hybrid, "_parse_obstacles"),
+    )
+    return parser(raw_list, snapshot)
+
+
+def _find_closest_ref(
+    hybrid: VisionDOMHybrid,
+    snapshot: SemanticSnapshot,
+    x: float,
+    y: float,
+) -> str:
+    finder = cast(
+        Callable[[SemanticSnapshot, float, float], str],
+        getattr(hybrid, "_find_closest_ref"),
+    )
+    return finder(snapshot, x, y)
+
+
+def _judge_page_state(hybrid: VisionDOMHybrid, analysis: HybridAnalysis) -> str:
+    judge = cast(Callable[[HybridAnalysis], str], getattr(hybrid, "_judge_page_state"))
+    return judge(analysis)
 
 # ═══════════════════════════════════════════════════════════════════
 # Obstacle dataclass tests
@@ -160,13 +193,13 @@ class TestHybridAnalysis:
 
 
 @pytest.fixture
-def hybrid():
+def hybrid() -> VisionDOMHybrid:
     """VisionDOMHybrid 인스턴스."""
     return VisionDOMHybrid()
 
 
 @pytest.fixture
-def empty_snapshot():
+def empty_snapshot() -> SemanticSnapshot:
     """빈 스냅샷."""
     return SemanticSnapshot(elements={})
 
@@ -174,11 +207,11 @@ def empty_snapshot():
 class TestParseObstacles:
     """_parse_obstacles — JS 결과를 Obstacle 객체로 변환."""
 
-    def test_empty_list(self, hybrid, empty_snapshot):
+    def test_empty_list(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """빈 리스트 — 빈 결과."""
-        assert hybrid._parse_obstacles([], empty_snapshot) == []
+        assert _parse_obstacles(hybrid, [], empty_snapshot) == []
 
-    def test_modal_without_close(self, hybrid, empty_snapshot):
+    def test_modal_without_close(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """모달 (닫기 버튼 없음)."""
         raw = [
             {
@@ -187,7 +220,7 @@ class TestParseObstacles:
                 "bbox": {"x": 100, "y": 200, "width": 300, "height": 400},
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert len(obstacles) == 1
         assert obstacles[0].type == "modal"
         assert obstacles[0].description == "Login required"
@@ -198,7 +231,7 @@ class TestParseObstacles:
         assert obstacle_bbox.y == 200
         assert obstacles[0].close_ref == ""  # closeBtn 없음
 
-    def test_modal_with_close_btn(self, hybrid, empty_snapshot):
+    def test_modal_with_close_btn(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """모달 (닫기 버튼 있음)."""
         raw = [
             {
@@ -211,12 +244,12 @@ class TestParseObstacles:
                 },
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert len(obstacles) == 1
         # close_ref는 빈 스냅샷에서는 항상 ""
         assert obstacles[0].close_ref == ""
 
-    def test_cookie_banner_not_blocking(self, hybrid, empty_snapshot):
+    def test_cookie_banner_not_blocking(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """쿠키 배너 — blocking=False."""
         raw = [
             {
@@ -225,12 +258,12 @@ class TestParseObstacles:
                 "bbox": {"x": 0, "y": 900, "width": 1200, "height": 100},
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert len(obstacles) == 1
         assert obstacles[0].type == "cookie_banner"
         assert obstacles[0].blocking is False  # cookie_banner는 blocking=False
 
-    def test_overlay_blocking(self, hybrid, empty_snapshot):
+    def test_overlay_blocking(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """오버레이 — blocking=True."""
         raw = [
             {
@@ -239,10 +272,10 @@ class TestParseObstacles:
                 "bbox": {"x": 0, "y": 0, "width": 1920, "height": 1080},
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert obstacles[0].blocking is True
 
-    def test_unknown_type_default_blocking(self, hybrid, empty_snapshot):
+    def test_unknown_type_default_blocking(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """알 수 없는 타입 — 기본적으로 blocking=False."""
         raw = [
             {
@@ -251,10 +284,10 @@ class TestParseObstacles:
                 "bbox": {"x": 10, "y": 10, "width": 100, "height": 100},
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert obstacles[0].blocking is False
 
-    def test_description_truncation(self, hybrid, empty_snapshot):
+    def test_description_truncation(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """description이 100자로 제한됨."""
         raw = [
             {
@@ -263,11 +296,11 @@ class TestParseObstacles:
                 "bbox": {"x": 0, "y": 0, "width": 100, "height": 100},
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert len(obstacles[0].description) <= 100
         assert obstacles[0].description == "X" * 100
 
-    def test_missing_bbox(self, hybrid, empty_snapshot):
+    def test_missing_bbox(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """bbox 누락 — Obstacle.bbox는 None."""
         raw = [
             {
@@ -275,10 +308,10 @@ class TestParseObstacles:
                 "description": "No bbox",
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert obstacles[0].bbox is None
 
-    def test_partial_bbox(self, hybrid, empty_snapshot):
+    def test_partial_bbox(self, hybrid: VisionDOMHybrid, empty_snapshot: SemanticSnapshot):
         """부분적인 bbox 정보."""
         raw = [
             {
@@ -287,7 +320,7 @@ class TestParseObstacles:
                 "bbox": {"x": 10, "y": 20},  # width, height 없음
             },
         ]
-        obstacles = hybrid._parse_obstacles(raw, empty_snapshot)
+        obstacles = _parse_obstacles(hybrid, raw, empty_snapshot)
         assert obstacles[0].bbox is not None
         assert obstacles[0].bbox.x == 10
         assert obstacles[0].bbox.y == 20
@@ -304,7 +337,7 @@ class TestFindClosestRef:
     """_find_closest_ref — 좌표에 가장 가까운 요소의 @ref."""
 
     @pytest.fixture
-    def snapshot(self):
+    def snapshot(self) -> SemanticSnapshot:
         """요소가 여러 개 있는 스냅샷 (@1과 @2는 가깝게 배치)."""
         from antigravity_k.tools.semantic_dom import ElementInfo
 
@@ -333,48 +366,48 @@ class TestFindClosestRef:
         }
         return SemanticSnapshot(elements=elements)
 
-    def test_closest_to_center(self, hybrid, snapshot):
+    def test_closest_to_center(self, hybrid: VisionDOMHybrid, snapshot: SemanticSnapshot):
         """가장 가까운 요소의 @ref 반환."""
         # @1의 중심 (125, 115)에 가까운 좌표
-        ref = hybrid._find_closest_ref(snapshot, 125, 115)
+        ref = _find_closest_ref(hybrid, snapshot, 125, 115)
         assert ref == "@1"
 
-    def test_closest_to_second(self, hybrid, snapshot):
+    def test_closest_to_second(self, hybrid: VisionDOMHybrid, snapshot: SemanticSnapshot):
         """@2에 가장 가까운 좌표 (@2 중심: 150, 110)."""
-        ref = hybrid._find_closest_ref(snapshot, 150, 110)
+        ref = _find_closest_ref(hybrid, snapshot, 150, 110)
         assert ref == "@2"
 
-    def test_closest_to_third(self, hybrid, snapshot):
+    def test_closest_to_third(self, hybrid: VisionDOMHybrid, snapshot: SemanticSnapshot):
         """@3에 가장 가까운 좌표 (@3 중심: 600, 520)."""
-        ref = hybrid._find_closest_ref(snapshot, 600, 520)
+        ref = _find_closest_ref(hybrid, snapshot, 600, 520)
         assert ref == "@3"
 
-    def test_exact_center(self, hybrid, snapshot):
+    def test_exact_center(self, hybrid: VisionDOMHybrid, snapshot: SemanticSnapshot):
         """요소 정중앙 좌표."""
-        ref = hybrid._find_closest_ref(snapshot, 125, 115)  # @1 center
+        ref = _find_closest_ref(hybrid, snapshot, 125, 115)  # @1 center
         assert ref == "@1"
 
-    def test_no_elements(self, hybrid):
+    def test_no_elements(self, hybrid: VisionDOMHybrid):
         """요소가 없는 스냅샷 — 빈 문자열."""
         empty = SemanticSnapshot(elements={})
-        ref = hybrid._find_closest_ref(empty, 100, 100)
+        ref = _find_closest_ref(hybrid, empty, 100, 100)
         assert ref == ""
 
-    def test_far_away_returns_empty(self, hybrid, snapshot):
+    def test_far_away_returns_empty(self, hybrid: VisionDOMHybrid, snapshot: SemanticSnapshot):
         """모든 요소에서 50px 이상 떨어짐 — 빈 문자열."""
-        ref = hybrid._find_closest_ref(snapshot, 9999, 9999)
+        ref = _find_closest_ref(hybrid, snapshot, 9999, 9999)
         assert ref == ""
 
-    def test_midpoint_between_two(self, hybrid, snapshot):
+    def test_midpoint_between_two(self, hybrid: VisionDOMHybrid, snapshot: SemanticSnapshot):
         """두 요소 중간 지점 — 더 가까운 쪽 (50px 이내)."""
         # @1 중심: (125, 115), @2 중심: (150, 110)
         # 중간: (137.5, 112.5), 거리 ≈ 12.75px (50px 이내)
         midpoint_x = (125 + 150) / 2
         midpoint_y = (115 + 110) / 2
-        ref = hybrid._find_closest_ref(snapshot, midpoint_x, midpoint_y)
+        ref = _find_closest_ref(hybrid, snapshot, midpoint_x, midpoint_y)
         assert ref in ("@1", "@2")
 
-    def test_elements_without_bbox_skipped(self, hybrid):
+    def test_elements_without_bbox_skipped(self, hybrid: VisionDOMHybrid):
         """bbox가 없는 요소는 건너뜀."""
         from antigravity_k.tools.semantic_dom import ElementInfo
 
@@ -389,7 +422,7 @@ class TestFindClosestRef:
             ),
         }
         snap = SemanticSnapshot(elements=elements)
-        ref = hybrid._find_closest_ref(snap, 125, 115)
+        ref = _find_closest_ref(hybrid, snap, 125, 115)
         assert ref == "@2"  # @1은 bbox 없어서 제외
 
 
@@ -401,46 +434,46 @@ class TestFindClosestRef:
 class TestJudgePageState:
     """_judge_page_state — 페이지 상태 결정."""
 
-    def test_normal_no_obstacles(self, hybrid):
+    def test_normal_no_obstacles(self, hybrid: VisionDOMHybrid):
         """장애물 없음 — normal."""
         analysis = HybridAnalysis()
-        assert hybrid._judge_page_state(analysis) == "normal"
+        assert _judge_page_state(hybrid, analysis) == "normal"
 
-    def test_blocked_by_modal(self, hybrid):
+    def test_blocked_by_modal(self, hybrid: VisionDOMHybrid):
         """모달 장애물 — blocked."""
         analysis = HybridAnalysis(
             obstacles=[Obstacle(type="modal", description="Popup", blocking=True)],
         )
-        assert hybrid._judge_page_state(analysis) == "blocked"
+        assert _judge_page_state(hybrid, analysis) == "blocked"
 
-    def test_blocked_by_overlay(self, hybrid):
+    def test_blocked_by_overlay(self, hybrid: VisionDOMHybrid):
         """오버레이 — blocked."""
         analysis = HybridAnalysis(
             obstacles=[Obstacle(type="overlay", description="Full overlay", blocking=True)],
         )
-        assert hybrid._judge_page_state(analysis) == "blocked"
+        assert _judge_page_state(hybrid, analysis) == "blocked"
 
-    def test_not_blocked_by_cookie_banner(self, hybrid):
+    def test_not_blocked_by_cookie_banner(self, hybrid: VisionDOMHybrid):
         """쿠키 배너만 있음 — normal (blocking=False)."""
         analysis = HybridAnalysis(
             obstacles=[Obstacle(type="cookie_banner", description="Cookies", blocking=False)],
         )
-        assert hybrid._judge_page_state(analysis) == "normal"
+        assert _judge_page_state(hybrid, analysis) == "normal"
 
-    def test_loading_no_elements(self, hybrid):
+    def test_loading_no_elements(self, hybrid: VisionDOMHybrid):
         """스냅샷에 요소가 없음 — loading."""
         analysis = HybridAnalysis(snapshot=SemanticSnapshot(elements={}))
-        assert hybrid._judge_page_state(analysis) == "loading"
+        assert _judge_page_state(hybrid, analysis) == "loading"
 
-    def test_loading_overrides_blocked(self, hybrid):
+    def test_loading_overrides_blocked(self, hybrid: VisionDOMHybrid):
         """장애물 + 요소 없음 — blocked 우선."""
         analysis = HybridAnalysis(
             obstacles=[Obstacle(type="modal", description="Popup", blocking=True)],
             snapshot=SemanticSnapshot(elements={}),
         )
-        assert hybrid._judge_page_state(analysis) == "blocked"
+        assert _judge_page_state(hybrid, analysis) == "blocked"
 
-    def test_normal_with_nonblocking_and_elements(self, hybrid):
+    def test_normal_with_nonblocking_and_elements(self, hybrid: VisionDOMHybrid):
         """blocking=False 장애물 + 요소 있음 — normal."""
         from antigravity_k.tools.semantic_dom import ElementInfo
 
@@ -459,4 +492,4 @@ class TestJudgePageState:
                 },
             ),
         )
-        assert hybrid._judge_page_state(analysis) == "normal"
+        assert _judge_page_state(hybrid, analysis) == "normal"

@@ -5,13 +5,22 @@ UsageTracker의 기록/조회/통계/영속화 테스트.
 
 import time
 from pathlib import Path
+from typing import Callable, cast
 
 import pytest
 
 from antigravity_k.engine.usage_tracker import (
+    UsageRecord,
     UsageStats,
     UsageTracker,
 )
+
+
+def _approx(expected: float, *, rel: float | None = None) -> object:
+    approx = cast(Callable[..., object], pytest.approx)
+    if rel is None:
+        return approx(expected)
+    return approx(expected, rel=rel)
 
 # ─── 픽스처 ─────────────────────────────────────────────────────────
 
@@ -71,7 +80,8 @@ class TestRecord:
         tracker = UsageTracker(db_path=None, max_records=5)
         for i in range(10):
             _ = tracker.record(f"model-{i}")
-        assert len(tracker._records) == 5
+        records = cast(list[UsageRecord], getattr(tracker, "_records"))
+        assert len(records) == 5
 
     def test_timestamp_set(self, tracker: UsageTracker):
         before = time.time()
@@ -101,7 +111,7 @@ class TestStats:
         assert s.total_requests == 6
         assert s.success_count == 5
         assert s.failure_count == 1
-        assert s.success_rate == pytest.approx(83.3, rel=0.1)
+        assert s.success_rate == _approx(83.3, rel=0.1)
 
     def test_per_model_stats(self, tracker: UsageTracker):
         _ = tracker.record("model-a", tokens_in=10)
@@ -122,7 +132,7 @@ class TestStats:
 
         stats = tracker.get_stats("model-a", period="total")
         s = stats[0]
-        assert s.avg_latency_ms == pytest.approx(200.0)
+        assert s.avg_latency_ms == _approx(200.0)
         assert s.min_latency_ms == 100
         assert s.max_latency_ms == 300
 
@@ -166,7 +176,7 @@ class TestDashboard:
         assert "total" in data
         assert "hourly_trend" in data
         assert data["total_records"] == 1
-        assert "model-a" in data["models_used"]
+        assert "model-a" in cast(list[str], data["models_used"])
 
 
 # ─── 영속화 테스트 ───────────────────────────────────────────────────
@@ -184,8 +194,9 @@ class TestPersistence:
 
         # 새 인스턴스에서 로드
         t2 = UsageTracker(db_path=db_path)
-        assert len(t2._records) == 2
-        assert t2._records[0].model_name == "model-a"
+        records = cast(list[UsageRecord], getattr(t2, "_records"))
+        assert len(records) == 2
+        assert records[0].model_name == "model-a"
 
     def test_auto_save(self, tmp_path: Path):
         db_path = str(tmp_path / "usage.json")
@@ -198,9 +209,10 @@ class TestPersistence:
 
     def test_corrupt_db(self, tmp_path: Path):
         db_path = tmp_path / "corrupt.json"
-        db_path.write_text("NOT JSON", encoding="utf-8")
+        _ = db_path.write_text("NOT JSON", encoding="utf-8")
         t = UsageTracker(db_path=str(db_path))
-        assert len(t._records) == 0  # 오류 시 빈 상태로 초기화
+        records = cast(list[UsageRecord], getattr(t, "_records"))
+        assert len(records) == 0  # 오류 시 빈 상태로 초기화
 
 
 # ─── UsageStats 테스트 ───────────────────────────────────────────────
@@ -237,4 +249,5 @@ class TestUsageStats:
         _ = tracker.record("a")
         _ = tracker.record("b")
         tracker.clear()
-        assert len(tracker._records) == 0
+        records = cast(list[UsageRecord], getattr(tracker, "_records"))
+        assert len(records) == 0

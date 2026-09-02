@@ -16,7 +16,7 @@ def test_tool_call_and_result_dropped_together():
     messages = [
         {"role": "system", "content": "지침"},
         {"role": "user", "content": "작업"},
-        {"role": "assistant", "content": "<tool_call>{\"name\": \"read_file\", \"arguments\": {}}</tool_call>"},
+        {"role": "assistant", "content": '<tool_call>{"name": "read_file", "arguments": {}}</tool_call>'},
         {"role": "tool", "content": "[TOOL_EVIDENCE] 결과 " + "데이터 " * 200},
         {"role": "user", "content": "추가 요청 " * 50},
     ]

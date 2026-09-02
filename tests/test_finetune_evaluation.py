@@ -27,6 +27,21 @@ from antigravity_k.finetune.training_recipe import ResolvedTrainingRecipe
 _pair_adapter: TypeAdapter[EvaluationPair] = TypeAdapter(EvaluationPair)
 
 
+def _write_freeze(path: Path, *, row_count: int) -> None:
+    _ = path.with_suffix(".freeze.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "dataset_path": path.name,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "row_count": row_count,
+            },
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _write_dataset(root: Path) -> EvaluationDataset:
     path = root / "held_out_v1.jsonl"
     rows = [
@@ -50,6 +65,7 @@ def _write_dataset(root: Path) -> EvaluationDataset:
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
     )
+    _write_freeze(path, row_count=len(rows))
     return EvaluationDataset(path=path, sha256=hashlib.sha256(path.read_bytes()).hexdigest(), case_ids=("ko", "code"))
 
 
@@ -72,11 +88,12 @@ def test_evaluation_pair_rejects_training_case(tmp_path: Path) -> None:
     dataset_path = dataset.path
     payload = dataset.model_dump(mode="json")
     payload["case_ids"] = ("training", "ko")
+    korean_case = dataset_path.read_text(encoding="utf-8").splitlines()[0]
     _ = dataset_path.write_text(
-        '{"id":"training","prompt":"train","forbidden_for_training":false}\n'
-        + dataset_path.read_text(encoding="utf-8"),
+        '{"id":"training","prompt":"train","forbidden_for_training":false}\n' + korean_case + "\n",
         encoding="utf-8",
     )
+    _write_freeze(dataset_path, row_count=2)
     changed = dataset.model_validate(
         payload
         | {

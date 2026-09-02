@@ -38,14 +38,16 @@ class MockWebSocket {
   static readonly instances: MockWebSocket[] = [];
 
   readonly url: string;
+  readonly protocols: string[] | undefined;
   readonly readyState = MockWebSocket.OPEN;
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onopen: (() => void) | null = null;
 
-  constructor(url: string | URL) {
+  constructor(url: string | URL, protocols?: string | string[]) {
     this.url = url.toString();
+    this.protocols = protocols === undefined ? undefined : typeof protocols === 'string' ? [protocols] : protocols;
     MockWebSocket.instances.push(this);
   }
 
@@ -62,6 +64,7 @@ describe('TerminalSession', () => {
     nextFrameId = 0;
     MockWebSocket.instances.length = 0;
     localStorage.clear();
+    sessionStorage.clear();
     Object.values(terminalMocks).forEach(mock => mock.mockClear());
     vi.stubGlobal('WebSocket', MockWebSocket);
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -106,15 +109,16 @@ describe('TerminalSession', () => {
     expect(terminalMocks.fit).toHaveBeenCalledTimes(1);
   });
 
-  it('authenticates the terminal websocket with the stored PIN', () => {
-    localStorage.setItem('ag_access_pin', 'terminal pin');
+  it('authenticates the terminal websocket with a bearer subprotocol', () => {
+    sessionStorage.setItem('ag_access_token', 'terminal-token');
     render(<TerminalSession sessionId="terminal-test" />);
 
     act(() => {
       [...frames.values()].forEach(callback => callback(0));
     });
 
-    expect(MockWebSocket.instances[0]?.url).toBe('ws://localhost:8000/ws/terminal?pin=terminal+pin');
+    expect(MockWebSocket.instances[0]?.url).toBe('ws://localhost:8000/ws/terminal');
+    expect(MockWebSocket.instances[0]?.protocols).toEqual(['bearer.terminal-token']);
   });
 
   it('does not reconnect when the terminal feature is disabled', () => {

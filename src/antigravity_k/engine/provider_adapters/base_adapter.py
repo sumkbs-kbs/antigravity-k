@@ -1,7 +1,6 @@
 """Base Adapter module."""
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 
 class BaseProviderAdapter(ABC):
@@ -12,7 +11,7 @@ class BaseProviderAdapter(ABC):
     """
 
     @abstractmethod
-    def translate_request(self, anthropic_payload: dict[str, Any]) -> dict[str, Any]:
+    def translate_request(self, anthropic_payload: dict[str, object]) -> dict[str, object]:
         """Anthropic Messages API 형식의 페이로드를 받아.
 
         대상 Provider의 형식(예: OpenAI Chat Completions)으로 변환합니다.
@@ -20,7 +19,7 @@ class BaseProviderAdapter(ABC):
         pass
 
     @abstractmethod
-    def translate_response(self, provider_response: dict[str, Any]) -> dict[str, Any]:
+    def translate_response(self, provider_response: dict[str, object]) -> dict[str, object]:
         """대상 Provider의 응답 형식을 받아.
 
         Anthropic Messages API 형식으로 재변환하여 코어로 반환합니다.
@@ -28,6 +27,6 @@ class BaseProviderAdapter(ABC):
         pass
 
     @abstractmethod
-    def translate_stream(self, provider_chunk: dict[str, Any]) -> dict[str, Any]:
+    def translate_stream(self, provider_chunk: dict[str, object]) -> dict[str, object]:
         """Streaming 모드일 때 SSE Chunk를 변환합니다."""
         pass

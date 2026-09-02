@@ -9,6 +9,7 @@ These are foundational modules used across the entire engine:
 from __future__ import annotations
 
 import asyncio
+from typing import Never
 
 from antigravity_k.engine.event_bus import EventBus
 from antigravity_k.engine.execution_mode import (
@@ -23,22 +24,41 @@ from antigravity_k.engine.sampling_config import SAMPLING_PROFILES, SamplingProf
 # ---------------------------------------------------------------------------
 
 
+def _append_value(values: list[object], value: object, **_kwargs: object) -> None:
+    values.append(value)
+
+
+def _raise_callback(**_kwargs: object) -> Never:
+    raise RuntimeError("boom")
+
+
+def _noop_callback(**_kwargs: object) -> None:
+    return None
+
+
 class TestEventBusSync:
     """EventBus synchronous publish/subscribe."""
 
     def test_subscribe_and_publish(self):
         """A subscribed callback is called on publish."""
         bus = EventBus()
-        received = []
-        bus.subscribe("test_event", lambda **kw: received.append(kw))
+        received: list[dict[str, object]] = []
+
+        def callback(**kw: object) -> None:
+            received.append(kw)
+
+        bus.subscribe("test_event", callback)
         bus.publish("test_event", key="value")
         assert received == [{"key": "value"}]
 
     def test_unsubscribe_removes_callback(self):
         """After unsubscribe, the callback is not called."""
         bus = EventBus()
-        received = []
-        cb = lambda **kw: received.append(kw)  # noqa: E731
+        received: list[dict[str, object]] = []
+
+        def cb(**kw: object) -> None:
+            received.append(kw)
+
         bus.subscribe("evt", cb)
         bus.unsubscribe("evt", cb)
         bus.publish("evt", x=1)
@@ -52,17 +72,20 @@ class TestEventBusSync:
     def test_multiple_subscribers_all_called(self):
         """Multiple subscribers for the same event are all called."""
         bus = EventBus()
-        calls = []
-        bus.subscribe("evt", lambda **kw: calls.append("first"))
-        bus.subscribe("evt", lambda **kw: calls.append("second"))
+        calls: list[object] = []
+        bus.subscribe("evt", lambda **kw: _append_value(calls, "first", **kw))
+        bus.subscribe("evt", lambda **kw: _append_value(calls, "second", **kw))
         bus.publish("evt")
         assert calls == ["first", "second"]
 
     def test_subscribe_is_idempotent(self):
         """Subscribing the same callback twice does not duplicate it."""
         bus = EventBus()
-        calls = []
-        cb = lambda **kw: calls.append(1)  # noqa: E731
+        calls: list[object] = []
+
+        def cb(**_kwargs: object) -> None:
+            calls.append(1)
+
         bus.subscribe("evt", cb)
         bus.subscribe("evt", cb)  # duplicate
         bus.publish("evt")
@@ -71,16 +94,16 @@ class TestEventBusSync:
     def test_failing_callback_does_not_propagate(self):
         """A callback that raises does not crash publish."""
         bus = EventBus()
-        calls = []
-        bus.subscribe("evt", lambda **kw: (_ for _ in ()).throw(RuntimeError("boom")))  # noqa: E731
-        bus.subscribe("evt", lambda **kw: calls.append("survived"))  # noqa: E731
+        calls: list[object] = []
+        bus.subscribe("evt", _raise_callback)
+        bus.subscribe("evt", lambda **kw: _append_value(calls, "survived", **kw))
         bus.publish("evt")
         assert calls == ["survived"]
 
     def test_unsubscribe_nonexistent_is_noop(self):
         """Unsubscribing from a nonexistent event or callback is safe."""
         bus = EventBus()
-        bus.unsubscribe("nonexistent", lambda **kw: None)
+        bus.unsubscribe("nonexistent", _noop_callback)
 
 
 class TestEventBusAsync:
@@ -89,9 +112,9 @@ class TestEventBusAsync:
     def test_async_callback_called(self):
         """An async coroutine callback is invoked on publish."""
         bus = EventBus()
-        received = []
+        received: list[dict[str, object]] = []
 
-        async def async_cb(**kw):
+        async def async_cb(**kw: object) -> None:
             received.append(kw)
 
         bus.subscribe("evt", async_cb)
@@ -102,12 +125,12 @@ class TestEventBusAsync:
     def test_publish_async_gathers_coroutines(self):
         """publish_async awaits all async callbacks."""
         bus = EventBus()
-        results = []
+        results: list[object] = []
 
-        async def cb1(**kw):
+        async def cb1(**_kw: object) -> None:
             results.append("cb1")
 
-        async def cb2(**kw):
+        async def cb2(**_kw: object) -> None:
             results.append("cb2")
 
         bus.subscribe("evt", cb1)

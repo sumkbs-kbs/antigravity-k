@@ -48,6 +48,7 @@ class TestDeterministicWorkerRegistry:
 
     def test_judge_parses_llm_json(self, monkeypatch: pytest.MonkeyPatch):
         del monkeypatch
+
         class JsonManager:
             def generate(self, **kwargs: object) -> object:
                 del kwargs

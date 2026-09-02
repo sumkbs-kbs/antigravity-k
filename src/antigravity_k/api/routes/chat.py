@@ -153,7 +153,6 @@ _TDD_TARGET_KEYWORDS = [
 ]
 
 
-
 def _has_code_write_signal(text: str) -> bool:
     """LLM TDD 판정을 존중할 '코드 쓰기' 신호가 있는지.
 
@@ -461,7 +460,10 @@ async def chat_completions(
                 search_query = stock_validation.corrected_query
                 stock_correction_note = format_code_correction(stock_validation)
                 logger_auto.info(
-                    "종목코드 교정: '%s' → '%s' (잘못된 코드: %s)", slash_text, search_query, [v.original_code for v in stock_validation.codes_found if v.needs_correction]
+                    "종목코드 교정: '%s' → '%s' (잘못된 코드: %s)",
+                    slash_text,
+                    search_query,
+                    [v.original_code for v in stock_validation.codes_found if v.needs_correction],
                 )
 
             search_res = tool.execute(query=search_query)
@@ -693,7 +695,7 @@ async def chat_completions(
         prompt = ""
         for msg in messages:
             if msg.get("role") == "user":
-                    prompt += _content_text(msg.get("content", "")) + "\n"
+                prompt += _content_text(msg.get("content", "")) + "\n"
 
         # 간단한 정규식으로 타겟 파일 경로 추출 시도 (예: 파일명.py)
         import re
@@ -931,9 +933,9 @@ async def chat_completions(
     if system_msg:
         prompt += f"System: {system_msg}\n\n"
     for msg in messages:
-                role = _string_value(msg.get("role"), default="user")
-                content = _content_text(msg.get("content", ""))
-                prompt += f"{role.capitalize()}: {content}\n"
+        role = _string_value(msg.get("role"), default="user")
+        content = _content_text(msg.get("content", ""))
+        prompt += f"{role.capitalize()}: {content}\n"
     prompt += "Assistant: "
 
     try:

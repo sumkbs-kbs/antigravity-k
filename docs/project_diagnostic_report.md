@@ -2,6 +2,12 @@
 
 작성 기준: 현재 작업 트리와 실행 가능한 Python 환경, `config.yaml`, `src/antigravity_k`, `tests`를 직접 확인한 결과.
 
+현재 문서의 과거 변경 내역에 등장하는 `api/routes/agent_api.py` 표기는 당시
+구현을 설명하는 역사 기록이다. 해당 라우트는 커밋 `7f8a593`에서 삭제됐고,
+현재 서버는 `routes/models_api.py`, `routes/agent_stream_api.py`,
+`routes/system_api.py` 등 등록된 canonical router를 사용한다. 현행 코드·테스트·
+entrypoint에는 `agent_api` 외부 import가 없으므로 호환 shim은 유지하지 않는다.
+
 ## 1. 한 줄 결론
 
 Antigravity-K는 30B급 로컬 모델을 보완할 핵심 부품은 대부분 갖췄지만, 여러 실험 경로가 하나의 정식 런타임 계약으로 수렴하지 않아 현재는 “기능이 많은 연구용 플랫폼”에 가깝고, 안정적인 프론티어 근접형 범용 에이전트로 보기에는 실행 상태·권한·평가·모델 정책의 통합이 부족하다.

@@ -1,30 +1,83 @@
 """Security & Shields API — 보호 레벨 제어, 시크릿 스캔, 심층 헬스체크."""
 
+import json
 import logging
 import os
+from collections.abc import Mapping
+from typing import ClassVar, Literal, cast
 
 import yaml
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, JsonValue, StrictInt, StrictStr, TypeAdapter, ValidationError
 
 from antigravity_k.config import config
 from antigravity_k.engine.runtime_recovery import deep_health_check
 from antigravity_k.engine.secret_scanner import redact, redact_full, scan_for_secrets, strip_credentials
 from antigravity_k.engine.shields import ShieldsManager
 from antigravity_k.engine.toolset_manager import ToolsetManager
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
 router = APIRouter()
 logger = logging.getLogger("antigravity_k.api.routes.security")
 
-_toolset_manager = None
+_toolset_manager: ToolsetManager | None = None
+
+
+class _StripConfigRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    config: JsonValue = {}
+
+
+class _SecurityScanRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    text: StrictStr = ""
+    redact_mode: Literal["partial", "full"] = "partial"
+
+
+class _ShieldsDownRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    reason: StrictStr | None = None
+    timeout_seconds: StrictInt | None = None
+    target_toolset: StrictStr = "full"
+
+
+_YAML_CONFIG_ADAPTER = TypeAdapter(dict[str, JsonValue])
+_TOOLSET_CONFIG_ADAPTER = TypeAdapter(dict[str, dict[str, JsonValue]])
+
+
+async def _parse_strip_config_body(request: Request) -> _StripConfigRequest:
+    try:
+        return _StripConfigRequest.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
+
+
+async def _parse_security_scan_body(request: Request) -> _SecurityScanRequest:
+    try:
+        return _SecurityScanRequest.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
+
+
+async def _parse_shields_down_body(request: Request) -> _ShieldsDownRequest:
+    try:
+        return _ShieldsDownRequest.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
 
 
 def _permission_gate() -> PermissionGate:
     return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict, risk_level: str) -> None:
+def _load_yaml_config(config_file: str) -> dict[str, JsonValue]:
+    with open(config_file, encoding="utf-8") as f:
+        raw_config = cast(JsonValue, yaml.safe_load(f))
+    return _YAML_CONFIG_ADAPTER.validate_python(raw_config)
+
+
+def _require_allowed(tool_name: str, args: Mapping[str, JsonValue], risk_level: str) -> None:
     decision = _permission_gate().decide(
         ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
     )
@@ -50,9 +103,9 @@ def _get_model_manager():
 
 
 def _get_session_manager():
-    from antigravity_k.api.dependencies import _get_session_manager
+    from antigravity_k.api.dependencies import get_session_manager
 
-    return _get_session_manager()
+    return get_session_manager()
 
 
 def _get_toolset_manager() -> ToolsetManager:
@@ -64,9 +117,9 @@ def _get_toolset_manager() -> ToolsetManager:
                 "config.yaml",
             )
             if os.path.exists(config_file):
-                with open(config_file, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
-                _toolset_manager = ToolsetManager.from_config(cfg.get("toolsets", {}))
+                cfg = _load_yaml_config(config_file)
+                toolsets = _TOOLSET_CONFIG_ADAPTER.validate_python(cfg.get("toolsets", {}))
+                _toolset_manager = ToolsetManager.from_config(toolsets)
             else:
                 _toolset_manager = ToolsetManager()
         except Exception:
@@ -75,7 +128,7 @@ def _get_toolset_manager() -> ToolsetManager:
     return _toolset_manager
 
 
-_shields_manager = None
+_shields_manager: ShieldsManager | None = None
 
 
 def _get_shields_manager() -> ShieldsManager:
@@ -88,11 +141,8 @@ def _get_shields_manager() -> ShieldsManager:
             )
             shields_config = {}
             if os.path.exists(config_file):
-                import yaml
-
-                with open(config_file, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
-                shields_config = cfg.get("shields", {})
+                cfg = _load_yaml_config(config_file)
+                shields_config = _YAML_CONFIG_ADAPTER.validate_python(cfg.get("shields", {}))
             _shields_manager = ShieldsManager.from_config(
                 shields_config,
                 toolset_manager=_get_toolset_manager(),
@@ -114,13 +164,21 @@ async def shields_down(request: Request):
         timeout_seconds: 타임아웃 초 (선택, 기본 300)
         target_toolset: 완화 시 toolset (선택, 기본 "full")
     """
-    body = await request.json()
-    _require_allowed("shields_down", body, "critical")
+    body = await _parse_shields_down_body(request)
+    _require_allowed(
+        "shields_down",
+        {
+            "reason": body.reason,
+            "timeout_seconds": body.timeout_seconds,
+            "target_toolset": body.target_toolset,
+        },
+        "critical",
+    )
     shields = _get_shields_manager()
-    shields.shields_down(
-        reason=body.get("reason"),
-        timeout_seconds=body.get("timeout_seconds"),
-        target_toolset=body.get("target_toolset", "full"),
+    _ = shields.shields_down(
+        reason=body.reason,
+        timeout_seconds=body.timeout_seconds,
+        target_toolset=body.target_toolset,
     )
     return shields.status()
 
@@ -130,7 +188,7 @@ async def shields_up():
     """Shields를 올립니다 (보호 복원)."""
     _require_allowed("shields_up", {}, "high")
     shields = _get_shields_manager()
-    shields.shields_up(restored_by="api_operator")
+    _ = shields.shields_up(restored_by="api_operator")
     return shields.status()
 
 
@@ -142,12 +200,10 @@ async def scan_text_for_secrets(request: Request):
         text: 스캔할 텍스트
         redact_mode: "partial" (기본) | "full"
     """
-    body = await request.json()
-    text = body.get("text", "")
-    mode = body.get("redact_mode", "partial")
+    payload = await _parse_security_scan_body(request)
 
-    matches = scan_for_secrets(text)
-    redacted_text = redact(text) if mode == "partial" else redact_full(text)
+    matches = scan_for_secrets(payload.text)
+    redacted_text = redact(payload.text) if payload.redact_mode == "partial" else redact_full(payload.text)
 
     return {
         "secrets_found": len(matches),
@@ -163,9 +219,8 @@ async def strip_config_credentials(request: Request):
     Body:
         config: 필터링할 설정 딕셔너리
     """
-    body = await request.json()
-    user_config = body.get("config", {})
-    return {"sanitized": strip_credentials(user_config)}
+    payload = await _parse_strip_config_body(request)
+    return {"sanitized": strip_credentials(payload.config)}
 
 
 @router.get("/api/health/deep")

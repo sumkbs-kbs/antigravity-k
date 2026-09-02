@@ -2,23 +2,37 @@
 
 import logging
 import os
-from typing import Any
+from typing import Literal, TypedDict, final, override
+
+from pydantic import JsonValue
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
 
+class VisionParametersSchema(TypedDict):
+    type: Literal["object"]
+    properties: dict[str, JsonValue]
+    required: list[str]
+
+
+@final
 class GenerateImageTool(BaseTool):
     """지정된 프롬프트를 기반으로 이미지를 생성하여 아티팩트 디렉토리에 저장합니다."""
 
-    category = ToolCategory.WEB
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "🎨"
-    tags = ["image", "vision", "generate", "design"]
+    category: ToolCategory = ToolCategory.WEB
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "🎨"
+    tags: list[str] = ["image", "vision", "generate", "design"]
 
-    def __init__(self, project_root: str | None = None):
+    _name: str
+    _description: str
+    _schema: VisionParametersSchema
+    project_root: str
+
+    def __init__(self, project_root: str | None = None) -> None:
         """Initialize the GenerateImageTool.
 
         Args:
@@ -27,8 +41,10 @@ class GenerateImageTool(BaseTool):
         """
         super().__init__()
         self._name = "generate_image"
-        self._description = "Generate an image or edit existing images based on a text prompt. The resulting image will be saved to the artifacts"  # noqa: E501
-        "directory. You can use this tool to generate user interfaces, mockups, or design assets."
+        self._description = (
+            "Generate an image or edit existing images based on a text prompt. The resulting image will be saved to the "
+            "artifacts directory. You can use this tool to generate user interfaces, mockups, or design assets."
+        )
         self._schema = {
             "type": "object",
             "properties": {
@@ -51,6 +67,7 @@ class GenerateImageTool(BaseTool):
         self.project_root = project_root or os.getcwd()
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -61,6 +78,7 @@ class GenerateImageTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -71,7 +89,8 @@ class GenerateImageTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> VisionParametersSchema:
         """Parameters Schema.
 
         Returns:
@@ -80,7 +99,8 @@ class GenerateImageTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -90,8 +110,10 @@ class GenerateImageTool(BaseTool):
             Any: The any result.
 
         """
-        image_name = kwargs.get("image_name", "")
-        prompt = kwargs.get("prompt", "")
+        image_name_value = kwargs.get("image_name", "")
+        image_name = image_name_value if isinstance(image_name_value, str) else ""
+        prompt_value = kwargs.get("prompt", "")
+        prompt = prompt_value if isinstance(prompt_value, str) else ""
 
         # In a real implementation, you would call OpenAI DALL-E, Stability API, or Fal.ai here.
         # Since this is a local agent, we will return a mock response indicating the prompt was received,

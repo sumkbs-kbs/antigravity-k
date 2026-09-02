@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Callable
 
 from antigravity_k.engine.execution_mode import ExecutionMode
 
@@ -116,6 +116,11 @@ class ModeManager:
     def plan_artifact_path(self) -> str | None:
         """현재 Plan 아티팩트 경로."""
         return self._plan_artifact_path
+
+    @property
+    def plan_quality_passed(self) -> bool:
+        """Plan 품질 검증 통과 여부."""
+        return self._plan_quality_passed
 
     @property
     def mode_history(self) -> list[ModeTransition]:
@@ -238,7 +243,7 @@ class ModeManager:
 
     # ─── 도구 권한 검사 ────────────────────────────────────────────
 
-    def check_tool_permission(self, tool_name: str) -> dict[str, Any]:
+    def check_tool_permission(self, tool_name: str) -> dict[str, object]:
         """현재 모드에서 도구 실행 권한을 검사합니다.
 
         Args:
@@ -301,7 +306,7 @@ class ModeManager:
 
     # ─── 상태 직렬화 ───────────────────────────────────────────────
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """현재 상태를 딕셔너리로 반환합니다."""
         return {
             "current_mode": self._mode.value,
@@ -339,9 +344,7 @@ class ModeManager:
 
         if self._mode == ExecutionMode.PLAN:
             lines.append(
-                "- 읽기 전용 도구(read_file, grep, glob)와 write_artifact만 허용됩니다.\n"
-                "- `implementation_plan.md`를 작성하여 계획을 수립하세요.\n"
-                "- Plan 완료 후 자동으로 BUILD 모드로 전환됩니다.",
+                "- 읽기 전용 도구(read_file, grep, glob)와 write_artifact만 허용됩니다.\n- `implementation_plan.md`를 작성하여 계획을 수립하세요.\n- Plan 완료 후 자동으로 BUILD 모드로 전환됩니다."
             )
         elif self._mode == ExecutionMode.BUILD:
             lines.append("- 모든 도구 실행이 허용됩니다.")

@@ -25,11 +25,24 @@ import asyncio
 import functools
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import ParamSpec, Protocol, TypeVar, cast
 
 logger = logging.getLogger("antigravity_k.api_cache")
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class _RequestURL(Protocol):
+    path: str
+
+
+class _RequestLike(Protocol):
+    method: str
+    query_params: object
+    url: _RequestURL
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +84,7 @@ class ApiCacheEntry:
     """
 
     key: str
-    value: Any
+    value: object
     ttl: float
     tags: frozenset[str] = field(default_factory=frozenset)
     created_at: float = field(default_factory=time.time)
@@ -114,18 +127,18 @@ class ApiCache:
     """
 
     def __init__(self, default_ttl: float = CACHE_DEFAULT_TTL, max_size: int = 1000) -> None:
-        self._default_ttl = default_ttl
-        self._max_size = max_size
+        self._default_ttl: float = default_ttl
+        self._max_size: int = max_size
         self._entries: dict[str, ApiCacheEntry] = {}
         self._tag_index: dict[str, set[str]] = {}  # tag → set of keys
-        self._lock = asyncio.Lock()
-        self._hits = 0
-        self._misses = 0
-        self._eviction_count = 0
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._hits: int = 0
+        self._misses: int = 0
+        self._eviction_count: int = 0
 
     # ─── Core operations ─────────────────────────────────────────
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> object | None:
         """캐시에서 값을 조회합니다.
 
         Args:
@@ -142,7 +155,7 @@ class ApiCache:
 
             if entry.is_expired:
                 self._misses += 1
-                await self._remove(key)
+                _ = await self._remove(key)
                 return None
 
             entry.hit_count += 1
@@ -153,9 +166,9 @@ class ApiCache:
     async def set(
         self,
         key: str,
-        value: Any,
-        ttl: Optional[float] = None,
-        tags: Optional[list[str]] = None,
+        value: object,
+        ttl: float | None = None,
+        tags: list[str] | None = None,
     ) -> None:
         """캐시에 값을 저장합니다.
 
@@ -166,7 +179,7 @@ class ApiCache:
             tags: 연관 태그 리스트 (태그 기반 무효화용)
         """
         effective_ttl = ttl if ttl is not None else self._default_ttl
-        tag_set = frozenset(tags) if tags else frozenset()
+        tag_set: frozenset[str] = frozenset(tags) if tags else frozenset()
 
         entry = ApiCacheEntry(
             key=key,
@@ -183,7 +196,7 @@ class ApiCache:
                 self._tag_index[tag].add(key)
 
             # max_size 초과 시 가장 오래된 항목 제거 (LRU 근사)
-            await self._evict_if_over_limit()
+            _ = await self._evict_if_over_limit()
 
     async def delete(self, key: str) -> bool:
         """캐시에서 키를 삭제합니다.
@@ -205,7 +218,7 @@ class ApiCache:
             if tag_keys:
                 tag_keys.discard(key)
                 if not tag_keys:
-                    self._tag_index.pop(tag, None)
+                    _ = self._tag_index.pop(tag, None)
         return True
 
     # ─── Tag-based invalidation ──────────────────────────────────
@@ -258,10 +271,10 @@ class ApiCache:
     async def get_or_set(
         self,
         key: str,
-        factory: Callable[[], Any],
-        ttl: Optional[float] = None,
-        tags: Optional[list[str]] = None,
-    ) -> Any:
+        factory: Callable[[], object | Awaitable[object]],
+        ttl: float | None = None,
+        tags: list[str] | None = None,
+    ) -> object:
         """캐시된 값이 없으면 factory를 호출하여 값을 생성하고 캐싱합니다.
 
         Args:
@@ -279,7 +292,7 @@ class ApiCache:
 
         value = factory()
         if asyncio.iscoroutine(value):
-            value = await value
+            value = await cast(Awaitable[object], value)
 
         await self.set(key, value, ttl=ttl, tags=tags)
         return value
@@ -317,7 +330,7 @@ class ApiCache:
 
     # ─── Statistics ──────────────────────────────────────────────
 
-    async def get_stats(self) -> dict[str, Any]:
+    async def get_stats(self) -> dict[str, object]:
         """캐시 통계를 반환합니다.
 
         Returns:
@@ -421,10 +434,10 @@ api_cache = ApiCache()
 
 
 def cached(
-    ttl: Optional[float] = None,
-    tags: Optional[list[str]] = None,
-    key_builder: Optional[Callable[..., str]] = None,
-) -> Callable[..., Any]:
+    ttl: float | None = None,
+    tags: list[str] | None = None,
+    key_builder: Callable[..., str] | None = None,
+) -> Callable[[Callable[P, R]], Callable[P, Awaitable[object]]]:
     """FastAPI 엔드포인트 응답을 캐싱하는 데코레이터.
 
     GET 엔드포인트에 적용하여 응답을 자동으로 캐싱합니다.
@@ -448,15 +461,15 @@ def cached(
     """
     effective_ttl = ttl if ttl is not None else CACHE_DEFAULT_TTL
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def decorator(func: Callable[P, R]) -> Callable[P, Awaitable[object]]:
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> object:
             # POST/PUT/DELETE/PATCH는 캐싱하지 않음 (요청 본문 무시 방지)
-            request = kwargs.get("request")
+            request = cast(_RequestLike | None, kwargs.get("request"))
             if request is not None and request.method != "GET":
                 result = func(*args, **kwargs)
                 if asyncio.iscoroutine(result):
-                    return await result
+                    return await cast(Awaitable[object], result)
                 return result
 
             # 캐시 키 생성
@@ -480,14 +493,16 @@ def cached(
                 return cached_value
 
             # 캐시 미스 → 실제 함수 호출 (sync/async 모두 지원)
-            result = func(*args, **kwargs)
-            if asyncio.iscoroutine(result):
-                result = await result
+            raw_result = func(*args, **kwargs)
+            if asyncio.iscoroutine(raw_result):
+                resolved_result: object = await cast(Awaitable[object], raw_result)
+            else:
+                resolved_result = raw_result
 
             # 응답 캐싱
-            await api_cache.set(cache_key, result, ttl=effective_ttl, tags=tags)
+            await api_cache.set(cache_key, resolved_result, ttl=effective_ttl, tags=tags)
 
-            return result
+            return resolved_result
 
         return wrapper
 

@@ -39,9 +39,9 @@ class BreakpointDecisionPrompt:
 class SmartBreakpointGate:
     """Monitors consecutive failure counts and ambiguity to trigger smart breakpoints."""
 
-    def __init__(self, max_consecutive_failures: int = 3):
-        self.max_consecutive_failures = max_consecutive_failures
-        self._consecutive_failures = 0
+    def __init__(self, max_consecutive_failures: int = 3) -> None:
+        self.max_consecutive_failures: int = max_consecutive_failures
+        self._consecutive_failures: int = 0
 
     def record_attempt(self, success: bool) -> bool:
         """Record attempt outcome. Returns True if a breakpoint must be triggered."""

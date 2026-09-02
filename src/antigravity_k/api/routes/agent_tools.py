@@ -6,8 +6,9 @@ import hashlib
 import inspect
 import logging
 import os
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Protocol, cast
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -20,8 +21,8 @@ from antigravity_k.api.browser_session_state import (
 from antigravity_k.config import config
 from antigravity_k.engine.sandbox import SandboxRunner
 from antigravity_k.tools.egress_policy import EgressPolicyError, validate_egress_url, validate_httpx_request_async
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,6 +33,45 @@ browser_sessions = BrowserSessionRegistry(default_state=browser_state)
 _MAX_CONSOLE_ENTRIES = 500
 _BROWSER_SESSION_HEADER = "X-AGK-Browser-Session"
 _MAX_BROWSER_SESSION_ID_LENGTH = 128
+
+
+class _AccessibilityLike(Protocol):
+    async def snapshot(self) -> object: ...
+
+
+class _PageLike(Protocol):
+    accessibility: _AccessibilityLike
+    url: str
+
+    def aria_snapshot(self) -> Awaitable[object]: ...
+
+    async def screenshot(self) -> bytes: ...
+
+    async def goto(self, url: str, *, wait_until: str) -> object: ...
+
+    async def click(self, selector: str) -> object: ...
+
+    async def fill(self, selector: str, text: str) -> object: ...
+
+    def on(self, event: str, handler: Callable[[object], object]) -> object: ...
+
+
+class _RouteLike(Protocol):
+    async def abort(self, *, error_code: str) -> object: ...
+
+    async def continue_(self) -> object: ...
+
+
+class _RequestLike(Protocol):
+    url: str
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else {}
 
 
 def _append_console_entry(entries: list[dict[str, str]], entry: dict[str, str]) -> None:
@@ -70,39 +110,43 @@ def _browser_error_status(error: Exception) -> int:
     return 500
 
 
-async def _accessibility_tree(page: Any) -> str | None:
-    if hasattr(page, "aria_snapshot"):
-        result = page.aria_snapshot()
+async def _accessibility_tree(page: object) -> str | None:
+    page_obj = cast(_PageLike, page)
+    if hasattr(page_obj, "aria_snapshot"):
+        result = page_obj.aria_snapshot()
         if not inspect.isawaitable(result):
             return None
         snapshot = await result
         return snapshot if isinstance(snapshot, str) and snapshot else None
 
-    accessibility = getattr(page, "accessibility", None)
+    accessibility = getattr(page_obj, "accessibility", None)
     if accessibility is None:
         return None
-    snapshot = await accessibility.snapshot()
+    snapshot_value = await cast(_AccessibilityLike, accessibility).snapshot()
+    snapshot = _as_mapping(snapshot_value)
     return _flatten_a11y_tree(snapshot) if snapshot else None
 
 
-async def _guard_browser_route(route: Any, request: Any) -> None:
-    scheme = request.url.split(":", 1)[0].lower()
+async def _guard_browser_route(route: object, request: object) -> None:
+    route_obj = cast(_RouteLike, route)
+    request_obj = cast(_RequestLike, request)
+    scheme = request_obj.url.split(":", 1)[0].lower()
     if scheme not in {"http", "https"}:
-        await route.abort(error_code="blockedbyclient")
+        _ = await route_obj.abort(error_code="blockedbyclient")
         return
     try:
-        validate_egress_url(request.url, allow_local=False)
+        _ = validate_egress_url(request_obj.url, allow_local=False)
     except EgressPolicyError:
-        await route.abort(error_code="blockedbyclient")
+        _ = await route_obj.abort(error_code="blockedbyclient")
         return
-    await route.continue_()
+    _ = await route_obj.continue_()
 
 
 def _permission_gate() -> PermissionGate:
     return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str):
+def _require_allowed(tool_name: str, args: dict[str, object], risk_level: str) -> None:
     decision = _permission_gate().decide(
         ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
     )
@@ -117,7 +161,7 @@ def _resolve_project_cwd(cwd: str | None) -> str:
     project_root = Path(config.paths.project_root).resolve()
     candidate = (project_root if not cwd else Path(cwd).expanduser()).resolve()
     try:
-        candidate.relative_to(project_root)
+        _ = candidate.relative_to(project_root)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail="Working directory must remain inside the project root") from exc
     if not candidate.is_dir():
@@ -130,7 +174,7 @@ def _resolve_project_path(path: str) -> str:
     raw_path = Path(path).expanduser()
     candidate = (raw_path if raw_path.is_absolute() else project_root / raw_path).resolve()
     try:
-        candidate.relative_to(project_root)
+        _ = candidate.relative_to(project_root)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail="File path must remain inside the project root") from exc
     return str(candidate)
@@ -191,7 +235,7 @@ def write_file(req: FileWriteRequest):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(req.content)
+            _ = f.write(req.content)
         return {"ok": True, "path": path}
     except OSError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -278,7 +322,7 @@ async def browser_action(req: BrowserActionRequest, request: Request):
                 state.context = await browser.new_context(
                     viewport={"width": 1280, "height": 800},
                 )
-                await state.context.route("**/*", _guard_browser_route)
+                _ = await state.context.route("**/*", _guard_browser_route)
                 state.page = await state.context.new_page()
                 # Console error/log auto-collection
                 state.console_errors = []
@@ -303,7 +347,7 @@ async def browser_action(req: BrowserActionRequest, request: Request):
                 await state.playwright.stop()
                 state.playwright = None
             if session_id != "default":
-                browser_sessions.discard(session_id)
+                _ = browser_sessions.discard(session_id)
             return {"ok": True, "message": "Browser closed"}
 
         # For remaining actions, ensure page exists
@@ -317,10 +361,10 @@ async def browser_action(req: BrowserActionRequest, request: Request):
             if not req.url:
                 raise HTTPException(status_code=400, detail="URL is required for goto")
             try:
-                validate_egress_url(req.url, allow_local=False)
+                _ = validate_egress_url(req.url, allow_local=False)
             except EgressPolicyError as exc:
                 raise HTTPException(status_code=403, detail="Browser navigation target is not public.") from exc
-            await state.page.goto(req.url, wait_until="networkidle")
+            _ = await state.page.goto(req.url, wait_until="networkidle")
             return {"ok": True, "url": req.url}
 
         elif req.action == "click":
@@ -375,7 +419,7 @@ async def browser_action(req: BrowserActionRequest, request: Request):
 
 
 # ─── Accessibility Tree Flattener ─────────────────────────────
-def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
+def _flatten_a11y_tree(node: Mapping[str, object], depth: int = 0) -> str:
     """Playwright의 Accessibility Tree를 LLM이 이해할 수 있는.
 
     컴팩트한 텍스트 표현으로 변환합니다.
@@ -385,10 +429,10 @@ def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
         [img] "send icon"
       [textbox] "채팅 입력" value="hello"
     """
-    lines = []
-    role = node.get("role", "unknown")
-    name = node.get("name", "")
-    value = node.get("value", "")
+    lines: list[str] = []
+    role = _as_text(node.get("role"), "unknown")
+    name = _as_text(node.get("name"))
+    value = _as_text(node.get("value"))
     focused = " focused" if node.get("focused") else ""
     checked = " checked" if node.get("checked") else ""
     disabled = " disabled" if node.get("disabled") else ""
@@ -403,8 +447,11 @@ def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
 
     lines.append(f"{indent}{label}")
 
-    for child in node.get("children", []):
-        lines.extend(_flatten_a11y_tree(child, depth + 1).split("\n"))
+    children = node.get("children", [])
+    if isinstance(children, list):
+        for child in cast(list[object], children):
+            if isinstance(child, Mapping):
+                lines.extend(_flatten_a11y_tree(cast(Mapping[str, object], child), depth + 1).split("\n"))
 
     return "\n".join(lines)
 
@@ -422,10 +469,13 @@ class BrowserSelfTestRequest(BaseModel):
     ws_url: str | None = None
 
 
+_DEFAULT_BROWSER_SELF_TEST_REQUEST = BrowserSelfTestRequest()
+
+
 @router.post("/api/agent/tools/browser/self-test")
 async def browser_self_test(
     request: Request,
-    req: BrowserSelfTestRequest = Body(default_factory=BrowserSelfTestRequest),
+    req: Annotated[BrowserSelfTestRequest, Body()] = _DEFAULT_BROWSER_SELF_TEST_REQUEST,
 ):
     """기존 TestHarness 프레임워크를 활용하여.
 
@@ -488,7 +538,7 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
     6. 반응형 테스트(desktop/tablet/mobile) + 성능 메트릭 수집
     """
     try:
-        validate_egress_url(req.url, allow_local=True)
+            _ = validate_egress_url(req.url, allow_local=True)
     except EgressPolicyError as exc:
         raise HTTPException(status_code=403, detail="Autonomous QA target must be a valid HTTP(S) URL") from exc
     _require_allowed("autonomous_qa", {"url": req.url}, "critical")
@@ -576,7 +626,7 @@ async def vision_analyze(req: VisionAnalyzeRequest, request: Request):
                 max_tokens=2048,
                 temperature=0.2,
             )
-            if isinstance(analysis, str) and analysis.strip():
+            if analysis.strip():
                 return {"ok": True, "model": target, "analysis": analysis}
         except Exception:
             logger.warning("Managed vision route failed, HTTP fallback", exc_info=True)
@@ -602,8 +652,8 @@ async def vision_analyze(req: VisionAnalyzeRequest, request: Request):
             )
 
             if response.status_code == 200:
-                data = response.json()
-                analysis = data.get("message", {}).get("content", "분석 결과 없음")
+                data = _as_mapping(cast(object, response.json()))
+                analysis = _as_text(_as_mapping(data.get("message")).get("content"), "분석 결과 없음")
                 return {
                     "ok": True,
                     "model": req.model,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   cancelTask,
@@ -9,6 +9,15 @@ import {
   streamTaskEvents,
   submitTask,
 } from './taskExecutionApi';
+import {
+  compactTaskEventReplica,
+  createTaskEventReplica,
+  mergeTaskEventReplica,
+  readTaskEventReplicaCache,
+  replaceTaskEventReplica,
+  writeTaskEventReplicaCache,
+  type TaskEventReplicaState,
+} from './taskEventReplica';
 import type { PendingTaskAction } from './TaskQueuePanel';
 import type { TaskEvent, TaskId, TaskSummary } from './taskExecutionSchema';
 
@@ -29,13 +38,6 @@ export type TaskExecutionState = Readonly<{
   retry: () => void;
 }>;
 
-function mergeEvents(current: readonly TaskEvent[], incoming: readonly TaskEvent[]): readonly TaskEvent[] {
-  const bySequence = new Map<number, TaskEvent>();
-  for (const event of current) bySequence.set(event.sequence, event);
-  for (const event of incoming) bySequence.set(event.sequence, event);
-  return [...bySequence.values()].sort((left, right) => left.sequence - right.sequence);
-}
-
 function waitForReconnect(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 1_000));
 }
@@ -48,6 +50,7 @@ export function useTaskExecutionEvents(): TaskExecutionState {
   const [error, setError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [pendingAction, setPendingAction] = useState<PendingTaskAction | null>(null);
+  const replicaRef = useRef<TaskEventReplicaState | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,34 +84,77 @@ export function useTaskExecutionEvents(): TaskExecutionState {
 
   useEffect(() => {
     if (selectedTaskId === null) {
+      replicaRef.current = null;
       const clearTimer = window.setTimeout(() => setEvents([]), 0);
       return () => window.clearTimeout(clearTimer);
     }
 
     const controller = new AbortController();
+    const cachedReplica = readTaskEventReplicaCache(selectedTaskId);
+    let replica = cachedReplica ?? createTaskEventReplica(selectedTaskId);
+    replicaRef.current = replica;
     const resetTimer = window.setTimeout(() => {
-      setEvents([]);
+      setEvents(replica.events);
       setError(null);
       setConnectionState('loading');
     }, 0);
 
     const run = async (): Promise<void> => {
-      const replay = await fetchTaskEvents(selectedTaskId, 0, controller.signal);
+      const replayCursor = cachedReplica?.contiguousSequence ?? 0;
+      const replay = await fetchTaskEvents(selectedTaskId, replayCursor, controller.signal);
       if (controller.signal.aborted) return;
-      let sequence = replay.lastSequence;
-      setEvents(replay.events);
+      replica = cachedReplica === null
+        ? replaceTaskEventReplica(selectedTaskId, replay.events, replay.lastSequence)
+        : mergeTaskEventReplica(replica, replay.events, replay.lastSequence);
+      replica = compactTaskEventReplica(replica);
+      replicaRef.current = replica;
+      writeTaskEventReplicaCache(replica);
+      let sequence = replica.contiguousSequence;
+      setEvents(replica.events);
       setConnectionState('connected');
+      let gapRecovery: Promise<void> | null = null;
+
+      const recoverGap = async (afterSequence: number): Promise<void> => {
+        const missed = await fetchTaskEvents(selectedTaskId, afterSequence, controller.signal);
+        if (controller.signal.aborted) return;
+        replica = compactTaskEventReplica(mergeTaskEventReplica(replica, missed.events, missed.lastSequence));
+        replicaRef.current = replica;
+        sequence = replica.contiguousSequence;
+        writeTaskEventReplicaCache(replica);
+        setEvents(replica.events);
+        setConnectionState(replica.gap === null ? 'connected' : 'reconnecting');
+      };
 
       for (let attempt = 0; attempt < 3 && !controller.signal.aborted; attempt += 1) {
         try {
           const end = await streamTaskEvents(selectedTaskId, sequence, controller.signal, {
             onEvent: (event) => {
-              sequence = Math.max(sequence, event.sequence);
-              setEvents((current) => mergeEvents(current, [event]));
-              setConnectionState('connected');
+              const next = compactTaskEventReplica(mergeTaskEventReplica(replica, [event]));
+              replica = next;
+              replicaRef.current = next;
+              sequence = next.contiguousSequence;
+              writeTaskEventReplicaCache(next);
+              setEvents(next.events);
+              setConnectionState(next.gap === null ? 'connected' : 'reconnecting');
+              if (next.gap !== null && gapRecovery === null) {
+                gapRecovery = recoverGap(next.contiguousSequence).finally(() => {
+                  gapRecovery = null;
+                });
+              }
             },
           });
           if (controller.signal.aborted) return;
+          const pendingGapRecovery = gapRecovery;
+          if (pendingGapRecovery !== null) await pendingGapRecovery;
+          if (end.lastSequence > replica.contiguousSequence) {
+            setConnectionState('reconnecting');
+            await recoverGap(replica.contiguousSequence);
+          }
+          if (replica.gap !== null || replica.contiguousSequence < end.lastSequence) {
+            setError(`Task event replay is incomplete at sequence ${replica.contiguousSequence}.`);
+            setConnectionState('error');
+            return;
+          }
           setConnectionState('complete');
           sequence = Math.max(sequence, end.lastSequence);
           return;
@@ -122,9 +168,7 @@ export function useTaskExecutionEvents(): TaskExecutionState {
           }
           setConnectionState('reconnecting');
           await waitForReconnect();
-          const missed = await fetchTaskEvents(selectedTaskId, sequence, controller.signal);
-          sequence = missed.lastSequence;
-          setEvents((current) => mergeEvents(current, missed.events));
+          await recoverGap(sequence);
         }
       }
     };

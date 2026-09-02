@@ -43,6 +43,7 @@ function protectedRequestPaths(): string[] {
 describe('dashboard access gate', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     document.cookie = 'ag_access_pin=; path=/; max-age=0; SameSite=Strict';
     useUiStore.setState({ pinModalVisible: true });
     unauthorizedFetch.mockClear();
@@ -64,15 +65,15 @@ describe('dashboard access gate', () => {
     expect(protectedSocketUrls).toEqual([]);
   });
 
-  it('rejects a stale stored PIN before starting dashboard traffic', async () => {
-    localStorage.setItem('ag_access_pin', 'stale-pin');
+  it('rejects a stale stored token before starting dashboard traffic', async () => {
+    sessionStorage.setItem('ag_access_token', 'stale-token');
     useUiStore.setState({ pinModalVisible: false });
     render(<App />);
 
     expect(await screen.findByRole('dialog', { name: 'PIN 인증' })).toBeVisible();
     expect(protectedRequestPaths()).toEqual(['/api/session/info']);
     expect(protectedSocketUrls).toEqual([]);
-    expect(localStorage.getItem('ag_access_pin')).toBeNull();
+    expect(sessionStorage.getItem('ag_access_token')).toBeNull();
     expect(screen.getByLabelText('PIN 번호')).toHaveFocus();
     expect(screen.getByRole('button', { name: '잠금 해제' })).toBeEnabled();
   });
@@ -85,12 +86,13 @@ describe('dashboard access gate', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('PIN 번호가 올바르지 않습니다.');
     expect(localStorage.getItem('ag_access_pin')).toBeNull();
+    expect(sessionStorage.getItem('ag_access_token')).toBeNull();
     expect(document.cookie).not.toContain('ag_access_pin=');
     expect(protectedSocketUrls).toEqual([]);
   });
 
   it('mounts the dashboard only after a stored PIN is successfully validated', async () => {
-    localStorage.setItem('ag_access_pin', 'valid-pin');
+    sessionStorage.setItem('ag_access_token', 'valid-token');
     unauthorizedFetch.mockImplementation(async (input: RequestInfo | URL) => {
       const path = new URL(input.toString(), window.location.origin).pathname;
       return new Response(JSON.stringify(path === '/api/session/info'

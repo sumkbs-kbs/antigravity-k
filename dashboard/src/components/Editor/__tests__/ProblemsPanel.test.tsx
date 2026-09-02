@@ -55,12 +55,13 @@ describe('ProblemsPanel file opening', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
-    window.localStorage.setItem('ag_access_pin', 'operator-secret');
+    window.sessionStorage.clear();
+    window.sessionStorage.setItem('ag_access_token', 'operator-token');
     fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('opens a file with the stored PIN and string content', async () => {
+  it('opens a file with the stored bearer token and string content', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true, content: 'const value = 1;' }));
 
     render(<ProblemsPanel />);
@@ -72,7 +73,7 @@ describe('ProblemsPanel file opening', () => {
       'const value = 1;',
     ));
     const request = fetchMock.mock.calls[0]?.[1];
-    expect(new Headers(request?.headers).get('X-Access-Pin')).toBe('operator-secret');
+    expect(new Headers(request?.headers).get('Authorization')).toBe('Bearer operator-token');
   });
 
   it('shows the backend detail for a non-OK response without opening the file', async () => {

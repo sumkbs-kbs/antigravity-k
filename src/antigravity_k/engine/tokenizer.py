@@ -47,10 +47,7 @@ class TokenEstimator:
             return 0
         cjk_count = len(CJK_PATTERN.findall(text))
         other_count = len(text) - cjk_count
-        estimated = (
-            cjk_count * TokenEstimator.CJK_TOKENS_PER_CHAR
-            + other_count * TokenEstimator.OTHER_TOKENS_PER_CHAR
-        )
+        estimated = cjk_count * TokenEstimator.CJK_TOKENS_PER_CHAR + other_count * TokenEstimator.OTHER_TOKENS_PER_CHAR
         # 짧은 응답도 실제로는 1토큰 이상 소비하므로 하한을 둔다
         return max(1, int(estimated + 0.5))
 

@@ -6,6 +6,24 @@ date: 2026-08-30
 
 # 사용자 변경사항 파일별 검토
 
+## 현재 기준 (2026-08-30)
+
+작성자와 무관하게 원래 사용자가 제시한 234건을 포함해 현재 working tree의
+모든 경로를 범위로 삼았다. 최신 `git status --short`는 285개 경로(생성된
+`dashboard/node_modules`·`dashboard_dist` 포함)를 보고하며, codebase-memory
+영향 분석은 227개 변경 경로를 확인했다. 아래의 244개/255개 수치는 이전
+continuation 당시의 스냅샷이고, 현재 수치와 혼동하지 않는다.
+
+- P0 보안·경로·릴리스 baseline(v1/v2)과 삭제 모듈 호환성 판단은 회귀 검증과
+  문서화까지 완료했다.
+- `scripts/api_forwarder.py`는 FastAPI `on_event` deprecation을 lifespan으로
+  전환했고, 파일 Ruff/LSP/basedpyright 경고가 0이다.
+- 전체 Python 회귀 `4818 passed, 6 skipped`, 대시보드 Vitest `589 passed`,
+  typecheck/lint/build, production audit 0건을 최신 게이트에서 확인했다.
+- 전역 basedpyright는 `864 files, 0 errors, 21,669 warnings`로 오류는 없지만,
+  경고 제로는 파일 단위로만 달성된 상태다. 남은 21,669건은 고위험 런타임
+  경계부터 단계적으로 축소한다.
+
 - working-tree continuation on `2026-08-30`: `src/antigravity_k/finetune/trainer.py`의 데이터셋 JSON, MLX subprocess, 학습 결과, CLI Namespace 경계를 명시 타입으로 전환했다. 관련 finetune 회귀 61개, CLI `--help` smoke, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23177 warnings, 0 notes`로 `200`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
 
 - working-tree continuation on `2026-08-30`: `tests/test_system_api_memory_suite.py`의 FastAPI 응답 JSON, MagicMock 메서드, 시스템/메모리·보안 입력 경계를 명시 타입으로 전환했다. 53개 테스트, Ruff, Ruff-format, basedpyright(`0 errors, 0 warnings`), mypy, pre-commit이 통과했고 전체 basedpyright는 `0 errors, 23377 warnings, 0 notes`로 `221`건 감소했다. 사용자 dirty 파일과 겹쳐 변경은 미스테이지 상태로 보존했다.
@@ -103,3 +121,76 @@ date: 2026-08-30
 - Model manager hook caveat: the targeted file pre-commit run passed; the repository-wide commit hook reported a pre-existing mypy assignment error in `src/antigravity_k/engine/tool_loop.py:590`, which remains outside this change.
 - Inference provider continuation (2026-08-30): removed the redundant provider-config `isinstance` branch in `inference_providers.py`; file basedpyright warnings `235 -> 234`, focused inference-provider suite `10 passed`, and file-level Ruff/Ruff-format/mypy/pre-commit passed. User-owned dirty paths remain unstaged; broad SDK payload typing is deferred to boundary-specific adapters.
 - Orchestrator continuation (2026-08-30): committed only `@final` on `OrchestratorAgent` as `2b005ab`; the existing user changes in the same file (long-context shaping, tool phase masking, persistent agency wiring) were restored unstaged. File warnings `191 -> 168`; focused regression `22 passed`; dirty path count is 244.
+
+## 전체 코드 재점검 갱신 (2026-08-30)
+
+- 작성자와 무관하게 현재 `git status --short`의 `255`개 경로를 재검토 범위로 확정했다(`155 modified`, `42 deleted`, `2 submodule`, `56 untracked`). 분류 누락을 방지하기 위해 `src 149`, `tests 65`, `dashboard 19`, `scripts 4`, `.omo 4`, `docs 4`, `data 3`, `.tmp 2`, `vault_data 1`, root/config 및 산출물을 모두 포함한다.
+- 최신 전역 basedpyright는 `863 files / 0 errors / 21636 warnings / 0 notes`다. 오류는 0건이며, 경고 제로 목표는 미달이므로 고경고 파일 순회가 잔여 작업이다. `model_manager.py`, `task_runner.py`, `api_forwarder.py`는 파일 단위 0/0을 유지한다.
+- dead-code 감사는 405개 모듈 중 30개 unreachable 후보(B 20, B+ 10)를 보고한다. 삭제된 모듈과 후보를 곧바로 제거하지 않고, 외부 import·플러그인·entry-point 호환성 및 패키징을 먼저 검증한다.
+- 추가 누락 위험: held-out v2 데이터가 evaluation 코드에는 인식되지만 release baseline/policy/package-data에는 반영되지 않았을 가능성, 삭제된 `agent_api.py`를 언급하는 stale 문서, 삭제된 multi-agent 모듈의 외부 import 계약, abstract/no-op `pass` 분류가 있다.
+- 현재 사용자 변경은 어떤 파일도 자동 stage/revert하지 않았다. 생성된 `dashboard_dist`·`node_modules`, 삭제 상태 tracked 파일, benchmark 결과 데이터는 릴리스 정책 결정 전 보류한다.
+
+## 잔여 작업 재정리 (2026-08-30)
+
+- 전체 검토 범위는 현재 dirty path 289개이며, 기존 사용자 변경 234건을 포함해 변경 주체와 무관하게 tracked/untracked/deleted/generated 경로를 모두 점검한다. 소유권이 불명확한 경로는 stage·revert하지 않는다.
+- 명령 실행 경계 우선 작업을 완료했다. `terminal_tools.py`의 123개 타입 경고를 0개로 줄이고, sandbox seatbelt 접근을 public API로 통합했으며, 관련 회귀 21개와 persistent/PTY 실행 스모크를 통과했다.
+- 전역 기준은 `basedpyright 864 files / 0 errors / 21,395 warnings`이다. 다음 순서는 orchestrator agent(168), ambient watchdog 테스트(161), agent runtime 테스트(157), vision/dom hybrid 테스트(147)이며, 각 파일은 동작 회귀와 함께 처리한다.
+- 별도 잔여는 대시보드 HTTP 수동 DOM 게이트, clean export/release 산출물 정책, 삭제 모듈 외부 import 호환성이다. `git diff --check`는 현재 통과했다.
+
+## 오케스트레이터 경계 재정리 (2026-08-30)
+
+- `agent.py`의 모델 매니저 입력을 최소 Protocol과 런타임 생성 계약으로 분리해 실제 구현과 테스트 fake를 함께 수용했다. `max_engine.py`는 내부 속성의 과도한 Protocol 요구를 제거했다.
+- 파일 경고 `168 → 97`, 변경 파일 오류 `0`, MAX/오케스트레이터/subagent/planning 회귀 `58 passed, 1 skipped`, Ruff 통과.
+- 전역 기준은 `864 files / 0 errors / 21,326 warnings`; 다음 정리 순서는 ambient watchdog 테스트, agent runtime 테스트, vision/dom hybrid 테스트다.
+- 증거 문서 갱신 후 dirty path snapshot은 `290`개(`modified 187`, `deleted 43`, `submodule 2`, `untracked 58`)로 재확인했으며, 234건 사용자 변경을 포함한 전체 경로를 계속 검토 대상으로 둔다.
+
+## 보안 HIGH 1차 완료 (2026-08-30)
+
+- `ci_tools.py`의 테스트 실행을 argv/shell=False 경계로 전환하고, `api_forwarder.py`의 비루프백 HTTP·WebSocket 요청에 강한 PIN 검증을 적용했다.
+- 보안 회귀 포함 `66 passed`, 정적 보안 게이트 및 Ruff/LSP 통과. PIN 노출·환경 파일 권한·code-intel/deny-rule 정책은 다음 잔여 단위다.
+
+## 런타임 QA 및 readiness 보정 (2026-08-30)
+
+- Deep health 런타임 import 오류를 수정했고 TestClient에서 `/api/health/deep` 200 payload를 확인했다. 관련 시스템·Voice·서버 import 회귀는 `59 passed`다.
+- Chat SSE generator는 동일 Context에서 threadpool 경계를 유지하며, agent runtime context 회귀가 통과한다. 과거 수동 증거의 `expected_tools` 및 `different Context` 오류는 최신 경로에서 재현되지 않는다.
+- Dashboard health schema가 백엔드의 `backends: []` wire shape를 수용해 readiness false 고정을 해소했다. client/uiStore 테스트 `43 passed`, production build 통과.
+- `TaskExecutionContext.state_store`를 명시적 `TaskStateStore` 타입으로 보강했다. 변경 파일 LSP 오류는 0건이다.
+- Voice 503은 `AGK_STT_COMMAND_JSON`가 없는 환경에서 의도적으로 반환되는 운영 전제조건 미충족이며, 임의 STT 명령은 추가하지 않았다.
+- 최신 전역 기준은 `864 files / 0 errors / 21,354 warnings`로 오류 제로는 유지하지만 경고 제로는 잔여다. 사용자 변경 234건을 포함한 dirty tree는 stage/revert하지 않았다.
+
+## 최종 게이트 갱신 (2026-08-30)
+
+- `TaskExecutionContext.state_store`를 `TaskStateStoreProtocol`로 분리해 순환 import 오류를 해소했다. 관련 변경 파일 LSP 오류 0건, Ruff 및 diff 검사 통과.
+- 전체 pytest는 `4821 passed, 6 skipped`로 완료됐고, 핵심 오케스트레이터/task-state/release 묶음은 `63 passed`로 재확인했다.
+- Dashboard client/uiStore 43개 테스트와 production build(876 modules)가 통과했다. 백엔드 미설정 시 `backends: []` wire shape를 정상 수용한다.
+- TestClient API 스모크에서 `/v1/health`, `/api/system/status`, `/api/health/deep` 모두 200을 확인했다. deep health `degraded`는 모델 매니저 부재를 진단 결과로 노출한다.
+- 전역 경고 제로는 아직 미달이며, 전역 억제는 적용하지 않았다. 사용자 변경 234건을 포함한 dirty tree는 stage/revert하지 않았다.
+- `file://` 브라우저 DOM 게이트는 도구 정책상 수행할 수 없어 build/API 관찰로 대체했다. Voice 503은 `AGK_STT_COMMAND_JSON` 설정이 필요한 운영 전제조건이다.
+
+## Warning debt continuation (2026-08-30)
+
+- `test_ambient_watchdog.py` fixture·테스트 인자와 미사용 결과를 명시해 파일 경고를 `161 → 51`으로 줄였다. 동작 테스트 `20 passed`, Ruff 통과.
+- `tool_loop.py`의 저장소 반환 계약을 `TaskStateStoreProtocol`로 정렬하고 동적 모델 매니저 호환 경계를 보존했다. 관련 회귀 `53 passed`, Ruff 및 diff 검사 통과.
+- 최신 전역 basedpyright는 `864 files / 0 errors / 21,176 warnings`다. 다음 정리 대상은 `test_agent_runtime.py`의 fixture·동적 mock 경계이며, 사용자 변경 234건은 계속 stage/revert하지 않는다.
+
+## Warning debt continuation 2 (2026-08-30)
+
+- 작성자와 무관하게 전체 코드 검토 범위를 유지하면서 고경고 테스트 단위의 타입 경계만 축소했다. `test_agent_runtime.py` `156 → 75`, `test_vision_dom_hybrid.py` `147 → 24`, `test_prompt_meta_evolution.py` `145 → 43`, `test_context_shaper.py` `144 → 12`, `test_self_consistency.py` `144 → 36`이다.
+- 각 단위의 동작 검증은 각각 `33`, `38`, `17`, `34`, `33`개 테스트가 통과했으며, 변경 파일 Ruff와 `git diff --check`도 통과했다. `test_orchestrator.py`는 fixture·메시지 경계만 보강하고 회귀 `9 passed`를 확인했다.
+- `self_consistency.py`의 `collect_samples`/`run`에 `**gen_kwargs: object` 계약을 추가해 호출부의 부분 미지정 경고를 줄였다. API 동작과 keyword 전달 형태는 유지된다.
+- 최신 전체 basedpyright는 `0 errors, 20,586 warnings, 0 notes`다. 남은 경고의 큰 비중은 동적 `MagicMock`, protected private API를 검증하는 테스트, 기존 동적 orchestrator/stream 계약에 집중된다. 전역 억제 지시문은 적용하지 않았다.
+- 사용자 변경 234건, 생성물, 삭제 상태 tracked 파일, untracked 파일은 모두 계속 미스테이지 상태로 보존한다. 이번 연속 작업에서도 commit·stage·revert를 수행하지 않았다.
+
+## 전체 코드 검토 연속 기록 3 (2026-08-30)
+
+- 작성자와 무관하게 전체 코드 검토 범위를 유지한 채 `tests/test_filesystem_endpoints.py`의 fixture 및 JSON 응답 타입 경계를 정리했다. protected 캐시 멤버는 명시적 typed adapter를 통해서만 접근하도록 격리했다.
+- 해당 파일은 LSP/basedpyright `0 errors, 0 warnings`, Ruff, `git diff --check`를 통과했고 Filesystem API 회귀 `15 passed`를 확인했다.
+- 전체 basedpyright 기준은 `864 files / 0 errors / 20,448 warnings / 0 notes`이며, 이전 20,586건 대비 138건 감소했다. 다음 대상은 `tests/test_slash_commands_session.py` 138건이다.
+- 기존 사용자 변경 234건을 포함한 dirty tree, 생성물, 삭제 상태 tracked 파일은 stage·revert·commit 없이 보존했다.
+
+## 전체 코드 검토 연속 기록 4 (2026-08-30)
+
+- `tests/test_slash_commands_session.py`를 작성자와 무관한 전체 감사 범위에서 정리했다. 세션 Protocol, callback·SQLite 타입, protected 핸들러 호출을 명시적 경계로 보강했다.
+- 해당 파일은 LSP/basedpyright `0 errors, 0 warnings`, Ruff, `git diff --check`를 통과했고 슬래시 커맨드 회귀 `20 passed`를 확인했다.
+- 전체 basedpyright 기준은 `864 files / 0 errors / 20,310 warnings / 0 notes`이며 이전 20,448건 대비 138건 감소했다. 다음 대상은 `scripts/generate_docstrings.py` 133건이다.
+- 기존 사용자 변경 234건을 포함한 dirty tree, 생성물, 삭제 상태 tracked 파일은 stage·revert·commit 없이 보존했다.

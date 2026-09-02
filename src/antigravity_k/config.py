@@ -7,9 +7,10 @@ Apple Silicon M5 Max (128GB) 기준 기본값이 설정되어 있습니다.
 
 import logging
 import os
+from collections.abc import Callable, Mapping, Sequence
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import ClassVar, TypeAlias, TypeVar, cast, final
 
 import yaml
 from pydantic import Field, model_validator
@@ -22,6 +23,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # 모듈 레벨 로거 (config 검증 및 .env 로드 메시지용)
 logger = logging.getLogger("antigravity_k.config")
+
+ConfigValue: TypeAlias = str | int | float | bool | None | list["ConfigValue"] | dict[str, "ConfigValue"]
+ConfigMap: TypeAlias = dict[str, ConfigValue]
+SettingsT = TypeVar("SettingsT", bound=BaseSettings)
 
 
 def _load_dotenv_once() -> None:
@@ -38,7 +43,7 @@ def _load_dotenv_once() -> None:
     try:
         from dotenv import load_dotenv
 
-        load_dotenv(env_path, override=False)
+        _ = load_dotenv(env_path, override=False)
         return
     except ImportError:
         logger.debug("python-dotenv 미설치 — 경량 폴백 파서 사용")
@@ -70,29 +75,32 @@ def _active_config_path() -> Path:
     return default_config_path(PROJECT_ROOT)
 
 
-def _load_yaml_config() -> dict[str, Any]:
+def _load_yaml_config() -> ConfigMap:
     """Load repository config.yaml when present; environment variables still win."""
     config_path = _active_config_path()
     if not config_path.exists():
         return {}
     try:
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        data: object = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    raw_data = cast(dict[object, object], data)
+    return {str(key): cast(ConfigValue, value) for key, value in raw_data.items()}
 
 
 def _section_overrides(
-    raw_config: dict[str, Any],
+    raw_config: ConfigMap,
     section: str,
     config_cls: type[BaseSettings],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     section_data = raw_config.get(section, {})
     if not isinstance(section_data, dict):
         return {}
 
     env_prefix = config_cls.model_config.get("env_prefix", "")
-    overrides: dict[str, Any] = {}
+    overrides: dict[str, object] = {}
     for key, value in section_data.items():
         if key not in config_cls.model_fields:
             continue
@@ -101,6 +109,10 @@ def _section_overrides(
             continue
         overrides[key] = value
     return overrides
+
+
+def _build_settings(config_cls: type[SettingsT], overrides: Mapping[str, object]) -> SettingsT:
+    return config_cls.model_validate(dict(overrides))
 
 
 class ModelConfig(BaseSettings):
@@ -217,7 +229,7 @@ class ModelConfig(BaseSettings):
 
             logging.getLogger("antigravity_k.config").warning(
                 "OpenRouter 엔진이 선택되었지만 API 키가 설정되지 않았습니다. "
-                "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 확인하세요.",
+                + "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 확인하세요.",
             )
 
         return self
@@ -231,7 +243,7 @@ class ModelConfig(BaseSettings):
     temperature: float = Field(default=0.7, description="생성 온도")
     top_p: float = Field(default=0.9, description="top-p 샘플링")
 
-    model_config = SettingsConfigDict(env_prefix="AGK_MODEL_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_MODEL_")
 
 
 class ServerConfig(BaseSettings):
@@ -241,7 +253,7 @@ class ServerConfig(BaseSettings):
     port: int = Field(default=8400, description="API 서버 포트")
     inference_port: int = Field(default=8401, description="추론 엔진 포트")
 
-    model_config = SettingsConfigDict(env_prefix="AGK_SERVER_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_SERVER_")
 
 
 class PathConfig(BaseSettings):
@@ -258,7 +270,7 @@ class PathConfig(BaseSettings):
         description="마크다운 위키 저장 경로",
     )
 
-    model_config = SettingsConfigDict(env_prefix="AGK_PATH_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_PATH_")
 
 
 class SecurityConfig(BaseSettings):
@@ -283,7 +295,7 @@ class SecurityConfig(BaseSettings):
     )
     # 추가: 외부 접속 보호용 PIN
     access_pin: str = Field(
-        default="0000",
+        default="",
         description="외부(또는 로컬) 프론트엔드 접속용 보안 PIN (부트스트랩용; 해시화 후 auth_hash_file에 저장)",
     )
     # 인증 토큰 수명(시간)
@@ -307,7 +319,7 @@ class SecurityConfig(BaseSettings):
         description="JWT 서명 비밀키가 저장되는 파일 경로",
     )
 
-    model_config = SettingsConfigDict(env_prefix="AGK_SEC_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_SEC_")
 
 
 class WorkflowConfig(BaseSettings):
@@ -317,7 +329,7 @@ class WorkflowConfig(BaseSettings):
     auto_commit: bool = Field(default=False, description="자동 Git 커밋 활성화")
     auto_artifacts: bool = Field(default=False, description="산출물 자동 생성")
 
-    model_config = SettingsConfigDict(env_prefix="AGK_WORKFLOW_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_WORKFLOW_")
 
 
 class I18nConfig(BaseSettings):
@@ -326,7 +338,7 @@ class I18nConfig(BaseSettings):
     locale: str = Field(default="auto", description="언어 설정 (auto/ko/en/ja)")
     fallback_locale: str = Field(default="en", description="폴백 언어")
 
-    model_config = SettingsConfigDict(env_prefix="AGK_I18N_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_I18N_")
 
 
 class RouterConfig(BaseSettings):
@@ -355,7 +367,7 @@ class RouterConfig(BaseSettings):
     )
     confidence_evaluator_max_tokens: int = Field(default=32, description="신뢰도 평가기 최대 출력 토큰")
 
-    model_config = SettingsConfigDict(env_prefix="AGK_ROUTER_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_ROUTER_")
 
 
 class ComputerUseConfig(BaseSettings):
@@ -373,26 +385,31 @@ class ComputerUseConfig(BaseSettings):
         description="액션 감사 로그 파일 경로",
     )
 
-    model_config = SettingsConfigDict(env_prefix="AGK_CU_")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="AGK_CU_")
 
 
+@final
 class AppConfig:
     """전체 애플리케이션 설정을 통합합니다."""
 
     def __init__(self):
         """Initialize the AppConfig."""
-        self.config_path = _active_config_path()
+        self.config_path: Path = _active_config_path()
         raw_config = _load_yaml_config()
-        self._raw = raw_config
-        self.model = ModelConfig(**_section_overrides(raw_config, "model", ModelConfig))
-        self.server = ServerConfig(**_section_overrides(raw_config, "server", ServerConfig))
-        self.paths = PathConfig(**_section_overrides(raw_config, "paths", PathConfig))
-        self.security = SecurityConfig(**_section_overrides(raw_config, "security", SecurityConfig))
-        self.workflow = WorkflowConfig(**_section_overrides(raw_config, "workflow", WorkflowConfig))
-        self.i18n = I18nConfig(**_section_overrides(raw_config, "i18n", I18nConfig))
-        self.router = RouterConfig(**_section_overrides(raw_config, "router", RouterConfig))
-        self.computer_use = ComputerUseConfig(
-            **_section_overrides(raw_config, "computer_use", ComputerUseConfig),
+        self._raw: ConfigMap = raw_config
+        self.model: ModelConfig = _build_settings(ModelConfig, _section_overrides(raw_config, "model", ModelConfig))
+        self.server: ServerConfig = _build_settings(ServerConfig, _section_overrides(raw_config, "server", ServerConfig))
+        self.paths: PathConfig = _build_settings(PathConfig, _section_overrides(raw_config, "paths", PathConfig))
+        self.security: SecurityConfig = _build_settings(
+            SecurityConfig, _section_overrides(raw_config, "security", SecurityConfig)
+        )
+        self.workflow: WorkflowConfig = _build_settings(
+            WorkflowConfig, _section_overrides(raw_config, "workflow", WorkflowConfig)
+        )
+        self.i18n: I18nConfig = _build_settings(I18nConfig, _section_overrides(raw_config, "i18n", I18nConfig))
+        self.router: RouterConfig = _build_settings(RouterConfig, _section_overrides(raw_config, "router", RouterConfig))
+        self.computer_use: ComputerUseConfig = _build_settings(
+            ComputerUseConfig, _section_overrides(raw_config, "computer_use", ComputerUseConfig)
         )
 
     def ensure_directories(self):
@@ -428,12 +445,12 @@ class AppConfig:
             if not self.model.api_key or self.model.api_key == "none":
                 problems.append(
                     "OpenRouter 엔진이 선택되었지만 API 키가 없습니다. "
-                    "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 설정하세요."
+                    + "OPENROUTER_API_KEY, AGK_OPENROUTER_KEY 또는 AGK_API_KEY 환경변수를 설정하세요."
                 )
         elif engine in {"nim", "nvidia"} and not os.environ.get("NVIDIA_API_KEY"):
             problems.append(
                 "NIM 엔진이 선택되었지만 NVIDIA_API_KEY가 없습니다. "
-                "build.nvidia.com에서 무료 키를 발급받아 설정하세요."
+                + "build.nvidia.com에서 무료 키를 발급받아 설정하세요."
             )
 
         # 2. 포트 유효성
@@ -450,7 +467,7 @@ class AppConfig:
             try:
                 path.mkdir(parents=True, exist_ok=True)
                 test_file = path / ".agk_write_test"
-                test_file.write_text("test", encoding="utf-8")
+                _ = test_file.write_text("test", encoding="utf-8")
                 test_file.unlink()
             except OSError as e:
                 problems.append(f"{label}({path})에 쓰기 권한이 없습니다: {e}")
@@ -458,16 +475,20 @@ class AppConfig:
         # 4. config.yaml 모델 레지스트리 로드 확인
         try:
             model_registry = import_module("antigravity_k.engine.model_registry")
-            registry = model_registry.__dict__["ModelRegistry"]()
-            if not registry.list_models():
+            registry_cls = cast(type[object], model_registry.__dict__["ModelRegistry"])
+            registry = registry_cls()
+            list_models = cast(Callable[[], Sequence[object]], getattr(registry, "list_models"))
+            if not list_models():
                 problems.append("config.yaml에 등록된 모델이 없습니다.")
         except (ImportError, OSError, RuntimeError, TypeError, ValueError) as e:
             problems.append(f"모델 레지스트리 로드 실패: {e}")
 
         # 5. 비용 예산 양수
-        raw = getattr(self, "_raw", {})
-        cost_cfg = raw.get("cost", {}) if isinstance(raw, dict) else {}
-        budget = float(cost_cfg.get("daily_budget_usd", 50.0))
+        raw = cast(ConfigMap, getattr(self, "_raw", {}))
+        cost_value = raw.get("cost", {})
+        cost_cfg = cost_value if isinstance(cost_value, dict) else {}
+        budget_value = cost_cfg.get("daily_budget_usd", 50.0)
+        budget = float(budget_value) if isinstance(budget_value, (int, float, str)) else 50.0
         if budget <= 0:
             problems.append(f"일일 비용 예산이 {budget}입니다 (양수여야 함)")
 

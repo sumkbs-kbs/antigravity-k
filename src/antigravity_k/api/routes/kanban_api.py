@@ -3,10 +3,11 @@
 import asyncio
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import cast
 
-from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from antigravity_k.api.routes.session_state import close_unauthorized_ws
@@ -18,9 +19,30 @@ logger = logging.getLogger("antigravity_k.api.routes.kanban")
 
 # ─── 상태 ────────────────────────────────────────────────────────
 
-kanban_tasks: list[dict[str, Any]] = []
+JsonObject = dict[str, object]
+
+kanban_tasks: list[JsonObject] = []
 task_counter = 100
-kanban_clients: set[Any] = set()
+kanban_clients: set[WebSocket] = set()
+
+
+def _as_text(value: object, default: str = "") -> str:
+    if isinstance(value, str):
+        return value
+    return default if value is None else str(value)
+
+
+def _as_map(value: object) -> JsonObject:
+    if isinstance(value, Mapping):
+        items = cast(Mapping[object, object], value).items()
+        return {str(key): item for key, item in items}
+    return {}
+
+
+def _append_task(payload: dict[str, list[JsonObject]], key: str, task: JsonObject) -> None:
+    bucket = payload.get(key)
+    if bucket is not None:
+        bucket.append(task)
 
 
 def _default_project_path() -> str:
@@ -43,15 +65,17 @@ def _project_name(project_path: str) -> str:
     return path.name or str(path)
 
 
-def _task_matches_workspace(task: dict[str, Any], workspace: str | None) -> bool:
+def _task_matches_workspace(task: JsonObject, workspace: str | None) -> bool:
     if not workspace:
         return True
     expected = _normalize_project_path(workspace)
-    actual = _normalize_project_path(task.get("project_path"))
+    actual = _normalize_project_path(_as_text(task.get("project_path"), ""))
     return actual == expected
 
 
-def _serialize_kanban_payload(tasks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _serialize_kanban_payload(
+    tasks: list[JsonObject] | None = None,
+) -> dict[str, list[JsonObject]]:
     selected = list(tasks if tasks is not None else kanban_tasks)
     payload = {
         "tasks": selected,
@@ -66,21 +90,20 @@ def _serialize_kanban_payload(tasks: list[dict[str, Any]] | None = None) -> dict
         "DONE": [],
     }
     for task in selected:
-        status = task.get("status", "todo")
-        if status in payload:
-            payload[status].append(task)
+        status = _as_text(task.get("status"), "todo")
+        _append_task(payload, status, task)
         if status == "todo":
-            payload["BACKLOG"].append(task)
+            _append_task(payload, "BACKLOG", task)
         elif status == "in_progress":
-            payload["IN_PROGRESS"].append(task)
+            _append_task(payload, "IN_PROGRESS", task)
         elif status == "completed":
-            payload["DONE"].append(task)
+            _append_task(payload, "DONE", task)
         elif status == "cancelled":
-            payload["DONE"].append(task)
+            _append_task(payload, "DONE", task)
     return payload
 
 
-async def broadcast_kanban():
+async def broadcast_kanban() -> None:
     """Broadcast Kanban."""
     # Helper to broadcast the flat task list plus grouped status views.
     message = json.dumps(_serialize_kanban_payload())
@@ -92,10 +115,10 @@ async def broadcast_kanban():
             kanban_clients.discard(client)
 
 
-def _on_agent_turn_started(**kwargs):
+def _on_agent_turn_started(**kwargs: object) -> None:
     global task_counter
-    task_type = kwargs.get("task_type", "Task")
-    role = kwargs.get("role", "WORKER")
+    task_type = _as_text(kwargs.get("task_type"), "Task")
+    role = _as_text(kwargs.get("role"), "WORKER")
 
     # Check if a similar task is already in progress
     for task in kanban_tasks:
@@ -118,8 +141,8 @@ def _on_agent_turn_started(**kwargs):
     task_counter += 1
 
 
-def _on_agent_turn_ended(**kwargs):
-    role = kwargs.get("role", "WORKER")
+def _on_agent_turn_ended(**kwargs: object) -> None:
+    role = _as_text(kwargs.get("role"), "WORKER")
     for task in reversed(kanban_tasks):
         if task["role"] == role and task["status"] == "in_progress":
             task["status"] = "completed"
@@ -149,9 +172,14 @@ async def create_kanban_task(request: Request):
 
     """
     global task_counter
-    data = await request.json()
+    data = _as_map(cast(object, await request.json()))
     project_path = _normalize_project_path(
-        data.get("project_path") or data.get("workspace_path") or data.get("workspace"),
+        _as_text(
+            data.get("project_path")
+            or data.get("workspace_path")
+            or data.get("workspace"),
+            "",
+        ),
     )
     task = {
         "id": f"T{task_counter}",
@@ -172,7 +200,7 @@ async def create_kanban_task(request: Request):
 
 
 @router.get("/api/kanban/tasks")
-async def get_kanban_tasks(workspace: str | None = Query(None)):
+async def get_kanban_tasks(workspace: str | None = None):
     """Retrieve kanban tasks.
 
     Args:
@@ -199,7 +227,7 @@ async def cancel_kanban_task_endpoint(task_id: str):
         from antigravity_k.engine.task_runner import get_task_runner
 
         runner = get_task_runner()
-        runner.cancel_task(task_id)
+        _ = runner.cancel_task(task_id)
     except Exception:
         logger.exception("Engine cancel failed or skipped")
 
@@ -262,7 +290,7 @@ async def websocket_kanban(websocket: WebSocket):
         await websocket.send_text(json.dumps(_serialize_kanban_payload()))
 
         while True:
-            await websocket.receive_text()
+            _ = await websocket.receive_text()
     except (WebSocketDisconnect, asyncio.CancelledError):
         kanban_clients.discard(websocket)
     except Exception:

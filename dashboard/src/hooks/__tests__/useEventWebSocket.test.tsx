@@ -11,14 +11,16 @@ class MockWebSocket {
   static readonly instances: MockWebSocket[] = [];
 
   readonly url: string;
+  readonly protocols: string[] | undefined;
   readyState = MockWebSocket.OPEN;
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onopen: (() => void) | null = null;
 
-  constructor(url: string | URL) {
+  constructor(url: string | URL, protocols?: string | string[]) {
     this.url = url.toString();
+    this.protocols = protocols === undefined ? undefined : typeof protocols === 'string' ? [protocols] : protocols;
     MockWebSocket.instances.push(this);
   }
 
@@ -41,6 +43,7 @@ describe('useEventWebSocket', () => {
   beforeEach(() => {
     MockWebSocket.instances.length = 0;
     localStorage.clear();
+    sessionStorage.clear();
     useUiStore.setState({ mode: 'interactive' });
     vi.stubGlobal('WebSocket', MockWebSocket);
   });
@@ -97,9 +100,9 @@ describe('useEventWebSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it('authenticates the event websocket with the stored PIN', () => {
+  it('authenticates the event websocket with a bearer subprotocol', () => {
     // Given
-    localStorage.setItem('ag_access_pin', 'event pin');
+    sessionStorage.setItem('ag_access_token', 'event-token');
 
     // When
     render(<HookHarness handlers={{}} />);
@@ -109,6 +112,7 @@ describe('useEventWebSocket', () => {
     expect(socketUrl).toBeDefined();
     const parsedUrl = new URL(socketUrl ?? 'ws://invalid');
     expect(parsedUrl.pathname).toBe('/v1/ws/events');
-    expect(parsedUrl.searchParams.get('pin')).toBe('event pin');
+    expect(parsedUrl.search).toBe('');
+    expect(MockWebSocket.instances.at(0)?.protocols).toEqual(['bearer.event-token']);
   });
 });

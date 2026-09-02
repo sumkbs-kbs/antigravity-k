@@ -225,7 +225,7 @@ class OutputQualityComparator:
 
     def _code_accuracy(self, text: str) -> float:
         """코드 블록의 구문 정확성."""
-        code_blocks = re.findall(
+        code_blocks: list[str] = re.findall(
             r"```(?:python)?\s*\n(.*?)```",
             text,
             re.DOTALL,
@@ -236,7 +236,7 @@ class OutputQualityComparator:
         valid = 0
         for block in code_blocks:
             try:
-                compile(block.strip(), "<test>", "exec")
+                _ = compile(block.strip(), "<test>", "exec")
                 valid += 1
             except SyntaxError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)

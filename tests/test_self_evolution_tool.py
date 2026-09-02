@@ -10,11 +10,37 @@ Coverage targets:
 import json
 import os
 import tempfile
+from collections.abc import Callable
+from typing import cast
 
 from antigravity_k.tools.self_evolution_tool import (
+    EvaluationRecord,
+    EvolutionCycle,
     MetacognitiveTracker,
     SelfRewardEvaluator,
 )
+
+
+def _evaluation_history(evaluator: SelfRewardEvaluator) -> list[EvaluationRecord]:
+    return cast(list[EvaluationRecord], getattr(evaluator, "_history"))
+
+
+def _cycles(tracker: MetacognitiveTracker) -> list[EvolutionCycle]:
+    return cast(list[EvolutionCycle], getattr(tracker, "_cycles"))
+
+
+def _persist_path(tracker: MetacognitiveTracker) -> str | None:
+    return cast(str | None, getattr(tracker, "_persist_path"))
+
+
+def _save(tracker: MetacognitiveTracker) -> None:
+    save = cast(Callable[[], None], getattr(tracker, "_save"))
+    save()
+
+
+def _score_to_grade(score: float) -> str:
+    score_to_grade = cast(Callable[[float], str], getattr(SelfRewardEvaluator, "_score_to_grade"))
+    return score_to_grade(score)
 
 # ═══════════════════════════════════════════════════════════════════
 # SelfRewardEvaluator tests
@@ -34,7 +60,7 @@ class TestSelfRewardEvaluatorInit:
 
     def test_empty_history(self):
         evaluator = SelfRewardEvaluator()
-        assert evaluator._history == []
+        assert _evaluation_history(evaluator) == []
 
 
 class TestSelfRewardEvaluatorEvaluate:
@@ -97,11 +123,12 @@ class TestSelfRewardEvaluatorEvaluate:
     def test_history_recorded(self):
         """평가 결과가 히스토리에 기록됨."""
         evaluator = SelfRewardEvaluator()
-        evaluator.evaluate("task1", "output1")
-        evaluator.evaluate("task2", "output2")
-        assert len(evaluator._history) == 2
-        assert "task1" in evaluator._history[0]["task"]
-        assert "task2" in evaluator._history[1]["task"]
+        _ = evaluator.evaluate("task1", "output1")
+        _ = evaluator.evaluate("task2", "output2")
+        history = _evaluation_history(evaluator)
+        assert len(history) == 2
+        assert "task1" in history[0]["task"]
+        assert "task2" in history[1]["task"]
 
     def test_low_score_detects_weaknesses(self):
         """낮은 점수 항목이 weaknesses에 포함됨."""
@@ -196,30 +223,30 @@ class TestSelfRewardEvaluatorScoreToGrade:
     """_score_to_grade() — 점수에 따른 등급."""
 
     def test_grade_s(self):
-        assert SelfRewardEvaluator._score_to_grade(9.5) == "S"
-        assert SelfRewardEvaluator._score_to_grade(9.0) == "S"
+        assert _score_to_grade(9.5) == "S"
+        assert _score_to_grade(9.0) == "S"
 
     def test_grade_a(self):
-        assert SelfRewardEvaluator._score_to_grade(8.0) == "A"
-        assert SelfRewardEvaluator._score_to_grade(8.9) == "A"
+        assert _score_to_grade(8.0) == "A"
+        assert _score_to_grade(8.9) == "A"
 
     def test_grade_b(self):
-        assert SelfRewardEvaluator._score_to_grade(7.0) == "B"
-        assert SelfRewardEvaluator._score_to_grade(7.9) == "B"
+        assert _score_to_grade(7.0) == "B"
+        assert _score_to_grade(7.9) == "B"
 
     def test_grade_c(self):
-        assert SelfRewardEvaluator._score_to_grade(5.0) == "C"
-        assert SelfRewardEvaluator._score_to_grade(6.9) == "C"
+        assert _score_to_grade(5.0) == "C"
+        assert _score_to_grade(6.9) == "C"
 
     def test_grade_f(self):
-        assert SelfRewardEvaluator._score_to_grade(4.9) == "F"
-        assert SelfRewardEvaluator._score_to_grade(0.0) == "F"
+        assert _score_to_grade(4.9) == "F"
+        assert _score_to_grade(0.0) == "F"
 
     def test_boundary_values(self):
         """경계값 테스트."""
-        assert SelfRewardEvaluator._score_to_grade(8.999) == "A"
-        assert SelfRewardEvaluator._score_to_grade(7.001) == "B"
-        assert SelfRewardEvaluator._score_to_grade(5.001) == "C"
+        assert _score_to_grade(8.999) == "A"
+        assert _score_to_grade(7.001) == "B"
+        assert _score_to_grade(5.001) == "C"
 
 
 class TestSelfRewardEvaluatorGetTrend:
@@ -235,7 +262,7 @@ class TestSelfRewardEvaluatorGetTrend:
     def test_single_entry(self):
         """단일 기록에서 트렌드."""
         evaluator = SelfRewardEvaluator()
-        evaluator.evaluate("task", "good output that is long enough for testing" * 10)
+        _ = evaluator.evaluate("task", "good output that is long enough for testing" * 10)
         trend = evaluator.get_trend(last_n=10)
         assert len(trend["avg_trend"]) == 1
         assert trend["improving"] is None  # 3개 미만이므로 None
@@ -246,7 +273,7 @@ class TestSelfRewardEvaluatorGetTrend:
         # 더 나빠지는 출력
         for i in range(5):
             output = "OK" if i > 2 else "A very long and detailed output that is complete " * 20
-            evaluator.evaluate("task", output)
+            _ = evaluator.evaluate("task", output)
         trend = evaluator.get_trend(last_n=10)
         # 5개 이상 기록이 있으므로 improving은 bool
         assert isinstance(trend["improving"], bool)
@@ -262,12 +289,12 @@ class TestMetacognitiveTrackerInit:
 
     def test_default_persist_path(self):
         tracker = MetacognitiveTracker()
-        assert tracker._persist_path is None
-        assert tracker._cycles == []
+        assert _persist_path(tracker) is None
+        assert _cycles(tracker) == []
 
     def test_custom_persist_path(self):
         tracker = MetacognitiveTracker(persist_path="/tmp/test_meta.json")
-        assert tracker._persist_path == "/tmp/test_meta.json"
+        assert _persist_path(tracker) == "/tmp/test_meta.json"
 
 
 class TestMetacognitiveTrackerRecord:
@@ -276,8 +303,9 @@ class TestMetacognitiveTrackerRecord:
     def test_single_record(self):
         tracker = MetacognitiveTracker()
         tracker.record_evolution_cycle("fix bug", 5.0, 7.0, True, "improved validation")
-        assert len(tracker._cycles) == 1
-        cycle = tracker._cycles[0]
+        cycles = _cycles(tracker)
+        assert len(cycles) == 1
+        cycle = cycles[0]
         assert cycle["task"] == "fix bug"
         assert cycle["before"] == 5.0
         assert cycle["after"] == 7.0
@@ -289,7 +317,7 @@ class TestMetacognitiveTrackerRecord:
         """점수가 하락한 사이클 기록."""
         tracker = MetacognitiveTracker()
         tracker.record_evolution_cycle("bad change", 7.0, 5.0, True, "made things worse")
-        cycle = tracker._cycles[0]
+        cycle = _cycles(tracker)[0]
         assert cycle["delta"] == -2.0
         assert cycle["improved"] is False
 
@@ -297,20 +325,20 @@ class TestMetacognitiveTrackerRecord:
         """개선이 적용되지 않은 사이클."""
         tracker = MetacognitiveTracker()
         tracker.record_evolution_cycle("test", 5.0, 5.0, False)
-        assert tracker._cycles[0]["improvement_applied"] is False
+        assert _cycles(tracker)[0]["improvement_applied"] is False
 
     def test_multiple_records(self):
         tracker = MetacognitiveTracker()
         for i in range(5):
             tracker.record_evolution_cycle(f"task{i}", float(i), float(i + 1), True)
-        assert len(tracker._cycles) == 5
+        assert len(_cycles(tracker)) == 5
 
     def test_task_truncation(self):
         """긴 태스크 이름은 200자로 제한."""
         tracker = MetacognitiveTracker()
         long_task = "A" * 500
         tracker.record_evolution_cycle(long_task, 5.0, 7.0, True)
-        assert len(tracker._cycles[0]["task"]) == 200
+        assert len(_cycles(tracker)[0]["task"]) == 200
 
 
 class TestMetacognitiveTrackerGetEffectiveness:
@@ -391,11 +419,11 @@ class TestMetacognitiveTrackerSave:
         try:
             tracker = MetacognitiveTracker(persist_path=tmp_path)
             tracker.record_evolution_cycle("test task", 5.0, 8.0, True, "improved")
-            tracker._save()
+            _save(tracker)
 
             assert os.path.exists(tmp_path)
             with open(tmp_path, encoding="utf-8") as f:
-                data = json.load(f)
+                data = cast(list[EvolutionCycle], json.load(f))
             assert len(data) == 1
             assert data[0]["task"] == "test task"
             assert data[0]["delta"] == 3.0
@@ -407,7 +435,7 @@ class TestMetacognitiveTrackerSave:
         """persist_path가 None이면 저장하지 않고 에러 없음."""
         tracker = MetacognitiveTracker()
         tracker.record_evolution_cycle("test", 5.0, 7.0, True)
-        tracker._save()  # should not raise
+        _save(tracker)  # should not raise
 
 
 class TestMetacognitiveTrackerEdgeCases:
@@ -418,7 +446,7 @@ class TestMetacognitiveTrackerEdgeCases:
         tracker = MetacognitiveTracker()
         for i in range(100):
             tracker.record_evolution_cycle(f"task-{i}", 5.0, 7.0, True)
-        assert len(tracker._cycles) == 100
+        assert len(_cycles(tracker)) == 100
         report = tracker.get_effectiveness_report()
         assert report["total_cycles"] == 100
 

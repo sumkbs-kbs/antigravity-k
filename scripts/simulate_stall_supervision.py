@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from antigravity_k.engine.flight_controller import AutonomousFlightController
+from antigravity_k.engine.flight_controller import AutonomousFlightController, SubgoalInput
 
 
 def _controller(max_turns: int = 20) -> AutonomousFlightController:
@@ -40,7 +40,7 @@ def _sequential_executor(outcomes: list[bool]):
     return executor
 
 
-def _subgoals(n: int) -> list[dict[str, object]]:
+def _subgoals(n: int) -> list[SubgoalInput]:
     return [{"id": f"s{i}", "desc": f"independent step {i}"} for i in range(1, n + 1)]
 
 

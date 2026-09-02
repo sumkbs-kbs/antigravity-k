@@ -16,7 +16,61 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Callable, Mapping, MutableMapping
 from pathlib import Path
+from typing import cast
+
+from antigravity_k.engine.skill_installer import InstallValidation, SecurityReport, SkillInstaller
+from antigravity_k.engine.skill_market_client import JsonValue, SkillDetail, SkillMarketClient
+from antigravity_k.engine.slash_commands import SlashCommandRegistry
+from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
+
+
+def _parse_view_result(client: SkillMarketClient, package_name: str, raw: Mapping[str, JsonValue]) -> SkillDetail:
+    parser = cast(Callable[[str, Mapping[str, JsonValue]], SkillDetail], getattr(client, "_parse_view_result"))
+    return parser(package_name, raw)
+
+
+def _validate_package(installer: SkillInstaller, npm_path: Path, package_name: str) -> InstallValidation:
+    validator = cast(Callable[[Path, str], InstallValidation], getattr(installer, "_validate_package"))
+    return validator(npm_path, package_name)
+
+
+def _security_scan(installer: SkillInstaller, npm_path: Path, skill_name: str) -> SecurityReport:
+    scanner = cast(Callable[[Path, str], SecurityReport], getattr(installer, "_security_scan"))
+    return scanner(npm_path, skill_name)
+
+
+def _write_meta(
+    installer: SkillInstaller,
+    dest_dir: Path,
+    package_name: str,
+    validation: InstallValidation,
+    security: SecurityReport,
+) -> None:
+    writer = cast(Callable[[Path, str, InstallValidation, SecurityReport], None], getattr(installer, "_write_meta"))
+    writer(dest_dir, package_name, validation, security)
+
+
+def _copy_to_market(installer: SkillInstaller, src: Path, dest: Path) -> tuple[bool, str]:
+    copier = cast(Callable[[Path, Path], tuple[bool, str]], getattr(installer, "_copy_to_market"))
+    return copier(src, dest)
+
+
+def _parse_skill_name(package_name: str) -> str:
+    parser = cast(Callable[[str], str], getattr(SkillInstaller, "_parse_skill_name"))
+    return parser(package_name)
+
+
+def _clear_skill_servers() -> None:
+    servers = cast(MutableMapping[str, Mapping[str, JsonValue]], getattr(MCPServerRegistry, "_skill_servers"))
+    servers.clear()
+
+
+def _cmd_market(registry: SlashCommandRegistry, args: list[str]) -> str:
+    command = cast(Callable[[list[str]], str], getattr(registry, "_cmd_market"))
+    return command(args)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # D8: SkillMarketClient 데이터 모델 + 파싱 + 설치 상태 관리
@@ -85,7 +139,7 @@ class TestD8_SkillMarketClient_DataModels:
         }
         # _parse_view_result is an instance method — create minimal client
         client = SkillMarketClient()
-        detail = client._parse_view_result("@antigravity-k/skill-code-review", raw)
+        detail = _parse_view_result(client, "@antigravity-k/skill-code-review", raw)
 
         assert isinstance(detail, SkillDetail)
         assert detail.name == "@antigravity-k/skill-code-review"
@@ -113,7 +167,7 @@ class TestD8_SkillMarketClient_DataModels:
 
         raw = {"name": "@antigravity-k/skill-test", "version": "1.0.0", "description": "Test"}
         client = SkillMarketClient()
-        detail = client._parse_view_result("@antigravity-k/skill-test", raw)
+        detail = _parse_view_result(client, "@antigravity-k/skill-test", raw)
 
         assert detail.agk_skill is True  # name starts with AGK_SKILL_SCOPE
         assert detail.agk_risk_level == "medium"  # default
@@ -126,7 +180,7 @@ class TestD8_SkillMarketClient_DataModels:
 
         raw = {"name": "lodash", "version": "4.17.21", "description": "Utility lib"}
         client = SkillMarketClient()
-        detail = client._parse_view_result("lodash", raw)
+        detail = _parse_view_result(client, "lodash", raw)
 
         assert detail.name == "lodash"
         assert detail.version == "4.17.21"
@@ -226,7 +280,7 @@ class TestD9_SkillInstaller:
         }
         _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "@antigravity-k/skill-test")
+        validation = _validate_package(SkillInstaller(str(tmp_path)), npm_path, "@antigravity-k/skill-test")
         assert validation.valid is True
         assert validation.version == "1.0.0"
         assert validation.risk_level == "safe"
@@ -241,7 +295,7 @@ class TestD9_SkillInstaller:
         pkg_json = {"name": "lodash", "version": "4.17.21", "antigravityK": {"skill": False}}
         _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "lodash")
+        validation = _validate_package(SkillInstaller(str(tmp_path)), npm_path, "lodash")
         assert validation.valid is False
 
     def test_validate_package_missing_package_json(self, tmp_path: Path):
@@ -251,7 +305,7 @@ class TestD9_SkillInstaller:
         npm_path = tmp_path / "node_modules" / "broken"
         npm_path.mkdir(parents=True)
         # No package.json
-        validation = SkillInstaller(str(tmp_path))._validate_package(npm_path, "@antigravity-k/skill-broken")
+        validation = _validate_package(SkillInstaller(str(tmp_path)), npm_path, "@antigravity-k/skill-broken")
         assert validation.valid is False
         assert "package.json not found" in validation.reason
 
@@ -268,7 +322,7 @@ class TestD9_SkillInstaller:
         }
         _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-sensitive")
+        validation = _validate_package(SkillInstaller(None), npm_path, "@antigravity-k/skill-sensitive")
         assert validation.valid is True
         assert validation.requires_approval is True
         assert validation.risk_level == "high"
@@ -289,7 +343,7 @@ class TestD9_SkillInstaller:
         }
         _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-mcp")
+        validation = _validate_package(SkillInstaller(None), npm_path, "@antigravity-k/skill-mcp")
         assert validation.mcp_server_id == "my-mcp-server"
 
     def test_validate_package_platform_mismatch(self, tmp_path: Path):
@@ -305,7 +359,7 @@ class TestD9_SkillInstaller:
         }
         _ = (npm_path / "package.json").write_text(json.dumps(pkg_json, ensure_ascii=False, indent=2))
 
-        validation = SkillInstaller(None)._validate_package(npm_path, "@antigravity-k/skill-platform")
+        validation = _validate_package(SkillInstaller(None), npm_path, "@antigravity-k/skill-platform")
         assert validation.valid is False
         assert "플랫폼" in validation.reason or "platform" in validation.reason.lower()
 
@@ -316,7 +370,7 @@ class TestD9_SkillInstaller:
         npm_path = tmp_path / "node_modules" / "empty"
         npm_path.mkdir(parents=True)
 
-        report = SkillInstaller(str(tmp_path))._security_scan(npm_path, "empty")
+        report = _security_scan(SkillInstaller(str(tmp_path)), npm_path, "empty")
         assert report.passed is True
         assert len(report.findings) == 0
 
@@ -331,7 +385,7 @@ class TestD9_SkillInstaller:
         ref_dir.mkdir()
         _ = (ref_dir / "security.md").write_text("API_KEY=sk-1234567890abcdef")
 
-        report = SkillInstaller(str(tmp_path))._security_scan(npm_path, "skill")
+        report = _security_scan(SkillInstaller(str(tmp_path)), npm_path, "skill")
         assert len(report.warnings) >= 1  # API_KEY pattern detected as warning
 
     def test_write_meta_with_mcp_config(self, tmp_path: Path):
@@ -361,12 +415,13 @@ class TestD9_SkillInstaller:
             mcp_server_id="my-server",
         )
         security = SecurityReport(passed=True)
-        SkillInstaller(str(tmp_path))._write_meta(dest_dir, "@antigravity-k/skill-mcp", validation, security)
+        _write_meta(SkillInstaller(str(tmp_path)), dest_dir, "@antigravity-k/skill-mcp", validation, security)
 
-        meta = json.loads((dest_dir / ".agk_meta.json").read_text(encoding="utf-8"))
-        assert meta["mcp_config"]["command"] == "node"
-        assert meta["mcp_config"]["args"] == ["server.js"]
-        assert meta["mcp_config"]["env"] == {"KEY": "VAL"}
+        meta = cast(dict[str, JsonValue], json.loads((dest_dir / ".agk_meta.json").read_text(encoding="utf-8")))
+        mcp_config = cast(dict[str, JsonValue], meta["mcp_config"])
+        assert mcp_config["command"] == "node"
+        assert mcp_config["args"] == ["server.js"]
+        assert mcp_config["env"] == {"KEY": "VAL"}
 
     def test_copy_to_market_copies_files(self, tmp_path: Path):
         """_copy_to_market → package.json + SKILL.md 복사 확인."""
@@ -378,7 +433,7 @@ class TestD9_SkillInstaller:
         _ = (src / "SKILL.md").write_text("# Test skill")
 
         dest = tmp_path / "market" / "skill-test"
-        ok, _err = SkillInstaller(None)._copy_to_market(src, dest)
+        ok, _err = _copy_to_market(SkillInstaller(None), src, dest)
         assert ok is True
         assert _err == ""
         assert (dest / "package.json").exists()
@@ -399,7 +454,7 @@ class TestD9_SkillInstaller:
         _ = (src / ".agkignore").write_text("tests")
 
         dest = tmp_path / "market" / "skill-test"
-        ok, _err = SkillInstaller(None)._copy_to_market(src, dest)
+        ok, _err = _copy_to_market(SkillInstaller(None), src, dest)
         assert ok is True
         assert (dest / "package.json").exists()
         assert (dest / "SKILL.md").exists()
@@ -407,11 +462,9 @@ class TestD9_SkillInstaller:
 
     def test_parse_skill_name_edge_cases(self):
         """스킬명 파싱 엣지케이스."""
-        from antigravity_k.engine.skill_installer import SkillInstaller
-
-        assert SkillInstaller._parse_skill_name("") == ""
-        assert SkillInstaller._parse_skill_name("@antigravity-k/skill-") == ""
-        assert SkillInstaller._parse_skill_name("simple-name") == "simple-name"
+        assert _parse_skill_name("") == ""
+        assert _parse_skill_name("@antigravity-k/skill-") == ""
+        assert _parse_skill_name("simple-name") == "simple-name"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -576,9 +629,7 @@ class TestD11_MCPServerRegistry_Advanced:
 
     def setup_method(self):
         """각 테스트 전 MCPServerRegistry._skill_servers 정리."""
-        from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
-
-        MCPServerRegistry._skill_servers.clear()
+        _clear_skill_servers()
 
     def test_register_and_get_by_skill_name(self):
         """등록 후 특정 스킬명으로 조회."""
@@ -638,8 +689,9 @@ class TestD11_MCPServerRegistry_Advanced:
             output = Path(tmpdir) / ".mcp.json"
             reg = MCPServerRegistry()
             _ = reg.generate_config_with_skills(str(output))
-            config = json.loads(output.read_text(encoding="utf-8"))
-            assert "filesystem" in config["mcpServers"]
+            config = cast(dict[str, JsonValue], json.loads(output.read_text(encoding="utf-8")))
+            mcp_servers = cast(Mapping[str, JsonValue], config["mcpServers"])
+            assert "filesystem" in mcp_servers
 
     def test_get_catalog_summary_includes_skill(self):
         """get_catalog_summary에 스킬 서버 태그 포함."""
@@ -807,7 +859,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market([])
+        result = _cmd_market(registry, [])
         assert "/market" in result
         assert "search" in result
         assert "install" in result
@@ -820,7 +872,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market(["unknown-sub"])
+        result = _cmd_market(registry, ["unknown-sub"])
         assert "알 수 없는" in result or "unknown" in result.lower()
 
     def test_slash_market_install_no_package(self):
@@ -828,7 +880,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market(["install"])
+        result = _cmd_market(registry, ["install"])
         assert "Usage" in result or "install" in result
 
     def test_slash_market_remove_no_name(self):
@@ -836,7 +888,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market(["remove"])
+        result = _cmd_market(registry, ["remove"])
         assert "Usage" in result or "remove" in result
 
     def test_slash_market_search_no_query(self):
@@ -844,7 +896,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market(["search"])
+        result = _cmd_market(registry, ["search"])
         assert "Usage" in result or "search" in result
 
     def test_slash_market_info_no_name(self):
@@ -852,7 +904,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market(["info"])
+        result = _cmd_market(registry, ["info"])
         assert "Usage" in result or "info" in result
 
     def test_slash_market_list_alias(self):
@@ -860,8 +912,8 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result_list = registry._cmd_market(["list"])
-        result_ls = registry._cmd_market(["ls"])
+        result_list = _cmd_market(registry, ["list"])
+        result_ls = _cmd_market(registry, ["ls"])
         assert isinstance(result_list, str)
         assert isinstance(result_ls, str)
 
@@ -870,7 +922,7 @@ class TestD12_CLI_Slash_Market:
         from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
         registry = SlashCommandRegistry()
-        result = registry._cmd_market(["install", "@antigravity-k/skill-test"])
+        result = _cmd_market(registry, ["install", "@antigravity-k/skill-test"])
         # Install without market deps should show error, not crash
         assert isinstance(result, str)
         assert len(result) > 0
@@ -1129,33 +1181,34 @@ class TestWeek2_E2E_MarketplaceLifecycle:
         installer = SkillInstaller(project_root=str(tmp_path))
 
         # ── Step 2: Validate ──
-        validation = installer._validate_package(npm_path, "@antigravity-k/skill-test")
+        validation = _validate_package(installer, npm_path, "@antigravity-k/skill-test")
         assert validation.valid is True
         assert validation.version == "1.5.0"
 
         # ── Step 3: Security scan ──
-        security = installer._security_scan(npm_path, "skill-test")
+        security = _security_scan(installer, npm_path, "skill-test")
         assert security.passed is True
 
         # ── Step 4: Copy to market ──
         dest = tmp_path / ".agent" / "skills" / "market" / "skill-test"
-        ok, _err = installer._copy_to_market(npm_path, dest)
+        ok, _err = _copy_to_market(installer, npm_path, dest)
         assert ok is True
         assert (dest / "SKILL.md").exists()
         assert (dest / "package.json").exists()
         assert (dest / "references" / "help.md").exists()
 
         # ── Step 5: Write meta ──
-        installer._write_meta(dest, "@antigravity-k/skill-test", validation, security)
+        _write_meta(installer, dest, "@antigravity-k/skill-test", validation, security)
         meta_path = dest / ".agk_meta.json"
         assert meta_path.exists()
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta = cast(dict[str, JsonValue], json.loads(meta_path.read_text(encoding="utf-8")))
         assert meta["name"] == "@antigravity-k/skill-test"
         assert meta["version"] == "1.5.0"
         assert meta["security_passed"] is True
 
         # ── Step 6: Cleanup 시뮬레이션 ──
-        installer._cleanup_npm(npm_path)
+        cleanup = cast(Callable[[Path], None], getattr(installer, "_cleanup_npm"))
+        cleanup(npm_path)
         assert not npm_path.exists()  # node_modules 정리됨
 
         # ── 최종: SkillMarketClient가 읽을 수 있는지 확인 ──

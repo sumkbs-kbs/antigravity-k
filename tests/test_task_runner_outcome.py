@@ -1,12 +1,38 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 from antigravity_k.engine.benchmark_harness import TaskOutcome
 from antigravity_k.engine.self_capability import is_self_capability_request
+from antigravity_k.engine.task_execution_context import TaskStateStoreProtocol
 from antigravity_k.engine.task_runner import BackgroundTask, BackgroundTaskRunner, TaskStatus
 from antigravity_k.engine.task_state_store import TaskExecutionContext
+
+
+def _task_for(runner: BackgroundTaskRunner, task_id: str) -> BackgroundTask:
+    tasks = cast(dict[str, BackgroundTask], getattr(runner, "_tasks"))
+    return tasks[task_id]
+
+
+def _set_task(runner: BackgroundTaskRunner, task_id: str, task: BackgroundTask) -> None:
+    tasks = cast(dict[str, BackgroundTask], getattr(runner, "_tasks"))
+    tasks[task_id] = task
+
+
+def _thread_for(task: BackgroundTask) -> object:
+    return cast(object, getattr(task, "_thread"))
+
+
+def _save_to_vault(runner: BackgroundTaskRunner, task: BackgroundTask) -> object:
+    save = cast(Callable[[BackgroundTask], object], getattr(runner, "_save_to_vault"))
+    return save(task)
+
+
+def _run_task(runner: BackgroundTaskRunner, task: BackgroundTask, orchestrator: object) -> object:
+    run = cast(Callable[[BackgroundTask, object | None, str], object], getattr(runner, "_run_task"))
+    return run(task, orchestrator, "qwen3.6:latest")
 
 
 class FakeOrchestrator:
@@ -33,11 +59,12 @@ def test_runner_records_successful_task_outcome(tmp_path: Path):
         orchestrator=FakeOrchestrator(),
         target_model="qwen3.6:latest",
     )
-    thread = runner._tasks[task_id]._thread
+    task = _task_for(runner, task_id)
+    thread = _thread_for(task)
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
-    assert runner._tasks[task_id].status == TaskStatus.DONE
+    assert task.status == TaskStatus.DONE
     assert len(outcomes) == 1
     assert outcomes[0].case_id == task_id
     assert outcomes[0].success is True
@@ -71,7 +98,7 @@ def test_runner_redacts_secrets_before_persisting_task_artifact(tmp_path: Path):
     task.status = TaskStatus.DONE
     task.output = f"Authorization: Bearer {output_secret}"
 
-    runner._save_to_vault(task)
+    _ = _save_to_vault(runner, task)
 
     assert len(vault.write_calls) == 1
     content = vault.write_calls[0]["content"]
@@ -94,9 +121,9 @@ def test_runner_records_benchmark_case_id_instead_of_ephemeral_task_id(tmp_path:
         orchestrator=FakeOrchestrator(),
         target_model="qwen3.6:latest",
     )
-    thread = runner._tasks[task_id]._thread
+    thread = _thread_for(_task_for(runner, task_id))
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
     assert outcomes[0].case_id == "srch-002"
     assert outcomes[0].calibration_eligible is True
@@ -137,11 +164,11 @@ def test_runner_rejects_invalid_benchmark_output_without_persisting_memory(tmp_p
         orchestrator=EmptyResponseOrchestrator(),
         target_model="qwen3.6:latest",
     )
-    thread = runner._tasks[task_id]._thread
+    thread = _thread_for(_task_for(runner, task_id))
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
-    task = runner._tasks[task_id]
+    task = _task_for(runner, task_id)
     assert task.status == TaskStatus.FAILED
     assert task.error == "Benchmark output missing required content: def fibonacci, O(, raise, return"
     assert outcomes[0].success is False
@@ -168,9 +195,9 @@ def test_runner_keeps_execution_context_out_of_user_intent(tmp_path: Path):
         orchestrator=orchestrator,
         target_model="qwen3.6:latest",
     )
-    thread = runner._tasks[task_id]._thread
+    thread = _thread_for(_task_for(runner, task_id))
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
     assert is_self_capability_request(orchestrator.messages[0]["content"]) is False
     assert orchestrator.messages[1]["role"] == "system"
@@ -193,11 +220,14 @@ def test_runner_marks_answer_only_task_as_direct_response(tmp_path: Path):
         orchestrator=orchestrator,
         target_model="qwen3.6:latest",
     )
-    thread = runner._tasks[task_id]._thread
+    thread = _thread_for(_task_for(runner, task_id))
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
-    execution_context = json.loads(orchestrator.messages[1]["content"].split(": ", 1)[1])
+    execution_context = cast(
+        dict[str, object],
+        json.loads(orchestrator.messages[1]["content"].split(": ", 1)[1]),
+    )
     assert execution_context["direct_response"] is True
 
 
@@ -209,11 +239,11 @@ def test_runner_records_failed_task_outcome(tmp_path: Path):
     )
 
     task_id = runner.submit_task("will fail", orchestrator=None, target_model="qwen3.6:latest")
-    thread = runner._tasks[task_id]._thread
+    thread = _thread_for(_task_for(runner, task_id))
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
-    assert runner._tasks[task_id].status == TaskStatus.FAILED
+    assert _task_for(runner, task_id).status == TaskStatus.FAILED
     assert len(outcomes) == 1
     assert outcomes[0].success is False
     assert outcomes[0].completion_reason == "failed"
@@ -222,13 +252,13 @@ def test_runner_records_failed_task_outcome(tmp_path: Path):
 
 def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path: Path):
     class QualityFailingOrchestrator:
-        vault_engine = None
+        vault_engine: object | None = None
 
         def __init__(self):
             self.task_execution_context: TaskExecutionContext | None = None
 
         @contextmanager
-        def bind_task_execution(self, task_id: str, state_store: object) -> Iterator[None]:
+        def bind_task_execution(self, task_id: str, state_store: TaskStateStoreProtocol) -> Generator[None, None, None]:
             self.task_execution_context = TaskExecutionContext(task_id, state_store)
             try:
                 yield
@@ -238,7 +268,7 @@ def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path:
         def run_stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
             del messages, target_model
             assert self.task_execution_context is not None
-            self.task_execution_context.state_store.transition(
+            _ = self.task_execution_context.state_store.transition(
                 self.task_execution_context.task_id,
                 "failed",
                 output="invalid output",
@@ -270,11 +300,11 @@ def test_runner_preserves_quality_gate_failure_and_rolls_back_snapshot(tmp_path:
         orchestrator=QualityFailingOrchestrator(),
         target_model="qwen3.6:latest",
     )
-    thread = runner._tasks[task_id]._thread
+    thread = _thread_for(_task_for(runner, task_id))
     assert thread is not None
-    thread.join(timeout=2)
+    _ = cast(Callable[..., object], getattr(thread, "join"))(timeout=2)
 
-    task = runner._tasks[task_id]
+    task = _task_for(runner, task_id)
     assert task.status == TaskStatus.FAILED
     assert task.error == "quality_gate_failed: incomplete answer"
     assert outcomes[0].success is False
@@ -303,10 +333,10 @@ def test_runner_rolls_back_snapshot_on_failure(tmp_path: Path):
     vault = FakeVault()
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"), vault_engine=vault)
     task_id = "task-rollback"
-    runner.state_store.create_task(task_id, "will fail", "pending", "2026-01-01T00:00:00")
+    _ = runner.state_store.create_task(task_id, "will fail", "pending", "2026-01-01T00:00:00")
     task = BackgroundTask(task_id, "will fail")
 
-    runner._run_task(task, FailingOrchestrator(), "qwen3.6:latest")
+    _ = _run_task(runner, task, FailingOrchestrator())
 
     assert task.status == TaskStatus.FAILED
     assert vault.restored == ["snapshot-1"]
@@ -319,12 +349,12 @@ def test_runner_records_cancelled_task_outcome(tmp_path: Path):
         outcome_recorder=outcomes.append,
     )
     task_id = "task-cancelled"
-    runner.state_store.create_task(task_id, "cancel me", "pending", "2026-01-01T00:00:00")
+    _ = runner.state_store.create_task(task_id, "cancel me", "pending", "2026-01-01T00:00:00")
     task = BackgroundTask(task_id, "cancel me")
     task.cancel_event.set()
-    runner._tasks[task_id] = task
+    _set_task(runner, task_id, task)
 
-    runner._run_task(task, FakeOrchestrator(), "qwen3.6:latest")
+    _ = _run_task(runner, task, FakeOrchestrator())
 
     assert len(outcomes) == 1
     assert outcomes[0].success is False
@@ -334,9 +364,9 @@ def test_runner_records_cancelled_task_outcome(tmp_path: Path):
 def test_runner_cancel_keeps_in_memory_status_in_sync_with_durable_state(tmp_path: Path):
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
     task_id = "task-cancel-api"
-    runner.state_store.create_task(task_id, "cancel me", "pending", "2026-01-01T00:00:00")
+    _ = runner.state_store.create_task(task_id, "cancel me", "pending", "2026-01-01T00:00:00")
     task = BackgroundTask(task_id, "cancel me")
-    runner._tasks[task_id] = task
+    _set_task(runner, task_id, task)
 
     assert runner.cancel_task(task_id) is True
 

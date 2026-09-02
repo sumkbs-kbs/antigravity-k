@@ -1,16 +1,27 @@
 import importlib
 import json
 import os
+import subprocess
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol, cast
 from unittest import mock
 
 zipcode_search = importlib.import_module("scripts.zipcode_search")
-SEARCH_URL = zipcode_search.SEARCH_URL
-AddressSearchResult = zipcode_search.AddressSearchResult
-fetch_search_page = zipcode_search.fetch_search_page
-lookup_korean_address = zipcode_search.lookup_korean_address
-parse_search_results = zipcode_search.parse_search_results
+
+
+class _AddressResponseLike(Protocol):
+    def to_json(self) -> str: ...
+
+
+SEARCH_URL = cast(str, zipcode_search.SEARCH_URL)
+AddressSearchResult = cast(Callable[..., object], zipcode_search.AddressSearchResult)
+fetch_search_page = cast(Callable[..., str], zipcode_search.fetch_search_page)
+lookup_korean_address = cast(
+    Callable[..., _AddressResponseLike], zipcode_search.lookup_korean_address
+)
+parse_search_results = cast(Callable[[str], list[object]], zipcode_search.parse_search_results)
 
 SAMPLE_HTML = """
 <table>
@@ -51,17 +62,18 @@ class ZipcodeSearchParsingTest(unittest.TestCase):
 
     def test_lookup_korean_address_rejects_blank_query(self):
         with self.assertRaisesRegex(ValueError, "query"):
-            lookup_korean_address("   ")
+            _ = lookup_korean_address("   ")
 
 
 class ZipcodeSearchTransportTest(unittest.TestCase):
     def test_fetch_search_page_uses_official_https_endpoint_and_curl_safety_flags(self):
-        runner = mock.Mock(return_value=mock.Mock(stdout="<html></html>"))
+        runner_mock = mock.Mock(return_value=mock.Mock(stdout="<html></html>"))
+        runner = cast(Callable[..., subprocess.CompletedProcess[str]], runner_mock)
 
         page = fetch_search_page("서울특별시 강남구 테헤란로 123", runner=runner)
 
         self.assertEqual(page, "<html></html>")
-        command = runner.call_args.args[0]
+        command = cast(list[str], runner_mock.call_args.args[0])
         self.assertEqual(command[0], "curl")
         self.assertIn("--http1.1", command)
         self.assertEqual(command[command.index("--tls-max") + 1], "1.2")
@@ -74,15 +86,20 @@ class ZipcodeSearchTransportTest(unittest.TestCase):
 
 class ZipcodeSearchCliShapeTest(unittest.TestCase):
     def test_lookup_response_is_json_serializable(self):
+        def sample_fetcher(_query: str) -> str:
+            return SAMPLE_HTML
+
         response = lookup_korean_address(
             "서울특별시 강남구 테헤란로 123",
-            fetcher=lambda _query: SAMPLE_HTML,
+            fetcher=sample_fetcher,
         )
 
-        payload = json.loads(response.to_json())
+        payload = cast(dict[str, object], json.loads(response.to_json()))
+        results = cast(list[dict[str, object]], payload["results"])
+        first_result = results[0]
         self.assertEqual(payload["query"], "서울특별시 강남구 테헤란로 123")
-        self.assertEqual(payload["results"][0]["zip_code"], "06133")
-        self.assertIn("Teheran-ro", payload["results"][0]["english_address"])
+        self.assertEqual(first_result["zip_code"], "06133")
+        self.assertIn("Teheran-ro", cast(str, first_result["english_address"]))
 
     def test_helper_scripts_are_executable_python_entrypoints(self):
         repo_root = Path(__file__).resolve().parent.parent
@@ -99,4 +116,4 @@ class ZipcodeSearchCliShapeTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

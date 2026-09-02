@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import assert_never
 
 import anyio
 import httpx
@@ -52,8 +51,8 @@ type RemoteTrainingResult = RemoteTrainingStarted | RemoteTrainingRejected | Rem
 
 class UnslothTrainingMCPClient:
     def __init__(self, settings: UnslothStudioSettings, manager: MCPSessionManager) -> None:
-        self._settings = settings
-        self._manager = manager
+        self._settings: UnslothStudioSettings = settings
+        self._manager: MCPSessionManager = manager
 
     async def start(self, config: UnslothTrainingMCPConfig) -> RemoteTrainingResult:
         token = self._settings.token
@@ -92,8 +91,6 @@ class UnslothTrainingMCPClient:
                     return RemoteTrainingStarted(job=job)
                 case "error":
                     return RemoteTrainingRejected(reason=job.error_code or "remote_rejected")
-                case unreachable:
-                    assert_never(unreachable)
         except _CONNECTION_ERRORS:
             logger.warning("Unsloth training MCP start failed", exc_info=True)
             if call_started:

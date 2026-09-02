@@ -11,12 +11,39 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from html import unescape
+from typing import Protocol, cast
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _naver_http_name = "_naver" + "_http"
-_naver_http = importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)
-TAG_RE = _naver_http.TAG_RE
-urlopen = _naver_http.urlopen
+class _HttpResponse(Protocol):
+    def __enter__(self) -> "_HttpResponse": ...
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None: ...
+
+    def read(self) -> bytes: ...
+
+
+class _Urlopen(Protocol):
+    def __call__(
+        self,
+        request: urllib.request.Request,
+        timeout: int,
+        *,
+        insecure: bool = False,
+    ) -> _HttpResponse: ...
+
+
+class _NaverHttp(Protocol):
+    TAG_RE: re.Pattern[str]
+    urlopen: _Urlopen
+
+
+_naver_http = cast(
+    _NaverHttp,
+    cast(object, importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)),
+)
+TAG_RE: re.Pattern[str] = _naver_http.TAG_RE
+urlopen: _Urlopen = _naver_http.urlopen
 
 SEARCH_URL = "https://search.naver.com/search.naver"
 DEFAULT_COUNT = 10
@@ -69,15 +96,12 @@ def fetch_search_page(
         with urlopen(request, timeout, insecure=insecure) as response:
             return response.read().decode("utf-8", "ignore")
     except urllib.error.HTTPError as error:
-        raise RuntimeError(
-            f"Naver search returned HTTP {error.code}. "
-            "The request may have been blocked. Retry later or reduce request volume."
-        ) from error
+        raise RuntimeError(f"Naver search returned HTTP {error.code}. The request may have been blocked. Retry later or reduce request volume.") from error
 
 
 def parse_search_results(html: str) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
-    anchors = BLOG_ANCHOR_PATTERN.findall(html)
+    anchors = cast(list[tuple[str, str, str, str]], BLOG_ANCHOR_PATTERN.findall(html))
 
     pending: dict[str, dict[str, str]] = {}
 
@@ -169,26 +193,26 @@ def search(
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Search Naver blogs and return structured JSON results.")
-    parser.add_argument("query", help="Search query string.")
-    parser.add_argument(
+    _ = parser.add_argument("query", help="Search query string.")
+    _ = parser.add_argument(
         "--count",
         type=int,
         default=DEFAULT_COUNT,
         help=f"Number of results to return (max {MAX_COUNT}, default {DEFAULT_COUNT}).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--sort",
         choices=["sim", "date"],
         default="sim",
         help="Sort order: sim (relevance) or date (newest first). Default: sim.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--timeout",
         type=int,
         default=15,
         help="HTTP request timeout in seconds. Default: 15.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--insecure",
         action="store_true",
         help="Skip SSL certificate verification (use only when certificate errors occur).",
@@ -201,11 +225,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = search(
-            args.query,
-            count=args.count,
-            sort=args.sort,
-            timeout=args.timeout,
-            insecure=args.insecure,
+            cast(str, args.query),
+            count=cast(int, args.count),
+            sort=cast(str, args.sort),
+            timeout=cast(int, args.timeout),
+            insecure=cast(bool, args.insecure),
         )
     except RuntimeError as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False), file=sys.stderr)

@@ -19,7 +19,13 @@ import { isMonacoFocused } from './utils/domHelpers';
 import { PluginLifecycleDispatcher } from './plugin/PluginManager';
 import { usePluginRegistry } from './plugin/pluginRegistry';
 import { examplePlugin } from './plugin/examplePlugin';
-import { clearAccessPin, createAccessPinHeaders, persistAccessPin, readStoredAccessPin } from './utils/accessPinCredential';
+import {
+  clearAccessCredential,
+  createAccessPinHeaders,
+  loginWithAccessPin,
+  readLegacyAccessPin,
+  readStoredAccessToken,
+} from './utils/accessPinCredential';
 
 /* ─── Sidebar loading skeleton ──────────────────────────── */
 const SidebarFallback: React.FC = () => (
@@ -64,14 +70,24 @@ const PageLoadingFallback: React.FC = () => (
   </div>
 );
 
-async function validateAccessPin(storedPin: string | null): Promise<boolean> {
-  const response = await globalThis.fetch('/api/session/info', { headers: createAccessPinHeaders() });
-  if (storedPin === null) return !response.ok;
-  if (response.ok) {
-    persistAccessPin(storedPin);
-    return false;
+async function validateAccessCredential(
+  storedToken: string | null,
+  legacyPin: string | null,
+): Promise<boolean> {
+  if (storedToken === null && legacyPin !== null) {
+    try {
+      await loginWithAccessPin(legacyPin);
+      return false;
+    } catch {
+      clearAccessCredential();
+      return true;
+    }
   }
-  clearAccessPin();
+
+  const response = await globalThis.fetch('/api/session/info', { headers: createAccessPinHeaders() });
+  if (storedToken === null) return !response.ok;
+  if (response.ok) return false;
+  clearAccessCredential();
   return true;
 }
 
@@ -387,16 +403,17 @@ const App: React.FC = () => {
   const [checkingStoredPin, setCheckingStoredPin] = useState(true);
 
   useEffect(() => {
-    const storedPin = readStoredAccessPin();
+    const storedToken = readStoredAccessToken();
+    const legacyPin = readLegacyAccessPin();
     let active = true;
-    if (storedPin !== null) setPinModalVisible(true);
-    void validateAccessPin(storedPin)
+    if (storedToken === null && legacyPin !== null) setPinModalVisible(true);
+    void validateAccessCredential(storedToken, legacyPin)
       .then(showPinModal => {
         if (active) setPinModalVisible(showPinModal);
       })
       .catch(() => {
         if (!active) return;
-        if (storedPin !== null) clearAccessPin();
+        clearAccessCredential();
         setPinModalVisible(true);
       })
       .finally(() => {

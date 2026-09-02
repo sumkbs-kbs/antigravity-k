@@ -44,9 +44,12 @@ surfaces used by the release baseline gate.
 
 ## Blind held-out evaluation
 
-`data/benchmarks/held_out_v1.jsonl` and its digest record are frozen before
-model training. The training dataset builder must reject this path and any file
-whose SHA-256 digest appears in the held-out record. Results from this set are
-never used for prompt, recipe, router, or checkpoint selection; they are
+Every versioned file under `data/benchmarks/held_out_*.jsonl` and its matching
+`.freeze.json` record is frozen before model training. The release baseline
+requires both shipped v1 and v2 assets and validates each dataset's SHA-256,
+row count, ordered case IDs, and `forbidden_for_training` flags against its
+freeze record. The training dataset builder must reject a frozen path and any
+file whose SHA-256 digest appears in a held-out record. Results from these sets
+are never used for prompt, recipe, router, or checkpoint selection; they are
 reported only as final held-out evaluation. Any change requires a new versioned
 held-out file and leaves the old freeze immutable.

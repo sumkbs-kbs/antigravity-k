@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import tomllib
 from pathlib import Path
-from typing import ClassVar, Final
+from typing import ClassVar, Final, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,7 +52,12 @@ _REQUIRED_FILES: Final[tuple[str, ...]] = (
     "docs/adr/0001-single-task-runtime-and-event-store.md",
     "data/benchmarks/held_out_v1.jsonl",
     "data/benchmarks/held_out_v1.freeze.json",
+    "data/benchmarks/held_out_v2.jsonl",
+    "data/benchmarks/held_out_v2.freeze.json",
 )
+
+_HELD_OUT_DATASETS: Final[tuple[str, ...]] = ("held_out_v1.jsonl", "held_out_v2.jsonl")
+_JsonObject = dict[str, object]
 
 
 def load_release_baseline(project_root: Path) -> ReleaseBaseline:
@@ -88,6 +95,7 @@ def validate_release_baseline(baseline: ReleaseBaseline, project_root: Path) -> 
 
     _validate_no_prohibited_source_text(baseline, project_root)
     _validate_python_lock(baseline, project_root)
+    _validate_held_out_manifests(project_root)
 
 
 def _validate_no_prohibited_source_text(baseline: ReleaseBaseline, project_root: Path) -> None:
@@ -127,3 +135,45 @@ def _validate_python_lock(baseline: ReleaseBaseline, project_root: Path) -> None
         if f'name = "{package_name}"' in lock_text:
             message = f"Prohibited Python package is locked: {package_name}"
             raise ReleaseBaselineError(message)
+
+
+def _validate_held_out_manifests(project_root: Path) -> None:
+    benchmark_root = project_root / "data" / "benchmarks"
+    for dataset_name in _HELD_OUT_DATASETS:
+        dataset_path = benchmark_root / dataset_name
+        freeze_path = dataset_path.with_suffix(".freeze.json")
+        try:
+            manifest_value = cast(object, json.loads(freeze_path.read_text(encoding="utf-8")))
+            lines = tuple(line for line in dataset_path.read_text(encoding="utf-8").splitlines() if line)
+            row_values = tuple(cast(object, json.loads(line)) for line in lines)
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ReleaseBaselineError(f"Held-out evaluation asset is invalid: {dataset_name}") from error
+
+        if not isinstance(manifest_value, dict) or any(not isinstance(row_value, dict) for row_value in row_values):
+            raise ReleaseBaselineError(f"Held-out evaluation asset is invalid: {dataset_name}")
+        manifest = cast(_JsonObject, manifest_value)
+        rows = tuple(cast(_JsonObject, row_value) for row_value in row_values)
+        if Path(str(manifest.get("dataset_path", ""))).name != dataset_name:
+            raise ReleaseBaselineError(f"Held-out freeze manifest names a different dataset: {dataset_name}")
+        digest = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+        if manifest.get("sha256") != digest:
+            raise ReleaseBaselineError(f"Held-out dataset digest mismatch: {dataset_name}")
+        if manifest.get("row_count") != len(rows):
+            raise ReleaseBaselineError(f"Held-out dataset row count mismatch: {dataset_name}")
+
+        case_ids = tuple(row.get("id") for row in rows)
+        if any(not isinstance(case_id, str) or not case_id for case_id in case_ids):
+            raise ReleaseBaselineError(f"Held-out dataset contains an invalid case ID: {dataset_name}")
+        if len(set(case_ids)) != len(case_ids):
+            raise ReleaseBaselineError(f"Held-out dataset contains duplicate case IDs: {dataset_name}")
+        if any(row.get("forbidden_for_training") is not True for row in rows):
+            raise ReleaseBaselineError(f"Held-out dataset permits training: {dataset_name}")
+        manifest_case_ids_value = manifest.get("case_ids")
+        if not isinstance(manifest_case_ids_value, list):
+            raise ReleaseBaselineError(f"Held-out freeze case IDs mismatch: {dataset_name}")
+        manifest_case_ids_items = cast(list[object], manifest_case_ids_value)
+        if any(not isinstance(case_id, str) for case_id in manifest_case_ids_items):
+            raise ReleaseBaselineError(f"Held-out freeze case IDs mismatch: {dataset_name}")
+        manifest_case_ids = tuple(case_id for case_id in manifest_case_ids_items if isinstance(case_id, str))
+        if manifest_case_ids != case_ids:
+            raise ReleaseBaselineError(f"Held-out freeze case IDs mismatch: {dataset_name}")

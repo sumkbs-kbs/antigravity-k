@@ -6,6 +6,7 @@ Hermes Agent Self-Evolution의 핵심 원리를 도입하여,
 """
 
 import logging
+from pathlib import Path
 
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.vault import VaultEngine
@@ -38,7 +39,7 @@ Return ONLY the fully evolved text (including frontmatter if it had one), with n
 class EvolutionManager:
     """Manages self-directed code evolution cycles with validation gates."""
 
-    def __init__(self, model_manager: ModelManager, vault_engine: VaultEngine):
+    def __init__(self, model_manager: ModelManager, vault_engine: VaultEngine | None) -> None:
         """Initialize the EvolutionManager.
 
         Args:
@@ -48,12 +49,12 @@ class EvolutionManager:
         """
         if vault_engine is None:
             raise ValueError(
-                "EvolutionManager requires a valid VaultEngine instance. "
-                "Ensure ANTIGRAVITY_VAULT_PATH is set and VaultEngine is initialized.",
+                "EvolutionManager requires a valid VaultEngine instance. Ensure "
+                + "ANTIGRAVITY_VAULT_PATH is set and VaultEngine is initialized.",
             )
-        self.manager = model_manager
-        self.vault = vault_engine
-        self.skills_dir = self.vault.vault_path / ".agent" / "skills"
+        self.manager: ModelManager = model_manager
+        self.vault: VaultEngine = vault_engine
+        self.skills_dir: Path = self.vault.vault_path / ".agent" / "skills"
 
     def _gather_failures(self, query: str, limit: int = 5) -> str:
         """Vault(Second Brain)에서 과거 에러 로그와 교훈을 검색합니다."""
@@ -62,13 +63,26 @@ class EvolutionManager:
 
         try:
             results = self.vault.vector_store.search(f"Error Failure {query}", n_results=limit)
-            context = []
+            context: list[str] = []
             for doc in results:
-                context.append(doc.get("text", ""))
+                text = doc.get("text", "")
+                if isinstance(text, str):
+                    context.append(text)
             return "\n\n---\n\n".join(context) if context else "No relevant failures found."
         except Exception:
             logger.exception("Failed to gather failures for evolution")
             return "Error retrieving past data."
+
+    def _resolve_target(self, target_model: str) -> str:
+        if target_model != "qwen3.6:latest":
+            return target_model
+        try:
+            target = self.manager.get_target_for_role("evolution", default_role="reasoning")
+            if target:
+                return target
+        except Exception:
+            logger.warning("Evolution model target resolution failed", exc_info=True)
+        return target_model
 
     def evolve_skill(self, skill_name: str, target_model: str = "qwen3.6:latest") -> str | None:
         """특정 스킬을 과거 실패 기록을 바탕으로 진화시킵니다."""
@@ -92,7 +106,7 @@ class EvolutionManager:
         try:
             evolved_text = self.manager.generate(
                 prompt=prompt,
-                target=target_model,
+                target=self._resolve_target(target_model),
                 temperature=0.7,
                 max_tokens=4096,
             )
@@ -106,7 +120,7 @@ class EvolutionManager:
             # 안전하게 Draft 파일로 저장 (Human-in-the-loop)
             draft_path = self.skills_dir / skill_name / "SKILL_EVOLVED.md"
             with open(draft_path, "w", encoding="utf-8") as f:
-                f.write(evolved_text.strip())
+                _ = f.write(evolved_text.strip())
 
             logger.info("Successfully evolved skill '%s'. Saved to %s", skill_name, draft_path)
             return str(draft_path)
@@ -121,9 +135,9 @@ class EvolutionManager:
         # For Antigravity-K, we use config.yaml or orchestrator.py directly.
         # Let's save the evolved system prompt to the vault root for review.
         original_text = (
-            "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team"
+            "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team "
+            "working on Advanced Agentic Coding."
         )
-        "working on Advanced Agentic Coding."
 
         failures_context = self._gather_failures("system_prompt_failures", limit=10)
 
@@ -136,7 +150,7 @@ class EvolutionManager:
         try:
             evolved_text = self.manager.generate(
                 prompt=prompt,
-                target=target_model,
+                target=self._resolve_target(target_model),
                 temperature=0.7,
                 max_tokens=4096,
             )
@@ -149,7 +163,7 @@ class EvolutionManager:
 
             draft_path = self.vault.vault_path / "SYSTEM_PROMPT_EVOLVED.md"
             with open(draft_path, "w", encoding="utf-8") as f:
-                f.write(evolved_text.strip())
+                _ = f.write(evolved_text.strip())
 
             logger.info("Successfully evolved System Prompt. Saved to %s", draft_path)
             return str(draft_path)

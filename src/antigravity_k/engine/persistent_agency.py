@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final
+from typing import Final, final, override
 
 from antigravity_k.engine.persistent_agency_store import (
     EventType,
@@ -37,6 +37,7 @@ class AgencyInputError(Exception):
 
     field: str
 
+    @override
     def __str__(self) -> str:
         return f"agency field {self.field!r} must not be empty"
 
@@ -54,9 +55,9 @@ class AgencyConfig:
     objective_lease_seconds: int = 900
 
 
-def persistent_agency_config_from_raw(config: object) -> AgencyConfig:
+def persistent_agency_config_from_raw(config: Mapping[str, JsonValue]) -> AgencyConfig:
     """Parse the optional `persistent_agency` configuration section."""
-    section = config.get("persistent_agency", {}) if isinstance(config, dict) else {}
+    section = config.get("persistent_agency", {})
     values = section if isinstance(section, dict) else {}
 
     def setting(name: str, default: int, minimum: int) -> int:
@@ -92,8 +93,14 @@ class SchedulerDecision:
     objective_id: str | None = None
 
 
+@final
 class PersistentAgencyController:
     """Safe facade for Headlong-inspired persistence and scheduling."""
+
+    config: AgencyConfig
+    project_root: str
+    project_id: str
+    store: PersistentAgencyStore
 
     def __init__(self, project_root: str, config: AgencyConfig | None = None) -> None:
         self.config = config or AgencyConfig()
@@ -211,7 +218,7 @@ class PersistentAgencyController:
 
     def claim_next_objective(self, project_id: str) -> Objective | None:
         self._require_scope(project_id, "project_id")
-        self.store.reclaim_stale_objectives(self.config.objective_lease_seconds)
+        _ = self.store.reclaim_stale_objectives(self.config.objective_lease_seconds)
         return self.store.claim_next_objective(project_id)
 
     def complete_objective(self, objective_id: str) -> bool:
@@ -246,12 +253,12 @@ class PersistentAgencyController:
         if status == "done":
             changed = self.complete_objective(objective_id)
             if changed:
-                self.record_task_event(project_id, trajectory_id, task_id, "objective_done")
+                _ = self.record_task_event(project_id, trajectory_id, task_id, "objective_done")
             return changed
         if status in {"failed", "cancelled"}:
             changed = self.requeue_objective(objective_id)
             if changed:
-                self.record_task_event(project_id, trajectory_id, task_id, "objective_requeued")
+                _ = self.record_task_event(project_id, trajectory_id, task_id, "objective_requeued")
             return changed
         return False
 

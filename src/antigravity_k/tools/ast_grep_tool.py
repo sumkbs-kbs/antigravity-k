@@ -1,6 +1,7 @@
 import logging
 import subprocess
-from typing import Any, Dict
+from collections.abc import Mapping
+from typing import override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
@@ -13,17 +14,17 @@ class ASTGrepTool(BaseTool):
     code search and structural replacement, heavily reducing regex fragility.
     """
 
-    category = ToolCategory.CODE_EXEC
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.MEDIUM
-    icon = "🌲"
-    tags = ["ast", "grep", "search", "replace", "refactor"]
+    category: ToolCategory = ToolCategory.CODE_EXEC
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.MEDIUM
+    icon: str = "🌲"
+    tags: list[str] = ["ast", "grep", "search", "replace", "refactor"]
 
     def __init__(self):
         super().__init__()
-        self._name = "ast_grep"
-        self._description = "Performs structural code search or replacement using ast-grep (sg). Uses AST patterns instead of raw regex."  # noqa: E501
-        self._schema = {
+        self._name: str = "ast_grep"
+        self._description: str = "Performs structural code search or replacement using ast-grep (sg). Uses AST patterns instead of raw regex."  # noqa: E501
+        self._schema: dict[str, object] = {
             "type": "object",
             "properties": {
                 "pattern": {
@@ -45,28 +46,36 @@ class ASTGrepTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    @override
+    def parameters_schema(self) -> Mapping[str, object]:
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
-        pattern = kwargs.get("pattern")
-        lang = kwargs.get("lang")
-        replace = kwargs.get("replace")
-        target_dir = kwargs.get("target_dir", ".")
+    @override
+    def execute(self, **kwargs: object) -> str:
+        pattern_value = kwargs.get("pattern")
+        lang_value = kwargs.get("lang")
+        replace_value = kwargs.get("replace")
+        target_value = kwargs.get("target_dir", ".")
+        pattern = pattern_value if isinstance(pattern_value, str) else ""
+        lang = lang_value if isinstance(lang_value, str) else ""
+        replace = replace_value if isinstance(replace_value, str) else ""
+        target_dir = target_value if isinstance(target_value, str) else "."
 
         if not pattern or not lang:
             return "Error: Both 'pattern' and 'lang' are required."
 
         # Base ast-grep command
-        cmd = ["sg", "-p", pattern, "-l", lang]
+        cmd: list[str] = ["sg", "-p", pattern, "-l", lang]
 
         if replace:
             # Add replace flag (in-place modification can be dangerous, so usually we need hits first,

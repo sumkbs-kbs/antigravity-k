@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, override
+from typing import ClassVar, Literal, override
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -31,6 +31,15 @@ class EvaluationDataset(BaseModel):
     path: Path
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     case_ids: tuple[str, ...] = Field(min_length=1)
+
+
+class FrozenEvaluationManifest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="allow")
+
+    schema_version: Literal[1]
+    dataset_path: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    row_count: int = Field(ge=1)
 
 
 class CandidateEvaluation(BaseModel):
@@ -63,6 +72,7 @@ _PAIR_CANONICAL_FIELDS = {
     "case_ids",
     "environment",
 }
+_FROZEN_DATASET_NAMES = {"held_out_v1.jsonl", "held_out_v2.jsonl"}
 
 
 def evaluation_pair_sha256(pair: EvaluationPair) -> str:
@@ -140,11 +150,12 @@ def _case_score(case: EvaluationCase, output: str) -> float:
 
 
 def _validate_pair(pair: EvaluationPair) -> None:
-    if pair.dataset.path.name != "held_out_v1.jsonl":
-        raise EvaluationError("Evaluation dataset must be held_out_v1.jsonl.")
+    if pair.dataset.path.name not in _FROZEN_DATASET_NAMES:
+        raise EvaluationError("Evaluation dataset must be a supported frozen held-out version.")
     if pair.dataset.sha256 != hashlib.sha256(pair.dataset.path.read_bytes()).hexdigest():
         raise EvaluationError("Evaluation dataset digest does not match the frozen file.")
     case_count = len(pair.dataset.case_ids)
+    _validate_freeze_manifest(pair.dataset, case_count=case_count)
     if len(set(pair.dataset.case_ids)) != case_count:
         raise EvaluationError("Evaluation dataset must contain unique held-out case IDs.")
     if pair.base.case_ids != pair.dataset.case_ids or pair.tuned.case_ids != pair.dataset.case_ids:
@@ -159,6 +170,20 @@ def _validate_pair(pair: EvaluationPair) -> None:
         raise EvaluationError("Base evaluation must not carry tuned adapter provenance.")
     if pair.tuned.adapter_path is None or pair.tuned.recipe_sha256 is None:
         raise EvaluationError("Tuned evaluation requires adapter and recipe provenance.")
+
+
+def _validate_freeze_manifest(dataset: EvaluationDataset, *, case_count: int) -> None:
+    freeze_path = dataset.path.with_suffix(".freeze.json")
+    try:
+        manifest = FrozenEvaluationManifest.model_validate_json(freeze_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise EvaluationError("Evaluation freeze manifest is invalid or unavailable.") from error
+    if Path(manifest.dataset_path).name != dataset.path.name:
+        raise EvaluationError("Evaluation freeze manifest names a different dataset.")
+    if manifest.sha256 != dataset.sha256:
+        raise EvaluationError("Evaluation dataset digest does not match the freeze manifest.")
+    if manifest.row_count != case_count:
+        raise EvaluationError("Evaluation case count does not match the freeze manifest.")
 
 
 def _case_forbids_training(dataset_path: Path, case_id: str) -> bool:

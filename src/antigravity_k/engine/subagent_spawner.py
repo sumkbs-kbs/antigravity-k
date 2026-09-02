@@ -10,9 +10,9 @@ OpenClaw의 'sessions_spawn' 로직을 내재화하여 메인 컨텍스트 오�
 import asyncio
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from importlib import import_module
-from typing import Any
+from typing import Callable, Protocol, cast
 
 from pydantic import ValidationError
 
@@ -25,17 +25,13 @@ from antigravity_k.engine.agent_definition import (
 )
 from antigravity_k.engine.subagent_execution import start_subagent_stream
 from antigravity_k.engine.task_runner import get_task_runner
+from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 
-class OrchestratorAgent:
-    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
-        implementation = import_module("antigravity_k.engine.orchestrator").__dict__["OrchestratorAgent"]
-        return implementation(*args, **kwargs)
-
-    def _get_model_for_role(self, role: str) -> Any:
-        raise NotImplementedError
+class _OrchestratorPort(Protocol):
+    def _get_model_for_role(self, role: str) -> str: ...
 
     def run_stream(
         self,
@@ -43,8 +39,13 @@ class OrchestratorAgent:
         target_model: str,
         max_steps: int = 15,
         ephemeral_message: str | None = None,
-    ) -> Iterator[str]:
-        raise NotImplementedError
+    ) -> Iterator[str]: ...
+
+
+def OrchestratorAgent(*args: object, **kwargs: object) -> _OrchestratorPort:  # noqa: N802
+    module = import_module("antigravity_k.engine.orchestrator")
+    implementation = cast(Callable[..., _OrchestratorPort], module.__dict__["OrchestratorAgent"])
+    return implementation(*args, **kwargs)
 
 
 class SubagentSpawner:
@@ -52,8 +53,8 @@ class SubagentSpawner:
 
     def __init__(
         self,
-        model_manager,
-        tool_registry,
+        model_manager: object,
+        tool_registry: object,
         contract: AgentSpawnContract | None = None,
     ):
         """Initialize the SubagentSpawner.
@@ -63,21 +64,23 @@ class SubagentSpawner:
             tool_registry: tool registry.
 
         """
-        self.model_manager = model_manager
-        self.tool_registry = tool_registry
-        self.contract = contract or default_agent_spawn_contract()
+        self.model_manager: object = model_manager
+        self.tool_registry: object = tool_registry
+        self.contract: AgentSpawnContract = contract or default_agent_spawn_contract()
         dependencies = import_module("antigravity_k.api.dependencies")
-        self.vault_engine = dependencies.__dict__["get_vault_engine"]()
+        get_vault_engine = cast(Callable[[], object], dependencies.__dict__["get_vault_engine"])
+        self.vault_engine: object = get_vault_engine()
 
     async def spawn_parallel(
         self,
-        tasks: list[dict[str, Any]],
+        tasks: Sequence[Mapping[str, object]],
         max_tokens: int = 4096,
     ) -> list[str]:
         """여러 서브 태스크를 병렬로 스폰하여 결과를 반환합니다."""
+        _ = max_tokens
         logger.info("Spawning %s sub-agents in parallel.", len(tasks))
 
-        async def _run_subagent(task_data: dict[str, Any], index: int) -> str:
+        async def _run_subagent(task_data: Mapping[str, object], index: int) -> str:
             try:
                 request = AgentSpawnRequest.model_validate(task_data)
                 resolved = self.contract.resolve(request.agent, request.tools)
@@ -93,13 +96,14 @@ class SubagentSpawner:
                     model_manager=self.model_manager,
                     vault_engine=self.vault_engine,
                     tool_registry=AgentToolRegistry(
-                        self.tool_registry,
+                        cast(ToolRegistry, self.tool_registry),
                         resolved.definition,
                         resolved.allowed_tools,
                     ),
                 )
 
-                target_model = sub_orch._get_model_for_role(resolved.definition.role)
+                get_model_for_role = cast(Callable[[str], str], getattr(sub_orch, "_get_model_for_role"))
+                target_model = get_model_for_role(resolved.definition.role)
                 system_prompt = resolved.definition.system_prompt
 
                 messages = [
@@ -111,7 +115,7 @@ class SubagentSpawner:
                 ]
 
                 # run_stream is synchronous generator, we need to run it in a thread to not block async
-                def run_sync_stream():
+                def run_sync_stream() -> str:
                     tracked_stream = start_subagent_stream(
                         sub_orch,
                         task_runner=get_task_runner(),
@@ -134,7 +138,7 @@ class SubagentSpawner:
         results = await asyncio.gather(*coroutines, return_exceptions=True)
 
         # Format results
-        formatted_results = []
+        formatted_results: list[str] = []
         for res in results:
             if isinstance(res, BaseException):
                 formatted_results.append(f"Exception: {res}")
@@ -147,7 +151,7 @@ class SubagentSpawner:
         """단일 서브 태스크를 스폰하는 동기 진입점 (기존 AgentSpawnTool 하위호환)."""
         tasks = [{"task": task, "tools": tools}]
         try:
-            asyncio.get_running_loop()
+            _ = asyncio.get_running_loop()
         except RuntimeError:
             results = asyncio.run(self.spawn_parallel(tasks, max_tokens))
             return results[0]

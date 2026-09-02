@@ -10,7 +10,7 @@ import { useEffect, useRef } from 'react';
 import { z } from 'zod';
 import { useUiStore } from '../stores/uiStore';
 import { firePluginHook } from '../plugin/pluginRegistry';
-import { readStoredAccessPin } from '../utils/accessPinCredential';
+import { readStoredAccessToken } from '../utils/accessPinCredential';
 
 const executionModeSchema = z.enum(['interactive', 'plan', 'build']);
 const eventObjectSchema = z.object({}).catchall(z.unknown()).readonly();
@@ -140,11 +140,12 @@ export function useEventWebSocket(handlers: EventHandlers) {
         ? 'localhost:8000'
         : window.location.host;
       const wsUrl = new URL(`${protocol}//${host}/v1/ws/events`);
-      const accessPin = readStoredAccessPin();
-      if (accessPin !== null) wsUrl.searchParams.set('pin', accessPin);
+      const accessToken = readStoredAccessToken();
 
       try {
-        const nextSocket = new WebSocket(wsUrl);
+        const nextSocket = accessToken === null
+          ? new WebSocket(wsUrl)
+          : new WebSocket(wsUrl, [`bearer.${accessToken}`]);
         socket = nextSocket;
 
         nextSocket.onopen = () => {

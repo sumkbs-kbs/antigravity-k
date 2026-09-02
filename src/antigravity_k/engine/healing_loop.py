@@ -10,12 +10,61 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from typing import Any, ClassVar
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, ClassVar, NotRequired, Protocol, TypedDict, cast, override
 
 from antigravity_k.engine.harness_models import TestIntent, TestResult, TestStatus
 
+if TYPE_CHECKING:
+    from antigravity_k.tools.semantic_dom import SemanticDOMParser
+
 logger = logging.getLogger("antigravity_k.harness")
+
+
+class _AccessibilityLike(Protocol):
+    async def snapshot(self) -> Mapping[str, object] | None:
+        ...
+
+
+class _PageLike(Protocol):
+    accessibility: _AccessibilityLike
+
+
+class _HealMemoryEntry(TypedDict):
+    healed: str
+    healed_selector: str
+    healed_text: str
+    timestamp: float
+    count: int
+
+
+class _HealLogEntry(TypedDict):
+    original: str
+    healed: str
+    error: NotRequired[str]
+    timestamp: float
+
+
+class _HealStatsMemory(TypedDict):
+    healed_to: str
+    count: int
+
+
+class _HealStats(TypedDict):
+    total_heals: int
+    memory_entries: int
+    strategies_used: list[str]
+    memory: dict[str, _HealStatsMemory]
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return cast(Mapping[str, object], value)
+    return {}
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
 
 
 class HealingLoop:
@@ -41,19 +90,19 @@ class HealingLoop:
             max_attempts: Maximum number of heal-and-retry attempts.
 
         """
-        self.max_attempts = max_attempts
-        self.heal_log: list[dict[str, Any]] = []
+        self.max_attempts: int = max_attempts
+        self.heal_log: list[_HealLogEntry] = []
 
     async def try_with_healing(
         self,
-        action_fn: Callable[..., Any],
-        page,
-        context: dict[str, Any],
+        action_fn: Callable[..., Awaitable[object]],
+        page: object,
+        context: dict[str, object],
         intent: TestIntent,
     ) -> TestResult:
         """액션을 실행하되, 실패 시 self-healing을 시도합니다."""
         start = time.time()
-        last_error = None
+        last_error: str | None = None
 
         for attempt in range(self.max_attempts + 1):
             try:
@@ -65,9 +114,13 @@ class HealingLoop:
                     intent_id=intent.id,
                     status=TestStatus.HEALED if healed else TestStatus.PASSED,
                     duration_ms=elapsed,
-                    message=result_msg or "OK",
+                    message=_as_str(result_msg, "OK") if result_msg else "OK",
                     healed=healed,
-                    heal_details=(f"Attempt {attempt + 1}: {context.get('heal_strategy', 'N/A')}" if healed else None),
+                    heal_details=(
+                        f"Attempt {attempt + 1}: {_as_str(context.get('heal_strategy'), 'N/A')}"
+                        if healed
+                        else None
+                    ),
                 )
             except Exception as e:
                 last_error = str(e)
@@ -90,29 +143,30 @@ class HealingLoop:
 
     async def _analyze_and_heal(
         self,
-        page,
-        context: dict[str, Any],
+        page: object,
+        context: dict[str, object],
         error: str,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         """DOM을 분석하여 대체 셀렉터를 찾습니다."""
         try:
             # Accessibility Tree에서 대체 요소 탐색
-            snapshot = await page.accessibility.snapshot()
+            typed_page = cast(_PageLike, page)
+            snapshot = await typed_page.accessibility.snapshot()
             if not snapshot:
                 return None
 
-            original_target = context.get("target_text", "")
+            original_target = _as_str(context.get("target_text"))
 
             # 텍스트 매칭으로 대체 셀렉터 탐색
             candidates = self._find_candidates(snapshot, original_target)
             if candidates:
-                heal_info = {
+                heal_info: dict[str, object] = {
                     "heal_strategy": f"accessibility_tree_match: {candidates[0]}",
                     "healed_selector": candidates[0],
                 }
                 self.heal_log.append(
                     {
-                        "original": context.get("selector"),
+                        "original": _as_str(context.get("selector")),
                         "healed": candidates[0],
                         "error": error,
                         "timestamp": time.time(),
@@ -126,17 +180,25 @@ class HealingLoop:
 
         return None
 
-    def _find_candidates(self, node: dict[str, Any], target_text: str, depth: int = 0) -> list[str]:
+    def _find_candidates(
+        self,
+        node: Mapping[str, object],
+        target_text: str,
+        depth: int = 0,
+    ) -> list[str]:
         """Accessibility Tree에서 텍스트가 유사한 노드를 재귀적으로 탐색합니다."""
-        candidates = []
-        name = node.get("name", "")
-        role = node.get("role", "")
+        candidates: list[str] = []
+        name = _as_str(node.get("name"))
+        role = _as_str(node.get("role"))
 
         if target_text and target_text.lower() in name.lower():
             candidates.append(f"role={role}, name={name}")
 
-        for child in node.get("children", []):
-            candidates.extend(self._find_candidates(child, target_text, depth + 1))
+        children = node.get("children")
+        if isinstance(children, Sequence) and not isinstance(children, (str, bytes, bytearray)):
+            for child in children:
+                child_mapping = _as_mapping(child)
+                candidates.extend(self._find_candidates(child_mapping, target_text, depth + 1))
 
         return candidates
 
@@ -169,10 +231,10 @@ class HealingLoopV2(HealingLoop):
         """
         super().__init__(max_attempts=max_attempts)
         # 치유 학습 메모리: {원본_셀렉터: 치유된_셀렉터}
-        self._heal_memory: dict[str, dict[str, Any]] = {}
-        self._dom_parser = None
+        self._heal_memory: dict[str, _HealMemoryEntry] = {}
+        self._dom_parser: SemanticDOMParser | None = None
 
-    def _ensure_dom_parser(self):
+    def _ensure_dom_parser(self) -> SemanticDOMParser | None:
         if self._dom_parser is None:
             try:
                 from antigravity_k.tools.semantic_dom import SemanticDOMParser
@@ -182,26 +244,27 @@ class HealingLoopV2(HealingLoop):
                 logger.warning("[HealingV2] SemanticDOMParser unavailable")
         return self._dom_parser
 
+    @override
     async def _analyze_and_heal(
         self,
-        page,
-        context: dict[str, Any],
+        page: object,
+        context: dict[str, object],
         error: str,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         """v2: 7단계 전략으로 대체 요소를 탐색합니다."""
-        original_selector = context.get("selector", "")
-        target_text = context.get("target_text", "")
+        original_selector = _as_str(context.get("selector"))
+        target_text = _as_str(context.get("target_text"))
 
         # 전략 1: 치유 학습 메모리 조회
         if original_selector and original_selector in self._heal_memory:
             memory = self._heal_memory[original_selector]
-            heal_info = {
+            memory_heal_info: dict[str, object] = {
                 "heal_strategy": f"heal_memory: {memory['healed']}",
                 "selector": memory.get("healed_selector", ""),
                 "target_text": memory.get("healed_text", target_text),
             }
             logger.info("[HealingV2] Memory hit: %s → %s", original_selector, memory["healed"])
-            return heal_info
+            return memory_heal_info
 
         # 전략 2: SemanticDOMParser 의도 매칭
         snapshot = None
@@ -211,30 +274,31 @@ class HealingLoopV2(HealingLoop):
                 snapshot = await parser.snapshot_async(page)
                 element = parser.find_by_intent(snapshot, target_text)
                 if element:
-                    heal_info = {
+                    semantic_heal_info: dict[str, object] = {
                         "heal_strategy": f'semantic_intent: {element.ref} [{element.role.value}] "{element.display_name}"',
                         "selector": element.css_selector,
                         "target_text": element.display_name,
                         "healed_ref": element.ref,
                     }
-                    self._record_heal(original_selector, heal_info)
-                    return heal_info
+                    self._record_heal(original_selector, semantic_heal_info)
+                    return semantic_heal_info
             except Exception as e:
                 logger.exception("Unhandled exception")
                 logger.debug("[HealingV2] Semantic heal failed: %s", e)
 
         # 전략 3-5: 기존 A11y Tree 기반 (HealingLoop 로직)
         try:
-            snapshot_a11y = await page.accessibility.snapshot()
+            typed_page = cast(_PageLike, page)
+            snapshot_a11y = await typed_page.accessibility.snapshot()
             if snapshot_a11y:
                 candidates = self._find_candidates(snapshot_a11y, target_text)
                 if candidates:
-                    heal_info = {
+                    a11y_heal_info: dict[str, object] = {
                         "heal_strategy": f"a11y_tree: {candidates[0]}",
                         "healed_selector": candidates[0],
                     }
-                    self._record_heal(original_selector, heal_info)
-                    return heal_info
+                    self._record_heal(original_selector, a11y_heal_info)
+                    return a11y_heal_info
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("[HealingV2] A11y heal failed: %s", e)
@@ -247,46 +311,48 @@ class HealingLoopV2(HealingLoop):
                 # 원본과 가장 유사한 역할의 요소 찾기
                 for el in snapshot.interactable_elements():
                     if el.bbox and el.display_name:
-                        heal_info = {
+                        bbox_heal_info: dict[str, object] = {
                             "heal_strategy": f"bbox: {el.ref} at {el.bbox.to_compact()}",
                             "selector": el.css_selector,
                             "target_text": el.display_name,
                         }
-                        return heal_info
+                        return bbox_heal_info
             except Exception:
                 logger.exception("Unhandled exception")
 
         return None
 
-    def _record_heal(self, original: str, heal_info: dict[str, Any]):
+    def _record_heal(self, original: str, heal_info: Mapping[str, object]) -> None:
         """치유 결과를 학습 메모리에 기록합니다."""
         if original:
+            previous = self._heal_memory.get(original)
             self._heal_memory[original] = {
-                "healed": heal_info.get("heal_strategy", "unknown"),
-                "healed_selector": heal_info.get("selector", ""),
-                "healed_text": heal_info.get("target_text", ""),
+                "healed": _as_str(heal_info.get("heal_strategy"), "unknown"),
+                "healed_selector": _as_str(heal_info.get("selector")),
+                "healed_text": _as_str(heal_info.get("target_text")),
                 "timestamp": time.time(),
-                "count": self._heal_memory.get(original, {}).get("count", 0) + 1,
+                "count": (previous["count"] if previous else 0) + 1,
             }
         self.heal_log.append(
             {
                 "original": original,
-                "healed": heal_info.get("heal_strategy", ""),
+                "healed": _as_str(heal_info.get("heal_strategy")),
                 "timestamp": time.time(),
             },
         )
 
-    def get_heal_stats(self) -> dict[str, Any]:
+    def get_heal_stats(self) -> _HealStats:
         """치유 통계를 반환합니다."""
+        memory_stats: dict[str, _HealStatsMemory] = {
+            k: {
+                "healed_to": v["healed"],
+                "count": v["count"],
+            }
+            for k, v in self._heal_memory.items()
+        }
         return {
             "total_heals": len(self.heal_log),
             "memory_entries": len(self._heal_memory),
             "strategies_used": list({h.get("healed", "").split(":")[0] for h in self.heal_log}),
-            "memory": {
-                k: {
-                    "healed_to": v["healed"],
-                    "count": v["count"],
-                }
-                for k, v in self._heal_memory.items()
-            },
+            "memory": memory_stats,
         }

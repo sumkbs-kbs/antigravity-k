@@ -212,7 +212,9 @@ def context_enrich_handler(ctx: StateContext, orch: object) -> None:
         from antigravity_k.engine.tokenizer import TokenEstimator
 
         if TokenEstimator.estimate_text(rag_context) > _RAG_CONTEXT_MAX_TOKENS:
-            keep_chars = int(len(rag_context) * _RAG_CONTEXT_MAX_TOKENS / max(TokenEstimator.estimate_text(rag_context), 1))
+            keep_chars = int(
+                len(rag_context) * _RAG_CONTEXT_MAX_TOKENS / max(TokenEstimator.estimate_text(rag_context), 1)
+            )
             rag_context = rag_context[:keep_chars] + "\n...[RAG 컨텍스트 축약 — 상한 도달]..."
             logger.info("[ContextEnrich] RAG 컨텍스트를 %d토큰 상한으로 축약", _RAG_CONTEXT_MAX_TOKENS)
 
@@ -251,11 +253,7 @@ def auto_learn_handler(ctx: StateContext, orch: object) -> Generator[str, None, 
                     import os
 
                     msg = f"✅ **[자율 학습 완료]** {len(learned)}건 학습 → Wiki 저장 완료\n"
-                    ki_dir = (
-                        os.path.abspath(learner.ki_engine.ki_dir)
-                        if learner.ki_engine
-                        else ""
-                    )
+                    ki_dir = os.path.abspath(learner.ki_engine.ki_dir) if learner.ki_engine else ""
                     for item in learned:
                         summary_preview = item.summary[:60].replace("\n", " ") + "..."
                         if ki_dir:

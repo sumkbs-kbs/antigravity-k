@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -13,9 +13,19 @@ logger = logging.getLogger("antigravity_k.api.events")
 
 router = APIRouter()
 
+type EventCallback = Callable[..., object]
+
+
+async def _send_keepalive(websocket: WebSocket) -> bool:
+    try:
+        await websocket.send_json({"event": "ping", "data": {}})
+    except WebSocketDisconnect:
+        return False
+    return True
+
 
 @router.websocket("/v1/ws/events")
-async def websocket_events(websocket: WebSocket):
+async def websocket_events(websocket: WebSocket) -> None:
     """Websocket Events.
 
     Args:
@@ -24,13 +34,17 @@ async def websocket_events(websocket: WebSocket):
     """
     if await close_unauthorized_ws(websocket):
         return
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
 
-    def make_callback(e_name):
-        def _cb(**kwargs):
+    def make_callback(e_name: str) -> EventCallback:
+        def _cb(**kwargs: object) -> None:
             try:
                 loop = asyncio.get_running_loop()
-                loop.call_soon_threadsafe(queue.put_nowait, {"event": e_name, "data": kwargs})
+                event_payload: dict[str, object] = {"event": e_name, "data": kwargs}
+                _ = loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    event_payload,
+                )
             except Exception:
                 logger.exception("Unhandled exception")
                 pass
@@ -53,7 +67,7 @@ async def websocket_events(websocket: WebSocket):
         "ModeChanged",  # Phase 1 D7: Dashboard 모드 인디케이터 실시간 업데이트
     ]
 
-    callbacks = {e: make_callback(e) for e in events_to_track}
+    callbacks: dict[str, EventCallback] = {e: make_callback(e) for e in events_to_track}
     for e, cb in callbacks.items():
         global_event_bus.subscribe(e, cb)
 
@@ -65,10 +79,7 @@ async def websocket_events(websocket: WebSocket):
                 await websocket.send_json(event)
             except asyncio.TimeoutError:
                 # keepalive ping — 클라이언트 연결 유효성 확인
-                try:
-                    await websocket.send_json({"event": "ping", "data": {}})
-                except Exception:
-                    logger.exception("Unhandled exception")
+                if not await _send_keepalive(websocket):
                     break
     except (WebSocketDisconnect, asyncio.CancelledError):
         logger.info("WebSocket disconnected from /v1/ws/events")

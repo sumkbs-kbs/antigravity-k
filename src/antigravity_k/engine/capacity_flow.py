@@ -18,9 +18,44 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TypeGuard, cast
 
 logger = logging.getLogger(__name__)
+type CapacityMetadataValue = str | int | float | bool | None
+type CapacityJsonValue = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | list[CapacityJsonValue]
+    | dict[str, CapacityJsonValue]
+)
+type CapacityState = dict[str, CapacityJsonValue]
+
+
+def _is_capacity_json_value(value: object) -> TypeGuard[CapacityJsonValue]:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, list):
+        items = cast(list[object], value)
+        return all(_is_capacity_json_value(item) for item in items)
+    if isinstance(value, dict):
+        entries = cast(dict[object, object], value)
+        return all(isinstance(key, str) and _is_capacity_json_value(item) for key, item in entries.items())
+    return False
+
+
+def _coerce_capacity_state(value: object) -> CapacityState | None:
+    if not isinstance(value, dict):
+        return None
+    result: CapacityState = {}
+    entries = cast(dict[object, object], value)
+    for key, item in entries.items():
+        if not isinstance(key, str) or not _is_capacity_json_value(item):
+            return None
+        result[key] = item
+    return result
 
 
 class CapacityAction(str, Enum):
@@ -36,14 +71,14 @@ class CapacityAction(str, Enum):
     SWITCH_MODEL = "switch_model"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CapacityDecision:
     """용량 체크 결과."""
 
     action: CapacityAction
     message: str
     usage_pct: float = 0.0
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, CapacityMetadataValue] = field(default_factory=dict)
 
 
 class CapacityCheckpoint:
@@ -69,9 +104,9 @@ class CapacityCheckpoint:
             halt_pct (float): float halt pct.
 
         """
-        self.warn_pct = warn_pct
-        self.compress_pct = compress_pct
-        self.halt_pct = halt_pct
+        self.warn_pct: float = warn_pct
+        self.compress_pct: float = compress_pct
+        self.halt_pct: float = halt_pct
 
     def check_context_budget(self, current_tokens: int, max_tokens: int) -> CapacityDecision:
         """Check Context Budget.
@@ -197,10 +232,10 @@ class CrashRecovery:
             checkpoint_dir (str | None): str | None checkpoint dir.
 
         """
-        self.checkpoint_dir = Path(checkpoint_dir or os.path.join("vault_data", "checkpoints"))
+        self.checkpoint_dir: Path = Path(checkpoint_dir or os.path.join("vault_data", "checkpoints"))
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_checkpoint(self, state: dict[str, Any], label: str = "auto") -> str:
+    def save_checkpoint(self, state: CapacityState, label: str = "auto") -> str:
         """Save checkpoint.
 
         Args:
@@ -219,18 +254,18 @@ class CrashRecovery:
             "filepath": str(filepath),
         }
         try:
-            filepath.write_text(
+            _ = filepath.write_text(
                 json.dumps(state, default=str, ensure_ascii=False),
                 encoding="utf-8",
             )
             # 권한 보호 (vault 규약: 0600)
             filepath.chmod(0o600)
             logger.info("Checkpoint saved: %s", filepath)
-        except Exception:
+        except (OSError, TypeError, ValueError):
             logger.exception("Failed to save checkpoint")
         return str(filepath)
 
-    def restore_from_checkpoint(self, label: str = "auto") -> dict[str, Any] | None:
+    def restore_from_checkpoint(self, label: str = "auto") -> CapacityState | None:
         """Restore From Checkpoint.
 
         Args:
@@ -247,14 +282,17 @@ class CrashRecovery:
             return None
         latest = candidates[0]
         try:
-            data = json.loads(latest.read_text(encoding="utf-8"))
+            decoded = cast(object, json.loads(latest.read_text(encoding="utf-8")))
+            data = _coerce_capacity_state(decoded)
+            if data is None:
+                return None
             logger.info("Checkpoint restored: %s", latest)
             return data
-        except Exception:
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
             logger.exception("Failed to restore checkpoint")
             return None
 
-    def queue_offline(self, prompt: str, context: dict[str, Any] | None = None) -> str:
+    def queue_offline(self, prompt: str, context: CapacityState | None = None) -> str:
         """Queue Offline.
 
         Args:
@@ -274,7 +312,7 @@ class CrashRecovery:
             "context": context or {},
             "queued_at": time.time(),
         }
-        filepath.write_text(json.dumps(entry, default=str, ensure_ascii=False), encoding="utf-8")
+        _ = filepath.write_text(json.dumps(entry, default=str, ensure_ascii=False), encoding="utf-8")
         filepath.chmod(0o600)
         logger.info("Offline queue entry saved: %s", filepath)
         return str(filepath)

@@ -4,8 +4,9 @@ import logging
 import os
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TypedDict, final
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,24 @@ class Observation:
     timestamp: str
 
 
+class ObservationRecord(TypedDict):
+    id: int
+    session_id: str
+    content: str
+    compressed_content: str
+    timestamp: str
+
+
+@final
 class CavememStore:
     """Persistent memory store utilizing SQLite FTS5 for local-first,.
 
     cross-agent memory retrieval. Uses basic Caveman compression heuristics.
     """
 
-    def __init__(self, db_path: str = ".antigravity/cavemem.sqlite3"):
+    db_path: str
+
+    def __init__(self, db_path: str = ".antigravity/cavemem.sqlite3") -> None:
         """Initialize the CavememStore.
 
         Args:
@@ -38,10 +50,10 @@ class CavememStore:
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._init_db()
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
+            _ = cursor.execute(
                 """
                 CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
 
@@ -53,7 +65,7 @@ class CavememStore:
             """,
             )
             # Create a regular table to auto-increment IDs and keep original data
-            cursor.execute(
+            _ = cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS observations (
 
@@ -66,7 +78,7 @@ class CavememStore:
             """,
             )
             # Trigger to auto-insert into FTS table
-            cursor.execute(
+            _ = cursor.execute(
                 """
                 CREATE TRIGGER IF NOT EXISTS obs_ai AFTER INSERT ON observations BEGIN
 
@@ -104,7 +116,7 @@ class CavememStore:
         compressed = self.compress_to_caveman(content)
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute(
+            _ = cursor.execute(
                 "INSERT INTO observations (session_id, content, compressed_content) VALUES (?, ?, ?)",
                 (session_id, content, compressed),
             )
@@ -112,7 +124,7 @@ class CavememStore:
             conn.commit()
             return obs_id or 0
 
-    def search_observations(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+    def search_observations(self, query: str, limit: int = 5) -> list[ObservationRecord]:
         """Search for observations.
 
         Args:
@@ -120,7 +132,7 @@ class CavememStore:
             limit (int): int limit.
 
         Returns:
-            list[dict[str, Any]]: The list[dict[str, any]] result.
+            list[ObservationRecord]: Matching observation records.
 
         """
         # FTS5 match query
@@ -135,7 +147,7 @@ class CavememStore:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                cursor.execute(
+                _ = cursor.execute(
                     """
                     SELECT rowid as id, session_id, content, compressed_content, timestamp
 
@@ -145,8 +157,23 @@ class CavememStore:
                     """,
                     (fts_query, limit),
                 )
-                rows = cursor.fetchall()
-                return [dict(row) for row in rows]
+                rows: list[sqlite3.Row] = cursor.fetchall()
+                records: list[ObservationRecord] = []
+                for row in rows:
+                    records.append(
+                        {
+                            "id": row["id"] if isinstance(row["id"], int) else 0,
+                            "session_id": row["session_id"]
+                            if isinstance(row["session_id"], str)
+                            else "",
+                            "content": row["content"] if isinstance(row["content"], str) else "",
+                            "compressed_content": row["compressed_content"]
+                            if isinstance(row["compressed_content"], str)
+                            else "",
+                            "timestamp": row["timestamp"] if isinstance(row["timestamp"], str) else "",
+                        }
+                    )
+                return records
         except sqlite3.OperationalError:
             # Fallback if FTS parsing fails
             return []
@@ -184,7 +211,7 @@ If nothing is worth remembering, output exactly: NO_UPDATE
         self,
         user_message: str,
         session_id: str = "auto",
-        model_fn: Any | None = None,
+        model_fn: Callable[[str], str] | None = None,
     ) -> str | None:
         """대화 턴에서 장기 기억할 가치가 있는 정보를 자동 추출합니다.
 
@@ -217,12 +244,12 @@ If nothing is worth remembering, output exactly: NO_UPDATE
                     user_message=user_message,
                 )
                 response = model_fn(prompt)
-                text = response.strip() if isinstance(response, str) else str(response).strip()
+                text = response.strip()
 
                 if text == "NO_UPDATE" or not text:
                     return None
 
-                self.store_observation(session_id, text)
+                _ = self.store_observation(session_id, text)
                 return text
             except Exception:
                 logger.exception("Unhandled exception")
@@ -251,7 +278,7 @@ If nothing is worth remembering, output exactly: NO_UPDATE
             "stack",
         ]
         if any(kw in user_message for kw in memory_keywords):
-            self.store_observation(session_id, user_message)
+            _ = self.store_observation(session_id, user_message)
             return user_message
 
         return None

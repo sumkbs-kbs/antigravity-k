@@ -6,6 +6,8 @@ ComputerUseTool, ActionGuard, OS Drivers, YAML Frontmatter 파싱을
 
 import os
 import sys
+from collections.abc import Mapping
+from typing import cast
 
 # 프로젝트 src를 Python 경로에 추가
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -173,7 +175,9 @@ class TestComputerUseTool:
         schema = tool.to_tool_call_schema()
         assert schema["name"] == "computer_use"
         assert "input_schema" in schema
-        assert "action" in schema["input_schema"]["properties"]
+        input_schema = cast(Mapping[str, object], schema["input_schema"])
+        properties = cast(Mapping[str, object], input_schema["properties"])
+        assert "action" in properties
 
     def test_screenshot_action(self):
         """Screenshot 액션이 base64 이미지를 반환해야 합니다."""

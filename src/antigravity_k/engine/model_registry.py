@@ -53,9 +53,7 @@ def _boolean(data: Mapping[str, object], key: str, default: bool = False) -> boo
 
 def _provider_mapping(value: object) -> dict[str, ProviderConfigValue]:
     return {
-        key: item
-        for key, item in _mapping(value).items()
-        if isinstance(item, (str, int, float, bool)) or item is None
+        key: item for key, item in _mapping(value).items() if isinstance(item, (str, int, float, bool)) or item is None
     }
 
 

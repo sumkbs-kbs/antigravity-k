@@ -1,10 +1,12 @@
 """Unit tests for BestOfNVerifier (execution-verified best-of-N sampler)."""
 
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Protocol, cast
 
 from antigravity_k.engine.best_of_n_verifier import (
+    BestOfNTrace,
     BestOfNVerifier,
     VerificationOutcome,
     budget_to_n_samples,
@@ -13,10 +15,27 @@ from antigravity_k.engine.best_of_n_verifier import (
 )
 
 
-def _gen_factory(outputs: list[str]):
+class _ModelManagerDouble(Protocol):
+    _registry: object
+    generate: Callable[..., str]
+
+    def generate_best_of_n(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+def _run(engine: BestOfNVerifier, prompt: str, **kwargs: object) -> BestOfNTrace:
+    callback = cast(Callable[..., BestOfNTrace], cast(object, getattr(engine, "run")))
+    return callback(prompt, **kwargs)
+
+
+def _collect_candidates(engine: BestOfNVerifier, prompt: str) -> object:
+    callback = cast(Callable[..., object], cast(object, getattr(engine, "collect_candidates")))
+    return callback(prompt)
+
+
+def _gen_factory(outputs: list[str]) -> tuple[Callable[..., str], dict[str, int]]:
     calls = {"n": 0}
 
-    def gen(prompt: str, **kwargs) -> str:
+    def gen(_prompt: str, **_kwargs: object) -> str:
         idx = min(calls["n"], len(outputs) - 1)
         calls["n"] += 1
         return outputs[idx]
@@ -66,13 +85,13 @@ class TestBestOfNVerifier:
             "```python\nprint('good')\n```",
             "```python\nprint('also good')\n```",
         ]
-        gen, calls = _gen_factory(outputs)
+        gen, _ = _gen_factory(outputs)
         engine = BestOfNVerifier(
             generate_fn=gen,
             verifier_fn=make_command_verifier([sys.executable, "{file}"]),
             n_samples=3,
         )
-        trace = engine.run("fix it")
+        trace = _run(engine, "fix it")
         assert trace.skipped is False
         assert trace.early_exit is True
         assert trace.selected_index == 1
@@ -91,7 +110,7 @@ class TestBestOfNVerifier:
             verifier_fn=make_command_verifier([sys.executable, "{file}"]),
             n_samples=2,
         )
-        trace = engine.run("fix it")
+        trace = _run(engine, "fix it")
         assert trace.skipped is False
         assert trace.passed_count == 0
         assert trace.selected != ""
@@ -103,7 +122,7 @@ class TestBestOfNVerifier:
     def test_no_verifier_single_generation_contract(self):
         gen, calls = _gen_factory(["single answer"])
         engine = BestOfNVerifier(generate_fn=gen, n_samples=3)
-        trace = engine.run("hello")
+        trace = _run(engine, "hello")
         assert trace.skipped is True
         assert trace.selected == "single answer"
         assert calls["n"] == 1
@@ -116,19 +135,20 @@ class TestBestOfNVerifier:
             verifier_fn=make_command_verifier([sys.executable, "{file}"]),
             n_samples=2,
         )
-        trace = engine.run("try", feedback_loop=True, max_feedback_rounds=3)
+        trace = _run(engine, "try", feedback_loop=True, max_feedback_rounds=3)
         assert trace.skipped is False
         assert trace.early_exit is True
 
     def test_temperature_spread_applied(self):
         temps_seen: list[float] = []
 
-        def gen(prompt: str, **kwargs) -> str:
-            temps_seen.append(kwargs.get("temperature", 0.0))
+        def gen(_prompt: str, **kwargs: object) -> str:
+            temperature = kwargs.get("temperature", 0.0)
+            temps_seen.append(float(temperature) if isinstance(temperature, (int, float)) else 0.0)
             return ""
 
         engine = BestOfNVerifier(generate_fn=gen, n_samples=3)
-        engine.collect_candidates("p")
+        _ = _collect_candidates(engine, "p")
         assert len(set(temps_seen)) == 3
 
     def test_budget_mapping_clamps(self):
@@ -153,28 +173,28 @@ class TestConfigMapping:
         assert "n_samples" not in kwargs
 
 
-def test_verification_outcome_defaults(tmp_path: Path):
+def test_verification_outcome_defaults():
     outcome = VerificationOutcome(passed=True)
     assert outcome.score == 1.0
     assert outcome.detail == ""
 
 
 class TestModelManagerWiring:
-    def _make_manager(self, amp_cfg: dict[str, object]):
+    def _make_manager(self, amp_cfg: dict[str, object]) -> _ModelManagerDouble:
         from antigravity_k.engine.model_manager import ModelManager
 
         class FakeRegistry:
-            _raw = {"amplification": {"best_of_n": amp_cfg}}
+            _raw: dict[str, object] = {"amplification": {"best_of_n": amp_cfg}}
 
-        mgr = cast(Any, ModelManager.__new__(ModelManager))
-        mgr._registry = FakeRegistry()
+        mgr = cast(_ModelManagerDouble, cast(object, ModelManager.__new__(ModelManager)))
+        setattr(mgr, "_registry", FakeRegistry())
         return mgr
 
     def test_generate_best_of_n_early_exit_on_valid_candidate(self):
         calls: list[float] = []
         mgr = self._make_manager({"enabled": True, "n_samples": 3})
 
-        def gen(prompt, target, **kw):
+        def gen(_prompt: str, _target: str, **kw: object) -> str:
             temperature = kw.get("temperature")
             if isinstance(temperature, (int, float)):
                 calls.append(float(temperature))
@@ -187,13 +207,19 @@ class TestModelManagerWiring:
 
     def test_disabled_config_falls_back_to_plain_generate(self):
         mgr = self._make_manager({"enabled": False})
-        mgr.generate = lambda prompt, target, **kw: "plain-answer"
+        def generate_plain(_prompt: str, _target: str, **_kw: object) -> str:
+            return "plain-answer"
+
+        mgr.generate = generate_plain
         assert mgr.generate_best_of_n("q", "m") == "plain-answer"
 
     def test_syntax_error_candidates_are_skipped(self):
         mgr = self._make_manager({"enabled": True, "n_samples": 2})
         outputs = iter(["```python\ndef broken(:\n```", "```python\nok = True\n```"])
-        mgr.generate = lambda prompt, target, **kw: next(outputs)
+        def generate_candidate(_prompt: str, _target: str, **_kw: object) -> str:
+            return next(outputs)
+
+        mgr.generate = generate_candidate
         out = mgr.generate_best_of_n("fix", "qwen")
         assert out == "```python\nok = True\n```"
 
@@ -208,7 +234,7 @@ class TestModelManagerWiring:
             ]
         )
 
-        def gen(prompt, target, **kw):
+        def gen(prompt: str, _target: str, **_kw: object) -> str:
             calls.append(prompt)
             return next(outputs)
 
@@ -230,12 +256,12 @@ class TestWorktreeTestVerifier:
         repo.mkdir()
 
         def git(*args: str) -> None:
-            sp.run(["git", *args], cwd=repo, check=True, capture_output=True)
+            _ = sp.run(["git", *args], cwd=repo, check=True, capture_output=True)
 
         git("init", "-q")
         git("config", "user.email", "t@t.local")
         git("config", "user.name", "t")
-        (repo / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        _ = (repo / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
         git("add", ".")
         git("commit", "-qm", "init")
         return repo
@@ -284,7 +310,7 @@ class TestWorktreeTestVerifier:
         plain.mkdir()
         seen_kinds: list[bool] = []
 
-        def apply_fn(text: str, ws: Path) -> bool:
+        def apply_fn(_text: str, ws: Path) -> bool:
             seen_kinds.append(ws.exists())
             return True
 
@@ -324,18 +350,18 @@ class TestAnswerPatchVerifier:
         repo = tmp_path / "repo"
         repo.mkdir()
 
-        def git(*args):
-            sp.run(["git", *args], cwd=repo, check=True, capture_output=True)
+        def git(*args: str) -> None:
+            _ = sp.run(["git", *args], cwd=repo, check=True, capture_output=True)
 
         git("init", "-q")
         git("config", "user.email", "t@t.local")
         git("config", "user.name", "t")
-        (repo / "config_value.py").write_text("VALUE = 1\n", encoding="utf-8")
-        (repo / "test_value.py").write_text(
+        _ = (repo / "config_value.py").write_text("VALUE = 1\n", encoding="utf-8")
+        _ = (repo / "test_value.py").write_text(
             "from config_value import VALUE\n\n\ndef test_two():\n    assert VALUE == 2\n",
             encoding="utf-8",
         )
-        (repo / "__init__.py").write_text("", encoding="utf-8")
+        _ = (repo / "__init__.py").write_text("", encoding="utf-8")
         git("add", ".")
         git("commit", "-qm", "init")
         return repo

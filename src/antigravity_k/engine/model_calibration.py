@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -10,7 +11,7 @@ logger = logging.getLogger("antigravity_k.model_calibration")
 
 
 class BenchmarkResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     case_id: str
     quality_score: float = Field(ge=0.0, le=1.0)
@@ -20,13 +21,13 @@ class BenchmarkResult(BaseModel):
 
 
 class BenchmarkRun(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     error_count: int = Field(default=0, ge=0)
 
 
 class BenchmarkStability(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     repeat_count: int = Field(ge=1)
     result_count: int = Field(ge=1)
@@ -38,7 +39,7 @@ class BenchmarkStability(BaseModel):
 
 
 class BenchmarkArtifact(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     model: str = Field(min_length=1)
     results: tuple[BenchmarkResult, ...] = Field(min_length=1)
@@ -46,7 +47,7 @@ class BenchmarkArtifact(BaseModel):
 
 
 class TaskBenchmarkMetrics(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     outcome_count: int = Field(ge=1)
     task_success_rate: float = Field(ge=0.0, le=1.0)
@@ -58,7 +59,7 @@ class TaskBenchmarkMetrics(BaseModel):
 
 
 class TaskBenchmarkArtifact(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     artifact_type: str
     model: str = Field(min_length=1)
@@ -66,10 +67,11 @@ class TaskBenchmarkArtifact(BaseModel):
 
 
 class ModelQualityCalibrationConfig(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     enabled: bool = False
     artifact_paths: tuple[Path, ...] = ()
+    artifact_globs: tuple[str, ...] = ()
     min_mean_benchmark_score: float = Field(default=0.8, ge=0.0, le=1.0)
     min_min_benchmark_score: float = Field(default=0.7, ge=0.0, le=1.0)
     min_excellent_rate: float = Field(default=0.8, ge=0.0, le=1.0)
@@ -98,6 +100,9 @@ class ModelQualitySummary:
 
 
 class ModelQualityCalibrationStore:
+    _config: ModelQualityCalibrationConfig
+    _summaries: dict[str, ModelQualitySummary]
+
     def __init__(
         self,
         config: ModelQualityCalibrationConfig,
@@ -121,8 +126,7 @@ class ModelQualityCalibrationStore:
             return cls(config, ())
 
         by_model: dict[str, list[ModelQualitySummary]] = {}
-        for configured_path in config.artifact_paths:
-            artifact_path = configured_path if configured_path.is_absolute() else config_directory / configured_path
+        for artifact_path in cls._artifact_paths(config, config_directory):
             try:
                 raw_artifact = artifact_path.read_text(encoding="utf-8")
             except OSError:
@@ -146,6 +150,26 @@ class ModelQualityCalibrationStore:
             config,
             tuple(_combine_summaries(model_name, items) for model_name, items in by_model.items()),
         )
+
+    @staticmethod
+    def _artifact_paths(
+        config: ModelQualityCalibrationConfig,
+        config_directory: Path,
+    ) -> tuple[Path, ...]:
+        paths = [
+            configured_path if configured_path.is_absolute() else config_directory / configured_path
+            for configured_path in config.artifact_paths
+        ]
+        for pattern in config.artifact_globs:
+            try:
+                pattern_path = Path(pattern).expanduser()
+                if pattern_path.is_absolute():
+                    paths.extend(sorted(pattern_path.parent.glob(pattern_path.name)))
+                else:
+                    paths.extend(sorted(config_directory.glob(pattern)))
+            except (NotImplementedError, OSError, ValueError):
+                logger.warning("모델 품질 benchmark artifact glob이 올바르지 않습니다: %s", pattern)
+        return tuple(dict.fromkeys(paths))
 
     def is_eligible(self, model_name: str) -> bool:
         if not self._config.enabled:
@@ -188,7 +212,7 @@ class ModelQualityCalibrationStore:
 
     def set_task_metrics(self, model_name: str, metrics: TaskBenchmarkMetrics | None) -> None:
         if metrics is None:
-            self._observed_task_metrics.pop(model_name, None)
+            _ = self._observed_task_metrics.pop(model_name, None)
             return
         self._observed_task_metrics[model_name] = metrics
 

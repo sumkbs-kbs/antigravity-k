@@ -25,6 +25,12 @@ class TestModeManagerBasics:
         mgr = ModeManager()
         assert mgr.plan_artifact_path is None
 
+    def test_plan_quality_passed_property_reflects_state(self):
+        mgr = ModeManager()
+        assert mgr.plan_quality_passed is False
+        mgr.set_plan_quality_passed(True)
+        assert mgr.plan_quality_passed is True
+
     def test_empty_history_on_init(self):
         mgr = ModeManager()
         assert mgr.mode_history == []

@@ -17,14 +17,118 @@ Phase 1 D4: Plan 아티팩트 완성 → 검증 → QualityGate → ModeManager 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, TypeAlias, final
+from typing import Protocol, TypeAlias, TypedDict, final
+
+from antigravity_k.engine.artifact_engine import PlanTask, PlanValidationResult
+from antigravity_k.engine.execution_mode import ExecutionMode
+from antigravity_k.engine.kanban_engine import KanbanBoard, KanbanTask
+from antigravity_k.engine.mode_manager import ModeTransition
+from antigravity_k.engine.quality_gate import QualityScore
 
 logger = logging.getLogger(__name__)
 
-DynamicValue: TypeAlias = Any
-JsonMap: TypeAlias = dict[str, Any]
+JsonScalar: TypeAlias = None | bool | int | float | str
+JsonValue: TypeAlias = JsonScalar | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
+JsonMap: TypeAlias = Mapping[str, JsonValue]
+
+
+def _empty_json_map() -> JsonMap:
+    return {}
+
+
+class ValidationPayload(TypedDict):
+    success: bool
+    score: float
+    task_count: int
+    message: str
+    details: JsonMap
+    duration_ms: float
+
+
+class QualityPayload(TypedDict):
+    success: bool
+    score: float
+    grade: str
+    message: str
+    details: JsonMap
+    warnings: list[str]
+    duration_ms: float
+
+
+class TransitionPayload(TypedDict):
+    success: bool
+    message: str
+    details: JsonMap
+    duration_ms: float
+
+
+class KanbanPayload(TypedDict):
+    success: bool
+    task_count: int
+    message: str
+    details: JsonMap
+    duration_ms: float
+
+
+class AutoKanbanResult(TypedDict):
+    success: bool
+    board: KanbanBoard | None
+    task_count: int
+    message: str
+
+
+class ArtifactEnginePort(Protocol):
+    artifacts_dir: str
+
+    def read_artifact(self, target_file: str) -> str | None: ...
+
+    def validate_plan_complete(self, target_file: str = "implementation_plan.md") -> PlanValidationResult: ...
+
+    def is_plan_ready_for_build(self, target_file: str = "implementation_plan.md") -> bool: ...
+
+    def extract_plan_tasks(self, target_file: str = "implementation_plan.md") -> list[PlanTask]: ...
+
+    def auto_create_kanban_tasks(self, target_file: str = "implementation_plan.md") -> Mapping[str, object]: ...
+
+
+class ModeManagerPort(Protocol):
+    @property
+    def current_mode(self) -> ExecutionMode: ...
+
+    @property
+    def plan_artifact_path(self) -> str | None: ...
+
+    @property
+    def plan_quality_passed(self) -> bool: ...
+
+    @property
+    def can_auto_transition_to_build(self) -> bool: ...
+
+    @property
+    def mode_history(self) -> Sequence[ModeTransition]: ...
+
+    def set_plan_artifact(self, path: str) -> None: ...
+
+    def set_plan_quality_passed(self, passed: bool = True) -> None: ...
+
+    def switch_to_build(self, plan_artifact_path: str | None = None, reason: str = "") -> bool: ...
+
+
+class QualityGatePort(Protocol):
+    def evaluate(
+        self,
+        task_type: str,
+        user_request: str,
+        agent_output: str,
+        execution_mode: str | None = None,
+    ) -> QualityScore: ...
+
+
+class KanbanEnginePort(Protocol):
+    def add_task(self, title: str, description: str = "", priority: int = 0) -> KanbanTask: ...
 
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────────
@@ -50,7 +154,7 @@ class TransitionStep:
     phase: str
     success: bool
     message: str = ""
-    details: JsonMap = field(default_factory=dict)
+    details: JsonMap = field(default_factory=_empty_json_map)
     duration_ms: float = 0.0
 
 
@@ -156,10 +260,10 @@ class PlanToBuildPipeline:
 
     def __init__(
         self,
-        mode_manager: DynamicValue | None = None,
-        artifact_engine: DynamicValue | None = None,
-        quality_gate: DynamicValue | None = None,
-        kanban_engine: DynamicValue | None = None,
+        mode_manager: ModeManagerPort | None = None,
+        artifact_engine: ArtifactEnginePort | None = None,
+        quality_gate: QualityGatePort | None = None,
+        kanban_engine: KanbanEnginePort | None = None,
         min_plan_score: float = DEFAULT_MIN_SCORE,
     ):
         """Initialize the PlanToBuildPipeline.
@@ -323,7 +427,7 @@ class PlanToBuildPipeline:
 
     # ─── 서브스텝 ───────────────────────────────────────────────────
 
-    def _validate_plan(self, plan_file: str) -> JsonMap:
+    def _validate_plan(self, plan_file: str) -> ValidationPayload:
         """Step 1: Plan 아티팩트 완전성을 검증합니다.
 
         1. Plan 파일 존재 여부 확인
@@ -356,8 +460,10 @@ class PlanToBuildPipeline:
                     "success": False,
                     "score": 0.0,
                     "task_count": 0,
-                    "message": f"Plan 아티팩트 '{plan_file}'를 찾을 수 없습니다. "
-                    f"artifacts/{plan_file} 경로를 확인하세요.",
+                    "message": (
+                        f"Plan 아티팩트 '{plan_file}'를 찾을 수 없습니다. "
+                        f"artifacts/{plan_file} 경로를 확인하세요."
+                    ),
                     "details": {"missing_file": True},
                     "duration_ms": (datetime.now() - start).total_seconds() * 1000,
                 }
@@ -418,7 +524,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _check_quality(self, plan_file: str, _validation: JsonMap) -> JsonMap:
+    def _check_quality(self, plan_file: str, _validation: ValidationPayload) -> QualityPayload:
         """Step 2: QualityGate로 Plan 품질을 평가합니다.
 
         ArtifactEngine의 validate_plan_complete() 결과를
@@ -502,7 +608,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _execute_transition(self, plan_file: str) -> JsonMap:
+    def _execute_transition(self, plan_file: str) -> TransitionPayload:
         """Step 3: ModeManager를 통해 Plan→Build 전환을 실행합니다.
 
         1. set_plan_artifact(plan_file) — Plan 아티팩트 경로 설정
@@ -555,8 +661,8 @@ class PlanToBuildPipeline:
                     "message": "Build 모드 전환 실패 — 자동 전환이 비활성화되었거나 검증 조건 미충족",
                     "details": {
                         "plan_path": plan_path,
-                        "auto_transition_enabled": getattr(self.mode_manager, "_auto_transition_enabled", "unknown"),
-                        "plan_quality_passed": getattr(self.mode_manager, "_plan_quality_passed", "unknown"),
+                        "auto_transition_enabled": self.mode_manager.can_auto_transition_to_build,
+                        "plan_quality_passed": self.mode_manager.plan_quality_passed,
                     },
                     "duration_ms": (datetime.now() - start).total_seconds() * 1000,
                 }
@@ -570,7 +676,7 @@ class PlanToBuildPipeline:
                     "current_mode": str(self.mode_manager.current_mode.value)
                     if hasattr(self.mode_manager, "current_mode")
                     else "build",
-                    "mode_history_count": len(getattr(self.mode_manager, "_history", [])),
+                    "mode_history_count": len(self.mode_manager.mode_history),
                 },
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
@@ -584,7 +690,7 @@ class PlanToBuildPipeline:
                 "duration_ms": (datetime.now() - start).total_seconds() * 1000,
             }
 
-    def _create_kanban_tasks(self, plan_file: str) -> JsonMap:
+    def _create_kanban_tasks(self, plan_file: str) -> KanbanPayload:
         """Step 4: Plan에서 태스크를 추출하여 Kanban에 등록합니다.
 
         KanbanEngine이 없으면 ArtifactEngine.auto_create_kanban_tasks()에 위임합니다.
@@ -612,7 +718,8 @@ class PlanToBuildPipeline:
                 kanban_result = self.artifact_engine.auto_create_kanban_tasks(plan_file)
 
                 if kanban_result.get("success"):
-                    task_count = kanban_result.get("task_count", 0)
+                    task_count_value = kanban_result.get("task_count", 0)
+                    task_count = task_count_value if isinstance(task_count_value, int) else 0
                     return {
                         "success": True,
                         "task_count": task_count,
@@ -624,7 +731,8 @@ class PlanToBuildPipeline:
                         "duration_ms": (datetime.now() - start).total_seconds() * 1000,
                     }
                 else:
-                    message = kanban_result.get("message", "Kanban 태스크 생성 실패")
+                    message_value = kanban_result.get("message", "Kanban 태스크 생성 실패")
+                    message = message_value if isinstance(message_value, str) else "Kanban 태스크 생성 실패"
                     return {
                         "success": False,
                         "task_count": 0,
@@ -649,7 +757,7 @@ class PlanToBuildPipeline:
                 registered = 0
                 for task in todo_tasks:
                     try:
-                        self.kanban_engine.add_task(
+                        _ = self.kanban_engine.add_task(
                             title=task.title,
                             description=task.description,
                             priority=task.priority,
@@ -729,9 +837,8 @@ class PlanToBuildPipeline:
                 if plan_path:
                     lines.append(f"**Plan Artifact:** `{plan_path}`")
 
-            if hasattr(self.mode_manager, "_plan_quality_passed"):
-                quality_pass = self.mode_manager._plan_quality_passed
-                lines.append(f"**Quality Passed:** {'✅' if quality_pass else '❌'}")
+            quality_pass = self.mode_manager.plan_quality_passed
+            lines.append(f"**Quality Passed:** {'✅' if quality_pass else '❌'}")
 
             if hasattr(self.mode_manager, "mode_history") and self.mode_manager.mode_history:
                 lines.append("")

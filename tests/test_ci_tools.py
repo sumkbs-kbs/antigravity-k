@@ -381,11 +381,28 @@ class TestTestRunnerToolInit:
 
     def test_schema_contains_required_fields(self):
         tool = TestRunnerTool()
-        schema = tool.parameters_schema
-        assert "command" in schema["properties"]
-        assert "path" in schema["properties"]
-        assert "timeout_seconds" in schema["properties"]
-        assert "file_filter" in schema["properties"]
+        properties = cast(dict[str, object], tool.parameters_schema["properties"])
+        assert "command" in properties
+        assert "path" in properties
+        assert "timeout_seconds" in properties
+        assert "file_filter" in properties
+
+
+def test_test_runner_uses_argv_without_shell_interpolation(monkeypatch):
+    tool = TestRunnerTool()
+    calls: list[tuple[object, dict[str, object]]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return mock.Mock(returncode=0, stdout="1 passed", stderr="")
+
+    monkeypatch.setattr("antigravity_k.tools.ci_tools.subprocess.run", fake_run)
+    _ = tool.execute(command="pytest", file_filter="test_x.py; touch marker")
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command == ["pytest", "test_x.py; touch marker"]
+    assert kwargs["shell"] is False
 
 
 # ── AutoLintTool initialisation ────────────────────────────────────────
@@ -399,10 +416,30 @@ class TestAutoLintToolInit:
 
     def test_schema_contains_properties(self):
         tool = AutoLintTool()
-        schema = tool.parameters_schema
-        assert "file_path" in schema["properties"]
-        assert "fix" in schema["properties"]
-        assert "path" in schema["properties"]
+        properties = cast(dict[str, object], tool.parameters_schema["properties"])
+        assert "file_path" in properties
+        assert "fix" in properties
+        assert "path" in properties
+
+    def test_execute_passes_linter_arguments_without_shell_interpolation(self, monkeypatch):
+        tool = AutoLintTool()
+        calls: list[tuple[object, dict[str, object]]] = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("antigravity_k.tools.ci_tools.subprocess.run", fake_run)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "pyproject.toml"), "w") as f:
+                _ = f.write("[tool.ruff]")
+
+            _ = tool.execute(path=tmpdir, file_path="unsafe.py; touch marker", fix=False)
+
+        assert len(calls) == 1
+        command, kwargs = calls[0]
+        assert command == ["ruff", "check", "unsafe.py; touch marker"]
+        assert kwargs["shell"] is False
 
 
 # ── PRCreationTool execution (mocked _git) ─────────────────────────────
@@ -418,12 +455,12 @@ class TestPRCreationTool:
 
     def test_schema_contains_fields(self):
         tool = PRCreationTool()
-        schema = tool.parameters_schema
-        assert "title" in schema["properties"]
-        assert "body" in schema["properties"]
-        assert "base" in schema["properties"]
-        assert "draft" in schema["properties"]
-        assert "path" in schema["properties"]
+        properties = cast(dict[str, object], tool.parameters_schema["properties"])
+        assert "title" in properties
+        assert "body" in properties
+        assert "base" in properties
+        assert "draft" in properties
+        assert "path" in properties
 
     @patch("antigravity_k.tools.ci_tools.subprocess.run")
     def test_execute_auto_title_generation(self, mock_run: mock.Mock):

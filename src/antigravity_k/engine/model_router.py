@@ -143,7 +143,11 @@ class ModelCombo:
             strategy = RouteStrategy.FALLBACK
 
         raw_models = data.get("models", [])
-        models = [item for item in cast(list[object], raw_models) if isinstance(item, str)] if isinstance(raw_models, list) else []
+        models = (
+            [item for item in cast(list[object], raw_models) if isinstance(item, str)]
+            if isinstance(raw_models, list)
+            else []
+        )
         return cls(
             name=name,
             models=models,
@@ -738,8 +742,7 @@ class ModelRouter:
                     return score
 
         line_pattern = re.compile(
-            r"\s*(?:score|confidence)\s*(?:is|should be|[:=])\s*"
-            + r"(0(?:\.\d+)?|1(?:\.0+)?)\s*[.!]?\s*$",
+            r"\s*(?:score|confidence)\s*(?:is|should be|[:=])\s*" + r"(0(?:\.\d+)?|1(?:\.0+)?)\s*[.!]?\s*$",
             re.IGNORECASE,
         )
         for line in reversed(raw.splitlines()):
@@ -874,17 +877,17 @@ class ModelRouter:
                 "provider_capabilities": dict(self._provider_capabilities),
                 "model_policy": self._model_policy.to_dict(),
                 "quality_calibration": {
-                "enabled": self._quality_calibration.enabled,
-                "eligible_models": [
-                    summary.model_name
-                    for summary in calibration_summaries
-                    if self._quality_calibration.is_eligible(summary.model_name)
-                ],
-                "ineligible_models": [
-                    summary.model_name
-                    for summary in calibration_summaries
-                    if not self._quality_calibration.is_eligible(summary.model_name)
-                ],
+                    "enabled": self._quality_calibration.enabled,
+                    "eligible_models": [
+                        summary.model_name
+                        for summary in calibration_summaries
+                        if self._quality_calibration.is_eligible(summary.model_name)
+                    ],
+                    "ineligible_models": [
+                        summary.model_name
+                        for summary in calibration_summaries
+                        if not self._quality_calibration.is_eligible(summary.model_name)
+                    ],
                     "operational_metrics": operational_metrics,
                 },
             },

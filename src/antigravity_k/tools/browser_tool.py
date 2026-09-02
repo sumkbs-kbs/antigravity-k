@@ -18,7 +18,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Protocol, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
@@ -27,10 +28,73 @@ logger = logging.getLogger("antigravity_k.tools.browser")
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, BrowserContext, Page, Playwright
 
-Params = dict[str, Any]
-A11yNode = dict[str, Any]
+    from .semantic_dom import SemanticSnapshot
+    from .vision_dom_hybrid import HybridAnalysis
+
+Params = dict[str, object]
+A11yNode = Mapping[str, object]
 
 
+class _DOMParserProtocol(Protocol):
+    def snapshot_sync(self, page: Page) -> SemanticSnapshot: ...
+
+    def enrich_with_a11y_sync(self, page: Page, snapshot: SemanticSnapshot) -> SemanticSnapshot: ...
+
+    def to_llm_context(
+        self,
+        snapshot: SemanticSnapshot,
+        max_elements: int = 50,
+        include_bbox: bool = True,
+        interactable_only: bool = False,
+    ) -> str: ...
+
+    def click_element_sync(self, page: Page, snapshot: SemanticSnapshot, ref_or_intent: str) -> str: ...
+
+
+class _VisionHybridProtocol(Protocol):
+    def analyze_sync(self, page: Page, snapshot: SemanticSnapshot | None = None) -> HybridAnalysis: ...
+
+    def render_som_sync(self, page: Page, snapshot: SemanticSnapshot) -> str: ...
+
+
+class _AccessibilityProtocol(Protocol):
+    def snapshot(self) -> object: ...
+
+
+def _param_text(params: Params, key: str, default: str = "") -> str:
+    value = params.get(key)
+    return value if isinstance(value, str) else default
+
+
+def _param_int(params: Params, key: str, default: int) -> int:
+    value = params.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _param_timeout(params: Params, default: int = 5000) -> int:
+    return _param_int(params, "timeout", default)
+
+
+def _a11y_children(value: object) -> list[A11yNode]:
+    if not isinstance(value, list):
+        return []
+    children: list[A11yNode] = []
+    raw: list[object] = cast(list[object], value)
+    for item in raw:
+        if isinstance(item, dict):
+            raw_item: dict[object, object] = cast(dict[object, object], item)
+            children.append({str(key): child for key, child in raw_item.items()})
+    return children
+
+
+def _a11y_node(value: object) -> A11yNode | None:
+    if not isinstance(value, dict):
+        return None
+    raw: dict[object, object] = cast(dict[object, object], value)
+    return {str(key): child for key, child in raw.items()}
+
+
+@final
 class BrowserTool(BaseTool):
     """Playwright 기반 브라우저 자동화 도구.
 
@@ -52,13 +116,14 @@ class BrowserTool(BaseTool):
         self.context: BrowserContext | None = None
         self.browser: Browser | None = None
         self.playwright: Playwright | None = None
-        self.is_running = False
+        self.is_running: bool = False
         # v2: 시맨틱 DOM + Vision 엔진
-        self._dom_parser = None
-        self._vision_hybrid = None
-        self._last_snapshot = None
+        self._dom_parser: _DOMParserProtocol | None = None
+        self._vision_hybrid: _VisionHybridProtocol | None = None
+        self._last_snapshot: SemanticSnapshot | None = None
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -69,6 +134,7 @@ class BrowserTool(BaseTool):
         return "browser"
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -87,7 +153,8 @@ class BrowserTool(BaseTool):
         )
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         """Parameters Schema.
 
         Returns:
@@ -153,7 +220,8 @@ class BrowserTool(BaseTool):
             "required": ["action"],
         }
 
-    def execute(self, **kwargs) -> str:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -163,7 +231,8 @@ class BrowserTool(BaseTool):
             str: The str result.
 
         """
-        action = kwargs.get("action")
+        params: Params = kwargs
+        action = params.get("action")
 
         try:
             from playwright.sync_api import sync_playwright
@@ -192,34 +261,34 @@ class BrowserTool(BaseTool):
 
         try:
             if action == "goto":
-                return self._action_goto(kwargs)
+                return self._action_goto(params)
             elif action == "click":
-                return self._action_click(kwargs)
+                return self._action_click(params)
             elif action == "type":
-                return self._action_type(kwargs)
+                return self._action_type(params)
             elif action == "screenshot":
-                return self._action_screenshot(kwargs)
+                return self._action_screenshot(params)
             elif action == "read_dom":
-                return self._action_read_dom(kwargs)
+                return self._action_read_dom(params)
             elif action == "accessibility":
-                return self._action_accessibility(kwargs)
+                return self._action_accessibility(params)
             elif action == "wait":
-                return self._action_wait(kwargs)
+                return self._action_wait(params)
             elif action == "evaluate":
-                return self._action_evaluate(kwargs)
+                return self._action_evaluate(params)
             elif action == "close":
                 return self._action_close()
             # ─── v2: 시맨틱 DOM + Vision 액션 ───
             elif action == "semantic_snapshot":
-                return self._action_semantic_snapshot(kwargs)
+                return self._action_semantic_snapshot(params)
             elif action == "click_by_intent":
-                return self._action_click_by_intent(kwargs)
+                return self._action_click_by_intent(params)
             elif action == "vision_analyze":
-                return self._action_vision_analyze(kwargs)
+                return self._action_vision_analyze(params)
             elif action == "som_screenshot":
-                return self._action_som_screenshot(kwargs)
+                return self._action_som_screenshot(params)
             elif action == "detect_obstacles":
-                return self._action_detect_obstacles(kwargs)
+                return self._action_detect_obstacles(params)
             else:
                 return f"Unknown action: {action}"
 
@@ -235,19 +304,19 @@ class BrowserTool(BaseTool):
 
     def _action_goto(self, params: Params) -> str:
         page = self._require_page()
-        url = params.get("url")
-        timeout = params.get("timeout", 15000)
-        if not isinstance(url, str) or not url:
+        url = _param_text(params, "url")
+        timeout = _param_timeout(params, 15000)
+        if not url:
             return "Error: 'url' 파라미터가 필요합니다"
-        page.goto(url, wait_until="networkidle", timeout=timeout)
+        _ = page.goto(url, wait_until="networkidle", timeout=timeout)
         title = page.title()
         return f"Navigated to {url}. Title: {title}"
 
     def _action_click(self, params: Params) -> str:
         page = self._require_page()
-        selector = params.get("selector")
-        text = params.get("text")
-        timeout = params.get("timeout", 5000)
+        selector = _param_text(params, "selector")
+        text = _param_text(params, "text")
+        timeout = _param_timeout(params)
 
         if text and not selector:
             # Intent 기반 클릭: 텍스트로 요소 찾기 (Self-Healing 패턴)
@@ -271,9 +340,9 @@ class BrowserTool(BaseTool):
 
     def _action_type(self, params: Params) -> str:
         page = self._require_page()
-        selector = params.get("selector")
-        text = params.get("text", "")
-        timeout = params.get("timeout", 5000)
+        selector = _param_text(params, "selector")
+        text = _param_text(params, "text")
+        timeout = _param_timeout(params)
 
         if selector:
             page.fill(selector, text, timeout=timeout)
@@ -285,17 +354,17 @@ class BrowserTool(BaseTool):
 
     def _action_screenshot(self, params: Params) -> str:
         page = self._require_page()
-        path = params.get("path", f"screenshot_{int(time.time())}.png")
-        page.screenshot(path=path, full_page=True)
+        path = _param_text(params, "path", f"screenshot_{int(time.time())}.png")
+        _ = page.screenshot(path=path, full_page=True)
         return f"Screenshot saved to {path}"
 
     def _action_read_dom(self, params: Params) -> str:
         page = self._require_page()
         """현재 페이지의 주요 DOM 구조를 읽습니다 (에이전트가 이해하기 쉬운 형태)."""
-        selector = params.get("selector", "body")
+        selector = _param_text(params, "selector", "body")
 
         # 주요 인터랙티브 요소만 추출
-        result = page.evaluate(
+        result = cast(object, page.evaluate(
             f"""() => {{
 
             const el = document.querySelector('{selector}');
@@ -315,17 +384,19 @@ class BrowserTool(BaseTool):
                 ariaLabel: e.getAttribute('aria-label') || null,
             }}));
         }}""",
-        )
+        ))
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 
-    def _action_accessibility(self, params: Params) -> str:
+    def _action_accessibility(self, _params: Params) -> str:
         """Accessibility Tree 스냅샷을 생성합니다 (하네스 엔지니어링 핵심)."""
         page = self._require_page()
-        accessibility = getattr(page, "accessibility", None)
+        accessibility = cast(_AccessibilityProtocol | None, getattr(page, "accessibility", None))
         if accessibility is None:
             return "Accessibility snapshot unavailable in this Playwright runtime"
-        snapshot = accessibility.snapshot()
+        snapshot_fn: Callable[[], object] = accessibility.snapshot
+        snapshot_raw = snapshot_fn()
+        snapshot = _a11y_node(snapshot_raw)
         if not snapshot:
             return "Accessibility snapshot unavailable"
 
@@ -334,11 +405,11 @@ class BrowserTool(BaseTool):
 
     def _action_wait(self, params: Params) -> str:
         page = self._require_page()
-        selector = params.get("selector")
-        timeout = params.get("timeout", 5000)
+        selector = _param_text(params, "selector")
+        timeout = _param_timeout(params)
 
         if selector:
-            page.wait_for_selector(selector, timeout=timeout)
+            _ = page.wait_for_selector(selector, timeout=timeout)
             return f"Element '{selector}' appeared"
         else:
             page.wait_for_timeout(timeout)
@@ -346,8 +417,8 @@ class BrowserTool(BaseTool):
 
     def _action_evaluate(self, params: Params) -> str:
         page = self._require_page()
-        script = params.get("script", "")
-        result = page.evaluate(script)
+        script = _param_text(params, "script")
+        result = cast(object, page.evaluate(script))
         return json.dumps(result, ensure_ascii=False, default=str)
 
     def _action_close(self) -> str:
@@ -386,7 +457,7 @@ class BrowserTool(BaseTool):
             line += f' "{name}"'
 
         lines = [line]
-        for child in node.get("children", []):
+        for child in _a11y_children(node.get("children")):
             child_text = self._format_a11y_tree(child, depth + 1, max_depth)
             if child_text:
                 lines.append(child_text)
@@ -395,20 +466,22 @@ class BrowserTool(BaseTool):
 
     # ─── v2: 시맨틱 DOM + Vision 확장 액션 ────────────────────
 
-    def _ensure_dom_parser(self):
+    def _ensure_dom_parser(self) -> _DOMParserProtocol:
         """SemanticDOMParser를 lazy 초기화합니다."""
         if self._dom_parser is None:
             from .semantic_dom import SemanticDOMParser
 
-            self._dom_parser = SemanticDOMParser()
+            self._dom_parser = cast(_DOMParserProtocol, SemanticDOMParser())
         return self._dom_parser
 
-    def _ensure_vision_hybrid(self):
+    def _ensure_vision_hybrid(self) -> _VisionHybridProtocol:
         """VisionDOMHybrid를 lazy 초기화합니다."""
         if self._vision_hybrid is None:
+            from .semantic_dom import SemanticDOMParser
             from .vision_dom_hybrid import VisionDOMHybrid
 
-            self._vision_hybrid = VisionDOMHybrid(self._ensure_dom_parser())
+            parser = cast(SemanticDOMParser, self._ensure_dom_parser())
+            self._vision_hybrid = cast(_VisionHybridProtocol, cast(object, VisionDOMHybrid(parser)))
         return self._vision_hybrid
 
     def _action_semantic_snapshot(self, params: Params) -> str:
@@ -419,7 +492,7 @@ class BrowserTool(BaseTool):
         """
         page = self._require_page()
         parser = self._ensure_dom_parser()
-        max_elements = params.get("max_elements", 50)
+        max_elements = _param_int(params, "max_elements", 50)
 
         snapshot = parser.snapshot_sync(page)
         snapshot = parser.enrich_with_a11y_sync(page, snapshot)
@@ -436,8 +509,8 @@ class BrowserTool(BaseTool):
         """
         page = self._require_page()
         parser = self._ensure_dom_parser()
-        intent = params.get("intent") or params.get("text", "")
-        ref = params.get("ref", "")
+        intent = _param_text(params, "intent") or _param_text(params, "text")
+        ref = _param_text(params, "ref")
 
         if not intent and not ref:
             return "Error: 'intent' 또는 'ref' 파라미터가 필요합니다"
@@ -449,7 +522,7 @@ class BrowserTool(BaseTool):
         target = ref or intent
         return parser.click_element_sync(page, self._last_snapshot, target)
 
-    def _action_vision_analyze(self, params: Params) -> str:
+    def _action_vision_analyze(self, _params: Params) -> str:
         """Vision + DOM 융합 분석.
 
         DOM 구조와 스크린샷을 동시에 분석하여:
@@ -460,7 +533,7 @@ class BrowserTool(BaseTool):
         """
         page = self._require_page()
         hybrid = self._ensure_vision_hybrid()
-        analysis = hybrid.analyze_sync(page, self._last_snapshot)
+        analysis: HybridAnalysis = hybrid.analyze_sync(page, self._last_snapshot)
         self._last_snapshot = analysis.snapshot
 
         summary = analysis.to_llm_summary()
@@ -491,13 +564,13 @@ class BrowserTool(BaseTool):
         som_b64 = hybrid.render_som_sync(page, self._last_snapshot)
 
         # 파일로 저장 (선택)
-        path = params.get("path")
+        path = _param_text(params, "path")
         if path:
             import base64 as b64_mod
 
             raw_bytes = b64_mod.b64decode(som_b64)
             with open(path, "wb") as f:
-                f.write(raw_bytes)
+                _ = f.write(raw_bytes)
             return f"SoM screenshot saved to {path} ({len(self._last_snapshot.elements)} elements marked)"
 
         return (
@@ -506,7 +579,7 @@ class BrowserTool(BaseTool):
             f"Use semantic_snapshot to see @ref mappings."
         )
 
-    def _action_detect_obstacles(self, params: Params) -> str:
+    def _action_detect_obstacles(self, _params: Params) -> str:
         """장애물 자동 감지.
 
         현재 페이지의 팝업, 모달, 쿠키 배너 등 장애물을 감지하고,
@@ -519,7 +592,7 @@ class BrowserTool(BaseTool):
         if self._last_snapshot is None:
             self._last_snapshot = parser.snapshot_sync(page)
 
-        analysis = hybrid.analyze_sync(page, self._last_snapshot)
+        analysis: HybridAnalysis = hybrid.analyze_sync(page, self._last_snapshot)
 
         if not analysis.obstacles:
             return "✅ 장애물 없음 — 페이지가 정상 상태입니다."

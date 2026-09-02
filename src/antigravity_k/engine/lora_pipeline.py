@@ -24,14 +24,17 @@ import logging
 import shlex
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO, TypeAlias, cast, final
 
 from antigravity_k.engine.provider_adapters.unsloth_platform_policy import default_training_platform, host_platform
 
 logger = logging.getLogger("antigravity_k.lora_pipeline")
+
+JsonObject: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
+NumericValue: TypeAlias = str | int | float | bool
 
 
 # ─── 데이터 구조 ─────────────────────────────────────────────────────
@@ -49,7 +52,7 @@ class HarvestEntry:
     model_used: str
     timestamp: float
     word_count: int = 0
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
 
     def to_training_format(self) -> dict[str, str]:
         """SFT(Supervised Fine-Tuning) 학습용 포맷으로 변환."""
@@ -59,7 +62,7 @@ class HarvestEntry:
             "input": "",  # 추가 컨텍스트 (있으면)
         }
 
-    def to_chat_format(self) -> dict[str, Any]:
+    def to_chat_format(self) -> JsonObject:
         """ChatML 학습용 포맷으로 변환."""
         return {
             "messages": [
@@ -117,9 +120,49 @@ def mlx_lm_available() -> bool:
     return importlib.util.find_spec("mlx_lm") is not None
 
 
+def _as_object(value: object) -> JsonObject:
+    return cast(JsonObject, value) if isinstance(value, dict) else {}
+
+
+def _as_float(value: object) -> float:
+    return float(cast(NumericValue, value))
+
+
+def _as_int(value: object) -> int:
+    return int(cast(NumericValue, value))
+
+
+def _harvest_entry(data: Mapping[str, object]) -> HarvestEntry:
+    return HarvestEntry(
+        user_request=str(data["user_request"]),
+        agent_output=str(data["agent_output"]),
+        quality_score=_as_float(data["quality_score"]),
+        quality_grade=str(data["quality_grade"]),
+        task_type=str(data["task_type"]),
+        model_used=str(data["model_used"]),
+        timestamp=_as_float(data["timestamp"]),
+        word_count=_as_int(data.get("word_count", 0)),
+        metadata=_as_object(data.get("metadata", {})),
+    )
+
+
+def _preference_pair(data: Mapping[str, object]) -> PreferencePair:
+    return PreferencePair(
+        prompt=str(data["prompt"]),
+        chosen=str(data["chosen"]),
+        rejected=str(data["rejected"]),
+        chosen_score=_as_float(data["chosen_score"]),
+        rejected_score=_as_float(data["rejected_score"]),
+        source=str(data.get("source", "quality_gate")),
+        task_type=str(data.get("task_type", "general")),
+        timestamp=_as_float(data.get("timestamp", time.time())),
+    )
+
+
 # ─── 메인 파이프라인 ─────────────────────────────────────────────────
 
 
+@final
 class LoRAPipeline:
     """LoRA 파인튜닝 자동화 파이프라인.
 
@@ -130,8 +173,8 @@ class LoRAPipeline:
     """
 
     # 수확 조건: 이 점수 이상만 수확
-    HARVEST_THRESHOLD = 0.75  # B등급 이상 (score >= 0.6은 B, 0.75면 B+ 이상만)
-    MAX_HARVEST_SIZE = 5000  # 최대 수확 건수
+    HARVEST_THRESHOLD: float = 0.75  # B등급 이상 (score >= 0.6은 B, 0.75면 B+ 이상만)
+    MAX_HARVEST_SIZE: int = 5000  # 최대 수확 건수
 
     def __init__(
         self,
@@ -145,15 +188,19 @@ class LoRAPipeline:
             min_score (float): float min score.
 
         """
-        self._harvest_dir = Path(harvest_dir)
+        self._harvest_dir: Path = Path(harvest_dir)
         self._harvest_dir.mkdir(parents=True, exist_ok=True)
-        self._min_score = min_score
-        self._harvest_file = self._harvest_dir / "harvest.jsonl"
-        self._pairs_file = self._harvest_dir / "pairs.jsonl"
+        self._min_score: float = min_score
+        self._harvest_file: Path = self._harvest_dir / "harvest.jsonl"
+        self._pairs_file: Path = self._harvest_dir / "pairs.jsonl"
         self._entries: list[HarvestEntry] = []
         self._pairs: list[PreferencePair] = []
         self._load_existing()
         self._load_pairs()
+
+    @property
+    def pairs(self) -> list[PreferencePair]:
+        return list(self._pairs)
 
     def _load_existing(self) -> None:
         """기존 수확 데이터를 로드합니다."""
@@ -164,8 +211,8 @@ class LoRAPipeline:
                 for line in f:
                     line = line.strip()
                     if line:
-                        data = json.loads(line)
-                        self._entries.append(HarvestEntry(**data))
+                        data = _as_object(cast(object, json.loads(line)))
+                        self._entries.append(_harvest_entry(data))
             logger.info("[LoRA] %s개 기존 수확 데이터 로드", len(self._entries))
         except Exception:
             logger.exception("[LoRA] 기존 수확 데이터 로드 실패")
@@ -180,7 +227,7 @@ class LoRAPipeline:
         quality_grade: str = "",
         task_type: str = "general",
         model_used: str = "",
-        metadata: dict[str, Any] | None = None,
+        metadata: JsonObject | None = None,
     ) -> bool:
         """고품질 응답을 자동 수확합니다.
 
@@ -230,7 +277,7 @@ class LoRAPipeline:
         """수확 데이터를 파일에 추가합니다 (append mode)."""
         try:
             with open(self._harvest_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
         except Exception:
             logger.exception("[LoRA] 수확 데이터 저장 실패")
 
@@ -242,7 +289,7 @@ class LoRAPipeline:
         format: str = "chat",
         min_score: float | None = None,
         max_entries: int = 2000,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """수확 데이터를 학습용 JSONL로 내보냅니다.
 
         Args:
@@ -271,9 +318,9 @@ class LoRAPipeline:
                     record = entry.to_chat_format()
                 else:
                     record = entry.to_training_format()
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-        stats = {
+        stats: JsonObject = {
             "total_harvested": len(self._entries),
             "exported": len(selected),
             "min_score_filter": threshold,
@@ -293,7 +340,7 @@ class LoRAPipeline:
         dataset_path: str = "data/lora_dataset.jsonl",
         output_dir: str = "data/lora_output",
         platform: str = "auto",
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """LoRA/QLoRA 학습 설정을 자동 생성합니다.
 
         Args:
@@ -324,7 +371,7 @@ class LoRAPipeline:
         return config
 
     @staticmethod
-    def _mlx_lora_config(base_model: str, dataset_path: str, output_dir: str) -> dict[str, Any]:
+    def _mlx_lora_config(base_model: str, dataset_path: str, output_dir: str) -> JsonObject:
         """Apple Silicon mlx-lm LoRA 설정."""
         return {
             "platform": "mlx",
@@ -364,7 +411,7 @@ class LoRAPipeline:
         }
 
     @staticmethod
-    def _unsloth_config(base_model: str, dataset_path: str, output_dir: str) -> dict[str, Any]:
+    def _unsloth_config(base_model: str, dataset_path: str, output_dir: str) -> JsonObject:
         """GPU 서버 Unsloth QLoRA 설정."""
         return {
             "platform": "unsloth",
@@ -449,8 +496,8 @@ model.save_pretrained("{output_dir}/lora_model")
                 for line in f:
                     line = line.strip()
                     if line:
-                        data = json.loads(line)
-                        self._pairs.append(PreferencePair(**data))
+                        data = _as_object(cast(object, json.loads(line)))
+                        self._pairs.append(_preference_pair(data))
             logger.info("[LoRA] %s개 기존 선호쌍 로드", len(self._pairs))
         except Exception:
             logger.exception("[LoRA] 기존 선호쌍 로드 실패")
@@ -486,7 +533,7 @@ model.save_pretrained("{output_dir}/lora_model")
         self._pairs.append(pair)
         try:
             with open(self._pairs_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(asdict(pair), ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(asdict(pair), ensure_ascii=False) + "\n")
         except Exception:
             logger.exception("[LoRA] 선호쌍 저장 실패")
         return True
@@ -536,7 +583,7 @@ model.save_pretrained("{output_dir}/lora_model")
         self,
         output_path: str = "data/dpo_dataset.jsonl",
         max_pairs: int = 2000,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """선호쌍을 TRL DPOTrainer 호환 JSONL로 내보냅니다."""
         selected = sorted(self._pairs, key=lambda p: p.chosen_score - p.rejected_score, reverse=True)
         selected = selected[:max_pairs]
@@ -545,9 +592,9 @@ model.save_pretrained("{output_dir}/lora_model")
         output.parent.mkdir(parents=True, exist_ok=True)
         with open(output, "w", encoding="utf-8") as f:
             for pair in selected:
-                f.write(json.dumps(pair.to_dpo_format(), ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(pair.to_dpo_format(), ensure_ascii=False) + "\n")
 
-        stats = {
+        stats: JsonObject = {
             "total_pairs": len(self._pairs),
             "exported": len(selected),
             "output_path": str(output),
@@ -564,7 +611,7 @@ model.save_pretrained("{output_dir}/lora_model")
         dataset_path: str = "data/dpo_dataset.jsonl",
         output_dir: str = "data/dpo_output",
         platform: str = "auto",
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """DPO 학습 설정을 생성합니다 (mlx-lm / Unsloth).
 
         SFT로 정렬된 베이스 위에 선호 정렬을 얹는 2단계 훈련의 2단계 설정.
@@ -576,7 +623,7 @@ model.save_pretrained("{output_dir}/lora_model")
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         if platform == "mlx":
-            config: dict[str, Any] = {
+            config: JsonObject = {
                 "platform": "mlx",
                 "command": (
                     f"python -m mlx_lm.lora "
@@ -647,7 +694,7 @@ model.save_pretrained("{output_dir}/dpo_model")
 
     def run_training(
         self,
-        config: dict[str, Any],
+        config: Mapping[str, object],
         on_log: Callable[[str], None] | None = None,
         timeout_sec: float | None = None,
     ) -> TrainingRunResult:
@@ -658,6 +705,7 @@ model.save_pretrained("{output_dir}/dpo_model")
         스크립트를 디스크에 저장한 뒤 안내 에러와 함께 실패 결과를 반환합니다.
         """
         started = time.monotonic()
+        _ = timeout_sec
         platform = str(config.get("platform", ""))
 
         if platform == "unsloth":
@@ -682,7 +730,7 @@ model.save_pretrained("{output_dir}/dpo_model")
         argv = shlex.split(command)
         tail: list[str] = []
         try:
-            proc = subprocess.Popen(
+            proc: subprocess.Popen[str] = subprocess.Popen(
                 argv,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -698,12 +746,13 @@ model.save_pretrained("{output_dir}/dpo_model")
             )
 
         assert proc.stdout is not None
+        stdout: TextIO = cast(TextIO, proc.stdout)
         with proc:
-            for line in proc.stdout:
-                line = line.rstrip()
+            for raw_line in stdout:
+                line = raw_line.rstrip()
                 tail.append(line)
                 if len(tail) > 50:
-                    tail.pop(0)
+                    _ = tail.pop(0)
                 if on_log is not None:
                     on_log(line)
 
@@ -717,13 +766,13 @@ model.save_pretrained("{output_dir}/dpo_model")
         )
 
     @staticmethod
-    def _persist_unsloth_script(config: dict[str, Any]) -> Path | None:
+    def _persist_unsloth_script(config: Mapping[str, object]) -> Path | None:
         """Unsloth 학습 스크립트를 output_dir에 저장한다 (GPU 호스트 이전용)."""
         output_dir = Path(str(config.get("output_dir", "data/lora_output")))
         output_dir.mkdir(parents=True, exist_ok=True)
         script_path = output_dir / ("train_dpo.py" if "DPOTrainer" in str(config.get("script", "")) else "train_sft.py")
         try:
-            script_path.write_text(str(config.get("script", "")), encoding="utf-8")
+            _ = script_path.write_text(str(config.get("script", "")), encoding="utf-8")
         except Exception:
             logger.exception("[LoRA] Unsloth 스크립트 저장 실패")
             return None
@@ -732,7 +781,7 @@ model.save_pretrained("{output_dir}/dpo_model")
 
     # ─── 유틸리티 ─────────────────────────────────────────────────
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self) -> JsonObject:
         """수확 통계를 반환합니다."""
         if not self._entries:
             return {"total": 0, "message": "수확 데이터 없음"}

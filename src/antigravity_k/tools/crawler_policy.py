@@ -12,6 +12,9 @@ from urllib.parse import urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
 
 import httpx
+from pydantic import JsonValue, TypeAdapter
+
+_JSON_VALUE_ADAPTER: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +35,9 @@ class LegalPolicyDecision:
 
 
 class LegalTermsPolicy:
+    mode: str
+    _now: Callable[[], datetime]
+
     def __init__(
         self,
         mode: str = "audit",
@@ -51,14 +57,17 @@ class LegalTermsPolicy:
         if not path_value:
             return policy
         try:
-            payload = json.loads(Path(path_value).read_text(encoding="utf-8"))
-            records = payload.get("records", payload) if isinstance(payload, Mapping) else payload
+            payload: JsonValue = _JSON_VALUE_ADAPTER.validate_json(
+                Path(path_value).read_text(encoding="utf-8"),
+            )
+            records_value: JsonValue = payload.get("records", payload) if isinstance(payload, dict) else payload
+            records = records_value
             if not isinstance(records, list):
                 raise TypeError("legal policy file must contain a records list")
             for record in records:
-                if not isinstance(record, Mapping):
+                if not isinstance(record, dict):
                     raise TypeError("legal policy records must be objects")
-                policy.register(
+                _ = policy.register(
                     domain=_required_string(record, "domain"),
                     terms_url=_required_string(record, "terms_url"),
                     allowed_purposes=_required_strings(record, "allowed_purposes"),
@@ -123,25 +132,28 @@ def _normalize_domain(value: str) -> str:
     return domain
 
 
-def _required_string(payload: Mapping[str, object], key: str) -> str:
+def _required_string(payload: Mapping[str, JsonValue], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"legal policy field {key!r} must be a non-empty string")
     return value
 
 
-def _required_strings(payload: Mapping[str, object], key: str) -> tuple[str, ...]:
+def _required_strings(payload: Mapping[str, JsonValue], key: str) -> tuple[str, ...]:
     value = payload.get(key)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"legal policy field {key!r} must be a list of strings")
-    return tuple(value)
+    return tuple(item for item in value if isinstance(item, str))
 
 
-def _parse_datetime(payload: Mapping[str, object], key: str) -> datetime:
+def _parse_datetime(payload: Mapping[str, JsonValue], key: str) -> datetime:
     return datetime.fromisoformat(_required_string(payload, key))
 
 
 class RobotsRateLimitPolicy:
+    user_agent: str
+    min_interval: float
+
     def __init__(self, user_agent: str = "Antigravity-K/1.0", min_interval: float = 0.2) -> None:
         self.user_agent = user_agent
         self.min_interval = min_interval

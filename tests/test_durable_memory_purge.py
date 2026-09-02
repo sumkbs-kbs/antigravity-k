@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 from unittest.mock import MagicMock
 
 import networkx as nx
@@ -15,19 +15,27 @@ from antigravity_k.knowledge import wiki
 from antigravity_k.knowledge.memory_service import MemoryService
 
 
+class _CallMock(Protocol):
+    def assert_called_once_with(self, *args: object, **kwargs: object) -> None:
+        ...
+
+    def assert_not_called(self) -> None:
+        ...
+
+
 def test_memory_service_clear_all_removes_rows_and_embeddings(tmp_path: Path):
     service = MemoryService(db_path=str(tmp_path / "memory.db"))
-    service.add_knowledge("topic", "private knowledge")
-    service.save_snapshot("agent", {"secret": "snapshot"})
+    _ = service.add_knowledge("topic", "private knowledge")
+    _ = service.save_snapshot("agent", {"secret": "snapshot"})
     vector_store = MagicMock()
-    service._vector_store = vector_store
+    setattr(service, "_vector_store", vector_store)
 
     deleted = service.clear_all()
 
     assert deleted == 2
     assert service.get_stats()["knowledge_items"] == 0
     assert service.get_stats()["context_snapshots"] == 0
-    vector_store.clear.assert_called_once_with()
+    cast(_CallMock, vector_store.clear).assert_called_once_with()
 
 
 def test_vector_store_clear_deletes_all_collection_ids():
@@ -35,24 +43,28 @@ def test_vector_store_clear_deletes_all_collection_ids():
         def __init__(self) -> None:
             self.deleted: list[str] = []
 
-        def get(self):
+        def get(self) -> dict[str, list[str]]:
             return {"ids": ["one", "two"]}
 
         def delete(self, ids: list[str]) -> None:
             self.deleted = ids
 
     store = object.__new__(VectorStore)
-    store.collection = Collection()
-    store._closed = True
+    setattr(store, "collection", Collection())
+    setattr(store, "_closed", True)
 
     assert store.clear() == 2
-    assert store.collection.deleted == ["one", "two"]
+    collection = cast(Collection, getattr(store, "collection"))
+    assert collection.deleted == ["one", "two"]
 
 
-def test_wiki_clear_all_removes_entries_and_generated_markdown(tmp_path: Path, monkeypatch):
+def test_wiki_clear_all_removes_entries_and_generated_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(wiki, "WIKI_DIR", tmp_path / "wiki")
     knowledge = wiki.LLMWiki(db_path=tmp_path / "wiki.db")
-    knowledge.add_entry("Private note", "secret content", category="note")
+    _ = knowledge.add_entry("Private note", "secret content", category="note")
 
     deleted = knowledge.clear_all()
 
@@ -66,7 +78,7 @@ def test_gbrain_clear_all_removes_graph_and_vectors():
         def __init__(self) -> None:
             self.deleted: list[str] = []
 
-        def get(self):
+        def get(self) -> dict[str, list[str]]:
             return {"ids": ["one", "two"]}
 
         def delete(self, ids: list[str]) -> None:
@@ -76,16 +88,16 @@ def test_gbrain_clear_all_removes_graph_and_vectors():
     brain.graph = nx.DiGraph()
     brain.graph.add_nodes_from(["one", "two"])
     brain.collection = Collection()
-    brain._closed = True
-    brain._save_graph = MagicMock()
+    setattr(brain, "_closed", True)
+    setattr(brain, "_save_graph", MagicMock())
 
     assert brain.clear_all() == 2
     assert brain.graph.number_of_nodes() == 0
     assert brain.collection.deleted == ["one", "two"]
-    brain._save_graph.assert_called_once_with()
+    cast(_CallMock, getattr(brain, "_save_graph")).assert_called_once_with()
 
 
-def test_durable_provider_runs_purge_only_for_all_scope():
+def test_durable_provider_runs_purge_only_for_all_scope() -> None:
     clear_all = MagicMock(return_value=3)
     manager = MemoryManager()
     manager.add_provider(DurableMemoryProvider("durable", clear_all))
@@ -96,7 +108,10 @@ def test_durable_provider_runs_purge_only_for_all_scope():
     clear_all.assert_called_once_with()
 
 
-def test_dependency_memory_manager_registers_durable_providers(tmp_path: Path, monkeypatch):
+def test_dependency_memory_manager_registers_durable_providers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from antigravity_k.api import dependencies
     from antigravity_k.engine.memory_provider import (
         EpisodicMemoryProvider,
@@ -105,15 +120,17 @@ def test_dependency_memory_manager_registers_durable_providers(tmp_path: Path, m
     from antigravity_k.engine.session_manager import SessionManager
 
     session_manager = SessionManager(base_dir=str(tmp_path / "sessions"))
+
+    def episodic_provider_factory(max_episodes: int, persist_dir: str | None) -> EpisodicMemoryProvider:
+        _ = persist_dir
+        return EpisodicMemoryProvider(max_episodes, persist_dir=str(tmp_path / "episodes"))
+
     monkeypatch.setattr(dependencies, "_memory_manager", None)
     monkeypatch.setattr(dependencies, "_get_session_manager", lambda: session_manager)
     monkeypatch.setattr(
         dependencies,
         "EpisodicMemoryProvider",
-        lambda max_episodes, persist_dir: EpisodicMemoryProvider(
-            max_episodes,
-            persist_dir=str(tmp_path / "episodes"),
-        ),
+        episodic_provider_factory,
     )
     monkeypatch.setattr(
         dependencies,
@@ -145,7 +162,7 @@ def test_dependency_memory_manager_registers_durable_providers(tmp_path: Path, m
 
 
 @pytest.mark.asyncio
-async def test_memory_purge_route_reports_durable_provider_counts(monkeypatch):
+async def test_memory_purge_route_reports_durable_provider_counts(monkeypatch: pytest.MonkeyPatch) -> None:
     from antigravity_k.api.routes import system_api
 
     manager = MemoryManager()
@@ -155,13 +172,13 @@ async def test_memory_purge_route_reports_durable_provider_counts(monkeypatch):
     monkeypatch.setattr(system_api, "get_audit_logger", lambda: audit_logger)
 
     class RequestStub:
-        async def json(self):
+        async def json(self) -> dict[str, str]:
             return {"scope": "all"}
 
     result = await system_api.purge_memory(cast(FastAPIRequest[State], cast(object, RequestStub())))
 
     assert result["deleted"] == {"wiki": 4}
-    audit_logger.log_event.assert_called_once_with(
+    cast(_CallMock, audit_logger.log_event).assert_called_once_with(
         "memory_purge",
         {"scope": "all", "deleted": {"wiki": 4}},
     )

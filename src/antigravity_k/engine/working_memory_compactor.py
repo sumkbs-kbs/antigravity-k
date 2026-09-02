@@ -99,9 +99,10 @@ class WorkingMemoryCompactor:
                 if any(ext in line for ext in (".py", ".json", ".yaml", ".md", ".ts", ".js")):
                     for word in line.split():
                         clean_word = word.strip("`'\",:()")
-                        if "." in clean_word and ("/" in clean_word or clean_word.endswith((
-                            ".py", ".json", ".yaml", ".md", ".ts", ".tsx", ".js", ".rs"
-                        ))):
+                        if "." in clean_word and (
+                            "/" in clean_word
+                            or clean_word.endswith((".py", ".json", ".yaml", ".md", ".ts", ".tsx", ".js", ".rs"))
+                        ):
                             modified_files.add(clean_word)
 
             role = str(msg.get("role", ""))
@@ -109,9 +110,13 @@ class WorkingMemoryCompactor:
                 for line in content.splitlines():
                     normalized = " ".join(line.split())
                     lowered = normalized.casefold()
-                    if normalized and any(marker in lowered for marker in (
-                        "error", "failed", "failure", "exception", "traceback"
-                    )) and normalized not in recent_failures:
+                    if (
+                        normalized
+                        and any(
+                            marker in lowered for marker in ("error", "failed", "failure", "exception", "traceback")
+                        )
+                        and normalized not in recent_failures
+                    ):
                         recent_failures.append(normalized[:240])
 
             if role == "user" and WorkingMemoryCompactor._is_actionable_user_content(content):

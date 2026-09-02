@@ -3,6 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -13,6 +14,14 @@ from antigravity_k.engine.tracing import (
     get_tracer,
     traced,
 )
+
+
+def _traces(tracer: AgentTracer) -> list[Trace]:
+    return cast(list[Trace], getattr(tracer, "_traces"))
+
+
+def _active_trace(tracer: AgentTracer) -> Trace | None:
+    return cast(Trace | None, getattr(tracer, "_active_trace"))
 
 
 class TestSpan:
@@ -96,7 +105,7 @@ class TestTrace:
         d = trace.to_dict()
         assert "trace_id" in d
         assert "spans" in d
-        assert len(d["spans"]) == 1
+        assert len(cast(list[object], d["spans"])) == 1
 
     def test_summary(self):
         trace = Trace(query="test")
@@ -110,28 +119,28 @@ class TestTrace:
 class TestAgentTracer:
     def test_init(self):
         tracer = AgentTracer()
-        assert tracer._traces == []
-        assert tracer._active_trace is None
+        assert _traces(tracer) == []
+        assert _active_trace(tracer) is None
 
     def test_init_with_persist_dir(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            AgentTracer(persist_dir=tmpdir)
+            _ = AgentTracer(persist_dir=tmpdir)
             assert Path(tmpdir).exists()
 
     def test_start_trace(self):
         tracer = AgentTracer()
         trace = tracer.start_trace("hello")
         assert trace.query == "hello"
-        assert tracer._active_trace is trace
+        assert _active_trace(tracer) is trace
 
     def test_end_trace(self):
         tracer = AgentTracer()
-        tracer.start_trace("hello")
+        _ = tracer.start_trace("hello")
         trace = tracer.end_trace()
         assert trace is not None
         assert trace.query == "hello"
-        assert tracer._active_trace is None
-        assert len(tracer._traces) == 1
+        assert _active_trace(tracer) is None
+        assert len(_traces(tracer)) == 1
 
     def test_end_trace_no_active(self):
         tracer = AgentTracer()
@@ -139,11 +148,11 @@ class TestAgentTracer:
 
     def test_span_context_manager(self):
         tracer = AgentTracer()
-        tracer.start_trace("test")
+        _ = tracer.start_trace("test")
         with tracer.span("my_span", {"key": "val"}, span_type="llm") as s:
             assert s.name == "my_span"
             s.set_output("done")
-        assert len(tracer._traces) == 0  # not ended yet
+        assert len(_traces(tracer)) == 0  # not ended yet
         trace = tracer.end_trace()
         assert trace is not None
         assert len(trace.spans) == 1
@@ -151,7 +160,7 @@ class TestAgentTracer:
 
     def test_span_context_manager_error(self):
         tracer = AgentTracer()
-        tracer.start_trace("test")
+        _ = tracer.start_trace("test")
         with pytest.raises(ValueError):
             with tracer.span("failing"):
                 raise ValueError("oops")
@@ -161,10 +170,10 @@ class TestAgentTracer:
 
     def test_start_end_span_manual(self):
         tracer = AgentTracer()
-        tracer.start_trace("test")
+        _ = tracer.start_trace("test")
         s = tracer.start_span("manual", span_type="tool_call")
         assert s.name == "manual"
-        tracer.end_span(s)
+        _ = tracer.end_span(s)
         trace = tracer.end_trace()
         assert trace is not None
         assert len(trace.spans) == 1
@@ -172,8 +181,8 @@ class TestAgentTracer:
     def test_get_recent_traces(self):
         tracer = AgentTracer()
         assert tracer.get_recent_traces() == []
-        tracer.start_trace("q1")
-        tracer.end_trace()
+        _ = tracer.start_trace("q1")
+        _ = tracer.end_trace()
         assert len(tracer.get_recent_traces(5)) == 1
 
     def test_get_performance_stats_empty(self):
@@ -183,15 +192,15 @@ class TestAgentTracer:
 
     def test_get_performance_stats_with_data(self):
         tracer = AgentTracer()
-        tracer.start_trace("q")
-        tracer.end_trace()
+        _ = tracer.start_trace("q")
+        _ = tracer.end_trace()
         stats = tracer.get_performance_stats()
         assert stats["total_traces"] == 1
 
     def test_export_jsonl(self):
         tracer = AgentTracer()
-        tracer.start_trace("q")
-        tracer.end_trace()
+        _ = tracer.start_trace("q")
+        _ = tracer.end_trace()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             tracer.export_jsonl(f.name)
             content = Path(f.name).read_text()
@@ -201,15 +210,15 @@ class TestAgentTracer:
     def test_max_traces_enforced(self):
         tracer = AgentTracer(max_traces=2)
         for i in range(5):
-            tracer.start_trace(f"q{i}")
-            tracer.end_trace()
-        assert len(tracer._traces) == 2
+            _ = tracer.start_trace(f"q{i}")
+            _ = tracer.end_trace()
+        assert len(_traces(tracer)) == 2
 
 
 class TestTracedDecorator:
     def test_sync_wrapper(self):
         tracer = AgentTracer()
-        tracer.start_trace("test")
+        _ = tracer.start_trace("test")
 
         @traced(tracer, span_type="tool_call")
         def my_func(x: int) -> int:
@@ -224,7 +233,7 @@ class TestTracedDecorator:
 
     def test_traced_with_custom_name(self):
         tracer = AgentTracer()
-        tracer.start_trace("test")
+        _ = tracer.start_trace("test")
 
         @traced(tracer, name="custom_name")
         def foo():

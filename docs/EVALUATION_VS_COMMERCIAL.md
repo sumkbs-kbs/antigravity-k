@@ -26,7 +26,7 @@ Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 �
 | 역량 | Codex CLI | Antigravity-K | 우위 |
 |---|---|---|---|
 | 샌드박스 | **기본 활성**: macOS Seatbelt(`sandbox-exec -p`) / Linux bwrap+seccomp, workspace-write 기본, **네트워크 기본 차단**, 파생 프로세스까지 상속 | `sandbox-exec`(seatbelt) 선택적(`sandbox_enabled`), approval manager 존재, 네트워크 차단 기본 아님 | Codex |
-| 승인 흐름 | untrusted/on-request/never/granular 4종 + **auto_review**(승인 요청을 리뷰어 에이전트가 자동 검토) | approval manager(diff 미리보기, 수락/거부/항상허용), auto-review 에이전트 없음 | Codex |
+| 승인 흐름 | untrusted/on-request/never/granular 4종 + **auto_review**(승인 요청을 리뷰어 에이전트가 자동 검토) | approval manager(diff 미리보기, 수락/거부/항상허용) + **fail-closed 자동 정책 검토·대시보드 표시** | 무승부* |
 | 패치 적용 | `apply_patch` 단일 프리미티브 + `git apply` 기반 `codex apply` | robust_tool_parser + surgical_patcher + atomic_transaction_engine (다층이지만 복잡도↑) | 무승부* |
 | 계획 모드 | `/plan` 전환 + read-only 샌드박스 연동 | PLAN/BUILD/INTERACTIVE 모드 + QualityGate(plan score>=0.6) + Kanban 자동 등록 | AGK |
 | 컨텍스트 관리 | `/compact` 대화 압축 | adaptive_context_compaction + zero_waste_compressor + trajectory_compressor + RAG | AGK |
@@ -122,19 +122,36 @@ Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 �
 | mypy (신규 파일) | 0 오류 |
 | 기존 증폭 테스트(test_self_consistency_voter, test_flight_controller, test_test_time_compute_scaler) | 통과 |
 
+### 4.5 승인 자동검토 계층 (`engine/approval_review.py`, `dashboard/src/features/task-execution/ApprovalQueue.tsx`)
+
+- 모든 일반 승인 요청에 `decision(approve/deny/escalate)`, `risk_score`, `reason_codes`, `rationale`, `reviewer`, `reviewed_at`를 별도 기록한다.
+- 민감 대상(`.env`, credential, token 등)·파괴적 명령은 `deny` 권고, 고위험·네트워크 영향은 `escalate` 권고, 읽기 전용 저위험 요청은 `approve` 후보로 분류한다.
+- 검토 제공자 오류는 `policy-fail-closed`/`escalate`로 닫히며, 자동검토가 사용자 결정을 대체하거나 자동 실행하지 않는다.
+- `/api/approval/pending` 및 상세 응답에 검토 결과를 포함하고, 대시보드 승인 큐에서 위험도·권고·근거를 노출한다.
+- `ApprovalReviewProvider` 주입 계약과 `AGK_APPROVAL_REVIEW_MODEL=qwen3.8:27b` 옵트인 어댑터를 제공한다. 로컬 모델은 구조화 JSON만 반환하고, 민감 컨텍스트는 생략되며, 결정은 결정론적 정책의 최대 위험도 아래로 완화되지 않는다. 파싱·생성 실패는 기존 fail-closed 에스컬레이션으로 닫힌다.
+- 기본값은 여전히 네트워크 호출이 없는 `policy-v1`이며, Qwen reviewer를 켠 경우에도 자동 실행이 아니라 사용자 승인 후보의 보조 판정만 생성한다. 모델 reviewer의 품질·비용·지연 측정은 별도 고도화 항목이다.
+
+### 로컬 모델 자동 발견 범위
+
+레지스트리는 이제 시작 시점에 고정된 `config.yaml`만 바라보지 않는다. `agk model list`, `/v1/models`, 미등록 모델을 지정한 첫 생성 요청에서 Ollama `/api/tags`, LM Studio·llama.cpp·Unsloth·vLLM·TGI·KoboldCpp·text-generation-webui 등 루프백 OpenAI 호환 서버의 `/v1/models`, Hugging Face 캐시·GGUF·MLX·Transformers·Unsloth adapter 디렉터리를 자동 탐색하고, 기존 프로필을 보존한 채 정규화된 로컬 모델을 추가한다. `repo` 별칭 해석으로 `qwen3.8` 프로필은 Ollama의 `qwen3.8:latest` 식별자도 그대로 받을 수 있다.
+
+이는 “모든 로컬 LLM”을 임의 바이너리까지 추측하는 방식이 아니라, 보안상 루프백 API와 명시적 로컬 디렉터리라는 검증 가능한 경계에 한정한 확장 지점이다. 모델을 선택하면 GGUF는 실행 중인 llama.cpp 서버를 재사용하거나 설치된 `llama-server`를 자동 기동하고, Transformers/Unsloth adapter는 `uv sync --extra transformers` 환경에서 프로세스 내부에 직접 로드한다. 런타임을 자동 연결할 수 없는 경우에만 capability 응답에 원인과 remediation 명령을 남긴다. 외부 런타임은 `AGK_LOCAL_OPENAI_BASE_URLS`로 추가할 수 있다.
+
+품질 비교를 오염시키지 않기 위해 기본 `model_policy`는 20B 미만 로컬 모델을 제외한다. 단순 모델 실행기나 임베딩·비전 보조기로 소형 모델을 선택할 경우에만 `allow_small_local_models: true`를 명시해야 하며, 이 설정은 발견·로드를 허용할 뿐 성능을 프론티어급으로 간주하지 않는다.
+
 ---
 
 ## 5. 종합 완성도 점수표
 
 | 카테고리 | 가중치 | 이전 | 현재 | 근거 |
 |---|---:|---:|---:|---|
-| 에이전트 하네스 신뢰성 | 25% | 6 | 7 | 검증 루프 통합, 결정론적 speculative 선택 |
+| 에이전트 하네스 신뢰성 | 25% | 6 | 7.2 | 검증 루프 통합, 결정론적 speculative 선택, 승인 자동검토·fail-closed |
 | 테스트타임 증폭(30B 보완) | 20% | 6 | 8 | 실행 검증 BoN 추가 — SC 대비 강한 신호 |
 | 파인튜닝 자동화(Unsloth 격차) | 15% | 4 | 6 | DPO 선호쌍 자동화, 학습 실행은 여전히 외부 |
 | 코드 품질/문서-구현 일치 | 15% | 5 | 7 | fake-parallel 제거, 39 테스트 추가 |
-| 보안/샌드박스 | 15% | 6 | 6 | (이번 사이클 미착수 — 다음 과제) |
+| 보안/샌드박스 | 15% | 6 | 7 | 모델 생성 코드 5종의 fail-closed 샌드박스 이관 및 AST 감사 고정 |
 | 생태계/문서/UX | 10% | 7 | 7 | 기존 강점 유지 |
-| **가중 합계** | | **5.65** | **7.0** | |
+| **가중 합계** | | **5.65** | **7.2** | |
 
 > §1의 7.5는 "30B 로컬 에이전트"라는 제품 목적 한정 보정치이며,
 > 범용 상용 서비스와의 절대 비교로는 7.0이 정직한 값이다.
@@ -169,6 +186,14 @@ Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 �
    회귀 방지 아키텍처 감사 테스트 추가(`tests/test_tool_sandbox_coverage`). 고정 argv 시스템
    도구(pbcopy/osascript 등)는 ALLOWLIST에 사유와 함께 문서화 — seatbelt 하 mach 서비스
    차단으로 기능이 깨지는 표면.
+   **강화(2026-08-25)**: 감사 범위가 사실 tools/에 한정됐음을 정정 — AST 기반으로 전환해
+   src 전체(engine/api/agents/finetune/security) 30+ 실행 지점을 회귀 방지선에 편입.
+   별칭 임포트 우회 탐지, shell=True 플래그 강제, 선언-구현 일치 검증 추가.
+   모델 생성 코드를 raw subprocess로 실행하던 검증기 5종(best_of_n_verifier,
+   tdd_engine, tdd_verifier, speculative_branching, rsi_sandbox)은 `run_sandboxed_argv`
+   경계로 이관 완료했다. seatbelt/Docker를 강제하고 격리 불가 시 raw 실행으로 폴백하지
+   않으며, AST 감사와 회귀 테스트로 이 계약을 고정했다. pytest가 사용하는 `/dev/null`
+   쓰기는 seatbelt literal 허용으로 보완했다.
 2. **[완료] BoN × worktree 검증자 실전 배선**: `parse_file_blocks`(펜스 헤더 경로 파싱,
    ".." 탈출 거부) + `make_answer_patch_verifier` → `best_of_n.verifier: worktree_tests`
    설정으로 활성화. 구문 검사보다 강한 "실제 테스트 통과" 판정.
@@ -177,8 +202,11 @@ Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 �
 4. **[완료] lh-001 격차 재측정**: `bon_on` A/B 모드 + 반복 평균 지원 스크립트로 실측 완료(상단).
 5. **[잔여] DPO 파인튜닝 효과 측정**: 선호쌍 파이프라인은 검증됐으나 실전 규모(수천 쌍)
    데이터 축적이 선행 필요 — 시간 축적형 과제.
-6. **[잔여] Codex auto_review 대응**: 승인 요청을 리뷰어 에이전트가 자동 검토하는 계층은
-   미구현 (approval manager는 사용자 승인 흐름만 제공).
+6. **[완료→측정 고도화] Codex auto_review 대응**: 승인 요청마다 결정론적 정책 reviewer가 위험도·사유·권고를
+   생성하고, API와 대시보드에 표시한다. `AGK_APPROVAL_REVIEW_MODEL`을 설정하면 Qwen 로컬 모델이
+   구조화 보조 검토를 수행하며, 정책 reviewer의 거부·에스컬레이션 하한을 절대 완화하지 않는다.
+   사용자 결정과 자동 권고는 분리 저장되며 reviewer 오류는 `escalate`로 fail-closed 된다. 잔여 과제는
+   정책 reviewer 대비 정밀도·지연·오탐 측정과 장기 샘플 축적이다.
 7. **[완료] AVO 스타일 감독 축** (NVIDIA AVO 하네스 논문/기사 2026-08 이식):
    동일 시도 반복 차단 + 유사 오류 지문 클러스터(3회) + 무진행 윈도우(5행동)의
    3축 감독이 HarnessEnforcer에 구현되고 미션 루프(flight_controller)에 연결됨.

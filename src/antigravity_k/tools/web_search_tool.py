@@ -12,7 +12,8 @@ import logging
 import os
 import re
 import time
-from typing import Any, TypeAlias
+from collections.abc import Mapping
+from typing import Callable, TypeAlias, cast, final, override
 from urllib.parse import quote_plus, unquote
 
 import httpx
@@ -40,30 +41,50 @@ SearchResultTuple: TypeAlias = tuple[str, str, str]
 SearchResults: TypeAlias = list[SearchResultTuple]
 
 
+def _object_dict(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    mapping = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in mapping.items()}
+
+
+def _list_value(value: object) -> list[object]:
+    return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _text_value(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _number_value(value: object, default: float = 0.0) -> float:
+    return float(value) if isinstance(value, (int, float)) else default
+
+
+@final
 class WebSearchTool(BaseTool):
     """Multi-Engine 웹 검색 도구.
 
     무료 기술 조합: Jina Search + DuckDuckGo + Jina Reader + wttr.in
     """
 
-    category = ToolCategory.SEARCH
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "🔍"
+    category: ToolCategory = ToolCategory.SEARCH
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "🔍"
 
     def __init__(self) -> None:
         super().__init__()
-        self.tags = ["search", "web", "jina", "duckduckgo", "multi-engine", "realtime"]
-        self._name = "web_search"
-        self._description = (
+        self.tags: list[str] = ["search", "web", "jina", "duckduckgo", "multi-engine", "realtime"]
+        self._name: str = "web_search"
+        self._description: str = (
             "Performs a real-time web search using multiple search engines "
             "(SearxNG + Jina AI + DuckDuckGo) to find current information. Automatically "
             "extracts page content from top results for deep analysis."
         )
-        self.searxng_url = os.environ.get("SEARXNG_URL", "http://localhost:8080")
-        self.tavily_api_key = os.environ.get("TAVILY_API_KEY")
-        self.max_results = 8
-        self._schema = {
+        self.searxng_url: str = os.environ.get("SEARXNG_URL", "http://localhost:8080")
+        self.tavily_api_key: str | None = os.environ.get("TAVILY_API_KEY")
+        self.max_results: int = 8
+        self._schema: dict[str, object] = {
             "type": "object",
             "properties": {
                 "query": {
@@ -84,24 +105,28 @@ class WebSearchTool(BaseTool):
             },
             "required": ["query"],
         }
-        self.engine = WebSearchEngine()
+        self.engine: WebSearchEngine = WebSearchEngine()
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return self._schema
 
     # ════════════════════════════════════════════════════════════════
     # execute() — 메인 진입점 (분해된 메서드들로 구성)
     # ════════════════════════════════════════════════════════════════
 
+    @override
     def execute(self, **kwargs: object) -> str:
         query_value = kwargs.get("query")
         if not isinstance(query_value, str) or not query_value:
@@ -178,7 +203,7 @@ class WebSearchTool(BaseTool):
 
     def _execute_multi_engine_search(self, query: str) -> tuple[SearchResults, list[str]]:
         """4개 엔진을 순차적으로 호출하여 결과를 수집합니다."""
-        all_results = []
+        all_results: SearchResults = []
         engines_used: list[str] = []
 
         # 0차: Self-Hosted Search Engine
@@ -287,7 +312,7 @@ class WebSearchTool(BaseTool):
             citation = source_id_for_url(url)
             lines.append(
                 f"{i}. [citation:{citation}] **{sanitize_untrusted_text(title, 240, wrap=False)}**\n"
-                f"   {sanitize_untrusted_text(snippet)}\n   🔗 {url}\n",
+                + f"   {sanitize_untrusted_text(snippet)}\n   🔗 {url}\n",
             )
 
         # ── 구조화 데이터 추출 ──
@@ -345,7 +370,8 @@ class WebSearchTool(BaseTool):
 
         # 1차: Jina Reader
         max_chars = 4000 if any(kw in query for kw in ("주가", "주식", "stock")) else 2000
-        content = self.engine._extract_content_jina(top_url, max_chars=max_chars)
+        extract_content = cast(Callable[..., str], getattr(self.engine, "_extract_content_jina"))
+        content = extract_content(top_url, max_chars=max_chars)
         if content:
             lines.append(f"   {sanitize_untrusted_text(content, max_chars=max_chars)}")
             return content
@@ -377,8 +403,8 @@ class WebSearchTool(BaseTool):
                 lines.append(structured)
                 lines.append(
                     "\n[중요] 위 구조화 데이터는 검색 결과에서 자동 추출된 값입니다. "
-                    "답변 시 반드시 이 값들을 우선적으로 사용하고, "
-                    "원본 검색 결과의 [N] 출처 번호도 함께 표기하세요.\n",
+                    + "답변 시 반드시 이 값들을 우선적으로 사용하고, "
+                    + "원본 검색 결과의 [N] 출처 번호도 함께 표기하세요.\n",
                 )
         except Exception:
             logger.debug("데이터 추출 실패 (non-critical)", exc_info=True)
@@ -441,36 +467,38 @@ class WebSearchTool(BaseTool):
                 if resp.status_code != 200:
                     return []
 
-                data = resp.json()
-                results = []
+                data = _object_dict(cast(object, resp.json()))
+                results: SearchResults = []
 
-                answer = data.get("answer")
-                if answer and answer.get("text"):
+                answer = _object_dict(data.get("answer"))
+                answer_text = _text_value(answer.get("text"))
+                if answer_text:
                     results.append(
                         (
                             answer_label,
                             f"{base_url}/api/search?query={query}",
-                            answer["text"][: 1000 if deep else 500],
+                            answer_text[: 1000 if deep else 500],
                         ),
                     )
 
-                for item in data.get("results", [])[:limit]:
-                    title = item.get("title", "")
-                    url = item.get("url", "")
-                    snippet = item.get("content", "")[:snippet_max]
+                for item in _list_value(data.get("results"))[:limit]:
+                    item_data = _object_dict(item)
+                    title = _text_value(item_data.get("title"))
+                    url = _text_value(item_data.get("url"))
+                    snippet = _text_value(item_data.get("content"))[:snippet_max]
 
                     if deep:
-                        raw = item.get("raw_content", "")
+                        raw = _text_value(item_data.get("raw_content"))
                         if raw:
                             snippet += f"\n[본문 발췌] {raw[:500]}"
 
-                    stock = item.get("stock_data")
+                    stock = _object_dict(item_data.get("stock_data"))
                     if stock:
                         snippet = (
-                            f"📊 {stock.get('name', '')} ({stock.get('ticker', '')}) "
-                            f"{stock.get('price', 0):,}원 "
-                            f"{stock.get('change_percent', 0):+.2f}% "
-                            f"({stock.get('direction', '')})\n{snippet}"
+                            f"📊 {_text_value(stock.get('name'))} ({_text_value(stock.get('ticker'))}) "
+                            f"{_number_value(stock.get('price')):,.0f}원 "
+                            f"{_number_value(stock.get('change_percent')):+.2f}% "
+                            f"({_text_value(stock.get('direction'))})\n{snippet}"
                         )
 
                     if title and url:
@@ -502,17 +530,20 @@ class WebSearchTool(BaseTool):
                 if resp.status_code != 200:
                     return []
 
-                data = resp.json()
-                items = data if isinstance(data, list) else data.get("data", data.get("results", []))
+                raw_data = cast(object, resp.json())
+                data = _object_dict(raw_data)
+                items = _list_value(cast(object, raw_data)) if isinstance(raw_data, list) else _list_value(data.get("data"))
+                if not items:
+                    items = _list_value(data.get("results"))
 
-                results = []
+                results: SearchResults = []
                 for item in items[:8]:
-                    if isinstance(item, dict):
-                        title = item.get("title", "")
-                        url = item.get("url", "")
-                        snippet = str(item.get("description", item.get("content", "")) or "")[:300]
-                        if title and url:
-                            results.append((title, url, snippet))
+                    item_data = _object_dict(item)
+                    title = _text_value(item_data.get("title"))
+                    url = _text_value(item_data.get("url"))
+                    snippet = _text_value(item_data.get("description"), _text_value(item_data.get("content")))[:300]
+                    if title and url:
+                        results.append((title, url, snippet))
                 return results
 
         except (httpx.RequestError, json.JSONDecodeError, ConnectionError):
@@ -536,12 +567,13 @@ class WebSearchTool(BaseTool):
                 if resp.status_code != 200:
                     return []
 
-                data = resp.json()
-                results = []
-                for item in data.get("results", [])[: self.max_results]:
-                    title = item.get("title", "")
-                    url = item.get("url", "")
-                    snippet = item.get("content", "")
+                data = _object_dict(cast(object, resp.json()))
+                results: SearchResults = []
+                for item in _list_value(data.get("results"))[: self.max_results]:
+                    item_data = _object_dict(item)
+                    title = _text_value(item_data.get("title"))
+                    url = _text_value(item_data.get("url"))
+                    snippet = _text_value(item_data.get("content"))
                     if title and url:
                         results.append((title, url, snippet))
                 return results
@@ -588,10 +620,10 @@ class WebSearchTool(BaseTool):
                 re.DOTALL,
             )
 
-            titles = title_pattern.findall(html)
-            snippets = snippet_pattern.findall(html)
+            titles = cast(list[tuple[str, str]], title_pattern.findall(html))
+            snippets = cast(list[str], snippet_pattern.findall(html))
 
-            results = []
+            results: SearchResults = []
             for i, (url_raw, title_html) in enumerate(titles[:8]):
                 title = re.sub(r"<[^>]+>", "", title_html).strip()
                 snippet = ""

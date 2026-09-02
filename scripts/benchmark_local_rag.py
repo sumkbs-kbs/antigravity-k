@@ -5,11 +5,18 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from pydantic import TypeAdapter
 
 from antigravity_k.engine.rag_indexer import RAGIndexer
-from antigravity_k.engine.rag_quality import RAGJSON, RAGGoldenCase, audit_rag_fixture, run_rag_benchmark
+from antigravity_k.engine.rag_quality import (
+    RAGJSON,
+    RAGGoldenCase,
+    RAGSearchProvider,
+    audit_rag_fixture,
+    run_rag_benchmark,
+)
 from antigravity_k.engine.vector_store import VectorStore
 
 type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
@@ -54,7 +61,7 @@ def main() -> int:
         with VectorStore(vector_dir, collection_name="local_rag_quality") as store:
             indexer = RAGIndexer(str(args.project_root.resolve()), vector_store=store)
             indexed_chunks = indexer.index_project(subdirs=subdirs)
-            report = run_rag_benchmark(indexer, cases, k=args.k)
+            report = run_rag_benchmark(cast(RAGSearchProvider, cast(object, indexer)), cases, k=args.k)
     fixture_audit: list[JSONValue] = [item.to_dict() for item in audit_rag_fixture(args.project_root.resolve(), cases)]
     artifact: dict[str, JSONValue] = {
         "project_root": str(args.project_root.resolve()),

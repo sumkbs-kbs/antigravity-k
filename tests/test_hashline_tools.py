@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from typing import cast
 
 from antigravity_k.tools.hashline_tools import (
     HashlineEditTool,
@@ -32,7 +33,7 @@ class TestReadHashFileTool:
         tool = ReadHashFileTool()
         assert tool.name == "read_hash_file"
         assert "hash" in tool.description
-        assert "file_path" in tool.parameters_schema["required"]
+        assert "file_path" in cast(list[str], tool.parameters_schema["required"])
 
     def test_execute_file_not_found(self):
         tool = ReadHashFileTool()
@@ -43,7 +44,7 @@ class TestReadHashFileTool:
     def test_execute_success(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("line1\nline2\nline3\n")
+            _ = fpath.write_text("line1\nline2\nline3\n")
 
             tool = ReadHashFileTool()
             result = tool.execute(file_path=str(fpath))
@@ -57,7 +58,7 @@ class TestReadHashFileTool:
     def test_execute_empty_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "empty.txt"
-            fpath.write_text("")
+            _ = fpath.write_text("")
 
             tool = ReadHashFileTool()
             result = tool.execute(file_path=str(fpath))
@@ -75,10 +76,11 @@ class TestHashlineEditTool:
         assert tool.name == "hashline_edit"
         assert "hash" in tool.description
         required = tool.parameters_schema["required"]
-        assert "file_path" in required
-        assert "line_number" in required
-        assert "expected_hash" in required
-        assert "replacement_text" in required
+        required_fields = cast(list[str], required)
+        assert "file_path" in required_fields
+        assert "line_number" in required_fields
+        assert "expected_hash" in required_fields
+        assert "replacement_text" in required_fields
 
     def test_file_not_found(self):
         tool = HashlineEditTool()
@@ -93,7 +95,7 @@ class TestHashlineEditTool:
     def test_line_out_of_bounds(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("line1\n")
+            _ = fpath.write_text("line1\n")
 
             tool = HashlineEditTool()
             result = tool.execute(file_path=str(fpath), line_number=999, expected_hash="AAAA", replacement_text="new")
@@ -102,7 +104,7 @@ class TestHashlineEditTool:
     def test_hash_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("original line\n")
+            _ = fpath.write_text("original line\n")
 
             tool = HashlineEditTool()
             result = tool.execute(
@@ -113,7 +115,7 @@ class TestHashlineEditTool:
     def test_successful_replace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("original line\n")
+            _ = fpath.write_text("original line\n")
 
             line_hash = compute_line_hash("original line")
             tool = HashlineEditTool()
@@ -126,7 +128,7 @@ class TestHashlineEditTool:
     def test_successful_replace_no_newline(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("original line")
+            _ = fpath.write_text("original line")
 
             line_hash = compute_line_hash("original line")
             tool = HashlineEditTool()
@@ -141,7 +143,7 @@ class TestMultiReplaceFileContentTool:
     def test_properties(self):
         tool = MultiReplaceFileContentTool()
         assert tool.name == "multi_replace_file_content"
-        assert tool.parameters_schema["required"] == ["TargetFile", "ReplacementChunks"]
+        assert cast(list[str], tool.parameters_schema["required"]) == ["TargetFile", "ReplacementChunks"]
 
     def test_file_not_found(self):
         tool = MultiReplaceFileContentTool()
@@ -151,7 +153,7 @@ class TestMultiReplaceFileContentTool:
     def test_successful_single_replace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("hello foo world\n")
+            _ = fpath.write_text("hello foo world\n")
 
             tool = MultiReplaceFileContentTool()
             result = tool.execute(
@@ -171,7 +173,7 @@ class TestMultiReplaceFileContentTool:
     def test_successful_multi_replace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("aaa\nbbb\nccc\n")
+            _ = fpath.write_text("aaa\nbbb\nccc\n")
 
             tool = MultiReplaceFileContentTool()
             result = tool.execute(
@@ -191,7 +193,7 @@ class TestMultiReplaceFileContentTool:
     def test_target_not_found(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             fpath = Path(tmpdir) / "test.txt"
-            fpath.write_text("hello world\n")
+            _ = fpath.write_text("hello world\n")
 
             tool = MultiReplaceFileContentTool()
             result = tool.execute(

@@ -4,8 +4,9 @@ ModelManager.generate() 가 ModelRouter의 폴백 전략과 UsageTracker의 통�
 """
 
 import platform
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,21 +18,59 @@ from antigravity_k.engine.tracing import AgentTracer
 from antigravity_k.engine.usage_tracker import UsageTracker
 
 
+def _mock_attr(value: object, name: str) -> MagicMock:
+    return cast(MagicMock, getattr(value, name))
+
+
+def _set_registry_raw(manager: ModelManager, value: object) -> None:
+    registry = cast(object, getattr(manager, "_registry"))
+    setattr(registry, "_raw", value)
+
+
+def _tracker_is_available(manager: ModelManager, model_name: str) -> bool:
+    router = cast(object, getattr(manager, "router"))
+    tracker = cast(object, getattr(router, "_tracker"))
+    checker = cast(Callable[[str], bool], getattr(tracker, "is_available"))
+    return checker(model_name)
+
+
+def _load_mlx_model(manager: ModelManager, profile: ModelProfile) -> tuple[object, object]:
+    loader = cast(Callable[[ModelManager, ModelProfile], tuple[object, object]], getattr(ModelManager, "_load_mlx_model"))
+    return loader(manager, profile)
+
+
+def _suppress_model_thinking(manager: ModelManager, model_name: str, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    suppress = cast(Callable[[str, list[dict[str, str]]], list[dict[str, str]]], getattr(manager, "_suppress_model_thinking"))
+    return suppress(model_name, messages)
+
+
+def _strip_hidden_reasoning(manager: ModelManager, text: str) -> str:
+    stripper = cast(Callable[[str], str], getattr(manager, "_strip_hidden_reasoning"))
+    return stripper(text)
+
+
 @pytest.fixture
 def mock_registry() -> MagicMock:
     registry = MagicMock(spec=ModelRegistry)
     # 메모리 설정 (테스트에서는 무한대)
-    registry.memory_config = MagicMock()
-    registry.memory_config.max_loaded_gb = 1000
-    registry.memory_config.auto_unload = False
+    memory_config = MagicMock()
+    setattr(registry, "memory_config", memory_config)
+    setattr(memory_config, "max_loaded_gb", 1000)
+    setattr(memory_config, "auto_unload", False)
 
     profiles = {
         "model-a": ModelProfile(name="model-a", repo="test", role="test", estimated_memory_gb=1),
         "model-b": ModelProfile(name="model-b", repo="test", role="test", estimated_memory_gb=1),
         "model-c": ModelProfile(name="model-c", repo="test", role="test", estimated_memory_gb=1),
     }
-    registry.get_model.side_effect = lambda x: profiles.get(x)
-    registry.list_models.return_value = list(profiles.values())
+    get_model = _mock_attr(registry, "get_model")
+
+    def get_model_impl(name: object) -> ModelProfile | None:
+        return profiles.get(cast(str, name))
+
+    get_model.side_effect = get_model_impl
+    list_models = _mock_attr(registry, "list_models")
+    list_models.return_value = list(profiles.values())
     return registry
 
 
@@ -50,19 +89,19 @@ def setup_manager(mock_registry: MagicMock) -> ModelManager:
     manager = ModelManager(registry=mock_registry, router=router, tracker=tracker)
 
     # 더미 _load_mlx_model를 모킹하여 실제 로드를 건너뜀
-    manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
+    setattr(manager, "_load_mlx_model", MagicMock(return_value=(MagicMock(), None)))
     # 내부 텍스트 생성 _do_generate 모킹
-    manager._do_generate = MagicMock(return_value="Mock response")
+    setattr(manager, "_do_generate", MagicMock(return_value="Mock response"))
 
     return manager
 
 
-def test_generate_single_model(setup_manager: ModelManager):
+def test_generate_single_model(setup_manager: ModelManager) -> None:
     manager = setup_manager
     res = manager.generate("Hello", "model-a")
 
     assert res == "Mock response"
-    do_generate = manager._do_generate
+    do_generate = _mock_attr(manager, "_do_generate")
     assert isinstance(do_generate, MagicMock)
     do_generate.assert_called_once()
 
@@ -74,7 +113,7 @@ def test_generate_single_model(setup_manager: ModelManager):
     assert recent[0].combo_name == ""
 
 
-def test_generate_fallback_combo_success(setup_manager: ModelManager):
+def test_generate_fallback_combo_success(setup_manager: ModelManager) -> None:
     manager = setup_manager
     res = manager.generate("Hello", "fallback-combo")
 
@@ -89,7 +128,7 @@ def test_generate_fallback_combo_success(setup_manager: ModelManager):
 
 def test_stream_generate_records_local_qwen_capability_trace(
     setup_manager: ModelManager, mock_registry: MagicMock, monkeypatch: pytest.MonkeyPatch
-):
+) -> None:
     manager = setup_manager
     qwen = ModelProfile(
         name="qwen3.6:latest",
@@ -99,8 +138,13 @@ def test_stream_generate_records_local_qwen_capability_trace(
         parameter_count_b=36.0,
         estimated_memory_gb=24.0,
     )
-    mock_registry.get_model.side_effect = lambda name: qwen if name == qwen.name else None
-    manager._capability_probe.observe = MagicMock(
+    get_model = _mock_attr(mock_registry, "get_model")
+    def get_qwen(name: object) -> ModelProfile | None:
+        return qwen if cast(str, name) == qwen.name else None
+
+    get_model.side_effect = get_qwen
+    capability_probe = cast(object, getattr(manager, "_capability_probe"))
+    setattr(capability_probe, "observe", MagicMock(
         return_value={
             "model": qwen.name,
             "provider": "ollama",
@@ -112,12 +156,12 @@ def test_stream_generate_records_local_qwen_capability_trace(
             "reported_capabilities": ["tools"],
             "reported_model_count": 0,
         },
-    )
+    ))
     tracer = AgentTracer()
     monkeypatch.setattr("antigravity_k.engine.tracing.get_tracer", lambda: tracer)
-    manager._do_stream_generate = MagicMock(return_value=iter(["streamed ", "answer"]))
+    setattr(manager, "_do_stream_generate", MagicMock(return_value=iter(["streamed ", "answer"])))
 
-    tracer.start_trace("stream qwen")
+    _ = tracer.start_trace("stream qwen")
     response = "".join(manager.stream_generate("local prompt", qwen.name))
     trace = tracer.end_trace()
 
@@ -135,7 +179,7 @@ def test_stream_generate_records_local_qwen_capability_trace(
 
 def test_stream_generate_records_local_qwen_failure_trace(
     setup_manager: ModelManager, mock_registry: MagicMock, monkeypatch: pytest.MonkeyPatch
-):
+) -> None:
     manager = setup_manager
     qwen = ModelProfile(
         name="qwen3.6:latest",
@@ -145,14 +189,18 @@ def test_stream_generate_records_local_qwen_failure_trace(
         parameter_count_b=36.0,
         estimated_memory_gb=24.0,
     )
-    mock_registry.get_model.side_effect = lambda name: qwen if name == qwen.name else None
+    get_model = _mock_attr(mock_registry, "get_model")
+    def get_qwen(name: object) -> ModelProfile | None:
+        return qwen if cast(str, name) == qwen.name else None
+
+    get_model.side_effect = get_qwen
     tracer = AgentTracer()
     monkeypatch.setattr("antigravity_k.engine.tracing.get_tracer", lambda: tracer)
-    manager._do_stream_generate = MagicMock(side_effect=RuntimeError("stream outage"))
+    setattr(manager, "_do_stream_generate", MagicMock(side_effect=RuntimeError("stream outage")))
 
-    tracer.start_trace("failed stream qwen")
+    _ = tracer.start_trace("failed stream qwen")
     with pytest.raises(RuntimeError, match="stream outage"):
-        list(manager.stream_generate("local prompt", qwen.name))
+        _ = list(manager.stream_generate("local prompt", qwen.name))
     trace = tracer.end_trace()
 
     assert trace is not None
@@ -165,16 +213,16 @@ def test_stream_generate_records_local_qwen_failure_trace(
     assert span.attributes["fallback_depth"] == 0
 
 
-def test_generate_fallback_on_failure(setup_manager: ModelManager):
+def test_generate_fallback_on_failure(setup_manager: ModelManager) -> None:
     manager = setup_manager
 
     # 첫 번째 호출에서 의도적으로 실패 유도
-    def do_generate_side_effect(loaded: LoadedModel, prompt: str, **kwargs: object) -> str:
+    def do_generate_side_effect(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> str:
         if loaded.profile.name == "model-a":
             raise RuntimeError("API Timeout")
         return "Fallback response"
 
-    do_generate = manager._do_generate
+    do_generate = _mock_attr(manager, "_do_generate")
     assert isinstance(do_generate, MagicMock)
     do_generate.side_effect = do_generate_side_effect
 
@@ -198,19 +246,19 @@ def test_generate_fallback_on_failure(setup_manager: ModelManager):
 
     # 라우터 상태 확인 (model-a는 쿨다운 중이어야 함)
     assert len(manager.router.status()["unavailable"]) > 0
-    assert not manager.router._tracker.is_available("model-a")
+    assert not _tracker_is_available(manager, "model-a")
 
 
-def test_generate_fallback_on_swallowed_api_error_string(setup_manager: ModelManager):
+def test_generate_fallback_on_swallowed_api_error_string(setup_manager: ModelManager) -> None:
     manager = setup_manager
 
     # _do_generate가 실제 프로덕션처럼 실패를 문자열로 삼켜 반환 (모델 404 등)
-    def do_generate_side_effect(loaded: LoadedModel, prompt: str, **kwargs: object) -> str:
+    def do_generate_side_effect(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> str:
         if loaded.profile.name == "model-a":
             return "[API Error for model-a] HTTP Error 404: Not Found"
         return "Fallback response"
 
-    do_generate = manager._do_generate
+    do_generate = _mock_attr(manager, "_do_generate")
     assert isinstance(do_generate, MagicMock)
     do_generate.side_effect = do_generate_side_effect
 
@@ -229,19 +277,19 @@ def test_generate_fallback_on_swallowed_api_error_string(setup_manager: ModelMan
     assert records[1].success is False
     assert "404" in records[1].error
 
-    assert not manager.router._tracker.is_available("model-a")
+    assert not _tracker_is_available(manager, "model-a")
 
 
-def test_stream_generate_fallback_on_swallowed_api_error_string(setup_manager: ModelManager):
+def test_stream_generate_fallback_on_swallowed_api_error_string(setup_manager: ModelManager) -> None:
     manager = setup_manager
 
     # 스트림 경로에서도 오류 문자열이 첫 청크로 삼켜져 오면 폴백이 발동해야 함
-    def do_stream_side_effect(loaded: LoadedModel, prompt: str, **kwargs: object) -> Iterator[str]:
+    def do_stream_side_effect(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> Iterator[str]:
         if loaded.profile.name == "model-a":
             return iter(["[API Error for model-a] HTTP Error 404: Not Found"])
         return iter(["streamed ", "answer"])
 
-    manager._do_stream_generate = MagicMock(side_effect=do_stream_side_effect)
+    setattr(manager, "_do_stream_generate", MagicMock(side_effect=do_stream_side_effect))
 
     response = "".join(manager.stream_generate("Hello", "fallback-combo"))
 
@@ -256,10 +304,10 @@ def test_stream_generate_fallback_on_swallowed_api_error_string(setup_manager: M
     assert records[1].model_name == "model-a"
     assert records[1].success is False
 
-    assert not manager.router._tracker.is_available("model-a")
+    assert not _tracker_is_available(manager, "model-a")
 
 
-def test_generate_collective_combo_runs_council(setup_manager: ModelManager):
+def test_generate_collective_combo_runs_council(setup_manager: ModelManager) -> None:
     manager = setup_manager
     manager.router.register_combo(
         ModelCombo(
@@ -282,7 +330,7 @@ def test_generate_collective_combo_runs_council(setup_manager: ModelManager):
             strategy=RouteStrategy.FALLBACK,
         )
     )
-    manager._registry._raw = {
+    _set_registry_raw(manager, {
         "collective_intelligence": {
             "min_participants": 2,
             "max_proposers": 2,
@@ -291,16 +339,16 @@ def test_generate_collective_combo_runs_council(setup_manager: ModelManager):
             "arbiter_combo": "supreme-court",
             "expose_trace": True,
         }
-    }
+    })
 
-    def do_generate_side_effect(loaded: LoadedModel, prompt: str, **kwargs: object) -> str:
+    def do_generate_side_effect(loaded: LoadedModel, prompt: str, **_kwargs: object) -> str:
         if "최종 합성" in prompt:
             return "최종 합성 답변"
         if "비판 라운드" in prompt:
             return "비판 내용"
         return f"후보 답변: {loaded.profile.name}"
 
-    do_generate = manager._do_generate
+    do_generate = _mock_attr(manager, "_do_generate")
     assert isinstance(do_generate, MagicMock)
     do_generate.side_effect = do_generate_side_effect
 
@@ -308,52 +356,54 @@ def test_generate_collective_combo_runs_council(setup_manager: ModelManager):
 
     assert "집단지성" in res
     assert "최종 합성 답변" in res
-    do_generate = manager._do_generate
+    do_generate = _mock_attr(manager, "_do_generate")
     assert isinstance(do_generate, MagicMock)
-    called_prompts = [call.args[1] for call in do_generate.call_args_list]
+    called_prompts = [cast(str, cast(tuple[object, ...], call.args)[1]) for call in do_generate.call_args_list]
     assert any("제안 라운드" in prompt for prompt in called_prompts)
     assert any("비판 라운드" in prompt for prompt in called_prompts)
     assert any("최종 합성" in prompt for prompt in called_prompts)
 
 
-def test_get_target_for_role_prefers_agent_model_combo(setup_manager: ModelManager):
+def test_get_target_for_role_prefers_agent_model_combo(setup_manager: ModelManager) -> None:
     manager = setup_manager
-    manager._registry._raw = {
+    _set_registry_raw(manager, {
         "agent_models": {
             "WORKER": "coding-swarm",
             "default": "collective-council",
         }
-    }
+    })
 
     assert manager.get_target_for_role("WORKER", default_role="coding") == "coding-swarm"
     assert manager.get_target_for_role("QA") == "collective-council"
 
 
-def test_qwen3_messages_force_no_think_mode(setup_manager: ModelManager):
+def test_qwen3_messages_force_no_think_mode(setup_manager: ModelManager) -> None:
     manager = setup_manager
 
-    messages = manager._suppress_model_thinking(
+    messages = _suppress_model_thinking(
+        manager,
         "hf.co/Qwen/Qwen3-30B-A3B-GGUF:Q5_K_M",
         [{"role": "user", "content": "안녕"}],
     )
 
     assert messages[0]["role"] == "system"
-    assert "/no_think" in messages[0]["content"]
-    assert "hidden reasoning" in messages[0]["content"]
+    content = str(messages[0]["content"])
+    assert "/no_think" in content
+    assert "hidden reasoning" in content
 
 
-def test_non_qwen3_messages_are_unchanged(setup_manager: ModelManager):
+def test_non_qwen3_messages_are_unchanged(setup_manager: ModelManager) -> None:
     manager = setup_manager
     original = [{"role": "user", "content": "안녕"}]
 
-    messages = manager._suppress_model_thinking("deepseek-r1:32b", original)
+    messages = _suppress_model_thinking(manager, "deepseek-r1:32b", original)
 
     assert messages is original
 
 
-def test_generate_strips_hidden_reasoning_blocks(setup_manager: ModelManager):
+def test_generate_strips_hidden_reasoning_blocks(setup_manager: ModelManager) -> None:
     manager = setup_manager
-    do_generate = manager._do_generate
+    do_generate = _mock_attr(manager, "_do_generate")
     assert isinstance(do_generate, MagicMock)
     do_generate.return_value = "<think>private reasoning</think>\n최종 답변입니다."
 
@@ -362,14 +412,16 @@ def test_generate_strips_hidden_reasoning_blocks(setup_manager: ModelManager):
     assert res == "최종 답변입니다."
 
 
-def test_strip_legacy_thinking_process_block(setup_manager: ModelManager):
+def test_strip_legacy_thinking_process_block(setup_manager: ModelManager) -> None:
     manager = setup_manager
     text = "--- Thinking Process ---\nprivate plan\n--- End of Thinking* ---\n공개 답변"
 
-    assert manager._strip_hidden_reasoning(text) == "공개 답변"
+    assert _strip_hidden_reasoning(manager, text) == "공개 답변"
 
 
-def test_explicit_mlx_profile_bypasses_global_api_mode(setup_manager: ModelManager, monkeypatch: pytest.MonkeyPatch):
+def test_explicit_mlx_profile_bypasses_global_api_mode(
+    setup_manager: ModelManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
     manager = setup_manager
     profile = ModelProfile(
         name="mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
@@ -380,20 +432,25 @@ def test_explicit_mlx_profile_bypasses_global_api_mode(setup_manager: ModelManag
     model = object()
     tokenizer = object()
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(
-        "antigravity_k.engine.model_manager.import_module",
-        lambda _name: SimpleNamespace(load=lambda _repo: (model, tokenizer)),
-    )
+    def fake_import_module(_name: str) -> SimpleNamespace:
+        def fake_load(_repo: str) -> tuple[object, object]:
+            return model, tokenizer
 
-    loaded_model, loaded_tokenizer = ModelManager._load_mlx_model(manager, profile)
+        return SimpleNamespace(load=fake_load)
+
+    monkeypatch.setattr("antigravity_k.engine.model_manager.import_module", fake_import_module)
+
+    loaded_model, loaded_tokenizer = _load_mlx_model(manager, profile)
 
     assert loaded_model is model
     assert loaded_tokenizer is tokenizer
 
 
-def test_lmstudio_profile_never_loads_direct_mlx_weights(setup_manager: ModelManager, monkeypatch: pytest.MonkeyPatch):
+def test_lmstudio_profile_never_loads_direct_mlx_weights(
+    setup_manager: ModelManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from antigravity_k.config import config
-    from antigravity_k.engine.provider_adapters.dev_shims import _OllamaModel, _OllamaTokenizer
+    from antigravity_k.engine.provider_adapters import dev_shims
 
     manager = setup_manager
     profile = ModelProfile(
@@ -407,8 +464,10 @@ def test_lmstudio_profile_never_loads_direct_mlx_weights(setup_manager: ModelMan
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr("antigravity_k.engine.model_manager.import_module", mlx_loader)
 
-    model, tokenizer = ModelManager._load_mlx_model(manager, profile)
+    model, tokenizer = _load_mlx_model(manager, profile)
 
-    assert isinstance(model, _OllamaModel)
-    assert isinstance(tokenizer, _OllamaTokenizer)
+    ollama_model = cast(type[object], getattr(dev_shims, "_OllamaModel"))
+    ollama_tokenizer = cast(type[object], getattr(dev_shims, "_OllamaTokenizer"))
+    assert isinstance(model, ollama_model)
+    assert isinstance(tokenizer, ollama_tokenizer)
     mlx_loader.assert_not_called()

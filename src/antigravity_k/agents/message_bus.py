@@ -3,9 +3,18 @@
 import logging
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
+
+type MessageValue = str | int | float | bool | None | list[MessageValue] | dict[str, MessageValue]
+type MessageRecord = dict[str, MessageValue]
+
+
+class _AgentSubscriber(Protocol):
+    name: str
+
+    def add_message(self, role: str, content: str) -> None: ...
 
 
 class MessageBus:
@@ -15,15 +24,15 @@ class MessageBus:
     작업 상태를 업데이트할 때 사용됩니다.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the MessageBus."""
-        self.channels: dict[str, list[dict[str, Any]]] = {
+        self.channels: dict[str, list[MessageRecord]] = {
             "general": [],  # 기본 채널
         }
-        self.subscribers: dict[str, list[Any]] = {"general": []}
-        self.callbacks: dict[str, list[Callable[[dict[str, Any]], None]]] = {"general": []}
+        self.subscribers: dict[str, list[_AgentSubscriber]] = {"general": []}
+        self.callbacks: dict[str, list[Callable[[MessageRecord], None]]] = {"general": []}
 
-    def create_channel(self, channel_name: str):
+    def create_channel(self, channel_name: str) -> None:
         """Create channel.
 
         Args:
@@ -36,7 +45,7 @@ class MessageBus:
             self.callbacks[channel_name] = []
             logger.info("Message channel '%s' created.", channel_name)
 
-    def subscribe(self, channel_name: str, agent):
+    def subscribe(self, channel_name: str, agent: _AgentSubscriber) -> None:
         """Subscribe.
 
         Args:
@@ -50,7 +59,7 @@ class MessageBus:
             self.subscribers[channel_name].append(agent)
             logger.info("Agent '%s' subscribed to '%s'.", agent.name, channel_name)
 
-    def subscribe_callback(self, channel_name: str, callback: Callable[[dict[str, Any]], None]):
+    def subscribe_callback(self, channel_name: str, callback: Callable[[MessageRecord], None]) -> None:
         """특정 채널에 콜백 함수를 등록하여 이벤트 기반 처리를 지원합니다."""
         if channel_name not in self.callbacks:
             self.create_channel(channel_name)
@@ -58,13 +67,19 @@ class MessageBus:
             self.callbacks[channel_name].append(callback)
             logger.info("Callback registered for channel '%s'.", channel_name)
 
-    def publish(self, channel_name: str, sender: str, message: str, meta: dict[str, Any] | None = None):
+    def publish(
+        self,
+        channel_name: str,
+        sender: str,
+        message: str,
+        meta: dict[str, MessageValue] | None = None,
+    ) -> None:
         """특정 채널에 메시지를 발행합니다."""
         if channel_name not in self.channels:
             logger.warning("Channel '%s' does not exist.", channel_name)
             return
 
-        msg_obj = {
+        msg_obj: MessageRecord = {
             "timestamp": datetime.now().isoformat(),
             "sender": sender,
             "message": message,
@@ -85,7 +100,7 @@ class MessageBus:
             except Exception:
                 logger.exception("Error executing callback on channel '%s'", channel_name)
 
-    def get_history(self, channel_name: str) -> list[dict[str, Any]]:
+    def get_history(self, channel_name: str) -> list[MessageRecord]:
         """Retrieve history.
 
         Args:

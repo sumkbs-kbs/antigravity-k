@@ -64,11 +64,7 @@ def max_execute_handler(ctx: StateContext, orch: _OrchestratorLike) -> Generator
     # refined_prompt 주입 — 첫 시도에만 적용.
     # 재시도 루프백에서는 마지막 메시지가 품질 검증 피드백([시스템 피드백])이므로
     # 덮어쓰면 재시도가 1차 시도와 동일해져 피드백이 무의미해진다.
-    if (
-        ctx.refined_prompt
-        and ctx.refined_prompt != ctx.user_message
-        and ctx.retry_count == 0
-    ):
+    if ctx.refined_prompt and ctx.refined_prompt != ctx.user_message and ctx.retry_count == 0:
         ctx.custom_messages[-1] = {
             "role": "user",
             "content": ctx.refined_prompt + ctx.rag_context,
@@ -162,11 +158,7 @@ def agent_execute_handler(ctx: StateContext, orch: _OrchestratorLike) -> Generat
     ctx.execution_origin = AgentState.AGENT_EXECUTE
     # refined_prompt 주입 — 첫 시도에만 적용 (재시도 시 마지막 메시지는
     # 품질 검증 피드백이며, 덮어쓰면 재시도가 1차와 동일해진다).
-    if (
-        ctx.refined_prompt
-        and ctx.refined_prompt != ctx.user_message
-        and ctx.retry_count == 0
-    ):
+    if ctx.refined_prompt and ctx.refined_prompt != ctx.user_message and ctx.retry_count == 0:
         ctx.custom_messages[-1] = {
             "role": "user",
             "content": ctx.refined_prompt + ctx.rag_context,

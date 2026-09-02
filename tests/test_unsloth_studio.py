@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
+from typing import Protocol, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -20,11 +22,54 @@ from antigravity_k.engine.provider_adapters.unsloth_studio_contracts import (
     UnslothStudioToolResult,
     normalize_unsloth_mcp_url,
 )
-from antigravity_k.tools.base_tool import RiskLevel, ToolCategory
+from antigravity_k.tools.base_tool import BaseTool, RiskLevel, ToolCategory
 from antigravity_k.tools.mcp_session_manager import MCPSessionManager
-from antigravity_k.tools.permission_gate import Permission
-from antigravity_k.tools.tool_contracts import PermissionDecision, ToolSpec
+from antigravity_k.tools.tool_contracts import Permission, PermissionDecision, ToolSpec
 from antigravity_k.tools.tool_registry import ToolRegistry
+
+
+class _CallRecord(Protocol):
+    args: tuple[object, ...]
+    kwargs: Mapping[str, object]
+
+
+class _MockCall(Protocol):
+    call_args: _CallRecord | None
+
+    def assert_not_called(self) -> None:
+        ...
+
+    def assert_called_once(self) -> None:
+        ...
+
+
+class _AwaitMockCall(Protocol):
+    await_args: _CallRecord
+    await_args_list: Sequence[_CallRecord]
+
+    def assert_not_called(self) -> None:
+        ...
+
+    def assert_awaited_once_with(self, *args: object, **kwargs: object) -> None:
+        ...
+
+
+class _ManagerMocks(Protocol):
+    connect_streamable_http: _AwaitMockCall
+    disconnect_server: _AwaitMockCall
+
+
+class _RegistryMocks(Protocol):
+    authorize_tool: _MockCall
+
+
+class _AuthorizeMock(_MockCall, Protocol):
+    return_value: PermissionDecision
+    side_effect: Callable[[BaseTool, Mapping[str, object], str], PermissionDecision] | None
+
+
+class _AuditMocks(Protocol):
+    log_event: _MockCall
 
 
 def _auth_headers() -> dict[str, str]:
@@ -58,16 +103,16 @@ def test_normalize_unsloth_mcp_url_accepts_only_loopback_mcp_endpoint() -> None:
     assert normalize_unsloth_mcp_url("http://[::1]:8888/mcp/") == "http://[::1]:8888/mcp/"
 
     with pytest.raises(ValueError, match="loopback"):
-        normalize_unsloth_mcp_url("http://studio.example.com/mcp/")
+        _ = normalize_unsloth_mcp_url("http://studio.example.com/mcp/")
     with pytest.raises(ValueError, match="credentials"):
-        normalize_unsloth_mcp_url("http://user:pass@127.0.0.1:8888/mcp/")
+        _ = normalize_unsloth_mcp_url("http://user:pass@127.0.0.1:8888/mcp/")
     with pytest.raises(ValueError, match="/mcp/"):
-        normalize_unsloth_mcp_url("http://127.0.0.1:8888/v1/")
+        _ = normalize_unsloth_mcp_url("http://127.0.0.1:8888/v1/")
 
 
 def test_settings_reject_blank_token() -> None:
     with pytest.raises(ValidationError, match="token"):
-        UnslothStudioSettings(endpoint="http://127.0.0.1:8888/mcp/", token=SecretStr("   "))
+        _ = UnslothStudioSettings(endpoint="http://127.0.0.1:8888/mcp/", token=SecretStr("   "))
 
 
 @pytest.mark.asyncio
@@ -81,8 +126,8 @@ async def test_snapshot_is_optional_without_token_and_skips_connection() -> None
     assert snapshot.configured is False
     assert snapshot.available is False
     assert snapshot.allowed_tools == UNSLOTH_STUDIO_READ_TOOLS
-    manager.connect_streamable_http.assert_not_called()
-    registry.authorize_tool.assert_not_called()
+    cast(_ManagerMocks, manager).connect_streamable_http.assert_not_called()
+    cast(_RegistryMocks, registry).authorize_tool.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -105,7 +150,8 @@ async def test_snapshot_calls_only_allowlisted_read_tools_with_bearer_token() ->
     manager.connect_streamable_http = AsyncMock(return_value=session)
     manager.disconnect_server = AsyncMock()
     registry = MagicMock(spec=ToolRegistry)
-    registry.authorize_tool.side_effect = lambda tool, args, objective="": _allow_decision(tool.name)
+    authorize_mock = cast(_AuthorizeMock, registry.authorize_tool)
+    authorize_mock.side_effect = lambda tool, args, objective="": _allow_decision(tool.name)
     service = UnslothStudioService(settings=_settings(), manager=manager, registry=registry)
 
     snapshot = await service.snapshot()
@@ -114,20 +160,23 @@ async def test_snapshot_calls_only_allowlisted_read_tools_with_bearer_token() ->
     assert snapshot.available is True
     assert tuple(result.tool for result in snapshot.results) == UNSLOTH_STUDIO_READ_TOOLS
     assert all(result.ok for result in snapshot.results)
-    assert [call.args[0] for call in session.call_tool.await_args_list] == [
+    call_tool_mock = cast(_AwaitMockCall, session.call_tool)
+    assert [call.args[0] for call in call_tool_mock.await_args_list] == [
         tool.value for tool in UNSLOTH_STUDIO_READ_TOOLS
     ]
-    assert manager.connect_streamable_http.await_args.kwargs["headers"] == {
+    connect_mock = cast(_AwaitMockCall, manager.connect_streamable_http)
+    assert connect_mock.await_args.kwargs["headers"] == {
         "Authorization": "Bearer studio-secret",
     }
-    manager.disconnect_server.assert_awaited_once_with("unsloth-studio")
+    cast(_ManagerMocks, manager).disconnect_server.assert_awaited_once_with("unsloth-studio")
 
 
 @pytest.mark.asyncio
 async def test_permission_denial_prevents_mcp_connection() -> None:
     manager = MagicMock(spec=MCPSessionManager)
     registry = MagicMock(spec=ToolRegistry)
-    registry.authorize_tool.return_value = PermissionDecision(
+    authorize_mock = cast(_AuthorizeMock, registry.authorize_tool)
+    authorize_mock.return_value = PermissionDecision(
         spec=ToolSpec(name="studio_status", risk_level=RiskLevel.SAFE.value, category=ToolCategory.DATA.value),
         permission=Permission.DENY,
         source="permission_gate",
@@ -136,9 +185,9 @@ async def test_permission_denial_prevents_mcp_connection() -> None:
     service = UnslothStudioService(settings=_settings(), manager=manager, registry=registry)
 
     with pytest.raises(UnslothStudioPermissionDenied, match="studio_status"):
-        await service.snapshot()
+        _ = await service.snapshot()
 
-    manager.connect_streamable_http.assert_not_called()
+    cast(_ManagerMocks, manager).connect_streamable_http.assert_not_called()
 
 
 def test_api_exposes_snapshot_without_secret_and_records_audit() -> None:
@@ -166,11 +215,15 @@ def test_api_exposes_snapshot_without_secret_and_records_audit() -> None:
             with TestClient(app) as client:
                 response = client.get("/v1/integrations/unsloth/studio", headers=_auth_headers())
     finally:
-        app.dependency_overrides.pop(unsloth_studio_api.get_unsloth_studio_service, None)
+        _ = app.dependency_overrides.pop(unsloth_studio_api.get_unsloth_studio_service, None)
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = cast(Mapping[str, object], response.json())
     assert payload["available"] is True
     assert "studio-secret" not in response.text
-    audit.log_event.assert_called_once()
-    assert "token" not in audit.log_event.call_args.args[1]
+    log_event_mock = cast(_AuditMocks, audit).log_event
+    log_event_mock.assert_called_once()
+    call_args = log_event_mock.call_args
+    assert call_args is not None
+    assert isinstance(call_args.args[1], Mapping)
+    assert "token" not in call_args.args[1]

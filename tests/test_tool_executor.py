@@ -71,9 +71,7 @@ def tool_registry() -> MagicMock:
     reg.get = MagicMock(side_effect=partial(_lookup_tool, reg))
     reg.__contains__ = _contains_tool
 
-    def execute_with_permission(
-        _name: str, _args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+    def execute_with_permission(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         return Permission.ALLOW, "ok"
 
@@ -127,9 +125,7 @@ def test_readonly_tool_uses_permission_boundary(executor: ToolExecutor, tool_reg
 
     called: list[str] = []
 
-    def execute_with_permission(
-        name: str, args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+    def execute_with_permission(name: str, args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         called.append(name)
         return Permission.ALLOW, readonly_tool(**args)
@@ -245,7 +241,9 @@ def test_missing_required_args_returns_error(executor: ToolExecutor):
 # ---------------------------------------------------------------------------
 
 
-def test_preflight_validation_has_no_write_side_effect(executor: ToolExecutor, tool_registry: MagicMock, tmp_path: Path):
+def test_preflight_validation_has_no_write_side_effect(
+    executor: ToolExecutor, tool_registry: MagicMock, tmp_path: Path
+):
     """검증 단계는 디렉터리를 생성하지 않는다 — 생성은 실제 쓰기 도구의 책임.
 
     (오타 경로가 조용히 잘못된 디렉터리 트리를 만드는 부수효과 방지)
@@ -269,9 +267,8 @@ def test_preflight_validation_has_no_write_side_effect(executor: ToolExecutor, t
 
 def test_permission_deny_returns_blocked(executor: ToolExecutor, tool_registry: MagicMock):
     """When execute_with_permission returns DENY, a [DENIED] error is returned."""
-    def deny_execution(
-        _name: str, _args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+
+    def deny_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         return Permission.DENY, "blocked"
 
@@ -284,9 +281,8 @@ def test_permission_deny_returns_blocked(executor: ToolExecutor, tool_registry: 
 
 def test_permission_prompt_returns_approval_required(executor: ToolExecutor, tool_registry: MagicMock):
     """When execute_with_permission returns PROMPT, an [APPROVAL REQUIRED] message is returned."""
-    def prompt_execution(
-        _name: str, _args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+
+    def prompt_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         return Permission.PROMPT, "needs approval"
 
@@ -310,10 +306,9 @@ def test_consecutive_error_reset_on_success(executor: ToolExecutor):
 
 def test_three_consecutive_errors_trigger_recovery(executor: ToolExecutor, tool_registry: MagicMock):
     """Three consecutive errors trigger the recovery path (_trigger_recovery)."""
+
     # Make execute_with_permission return errors.
-    def failing_execution(
-        _name: str, _args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+    def failing_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         return Permission.ALLOW, "Error: something failed"
 
@@ -422,6 +417,7 @@ def test_broadcast_file_event_publishes_for_read_file(executor: ToolExecutor, tm
 
     published: list[tuple[str, dict[str, object]]] = []
     with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
+
         def publish(event_type: str, **kwargs: object) -> None:
             published.append((event_type, kwargs))
 
@@ -444,6 +440,7 @@ def test_broadcast_file_event_publishes_for_write_file(executor: ToolExecutor, t
 
     published: list[tuple[str, dict[str, object]]] = []
     with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
+
         def publish(event_type: str, **kwargs: object) -> None:
             published.append((event_type, kwargs))
 
@@ -488,9 +485,7 @@ def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path: Path):
     reg.get = MagicMock(side_effect=partial(_lookup_tool, reg))
     reg.__contains__ = _contains_tool
 
-    def write_execution(
-        _name: str, _args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+    def write_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         return Permission.ALLOW, "wrote"
 
@@ -502,9 +497,7 @@ def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path: Path):
             tool_registry=reg,
             permission_gate=gate,
             project_root=str(tmp_path),
-            gate_pipeline=cast(
-                Callable[[], object], getattr(gate_pipeline, "create_default_pipeline")
-            )(),
+            gate_pipeline=cast(Callable[[], object], getattr(gate_pipeline, "create_default_pipeline"))(),
         )
     setattr(ex, "_immune_system", None)
 
@@ -526,9 +519,7 @@ def test_nonzero_exit_code_result_is_classified_as_failure(executor: ToolExecuto
     _registry_tools(tool_registry)["run_bash_command"] = failing_tool
     tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
 
-    def failing_command_execution(
-        _name: str, _args: dict[str, object], objective: str = ""
-    ) -> tuple[Permission, str]:
+    def failing_command_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
         _ = objective
         return Permission.ALLOW, "[exit_code=2]\nSTDERR:\nboom"
 
@@ -573,16 +564,12 @@ class TestApprovalWiring:
                 tool_registry=tool_registry,
                 permission_gate=permission_gate,
                 project_root=str(tmp_path),
-                gate_pipeline=cast(
-                    Callable[[], object], getattr(gate_pipeline, "create_default_pipeline")
-                )(),
+                gate_pipeline=cast(Callable[[], object], getattr(gate_pipeline, "create_default_pipeline"))(),
             )
         setattr(ex, "_immune_system", None)
         return ex
 
-    def test_pause_registers_approval_request(
-        self, tool_registry, permission_gate, tmp_path, monkeypatch
-    ):
+    def test_pause_registers_approval_request(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         """게이트 일시정지 시 승인 요청이 등록되고 요청 ID가 결과에 포함된다."""
         from antigravity_k.engine import approval_manager as am
 
@@ -620,9 +607,7 @@ class TestApprovalWiring:
         assert "req-123" in result
         assert requests and requests[0]["tool"] == "write_file"
 
-    def test_always_allowed_tool_executes_without_pause(
-        self, tool_registry, permission_gate, tmp_path, monkeypatch
-    ):
+    def test_always_allowed_tool_executes_without_pause(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         from antigravity_k.engine import approval_manager as am
 
         class FakeManager:
@@ -654,9 +639,7 @@ class TestApprovalWiring:
 
         assert result == "ok"  # 일시정지 없이 실행됨
 
-    def test_one_time_approval_consumed_on_retry(
-        self, tool_registry, permission_gate, tmp_path, monkeypatch
-    ):
+    def test_one_time_approval_consumed_on_retry(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         from antigravity_k.engine import approval_manager as am
 
         class FakeManager:

@@ -6,6 +6,8 @@ verify 호출에는 결과를 기여하지 않게 해 순수 rule 기반 동작�
 GOOD 코드는 ast.parse 통과(issues 0), BAD/STILL 코드는 구문 오류로 failed.
 """
 
+from collections.abc import Callable
+
 from antigravity_k.engine.chain_of_verification import ChainOfVerification
 
 COMPLEX_TASK = "복잡한 알고리즘 아키텍처 리팩토링 마이그레이션 설계 최적화 시간복잡도 분석"
@@ -14,7 +16,12 @@ GOOD_CODE = "```python\ndef fixed_function():\n    return 1\n    # O(1) 시간�
 STILL_BAD = "```python\ndef still_broken_name(\n    return\n    value\n```"
 
 
-def _make_cov(gen_fn, max_revise=1, min_len=20, complexity=0.0):
+def _make_cov(
+    gen_fn: Callable[[str], str] | None,
+    max_revise: int = 1,
+    min_len: int = 20,
+    complexity: float = 0.0,
+) -> ChainOfVerification:
     return ChainOfVerification(
         generate_fn=gen_fn,
         min_response_length=min_len,
@@ -32,7 +39,7 @@ VERIFY_ISSUES = (
 )
 
 
-def _gen_factory(revise_responses):
+def _gen_factory(revise_responses: list[str]) -> tuple[Callable[[str], str], dict[str, int]]:
     """revise 호출 시 순차 응답, verify 호출 시 검증 대상 코드의 실제 파싱 결과 반환.
 
     verify 프롬프트에는 검증 대상 응답이 포함된다. 그 코드를 ast.parse 해서
@@ -44,12 +51,12 @@ def _gen_factory(revise_responses):
 
     state = {"revise_idx": 0}
 
-    def gen(prompt):
+    def gen(prompt: str) -> str:
         if "검증해주세요" in prompt:
             m = _re.search(r"```python\n(.*?)```", prompt, _re.DOTALL)
             if m:
                 try:
-                    _ast.parse(m.group(1))
+                    _ = _ast.parse(m.group(1))
                     return "문제 없음"
                 except SyntaxError:
                     return VERIFY_ISSUES

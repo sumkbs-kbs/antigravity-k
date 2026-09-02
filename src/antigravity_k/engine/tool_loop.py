@@ -656,7 +656,13 @@ class ToolLoopEngine:
             # 항상 None → 네이티브 FC가 사실상 비활성화되던 버그).
             profile_value: object = get_model(self._resolve_model_name(delegate_model))
             provider_value: object = getattr(profile_value, "provider", None)
-            if isinstance(provider_value, str) and provider_value in ("ollama", "lmstudio", "lm_studio", "openrouter", "nim"):
+            if isinstance(provider_value, str) and provider_value in (
+                "ollama",
+                "lmstudio",
+                "lm_studio",
+                "openrouter",
+                "nim",
+            ):
                 capability = self.orch.manager.provider_capability(delegate_model)
                 if capability is not None and capability.get("native_tool_calling") == "unsupported":
                     return {}
@@ -1255,9 +1261,7 @@ class ToolLoopEngine:
                             skill_prompts,
                             shaped_messages,
                         )
-                        prompt_str = self._insert_working_context(
-                            prompt_str, self._cached_pinned_context()
-                        )
+                        prompt_str = self._insert_working_context(prompt_str, self._cached_pinned_context())
                     self._refresh_checkpoint_context(shaped_messages)
                     self._checkpoint_task_state(
                         step,
@@ -1338,9 +1342,7 @@ class ToolLoopEngine:
                             f"\n> 🛡️ **[Tool Blocked]** "
                             f"{batch_pre_decision.message if batch_pre_decision else tool_result}\n"
                         )
-                        block_reason = (
-                            batch_pre_decision.message if batch_pre_decision else str(tool_result)
-                        )
+                        block_reason = batch_pre_decision.message if batch_pre_decision else str(tool_result)
                         parser.tool_responses.append(
                             self._format_tool_response(
                                 tc,
@@ -1482,8 +1484,7 @@ class ToolLoopEngine:
                 self.telemetry.format_nudges += 1
                 yield "\n\n🔧 **[Format Repair]** 도구 호출 형식 오류 — 정확한 형식으로 재요청합니다...\n"
                 prompt_str += (
-                    full_response
-                    + "\n[SYSTEM] Your tool call above was malformed JSON and could not be executed. "
+                    full_response + "\n[SYSTEM] Your tool call above was malformed JSON and could not be executed. "
                     "Re-emit the tool call exactly in this format, with valid JSON only:\n"
                     '<tool_call>{"name": "tool_name", "arguments": {"key": "value"}}</tool_call>\n'
                     "Assistant: "
@@ -1944,9 +1945,9 @@ class ToolLoopEngine:
                 analysis["citation_evaluation"] = citation_report.to_dict()
                 # 평가 대상 출력의 지문 — 그래프 COV 검증이 동일 출력에 대해
                 # 재평가하지 않고 재사용할 수 있는 근거
-                analysis["citation_evaluation_output_sha"] = hashlib.sha256(
-                    full_output.encode("utf-8")
-                ).hexdigest()[:16]
+                analysis["citation_evaluation_output_sha"] = hashlib.sha256(full_output.encode("utf-8")).hexdigest()[
+                    :16
+                ]
                 if citation_recovery:
                     analysis["citation_recovery"] = citation_recovery
             if self._citation_validation_failed:

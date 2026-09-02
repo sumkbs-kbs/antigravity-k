@@ -4,21 +4,41 @@ import io
 import json
 import os
 import shlex
+import subprocess
 import unittest
 from datetime import date
 from pathlib import Path
+from typing import Callable, Protocol, cast
 from unittest import mock
 
 subway_lost_property = importlib.import_module("scripts.subway_lost_property")
-LOST112_LIST_URL = subway_lost_property.LOST112_LIST_URL
-SEOUL_METRO_LOST_CENTER_URL = subway_lost_property.SEOUL_METRO_LOST_CENTER_URL
-SearchQuery = subway_lost_property.SearchQuery
-build_curl_command = subway_lost_property.build_curl_command
-build_search_payload = subway_lost_property.build_search_payload
-build_search_plan = subway_lost_property.build_search_plan
-expand_station_keywords = subway_lost_property.expand_station_keywords
-main = subway_lost_property.main
-probe_source = subway_lost_property.probe_source
+
+
+class SearchQueryLike(Protocol):
+    station: str
+    item: str | None
+    start_date: date
+    end_date: date
+
+
+class SearchPlanLike(Protocol):
+    query: SearchQueryLike
+    payload: dict[str, str]
+    suggested_keywords: list[str]
+    official_sources: list[dict[str, str]]
+
+
+LOST112_LIST_URL = cast(str, getattr(subway_lost_property, "LOST112_LIST_URL"))
+SEOUL_METRO_LOST_CENTER_URL = cast(str, getattr(subway_lost_property, "SEOUL_METRO_LOST_CENTER_URL"))
+SearchQuery = cast(Callable[..., SearchQueryLike], getattr(subway_lost_property, "SearchQuery"))
+build_curl_command = cast(Callable[[dict[str, str]], str], getattr(subway_lost_property, "build_curl_command"))
+build_search_payload = cast(
+    Callable[[SearchQueryLike], dict[str, str]], getattr(subway_lost_property, "build_search_payload")
+)
+build_search_plan = cast(Callable[..., SearchPlanLike], getattr(subway_lost_property, "build_search_plan"))
+expand_station_keywords = cast(Callable[[str], list[str]], getattr(subway_lost_property, "expand_station_keywords"))
+main = cast(Callable[[list[str] | None], None], getattr(subway_lost_property, "main"))
+probe_source = cast(Callable[..., dict[str, str]], getattr(subway_lost_property, "probe_source"))
 
 
 class SubwayLostPropertyQueryTest(unittest.TestCase):
@@ -71,7 +91,7 @@ class SubwayLostPropertyQueryTest(unittest.TestCase):
 
     def test_blank_station_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "station"):
-            build_search_plan(station="   ")
+            _ = build_search_plan(station="   ")
 
 
 class SubwayLostPropertyProbeTest(unittest.TestCase):
@@ -81,7 +101,7 @@ class SubwayLostPropertyProbeTest(unittest.TestCase):
         status = probe_source("LOST112", LOST112_LIST_URL, runner=runner)
 
         self.assertEqual(status["status"], "reachable")
-        command = runner.call_args.args[0]
+        command = cast(list[str], runner.call_args.args[0])
         self.assertEqual(command[0], "curl")
         self.assertIn("--http1.1", command)
         self.assertEqual(command[command.index("--tls-max") + 1], "1.2")
@@ -90,7 +110,7 @@ class SubwayLostPropertyProbeTest(unittest.TestCase):
 
     def test_probe_source_marks_timeouts_cleanly(self):
         runner = mock.Mock(
-            side_effect=__import__("subprocess").CalledProcessError(28, ["curl"], stderr="Operation timed out")
+            side_effect=subprocess.CalledProcessError(28, ["curl"], stderr="Operation timed out")
         )
 
         status = probe_source("서울교통공사", SEOUL_METRO_LOST_CENTER_URL, runner=runner)
@@ -103,13 +123,16 @@ class SubwayLostPropertyCliShapeTest(unittest.TestCase):
     def test_cli_prints_json_plan(self):
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
-            main(["--station", "강남역", "--item", "지갑", "--days", "14"])
+            _ = main(["--station", "강남역", "--item", "지갑", "--days", "14"])
 
-        payload = json.loads(stdout.getvalue())
-        self.assertEqual(payload["query"]["station"], "강남역")
-        self.assertEqual(payload["payload"]["SITE"], "V")
-        self.assertIn("curl", payload["curl_example"])
-        self.assertEqual(payload["official_sources"][0]["url"], LOST112_LIST_URL)
+        payload = cast(dict[str, object], json.loads(stdout.getvalue()))
+        query = cast(dict[str, object], payload["query"])
+        search_payload = cast(dict[str, object], payload["payload"])
+        sources = cast(list[dict[str, object]], payload["official_sources"])
+        self.assertEqual(query["station"], "강남역")
+        self.assertEqual(search_payload["SITE"], "V")
+        self.assertIn("curl", cast(str, payload["curl_example"]))
+        self.assertEqual(sources[0]["url"], LOST112_LIST_URL)
 
     def test_helper_scripts_are_executable_python_entrypoints(self):
         repo_root = Path(__file__).resolve().parent.parent
@@ -126,4 +149,4 @@ class SubwayLostPropertyCliShapeTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

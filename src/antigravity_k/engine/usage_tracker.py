@@ -18,11 +18,23 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 from .cost_guard import CostGuard
 
 logger = logging.getLogger("antigravity_k.usage_tracker")
+
+
+class UsageRecordPayload(TypedDict):
+    model_name: str
+    timestamp: float
+    tokens_in: int
+    tokens_out: int
+    latency_ms: float
+    success: bool
+    error: str
+    combo_name: str
+    fallback_depth: int
 
 
 # ─── 데이터 클래스 ───────────────────────────────────────────────────
@@ -91,14 +103,14 @@ class UsageStats:
         """
         return self.total_tokens_in + self.total_tokens_out
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        d = asdict(self)
+        d = cast(dict[str, object], cast(object, asdict(self)))
         d["success_rate"] = round(self.success_rate, 1)
         d["total_tokens"] = self.total_tokens
         return d
@@ -136,12 +148,12 @@ class UsageTracker:
             cost_guard (CostGuard | None): CostGuard | None cost guard.
 
         """
-        self._db_path = Path(db_path) if db_path else None
-        self._max_records = max_records
-        self._auto_save_interval = auto_save_interval
+        self._db_path: Path | None = Path(db_path) if db_path else None
+        self._max_records: int = max_records
+        self._auto_save_interval: int = auto_save_interval
         self._records: list[UsageRecord] = []
-        self._unsaved_count = 0
-        self._cost_guard = cost_guard  # IronClaw CostGuard 통합
+        self._unsaved_count: int = 0
+        self._cost_guard: CostGuard | None = cost_guard  # IronClaw CostGuard 통합
 
         # DB 파일에서 기존 기록 로드
         if self._db_path:
@@ -229,7 +241,7 @@ class UsageTracker:
         for r in filtered:
             grouped[r.model_name].append(r)
 
-        stats_list = []
+        stats_list: list[UsageStats] = []
         for name, records in grouped.items():
             stats = self._compute_stats(name, records, period)
             stats_list.append(stats)
@@ -255,7 +267,7 @@ class UsageTracker:
 
     # ─── 대시보드 데이터 ─────────────────────────────────────────────
 
-    def to_dashboard_data(self) -> dict[str, Any]:
+    def to_dashboard_data(self) -> dict[str, object]:
         """대시보드 UI용 전체 통계 데이터."""
         daily_stats = self.get_stats(period="daily")
         total_stats = self.get_stats(period="total")
@@ -305,10 +317,19 @@ class UsageTracker:
 
         try:
             with open(self._db_path, encoding="utf-8") as f:
-                data = json.load(f)
+                    data = cast(object, json.load(f))
 
-            raw_records = data.get("records", [])
-            self._records = [UsageRecord(**r) for r in raw_records]
+            if not isinstance(data, dict):
+                return
+            payload = cast(dict[str, object], cast(object, data))
+            raw_records = payload.get("records", [])
+            if isinstance(raw_records, list):
+                records = cast(list[object], cast(object, raw_records))
+                self._records = [
+                    UsageRecord(**cast(UsageRecordPayload, cast(object, record)))
+                    for record in records
+                    if isinstance(record, dict)
+                ]
             logger.info("사용량 DB 로드: %s (%s건)", self._db_path, len(self._records))
         except Exception:
             logger.exception("사용량 DB 로드 실패")
@@ -377,7 +398,7 @@ class UsageTracker:
             buckets[hour_key]["requests"] += 1
 
         # 빈 시간대 채우기
-        result = []
+        result: list[dict[str, int]] = []
         for h in range(hours):
             bucket = buckets.get(h, {"hour": h, "tokens": 0, "requests": 0})
             result.append(bucket)

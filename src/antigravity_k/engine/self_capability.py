@@ -12,19 +12,40 @@ import logging
 import os
 import re
 from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Callable, Protocol, cast
 
 logger = logging.getLogger(__name__)
 SELF_CAPABILITY_RE = re.compile(
     r"(너를\s*소개|자기\s*소개|너는\s*누구|정체|"
-    r"뭘\s*할\s*수|무엇을\s*할\s*수|할\s*수\s*있는\s*일|"
-    r"할\s*수\s*없는\s*일|능력|기능|capabilit|what\s+can\s+you\s+do|who\s+are\s+you|"
-    r"사용.*모델|어떤\s*모델|현재\s*모델|니가\s*쓰는|네가\s*쓰는|"
-    r"어떤\s*도구|등록된\s*도구|설정\s*상태|구성\s*상태|"
-    r"your\s+model|which\s+model|current\s+model)",
+    + r"뭘\s*할\s*수|무엇을\s*할\s*수|할\s*수\s*있는\s*일|"
+    + r"할\s*수\s*없는\s*일|능력|기능|capabilit|what\s+can\s+you\s+do|who\s+are\s*you|"
+    + r"사용.*모델|어떤\s*모델|현재\s*모델|니가\s*쓰는|네가\s*쓰는|"
+    + r"어떤\s*도구|등록된\s*도구|설정\s*상태|구성\s*상태|"
+    + r"your\s+model|which\s+model|current\s+model)",
     re.IGNORECASE,
 )
+
+
+class _ToolLike(Protocol):
+    def to_metadata(self) -> Mapping[str, object]: ...
+
+
+class _ToolRegistryLike(Protocol):
+    def to_metadata_list(self) -> Iterable[Mapping[str, object]]: ...
+
+    def get_all(self) -> Iterable[_ToolLike]: ...
+
+
+class _SkillLoaderLike(Protocol):
+    def list_skills(self) -> Iterable[Mapping[str, object]]: ...
+
+
+class _ModelManagerLike(Protocol):
+    def get_model_info(self) -> object: ...
+
+    def status(self) -> object: ...
 
 
 @dataclass(frozen=True)
@@ -60,11 +81,11 @@ class SelfCapabilityEngine:
     def build(
         self,
         *,
-        tool_registry: Any = None,
-        skill_loader: Any = None,
-        model_manager: Any = None,
+        tool_registry: object | None = None,
+        skill_loader: object | None = None,
+        model_manager: object | None = None,
         project_root: str | None = None,
-        slash_commands: Iterable[str] | Mapping[str, Any] | None = None,
+        slash_commands: Iterable[str] | Mapping[str, object] | None = None,
     ) -> RuntimeCapabilitySnapshot:
         metadata = self._tool_metadata(tool_registry)
         names = {str(item.get("name", "")) for item in metadata}
@@ -102,8 +123,8 @@ class SelfCapabilityEngine:
             "# Antigravity-K Self Capability Report",
             "",
             "저는 이 프로젝트 안에서 실행되는 Antigravity-K 에이전트입니다. "
-            "답변, 코드 분석, 파일 작업, 테스트, DOM 기반 UI 점검, 문서화 같은 작업을 "
-            "현재 연결된 도구와 정책 범위 안에서 수행합니다.",
+            + "답변, 코드 분석, 파일 작업, 테스트, DOM 기반 UI 점검, 문서화 같은 작업을 "
+            + "현재 연결된 도구와 정책 범위 안에서 수행합니다.",
             "",
             "## 현재 연결 상태",
             f"- 프로젝트 루트: `{snapshot.project_root}`",
@@ -169,7 +190,7 @@ class SelfCapabilityEngine:
 
     def render_prompt_contract(self, snapshot: RuntimeCapabilitySnapshot) -> str:
         """Small system-prompt contract that prevents invented capabilities."""
-        available = []
+        available: list[str] = []
         if snapshot.browser_dom_available:
             available.append("DOM/browser QA")
         if snapshot.web_search_available:
@@ -192,30 +213,32 @@ class SelfCapabilityEngine:
             "- Keep Korean output clean: no hidden reasoning transcript, no Chinese/Japanese contamination, and natural spacing.\n"  # noqa: E501
         )
 
-    def _tool_metadata(self, tool_registry: Any) -> list[dict[str, Any]]:
+    def _tool_metadata(self, tool_registry: object | None) -> list[Mapping[str, object]]:
         if tool_registry is None:
             return []
+        registry = cast(_ToolRegistryLike, tool_registry)
         try:
-            return list(tool_registry.to_metadata_list())
+            return list(registry.to_metadata_list())
         except Exception:
             logger.exception("Unhandled exception")
             pass
         try:
-            return [tool.to_metadata() for tool in tool_registry.get_all()]
+            return [tool.to_metadata() for tool in registry.get_all()]
         except Exception:
             logger.exception("Unhandled exception")
             return []
 
-    def _skill_metadata(self, skill_loader: Any) -> list[dict[str, Any]]:
+    def _skill_metadata(self, skill_loader: object | None) -> list[Mapping[str, object]]:
         if skill_loader is None:
             return []
+        loader = cast(_SkillLoaderLike, skill_loader)
         try:
-            return list(skill_loader.list_skills())
+            return list(loader.list_skills())
         except Exception:
             logger.exception("Unhandled exception")
             return []
 
-    def _slash_command_names(self, slash_commands: Iterable[str] | Mapping[str, Any] | None) -> list[str]:
+    def _slash_command_names(self, slash_commands: Iterable[str] | Mapping[str, object] | None) -> list[str]:
         if slash_commands is None:
             return []
         if isinstance(slash_commands, Mapping):
@@ -224,12 +247,14 @@ class SelfCapabilityEngine:
             names = slash_commands
         return sorted(str(name) for name in names)
 
-    def _model_info(self, model_manager: Any) -> str:
+    def _model_info(self, model_manager: object | None) -> str:
         if model_manager is None:
             return "model manager not connected"
+        manager = cast(_ModelManagerLike, model_manager)
         for method in ("get_model_info", "status"):
             try:
-                value = getattr(model_manager, method)()
+                method_fn = cast(Callable[[], object], getattr(manager, method))
+                value = method_fn()
                 text = str(value)
                 return text[:180] + ("..." if len(text) > 180 else "")
             except Exception:

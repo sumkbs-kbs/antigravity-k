@@ -17,19 +17,20 @@ describe('changeDetector file reads', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    window.sessionStorage.clear();
     useChangeStore.getState().clearChanges();
-    window.localStorage.setItem('ag_access_pin', 'operator-secret');
+    window.sessionStorage.setItem('ag_access_token', 'operator-token');
     fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('uses the stored PIN and registers changed file content', async () => {
+  it('uses the stored bearer token and registers changed file content', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true, content: 'const value = 0;' }));
 
     await expect(detectChangesFromContent(fileChange)).resolves.toBe(1);
 
     const request = fetchMock.mock.calls[0]?.[1];
-    expect(new Headers(request?.headers).get('X-Access-Pin')).toBe('operator-secret');
+    expect(new Headers(request?.headers).get('Authorization')).toBe('Bearer operator-token');
     expect(useChangeStore.getState().changes[0]?.originalContent).toBe('const value = 0;');
   });
 

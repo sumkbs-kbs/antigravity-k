@@ -10,7 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from math import atan2, cos, radians, sin, sqrt, tan
-from typing import Any
+from typing import IO, ContextManager, TypedDict, cast
 
 STATION_SERVICE_URL = "http://apis.data.go.kr/B552584/MsrstnInfoInqireSvc"
 MEASUREMENT_SERVICE_URL = "http://apis.data.go.kr/B552584/ArpltnInforInqireSvc"
@@ -35,39 +35,74 @@ GRADE_LABELS = {
 }
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+class ReportArgs(TypedDict):
+    command: str
+    lat: float | None
+    lon: float | None
+    region_hint: str | None
+    station_name: str | None
+    station_file: str | None
+    measurement_file: str | None
+    json: bool
+
+
+JsonObject = dict[str, object]
+
+
+def _optional_float(value: object) -> float | None:
+    return value if isinstance(value, float) else None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def parse_args(argv: list[str] | None = None) -> ReportArgs:
     parser = argparse.ArgumentParser(
         description="Summarize Air Korea PM10/PM2.5 data from location or fallback hints.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     report = subparsers.add_parser("report", help="build a PM10/PM2.5 report")
-    report.add_argument("--lat", type=float, help="WGS84 latitude")
-    report.add_argument("--lon", type=float, help="WGS84 longitude")
-    report.add_argument("--region-hint", help="fallback region/administrative-area hint")
-    report.add_argument("--station-name", help="explicit station name fallback")
-    report.add_argument("--station-file", help="offline station JSON fixture")
-    report.add_argument("--measurement-file", help="offline measurement JSON fixture")
-    report.add_argument("--json", action="store_true", help="print JSON instead of text")
-    return parser.parse_args(argv)
+    _ = report.add_argument("--lat", type=float, help="WGS84 latitude")
+    _ = report.add_argument("--lon", type=float, help="WGS84 longitude")
+    _ = report.add_argument("--region-hint", help="fallback region/administrative-area hint")
+    _ = report.add_argument("--station-name", help="explicit station name fallback")
+    _ = report.add_argument("--station-file", help="offline station JSON fixture")
+    _ = report.add_argument("--measurement-file", help="offline measurement JSON fixture")
+    _ = report.add_argument("--json", action="store_true", help="print JSON instead of text")
+    parsed = parser.parse_args(argv)
+    return {
+        "command": str(getattr(parsed, "command", "")),
+        "lat": _optional_float(getattr(parsed, "lat", None)),
+        "lon": _optional_float(getattr(parsed, "lon", None)),
+        "region_hint": _optional_str(getattr(parsed, "region_hint", None)),
+        "station_name": _optional_str(getattr(parsed, "station_name", None)),
+        "station_file": _optional_str(getattr(parsed, "station_file", None)),
+        "measurement_file": _optional_str(getattr(parsed, "measurement_file", None)),
+        "json": bool(getattr(parsed, "json", False)),
+    }
 
 
-def load_json_file(path: str | os.PathLike[str]) -> dict[str, Any]:
-    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+def load_json_file(path: str | os.PathLike[str]) -> JsonObject:
+    payload = cast(object, json.loads(pathlib.Path(path).read_text(encoding="utf-8")))
+    return cast(JsonObject, payload) if isinstance(payload, dict) else {}
 
 
-def extract_items(payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+def extract_items(payload: JsonObject | list[JsonObject]) -> list[JsonObject]:
     if isinstance(payload, list):
         return payload
 
     response = payload.get("response", {})
-    body = response.get("body", {})
-    items = body.get("items", [])
+    response_map = cast(JsonObject, response) if isinstance(response, dict) else {}
+    body = response_map.get("body", {})
+    body_map = cast(JsonObject, body) if isinstance(body, dict) else {}
+    items = body_map.get("items", [])
 
     if isinstance(items, dict):
         return [items]
     if isinstance(items, list):
-        return items
+        return cast(list[JsonObject], items)
     return []
 
 
@@ -168,13 +203,13 @@ def wgs84_to_air_korea_tm(lat: float, lon: float) -> tuple[float, float]:
 
 
 def pick_station(
-    station_items: list[dict[str, Any]],
+    station_items: list[JsonObject],
     *,
     lat: float | None = None,
     lon: float | None = None,
     region_hint: str | None = None,
     station_name: str | None = None,
-) -> dict[str, Any]:
+) -> JsonObject:
     if not station_items:
         raise SystemExit("측정소 후보가 없습니다.")
 
@@ -197,7 +232,7 @@ def pick_station(
             return partial_match
 
     if lat is not None and lon is not None:
-        candidates = []
+        candidates: list[tuple[float, JsonObject]] = []
         for item in station_items:
             item_lat = to_float(item.get("dmX"))
             item_lon = to_float(item.get("dmY"))
@@ -229,13 +264,13 @@ def pick_station(
 
 
 def resolve_station(
-    station_items: list[dict[str, Any]],
+    station_items: list[JsonObject],
     *,
     lat: float | None = None,
     lon: float | None = None,
     region_hint: str | None = None,
     station_name: str | None = None,
-) -> dict[str, Any]:
+) -> JsonObject:
     if station_items:
         return pick_station(
             station_items,
@@ -251,7 +286,7 @@ def resolve_station(
     raise SystemExit("측정소 후보가 없습니다.")
 
 
-def find_measurement(measurement_items: list[dict[str, Any]], station_name: str) -> dict[str, Any]:
+def find_measurement(measurement_items: list[JsonObject], station_name: str) -> JsonObject:
     exact_match = next(
         (item for item in measurement_items if item.get("stationName") == station_name),
         None,
@@ -291,15 +326,15 @@ def grade_to_label(raw_grade: object, *, pollutant: str, value: object) -> str:
 
 def build_report(
     *,
-    station_items: list[dict[str, Any]],
-    measurement_items: list[dict[str, Any]],
+    station_items: list[JsonObject],
+    measurement_items: list[JsonObject],
     lat: float | None = None,
     lon: float | None = None,
     region_hint: str | None = None,
     station_name: str | None = None,
     lookup_mode: str | None = None,
-    selected_station: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    selected_station: JsonObject | None = None,
+) -> JsonObject:
     station = selected_station or resolve_station(
         station_items,
         lat=lat,
@@ -307,12 +342,15 @@ def build_report(
         region_hint=region_hint,
         station_name=station_name,
     )
-    measurement = find_measurement(measurement_items, station["stationName"])
+    resolved_station_name = station.get("stationName")
+    if not isinstance(resolved_station_name, str):
+        raise SystemExit("측정소 응답에 stationName이 없습니다.")
+    measurement = find_measurement(measurement_items, resolved_station_name)
 
     resolved_lookup_mode = lookup_mode or ("coordinates" if lat is not None and lon is not None else "fallback")
 
     return {
-        "station_name": station["stationName"],
+        "station_name": resolved_station_name,
         "station_address": station.get("addr"),
         "lookup_mode": resolved_lookup_mode,
         "measured_at": measurement.get("dataTime"),
@@ -368,62 +406,66 @@ def get_proxy_base_url() -> str | None:
     return DEFAULT_PROXY_BASE_URL
 
 
-def read_json_response(request: urllib.request.Request | str) -> dict[str, Any]:
+def read_json_response(request: urllib.request.Request | str) -> JsonObject:
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return json.load(response)
+        response_context = cast(ContextManager[IO[bytes]], urllib.request.urlopen(request, timeout=20))
+        with response_context as response_stream:
+            payload = cast(object, json.load(response_stream))
+            return cast(JsonObject, payload) if isinstance(payload, dict) else {}
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         try:
-            payload = json.loads(body)
+            payload = cast(object, json.loads(body))
         except json.JSONDecodeError:
             payload = None
 
-        message = payload.get("message") if isinstance(payload, dict) else None
-        if isinstance(payload, dict) and payload.get("error") == "ambiguous_location":
-            candidates = payload.get("candidate_stations") or []
-            sido_name = payload.get("sido_name")
-            detail = [message or "단일 측정소를 확정하지 못했습니다."]
-            if sido_name:
+        payload_map = cast(JsonObject, payload) if isinstance(payload, dict) else {}
+        message = payload_map.get("message")
+        if payload_map.get("error") == "ambiguous_location":
+            raw_candidates = payload_map.get("candidate_stations")
+            candidates = [str(candidate) for candidate in cast(list[object], raw_candidates)] if isinstance(raw_candidates, list) else []
+            sido_name = payload_map.get("sido_name")
+            detail: list[str] = [str(message) if message else "단일 측정소를 확정하지 못했습니다."]
+            if isinstance(sido_name, str) and sido_name:
                 detail.append(f"시도: {sido_name}")
             if candidates:
                 detail.append(f"후보 측정소: {', '.join(candidates)}")
                 detail.append("위 후보 중 정확한 측정소명으로 --station-name 재조회하세요.")
             raise SystemExit("\n".join(detail)) from exc
 
-        raise SystemExit(message or f"요청이 실패했습니다: HTTP {exc.code}") from exc
+        raise SystemExit(str(message) if message else f"요청이 실패했습니다: HTTP {exc.code}") from exc
 
 
-def fetch_json(url: str, params: dict[str, object]) -> dict[str, Any]:
+def fetch_json(url: str, params: dict[str, object]) -> JsonObject:
     query = urllib.parse.urlencode({key: value for key, value in params.items() if value is not None})
     request_url = f"{url}?{query}"
     return read_json_response(request_url)
 
 
-def fetch_proxy_report(args: argparse.Namespace) -> dict[str, Any] | None:
+def fetch_proxy_report(args: ReportArgs) -> JsonObject | None:
     base_url = get_proxy_base_url()
-    if not base_url or args.station_file or args.measurement_file:
+    if not base_url or args["station_file"] or args["measurement_file"]:
         return None
 
     params: dict[str, object] = {}
-    if args.lat is not None:
-        params["lat"] = args.lat
-    if args.lon is not None:
-        params["lon"] = args.lon
-    if args.region_hint:
-        params["regionHint"] = args.region_hint
-    if args.station_name:
-        params["stationName"] = args.station_name
+    if args["lat"] is not None:
+        params["lat"] = args["lat"]
+    if args["lon"] is not None:
+        params["lon"] = args["lon"]
+    if args["region_hint"]:
+        params["regionHint"] = args["region_hint"]
+    if args["station_name"]:
+        params["stationName"] = args["station_name"]
 
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(f"{base_url}/v1/fine-dust/report?{query}")
     return read_json_response(request)
 
 
-def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
-    if args.station_file:
-        return load_json_file(args.station_file), (
-            "coordinates" if args.lat is not None and args.lon is not None else "fallback"
+def fetch_station_lookup(args: ReportArgs) -> tuple[JsonObject, str]:
+    if args["station_file"]:
+        return load_json_file(args["station_file"]), (
+            "coordinates" if args["lat"] is not None and args["lon"] is not None else "fallback"
         )
 
     service_key = get_required_secret()
@@ -434,8 +476,8 @@ def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict[str, Any], str]
         "pageNo": 1,
     }
 
-    if args.lat is not None and args.lon is not None:
-        tm_x, tm_y = wgs84_to_air_korea_tm(args.lat, args.lon)
+    if args["lat"] is not None and args["lon"] is not None:
+        tm_x, tm_y = wgs84_to_air_korea_tm(args["lat"], args["lon"])
         nearby_payload = fetch_json(
             f"{STATION_SERVICE_URL}/getNearbyMsrstnList",
             {
@@ -448,14 +490,14 @@ def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict[str, Any], str]
         if extract_items(nearby_payload):
             return nearby_payload, "coordinates"
 
-    if args.region_hint or args.station_name:
+    if args["region_hint"] or args["station_name"]:
         return (
             fetch_json(
                 f"{STATION_SERVICE_URL}/getMsrstnList",
                 {
                     **common,
-                    "addr": args.region_hint,
-                    "stationName": args.station_name,
+                    "addr": args["region_hint"],
+                    "stationName": args["station_name"],
                 },
             ),
             "fallback",
@@ -464,14 +506,14 @@ def fetch_station_lookup(args: argparse.Namespace) -> tuple[dict[str, Any], str]
     raise SystemExit("위도/경도 또는 region fallback 이 필요합니다.")
 
 
-def fetch_station_payload(args: argparse.Namespace) -> dict[str, Any]:
+def fetch_station_payload(args: ReportArgs) -> JsonObject:
     payload, _ = fetch_station_lookup(args)
     return payload
 
 
-def fetch_measurement_payload(args: argparse.Namespace, station_name: str) -> dict[str, Any]:
-    if args.measurement_file:
-        return load_json_file(args.measurement_file)
+def fetch_measurement_payload(args: ReportArgs, station_name: str) -> JsonObject:
+    if args["measurement_file"]:
+        return load_json_file(args["measurement_file"])
 
     service_key = get_required_secret()
     return fetch_json(
@@ -488,24 +530,26 @@ def fetch_measurement_payload(args: argparse.Namespace, station_name: str) -> di
     )
 
 
-def render_text(report: dict[str, Any]) -> str:
+def render_text(report: JsonObject) -> str:
+    pm10 = cast(JsonObject, report.get("pm10")) if isinstance(report.get("pm10"), dict) else {}
+    pm25 = cast(JsonObject, report.get("pm25")) if isinstance(report.get("pm25"), dict) else {}
     return "\n".join(
         [
             f"측정소: {report['station_name']}",
             f"주소: {report['station_address'] or '-'}",
             f"조회 시각: {report['measured_at']}",
             f"조회 방식: {report['lookup_mode']}",
-            f"PM10: {report['pm10']['value']} ({report['pm10']['grade']})",
-            f"PM2.5: {report['pm25']['value']} ({report['pm25']['grade']})",
+            f"PM10: {pm10.get('value', '-')} ({pm10.get('grade', '정보없음')})",
+            f"PM2.5: {pm25.get('value', '-')} ({pm25.get('grade', '정보없음')})",
             f"통합대기등급: {report['khai_grade']}",
         ],
     )
 
 
-def command_report(args: argparse.Namespace) -> None:
+def command_report(args: ReportArgs) -> None:
     proxy_report = fetch_proxy_report(args)
     if proxy_report is not None:
-        if args.json:
+        if args["json"]:
             print(json.dumps(proxy_report, ensure_ascii=False, indent=2))
             return
 
@@ -516,25 +560,28 @@ def command_report(args: argparse.Namespace) -> None:
     station_items = extract_items(station_payload)
     station = resolve_station(
         station_items,
-        lat=args.lat,
-        lon=args.lon,
-        region_hint=args.region_hint,
-        station_name=args.station_name,
+        lat=args["lat"],
+        lon=args["lon"],
+        region_hint=args["region_hint"],
+        station_name=args["station_name"],
     )
 
-    measurement_payload = fetch_measurement_payload(args, station["stationName"])
+    resolved_station_name = station.get("stationName")
+    if not isinstance(resolved_station_name, str):
+        raise SystemExit("측정소 응답에 stationName이 없습니다.")
+    measurement_payload = fetch_measurement_payload(args, resolved_station_name)
     report = build_report(
         station_items=station_items,
         measurement_items=extract_items(measurement_payload),
-        lat=args.lat,
-        lon=args.lon,
-        region_hint=args.region_hint,
-        station_name=station["stationName"],
+        lat=args["lat"],
+        lon=args["lon"],
+        region_hint=args["region_hint"],
+        station_name=resolved_station_name,
         lookup_mode=lookup_mode,
         selected_station=station,
     )
 
-    if args.json:
+    if args["json"]:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
 
@@ -543,10 +590,10 @@ def command_report(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.command == "report":
+    if args["command"] == "report":
         command_report(args)
         return 0
-    raise SystemExit(f"unsupported command: {args.command}")
+    raise SystemExit(f"unsupported command: {args['command']}")
 
 
 if __name__ == "__main__":

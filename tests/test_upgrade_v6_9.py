@@ -7,6 +7,9 @@
 - MemoryManager integration.
 """
 
+from pathlib import Path
+from typing import cast
+
 import pytest
 
 
@@ -33,9 +36,9 @@ class TestOutputQualityComparator:
 
         actual_unstructured = (
             "React와 Vue는 둘 다 좋은 프레임워크입니다. "
-            "React는 학습 곡선이 높지만 생태계가 크고, "
-            "Vue는 배우기 쉽지만 생태계가 약간 작습니다. "
-            "둘 다 좋습니다." * 3
+            + "React는 학습 곡선이 높지만 생태계가 크고, "
+            + "Vue는 배우기 쉽지만 생태계가 약간 작습니다. "
+            + ("둘 다 좋습니다." * 3)
         )
 
         result = comp.compare("React vs Vue", reference, actual_unstructured)
@@ -80,15 +83,15 @@ class TestOutputQualityComparator:
 class TestSelfImprovementLoop:
     """Component 10: Self-Improvement Loop 테스트."""
 
-    def test_record_and_detect_pattern(self, tmp_path):
+    def test_record_and_detect_pattern(self, tmp_path: Path):
         from antigravity_k.engine.self_improvement import SelfImprovementLoop
 
         loop = SelfImprovementLoop(data_dir=str(tmp_path), pattern_threshold=2)
 
         # 비교표 누락 패턴 3번 기록
-        for i in range(3):
+        for _ in range(3):
             loop.record_turn(
-                user_request=f"비교해줘 {i}",
+                user_request="비교해줘",
                 grade="retry",
                 score=0.45,
                 issues=["비교표 누락"],
@@ -97,7 +100,7 @@ class TestSelfImprovementLoop:
         prompt = loop.get_reinforcement_prompt()
         assert "비교표" in prompt or "비교" in prompt
 
-    def test_generate_report(self, tmp_path):
+    def test_generate_report(self, tmp_path: Path):
         from antigravity_k.engine.self_improvement import SelfImprovementLoop
 
         loop = SelfImprovementLoop(data_dir=str(tmp_path))
@@ -107,17 +110,17 @@ class TestSelfImprovementLoop:
         assert "Self-Improvement Report" in report
         assert "평균 점수" in report
 
-    def test_pattern_insight(self, tmp_path):
+    def test_pattern_insight(self, tmp_path: Path):
         from antigravity_k.engine.self_improvement import SelfImprovementLoop
 
         loop = SelfImprovementLoop(data_dir=str(tmp_path), pattern_threshold=2)
-        for i in range(3):
+        for _ in range(3):
             loop.record_turn("q", "fail", 0.2, ["중국어 오염"])
         insights = loop.get_insights()
         assert len(insights) > 0
         assert insights[0].pattern_name == "중국어"
 
-    def test_persistence(self, tmp_path):
+    def test_persistence(self, tmp_path: Path):
         from antigravity_k.engine.self_improvement import SelfImprovementLoop
 
         loop1 = SelfImprovementLoop(data_dir=str(tmp_path))
@@ -125,8 +128,9 @@ class TestSelfImprovementLoop:
         loop1.record_turn("persist test2", "excellent", 0.9, [])
 
         loop2 = SelfImprovementLoop(data_dir=str(tmp_path))
-        assert len(loop2._records) == 2
-        assert loop2._records[0].user_request == "persist test"
+        records = cast(list[object], getattr(loop2, "_records"))
+        assert len(records) == 2
+        assert cast(str, getattr(records[0], "user_request")) == "persist test"
 
 
 class TestQualityGateDensity:
@@ -211,7 +215,7 @@ class TestGoalRunnerAutoVerify:
     """
 
     @pytest.mark.slow
-    def test_execute_and_verify_runs(self, tmp_path):
+    def test_execute_and_verify_runs(self, tmp_path: Path):
         from antigravity_k.engine.goal_runner import GoalRunner
 
         runner = GoalRunner()
@@ -225,7 +229,7 @@ class TestGoalRunnerAutoVerify:
         assert len(result["checks"]) >= 3
 
     @pytest.mark.slow
-    def test_verify_result_structure(self, tmp_path):
+    def test_verify_result_structure(self, tmp_path: Path):
         from antigravity_k.engine.goal_runner import GoalRunner
 
         runner = GoalRunner()
@@ -238,6 +242,25 @@ class TestGoalRunnerAutoVerify:
             assert "name" in check
             assert "passed" in check
             assert "return_code" in check
+
+    def test_missing_verifier_command_is_unverified(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ):
+        import subprocess
+        from unittest.mock import Mock
+
+        from antigravity_k.engine.goal_runner import GoalRunner
+
+        monkeypatch.setattr(subprocess, "run", Mock(side_effect=FileNotFoundError("python")))
+        runner = GoalRunner()
+        report = runner.run("누락된 검증기 실패 처리")
+
+        result = runner.execute_and_verify(report, project_root=str(tmp_path))
+
+        assert result["verified"] is False
+        assert result["repair_needed"] is True
+        assert all(check["passed"] is False for check in result["checks"])
+        assert {failure["check"] for failure in result["failures"]} == {"ruff", "pytest", "compileall"}
 
 
 class TestMemoryProviderIntegration:
@@ -254,8 +277,7 @@ class TestMemoryProviderIntegration:
         assert len(ctx.memory_manager.providers) >= 3
 
     def test_memory_lifecycle(self):
-        from unittest.mock import MagicMock
-
+        from antigravity_k.engine.memory_contracts import JsonValue, MemoryScope
         from antigravity_k.engine.memory_provider import (
             BuiltinMemoryProvider,
             EpisodicMemoryProvider,
@@ -263,8 +285,36 @@ class TestMemoryProviderIntegration:
             WorkingMemoryBuffer,
         )
 
-        session = MagicMock()
-        session.get_working_memory.return_value = {"arch": "M4 Max"}
+        class SessionStub:
+            def get_working_memory(self) -> dict[str, object]:
+                return {"arch": "M4 Max"}
+
+            def add_turn(self, *, role: str, content: str) -> None:
+                _ = role, content
+
+            def start_session(
+                self, project_path: str | None = None, resume: bool = True
+            ) -> str:
+                _ = project_path, resume
+                return "test-session"
+
+            def clear_memory(self, scope: MemoryScope) -> int:
+                _ = scope
+                return 0
+
+            def export_memory(self, scope: MemoryScope) -> list[dict[str, JsonValue]]:
+                _ = scope
+                return []
+
+            def redact_memory(self, scope: MemoryScope) -> int:
+                _ = scope
+                return 0
+
+            def apply_retention(self, max_age_days: int) -> int:
+                _ = max_age_days
+                return 0
+
+        session = SessionStub()
 
         manager = MemoryManager()
         manager.add_provider(BuiltinMemoryProvider(session))

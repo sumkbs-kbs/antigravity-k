@@ -39,16 +39,16 @@ class CheckpointRecord(TypedDict):
 
 
 class InvalidTaskTransitionError(RuntimeError):
-    def __init__(self, task_id: str, current: str, requested: str):
-        self.task_id = task_id
-        self.current = current
-        self.requested = requested
+    def __init__(self, task_id: str, current: str, requested: str) -> None:
+        self.task_id: str = task_id
+        self.current: str = current
+        self.requested: str = requested
         super().__init__(f"Task {task_id} cannot transition from {current} to {requested}")
 
 
 class InvalidTaskStatusError(ValueError):
-    def __init__(self, status: str):
-        self.status = status
+    def __init__(self, status: str) -> None:
+        self.status: str = status
         super().__init__(f"Unknown task status: {status}")
 
 

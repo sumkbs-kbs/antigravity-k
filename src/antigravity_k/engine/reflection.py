@@ -1,16 +1,20 @@
 """Self-reflection engine for post-action quality assessment."""
 
 import ast
-import json
 import logging
 import os
+import subprocess
 import uuid
 from datetime import datetime
+from typing import Final
+
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from .knowledge import KIEngine
 from .model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
+_REFLECTION_JSON_ADAPTER: Final[TypeAdapter[dict[str, JsonValue]]] = TypeAdapter(dict[str, JsonValue])
 
 
 class ReflectionAgent:
@@ -20,7 +24,7 @@ class ReflectionAgent:
     KIs (지식)를 추출하거나 새로운 파이썬 스킬(Auto-Skill)을 합성합니다.
     """
 
-    def __init__(self, project_root: str, model_manager: ModelManager):
+    def __init__(self, project_root: str, model_manager: ModelManager) -> None:
         """Initialize the ReflectionAgent.
 
         Args:
@@ -28,11 +32,11 @@ class ReflectionAgent:
             model_manager (ModelManager): ModelManager model manager.
 
         """
-        self.project_root = project_root
-        self.model_manager = model_manager
-        self.ki_engine = KIEngine(project_root)
+        self.project_root: str = project_root
+        self.model_manager: ModelManager = model_manager
+        self.ki_engine: KIEngine = KIEngine(project_root)
 
-    def reflect_on_task(self, task_id: str, worktree_path: str, task_desc: str):
+    def reflect_on_task(self, task_id: str, worktree_path: str, task_desc: str) -> None:
         """태스크 완료 시 자동 회고를 수행하고 지식/스킬을 추출합니다."""
         logger.info("Starting auto-reflection for task %s", task_id)
 
@@ -40,8 +44,6 @@ class ReflectionAgent:
         diff_output = ""
         commit_hash = "unknown"
         try:
-            import subprocess
-
             if os.path.exists(worktree_path):
                 res = subprocess.run(
                     ["git", "diff", "HEAD"],
@@ -58,7 +60,7 @@ class ReflectionAgent:
                     text=True,
                 )
                 commit_hash = res_hash.stdout.strip()
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             logger.exception("Failed to get git diff for reflection")
 
         if not diff_output:
@@ -105,17 +107,31 @@ Based on this, return ONLY a JSON object:
                 end = clean_json.rfind("}")
                 if start != -1 and end != -1:
                     clean_json = clean_json[start : end + 1]
-            data = json.loads(clean_json.strip())
+            data = _REFLECTION_JSON_ADAPTER.validate_json(clean_json.strip())
 
             # 3. KIs 저장 (Code-Anchored Knowledge)
-            if "learned_knowledge" in data and data["learned_knowledge"].get("title"):
-                kn = data["learned_knowledge"]
+            learned_knowledge = data.get("learned_knowledge")
+            if isinstance(learned_knowledge, dict):
+                title = learned_knowledge.get("title")
+                summary = learned_knowledge.get("summary")
+                target_files = learned_knowledge.get("target_files")
+            else:
+                title = None
+                summary = None
+                target_files = None
+
+            if isinstance(title, str) and title:
                 ki_id = f"ki_{uuid.uuid4().hex[:8]}"
+                target_file_names = (
+                    [item for item in target_files if isinstance(item, str)]
+                    if isinstance(target_files, list)
+                    else []
+                )
                 ki_data = {
                     "id": ki_id,
-                    "title": kn["title"],
-                    "summary": kn["summary"],
-                    "target_files": kn.get("target_files", []),
+                    "title": title,
+                    "summary": summary if isinstance(summary, str) else "",
+                    "target_files": target_file_names,
                     "commit_hash": commit_hash,
                     "created_at": datetime.now().isoformat(),
                     "task_id": task_id,
@@ -123,13 +139,14 @@ Based on this, return ONLY a JSON object:
                 self.ki_engine.save_ki(ki_id, ki_data)
 
             # 4. Auto-Skill Synthesis Trigger
-            if data.get("propose_auto_skill") and data.get("skill_description"):
-                self._synthesize_skill(data["skill_description"])
+            skill_description = data.get("skill_description")
+            if data.get("propose_auto_skill") is True and isinstance(skill_description, str) and skill_description:
+                self._synthesize_skill(skill_description)
 
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError, ValidationError):
             logger.exception("Reflection failed or returned invalid JSON")
 
-    def _synthesize_skill(self, desc: str):
+    def _synthesize_skill(self, desc: str) -> None:
         """자동으로 새로운 도구(BaseTool) 파이썬 스크립트를 합성합니다."""
         logger.info("Synthesizing new auto-skill based on: %s", desc)
 
@@ -164,7 +181,7 @@ Do not use undefined variables. Handle exceptions safely.
                 # 안전장치: AST 구문 검증 — 구문 오류 코드가 tools/에 저장되면
                 # 다음 세션에서 importlib 동적 임포트 시 전체 도구 등록이 실패함
                 try:
-                    ast.parse(code)
+                    _ = ast.parse(code)
                 except SyntaxError as e:
                     logger.warning("[ReflectionAgent] Auto-skill syntax error, NOT saving: %s", e)
                     return
@@ -179,10 +196,10 @@ Do not use undefined variables. Handle exceptions safely.
                 )
 
                 with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(code)
+                    _ = f.write(code)
 
                 logger.info("Successfully synthesized and saved new skill to %s", file_path)
             else:
                 logger.warning("Synthesized skill code is invalid or missing BaseTool inheritance.")
-        except Exception:
+        except (AttributeError, OSError, RuntimeError, SyntaxError, TypeError, ValueError):
             logger.exception("Failed to synthesize skill")

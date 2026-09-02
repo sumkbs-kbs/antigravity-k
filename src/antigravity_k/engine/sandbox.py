@@ -18,8 +18,10 @@ macOS의 sandbox-exec(seatbelt)와 Docker 컨테이너를 지원합니다.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import platform
+import shlex
 import subprocess
 import tempfile
 from collections.abc import Mapping
@@ -42,6 +44,45 @@ class SandboxResult:
     sandboxed: bool = False
     output_truncated: bool = False
     error: str = ""
+
+
+def run_sandboxed_argv(
+    args: list[str],
+    *,
+    cwd: str,
+    timeout: float,
+    env: Mapping[str, str] | None = None,
+    max_output_bytes: int = 1_000_000,
+) -> SandboxResult:
+    """Execute model-generated code through the mandatory OS sandbox.
+
+    This boundary deliberately has no raw-process fallback. A verifier must fail
+    closed when seatbelt/Docker is unavailable instead of executing generated code
+    with the parent process privileges.
+    """
+    if not args:
+        return SandboxResult(
+            success=False,
+            return_code=-1,
+            sandboxed=True,
+            error="Sandbox execution requires a non-empty argv.",
+        )
+
+    workspace = os.path.abspath(cwd)
+    effective_timeout = max(1, math.ceil(timeout))
+    runner = SandboxRunner(
+        project_root=workspace,
+        enabled=True,
+        network="none",
+        timeout=effective_timeout,
+        max_output_bytes=max_output_bytes,
+    )
+    return runner.execute(
+        shlex.join(args),
+        timeout=effective_timeout,
+        env=env,
+        cwd=workspace,
+    )
 
 
 class SandboxRunner:
@@ -142,7 +183,7 @@ class SandboxRunner:
                 profile_path,
                 "sh",
                 "-c",
-                self._limited_command(command, timeout),
+                self._limited_command(command, timeout, process_limit=self._macos_process_limit()),
             ]
 
             return_code, stdout, stderr, output_truncated = self._run_limited_process(
@@ -188,6 +229,10 @@ class SandboxRunner:
             if profile_path and os.path.exists(profile_path):
                 os.unlink(profile_path)
 
+    def build_seatbelt_profile(self) -> str:
+        """Return the seatbelt profile used by long-lived sandbox clients."""
+        return self._build_seatbelt_profile()
+
     def _build_seatbelt_profile(self) -> str:
         """macOS seatbelt 샌드박스 프로파일을 생성합니다.
 
@@ -219,6 +264,7 @@ class SandboxRunner:
 (allow file-write* (subpath "/var/tmp"))
 (allow file-write* (subpath "/private/tmp"))
 (allow file-write* (subpath "/private/var/folders"))
+(allow file-write* (literal "/dev/null"))
 ;; 사용자 캐시 (pip, npm 등)
 (allow file-write* (subpath "{os.path.expanduser("~/.cache")}"))
 {network_policy}
@@ -329,10 +375,25 @@ class SandboxRunner:
         except (OSError, ValueError) as e:
             return SandboxResult(success=False, error=str(e))
 
-    def _limited_command(self, command: str, timeout: int) -> str:
+    def _macos_process_limit(self) -> int:
+        try:
+            result = subprocess.run(
+                ["ps", "-u", str(os.getuid()), "-o", "pid="],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            current = len([line for line in result.stdout.splitlines() if line.strip()])
+            return max(self.max_processes, current + self.max_processes)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return self.max_processes
+
+    def _limited_command(self, command: str, timeout: int, process_limit: int | None = None) -> str:
+        limit = process_limit or self.max_processes
         return (
             f"ulimit -t {max(1, timeout)} 2>/dev/null; "
-            f"ulimit -u {self.max_processes} 2>/dev/null; "
+            f"ulimit -u {limit} 2>/dev/null; "
             f"ulimit -v {self.max_memory_mb * 1024} 2>/dev/null; "
             f"exec sh -c {self._shell_quote(command)}"
         )

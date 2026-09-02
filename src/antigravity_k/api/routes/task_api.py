@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator
-from typing import ClassVar, Final
+from typing import Annotated, ClassVar, Final
 
 import anyio
 from anyio.to_thread import run_sync
@@ -22,6 +22,8 @@ from antigravity_k.api.task_models import (
     TaskListResponse,
     TaskOutputResponse,
     TaskStatusResponse,
+    TaskSteeringInput,
+    TaskSteeringResponse,
     TaskStreamEnd,
     TaskSubmitRequest,
     TaskSubmitResponse,
@@ -36,6 +38,10 @@ router = APIRouter()
 _TERMINAL_TASK_STATUSES = frozenset({"done", "failed", "cancelled"})
 _SSE_EVENT_NAME = re.compile(r"[A-Za-z0-9_.:-]+")
 _FORK_OUTPUT_CONTEXT_LIMIT: Final = 12_000
+_TaskListLimit = Annotated[int, Query(ge=1, le=200)]
+_TaskEventOffset = Annotated[int, Query(ge=0)]
+_TaskEventLimit = Annotated[int, Query(ge=1, le=500)]
+_LastEventId = Annotated[int | None, Header(alias="Last-Event-ID", ge=0)]
 
 
 class _TaskForkSource(BaseModel):
@@ -138,7 +144,7 @@ def get_task_status(task_id: str, request: Request) -> TaskStatusResponse:
 
 
 @router.get("/api/tasks", response_model=TaskListResponse)
-def list_tasks(request: Request, limit: int = Query(default=20, ge=1, le=200)) -> TaskListResponse:
+def list_tasks(request: Request, limit: _TaskListLimit = 20) -> TaskListResponse:
     return TaskListResponse.from_runtime(_runtime().list_tasks(limit=limit, owner_subject=_auth_subject(request)))
 
 
@@ -162,6 +168,22 @@ def resume_task(task_id: str, request: Request) -> TaskActionResponse:
     if not _runtime().resume_task(task_id=task_id, owner_subject=_auth_subject(request)):
         raise HTTPException(status_code=404, detail="Task is not resumable or has no checkpoint")
     return TaskActionResponse(status="resumed", task_id=task_id)
+
+
+@router.post("/api/tasks/{task_id}/steer", response_model=TaskSteeringResponse, status_code=status.HTTP_202_ACCEPTED)
+def steer_task(task_id: str, payload: TaskSteeringInput, request: Request) -> TaskSteeringResponse:
+    result = _runtime().steer_task(
+        task_id,
+        payload.instruction,
+        owner_subject=_auth_subject(request),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Task is not active")
+    return TaskSteeringResponse(
+        task_id=result.task_id,
+        steering_id=result.steering_id,
+        mode=result.mode,
+    )
 
 
 @router.post("/api/tasks/benchmark/{case_id}", response_model=None)
@@ -193,35 +215,42 @@ def submit_task_benchmark(case_id: str, request: TaskBenchmarkRequest, http_requ
 def list_task_events(
     task_id: str,
     request: Request,
-    after_sequence: int = Query(default=0, ge=0),
-    limit: int = Query(default=200, ge=1, le=500),
+    after_sequence: _TaskEventOffset = 0,
+    limit: _TaskEventLimit = 200,
 ) -> TaskEventsResponse:
     runtime = _runtime()
     owner_subject = _auth_subject(request)
-    _require_task(runtime, task_id, owner_subject=owner_subject)
+    _ = _require_task(runtime, task_id, owner_subject=owner_subject)
+    records = runtime.list_task_events(
+        task_id,
+        after_sequence=after_sequence,
+        limit=limit + 1,
+        owner_subject=owner_subject,
+    )
+    has_more = len(records) > limit
     events = [
         TaskEvent.from_record(record)
-        for record in runtime.list_task_events(
-            task_id,
-            after_sequence=after_sequence,
-            limit=limit,
-            owner_subject=owner_subject,
-        )
+        for record in records[:limit]
     ]
     last_sequence = events[-1].sequence if events else after_sequence
-    return TaskEventsResponse(task_id=task_id, events=events, last_sequence=last_sequence)
+    return TaskEventsResponse(
+        task_id=task_id,
+        events=events,
+        last_sequence=last_sequence,
+        has_more=has_more,
+    )
 
 
 @router.get("/api/tasks/{task_id}/events/stream")
 async def stream_task_events(
     task_id: str,
     request: Request,
-    after_sequence: int = Query(default=0, ge=0),
-    last_event_id: int | None = Header(default=None, alias="Last-Event-ID", ge=0),
+    after_sequence: _TaskEventOffset = 0,
+    last_event_id: _LastEventId = None,
 ) -> StreamingResponse:
     runtime = _runtime()
     owner_subject = _auth_subject(request)
-    _require_task(runtime, task_id, owner_subject=owner_subject)
+    _ = _require_task(runtime, task_id, owner_subject=owner_subject)
     resume_sequence = max(after_sequence, last_event_id or 0)
     return StreamingResponse(
         _event_stream(runtime, task_id, request, resume_sequence, owner_subject),
@@ -234,7 +263,7 @@ async def stream_task_events(
 async def stream_task_events_websocket(
     websocket: WebSocket,
     task_id: str,
-    after_sequence: int = Query(default=0, ge=0),
+    after_sequence: _TaskEventOffset = 0,
 ) -> None:
     runtime = _runtime()
     if await close_unauthorized_ws(websocket):

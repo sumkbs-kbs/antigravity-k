@@ -2,24 +2,45 @@
 
 import json
 import logging
+from typing import ClassVar, TypeVar
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
 
 router = APIRouter()
 logger = logging.getLogger("antigravity_k.api.routes.code_intel")
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+class _CodeIntelIndexRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    repo_path: StrictStr = "."
+    force: StrictBool = False
+
+
+class _CodeIntelImpactRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    repo_path: StrictStr = "."
+    symbol_id: StrictStr = ""
+    max_depth: StrictInt = Field(default=5, ge=0)
+
+
+async def _parse_json_body(request: Request, model: type[_ModelT]) -> _ModelT:
+    try:
+        return model.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
 
 
 @router.post("/api/code-intel/index")
 async def code_intel_index(request: Request):
     """코드 저장소를 인덱싱합니다."""
+    payload = await _parse_json_body(request, _CodeIntelIndexRequest)
     try:
         from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
-        data = await request.json()
-        repo_path = data.get("repo_path", ".")
-        force = data.get("force", False)
         pipeline = CodeIndexPipeline()
-        result = pipeline.run(repo_path, force=force)
+        result = pipeline.run(payload.repo_path, force=payload.force)
         return result
     except ImportError:
         raise HTTPException(
@@ -59,20 +80,17 @@ async def code_intel_search(q: str, repo_path: str, top_k: int = 10):
 @router.post("/api/code-intel/impact")
 async def code_intel_impact(request: Request):
     """심볼의 Blast Radius 영향도를 분석합니다."""
+    payload = await _parse_json_body(request, _CodeIntelImpactRequest)
     try:
         from antigravity_k.engine.code_intel.impact_analyzer import ImpactAnalyzer
         from antigravity_k.engine.code_intel.pipeline import CodeIndexPipeline
 
-        data = await request.json()
-        repo_path = data.get("repo_path", ".")
-        symbol_id = data.get("symbol_id", "")
-        max_depth = data.get("max_depth", 5)
         pipeline = CodeIndexPipeline()
-        loaded = pipeline.load_existing(repo_path)
+        loaded = pipeline.load_existing(payload.repo_path)
         if not loaded:
-            raise HTTPException(status_code=404, detail=f"'{repo_path}'의 인덱스가 없습니다.")
+            raise HTTPException(status_code=404, detail=f"'{payload.repo_path}'의 인덱스가 없습니다.")
         analyzer = ImpactAnalyzer(pipeline.graph)
-        result = analyzer.analyze(symbol_id, max_depth=max_depth)
+        result = analyzer.analyze(payload.symbol_id, max_depth=payload.max_depth)
         return result
     except HTTPException:
         raise

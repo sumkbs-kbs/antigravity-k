@@ -8,7 +8,13 @@ from antigravity_k.engine.state_graph import AgentState, StateContext
 
 logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
 
-__all__ = ["_synthesize_explicit_pipeline", "ceo_analyze_handler", "pre_route_handler", "route_decision", "route_handler"]
+__all__ = [
+    "_synthesize_explicit_pipeline",
+    "ceo_analyze_handler",
+    "pre_route_handler",
+    "route_decision",
+    "route_handler",
+]
 
 
 class _KiEngineLike(Protocol):

@@ -15,7 +15,9 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Final
+
+from pydantic import TypeAdapter, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +31,19 @@ _BACKTICK_TOOL_REGEX: Final[re.Pattern[str]] = re.compile(
     re.DOTALL,
 )
 
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
+type JsonMap = dict[str, JsonValue]
 
-@dataclass
+_JSON_MAP_ADAPTER: Final[TypeAdapter[JsonMap]] = TypeAdapter(JsonMap)
+
+
+@dataclass(frozen=True, slots=True)
 class ParsedToolCall:
     """Standardized tool call output."""
 
     name: str
-    arguments: dict[str, Any]
+    arguments: JsonMap
     raw_content: str
     repaired: bool = False
 
@@ -58,7 +66,7 @@ class RobustToolParser:
         # 1. Search for explicit <tool_call> tags
         for match in _TOOL_CALL_REGEX.finditer(text):
             body = match.group("body").strip()
-            parsed = RobustToolParser._parse_or_repair_json(body)
+            parsed, repaired = RobustToolParser._parse_or_repair_json(body)
             if parsed:
                 name = parsed.get("name")
                 args = parsed.get("arguments") or {}
@@ -68,7 +76,7 @@ class RobustToolParser:
                             name=name,
                             arguments=args,
                             raw_content=match.group(0),
-                            repaired=(parsed != body),
+                            repaired=repaired,
                         )
                     )
 
@@ -76,7 +84,7 @@ class RobustToolParser:
         if not calls:
             for match in _BACKTICK_TOOL_REGEX.finditer(text):
                 body = match.group("body").strip()
-                parsed = RobustToolParser._parse_or_repair_json(body)
+                parsed, repaired = RobustToolParser._parse_or_repair_json(body)
                 if parsed:
                     name = parsed.get("name")
                     args = parsed.get("arguments") or {}
@@ -86,22 +94,20 @@ class RobustToolParser:
                                 name=name,
                                 arguments=args,
                                 raw_content=match.group(0),
-                                repaired=True,
+                                repaired=repaired,
                             )
                         )
 
         return calls
 
     @staticmethod
-    def _parse_or_repair_json(raw: str) -> dict[str, Any] | None:
+    def _parse_or_repair_json(raw: str) -> tuple[JsonMap | None, bool]:
         """Attempt strict json.loads, then aggressive structural repair."""
         # 1. Direct strict parse
         try:
-            val = json.loads(raw)
-            if isinstance(val, dict):
-                return val
-        except Exception:
-            pass
+            return _JSON_MAP_ADAPTER.validate_json(raw), False
+        except (ValidationError, json.JSONDecodeError):
+            logger.debug("Strict tool-call JSON parsing failed", exc_info=True)
 
         # 2. Fix Python booleans, None, and trailing commas
         cleaned = raw
@@ -111,19 +117,15 @@ class RobustToolParser:
         cleaned = re.sub(r",\s*([\}\]])", r"\1", cleaned)  # remove trailing commas
 
         try:
-            val = json.loads(cleaned)
-            if isinstance(val, dict):
-                return val
-        except Exception:
-            pass
+            return _JSON_MAP_ADAPTER.validate_json(cleaned), True
+        except (ValidationError, json.JSONDecodeError):
+            logger.debug("Repaired tool-call JSON parsing failed", exc_info=True)
 
         # 3. Python literal eval fallback for single quotes
         try:
-            val = ast.literal_eval(raw)
-            if isinstance(val, dict):
-                return val
-        except Exception:
-            pass
+            return _JSON_MAP_ADAPTER.validate_python(ast.literal_eval(raw)), True
+        except (SyntaxError, ValueError, TypeError, ValidationError):
+            logger.debug("Python literal tool-call parsing failed", exc_info=True)
 
         # 4. Greedy bracket closer
         open_braces = cleaned.count("{")
@@ -131,11 +133,9 @@ class RobustToolParser:
         if open_braces > close_braces:
             fixed = cleaned + ("}" * (open_braces - close_braces))
             try:
-                val = json.loads(fixed)
-                if isinstance(val, dict):
-                    return val
-            except Exception:
-                pass
+                return _JSON_MAP_ADAPTER.validate_json(fixed), True
+            except (ValidationError, json.JSONDecodeError):
+                logger.debug("Bracket-repaired tool-call parsing failed", exc_info=True)
 
         logger.debug("Failed to parse/repair tool call JSON: %s", raw[:120])
-        return None
+        return None, False

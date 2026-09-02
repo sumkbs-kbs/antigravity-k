@@ -1,28 +1,63 @@
 """Vault API — Wiki 노트 CRUD·검색·동기화 엔드포인트."""
 
+import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, ClassVar, Literal, TypedDict, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictStr, ValidationError
 
 from antigravity_k.api.dependencies import get_vault_engine
+from antigravity_k.api.path_security import PathSecurityError, resolve_allowed_path
 from antigravity_k.config import config
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.vault import VaultEngine
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
 router = APIRouter()
 logger = logging.getLogger("antigravity_k.api.routes.vault")
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+class _VaultConfigRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    vault_path: StrictStr = ""
+
+
+class _VaultWriteRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+    path: StrictStr = ""
+    content: StrictStr = ""
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class VaultTreeNode(TypedDict, total=False):
+    name: str
+    path: str
+    type: Literal["folder", "file"]
+    children: list["VaultTreeNode"]
+    size: int
+
+
+VaultDependency = Annotated[VaultEngine | None, Depends(get_vault_engine)]
+
+
+async def _parse_json_body(request: Request, model: type[_ModelT]) -> _ModelT:
+    try:
+        return model.model_validate(await request.json())
+    except (ValidationError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid request body") from exc
 
 
 def _permission_gate() -> PermissionGate:
     return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> None:
+def _require_allowed(tool_name: str, args: Mapping[str, JsonValue], risk_level: str) -> None:
     decision = _permission_gate().decide(
         ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
     )
@@ -34,7 +69,7 @@ def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str) -> N
 
 
 @router.get("/api/vault/config")
-def vault_config(engine: VaultEngine = Depends(get_vault_engine)):
+def vault_config(engine: VaultDependency):
     """현재 Vault 설정 조회."""
     if not engine:
         return {"ok": False, "vault_path": None, "message": "VaultEngine not available"}
@@ -48,11 +83,15 @@ async def set_vault_config(request: Request):
     새 VaultEngine을 생성하고 dependencies.py의 싱글톤을 업데이트합니다.
     이후 /api/vault/tree 등의 모든 Vault API가 새 경로를 사용합니다.
     """
-    body = await request.json()
-    new_path = body.get("vault_path", "")
+    payload = await _parse_json_body(request, _VaultConfigRequest)
+    new_path = payload.vault_path
     if not new_path:
         raise HTTPException(status_code=400, detail="'vault_path' is required")
-    target = os.path.abspath(new_path)
+    try:
+        target_path = resolve_allowed_path(new_path)
+    except PathSecurityError as exc:
+        raise HTTPException(status_code=403, detail="Vault path is outside the configured workspace roots.") from exc
+    target = str(target_path)
     _require_allowed("set_vault_config", {"vault_path": target}, "critical")
     if not os.path.isdir(target):
         # 디렉토리가 없으면 생성 시도
@@ -80,13 +119,13 @@ async def set_vault_config(request: Request):
 
 
 @router.get("/api/vault/tree")
-def vault_tree(engine: VaultEngine = Depends(get_vault_engine)):
+def vault_tree(engine: VaultDependency):
     """Return the vault directory tree as a nested JSON structure."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
 
-    def build_tree(base_path: Path, rel_prefix: str = "") -> list[dict[str, Any]]:
-        items: list[dict[str, Any]] = []
+    def build_tree(base_path: Path, rel_prefix: str = "") -> list[VaultTreeNode]:
+        items: list[VaultTreeNode] = []
         try:
             entries = sorted(base_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
         except PermissionError:
@@ -121,7 +160,7 @@ def vault_tree(engine: VaultEngine = Depends(get_vault_engine)):
 
 
 @router.get("/api/vault/read")
-def vault_read(path: str, engine: VaultEngine = Depends(get_vault_engine)):
+def vault_read(path: str, engine: VaultDependency):
     """Read a note from the vault. Returns metadata + content."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
@@ -139,14 +178,14 @@ def vault_read(path: str, engine: VaultEngine = Depends(get_vault_engine)):
 
 
 @router.post("/api/vault/write")
-async def vault_write(request: Request, engine: VaultEngine = Depends(get_vault_engine)):
+async def vault_write(request: Request, engine: VaultDependency):
     """Create or update a note in the vault."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
-    body = await request.json()
-    path = body.get("path", "")
-    content = body.get("content", "")
-    metadata = body.get("metadata", {})
+    payload = await _parse_json_body(request, _VaultWriteRequest)
+    path = payload.path
+    content = payload.content
+    metadata = payload.metadata
     if not path:
         raise HTTPException(status_code=400, detail="'path' is required")
     clean = Path(path)
@@ -161,7 +200,7 @@ async def vault_write(request: Request, engine: VaultEngine = Depends(get_vault_
 
 
 @router.post("/api/vault/sync")
-async def vault_sync(engine: VaultEngine = Depends(get_vault_engine)):
+async def vault_sync(engine: VaultDependency):
     """현재 Vault 상태를 Git 스냅샷으로 저장."""
     if not engine:
         raise HTTPException(status_code=503, detail="VaultEngine not available")
@@ -174,7 +213,7 @@ async def vault_sync(engine: VaultEngine = Depends(get_vault_engine)):
 
 
 @router.get("/v1/notes/search")
-def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
+def search_notes(q: str, engine: VaultDependency):
     """Search for notes.
 
     Args:
@@ -184,6 +223,8 @@ def search_notes(q: str, engine: VaultEngine = Depends(get_vault_engine)):
     """
     if not q:
         raise HTTPException(status_code=400, detail="Query parameter 'q' is required")
+    if not engine:
+        raise HTTPException(status_code=503, detail="VaultEngine not available")
 
     audit = get_audit_logger()
     audit.log_event("search_notes", {"query": q})

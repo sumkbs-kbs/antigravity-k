@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
 from math import sqrt
 from statistics import fmean, stdev
-from typing import ClassVar, Final, Literal, Sequence
+from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,7 +49,7 @@ _ONE_SIDED_T_95: Final[tuple[float, ...]] = (
 
 class FrontierEvidenceError(ValueError):
     def __init__(self, detail: str):
-        self.detail = detail
+        self.detail: str = detail
         super().__init__(detail)
 
 

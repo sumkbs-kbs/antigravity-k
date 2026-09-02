@@ -1,15 +1,10 @@
 import json
 import re
 from itertools import pairwise
-from typing import Final
+from typing import Final, cast
 
 _STRUCTURED_TOOL_RESPONSE: Final[re.Pattern[str]] = re.compile(
-    r"<tool_response>\s*\n"
-    r"\[TOOL_EVIDENCE\]\s*(?P<metadata>\{[^\r\n]*\})\s*\n"
-    r"\[UNTRUSTED_TOOL_RESULT\]\s*\n"
-    r"(?P<evidence>.*?)\n"
-    r"\[/UNTRUSTED_TOOL_RESULT\]\s*\n"
-    r"</tool_response>",
+    r"""<tool_response>\s*\n\[TOOL_EVIDENCE\]\s*(?P<metadata>\{[^\r\n]*\})\s*\n\[UNTRUSTED_TOOL_RESULT\]\s*\n(?P<evidence>.*?)\n\[/UNTRUSTED_TOOL_RESULT\]\s*\n</tool_response>""",
     re.DOTALL,
 )
 
@@ -33,11 +28,12 @@ def compact_structured_tool_response(content: str, max_evidence_chars: int = 640
 
 def _compact_match(match: re.Match[str], max_evidence_chars: int) -> str | None:
     try:
-        metadata = json.loads(match.group("metadata"))
+        metadata = cast(object, json.loads(match.group("metadata")))
     except json.JSONDecodeError:
         return None
     if not isinstance(metadata, dict):
         return None
+    metadata = cast(dict[str, object], metadata)
 
     evidence = match.group("evidence").strip()
     if len(evidence) <= max_evidence_chars:

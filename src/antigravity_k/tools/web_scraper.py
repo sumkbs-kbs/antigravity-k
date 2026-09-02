@@ -1,8 +1,10 @@
 """Web Scraper module."""
 
-import asyncio
 import logging
-from typing import Any
+from typing import Literal, TypedDict, final, override
+
+import anyio
+from pydantic import JsonValue
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .web_search_engine import PageScraper
@@ -10,16 +12,27 @@ from .web_search_engine import PageScraper
 logger = logging.getLogger(__name__)
 
 
+class WebScraperParametersSchema(TypedDict):
+    type: Literal["object"]
+    properties: dict[str, JsonValue]
+    required: list[str]
+
+
+@final
 class WebScraperTool(BaseTool):
     """외부 웹사이트 또는 문서를 크롤링하여 Markdown 형식으로 반환하는 도구입니다."""
 
-    category = ToolCategory.SEARCH
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "🕸️"
-    tags = ["crawl", "scrape", "documentation", "web"]
+    category: ToolCategory = ToolCategory.SEARCH
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "🕸️"
+    tags: list[str] = ["crawl", "scrape", "documentation", "web"]
 
-    def __init__(self):
+    _name: str
+    _description: str
+    _schema: WebScraperParametersSchema
+
+    def __init__(self) -> None:
         """Initialize the WebScraperTool."""
         super().__init__()
         self._name = "web_scrape"
@@ -36,6 +49,7 @@ class WebScraperTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -46,6 +60,7 @@ class WebScraperTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -56,7 +71,8 @@ class WebScraperTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> WebScraperParametersSchema:
         """Parameters Schema.
 
         Returns:
@@ -65,7 +81,8 @@ class WebScraperTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -75,7 +92,8 @@ class WebScraperTool(BaseTool):
             Any: The any result.
 
         """
-        url = kwargs.get("url")
+        url_value = kwargs.get("url")
+        url = url_value if isinstance(url_value, str) else ""
         if not url:
             return "Error: 'url' parameter is required."
 
@@ -89,7 +107,7 @@ class WebScraperTool(BaseTool):
                 finally:
                     await scraper.close()
 
-            text = asyncio.run(fetch())
+            text = anyio.run(fetch)
             return f"Source: {url}\n\n{text}"
         except (OSError, RuntimeError, ValueError) as e:
             return f"Error fetching URL: {str(e)}"

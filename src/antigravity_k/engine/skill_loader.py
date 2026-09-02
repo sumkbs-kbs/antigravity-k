@@ -7,8 +7,9 @@ SkillLoader가 글로벌 → 로컬 베이스 → 마켓 순서로
 
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 import yaml
 
@@ -19,14 +20,29 @@ from antigravity_k.engine.capability_policy import (
 
 logger = logging.getLogger(__name__)
 
+
+class SkillMetadata(TypedDict):
+    id: str
+    name: str
+    description: str
+    content: str
+    path: str
+    tags: object
+    tools: object
+    risk_level: str
+    trust_level: str
+    requires_approval: bool
+    is_global: bool
+    source: str
+
 # ─── 상수 ─────────────────────────────────────────────────────────────
 
 MARKET_DIR_NAME = "market"
 """마켓 스킬이 설치되는 서브디렉토리 이름."""
 
 
-def _recover_scalar_metadata(frontmatter: str) -> dict[str, Any]:
-    metadata: dict[str, Any] = {}
+def _recover_scalar_metadata(frontmatter: str) -> dict[str, object]:
+    metadata: dict[str, object] = {}
     supported_keys = {"name", "description", "tags", "tools", "risk_level", "trust_level", "requires_approval"}
     for raw_line in frontmatter.splitlines():
         line = raw_line.strip()
@@ -39,7 +55,7 @@ def _recover_scalar_metadata(frontmatter: str) -> dict[str, Any]:
         value = value.strip()
         if key in {"tags", "tools"}:
             try:
-                parsed_value = yaml.safe_load(value)
+                parsed_value = cast(object, yaml.safe_load(value))
             except yaml.YAMLError:
                 parsed_value = None
             if isinstance(parsed_value, list):
@@ -71,8 +87,8 @@ class SkillLoader:
         project_root: str | None = None,
         include_global: bool = True,
         include_market: bool = True,
-        capability_policy_config: dict[str, Any] | None = None,
-    ):
+        capability_policy_config: Mapping[str, object] | None = None,
+    ) -> None:
         """Initialize the SkillLoader.
 
         Args:
@@ -81,11 +97,11 @@ class SkillLoader:
             include_market: 마켓 스킬 디렉토리 포함 여부 (Phase 1 D13).
             capability_policy_config: 자율 정책 설정.
         """
-        self.project_root = Path(project_root) if project_root else Path(os.getcwd())
-        self.skills_dir = self.project_root / ".agent" / "skills"
-        self.market_dir = self.skills_dir / MARKET_DIR_NAME
-        self.include_global = include_global
-        self.include_market = include_market
+        self.project_root: Path = Path(project_root) if project_root else Path(os.getcwd())
+        self.skills_dir: Path = self.project_root / ".agent" / "skills"
+        self.market_dir: Path = self.skills_dir / MARKET_DIR_NAME
+        self.include_global: bool = include_global
+        self.include_market: bool = include_market
 
         # 글로벌 스킬 디렉토리 — AGK_GLOBAL_SKILLS_DIR 환경변수로 확장 가능.
         home_dir = Path.home()
@@ -93,14 +109,14 @@ class SkillLoader:
         env_global = os.environ.get("AGK_GLOBAL_SKILLS_DIR", "")
         if env_global:
             global_skills_dirs.insert(0, Path(env_global))
-        self.global_skills_dirs = global_skills_dirs
+        self.global_skills_dirs: list[Path] = global_skills_dirs
 
-        self._skills: dict[str, dict[str, Any]] = {}
+        self._skills: dict[str, SkillMetadata] = {}
         self.active_skills: list[str] = []
         self.last_decisions: list[CapabilityDecision] = []
-        policy_config = capability_policy_config or {}
-        self.auto_match_enabled = bool(policy_config.get("auto_match_skills", True))
-        self._capability_policy = AutonomousCapabilityPolicy(
+        policy_config: Mapping[str, object] = capability_policy_config or {}
+        self.auto_match_enabled: bool = bool(policy_config.get("auto_match_skills", True))
+        self._capability_policy: AutonomousCapabilityPolicy = AutonomousCapabilityPolicy(
             project_root=str(self.project_root),
             max_autonomous_risk=str(policy_config.get("max_autonomous_risk", "high")),
             allow_critical_autonomy=bool(policy_config.get("allow_critical_autonomy", False)),
@@ -108,7 +124,7 @@ class SkillLoader:
 
         self.refresh()
 
-    def refresh(self):
+    def refresh(self) -> None:
         """3개 소스에서 스킬 목록을 스캔하여 캐시합니다.
 
         로드 순서 (뒤쪽이 앞쪽을 덮어씀):
@@ -132,7 +148,7 @@ class SkillLoader:
         if self.include_market and self.market_dir.exists():
             self._load_market_skills()
 
-    def _load_from_dir(self, directory: Path, is_global: bool = False, skip_dir: str | None = None):
+    def _load_from_dir(self, directory: Path, is_global: bool = False, skip_dir: str | None = None) -> None:
         """지정된 디렉토리에서 스킬을 로드합니다.
 
         Args:
@@ -165,7 +181,7 @@ class SkillLoader:
                             skill_id,
                         )
 
-    def _load_market_skills(self):
+    def _load_market_skills(self) -> None:
         """마켓 디렉토리(.agent/skills/market/)에서 스킬을 로드합니다.
 
         각 마켓 스킬은 서브디렉토리로 구성되며 SKILL.md 파일을 포함합니다.
@@ -190,34 +206,37 @@ class SkillLoader:
                 self._skills[skill_id] = parsed
                 logger.debug("Loaded market skill: %s", skill_id)
 
-    def _parse_markdown(self, path: Path) -> dict[str, Any] | None:
+    def _parse_markdown(self, path: Path) -> SkillMetadata | None:
         """마크다운 파일에서 YAML Frontmatter와 Body를 추출합니다."""
         try:
-            with open(path, encoding="utf-8") as f:
-                content = f.read()
+            with path.open(encoding="utf-8") as file:
+                content = file.read()
 
-            metadata: dict[str, Any] = {}
+            metadata: dict[str, object] = {}
             body = content
 
             if content.startswith("---\n"):
                 parts = content.split("---\n", 2)
                 if len(parts) >= 3:
                     try:
-                        parsed_metadata = yaml.safe_load(parts[1]) or {}
-                        metadata = parsed_metadata if isinstance(parsed_metadata, dict) else {}
+                        parsed_metadata = cast(object, yaml.safe_load(parts[1]) or {})
+                        if isinstance(parsed_metadata, dict):
+                            metadata = dict(cast(Mapping[str, object], parsed_metadata))
                     except yaml.YAMLError:
                         metadata = _recover_scalar_metadata(parts[1])
                         logger.warning("Recovered scalar skill metadata from invalid YAML: %s", path)
                     body = parts[2]
 
             # YAML에 이름이나 설명이 없으면 파일 이름 사용
-            name = metadata.get("name", path.stem)
-            desc = metadata.get("description", "")
+            raw_name = metadata.get("name", path.stem)
+            name = raw_name if isinstance(raw_name, str) else path.stem
+            raw_description = metadata.get("description", "")
+            description = raw_description if isinstance(raw_description, str) else ""
 
-            return {
+            result: SkillMetadata = {
                 "id": path.stem if path.name != "SKILL.md" else path.parent.name,
                 "name": name,
-                "description": desc,
+                "description": description,
                 "content": body.strip(),
                 "path": str(path),
                 "tags": metadata.get("tags", []),
@@ -225,16 +244,19 @@ class SkillLoader:
                 "risk_level": str(metadata.get("risk_level", "safe")).lower(),
                 "trust_level": str(metadata.get("trust_level", "local")).lower(),
                 "requires_approval": bool(metadata.get("requires_approval", False)),
+                "is_global": False,
+                "source": "local",
             }
+            return result
         except Exception:
             logger.exception("Failed to parse skill file %s", path)
             return None
 
-    def get_skill(self, skill_id: str) -> dict[str, Any] | None:
+    def get_skill(self, skill_id: str) -> SkillMetadata | None:
         """ID로 스킬을 조회합니다."""
         return self._skills.get(skill_id)
 
-    def list_skills(self) -> list[dict[str, Any]]:
+    def list_skills(self) -> list[dict[str, object]]:
         """모든 스킬 메타데이터를 반환합니다 (source 정보 포함)."""
         return [
             {
@@ -248,7 +270,7 @@ class SkillLoader:
             for k, v in self._skills.items()
         ]
 
-    def list_skills_by_source(self, source: str) -> list[dict[str, Any]]:
+    def list_skills_by_source(self, source: str) -> list[dict[str, object]]:
         """특정 소스에서 로드된 스킬만 필터링하여 반환합니다.
 
         Args:
@@ -259,7 +281,7 @@ class SkillLoader:
         """
         return [s for s in self.list_skills() if s.get("source") == source]
 
-    def get_market_skills(self) -> list[dict[str, Any]]:
+    def get_market_skills(self) -> list[dict[str, object]]:
         """마켓에서 설치된 스킬 목록을 반환합니다.
 
         Returns:
@@ -281,7 +303,7 @@ class SkillLoader:
             return True
         return False
 
-    def clear_active_skills(self):
+    def clear_active_skills(self) -> None:
         """모든 활성 스킬을 초기화합니다."""
         self.active_skills.clear()
 
@@ -294,7 +316,7 @@ class SkillLoader:
         for s_id in self.active_skills:
             skill = self._skills.get(s_id)
             if skill:
-                prompts.append(f"\n--- SKILL: {skill['name']} ---")
+                prompts.append(f"\n--- SKILL: {skill.get('name', s_id)} ---")
                 prompts.append(skill["content"])
 
         prompts.append("==================================\n")
@@ -328,7 +350,7 @@ class SkillLoader:
         # 점수 순으로 정렬하여 상위 N개 활성화
         decisions.sort(key=lambda item: item.score, reverse=True)
         self.last_decisions = decisions[:max_skills]
-        activated = []
+        activated: list[str] = []
         for decision in self.last_decisions:
             if not decision.allows_autonomous_use:
                 logger.info(
@@ -339,7 +361,7 @@ class SkillLoader:
                     decision.reason,
                 )
                 continue
-            self.activate_skill(decision.capability_id)
+            _ = self.activate_skill(decision.capability_id)
             activated.append(decision.capability_id)
             logger.info(
                 "[AutoSkill] Activated '%s' (score: %.2f, risk=%s)",

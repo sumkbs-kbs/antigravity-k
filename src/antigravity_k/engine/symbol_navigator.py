@@ -40,10 +40,10 @@ class CodeSymbol:
 class SymbolNavigator:
     """Builds and queries an in-memory symbol index for rapid code discovery."""
 
-    def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
+    def __init__(self, project_root: str | Path) -> None:
+        self.project_root: Path = Path(project_root).resolve()
         self.symbols: dict[str, list[CodeSymbol]] = {}
-        self.index_project()
+        _ = self.index_project()
 
     def index_project(self) -> int:
         """Scan all Python files in the workspace and extract symbols."""

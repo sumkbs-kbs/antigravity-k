@@ -6,7 +6,7 @@ from typing import ClassVar, Final, Literal, final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from antigravity_k.engine.task_state_store import TaskStateStore
+from antigravity_k.engine.task_execution_context import TaskStateStoreProtocol
 
 CONTEXT_SNAPSHOT_EVENT: Final = "context_snapshot"
 _RESTORED_CONTEXT_HEADER: Final = "[Restored Task Context]"
@@ -52,7 +52,7 @@ class ContextSnapshotStoreError(RuntimeError):
 
 
 def save_task_context_snapshot(
-    state_store: TaskStateStore,
+    state_store: TaskStateStoreProtocol,
     task_id: str,
     messages: list[dict[str, str]],
     target_model: str,
@@ -73,7 +73,7 @@ def save_task_context_snapshot(
 
 
 def load_task_context_snapshot(
-    state_store: TaskStateStore,
+    state_store: TaskStateStoreProtocol,
     task_id: str,
 ) -> TaskContextSnapshot | None:
     try:

@@ -42,6 +42,10 @@ class QualityScore:
 class QualityGate:
     """에이전트 출력 품질 자동 평가. A/B는 통과, C/F는 재시도."""
 
+    max_retries: int
+    _retry_count: int
+    _verify_fn: Callable[[str], str] | None
+
     def __init__(self, max_retries: int = 1, verify_fn: Callable[[str], str] | None = None):
         """Args:
         max_retries: 최대 재시도 횟수
@@ -188,6 +192,7 @@ class QualityGate:
 
         """
         try:
+            _ = task_type
             verify_fn = self._verify_fn
             if verify_fn is None:
                 return 1.0, []
@@ -233,10 +238,10 @@ class QualityGate:
     def _check_code(self, output: str) -> tuple[float, list[str]]:
         score = 1.0
         issues: list[str] = []
-        blocks = re.findall(r"```python\n(.*?)```", output, re.DOTALL)
+        blocks: list[str] = re.findall(r"```python\n(.*?)```", output, re.DOTALL)
         for i, block in enumerate(blocks):
             try:
-                ast.parse(block)
+                _ = ast.parse(block)
             except SyntaxError as e:
                 score *= 0.5
                 issues.append(f"코드블록{i + 1} 구문오류: {e.msg}")
@@ -281,7 +286,7 @@ class QualityGate:
 
         asks_for_code = task_type in ("coding", "complex", "complex_step") or bool(
             re.search(
-                r"(구현|함수|알고리즘|python|javascript|typescript|" r"function|implement|code)",
+                r"(구현|함수|알고리즘|python|javascript|typescript|function|implement|code)",
                 request_lower,
             ),
         )
@@ -305,7 +310,7 @@ class QualityGate:
 
         complexity_requested = bool(
             re.search(
-                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|" r"time complexity|space complexity)",
+                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|time complexity|space complexity)",
                 request_lower,
             ),
         )
@@ -320,7 +325,7 @@ class QualityGate:
         markdown_table = bool(re.search(r"^\s*\|.+\|\s*$", output, re.MULTILINE))
         structured_comparison = markdown_table or bool(
             re.search(
-                r"(장점|단점|기준|차이점|trade-?off|pros|cons|" r"1\.\s+.+\n\s*2\.\s+)",
+                r"(장점|단점|기준|차이점|trade-?off|pros|cons|1\.\s+.+\n\s*2\.\s+)",
                 output_lower,
                 re.DOTALL,
             ),
@@ -496,9 +501,8 @@ class QualityGate:
             return score, issues
 
         bad_spacing_terms = re.findall(
-            r"(할수|될수|사용할수|작성할수|확인할수|알려줄래|"
-            r"당신의프로젝트|확인하고어떻게|로컬LLM모델의을|"
-            r"모델의을|내가업|응답でき|업グ레?드)",
+            r"(할수|될수|사용할수|작성할수|확인할수|알려줄래|당신의프로젝트|확인하고어떻게|로컬LLM모델의을|"
+            + r"모델의을|내가업|응답でき|업グレ?드)",
             prose,
         )
         long_glued_hangul = re.findall(r"[가-힣]{20,}", prose)
@@ -529,7 +533,7 @@ class QualityGate:
         request_lower = request.lower()
         asks_current_info = bool(
             re.search(
-                r"(최신|최근|동향|실시간|현재|오늘|이번\s*주|latest|recent|" r"current|trend|news|today)",
+                r"(최신|최근|동향|실시간|현재|오늘|이번\s*주|latest|recent|current|trend|news|today)",
                 request_lower,
             ),
         )
@@ -540,14 +544,14 @@ class QualityGate:
         stale_or_ungrounded = bool(
             re.search(
                 r"(knowledge cutoff|as of my knowledge cutoff|october\s+2023|"
-                r"2023년\s*10월|실시간\s*데이터.*없|인터넷.*접속.*없|"
-                r"real[- ]?time data.*not|available up until)",
+                + r"2023년\s*10월|실시간\s*데이터.*없|인터넷.*접속.*없|"
+                + r"real[- ]?time data.*not|available up until)",
                 output_lower,
             ),
         )
         has_date_or_source = bool(
             re.search(
-                r"(20\d{2}[년./-]\s*\d{1,2}|출처|source|검색|확인|" r"https?://|github|hugging\s*face)",
+                r"(20\d{2}[년./-]\s*\d{1,2}|출처|source|검색|확인|https?://|github|hugging\s*face)",
                 output_lower,
             ),
         )
@@ -639,7 +643,7 @@ class QualityGate:
         issues: list[str] = []
 
         # 1. Mermaid 블록에 HTML 태그 포함 여부 (에러 유발)
-        mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
+        mermaid_blocks: list[str] = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
         for block in mermaid_blocks:
             if re.search(r"<[a-zA-Z]+.*?>", block):
                 score *= 0.8
@@ -781,7 +785,7 @@ class QualityGate:
                 issues.append(f"체크박스 태스크가 {checkbox_count}개로 과도하게 많음 — 그룹화 필요")
 
         # 4. Mermaid 블록 검증
-        mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
+        mermaid_blocks: list[str] = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
         mermaid_keywords = r"(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitGraph|journey|mindmap|timeline|xychart|block|quadrantChart)"
         for block in mermaid_blocks:
             if not re.search(

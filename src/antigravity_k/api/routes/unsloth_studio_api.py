@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 
-from antigravity_k.api.dependencies import __get_tool_registry
+from antigravity_k.api.dependencies import get_tool_registry
 from antigravity_k.config import config
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.provider_adapters.unsloth_capability_contracts import (
@@ -60,7 +60,7 @@ def get_unsloth_capabilities(
 
 
 def get_unsloth_studio_service(
-    registry: Annotated[ToolRegistry, Depends(__get_tool_registry)],
+    registry: Annotated[ToolRegistry, Depends(get_tool_registry)],
 ) -> UnslothStudioService:
     try:
         settings = UnslothStudioSettings.from_env()

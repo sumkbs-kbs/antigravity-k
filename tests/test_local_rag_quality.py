@@ -1,9 +1,14 @@
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from types import TracebackType
+from typing import Self, cast
+
+import pytest
 
 from antigravity_k.engine.rag_indexer import RAGIndexer
 from antigravity_k.engine.rag_quality import (
+    RAGJSON,
     RAGGoldenCase,
     RAGResultMapping,
     audit_rag_fixture,
@@ -12,36 +17,51 @@ from antigravity_k.engine.rag_quality import (
 )
 
 
-def test_local_rag_benchmark_scopes_project_index_by_default(monkeypatch, tmp_path):
+def test_local_rag_benchmark_scopes_project_index_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     # Given: the benchmark is invoked without an explicit scope.
     import sys
 
     import scripts.benchmark_local_rag as benchmark_module
 
-    observed = {}
+    observed: dict[str, object] = {}
 
     class FakeStore:
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, exc_type, exc_value, traceback):
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> bool:
+            _ = (exc_type, exc_value, traceback)
             return False
 
     class FakeIndexer:
-        def __init__(self, project_root, vector_store):
-            del project_root, vector_store
+        def __init__(self, project_root: str, vector_store: object) -> None:
+            _ = (project_root, vector_store)
 
-        def index_project(self, subdirs=None):
+        def index_project(self, subdirs: list[str] | None = None) -> int:
             observed["subdirs"] = subdirs
             return 0
 
-    monkeypatch.setattr(benchmark_module, "VectorStore", lambda *args, **kwargs: FakeStore())
+    def make_store(*_args: object, **_kwargs: object) -> FakeStore:
+        return FakeStore()
+
+    class Report:
+        def to_dict(self) -> dict[str, object]:
+            return {}
+
+    def make_report(*_args: object, **_kwargs: object) -> Report:
+        return Report()
+
+    monkeypatch.setattr(benchmark_module, "VectorStore", make_store)
     monkeypatch.setattr(benchmark_module, "RAGIndexer", FakeIndexer)
-    monkeypatch.setattr(
-        benchmark_module,
-        "run_rag_benchmark",
-        lambda *args, **kwargs: type("Report", (), {"to_dict": lambda self: {}})(),
-    )
+    monkeypatch.setattr(benchmark_module, "run_rag_benchmark", make_report)
     monkeypatch.setattr(sys, "argv", ["benchmark_local_rag.py", "--output", str(tmp_path / "report.json")])
 
     # When: the benchmark entry point runs.
@@ -52,7 +72,7 @@ def test_local_rag_benchmark_scopes_project_index_by_default(monkeypatch, tmp_pa
     assert observed["subdirs"] == ["src/antigravity_k/engine"]
 
 
-def test_evaluate_rag_case_scores_unique_sources_and_freshness():
+def test_evaluate_rag_case_scores_unique_sources_and_freshness() -> None:
     case = RAGGoldenCase(
         case_id="identifier",
         query="context artifact recall",
@@ -77,7 +97,7 @@ def test_evaluate_rag_case_scores_unique_sources_and_freshness():
     assert report.freshness_ratio == 0.5
 
 
-def test_run_rag_benchmark_aggregates_cases_and_preserves_queries():
+def test_run_rag_benchmark_aggregates_cases_and_preserves_queries() -> None:
     cases = [
         RAGGoldenCase("one", "alpha", ("a.py",)),
         RAGGoldenCase("two", "beta", ("b.py",)),
@@ -85,6 +105,7 @@ def test_run_rag_benchmark_aggregates_cases_and_preserves_queries():
 
     class FakeIndexer:
         def search(self, query: str, n_results: int = 5, mode: str = "hybrid") -> Sequence[RAGResultMapping]:
+            _ = (n_results, mode)
             source = "a.py" if query == "alpha" else "b.py"
             return [{"id": query, "metadata": {"source": source}, "provenance": {"freshness": "fresh"}}]
 
@@ -96,15 +117,17 @@ def test_run_rag_benchmark_aggregates_cases_and_preserves_queries():
     assert [item.query for item in report.results] == ["alpha", "beta"]
 
 
-def test_index_project_disambiguates_duplicate_markdown_heading_ids(tmp_path):
-    (tmp_path / "notes.md").write_text("# Same\nfirst\n# Same\nsecond\n", encoding="utf-8")
+def test_index_project_disambiguates_duplicate_markdown_heading_ids(tmp_path: Path) -> None:
+    _ = (tmp_path / "notes.md").write_text("# Same\nfirst\n# Same\nsecond\n", encoding="utf-8")
 
     class Store:
-        def __init__(self):
+        ids: list[str]
+
+        def __init__(self) -> None:
             self.ids = []
 
-        def upsert_chunks(self, chunks):
-            self.ids.extend(chunk["id"] for chunk in chunks)
+        def upsert_chunks(self, chunks: Sequence[dict[str, object]]) -> None:
+            self.ids.extend(str(chunk["id"]) for chunk in chunks)
 
     store = Store()
     indexed = RAGIndexer(str(tmp_path), store).index_project()
@@ -113,12 +136,12 @@ def test_index_project_disambiguates_duplicate_markdown_heading_ids(tmp_path):
     assert len(store.ids) == len(set(store.ids))
 
 
-def test_audit_rag_fixture_flags_expected_sources_without_query_evidence(tmp_path):
+def test_audit_rag_fixture_flags_expected_sources_without_query_evidence(tmp_path: Path) -> None:
     # Given: one expected source shares the query vocabulary and one does not.
     source_dir = tmp_path / "src"
     source_dir.mkdir()
-    (source_dir / "context_artifact_recall.py").write_text("def recall_context_artifact(): pass\n", encoding="utf-8")
-    (source_dir / "rag_indexer.py").write_text("def index_project(): pass\n", encoding="utf-8")
+    _ = (source_dir / "context_artifact_recall.py").write_text("def recall_context_artifact(): pass\n", encoding="utf-8")
+    _ = (source_dir / "rag_indexer.py").write_text("def index_project(): pass\n", encoding="utf-8")
     case = RAGGoldenCase(
         "identifier-recall",
         "context artifact recall",
@@ -136,9 +159,9 @@ def test_audit_rag_fixture_flags_expected_sources_without_query_evidence(tmp_pat
     assert "weak lexical evidence" in audits[1].reason
 
 
-def test_checked_in_rag_fixture_has_discoverable_expected_sources():
+def test_checked_in_rag_fixture_has_discoverable_expected_sources() -> None:
     fixture_path = Path(__file__).parent / "fixtures" / "rag_quality_cases.json"
-    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    payload = cast(list[dict[str, RAGJSON]], json.loads(fixture_path.read_text(encoding="utf-8")))
     cases = tuple(RAGGoldenCase.from_dict(item) for item in payload)
 
     audits = audit_rag_fixture(Path(__file__).parents[1], cases)

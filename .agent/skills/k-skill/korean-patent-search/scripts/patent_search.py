@@ -8,9 +8,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
-from typing import Callable, Sequence
+from typing import Protocol, cast
+
+from typing_extensions import override
 
 SERVICE_KEY_ENV_VAR = "KIPRIS_PLUS_API_KEY"
 DEFAULT_TIMEOUT = 30
@@ -26,6 +29,31 @@ DEFAULT_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
     ),
 }
+
+
+class _PatentCliArgs(Protocol):
+    query: str | None
+    application_number: str | None
+    year: int | None
+    page_no: int
+    num_rows: int
+    service_key: str | None
+    exclude_patent: bool
+    exclude_utility: bool
+    timeout: int
+
+
+class _HttpResponseLike(Protocol):
+    def __enter__(self) -> _HttpResponseLike: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: object | None,
+    ) -> bool | None: ...
+
+    def read(self) -> bytes: ...
 
 
 @dataclass(frozen=True)
@@ -93,7 +121,8 @@ class XmlNodeBuilder(HTMLParser):
         self.root: XmlNode | None = None
         self.stack: list[XmlNode] = []
 
-    def handle_starttag(self, tag: str, attrs) -> None:  # type: ignore[override]
+    @override
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         node = XmlNode(tag=tag, children=[], text_chunks=[])
         if self.stack:
             self.stack[-1].children.append(node)
@@ -101,11 +130,13 @@ class XmlNodeBuilder(HTMLParser):
             self.root = node
         self.stack.append(node)
 
-    def handle_endtag(self, tag: str) -> None:  # type: ignore[override]
+    @override
+    def handle_endtag(self, tag: str) -> None:
         if self.stack:
-            self.stack.pop()
+            _ = self.stack.pop()
 
-    def handle_data(self, data: str) -> None:  # type: ignore[override]
+    @override
+    def handle_data(self, data: str) -> None:
         if self.stack:
             self.stack[-1].text_chunks.append(data)
 
@@ -130,7 +161,7 @@ def resolve_service_key(explicit_key: str | None = None) -> str:
         return urllib.parse.unquote(candidate)
     raise ValueError(
         f"missing {SERVICE_KEY_ENV_VAR}. Export {SERVICE_KEY_ENV_VAR} or pass --service-key "
-        "(mapped to the KIPRIS Plus ServiceKey query parameter)."
+        + "(mapped to the KIPRIS Plus ServiceKey query parameter)."
     )
 
 
@@ -174,7 +205,8 @@ def fetch_xml(url: str, params: dict[str, str], timeout: int = DEFAULT_TIMEOUT) 
     request_url = f"{url}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(request_url, headers=DEFAULT_HEADERS)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw_response = cast(object, urllib.request.urlopen(request, timeout=timeout))
+        with cast(_HttpResponseLike, raw_response) as response:
             return response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -360,57 +392,57 @@ def get_patent_detail(
     return parse_patent_detail_response(xml_text)
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> _PatentCliArgs:
     parser = argparse.ArgumentParser(
         description="Search Korean patent information via the official KIPRIS Plus Open API."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--query", help="Keyword for KIPRIS getWordSearch")
-    mode.add_argument("--application-number", help="Application number for bibliography detail lookup")
-    parser.add_argument(
+    _ = mode.add_argument("--query", help="Keyword for KIPRIS getWordSearch")
+    _ = mode.add_argument("--application-number", help="Application number for bibliography detail lookup")
+    _ = parser.add_argument(
         "--year",
         type=parse_positive_int,
         help="Optional year filter for keyword search",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--page-no",
         type=parse_positive_int,
         default=DEFAULT_PAGE_NO,
         help="Response page number",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--num-rows",
         type=parse_positive_int,
         default=DEFAULT_NUM_ROWS,
         help="Rows per page",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--service-key",
         help=f"KIPRIS Plus ServiceKey (defaults to ${SERVICE_KEY_ENV_VAR})",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--exclude-patent",
         action="store_true",
         help="Exclude patent results from keyword search",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--exclude-utility",
         action="store_true",
         help="Exclude utility-model results from keyword search",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--timeout",
         type=parse_positive_int,
         default=DEFAULT_TIMEOUT,
         help="HTTP timeout seconds",
     )
-    return parser.parse_args(argv)
+    return cast(_PatentCliArgs, cast(object, parser.parse_args(argv)))
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        if args.query:
+        if args.query is not None:
             payload = search_patents(
                 args.query,
                 year=args.year,
@@ -422,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
                 timeout=args.timeout,
             )
         else:
+            if args.application_number is None:
+                return 2
             payload = get_patent_detail(
                 args.application_number,
                 service_key=args.service_key,

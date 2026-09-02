@@ -18,15 +18,18 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Literal, TextIO, cast
 
 from pydantic import ValidationError
 
 from antigravity_k.config import config
 from antigravity_k.finetune.active_artifact import (
     ActiveArtifactError,
+    ActiveArtifactStatus,
     ArtifactPromotionContract,
     promote_artifact,
     rollback_active_artifact,
@@ -42,7 +45,10 @@ from antigravity_k.finetune.dataset_contract import (
     split_frozen_dataset,
 )
 from antigravity_k.finetune.evaluation import (
+    CandidateKind,
+    EvaluationCase,
     EvaluationDataset,
+    EvaluationError,
     evaluate_candidates,
 )
 from antigravity_k.finetune.evaluation_backends import (
@@ -51,6 +57,8 @@ from antigravity_k.finetune.evaluation_backends import (
     MlxEvaluationInference,
     OllamaEvaluationInference,
 )
+from antigravity_k.finetune.evaluation_gate import PromotionGatePolicy, load_promotion_decision
+from antigravity_k.finetune.promotion_probe import MlxFusedArtifactProbe
 from antigravity_k.finetune.resource_admission import (
     FinetuneResourceAdmissionError,
     FinetuneResourceInvariantError,
@@ -68,6 +76,8 @@ from antigravity_k.finetune.training_recipe import (
 )
 
 logger = logging.getLogger("agk.finetune")
+
+JsonObject = dict[str, object]
 
 
 # ─── 설정 ────────────────────────────────────────────────────────────
@@ -132,7 +142,7 @@ class DatasetPreparer:
         4. Raw text: {"text": "..."}
     """
 
-    SYSTEM_PROMPT = (
+    SYSTEM_PROMPT: str = (
         "당신은 삼성중공업의 시니어 소프트웨어 엔지니어입니다. "
         "조선/해양 플랜트 도메인에 대한 깊은 이해를 바탕으로 "
         "정확하고 실용적인 기술 답변을 제공합니다."
@@ -158,32 +168,43 @@ class DatasetPreparer:
                     continue
 
                 try:
-                    item = json.loads(line)
+                    item = cast(JsonObject, json.loads(line))
                 except json.JSONDecodeError:
                     logger.warning("JSON 파싱 실패, 건너뜀: %s", line[:80])
                     continue
 
                 # Instruction 포맷
                 if "instruction" in item:
-                    user_content = item["instruction"]
-                    if item.get("input"):
-                        user_content += f"\n\n입력:\n{item['input']}"
-                    assistant_content = item.get("output", "")
+                    instruction = item["instruction"]
+                    if not isinstance(instruction, str):
+                        logger.warning("instruction이 문자열이 아니어서 건너뜀")
+                        continue
+                    user_content = instruction
+                    input_value = item.get("input")
+                    if input_value:
+                        user_content += f"\n\n입력:\n{input_value}"
+                    output_value = item.get("output", "")
+                    assistant_content = output_value if isinstance(output_value, str) else str(output_value)
 
                 # QA 포맷
                 elif "question" in item:
-                    user_content = item["question"]
-                    assistant_content = item.get("answer", "")
+                    question = item["question"]
+                    if not isinstance(question, str):
+                        logger.warning("question이 문자열이 아니어서 건너뜀")
+                        continue
+                    user_content = question
+                    answer = item.get("answer", "")
+                    assistant_content = answer if isinstance(answer, str) else str(answer)
 
                 # ChatML (그대로 통과)
                 elif "messages" in item:
-                    fout.write(json.dumps(item, ensure_ascii=False) + "\n")
+                    _ = fout.write(json.dumps(item, ensure_ascii=False) + "\n")
                     count += 1
                     continue
 
                 # Raw text
                 elif "text" in item:
-                    fout.write(json.dumps({"text": item["text"]}, ensure_ascii=False) + "\n")
+                    _ = fout.write(json.dumps({"text": item["text"]}, ensure_ascii=False) + "\n")
                     count += 1
                     continue
 
@@ -198,7 +219,7 @@ class DatasetPreparer:
                         {"role": "assistant", "content": assistant_content},
                     ],
                 }
-                fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
+                _ = fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
                 count += 1
 
         logger.info("변환 완료: %s개 → %s", count, output_path)
@@ -251,7 +272,7 @@ class DatasetPreparer:
                             },
                         ],
                     }
-                    fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
+                    _ = fout.write(json.dumps(chatml, ensure_ascii=False) + "\n")
                     count += 1
 
         logger.info("코드 파일 변환: %s개 → %s", count, output_path)
@@ -297,17 +318,17 @@ class FineTuneEngine:
             config (TrainingConfig): TrainingConfig config.
 
         """
-        self.config = config
-        self.output_dir = Path(config.output_dir)
+        self.config: TrainingConfig = config
+        self.output_dir: Path = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # 학습 상태
-        self.current_step = 0
-        self.current_epoch = 0
-        self.best_val_loss = float("inf")
+        self.current_step: int = 0
+        self.current_epoch: int = 0
+        self.best_val_loss: float = float("inf")
         self.training_log: list[str] = []
 
-    def train(self) -> dict[str, Any]:
+    def train(self) -> dict[str, object]:
         """파인튜닝 실행."""
         import subprocess
         import sys
@@ -358,7 +379,7 @@ class FineTuneEngine:
         logger.info("실행 명령: %s", " ".join(cmd))
 
         try:
-            process = subprocess.Popen(
+            process: subprocess.Popen[str] = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -368,8 +389,9 @@ class FineTuneEngine:
 
             # 실시간 로그 출력 + 수집
             assert process.stdout is not None
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip()
+            stdout: TextIO = cast(TextIO, process.stdout)
+            for raw_line in iter(stdout.readline, ""):
+                line = raw_line.rstrip()
                 if line:
                     logger.info("  [MLX] %s", line)
                     self.training_log.append(line)
@@ -378,10 +400,10 @@ class FineTuneEngine:
                     if "Iter" in line and "loss" in line:
                         self._parse_training_line(line)
 
-            process.wait()
+            _ = process.wait()
 
             elapsed = time.time() - start_time
-            result = {
+            result: dict[str, object] = {
                 "status": "success" if process.returncode == 0 else "failed",
                 "return_code": process.returncode,
                 "elapsed_seconds": round(elapsed, 1),
@@ -480,7 +502,7 @@ class FineTuneEngine:
         except (IndexError, ValueError):
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
-    def _save_training_info(self, result: dict[str, Any]) -> None:
+    def _save_training_info(self, result: dict[str, object]) -> None:
         """학습 결과 메타데이터 저장."""
         info = {
             **result,
@@ -494,9 +516,50 @@ class FineTuneEngine:
 
 
 # ─── CLI 진입점 ──────────────────────────────────────────────────────
-def main():
+def main() -> None:
     """Run the main program."""
     import argparse
+
+    class ParsedArgs(argparse.Namespace):
+        command: str | None = None
+        model: str = ""
+        base_revision: str = ""
+        data: str = ""
+        output: str = ""
+        epochs: int = 0
+        batch_size: int = 0
+        lr: float = 0.0
+        lora_rank: int = 0
+        manifest: str = ""
+        resume: bool = False
+        dry_run: bool = False
+        estimated_peak_bytes: int | None = None
+        resource_db: Path = Path()
+        resource_idempotency_key: str | None = None
+        input: str = ""
+        format: str = ""
+        split: Literal["90/10", "80/20"] = "90/10"
+        seed: int = 0
+        consent: str = ""
+        subject_rights: str = ""
+        license: str = ""
+        run: str = ""
+        evaluation: str | None = None
+        artifact: str = ""
+        state: str = ""
+        decision: str = ""
+        recipe_sha256: str = ""
+        evaluation_sha256: str = ""
+        dataset: str = ""
+        backend: str = ""
+        endpoint: str = ""
+        tuned_model: str | None = None
+        max_tokens: int = 0
+        temperature: float = 0.0
+        routing_model_name: str | None = None
+        minimum_category_score: float = 0.0
+        maximum_category_regression: float = 0.0
+        minimum_overall_improvement: float = 0.0
 
     logging.basicConfig(
         level=logging.INFO,
@@ -509,46 +572,46 @@ def main():
 
     # train
     train_p = sub.add_parser("train", help="파인튜닝 실행")
-    train_p.add_argument("--model", required=True, help="베이스 모델 경로")
-    train_p.add_argument("--base-revision", required=True, help="베이스 모델 revision digest")
-    train_p.add_argument("--data", required=True, help="학습 데이터 (JSONL)")
-    train_p.add_argument("--output", default="./output/finetune", help="출력 경로")
-    train_p.add_argument("--epochs", type=int, default=3)
-    train_p.add_argument("--batch-size", type=int, default=4)
-    train_p.add_argument("--lr", type=float, default=1e-5)
-    train_p.add_argument("--lora-rank", type=int, default=16)
-    train_p.add_argument("--manifest", required=True, help="Frozen dataset split manifest")
-    train_p.add_argument("--resume", action="store_true", help="최신 체크포인트에서 학습 재개")
-    train_p.add_argument("--dry-run", action="store_true", help="해석된 학습 설정만 출력")
-    train_p.add_argument("--estimated-peak-bytes", type=int, help="예상 최대 unified-memory 사용량")
-    train_p.add_argument(
+    _ = train_p.add_argument("--model", required=True, help="베이스 모델 경로")
+    _ = train_p.add_argument("--base-revision", required=True, help="베이스 모델 revision digest")
+    _ = train_p.add_argument("--data", required=True, help="학습 데이터 (JSONL)")
+    _ = train_p.add_argument("--output", default="./output/finetune", help="출력 경로")
+    _ = train_p.add_argument("--epochs", type=int, default=3)
+    _ = train_p.add_argument("--batch-size", type=int, default=4)
+    _ = train_p.add_argument("--lr", type=float, default=1e-5)
+    _ = train_p.add_argument("--lora-rank", type=int, default=16)
+    _ = train_p.add_argument("--manifest", required=True, help="Frozen dataset split manifest")
+    _ = train_p.add_argument("--resume", action="store_true", help="최신 체크포인트에서 학습 재개")
+    _ = train_p.add_argument("--dry-run", action="store_true", help="해석된 학습 설정만 출력")
+    _ = train_p.add_argument("--estimated-peak-bytes", type=int, help="예상 최대 unified-memory 사용량")
+    _ = train_p.add_argument(
         "--resource-db",
         type=Path,
         default=config.paths.data_dir / "unsloth_resources.sqlite3",
         help="공용 capability/resource broker DB 경로",
     )
-    train_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
+    _ = train_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
 
     # prepare
     prep_p = sub.add_parser("prepare", help="데이터 준비")
-    prep_p.add_argument("--input", required=True, help="입력 데이터 경로")
-    prep_p.add_argument("--output", required=True, help="출력 JSONL 경로")
-    prep_p.add_argument("--format", choices=["instruction", "code"], default="instruction")
-    prep_p.add_argument("--split", choices=["90/10", "80/20"], required=True, help="train/valid 비율")
-    prep_p.add_argument("--seed", type=int, required=True, help="불변 split seed")
-    prep_p.add_argument(
+    _ = prep_p.add_argument("--input", required=True, help="입력 데이터 경로")
+    _ = prep_p.add_argument("--output", required=True, help="출력 JSONL 경로")
+    _ = prep_p.add_argument("--format", choices=["instruction", "code"], default="instruction")
+    _ = prep_p.add_argument("--split", choices=["90/10", "80/20"], required=True, help="train/valid 비율")
+    _ = prep_p.add_argument("--seed", type=int, required=True, help="불변 split seed")
+    _ = prep_p.add_argument(
         "--consent",
         choices=[member.value for member in DatasetConsent],
         required=True,
         help="데이터 사용 동의 상태",
     )
-    prep_p.add_argument(
+    _ = prep_p.add_argument(
         "--subject-rights",
         choices=[member.value for member in DatasetSubjectRights],
         required=True,
         help="데이터 주체 권리 처리 상태",
     )
-    prep_p.add_argument(
+    _ = prep_p.add_argument(
         "--license",
         choices=[member.value for member in DatasetLicense],
         required=True,
@@ -557,42 +620,51 @@ def main():
 
     # merge
     merge_p = sub.add_parser("merge", help="어댑터 병합")
-    merge_p.add_argument("--run", required=True, help="training_result.json 경로")
-    merge_p.add_argument("--output", required=True, help="병합 결과 경로")
-    merge_p.add_argument("--evaluation", help="base/tuned evaluation_result.json 경로")
-    merge_p.add_argument("--estimated-peak-bytes", type=int, help="예상 최대 unified-memory 사용량")
-    merge_p.add_argument(
+    _ = merge_p.add_argument("--run", required=True, help="training_result.json 경로")
+    _ = merge_p.add_argument("--output", required=True, help="병합 결과 경로")
+    _ = merge_p.add_argument("--evaluation", help="base/tuned evaluation_result.json 경로")
+    _ = merge_p.add_argument("--estimated-peak-bytes", type=int, help="예상 최대 unified-memory 사용량")
+    _ = merge_p.add_argument(
         "--resource-db",
         type=Path,
         default=config.paths.data_dir / "unsloth_resources.sqlite3",
         help="공용 capability/resource broker DB 경로",
     )
-    merge_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
+    _ = merge_p.add_argument("--resource-idempotency-key", help="재시도 중복 실행 방지 키")
 
     promote_p = sub.add_parser("promote", help="검증된 artifact를 active pointer로 승격")
-    promote_p.add_argument("--artifact", required=True, help="병합 artifact 디렉터리")
-    promote_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
-    promote_p.add_argument("--recipe-sha256", required=True, help="승격할 recipe SHA-256")
-    promote_p.add_argument("--evaluation-sha256", required=True, help="승격할 evaluation SHA-256")
+    _ = promote_p.add_argument("--artifact", required=True, help="병합 artifact 디렉터리")
+    _ = promote_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
+    _ = promote_p.add_argument("--decision", required=True, help="eligible promotion_decision.json 경로")
+    _ = promote_p.add_argument("--recipe-sha256", required=True, help="승격할 recipe SHA-256")
+    _ = promote_p.add_argument("--evaluation-sha256", required=True, help="승격할 evaluation SHA-256")
 
     rollback_p = sub.add_parser("rollback", help="직전 active artifact로 복원")
-    rollback_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
+    _ = rollback_p.add_argument("--state", required=True, help="active artifact pointer JSON 경로")
 
     evaluate_p = sub.add_parser("evaluate", help="base/tuned 후보를 실제 backend로 평가")
-    evaluate_p.add_argument("--run", required=True, help="training_result.json 경로")
-    evaluate_p.add_argument("--dataset", required=True, help="frozen held_out_v1.jsonl 경로")
-    evaluate_p.add_argument("--backend", choices=[member.value for member in EvaluationBackend], required=True)
-    evaluate_p.add_argument("--output", required=True, help="evaluation_result.json 경로")
-    evaluate_p.add_argument("--endpoint", default="http://127.0.0.1:11434", help="Ollama API endpoint")
-    evaluate_p.add_argument("--tuned-model", help="Ollama tuned model name")
-    evaluate_p.add_argument("--max-tokens", type=int, default=256)
-    evaluate_p.add_argument("--temperature", type=float, default=0.0)
+    _ = evaluate_p.add_argument("--run", required=True, help="training_result.json 경로")
+    _ = evaluate_p.add_argument("--dataset", required=True, help="frozen held_out_v1.jsonl 경로")
+    _ = evaluate_p.add_argument("--backend", choices=[member.value for member in EvaluationBackend], required=True)
+    _ = evaluate_p.add_argument("--output", required=True, help="evaluation_result.json 경로")
+    _ = evaluate_p.add_argument("--endpoint", default="http://127.0.0.1:11434", help="Ollama API endpoint")
+    _ = evaluate_p.add_argument("--tuned-model", help="Ollama tuned model name")
+    _ = evaluate_p.add_argument("--max-tokens", type=int, default=256)
+    _ = evaluate_p.add_argument("--temperature", type=float, default=0.0)
 
-    args = parser.parse_args()
+    gate_p = sub.add_parser("evaluate-gate", help="held-out base/tuned 결과의 artifact 승격 가능 여부 판정")
+    _ = gate_p.add_argument("--evaluation", required=True, help="evaluation_result.json 경로")
+    _ = gate_p.add_argument("--output", required=True, help="promotion_decision.json 경로")
+    _ = gate_p.add_argument("--routing-model-name", help="router calibration에서 사용할 모델 이름")
+    _ = gate_p.add_argument("--minimum-category-score", type=float, default=0.5)
+    _ = gate_p.add_argument("--maximum-category-regression", type=float, default=0.0)
+    _ = gate_p.add_argument("--minimum-overall-improvement", type=float, default=0.01)
+
+    args: ParsedArgs = parser.parse_args(namespace=ParsedArgs())
 
     if args.command == "train":
         manifest_path = Path(args.manifest)
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest: JsonObject = cast(JsonObject, json.loads(manifest_path.read_text(encoding="utf-8")))
         recipe = TrainingRecipe(
             base_model=args.model,
             base_revision=args.base_revision,
@@ -601,17 +673,17 @@ def main():
                 path=Path(args.data),
                 consent=DatasetConsent.EXPLICIT,
                 subject_rights=DatasetSubjectRights.HONORED,
-                license_id=DatasetLicense(manifest.get("license", "MIT")),
+                license_id=DatasetLicense(cast(str, manifest.get("license", "MIT"))),
                 split_policy=DatasetSplitPolicy(
-                    seed=manifest["seed"],
-                    train_ratio=manifest["train_ratio"],
+                    seed=cast(int, manifest["seed"]),
+                    train_ratio=cast(Literal["90/10", "80/20"], manifest["train_ratio"]),
                     manifest_path=manifest_path,
                 ),
             ),
             epochs=args.epochs,
             batch_size=args.batch_size,
             gradient_accumulation_steps=4,
-            learning_rate=args.lr,
+            learning_rate=Decimal(str(args.lr)),
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_rank * 2,
             save_every=100,
@@ -706,18 +778,22 @@ def main():
 
     elif args.command == "promote":
         try:
-            active = promote_artifact(
+            outcome = promote_artifact(
                 Path(args.artifact),
                 state_path=Path(args.state),
                 contract=ArtifactPromotionContract(
                     recipe_sha256=args.recipe_sha256,
                     evaluation_sha256=args.evaluation_sha256,
                 ),
+                decision_path=Path(args.decision),
+                probe=MlxFusedArtifactProbe(),
             )
         except ActiveArtifactError as error:
             logger.error("Active artifact 승격 실패: %s", error)
             raise SystemExit(2) from error
-        print(active.model_dump_json(indent=2))
+        print(outcome.model_dump_json(indent=2))
+        if outcome.status is ActiveArtifactStatus.ROLLED_BACK:
+            raise SystemExit(4)
 
     elif args.command == "rollback":
         try:
@@ -738,6 +814,7 @@ def main():
             ),
         )
         backend = EvaluationBackend(args.backend)
+        inference: Callable[[EvaluationCase, CandidateKind], str]
         match backend:
             case EvaluationBackend.MLX:
                 inference = MlxEvaluationInference(
@@ -772,6 +849,27 @@ def main():
             raise SystemExit(2) from error
         _ = Path(args.output).write_text(pair.model_dump_json(indent=2) + "\n", encoding="utf-8")
         print(pair.model_dump_json(indent=2))
+
+    elif args.command == "evaluate-gate":
+        if args.evaluation is None:
+            parser.error("--evaluation is required for evaluate-gate")
+        try:
+            decision = load_promotion_decision(
+                Path(args.evaluation),
+                policy=PromotionGatePolicy(
+                    minimum_category_score=args.minimum_category_score,
+                    maximum_category_regression=args.maximum_category_regression,
+                    minimum_overall_improvement=args.minimum_overall_improvement,
+                ),
+                routing_model_name=args.routing_model_name,
+            )
+        except (EvaluationError, ValidationError) as error:
+            logger.error("평가 승격 게이트 실패: %s", error)
+            raise SystemExit(2) from error
+        _ = Path(args.output).write_text(decision.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        print(decision.model_dump_json(indent=2))
+        if not decision.eligible:
+            raise SystemExit(3)
 
     else:
         parser.print_help()

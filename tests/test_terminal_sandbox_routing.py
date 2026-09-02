@@ -1,5 +1,9 @@
 """build_sandbox_argv와 persistent terminal의 샌드박스 라우팅 테스트."""
 
+from pathlib import Path
+
+import pytest
+
 from antigravity_k.config import config as app_config
 from antigravity_k.tools.terminal_tools import (
     PersistentTerminalManager,
@@ -7,16 +11,22 @@ from antigravity_k.tools.terminal_tools import (
 )
 
 
-def test_returns_none_when_disabled(monkeypatch):
+def test_returns_none_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app_config.security, "sandbox_enabled", False)
     assert build_sandbox_argv("echo hi") is None
 
 
-def test_returns_wrapped_argv_when_enabled_on_darwin(monkeypatch):
+def test_returns_wrapped_argv_when_enabled_on_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
     import platform
 
     if platform.system() != "Darwin":
-        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None)
+        def which_stub(name: str) -> str | None:
+            return "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None
+
+        monkeypatch.setattr(
+            "shutil.which",
+            which_stub,
+        )
         orig = platform.system
         monkeypatch.setattr(platform, "system", lambda: "Darwin")
         try:
@@ -34,14 +44,16 @@ def test_returns_wrapped_argv_when_enabled_on_darwin(monkeypatch):
     profile_path.unlink()
 
 
-def _assert_wrapped(monkeypatch):
+def _assert_wrapped(monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], Path]:
     monkeypatch.setattr(app_config.security, "sandbox_enabled", True)
     result = build_sandbox_argv("echo hi")
     assert result is not None
     return result
 
 
-def test_persistent_terminal_uses_sandbox_when_enabled(monkeypatch, tmp_path):
+def test_persistent_terminal_uses_sandbox_when_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     import platform as _platform
 
     if _platform.system() != "Darwin":
@@ -51,18 +63,21 @@ def test_persistent_terminal_uses_sandbox_when_enabled(monkeypatch, tmp_path):
     manager = PersistentTerminalManager()
     term_id = manager.create_terminal("echo sandbox-check", str(tmp_path))
     process = manager.terminals[term_id]
+    assert isinstance(process.args, list)
     assert process.args[0] == "sandbox-exec"
     # 종료 후 프로파일 정리 확인
-    process.wait(timeout=15)
-    manager.get_output(term_id)
+    _ = process.wait(timeout=15)
+    _ = manager.get_output(term_id)
     assert term_id not in manager.terminals
 
 
-def test_persistent_terminal_raw_path_when_disabled(monkeypatch, tmp_path):
+def test_persistent_terminal_raw_path_when_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setattr(app_config.security, "sandbox_enabled", False)
     manager = PersistentTerminalManager()
     term_id = manager.create_terminal("echo raw-check", str(tmp_path))
     process = manager.terminals[term_id]
-    assert isinstance(process.args, str) or process.args[-1] != "-c"
-    process.wait(timeout=15)
-    manager.get_output(term_id)
+    assert isinstance(process.args, str) or (isinstance(process.args, list) and process.args[-1] != "-c")
+    _ = process.wait(timeout=15)
+    _ = manager.get_output(term_id)

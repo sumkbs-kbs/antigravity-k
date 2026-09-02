@@ -126,6 +126,7 @@ class TaskEventsResponse(BaseModel):
     task_id: str
     events: list[TaskEvent]
     last_sequence: int
+    has_more: bool
 
 
 class TaskStreamEnd(BaseModel):
@@ -163,6 +164,33 @@ class TaskActionResponse(BaseModel):
     task_id: str
 
 
+class BlankTaskSteeringInstructionError(ValueError):
+    pass
+
+
+class TaskSteeringInput(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
+
+    instruction: str = Field(min_length=1, max_length=8_000)
+
+    @field_validator("instruction")
+    @classmethod
+    def normalize_instruction(cls, value: str) -> str:
+        instruction = value.strip()
+        if not instruction:
+            raise BlankTaskSteeringInstructionError("instruction must not be blank")
+        return instruction
+
+
+class TaskSteeringResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    status: Literal["accepted"] = "accepted"
+    task_id: str
+    steering_id: str
+    mode: Literal["queued_replay"] = "queued_replay"
+
+
 __all__ = [
     "TaskActionResponse",
     "TaskBenchmarkRequest",
@@ -176,4 +204,7 @@ __all__ = [
     "TaskStreamEnd",
     "TaskSubmitRequest",
     "TaskSubmitResponse",
+    "BlankTaskSteeringInstructionError",
+    "TaskSteeringInput",
+    "TaskSteeringResponse",
 ]

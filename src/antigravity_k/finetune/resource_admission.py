@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, assert_never, override
+from typing import ClassVar, override
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -131,8 +131,6 @@ def reserve_finetune_resource(
             | UnslothAdmissionCode.RESERVATION_RELEASED
         ):
             raise FinetuneResourceAdmissionError(decision.code)
-        case unreachable:
-            assert_never(unreachable)
 
 
 def _build_request(

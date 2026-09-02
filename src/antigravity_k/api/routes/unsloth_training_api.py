@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, assert_never
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import ValidationError
 
-from antigravity_k.api.dependencies import __get_tool_registry
+from antigravity_k.api.dependencies import get_tool_registry
 from antigravity_k.api.routes.unsloth_studio_api import get_unsloth_resource_broker
 from antigravity_k.engine.approval_manager import get_approval_manager
 from antigravity_k.engine.audit_logger import get_audit_logger
@@ -27,7 +27,7 @@ router = APIRouter()
 
 
 def get_unsloth_training_service(
-    registry: Annotated[ToolRegistry, Depends(__get_tool_registry)],
+    registry: Annotated[ToolRegistry, Depends(get_tool_registry)],
     broker: Annotated[UnslothResourceBroker, Depends(get_unsloth_resource_broker)],
 ) -> UnslothTrainingService:
     try:
@@ -87,5 +87,3 @@ def _status_code_for(state: UnslothTrainingLaunchState) -> int:
             return status.HTTP_502_BAD_GATEWAY
         case UnslothTrainingLaunchState.UNCERTAIN:
             return status.HTTP_503_SERVICE_UNAVAILABLE
-        case unreachable:
-            assert_never(unreachable)

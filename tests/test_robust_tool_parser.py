@@ -9,6 +9,7 @@ def test_strict_tool_call():
     assert len(calls) == 1
     assert calls[0].name == "read_file"
     assert calls[0].arguments["file_path"] == "main.py"
+    assert calls[0].repaired is False
 
 
 def test_healed_trailing_comma_and_booleans():
@@ -18,6 +19,7 @@ def test_healed_trailing_comma_and_booleans():
     assert calls[0].name == "test_tool"
     assert calls[0].arguments["flag"] is True
     assert calls[0].arguments["opt"] is None
+    assert calls[0].repaired is True
 
 
 def test_healed_unclosed_braces():
@@ -42,3 +44,12 @@ def test_backtick_json_fallback():
     assert len(calls) == 1
     assert calls[0].name == "run_command"
     assert calls[0].arguments["CommandLine"] == "pytest"
+
+
+def test_tool_call_preserves_nested_arguments():
+    text = '<tool_call>{"name":"configure","arguments":{"config":{"retry":3},"enabled":true}}</tool_call>'
+
+    calls = RobustToolParser.extract_tool_calls(text)
+
+    assert len(calls) == 1
+    assert calls[0].arguments == {"config": {"retry": 3}, "enabled": True}

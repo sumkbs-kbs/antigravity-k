@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from collections.abc import Awaitable, Callable
+from typing import Protocol, TypedDict, cast, final, override
 
 import pytest
 
@@ -13,6 +14,66 @@ from antigravity_k.engine.api_cache import (
     ApiCacheEntry,
     cached,
 )
+
+
+class _CacheEntryInfo(TypedDict):
+    key: str
+    ttl: float
+    age: float
+    remaining_ttl: float
+    tags: list[str]
+    hits: int
+
+
+class _CacheStats(TypedDict):
+    total_entries: int
+    total_tags: int
+    max_size: int
+    hits: int
+    misses: int
+    hit_ratio: float
+    memory_estimate_kb: float
+    eviction_count: int
+    entries: list[_CacheEntryInfo]
+
+
+_AsyncEndpoint = Callable[..., Awaitable[dict[str, object]]]
+
+
+class _CachedDecorator(Protocol):
+    def __call__(self, func: Callable[..., object]) -> _AsyncEndpoint: ...
+
+
+def _typed_cached(
+    ttl: float | None = None,
+    tags: list[str] | None = None,
+    key_builder: Callable[..., str] | None = None,
+) -> _CachedDecorator:
+    return cast(
+        _CachedDecorator,
+        cast(object, cached(ttl=ttl, tags=tags, key_builder=key_builder)),
+    )
+
+
+async def _cache_get(cache: ApiCache, key: str) -> object:
+    return cast(object, await cache.get(key))
+
+
+async def _cache_get_or_set(
+    cache: ApiCache,
+    key: str,
+    factory: Callable[[], object],
+) -> object:
+    return cast(object, await cache.get_or_set(key, factory))
+
+
+async def _cache_stats(cache: ApiCache) -> _CacheStats:
+    return cast(_CacheStats, cast(object, await cache.get_stats()))
+
+
+def _cache_entry(cache: ApiCache, key: str) -> ApiCacheEntry | None:
+    entries = cast(dict[str, ApiCacheEntry], getattr(cache, "_entries"))
+    return entries.get(key)
 
 # ═══════════════════════════════════════════════════════════════════
 # ApiCacheEntry tests
@@ -61,52 +122,52 @@ class TestApiCache:
     """ApiCache — in-memory cache with TTL, tags, stats."""
 
     @pytest.fixture
-    def cache(self):
+    def cache(self) -> ApiCache:
         """Fresh ApiCache for each test."""
         return ApiCache(default_ttl=60)
 
     @pytest.mark.asyncio
-    async def test_get_missing_key(self, cache):
+    async def test_get_missing_key(self, cache: ApiCache):
         """없는 키는 None 반환."""
-        val = await cache.get("nonexistent")
+        val = await _cache_get(cache, "nonexistent")
         assert val is None
 
     @pytest.mark.asyncio
-    async def test_set_and_get(self, cache):
+    async def test_set_and_get(self, cache: ApiCache):
         """저장 후 조회."""
         await cache.set("name", "Antigravity-K")
-        val = await cache.get("name")
+        val = await _cache_get(cache, "name")
         assert val == "Antigravity-K"
 
     @pytest.mark.asyncio
-    async def test_get_expired(self, cache):
+    async def test_get_expired(self, cache: ApiCache):
         """만료된 항목은 None 반환."""
         import time
 
         await cache.set("expired", "data", ttl=0.001)
         # Force expiry by accessing internal entry
-        entry = cache._entries.get("expired")
+        entry = _cache_entry(cache, "expired")
         assert entry is not None
         entry.created_at = time.time() - 10
-        val = await cache.get("expired")
+        val = await _cache_get(cache, "expired")
         assert val is None
 
     @pytest.mark.asyncio
-    async def test_delete_existing(self, cache):
+    async def test_delete_existing(self, cache: ApiCache):
         """존재하는 키 삭제."""
         await cache.set("to_delete", "value")
         result = await cache.delete("to_delete")
         assert result is True
-        assert await cache.get("to_delete") is None
+        assert await _cache_get(cache, "to_delete") is None
 
     @pytest.mark.asyncio
-    async def test_delete_missing(self, cache):
+    async def test_delete_missing(self, cache: ApiCache):
         """없는 키 삭제는 False 반환."""
         result = await cache.delete("missing")
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_tag_invalidation(self, cache):
+    async def test_tag_invalidation(self, cache: ApiCache):
         """특정 태그의 모든 항목 무효화."""
         await cache.set("a", 1, tags=["group1"])
         await cache.set("b", 2, tags=["group1"])
@@ -114,18 +175,18 @@ class TestApiCache:
 
         removed = await cache.invalidate_tag("group1")
         assert removed == 2
-        assert await cache.get("a") is None
-        assert await cache.get("b") is None
-        assert await cache.get("c") == 3  # 다른 태그는 영향 없음
+        assert await _cache_get(cache, "a") is None
+        assert await _cache_get(cache, "b") is None
+        assert await _cache_get(cache, "c") == 3  # 다른 태그는 영향 없음
 
     @pytest.mark.asyncio
-    async def test_tag_invalidation_unknown_tag(self, cache):
+    async def test_tag_invalidation_unknown_tag(self, cache: ApiCache):
         """없는 태그 무효화는 0 반환."""
         removed = await cache.invalidate_tag("unknown")
         assert removed == 0
 
     @pytest.mark.asyncio
-    async def test_prefix_invalidation(self, cache):
+    async def test_prefix_invalidation(self, cache: ApiCache):
         """특정 prefix의 모든 항목 무효화."""
         await cache.set("git:status", "s1")
         await cache.set("git:branches", "b1")
@@ -133,27 +194,27 @@ class TestApiCache:
 
         removed = await cache.invalidate_prefix("git:")
         assert removed == 2
-        assert await cache.get("git:status") is None
-        assert await cache.get("fs:list") == "l1"
+        assert await _cache_get(cache, "git:status") is None
+        assert await _cache_get(cache, "fs:list") == "l1"
 
     @pytest.mark.asyncio
-    async def test_clear(self, cache):
+    async def test_clear(self, cache: ApiCache):
         """전체 캐시 삭제."""
         await cache.set("a", 1)
         await cache.set("b", 2)
         cleared = await cache.clear()
         assert cleared == 2
-        stats = await cache.get_stats()
+        stats = await _cache_stats(cache)
         assert stats["total_entries"] == 0
 
     @pytest.mark.asyncio
-    async def test_get_stats(self, cache):
+    async def test_get_stats(self, cache: ApiCache):
         """통계 정보 반환."""
         await cache.set("x", 100, tags=["demo"])
-        await cache.get("x")  # hit
-        await cache.get("missing")  # miss
+        _ = await _cache_get(cache, "x")  # hit
+        _ = await _cache_get(cache, "missing")  # miss
 
-        stats = await cache.get_stats()
+        stats = await _cache_stats(cache)
         assert stats["total_entries"] >= 1
         assert stats["total_tags"] >= 1
         assert stats["hits"] >= 1
@@ -164,7 +225,7 @@ class TestApiCache:
         assert stats["entries"][0]["key"] == "x"
 
     @pytest.mark.asyncio
-    async def test_get_or_set_miss(self, cache):
+    async def test_get_or_set_miss(self, cache: ApiCache):
         """get_or_set: cache miss 시 factory 호출."""
         factory_called = False
 
@@ -173,12 +234,12 @@ class TestApiCache:
             factory_called = True
             return "computed"
 
-        val = await cache.get_or_set("computed_key", factory)
+        val = await _cache_get_or_set(cache, "computed_key", factory)
         assert val == "computed"
         assert factory_called
 
     @pytest.mark.asyncio
-    async def test_get_or_set_hit(self, cache):
+    async def test_get_or_set_hit(self, cache: ApiCache):
         """get_or_set: cache hit 시 factory 호출 안 함."""
         await cache.set("cached_key", "cached_value")
         factory_called = False
@@ -188,32 +249,32 @@ class TestApiCache:
             factory_called = True
             return "should_not_call"
 
-        val = await cache.get_or_set("cached_key", factory)
+        val = await _cache_get_or_set(cache, "cached_key", factory)
         assert val == "cached_value"
         assert not factory_called
 
     @pytest.mark.asyncio
-    async def test_get_or_set_sync_factory(self, cache):
+    async def test_get_or_set_sync_factory(self, cache: ApiCache):
         """get_or_set: sync factory도 지원."""
-        val = await cache.get_or_set("sync_key", lambda: "sync_value")
+        val = await _cache_get_or_set(cache, "sync_key", lambda: "sync_value")
         assert val == "sync_value"
 
     @pytest.mark.asyncio
-    async def test_clear_expired(self, cache):
+    async def test_clear_expired(self, cache: ApiCache):
         """만료된 항목만 정리."""
         import time
 
         await cache.set("fresh", "v1", ttl=60)
         await cache.set("stale", "v2", ttl=1)
         # Force stale entry expiry
-        entry = cache._entries.get("stale")
+        entry = _cache_entry(cache, "stale")
         assert entry is not None
         entry.created_at = time.time() - 10
 
         removed = await cache.clear_expired()
         assert removed == 1
-        assert await cache.get("fresh") == "v1"
-        assert await cache.get("stale") is None
+        assert await _cache_get(cache, "fresh") == "v1"
+        assert await _cache_get(cache, "stale") is None
 
     @pytest.mark.asyncio
     async def test_max_size_eviction_oldest_removed(self):
@@ -225,19 +286,19 @@ class TestApiCache:
         await cache.set("newest", "v3")
 
         # max_size=3, 3개 모두 저장됨
-        assert await cache.get("oldest") == "v1"
-        assert await cache.get("middle") == "v2"
-        assert await cache.get("newest") == "v3"
+        assert await _cache_get(cache, "oldest") == "v1"
+        assert await _cache_get(cache, "middle") == "v2"
+        assert await _cache_get(cache, "newest") == "v3"
 
         # 4번째 추가 → 가장 오래된 "oldest" 제거
         await cache.set("newer", "v4")
 
-        assert await cache.get("oldest") is None  # 제거됨
-        assert await cache.get("middle") == "v2"
-        assert await cache.get("newest") == "v3"
-        assert await cache.get("newer") == "v4"
+        assert await _cache_get(cache, "oldest") is None  # 제거됨
+        assert await _cache_get(cache, "middle") == "v2"
+        assert await _cache_get(cache, "newest") == "v3"
+        assert await _cache_get(cache, "newer") == "v4"
 
-        stats = await cache.get_stats()
+        stats = await _cache_stats(cache)
         assert stats["total_entries"] == 3
         assert stats["eviction_count"] == 1
         assert stats["max_size"] == 3
@@ -252,12 +313,12 @@ class TestApiCache:
         await cache.set("c", 3)  # 3개 → 2개 초과 → 'a' 제거
         await cache.set("d", 4)  # 3개 → 2개 초과 → 'b' 제거
 
-        assert await cache.get("a") is None
-        assert await cache.get("b") is None
-        assert await cache.get("c") == 3
-        assert await cache.get("d") == 4
+        assert await _cache_get(cache, "a") is None
+        assert await _cache_get(cache, "b") is None
+        assert await _cache_get(cache, "c") == 3
+        assert await _cache_get(cache, "d") == 4
 
-        stats = await cache.get_stats()
+        stats = await _cache_stats(cache)
         assert stats["total_entries"] == 2
         assert stats["eviction_count"] == 2
 
@@ -270,9 +331,9 @@ class TestApiCache:
             await cache.set(f"key_{i}", i)
 
         for i in range(5):
-            assert await cache.get(f"key_{i}") == i
+            assert await _cache_get(cache, f"key_{i}") == i
 
-        stats = await cache.get_stats()
+        stats = await _cache_stats(cache)
         assert stats["total_entries"] == 5
         assert stats["eviction_count"] == 0
 
@@ -285,15 +346,15 @@ class TestApiCache:
         await cache.set("second", "v2", tags=["group_a"])
 
         # 첫 번째는 제거됨, 태그 인덱스도 정리됨
-        assert await cache.get("first") is None
-        assert await cache.get("second") == "v2"
+        assert await _cache_get(cache, "first") is None
+        assert await _cache_get(cache, "second") == "v2"
 
         # 태그 무효화 시 "second"만 제거되어야 함
         removed = await cache.invalidate_tag("group_a")
         assert removed == 1
 
     @pytest.mark.asyncio
-    async def test_concurrent_access(self, cache):
+    async def test_concurrent_access(self, cache: ApiCache):
         """동시 접근 시 asyncio.Lock으로 보호."""
 
         async def writer():
@@ -302,10 +363,10 @@ class TestApiCache:
 
         async def reader():
             for i in range(10):
-                await cache.get(f"key_{i}")
+                _ = await _cache_get(cache, f"key_{i}")
 
-        await asyncio.gather(writer(), reader())
-        stats = await cache.get_stats()
+        _ = await asyncio.gather(writer(), reader())
+        stats = await _cache_stats(cache)
         assert stats["total_entries"] >= 1
 
 
@@ -314,10 +375,14 @@ class TestApiCache:
 # ═══════════════════════════════════════════════════════════════════
 
 
+@final
 class _QueryParams:
+    _value: str
+
     def __init__(self, value: str) -> None:
         self._value = value
 
+    @override
     def __str__(self) -> str:
         return self._value
 
@@ -325,13 +390,25 @@ class _QueryParams:
         return bool(self._value)
 
 
+@final
+class _FakeUrl:
+    path: str
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+
+@final
 class FakeRequest:
     """Mock FastAPI Request for decorator tests."""
 
-    def __init__(self, method: str = "GET", path: str = "/test", query_params: str = ""):
+    method: str
+    url: _FakeUrl
+    query_params: _QueryParams
+
+    def __init__(self, method: str = "GET", path: str = "/test", query_params: str = "") -> None:
         self.method = method
-        self.url = MagicMock()
-        self.url.path = path
+        self.url = _FakeUrl(path)
         self.query_params = _QueryParams(query_params)
 
 
@@ -343,9 +420,10 @@ class TestCachedDecorator:
         """캐시 히트 시 함수 호출 없이 캐시된 값 반환."""
         call_count = 0
 
-        @cached(ttl=60, tags=["test"])
+        @_typed_cached(ttl=60, tags=["test"])
         async def my_endpoint(request: FakeRequest) -> dict[str, object]:
             nonlocal call_count
+            _ = request
             call_count += 1
             return {"data": "expensive"}
 
@@ -363,9 +441,10 @@ class TestCachedDecorator:
         """다른 경로는 다른 캐시 키 사용."""
         call_count = 0
 
-        @cached(ttl=60)
+        @_typed_cached(ttl=60)
         async def my_endpoint(request: FakeRequest) -> dict[str, object]:
             nonlocal call_count
+            _ = request
             call_count += 1
             return {"data": call_count}
 
@@ -383,9 +462,10 @@ class TestCachedDecorator:
         """POST 요청은 캐싱하지 않음."""
         call_count = 0
 
-        @cached(ttl=60)
+        @_typed_cached(ttl=60)
         async def my_endpoint(request: FakeRequest) -> dict[str, object]:
             nonlocal call_count
+            _ = request
             call_count += 1
             return {"data": call_count}
 
@@ -401,7 +481,7 @@ class TestCachedDecorator:
         """sync 함수도 @cached 적용 가능."""
         call_count = 0
 
-        @cached(ttl=60)
+        @_typed_cached(ttl=60)
         def sync_endpoint() -> dict[str, object]:
             nonlocal call_count
             call_count += 1
@@ -418,17 +498,18 @@ class TestCachedDecorator:
         from antigravity_k.engine.api_cache import api_cache as global_cache
 
         # Clear global cache first
-        await global_cache.clear()
+        _ = await global_cache.clear()
 
-        @cached(ttl=60, tags=["demo_tag"])
+        @_typed_cached(ttl=60, tags=["demo_tag"])
         async def demo_endpoint(request: FakeRequest) -> dict[str, object]:
+            _ = request
             return {"data": "demo"}
 
         req = FakeRequest(path="/api/demo")
-        await demo_endpoint(request=req)
+        _ = await demo_endpoint(request=req)
 
         # Verify cached
-        stats = await global_cache.get_stats()
+        stats = await _cache_stats(global_cache)
         assert stats["total_entries"] >= 1
 
         # Invalidate tag
@@ -440,10 +521,11 @@ class TestCachedDecorator:
         """key_builder로 커스텀 캐시 키 생성."""
         call_count = 0
 
-        def my_key_builder(*args, **kwargs):
+        def my_key_builder(*args: object, **kwargs: object) -> str:
+            _ = args
             return f"custom:{kwargs.get('user_id', 'anon')}"
 
-        @cached(ttl=60, key_builder=my_key_builder)
+        @_typed_cached(ttl=60, key_builder=my_key_builder)
         async def user_endpoint(user_id: str) -> dict[str, object]:
             nonlocal call_count
             call_count += 1

@@ -19,11 +19,89 @@ browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import ClassVar, Protocol, cast
 
 logger = logging.getLogger("antigravity_k.tools.semantic_dom")
+
+
+class _AsyncLocatorLike(Protocol):
+    async def click(self, *, timeout: int) -> None: ...
+
+
+class _SyncLocatorLike(Protocol):
+    def click(self, *, timeout: int) -> None: ...
+
+
+class _AsyncAccessibilityLike(Protocol):
+    async def snapshot(self) -> object: ...
+
+
+class _SyncAccessibilityLike(Protocol):
+    def snapshot(self) -> object: ...
+
+
+class _AsyncMouseLike(Protocol):
+    async def click(self, x: float, y: float) -> None: ...
+
+
+class _SyncMouseLike(Protocol):
+    def click(self, x: float, y: float) -> None: ...
+
+
+class _AsyncPageLike(Protocol):
+    async def evaluate(self, expression: str) -> object: ...
+
+    @property
+    def accessibility(self) -> _AsyncAccessibilityLike: ...
+
+    @property
+    def mouse(self) -> _AsyncMouseLike: ...
+
+    async def click(self, selector: str, *, timeout: int) -> None: ...
+
+    def get_by_text(self, text: str, *, exact: bool) -> _AsyncLocatorLike: ...
+
+
+class _SyncPageLike(Protocol):
+    def evaluate(self, expression: str) -> object: ...
+
+    @property
+    def accessibility(self) -> _SyncAccessibilityLike: ...
+
+    @property
+    def mouse(self) -> _SyncMouseLike: ...
+
+    def click(self, selector: str, *, timeout: int) -> None: ...
+
+    def get_by_text(self, text: str, *, exact: bool) -> _SyncLocatorLike: ...
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {key: item for key, item in raw.items() if isinstance(key, str)}
+
+
+def _as_list(value: object) -> list[object]:
+    return list(cast(list[object], value)) if isinstance(value, list) else []
+
+
+def _as_text(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _as_bool(value: object) -> bool:
+    return value if isinstance(value, bool) else False
+
+
+def _as_float(value: object) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return 0.0
 
 
 # ─── 데이터 모델 ─────────────────────────────────────────────────
@@ -279,7 +357,7 @@ class SemanticDOMParser:
     """
 
     # 태그/role → ElementRole 매핑
-    _ROLE_MAP = {
+    _ROLE_MAP: ClassVar[Mapping[str, ElementRole]] = {
         "button": ElementRole.BUTTON,
         "a": ElementRole.LINK,
         "input": ElementRole.INPUT,
@@ -295,7 +373,7 @@ class SemanticDOMParser:
         "summary": ElementRole.BUTTON,
     }
 
-    _INPUT_TYPE_ROLE = {
+    _INPUT_TYPE_ROLE: ClassVar[Mapping[str, ElementRole]] = {
         "checkbox": ElementRole.CHECKBOX,
         "radio": ElementRole.RADIO,
         "submit": ElementRole.BUTTON,
@@ -304,52 +382,54 @@ class SemanticDOMParser:
 
     def __init__(self):
         """Initialize the SemanticDOMParser."""
-        self._ref_counter = 0
+        self._ref_counter: int = 0
 
     def _next_ref(self) -> str:
         self._ref_counter += 1
         return f"@ref{self._ref_counter}"
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the semantic DOM parser state for a new page."""
         self._ref_counter = 0
 
     # ─── 메인 스냅샷 ──────────────────────────────────────────
 
-    async def snapshot_async(self, page) -> SemanticSnapshot:
+    async def snapshot_async(self, page: object) -> SemanticSnapshot:
         """비동기 Playwright 페이지에서 시맨틱 스냅샷을 생성합니다."""
         self.reset()
+        typed_page = cast(_AsyncPageLike, page)
 
         try:
-            raw = await page.evaluate(_DOM_EXTRACT_JS)
+            raw = await typed_page.evaluate(_DOM_EXTRACT_JS)
         except Exception:
             logger.exception("[SemanticDOM] JS 추출 실패")
             return SemanticSnapshot()
 
-        return self._build_snapshot(raw)
+        return self._build_snapshot(_as_mapping(raw))
 
-    def snapshot_sync(self, page) -> SemanticSnapshot:
+    def snapshot_sync(self, page: object) -> SemanticSnapshot:
         """동기 Playwright 페이지에서 시맨틱 스냅샷을 생성합니다."""
         self.reset()
+        typed_page = cast(_SyncPageLike, page)
 
         try:
-            raw = page.evaluate(_DOM_EXTRACT_JS)
+            raw = typed_page.evaluate(_DOM_EXTRACT_JS)
         except Exception:
             logger.exception("[SemanticDOM] JS 추출 실패")
             return SemanticSnapshot()
 
-        return self._build_snapshot(raw)
+        return self._build_snapshot(_as_mapping(raw))
 
-    def _build_snapshot(self, raw: dict[str, Any]) -> SemanticSnapshot:
+    def _build_snapshot(self, raw: Mapping[str, object]) -> SemanticSnapshot:
         """JS 추출 결과를 SemanticSnapshot으로 변환합니다."""
         snap = SemanticSnapshot(
-            url=raw.get("url", ""),
-            title=raw.get("title", ""),
+            url=_as_text(raw.get("url")),
+            title=_as_text(raw.get("title")),
         )
 
-        for raw_el in raw.get("elements", []):
+        for raw_el in _as_list(raw.get("elements")):
             ref = self._next_ref()
-            element = self._parse_element(ref, raw_el)
+            element = self._parse_element(ref, _as_mapping(raw_el))
             snap.elements[ref] = element
             if element.is_interactable:
                 snap.interactable_count += 1
@@ -357,11 +437,11 @@ class SemanticDOMParser:
         snap.total_count = len(snap.elements)
         return snap
 
-    def _parse_element(self, ref: str, raw: dict[str, Any]) -> ElementInfo:
+    def _parse_element(self, ref: str, raw: Mapping[str, object]) -> ElementInfo:
         """단일 요소를 ElementInfo로 변환합니다."""
-        tag = raw.get("tag", "")
-        html_role = raw.get("role", "")
-        input_type = raw.get("type", "")
+        tag = _as_text(raw.get("tag"))
+        html_role = _as_text(raw.get("role"))
+        input_type = _as_text(raw.get("type"))
 
         # 역할 결정 우선순위: aria role > input type > tag
         if html_role and html_role in self._ROLE_MAP:
@@ -374,57 +454,59 @@ class SemanticDOMParser:
             role = ElementRole.OTHER
 
         # Bounding Box
-        bbox_raw = raw.get("bbox", {})
+        bbox_raw = _as_mapping(raw.get("bbox"))
         bbox = BoundingBox(
-            x=bbox_raw.get("x", 0),
-            y=bbox_raw.get("y", 0),
-            width=bbox_raw.get("width", 0),
-            height=bbox_raw.get("height", 0),
+            x=_as_float(bbox_raw.get("x")),
+            y=_as_float(bbox_raw.get("y")),
+            width=_as_float(bbox_raw.get("width")),
+            height=_as_float(bbox_raw.get("height")),
         )
 
         return ElementInfo(
             ref=ref,
             tag=tag,
             role=role,
-            name=raw.get("name", ""),
-            value=raw.get("value", "") or "",
-            placeholder=raw.get("placeholder", "") or "",
-            aria_label=raw.get("ariaLabel", "") or "",
-            href=raw.get("href", "") or "",
-            is_interactable=raw.get("isInteractive", False),
+            name=_as_text(raw.get("name")),
+            value=_as_text(raw.get("value")),
+            placeholder=_as_text(raw.get("placeholder")),
+            aria_label=_as_text(raw.get("ariaLabel")),
+            href=_as_text(raw.get("href")),
+            is_interactable=_as_bool(raw.get("isInteractive")),
             is_visible=True,  # JS에서 이미 필터링
-            is_disabled=raw.get("disabled", False),
+            is_disabled=_as_bool(raw.get("disabled")),
             bbox=bbox,
-            css_selector=raw.get("cssSelector", ""),
+            css_selector=_as_text(raw.get("cssSelector")),
         )
 
     # ─── A11y Tree 융합 ───────────────────────────────────────
 
-    async def enrich_with_a11y_async(self, page, snapshot: SemanticSnapshot) -> SemanticSnapshot:
+    async def enrich_with_a11y_async(self, page: object, snapshot: SemanticSnapshot) -> SemanticSnapshot:
         """Accessibility Tree 정보로 스냅샷을 보강하세요."""
+        typed_page = cast(_AsyncPageLike, page)
         try:
-            a11y = await page.accessibility.snapshot()
+            a11y = await typed_page.accessibility.snapshot()
             if a11y:
-                self._merge_a11y(snapshot, a11y)
+                self._merge_a11y(snapshot, _as_mapping(a11y))
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("[SemanticDOM] A11y enrichment failed: %s", e)
         return snapshot
 
-    def enrich_with_a11y_sync(self, page, snapshot: SemanticSnapshot) -> SemanticSnapshot:
+    def enrich_with_a11y_sync(self, page: object, snapshot: SemanticSnapshot) -> SemanticSnapshot:
         """동기: Accessibility Tree 정보로 스냅샷을 보강합니다."""
+        typed_page = cast(_SyncPageLike, page)
         try:
-            a11y = page.accessibility.snapshot()
+            a11y = typed_page.accessibility.snapshot()
             if a11y:
-                self._merge_a11y(snapshot, a11y)
+                self._merge_a11y(snapshot, _as_mapping(a11y))
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("[SemanticDOM] A11y enrichment failed: %s", e)
         return snapshot
 
-    def _merge_a11y(self, snapshot: SemanticSnapshot, a11y_node: dict[str, Any], depth: int = 0):
+    def _merge_a11y(self, snapshot: SemanticSnapshot, a11y_node: Mapping[str, object], depth: int = 0) -> None:
         """A11y 트리의 정보를 스냅샷 요소와 병합합니다."""
-        a11y_name = a11y_node.get("name", "")
+        a11y_name = _as_text(a11y_node.get("name"))
 
         # A11y 노드와 매칭되는 DOM 요소 찾기
         if a11y_name:
@@ -436,8 +518,8 @@ class SemanticDOMParser:
                     break
 
         # 자식 노드 재귀
-        for child in a11y_node.get("children", []):
-            self._merge_a11y(snapshot, child, depth + 1)
+        for child in _as_list(a11y_node.get("children")):
+            self._merge_a11y(snapshot, _as_mapping(child), depth + 1)
 
     # ─── LLM 컨텍스트 렌더러 ──────────────────────────────────
 
@@ -500,7 +582,7 @@ class SemanticDOMParser:
                 return el
 
         # 전략 2: 포함 매칭 (이름, aria-label, placeholder)
-        candidates = []
+        candidates: list[tuple[float, ElementInfo]] = []
         for el in snapshot.elements.values():
             score = self._intent_match_score(el, intent_lower)
             if score > 0:
@@ -578,11 +660,12 @@ class SemanticDOMParser:
 
     async def click_element_async(
         self,
-        page,
+        page: object,
         snapshot: SemanticSnapshot,
         ref_or_intent: str,
     ) -> str:
         """@ref 또는 의도로 요소를 클릭합니다."""
+        typed_page = cast(_AsyncPageLike, page)
         element = self.resolve_ref(snapshot, ref_or_intent)
         if not element:
             return f"Error: '{ref_or_intent}'에 해당하는 요소를 찾을 수 없습니다"
@@ -590,7 +673,7 @@ class SemanticDOMParser:
         # 전략 1: CSS 셀렉터
         if element.css_selector:
             try:
-                await page.click(element.css_selector, timeout=5000)
+                await typed_page.click(element.css_selector, timeout=5000)
                 return f'Clicked {element.ref} [{element.role.value}] "{element.display_name}"'
             except Exception:
                 logger.exception("Unhandled exception")
@@ -599,26 +682,27 @@ class SemanticDOMParser:
         # 전략 2: Bounding Box 중심 좌표 클릭
         if element.bbox:
             cx, cy = element.bbox.center
-            await page.mouse.click(cx, cy)
+            await typed_page.mouse.click(cx, cy)
             return f"[BBox] Clicked {element.ref} at ({int(cx)},{int(cy)})"
 
         # 전략 3: 텍스트 기반 폴백
         if element.display_name:
-            el = page.get_by_text(element.display_name, exact=False)
+            el = typed_page.get_by_text(element.display_name, exact=False)
             await el.click(timeout=5000)
             return f'[Text] Clicked {element.ref} by text "{element.display_name}"'
 
         return f"Error: {element.ref}를 클릭할 수 없습니다 (셀렉터/좌표/텍스트 모두 실패)"
 
-    def click_element_sync(self, page, snapshot: SemanticSnapshot, ref_or_intent: str) -> str:
+    def click_element_sync(self, page: object, snapshot: SemanticSnapshot, ref_or_intent: str) -> str:
         """동기: @ref 또는 의도로 요소를 클릭합니다."""
+        typed_page = cast(_SyncPageLike, page)
         element = self.resolve_ref(snapshot, ref_or_intent)
         if not element:
             return f"Error: '{ref_or_intent}'에 해당하는 요소를 찾을 수 없습니다"
 
         if element.css_selector:
             try:
-                page.click(element.css_selector, timeout=5000)
+                typed_page.click(element.css_selector, timeout=5000)
                 return f'Clicked {element.ref} [{element.role.value}] "{element.display_name}"'
             except Exception:
                 logger.exception("Unhandled exception")
@@ -626,11 +710,11 @@ class SemanticDOMParser:
 
         if element.bbox:
             cx, cy = element.bbox.center
-            page.mouse.click(cx, cy)
+            typed_page.mouse.click(cx, cy)
             return f"[BBox] Clicked {element.ref} at ({int(cx)},{int(cy)})"
 
         if element.display_name:
-            el = page.get_by_text(element.display_name, exact=False)
+            el = typed_page.get_by_text(element.display_name, exact=False)
             el.click(timeout=5000)
             return f'[Text] Clicked {element.ref} by text "{element.display_name}"'
 

@@ -18,12 +18,53 @@ import re
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Protocol, TypeAlias, cast
 
 from antigravity_k.config import config
 from antigravity_k.engine.hook_event_bus import HookEventBus, HookEventEmit, get_hook_event_bus
 from antigravity_k.tools.egress_policy import safe_urlopen
+from antigravity_k.tools.web_search_models import SearchResponse
 
 logger = logging.getLogger(__name__)
+
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+
+class _ModelManagerLike(Protocol):
+    def get_target_for_role(self, role_name: str, *, default_role: str = "reasoning") -> str: ...
+
+    def generate(
+        self,
+        prompt: str,
+        target: str,
+        *,
+        max_tokens: int,
+        temperature: float,
+    ) -> object: ...
+
+
+class _BrowserModelManagerLike(Protocol):
+    def get_target_for_role(self, role: str, *, default_role: str) -> str: ...
+
+    def generate(self, **kwargs: object) -> object: ...
+
+
+class _KIEngineLike(Protocol):
+    def save_ki(self, ki_id: str, data: dict[str, object]) -> None: ...
+
+
+def _as_json_map(value: object) -> dict[str, object]:
+    return cast(dict[str, object], value) if isinstance(value, dict) else {}
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_text_list(value: object, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [item for item in items if isinstance(item, str)][:limit]
 
 
 # ─── 데이터 모델 ─────────────────────────────────────────────────
@@ -93,7 +134,12 @@ class AutonomousLearner:
     필요한 지식을 자동으로 웹에서 수집하고 Vault에 저장합니다.
     """
 
-    def __init__(self, model_manager=None, ki_engine=None, project_root: str = "."):
+    def __init__(
+        self,
+        model_manager: object | None = None,
+        ki_engine: _KIEngineLike | None = None,
+        project_root: str = ".",
+    ):
         """Initialize the AutonomousLearner.
 
         Args:
@@ -102,12 +148,14 @@ class AutonomousLearner:
             project_root (str): str project root.
 
         """
-        self.manager = model_manager
-        self.ki_engine = ki_engine
-        self.project_root = project_root
-        self._max_gaps = 3  # 한 번에 최대 3개 지식 갭만 처리
-        self._max_sources_per_gap = 3
-        self._last_manager_generation_failed = False
+        self.manager: _ModelManagerLike | None = (
+            cast(_ModelManagerLike, model_manager) if model_manager is not None else None
+        )
+        self.ki_engine: _KIEngineLike | None = ki_engine
+        self.project_root: str = project_root
+        self._max_gaps: int = 3
+        self._max_sources_per_gap: int = 3
+        self._last_manager_generation_failed: bool = False
 
     def _generation_target(self, role_name: str, default_role: str = "reasoning") -> str:
         configured = os.environ.get("AGK_KNOWLEDGE_MODEL", "").strip()
@@ -206,7 +254,7 @@ class AutonomousLearner:
         LLM이 없으면 키워드 기반 폴백으로 검색 쿼리를 생성합니다.
         """
         # LLM 기반 분석 시도
-        if self.manager:
+        if self.manager is not None:
             try:
                 return self._analyze_with_llm(task_description)
             except Exception:
@@ -252,8 +300,8 @@ class AutonomousLearner:
                     headers={"Content-Type": "application/json"},
                 )
                 with safe_urlopen(req, timeout=30) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
-                    response_text = result.get("response", "")
+                    result = _as_json_map(cast(object, json.loads(resp.read().decode("utf-8"))))
+                    response_text = _as_text(result.get("response"))
 
             # JSON 추출
             # <think> 태그 제거
@@ -262,14 +310,16 @@ class AutonomousLearner:
             # JSON 배열 추출
             match = re.search(r"\[.*\]", clean, re.DOTALL)
             if match:
-                gaps_data = json.loads(match.group())
-                gaps = []
+                parsed = cast(object, json.loads(match.group()))
+                gaps_data = cast(list[object], parsed) if isinstance(parsed, list) else []
+                gaps: list[KnowledgeGap] = []
                 for item in gaps_data[: self._max_gaps]:
+                    item_map = _as_json_map(item)
                     gaps.append(
                         KnowledgeGap(
-                            topic=item.get("topic", ""),
-                            reason=item.get("reason", ""),
-                            search_queries=item.get("search_queries", [])[:3],
+                            topic=_as_text(item_map.get("topic")),
+                            reason=_as_text(item_map.get("reason")),
+                            search_queries=_as_text_list(item_map.get("search_queries"), 3),
                         ),
                     )
                 return gaps
@@ -281,15 +331,15 @@ class AutonomousLearner:
 
     def _analyze_with_keywords(self, task_description: str) -> list[KnowledgeGap]:
         """키워드 기반 폴백 — LLM 없이 검색 쿼리를 생성합니다."""
-        gaps = []
+        gaps: list[KnowledgeGap] = []
 
         # URL 제거 (오탐 방지)
         text_without_urls = re.sub(r"https?://\S+", "", task_description)
 
         # 핵심 명사구 추출 (간단한 휴리스틱)
         # 따옴표 안의 내용, 영문 고유명사, 기술 용어 추출
-        quoted = re.findall(r'["\']([^"\']+)["\']', text_without_urls)
-        tech_terms = re.findall(r"\b[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)*\b", text_without_urls)
+        quoted: list[str] = re.findall(r'["\']([^"\']+)["\']', text_without_urls)
+        tech_terms: list[str] = re.findall(r"\b[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)*\b", text_without_urls)
 
         # 쿼리 후보 생성
         if quoted:
@@ -338,9 +388,12 @@ class AutonomousLearner:
         bus: HookEventBus | None = get_hook_event_bus()
 
         search_engine = WebSearchEngine()
-        surfer = BrowserSurfingAgent(model_manager=self.manager, vision_model_name="qwen3.6:latest")
+        browser_manager = (
+            cast(_BrowserModelManagerLike, cast(object, self.manager)) if self.manager is not None else None
+        )
+        surfer = BrowserSurfingAgent(model_manager=browser_manager, vision_model_name="qwen3.6:latest")
 
-        learned = []
+        learned: list[LearnedKnowledge] = []
 
         # asyncio.run is not safe inside an async context, but auto_learn seems synchronous right now?
         # Actually auto_learn is called synchronously in orchestrator_handlers.py!
@@ -355,10 +408,10 @@ class AutonomousLearner:
                 )
             for gap in gaps:
                 try:
-                    all_results = []
+                    all_results: list[str] = []
                     for query in gap.search_queries[:2]:
                         # 검색 인프라 (SearxNG/Tavily)
-                        response = await search_engine.search(query=query)
+                        response: SearchResponse = await search_engine.search(query=query)
                         if response and response.results:
                             # 상위 2개 URL에 대해 Browser-Use 서핑 수행
                             for r in response.results[:2]:

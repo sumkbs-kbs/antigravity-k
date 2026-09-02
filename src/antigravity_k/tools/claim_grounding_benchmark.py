@@ -18,7 +18,7 @@ class ClaimGroundingCase:
     sources: tuple[CitationSource, ...]
     conflict_sets: tuple[tuple[str, ...], ...] = ()
     min_overlap: float = 0.6
-    expected: Mapping[str, int | float] = field(default_factory=dict)
+    expected: Mapping[str, int | float] = field(default_factory=lambda: dict[str, int | float]())
     question: str = ""
     query: str = ""
 
@@ -50,34 +50,38 @@ class ClaimGroundingCase:
             raise ValueError("claim grounding case min_overlap must be between 0 and 1")
 
         sources: list[CitationSource] = []
-        for raw_source in raw_sources:
+        for raw_source in cast(list[object], raw_sources):
             if not isinstance(raw_source, dict):
                 raise TypeError("claim grounding sources must be objects")
-            source_id = raw_source.get("source_id")
-            title = raw_source.get("title")
-            text = raw_source.get("text")
+            source = cast(Mapping[str, object], raw_source)
+            source_id = source.get("source_id")
+            title = source.get("title")
+            text = source.get("text")
             if not isinstance(source_id, str) or not isinstance(title, str) or not isinstance(text, str):
                 raise TypeError("claim grounding source requires source_id, title, and text")
+            raw_url = source.get("url", "")
+            raw_freshness = source.get("freshness", "")
             sources.append(
                 CitationSource(
                     source_id=source_id,
                     title=title,
                     text=text,
-                    url=raw_source.get("url", "") if isinstance(raw_source.get("url", ""), str) else "",
-                    freshness=(
-                        raw_source.get("freshness", "") if isinstance(raw_source.get("freshness", ""), str) else ""
-                    ),
+                    url=raw_url if isinstance(raw_url, str) else "",
+                    freshness=raw_freshness if isinstance(raw_freshness, str) else "",
                 ),
             )
 
         conflict_sets: list[tuple[str, ...]] = []
-        for raw_group in raw_conflicts:
-            if not isinstance(raw_group, list) or not all(isinstance(value, str) for value in raw_group):
+        for raw_group in cast(list[object], raw_conflicts):
+            if not isinstance(raw_group, list):
                 raise ValueError("claim grounding conflict_sets must contain string lists")
-            conflict_sets.append(tuple(raw_group))
+            group = cast(list[object], raw_group)
+            if not all(isinstance(value, str) for value in group):
+                raise ValueError("claim grounding conflict_sets must contain string lists")
+            conflict_sets.append(tuple(value for value in group if isinstance(value, str)))
 
         expected: dict[str, int | float] = {}
-        for key, value in raw_expected.items():
+        for key, value in cast(Mapping[object, object], raw_expected).items():
             if not isinstance(key, str) or not isinstance(value, (int, float)):
                 raise TypeError("claim grounding expected values must be numeric")
             expected[key] = value
@@ -182,7 +186,7 @@ def load_claim_responses(path: Path) -> dict[str, str]:
         raise TypeError("claim response file must be an object mapping case ids to strings")
     responses: dict[str, str] = {}
     for key, value in payload.items():
-        if not isinstance(key, str) or not isinstance(value, str):
+        if not isinstance(value, str):
             raise TypeError("claim response file must be an object mapping case ids to strings")
         responses[key] = value
     return responses

@@ -4,14 +4,29 @@
 단순 작업은 스킵하고 실패 경로는 안전한지 검증한다.
 """
 
+from collections.abc import Callable
+from typing import cast
 from unittest.mock import MagicMock
 
+from antigravity_k.engine import llm_task_decomposer as _decomposer_module
 from antigravity_k.engine.llm_task_decomposer import (
     Decomposition,
     LlmTaskDecomposer,
-    _extract_steps,
     is_complex_task,
 )
+
+_extract_steps: Callable[[str], list[str]] = cast(
+    Callable[[str], list[str]],
+    getattr(_decomposer_module, "_extract_steps"),
+)
+
+
+def _mock_method(obj: object, name: str) -> MagicMock:
+    return cast(MagicMock, getattr(obj, name))
+
+
+def _replace_method(obj: object, name: str, mock: MagicMock) -> None:
+    setattr(obj, name, mock)
 
 
 class TestIsComplexTask:
@@ -61,7 +76,7 @@ class TestExtractSteps:
         assert _extract_steps("그냥 설명만 있는 문장입니다.") == []
 
 
-def _gen_factory(response: str):
+def _gen_factory(response: str) -> Callable[[str], str]:
     def gen(_prompt: str) -> str:
         return response
 
@@ -103,7 +118,7 @@ class TestDecompose:
         assert len(d.steps) == 5
 
     def test_generate_error_skipped_safe(self):
-        def boom(_p):
+        def boom(_p: str) -> str:
             raise RuntimeError("transient")
 
         d = LlmTaskDecomposer(generate_fn=boom).decompose("코드 마이그레이션 워크플로를 설계")
@@ -152,34 +167,37 @@ class TestManagerIntegration:
         from antigravity_k.engine.usage_tracker import UsageTracker
 
         registry = MagicMock(spec=ModelRegistry)
-        registry.memory_config = MagicMock()
-        registry.memory_config.max_loaded_gb = 1000
-        registry.memory_config.auto_unload = False
+        memory_config = _mock_method(registry, "memory_config")
+        memory_config.max_loaded_gb = 1000
+        memory_config.auto_unload = False
         profile = ModelProfile(
             name="qwen3.6:latest",
             repo="qwen/qwen3.6",
             role="reasoning",
             estimated_memory_gb=1,
         )
-        registry.get_model.side_effect = lambda name: profile if name == profile.name else None
+        def get_model(name: str):
+            return profile if name == profile.name else None
+
+        _mock_method(registry, "get_model").side_effect = get_model
         router = ModelRouter(registry)
         tracker = UsageTracker(db_path=None)
         manager = ModelManager(registry=registry, router=router, tracker=tracker)
-        manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
+        _replace_method(manager, "_load_mlx_model", MagicMock(return_value=(MagicMock(), None)))
         return manager
 
     def test_generate_decomposed_runs_each_step(self):
         manager = self._manager()
-        manager._task_decomposition_config = lambda: {
+        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {
             "enabled": True,
             "min_steps": 2,
             "max_steps": 6,
-        }
-        manager._self_consistency_config = lambda: {"enabled": False}
+        }))
+        _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
 
         call_count = 0
 
-        def fake(loaded, prompt, **kwargs):
+        def fake(_loaded: object, prompt: str, **_kwargs: object) -> str:
             nonlocal call_count
             call_count += 1
             if "분해하세요" in prompt:
@@ -188,73 +206,73 @@ class TestManagerIntegration:
                 return "checkpoint/recovery 결과"
             return "plain"
 
-        manager._do_generate = MagicMock(side_effect=fake)
+        _replace_method(manager, "_do_generate", MagicMock(side_effect=fake))
         out = manager.generate_decomposed(
             "코드 마이그레이션 워크플로를 설계하세요",
             "qwen3.6:latest",
         )
         # 1회 분해 + 2회 단계 실행 = 3회 호출.
-        assert manager._do_generate.call_count == 3
+        assert _mock_method(manager, "_do_generate").call_count == 3
         assert "1단계" in out and "2단계" in out
         assert out.count("checkpoint/recovery 결과") == 2
 
     def test_disabled_falls_back_to_plain_generate(self):
         manager = self._manager()
-        manager._task_decomposition_config = lambda: {"enabled": False}
-        manager._self_consistency_config = lambda: {"enabled": False}
-        manager._do_generate = MagicMock(return_value="plain")
+        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {"enabled": False}))
+        _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
+        _replace_method(manager, "_do_generate", MagicMock(return_value="plain"))
         out = manager.generate_decomposed(
             "코드 마이그레이션 워크플로를 설계하세요",
             "qwen3.6:latest",
         )
         assert out == "plain"
-        assert manager._do_generate.call_count == 1
+        assert _mock_method(manager, "_do_generate").call_count == 1
 
     def test_forced_escalation_ignores_initial_enabled_gate(self):
         manager = self._manager()
-        manager._task_decomposition_config = lambda: {"enabled": False}
-        manager._self_consistency_config = lambda: {"enabled": False}
+        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {"enabled": False}))
+        _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
 
-        def fake(loaded, prompt, **kwargs):
+        def fake(_loaded: object, prompt: str, **_kwargs: object) -> str:
             if "분해하세요" in prompt:
                 return '["저장소 분석", "변경 계획 수립"]'
             return "단계 결과"
 
-        manager._do_generate = MagicMock(side_effect=fake)
+        _replace_method(manager, "_do_generate", MagicMock(side_effect=fake))
         out = manager.generate_decomposed(
             "코드 마이그레이션 워크플로를 설계하세요",
             "qwen3.6:latest",
             force=True,
         )
         assert "1단계" in out
-        assert manager._do_generate.call_count == 3
+        assert _mock_method(manager, "_do_generate").call_count == 3
 
     def test_simple_task_skips_decomposition_cost(self):
         manager = self._manager()
-        manager._task_decomposition_config = lambda: {
+        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {
             "enabled": True,
             "min_steps": 2,
             "max_steps": 6,
-        }
-        manager._self_consistency_config = lambda: {"enabled": False}
-        manager._do_generate = MagicMock(return_value="plain")
+        }))
+        _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
+        _replace_method(manager, "_do_generate", MagicMock(return_value="plain"))
         out = manager.generate_decomposed("안녕", "qwen3.6:latest")
         assert out == "plain"
         # 단순 작업은 게이트에서 즉시 폴백해 1회 호출만 발생한다.
-        assert manager._do_generate.call_count == 1
+        assert _mock_method(manager, "_do_generate").call_count == 1
 
     def test_later_steps_receive_previous_outputs(self):
         manager = self._manager()
-        manager._task_decomposition_config = lambda: {
+        _replace_method(manager, "_task_decomposition_config", MagicMock(side_effect=lambda: {
             "enabled": True,
             "min_steps": 2,
             "max_steps": 6,
-        }
-        manager._self_consistency_config = lambda: {"enabled": False}
+        }))
+        _replace_method(manager, "_self_consistency_config", MagicMock(side_effect=lambda: {"enabled": False}))
 
         call_count = 0
 
-        def fake(loaded, prompt, **kwargs):
+        def fake(_loaded: object, prompt: str, **_kwargs: object) -> str:
             nonlocal call_count
             call_count += 1
             if "분해하세요" in prompt:
@@ -263,27 +281,27 @@ class TestManagerIntegration:
                 raise AssertionError("2단계 프롬프트에 1단계 결과가 없다")
             return "STEP_OUTPUT_" + str(call_count)
 
-        manager._do_generate = MagicMock(side_effect=fake)
+        _replace_method(manager, "_do_generate", MagicMock(side_effect=fake))
         out = manager.generate_decomposed(
             "이벤트 소싱 CQRS 파이프라인을 설계하세요",
             "qwen3.6:latest",
         )
-        second_prompt = manager._do_generate.call_args_list[2].args[1]
+        second_prompt = cast(str, _mock_method(manager, "_do_generate").call_args_list[2].args[1])
         assert "[1단계 결과]" in second_prompt
         assert "STEP_OUTPUT_2" in second_prompt
         assert "STEP_OUTPUT_3" in out
 
 
 class TestToolLoopIntegration:
-    def _orch(self, config, model_name="deepseek-r1:70b"):
+    def _orch(self, config: object, model_name: str = "deepseek-r1:70b") -> MagicMock:
         from unittest.mock import AsyncMock, MagicMock
 
         orch = MagicMock()
-        orch.config = config
-        orch.project_root = "/tmp"
-        orch._skill_prompts_cache = ""
-        orch._last_agent_output = ""
-        orch._prepare_agent_prompt.return_value = (
+        setattr(orch, "config", config)
+        setattr(orch, "project_root", "/tmp")
+        setattr(orch, "_skill_prompts_cache", "")
+        setattr(orch, "_last_agent_output", "")
+        _mock_method(orch, "_prepare_agent_prompt").return_value = (
             model_name,
             "sys",
             "tool",
@@ -291,32 +309,38 @@ class TestToolLoopIntegration:
             "prompt",
             [{"role": "user", "content": "hi"}],
         )
-        orch.manager = MagicMock()
-        orch.manager._registry = MagicMock()
-        orch.manager.router = MagicMock()
-        orch.manager.router.get_combo.return_value = None
-        orch.manager.is_loaded.return_value = True
-        orch.manager.get_system_prompt.return_value = ""
-        orch.manager.get_tool_prompt.return_value = ""
-        orch._get_model_for_role.return_value = model_name
+        manager = MagicMock()
+        setattr(orch, "manager", manager)
+        setattr(manager, "_registry", MagicMock())
+        router = MagicMock()
+        setattr(manager, "router", router)
+        _mock_method(router, "get_combo").return_value = None
+        _mock_method(manager, "is_loaded").return_value = True
+        _mock_method(manager, "get_system_prompt").return_value = ""
+        _mock_method(manager, "get_tool_prompt").return_value = ""
+        _mock_method(orch, "_get_model_for_role").return_value = model_name
         ctx = MagicMock()
-        ctx.tool_guardrail = MagicMock()
-        ctx.tool_guardrail.reset = MagicMock()
-        ctx.cognitive_loop = MagicMock()
-        ctx.quality_gate = MagicMock()
-        ctx.quality_gate.reset = MagicMock()
-        ctx.tool_executor = MagicMock()
-        ctx.tool_executor.execute_async = AsyncMock(return_value="ok")
-        orch.ctx = ctx
+        tool_guardrail = MagicMock()
+        setattr(ctx, "tool_guardrail", tool_guardrail)
+        setattr(tool_guardrail, "reset", MagicMock())
+        setattr(ctx, "cognitive_loop", MagicMock())
+        quality_gate = MagicMock()
+        setattr(ctx, "quality_gate", quality_gate)
+        setattr(quality_gate, "reset", MagicMock())
+        tool_executor = MagicMock()
+        setattr(ctx, "tool_executor", tool_executor)
+        setattr(tool_executor, "execute_async", AsyncMock(return_value="ok"))
+        setattr(orch, "ctx", ctx)
         return orch
 
     def test_direct_response_uses_decomposed_when_enabled(self):
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
         orch = self._orch({"amplification": {"task_decomposition": {"enabled": True}}})
-        orch.manager.generate_decomposed.return_value = "분해 증폭 결과"
-        orch.manager.generate.return_value = "plain"
-        list(
+        manager = _mock_method(orch, "manager")
+        _mock_method(manager, "generate_decomposed").return_value = "분해 증폭 결과"
+        _mock_method(manager, "generate").return_value = "plain"
+        _ = list(
             ToolLoopEngine(orch).run_loop(
                 [{"role": "user", "content": "답만"}],
                 "SELF",
@@ -325,14 +349,15 @@ class TestToolLoopIntegration:
                 direct_response=True,
             )
         )
-        orch.manager.generate_decomposed.assert_called_once()
+        _mock_method(manager, "generate_decomposed").assert_called_once()
 
     def test_direct_response_falls_back_when_disabled(self):
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
         orch = self._orch({"amplification": {"task_decomposition": {"enabled": False}}})
-        orch.manager.generate.return_value = "plain"
-        list(
+        manager = _mock_method(orch, "manager")
+        _mock_method(manager, "generate").return_value = "plain"
+        _ = list(
             ToolLoopEngine(orch).run_loop(
                 [{"role": "user", "content": "답만"}],
                 "SELF",
@@ -341,6 +366,6 @@ class TestToolLoopIntegration:
                 direct_response=True,
             )
         )
-        orch.manager.generate_decomposed.assert_not_called()
+        _mock_method(manager, "generate_decomposed").assert_not_called()
         # 폴백 경로는 초기 생성 + 품질 리비전 재생성으로 2회까지 호출될 수 있다.
-        assert orch.manager.generate.call_count >= 1
+        assert _mock_method(manager, "generate").call_count >= 1

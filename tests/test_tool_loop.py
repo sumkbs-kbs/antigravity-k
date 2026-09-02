@@ -547,10 +547,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: only an exact source title and its known ID are returned.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
-        assert (
-            cast(str, engine.last_output)
-            == "- Python 3.13 release notes [citation:python-docs]"
-        )
+        assert cast(str, engine.last_output) == "- Python 3.13 release notes [citation:python-docs]"
         analysis = cast(dict[str, object], _get_mock_attr(mock_orch, ("ctx", "analysis")))
         assert analysis["citation_recovery"] == "deterministic_source_titles"
         assert any("Citation Recovery" in output for output in outputs)
@@ -720,9 +717,7 @@ class TestToolLoopEnginePostLoopChecks:
         assert outcomes[0].tokens_out == TokenEstimator.estimate_text("보완된 최종 답변")
         # AgentTurnCompleted가 정확히 1회 발행됐는지 확인 — 다른 이벤트
         # (ToolLoopProtocolStats 등)와 무관하게 해당 인자로 호출된 경우만 센다.
-        publish_calls = [
-            c for c in event_bus.publish.call_args_list if c.args and c.args[0] == "AgentTurnCompleted"
-        ]
+        publish_calls = [c for c in event_bus.publish.call_args_list if c.args and c.args[0] == "AgentTurnCompleted"]
         assert len(publish_calls) == 1
         assert publish_calls[0].kwargs == {
             "user_message": "요청",

@@ -4,14 +4,66 @@ import ast
 import json
 import logging
 import os
-from typing import Any, ClassVar
+from collections.abc import Mapping
+from datetime import datetime
+from typing import ClassVar, Protocol, TypedDict, cast, final, override
 
+from antigravity_k.config import config
 from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 
 
+class _ModelManagerProtocol(Protocol):
+    def get_target_for_role(self, role: str, *, default_role: str) -> str | None: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+class EvaluationResult(TypedDict):
+    scores: dict[str, int]
+    avg: float
+    grade: str
+    weaknesses: list[str]
+    needs_improvement: bool
+
+
+class EvaluationRecord(TypedDict):
+    task: str
+    result: EvaluationResult
+    timestamp: str
+
+
+class EvolutionCycle(TypedDict):
+    task: str
+    before: float
+    after: float
+    delta: float
+    improved: bool
+    improvement_applied: bool
+    details: str
+    timestamp: str
+
+
+class TrendResult(TypedDict):
+    avg_trend: list[float]
+    improving: bool | None
+    total_evaluations: int
+
+
+class EffectivenessReport(TypedDict):
+    message: str
+    total_cycles: int
+    improvements_applied: int
+    effective_improvements: int
+    effectiveness_rate: str
+    avg_score_change: float
+    best_improvement: EvolutionCycle | None
+    worst_regression: EvolutionCycle | None
+
+
+@final
 class SelfEvolutionTool(BaseTool):
     """SelfEvolutionTool: 자체 진화 도구.
 
@@ -27,24 +79,25 @@ class SelfEvolutionTool(BaseTool):
       6. 승인 시 적용 + Git 커밋 + Vault 스냅샷
     """
 
-    category = ToolCategory.CODE_EXEC
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.HIGH
-    icon = "🧬"
+    category: ToolCategory = ToolCategory.CODE_EXEC
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.HIGH
+    icon: str = "🧬"
 
-    def __init__(self):
+    def __init__(self, model_manager: _ModelManagerProtocol | None = None) -> None:
         """Initialize the SelfEvolutionTool."""
         super().__init__()
-        self.tags = ["evolve", "meta", "self_healing", "refactor"]
-        self._name = "trigger_self_evolution"
-        self._description = (
+        self.manager: _ModelManagerProtocol | None = model_manager
+        self.tags: list[str] = ["evolve", "meta", "self_healing", "refactor"]
+        self._name: str = "trigger_self_evolution"
+        self._description: str = (
             "Triggers the Self-Evolution Engine to analyze and improve the Antigravity-K codebase. "
             "Use when the user asks to 'evolve', 'upgrade yourself', 'refactor your core engine', "
             "or 'create a new tool/skill'. Supports two modes:\n"
             "  - mode='evolve': Improve existing code\n"
             "  - mode='generate_skill': Create a brand new tool"
         )
-        self._schema = {
+        self._schema: dict[str, object] = {
             "type": "object",
             "properties": {
                 "evolution_goal": {
@@ -60,8 +113,11 @@ class SelfEvolutionTool(BaseTool):
                         "meta_architect",
                         "self_play",
                     ],
-                    "description": "Evolution mode: 'evolve' (improve code), 'generate_skill' (create tool), 'rsi_cycle' (full RSI),"
-                    "'meta_architect' (system-wide refactor), 'self_play' (autonomous dataset learning).",
+                    "description": (
+                        "Evolution mode: 'evolve' (improve code), 'generate_skill' (create tool), "
+                        "'rsi_cycle' (full RSI), 'meta_architect' (system-wide refactor), "
+                        "'self_play' (autonomous dataset learning)."
+                    ),
                 },
                 "target_files": {
                     "type": "string",
@@ -76,6 +132,7 @@ class SelfEvolutionTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -86,6 +143,7 @@ class SelfEvolutionTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -96,7 +154,8 @@ class SelfEvolutionTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         """Parameters Schema.
 
         Returns:
@@ -105,7 +164,8 @@ class SelfEvolutionTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -115,9 +175,12 @@ class SelfEvolutionTool(BaseTool):
             Any: The any result.
 
         """
-        goal = kwargs.get("evolution_goal")
-        mode = kwargs.get("mode", "evolve")
-        target_files = kwargs.get("target_files", "")
+        goal_value = kwargs.get("evolution_goal")
+        goal = goal_value if isinstance(goal_value, str) else ""
+        mode_value = kwargs.get("mode", "evolve")
+        mode = mode_value if isinstance(mode_value, str) else "evolve"
+        target_files_value = kwargs.get("target_files", "")
+        target_files = target_files_value if isinstance(target_files_value, str) else ""
 
         if not goal:
             return "Error: Missing evolution_goal parameter."
@@ -129,7 +192,8 @@ class SelfEvolutionTool(BaseTool):
         elif mode == "meta_architect":
             return self._run_meta_architect(goal)
         elif mode == "self_play":
-            dataset_name = kwargs.get("dataset_name", "")
+            dataset_name_value = kwargs.get("dataset_name", "")
+            dataset_name = dataset_name_value if isinstance(dataset_name_value, str) else ""
             return self._run_self_play(dataset_name)
         else:
             return self._evolve_codebase(goal, target_files)
@@ -141,7 +205,7 @@ class SelfEvolutionTool(BaseTool):
 
             project_root = self._find_project_root()
             config = RSIConfig(max_cycles=1, auto_apply_prompts=True)
-            engine = RSIEngine(config=config, project_root=project_root)
+            engine = RSIEngine(config=config, project_root=project_root, model_manager=self.manager)
 
             result = engine.run_cycle(performance_data={"weaknesses": [goal]})
 
@@ -166,13 +230,14 @@ class SelfEvolutionTool(BaseTool):
             from antigravity_k.engine.skill_generator import SkillGenerator
 
             project_root = self._find_project_root()
-            generator = SkillGenerator(project_root=project_root)
-            result = generator.generate_skill(goal)
+            generator = SkillGenerator(project_root=project_root, model_manager=self.manager)
+            result = cast(dict[str, object], cast(object, generator.generate_skill(goal)))
 
-            if result["success"]:
-                return result["message"]
+            if result.get("success") is True:
+                message = result.get("message", "")
+                return message if isinstance(message, str) else str(message)
             else:
-                return f"❌ 스킬 생성 실패: {result['message']}"
+                return f"❌ 스킬 생성 실패: {result.get('message', '')}"
         except Exception as e:
             logger.exception("Skill generation error")
             return f"❌ 스킬 생성 중 오류: {e}"
@@ -183,10 +248,10 @@ class SelfEvolutionTool(BaseTool):
             from antigravity_k.engine.meta_architect import MetaArchitect
 
             project_root = self._find_project_root()
-            architect = MetaArchitect(project_root=project_root)
+            architect = MetaArchitect(project_root=project_root, model_manager=self.manager)
             proposal = architect.analyze_and_propose({"weaknesses": [goal]})
             if proposal:
-                architect.execute_proposal(proposal)
+                _ = architect.execute_proposal(proposal)
                 return f"✅ Meta-Architect가 제안을 성공적으로 실행했습니다.\n\n목표: {goal}\n개요: {str(proposal)[:300]}..."
             return "⚠️ Meta-Architect가 적절한 개선 제안을 생성하지 못했습니다."
         except Exception as e:
@@ -201,7 +266,7 @@ class SelfEvolutionTool(BaseTool):
             from antigravity_k.engine.curriculum_generator import CurriculumGenerator
 
             project_root = self._find_project_root()
-            generator = CurriculumGenerator(project_root=project_root)
+            generator = CurriculumGenerator(project_root=project_root, model_manager=self.manager)
 
             task = generator.generate_new_challenge(dataset_name=dataset_name)
             if not task:
@@ -214,9 +279,9 @@ class SelfEvolutionTool(BaseTool):
                 asyncio.set_event_loop(loop)
 
             if loop.is_running():
-                loop.create_task(generator.self_play(task))
+                _ = loop.create_task(generator.self_play(task))
             else:
-                loop.run_until_complete(generator.self_play(task))
+                _ = loop.run_until_complete(generator.self_play(task))
 
             dataset_label = dataset_name or "Auto/Synthetic"
             return (
@@ -241,7 +306,7 @@ class SelfEvolutionTool(BaseTool):
                 return "⚠️ 진화 대상 파일을 찾을 수 없습니다."
 
             # 2. 현재 코드 읽기
-            code_context = {}
+            code_context: dict[str, str] = {}
             for fpath in targets[:5]:  # 최대 5개 파일
                 try:
                     with open(fpath, encoding="utf-8") as f:
@@ -271,11 +336,11 @@ class SelfEvolutionTool(BaseTool):
                 return "⚠️ LLM이 개선 사항을 생성하지 못했습니다."
 
             # 5. _drafts/에 저장 + AST 검증
-            results = []
+            results: list[str] = []
             for filename, patch_code in patches.items():
                 # AST 검증
                 try:
-                    ast.parse(patch_code)
+                    _ = ast.parse(patch_code)
                 except SyntaxError as e:
                     results.append(f"❌ {filename}: 구문 오류 — {e}")
                     continue
@@ -284,15 +349,15 @@ class SelfEvolutionTool(BaseTool):
                 draft_path = os.path.join(drafts_dir, filename)
                 os.makedirs(os.path.dirname(draft_path), exist_ok=True)
                 with open(draft_path, "w", encoding="utf-8") as f:
-                    f.write(patch_code)
+                    _ = f.write(patch_code)
                 results.append(f"✅ {filename}: 패치 저장 ({len(patch_code)} bytes)")
 
             # 메타데이터 저장
-            meta = {
+            meta: dict[str, object] = {
                 "goal": goal,
-                "target_files": list(code_context.keys()),
-                "patches": list(patches.keys()),
-                "generated_at": __import__("datetime").datetime.now().isoformat(),
+                "target_files": list(code_context),
+                "patches": list(patches),
+                "generated_at": datetime.now().isoformat(),
                 "status": "pending_review",
             }
             with open(os.path.join(drafts_dir, "_evolution_meta.json"), "w", encoding="utf-8") as f:
@@ -322,7 +387,7 @@ class SelfEvolutionTool(BaseTool):
 
     def _find_target_files(self, project_root: str, target_files: str, goal: str) -> list[str]:
         """진화 대상 파일을 탐색합니다."""
-        targets = []
+        targets: list[str] = []
 
         # 명시적 대상 파일이 있으면 우선 사용
         if target_files:
@@ -333,7 +398,7 @@ class SelfEvolutionTool(BaseTool):
                     targets.append(full_path)
                 else:
                     # 전체 프로젝트에서 검색
-                    for root, dirs, files in os.walk(os.path.join(project_root, "src")):
+                    for root, _dirs, files in os.walk(os.path.join(project_root, "src")):
                         if tf in files:
                             targets.append(os.path.join(root, tf))
                             break
@@ -381,32 +446,53 @@ class SelfEvolutionTool(BaseTool):
         )
 
         try:
-            data = {
-                "model": "qwen3.6:latest",
-                "prompt": prompt,
-                "stream": False,
-                "options": {"num_predict": 4096, "temperature": 0.3},
-            }
-            req = urllib.request.Request(
-                "http://localhost:11434/api/generate",
-                data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-            with safe_urlopen(req, timeout=120) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                text = result.get("response", "")
+            text: str | None = None
+            if self.manager is not None:
+                resolver = getattr(self.manager, "get_target_for_role", None)
+                generate = getattr(self.manager, "generate", None)
+                if callable(resolver) and callable(generate):
+                    try:
+                        target = resolver("self_evolution", default_role="code")
+                        if isinstance(target, str) and target.strip():
+                            generated = generate(
+                                prompt,
+                                target.strip(),
+                                max_tokens=4096,
+                                temperature=0.3,
+                            )
+                            text = generated if isinstance(generated, str) else None
+                    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                        logger.warning("Managed self-evolution generation failed; using configured API fallback", exc_info=True)
+            if not isinstance(text, str):
+                data = {
+                    "model": config.model.code_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": 4096, "temperature": 0.3},
+                }
+                req = urllib.request.Request(
+                    f"{config.model.api_base.replace('/v1', '').rstrip('/')}/api/generate",
+                    data=json.dumps(data).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with safe_urlopen(req, timeout=120) as resp:
+                    result = cast(dict[str, object], json.loads(resp.read().decode("utf-8")))
+                    response = result.get("response", "")
+                    text = response if isinstance(response, str) else ""
 
             # <think> 태그 제거
-            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+            text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL)
 
             # JSON 추출
             decoder = json.JSONDecoder()
             for i, ch in enumerate(text):
                 if ch == "{":
                     try:
-                        obj, _ = decoder.raw_decode(text, i)
-                        if isinstance(obj, dict) and all(isinstance(v, str) for v in obj.values()):
-                            return obj
+                        obj, _ = cast(tuple[object, int], decoder.raw_decode(text or "", i))
+                        if isinstance(obj, dict):
+                            obj_dict = cast(dict[object, object], obj)
+                            if all(isinstance(v, str) for v in obj_dict.values()):
+                                return {str(k): v for k, v in obj_dict.items() if isinstance(v, str)}
                     except json.JSONDecodeError:
                         continue
 
@@ -419,6 +505,7 @@ class SelfEvolutionTool(BaseTool):
 # ─── Self-Reward 평가 엔진 ────────────────────────────────────────
 
 
+@final
 class SelfRewardEvaluator:
     """Self-Reward Loop: 에이전트 출력 품질 자가 평가.
 
@@ -446,17 +533,17 @@ class SelfRewardEvaluator:
         "user_satisfaction": "사용자 만족도",
     }
 
-    def __init__(self, threshold: float = 7.0):
+    def __init__(self, threshold: float = 7.0) -> None:
         """Initialize the SelfRewardEvaluator.
 
         Args:
             threshold (float): float threshold.
 
         """
-        self.threshold = threshold
-        self._history: list[dict[str, Any]] = []
+        self.threshold: float = threshold
+        self._history: list[EvaluationRecord] = []
 
-    def evaluate(self, task: str, output: str, context: str = "") -> dict[str, Any]:
+    def evaluate(self, task: str, output: str, context: str = "") -> EvaluationResult:
         """에이전트 출력을 자가 평가합니다 (LLM 호출 없이 휴리스틱 기반).
 
         LLM 기반 평가가 필요한 경우 evaluate_with_llm()을 사용하세요.
@@ -465,10 +552,11 @@ class SelfRewardEvaluator:
             {"scores": {...}, "avg": float, "grade": str, "weaknesses": [...]}
 
         """
-        scores = {}
+        _ = context
+        scores: dict[str, int] = {}
 
         # 1. 정확성: 에러 메시지 포함 여부
-        output_lower = output.lower() if isinstance(output, str) else ""
+        output_lower = output.lower()
         error_indicators = ["error", "traceback", "exception", "failed", "실패", "오류"]
         error_count = sum(1 for ind in error_indicators if ind in output_lower)
         scores["accuracy"] = max(1, 10 - error_count * 2)
@@ -484,12 +572,12 @@ class SelfRewardEvaluator:
             scores["completeness"] = 9
 
         # 3. 효율성: 반복 패턴 감지
-        lines = output.split("\n") if isinstance(output, str) else []
+        lines = output.split("\n")
         unique_ratio = len(set(lines)) / max(len(lines), 1)
         scores["efficiency"] = min(10, int(unique_ratio * 10) + 2)
 
         # 4. 사용자 만족도: 태스크 키워드가 출력에 포함되는지
-        task_words = task.lower().split() if isinstance(task, str) else []
+        task_words = task.lower().split()
         match_count = sum(1 for w in task_words if len(w) > 2 and w in output_lower)
         match_ratio = match_count / max(len(task_words), 1)
         scores["user_satisfaction"] = min(10, int(match_ratio * 8) + 3)
@@ -501,7 +589,7 @@ class SelfRewardEvaluator:
         # 약점 식별
         weaknesses = [self.CRITERIA_KR[c] for c, s in scores.items() if s < self.threshold]
 
-        result = {
+        result: EvaluationResult = {
             "scores": scores,
             "avg": round(avg, 1),
             "grade": grade,
@@ -513,21 +601,20 @@ class SelfRewardEvaluator:
             {
                 "task": task[:100],
                 "result": result,
-                "timestamp": __import__("datetime").datetime.now().isoformat(),
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
         return result
 
-    def suggest_improvements(self, evaluation: dict[str, Any]) -> list[str]:
+    def suggest_improvements(self, evaluation: Mapping[str, object]) -> list[str]:
         """낮은 점수 항목에 대한 개선 제안을 생성합니다."""
-        suggestions = []
-        scores = evaluation.get("scores", {})
+        suggestions: list[str] = []
+        scores = cast(Mapping[str, int], evaluation.get("scores", {}))
 
         if scores.get("accuracy", 10) < 7:
             suggestions.append(
-                "🎯 정확성 개선: 출력에 에러가 포함되었습니다. "
-                "도구 실행 결과를 검증하고, 실패한 명령은 대안을 시도하세요.",
+                "🎯 정확성 개선: 출력에 에러가 포함되었습니다. 도구 실행 결과를 검증하고, 실패한 명령은 대안을 시도하세요.",
             )
         if scores.get("completeness", 10) < 7:
             suggestions.append(
@@ -539,19 +626,18 @@ class SelfRewardEvaluator:
             )
         if scores.get("user_satisfaction", 10) < 7:
             suggestions.append(
-                "💬 만족도 개선: 사용자 의도와 출력이 불일치합니다. "
-                "원래 요청을 다시 읽고 핵심 키워드에 직접 답변하세요.",
+                "💬 만족도 개선: 사용자 의도와 출력이 불일치합니다. 원래 요청을 다시 읽고 핵심 키워드에 직접 답변하세요.",
             )
 
         return suggestions
 
-    def get_trend(self, last_n: int = 10) -> dict[str, Any]:
+    def get_trend(self, last_n: int = 10) -> TrendResult:
         """최근 N개 평가의 트렌드를 반환합니다."""
         recent = self._history[-last_n:]
         if not recent:
-            return {"avg_trend": [], "improving": None}
+            return {"avg_trend": [], "improving": None, "total_evaluations": 0}
 
-        avgs = [h["result"]["avg"] for h in recent]
+        avgs: list[float] = [h["result"]["avg"] for h in recent]
         improving = None
         if len(avgs) >= 3:
             first_half = sum(avgs[: len(avgs) // 2]) / max(len(avgs) // 2, 1)
@@ -580,6 +666,7 @@ class SelfRewardEvaluator:
 # ─── 메타인지 트래커 ──────────────────────────────────────────────
 
 
+@final
 class MetacognitiveTracker:
     """메타인지 트래커: 에이전트의 "학습 과정 자체"를 추적합니다.
 
@@ -593,15 +680,15 @@ class MetacognitiveTracker:
         tracker.record_evolution_cycle(task, before_score, after_score, improvement_applied)
     """
 
-    def __init__(self, persist_path: str | None = None):
+    def __init__(self, persist_path: str | None = None) -> None:
         """Initialize the MetacognitiveTracker.
 
         Args:
             persist_path (str): str persist path.
 
         """
-        self._cycles: list[dict[str, Any]] = []
-        self._persist_path = persist_path
+        self._cycles: list[EvolutionCycle] = []
+        self._persist_path: str | None = persist_path
 
     def record_evolution_cycle(
         self,
@@ -610,9 +697,9 @@ class MetacognitiveTracker:
         after_score: float,
         improvement_applied: bool,
         improvement_details: str = "",
-    ):
+    ) -> None:
         """진화 사이클 결과를 기록합니다."""
-        cycle = {
+        cycle: EvolutionCycle = {
             "task": task[:200],
             "before": before_score,
             "after": after_score,
@@ -620,7 +707,7 @@ class MetacognitiveTracker:
             "improved": after_score > before_score,
             "improvement_applied": improvement_applied,
             "details": improvement_details,
-            "timestamp": __import__("datetime").datetime.now().isoformat(),
+            "timestamp": datetime.now().isoformat(),
         }
         self._cycles.append(cycle)
 
@@ -635,10 +722,19 @@ class MetacognitiveTracker:
         if self._persist_path:
             self._save()
 
-    def get_effectiveness_report(self) -> dict[str, Any]:
+    def get_effectiveness_report(self) -> EffectivenessReport:
         """진화 효과 종합 보고서를 반환합니다."""
         if not self._cycles:
-            return {"message": "기록된 진화 사이클 없음"}
+            return {
+                "message": "기록된 진화 사이클 없음",
+                "total_cycles": 0,
+                "improvements_applied": 0,
+                "effective_improvements": 0,
+                "effectiveness_rate": "0%",
+                "avg_score_change": 0.0,
+                "best_improvement": None,
+                "worst_regression": None,
+            }
 
         applied = [c for c in self._cycles if c["improvement_applied"]]
         effective = [c for c in applied if c["improved"]]
@@ -646,6 +742,7 @@ class MetacognitiveTracker:
         avg_delta = sum(c["delta"] for c in self._cycles) / len(self._cycles)
 
         return {
+            "message": "",
             "total_cycles": len(self._cycles),
             "improvements_applied": len(applied),
             "effective_improvements": len(effective),
@@ -657,7 +754,7 @@ class MetacognitiveTracker:
 
     def detect_failure_patterns(self) -> list[str]:
         """반복 실패 패턴을 감지합니다."""
-        patterns = []
+        patterns: list[str] = []
         # 최근 사이클에서 개선 실패 패턴 탐지
         recent_failures = [c for c in self._cycles[-20:] if c["improvement_applied"] and not c["improved"]]
 
@@ -670,13 +767,12 @@ class MetacognitiveTracker:
         recent_scores = [c["after"] for c in self._cycles[-10:]]
         if recent_scores and max(recent_scores) - min(recent_scores) < 0.5:
             patterns.append(
-                f"📊 점수 정체 감지: 최근 10 사이클 평균 {sum(recent_scores) / len(recent_scores):.1f} — "
-                "근본적인 접근 방식 변경 필요.",
+                f"📊 점수 정체 감지: 최근 10 사이클 평균 {sum(recent_scores) / len(recent_scores):.1f} — 근본적인 접근 방식 변경 필요.",
             )
 
         return patterns
 
-    def _save(self):
+    def _save(self) -> None:
         """메타인지 데이터를 디스크에 저장합니다."""
         if not self._persist_path:
             return
