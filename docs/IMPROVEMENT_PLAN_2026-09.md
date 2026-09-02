@@ -367,3 +367,16 @@ API 서버(uvicorn, 127.0.0.1:8000)를 띄워 실제 대화 경로 검증. 그 �
 - [Ollama thinking 블로그](https://ollama.com/blog/thinking)
 - [Ollama 구조화 출력+thinking 호환성 이슈 #10538](https://github.com/ollama/ollama/issues/10538)
 - [LangChain — Context Engineering for Agents](https://www.langchain.com/blog/context-engineering-for-agents)
+
+
+### 13차 세션: 잔여 제로 완성 (2026-09-02)
+
+| 항목 | 내용 |
+|:---|:---|
+| 중첩 저장소 정리 | vault_data 내부에서 런타임 DB(chroma/audit sqlite) 추적 제거 + 포인터 갱신 커밋. .tmp/airllm·k-skill 로컬 패치를 중첩 저장소 안에 보존 커밋 후, .gitignore된 .tmp gitlink 2개를 부모에서 추적 제거(과거 강제추가 실수) |
+| 품질 게이트 반복 오탐 수정 | 표/헤딩/수평선 행을 반복 판단에서 제외 + 슬라이딩 윈도우 겹침 등장을 비중복 등장으로 집계 — 다중 표 요약 오탐(E2E 관찰) 해소, 진짜 prose 루프는 여전히 감지 (테스트 2건) |
+| 타입 검사 제로 달성 | basedpyright 오류 26(HEAD)→**0**: api 역방향 임포트 사이클을 `set_review_model_manager_provider` 주입 훅으로 반전(의존성 방향 수정 + 테스트 주입 경로 보존). mypy 오류 10→**0**: tool_loop 스트림 재구성 타입 정리(chunk object 주석, except 밖 `e` 재사용 제거), egress 중복 cast, agent_runtime/tui/chat의 사전 존재 None-안전 가드 3건 |
+
+**13차 세션 검증**: `pytest tests/` 4,818 passed / 0 failed · `ruff check` 0 · `mypy` 0 errors (424 files) · `basedpyright` 0 errors.
+
+**최종 상태: 리뷰·개선·실측·E2E·타입·커밋·워크스페이스 정리 전부 완료. 작업 트리 clean.**

@@ -1178,6 +1178,7 @@ class ToolLoopEngine:
                 step_texts: list[str] = []
                 stream_error: Exception | None = None
                 reached_end = False
+                chunk: object = _STREAM_END
                 try:
                     chunk = next(stream_iter)
                 except StopIteration:
@@ -1208,9 +1209,9 @@ class ToolLoopEngine:
                     break
 
                 # ── 스트림 오류 처리 (try 밖 — 제어 메시지 yield 안전) ──
-                e = stream_error
+                stream_exc = stream_error
                 classified = classify_api_error(
-                    e,
+                    stream_exc,
                     provider="ollama",
                     model=delegate_model,
                     approx_tokens=TokenEstimator.estimate_text(prompt_str),
@@ -1280,8 +1281,8 @@ class ToolLoopEngine:
                     retry_step = True  # 스텝 루프로 복귀해 재시도
                     break
                 else:
-                    error_text = str(e)
-                    yield f"\n\n❌ **에이전트 실행 오류**: {e!s}\n"
+                    error_text = str(stream_exc)
+                    yield f"\n\n❌ **에이전트 실행 오류**: {stream_exc!s}\n"
                     self._record_task_outcome(
                         task_id,
                         delegate_model,

@@ -117,3 +117,30 @@ def test_search_task_does_not_require_code_block_for_python_research(qg: Quality
     # Then: the subject keyword does not turn research into a code-output contract.
     assert score == 1.0
     assert "요청된 코드 블록 누락" not in issues
+
+
+class TestRepetitionFalsePositive:
+    def test_table_heavy_summary_not_flagged(self):
+        """표 헤더/구분자 패턴이 공유되는 다중 표 요약은 반복 오탐하지 않는다."""
+        row = "| 구성 요소 | 상세 설명 내용은 이렇게 충분히 길게 작성됩니다 |"
+        sep = "|---|---|"
+        section = f"## 섹션\n\n{row}\n{sep}\n{row}\n{row}\n\n"
+        summary = ("# 요약\n\n" + section * 4 + "\n" + "마무리 문단입니다. " * 10)
+        score, issues = QualityGate()._check_repetition(summary)
+        assert score == 1.0
+        assert issues == []
+
+    def test_genuine_prose_loop_still_detected(self):
+        """같은 문단이 3회 등장하는 진짜 반복은 여전히 감지한다."""
+        para = (
+            "이 함수는 작업 유형에 따라 샘플링 파라미터를 선택적으로 적용하는 역할을 담당합니다.\n"
+            "호출 시점에 task_type 문자열을 받아 사전 정의된 프로파일을 조회하며,\n"
+            "일치하지 않으면 GENERAL 폴백 프로파일을 반환하도록 구현되어 있습니다.\n"
+            "덕분에 모든 모듈이 단일 진실 공급원을 공유하게 됩니다."
+        )
+        intro = "아래는 시스템의 동작 방식에 대한 설명입니다. 구성 요소별로 정리했습니다.\n"
+        outro = "\n".join(f"부록 {i}: 참고 자료 및 추가 검증 항목 {i}입니다." for i in range(1, 7))
+        loop = intro + "\n" + "\n\n".join([para] * 3) + "\n\n" + outro
+        score, issues = QualityGate()._check_repetition(loop)
+        assert score < 1.0
+        assert any("반복" in issue for issue in issues)

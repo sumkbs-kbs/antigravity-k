@@ -404,16 +404,30 @@ class QualityGate:
         # 코드 대안들은 출력/분석 heading 같은 경계 보일러플레이트를 공유한다.
         # 반복 루프 탐지는 prose만 대상으로 한다.
         prose = re.sub(r"```.*?```", "", output, flags=re.DOTALL)
-        lines = prose.split("\n")
+        # 표 행/헤딩/수평선은 구조지 prose가 아니다 — 여러 표가 같은
+        # 헤더·구분자 패턴을 공유해 오탐한 사례가 있다(라이브 E2E 관찰).
+        structural = re.compile(r"^\s*(\||-{3,}|={3,}|#)")
+        lines = [line for line in prose.split("\n") if not structural.match(line)]
         if len(lines) > 20:
             block_size = 4
-            seen_blocks: dict[str, int] = {}
+            occurrences: dict[str, list[int]] = {}
             for i in range(len(lines) - block_size + 1):
                 block = "\n".join(lines[i : i + block_size]).strip()
                 if len(block) < 40:  # 너무 짧은 블록은 무시
                     continue
-                seen_blocks[block] = seen_blocks.get(block, 0) + 1
-            max_repeats = max(seen_blocks.values()) if seen_blocks else 0
+                occurrences.setdefault(block, []).append(i)
+            # 슬라이딩 윈도우의 겹침 등장은 하나로 묶는다 — 서로 다른 위치에
+            # 재등장한 횟수(비중복 등장)만 센다. 진짜 루프는 같은 블록이
+            # 문서 전역에 여러 번 나타난다.
+            max_repeats = 0
+            for starts in occurrences.values():
+                non_overlapping = 0
+                last_end = -1
+                for start in starts:
+                    if start > last_end:
+                        non_overlapping += 1
+                        last_end = start + block_size - 1
+                max_repeats = max(max_repeats, non_overlapping)
             if max_repeats >= 5:
                 score *= 0.1
                 issues.append(f"심각한 반복 루프 탐지 ({max_repeats}회 반복)")

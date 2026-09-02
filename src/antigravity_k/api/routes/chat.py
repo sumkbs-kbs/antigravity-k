@@ -647,6 +647,8 @@ async def chat_completions(
         # 등록된 슬래시 명령어인 경우에만 라우팅 (파일 경로 등 오인 방지)
         if registry.is_command(slash_text):
             result = registry.execute(slash_text)
+            if result is None:  # 일부 커맨드 구현이 None을 반환할 수 있다
+                result = ""
 
             if isinstance(result, Iterator):
                 if is_stream:

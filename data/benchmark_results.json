@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-02T04:05:16.451399+00:00",
+  "updated_at": "2026-09-02T04:34:49.359202+00:00",
   "total_results": 15,
   "results": [
     {
@@ -354,7 +354,7 @@
       "verified_output": ""
     }
   ],
-  "total_task_results": 581,
+  "total_task_results": 585,
   "task_results": [
     {
       "case_id": "task_e087b31f",
@@ -9089,6 +9089,66 @@
       "used_tools": [],
       "retry_count": 0,
       "latency_ms": 411.7011249763891,
+      "tokens_in": 62,
+      "tokens_out": 31,
+      "cost_usd": 0.0,
+      "error": "",
+      "calibration_eligible": false
+    },
+    {
+      "case_id": "task_bd854cb0",
+      "target": "orchestrator-swarm",
+      "success": true,
+      "completion_reason": "done",
+      "expected_tools": [],
+      "used_tools": [],
+      "retry_count": 0,
+      "latency_ms": 115.87116599548608,
+      "tokens_in": 9,
+      "tokens_out": 31,
+      "cost_usd": 0.0,
+      "error": "",
+      "calibration_eligible": false
+    },
+    {
+      "case_id": "task_715e4d31",
+      "target": "orchestrator-swarm",
+      "success": true,
+      "completion_reason": "done",
+      "expected_tools": [],
+      "used_tools": [],
+      "retry_count": 0,
+      "latency_ms": 388.34874995518476,
+      "tokens_in": 62,
+      "tokens_out": 31,
+      "cost_usd": 0.0,
+      "error": "",
+      "calibration_eligible": false
+    },
+    {
+      "case_id": "task_364d3cdb",
+      "target": "orchestrator-swarm",
+      "success": true,
+      "completion_reason": "done",
+      "expected_tools": [],
+      "used_tools": [],
+      "retry_count": 0,
+      "latency_ms": 134.5052919932641,
+      "tokens_in": 9,
+      "tokens_out": 31,
+      "cost_usd": 0.0,
+      "error": "",
+      "calibration_eligible": false
+    },
+    {
+      "case_id": "task_92a78d91",
+      "target": "orchestrator-swarm",
+      "success": true,
+      "completion_reason": "done",
+      "expected_tools": [],
+      "used_tools": [],
+      "retry_count": 0,
+      "latency_ms": 223.09662500629202,
       "tokens_in": 62,
       "tokens_out": 31,
       "cost_usd": 0.0,

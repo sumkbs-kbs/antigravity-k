@@ -182,7 +182,7 @@ def test_configured_local_model_reviewer_is_used_by_singleton(monkeypatch: pytes
 
     monkeypatch.setenv("AGK_APPROVAL_REVIEW_MODEL", "qwen3.8:27b")
     monkeypatch.setattr(
-        "antigravity_k.api.dependencies.get_model_manager",
+        "antigravity_k.engine.approval_manager._review_model_manager_provider",
         lambda: FakeModelManager(),
     )
     reset_approval_manager()

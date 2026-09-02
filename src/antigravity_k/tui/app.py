@@ -475,7 +475,7 @@ class AgkTUI(App[None]):
             screen.action_open_help()
 
     def action_interrupt(self) -> None:
-        screen = self.screen
+        screen = cast(Screen[None], self.screen)
         if isinstance(screen, ChatScreen):
             screen.action_interrupt()
             return

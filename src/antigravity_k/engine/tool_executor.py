@@ -339,7 +339,9 @@ class ToolExecutor:
                     existing_id = pending_request.request_id
                     break
 
-            json_args = {
+            from pydantic import JsonValue
+
+            json_args: dict[str, JsonValue] = {
                 key: value if isinstance(value, (str, int, float, bool)) or value is None else str(value)
                 for key, value in args.items()
             }

@@ -110,7 +110,8 @@ def safe_urlopen(
                 _target_url(target)[:120],
             )
             _retry_sleep(delay)
-    raise cast(urllib.error.HTTPError, last_error)
+    assert last_error is not None  # 재시도 루프를 통과했으면 반드시 설정됨
+    raise last_error
 
 
 def validate_httpx_request(request: httpx.Request) -> None:

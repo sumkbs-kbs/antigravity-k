@@ -27,7 +27,7 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol, TypedDict
@@ -473,15 +473,30 @@ def get_approval_manager() -> ApprovalManager:
     return _approval_manager
 
 
+# 리뷰용 모델 매니저 공급자 주입 훅 — api 싱글턴/테스트 목이 여기로 연결된다.
+# 엔진이 api 계층을 역방향 임포트하면 순환이 생기므로(api.dependencies →
+# engine → api.dependencies) 주입으로 의존성을 반전한다.
+_review_model_manager_provider: Callable[[], _ReviewModelManager] | None = None
+
+
+def set_review_model_manager_provider(provider: Callable[[], _ReviewModelManager]) -> None:
+    global _review_model_manager_provider
+    _review_model_manager_provider = provider
+
+
 def _build_default_review_provider() -> ApprovalReviewProvider:
     requested_model = os.getenv("AGK_APPROVAL_REVIEW_MODEL", "").strip()
     if not requested_model:
         return ApprovalReviewEngine()
     model_name = "qwen3.8" if requested_model.startswith("qwen3.8:") else requested_model
 
-    from antigravity_k.api.dependencies import get_model_manager
+    if _review_model_manager_provider is not None:
+        model_manager = _review_model_manager_provider()
+    else:
+        from antigravity_k.engine.model_manager import ModelManager
+        from antigravity_k.engine.model_registry import ModelRegistry
 
-    model_manager: _ReviewModelManager = get_model_manager()
+        model_manager = ModelManager(ModelRegistry())
 
     def generate(prompt: str) -> str:
         return model_manager.generate(prompt, model_name)

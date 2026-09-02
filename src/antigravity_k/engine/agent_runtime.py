@@ -301,9 +301,12 @@ class AgentRuntime:
         limit: int = 1_000,
         owner_subject: str | None = None,
     ) -> list[ExecutionEventRecord]:
-        if not isinstance(self.task_runner, TaskStoreRunnerPort):
+        from antigravity_k.engine.task_state_store import TaskStateStore
+
+        state_store = getattr(self.task_runner, "state_store", None)
+        if not isinstance(state_store, TaskStateStore):
             raise RuntimeError("task state store is required for event replay")
-        return self.task_runner.state_store.list_execution_events(
+        return state_store.list_execution_events(
             task_id,
             after_sequence=after_sequence,
             limit=limit,
