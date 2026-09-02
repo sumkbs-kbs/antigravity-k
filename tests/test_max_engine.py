@@ -94,8 +94,8 @@ def _make_mock_orchestrator(
     orch = MagicMock()
 
     # Selector 호출 시 qa_response 반환
-    def mock_generate(prompt: str = "", target: str = "", max_tokens: int = 256) -> str:
-        _ = (prompt, target, max_tokens)
+    def mock_generate(prompt: str = "", target: str = "", max_tokens: int = 256, **kwargs: object) -> str:
+        _ = (prompt, target, max_tokens, kwargs)
         return qa_response
 
     resolved_manager = manager if manager is not None else _make_mock_manager()
@@ -359,6 +359,32 @@ class TestSelectorLogic:
         ]
         selected = _select_best(engine, "task", results, "WORKER", orch)
         assert selected == 1  # 1-based SELECTED:2 → 0-based 1
+
+    def test_selector_parses_json_response(self):
+        """JSON 모드 응답({"selected": N})을 1차 파싱 경로로 처리한다."""
+        mgr = _make_mock_manager()
+        orch = _make_mock_orchestrator(mgr, '{"selected": 2, "reason": "more complete"}')
+        engine = MaxModeEngine(mgr)
+
+        results = [
+            WorkerResult(0, "a", "default", "short", 1.0),
+            WorkerResult(1, "b", "creative", "longer complete solution", 2.0),
+        ]
+        selected = _select_best(engine, "task", results, "WORKER", orch)
+        assert selected == 1
+
+    def test_selector_json_out_of_range_falls_back(self):
+        """JSON의 selected가 범위 밖이면 후보 1번으로 폴백한다."""
+        mgr = _make_mock_manager()
+        orch = _make_mock_orchestrator(mgr, '{"selected": 99, "reason": "bad"}')
+        engine = MaxModeEngine(mgr)
+
+        results = [
+            WorkerResult(0, "a", "default", "short", 1.0),
+            WorkerResult(1, "b", "creative", "longer complete solution", 2.0),
+        ]
+        selected = _select_best(engine, "task", results, "WORKER", orch)
+        assert selected == 0
 
     def test_selector_fallback_on_parse_failure(self):
         """Selector 파싱 실패 시 첫 번째 결과로 폴백되는지 검증."""

@@ -5,26 +5,80 @@ Ollama 네이티브 스트림, OpenAI 호환 SSE, Anthropic 직접 스트림,
 """
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from types import SimpleNamespace
+from typing import Protocol, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import tests.test_model_manager_lifecycle as lifecycle_tests
 from antigravity_k.config import config
 from antigravity_k.engine.model_manager import LoadedModel, ModelManager
-from antigravity_k.engine.model_registry import ModelRegistry
+from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.model_router import ModelCombo, ModelRouter, RouteStrategy
 from antigravity_k.engine.usage_tracker import UsageTracker
-from tests.test_model_manager_lifecycle import _profile
+
+
+class _RequestLike(Protocol):
+    data: bytes
+    full_url: str
+    headers: Mapping[str, str]
+
+
+def _profile(name: str, role: str = "reasoning") -> ModelProfile:
+    profile = cast(Callable[..., ModelProfile], getattr(lifecycle_tests, "_profile"))
+    return profile(name, role)
+
+
+def _apply_dynamic(manager: ModelManager, *args: object) -> tuple[str, float, dict[str, str | int] | None, str]:
+    method = cast(Callable[..., tuple[str, float, dict[str, str | int] | None, str]], getattr(manager, "_apply_dynamic_inference_config"))
+    return method(*args)
+
+
+def _prepare_messages(manager: ModelManager, *args: object) -> list[dict[str, object]]:
+    method = cast(Callable[..., list[dict[str, object]]], getattr(manager, "_prepare_stream_messages"))
+    return method(*args)
+
+
+def _build_stream_request(manager: ModelManager, *args: object, **kwargs: object) -> tuple[_RequestLike, str]:
+    method = cast(Callable[..., tuple[_RequestLike, str]], getattr(manager, "_build_stream_request"))
+    return method(*args, **kwargs)
+
+
+def _ollama_stream(manager: ModelManager, *args: object, **kwargs: object) -> Iterator[str]:
+    method = cast(Callable[..., Iterator[str]], getattr(manager, "_do_ollama_stream"))
+    return method(*args, **kwargs)
+
+
+def _anthropic_request_params(manager: ModelManager, *args: object) -> dict[str, object]:
+    method = cast(Callable[..., dict[str, object]], getattr(manager, "_build_anthropic_request_params"))
+    return method(*args)
+
+
+def _cache_block_count(messages: list[object]) -> int:
+    count = 0
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = cast(Mapping[str, object], message).get("content")
+        if not isinstance(content, list):
+            continue
+        count += sum(1 for block in cast(list[object], content) if isinstance(block, dict) and "cache_control" in block)
+    return count
+
+
+def _class_stream_call(name: str) -> Callable[..., Iterator[str]]:
+    return cast(Callable[..., Iterator[str]], getattr(ModelManager, name))
 
 
 @pytest.fixture
 def mock_registry() -> MagicMock:
     registry = MagicMock(spec=ModelRegistry)
-    registry.memory_config = MagicMock()
-    registry.memory_config.max_loaded_gb = 1000
-    registry.memory_config.auto_unload = False
+    memory_config = MagicMock()
+    memory_config.max_loaded_gb = 1000
+    memory_config.auto_unload = False
+    setattr(registry, "memory_config", memory_config)
 
     profiles = {
         "model-a": _profile("model-a"),
@@ -32,9 +86,14 @@ def mock_registry() -> MagicMock:
         "qwen3-test": _profile("qwen3-test"),
         "claude-x": _profile("claude-x"),
     }
-    registry.get_model.side_effect = lambda x: profiles.get(x)
-    registry.list_models.return_value = list(profiles.values())
-    registry._raw = {}
+    get_model = cast(MagicMock, getattr(registry, "get_model"))
+    def get_model_impl(value: object) -> ModelProfile | None:
+        return profiles.get(cast(str, value))
+
+    get_model.side_effect = get_model_impl
+    list_models = cast(MagicMock, getattr(registry, "list_models"))
+    list_models.return_value = list(profiles.values())
+    setattr(registry, "_raw", {})
     return registry
 
 
@@ -42,7 +101,7 @@ def mock_registry() -> MagicMock:
 def manager(mock_registry: MagicMock) -> ModelManager:
     tracker = UsageTracker(db_path=None)
     mgr = ModelManager(registry=mock_registry, router=ModelRouter(mock_registry), tracker=tracker)
-    mgr._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
+    setattr(mgr, "_load_mlx_model", MagicMock(return_value=(MagicMock(), None)))
     return mgr
 
 
@@ -53,9 +112,11 @@ def _loaded(manager_obj: ModelManager, name: str) -> LoadedModel:
 def _stream_cm(lines: list[bytes]) -> MagicMock:
     """safe_urlopen이 반환할, 줄 단위 이터레이션이 가능한 응답 컨텍스트 매니저."""
     resp = MagicMock()
-    resp.__iter__.return_value = iter(lines)
+    response_iter = cast(MagicMock, getattr(resp, "__iter__"))
+    response_iter.return_value = iter(lines)
     cm = MagicMock()
-    cm.__enter__.return_value = resp
+    context_enter = cast(MagicMock, getattr(cm, "__enter__"))
+    context_enter.return_value = resp
     return cm
 
 
@@ -80,7 +141,8 @@ def http_env() -> Iterator[None]:
 
 class TestDynamicInferenceConfig:
     def test_plain_model_keeps_kwargs_temperature(self, manager: ModelManager):
-        name, temperature, thinking, attribution = manager._apply_dynamic_inference_config(
+        name, temperature, thinking, attribution = _apply_dynamic(
+            manager,
             _profile("model-a"), "prompt", {"temperature": 0.3}
         )
 
@@ -90,13 +152,14 @@ class TestDynamicInferenceConfig:
         assert attribution.startswith("\nx-antigravity-k-agent:")
 
     def test_digit_suffix_becomes_thinking_budget(self, manager: ModelManager):
-        _, temperature, thinking, _ = manager._apply_dynamic_inference_config(_profile("qwen3:4096"), "prompt", {})
+        _, temperature, thinking, _ = _apply_dynamic(manager, _profile("qwen3:4096"), "prompt", {})
 
         assert thinking == {"type": "enabled", "budget_tokens": 4096}
         assert temperature == 1.0
 
     def test_level_suffix_scales_thinking_budget(self, manager: ModelManager):
-        _, temperature, thinking, _ = manager._apply_dynamic_inference_config(
+        _, temperature, thinking, _ = _apply_dynamic(
+            manager,
             _profile("qwen3:high"), "prompt", {"max_tokens": 8192}
         )
 
@@ -111,21 +174,27 @@ class TestDynamicInferenceConfig:
 
 class TestStreamMessagePreparation:
     def test_raw_messages_get_system_prompt_prepended(self, manager: ModelManager, http_env: None):
+        _ = http_env
         loaded = _loaded(manager, "model-a")
-        msgs = manager._prepare_stream_messages(
+        msgs = _prepare_messages(
+            manager,
             loaded,
             "",
             {"raw_messages": [{"role": "user", "content": "hi"}], "system_prompt": "지침"},
         )
 
         assert msgs[0]["role"] == "system"
-        assert msgs[0]["content"].startswith("지침")
-        assert "x-antigravity-k-agent:" in msgs[0]["content"]
+        content = str(msgs[0]["content"])
+        assert content.startswith("지침")
+        # attribution 지문은 프롬프트에 주입되지 않는다 (오염 제거)
+        assert "x-antigravity-k-agent:" not in content
         assert msgs[1]["content"] == "hi"
 
     def test_content_parts_flattened_to_string(self, manager: ModelManager, http_env: None):
+        _ = http_env
         loaded = _loaded(manager, "model-a")
-        msgs = manager._prepare_stream_messages(
+        msgs = _prepare_messages(
+            manager,
             loaded,
             "",
             {
@@ -142,18 +211,23 @@ class TestStreamMessagePreparation:
             },
         )
 
-        assert msgs[0]["content"].startswith("part1 part2")
+        assert str(msgs[0]["content"]).startswith("part1 part2")
 
-    def test_attribution_appended_to_first_message(self, manager: ModelManager, http_env: None):
+    def test_attribution_not_injected_into_prompt(self, manager: ModelManager, http_env: None):
+        """attribution 지문은 다시 파싱되지 않는 프롬프트 오염이다 — 주입 금지."""
+        _ = http_env
         loaded = _loaded(manager, "model-a")
-        msgs = manager._prepare_stream_messages(loaded, "hello", {})
+        msgs = _prepare_messages(manager, loaded, "hello", {})
 
-        assert "x-antigravity-k-agent:" in msgs[-1]["content"]
+        assert "x-antigravity-k-agent:" not in str(msgs[-1]["content"])
+        assert str(msgs[-1]["content"]).strip() == "hello"
 
 
 class TestStreamRequestBuilder:
     def test_ollama_native_request_shape(self, manager: ModelManager, http_env: None):
-        req, model_name = manager._build_stream_request(
+        _ = http_env
+        req, model_name = _build_stream_request(
+            manager,
             _loaded(manager, "model-a"),
             [{"role": "user", "content": "hi"}],
             {"max_tokens": 128},
@@ -161,16 +235,19 @@ class TestStreamRequestBuilder:
         )
 
         assert isinstance(req.data, bytes)
-        body = json.loads(req.data.decode("utf-8"))
+        body = cast(dict[str, object], json.loads(req.data.decode("utf-8")))
         assert req.full_url == "http://127.0.0.1:11434/api/chat"
         assert model_name == "model-a"
         assert body["stream"] is True
         assert body["keep_alive"] == "30m"
-        assert body["options"]["num_ctx"] == 32768
-        assert body["options"]["num_predict"] == 128
+        options = cast(Mapping[str, object], body["options"])
+        assert options["num_ctx"] == 32768
+        assert options["num_predict"] == 128
 
     def test_openrouter_request_targets_chat_completions(self, manager: ModelManager, http_env: None):
-        req, model_name = manager._build_stream_request(
+        _ = http_env
+        req, model_name = _build_stream_request(
+            manager,
             _loaded(manager, "model-a"),
             [{"role": "user", "content": "hi"}],
             {},
@@ -178,7 +255,7 @@ class TestStreamRequestBuilder:
         )
 
         assert isinstance(req.data, bytes)
-        body = json.loads(req.data.decode("utf-8"))
+        body = cast(dict[str, object], json.loads(req.data.decode("utf-8")))
         assert req.full_url.endswith("/chat/completions")
         assert req.headers.get("X-title") == "Antigravity-K"
         assert model_name == "model-a"
@@ -190,6 +267,7 @@ class TestStreamRequestBuilder:
 
 class TestOllamaNativeStream:
     def test_yields_message_contents(self, manager: ModelManager, http_env: None):
+        _ = http_env
         lines = [
             json.dumps({"message": {"content": "안녕"}}, ensure_ascii=False).encode("utf-8") + b"\n",
             b"\n",
@@ -199,26 +277,29 @@ class TestOllamaNativeStream:
         loaded = _loaded(manager, "model-a")
 
         with patch("antigravity_k.engine.model_manager.safe_urlopen", return_value=_stream_cm(lines)):
-            chunks = list(manager._do_ollama_stream(loaded, "인사"))
+            chunks = list(_ollama_stream(manager, loaded, "인사"))
 
         assert chunks == ["안녕", "하세요"]
 
     def test_invalid_json_lines_skipped(self, manager: ModelManager, http_env: None):
+        _ = http_env
         lines = [b"not-json\n", b'{"message":{"content":"ok"}}\n']
         loaded = _loaded(manager, "model-a")
 
         with patch("antigravity_k.engine.model_manager.safe_urlopen", return_value=_stream_cm(lines)):
-            chunks = list(manager._do_ollama_stream(loaded, "Hi"))
+            chunks = list(_ollama_stream(manager, loaded, "Hi"))
 
         assert chunks == ["ok"]
 
     def test_generic_failure_yields_api_error_marker(self, manager: ModelManager, http_env: None):
+        _ = http_env
         failing = MagicMock()
-        failing.__enter__.side_effect = RuntimeError("socket exploded")
+        failing_enter = cast(MagicMock, getattr(failing, "__enter__"))
+        failing_enter.side_effect = RuntimeError("socket exploded")
         loaded = _loaded(manager, "model-a")
 
         with patch("antigravity_k.engine.model_manager.safe_urlopen", return_value=failing):
-            chunks = list(manager._do_ollama_stream(loaded, "Hi"))
+            chunks = list(_ollama_stream(manager, loaded, "Hi"))
 
         assert chunks and chunks[0].startswith("[API Error for model-a]")
 
@@ -246,7 +327,7 @@ class TestOpenRouterSseStream:
                 "antigravity_k.engine.model_manager.safe_urlopen",
                 return_value=_stream_cm([frames]),
             ):
-                chunks = list(manager._do_ollama_stream(loaded, "Hi"))
+                chunks = list(_ollama_stream(manager, loaded, "Hi"))
 
             assert chunks == ["A"]
         finally:
@@ -271,7 +352,7 @@ class TestOpenRouterSseStream:
                 "antigravity_k.engine.model_manager.safe_urlopen",
                 return_value=_stream_cm([frames]),
             ):
-                chunks = list(manager._do_ollama_stream(loaded, "Hi"))
+                chunks = list(_ollama_stream(manager, loaded, "Hi"))
 
             assert chunks == ["B"]
         finally:
@@ -283,42 +364,56 @@ class TestOpenRouterSseStream:
 
 class TestStreamDispatchAndGenerate:
     def test_dispatch_falls_back_to_legacy_stream_without_provider(self, manager: ModelManager):
-        manager._uses_anthropic_direct = MagicMock(return_value=False)
-        manager._get_provider = MagicMock(return_value=None)
+        setattr(manager, "_uses_anthropic_direct", MagicMock(return_value=False))
+        setattr(manager, "_get_provider", MagicMock(return_value=None))
+
+        def legacy_stream(_self: ModelManager, _loaded: LoadedModel, _prompt: str, **_kwargs: object) -> Iterator[str]:
+            return iter(["legacy"])
 
         with patch.object(
             ModelManager,
             "_do_ollama_stream",
-            lambda self, loaded, prompt, **kw: iter(["legacy"]),
+            legacy_stream,
         ):
-            chunks = list(ModelManager._do_stream_generate(manager, _loaded(manager, "model-a"), "Hi"))
+            chunks = list(_class_stream_call("_do_stream_generate")(manager, _loaded(manager, "model-a"), "Hi"))
 
         assert chunks == ["legacy"]
 
     def test_dispatch_delegates_to_provider_when_available(self, manager: ModelManager):
         provider = MagicMock()
-        provider.stream_generate.return_value = iter(["p1", "p2"])
-        manager._get_provider = MagicMock(return_value=provider)
-        manager._uses_anthropic_direct = MagicMock(return_value=False)
+        provider_stream = cast(MagicMock, getattr(provider, "stream_generate"))
+        provider_stream.return_value = iter(["p1", "p2"])
+        setattr(manager, "_get_provider", MagicMock(return_value=provider))
+        setattr(manager, "_uses_anthropic_direct", MagicMock(return_value=False))
 
-        chunks = list(ModelManager._do_stream_generate(manager, _loaded(manager, "model-a"), "Hi"))
+        chunks = list(_class_stream_call("_do_stream_generate")(manager, _loaded(manager, "model-a"), "Hi"))
 
         assert chunks == ["p1", "p2"]
 
     def test_dispatch_passes_long_context_plan_to_provider(self, manager: ModelManager):
         provider = MagicMock()
-        provider.stream_generate.return_value = iter(["p1"])
-        manager._get_provider = MagicMock(return_value=provider)
-        manager._uses_anthropic_direct = MagicMock(return_value=False)
+        provider_stream = cast(MagicMock, getattr(provider, "stream_generate"))
+        provider_stream.return_value = iter(["p1"])
+        setattr(manager, "_get_provider", MagicMock(return_value=provider))
+        setattr(manager, "_uses_anthropic_direct", MagicMock(return_value=False))
         plan = {"native_attention_enabled": True}
         manager.long_context_plan = MagicMock(return_value=plan)
 
-        list(ModelManager._do_stream_generate(manager, _loaded(manager, "model-a"), "Hi"))
+        _ = list(_class_stream_call("_do_stream_generate")(manager, _loaded(manager, "model-a"), "Hi"))
 
-        assert provider.stream_generate.call_args.kwargs["execution_plan"] is plan
+        call_args = cast(MagicMock, getattr(provider_stream, "call_args"))
+        call_kwargs = cast(Mapping[str, object], call_args.kwargs)
+        assert call_kwargs["execution_plan"] is plan
 
     def test_stream_generate_single_model_records_usage(self, manager: ModelManager):
-        manager._do_stream_generate = lambda loaded, prompt, **kw: iter(["안녕", "하세요"])
+        def single_stream(_loaded: LoadedModel, _prompt: str, **_kwargs: object) -> Iterator[str]:
+            return iter(["안녕", "하세요"])
+
+        setattr(
+            manager,
+            "_do_stream_generate",
+            single_stream,
+        )
 
         chunks = list(manager.stream_generate("프롬프트", "model-a"))
 
@@ -338,13 +433,13 @@ class TestStreamDispatchAndGenerate:
 
         calls: list[str] = []
 
-        def fake_stream(loaded, prompt, **kwargs):
+        def fake_stream(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> Iterator[str]:
             calls.append(loaded.profile.name)
             if loaded.profile.name == "model-a":
                 raise RuntimeError("stream down")
             yield "복구"
 
-        manager._do_stream_generate = fake_stream
+        setattr(manager, "_do_stream_generate", fake_stream)
 
         chunks = list(manager.stream_generate("Hello", "fb-combo"))
 
@@ -375,60 +470,65 @@ def _fake_anthropic_module(texts: list[str], fail: bool = False) -> MagicMock:
 
     if fail:
         stream_cm = MagicMock()
-        stream_cm.__enter__.side_effect = RuntimeError("anthropic overloaded")
+        stream_enter = cast(MagicMock, getattr(stream_cm, "__enter__"))
+        stream_enter.side_effect = RuntimeError("anthropic overloaded")
     else:
         inner = MagicMock()
-        inner.text_stream = iter(texts)
+        setattr(inner, "text_stream", iter(texts))
         stream_cm = MagicMock()
-        stream_cm.__enter__.return_value = inner
+        stream_enter = cast(MagicMock, getattr(stream_cm, "__enter__"))
+        stream_enter.return_value = inner
 
     client = MagicMock()
-    client.messages.stream.return_value = stream_cm
-    module.Anthropic.return_value = client
+    messages = cast(MagicMock, getattr(client, "messages"))
+    stream = cast(MagicMock, getattr(messages, "stream"))
+    stream.return_value = stream_cm
+    anthropic = cast(MagicMock, getattr(module, "Anthropic"))
+    anthropic.return_value = client
     return module
 
 
 class TestAnthropicDirectStream:
     def test_missing_api_key_yields_error_text(self, manager: ModelManager):
         original_raw = getattr(config, "_raw", {})
-        config._raw = {"api_keys": {"anthropic": ""}}
+        setattr(config, "_raw", {"api_keys": {"anthropic": ""}})
         try:
             with patch(
                 "antigravity_k.engine.model_manager.import_module",
                 return_value=MagicMock(),
             ):
-                chunks = list(ModelManager._do_anthropic_stream(manager, _loaded(manager, "claude-x"), "Hi"))
+                chunks = list(_class_stream_call("_do_anthropic_stream")(manager, _loaded(manager, "claude-x"), "Hi"))
         finally:
-            config._raw = original_raw
+            setattr(config, "_raw", original_raw)
 
         assert chunks == ["[Error] Anthropic API Key not found in config.yaml"]
 
     def test_streams_texts_with_valid_key(self, manager: ModelManager):
         original_raw = getattr(config, "_raw", {})
-        config._raw = {"api_keys": {"anthropic": "sk-ant-real"}}
+        setattr(config, "_raw", {"api_keys": {"anthropic": "sk-ant-real"}})
         try:
             with patch(
                 "antigravity_k.engine.model_manager.import_module",
                 return_value=_fake_anthropic_module(["안녕", "!"]),
             ) as import_mod:
-                chunks = list(ModelManager._do_anthropic_stream(manager, _loaded(manager, "claude-x"), "Hi"))
+                chunks = list(_class_stream_call("_do_anthropic_stream")(manager, _loaded(manager, "claude-x"), "Hi"))
         finally:
-            config._raw = original_raw
+            setattr(config, "_raw", original_raw)
 
         assert chunks == ["안녕", "!"]
         import_mod.assert_called_once_with("anthropic")
 
     def test_stream_failure_yields_api_error(self, manager: ModelManager):
         original_raw = getattr(config, "_raw", {})
-        config._raw = {"api_keys": {"anthropic": "sk-ant-real"}}
+        setattr(config, "_raw", {"api_keys": {"anthropic": "sk-ant-real"}})
         try:
             with patch(
                 "antigravity_k.engine.model_manager.import_module",
                 return_value=_fake_anthropic_module([], fail=True),
             ):
-                chunks = list(ModelManager._do_anthropic_stream(manager, _loaded(manager, "claude-x"), "Hi"))
+                chunks = list(_class_stream_call("_do_anthropic_stream")(manager, _loaded(manager, "claude-x"), "Hi"))
         finally:
-            config._raw = original_raw
+            setattr(config, "_raw", original_raw)
 
         assert chunks and chunks[0].startswith("[API Error for claude-x]")
 
@@ -439,7 +539,8 @@ class TestAnthropicRequestParams:
             {"role": "system", "content": "should be dropped"},
             {"role": "user", "content": "질문"},
         ]
-        params = manager._build_anthropic_request_params(
+        params = _anthropic_request_params(
+            manager,
             raw_messages,
             "시스템 프롬프트",
             "\nx-antigravity-k-agent: id=abc;",
@@ -450,13 +551,18 @@ class TestAnthropicRequestParams:
         )
 
         assert params["messages"] == [{"role": "user", "content": "질문"}]
-        assert params["system"][0]["cache_control"] == {"type": "ephemeral"}
-        assert params["system"][0]["text"].endswith("id=abc;")
+        system = params["system"]
+        assert isinstance(system, list)
+        assert isinstance(system[0], dict)
+        system_block = cast(Mapping[str, object], system[0])
+        assert system_block["cache_control"] == {"type": "ephemeral"}
+        assert str(system_block["text"]).endswith("id=abc;")
         assert params["max_tokens"] == 2048
         assert "thinking" not in params
 
     def test_thinking_config_included_when_present(self, manager: ModelManager):
-        params = manager._build_anthropic_request_params(
+        params = _anthropic_request_params(
+            manager,
             [{"role": "user", "content": "?"}],
             "",
             "\nattribution",
@@ -475,12 +581,9 @@ class TestAnthropicRequestParams:
             {"role": role, "content": content} for role, content in zip(("user", "assistant") * 3, content_list)
         ]
 
-        params = manager._build_anthropic_request_params(raw_messages, "", "", "claude-x", 0.7, None, {})
+        params = _anthropic_request_params(manager, raw_messages, "", "", "claude-x", 0.7, None, {})
 
-        kept = sum(
-            1
-            for msg in params["messages"]
-            for block in (msg["content"] if isinstance(msg["content"], list) else [])
-            if isinstance(block, dict) and "cache_control" in block
-        )
+        messages = params["messages"]
+        assert isinstance(messages, list)
+        kept = _cache_block_count(cast(list[object], messages))
         assert kept == 4

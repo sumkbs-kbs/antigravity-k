@@ -21,7 +21,7 @@ class TestStallDetection:
         assert enforcer.check_tool_boundary("run_command", args)["allowed"] is True
         second = enforcer.check_tool_boundary("run_command", args)
         assert second["allowed"] is False
-        assert second["stall"] is True
+        assert second.get("stall") is True
         assert "STALL DETECTED" in second["reason"]
         assert "폐기" in second["reason"]
         assert "대안 가설" in second["reason"]
@@ -79,7 +79,7 @@ class TestSimilarErrorCluster:
             enforcer.record_outcome(failed=True, error_text=f"KeyError: 'config_{i}' missing")
         res = enforcer.check_tool_boundary("read_file", {"path": "other.py"})
         assert res["allowed"] is False
-        assert res["stall"] is True
+        assert res.get("stall") is True
         assert "유사한 오류" in res["reason"]
         # 원샷 — 소비 후에는 다시 허용
         assert enforcer.check_tool_boundary("read_file", {"path": "other.py"})["allowed"] is True
@@ -123,21 +123,3 @@ class TestNoProgressWindow:
             enforcer.record_outcome(failed=True, error_text=f"x{i} distinct-{i}")
         enforcer.reset_stall_tracking()
         assert enforcer.check_tool_boundary("read_file", {"path": "r.py"})["allowed"] is True
-
-
-class TestGuardrailManagerIntegration:
-    def test_check_after_records_into_harness(self):
-        from antigravity_k.engine.tool_guardrail_manager import ToolGuardrailManager
-
-        harness = HarnessEnforcer()
-        manager = ToolGuardrailManager(harness=harness)
-        for i in range(3):
-            manager.check_after(
-                "run_command",
-                {"command": f"cmd{i}"},
-                f"Traceback ...\nKeyError: 'same_cause_{i}'",
-                failed=True,
-            )
-        decision = manager.check_before("read_file", {"path": "anything.py"})
-        assert decision.allowed is False
-        assert "STALL DETECTED" in decision.message

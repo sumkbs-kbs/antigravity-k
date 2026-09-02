@@ -119,7 +119,19 @@ def _compact_tool_result(message: Message, max_chars: int) -> Message:
     content = message.get("content", "")
     if message.get("role") != "tool" or len(content) <= max_chars:
         return message
-    return {**message, "content": content[:max_chars] + "\n...(결과 일부 생략)"}
+    truncated = content[:max_chars]
+    # 잘린 봉투 태그를 재-닫는다 — 열린 채 남은 [UNTRUSTED_TOOL_RESULT]는
+    # 프롬프트 주입 경계를 약화시키고, 하류 압축기(tool_evidence_compactor)의
+    # 닫는 태그 매칭을 영구히 망친다. 봉투 순서: [/UNTRUSTED] → </tool_response>.
+    closers = []
+    if truncated.count("[UNTRUSTED_TOOL_RESULT]") > truncated.count("[/UNTRUSTED_TOOL_RESULT]"):
+        closers.append("[/UNTRUSTED_TOOL_RESULT]")
+    if truncated.count("<tool_response>") > truncated.count("</tool_response>"):
+        closers.append("</tool_response>")
+    return {
+        **message,
+        "content": truncated + "\n...(결과 일부 생략)" + "".join(closers),
+    }
 
 
 def _validate_prefix(messages: list[Message], prefix_count: int) -> None:

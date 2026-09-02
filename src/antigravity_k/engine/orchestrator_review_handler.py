@@ -1,27 +1,58 @@
 """Workspace change review handler for the orchestrator state graph."""
 
 import logging
-from collections.abc import Generator
+import subprocess
+from collections.abc import Callable, Generator, Iterable, Mapping
+from typing import Protocol, cast
 
 from antigravity_k.engine.state_graph import StateContext
 from antigravity_k.engine.tool_guardrails import MUTATING_TOOL_NAMES
 
 logger = logging.getLogger("antigravity_k.engine.orchestrator_handlers")
 
-
-def _agent_used_mutating_tool(orch, started_at: float) -> bool:
-    tool_executor = getattr(getattr(orch, "ctx", None), "tool_executor", None)
-    history = getattr(tool_executor, "tool_call_history", [])
-    return any(
-        isinstance(entry, dict)
-        and entry.get("name") in MUTATING_TOOL_NAMES
-        and isinstance(entry.get("timestamp"), (int, float))
-        and entry["timestamp"] >= started_at
-        for entry in history
-    )
+__all__ = ["_agent_used_mutating_tool", "code_review_handler"]
 
 
-def code_review_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
+class _ToolExecutorLike(Protocol):
+    tool_call_history: Iterable[Mapping[str, object]]
+
+
+class _OrchestratorContextLike(Protocol):
+    tool_executor: _ToolExecutorLike
+
+
+class _ManagerLike(Protocol):
+    def generate(self, *args: object, **kwargs: object) -> object: ...
+
+
+class _OrchestratorLike(Protocol):
+    ctx: _OrchestratorContextLike
+    project_root: str
+    manager: _ManagerLike | None
+
+    def _get_model_for_role(self, role: str) -> str: ...
+
+
+def _model_for_role(orch: _OrchestratorLike, role: str) -> str:
+    resolver = cast(Callable[[str], str], getattr(orch, "_get_model_for_role"))
+    return resolver(role)
+
+
+def _agent_used_mutating_tool(orch: _OrchestratorLike, started_at: float) -> bool:
+    history = orch.ctx.tool_executor.tool_call_history
+    for entry in history:
+        if entry.get("name") not in MUTATING_TOOL_NAMES:
+            continue
+        timestamp = entry.get("timestamp")
+        if not isinstance(timestamp, (int, float)):
+            continue
+        timestamp_value = float(timestamp)
+        if timestamp_value >= started_at:
+            return True
+    return False
+
+
+def code_review_handler(ctx: StateContext, orch: _OrchestratorLike) -> Generator[str, None, None]:
     """코드 변경 사항을 자동 리뷰합니다. (After CoV)
 
     COV_VERIFY 완료 후 호출되어:
@@ -40,8 +71,6 @@ def code_review_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
 
     try:
         # Git diff 확인
-        import subprocess
-
         diff_result = subprocess.run(
             ["git", "diff", "--stat"],
             cwd=orch.project_root,
@@ -74,7 +103,8 @@ def code_review_handler(ctx: StateContext, orch) -> Generator[str, None, None]:
             diff_content = diff_content[:8000] + "\n... (diff truncated)"
 
         # LLM 리뷰 요청
-        if hasattr(orch, "manager") and orch.manager:
+        manager = orch.manager
+        if manager is not None:
             review_prompt = f"""Review the following code changes for bugs or issues.
 
 Original user request: {ctx.user_message[:200]}
@@ -89,11 +119,12 @@ TYPES: <type error description or None>
 QUALITY: <quality concern or None>
 """
             try:
-                review_response = orch.manager.generate(
+                generated = manager.generate(
                     prompt=review_prompt,
-                    target=orch._get_model_for_role("QA"),
+                    target=_model_for_role(orch, "QA"),
                     max_tokens=256,
                 )
+                review_response = generated if isinstance(generated, str) else str(generated)
                 review_response = review_response.strip()
 
                 # 결과 파싱
@@ -107,11 +138,13 @@ QUALITY: <quality concern or None>
                         if line and not line.startswith("Respond"):
                             yield f"> {line}\n"
 
-                    # 심각한 버그 감지 시 루프백 플래그 (quality_check_handler와 충돌 방지)
-                    if has_bugs and ctx.retry_count < ctx.max_retries:
+                    # 심각한 버그 감지 시 루프백 플래그 — 예산(retry_count) 가산은
+                    # quality_check_handler에서만 수행한다. 여기서도 가산하면
+                    # 한 번의 실패에 예산이 이중 차감되어 실제 재시도가
+                    # max_retries의 절반 이하로 줄어든다.
+                    if has_bugs:
                         yield "> ⚠️ 버그가 감지되어 자가 수정을 시도합니다...\n"
                         ctx.validation_passed = False
-                        ctx.retry_count += 1
                 else:
                     logger.debug("[AutoReview] Code review passed — no issues")
             except Exception as e:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - provider boundary

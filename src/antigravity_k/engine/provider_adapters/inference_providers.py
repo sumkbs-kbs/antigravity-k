@@ -22,6 +22,19 @@ logger = logging.getLogger("antigravity_k.inference_providers")
 
 Message = dict[str, object]
 Prompt = str | list[Message]
+
+# 공유 ModelRegistry — 생성 시마다 config.yaml을 다시 읽고 구문분석하므로
+# 호출 단위 생성은 per-request 지연+I/O 낭비다 (provider base_url 조회용).
+_shared_model_registry_cache: Any = None
+
+
+def _shared_model_registry() -> Any:
+    global _shared_model_registry_cache
+    if _shared_model_registry_cache is None:
+        from antigravity_k.engine.model_registry import ModelRegistry
+
+        _shared_model_registry_cache = ModelRegistry()
+    return _shared_model_registry_cache
 DynamicValue: TypeAlias = object
 JsonMap: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
 DynamicConfig: TypeAlias = tuple[str, float, JsonMap | None, str]
@@ -356,7 +369,7 @@ class OpenRouterProvider(BaseInferenceProvider):
         else:
             api_msgs = [{"role": "user", "content": prompt}]
 
-        model_name, temperature, _, _ = self._apply_dynamic_inference_config(
+        model_name, temperature, thinking_config, _ = self._apply_dynamic_inference_config(
             loaded.profile,
             cast(Prompt, api_msgs),
             kwargs,
@@ -365,13 +378,17 @@ class OpenRouterProvider(BaseInferenceProvider):
         if model_id.startswith("openrouter/"):
             model_id = model_id[len("openrouter/") :]
 
-        data = {
+        data: dict[str, object] = {
             "model": model_id,
             "messages": api_msgs,
             "stream": True,
             "temperature": temperature,
             "max_tokens": kwargs.get("max_tokens", 4096),
         }
+        # "model:high/4096" 사양 → OpenRouter reasoning 파라미터로 매핑
+        if thinking_config is not None and isinstance(thinking_config, dict):
+            budget = thinking_config.get("budget_tokens", 1024)
+            data["reasoning"] = {"max_tokens": int(budget) if isinstance(budget, (int, float)) else 1024}
 
         # 네이티브 function calling 지원 (P1-1): tools 스키마가 제공되면 전송
         tools_schema = kwargs.get("tools") if self.forwards_native_tools else None
@@ -484,10 +501,7 @@ class OllamaProvider(BaseInferenceProvider):
     def _registry_provider_base(provider: str) -> str:
         """ModelRegistry의 providers 섹션에서 base_url을 조회합니다."""
         try:
-            from antigravity_k.engine.model_registry import ModelRegistry
-
-            registry = ModelRegistry()
-            prov_cfg = registry.get_provider_config(provider)
+            prov_cfg = _shared_model_registry().get_provider_config(provider)
             base_url = prov_cfg.get("base_url")
             return base_url if isinstance(base_url, str) else ""
         except Exception:
@@ -513,13 +527,14 @@ class OllamaProvider(BaseInferenceProvider):
             str: The str result.
 
         """
-        from antigravity_k.engine.sampling_config import SAMPLING_PROFILES
+        from antigravity_k.engine.sampling_config import resolve_sampling_profile
 
         base_url, api_key = self._resolve_endpoint(loaded)
         url = f"{base_url}/chat/completions"
 
-        task_type = cast(str, kwargs.get("task_type", "GENERAL"))
-        profile = SAMPLING_PROFILES.get(task_type, SAMPLING_PROFILES["GENERAL"])
+        # task_type 정규화 — 라이브 경로는 소문자("code")로 전달되므로
+        # 대소문자 무시 조회가 없으면 항상 GENERAL로 폴백되었다.
+        profile = resolve_sampling_profile(kwargs.get("task_type"))
         temperature = cast(float, kwargs.get("temperature", profile.temperature))
         min_p = cast(float, kwargs.get("min_p", profile.min_p))
         repeat_penalty = cast(float, kwargs.get("repeat_penalty", profile.repeat_penalty))
@@ -620,12 +635,15 @@ class OllamaProvider(BaseInferenceProvider):
                 api_msgs = list(raw_messages)
         else:
             api_msgs = [{"role": "user", "content": prompt}]
-        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
+        # thinking이 명시적으로 켜진 경우 /no_think 주입을 건너뛴다(충돌 방지)
+        think_enabled = bool(kwargs.get("think", False))
+        if not think_enabled:
+            api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
         data = {
             "model": loaded.profile.name,
             "stream": False,
             "keep_alive": "30m",
-            "think": False,
+            "think": think_enabled,
             "options": {
                 "num_ctx": self._context_window(loaded, kwargs),
                 "num_predict": kwargs.get("max_tokens", 4096),
@@ -689,13 +707,17 @@ class OllamaProvider(BaseInferenceProvider):
                             yield content
             except json.JSONDecodeError:
                 continue
-        for call in pending_tool_calls:
-            function = _as_json_map(cast(object, call.get("function", {})))
-            yield self._native_tool_call_xml(
-                cast(str, function.get("name", "")),
-                cast(object, function.get("arguments", {})),
-            )
         if pending_tool_calls:
+            # 네이티브 도구 호출과 함께 생성된 텍스트는 폐기하지 않는다 —
+            # 모델이 "검색하겠습니다" 같은 안내/추론 텍스트를 쓰고 도구를
+            # 호출하는 경우가 많다. 텍스트를 먼저, 도구 호출을 뒤에.
+            yield from buffered_content
+            for call in pending_tool_calls:
+                function = _as_json_map(cast(object, call.get("function", {})))
+                yield self._native_tool_call_xml(
+                    cast(str, function.get("name", "")),
+                    cast(object, function.get("arguments", {})),
+                )
             return
         synthesized_call = self._single_tool_content_call("".join(buffered_content), tools_schema)
         if synthesized_call:
@@ -774,29 +796,47 @@ class OllamaProvider(BaseInferenceProvider):
             normalized_msgs.append({**msg, "content": content})
         api_msgs = normalized_msgs
 
-        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
-        model_name, temperature, _, attribution = self._apply_dynamic_inference_config(
+        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile,
             api_msgs,
             kwargs,
         )
 
-        if api_msgs and isinstance(api_msgs[0].get("content"), str):
-            api_msgs = list(api_msgs)
-            api_msgs[0] = {**api_msgs[0], "content": cast(str, api_msgs[0]["content"]) + f"\n{attribution}"}
+        # thinking이 명시적으로 켜진 경우 /no_think 주입을 건너뛴다(충돌 방지).
+        # "model:high/4096" 사양(thinking_config)도 thinking 활성으로 해석한다 —
+        # 사양이 파싱되는데 요청에 반영되지 않으면 이름만 잘린 채 실행된다.
+        think_enabled = bool(kwargs.get("think", False)) or thinking_config is not None
+        if not think_enabled:
+            api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
+
+        # attribution 지문을 메시지에 주입하지 않는다 — 다시 파싱되지 않는
+        # 프롬프트 오염이다 (토큰 낭비 + 요청마다 달라지는 접두사).
+        _ = attribution
 
         default_repeat_penalty = 1.0 if "qwen3" in loaded.profile.name.lower() else 1.3
 
-        data = {
+        # 스트리밍 경로(실 라이브 에이전트 경로)에도 작업 유형별 샘플링
+        # 프로파일을 적용한다 — 기존에는 비스트리밍 generate에만 적용되었다.
+        from antigravity_k.engine.sampling_config import resolve_sampling_profile
+
+        profile = resolve_sampling_profile(kwargs.get("task_type"))
+        if thinking_config is None and "temperature" not in kwargs:
+            temperature = profile.temperature
+
+        data: dict[str, object] = {
             "model": model_name,
             "stream": True,
             "keep_alive": "30m",
-            "think": False,  # qwen3.6 등 thinking 모델의 빈 content 스트리밍 방지
+            # 기본은 off(빈 content 스트리밍 방지). 복잡 태스크 증폭을 위해
+            # kwargs.think=true로 켤 수 있다 — thinking은 content와 분리되어
+            # 반환되므로 사용자 스트림은 오염되지 않는다.
+            "think": think_enabled,
             "options": {
                 "num_ctx": self._context_window(loaded, kwargs),
                 "num_predict": kwargs.get("max_tokens", 4096),
                 "temperature": temperature,
                 "repeat_penalty": kwargs.get("repeat_penalty", default_repeat_penalty),
+                "min_p": kwargs.get("min_p", profile.min_p),
             },
             "messages": api_msgs,
         }
@@ -804,6 +844,13 @@ class OllamaProvider(BaseInferenceProvider):
         tools_schema = kwargs.get("tools")
         if tools_schema and isinstance(tools_schema, list):
             data["tools"] = tools_schema
+
+        # 구조화 출력 (제어 평면용): Ollama /api/chat은 format에 "json" 또는
+        # JSON 스키마를 받아 문법 제약 디코딩을 수행한다. thinking과 동시
+        # 적용은 불가하지만 제어 평면은 항상 no-think이므로 안전하다.
+        json_format = kwargs.get("response_format")
+        if json_format:
+            data["format"] = json_format
 
         req = urllib.request.Request(
             url,
@@ -901,8 +948,10 @@ class NimProvider(BaseInferenceProvider):
             str: The str result.
 
         """
-        if not self._check_rate_limit():
-            return "[API Error for NIM] rate limit(40rpm) 초과 — 잠시 후 재시도하거나 다른 모델로 폴백하세요."
+        # rate limit 검사는 stream_generate에서 단일로 수행한다 — 여기서도
+        # 검사하면 요청 1건에 타임스탬프가 2개 기록되어 실효 한도가 절반으로
+        # 줄어든다. 제한 초과 시 stream_generate가 에러 문자열을 yield하고
+        # 여기서 그대로 반환된다.
         result = ""
         for chunk in self.stream_generate(loaded, prompt, **kwargs):
             result += chunk
@@ -1233,9 +1282,9 @@ class LMStudioProvider(OpenRouterProvider):
         base_url = getattr(profile, "api_base", "") or ""
         if not base_url:
             try:
-                from antigravity_k.engine.model_registry import ModelRegistry
-
-                base_url = cast(str, ModelRegistry().get_provider_config("lmstudio").get("base_url", ""))
+                base_url = cast(
+                    str, _shared_model_registry().get_provider_config("lmstudio").get("base_url", "")
+                )
             except (ImportError, OSError, RuntimeError, TypeError, ValueError):
                 base_url = ""
         if not base_url:

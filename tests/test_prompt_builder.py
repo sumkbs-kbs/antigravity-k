@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import datetime
+from collections.abc import Callable
+from importlib.resources import files
+from pathlib import Path
+from typing import cast
 
 from antigravity_k.engine.prompt_builder import PromptBuilder
 
@@ -11,18 +15,31 @@ from antigravity_k.engine.prompt_builder import PromptBuilder
 # ---------------------------------------------------------------------------
 
 
-def _make_valid_prompts_dir(tmp_path):
+def _make_valid_prompts_dir(tmp_path: Path) -> Path:
     """Create a minimal prompts/ directory with role and persona files."""
     roles_dir = tmp_path / "roles"
     roles_dir.mkdir(parents=True)
-    (roles_dir / "worker.md").write_text(
+    _ = (roles_dir / "worker.md").write_text(
         "---\ntype: role\n---\n## Worker Prompt\nYou are a worker.\n", encoding="utf-8"
     )
-    (roles_dir / "default.md").write_text(
+    _ = (roles_dir / "default.md").write_text(
         "---\ntype: role\n---\n## Default Prompt\nYou are a default.\n", encoding="utf-8"
     )
-    (tmp_path / "persona.md").write_text("---\ntype: persona\n---\n## Persona\nBe concise.\n", encoding="utf-8")
+    _ = (tmp_path / "persona.md").write_text("---\ntype: persona\n---\n## Persona\nBe concise.\n", encoding="utf-8")
     return tmp_path
+
+
+def _builder_dir(builder: PromptBuilder) -> str:
+    return cast(str, getattr(builder, "_dir"))
+
+
+def _builder_cache(builder: PromptBuilder) -> dict[str, str]:
+    return cast(dict[str, str], getattr(builder, "_cache"))
+
+
+def _load(builder: PromptBuilder, relative_path: str) -> str | None:
+    method = cast(Callable[[str], str | None], getattr(builder, "_load"))
+    return method(relative_path)
 
 
 # ---------------------------------------------------------------------------
@@ -31,17 +48,23 @@ def _make_valid_prompts_dir(tmp_path):
 
 
 class TestInit:
-    def test_default_prompts_dir_exists(self, tmp_path):
+    def test_default_prompts_dir_is_package_resource(self) -> None:
+        builder = PromptBuilder()
+
+        expected = Path(str(files("antigravity_k").joinpath("prompts"))).resolve()
+        assert Path(_builder_dir(builder)) == expected
+
+    def test_default_prompts_dir_exists(self, tmp_path: Path) -> None:
         """Builder resolves the prompts directory and does not crash."""
         builder = PromptBuilder(prompts_dir=str(tmp_path))
-        assert builder._dir == str(tmp_path)
+        assert _builder_dir(builder) == str(tmp_path)
 
     def test_prompts_dir_not_found_logs_warning(self):
         """Non-existent prompts directory logs a warning but does not crash."""
         builder = PromptBuilder(prompts_dir="/nonexistent/path")
-        assert builder._dir == "/nonexistent/path"
+        assert _builder_dir(builder) == "/nonexistent/path"
         # Cache is empty
-        assert builder._cache == {}
+        assert _builder_cache(builder) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -50,34 +73,34 @@ class TestInit:
 
 
 class TestLoad:
-    def test_load_existing_file(self, tmp_path):
+    def test_load_existing_file(self, tmp_path: Path) -> None:
         builder = PromptBuilder(prompts_dir=str(tmp_path))
-        (tmp_path / "test.md").write_text("hello world", encoding="utf-8")
-        assert builder._load("test.md") == "hello world"
+        _ = (tmp_path / "test.md").write_text("hello world", encoding="utf-8")
+        assert _load(builder, "test.md") == "hello world"
 
-    def test_load_caches_result(self, tmp_path):
+    def test_load_caches_result(self, tmp_path: Path) -> None:
         builder = PromptBuilder(prompts_dir=str(tmp_path))
-        (tmp_path / "cached.md").write_text("content", encoding="utf-8")
-        assert builder._load("cached.md") == "content"
+        _ = (tmp_path / "cached.md").write_text("content", encoding="utf-8")
+        assert _load(builder, "cached.md") == "content"
         # Modify file — cached version should still be returned
-        (tmp_path / "cached.md").write_text("modified", encoding="utf-8")
-        assert builder._load("cached.md") == "content"
+        _ = (tmp_path / "cached.md").write_text("modified", encoding="utf-8")
+        assert _load(builder, "cached.md") == "content"
 
-    def test_load_file_not_found_returns_none(self, tmp_path):
+    def test_load_file_not_found_returns_none(self, tmp_path: Path) -> None:
         builder = PromptBuilder(prompts_dir=str(tmp_path))
-        assert builder._load("nonexistent.md") is None
+        assert _load(builder, "nonexistent.md") is None
 
-    def test_load_strips_yaml_frontmatter(self, tmp_path):
+    def test_load_strips_yaml_frontmatter(self, tmp_path: Path) -> None:
         builder = PromptBuilder(prompts_dir=str(tmp_path))
         content = "---\ntitle: test\n---\nbody text"
-        (tmp_path / "front.md").write_text(content, encoding="utf-8")
-        assert builder._load("front.md") == "body text"
+        _ = (tmp_path / "front.md").write_text(content, encoding="utf-8")
+        assert _load(builder, "front.md") == "body text"
 
-    def test_load_yaml_frontmatter_no_closing(self, tmp_path):
+    def test_load_yaml_frontmatter_no_closing(self, tmp_path: Path) -> None:
         """If the YAML block does not close, entire file is returned as-is."""
         builder = PromptBuilder(prompts_dir=str(tmp_path))
-        (tmp_path / "bad.md").write_text("---\nno close", encoding="utf-8")
-        assert builder._load("bad.md") == "---\nno close"
+        _ = (tmp_path / "bad.md").write_text("---\nno close", encoding="utf-8")
+        assert _load(builder, "bad.md") == "---\nno close"
 
 
 # ---------------------------------------------------------------------------
@@ -86,13 +109,13 @@ class TestLoad:
 
 
 class TestRolePrompt:
-    def test_role_prompt_found(self, tmp_path):
+    def test_role_prompt_found(self, tmp_path: Path) -> None:
         prompts_dir = _make_valid_prompts_dir(tmp_path)
         builder = PromptBuilder(prompts_dir=str(prompts_dir))
         result = builder.role_prompt("WORKER")
         assert "## Worker Prompt" in result
 
-    def test_role_prompt_fallback_to_default(self, tmp_path):
+    def test_role_prompt_fallback_to_default(self, tmp_path: Path) -> None:
         """Unknown role falls back to default.md."""
         prompts_dir = _make_valid_prompts_dir(tmp_path)
         builder = PromptBuilder(prompts_dir=str(prompts_dir))
@@ -112,7 +135,7 @@ class TestRolePrompt:
 
 
 class TestPersonaPrompt:
-    def test_persona_found(self, tmp_path):
+    def test_persona_found(self, tmp_path: Path) -> None:
         prompts_dir = _make_valid_prompts_dir(tmp_path)
         builder = PromptBuilder(prompts_dir=str(prompts_dir))
         result = builder.persona_prompt()
@@ -131,14 +154,17 @@ class TestPersonaPrompt:
 
 class TestToolGuide:
     def test_tool_guide_contains_current_time(self):
+        # 날짜는 일(day) 단위로만 포함한다 — 분 단위 타임스탬프는 프롬프트
+        # 접두사를 매분 변경해 Ollama KV 캐시를 전체 무효화한다.
         builder = PromptBuilder(prompts_dir="/nonexistent")
         now = datetime.datetime(2026, 7, 18, 10, 30, tzinfo=datetime.UTC)
         result = builder.tool_guide(tool_schemas=[], current_time=now)
-        assert "2026년 07월 18일 10시 30분" in result
+        assert "2026년 07월 18일" in result
+        assert "10시 30분" not in result
 
     def test_tool_guide_lists_schema(self):
         builder = PromptBuilder(prompts_dir="/nonexistent")
-        schemas = [
+        schemas: list[dict[str, object]] = [
             {
                 "name": "web_search",
                 "description": "Search the web",
@@ -156,7 +182,9 @@ class TestToolGuide:
     def test_tool_guide_without_properties(self):
         """Schema without properties does not crash."""
         builder = PromptBuilder(prompts_dir="/nonexistent")
-        schemas = [{"name": "simple_tool", "description": "A simple tool", "input_schema": {}}]
+        schemas: list[dict[str, object]] = [
+            {"name": "simple_tool", "description": "A simple tool", "input_schema": {}},
+        ]
         result = builder.tool_guide(tool_schemas=schemas)
         assert "**simple_tool**" in result
 
@@ -295,13 +323,13 @@ class TestTaskFewShots:
 
 
 class TestClearCache:
-    def test_clear_cache_empties_cache(self, tmp_path):
+    def test_clear_cache_empties_cache(self, tmp_path: Path) -> None:
         builder = PromptBuilder(prompts_dir=str(tmp_path))
-        (tmp_path / "test.md").write_text("data", encoding="utf-8")
-        builder._load("test.md")
-        assert len(builder._cache) == 1
+        _ = (tmp_path / "test.md").write_text("data", encoding="utf-8")
+        _ = _load(builder, "test.md")
+        assert len(_builder_cache(builder)) == 1
         builder.clear_cache()
-        assert len(builder._cache) == 0
+        assert len(_builder_cache(builder)) == 0
 
 
 class TestResponseContractFreshness:

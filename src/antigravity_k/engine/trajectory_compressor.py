@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 from antigravity_k.engine.tool_evidence_compactor import compact_structured_tool_response
 
 logger = logging.getLogger(__name__)
 
-Message = dict[str, Any]
+Message = dict[str, object]
 
 
 @dataclass
@@ -30,18 +29,22 @@ class TrajectoryCompressor:
         summarize_fn: Callable[[str], str] | None = None,
         max_messages: int = 40,
         max_chars: int = 80_000,
-    ):
+        max_tokens: int | None = None,
+    ) -> None:
         """Initialize the TrajectoryCompressor.
 
         Args:
             summarize_fn (Callable[[str], str] | None): Callable[[str], str] | None summarize fn.
             max_messages (int): int max messages.
-            max_chars (int): int max chars.
+            max_chars (int): int max chars (영어 중심 대비 폴백 기준).
+            max_tokens (int | None): 토큰 기반 트리거 상한. chars*4 가정은 한국어를
+                ~5배 과대 허용하므로 단일 추정기(CJK 인식) 기준을 함께 적용한다.
 
         """
-        self.summarize_fn = summarize_fn
-        self.max_messages = max_messages
-        self.max_chars = max_chars
+        self.summarize_fn: Callable[[str], str] | None = summarize_fn
+        self.max_messages: int = max_messages
+        self.max_chars: int = max_chars
+        self.max_tokens: int | None = max_tokens
 
     def should_compress(self, messages: list[Message]) -> bool:
         """Determine whether to compress.
@@ -53,8 +56,17 @@ class TrajectoryCompressor:
             bool: The bool result.
 
         """
+        if len(messages) > self.max_messages:
+            return True
         total_chars = sum(len(str(message.get("content", ""))) for message in messages)
-        return len(messages) > self.max_messages or total_chars > self.max_chars
+        if total_chars > self.max_chars:
+            return True
+        if self.max_tokens is not None:
+            from antigravity_k.engine.tokenizer import TokenEstimator
+
+            if TokenEstimator.estimate_messages(messages, use_cache=False) > self.max_tokens:
+                return True
+        return False
 
     def compress(self, messages: list[Message]) -> CompressionResult:
         """Compress.

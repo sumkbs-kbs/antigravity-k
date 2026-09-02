@@ -101,3 +101,40 @@ def test_graph_registers_public_handler_exports() -> None:
     assert graph._nodes == expected_handlers
     assert graph._conditional_edges[AgentState.ROUTE] is orchestrator_handlers.route_decision
     assert graph._conditional_edges[AgentState.QUALITY_CHECK] is orchestrator_handlers.quality_check_decision
+
+
+def test_quality_check_loopback_returns_to_execution_origin() -> None:
+    """품질 재시도 루프백은 원 실행 노드로 되돌아간다 (전략 강등 방지)."""
+    from antigravity_k.engine.orchestrator_verification_handlers import quality_check_decision
+
+    # Given: MAX 모드로 실행됐고 품질 검증이 실패해 루프백이 걸린 상태.
+    ctx = StateContext(user_message="task", execution_origin=AgentState.MAX_EXECUTE)
+    ctx._loop_back = True
+
+    # Then: 단일 에이전트가 아니라 MAX_EXECUTE로 되돌아간다.
+    assert quality_check_decision(ctx) == AgentState.MAX_EXECUTE
+
+    # PIPELINE/DEBATE 원 노드도 각각 보존된다.
+    ctx_pipeline = StateContext(user_message="task", execution_origin=AgentState.PIPELINE_EXECUTE)
+    ctx_pipeline._loop_back = True
+    assert quality_check_decision(ctx_pipeline) == AgentState.PIPELINE_EXECUTE
+
+    ctx_debate = StateContext(user_message="task", execution_origin=AgentState.DEBATE_EXECUTE)
+    ctx_debate._loop_back = True
+    assert quality_check_decision(ctx_debate) == AgentState.DEBATE_EXECUTE
+
+    # 루프백이 없으면 MEMORY_SAVE.
+    ctx_ok = StateContext(user_message="task", execution_origin=AgentState.MAX_EXECUTE)
+    ctx_ok._loop_back = False
+    assert quality_check_decision(ctx_ok) == AgentState.MEMORY_SAVE
+
+
+def test_ceo_gate_decision_bypasses_enrichment_for_simple_chat() -> None:
+    """simple_chat은 컨텍스트 풍부화 프리룰을 건너뛰고 ROUTE로 조기 차단한다."""
+    from antigravity_k.engine.orchestrator_analysis_handlers import ceo_gate_decision
+
+    simple = StateContext(user_message="안녕하세요", task_type="simple_chat")
+    assert ceo_gate_decision(simple) == AgentState.ROUTE
+
+    work = StateContext(user_message="config.yaml 수정해줘", task_type="coding")
+    assert ceo_gate_decision(work) == AgentState.CONTEXT_ENRICH

@@ -3,6 +3,7 @@
 from antigravity_k.engine.orchestrator_analysis_handlers import (
     _synthesize_explicit_pipeline,
     ceo_analyze_handler,
+    ceo_gate_decision,
     pre_route_handler,
     route_decision,
     route_handler,
@@ -50,6 +51,7 @@ __all__ = [
     "auto_learn_handler",
     "build_orchestrator_graph",
     "ceo_analyze_handler",
+    "ceo_gate_decision",
     "code_review_handler",
     "context_enrich_handler",
     "cov_verify_handler",

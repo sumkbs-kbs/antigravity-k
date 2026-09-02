@@ -4,7 +4,8 @@
 config 매핑이 올바른지, 실패 경로가 안전한지 검증한다.
 """
 
-from typing import TypedDict
+from collections.abc import Callable, Iterator
+from typing import TypedDict, cast, final
 
 import pytest
 
@@ -22,11 +23,99 @@ class _GenState(TypedDict):
     temps: list[float]
 
 
-def _gen_factory(responses: list[str]):
+class _EngineKwargs(TypedDict, total=False):
+    n_samples: int
+    base_temperature: float
+    temperature_spread: float
+    similarity_threshold: float
+    complexity_threshold: float
+    selection: str
+
+
+@final
+class _RouterDouble:
+    def get_combo(self, _model: str) -> None:
+        return None
+
+
+@final
+class _ManagerDouble:
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+        self.router = _RouterDouble()
+        self._registry: object = object()
+        self.self_consistent_calls = 0
+        self.generate_calls = 0
+
+    def get_system_prompt(self) -> str:
+        return ""
+
+    def get_tool_prompt(self) -> str:
+        return ""
+
+    def is_loaded(self, name: str) -> bool:
+        return name == self.model_name
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str:
+        _ = prompt, target, kwargs
+        self.generate_calls += 1
+        return "plain"
+
+    def stream_generate(self, **kwargs: object) -> Iterator[str]:
+        _ = kwargs
+        return iter(())
+
+    def generate_best_of_n(self, prompt: str, target: str, **kwargs: object) -> str:
+        _ = prompt, target, kwargs
+        return "best"
+
+    def generate_self_consistent(self, prompt: str, target: str, **kwargs: object) -> str:
+        _ = prompt, target, kwargs
+        self.self_consistent_calls += 1
+        return "amplified"
+
+    def generate_decomposed(
+        self,
+        prompt: str,
+        target: str,
+        *,
+        force: bool = False,
+        **kwargs: object,
+    ) -> str:
+        _ = prompt, target, force, kwargs
+        return "decomposed"
+
+
+@final
+class _ContextDouble:
+    tool_guardrail = None
+    cognitive_loop = None
+    quality_gate = None
+    tool_executor = None
+
+
+@final
+class _OrchestratorDouble:
+    def __init__(self, config: dict[str, object], model_name: str) -> None:
+        self.config = config
+        self.project_root = "/tmp"
+        self._skill_prompts_cache = ""
+        self._last_agent_output = ""
+        self.expected_tools: tuple[str, ...] = ()
+        self.manager = _ManagerDouble(model_name)
+        self.ctx = _ContextDouble()
+        self.selected_model = self._get_model_for_role("SELF")
+
+    def _get_model_for_role(self, _role: str) -> str:
+        return self.manager.model_name
+
+
+def _gen_factory(responses: list[str]) -> tuple[Callable[..., str], _GenState]:
     """responses를 순차 반환하는 generate_fn. 호출 시 temperature를 기록한다."""
     state: _GenState = {"i": 0, "temps": []}
 
-    def gen(prompt, **kwargs):
+    def gen(prompt: str, **kwargs: object) -> str:
+        _ = prompt
         i = state["i"]
         state["i"] += 1
         temperature = kwargs.get("temperature")
@@ -35,6 +124,13 @@ def _gen_factory(responses: list[str]):
         return responses[min(i, len(responses) - 1)]
 
     return gen, state
+
+
+def _constant_generator(value: str) -> Callable[..., str]:
+    def generate(_prompt: str, **_kwargs: object) -> str:
+        return value
+
+    return generate
 
 
 CODE_FIB = "```python\ndef fib(n):\n    return n\n```"
@@ -70,13 +166,25 @@ class TestJaccard:
 
 class TestSelection:
     def test_majority_cluster_wins(self):
-        # 3개 동일코드 + 2개 다른코드 → 다수결이 동일코드.
-        gen, _ = _gen_factory([CODE_FIB] * 3 + [CODE_OTHER] * 2)
-        eng = SelfConsistencyEngine(generate_fn=gen, n_samples=5, similarity_threshold=0.4)
+        # 병렬+조기종료 환경에서 결정적으로 검증한다: 낮은 온도(결정론적
+        # 샘플)는 FIB, 높은 온도는 OTHER를 반환하는 생성기.
+        # n=5 → 첫 웨이브(과반=3, 온도 낮은 3개)가 모두 FIB → 과반 형성으로
+        # 조기 종료하고 FIB가 선택된다.
+        def gen(_prompt: str, **kwargs: object) -> str:
+            temp = float(kwargs.get("temperature", 0.0))
+            return CODE_FIB if temp < 0.72 else CODE_OTHER
+
+        eng = SelfConsistencyEngine(
+            generate_fn=gen,
+            n_samples=5,
+            base_temperature=0.7,
+            temperature_spread=0.3,
+            similarity_threshold=0.4,
+        )
         trace = eng.run("write fib")
         assert "def fib" in trace.selected
-        assert abs(trace.confidence - 0.6) < 0.01
-        assert trace.cluster_sizes == [3, 2]
+        assert trace.confidence == 1.0  # 조기 종료된 3샘플이 전원 일치
+        assert len(trace.samples) == 3  # 나머지 2샘플은 생략
 
     def test_unanimous_gives_full_confidence(self):
         gen, _ = _gen_factory([CODE_FIB] * 5)
@@ -86,12 +194,40 @@ class TestSelection:
         assert len(trace.cluster_sizes) == 1
 
     def test_tie_break_prefers_lower_temperature(self):
-        # 동점 클러스터에서는 더 낮은 온도(결정론적) 샘플을 대표로 삼는다.
-        gen, state = _gen_factory([CODE_FIB, CODE_OTHER, CODE_FIB, CODE_OTHER])
-        eng = SelfConsistencyEngine(generate_fn=gen, n_samples=4, similarity_threshold=0.2)
-        eng.run("q")
-        # 온도는 단조증가하므로 첫 번째 샘플이 가장 낮음
-        assert state["temps"] == sorted(state["temps"])
+        # 동점 클러스터에서는 첫 번째(더 낮은 온도 샘플을 포함한) 클러스터의
+        # 최저 온도 구성원을 대표로 삼는다.
+        def gen(_prompt: str, **kwargs: object) -> str:
+            temp = float(kwargs.get("temperature", 0.0))
+            return CODE_FIB if temp < 0.68 else CODE_OTHER
+
+        eng = SelfConsistencyEngine(
+            generate_fn=gen,
+            n_samples=4,
+            base_temperature=0.7,
+            temperature_spread=0.2,
+            similarity_threshold=0.2,
+        )
+        # 온도: [0.567, 0.633, 0.7, 0.767] → FIB 2 : OTHER 2 동점
+        trace = eng.run("q")
+        assert "def fib" in trace.selected  # 동점 시 저온 클러스터가 이긴다
+
+    def test_no_majority_collects_all_samples(self):
+        # 과반이 형성되지 않으면 전체 N개를 수집한다 (정확한 클러스터 통계).
+        calls = {"n": 0}
+
+        def gen(_prompt: str, **kwargs: object) -> str:
+            _ = kwargs
+            calls["n"] += 1
+            return f"unique answer {calls['n']}"
+
+        eng = SelfConsistencyEngine(
+            generate_fn=gen,
+            n_samples=5,
+            similarity_threshold=0.8,
+        )
+        trace = eng.run("q")
+        assert len(trace.samples) == 5
+        assert calls["n"] == 5
 
 
 class TestDiversity:
@@ -103,8 +239,9 @@ class TestDiversity:
             base_temperature=0.7,
             temperature_spread=0.3,
         )
-        eng.run("q")
-        assert len(set(state["temps"])) == 5  # 모두 다른 온도
+        _ = eng.run("q")
+        # 샘플링된 모든 온도는 서로 다르다 (과반 조기 종료로 3개 이상)
+        assert len(set(state["temps"])) >= 3
         assert min(state["temps"]) >= 0.0
         assert max(state["temps"]) <= 1.5
 
@@ -124,12 +261,12 @@ class TestSafetyAndSkip:
         assert trace.skipped is True
 
     def test_n_samples_one_skips(self):
-        eng = SelfConsistencyEngine(generate_fn=lambda p, **k: "x", n_samples=1)
+        eng = SelfConsistencyEngine(generate_fn=_constant_generator("x"), n_samples=1)
         trace = eng.run("q")
         assert trace.skipped is True
 
     def test_all_empty_samples_skips(self):
-        eng = SelfConsistencyEngine(generate_fn=lambda p, **k: "", n_samples=3)
+        eng = SelfConsistencyEngine(generate_fn=_constant_generator(""), n_samples=3)
         trace = eng.run("q")
         assert trace.skipped is True
         assert trace.skip_reason == "all samples empty"
@@ -138,7 +275,8 @@ class TestSafetyAndSkip:
         # 일부 샘플 호출이 예외를 던져도 전체는 살아남는다.
         calls = {"i": 0}
 
-        def gen(prompt, **kwargs):
+        def gen(_prompt: str, **kwargs: object) -> str:
+            _ = kwargs
             calls["i"] += 1
             if calls["i"] == 2:
                 raise RuntimeError("transient")
@@ -186,8 +324,8 @@ class TestConfigMapping:
         assert config_to_engine_kwargs("string") == {}
 
     def test_kwargs_build_valid_engine(self):
-        kw = config_to_engine_kwargs({"n_samples": 3, "base_temperature": 0.6})
-        eng = SelfConsistencyEngine(generate_fn=lambda p, **k: "x", **kw)
+        kw = cast(_EngineKwargs, cast(object, config_to_engine_kwargs({"n_samples": 3, "base_temperature": 0.6})))
+        eng = SelfConsistencyEngine(generate_fn=_constant_generator("x"), **kw)
         assert eng.n_samples == 3
         assert eng.base_temperature == 0.6
 
@@ -212,9 +350,9 @@ class TestComplexityGating:
 
     def test_simple_task_skipped_no_samples(self):
         # 단순 작업("안녕 도움 목록")은 복잡도 0.1로 게이트에서 스킵 — 0회 발화.
-        calls = []
+        calls: list[object] = []
 
-        def gen(prompt, **kwargs):
+        def gen(_prompt: str, **kwargs: object) -> str:
             calls.append(kwargs.get("temperature"))
             return CODE_FIB
 
@@ -225,10 +363,12 @@ class TestComplexityGating:
         assert calls == []  # 샘플링 발화 없음
 
     def test_complex_task_fires_sampling(self):
-        # 복잡 작업(아키텍처/동시성/캐시)은 게이트 통과 — N회 발화.
-        calls = []
+        # 복잡 작업(아키텍처/동시성/캐시)은 게이트 통과 — 샘플링 발화.
+        # 전원 동일 답변이므로 과반(n//2+1=2) 형성 후 조기 종료한다.
+        calls: list[int] = []
 
-        def gen(prompt, **kwargs):
+        def gen(_prompt: str, **kwargs: object) -> str:
+            _ = kwargs
             calls.append(1)
             return CODE_FIB
 
@@ -240,13 +380,15 @@ class TestComplexityGating:
         )
         trace = eng.run("분산 시스템 아키텍처 설계와 동시성 캐시 최적화")
         assert trace.skipped is False
-        assert len(calls) == 3
+        assert len(calls) >= 2  # 과반 웨이브는 실행됨
+        assert trace.confidence == 1.0
 
     def test_no_threshold_always_fires(self):
         # complexity_threshold=None이면 게이트 없이 항상 N샘플링.
-        calls = []
+        calls: list[int] = []
 
-        def gen(prompt, **kwargs):
+        def gen(_prompt: str, **kwargs: object) -> str:
+            _ = kwargs
             calls.append(1)
             return CODE_FIB
 
@@ -257,9 +399,10 @@ class TestComplexityGating:
 
     def test_threshold_zero_fires_everything(self):
         # threshold=0.0이면 복잡도가 0이 아니면 모두 발화.
-        calls = []
+        calls: list[int] = []
 
-        def gen(prompt, **kwargs):
+        def gen(_prompt: str, **kwargs: object) -> str:
+            _ = kwargs
             calls.append(1)
             return CODE_FIB
 
@@ -313,47 +456,15 @@ class TestGeneralizedSelfConsistencyPath:
     """
 
     @pytest.fixture
-    def _orch_factory(self):
-        """direct_response run_loop를 위한 최소 orch stub을 반환."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        def make(config: dict[str, object], model_name: str = "deepseek-r1:70b"):
-            orch = MagicMock()
-            orch.config = config
-            orch.project_root = "/tmp"
-            orch._skill_prompts_cache = ""
-            orch._last_agent_output = ""
-            # 비-qwen 모델을 반환하도록 준비
-            orch._prepare_agent_prompt.return_value = (
-                model_name,
-                "sys",
-                "tool",
-                "skill",
-                "prompt",
-                [{"role": "user", "content": "hi"}],
-            )
-            orch.manager = MagicMock()
-            orch.manager._registry = MagicMock()
-            orch.manager.router = MagicMock()
-            orch.manager.router.get_combo.return_value = None
-            orch.manager.is_loaded.return_value = True
-            orch.manager.get_system_prompt.return_value = ""
-            orch.manager.get_tool_prompt.return_value = ""
-            orch._get_model_for_role.return_value = model_name
-            ctx = MagicMock()
-            ctx.tool_guardrail = MagicMock()
-            ctx.tool_guardrail.reset = MagicMock()
-            ctx.cognitive_loop = MagicMock()
-            ctx.quality_gate = MagicMock()
-            ctx.quality_gate.reset = MagicMock()
-            ctx.tool_executor = MagicMock()
-            ctx.tool_executor.execute_async = AsyncMock(return_value="ok")
-            orch.ctx = ctx
-            return orch
+    def _orch_factory(self) -> Callable[..., _OrchestratorDouble]:
+        def make(config: dict[str, object], model_name: str = "deepseek-r1:70b") -> _OrchestratorDouble:
+            return _OrchestratorDouble(config, model_name)
 
         return make
 
-    def test_non_qwen_model_uses_self_consistency_when_enabled(self, _orch_factory):
+    def test_non_qwen_model_uses_self_consistency_when_enabled(
+        self, _orch_factory: Callable[..., _OrchestratorDouble]
+    ):
         # config 켜짐 + 비-qwen 모델 → generate_self_consistent 호출.
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
@@ -361,10 +472,7 @@ class TestGeneralizedSelfConsistencyPath:
             {"amplification": {"self_consistency": {"enabled": True}}},
             model_name="deepseek-r1:70b",
         )
-        orch.manager.generate_self_consistent.return_value = "amplified"
-        orch.manager.generate.return_value = "plain"
-
-        list(
+        _ = list(
             ToolLoopEngine(orch).run_loop(
                 [{"role": "user", "content": "답만"}],
                 "SELF",
@@ -373,10 +481,12 @@ class TestGeneralizedSelfConsistencyPath:
                 direct_response=True,
             )
         )
-        orch.manager.generate_self_consistent.assert_called_once()
+        assert orch.manager.self_consistent_calls == 1
         # 핵심: 직접 응답이 self-consistent 경로를 탔다 (revision 호출은 별개).
 
-    def test_non_qwen_model_falls_back_when_disabled(self, _orch_factory):
+    def test_non_qwen_model_falls_back_when_disabled(
+        self, _orch_factory: Callable[..., _OrchestratorDouble]
+    ):
         # config 꺼짐 + 비-qwen 모델 → 일반 generate (self-consistent 미호출).
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
@@ -384,10 +494,7 @@ class TestGeneralizedSelfConsistencyPath:
             {"amplification": {"self_consistency": {"enabled": False}}},
             model_name="deepseek-r1:70b",
         )
-        orch.manager.generate_self_consistent.return_value = "amplified"
-        orch.manager.generate.return_value = "plain"
-
-        list(
+        _ = list(
             ToolLoopEngine(orch).run_loop(
                 [{"role": "user", "content": "답만"}],
                 "SELF",
@@ -396,10 +503,13 @@ class TestGeneralizedSelfConsistencyPath:
                 direct_response=True,
             )
         )
-        orch.manager.generate_self_consistent.assert_not_called()
+        assert orch.manager.self_consistent_calls == 0
+        assert orch.manager.generate_calls == 1
         # 핵심: 비활성 시 self-consistent 경로를 타지 않는다.
 
-    def test_qwen_model_still_works_when_enabled(self, _orch_factory):
+    def test_qwen_model_still_works_when_enabled(
+        self, _orch_factory: Callable[..., _OrchestratorDouble]
+    ):
         # qwen 모델 + config 켜짐 → 여전히 generate_self_consistent (회귀 방지).
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
@@ -407,10 +517,7 @@ class TestGeneralizedSelfConsistencyPath:
             {"amplification": {"self_consistency": {"enabled": True}}},
             model_name="qwen3.6:latest",
         )
-        orch.manager.generate_self_consistent.return_value = "amplified"
-        orch.manager.generate.return_value = "plain"
-
-        list(
+        _ = list(
             ToolLoopEngine(orch).run_loop(
                 [{"role": "user", "content": "답만"}],
                 "SELF",
@@ -419,4 +526,4 @@ class TestGeneralizedSelfConsistencyPath:
                 direct_response=True,
             )
         )
-        orch.manager.generate_self_consistent.assert_called_once()
+        assert orch.manager.self_consistent_calls == 1

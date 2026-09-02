@@ -1,8 +1,9 @@
 import asyncio
+import contextvars
 import json
 import logging
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from typing import Annotated, Callable, TypeAlias, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -18,23 +19,53 @@ from antigravity_k.api.dependencies import (
 from antigravity_k.engine.audit_logger import get_audit_logger
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.protocol_translator import APIFormat, ProtocolTranslator
+from antigravity_k.engine.tokenizer import TokenEstimator
 
 logger = logging.getLogger("antigravity_k.api.chat")
 
 router = APIRouter()
 
+JsonMap: TypeAlias = dict[str, object]
+ChatMessage: TypeAlias = JsonMap
 
-def _latest_user_text(messages: list[dict[str, Any]]) -> str:
+
+def _string_value(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _bool_value(value: object, default: bool = False) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _content_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in cast(list[object], content):
+            if not isinstance(item, dict):
+                continue
+            part = cast(JsonMap, item)
+            if part.get("type") == "text":
+                text = part.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return " ".join(parts)
+    return ""
+
+
+def _messages_value(value: object) -> list[ChatMessage]:
+    if not isinstance(value, list):
+        return []
+    return [cast(ChatMessage, item) for item in cast(list[object], value) if isinstance(item, dict)]
+
+
+def _latest_user_text(messages: list[ChatMessage]) -> str:
     """Return the latest text-only user message for slash-command routing."""
     for msg in reversed(messages):
         if msg.get("role") != "user":
             continue
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
-            return " ".join(parts).strip()
+        return _content_text(msg.get("content", "")).strip()
     return ""
 
 
@@ -122,6 +153,19 @@ _TDD_TARGET_KEYWORDS = [
 ]
 
 
+
+def _has_code_write_signal(text: str) -> bool:
+    """LLM TDD 판정을 존중할 '코드 쓰기' 신호가 있는지.
+
+    변경 동사(작성/구현/수정/만들/...)가 있어야 한다 — 파일 경로나 코드
+    명사만 언급된 읽기·요약·제안 요청까지 TDD 레이싱(고비용 멀티모델
+    생성-테스트 루프)으로 보내는 것을 막는다. 소형 모델의 10토큰 인텐트
+    분류는 이런 오판이 잦다.
+    """
+    text_lower = text.lower()
+    return any(kw in text_lower for kw in _TDD_ACTION_KEYWORDS)
+
+
 def _keyword_intent_fallback(text: str) -> str:
     """LLM intent 분류 실패 시 키워드 기반으로 SEARCH/TDD/GENERAL을 판별.
 
@@ -154,8 +198,8 @@ def _keyword_intent_fallback(text: str) -> str:
     return "GENERAL"
 
 
-def _stream_text_response(text: str, model: str):
-    async def event_generator():
+def _stream_text_response(text: str, model: str) -> StreamingResponse:
+    async def event_generator() -> AsyncIterator[str]:
         data = {
             "id": "chatcmpl-stream",
             "object": "chat.completion.chunk",
@@ -174,34 +218,80 @@ def _stream_text_response(text: str, model: str):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+def _validate_chat_request_body(body: object) -> JsonMap:
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    body_map = cast(JsonMap, body)
+    model = body_map.get("model")
+    if model is not None and not isinstance(model, str):
+        raise HTTPException(status_code=400, detail="'model' must be a string")
+
+    messages = body_map.get("messages")
+    if messages is not None:
+        if not isinstance(messages, list):
+            raise HTTPException(status_code=400, detail="'messages' must be an array")
+        for index, message in enumerate(cast(list[object], messages)):
+            if not isinstance(message, dict):
+                raise HTTPException(status_code=400, detail=f"'messages[{index}]' must be an object")
+            message_map = cast(JsonMap, message)
+
+            role = message_map.get("role")
+            if role is not None and not isinstance(role, str):
+                raise HTTPException(status_code=400, detail=f"'messages[{index}].role' must be a string")
+
+            content = message_map.get("content")
+            if content is not None and not isinstance(content, (str, list)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'messages[{index}].content' must be a string or array",
+                )
+            if isinstance(content, list):
+                for part_index, part in enumerate(cast(list[object], content)):
+                    if not isinstance(part, dict):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"'messages[{index}].content[{part_index}]' must be an object",
+                        )
+
+    for flag in ("stream", "agent_mode", "plan_mode", "tdd_mode"):
+        value = body_map.get(flag)
+        if value is not None and not isinstance(value, bool):
+            raise HTTPException(status_code=400, detail=f"'{flag}' must be a boolean")
+
+    return body_map
+
+
 @router.get("/v1/chat/completions/reconnect")
-async def chat_reconnect():
+async def chat_reconnect() -> StreamingResponse:
     import asyncio
 
-    from .legacy import _active_session
+    from antigravity_k.api.routes.session_state import get_active_session
 
-    async def event_generator():
-        if not _active_session.is_active:
+    active_session = get_active_session()
+
+    async def event_generator() -> AsyncIterator[str]:
+        if not active_session.is_active:
             yield "data: [DONE]\n\n"
             return
 
         # Yield history first
-        for chunk in _active_session.history:
+        for chunk in active_session.history:
             data = {"choices": [{"delta": {"content": chunk}}]}
             yield f"data: {json.dumps(data)}\n\n"
 
         # Poll for new chunks
-        last_idx = len(_active_session.history)
-        while _active_session.is_active:
-            if len(_active_session.history) > last_idx:
-                for chunk in _active_session.history[last_idx:]:
+        last_idx = len(active_session.history)
+        while active_session.is_active:
+            if len(active_session.history) > last_idx:
+                for chunk in active_session.history[last_idx:]:
                     data = {"choices": [{"delta": {"content": chunk}}]}
                     yield f"data: {json.dumps(data)}\n\n"
-                last_idx = len(_active_session.history)
+                last_idx = len(active_session.history)
             await asyncio.sleep(0.5)
 
-        if _active_session.error:
-            data = {"choices": [{"delta": {"content": f"\n\n[Error: {_active_session.error}]"}}]}
+        if active_session.error:
+            data = {"choices": [{"delta": {"content": f"\n\n[Error: {active_session.error}]"}}]}
             yield f"data: {json.dumps(data)}\n\n"
 
         yield "data: [DONE]\n\n"
@@ -212,46 +302,52 @@ async def chat_reconnect():
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: Request,
-    manager: ModelManager = Depends(get_model_manager),
-    translator: ProtocolTranslator = Depends(get_translator),
-):
+    manager: Annotated[ModelManager, Depends(get_model_manager)],
+    translator: Annotated[ProtocolTranslator, Depends(get_translator)],
+) -> object:
     try:
-        body = await request.json()
+        body = _validate_chat_request_body(cast(object, await request.json()))
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     source_format = translator.detect_format(body)
     internal_req = translator.translate_request(body, source=source_format)
 
-    target_model = internal_req.get("model", "")
+    target_model = _string_value(internal_req.get("model"))
     if not target_model:
         raise HTTPException(status_code=400, detail="Model is required")
 
-    messages = internal_req.get("messages", [])
+    messages = _messages_value(internal_req.get("messages", []))
 
     # P0 인젝션 방어: HIGH 패턴 감지 시 시스템 경고 삽입
     from antigravity_k.engine.prompt_injection_guard import PromptInjectionGuard
 
-    messages = PromptInjectionGuard().augment_user_input(messages)
+    guarded_messages = PromptInjectionGuard().augment_user_input(cast(list[dict[str, str]], messages))
+    messages = _messages_value(guarded_messages)
 
-    from antigravity_k.api.dependencies import _get_session_manager
+    from antigravity_k.api import dependencies as api_dependencies
+    from antigravity_k.engine.session_manager import SessionManager
 
-    session_manager = _get_session_manager()
-    session_manager.start_session(resume=True)
+    get_session_manager = cast(
+        "Callable[[], SessionManager]",
+        getattr(api_dependencies, "_get_session_manager"),
+    )
+    session_manager = get_session_manager()
+    _ = session_manager.start_session(resume=True)
 
     # Auto-restore context for new conversations (UI sends few messages)
     # 작업 2: 임계값 완화 (<= 4) — 더 많은 새 대화에서 이전 기억 복원
     if len(messages) <= 4:
         restored_context = session_manager.auto_restore()
         if restored_context:
-            messages.insert(0, {"role": "system", "content": restored_context})
+            messages.insert(0, cast(ChatMessage, {"role": "system", "content": restored_context}))
 
-    is_stream = body.get("stream", False)
-    is_agent_mode = body.get("agent_mode", True)
-    is_plan_mode = body.get("plan_mode", False)
+    is_stream = _bool_value(body.get("stream"))
+    is_agent_mode = _bool_value(body.get("agent_mode"), default=True)
+    is_plan_mode = _bool_value(body.get("plan_mode"))
 
     # [AUTONOMY] 사용자의 TDD 모드 자동 판단 요구사항 반영
-    is_tdd_mode = body.get("tdd_mode", False)
+    is_tdd_mode = _bool_value(body.get("tdd_mode"))
     slash_text = _latest_user_text(messages)
 
     # 작업 4: 모든 경로에서 사용자 학습 — UserIntentModeler.observe() 호출
@@ -288,15 +384,15 @@ async def chat_completions(
             # 날씨/주가/뉴스 등 명확한 검색 의도는 LLM 없이 SEARCH로 확정 — 환각 방지
             _pre_intent = _keyword_intent_fallback(slash_text)
 
-            logger_auto.info(f"[DEBUG] slash_text={repr(slash_text[:60])} pre_intent={_pre_intent}")
+            logger_auto.info("[DEBUG] slash_text=%s pre_intent=%s", repr(slash_text[:60]), _pre_intent)
 
             if _pre_intent == "SEARCH":
                 # 키워드로 SEARCH가 확정되면 LLM 호출 생략
-                logger_auto.info(f"Auto-Intent (키워드): SEARCH 모드 — '{slash_text[:40]}'")
+                logger_auto.info("Auto-Intent (키워드): SEARCH 모드 — '%s'", slash_text[:40])
                 is_fast_search = True
 
             elif _pre_intent == "TDD":
-                logger_auto.info(f"Auto-Intent (키워드): TDD 모드 — '{slash_text[:40]}'")
+                logger_auto.info("Auto-Intent (키워드): TDD 모드 — '%s'", slash_text[:40])
                 is_tdd_mode = True
             else:
                 # 키워드로 판별 불가한 경우에만 LLM 분류 사용
@@ -325,7 +421,7 @@ async def chat_completions(
                             return "SEARCH"
                         return "GENERAL"
                     except Exception as e:
-                        logger_auto.warning(f"Auto-Intent LLM classification failed: {e}")
+                        logger_auto.warning("Auto-Intent LLM classification failed: %s", e)
                         return _keyword_intent_fallback(slash_text)
 
                 from starlette.concurrency import run_in_threadpool
@@ -333,10 +429,17 @@ async def chat_completions(
                 intent = await run_in_threadpool(_classify_intent)
 
                 if intent == "TDD":
-                    logger_auto.info(f"Auto-Intent: LLM autonomously enabled TDD mode for: {slash_text[:50]}")
-                    is_tdd_mode = True
+                    # 이중 확인 — 코드 '쓰기' 동사 없는 요청의 TDD 오판은 무시한다
+                    if _has_code_write_signal(slash_text):
+                        logger_auto.info("Auto-Intent: LLM autonomously enabled TDD mode for: %s", slash_text[:50])
+                        is_tdd_mode = True
+                    else:
+                        logger_auto.info(
+                            "Auto-Intent: LLM TDD 판정 무시 (코드 신호 없음): %s",
+                            slash_text[:50],
+                        )
                 elif intent == "SEARCH":
-                    logger_auto.info(f"Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: {slash_text[:50]}")
+                    logger_auto.info("Auto-Intent: LLM autonomously enabled FAST SEARCH mode for: %s", slash_text[:50])
                     is_fast_search = True
 
     if is_fast_search:
@@ -358,8 +461,7 @@ async def chat_completions(
                 search_query = stock_validation.corrected_query
                 stock_correction_note = format_code_correction(stock_validation)
                 logger_auto.info(
-                    f"종목코드 교정: '{slash_text}' → '{search_query}' "
-                    f"(잘못된 코드: {[v.original_code for v in stock_validation.codes_found if v.needs_correction]})"
+                    "종목코드 교정: '%s' → '%s' (잘못된 코드: %s)", slash_text, search_query, [v.original_code for v in stock_validation.codes_found if v.needs_correction]
                 )
 
             search_res = tool.execute(query=search_query)
@@ -435,7 +537,7 @@ async def chat_completions(
 
             if is_stream:
 
-                async def _fast_stream():
+                async def _fast_stream() -> AsyncIterator[str]:
                     yield f"data: {json.dumps({'id': 'chatcmpl-stream', 'object': 'chat.completion.chunk', 'model': target_model, 'choices': [{'delta': {'content': '🔍 **빠른 웹 검색 모드 실행 중...**\\n\\n'}, 'index': 0, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"  # noqa: E501
                     # SEARCH 샘플링 프로파일 (low temp=0.15, min_p=0.05)
                     gen = manager.stream_generate(
@@ -473,8 +575,8 @@ async def chat_completions(
                     "content": f"🔍 **빠른 웹 검색 모드 실행 중...**\n\n{fast_res}",
                     "model": target_model,
                     "finish_reason": "stop",
-                    "tokens_in": len(slash_text) // 4,
-                    "tokens_out": len(fast_res) // 4,
+                    "tokens_in": TokenEstimator.estimate_text(slash_text),
+                    "tokens_out": TokenEstimator.estimate_text(fast_res),
                 }
                 session_manager.add_turn(
                     [
@@ -486,7 +588,7 @@ async def chat_completions(
                 return translator.translate_response(internal_resp, target=target_format)
         except Exception as e:
             logger.exception("Unhandled exception")
-            logger_auto.error(f"Fast search failed: {e}. Falling back to normal mode.")
+            logger_auto.error("Fast search failed: %s. Falling back to normal mode.", e)
 
             is_fast_search = False
 
@@ -496,17 +598,23 @@ async def chat_completions(
     )
 
     if is_self_capability_request(slash_text):
-        from antigravity_k.api.dependencies import (
-            __get_skill_loader,
-            __get_tool_registry,
-            get_slash_registry,
-        )
+        from antigravity_k.api.dependencies import get_slash_registry
+        from antigravity_k.engine.skill_loader import SkillLoader
+        from antigravity_k.tools.tool_registry import ToolRegistry
 
         registry = get_slash_registry()
         engine = SelfCapabilityEngine()
+        get_skill_loader = cast(
+            "Callable[[], SkillLoader]",
+            getattr(api_dependencies, "__get_skill_loader"),
+        )
+        get_tool_registry = cast(
+            "Callable[[], ToolRegistry]",
+            getattr(api_dependencies, "__get_tool_registry"),
+        )
         snapshot = engine.build(
-            tool_registry=__get_tool_registry(),
-            skill_loader=__get_skill_loader(),
+            tool_registry=get_tool_registry(),
+            skill_loader=get_skill_loader(),
             model_manager=manager,
             slash_commands=getattr(registry, "_commands", {}),
         )
@@ -524,8 +632,8 @@ async def chat_completions(
             "content": result,
             "model": target_model,
             "finish_reason": "stop",
-            "tokens_in": len(slash_text) // 4,
-            "tokens_out": len(result) // 4,
+            "tokens_in": TokenEstimator.estimate_text(slash_text),
+            "tokens_out": TokenEstimator.estimate_text(result),
         }
         target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
         return translator.translate_response(internal_resp, target=target_format)
@@ -564,7 +672,7 @@ async def chat_completions(
                 else:
                     result = "".join(str(chunk) for chunk in result)
 
-            result_text = result if isinstance(result, str) else "".join(result)
+            result_text = result
             if is_stream:
                 return _stream_text_response(result_text, target_model)
 
@@ -572,8 +680,8 @@ async def chat_completions(
                 "content": result_text,
                 "model": target_model,
                 "finish_reason": "stop",
-                "tokens_in": len(slash_text) // 4,
-                "tokens_out": len(result_text) // 4,
+                "tokens_in": TokenEstimator.estimate_text(slash_text),
+                "tokens_out": TokenEstimator.estimate_text(result_text),
             }
             target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
             return translator.translate_response(internal_resp, target=target_format)
@@ -585,10 +693,7 @@ async def chat_completions(
         prompt = ""
         for msg in messages:
             if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, list):
-                    content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
-                prompt += content + "\n"
+                    prompt += _content_text(msg.get("content", "")) + "\n"
 
         # 간단한 정규식으로 타겟 파일 경로 추출 시도 (예: 파일명.py)
         import re
@@ -603,8 +708,8 @@ async def chat_completions(
             target_file_path = os.path.join(_project_root, target_file_path)
 
         async def tdd_event_generator():
-            def yield_chunk(text):
-                data = {
+            def yield_chunk(text: str) -> str:
+                data: dict[str, object] = {
                     "id": "chatcmpl-stream",
                     "object": "chat.completion.chunk",
                     "model": target_model,
@@ -647,7 +752,7 @@ async def chat_completions(
                 )
 
             except Exception as e:
-                logger.error(f"TDD Stream error: {e}", exc_info=True)
+                logger.error("TDD Stream error: %s", e, exc_info=True)
                 yield yield_chunk(f"\n\n[Error: {str(e)}]")
                 yield "data: [DONE]\n\n"
 
@@ -666,15 +771,15 @@ async def chat_completions(
                 "Do NOT write any code until the user explicitly approves the plan."
             ),
         }
-        messages = [plan_system_msg] + messages
+        messages = [cast(ChatMessage, plan_system_msg)] + messages
 
     # Vision Auto-Routing: 이미지가 포함된 메시지 감지 시 비전 모델로 자동 전환
     has_image = False
     for msg in messages:
         content = msg.get("content", "")
         if isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "image_url":
+            for part in cast(list[object], content):
+                if isinstance(part, dict) and cast(JsonMap, part).get("type") == "image_url":
                     has_image = True
                     break
         elif isinstance(content, str) and content.startswith("data:image/"):
@@ -694,10 +799,11 @@ async def chat_completions(
                 "config.yaml",
             )
             with open(config_path, "r") as f:
-                cfg = yaml.safe_load(f)
-            vision_model = cfg.get("defaults", {}).get("vision")
+                cfg = cast(JsonMap, yaml.safe_load(f) or {})
+            defaults = cfg.get("defaults")
+            vision_model = _string_value(cast(JsonMap, defaults).get("vision")) if isinstance(defaults, dict) else ""
             if vision_model:
-                logger.info(f"[Vision Auto-Routing] 이미지 감지 → 모델 전환: {target_model} → {vision_model}")
+                logger.info("[Vision Auto-Routing] 이미지 감지 → 모델 전환: %s → %s", target_model, vision_model)
                 target_model = vision_model
         except Exception:
             logger.exception("Vision auto-routing config read failed")
@@ -715,7 +821,7 @@ async def chat_completions(
     )
 
     if is_stream and is_agent_mode:
-        from starlette.concurrency import iterate_in_threadpool
+        from starlette.concurrency import run_in_threadpool
 
         runtime = get_agent_runtime()
 
@@ -729,7 +835,24 @@ async def chat_completions(
             full_response = ""
             stream_aiter = None
             try:
-                stream_aiter = iterate_in_threadpool(runtime.stream(messages, target_model=target_model))
+                stream_iterator = runtime.stream(cast(Sequence[Mapping[str, str]], messages), target_model=target_model)
+                stream_context = contextvars.copy_context()
+
+                async def iterate_stream() -> AsyncIterator[str]:
+                    def next_chunk() -> tuple[bool, str | None]:
+                        try:
+                            return False, next(stream_iterator)
+                        except StopIteration:
+                            return True, None
+
+                    while True:
+                        done, chunk = await run_in_threadpool(stream_context.run, next_chunk)
+                        if done:
+                            return
+                        if chunk is not None:
+                            yield chunk
+
+                stream_aiter = iterate_stream()
                 async for chunk in stream_aiter:
                     full_response += chunk
                     active_session.history.append(chunk)
@@ -776,7 +899,7 @@ async def chat_completions(
                     )
                 raise
             except Exception as e:
-                logger.error(f"Stream error: {e}", exc_info=True)
+                logger.error("Stream error: %s", e, exc_info=True)
                 active_session.error = str(e)
                 data = {
                     "choices": [
@@ -808,11 +931,9 @@ async def chat_completions(
     if system_msg:
         prompt += f"System: {system_msg}\n\n"
     for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
-        prompt += f"{role.capitalize()}: {content}\n"
+                role = _string_value(msg.get("role"), default="user")
+                content = _content_text(msg.get("content", ""))
+                prompt += f"{role.capitalize()}: {content}\n"
     prompt += "Assistant: "
 
     try:
@@ -866,11 +987,11 @@ async def chat_completions(
                 "content": response_text,
                 "model": target_model,
                 "finish_reason": "stop",
-                "tokens_in": len(prompt) // 4,
-                "tokens_out": len(response_text) // 4,
+                "tokens_in": TokenEstimator.estimate_text(prompt),
+                "tokens_out": TokenEstimator.estimate_text(response_text),
             }
             target_format = source_format if source_format != APIFormat.INTERNAL else APIFormat.OPENAI
             return translator.translate_response(internal_resp, target=target_format)
     except Exception as e:
-        logger.error(f"Generation error: {e}", exc_info=True)
+        logger.error("Generation error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

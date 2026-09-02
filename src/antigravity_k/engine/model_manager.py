@@ -11,18 +11,18 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias, cast, final
+from typing import TYPE_CHECKING, ContextManager, Protocol, TypeAlias, cast, final, runtime_checkable
 
 if TYPE_CHECKING:
     from antigravity_k.engine.best_of_n_verifier import VerificationOutcome
 
 from ..tools.egress_policy import safe_urlopen
 from .collective_intelligence import CollectiveIntelligenceEngine
-from .context_budget import context_budget_for_model
+from .context_budget import MAX_CONTEXT_TOKEN_LIMIT, context_budget_for_model
 from .local_runtime import LocalRuntimeSupervisor
 from .long_context_policy import LongContextExecutionPlan, build_long_context_plan
 from .memory_policy import MemoryPolicy
@@ -34,10 +34,80 @@ from .usage_tracker import UsageTracker
 
 logger = logging.getLogger("antigravity_k.model_manager")
 
-Message = dict[str, Any]
-Payload = dict[str, Any]
-DynamicValue: TypeAlias = Any
+Message: TypeAlias = dict[str, object]
+Payload: TypeAlias = dict[str, object]
+DynamicValue: TypeAlias = object
 JsonMap: TypeAlias = dict[str, object]
+
+
+@runtime_checkable
+class _TokenizerLike(Protocol):
+    def encode(self, text: str) -> Sequence[int]: ...
+
+
+class _AnthropicStream(Protocol):
+    text_stream: Iterator[str]
+
+
+class _AnthropicMessages(Protocol):
+    def stream(self, **kwargs: object) -> ContextManager[_AnthropicStream]: ...
+
+
+class _AnthropicClient(Protocol):
+    messages: _AnthropicMessages
+
+
+class _AnthropicModule(Protocol):
+    def Anthropic(self, *, api_key: str) -> _AnthropicClient: ...
+
+
+class _PretrainedFactory(Protocol):
+    def from_pretrained(self, *args: object, **kwargs: object) -> object: ...
+
+
+class _TransformersModule(Protocol):
+    AutoTokenizer: _PretrainedFactory
+    AutoModelForCausalLM: _PretrainedFactory
+
+
+class _PeftModule(Protocol):
+    PeftModel: _PretrainedFactory
+
+
+class _TraceLike(Protocol):
+    def add_span(self, span: object) -> None: ...
+
+
+class _SelectionTrace(Protocol):
+    skipped: bool
+    selected: str
+    selected_index: int
+    n_candidates: int
+    early_exit: bool
+    confidence: float
+    cluster_sizes: Sequence[int]
+
+
+class _BestOfNRunner(Protocol):
+    def run(self, prompt: str, **kwargs: object) -> _SelectionTrace: ...
+
+
+class _SelfConsistencyRunner(Protocol):
+    def run(self, prompt: str, **kwargs: object) -> _SelectionTrace: ...
+
+
+class _VerifierFactory(Protocol):
+    def __call__(self, language_hint: str) -> Callable[[str], "VerificationOutcome"]: ...
+
+
+class _AnswerPatchVerifierFactory(Protocol):
+    def __call__(
+        self,
+        project_root: str | Path,
+        test_command: list[str],
+        *,
+        timeout_sec: float,
+    ) -> Callable[[str], "VerificationOutcome"]: ...
 
 
 def _as_float(value: object, default: float) -> float:
@@ -84,9 +154,29 @@ def _as_json_map(value: object) -> JsonMap:
     return cast(JsonMap, value) if isinstance(value, dict) else {}
 
 
+def _as_messages(value: object) -> list[Message]:
+    if not isinstance(value, list):
+        return []
+    messages: list[Message] = []
+    for item in cast(list[object], value):
+        if isinstance(item, dict):
+            messages.append({str(key): val for key, val in cast(dict[object, object], item).items()})
+    return messages
+
+
+def _token_count(tokenizer: object, text: str) -> int:
+    if isinstance(tokenizer, _TokenizerLike):
+        return len(tokenizer.encode(text))
+    # 토크나이저가 없을 때의 폴백도 단일 추정기(CJK 인식)를 사용한다 —
+    # len//4는 한국어를 ~4-6배 과소평가해 비용 집계를 왜곡한다.
+    from .tokenizer import TokenEstimator
+
+    return TokenEstimator.estimate_text(text)
+
+
 # ─── 적응형 샘플링 프로파일 (Adaptive Sampling Profiles) ───
 # Single Source of Truth: engine/sampling_config.py
-from .sampling_config import SAMPLING_PROFILES
+from .sampling_config import resolve_sampling_profile
 
 
 @dataclass
@@ -360,8 +450,10 @@ class ModelManager:
         tokens_out: int | None = None,
     ) -> None:
         """Record usage + tracing for a successful inference call."""
-        resolved_tokens_in = len(prompt) // 4 if tokens_in is None else tokens_in
-        resolved_tokens_out = len(response) // 4 if tokens_out is None else tokens_out
+        from .tokenizer import TokenEstimator
+
+        resolved_tokens_in = TokenEstimator.estimate_text(prompt) if tokens_in is None else tokens_in
+        resolved_tokens_out = TokenEstimator.estimate_text(response) if tokens_out is None else tokens_out
         _ = self.tracker.record(
             model_name=model,
             tokens_in=resolved_tokens_in,
@@ -684,7 +776,7 @@ class ModelManager:
             except Exception as e:
                 logger.exception("Unhandled exception")
                 text = f"[API Error] 집단지성 실행 중 오류가 발생했습니다: {e}"
-            chunk_size = _as_int(cast(object, kwargs.get("stream_chunk_size", 256)), 256)
+            chunk_size = _as_int(kwargs.get("stream_chunk_size", 256), 256)
             for idx in range(0, len(text), chunk_size):
                 yield text[idx : idx + chunk_size]
             return
@@ -709,19 +801,21 @@ class ModelManager:
             logger.error("추론 실패 (모든 모델 비가용): %s", e)
             raise
 
+        full_text = ""
         try:
             loaded = self.get(used_model)
 
-            full_text = ""
             for chunk in self._do_stream_generate(loaded, prompt, **kwargs):
-                if not full_text and combo_name and chunk.strip().lower().startswith("[api error"):
+                # 에러 문자열은 청크 어디에서든 독립적으로 yield될 수 있다 —
+                # 첫 청크만 검사하면 이후 에러가 사용자에게 그대로 노출된다.
+                if combo_name and chunk.strip().lower().startswith("[api error"):
                     raise RuntimeError(chunk.strip())
                 full_text += chunk
                 yield chunk
 
             # Record usage after completion
-            tokens_in = len(loaded.tokenizer.encode(prompt)) if loaded.tokenizer else len(prompt) // 4
-            tokens_out = len(loaded.tokenizer.encode(full_text)) if loaded.tokenizer else len(full_text) // 4
+            tokens_in = _token_count(loaded.tokenizer, prompt)
+            tokens_out = _token_count(loaded.tokenizer, full_text)
             latency_ms = (time.time() - start_time) * 1000
 
             self._record_successful_call(
@@ -754,6 +848,11 @@ class ModelManager:
                     error_msg,
                     combo_name,
                 )
+                # 부분 출력이 이미 스트리밍된 경우, 폴백 전체 응답을 구분자
+                # 없이 이어 붙이면 두 모델의 텍스트가 뒤섞인 채답이 된다 —
+                # 복구 마커로 경계를 명시한다.
+                if full_text:
+                    yield "\n\n[⚠️ 스트림 중단 — 폴백 모델로 재생성합니다]\n\n"
                 yield from self.stream_generate(prompt, combo_name, **kwargs)
             else:
                 logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)
@@ -797,10 +896,10 @@ class ModelManager:
     def _resolve_bon_verifier(
         self,
         cfg: JsonMap,
-        make_syntax_verifier,
+        make_syntax_verifier: _VerifierFactory,
         language: str,
-        make_answer_patch_verifier,
-    ):
+        make_answer_patch_verifier: _AnswerPatchVerifierFactory,
+    ) -> Callable[[str], "VerificationOutcome"]:
         """best_of_n.verifier 설정에 따라 검증자를 선택한다.
 
         "syntax"(기본): 구문 검사. "worktree_tests": 답변 파일 블록을 git
@@ -856,7 +955,7 @@ class ModelManager:
 
         threshold = cfg.get("complexity_threshold")
         if threshold is not None:
-            from antigravity_k.engine.chain_of_verification import estimate_complexity
+            from antigravity_k.engine.chain_of_verification_models import estimate_complexity
 
             try:
                 if estimate_complexity(prompt) < _as_float(threshold, 0.0):
@@ -870,7 +969,7 @@ class ModelManager:
         if verifier_fn is None:
             verifier_fn = self._resolve_bon_verifier(cfg, make_syntax_verifier, language, make_answer_patch_verifier)
 
-        def _sample(sample_prompt: str, **sample_overrides) -> str:
+        def _sample(sample_prompt: str, **sample_overrides: object) -> str:
             merged = {**sample_kwargs, **sample_overrides}
             return self.generate(sample_prompt, target, **merged)
 
@@ -886,10 +985,12 @@ class ModelManager:
 
         engine = BestOfNVerifier(
             generate_fn=_sample,
-            verifier_fn=verifier_fn or make_syntax_verifier(language),
-            **engine_kwargs,
+            verifier_fn=verifier_fn,
+            n_samples=_as_int(engine_kwargs.get("n_samples"), 3),
+            base_temperature=_as_float(engine_kwargs.get("base_temperature"), 0.7),
+            temperature_spread=_as_float(engine_kwargs.get("temperature_spread"), 0.3),
         )
-        trace = engine.run(
+        trace = cast(_BestOfNRunner, cast(object, engine)).run(
             prompt,
             feedback_loop=bool(cfg.get("feedback_loop", True)),
             max_feedback_rounds=_as_int(cfg.get("max_feedback_rounds", 1), 1),
@@ -922,12 +1023,26 @@ class ModelManager:
         # 샘플링엔 컨텍스트 품질을 위해 max_tokens를 보존하되 temperature는 엔진이 주입
         sample_kwargs = {k: v for k, v in kwargs.items() if k != "temperature"}
 
-        def _sample(sample_prompt: str, **sample_overrides) -> str:
+        def _sample(sample_prompt: str, **sample_overrides: object) -> str:
             merged = {**sample_kwargs, **sample_overrides}
             return self.generate(sample_prompt, target, **merged)
 
-        engine = SelfConsistencyEngine(generate_fn=_sample, **config_to_engine_kwargs(cfg))
-        trace = engine.run(prompt)
+        sc_config = {
+            key: value
+            for key, value in cfg.items()
+            if isinstance(value, (str, int, float, bool)) or value is None
+        }
+        sc_kwargs = config_to_engine_kwargs(sc_config)
+        engine = SelfConsistencyEngine(
+            generate_fn=_sample,
+            n_samples=_as_int(sc_kwargs.get("n_samples"), 3),
+            base_temperature=_as_float(sc_kwargs.get("base_temperature"), 0.7),
+            temperature_spread=_as_float(sc_kwargs.get("temperature_spread"), 0.3),
+            similarity_threshold=_as_float(sc_kwargs.get("similarity_threshold"), 0.8),
+            selection=str(sc_kwargs.get("selection", "medoid")),
+            complexity_threshold=_as_float(sc_kwargs.get("complexity_threshold"), 0.0),
+        )
+        trace = cast(_SelfConsistencyRunner, cast(object, engine)).run(prompt)
         if trace.skipped or not trace.selected:
             return self.generate(prompt, target, **kwargs)
         logger.info(
@@ -1015,8 +1130,8 @@ class ModelManager:
             return False
 
         # 유효한 Anthropic API 키가 있을 때만 직접 호출
-        raw = getattr(config, "_raw", {}) or {}
-        api_key = raw.get("api_keys", {}).get("anthropic", "") if isinstance(raw, dict) else ""
+        raw = _as_json_map(getattr(config, "_raw", {}))
+        api_key = str(_as_json_map(raw.get("api_keys", {})).get("anthropic", ""))
         return bool(api_key) and api_key != "sk-ant-your-key-here"
 
     @staticmethod
@@ -1150,8 +1265,9 @@ class ModelManager:
                 output_data={"tokens_out": tokens_out} if tokens_out else {},
             )
             # 활성 trace가 있으면 span 추가
-            if tracer._active_trace:
-                tracer._active_trace.add_span(span)
+            active_trace = cast(_TraceLike | None, getattr(tracer, "_active_trace", None))
+            if active_trace is not None:
+                active_trace.add_span(span)
         except Exception:
             logger.debug("Tracing span add failed (non-critical)", exc_info=True)
 
@@ -1176,7 +1292,7 @@ class ModelManager:
             logger.debug("provider adapter 로드 실패 — 레거시 경로로 폴백", exc_info=True)
             return None
 
-    def _do_ollama_generate(self, loaded: LoadedModel, prompt: str, **kwargs) -> str:
+    def _do_ollama_generate(self, loaded: LoadedModel, prompt: str, **kwargs: object) -> str:
         """OpenAI 호환 HTTP API (LM Studio, Ollama 등)를 통한 생성 로직."""
         import json
         import urllib.request
@@ -1184,28 +1300,33 @@ class ModelManager:
         from ..config import config
 
         base_url = config.model.api_base.rstrip("/")
+        # Ollama OpenAI 호환 엔드포인트는 /v1 접미사 필수 — 없으면 404.
+        # (provider 경로와 동일한 정규화)
+        if "/v1" not in base_url and ":11434" in base_url:
+            base_url = f"{base_url}/v1"
         url = f"{base_url}/chat/completions"
         api_key = config.model.api_key
 
         # ─── 적응형 샘플링 프로파일 적용 ───
-        task_type = kwargs.get("task_type", "GENERAL")
-        profile = SAMPLING_PROFILES.get(task_type, SAMPLING_PROFILES["GENERAL"])
+        # task_type 정규화 — 라이브 경로는 소문자("code")로 전달되므로
+        # 대소문자 무시 조회가 없으면 항상 GENERAL로 폴백되었다.
+        profile = resolve_sampling_profile(kwargs.get("task_type"))
 
         # kwargs에 명시적으로 지정된 값이 있으면 그것을 우선 사용 (하위 호환성)
-        base_temp = kwargs.get("temperature", profile.temperature)
+        base_temp = _as_float(kwargs.get("temperature", profile.temperature), profile.temperature)
 
         # DINKIssTyle-AI-BBS: Randomizer & Temperature Boost
         boost = self.router.get_temperature_boost(loaded.profile.name)
         temperature = min(1.0, base_temp + boost)
 
-        min_p = kwargs.get("min_p", profile.min_p)
-        repeat_penalty = kwargs.get("repeat_penalty", profile.repeat_penalty)
+        min_p = _as_float(kwargs.get("min_p", profile.min_p), profile.min_p)
+        repeat_penalty = _as_float(kwargs.get("repeat_penalty", profile.repeat_penalty), profile.repeat_penalty)
 
-        data = {
+        data: JsonMap = {
             "model": loaded.profile.name,
             "stream": False,
             "temperature": temperature,
-            "max_tokens": kwargs.get("max_tokens", 4096),
+            "max_tokens": _as_int(kwargs.get("max_tokens", 4096), 4096),
             "repeat_penalty": repeat_penalty,
             "options": {
                 "min_p": min_p,
@@ -1218,17 +1339,16 @@ class ModelManager:
             data["format"] = json_schema
 
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
+            sys_msg = str(kwargs.get("system_prompt", ""))
+            api_msgs = _as_messages(kwargs.get("raw_messages"))
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
-            else:
-                api_msgs = kwargs["raw_messages"]
+                api_msgs.insert(0, {"role": "system", "content": sys_msg})
             data["messages"] = api_msgs
         else:
             data["messages"] = [{"role": "user", "content": prompt}]
         data["messages"] = self._suppress_model_thinking(
             loaded.profile.name,
-            data["messages"],
+            _as_messages(data["messages"]),
         )
 
         headers = {
@@ -1247,10 +1367,14 @@ class ModelManager:
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                result = json.loads(response.read().decode("utf-8"))
-                message = result["choices"][0]["message"]
-                content = message.get("content", "")
-                if not content and message.get("thinking"):
+                result = _as_json_map(cast(object, json.loads(response.read().decode("utf-8"))))
+                choices = result.get("choices")
+                choices_list = cast(list[object], choices) if isinstance(choices, list) else []
+                first_choice: object = choices_list[0] if choices_list else {}
+                message = _as_json_map(first_choice).get("message", {})
+                message_map = _as_json_map(message)
+                content = str(message_map.get("content", ""))
+                if not content and message_map.get("thinking"):
                     raise RuntimeError("model returned hidden thinking without final content")
                 logger.debug("Ollama response content (%s chars): %s", len(content), content[:200])
                 return content
@@ -1259,10 +1383,15 @@ class ModelManager:
             return f"[API Error for {loaded.profile.name}] {e}"
 
     @staticmethod
-    def _suppress_model_thinking(model_name: str, messages: list[Message]) -> list[Message]:
+    def _suppress_model_thinking(
+        model_name: str,
+        messages: Sequence[Mapping[str, object]],
+    ) -> list[Message]:
         """Inject direct-answer mode for models that otherwise emit thinking-only output."""
         if "qwen3" not in model_name.lower():
-            return messages
+            if isinstance(messages, list):
+                return cast(list[Message], messages)
+            return [dict(message) for message in messages]
 
         directive = (
             "/no_think\nAnswer directly. Do not output hidden reasoning, thinking traces, <think>, or <thought> blocks."
@@ -1298,15 +1427,15 @@ class ModelManager:
     def _apply_dynamic_inference_config(
         self,
         loaded_profile: ModelProfile,
-        prompt_or_messages: str | list[Message],
+        prompt_or_messages: str | Sequence[Mapping[str, object]],
         kwargs: Payload,
     ) -> tuple[str, float, dict[str, str | int] | None, str]:
         import hashlib
 
         model_name = loaded_profile.name
         thinking_config: dict[str, str | int] | None = None
-        temperature = float(kwargs.get("temperature", 0.7))
-        max_tokens = int(kwargs.get("max_tokens", 8192))
+        temperature = _as_float(kwargs.get("temperature", 0.7), 0.7)
+        max_tokens = _as_int(kwargs.get("max_tokens", 8192), 8192)
 
         if ":" in model_name:
             base_model, spec = model_name.split(":", 1)
@@ -1336,20 +1465,21 @@ class ModelManager:
 
         return model_name, temperature, thinking_config, attribution
 
-    def _do_anthropic_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
-        anthropic = import_module("anthropic")
+    def _do_anthropic_stream(self, loaded: LoadedModel, prompt: str, **kwargs: object) -> Iterator[str]:
+        anthropic = cast(_AnthropicModule, cast(object, import_module("anthropic")))
 
         from ..config import config
 
-        api_key = config._raw.get("api_keys", {}).get("anthropic", "")
+        raw = _as_json_map(getattr(config, "_raw", {}))
+        api_key = str(_as_json_map(raw.get("api_keys", {})).get("anthropic", ""))
         if not api_key or api_key == "sk-ant-your-key-here":
             yield "[Error] Anthropic API Key not found in config.yaml"
             return
 
         client = anthropic.Anthropic(api_key=api_key)
 
-        system_prompt = kwargs.get("system_prompt", "")
-        raw_messages = kwargs.get("raw_messages", [{"role": "user", "content": prompt}])
+        system_prompt = str(kwargs.get("system_prompt", ""))
+        raw_messages = _as_messages(kwargs.get("raw_messages", [{"role": "user", "content": prompt}]))
 
         model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile, raw_messages, kwargs
@@ -1375,12 +1505,12 @@ class ModelManager:
 
     def _build_anthropic_request_params(
         self,
-        raw_messages: list[Message],
+        raw_messages: Sequence[Mapping[str, object]],
         system_prompt: str,
         attribution: str,
         model_name: str,
         temperature: float,
-        thinking_config,
+        thinking_config: dict[str, str | int] | None,
         kwargs: Payload,
     ) -> Payload:
         """Format messages, manage cache_control blocks, and build API request params.
@@ -1388,15 +1518,15 @@ class ModelManager:
         Extracted from _do_anthropic_stream for testability.
         """
         # Format messages for Anthropic (only user/assistant roles).
-        anthropic_msgs = [
+        anthropic_msgs: list[Message] = [
             {"role": msg["role"], "content": msg["content"]}
             for msg in raw_messages
             if msg["role"] in ("user", "assistant")
         ]
 
         # Intelligent Context Cache: Anthropic allows max 4 cache_control blocks.
-        cache_blocks = []
-        system_blocks = []
+        cache_blocks: list[Message] = []
+        system_blocks: list[Message] = []
         if system_prompt:
             system_blocks.append(
                 {
@@ -1409,9 +1539,9 @@ class ModelManager:
 
         for msg in anthropic_msgs:
             if isinstance(msg["content"], list):
-                for block in msg["content"]:
+                for block in cast(list[object], msg["content"]):
                     if isinstance(block, dict) and "cache_control" in block:
-                        cache_blocks.append(block)
+                        cache_blocks.append(cast(Message, block))
 
         if len(cache_blocks) > 4:
             keep_first = cache_blocks[0]
@@ -1419,11 +1549,11 @@ class ModelManager:
             to_keep = {id(keep_first)} | {id(b) for b in keep_last}
             for block in cache_blocks:
                 if id(block) not in to_keep:
-                    block.pop("cache_control", None)
+                    _ = block.pop("cache_control", None)
 
         # Agent Footprint & Fingerprinting.
         if system_blocks:
-            system_blocks[0]["text"] += attribution  # type: ignore[operator]
+            system_blocks[0]["text"] = str(system_blocks[0].get("text", "")) + attribution
         else:
             system_blocks.append(
                 {
@@ -1433,8 +1563,8 @@ class ModelManager:
                 }
             )
 
-        request_params = {
-            "max_tokens": kwargs.get("max_tokens", 8192),
+        request_params: Payload = {
+            "max_tokens": _as_int(kwargs.get("max_tokens", 8192), 8192),
             "system": system_blocks if system_blocks else system_prompt,
             "messages": anthropic_msgs,
             "model": model_name,
@@ -1448,7 +1578,7 @@ class ModelManager:
         """Build and normalize the message list for an Ollama/OpenRouter stream request."""
         raw_messages = kwargs.get("raw_messages")
         if isinstance(raw_messages, list):
-            api_msgs = [dict(message) for message in raw_messages if isinstance(message, dict)]
+            api_msgs = _as_messages(cast(object, raw_messages))
             sys_msg = str(kwargs.get("system_prompt", ""))
             if sys_msg:
                 api_msgs.insert(0, {"role": "system", "content": sys_msg})
@@ -1460,10 +1590,12 @@ class ModelManager:
         for msg in api_msgs:
             content = msg.get("content", "")
             if isinstance(content, list):
-                parts = []
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        parts.append(part.get("text", ""))
+                parts: list[str] = []
+                for part in cast(list[object], content):
+                    if isinstance(part, dict):
+                        part_map = cast(dict[str, object], part)
+                        if part_map.get("type") == "text":
+                            parts.append(str(part_map.get("text", "")))
                     elif isinstance(part, str):
                         parts.append(part)
                 content = " ".join(parts)
@@ -1471,10 +1603,10 @@ class ModelManager:
 
         normalized = self._suppress_model_thinking(loaded.profile.name, normalized)
         _, _, _, attribution = self._apply_dynamic_inference_config(loaded.profile, normalized, kwargs)
-
-        if normalized and isinstance(normalized[0].get("content"), str):
-            normalized = list(normalized)
-            normalized[0] = {**normalized[0], "content": normalized[0]["content"] + f"\n{attribution}"}
+        # attribution 지문을 메시지에 주입하지 않는다 — 어디서도 다시 파싱되지
+        # 않는 순수 프롬프트 오염이다 (토큰 낭비 + 요청마다 달라지는 접두사로
+        # KV 캐시 적중률 저하). Anthropic 캐시 마커 경로만 유지한다.
+        _ = attribution
 
         return normalized
 
@@ -1513,7 +1645,8 @@ class ModelManager:
                 "stream": True,
                 "keep_alive": "30m",
                 "options": {
-                    "num_ctx": 32768,
+                    # 단일 진실원 — provider 경로(_context_window)와 동일 상수
+                    "num_ctx": MAX_CONTEXT_TOKEN_LIMIT,
                     "num_predict": kwargs.get("max_tokens", 4096),
                     "temperature": temperature,
                     "repeat_penalty": 1.3,
@@ -1524,7 +1657,7 @@ class ModelManager:
         req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers)
         return req, model_name
 
-    def _do_ollama_stream(self, loaded: LoadedModel, prompt: str, **kwargs):
+    def _do_ollama_stream(self, loaded: LoadedModel, prompt: str, **kwargs: object) -> Iterator[str]:
         """스트리밍 생성 로직.
 
         Ollama Native API(/api/chat)와 OpenAI 호환 SSE(/v1/chat/completions)를
@@ -1534,8 +1667,9 @@ class ModelManager:
         from urllib.error import HTTPError
 
         is_openrouter = self._is_openrouter()
-        api_msgs = self._prepare_stream_messages(loaded, prompt, kwargs)
-        req, _ = self._build_stream_request(loaded, api_msgs, kwargs, is_openrouter)
+        payload = kwargs
+        api_msgs = self._prepare_stream_messages(loaded, prompt, payload)
+        req, _ = self._build_stream_request(loaded, api_msgs, payload, is_openrouter)
 
         try:
             if is_openrouter:
@@ -1549,13 +1683,16 @@ class ModelManager:
                             line = line.strip()
                             if not line or not line.startswith("data: "):
                                 continue
-                            payload = line[6:].strip()
-                            if payload == "[DONE]":
+                            sse_payload = line[6:].strip()
+                            if sse_payload == "[DONE]":
                                 break
                             try:
-                                chunk = json.loads(payload)
-                                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
+                                chunk = _as_json_map(cast(object, json.loads(sse_payload)))
+                                choices = chunk.get("choices")
+                                choices_list = cast(list[object], choices) if isinstance(choices, list) else []
+                                first_choice: object = choices_list[0] if choices_list else {}
+                                delta = _as_json_map(_as_json_map(first_choice).get("delta", {}))
+                                content = str(delta.get("content", ""))
                                 if content:
                                     yield content
                             except json.JSONDecodeError:
@@ -1568,11 +1705,12 @@ class ModelManager:
                         if not decoded_line:
                             continue
                         try:
-                            chunk = json.loads(decoded_line)
+                            chunk = _as_json_map(cast(object, json.loads(decoded_line)))
                             if "message" in chunk:
-                                msg = chunk["message"]
-                                if "content" in msg and msg["content"]:
-                                    yield msg["content"]
+                                msg = _as_json_map(chunk["message"])
+                                content = str(msg.get("content", ""))
+                                if content:
+                                    yield content
                         except json.JSONDecodeError:
                             continue
         except HTTPError as e:
@@ -1591,7 +1729,7 @@ class ModelManager:
 
     def status(self) -> Payload:
         """현재 로드 상태 반환."""
-        loaded_models = []
+        loaded_models: list[JsonMap] = []
         total_memory = 0.0
         provider_capabilities = self.provider_capabilities()
 
@@ -1688,9 +1826,12 @@ class ModelManager:
                     native_base = self._ollama_native_base(config.model.api_base)
                     req = urllib.request.Request(f"{native_base}/api/tags")
                     with safe_urlopen(req, timeout=2) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                        for m in data.get("models", []):
-                            m_name = m.get("name", "")
+                        data = _as_json_map(cast(object, json.loads(resp.read().decode("utf-8"))))
+                        models = data.get("models")
+                        model_items = cast(list[object], models) if isinstance(models, list) else []
+                        for model_item in model_items:
+                            m = _as_json_map(model_item)
+                            m_name = str(m.get("name", ""))
                             # e.g. "deepseek-r1:70b" or "deepseek-r1" match
                             if m_name == name or m_name.startswith(name + ":") or name.startswith(m_name + ":"):
                                 return True
@@ -1708,7 +1849,7 @@ class ModelManager:
             unload_fn=self.unload,
         )
 
-    def _load_mlx_model(self, profile: ModelProfile) -> tuple[DynamicValue, DynamicValue]:
+    def _load_mlx_model(self, profile: ModelProfile) -> tuple[object, object]:
         """MLX 모델 실제 로드 (Mac 전용, Windows에서는 더미 반환)."""
         import platform
 
@@ -1729,7 +1870,7 @@ class ModelManager:
             return self._load_embedding_model(profile)
 
         try:
-            load = import_module("mlx_lm").__dict__["load"]
+            load = cast(Callable[[str], tuple[object, object]], getattr(import_module("mlx_lm"), "load"))
 
             model, tokenizer, *_ = load(profile.repo)
             return model, tokenizer
@@ -1739,24 +1880,24 @@ class ModelManager:
             logger.warning("mlx_lm 미설치. Ollama 어댑터 반환.")
             return _OllamaModel(profile.name), _OllamaTokenizer(profile.name)
 
-    def _load_transformers_model(self, profile: ModelProfile) -> tuple[DynamicValue, DynamicValue]:
+    def _load_transformers_model(self, profile: ModelProfile) -> tuple[object, object]:
         model_path = Path(profile.repo)
         load_path = profile.repo
         adapter_config_path = model_path / "adapter_config.json"
         adapter_base = ""
         if adapter_config_path.is_file():
             try:
-                raw_config = json.loads(adapter_config_path.read_text(encoding="utf-8"))
+                raw_config = _as_json_map(cast(object, json.loads(adapter_config_path.read_text(encoding="utf-8"))))
             except (OSError, UnicodeError, ValueError) as exc:
                 raise RuntimeError(f"Unsloth adapter 설정을 읽지 못했습니다: {adapter_config_path}") from exc
-            if isinstance(raw_config, dict) and isinstance(raw_config.get("base_model_name_or_path"), str):
-                adapter_base = raw_config["base_model_name_or_path"]
+            if isinstance(raw_config.get("base_model_name_or_path"), str):
+                adapter_base = str(raw_config["base_model_name_or_path"])
             if not adapter_base:
                 raise RuntimeError("Unsloth adapter에 base_model_name_or_path가 없습니다.")
             load_path = adapter_base
 
         try:
-            transformers = import_module("transformers")
+            transformers = cast(_TransformersModule, cast(object, import_module("transformers")))
             tokenizer = transformers.AutoTokenizer.from_pretrained(load_path, local_files_only=True)
             model = transformers.AutoModelForCausalLM.from_pretrained(
                 load_path,
@@ -1771,18 +1912,17 @@ class ModelManager:
 
         if adapter_base:
             try:
-                peft = import_module("peft")
+                peft = cast(_PeftModule, cast(object, import_module("peft")))
                 model = peft.PeftModel.from_pretrained(model, profile.repo, local_files_only=True)
             except (ImportError, OSError, RuntimeError, ValueError) as exc:
                 raise RuntimeError("Unsloth LoRA를 적용하려면 peft가 필요합니다.") from exc
         return model, tokenizer
 
-    def _load_embedding_model(self, profile: ModelProfile) -> tuple[DynamicValue, DynamicValue]:
+    def _load_embedding_model(self, profile: ModelProfile) -> tuple[object, object]:
         """임베딩 모델 로드 (Mac 전용)."""
         try:
-            SentenceTransformer = import_module("sentence_transformers").__dict__["SentenceTransformer"]
-
-            model = SentenceTransformer(profile.repo)
+            factory = cast(object, getattr(import_module("sentence_transformers"), "SentenceTransformer"))
+            model = cast(Callable[[str], object], factory)(profile.repo)
             return model, None
         except (ImportError, Exception):
             logger.exception("임베딩 모델 로드 실패 (%s). 더미 임베딩 반환.")
@@ -1795,6 +1935,6 @@ class ModelManager:
 # (including `type(loaded.model).__name__` string checks in inference_providers)
 # keep resolving identically.
 from antigravity_k.engine.provider_adapters.dev_shims import (  # noqa: E402,F401
-    _OllamaModel,
-    _OllamaTokenizer,
+    _OllamaModel,  # pyright: ignore[reportPrivateUsage] -- compatibility shim export
+    _OllamaTokenizer,  # pyright: ignore[reportPrivateUsage] -- compatibility shim export
 )

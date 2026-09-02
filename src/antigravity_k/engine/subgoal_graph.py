@@ -8,7 +8,6 @@ that enforces dependency checking, topological execution ordering, and step vali
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 
 class TaskState(str, Enum):
@@ -28,15 +27,15 @@ class SubgoalNode:
     description: str
     depends_on: list[str] = field(default_factory=list)
     state: TaskState = TaskState.PENDING
-    result: Any = None
+    result: object | None = None
     verification_rule: str = ""  # e.g., "pytest", "file_exists", "ast_check"
 
 
 class SubgoalGraph:
     """Manages a DAG of subgoals to keep the 27B model on a strict, structured trajectory."""
 
-    def __init__(self, goal: str):
-        self.goal = goal
+    def __init__(self, goal: str) -> None:
+        self.goal: str = goal
         self.nodes: dict[str, SubgoalNode] = {}
 
     def add_subgoal(
@@ -46,18 +45,72 @@ class SubgoalGraph:
         depends_on: list[str] | None = None,
         verification_rule: str = "",
     ) -> SubgoalNode:
-        """Add a new task node to the graph."""
+        """Add a new task node to the graph.
+
+        Raises:
+            ValueError: 존재하지 않는 의존성을 참조하거나 그래프에 사이클을
+                만드는 경우 — 방치하면 해당 노드가 영구 PENDING(교착)된다.
+        """
+        deps = depends_on or []
+        unknown = [dep for dep in deps if dep not in self.nodes]
+        if unknown:
+            raise ValueError(
+                f"Subgoal '{task_id}' references unknown dependencies: {', '.join(unknown)}"
+            )
         node = SubgoalNode(
             task_id=task_id,
             description=description,
-            depends_on=depends_on or [],
+            depends_on=deps,
             verification_rule=verification_rule,
         )
         self.nodes[task_id] = node
+        if self._find_cycle():
+            del self.nodes[task_id]
+            raise ValueError(f"Adding subgoal '{task_id}' would create a dependency cycle")
         self._update_readiness()
         return node
 
-    def complete_subgoal(self, task_id: str, result: Any = None) -> bool:
+    def add_dependency(self, task_id: str, depends_on: str) -> bool:
+        """기존 노드에 의존성을 추가한다 — 사이클/자기참조는 거부한다.
+
+        사이클이 생기면 추가를 되돌리고 False를 반환한다 (노드가 영구
+        PENDING 교착되는 것을 방지).
+        """
+        if task_id not in self.nodes or depends_on not in self.nodes:
+            return False
+        if task_id == depends_on:
+            return False
+        self.nodes[task_id].depends_on.append(depends_on)
+        if self._find_cycle():
+            self.nodes[task_id].depends_on.remove(depends_on)
+            return False
+        # 아직 시작하지 않은 READY 노드는 의존성이 생겼으므로 PENDING으로
+        # 되돌린다 — 아니면 미완료 의존성을 무시하고 실행 가능 상태로 남는다.
+        if self.nodes[task_id].state == TaskState.READY:
+            self.nodes[task_id].state = TaskState.PENDING
+        self._update_readiness()
+        return True
+
+    def _find_cycle(self) -> bool | None:
+        """DFS로 의존성 사이클 존재 여부를 검출한다 (노드 → 의존성 방향)."""
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {task_id: WHITE for task_id in self.nodes}
+
+        def visit(task_id: str) -> bool:
+            color[task_id] = GRAY
+            for dep in self.nodes[task_id].depends_on:
+                if dep not in color:
+                    continue
+                if color[dep] == GRAY:
+                    return True
+                if color[dep] == WHITE and visit(dep):
+                    return True
+            color[task_id] = BLACK
+            return False
+
+        return any(color[t] == WHITE and visit(t) for t in list(self.nodes))
+
+    def complete_subgoal(self, task_id: str, result: object | None = None) -> bool:
         """Mark a task as completed and propagate readiness to dependents."""
         if task_id not in self.nodes:
             return False

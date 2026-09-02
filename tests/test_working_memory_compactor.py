@@ -25,3 +25,40 @@ def test_working_memory_compaction():
     assert "ADR-001: Use RS256" in pinned_block
     assert "src/auth/jwt.py" in pinned_block
     assert "Implement token refresh endpoint" in pinned_block
+
+
+def test_working_memory_preserves_failures_and_next_action():
+    messages = [
+        {"role": "assistant", "content": "Running tests for src/mod/plugin.py"},
+        {"role": "tool", "content": "ERROR: syntax failure in src/mod/plugin.py"},
+        {"role": "user", "content": "Fix the syntax error, then run the focused test again."},
+    ]
+
+    state = WorkingMemoryCompactor.compact(messages)
+
+    assert state.recent_failures == ["ERROR: syntax failure in src/mod/plugin.py"]
+    assert state.next_action == "Fix the syntax error, then run the focused test again."
+    assert "Next Action" in state.format_pinned_working_memory()
+
+
+class TestNextActionPurity:
+    def test_tool_result_as_last_user_does_not_pollute_next_action(self):
+        """도구 결과(role=user로 append됨)는 next_action을 오염시키지 않는다."""
+        state = WorkingMemoryCompactor.compact(
+            [
+                {"role": "user", "content": "config.yaml에서 포트를 수정해줘"},
+                {"role": "assistant", "content": "<tool_call>{}</tool_call>"},
+                {"role": "user", "content": "<tool_response>[TOOL_EVIDENCE] {\"tool\": \"read_file\"} Successfully read 400 lines..."},
+            ]
+        )
+        assert "config.yaml" in state.next_action
+        assert "TOOL_EVIDENCE" not in state.next_action
+
+    def test_system_feedback_marker_excluded(self):
+        state = WorkingMemoryCompactor.compact(
+            [
+                {"role": "user", "content": "리팩터링해줘"},
+                {"role": "user", "content": "[시스템 피드백] 이전 답변에서 오류가 발견되었습니다."},
+            ]
+        )
+        assert state.next_action == "리팩터링해줘"

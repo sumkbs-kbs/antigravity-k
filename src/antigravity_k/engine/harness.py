@@ -21,7 +21,9 @@ import json
 import logging
 import os
 import time
-from typing import Any, ClassVar
+from collections.abc import Awaitable, Callable, Mapping
+from contextlib import AbstractAsyncContextManager
+from typing import ClassVar, Protocol, cast
 from urllib.parse import urlparse
 
 from antigravity_k.config import config
@@ -47,6 +49,79 @@ __all__ = [
 ]
 
 logger = logging.getLogger("antigravity_k.harness")
+
+JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject = dict[str, JsonValue]
+
+
+class _ElementLike(Protocol):
+    async def fill(self, value: str) -> object: ...
+
+    async def press(self, key: str) -> object: ...
+
+
+class _LocatorLike(Protocol):
+    async def count(self) -> int: ...
+
+
+class _BrowserContextLike(Protocol):
+    async def add_cookies(self, cookies: list[dict[str, str]]) -> object: ...
+
+
+class _PageLike(Protocol):
+    context: _BrowserContextLike
+
+    async def goto(self, url: str, *, wait_until: str, timeout: int) -> object: ...
+
+    async def wait_for_selector(self, selector: str, *, timeout: int) -> object: ...
+
+    async def title(self) -> str: ...
+
+    async def query_selector(self, selector: str) -> _ElementLike | None: ...
+
+    async def query_selector_all(self, selector: str) -> list[_ElementLike]: ...
+
+    def locator(self, selector: str) -> _LocatorLike: ...
+
+    async def wait_for_function(self, expression: str, *, arg: object, timeout: int) -> object: ...
+
+    async def add_init_script(self, script: str) -> object: ...
+
+    async def screenshot(self) -> bytes: ...
+
+    async def set_viewport_size(self, viewport: dict[str, int]) -> object: ...
+
+    async def evaluate(self, expression: str) -> bool: ...
+
+
+class _BrowserLike(Protocol):
+    async def new_page(self) -> _PageLike: ...
+
+    async def close(self) -> object: ...
+
+
+class _ChromiumLike(Protocol):
+    async def launch(self, *, headless: bool) -> _BrowserLike: ...
+
+
+class _PlaywrightLike(Protocol):
+    chromium: _ChromiumLike
+
+
+def _as_json_object(value: object) -> JsonObject:
+    return cast(JsonObject, value) if isinstance(value, dict) else {}
+
+
+def _as_json_list(value: object) -> list[JsonValue]:
+    return cast(list[JsonValue], value) if isinstance(value, list) else []
+
+
+def _as_text(value: object) -> str:
+    return value if isinstance(value, str) else str(value)
+
+
+def _load_json_object(payload: str) -> JsonObject:
+    return _as_json_object(cast(object, json.loads(payload)))
 
 # ─── Feedback Collector ────────────────────────────────────────
 
@@ -78,7 +153,7 @@ class FeedbackCollector:
 
         return "\n".join(feedback_lines)
 
-    def get_trend(self) -> dict[str, Any]:
+    def get_trend(self) -> dict[str, object]:
         """최근 테스트 추세를 반환합니다."""
         if not self.history:
             return {"trend": "no_data"}
@@ -103,7 +178,7 @@ class TestHarness:
     결과를 수집하여 에이전트에게 피드백합니다.
     """
 
-    __test__ = False
+    __test__: ClassVar[bool] = False
 
     # Antigravity-K 대시보드 기본 테스트 시나리오
     DEFAULT_INTENTS: ClassVar[list[TestIntent]] = [
@@ -198,17 +273,17 @@ class TestHarness:
             ws_url (str | None): str | None ws url.
 
         """
-        self.base_url = (base_url or os.environ.get("AGK_HARNESS_BASE_URL") or "http://localhost:8000").rstrip("/")
-        self.dashboard_url = (
+        self.base_url: str = (base_url or os.environ.get("AGK_HARNESS_BASE_URL") or "http://localhost:8000").rstrip("/")
+        self.dashboard_url: str = (
             dashboard_url or os.environ.get("AGK_HARNESS_DASHBOARD_URL") or "http://localhost:5173"
         ).rstrip("/")
-        self.ws_url = ws_url or os.environ.get("AGK_HARNESS_WS_URL") or self._derive_ws_url(self.base_url)
-        self.access_pin = os.environ.get("AGK_HARNESS_ACCESS_PIN") or (config.security.access_pin)
-        self.healing_loop = HealingLoop(max_attempts=3)
-        self.feedback = FeedbackCollector()
+        self.ws_url: str = ws_url or os.environ.get("AGK_HARNESS_WS_URL") or self._derive_ws_url(self.base_url)
+        self.access_pin: str | None = os.environ.get("AGK_HARNESS_ACCESS_PIN") or (config.security.access_pin)
+        self.healing_loop: HealingLoop = HealingLoop(max_attempts=3)
+        self.feedback: FeedbackCollector = FeedbackCollector()
         self.intents: list[TestIntent] = list(self.DEFAULT_INTENTS)
-        self._browser = None
-        self._playwright = None
+        self._browser: _BrowserLike | None = None
+        self._playwright: _PlaywrightLike | None = None
 
     @staticmethod
     def _derive_ws_url(base_url: str) -> str:
@@ -217,7 +292,7 @@ class TestHarness:
         netloc = parsed.netloc or "localhost:8000"
         return f"{scheme}://{netloc}/ws/terminal"
 
-    def _request_headers(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request_headers(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
         headers = dict(extra or {})
         if self.access_pin:
             headers["X-Access-Pin"] = self.access_pin
@@ -270,7 +345,7 @@ class TestHarness:
             if intent.id == "health_api":
                 req = urllib.request.Request(f"{self.base_url}/v1/health")
                 with safe_urlopen(req, timeout=5) as resp:
-                    data = json.loads(resp.read().decode())
+                    data = _load_json_object(resp.read().decode())
                     if data.get("status") == "ok":
                         elapsed = (time.time() - start) * 1000
                         return TestResult(intent.id, TestStatus.PASSED, elapsed, "Health OK")
@@ -286,8 +361,8 @@ class TestHarness:
             elif intent.id == "models_api":
                 req = urllib.request.Request(f"{self.base_url}/v1/models")
                 with safe_urlopen(req, timeout=5) as resp:
-                    data = json.loads(resp.read().decode())
-                    models = data.get("data", [])
+                    data = _load_json_object(resp.read().decode())
+                    models = _as_json_list(data.get("data", []))
                     if len(models) > 0:
                         elapsed = (time.time() - start) * 1000
                         return TestResult(
@@ -354,11 +429,15 @@ class TestHarness:
                     headers=self._request_headers(),
                 )
                 with safe_urlopen(req, timeout=10) as resp:
-                    data = json.loads(resp.read().decode())
-                    brains = data.get("brains", [])
+                    data = _load_json_object(resp.read().decode())
+                    brains = _as_json_list(data.get("brains", []))
                     elapsed = (time.time() - start) * 1000
                     if len(brains) >= 3:
-                        names = [b["name"] for b in brains]
+                        names = [
+                            _as_text(item.get("name", ""))
+                            for item in brains
+                            if isinstance(item, dict)
+                        ]
                         return TestResult(
                             intent.id,
                             TestStatus.PASSED,
@@ -384,7 +463,7 @@ class TestHarness:
 
     async def _run_browser_tests(self, intents: list[TestIntent]) -> list[TestResult]:
         """Playwright 기반 브라우저 테스트."""
-        results = []
+        results: list[TestResult] = []
 
         try:
             from playwright.async_api import async_playwright
@@ -400,63 +479,70 @@ class TestHarness:
                 )
             return results
 
-        async with async_playwright() as p:
+        playwright_factory = cast(
+            Callable[[], AbstractAsyncContextManager[_PlaywrightLike]],
+            async_playwright,
+        )
+        async with playwright_factory() as p:
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            if self.access_pin:
-                await page.context.add_cookies(
-                    [
-                        {
-                            "name": "ag_access_pin",
-                            "value": self.access_pin,
-                            "url": self.dashboard_url,
-                        },
-                    ],
-                )
-                await page.add_init_script(
-                    f"localStorage.setItem('ag_access_pin', {json.dumps(self.access_pin)});",
-                )
+            try:
+                page = await browser.new_page()
+                if self.access_pin:
+                    _ = await page.context.add_cookies(
+                        [
+                            {
+                                "name": "ag_access_pin",
+                                "value": self.access_pin,
+                                "url": self.dashboard_url,
+                            },
+                        ],
+                    )
+                    _ = await page.add_init_script(
+                        f"localStorage.setItem('ag_access_pin', {json.dumps(self.access_pin)});",
+                    )
 
-            for intent in intents:
-                try:
-                    if intent.id == "dashboard_load":
-                        result = await self._test_dashboard_load(page, intent)
-                    elif intent.id == "chat_send":
-                        result = await self._test_chat_send(page, intent)
-                    elif intent.id == "file_explorer":
-                        result = await self._test_file_explorer(page, intent)
-                    elif intent.id == "terminal_ws":
-                        result = await self._test_terminal_ws(intent)
-                    elif intent.id == "autonomous_qa_dry":
-                        result = await self._test_autonomous_qa_dry(page, intent)
-                    elif intent.id == "responsive_check":
-                        result = await self._test_responsive(page, intent)
-                    else:
-                        result = TestResult(intent.id, TestStatus.SKIPPED, 0, "Unknown test")
-                    results.append(result)
-                except Exception as e:
-                    logger.exception("Unhandled exception")
-                    results.append(TestResult(intent.id, TestStatus.FAILED, 0, str(e)))
-
-            await browser.close()
+                for intent in intents:
+                    try:
+                        if intent.id == "dashboard_load":
+                            result = await self._test_dashboard_load(page, intent)
+                        elif intent.id == "chat_send":
+                            result = await self._test_chat_send(page, intent)
+                        elif intent.id == "file_explorer":
+                            result = await self._test_file_explorer(page, intent)
+                        elif intent.id == "terminal_ws":
+                            result = await self._test_terminal_ws(intent)
+                        elif intent.id == "autonomous_qa_dry":
+                            result = await self._test_autonomous_qa_dry(page, intent)
+                        elif intent.id == "responsive_check":
+                            result = await self._test_responsive(page, intent)
+                        else:
+                            result = TestResult(intent.id, TestStatus.SKIPPED, 0, "Unknown test")
+                        results.append(result)
+                    except Exception as e:
+                        logger.exception("Unhandled exception")
+                        results.append(TestResult(intent.id, TestStatus.FAILED, 0, str(e)))
+            finally:
+                # launch 이후 단계(new_page/쿠키/이동)에서 예외가 나도
+                # 브라우저가 유출되지 않도록 닫는다.
+                _ = await browser.close()
 
         return results
 
-    async def _goto_dashboard(self, page, timeout_ms: int = 15000) -> None:
+    async def _goto_dashboard(self, page: _PageLike, timeout_ms: int = 15000) -> None:
         """Navigate to the SPA dashboard without waiting for networkidle.
 
         The dashboard keeps WebSocket/event streams open, so networkidle is
         not a reliable readiness signal. A rendered app root or chat input is
         the stable contract for harness tests.
         """
-        await page.goto(
+        _ = await page.goto(
             self.dashboard_url,
             wait_until="domcontentloaded",
             timeout=timeout_ms,
         )
-        await page.wait_for_selector("#app, #chat-input", timeout=timeout_ms)
+        _ = await page.wait_for_selector("#app, #chat-input", timeout=timeout_ms)
 
-    async def _test_dashboard_load(self, page, intent: TestIntent) -> TestResult:
+    async def _test_dashboard_load(self, page: _PageLike, intent: TestIntent) -> TestResult:
         """대시보드 로딩 테스트."""
         start = time.time()
         await self._goto_dashboard(page, timeout_ms=int(intent.timeout_sec * 1000))
@@ -468,18 +554,20 @@ class TestHarness:
         else:
             return TestResult(intent.id, TestStatus.FAILED, elapsed, f"Unexpected title: {title}")
 
-    async def _test_chat_send(self, page, intent: TestIntent) -> TestResult:
+    async def _test_chat_send(self, page: _PageLike, intent: TestIntent) -> TestResult:
         """채팅 메시지 전송 및 응답 수신 테스트."""
         await self._goto_dashboard(page)
 
         # 채팅 입력란 찾기 (self-healing 포함)
-        context = {
+        context: dict[str, object] = {
             "target_text": "명령어나 질문을 입력하세요",
             "selector": "#chat-input",
         }
 
-        async def chat_action(pg, ctx):
-            input_el = await pg.query_selector(ctx.get("selector", "#chat-input"))
+        async def chat_action(pg: _PageLike, ctx: dict[str, object]) -> str:
+            selector = ctx.get("selector", "#chat-input")
+            selector_text = selector if isinstance(selector, str) else "#chat-input"
+            input_el = await pg.query_selector(selector_text)
             if not input_el:
                 # Healing: placeholder 텍스트로 찾기
                 input_el = await pg.query_selector("input[placeholder], textarea[placeholder]")
@@ -489,13 +577,13 @@ class TestHarness:
             assistant_selector = ".message.assistant .bubble"
             assistant_before = await pg.locator(assistant_selector).count()
 
-            await input_el.fill("테스트 메시지")
-            await input_el.press("Enter")
+            _ = await input_el.fill("테스트 메시지")
+            _ = await input_el.press("Enter")
 
             # 응답 대기 (최대 timeout_sec). 기존 welcome bubble이나 즉시 생성되는
             # "Thinking" placeholder를 실제 응답으로 오인하지 않도록 마지막 assistant
             # bubble의 내용이 생성 완료 상태인지 확인합니다.
-            await pg.wait_for_function(
+            _ = await pg.wait_for_function(
                 """
                 ([selector, before]) => {
 
@@ -513,10 +601,20 @@ class TestHarness:
             )
             return "채팅 응답 수신 완료"
 
-        result = await self.healing_loop.try_with_healing(chat_action, page, context, intent)
-        return result
+        heal = cast(
+            Callable[[_PageLike, dict[str, object]], Awaitable[str]],
+            chat_action,
+        )
+        runner = cast(
+            Callable[
+                [Callable[[_PageLike, dict[str, object]], Awaitable[str]], _PageLike, dict[str, object], TestIntent],
+                Awaitable[TestResult],
+            ],
+            getattr(self.healing_loop, "try_with_healing"),
+        )
+        return await runner(heal, page, context, intent)
 
-    async def _test_file_explorer(self, page, intent: TestIntent) -> TestResult:
+    async def _test_file_explorer(self, page: _PageLike, intent: TestIntent) -> TestResult:
         """파일 탐색기 테스트 (2-Layer: UI 컨테이너 + API 검증).
 
         SPA의 파일 트리는 폴더를 명시적으로 열기 전까지 비어 있을 수 있으므로,
@@ -531,7 +629,7 @@ class TestHarness:
         await self._goto_dashboard(page)
 
         # Layer 1: DOM에서 파일 아이템 또는 Explorer 컨테이너 존재 확인
-        file_items = await page.query_selector_all(
+        file_items: list[_ElementLike] = await page.query_selector_all(
             ".file-item, .tree-item, [class*='explorer'] li, [class*='explorer'] .item",
         )
         explorer_container = await page.query_selector(
@@ -605,17 +703,17 @@ class TestHarness:
             message = str(e) or f"{type(e).__name__} while connecting to {self.ws_url}"
             return TestResult(intent.id, TestStatus.FAILED, elapsed, message)
 
-    async def _test_autonomous_qa_dry(self, page, intent: TestIntent) -> TestResult:
+    async def _test_autonomous_qa_dry(self, page: _PageLike, intent: TestIntent) -> TestResult:
         """자율 QA 엔진 드라이런 — 초기화 + 스크린샷 가능 여부 확인."""
         start = time.time()
         try:
             from antigravity_k.engine.autonomous_qa import AutonomousQAEngine
 
-            AutonomousQAEngine(dashboard_url=self.dashboard_url)
+            _ = AutonomousQAEngine(dashboard_url=self.dashboard_url)
 
             # 스크린샷 촬영 테스트
             await self._goto_dashboard(page)
-            screenshot = await page.screenshot()
+            screenshot: bytes = await page.screenshot()
             elapsed = (time.time() - start) * 1000
 
             if screenshot and len(screenshot) > 1000:
@@ -632,7 +730,7 @@ class TestHarness:
             elapsed = (time.time() - start) * 1000
             return TestResult(intent.id, TestStatus.FAILED, elapsed, str(e))
 
-    async def _test_responsive(self, page, intent: TestIntent) -> TestResult:
+    async def _test_responsive(self, page: _PageLike, intent: TestIntent) -> TestResult:
         """반응형 3종 뷰포트 테스트 (가로 스크롤 없음 확인)."""
         start = time.time()
         viewports = {
@@ -641,11 +739,11 @@ class TestHarness:
             "mobile": {"width": 375, "height": 812},
         }
         passed_count = 0
-        details = []
+        details: list[str] = []
 
         for name, vp in viewports.items():
             try:
-                await page.set_viewport_size(vp)
+                _ = await page.set_viewport_size(vp)
                 await self._goto_dashboard(page)
                 overflow = await page.evaluate(
                     "() => document.documentElement.scrollWidth > document.documentElement.clientWidth",
@@ -675,7 +773,7 @@ class TestHarness:
                 f"{passed_count}/3 뷰포트 통과: {', '.join(details)}",
             )
 
-    def add_intent(self, intent: TestIntent):
+    def add_intent(self, intent: TestIntent) -> None:
         """커스텀 테스트 인텐트 추가."""
         self.intents.append(intent)
 

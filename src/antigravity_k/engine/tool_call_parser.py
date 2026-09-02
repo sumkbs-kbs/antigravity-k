@@ -8,13 +8,40 @@
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TypeAlias
+from typing import ClassVar, TypeAlias, cast
 
 logger = logging.getLogger(__name__)
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def _coerce_json_value(value: object) -> JsonValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_coerce_json_value(item) for item in cast(list[object], value)]
+    if isinstance(value, dict):
+        mapping = cast(Mapping[object, object], value)
+        return {
+            key: _coerce_json_value(item)
+            for key, item in mapping.items()
+            if isinstance(key, str)
+        }
+    return str(value)
+
+
+def _json_object(value: object) -> dict[str, JsonValue] | None:
+    if not isinstance(value, dict):
+        return None
+    mapping = cast(Mapping[object, object], value)
+    return {
+        key: _coerce_json_value(item)
+        for key, item in mapping.items()
+        if isinstance(key, str)
+    }
 
 
 class EventType(Enum):
@@ -38,6 +65,20 @@ class ToolCall:
 
     name: str
     arguments: dict[str, JsonValue] = field(default_factory=dict)
+
+
+def _tool_call_from_json(value: object) -> ToolCall | None:
+    parsed = _json_object(value)
+    if parsed is None:
+        return None
+    raw_name = parsed.get("name", parsed.get("tool", ""))
+    name = raw_name if isinstance(raw_name, str) else ""
+    raw_arguments = parsed.get("arguments", parsed.get("params", {}))
+    arguments_source: object = raw_arguments
+    if isinstance(raw_arguments, str):
+        arguments_source = cast(object, json.loads(raw_arguments))
+    arguments = _json_object(arguments_source)
+    return ToolCall(name=name, arguments=arguments if arguments is not None else {})
 
 
 @dataclass
@@ -69,18 +110,18 @@ class ToolCallParser:
             ...
     """
 
-    OPEN_TAGS = ["<action_call>", "<tool_call>"]
-    CLOSE_TAGS = ["</action_call>", "</tool_call>"]
-    THOUGHT_OPEN = "<thought>"
-    THOUGHT_CLOSE = "</thought>"
+    OPEN_TAGS: ClassVar[tuple[str, ...]] = ("<action_call>", "<tool_call>")
+    CLOSE_TAGS: ClassVar[tuple[str, ...]] = ("</action_call>", "</tool_call>")
+    THOUGHT_OPEN: ClassVar[str] = "<thought>"
+    THOUGHT_CLOSE: ClassVar[str] = "</thought>"
 
     def __init__(self) -> None:
         """Initialize the ToolCallParser."""
-        self._buffer = ""
-        self._in_tool_call = False
-        self._current_close_tag = ""
-        self._in_thought = False  # <thought> 블록 추적
-        self._tool_buffer = ""
+        self._buffer: str = ""
+        self._in_tool_call: bool = False
+        self._current_close_tag: str = ""
+        self._in_thought: bool = False  # <thought> 블록 추적
+        self._tool_buffer: str = ""
         self.tool_responses: list[str] = []  # I-10: 명시적 초기화 (hasattr 패턴 제거)
 
     def feed(self, chunk: str) -> list[ParseEvent]:
@@ -116,11 +157,10 @@ class ToolCallParser:
                         json_raw = json_match.group(1)
 
                     try:
-                        parsed = json.loads(json_raw)
-                        tc = ToolCall(
-                            name=parsed.get("name", parsed.get("tool", "")),
-                            arguments=parsed.get("arguments", parsed.get("params", {})),
-                        )
+                        parsed = cast(object, json.loads(json_raw))
+                        tc = _tool_call_from_json(parsed)
+                        if tc is None:
+                            raise ValueError("tool call JSON must be an object")
                         events.append(
                             ParseEvent(
                                 type=EventType.TOOL_CALL_COMPLETE,
@@ -244,13 +284,19 @@ class ToolCallParser:
                 ),
             )
         elif self._buffer:
-            # 태그 없이 평문 JSON으로 도구 호출을 출력하는 모델 대응
-            bare_json = self._detect_bare_tool_call(self._buffer)
-            if bare_json:
-                events.extend(bare_json)
-            else:
-                # 남은 일반 텍스트
+            if self._in_thought:
+                # <thought> 블록이 닫히지 않은 채 스트림이 끝난 경우 — 남은
+                # 버퍼는 추론 텍스트다. bare JSON 탐지를 돌리면 모델이
+                # 사고 과정에서 "언급한" 도구 호출이 실제 실행을 유발한다.
                 events.append(ParseEvent(type=EventType.TEXT, data=self._buffer))
+            else:
+                # 태그 없이 평문 JSON으로 도구 호출을 출력하는 모델 대응
+                bare_json = self._detect_bare_tool_call(self._buffer)
+                if bare_json:
+                    events.extend(bare_json)
+                else:
+                    # 남은 일반 텍스트
+                    events.append(ParseEvent(type=EventType.TEXT, data=self._buffer))
 
         self._buffer = ""
         self._tool_buffer = ""
@@ -276,13 +322,14 @@ class ToolCallParser:
 
         try:
             full_match = bare_pattern.group(0)
-            parsed = json.loads(full_match)
-            if "name" in parsed and "arguments" in parsed:
-                logger.info("[ToolCallParser] Bare JSON tool call detected: %s", parsed["name"])
+            parsed = cast(object, json.loads(full_match))
+            tool_call = _tool_call_from_json(parsed)
+            if tool_call is not None:
+                logger.info("[ToolCallParser] Bare JSON tool call detected: %s", tool_call.name)
 
                 # 도구 호출 전의 텍스트
                 pre_text = text[: bare_pattern.start()].strip()
-                events = []
+                events: list[ParseEvent] = []
                 if pre_text:
                     events.append(ParseEvent(type=EventType.TEXT, data=pre_text))
 
@@ -290,14 +337,7 @@ class ToolCallParser:
                 events.append(
                     ParseEvent(
                         type=EventType.TOOL_CALL_COMPLETE,
-                        tool_call=ToolCall(
-                            name=parsed["name"],
-                            arguments=(
-                                parsed["arguments"]
-                                if isinstance(parsed["arguments"], dict)
-                                else json.loads(parsed["arguments"])
-                            ),
-                        ),
+                        tool_call=tool_call,
                     ),
                 )
 
@@ -312,7 +352,7 @@ class ToolCallParser:
                         events.append(ParseEvent(type=EventType.TEXT, data=post_text))
 
                 return events
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return None
@@ -336,29 +376,23 @@ class ToolCallParser:
 
         try:
             full_match = bare_pattern.group(0)
-            parsed = json.loads(full_match)
-            if "name" in parsed and "arguments" in parsed:
+            parsed = cast(object, json.loads(full_match))
+            tool_call = _tool_call_from_json(parsed)
+            if tool_call is not None:
                 logger.info(
                     "[ToolCallParser] Streaming Bare JSON tool call detected: %s",
-                    parsed["name"],
+                    tool_call.name,
                 )
 
-                events = [
+                events: list[ParseEvent] = [
                     ParseEvent(type=EventType.TOOL_CALL_START),
                     ParseEvent(
                         type=EventType.TOOL_CALL_COMPLETE,
-                        tool_call=ToolCall(
-                            name=parsed["name"],
-                            arguments=(
-                                parsed["arguments"]
-                                if isinstance(parsed["arguments"], dict)
-                                else json.loads(parsed["arguments"])
-                            ),
-                        ),
+                        tool_call=tool_call,
                     ),
                 ]
                 return events, bare_pattern.end()
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return None, 0

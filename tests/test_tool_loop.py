@@ -548,7 +548,7 @@ class TestToolLoopEnginePostLoopChecks:
         # Then: only an exact source title and its known ID are returned.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
         assert (
-            cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",)))
+            cast(str, engine.last_output)
             == "- Python 3.13 release notes [citation:python-docs]"
         )
         analysis = cast(dict[str, object], _get_mock_attr(mock_orch, ("ctx", "analysis")))
@@ -588,7 +588,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: only the mechanically supported claim remains with its known citation.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == (
+        assert cast(str, engine.last_output) == (
             "- Python 3.13 introduces an experimental JIT compiler. [citation:python-docs]"
         )
         analysis = cast(dict[str, object], _get_mock_attr(mock_orch, ("ctx", "analysis")))
@@ -628,7 +628,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         # Then: the corrected answer is grounded and replaces the original output.
         assert cast(bool, getattr(engine, "_citation_validation_failed")) is False
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))).endswith("[citation:python-docs]")
+        assert cast(str, engine.last_output).endswith("[citation:python-docs]")
         assert any("Citation Revision" in output for output in outputs)
 
     def test_quality_gate_uses_orchestrator_context_without_direct_attribute(self):
@@ -712,17 +712,23 @@ class TestToolLoopEnginePostLoopChecks:
             result = list(engine.run_loop([{"role": "user", "content": "요청"}], "CODER", "chat"))
 
         assert any("보완된 최종 답변" in chunk for chunk in result)
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "보완된 최종 답변"
+        assert cast(str, engine.last_output) == "보완된 최종 답변"
         assert outcomes[0].retry_count == 1
-        assert outcomes[0].tokens_out == len("보완된 최종 답변") // 4
-        _assert_mock_called_once_with(
-            event_bus,
-            ("publish",),
-            "AgentTurnCompleted",
-            user_message="요청",
-            assistant_response="보완된 최종 답변",
-            project_root="/tmp/test",
-        )
+        # 토큰 집계는 단일 추정기(CJK 인식) 기준 — 하드코딩 공식이 아니다
+        from antigravity_k.engine.tokenizer import TokenEstimator
+
+        assert outcomes[0].tokens_out == TokenEstimator.estimate_text("보완된 최종 답변")
+        # AgentTurnCompleted가 정확히 1회 발행됐는지 확인 — 다른 이벤트
+        # (ToolLoopProtocolStats 등)와 무관하게 해당 인자로 호출된 경우만 센다.
+        publish_calls = [
+            c for c in event_bus.publish.call_args_list if c.args and c.args[0] == "AgentTurnCompleted"
+        ]
+        assert len(publish_calls) == 1
+        assert publish_calls[0].kwargs == {
+            "user_message": "요청",
+            "assistant_response": "보완된 최종 답변",
+            "project_root": "/tmp/test",
+        }
         _assert_mock_called_once(mock_orch, ("manager", "generate"))
 
     def test_quality_revision_retries_until_gate_budget_is_exhausted(self, mock_orch: MagicMock):
@@ -735,9 +741,10 @@ class TestToolLoopEnginePostLoopChecks:
         )
         _set_mock_side_effect(mock_orch, ("manager", "generate"), ["개선되었지만 중국어 포함", "최종 한국어 답변"])
 
+        engine = _engine(mock_orch)
         chunks = list(
             _post_loop_checks(
-                _engine(mock_orch),
+                engine,
                 [{"role": "user", "content": "request"}],
                 "coding",
                 "draft",
@@ -747,16 +754,17 @@ class TestToolLoopEnginePostLoopChecks:
         )
 
         assert _mock_call_count(mock_orch, ("manager", "generate")) == 2
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "최종 한국어 답변"
+        assert cast(str, engine.last_output) == "최종 한국어 답변"
         assert any("최종 한국어 답변" in chunk for chunk in chunks)
 
     def test_quality_gate_receives_normalized_local_language_output(self, mock_orch: MagicMock):
         initial = MagicMock(user_message="", should_retry=False, feedback="", score=1.0)
         _set_mock_return(mock_orch, ("ctx", "quality_gate", "evaluate"), initial)
 
+        engine = _engine(mock_orch)
         _ = list(
             _post_loop_checks(
-                _engine(mock_orch),
+                engine,
                 [{"role": "user", "content": "request"}],
                 "coding",
                 "시간复杂도와 공간复杂도를 설명합니다.",
@@ -766,7 +774,7 @@ class TestToolLoopEnginePostLoopChecks:
 
         args, _ = _mock_call_args(mock_orch, ("ctx", "quality_gate", "evaluate"))
         assert args[2] == "시간복잡도와 공간복잡도를 설명합니다."
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "시간복잡도와 공간복잡도를 설명합니다."
+        assert cast(str, engine.last_output) == "시간복잡도와 공간복잡도를 설명합니다."
 
     def test_qwen_quality_revision_uses_measured_stable_sampling(self, mock_orch: MagicMock):
         _set_mock_return(mock_orch, ("manager", "generate"), "revised")
@@ -806,14 +814,14 @@ class TestToolLoopEnginePostLoopChecks:
         outcomes: list[TaskOutcome] = []
 
         _ = list(
-            ToolLoopEngine(mock_orch, outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            (engine := ToolLoopEngine(mock_orch, outcome_recorder=_outcome_recorder(outcomes))).run_loop(
                 [{"role": "user", "content": "request"}],
                 "CODER",
                 "chat",
             )
         )
 
-        assert _get_mock_attr(mock_orch, ("_last_agent_output",)) == "draft output"
+        assert engine.last_output == "draft output"
         assert outcomes[0].error == "quality_gate_failed: draft feedback"
 
     def test_decomposition_recovery_used_when_revision_still_fails(self, mock_orch: MagicMock):
@@ -829,9 +837,10 @@ class TestToolLoopEnginePostLoopChecks:
         _set_mock_return(mock_orch, ("manager", "generate"), "여전히 부족한 재생성")
         _set_mock_return(mock_orch, ("manager", "generate_decomposed"), "분해로 복구된 워크플로")
 
+        engine = _engine(mock_orch)
         chunks = list(
             _post_loop_checks(
-                _engine(mock_orch),
+                engine,
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -841,7 +850,7 @@ class TestToolLoopEnginePostLoopChecks:
         )
 
         _assert_mock_called_once(mock_orch, ("manager", "generate_decomposed"))
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "분해로 복구된 워크플로"
+        assert cast(str, engine.last_output) == "분해로 복구된 워크플로"
         assert any("분해로 복구된 워크플로" in chunk for chunk in chunks)
 
     def test_decomposition_recovery_respects_config_toggle(self, mock_orch: MagicMock):
@@ -859,9 +868,10 @@ class TestToolLoopEnginePostLoopChecks:
         _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised])
         _set_mock_return(mock_orch, ("manager", "generate"), "여전히 부족한 재생성")
 
+        engine = _engine(mock_orch)
         _ = list(
             _post_loop_checks(
-                _engine(mock_orch),
+                engine,
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -890,9 +900,10 @@ class TestToolLoopEnginePostLoopChecks:
         _set_mock_return(mock_orch, ("manager", "generate_decomposed"), "더 나쁜 분해 결과")
         setattr(mock_orch, "_last_agent_output", "초안")
 
+        engine = _engine(mock_orch)
         _ = list(
             _post_loop_checks(
-                _engine(mock_orch),
+                engine,
                 [{"role": "user", "content": ""}],
                 "long_horizon",
                 "초안",
@@ -901,7 +912,7 @@ class TestToolLoopEnginePostLoopChecks:
             )
         )
 
-        assert cast(str, _get_mock_attr(mock_orch, ("_last_agent_output",))) == "초안"
+        assert cast(str, engine.last_output) == "초안"
 
     def test_quality_revision_preserves_verified_tool_execution_evidence(self, mock_orch: MagicMock):
         # Given: a coding task whose tool loop produced real run_bash_command evidence.
@@ -1426,6 +1437,11 @@ class TestToolLoopEngineRunLoop:
         assert outcomes[0].success is True
         assert outcomes[0].completion_reason == "done"
 
+    def test_expected_tools_defaults_when_orchestrator_contract_is_absent(self):
+        engine = ToolLoopEngine(SimpleNamespace(ctx=SimpleNamespace()))
+
+        assert _expected_tools(engine) == ()
+
     def test_records_used_tools_and_expected_tools(self):
         outcomes: list[TaskOutcome] = []
         _set_mock_attr(self._orch(), ("task_id",), "loop-002")
@@ -1478,8 +1494,9 @@ class TestToolLoopEngineRunLoop:
         outcomes: list[TaskOutcome] = []
 
         # When: the loop executes the search and evaluates its final answer.
+        engine = _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes))
         outputs = list(
-            _engine(self._orch(), outcome_recorder=_outcome_recorder(outcomes)).run_loop(
+            engine.run_loop(
                 [{"role": "user", "content": "Python 3.13 JIT 기능을 알려줘"}],
                 "SELF",
                 "chat",
@@ -1489,7 +1506,7 @@ class TestToolLoopEngineRunLoop:
         # Then: the corrected, cited answer is the completed task output.
         assert outcomes[0].success is True
         assert outcomes[0].completion_reason == "done"
-        last_output = _get_mock_attr(self._orch(), ("_last_agent_output",))
+        last_output = engine.last_output
         assert str(last_output).endswith(f"[citation:{citation}]")
         assert any("Citation Revision" in output for output in outputs)
 
@@ -1956,8 +1973,9 @@ class TestToolLoopEngineRunLoop:
         ]
 
         # When: the tool-free direct response completes.
+        engine = _engine(self._orch())
         output = "".join(
-            _engine(self._orch()).run_loop(
+            engine.run_loop(
                 messages,
                 "SELF",
                 "chat",
@@ -1968,7 +1986,7 @@ class TestToolLoopEngineRunLoop:
 
         # Then: generic prose scoring cannot overwrite the verified short answer.
         assert output == "sqlite"
-        assert _get_mock_attr(self._orch(), ("_last_agent_output",)) == "sqlite"
+        assert engine.last_output == "sqlite"
         _assert_mock_not_called(self._orch(), ("ctx", "quality_gate", "evaluate"))
         _assert_mock_called_once(self._orch(), ("manager", "generate"))
 
@@ -2139,3 +2157,78 @@ class TestToolLoopEngineContextCompression:
         checkpoint_messages = cast(list[dict[str, str]], getattr(engine, "_checkpoint_messages"))
         assert len(checkpoint_messages) == 256
         assert checkpoint_messages[-1]["content"] == "turn-299"
+
+
+class TestBatchDedup:
+    def test_duplicate_calls_in_batch_execute_once(self, mock_orch: MagicMock) -> None:
+        """동일 호출(이름+인자)이 한 배치에 여러 개면 1회만 실행하고 결과를 공유한다."""
+        import asyncio as _asyncio
+
+        calls: list[str] = []
+
+        async def fake_execute(tool_name: str, args: object) -> str:
+            _ = args
+            calls.append(tool_name)
+            return f"result for {tool_name}"
+
+        _set_mock_side_effect(mock_orch, ("ctx", "tool_executor", "execute_async"), fake_execute)
+        engine = _engine(mock_orch)
+
+        batch = [
+            ToolCall(name="read_file", arguments={"path": "a.py"}),
+            ToolCall(name="read_file", arguments={"path": "a.py"}),  # 완전 중복
+            ToolCall(name="read_file", arguments={"path": "b.py"}),  # 다른 인자
+        ]
+        results = _asyncio.run(engine._run_batch_with_dedup(batch, "task"))
+
+        assert calls.count("read_file") == 2  # 중복은 1회만 실행
+        assert len(results) == 3  # 원래 순서/개수 유지
+        # 중복 위치에는 대표 결과가 복사된다
+        assert results[0][3] == results[1][3] == "result for read_file"
+        assert results[2][3] == "result for read_file"
+        assert engine.telemetry.deduped_calls == 1
+
+
+class TestWorkingContextRecency:
+    def test_rebuild_inserts_working_context_before_assistant_cue(self):
+        """재구축 프롬프트의 working_context 블록은 Assistant: 큐 앞(후미 recency)에 위치한다."""
+        prompt = "System: sys\nTool guide\n\nUser: hi\nAssistant: "
+        result = ToolLoopEngine._insert_working_context(prompt, "SNAPSHOT|MEMO")
+        assert result.index("<working_context>") < result.rindex("Assistant: ")
+        assert result.index("SNAPSHOT") < result.rindex("Assistant: ")
+        assert result.startswith("System: sys")  # 접두사는 그대로
+
+    def test_empty_pinned_is_noop(self):
+        prompt = "System: sys\nUser: hi\nAssistant: "
+        assert ToolLoopEngine._insert_working_context(prompt, "") == prompt
+
+    def test_cached_pinned_context_read(self, mock_orch: MagicMock):
+        _set_mock_attr(mock_orch, ("_prompt_components_cache",), {"pinned_context": "PINNED"})
+        engine = _engine(mock_orch)
+        assert engine._cached_pinned_context() == "PINNED"
+
+
+class TestConsumerExceptionPropagation:
+    def test_consumer_exception_at_yield_is_not_treated_as_api_error(self, mock_orch):
+        """yield 지점에서 소비자가 던진 예외는 API 오류로 분류되지 않고
+        그대로 전파된다 (가짜 재시도 방지 — B19)."""
+        stream_calls = {"n": 0}
+
+        def fake_stream(**kwargs):
+            stream_calls["n"] += 1
+            _ = kwargs
+            return iter(["안녕하세요 ", "반갑습니다"])
+
+        _set_mock_side_effect(mock_orch, ("manager", "stream_generate"), fake_stream)
+        engine = _engine(mock_orch)
+
+        gen = engine.run_loop([{"role": "user", "content": "인사해줘"}], "CODER", "chat")
+        first = next(gen)  # 첫 청크 소비
+        assert first
+
+        # 소비자가 yield 지점에서 예외 주입 — engine 밖으로 전파되어야 한다
+        with pytest.raises(RuntimeError, match="consumer disconnect"):
+            gen.throw(RuntimeError("consumer disconnect"))
+
+        # API 오류로 오분류되어 재시도가 일어나지 않았는지 확인
+        assert stream_calls["n"] == 1

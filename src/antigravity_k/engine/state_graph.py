@@ -36,11 +36,13 @@ import uuid
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TypeAlias
 
 from antigravity_k.engine.task_state_store import TaskExecutionContext
 
 logger = logging.getLogger("antigravity_k.engine.state_graph")
+
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
 
 # ─── 에이전트 상태 정의 ──────────────────────────────────────────
@@ -88,7 +90,7 @@ class StateContext:
     ephemeral_message: str | None = None
 
     # CEO 분석 결과
-    analysis: dict[str, Any] = field(default_factory=dict)
+    analysis: dict[str, object] = field(default_factory=dict)
     task_type: str = "simple_chat"
     delegate_to: str = "SELF"
     refined_prompt: str = ""
@@ -102,15 +104,18 @@ class StateContext:
 
     # 상태 추적
     current_state: AgentState = AgentState.INIT
-    state_history: list[dict[str, Any]] = field(default_factory=list)
-    checkpoints: list[dict[str, Any]] = field(default_factory=list)
-    _routing_log: list[dict[str, Any]] = field(default_factory=list)
+    state_history: list[dict[str, object]] = field(default_factory=list)
+    checkpoints: list[dict[str, object]] = field(default_factory=list)
+    _routing_log: list[dict[str, object]] = field(default_factory=list)
 
     # 에러 복구 루프 추적
     retry_count: int = 0
     max_retries: int = 3
     validation_passed: bool = True
     _loop_back: bool = False
+    # 품질 재시도 시 되돌아갈 원 실행 노드 — 없으면(기본 AGENT_EXECUTE)
+    # MAX/PIPELINE/DEBATE 실패 재시도가 전부 단일 에이전트로 강등된다.
+    execution_origin: "AgentState" = AgentState.AGENT_EXECUTE
 
     # 메타
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -132,7 +137,7 @@ class StateContext:
 
     def save_checkpoint(self, label: str = ""):
         """현재 상태의 체크포인트를 저장합니다 (실패 시 복원용)."""
-        checkpoint = {
+        checkpoint: dict[str, object] = {
             "label": label or self.current_state.value,
             "state": self.current_state.value,
             "task_type": self.task_type,
@@ -219,7 +224,7 @@ class AgentStateGraph:
         return self
 
     @staticmethod
-    def _task_execution_context(orchestrator) -> TaskExecutionContext | None:
+    def _task_execution_context(orchestrator: object) -> TaskExecutionContext | None:
         execution_context = getattr(orchestrator, "task_execution_context", None)
         if isinstance(execution_context, TaskExecutionContext):
             return execution_context
@@ -228,7 +233,7 @@ class AgentStateGraph:
     def _record_execution_event(
         self,
         ctx: StateContext,
-        orchestrator,
+        orchestrator: object,
         event_type: str,
         from_state: str | None = None,
         to_state: str | None = None,
@@ -237,7 +242,7 @@ class AgentStateGraph:
         if execution_context is None:
             return
 
-        payload = {
+        payload: dict[str, JsonValue] = {
             "trace_id": ctx.trace_id,
             "state": ctx.current_state.value,
             "task_type": ctx.task_type,
@@ -251,7 +256,7 @@ class AgentStateGraph:
             payload["to_state"] = to_state
 
         try:
-            execution_context.state_store.append_execution_event(
+            _ = execution_context.state_store.append_execution_event(
                 execution_context.task_id,
                 event_type,
                 json.dumps(payload, ensure_ascii=False, sort_keys=True),
@@ -259,7 +264,7 @@ class AgentStateGraph:
         except sqlite3.Error as exc:
             logger.warning("[StateGraph] Failed to persist task event: %s", exc)
 
-    def _transition_to(self, ctx: StateContext, orchestrator, new_state: AgentState) -> None:
+    def _transition_to(self, ctx: StateContext, orchestrator: object, new_state: AgentState) -> None:
         previous_state = ctx.current_state.value
         ctx.transition_to(new_state)
         self._record_execution_event(
@@ -272,7 +277,7 @@ class AgentStateGraph:
 
     # ─── 그래프 실행 ─────────────────────────────────────────
 
-    def execute(self, ctx: StateContext, orchestrator=None) -> Generator[str, None, None]:
+    def execute(self, ctx: StateContext, orchestrator: object | None = None) -> Generator[str, None, None]:
         """상태 그래프를 실행합니다.
 
         각 노드의 핸들러를 순서대로 실행하고,
@@ -312,10 +317,7 @@ class AgentStateGraph:
                 gen = handler(ctx, orchestrator)
                 if gen is not None:
                     for chunk in gen:
-                        if isinstance(chunk, str):
-                            yield chunk
-                        # 핸들러가 다음 상태 키를 반환할 수 있음
-                        # (Generator의 return value는 StopIteration.value)
+                        yield chunk
 
             except StopIteration:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
@@ -324,6 +326,12 @@ class AgentStateGraph:
                 ctx.error = str(e)
                 self._transition_to(ctx, orchestrator, AgentState.ERROR)
                 yield f"\n\n❌ **[State Graph Error]** {current.value} 단계에서 오류 발생: {e}\n"
+                break
+
+            # 핸들러가 스스로 종료 상태로 전이했다면 이를 존중한다.
+            # (예: INIT에서 빈 메시지 감지 → COMPLETE 조기 반환.
+            # 없으면 엣지 해상이 이를 덮어써 파이프라인이 계속 진행된다.)
+            if ctx.current_state in (AgentState.COMPLETE, AgentState.ERROR):
                 break
 
             # 다음 상태 결정
@@ -338,6 +346,7 @@ class AgentStateGraph:
             logger.error("[StateGraph] Max transitions (%s) reached!", max_transitions)
             ctx.error = "Maximum state transitions exceeded"
             self._transition_to(ctx, orchestrator, AgentState.ERROR)
+            yield "\n\n⚠️ **[State Graph]** 최대 상태 전이 횟수 초과로 종료합니다.\n"
 
     def _resolve_next_state(self, current: AgentState, ctx: StateContext) -> AgentState | None:
         """현재 상태에서 다음 상태를 결정합니다."""
@@ -359,7 +368,7 @@ class AgentStateGraph:
 
     # ─── 디버깅/관찰성 ───────────────────────────────────────
 
-    def get_graph_definition(self) -> dict[str, Any]:
+    def get_graph_definition(self) -> dict[str, JsonValue]:
         """그래프 정의를 JSON 직렬화 가능한 형태로 반환합니다."""
         return {
             "nodes": [s.value for s in self._nodes],
@@ -392,31 +401,38 @@ def build_default_graph() -> AgentStateGraph:
     이 함수는 그래프 구조(노드+엣지)만 정의합니다.
     """
     graph = AgentStateGraph()
-    graph.set_entry(AgentState.INIT)
+    _ = graph.set_entry(AgentState.INIT)
 
     # 고정 전이
-    graph.add_edge(AgentState.INIT, AgentState.CONTEXT_ENRICH)
-    graph.add_edge(AgentState.CONTEXT_ENRICH, AgentState.AUTO_LEARN)
-    graph.add_edge(AgentState.AUTO_LEARN, AgentState.SKILL_MATCH)
-    graph.add_edge(AgentState.SKILL_MATCH, AgentState.CEO_ANALYZE)
-    graph.add_edge(AgentState.CEO_ANALYZE, AgentState.PRE_ROUTE)
-    graph.add_edge(AgentState.PRE_ROUTE, AgentState.ROUTE)
+    # ── 직렬 프리룰 단축 ──
+    # CEO 분석을 가장 앞으로 옮긴다 — CEO는 user_message만 필요하다.
+    # simple_chat으로 분류되면 컨텍스트 풍부화(RAG/코드트리)·자율학습·
+    # 스킬매칭·불확실성 추정을 건너뛰고 바로 ROUTE로 간다 (조건부 엣지는
+    # orchestrator_handler_graph에서 ceo_gate_decision으로 등록).
+    _ = graph.add_edge(AgentState.INIT, AgentState.CEO_ANALYZE)
+    _ = graph.add_edge(AgentState.CEO_ANALYZE, AgentState.CONTEXT_ENRICH)
+    _ = graph.add_edge(AgentState.CONTEXT_ENRICH, AgentState.AUTO_LEARN)
+    _ = graph.add_edge(AgentState.AUTO_LEARN, AgentState.SKILL_MATCH)
+    _ = graph.add_edge(AgentState.SKILL_MATCH, AgentState.PRE_ROUTE)
+    _ = graph.add_edge(AgentState.PRE_ROUTE, AgentState.ROUTE)
 
     # ROUTE → 조건부 전이 (핸들러에서 등록)
     # AGENT_EXECUTE, PIPELINE_EXECUTE, DEBATE_EXECUTE, MAX_EXECUTE → MEMORY_SAVE
-    graph.add_edge(AgentState.AGENT_EXECUTE, AgentState.COV_VERIFY)
-    graph.add_edge(AgentState.COV_VERIFY, AgentState.CODE_REVIEW)
+    _ = graph.add_edge(AgentState.AGENT_EXECUTE, AgentState.COV_VERIFY)
+    _ = graph.add_edge(AgentState.COV_VERIFY, AgentState.CODE_REVIEW)
 
     # Phase 5: COV_VERIFY 이후 바로 메모리 저장하지 않고 QUALITY_CHECK로 진행
-    graph.add_edge(AgentState.CODE_REVIEW, AgentState.QUALITY_CHECK)
+    _ = graph.add_edge(AgentState.CODE_REVIEW, AgentState.QUALITY_CHECK)
 
     # QUALITY_CHECK 이후 조건부 전이(실패시 AGENT_EXECUTE 루프백, 성공시 MEMORY_SAVE)를
     # 핸들러 레벨(build_orchestrator_graph)에서 add_conditional_edge로 등록함
 
-    graph.add_edge(AgentState.MAX_EXECUTE, AgentState.COV_VERIFY)
-    graph.add_edge(AgentState.PIPELINE_EXECUTE, AgentState.MEMORY_SAVE)
-    graph.add_edge(AgentState.DEBATE_EXECUTE, AgentState.MEMORY_SAVE)
-    graph.add_edge(AgentState.AGI_CORE, AgentState.COMPLETE)
-    graph.add_edge(AgentState.MEMORY_SAVE, AgentState.COMPLETE)
+    _ = graph.add_edge(AgentState.MAX_EXECUTE, AgentState.COV_VERIFY)
+    # 검증 없이 저장되던 위험 분기 — 가장 긴 실행(파이프라인/토론)이
+    # 오히려 COV/품질 검증을 통과하지 않았다. AGENT/MAX와 동일하게 검증한다.
+    _ = graph.add_edge(AgentState.PIPELINE_EXECUTE, AgentState.COV_VERIFY)
+    _ = graph.add_edge(AgentState.DEBATE_EXECUTE, AgentState.COV_VERIFY)
+    _ = graph.add_edge(AgentState.AGI_CORE, AgentState.COMPLETE)
+    _ = graph.add_edge(AgentState.MEMORY_SAVE, AgentState.COMPLETE)
 
     return graph

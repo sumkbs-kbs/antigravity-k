@@ -56,3 +56,15 @@ SAMPLING_PROFILES: dict[str, SamplingProfile] = {
         description="일반 대화 (균형)",
     ),
 }
+
+
+def resolve_sampling_profile(task_type: object) -> SamplingProfile:
+    """작업 유형에 대응하는 샘플링 프로파일을 반환한다.
+
+    라이브 경로의 task_type은 소문자("code", "chat", "search")로 전달되는데
+    프로파일 키는 대문자이므로 정규화 없으면 항상 GENERAL로 폴백된다.
+    모든 조회는 이 함수를 통해서만 수행한다 (Single Source of Truth).
+    """
+    if not isinstance(task_type, str) or not task_type.strip():
+        return SAMPLING_PROFILES["GENERAL"]
+    return SAMPLING_PROFILES.get(task_type.strip().upper(), SAMPLING_PROFILES["GENERAL"])

@@ -11,7 +11,8 @@ import logging
 import os
 import re
 import time
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast, final
 
 from antigravity_k.engine.failure_classifier import (
     ClassifiedFailure,
@@ -21,13 +22,18 @@ from antigravity_k.engine.failure_classifier import (
 )
 from antigravity_k.engine.immune_system import ImmuneSystem
 from antigravity_k.engine.task_state_store import current_task_execution_context
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.model_manager import ModelManager
+    from antigravity_k.engine.vault import VaultEngine
 
 logger = logging.getLogger(__name__)
 
 
-def _result_indicates_failure(result) -> bool:
+def result_indicates_failure(result: str) -> bool:
     """Classify a tool result string as a failure.
 
     Recognizes the legacy "Error:" prefix, the ErrorDistiller format
@@ -35,8 +41,6 @@ def _result_indicates_failure(result) -> bool:
     run_bash_command for non-zero exits. Markers are matched anywhere in
     the text because ErrorDistiller may prefix failures.
     """
-    if not isinstance(result, str):
-        return False
     stripped = result.strip()
     if stripped.startswith("Error") or stripped.startswith("❌ ["):
         return True
@@ -44,6 +48,62 @@ def _result_indicates_failure(result) -> bool:
     return exit_match is not None and exit_match.group(1) != "0"
 
 
+class _GuardDecisionLike(Protocol):
+    allows_execution: bool
+    message: str
+
+
+class _PlanGuardLike(Protocol):
+    def evaluate_tool_call(
+        self,
+        *,
+        tool_name: str,
+        tool_args: dict[str, object],
+        execution_mode: str,
+    ) -> _GuardDecisionLike: ...
+
+
+class _GateDecisionLike(Protocol):
+    is_denied: bool
+    is_paused: bool
+    reason: str
+
+
+class _GatePipelineLike(Protocol):
+    def evaluate(self, context: object) -> _GateDecisionLike: ...
+
+
+class _VaultEngineLike(Protocol):
+    def create_snapshot(self, message: str) -> str | None: ...
+
+    def restore_snapshot(self, commit_hash: str) -> bool: ...
+
+
+class _EventBusLike(Protocol):
+    def publish(self, event_name: str, **kwargs: object) -> None: ...
+
+
+class _SelfEvolutionModelManagerLike(Protocol):
+    def get_target_for_role(self, role: str, *, default_role: str) -> str | None: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+class _ToolRegistryInstallLike(Protocol):
+    def install_many(self, *tools: object) -> ToolRegistry: ...
+
+    def install(self, tool: object) -> ToolRegistry: ...
+
+
+class _ToolCallRecord(TypedDict):
+    name: str
+    arguments: dict[str, object]
+    success: bool
+    timestamp: float
+    permission: str | None
+
+
+@final
 class ToolExecutor:
     """도구 실행 책임을 Orchestrator에서 분리한 모듈.
 
@@ -60,12 +120,12 @@ class ToolExecutor:
         self,
         tool_registry: ToolRegistry,
         permission_gate: PermissionGate,
-        model_manager: Any = None,
-        vault_engine=None,
+        model_manager: object | None = None,
+        vault_engine: object | None = None,
         project_root: str = ".",
-        capability_policy_config: dict[str, Any] | None = None,
-        plan_guard: Any = None,
-        gate_pipeline: Any = None,
+        capability_policy_config: Mapping[str, object] | None = None,
+        plan_guard: object | None = None,
+        gate_pipeline: object | None = None,
     ):
         """Initialize the ToolExecutor.
 
@@ -82,24 +142,32 @@ class ToolExecutor:
         """
         self.tool_registry = tool_registry
         self.permission_gate = permission_gate
-        self.manager = model_manager
-        self.vault_engine = vault_engine
+        self.manager: object | None = model_manager
+        self.vault_engine: _VaultEngineLike | None = (
+            cast(_VaultEngineLike, vault_engine) if vault_engine is not None else None
+        )
         self.project_root = project_root
-        self.capability_policy_config = capability_policy_config or {}
-        self.plan_guard = plan_guard
-        self.gate_pipeline = gate_pipeline
+        self.capability_policy_config: dict[str, object] = dict(capability_policy_config or {})
+        self.plan_guard: _PlanGuardLike | None = cast(_PlanGuardLike, plan_guard) if plan_guard is not None else None
+        self.gate_pipeline: _GatePipelineLike | None = (
+            cast(_GatePipelineLike, gate_pipeline) if gate_pipeline is not None else None
+        )
         self._consecutive_errors = 0
         self.current_objective = ""
         self.failure_registry = RecoveryStrategyRegistry()
         self._last_failure: ClassifiedFailure | None = None
 
         # Hermes Self-Evolution: 도구 호출 이력 (SEC가 패턴 감지용으로 사용)
-        self.tool_call_history: list[dict[str, Any]] = []
+        self.tool_call_history: list[_ToolCallRecord] = []
 
         # Singleton instantiation to avoid lazy init costs during active error recovery
         self._immune_system: ImmuneSystem | None = None
         try:
-            self._immune_system = ImmuneSystem(self.project_root, self.manager, self.vault_engine)
+            self._immune_system = ImmuneSystem(
+                self.project_root,
+                cast("ModelManager", self.manager),
+                cast("VaultEngine | None", self.vault_engine),
+            )
         except Exception:
             logger.exception("Failed to initialize ImmuneSystem in ToolExecutor")
 
@@ -107,7 +175,9 @@ class ToolExecutor:
         """현재 턴 목표를 capability policy 판단에 제공합니다."""
         self.current_objective = objective or ""
 
-    def execute(self, name: str, args: dict[str, Any], objective: str = "", execution_mode: str = "interactive") -> str:
+    def execute(
+        self, name: str, args: dict[str, object], objective: str = "", execution_mode: str = "interactive"
+    ) -> str:
         """ToolRegistry를 통해 도구를 실행합니다. (사전 검증 및 구조화된 에러 반환 포함).
 
         Args:
@@ -119,7 +189,6 @@ class ToolExecutor:
         """
         try:
             if name not in self.tool_registry:
-                self._consecutive_errors += 1
                 return (
                     f"There was an error when executing the function: {name}\n"
                     f"Here's the error traceback: Unknown tool '{name}'\n"
@@ -134,7 +203,6 @@ class ToolExecutor:
                     execution_mode=execution_mode,
                 )
                 if not guard_decision.allows_execution:
-                    self._consecutive_errors += 1
                     logger.info(
                         "PlanGuard blocked '%s' in %s mode: %s",
                         name,
@@ -171,12 +239,19 @@ class ToolExecutor:
                         f"Please reconsider your approach."
                     )
                 if gate_decision.is_paused:
-                    # Pause = 사용자 승인 필요
-                    return (
-                        f"[APPROVAL REQUIRED] {gate_decision.reason} "
-                        f"Please stop executing tools immediately and ask the user for permission. "
-                        f"Wait for their 'Yes' before retrying."
-                    )
+                    # Pause = 사용자 승인 필요 — ApprovalManager에 요청을 등록해
+                    # 대시보드/승인 API로 처리 가능하게 한다. '항상 허용' 도구나
+                    # 소비 대기 중인 일회성 승인(재시도)이면 즉시 실행한다.
+                    proceed, approval_request_id = self._register_approval_request(name, args, gate_decision)
+                    if proceed:
+                        pass  # 승인 확정 — 아래 실행 단계로 진행
+                    else:
+                        request_note = f" (승인 요청 ID: {approval_request_id}) " if approval_request_id else " "
+                        return (
+                            f"[APPROVAL REQUIRED] {gate_decision.reason}{request_note}"
+                            f"Please stop executing tools immediately and ask the user for permission. "
+                            f"Wait for their 'Yes' before retrying."
+                        )
 
             # ─── Pre-Execution Validation + Preflight ───
             error_msg = self._validate_and_preflight(name, args)
@@ -190,7 +265,6 @@ class ToolExecutor:
             )
 
             if perm == Permission.DENY:
-                self._consecutive_errors += 1
                 self._record_tool_call(name, args, result, permission=perm)
                 return (
                     f"There was an error when executing the function: {name}\n"
@@ -198,9 +272,18 @@ class ToolExecutor:
                     f"Please reconsider your approach."
                 )
             elif perm == Permission.PROMPT:
+                # 레지스트리 권한 게이트(PROMPT)도 승인 시스템과 연동한다 —
+                # '항상 허용'/소비 대기 일회성 승인이 있으면 승인 실행하고,
+                # 없으면 승인 요청을 등록해 사용자가 API/대시보드로 결정한다.
+                proceed, approval_request_id = self._register_approval_request(name, args, f"{name} 실행 승인")
+                if proceed:
+                    approved_result = str(self.tool_registry.execute_approved(name, args))
+                    self._post_execute(name, args, approved_result, permission=perm)
+                    return approved_result
                 self._record_tool_call(name, args, result, permission=perm)
+                request_note = f" (승인 요청 ID: {approval_request_id}) " if approval_request_id else " "
                 return (
-                    f"[APPROVAL REQUIRED] This tool ({name}) requires user approval to execute. "
+                    f"[APPROVAL REQUIRED] This tool ({name}) requires user approval to execute.{request_note}"
                     f"Please stop executing tools immediately and ask the user for permission. "
                     f"Wait for their 'Yes' before retrying."
                 )
@@ -208,8 +291,9 @@ class ToolExecutor:
             # ─── Post-Execution: history, events, error tracking ───
             self._post_execute(name, args, result, permission=perm)
 
-            # Auto-Rollback & Self-Healing logic
-            if self._consecutive_errors >= 3:
+            # Auto-Rollback & Self-Healing logic — 현재 결과가 실제 실패일 때만
+            # (과거 스키마 실수 누적으로 성공 호출 직후 롤백되는 것 방지)
+            if self._consecutive_errors >= 3 and result_indicates_failure(str(result)):
                 return self._trigger_recovery(name, args, result)
 
             return result
@@ -221,6 +305,64 @@ class ToolExecutor:
                 f"Here's the error traceback: {e!s}\n"
                 f"Please call this function again with correct arguments within XML tags <tool_call></tool_call>"
             )
+
+    def _register_approval_request(
+        self,
+        name: str,
+        args: dict[str, object],
+        reason: object,
+    ) -> tuple[bool, str]:
+        """게이트 일시정지를 승인 시스템에 등록한다.
+
+        반환: (즉시 실행 여부, 승인 요청 ID — 등록 실패 시 빈 문자열).
+        - '항상 허용' 도구 → 즉시 실행 (request_approval이 자동 승인 반환)
+        - 소비 대기 중인 일회성 승인 → 소비 후 즉시 실행 (재시도 경로)
+        - 그 외 → PENDING 요청 등록 후 일시정지
+        등록 실패는 기존 문자열 일시정지로 폴백한다(보안 경계 유지).
+        """
+        try:
+            from antigravity_k.engine.approval_manager import (
+                ApprovalStatus,
+                get_approval_manager,
+            )
+
+            manager = get_approval_manager()
+
+            # 재시도 우선: 이미 승인된 일회성 허가가 있으면 새 요청 없이 소비
+            if manager.consume_one_time_approval(name):
+                return True, ""
+
+            # 동일 도구의 PENDING 요청이 있으면 재사용 (중복 등록 방지)
+            existing_id = ""
+            for pending_request in manager.get_pending():
+                if pending_request.tool_name == name:
+                    existing_id = pending_request.request_id
+                    break
+
+            json_args = {
+                key: value if isinstance(value, (str, int, float, bool)) or value is None else str(value)
+                for key, value in args.items()
+            }
+            description = (
+                str(getattr(reason, "reason", "")) if not isinstance(reason, str) else reason
+            ) or f"{name} 실행"
+            request = manager.request_approval(
+                tool_name=name,
+                tool_args=json_args,
+                description=description,
+                project_root=str(self.project_root),
+            )
+            if request.status == ApprovalStatus.ALWAYS_ALLOW:
+                return True, request.request_id
+            if existing_id:
+                return False, existing_id
+            return False, request.request_id
+        except Exception:
+            logger.debug(
+                "approval registration failed — string pause fallback",
+                exc_info=True,
+            )
+            return False, ""
 
     def _user_contracted_tools(self) -> frozenset[str]:
         """Tools the user explicitly named in the active task's prompt.
@@ -238,13 +380,15 @@ class ToolExecutor:
         if checkpoint is None:
             return frozenset()
         try:
-            payload = json.loads(checkpoint["context_json"])
+            payload = cast(object, json.loads(checkpoint["context_json"]))
         except (json.JSONDecodeError, TypeError, KeyError):
             return frozenset()
-        expected = payload.get("expected_tools") if isinstance(payload, dict) else None
+        payload_map = cast(dict[str, object], payload) if isinstance(payload, dict) else {}
+        expected = payload_map.get("expected_tools")
         if not isinstance(expected, (list, tuple, set)):
             return frozenset()
-        named = frozenset(str(tool) for tool in expected if str(tool).strip())
+        expected_values = cast(list[object] | tuple[object, ...] | set[object], expected)
+        named = frozenset(str(tool) for tool in expected_values if str(tool).strip())
         # Executing code authorizes materializing it first: a user who asked to run
         # code via run_bash_command also consents to writing the script to run.
         # Path sandbox + dangerous-command gates still apply to the writes themselves.
@@ -252,7 +396,7 @@ class ToolExecutor:
             named = named | {"write_file", "edit_file", "replace_file_content"}
         return named
 
-    def _validate_and_preflight(self, name: str, args: dict[str, Any]) -> str | None:
+    def _validate_and_preflight(self, name: str, args: dict[str, object]) -> str | None:
         """Validate required arguments and run preflight directory checks.
 
         Returns an error message string if validation fails, or None to proceed.
@@ -262,10 +406,12 @@ class ToolExecutor:
         if tool_obj:
             try:
                 schema = tool_obj.parameters_schema
-                required_args = schema.get("required", [])
+                raw_required = schema.get("required", [])
+                required_args = (
+                    [str(arg) for arg in cast(list[object], raw_required)] if isinstance(raw_required, list) else []
+                )
                 missing = [arg for arg in required_args if arg not in args]
                 if missing:
-                    self._consecutive_errors += 1
                     return (
                         f"There was an error when executing the function: {name}\n"
                         f"Here's the error traceback: Missing required arguments: {', '.join(missing)}\n"
@@ -276,35 +422,35 @@ class ToolExecutor:
                 logger.exception("Validation check failed for %s", name)
 
         # ─── Preflight Validator (Hermes 차용) ───
+        # 검증 단계에서 디렉터리를 생성하는 쓰기 부수효과는 제거했다 — 오타 경로가
+        # 조용히 잘못된 디렉터리 트리를 만들었다. 실제 쓰기 도구가 필요 시 생성한다.
         file_path = args.get("file_path") or args.get("path") or args.get("target")
-        if file_path:
+        if isinstance(file_path, str) and file_path:
             abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
             if name in ("write_file", "write_to_file", "edit_file", "replace_file_content"):
                 parent_dir = os.path.dirname(abs_path)
                 if parent_dir and not os.path.exists(parent_dir):
-                    try:
-                        os.makedirs(parent_dir, exist_ok=True)
-                        logger.info("Preflight Validator: Auto-created missing directory %s", parent_dir)
-                    except Exception:
-                        logger.exception("Preflight Validator failed to create dir %s", parent_dir)
+                    logger.info(
+                        "Preflight Validator: 대상 디렉터리가 없음(생성은 쓰기 도구가 수행): %s",
+                        parent_dir,
+                    )
         return None
 
     def _record_tool_call(
         self,
         name: str,
-        args: dict[str, Any],
-        result,
+        args: dict[str, object],
+        result: str,
         permission: Permission | None = None,
     ) -> None:
         """Record a tool call in history (capped at 20 entries)."""
-        entry = {
+        entry: _ToolCallRecord = {
             "name": name,
             "arguments": args,
-            "success": not _result_indicates_failure(result),
+            "success": not result_indicates_failure(result),
             "timestamp": time.time(),
+            "permission": permission.value if permission is not None else None,
         }
-        if permission is not None:
-            entry["permission"] = permission.value
         self.tool_call_history.append(entry)
         if len(self.tool_call_history) > 20:
             self.tool_call_history = self.tool_call_history[-20:]
@@ -312,14 +458,14 @@ class ToolExecutor:
     def _post_execute(
         self,
         name: str,
-        args: dict[str, Any],
-        result,
+        args: dict[str, object],
+        result: str,
         permission: Permission | None = None,
     ) -> None:
         """Post-execution: record history, broadcast file events, track errors."""
         self._record_tool_call(name, args, result, permission=permission)
 
-        if _result_indicates_failure(result):
+        if result_indicates_failure(result):
             self._consecutive_errors += 1
             self._last_failure = classify_tool_failure(name, str(result))
         else:
@@ -327,12 +473,12 @@ class ToolExecutor:
             self._last_failure = None
             self._broadcast_file_event(name, args)
 
-    def _broadcast_file_event(self, name: str, args: dict[str, Any]) -> None:
+    def _broadcast_file_event(self, name: str, args: dict[str, object]) -> None:
         """Broadcast FileOpened / FileModified events to the dashboard."""
         if name not in ("read_file", "write_file", "edit_file", "replace_file_content", "multi_replace_file_content"):
             return
         file_path = args.get("file_path") or args.get("path")
-        if not file_path:
+        if not isinstance(file_path, str) or not file_path:
             return
         abs_path = file_path if os.path.isabs(file_path) else os.path.join(self.project_root, file_path)
         if not os.path.exists(abs_path):
@@ -343,15 +489,16 @@ class ToolExecutor:
             from antigravity_k.engine.event_bus import global_event_bus
 
             evt_type = "FileOpened" if name == "read_file" else "FileModified"
-            global_event_bus.publish(evt_type, filepath=abs_path, content=content)
+            event_bus = cast(_EventBusLike, global_event_bus)
+            event_bus.publish(evt_type, filepath=abs_path, content=content)
         except Exception:
             logger.exception("Failed to read file for event broadcast")
 
-    async def execute_async(self, name: str, args: dict[str, Any], execution_mode: str = "interactive") -> str:
+    async def execute_async(self, name: str, args: dict[str, object], execution_mode: str = "interactive") -> str:
         """비동기 스레드 풀에서 도구를 실행하여 메인 이벤트 루프를 블로킹하지 않습니다."""
         return await asyncio.to_thread(self.execute, name, args, execution_mode=execution_mode)
 
-    def _trigger_recovery(self, name: str, args: dict[str, Any], result) -> str:
+    def _trigger_recovery(self, name: str, args: dict[str, object], result: str) -> str:
         """연속 에러 3회 시 실패 유형별 복구 플레이북 → Immune System → Vault Rollback 순으로 복구 시도."""
         self._consecutive_errors = 0
 
@@ -365,7 +512,7 @@ class ToolExecutor:
                 classified.category.value,
                 strategy.action.value,
             )
-            return strategy.render(classified)
+            return str(result) + "\n\n" + strategy.render(classified)
 
         # 1. Trigger Immune System (Self-Healing)
         if self._immune_system:
@@ -373,7 +520,7 @@ class ToolExecutor:
                 error_trace = str(result)
                 args_context = json.dumps(args, ensure_ascii=False) if args else "None"
                 heal_msg = self._immune_system.heal(error_trace, name, args_context)
-                return heal_msg
+                return str(result) + "\n\n" + heal_msg
             except Exception:
                 logger.exception("Immune System recovery failed")
 
@@ -402,7 +549,7 @@ class ToolExecutor:
             rollback_msg += "VaultEngine is not available, so automatic rollback could not be performed."
         return str(result) + rollback_msg
 
-    def register_default_tools(self):
+    def register_default_tools(self) -> None:
         """모든 기본 도구를 ToolRegistry에 등록합니다."""
         try:
             from antigravity_k.tools.agent_spawn import AgentSpawnTool
@@ -416,6 +563,7 @@ class ToolExecutor:
             )
             from antigravity_k.tools.computer_use import ComputerUseTool
             from antigravity_k.tools.config_editor_tool import ConfigEditorTool
+            from antigravity_k.tools.context_artifact_tools import ReadContextArtifactTool
             from antigravity_k.tools.cowork_delegate import CoworkDelegateTool
             from antigravity_k.tools.docker_tools import DockerBashCommandTool
             from antigravity_k.tools.file_tools import (
@@ -448,7 +596,8 @@ class ToolExecutor:
             from antigravity_k.tools.terminal_tools import InteractivePTYTool
             from antigravity_k.tools.web_search import WebSearchTool
 
-            self.tool_registry.install_many(
+            registry = cast(_ToolRegistryInstallLike, cast(object, self.tool_registry))
+            _ = registry.install_many(
                 ComputerUseTool(),
                 SystemControlTool(),
                 InteractivePTYTool(),
@@ -475,9 +624,10 @@ class ToolExecutor:
                 PRCreationTool(),
                 ImpactAnalyzerTool(),
                 ConfigEditorTool(),
+                ReadContextArtifactTool(self.project_root),
                 AgentSpawnTool(model_manager=self.manager, tool_registry=self.tool_registry),
                 CoworkDelegateTool(model_manager=self.manager),
-                SelfEvolutionTool(),
+                SelfEvolutionTool(model_manager=cast(_SelfEvolutionModelManagerLike | None, self.manager)),
                 WriteArtifactTool(),
                 BrowserDOMTool(),
                 WebSearchTool(),
@@ -493,7 +643,7 @@ class ToolExecutor:
         except Exception:
             logger.exception("Failed to register tools")
 
-    def _load_auto_skills(self):
+    def _load_auto_skills(self) -> None:
         """auto_skill_ 프리픽스 도구를 동적으로 로드합니다."""
         tools_dir = os.path.join(self.project_root, "src", "antigravity_k", "tools")
         if not os.path.exists(tools_dir):
@@ -520,12 +670,12 @@ class ToolExecutor:
 
                 for name, obj in inspect.getmembers(module, inspect.isclass):
                     if issubclass(obj, BaseTool) and obj is not BaseTool:
-                        self.tool_registry.install(obj())
+                        _ = cast(_ToolRegistryInstallLike, cast(object, self.tool_registry)).install(obj())
                         logger.info("Dynamically loaded auto-skill: %s from %s", name, skill_file)
             except Exception:
                 logger.exception("Failed to load auto-skill %s", skill_file)
 
-    def _load_mcp_tools(self):
+    def _load_mcp_tools(self) -> None:
         """프로젝트 MCP 설정을 감사한 뒤 안전한 MCP 도구를 동적으로 등록합니다."""
         config_path = os.environ.get("AGK_MCP_CONFIG") or os.path.join(
             self.project_root,
@@ -551,11 +701,11 @@ class ToolExecutor:
                         tool.name,
                     )
                     continue
-                self.tool_registry.install(tool)
+                _ = cast(_ToolRegistryInstallLike, cast(object, self.tool_registry)).install(tool)
             logger.info("Registered MCP tools from %s", config_path)
         except Exception:
             logger.exception("Failed to load MCP tools from %s", config_path)
 
-    def reset_error_counter(self):
+    def reset_error_counter(self) -> None:
         """턴 시작 시 에러 카운터를 리셋합니다."""
         self._consecutive_errors = 0

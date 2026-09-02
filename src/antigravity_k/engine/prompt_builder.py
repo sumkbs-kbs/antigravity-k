@@ -23,7 +23,8 @@
 import datetime
 import logging
 import os
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class PromptBuilder:
     """
 
     # prompts/ 디렉토리를 찾기 위한 기본 경로
-    _DEFAULT_PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "prompts")
+    _DEFAULT_PROMPTS_DIR: str = os.path.join(os.path.dirname(__file__), "..", "prompts")
 
     def __init__(self, prompts_dir: str | None = None):
         """Initialize the PromptBuilder.
@@ -47,7 +48,7 @@ class PromptBuilder:
             prompts_dir (str | None): str | None prompts dir.
 
         """
-        self._dir = os.path.abspath(prompts_dir or self._DEFAULT_PROMPTS_DIR)
+        self._dir: str = os.path.abspath(prompts_dir or self._DEFAULT_PROMPTS_DIR)
         self._cache: dict[str, str] = {}
 
         if not os.path.isdir(self._dir):
@@ -107,7 +108,7 @@ class PromptBuilder:
 
     def tool_guide(
         self,
-        tool_schemas: list[dict[str, Any]],
+        tool_schemas: Sequence[Mapping[str, object]],
         current_time: datetime.datetime | None = None,
     ) -> str:
         """도구 사용 가이드 프롬프트를 생성합니다.
@@ -118,7 +119,10 @@ class PromptBuilder:
 
         """
         now = current_time or datetime.datetime.now(datetime.UTC)
-        now_str = now.strftime("%Y년 %m월 %d일 %H시 %M분")
+        # 일(day) 단위로만 표기한다 — 분 단위 타임스탬프는 프롬프트 접두사를
+        # 매분 변경해 Ollama KV 캐시(프리필)를 전체 무효화한다. '내일/오늘'
+        # 계산에는 날짜 정밀도면 충분하다.
+        now_str = now.strftime("%Y년 %m월 %d일")
 
         tool_section = (
             "## 🛠️ 도구(Tool) 사용 가이드\n"
@@ -189,14 +193,30 @@ class PromptBuilder:
         )
 
         for schema in tool_schemas:
-            params = schema.get("input_schema", {})
-            required = params.get("required") or []
-            tool_section += f"- **{schema['name']}**: {schema['description']}\n"
-            props = params.get("properties") or {}
+            raw_params = schema.get("input_schema")
+            params: Mapping[str, object] = {}
+            if isinstance(raw_params, Mapping):
+                params = cast(Mapping[str, object], raw_params)
+            raw_required: object = params.get("required")
+            required_values = cast(list[object], raw_required) if isinstance(raw_required, list) else []
+            required = {
+                item for item in required_values if isinstance(item, str)
+            }
+            name = schema.get("name")
+            description = schema.get("description")
+            tool_section += f"- **{name}**: {description}\n"
+            raw_props: object = params.get("properties")
+            props: Mapping[str, object] = {}
+            if isinstance(raw_props, Mapping):
+                props = cast(Mapping[str, object], raw_props)
             if props:
-                param_strs = []
-                for k, v in props.items():
-                    p_type = v.get("type", "any")
+                param_strs: list[str] = []
+                for raw_key, raw_value in props.items():
+                    k = raw_key
+                    value: Mapping[str, object] = {}
+                    if isinstance(raw_value, Mapping):
+                        value = cast(Mapping[str, object], raw_value)
+                    p_type: object = value.get("type", "any")
                     p_req = "required" if k in required else "optional"
                     param_strs.append(f"{k} ({p_type}, {p_req})")
                 tool_section += f"  Parameters: {', '.join(param_strs)}\n"
@@ -263,7 +283,7 @@ class PromptBuilder:
             섹션으로 구분된 구조화 프롬프트
 
         """
-        sections = []
+        sections: list[str] = []
 
         # [ROLE] 역할 정의
         sections.append(f"[ROLE]\n당신은 {role}입니다.")
@@ -275,9 +295,9 @@ class PromptBuilder:
         else:
             sections.append(
                 "[CONSTRAINTS]\n"
-                "- 반드시 한국어로 답변하세요.\n"
-                "- 불필요한 서론과 사족을 생략하고 핵심만 전달하세요.\n"
-                "- 확실하지 않은 정보는 명확히 '확인 불가'라고 표시하세요.",
+                + "- 반드시 한국어로 답변하세요.\n"
+                + "- 불필요한 서론과 사족을 생략하고 핵심만 전달하세요.\n"
+                + "- 확실하지 않은 정보는 명확히 '확인 불가'라고 표시하세요."
             )
 
         sections.append(f"[RESPONSE CONTRACT]\n{self.response_contract()}")
@@ -296,7 +316,7 @@ class PromptBuilder:
 
         # [EXAMPLES] Few-Shot 예시
         if few_shot:
-            examples = []
+            examples: list[str] = []
             for i, ex in enumerate(few_shot, 1):
                 examples.append(f"예시 {i}:\n  입력: {ex['input']}\n  출력: {ex['output']}")
             sections.append("[EXAMPLES]\n" + "\n\n".join(examples))

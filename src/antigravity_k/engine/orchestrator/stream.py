@@ -3,33 +3,111 @@
 run_stream / run_sync 의 실제 구현을 제공합니다.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import re
-from collections.abc import Generator
+from collections.abc import Generator, Iterable, Iterator, Mapping
+from typing import Callable, Protocol, cast, runtime_checkable
 
 from antigravity_k.engine.state_graph import StateContext
 from antigravity_k.engine.task_context_snapshot import (
     ContextSnapshotStoreError,
     save_task_context_snapshot,
 )
-from antigravity_k.engine.task_state_store import TaskExecutionContext
+from antigravity_k.engine.task_execution_context import TaskExecutionContext
 
 logger = logging.getLogger("antigravity_k.orchestrator.stream")
 
 
-def _benchmark_context(orch) -> dict[str, object] | None:
-    execution_context = getattr(orch, "task_execution_context", None)
+class _AuthoritativeFactLike(Protocol):
+    key: str
+    source: str
+    scope: str
+    value: str
+
+
+class _MemoryManagerLike(Protocol):
+    def authoritative_project_fact_for_query(self, user_text: str) -> _AuthoritativeFactLike | None: ...
+
+    def prefetch_all(self, user_text: str) -> str: ...
+
+    def sync_all(self, user_text: str, output: str, metadata: dict[str, object] | None = None) -> object: ...
+
+
+class _ContextLike(Protocol):
+    memory_manager: _MemoryManagerLike
+    user_model: object | None
+
+
+class _CompressionResultLike(Protocol):
+    compressed_messages: list[dict[str, str]]
+    user_message: str | None
+
+
+class _CompressorLike(Protocol):
+    def should_compress(self, messages: list[dict[str, str]]) -> bool: ...
+
+    def compress(self, messages: list[dict[str, str]]) -> _CompressionResultLike: ...
+
+    def needs_compression(self, messages: list[dict[str, str]]) -> bool: ...
+
+    def usage_percent(self, messages: list[dict[str, str]]) -> float: ...
+
+    def adaptive_compress(self, messages: list[dict[str, str]], task_type: str) -> list[dict[str, str]]: ...
+
+
+class _StateGraphLike(Protocol):
+    def execute(self, ctx: StateContext, orchestrator: _OrchestratorLike | None = None) -> Iterator[str]: ...
+
+
+class _OrchestratorLike(Protocol):
+    manager: object
+    ctx: _ContextLike
+    task_execution_context: TaskExecutionContext | None
+
+    def trajectory_compressor_for(self, target_model: str) -> _CompressorLike | None: ...
+
+    def context_compressor_for(self, target_model: str) -> _CompressorLike | None: ...
+
+
+@runtime_checkable
+class _StreamingModelManager(Protocol):
+    def stream_generate(self, prompt: str, target: str, **kwargs: object) -> Iterator[str]: ...
+
+
+def _latest_user_text(orch: _OrchestratorLike, messages: list[dict[str, str]]) -> str:
+    resolver = cast(Callable[[list[dict[str, str]]], str], getattr(orch, "_latest_user_text"))
+    return resolver(messages)
+
+
+def _set_last_agent_output(orch: _OrchestratorLike, output: str) -> None:
+    setattr(orch, "_last_agent_output", output)
+
+
+def _state_graph(orch: _OrchestratorLike) -> _StateGraphLike | None:
+    return cast(_StateGraphLike | None, getattr(orch, "_state_graph", None))
+
+
+def _render_self_capability_response(orch: _OrchestratorLike) -> str:
+    renderer = cast(Callable[[], str], getattr(orch, "_render_self_capability_response"))
+    return renderer()
+
+
+def _benchmark_context(orch: _OrchestratorLike) -> dict[str, object] | None:
+    execution_context = orch.task_execution_context
     if execution_context is None:
         return None
     try:
         checkpoint = execution_context.state_store.get_last_checkpoint(execution_context.task_id)
         if checkpoint is None:
             return None
-        payload = json.loads(checkpoint["context_json"])
+        context_json = checkpoint["context_json"]
+        payload = cast(object, json.loads(context_json))
     except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
         return None
-    return payload if isinstance(payload, dict) else None
+    return cast(dict[str, object], payload) if isinstance(payload, dict) else None
 
 
 def _is_direct_benchmark(context: dict[str, object] | None) -> bool:
@@ -44,7 +122,9 @@ def _has_expected_tools(context: dict[str, object] | None) -> bool:
     expected_tools = context.get("expected_tools", ())
     if isinstance(expected_tools, str):
         return bool(expected_tools.strip())
-    return isinstance(expected_tools, (list, tuple, set)) and any(str(tool).strip() for tool in expected_tools)
+    if not isinstance(expected_tools, (list, tuple, set)):
+        return False
+    return any(str(tool).strip() for tool in cast(Iterable[object], expected_tools))
 
 
 def _is_direct_response(context: dict[str, object] | None) -> bool:
@@ -65,12 +145,16 @@ def _expected_tool_task_type(context: dict[str, object] | None, user_text: str) 
     expected_tools = context.get("expected_tools", ())
     if isinstance(expected_tools, str):
         return "search" if expected_tools == "web_search" else _direct_response_task_type(user_text)
-    if isinstance(expected_tools, (list, tuple, set)) and "web_search" in expected_tools:
+    if isinstance(expected_tools, (list, tuple, set)) and "web_search" in cast(Iterable[object], expected_tools):
         return "search"
     return _direct_response_task_type(user_text)
 
 
-def _stream_direct_benchmark(orch, user_text: str, target_model: str) -> Generator[str, None, None]:
+def _stream_direct_benchmark(
+    orch: _OrchestratorLike,
+    user_text: str,
+    target_model: str,
+) -> Generator[str, None, None]:
     prompt = (
         "[LOCAL BENCHMARK MODE]\n"
         "Return a complete final answer to the user request. Use no tools and do not modify files.\n"
@@ -79,54 +163,80 @@ def _stream_direct_benchmark(orch, user_text: str, target_model: str) -> Generat
         "Final answer:\n"
     )
     output = ""
-    for chunk in orch.manager.stream_generate(
-        prompt=prompt,
-        target=target_model,
-        task_type="benchmark",
-        max_tokens=4096,
-    ):
+    manager = orch.manager
+    chunks: Iterable[str]
+    if isinstance(manager, _StreamingModelManager):
+        chunks = manager.stream_generate(
+            prompt=prompt,
+            target=target_model,
+            task_type="benchmark",
+            max_tokens=4096,
+        )
+    else:
+        stream_generate = cast(Callable[..., Iterable[str]] | None, getattr(manager, "stream_generate", None))
+        if not callable(stream_generate):
+            raise RuntimeError("benchmark stream requires a model manager")
+        chunks = stream_generate(
+            prompt=prompt,
+            target=target_model,
+            task_type="benchmark",
+            max_tokens=4096,
+        )
+    for chunk in chunks:
         text = str(chunk)
         output += text
         yield text
-    orch._last_agent_output = output
+    _set_last_agent_output(orch, output)
 
 
-def _extract_learned_preferences(orch) -> dict[str, object] | None:
+def _count_map(value: object) -> Mapping[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {
+        key: item
+        for key, item in raw.items()
+        if isinstance(key, str) and isinstance(item, int)
+    }
+
+
+def _extract_learned_preferences(orch: _OrchestratorLike) -> dict[str, object] | None:
     """UserIntentModeler 프로파일에서 학습된 선호도를 추출합니다 (작업 5).
 
     GlobalMemoryProvider.sync_turn()이 이 metadata를 받아
     preferences/patterns로 영속화합니다.
     """
     try:
-        user_model = getattr(orch.ctx, "user_model", None)
+        user_model = orch.ctx.user_model
         if user_model is None:
             return None
-        profile = getattr(user_model, "_profile", {})
-        if not profile or not profile.get("stats"):
+        profile = cast(Mapping[str, object], getattr(user_model, "_profile", {}))
+        stats = profile.get("stats")
+        if not isinstance(stats, Mapping):
             return None
+        stats_map = cast(Mapping[str, object], stats)
 
         prefs: dict[str, str] = {}
-        stats = profile["stats"]
 
         # 언어 선호
-        lang_counts = stats.get("language_pref", {})
+        lang_counts = _count_map(stats_map.get("language_pref", {}))
         if lang_counts:
-            top_lang = max(lang_counts, key=lang_counts.get)
+            top_lang = max(lang_counts, key=lambda key: lang_counts[key])
             if lang_counts[top_lang] >= 3:
                 lang_map = {"korean": "ko", "english": "en", "mixed": "mixed"}
                 prefs["response_language"] = lang_map.get(top_lang, "mixed")
 
         # 도메인
-        domain_counts = stats.get("domain", {})
+        domain_counts = _count_map(stats_map.get("domain", {}))
         if domain_counts:
-            top_domain = max(domain_counts, key=domain_counts.get)
+            top_domain = max(domain_counts, key=lambda key: domain_counts[key])
             if domain_counts[top_domain] >= 3:
                 prefs["task_domain"] = top_domain
 
         # 스킬 수준
-        skill_counts = stats.get("skill_level", {})
+        skill_counts = _count_map(stats_map.get("skill_level", {}))
         if skill_counts:
-            top_skill = max(skill_counts, key=skill_counts.get)
+            top_skill = max(skill_counts, key=lambda key: skill_counts[key])
             if skill_counts[top_skill] >= 3:
                 skill_map = {
                     "beginner": "beginner",
@@ -136,9 +246,9 @@ def _extract_learned_preferences(orch) -> dict[str, object] | None:
                 }
                 prefs["explanation_level"] = skill_map.get(top_skill, "intermediate")
 
-        style_counts = stats.get("comm_style", {})
+        style_counts = _count_map(stats_map.get("comm_style", {}))
         if style_counts:
-            top_style = max(style_counts, key=style_counts.get)
+            top_style = max(style_counts, key=lambda key: style_counts[key])
             if style_counts[top_style] >= 3 and top_style in {"concise", "detailed"}:
                 prefs["response_detail"] = top_style
 
@@ -151,7 +261,7 @@ def _extract_learned_preferences(orch) -> dict[str, object] | None:
 
 
 def run_stream(
-    orch,
+    orch: object,
     messages: list[dict[str, str]],
     target_model: str,
     max_steps: int = 15,
@@ -169,14 +279,15 @@ def run_stream(
     Yields:
         str: 스트리밍 응답 청크
     """
+    orch = cast(_OrchestratorLike, orch)
     benchmark_context = _benchmark_context(orch)
     if _is_direct_benchmark(benchmark_context):
-        yield from _stream_direct_benchmark(orch, orch._latest_user_text(messages), target_model)
+        yield from _stream_direct_benchmark(orch, _latest_user_text(orch, messages), target_model)
         return
     if _has_expected_tools(benchmark_context):
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
-        user_text = orch._latest_user_text(messages)
+        user_text = _latest_user_text(orch, messages)
         yield from ToolLoopEngine(orch).run_loop(
             messages,
             "SELF",
@@ -189,7 +300,7 @@ def run_stream(
     if _is_direct_response(benchmark_context):
         from antigravity_k.engine.tool_loop import ToolLoopEngine
 
-        user_text = orch._latest_user_text(messages)
+        user_text = _latest_user_text(orch, messages)
         yield from ToolLoopEngine(orch).run_loop(
             messages,
             "SELF",
@@ -206,9 +317,9 @@ def run_stream(
             is_self_capability_request,
         )
 
-        if is_self_capability_request(orch._latest_user_text(messages)):
-            response = orch._render_self_capability_response()
-            orch._last_agent_output = response
+        if is_self_capability_request(_latest_user_text(orch, messages)):
+            response = _render_self_capability_response(orch)
+            _set_last_agent_output(orch, response)
             yield response
             return
     except ImportError:
@@ -216,7 +327,7 @@ def run_stream(
     except (AttributeError, TypeError) as e:
         logger.warning("Self-capability fast path skipped: %s", e)
 
-    user_text = orch._latest_user_text(messages)
+    user_text = _latest_user_text(orch, messages)
     authoritative_fact = orch.ctx.memory_manager.authoritative_project_fact_for_query(user_text)
     if authoritative_fact is not None:
         from antigravity_k.engine.tool_loop import ToolLoopEngine
@@ -238,16 +349,18 @@ def run_stream(
         return
 
     # ─── State Graph Fallback ───
-    if not orch._state_graph:
+    state_graph = _state_graph(orch)
+    if state_graph is None:
         from antigravity_k.engine.orchestrator_handlers import (
             build_orchestrator_graph,
         )
 
-        orch._state_graph = build_orchestrator_graph()
+        state_graph = build_orchestrator_graph()
+        setattr(orch, "_state_graph", state_graph)
 
     # ─── Memory Prefetch: 대화 시작 전 관련 기억 주입 ───
     try:
-        user_text = orch._latest_user_text(messages)
+        user_text = _latest_user_text(orch, messages)
 
         # --- Hermes Synergy: Preflight Validator ---
         from antigravity_k.engine.engine_profile import EngineProfile
@@ -313,13 +426,15 @@ def run_stream(
                 before_tokens,
                 after_tokens,
             )
-    except (AttributeError, RuntimeError, TypeError) as e:
+    except (AttributeError, RuntimeError, TypeError, ValueError) as e:
+        # ValueError 포함: adaptive_compress가 던지는 PromptCachePrefixError가
+        # 여기서 잡히지 않으면 사용자 턴 전체가 크래시된다 (압축은 부가 기능).
         logger.warning("Context compression error (non-critical): %s", e, exc_info=True)
 
-    execution_context = getattr(orch, "task_execution_context", None)
+    execution_context = orch.task_execution_context
     if context_compacted and isinstance(execution_context, TaskExecutionContext):
         try:
-            save_task_context_snapshot(
+            _ = save_task_context_snapshot(
                 execution_context.state_store,
                 execution_context.task_id,
                 messages,
@@ -338,17 +453,20 @@ def run_stream(
 
     logger.info("[Orchestrator] State Graph 실행 시작 (trace_id=%s)", ctx.trace_id)
 
-    yield from orch._state_graph.execute(ctx, orchestrator=orch)
+    state_graph = _state_graph(orch)
+    if state_graph is None:
+        return
+    yield from state_graph.execute(ctx, orchestrator=orch)
 
     # ─── 에이전트 출력 동기화 ───
     if ctx.agent_output:
-        orch._last_agent_output = ctx.agent_output
+        _set_last_agent_output(orch, ctx.agent_output)
         # Memory Sync: 턴 완료 후 모든 메모리 제공자에 동기화
         try:
             # 작업 5: 사용자 프로파일에서 학습된 선호도를 추출하여 metadata로 전달
             _sync_metadata = _extract_learned_preferences(orch)
-            orch.ctx.memory_manager.sync_all(
-                orch._latest_user_text(messages),
+            _ = orch.ctx.memory_manager.sync_all(
+                _latest_user_text(orch, messages),
                 ctx.agent_output,
                 metadata=_sync_metadata,
             )
@@ -364,7 +482,7 @@ def run_stream(
 
 
 def run_sync(
-    orch,
+    orch: object,
     messages: list[dict[str, str]],
     target_model: str,
     max_steps: int = 15,

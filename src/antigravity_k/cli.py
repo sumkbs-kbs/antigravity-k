@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Annotated, cast
 
 import typer
 from rich.console import Console
@@ -19,6 +22,12 @@ from antigravity_k.engine.secure_key import (
     rotate_master_key,
     store_api_key,
 )
+from antigravity_k.engine.skill_market_client import SkillDetail, SkillMarketClient
+from antigravity_k.engine.skill_market_registry import (
+    InstallResponse,
+    RegistrySkillInfo,
+    SkillMarketRegistry,
+)
 
 app = typer.Typer(help="Antigravity-K command line interface", no_args_is_help=True)
 key_app = typer.Typer(help="Manage encrypted API keys in vault")
@@ -32,11 +41,13 @@ console = Console()
 
 @app.callback(invoke_without_command=True)
 def main(
-    version: bool = typer.Option(
-        False,
-        "--version",
-        help="Print the Antigravity-K version and exit.",
-    ),
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Print the Antigravity-K version and exit.",
+        ),
+    ] = False,
 ) -> None:
     """Run the main entry point.
 
@@ -51,16 +62,25 @@ def main(
 
 @app.command()
 def serve(
-    host: str | None = typer.Option(None, "--host", help="Host to bind."),
-    port: int | None = typer.Option(None, "--port", help="Port to bind."),
-    reload: bool = typer.Option(False, "--reload", help="Enable uvicorn reload."),
+    host: Annotated[str | None, typer.Option("--host", help="Host to bind.")] = None,
+    port: Annotated[int | None, typer.Option("--port", help="Port to bind.")] = None,
+    reload: Annotated[bool, typer.Option("--reload", help="Enable uvicorn reload.")] = False,
 ) -> None:
     """Run the FastAPI server."""
     import uvicorn
 
+    from antigravity_k.api.startup_security import validate_startup_security
+
+    bind_host = host or config.server.host
+    validate_startup_security(
+        host=bind_host,
+        environment=os.environ.get("AGK_ENV", "development"),
+        access_pin=config.security.access_pin,
+        pin_hash_file=Path(config.security.pin_hash_file),
+    )
     uvicorn.run(
         "antigravity_k.api.server:app",
-        host=host or config.server.host,
+        host=bind_host,
         port=port or config.server.port,
         reload=reload,
     )
@@ -70,6 +90,7 @@ def serve(
 def list_models() -> None:
     """List configured model profiles."""
     registry = ModelRegistry()
+    _ = registry.refresh_local_models()
     table = Table(title="Configured Models")
     table.add_column("Name")
     table.add_column("Roles")
@@ -125,8 +146,8 @@ def status() -> None:
 
 @app.command("run")
 def run_agent(
-    prompt: str = typer.Argument(..., help="Prompt to run through the canonical agent runtime."),
-    model: str = typer.Option("", "--model", help="Optional target model override."),
+    prompt: Annotated[str, typer.Argument(help="Prompt to run through the canonical agent runtime.")],
+    model: Annotated[str, typer.Option("--model", help="Optional target model override.")] = "",
 ) -> None:
     from antigravity_k.api.dependencies import get_agent_runtime
 
@@ -140,7 +161,7 @@ def run_agent(
 
 
 @task_app.command("list", help="List recent durable agent tasks.")
-def task_list(limit: int = typer.Option(20, "--limit", min=1, max=200)) -> None:
+def task_list(limit: Annotated[int, typer.Option("--limit", min=1, max=200)] = 20) -> None:
     from antigravity_k.api.dependencies import get_agent_runtime
 
     table = Table(title="Durable Tasks")
@@ -183,8 +204,8 @@ def task_output(task_id: str) -> None:
 @task_app.command("resume", help="Resume a failed or paused task and wait for its result.")
 def task_resume(
     task_id: str,
-    model: str = typer.Option("", "--model", help="Optional target model override."),
-    timeout: float = typer.Option(300.0, "--timeout", min=0.1, help="Maximum wait time in seconds."),
+    model: Annotated[str, typer.Option("--model", help="Optional target model override.")] = "",
+    timeout: Annotated[float, typer.Option("--timeout", min=0.1, help="Maximum wait time in seconds.")] = 300.0,
 ) -> None:
     from antigravity_k.api.dependencies import get_agent_runtime
 
@@ -314,9 +335,9 @@ def memory_retain(days: int) -> None:
 
 @app.command()
 def doctor(
-    heal: bool = typer.Option(
-        False, "--heal", "-h", help="Automatically repair detected issues and clean stale caches."
-    ),
+    heal: Annotated[
+        bool, typer.Option("--heal", "-h", help="Automatically repair detected issues and clean stale caches.")
+    ] = False,
 ) -> None:
     """Run a full environment diagnostic with automated self-healing capabilities."""
     from rich.panel import Panel
@@ -419,7 +440,7 @@ def doctor(
         for model in models:
             backend = model.backend.casefold() if model.backend else ""
             if backend in local_backends:
-                representative_models.setdefault(backend, model)
+                _ = representative_models.setdefault(backend, model)
         capability_probe = LocalProviderCapabilityProbe(registry)
         for profile in representative_models.values():
             capability = capability_probe.observe(profile)
@@ -460,7 +481,7 @@ def doctor(
     try:
         vault_path.mkdir(parents=True, exist_ok=True)
         test_file = vault_path / ".doctor_write_test"
-        test_file.write_text("ok")
+        _ = test_file.write_text("ok")
         test_file.unlink()
         check("Vault directory writable", True, str(vault_path.resolve()))
     except Exception as e:
@@ -481,54 +502,51 @@ def doctor(
     def _object_dict(value: object) -> dict[str, object]:
         if not isinstance(value, dict):
             return {}
-        return {str(key): item for key, item in value.items()}
+        raw = cast(Mapping[object, object], value)
+        return {str(key): item for key, item in raw.items()}
 
     amp_section: dict[str, object] = {}
     _cfg_path = config.config_path
     if _cfg_path.exists():
         try:
             with _cfg_path.open() as _f:
-                _raw = _yaml.safe_load(_f) or {}
+                _raw: object = cast(object, _yaml.safe_load(_f) or {})
             if isinstance(_raw, dict):
-                amp_section = _object_dict(_raw.get("amplification"))
+                raw_config = cast(Mapping[str, object], _raw)
+                amp_section = _object_dict(raw_config.get("amplification"))
         except Exception:
             amp_section = {}
 
     _cov = _object_dict(amp_section.get("cognitive"))
-    _cov_enabled = bool(_cov.get("enabled", True)) if isinstance(_cov, dict) else True
+    _cov_enabled = bool(_cov.get("enabled", True))
     check(
         "Amplification: cognitive loop",
         True,
-        f"{'on' if _cov_enabled else 'off'} · retries={_cov.get('max_retries', 2)} "
-        f"dialectic={_cov.get('dialectic_enabled', True)}",
+        f"{'on' if _cov_enabled else 'off'} · retries={_cov.get('max_retries', 2)} dialectic={_cov.get('dialectic_enabled', True)}",
     )
 
     _cog = _object_dict(amp_section.get("cov"))
-    _cog_enabled = bool(_cog.get("enabled", True)) if isinstance(_cog, dict) else True
+    _cog_enabled = bool(_cog.get("enabled", True))
     check(
         "Amplification: chain-of-verification",
         True,
-        f"{'on' if _cog_enabled else 'off'} · revise={_cog.get('max_revise_iterations', 2)} "
-        f"threshold={_cog.get('complexity_threshold', 0.4)}",
+        f"{'on' if _cog_enabled else 'off'} · revise={_cog.get('max_revise_iterations', 2)} threshold={_cog.get('complexity_threshold', 0.4)}",
     )
 
     _sc = _object_dict(amp_section.get("self_consistency"))
-    _sc_enabled = bool(_sc.get("enabled", False)) if isinstance(_sc, dict) else False
+    _sc_enabled = bool(_sc.get("enabled", False))
     check(
         "Amplification: self-consistency",
         True,
-        f"{'on' if _sc_enabled else 'off'} · n={_sc.get('n_samples', 5)} "
-        f"gate={_sc.get('complexity_threshold', 'null')}",
+        f"{'on' if _sc_enabled else 'off'} · n={_sc.get('n_samples', 5)} gate={_sc.get('complexity_threshold', 'null')}",
     )
 
     _td = _object_dict(amp_section.get("task_decomposition"))
-    _td_enabled = bool(_td.get("enabled", False)) if isinstance(_td, dict) else False
+    _td_enabled = bool(_td.get("enabled", False))
     check(
         "Amplification: task decomposition",
         True,
-        f"{'on' if _td_enabled else 'off'} · steps={_td.get('min_steps', 2)}-"
-        f"{_td.get('max_steps', 6)} "
-        f"escalate={'on' if _td.get('escalate_on_revision_failure', False) else 'off'}",
+        f"{'on' if _td_enabled else 'off'} · steps={_td.get('min_steps', 2)}-{_td.get('max_steps', 6)} escalate={'on' if _td.get('escalate_on_revision_failure', False) else 'off'}",
     )
 
     # ── Output ──
@@ -583,14 +601,8 @@ _SOURCE_ICON = {
 
 @key_app.command("set")
 def key_set(
-    service: str = typer.Argument(
-        ...,
-        help="Service name (anthropic, openai, openrouter)",
-    ),
-    key: str = typer.Argument(
-        ...,
-        help="API key to store",
-    ),
+    service: Annotated[str, typer.Argument(help="Service name (anthropic, openai, openrouter)")],
+    key: Annotated[str, typer.Argument(help="API key to store")],
 ) -> None:
     """암호화하여 API 키를 vault 저장소에 저장합니다.
 
@@ -612,8 +624,7 @@ def key_set(
 
     if os.environ.get(env_var):
         console.print(
-            f"[yellow]⚠️  환경변수 {env_var}가 이미 설정되어 있습니다.[/yellow]\n"
-            f"   vault 저장소에 저장해도 환경변수가 우선 적용됩니다.",
+            f"[yellow]⚠️  환경변수 {env_var}가 이미 설정되어 있습니다.[/yellow]\n   vault 저장소에 저장해도 환경변수가 우선 적용됩니다."
         )
 
     success = store_api_key(svc, key)
@@ -670,16 +681,15 @@ def key_list() -> None:
 
 @key_app.command("remove")
 def key_remove(
-    service: str = typer.Argument(
-        ...,
-        help="Service name to remove from vault (anthropic, openai, openrouter)",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="확인 없이 삭제",
-    ),
+    service: Annotated[str, typer.Argument(help="Service name to remove from vault (anthropic, openai, openrouter)")],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="확인 없이 삭제",
+        ),
+    ] = False,
 ) -> None:
     """Vault 저장소에서 API 키를 삭제합니다.
 
@@ -720,18 +730,22 @@ def key_remove(
 
 @key_app.command("rotate")
 def key_rotate(
-    seed: str | None = typer.Option(
-        None,
-        "--seed",
-        "-s",
-        help="새 머신 시드 (지정하지 않으면 현재 시드 재사용, 동일 키 유지)",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="키가 동일해도 강제 재암호화",
-    ),
+    seed: Annotated[
+        str | None,
+        typer.Option(
+            "--seed",
+            "-s",
+            help="새 머신 시드 (지정하지 않으면 현재 시드 재사용, 동일 키 유지)",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="키가 동일해도 강제 재암호화",
+        ),
+    ] = False,
 ) -> None:
     """마스터 키를 순환(rotation)하고 vault 데이터를 재암호화합니다.
 
@@ -777,6 +791,7 @@ def model_list() -> None:
     from rich.table import Table
 
     registry = ModelRegistry()
+    _ = registry.refresh_local_models()
     defaults = registry.defaults
 
     roles = ["reasoning", "coding", "embedding", "vision"]
@@ -792,7 +807,7 @@ def model_list() -> None:
         if not models:
             continue
 
-        default_name = getattr(defaults, role, None)
+        default_name = cast(str | None, getattr(defaults, role, None))
         label = role_labels.get(role, role)
 
         table = Table(title=f"{label} Models ({len(models)}개)", box=None, show_header=False)
@@ -819,10 +834,9 @@ def model_list() -> None:
 
 @model_app.command("set")
 def model_set(
-    name: str = typer.Argument(
-        ...,
-        help="Set a model as default for its role (e.g. 'nvidia/nemotron-3-ultra-550b-a55b:free')",
-    ),
+    name: Annotated[
+        str, typer.Argument(help="Set a model as default for its role (e.g. 'nvidia/nemotron-3-ultra-550b-a55b:free')")
+    ],
 ) -> None:
     """Set a model as the default for its role in config.yaml.
 
@@ -835,6 +849,7 @@ def model_set(
     서버 재시작 시 자동으로 반영됩니다.
     """
     registry = ModelRegistry()
+    _ = registry.refresh_local_models()
     model = registry.get_model(name)
 
     if not model:
@@ -855,19 +870,27 @@ def model_set(
         raise typer.Exit(code=1)
 
     try:
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        loaded = cast(object, yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+        raw: dict[str, object] = (
+            {str(key): value for key, value in cast(Mapping[object, object], loaded).items()}
+            if isinstance(loaded, dict)
+            else {}
+        )
     except Exception as e:
         console.print(f"[red]❌ config.yaml 파싱 실패: {e}[/red]")
         raise typer.Exit(code=1)
 
     role = model.role
-    if "defaults" not in raw:
-        raw["defaults"] = {}
-    if not isinstance(raw["defaults"], dict):
-        raw["defaults"] = {}
+    defaults_value = raw.get("defaults")
+    defaults: dict[str, object] = (
+        {str(key): value for key, value in cast(Mapping[object, object], defaults_value).items()}
+        if isinstance(defaults_value, dict)
+        else {}
+    )
+    raw["defaults"] = defaults
 
-    old_default = raw["defaults"].get(role, "(없음)")
-    raw["defaults"][role] = name
+    old_default = defaults.get(role, "(없음)")
+    defaults[role] = name
 
     try:
         with open(config_path, "w", encoding="utf-8") as f:
@@ -888,22 +911,23 @@ def model_set(
 
 @app.command()
 def mode(
-    target: str = typer.Argument(
-        "status",
-        help="Target mode: plan, build, interactive, or status",
-    ),
-    reason: str | None = typer.Option(
-        None,
-        "--reason",
-        "-r",
-        help="Reason for mode switch",
-    ),
-    plan_path: str | None = typer.Option(
-        None,
-        "--plan",
-        "-p",
-        help="Plan artifact path (for build mode)",
-    ),
+    target: Annotated[str, typer.Argument(help="Target mode: plan, build, interactive, or status")] = "status",
+    reason: Annotated[
+        str | None,
+        typer.Option(
+            "--reason",
+            "-r",
+            help="Reason for mode switch",
+        ),
+    ] = None,
+    plan_path: Annotated[
+        str | None,
+        typer.Option(
+            "--plan",
+            "-p",
+            help="Plan artifact path (for build mode)",
+        ),
+    ] = None,
 ) -> None:
     """Manage execution mode (Plan/Build/Interactive).
 
@@ -942,11 +966,7 @@ def mode(
             if mgr.is_plan:
                 console.print(
                     Panel.fit(
-                        "[yellow]❌ Build 모드 전환 실패:[/yellow]\n\n"
-                        "Plan → Build 자동 전환 조건이 충족되지 않았습니다.\n"
-                        "1. Plan 아티팩트(`implementation_plan.md`) 생성 필요\n"
-                        "2. Plan 품질 검증(QualityGate) 통과 필요\n"
-                        "3. 강제 전환: [bold]agk mode build --plan <path>[/bold]",
+                        "[yellow]❌ Build 모드 전환 실패:[/yellow]\n\nPlan → Build 자동 전환 조건이 충족되지 않았습니다.\n1. Plan 아티팩트(`implementation_plan.md`) 생성 필요\n2. Plan 품질 검증(QualityGate) 통과 필요\n3. 강제 전환: [bold]agk mode build --plan <path>[/bold]",
                         title="Build Mode",
                     ),
                 )
@@ -971,17 +991,20 @@ def mode(
 
 @app.command()
 def tui(
-    dev: bool = typer.Option(
-        False,
-        "--dev",
-        "-d",
-        help="Launch with development tools enabled.",
-    ),
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            "-d",
+            help="Launch with development tools enabled.",
+        ),
+    ] = False,
 ) -> None:
     """Launch the Textual Terminal UI (TUI).
 
     Interactive terminal interface with chat, slash commands, and system monitoring.
     """
+    _ = dev
     try:
         from antigravity_k.tui import run_tui
 
@@ -995,51 +1018,60 @@ def tui(
 # ─── Market Commands ────────────────────────────────────────────────────────
 
 
-@app.command()
-def _market_search(registry, market_client, query: str) -> None:
+def _market_search(registry: SkillMarketRegistry, market_client: SkillMarketClient, query: str) -> None:
     """Search the marketplace for skills."""
     console.print(f"[bold]🔍 Searching for '{query}'...[/bold]\n")
     results = registry.search(query)
-    if isinstance(results, list) and results and "error" not in results[0]:
-        console.print(market_client.format_search_results(results))
+    _ = market_client
+    if results and "error" not in results[0]:
+        lines = ["🔍 **Skill Marketplace 검색 결과**", ""]
+        for result in results[:15]:
+            name = result.get("name", "")
+            version = result.get("version", "")
+            description = result.get("description", "")
+            lines.append(f"  📦 `{name}@{version}`")
+            lines.append(f"     {str(description)[:80]}")
+            lines.append("")
+        console.print("\n".join(lines))
     else:
         console.print("[yellow]No results found or marketplace unreachable.[/yellow]")
-        if results and isinstance(results[0], dict) and "error" in results[0]:
-            console.print(f"[red]  Error: {results[0]['error']}[/red]")
+        if results and "error" in results[0]:
+            console.print(f"[red]  Error: {results[0].get('error', 'unknown')}[/red]")
 
 
-def _market_install(registry, package: str) -> None:
+def _market_install(registry: SkillMarketRegistry, package: str) -> None:
     """Install a skill package."""
     console.print(f"[bold]📦 Installing '{package}'...[/bold]")
-    result = registry.install(package)
+    result: InstallResponse = registry.install(package)
     if result.get("success"):
         console.print(f"[green]✅ {result.get('summary', 'Install complete')}[/green]")
     else:
         console.print(f"[red]❌ Install failed: {result.get('error', 'Unknown error')}[/red]")
-    if result.get("warnings"):
-        for w in result["warnings"]:
+    warnings = result.get("warnings", [])
+    if warnings:
+        for w in warnings:
             console.print(f"[yellow]⚠️  {w}[/yellow]")
 
 
-def _market_remove(registry, name: str) -> None:
+def _market_remove(registry: SkillMarketRegistry, name: str) -> None:
     """Remove an installed skill."""
     console.print(f"[bold]🗑️  Removing '{name}'...[/bold]")
-    result = registry.remove(name)
+    result: InstallResponse = registry.remove(name)
     if result.get("success"):
         console.print(f"[green]✅ {result.get('summary', 'Removed')}[/green]")
     else:
         console.print(f"[red]❌ Remove failed: {result.get('error', 'Unknown error')}[/red]")
 
 
-def _market_info(registry, market_client, name: str) -> None:
+def _market_info(registry: SkillMarketRegistry, market_client: SkillMarketClient, name: str) -> None:
     """Show detailed skill information."""
-    skill_info = registry.get_info(name)
+    skill_info: RegistrySkillInfo | None = registry.get_info(name)
     if skill_info:
         console.print(registry.format_info(skill_info))
         return
     # Try searching the package directly.
     if name.startswith("@antigravity-k/skill-"):
-        detail = market_client.get_detail(name)
+        detail: SkillDetail | None = market_client.get_detail(name)
         if detail:
             from rich.panel import Panel
 
@@ -1072,26 +1104,26 @@ def _market_info(registry, market_client, name: str) -> None:
         console.print(f"   Search: [bold]agk market --search {name}[/bold]")
 
 
-def _market_list(registry) -> None:
+def _market_list(registry: SkillMarketRegistry) -> None:
     """List installed skills."""
-    installed = registry.list_installed()
+    installed: list[RegistrySkillInfo] = registry.list_installed()
     console.print(registry.format_list(installed))
 
 
-def _market_update(registry, name: str) -> None:
+def _market_update(registry: SkillMarketRegistry, name: str) -> None:
     """Update a specific skill."""
     console.print(f"[bold]⬆️  Updating '{name}'...[/bold]")
-    result = registry.update(name)
+    result: InstallResponse = registry.update(name)
     if result.get("success"):
         console.print(f"[green]✅ {result.get('summary', 'Update complete')}[/green]")
     else:
         console.print(f"[red]❌ Update failed: {result.get('error', 'Unknown error')}[/red]")
 
 
-def _market_update_all(registry) -> None:
+def _market_update_all(registry: SkillMarketRegistry) -> None:
     """Update all outdated skills."""
     console.print("[bold]⬆️  Checking for updates across all skills...[/bold]")
-    results = registry.update_all()
+    results: list[Mapping[str, object]] = registry.update_all()
     updated = [r for r in results if r.get("success")]
     if updated:
         for r in updated:
@@ -1169,23 +1201,24 @@ def _market_show_help() -> None:
 
 
 def market(
-    search: str | None = typer.Option(None, "--search", "-s", help="Search for skills in the marketplace"),
-    install: str | None = typer.Option(None, "--install", "-i", help="Install a skill package"),
-    remove: str | None = typer.Option(None, "--remove", "-r", help="Remove an installed skill"),
-    info: str | None = typer.Option(None, "--info", help="Show detailed skill information"),
-    update: str | None = typer.Option(None, "--update", "-u", help="Update a specific skill"),
-    list_skills: bool = typer.Option(False, "--list", "-l", help="List installed skills"),
-    update_all: bool = typer.Option(False, "--update-all", "-U", help="Update all outdated skills"),
-    publish_npm: str | None = typer.Option(
-        None, "--publish-npm", help="Publish a local skill to npm (e.g. 'code-review')"
-    ),
-    publish_github: str | None = typer.Option(
-        None, "--publish-github", help="Publish a local skill via GitHub PR (e.g. 'code-review')"
-    ),
-    publish_repo: str | None = typer.Option(
-        None, "--publish-repo", help="Target GitHub repo for --publish-github (e.g. 'org/skills-repo')"
-    ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate without publishing"),
+    search: Annotated[str | None, typer.Option("--search", "-s", help="Search for skills in the marketplace")] = None,
+    install: Annotated[str | None, typer.Option("--install", "-i", help="Install a skill package")] = None,
+    remove: Annotated[str | None, typer.Option("--remove", "-r", help="Remove an installed skill")] = None,
+    info: Annotated[str | None, typer.Option("--info", help="Show detailed skill information")] = None,
+    update: Annotated[str | None, typer.Option("--update", "-u", help="Update a specific skill")] = None,
+    list_skills: Annotated[bool, typer.Option("--list", "-l", help="List installed skills")] = False,
+    update_all: Annotated[bool, typer.Option("--update-all", "-U", help="Update all outdated skills")] = False,
+    publish_npm: Annotated[
+        str | None, typer.Option("--publish-npm", help="Publish a local skill to npm (e.g. 'code-review')")
+    ] = None,
+    publish_github: Annotated[
+        str | None, typer.Option("--publish-github", help="Publish a local skill via GitHub PR (e.g. 'code-review')")
+    ] = None,
+    publish_repo: Annotated[
+        str | None,
+        typer.Option("--publish-repo", help="Target GitHub repo for --publish-github (e.g. 'org/skills-repo')"),
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Validate without publishing")] = False,
 ) -> None:
     """Manage skills from the Antigravity-K Marketplace.
 
@@ -1242,29 +1275,67 @@ def market(
 
 @app.command()
 def autopilot(
-    goal: str = typer.Argument(..., help="High-level engineering mission to execute autonomously."),
-    max_turns: int = typer.Option(10, "--max-turns", "-m", help="Maximum autonomous flight turns."),
+    goal: Annotated[str, typer.Argument(help="High-level engineering mission to execute autonomously.")],
+    max_turns: Annotated[int, typer.Option("--max-turns", "-m", help="Maximum autonomous flight turns.")] = 10,
+    execute: Annotated[
+        bool,
+        typer.Option("--execute", help="스텝을 오케스트레이터 실행 엔진으로 실제 수행합니다 (기본: 시뮬레이션)."),
+    ] = False,
 ) -> None:
     """Launch full autonomous self-driving flight mission for Qwen3.8-27B."""
-    from antigravity_k.engine.flight_controller import AutonomousFlightController
+    from antigravity_k.engine.flight_controller import AutonomousFlightController, SubgoalInput
 
     console.print(f"[bold cyan]🚀 Launching Autonomous Autopilot Mission:[/bold cyan] {goal}")
 
     controller = AutonomousFlightController(project_root=".", max_flight_turns=max_turns)
 
-    from typing import Any
-
     # Initial starter subgoals inferred from goal
-    subgoals: list[dict[str, Any]] = [
+    subgoals: list[SubgoalInput] = [
         {"id": "plan", "desc": f"Formulate implementation plan for '{goal}'"},
         {"id": "code", "desc": "Implement required changes and patches", "depends_on": ["plan"]},
         {"id": "verify", "desc": "Run TDD tests and static audits", "depends_on": ["code"]},
     ]
 
+    from typing import Any
+
+    _orchestrator_cache: dict[str, Any] = {}
+
+    def _get_orchestrator() -> Any:
+        if "orch" not in _orchestrator_cache:
+            from antigravity_k.api.dependencies import get_orchestrator
+
+            _orchestrator_cache["orch"] = get_orchestrator()
+        return _orchestrator_cache["orch"]
+
     def _execute_step(step_id: str, desc: str) -> bool:
         console.print(f"  [yellow]⚡ Step [{step_id}]:[/yellow] {desc}")
-        # Step simulation / execution hook
-        return True
+        if not execute:
+            # 실행 엔진 미연결 — 시뮬레이션 스텝임을 명시한다 (항상 성공 보고로
+            # 실제 수행이 일어난 것처럼 오인시키지 않는다).
+            console.print("    [dim](simulation — 실행 엔진 미연결)[/dim]")
+            return True
+        try:
+            orch = _get_orchestrator()
+            output_parts: list[str] = []
+            for chunk in orch.run_stream(
+                [{"role": "user", "content": f"미션 스텝을 수행하세요: {desc}"}],
+                target_model="default",
+                max_steps=15,
+            ):
+                output_parts.append(str(chunk))
+            # 성공 기준: 스트림이 예외 없이 완료되고 출력이 비지 않은 경우
+            return bool("".join(output_parts).strip())
+        except Exception as exc:
+            console.print(f"    [red]스텝 실패: {exc}[/red]")
+            return False
+
+    if execute:
+        console.print("[green]⚙️ 실행 모드 — 스텝을 오케스트레이터로 실제 수행합니다.[/green]")
+    else:
+        console.print(
+            "[yellow]⚠️ Autopilot은 현재 시뮬레이션 모드입니다 — 스텝이 실제로 "
+            "실행되지 않습니다. 실제 실행은 --execute 옵션을 사용하세요.[/yellow]"
+        )
 
     report = controller.launch_mission(
         goal=goal,
@@ -1296,7 +1367,7 @@ def autopilot(
 
 @app.command()
 def fast(
-    query: str = typer.Argument(..., help="Deterministic query to resolve instantly (e.g. 'where is ClassName')."),
+    query: Annotated[str, typer.Argument(help="Deterministic query to resolve instantly (e.g. 'where is ClassName').")],
 ) -> None:
     """Execute direct fast-path kernel query with <5ms latency (Zero LLM overhead)."""
     from antigravity_k.engine.fast_path_kernel import FastPathKernel

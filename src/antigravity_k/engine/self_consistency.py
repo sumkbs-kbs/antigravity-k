@@ -11,15 +11,30 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field, replace
+from typing import TypedDict, final
+
+from pydantic import JsonValue
 
 logger = logging.getLogger("antigravity_k.self_consistency")
 
 _GenerateFn = Callable[..., str]
+type ConfigPrimitive = str | int | float | bool | None
+type ConfigInput = ConfigPrimitive | Mapping[str, ConfigPrimitive]
 
 
-@dataclass
+class EngineKwargs(TypedDict, total=False):
+    n_samples: int
+    base_temperature: float
+    temperature_spread: float
+    similarity_threshold: float
+    complexity_threshold: float
+    selection: str
+
+
+@dataclass(frozen=True, slots=True)
 class ConsistencySample:
     """단일 샘플 결과."""
 
@@ -30,7 +45,7 @@ class ConsistencySample:
     cluster_id: int = -1
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ConsistencyTrace:
     """Self-consistency 실행 추적."""
 
@@ -75,12 +90,21 @@ def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(union)
 
 
+@final
 class SelfConsistencyEngine:
     """단일 모델 N샘플링 → 유사도 클러스터링 → 다수결 대표 선택.
 
     generate_fn(prompt, **kwargs) -> str 형태로, 엔진이 샘플마다 temperature를
     주입해 다양성을 확보한다. generate_fn이 None이면 비활성(self-consistency off).
     """
+
+    _generate_fn: _GenerateFn | None
+    n_samples: int
+    base_temperature: float
+    temperature_spread: float
+    similarity_threshold: float
+    selection: str
+    complexity_threshold: float | None
 
     def __init__(
         self,
@@ -91,7 +115,7 @@ class SelfConsistencyEngine:
         similarity_threshold: float = 0.5,
         selection: str = "majority",
         complexity_threshold: float | None = None,
-    ):
+    ) -> None:
         self._generate_fn = generate_fn
         self.n_samples = max(1, int(n_samples))
         self.base_temperature = float(base_temperature)
@@ -112,28 +136,64 @@ class SelfConsistencyEngine:
         offset = (i / half - 0.5) * 2 * self.temperature_spread
         return max(0.0, min(1.5, self.base_temperature + offset))
 
-    def collect_samples(self, prompt: str, **gen_kwargs) -> list[ConsistencySample]:
-        """프롬프트를 N회 샘플링해 ConsistencySample 리스트를 반환한다."""
+    def collect_samples(self, prompt: str, **gen_kwargs: JsonValue) -> list[ConsistencySample]:
+        """프롬프트를 N회 샘플링해 ConsistencySample 리스트를 반환한다.
+
+        병렬 웨이브 + 과반 조기 종료: 로컬 27B에서 N=5 순차 샘플링은
+        5배 지연이다. 첫 웨이브(과반 수)를 병렬 실행한 뒤 이미 과반
+        클러스터가 형성됐으면 나머지 샘플은 결과를 바꿀 수 없으므로
+        생략한다 → 지연 ~5배 → ~1-2배.
+        """
         if self._generate_fn is None:
             return []
-        samples: list[ConsistencySample] = []
-        for i in range(self.n_samples):
+
+        def _one(i: int) -> ConsistencySample:
             temp = self._sample_temperature(i)
             kwargs = dict(gen_kwargs)
             kwargs["temperature"] = temp
+            generate_fn = self._generate_fn
+            if generate_fn is None:
+                return ConsistencySample(index=i, temperature=temp, text="", normalized="")
             try:
-                text = self._generate_fn(prompt, **kwargs)
+                text = generate_fn(prompt, **kwargs)
             except Exception as exc:  # 개별 샘플 실패는 전체를 깨지 않는다
                 logger.debug("self-consistency sample %d failed: %s", i, exc)
                 text = ""
-            samples.append(
-                ConsistencySample(
-                    index=i,
-                    temperature=temp,
-                    text=text,
-                    normalized=normalize_answer(text),
-                ),
+            return ConsistencySample(
+                index=i,
+                temperature=temp,
+                text=text,
+                normalized=normalize_answer(text),
             )
+
+        def _run_wave(indices: list[int]) -> None:
+            if len(indices) == 1:
+                samples.append(_one(indices[0]))
+                return
+            with ThreadPoolExecutor(max_workers=len(indices)) as executor:
+                samples.extend(executor.map(_one, indices))
+
+        majority = self.n_samples // 2 + 1
+        first_wave = min(self.n_samples, max(2, majority))
+        samples: list[ConsistencySample] = []
+
+        _run_wave(list(range(first_wave)))
+        if first_wave < self.n_samples:
+            assignment = self.cluster(samples)
+            if assignment:
+                largest = max(assignment.count(c) for c in set(assignment))
+                if largest >= majority:
+                    logger.info(
+                        "[SelfConsistency] 과반 클러스터(%d/%d) 형성 — 조기 종료, 남은 %d 샘플 생략",
+                        largest,
+                        self.n_samples,
+                        self.n_samples - first_wave,
+                    )
+                    samples.sort(key=lambda s: s.index)
+                    return samples
+            _run_wave(list(range(first_wave, self.n_samples)))
+
+        samples.sort(key=lambda s: s.index)
         return samples
 
     def cluster(self, samples: list[ConsistencySample]) -> list[int]:
@@ -185,7 +245,7 @@ class SelfConsistencyEngine:
         confidence = sizes[best_cid] / valid if valid else 0.0
         return chosen, confidence, sizes
 
-    def run(self, prompt: str, **gen_kwargs) -> ConsistencyTrace:
+    def run(self, prompt: str, **gen_kwargs: JsonValue) -> ConsistencyTrace:
         """프롬프트에 대해 self-consistency를 수행한다."""
         import time
 
@@ -194,7 +254,7 @@ class SelfConsistencyEngine:
             return ConsistencyTrace(skipped=True, skip_reason="disabled or n_samples<=1")
         if self.complexity_threshold is not None:
             # 복잡도 게이트: 단순 작업은 N샘플링 비용을 절제한다.
-            from antigravity_k.engine.chain_of_verification import estimate_complexity
+            from antigravity_k.engine.chain_of_verification_models import estimate_complexity
 
             complexity = estimate_complexity(prompt)
             if complexity < self.complexity_threshold:
@@ -212,8 +272,10 @@ class SelfConsistencyEngine:
             )
         assignment = self.cluster(samples)
         chosen, confidence, sizes = self.select(samples, assignment)
-        for i, cid in enumerate(assignment):
-            samples[i].cluster_id = cid
+        samples = [
+            replace(sample, cluster_id=cid)
+            for sample, cid in zip(samples, assignment, strict=True)
+        ]
         return ConsistencyTrace(
             selected=chosen,
             confidence=confidence,
@@ -223,26 +285,36 @@ class SelfConsistencyEngine:
         )
 
 
-def config_to_engine_kwargs(cfg: object) -> dict:
+def config_to_engine_kwargs(cfg: ConfigInput) -> EngineKwargs:
     """amplification.self_consistency config dict를 SelfConsistencyEngine kwargs로 매핑.
 
     None 키는 엔진 기본값으로 폴백된다.
     """
-    if not isinstance(cfg, dict):
+    if not isinstance(cfg, Mapping):
         return {}
-    out: dict = {}
-    for key, caster in (
-        ("n_samples", int),
-        ("base_temperature", float),
-        ("temperature_spread", float),
-        ("similarity_threshold", float),
-        ("complexity_threshold", float),
-    ):
-        if cfg.get(key) is not None:
-            try:
-                out[key] = caster(cfg[key])
-            except (TypeError, ValueError):
-                logger.warning("self_consistency.%s 무시(잘못된 값): %r", key, cfg.get(key))
-    if cfg.get("selection") is not None:
-        out["selection"] = str(cfg["selection"])
+    out: EngineKwargs = {}
+    numeric_values = {
+        key: cfg[key]
+        for key in ("n_samples", "base_temperature", "temperature_spread", "similarity_threshold", "complexity_threshold")
+        if key in cfg and cfg[key] is not None
+    }
+    for key, raw in numeric_values.items():
+        if not isinstance(raw, (str, int, float)) or isinstance(raw, bool):
+            continue
+        try:
+            if key == "n_samples":
+                out["n_samples"] = int(raw)
+            elif key == "base_temperature":
+                out["base_temperature"] = float(raw)
+            elif key == "temperature_spread":
+                out["temperature_spread"] = float(raw)
+            elif key == "similarity_threshold":
+                out["similarity_threshold"] = float(raw)
+            elif key == "complexity_threshold":
+                out["complexity_threshold"] = float(raw)
+        except (TypeError, ValueError):
+            logger.warning("self-consistency.%s 무시(잘못된 값): %r", key, raw)
+    selection = cfg.get("selection")
+    if isinstance(selection, str):
+        out["selection"] = selection
     return out

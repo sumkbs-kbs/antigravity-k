@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import time
+import urllib.error
 import urllib.request
 from http.client import HTTPResponse
 from typing import cast
@@ -14,7 +17,19 @@ from .web_search_quality import (
     resolve_public_http_url_sync,
 )
 
+logger = logging.getLogger(__name__)
+
 _LOCAL_HOSTS = frozenset({"localhost", "localhost.localdomain", "127.0.0.1", "::1"})
+
+# 재시도 가능한 일시적 HTTP 상태 — 요청이 처리되지 않고 거부된 경우라
+# 재시도가 안전하다 (응답 스트리밍 중 오류는 여기서 다루지 않는다).
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES: int = 2
+_RETRY_AFTER_CAP_SEC: float = 20.0
+_BASE_BACKOFF_SEC: float = 1.0
+
+# 테스트 주입용 sleep (실제 대기 없이 재시도 로직 검증)
+_retry_sleep = time.sleep
 
 
 class EgressPolicyError(ValueError):
@@ -52,19 +67,54 @@ def validate_egress_url(
     return canonical
 
 
+def _retry_delay(attempt: int, error: urllib.error.HTTPError) -> float:
+    """Retry-After 헤더 우선, 없으면 지수 백오프. 상한 20초."""
+    retry_after = error.headers.get("Retry-After") if error.headers else None
+    if retry_after:
+        try:
+            return min(float(retry_after), _RETRY_AFTER_CAP_SEC)
+        except ValueError:
+            pass
+    return min(_BASE_BACKOFF_SEC * (2**attempt), _RETRY_AFTER_CAP_SEC)
+
+
 def safe_urlopen(
     target: str | Request,
     allow_local: bool = True,
     timeout: float | None = None,
 ) -> HTTPResponse:
+    """egress 정책 검증 후 urlopen — 일시적 HTTP 오류(429/5xx)는 재시도한다.
+
+    재시도는 연결 설정 단계에서 거부된 경우에만 안전하므로 여기서만
+    수행한다 (응답 소비 중 오류는 호출자 몫). Retry-After 헤더를 존중하고
+    최대 2회 재시도한다.
+    """
     _ = validate_egress_url(_target_url(target), allow_local=allow_local)
-    if timeout is None:
-        return cast(HTTPResponse, urllib.request.urlopen(target))
-    return cast(HTTPResponse, urllib.request.urlopen(target, timeout=timeout))
+    last_error: urllib.error.HTTPError | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            if timeout is None:
+                return cast(HTTPResponse, urllib.request.urlopen(target))
+            return cast(HTTPResponse, urllib.request.urlopen(target, timeout=timeout))
+        except urllib.error.HTTPError as error:
+            if error.code not in _RETRYABLE_STATUS or attempt >= _MAX_RETRIES:
+                raise
+            last_error = error
+            delay = _retry_delay(attempt, error)
+            logger.warning(
+                "[egress] HTTP %s — %.1f초 후 재시도 (%d/%d) %s",
+                error.code,
+                delay,
+                attempt + 1,
+                _MAX_RETRIES,
+                _target_url(target)[:120],
+            )
+            _retry_sleep(delay)
+    raise cast(urllib.error.HTTPError, last_error)
 
 
 def validate_httpx_request(request: httpx.Request) -> None:
-    validate_egress_url(str(request.url))
+    _ = validate_egress_url(str(request.url))
 
 
 async def validate_httpx_request_async(request: httpx.Request) -> None:
@@ -73,7 +123,7 @@ async def validate_httpx_request_async(request: httpx.Request) -> None:
 
 def validate_public_httpx_request(request: httpx.Request) -> None:
     """Reject local/private destinations for untrusted outbound requests."""
-    validate_egress_url(str(request.url), allow_local=False)
+    _ = validate_egress_url(str(request.url), allow_local=False)
 
 
 async def validate_public_httpx_request_async(request: httpx.Request) -> None:

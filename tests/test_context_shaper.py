@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -20,7 +21,7 @@ from antigravity_k.engine.long_context_policy import LongContextExecutionPlan
 
 
 @pytest.fixture
-def shaper(tmp_path):
+def shaper(tmp_path: Path) -> ContextShaper:
     """Create a ContextShaper with a temp storage dir."""
     return ContextShaper(
         max_tokens=10000,
@@ -41,19 +42,19 @@ def _make_messages(count: int, content: str = "Hello world") -> list[dict[str, s
 
 
 class TestInit:
-    def test_default_values(self, tmp_path):
+    def test_default_values(self, tmp_path: Path):
         s = ContextShaper(storage_dir=str(tmp_path / "ctx"))
         assert s.max_tokens == 128_000
         assert s.reserve_tokens == 4_096
 
-    def test_custom_values(self, tmp_path):
+    def test_custom_values(self, tmp_path: Path):
         s = ContextShaper(max_tokens=50000, reserve_tokens=1000, storage_dir=str(tmp_path / "ctx"))
         assert s.max_tokens == 50000
         assert s.reserve_tokens == 1000
 
-    def test_storage_dir_created(self, tmp_path):
+    def test_storage_dir_created(self, tmp_path: Path):
         storage = tmp_path / "my_context"
-        ContextShaper(storage_dir=str(storage))
+        _ = ContextShaper(storage_dir=str(storage))
         assert storage.exists()
 
 
@@ -63,7 +64,7 @@ class TestInit:
 
 
 class TestShape:
-    def test_shape_for_model_uses_model_specific_budget(self, tmp_path):
+    def test_shape_for_model_uses_model_specific_budget(self, tmp_path: Path):
         config = {
             "models": {
                 "reasoning": [{"name": "qwen3.6:latest", "context_length": 16_384}],
@@ -73,12 +74,12 @@ class TestShape:
         shaper = ContextShaper(storage_dir=str(tmp_path / "model-context"))
 
         result = shaper.shape_for_model(
-            cast(list[dict[str, str]], messages), cast(Mapping[str, JsonValue], config), "qwen3.6:latest"
+            messages, cast(Mapping[str, JsonValue], config), "qwen3.6:latest"
         )
 
         assert shaper._estimate_tokens(result) <= 12_288
 
-    def test_shape_for_model_applies_provider_execution_plan(self, tmp_path):
+    def test_shape_for_model_applies_provider_execution_plan(self, tmp_path: Path):
         config = {
             "models": {
                 "reasoning": [{"name": "qwen3.6:latest", "context_length": 16_384}],
@@ -98,7 +99,7 @@ class TestShape:
         }
 
         result = shaper.shape_for_model(
-            cast(list[dict[str, str]], messages),
+            messages,
             cast(Mapping[str, JsonValue], config),
             "qwen3.6:latest",
             execution_plan=plan,
@@ -106,10 +107,11 @@ class TestShape:
 
         assert shaper._estimate_tokens(result) <= 9_830
 
-    def test_force_compact_preserves_old_structured_tool_evidence(self, tmp_path):
+    def test_force_compact_preserves_old_structured_tool_evidence(self, tmp_path: Path):
         # Given: an overflow retry has old verified evidence followed by a long conversation.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
@@ -135,13 +137,13 @@ class TestShape:
         assert "[TOOL_EVIDENCE]" in content
         assert "VERIFIED_RESULT=5050" in content
 
-    def test_short_messages_unchanged(self, shaper):
+    def test_short_messages_unchanged(self, shaper: ContextShaper):
         """Messages within budget are returned unchanged."""
         messages = _make_messages(3, "short")
         result = shaper.shape(messages)
         assert len(result) == 3
 
-    def test_force_compact_reduces_size(self, shaper):
+    def test_force_compact_reduces_size(self, shaper: ContextShaper):
         """force_compact triggers compression even when within budget."""
         messages = _make_messages(20, "A" * 200)
         original_size = shaper._estimate_tokens(messages)
@@ -149,7 +151,7 @@ class TestShape:
         result_size = shaper._estimate_tokens(result)
         assert result_size <= original_size
 
-    def test_shape_preserves_message_structure(self, shaper):
+    def test_shape_preserves_message_structure(self, shaper: ContextShaper):
         """Shaped messages still have role and content keys."""
         messages = [{"role": "user", "content": "test"}]
         result = shaper.shape(messages)
@@ -157,13 +159,27 @@ class TestShape:
             assert "role" in msg
             assert "content" in msg
 
-    def test_shape_empty_messages(self, shaper):
+    def test_shape_empty_messages(self, shaper: ContextShaper):
         result = shaper.shape([])
         assert result == []
 
-    def test_shape_returns_list(self, shaper):
+    def test_shape_returns_list(self, shaper: ContextShaper):
         result = shaper.shape(_make_messages(2))
         assert isinstance(result, list)
+
+    def test_shape_does_not_mutate_caller_messages(self, shaper: ContextShaper):
+        """압축이 호출자(세션 히스토리)의 원본 메시지를 훼손하지 않는다."""
+        long_tool_result = "<tool_response>x" + "result " * 500 + "</tool_response>"
+        messages = [
+            {"role": "user", "content": "origin message"},
+            {"role": "assistant", "content": "<tool_call>{}</tool_call>"},
+            {"role": "tool", "content": long_tool_result},
+        ]
+        originals = [dict(m) for m in messages]
+
+        _ = shaper.shape(messages, force_compact=True)
+
+        assert messages == originals, "shape() must not mutate the caller's message dicts"
 
 
 # ---------------------------------------------------------------------------
@@ -172,22 +188,22 @@ class TestShape:
 
 
 class TestTokenEstimation:
-    def test_estimate_tokens_positive(self, shaper):
+    def test_estimate_tokens_positive(self, shaper: ContextShaper):
         messages = [{"role": "user", "content": "Hello world"}]
         assert shaper._estimate_tokens(messages) > 0
 
-    def test_estimate_tokens_empty(self, shaper):
+    def test_estimate_tokens_empty(self, shaper: ContextShaper):
         assert shaper._estimate_tokens([]) == 0
 
-    def test_estimate_tokens_grows_with_content(self, shaper):
+    def test_estimate_tokens_grows_with_content(self, shaper: ContextShaper):
         short = shaper._estimate_tokens([{"role": "user", "content": "hi"}])
         long = shaper._estimate_tokens([{"role": "user", "content": "x" * 1000}])
         assert long > short
 
-    def test_truncate_short_text_unchanged(self, shaper):
+    def test_truncate_short_text_unchanged(self, shaper: ContextShaper):
         assert shaper._truncate("short", 100) == "short"
 
-    def test_truncate_long_text_capped(self, shaper):
+    def test_truncate_long_text_capped(self, shaper: ContextShaper):
         result = shaper._truncate("A" * 500, 100)
         assert len(result) <= 200  # truncated + suffix
         assert "500 total chars" in result
@@ -199,12 +215,12 @@ class TestTokenEstimation:
 
 
 class TestStatsAndUsage:
-    def test_initial_stats_zero(self, shaper):
+    def test_initial_stats_zero(self, shaper: ContextShaper):
         stats = shaper.get_stats()
         assert stats["total_shaped"] == 0
         assert stats["tokens_saved"] == 0
 
-    def test_get_token_usage_structure(self, shaper):
+    def test_get_token_usage_structure(self, shaper: ContextShaper):
         messages = [{"role": "user", "content": "test message"}]
         usage = shaper.get_token_usage(messages)
         assert "total_tokens" in usage
@@ -213,12 +229,12 @@ class TestStatsAndUsage:
         assert "budget_remaining" in usage
         assert "by_role" in usage
 
-    def test_get_token_usage_empty_messages(self, shaper):
+    def test_get_token_usage_empty_messages(self, shaper: ContextShaper):
         usage = shaper.get_token_usage([])
         assert usage["total_tokens"] == 0
         assert usage["usage_pct"] == 0.0
 
-    def test_usage_pct_increases_with_content(self, shaper):
+    def test_usage_pct_increases_with_content(self, shaper: ContextShaper):
         small = shaper.get_token_usage([{"role": "user", "content": "a"}])
         large = shaper.get_token_usage([{"role": "user", "content": "A" * 5000}])
         assert large["usage_pct"] > small["usage_pct"]
@@ -230,14 +246,16 @@ class TestStatsAndUsage:
 
 
 class TestClearOldToolResults:
-    def test_compaction_preserves_each_structured_result_in_a_batched_message(self, shaper):
+    def test_compaction_preserves_each_structured_result_in_a_batched_message(self, shaper: ContextShaper):
         # Given: one old message contains two tool responses from a parallel batch.
         first = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"first.py"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\n" + ("a" * 1000) + "\nFIRST_RESULT=41\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
         )
         second = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"read_file","source":"second.txt"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\n"
             + ("b" * 1000)
             + "\nSECOND_RESULT=42\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
@@ -257,10 +275,11 @@ class TestClearOldToolResults:
         assert "FIRST_RESULT=41" in compacted
         assert "SECOND_RESULT=42" in compacted
 
-    def test_compaction_preserves_structured_provenance_and_verified_result(self, shaper):
+    def test_compaction_preserves_structured_provenance_and_verified_result(self, shaper: ContextShaper):
         # Given: an old structured tool response with a verified result at the end.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
@@ -280,7 +299,7 @@ class TestClearOldToolResults:
         assert '"tool":"run_bash_command"' in compacted
         assert "VERIFIED_RESULT=5050" in compacted
 
-    def test_removes_old_tool_results(self, shaper):
+    def test_removes_old_tool_results(self, shaper: ContextShaper):
         """Old tool/function results are removed, keeping only recent ones."""
         messages = [
             {"role": "user", "content": "q1"},
@@ -293,7 +312,7 @@ class TestClearOldToolResults:
         # The most recent tool result should be kept; older ones removed.
         assert len(result) <= len(messages)
 
-    def test_keep_last_preserves_recent(self, shaper):
+    def test_keep_last_preserves_recent(self, shaper: ContextShaper):
         messages = [
             {"role": "function", "content": "r1"},
             {"role": "function", "content": "r2"},
@@ -302,7 +321,7 @@ class TestClearOldToolResults:
         result = shaper.clear_old_tool_results(messages, keep_last=2)
         assert len(result) >= 2
 
-    def test_no_tool_results_unchanged(self, shaper):
+    def test_no_tool_results_unchanged(self, shaper: ContextShaper):
         messages = [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi"}]
         result = shaper.clear_old_tool_results(messages)
         assert len(result) == len(messages)
@@ -338,7 +357,7 @@ class TestAdaptiveCompressionEvidence:
         second = compressor.adaptive_compress(messages, prompt_cache_prefix=2)
 
         # Then: the cached bytes and deterministic tool evidence survive unchanged.
-        def canonical(value):
+        def canonical(value: object) -> str:
             return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
         assert canonical(first[:2]) == canonical(cached_prefix)
@@ -364,6 +383,7 @@ class TestAdaptiveCompressionEvidence:
         # Given: the local summarizer returns fluent prose without the verified result.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
@@ -391,6 +411,7 @@ class TestAdaptiveCompressionEvidence:
         # Given: verified tool evidence falls outside the recent-message retention window.
         old_result = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"python verify.py"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\n"
             + ("x" * 2000)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
@@ -418,6 +439,7 @@ class TestAdaptiveCompressionEvidence:
         # Given: one oversized verified result must fit a small final budget.
         evidence = (
             '<tool_response>\n[TOOL_EVIDENCE] {"tool":"run_bash_command","source":"verify.py"}\n'
+            +
             "[UNTRUSTED_TOOL_RESULT]\nBEGIN_RESULT\n"
             + ("detail " * 300)
             + "\nVERIFIED_RESULT=5050\n[/UNTRUSTED_TOOL_RESULT]\n</tool_response>"
@@ -442,14 +464,14 @@ class TestAdaptiveCompressionEvidence:
 
 
 class TestInjectBudgetAwareness:
-    def test_injects_into_non_empty_messages(self, shaper):
+    def test_injects_into_non_empty_messages(self, shaper: ContextShaper):
         """Budget awareness adds a system note when approaching limits."""
         messages = [{"role": "user", "content": "test"}]
         result = shaper.inject_budget_awareness(messages)
         assert isinstance(result, list)
         assert len(result) >= 1
 
-    def test_inject_empty_messages(self, shaper):
+    def test_inject_empty_messages(self, shaper: ContextShaper):
         result = shaper.inject_budget_awareness([])
         assert isinstance(result, list)
 
@@ -460,11 +482,11 @@ class TestInjectBudgetAwareness:
 
 
 class TestBudgetReduce:
-    def test_target_smaller_than_current(self, shaper):
+    def test_target_smaller_than_current(self, shaper: ContextShaper):
         """_budget_reduce returns a target smaller than the current size."""
         target = shaper._budget_reduce(current=10000, budget=5000)
         assert target <= 5000
 
-    def test_target_not_negative(self, shaper):
+    def test_target_not_negative(self, shaper: ContextShaper):
         target = shaper._budget_reduce(current=100, budget=50)
         assert target >= 0
