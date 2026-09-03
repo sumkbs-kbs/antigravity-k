@@ -14,12 +14,25 @@
  * queued and flushed automatically when the run finishes (Codex-style).
  */
 
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useChangeStore } from '../../stores/changeStore';
-import { streamChatCompletion, fetchModels, type ModelInfo } from '../../api/client';
+import {
+  streamChatCompletion,
+  fetchModels,
+  fetchLocalModels,
+  loadModel,
+  type ModelInfo,
+  type LocalModelItem,
+} from '../../api/client';
+import {
+  WorkspaceContextSchema,
+  AccessModeResponseSchema,
+  McpServersResponseSchema,
+  type McpServerItem,
+} from '../../api/clientSchema';
 import { useEventWebSocket } from '../../hooks/useEventWebSocket';
 import { detectChangesFromAssistantContent, registerFileModification } from '../../utils/changeDetector';
 import { firePluginHook } from '../../plugin/pluginRegistry';
@@ -37,14 +50,7 @@ import {
   QueuedMessagesCard,
 } from './ChatActivity';
 import { useActivityStore } from '../../stores/activityStore';
-
-const MODEL_LABELS: Record<string, string> = {
-  default: '5.6 Sol High',
-  'codex-5.6-sol-high': '5.6 Sol High',
-  'qwen-3.8-27b-gguf': 'Qwen 3.8 27B',
-  'gemma-4-27b': 'Gemma 4 27B',
-  'llama-3.2-mlx': 'Llama 3.2 3B',
-};
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
 
 export const ChatPage: React.FC = () => {
   const {
@@ -69,7 +75,8 @@ export const ChatPage: React.FC = () => {
   const [modelDropdownOpen, setModelDropdownOpen] = useState<boolean>(false);
   const [accessDropdownOpen, setAccessDropdownOpen] = useState<boolean>(false);
   const [mcpMenuOpen, setMcpMenuOpen] = useState<boolean>(false);
-  const [mcpEnabled, setMcpEnabled] = useState<boolean>(true);
+  const [mcpServerList, setMcpServerList] = useState<McpServerItem[]>([]);
+  const [selectedMcp, setSelectedMcp] = useState<string[] | null>(null);
   const [webSearch, setWebSearch] = useState<boolean>(false);
   const [codeMode, setCodeMode] = useState<boolean>(false);
   const [accessMode, setAccessMode] = useState<'full_access' | 'restricted'>('full_access');
@@ -88,6 +95,40 @@ export const ChatPage: React.FC = () => {
   });
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [localModels, setLocalModels] = useState<LocalModelItem[]>([]);
+  const [isScanningLocal, setIsScanningLocal] = useState<boolean>(false);
+
+  const loadLocalModels = useCallback(async (refresh = false) => {
+    setIsScanningLocal(true);
+    try {
+      const res = await fetchLocalModels(refresh);
+      if (res.ok && res.models) {
+        setLocalModels(res.models);
+        const currentSelected = useChatStore.getState().selectedModel;
+        const exists = res.models.some(m => m.id === currentSelected);
+        if (!exists && res.models.length > 0) {
+          const nextModel = res.recommended_default || res.models[0].id;
+          setSelectedModel(nextModel);
+        }
+      }
+    } catch (err) {
+      console.error('Local model fetch error:', err);
+    } finally {
+      setIsScanningLocal(false);
+    }
+  }, [setSelectedModel]);
+
+  const handleModelChoice = useCallback((modelId: string) => {
+    setSelectedModel(modelId);
+    setModelDropdownOpen(false);
+    void loadModel(modelId).then((res) => {
+      if (res.ok) {
+        void loadLocalModels(false);
+      }
+    }).catch((err) => {
+      console.warn('Background model load failed:', err);
+    });
+  }, [setSelectedModel, loadLocalModels]);
 
   /* ─── Refs ───────────────────────────────────────────────── */
   const abortRef = useRef<AbortController | null>(null);
@@ -111,24 +152,55 @@ export const ChatPage: React.FC = () => {
   /* ─── Init ───────────────────────────────────────────────── */
   useEffect(() => {
     loadFromStorage();
+    void loadLocalModels(false);
     fetchModels()
       .then(models => setAvailableModels(models))
       .catch(() => {});
-  }, [loadFromStorage]);
+  }, [loadFromStorage, loadLocalModels]);
 
   useEffect(() => {
-    fetch('/api/workspace/context')
+    fetch('/api/workspace/context', { headers: createAccessPinHeaders() })
       .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data) {
-          setWorkspaceContext({
-            project_name: data.project_name || 'Ssak-Ai',
-            target: data.target || '로컬',
-            branch: data.branch || 'codex/m1-task-events',
-          });
+      .then(raw => {
+        if (raw) {
+          const parsed = WorkspaceContextSchema.safeParse(raw);
+          if (parsed.success) {
+            setWorkspaceContext({
+              project_name: parsed.data.project_name,
+              target: parsed.data.target,
+              branch: parsed.data.branch,
+            });
+          }
         }
       })
       .catch(() => {});
+    // 실행 권한 모드 초기값 동기화 (읽기 전용이면 칩이 즉시 반영됨)
+    fetch('/api/system/access-mode', { headers: createAccessPinHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(raw => {
+        if (raw) {
+          const parsed = AccessModeResponseSchema.safeParse(raw);
+          if (parsed.success && parsed.data.mode === 'read_only') {
+            setAccessMode('restricted');
+          }
+        }
+      })
+      .catch(() => {});
+    // 구성된 MCP 서버 실목록 (환경 레일 "소스"와 동일한 소스)
+    fetch('/api/mcp/servers', { headers: createAccessPinHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(raw => {
+        if (raw) {
+          const parsed = McpServersResponseSchema.safeParse(raw);
+          if (parsed.success && parsed.data.ok) {
+            setMcpServerList(parsed.data.servers);
+            setSelectedMcp(parsed.data.servers.map((s) => s.name));
+            return;
+          }
+        }
+        setSelectedMcp([]);
+      })
+      .catch(() => setSelectedMcp([]));
   }, []);
 
   useEffect(() => {
@@ -141,7 +213,7 @@ export const ChatPage: React.FC = () => {
     try {
       await fetch('/api/system/access-mode', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode }),
       });
       setAccessMode(mode);
@@ -224,6 +296,12 @@ export const ChatPage: React.FC = () => {
 
   useEffect(() => () => stopElapsedTimer(), [stopElapsedTimer]);
 
+  /* ─── MCP allowlist (구성된 서버 기준 선택 집합) ─────────────── */
+  const mcpAllowlist = useMemo(
+    () => selectedMcp ?? [],
+    [selectedMcp],
+  );
+
   /* ─── Send / queue / run loop ────────────────────────────── */
   const runCompletion = useCallback(async (text: string) => {
     const model = selectedModelRef.current;
@@ -257,7 +335,7 @@ export const ChatPage: React.FC = () => {
         tdd_mode: tddMode,
         web_search: webSearch,
         code_mode: codeMode,
-        mcp_servers: mcpEnabled ? ['codebase-memory-mcp'] : [],
+        mcp_servers: mcpAllowlist,
       },
       {
         onChunk: (chunk: string) => {
@@ -295,7 +373,7 @@ export const ChatPage: React.FC = () => {
   }, [
     addMessage, saveToStorage, setStreaming, appendToCurrentAssistantContent,
     updateLastAssistantMessage, startElapsedTimer, stopElapsedTimer,
-    webSearch, codeMode, mcpEnabled,
+    webSearch, codeMode, mcpAllowlist,
   ]);
 
   useEffect(() => {
@@ -350,6 +428,40 @@ export const ChatPage: React.FC = () => {
     setQueuedMessages([...queueRef.current]);
   }, []);
 
+  const handleClearAllQueued = useCallback(() => {
+    queueRef.current = [];
+    setQueuedMessages([]);
+  }, []);
+
+  const handleMoveUpQueued = useCallback((index: number) => {
+    if (index <= 0) return;
+    const items = [...queueRef.current];
+    const temp = items[index];
+    items[index] = items[index - 1];
+    items[index - 1] = temp;
+    queueRef.current = items;
+    setQueuedMessages(items);
+  }, []);
+
+  const handleMoveDownQueued = useCallback((index: number) => {
+    if (index >= queueRef.current.length - 1) return;
+    const items = [...queueRef.current];
+    const temp = items[index];
+    items[index] = items[index + 1];
+    items[index + 1] = temp;
+    queueRef.current = items;
+    setQueuedMessages(items);
+  }, []);
+
+  const handleReorderQueued = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const items = [...queueRef.current];
+    const [moved] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, moved);
+    queueRef.current = items;
+    setQueuedMessages(items);
+  }, []);
+
   const handleStop = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -389,9 +501,25 @@ export const ChatPage: React.FC = () => {
 
   const isHero = messages.length === 0;
   const sessionTitle = activeSession?.title || 'New Conversation';
-  const modelLabel = availableModels.find(m => m.id === selectedModel)?.description
-    || MODEL_LABELS[selectedModel]
-    || selectedModel;
+  const modelLabel = useMemo(() => {
+    const foundLocal = localModels.find(m => m.id === selectedModel);
+    if (foundLocal) {
+      const tag = foundLocal.parameter_count_b > 0
+        ? ` (${foundLocal.parameter_count_b}B)`
+        : foundLocal.disk_size_gb > 0
+          ? ` (${foundLocal.disk_size_gb}GB)`
+          : '';
+      return `${foundLocal.name || foundLocal.id}${tag}`;
+    }
+    const foundAvail = availableModels.find(m => m.id === selectedModel);
+    if (foundAvail) {
+      return foundAvail.description || foundAvail.id;
+    }
+    if (selectedModel === 'default') {
+      return localModels[0]?.name ? `${localModels[0].name} (로컬)` : '로컬 모델 감지 중...';
+    }
+    return selectedModel;
+  }, [selectedModel, localModels, availableModels]);
 
   const editorContent = previewVisible ? <ArtifactPreview /> : <CodeEditor />;
   const changesContent = (
@@ -532,13 +660,13 @@ export const ChatPage: React.FC = () => {
               <span className="chip-label">Code</span>
             </button>
 
-            {/* MCP selector */}
+            {/* MCP selector — 구성된 서버 실목록 기반 */}
             <div className="agk-mcp-chip-wrap">
               <button
                 type="button"
-                className={`tool-chip ${mcpEnabled ? 'active' : ''}`}
+                className={`tool-chip ${mcpAllowlist.length > 0 ? 'active' : ''}`}
                 onClick={() => setMcpMenuOpen((v) => !v)}
-                aria-pressed={mcpEnabled}
+                aria-pressed={mcpAllowlist.length > 0}
                 title="MCP 서버"
               >
                 <span className="chip-icon">⊞</span>
@@ -547,21 +675,34 @@ export const ChatPage: React.FC = () => {
               </button>
               {mcpMenuOpen && (
                 <div className="mcp-dropdown-menu">
-                  <button
-                    type="button"
-                    className={`mcp-opt ${mcpEnabled ? 'selected' : ''}`}
-                    onClick={() => { setMcpEnabled(true); setMcpMenuOpen(false); }}
-                  >
-                    <span>⊞ codebase-memory-mcp</span>
-                    <span className="mcp-opt-status on">연결됨</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="mcp-opt"
-                    onClick={() => { setMcpEnabled(false); setMcpMenuOpen(false); }}
-                  >
-                    <span>비활성화</span>
-                  </button>
+                  {mcpServerList.length === 0 ? (
+                    <div className="mcp-opt mcp-empty-row">
+                      <span>구성된 MCP 서버가 없습니다</span>
+                      <span className="mcp-opt-status">.mcp.json</span>
+                    </div>
+                  ) : (
+                    mcpServerList.map(server => {
+                      const isSelected = mcpAllowlist.includes(server.name);
+                      return (
+                        <button
+                          key={server.name}
+                          type="button"
+                          className={`mcp-opt ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setSelectedMcp(prev => {
+                              const base = prev ?? mcpServerList.map(s => s.name);
+                              return isSelected
+                                ? base.filter(n => n !== server.name)
+                                : [...base, server.name];
+                            });
+                          }}
+                        >
+                          <span>{isSelected ? '✓' : '○'} {server.name}</span>
+                          <span className="mcp-opt-status on">{server.transport}</span>
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               )}
             </div>
@@ -582,47 +723,154 @@ export const ChatPage: React.FC = () => {
 
               {modelDropdownOpen && (
                 <div className="model-selection-popover">
-                  <div className="popover-sec-title">모델 및 추론 강도</div>
-                  {availableModels.length > 0
-                    ? availableModels.slice(0, 8).map(m => (
-                      <div
-                        key={m.id}
-                        className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
-                        onClick={() => { setSelectedModel(m.id); setModelDropdownOpen(false); }}
-                      >
-                        <span>{m.description || m.id}</span>
-                        {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
-                      </div>
-                    ))
-                    : (
-                      <>
-                        <div
-                          className="model-choice-row selected"
-                          onClick={() => { setSelectedModel('codex-5.6-sol-high'); setModelDropdownOpen(false); }}
-                        >
-                          <span>5.6 Sol High</span>
-                          <span className="tag-recommended">현재 선택</span>
+                  <div className="model-dropdown-header-row">
+                    <span className="popover-sec-title">💻 본 PC 전체 로컬 모델 ({localModels.length}개)</span>
+                    <button
+                      type="button"
+                      className="model-refresh-btn"
+                      title="본 PC 로컬 모델 다시 검색"
+                      disabled={isScanningLocal}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void loadLocalModels(true);
+                      }}
+                    >
+                      {isScanningLocal ? '스캔 중...' : '↻ 재검색'}
+                    </button>
+                  </div>
+
+                  {localModels.length === 0 ? (
+                    <div className="model-empty-notice">
+                      {isScanningLocal
+                        ? '본 PC의 로컬 모델을 스캔하고 있습니다...'
+                        : '본 PC에서 실행 중이거나 다운로드된 로컬 모델을 찾을 수 없습니다.'}
+                    </div>
+                  ) : (
+                    <>
+                      {/* 1. 실행 중 모델 (Ollama / Local APIs) */}
+                      {localModels.filter((m) => m.status === 'running').length > 0 && (
+                        <div className="model-group-section">
+                          <div className="model-group-title">🟢 실행 중 모델 (즉시 추론 가능)</div>
+                          {localModels
+                            .filter((m) => m.status === 'running')
+                            .map((m) => (
+                              <div
+                                key={m.id}
+                                className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                                onClick={() => handleModelChoice(m.id)}
+                              >
+                                <div className="model-row-left">
+                                  <div className="model-row-title-line">
+                                    <span className="status-dot running" />
+                                    <span className="model-name-text">{m.name || m.id}</span>
+                                  </div>
+                                  <div className="model-chip-badges">
+                                    <span className="badge-provider">{m.provider}</span>
+                                    {m.parameter_count_b > 0 && (
+                                      <span className="badge-param">{m.parameter_count_b}B</span>
+                                    )}
+                                    {m.role && <span className="badge-role">{m.role}</span>}
+                                  </div>
+                                </div>
+                                {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                              </div>
+                            ))}
                         </div>
-                        <div
-                          className="model-choice-row"
-                          onClick={() => { setSelectedModel('qwen-3.8-27b-gguf'); setModelDropdownOpen(false); }}
-                        >
-                          <span>Qwen 3.8 27B GGUF</span>
+                      )}
+
+                      {/* 2. 다운로드/캐시된 Unsloth 및 로컬 GGUF 모델 */}
+                      {localModels.filter((m) => m.status !== 'running' && m.provider === 'unsloth').length > 0 && (
+                        <div className="model-group-section">
+                          <div className="model-group-title">🦥 Unsloth 다운로드 모델 (GGUF)</div>
+                          {localModels
+                            .filter((m) => m.status !== 'running' && m.provider === 'unsloth')
+                            .map((m) => (
+                              <div
+                                key={m.id}
+                                className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                                onClick={() => handleModelChoice(m.id)}
+                              >
+                                <div className="model-row-left">
+                                  <div className="model-row-title-line">
+                                    <span className="status-dot cached" />
+                                    <span className="model-name-text">{m.name || m.id}</span>
+                                  </div>
+                                  <div className="model-chip-badges">
+                                    <span className="badge-provider unsloth">UNSLOTH</span>
+                                    {m.disk_size_gb > 0 && (
+                                      <span className="badge-disk">{m.disk_size_gb} GB</span>
+                                    )}
+                                    {m.quantization && (
+                                      <span className="badge-quant">{m.quantization}</span>
+                                    )}
+                                    {m.role && <span className="badge-role">{m.role}</span>}
+                                  </div>
+                                </div>
+                                {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                              </div>
+                            ))}
                         </div>
-                        <div
-                          className="model-choice-row"
-                          onClick={() => { setSelectedModel('gemma-4-27b'); setModelDropdownOpen(false); }}
-                        >
-                          <span>Gemma 4 27B</span>
+                      )}
+
+                      {/* 3. 기타 로컬/MLX/HuggingFace 모델 */}
+                      {localModels.filter((m) => m.status !== 'running' && m.provider !== 'unsloth').length > 0 && (
+                        <div className="model-group-section">
+                          <div className="model-group-title">📦 MLX / 로컬 캐시 모델</div>
+                          {localModels
+                            .filter((m) => m.status !== 'running' && m.provider !== 'unsloth')
+                            .map((m) => (
+                              <div
+                                key={m.id}
+                                className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                                onClick={() => handleModelChoice(m.id)}
+                              >
+                                <div className="model-row-left">
+                                  <div className="model-row-title-line">
+                                    <span className="status-dot cached" />
+                                    <span className="model-name-text">{m.name || m.id}</span>
+                                  </div>
+                                  <div className="model-chip-badges">
+                                    <span className={`badge-provider ${m.provider}`}>{m.provider}</span>
+                                    {m.disk_size_gb > 0 && (
+                                      <span className="badge-disk">{m.disk_size_gb} GB</span>
+                                    )}
+                                    {m.quantization && (
+                                      <span className="badge-quant">{m.quantization}</span>
+                                    )}
+                                    {m.role && <span className="badge-role">{m.role}</span>}
+                                  </div>
+                                </div>
+                                {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                              </div>
+                            ))}
                         </div>
-                        <div
-                          className="model-choice-row"
-                          onClick={() => { setSelectedModel('llama-3.2-mlx'); setModelDropdownOpen(false); }}
-                        >
-                          <span>Llama 3.2 3B MLX</span>
-                        </div>
-                      </>
-                    )}
+                      )}
+                    </>
+                  )}
+
+                  {/* ── Optional Cloud / Fallback Models Section ── */}
+                  {availableModels.filter((m) => !m.is_local && !localModels.some((lm) => lm.id === m.id)).length > 0 && (
+                    <>
+                      <div className="model-dropdown-divider" />
+                      <div className="popover-sec-title subhead">☁️ 외부 / 클라우드 모델</div>
+                      {availableModels
+                        .filter((m) => !m.is_local && !localModels.some((lm) => lm.id === m.id))
+                        .slice(0, 8)
+                        .map((m) => (
+                          <div
+                            key={m.id}
+                            className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                            onClick={() => {
+                              setSelectedModel(m.id);
+                              setModelDropdownOpen(false);
+                            }}
+                          >
+                            <span>{m.description || m.id}</span>
+                            {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                          </div>
+                        ))}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -784,6 +1032,10 @@ export const ChatPage: React.FC = () => {
               onSendNow={handleSendNow}
               onEdit={handleEditQueued}
               onDelete={handleDeleteQueued}
+              onMoveUp={handleMoveUpQueued}
+              onMoveDown={handleMoveDownQueued}
+              onReorder={handleReorderQueued}
+              onClearAll={handleClearAllQueued}
             />
             {composerCard}
             {isHero && (
@@ -818,6 +1070,7 @@ export const ChatPage: React.FC = () => {
         onTabChange={setEnvTab}
         onClose={() => setEnvPanelOpen(false)}
         branch={workspaceContext.branch}
+        mcpServers={mcpServerList}
         editorContent={editorContent}
         changesContent={changesContent}
       />

@@ -59,7 +59,7 @@ def resolve_unsloth_settings(
 ) -> tuple[str, str]:
     configured_base = provider_config.get("base_url", "")
     config_base_url = configured_base if isinstance(configured_base, str) else ""
-    base_url = profile.api_base or config_base_url or os.environ.get("UNSLOTH_API_BASE", "")
+    base_url = profile.api_base or config_base_url or os.environ.get("UNSLOTH_API_BASE", "") or "http://127.0.0.1:8080/v1"
 
     configured_key_env = provider_config.get("api_key_env", "")
     config_key_env = configured_key_env if isinstance(configured_key_env, str) else ""

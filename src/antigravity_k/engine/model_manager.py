@@ -284,7 +284,9 @@ class ModelManager:
 
         # 메모리 확보
         self._ensure_memory(profile.estimated_memory_gb)
-        _ = self._runtime_supervisor.ensure_available(profile)
+        available_api_base = self._runtime_supervisor.ensure_available(profile)
+        if available_api_base and not profile.api_base:
+            profile.api_base = available_api_base
 
         # 실제 모델 로드
         logger.info("[%s] 로드 시작 (예상 %sGB)...", name, profile.estimated_memory_gb)

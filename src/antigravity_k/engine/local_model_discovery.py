@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, cast
 from urllib.parse import urlparse
@@ -29,6 +29,9 @@ class DiscoveredLocalModel:
     quantization: str = ""
     capabilities: tuple[str, ...] = ()
     source: str = ""
+    disk_path: str = ""
+    disk_size_gb: float = 0.0
+    status: str = ""
 
 
 class LocalModelDiscovery:
@@ -59,6 +62,7 @@ class LocalModelDiscovery:
             found.extend(self._discover_ollama())
             for provider, base_url in self._openai_endpoints:
                 found.extend(self._discover_openai(provider, base_url))
+        found.extend(self._discover_huggingface_cache())
         found.extend(self._discover_filesystem())
         return self._deduplicate(found)
 
@@ -97,6 +101,7 @@ class LocalModelDiscovery:
                     quantization=_text(details.get("quantization_level")),
                     capabilities=capabilities,
                     source="ollama",
+                    status="running",
                 ),
             )
         return tuple(models)
@@ -132,13 +137,17 @@ class LocalModelDiscovery:
                     quantization=_text(item.get("quantization")),
                     capabilities=_strings(item.get("capabilities")),
                     source=provider,
+                    status="running",
                 ),
             )
         return tuple(models)
 
     def _discover_filesystem(self) -> tuple[DiscoveredLocalModel, ...]:
         models: list[DiscoveredLocalModel] = []
+        hf_cache_dir = Path("~/.cache/huggingface/hub").expanduser()
         for root in self._model_dirs:
+            if root == hf_cache_dir:
+                continue
             if root.is_file() and root.suffix.casefold() == ".gguf":
                 models.append(_filesystem_model(root))
                 continue
@@ -157,6 +166,119 @@ class LocalModelDiscovery:
                 if _has_transformer_weights(model_dir):
                     models.append(_filesystem_model(model_dir, provider="transformers"))
         return tuple(models)
+
+    def _discover_huggingface_cache(self) -> tuple[DiscoveredLocalModel, ...]:
+        hf_hub_dir = Path("~/.cache/huggingface/hub").expanduser()
+        if not hf_hub_dir.is_dir():
+            return ()
+        
+        models: list[DiscoveredLocalModel] = []
+        for repo_dir in hf_hub_dir.glob("models--*"):
+            if not repo_dir.is_dir():
+                continue
+                
+            repo_name = repo_dir.name.removeprefix("models--").replace("--", "/")
+            snapshots_dir = repo_dir / "snapshots"
+            if not snapshots_dir.is_dir():
+                continue
+                
+            snapshots = [d for d in snapshots_dir.iterdir() if d.is_dir()]
+            if not snapshots:
+                continue
+            snapshot_dir = max(snapshots, key=lambda d: d.stat().st_mtime)
+            
+            org = repo_name.split("/")[0] if "/" in repo_name else repo_name
+            provider = "unsloth" if org in ("unsloth", "unslothai") else ("mlx" if org == "mlx-community" else "huggingface")
+            
+            gguf_dirs: set[Path] = set()
+            found_gguf = False
+            for path in snapshot_dir.rglob("*.gguf"):
+                if "mmproj" in path.name.casefold():
+                    continue
+                found_gguf = True
+                if path.parent != snapshot_dir:
+                    gguf_dirs.add(path.parent)
+                else:
+                    model = self._build_hf_model(path, repo_name, provider)
+                    if model.disk_size_gb * 1024 >= 10:
+                        models.append(model)
+            
+            for gdir in gguf_dirs:
+                model = self._build_hf_model(gdir, repo_name, provider)
+                if model.disk_size_gb * 1024 >= 10:
+                    models.append(model)
+            
+            if not found_gguf:
+                if (snapshot_dir / "mlx_model.safetensors").is_file():
+                    model = self._build_hf_model(snapshot_dir, repo_name, provider)
+                    if model.disk_size_gb * 1024 >= 10:
+                        models.append(model)
+                elif _has_transformer_weights(snapshot_dir):
+                    model = self._build_hf_model(snapshot_dir, repo_name, provider)
+                    if model.disk_size_gb * 1024 >= 10:
+                        models.append(model)
+                
+        return tuple(models)
+
+    def _build_hf_model(self, path: Path, repo_name: str, provider: str) -> DiscoveredLocalModel:
+        is_gguf = path.is_file() and path.suffix.casefold() == ".gguf"
+        
+        if is_gguf:
+            name = path.stem
+        elif path.parent.name == "snapshots":
+            name = repo_name.split("/")[-1]
+        else:
+            name = f"{repo_name.split('/')[-1]}-{path.name}"
+
+        size = 0
+        if is_gguf:
+            try:
+                size = path.resolve().stat().st_size
+            except OSError:
+                pass
+        else:
+            for p in path.rglob("*"):
+                if p.is_file():
+                    try:
+                        size += p.resolve().stat().st_size
+                    except OSError:
+                        pass
+                        
+        metadata = _read_model_config(path) if not is_gguf else {}
+        text = f"{name} {path}".casefold()
+        parameter_count = next(
+            (
+                parsed
+                for key in ("num_parameters", "num_params", "n_params")
+                for parsed in (_parameter_count(metadata.get(key)),)
+                if parsed > 0
+            ),
+            _parameter_count(text),
+        )
+        context_length = next(
+            (
+                int(_number(metadata.get(key)))
+                for key in ("max_position_embeddings", "model_max_length", "max_sequence_length")
+                if _number(metadata.get(key)) > 0
+            ),
+            0,
+        )
+        
+        return DiscoveredLocalModel(
+            name=name,
+            repo=repo_name,
+            provider=provider,
+            api_base=os.getenv("AGK_LLAMA_CPP_API_BASE", "http://127.0.0.1:8080/v1") if is_gguf or (not is_gguf and list(path.glob("*.gguf"))) else "",
+            role=_infer_role(name),
+            parameter_count_b=parameter_count,
+            estimated_memory_gb=size / (1024**3) if size > 0 else 0.0,
+            context_length=context_length,
+            quantization=_quantization_from_config(metadata) or _quantization(name),
+            source="huggingface_cache",
+            disk_path=str(path.resolve()),
+            disk_size_gb=size / (1024**3) if size > 0 else 0.0,
+            status="cached",
+        )
 
     def _request_json(self, url: str) -> Mapping[str, object] | None:
         parsed = urlparse(url)
@@ -206,10 +328,47 @@ class LocalModelDiscovery:
 
     @staticmethod
     def _deduplicate(models: Iterable[DiscoveredLocalModel]) -> tuple[DiscoveredLocalModel, ...]:
+        model_list = list(models)
+        # Find running models where name or repo is a filesystem path
+        running_by_path: dict[str, DiscoveredLocalModel] = {}
+        for m in model_list:
+            if m.status == "running" and ("/" in m.name or "/" in m.repo):
+                resolved = ""
+                try:
+                    p = Path(m.name) if Path(m.name).exists() else Path(m.repo)
+                    if p.exists():
+                        resolved = str(p.resolve())
+                except OSError:
+                    pass
+                if resolved:
+                    running_by_path[resolved] = m
+                if m.disk_path:
+                    running_by_path[m.disk_path] = m
+
         seen: set[tuple[str, str]] = set()
         unique: list[DiscoveredLocalModel] = []
-        for model in models:
+        raw_path_keys_to_skip: set[tuple[str, str]] = set()
+
+        # If a disk-based model matches a running path, upgrade its status to running
+        updated_models: list[DiscoveredLocalModel] = []
+        for model in model_list:
+            disk_p = model.disk_path
+            matched_running = running_by_path.get(disk_p)
+            if matched_running is not None and model != matched_running:
+                updated = replace(
+                    model,
+                    status="running",
+                    api_base=matched_running.api_base or model.api_base,
+                )
+                updated_models.append(updated)
+                raw_path_keys_to_skip.add((matched_running.provider.casefold(), matched_running.name.casefold()))
+            else:
+                updated_models.append(model)
+
+        for model in updated_models:
             key = (model.provider.casefold(), model.name.casefold())
+            if key in raw_path_keys_to_skip:
+                continue
             if key in seen:
                 continue
             seen.add(key)
@@ -315,6 +474,9 @@ def _filesystem_model(path: Path, provider: str | None = None) -> DiscoveredLoca
         context_length=context_length,
         quantization=quantization,
         source="filesystem",
+        disk_path=str(model_path.resolve()),
+        disk_size_gb=size / (1024**3) if size > 0 else 0.0,
+        status="installed",
     )
 
 

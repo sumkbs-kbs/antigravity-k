@@ -80,6 +80,7 @@ class ModelProfile:
     roles: tuple[str, ...] = ()
     # 1k 토큰당 평균 비용(USD). 0.0이면 비용 미설정/로컬 — 라우팅 비용 상한 검사에서 제외.
     cost_per_1k_tokens_usd: float = 0.0
+    disk_path: str = ""
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> ModelProfile:
@@ -116,6 +117,7 @@ class ModelProfile:
             api_key_env=_text(data, "api_key_env"),
             roles=roles,
             cost_per_1k_tokens_usd=_as_cost(data.get("cost_per_1k_tokens_usd")),
+            disk_path=_text(data, "disk_path"),
         )
         # provider가 명시되지 않았으면 이름/repo에서 자동 추론
         if not profile.provider:
@@ -628,6 +630,7 @@ class ModelRegistry:
                 provider=item.provider,
                 api_base=item.api_base,
                 roles=(item.role,) if item.role else ("reasoning",),
+                disk_path=item.disk_path,
             )
             self._models[profile.name] = profile
             added.append(profile)

@@ -177,6 +177,128 @@ def list_models(manager: Annotated[ModelManager, Depends(get_model_manager)]) ->
     return {"object": "list", "data": formatted_data}
 
 
+@router.get("/api/models/local")
+def list_local_models(
+    manager: Annotated[ModelManager, Depends(get_model_manager)],
+    refresh: bool = False,
+) -> dict[str, object]:
+    """본 PC에 실제로 설치 및 실행 중이거나 캐시된 로컬 모델 목록만 실시간으로 검색하여 반환합니다."""
+    from antigravity_k.engine.local_model_discovery import LocalModelDiscovery
+
+    discovery = LocalModelDiscovery()
+    discovered_models = discovery.discover()
+
+    # 발견된 로컬 모델들을 레지스트리에도 병합하여 시스템에서 사용 가능하도록 함
+    model_registry = cast(ModelRegistry, getattr(cast(object, manager), "_registry"))
+    model_registry.merge_discovered_models(discovered_models)
+
+    local_models: list[dict[str, object]] = []
+    for m in discovered_models:
+        tier = "unknown"
+        if m.parameter_count_b > 40:
+            tier = "70B"
+        elif m.parameter_count_b > 15:
+            tier = "30B"
+        elif m.parameter_count_b > 0:
+            tier = "7B"
+
+        local_models.append(
+            {
+                "id": m.name,
+                "name": m.name,
+                "provider": m.provider,
+                "role": m.role,
+                "description": f"{m.name} ({m.provider} / {m.status})",
+                "parameter_count_b": m.parameter_count_b,
+                "is_local": True,
+                "context_length": m.context_length,
+                "quantization": m.quantization,
+                "status": m.status,  # "running" | "installed" | "cached"
+                "disk_path": m.disk_path,
+                "disk_size_gb": round(m.disk_size_gb, 2),
+                "source": m.source,
+                "tier": tier,
+            }
+        )
+
+    # 추천 기본 모델 결정: running 상태인 reasoning/coding 모델 최우선, 없으면 cached 중 최우선
+    recommended_default: str | None = None
+    running_models = [m for m in local_models if m.get("status") == "running"]
+    primary_running = [
+        m for m in running_models
+        if m.get("role") in ("reasoning", "coding", "general") and cast(float, m.get("parameter_count_b", 0)) > 0
+    ]
+    if primary_running:
+        primary_running.sort(key=lambda x: cast(float, x.get("parameter_count_b", 0)), reverse=True)
+        recommended_default = cast(str, primary_running[0]["id"])
+    elif running_models:
+        recommended_default = cast(str, running_models[0]["id"])
+    elif local_models:
+        primary_cached = [
+            m for m in local_models
+            if m.get("role") in ("reasoning", "coding", "general") and cast(float, m.get("parameter_count_b", 0)) > 0
+        ]
+        if primary_cached:
+            primary_cached.sort(key=lambda x: cast(float, x.get("parameter_count_b", 0)), reverse=True)
+            recommended_default = cast(str, primary_cached[0]["id"])
+        else:
+            recommended_default = cast(str, local_models[0]["id"])
+
+    message = (
+        f"본 PC에서 {len(local_models)}개의 실제 로컬 모델(실행 중: {len(running_models)}개, 캐시/다운로드됨: {len(local_models)-len(running_models)}개)이 감지되었습니다."
+        if local_models
+        else "본 PC에서 실행 중이거나 다운로드된 로컬 모델을 찾을 수 없습니다."
+    )
+
+    return {
+        "ok": True,
+        "total": len(local_models),
+        "recommended_default": recommended_default,
+        "models": local_models,
+        "message": message,
+    }
+
+
+class _LoadModelRequest(BaseModel):
+    model: str
+
+
+@router.post("/api/models/load")
+def load_local_model(
+    request: _LoadModelRequest,
+    manager: Annotated[ModelManager, Depends(get_model_manager)],
+) -> dict[str, object]:
+    """로컬 모델(Unsloth GGUF, MLX, Ollama 등)을 메모리/런타임에 실제로 로드합니다."""
+    model_name = request.model.strip()
+    if not model_name:
+        raise HTTPException(status_code=400, detail="모델 이름이 필요합니다.")
+
+    model_registry = cast(ModelRegistry, getattr(cast(object, manager), "_registry"))
+    profile = model_registry.get_model(model_name)
+    if profile is None:
+        from antigravity_k.engine.local_model_discovery import LocalModelDiscovery
+
+        discovery = LocalModelDiscovery()
+        model_registry.merge_discovered_models(discovery.discover())
+        profile = model_registry.get_model(model_name)
+
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"모델 '{model_name}'을 레지스트리에서 찾을 수 없습니다.")
+
+    try:
+        _ = manager.load(model_name)
+        return {
+            "ok": True,
+            "model": model_name,
+            "provider": profile.provider,
+            "status": "running",
+            "message": f"모델 '{model_name}'이 성공적으로 로드되었습니다.",
+        }
+    except Exception as e:
+        logger.error("모델 로드 실패 [%s]: %s", model_name, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"모델 로드 중 오류가 발생했습니다: {str(e)}")
+
+
 @router.get("/v1/models/operations", response_model=None)
 def model_operations_status(
     manager: Annotated[ModelManager, Depends(get_model_manager)],

@@ -18,8 +18,11 @@ import {
   SettingsResponseSchema,
   SettingsSaveResponseSchema,
   SystemMetricsSchema,
+  LocalModelsResponseSchema,
 } from './clientSchema';
 import type {
+  LocalModelItem,
+  LocalModelsResponse,
   CacheStats,
   CacheStatsResponse,
   DebugModeResponse,
@@ -53,6 +56,8 @@ export type {
   ModelProviderCapability,
   ModelQualityCalibrationStatus,
   SystemMetrics,
+  LocalModelItem,
+  LocalModelsResponse,
   SettingsData,
   SettingsSaveResponse,
 };
@@ -243,6 +248,24 @@ export async function streamChatCompletion(
 export async function fetchModels(): Promise<ModelInfo[]> {
   const raw = await apiRequest('/models');
   return ModelListResponseSchema.parse(raw).data;
+}
+
+export async function fetchLocalModels(refresh = false): Promise<LocalModelsResponse> {
+  const path = `/api/models/local${refresh ? '?refresh=true' : ''}`;
+  const raw = await requestJson(path, path);
+  return LocalModelsResponseSchema.parse(raw);
+}
+
+/**
+ * Load a local model into memory / runtime.
+ */
+export async function loadModel(modelId: string): Promise<{ ok: boolean; model?: string; status?: string; message?: string }> {
+  const path = '/api/models/load';
+  const raw = await requestJson(path, path, {
+    method: 'POST',
+    body: JSON.stringify({ model: modelId }),
+  });
+  return raw as { ok: boolean; model?: string; status?: string; message?: string };
 }
 
 export async function fetchModelOperations(refresh = false): Promise<ModelOperationsStatus> {
