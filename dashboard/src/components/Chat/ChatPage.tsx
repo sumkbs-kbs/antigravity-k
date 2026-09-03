@@ -1,60 +1,104 @@
 /**
- * ChatPage — Main chat interface with IDE layout
- * ================================================
- * Integrates FileExplorer, Editor, ArtifactPreview, and Chat components
- * in a 3-panel IDE layout.
+ * ChatPage — Agent Workspace (Antigravity × Codex × Unsloth)
+ * ==========================================================
+ * Composition mirrors the three reference screenshots:
+ * - Antigravity: right-hand 환경 rail (변경 사항 / 로그 / branch /
+ *   커밋·푸시 / 풀 리퀘스트 / 파일 액티브티 / 소스-MCP)
+ * - Codex: activity feed (user prompt bubble, working indicator,
+ *   file-edit cards, queued messages), breadcrumb top bar, Open IDE
+ * - Unsloth: empty-state hero (mascot + "Ready when you are") with a
+ *   large centered composer and chip toolbar (+, 전체 액세스, Search,
+ *   Code, MCP, mic, round send)
+ *
+ * When a message is sent while the agent is streaming, the text is
+ * queued and flushed automatically when the run finishes (Codex-style).
  */
 
-import React, { Suspense, lazy, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useUiStore } from '../../stores/uiStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useChangeStore } from '../../stores/changeStore';
-import { streamChatCompletion } from '../../api/client';
+import { streamChatCompletion, fetchModels, type ModelInfo } from '../../api/client';
 import { useEventWebSocket } from '../../hooks/useEventWebSocket';
 import { detectChangesFromAssistantContent, registerFileModification } from '../../utils/changeDetector';
 import { firePluginHook } from '../../plugin/pluginRegistry';
 import ChatMessage from './ChatMessage';
-import ChatInput from './ChatInput';
 import ChatHistory from './ChatHistory';
-import ModelSelector from './ModelSelector';
-import PlanToggleBar from './PlanToggleBar';
-import EmptyState from './EmptyState';
-import FileExplorer from '../Editor/FileExplorer';
 import CodeEditor from '../Editor/Editor';
 import ArtifactPreview from '../Editor/ArtifactPreview';
 import ChangePanel from '../Editor/ChangePanel';
+import EnvironmentPanel, { type EnvPanelTab } from './EnvironmentPanel';
+import {
+  WorkingIndicator,
+  StreamErrorBanner,
+  FileEditCard,
+  QueuedMessagesCard,
+} from './ChatActivity';
 
-// Lazy-load SplitPane (defer Split.js ~6kB)
-const SplitPane = lazy(() => import('../Layout/SplitPane'));
-const SplitPaneFallback: React.FC = () => (
-  <div className="chat-split-fallback" style={{ display: 'flex', height: '100%', gap: 6 }}>
-    <div className="chat-split-fallback-explorer" style={{ flex: '0 0 20%', minWidth: 180, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-    <div className="chat-split-fallback-editor" style={{ flex: '0 0 40%', minWidth: 240, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-    <div className="chat-split-fallback-chat" style={{ flex: 1, minWidth: 280, background: 'var(--bg-secondary)', borderRadius: 8 }} />
-  </div>
-);
+const MODEL_LABELS: Record<string, string> = {
+  default: '5.6 Sol High',
+  'codex-5.6-sol-high': '5.6 Sol High',
+  'qwen-3.8-27b-gguf': 'Qwen 3.8 27B',
+  'gemma-4-27b': 'Gemma 4 27B',
+  'llama-3.2-mlx': 'Llama 3.2 3B',
+};
 
-const ChatPage: React.FC = () => {
+export const ChatPage: React.FC = () => {
   const {
     messages, isStreaming, selectedModel, isPlanMode, isTddMode,
+    activeSession,
     addMessage, updateLastAssistantMessage, saveToStorage,
     setStreaming, appendToCurrentAssistantContent,
-    createNewSession, loadFromStorage,
+    loadFromStorage, setSelectedModel,
   } = useChatStore();
 
-  const { setChatHistoryVisible, chatHistoryVisible, addToast } = useUiStore();
+  const { addToast } = useUiStore();
   const { previewVisible, openFile } = useEditorStore();
-  const abortRef = useRef<AbortController | null>(null);
-  const chatHistoryRef = useRef<HTMLDivElement>(null);
-  const toolIndicatorRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const approvalSendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { setPanelVisible: setChangePanelVisible } = useChangeStore();
+  const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
 
-  // Use refs to avoid stale closures in async callbacks
+  /* ─── States ─────────────────────────────────────────────── */
+  const [inputText, setInputText] = useState<string>('');
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [queueCollapsed, setQueueCollapsed] = useState<boolean>(false);
+
+  const [actionMenuOpen, setActionMenuOpen] = useState<boolean>(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState<boolean>(false);
+  const [accessDropdownOpen, setAccessDropdownOpen] = useState<boolean>(false);
+  const [mcpMenuOpen, setMcpMenuOpen] = useState<boolean>(false);
+  const [mcpEnabled, setMcpEnabled] = useState<boolean>(true);
+  const [webSearch, setWebSearch] = useState<boolean>(false);
+  const [codeMode, setCodeMode] = useState<boolean>(false);
+  const [accessMode, setAccessMode] = useState<'full_access' | 'restricted'>('full_access');
+
+  const [envPanelOpen, setEnvPanelOpen] = useState<boolean>(true);
+  const [envTab, setEnvTab] = useState<EnvPanelTab>('env');
+  const [historyVisible, setHistoryVisible] = useState<boolean>(false);
+
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState<number>(0);
+
+  const [workspaceContext, setWorkspaceContext] = useState({
+    project_name: 'Ssak-Ai',
+    target: '로컬',
+    branch: 'codex/m1-task-events',
+  });
+
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+
+  /* ─── Refs ───────────────────────────────────────────────── */
+  const abortRef = useRef<AbortController | null>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const queueRef = useRef<string[]>([]);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const selectedModelRef = useRef(selectedModel);
   const isPlanModeRef = useRef(isPlanMode);
   const isTddModeRef = useRef(isTddMode);
+  const runRef = useRef<(text: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
@@ -62,142 +106,64 @@ const ChatPage: React.FC = () => {
     isTddModeRef.current = isTddMode;
   }, [isPlanMode, isTddMode, selectedModel]);
 
-  const { panelVisible: changePanelVisible, setPanelVisible: setChangePanelVisible } = useChangeStore();
-  const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
-
-  // ─── Load chat history from localStorage on mount ────────────────
+  /* ─── Init ───────────────────────────────────────────────── */
   useEffect(() => {
     loadFromStorage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchModels()
+      .then(models => setAvailableModels(models))
+      .catch(() => {});
+  }, [loadFromStorage]);
+
+  useEffect(() => {
+    fetch('/api/workspace/context')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setWorkspaceContext({
+            project_name: data.project_name || 'Ssak-Ai',
+            target: data.target || '로컬',
+            branch: data.branch || 'codex/m1-task-events',
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // ─── Scroll to bottom on new messages ────────────────────────────
   useEffect(() => {
-    if (chatHistoryRef.current) {
-      chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
+    if (feedRef.current) {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [messages]);
 
-  // ─── Listen for approval & wiki-ref events ──────────────────────
-  useEffect(() => {
-    const handler = (e: CustomEvent) => {
-      const text = e.detail?.text;
-      if (text && inputRef.current) {
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype, 'value'
-        )?.set;
-        nativeInputValueSetter?.call(inputRef.current, text);
-        inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-        // Auto-send after brief delay
-        if (approvalSendTimeoutRef.current !== null) clearTimeout(approvalSendTimeoutRef.current);
-        approvalSendTimeoutRef.current = setTimeout(() => {
-          const sendBtn = document.querySelector('.send-btn') as HTMLButtonElement;
-          sendBtn?.click();
-        }, 100);
-      }
-    };
+  const handleToggleAccessMode = async (mode: 'full_access' | 'restricted') => {
+    try {
+      await fetch('/api/system/access-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      setAccessMode(mode);
+      setAccessDropdownOpen(false);
+      addToast(mode === 'full_access' ? '전체 액세스 모드 허용' : '읽기 전용 샌드박스로 전환', 'info');
+    } catch {
+      setAccessMode(mode);
+      setAccessDropdownOpen(false);
+    }
+  };
 
-    const wikiRefHandler = (e: CustomEvent) => {
-      const text = e.detail?.text;
-      if (text && inputRef.current) {
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype, 'value'
-        )?.set;
-        nativeInputValueSetter?.call(inputRef.current, text);
-        inputRef.current.dispatchEvent(new Event('input', { bubbles: true }));
-        inputRef.current.focus();
-      }
-    };
-
-    window.addEventListener('agk:approval-response', handler as EventListener);
-    window.addEventListener('agk:wiki-ref', wikiRefHandler as EventListener);
-    return () => {
-      window.removeEventListener('agk:approval-response', handler as EventListener);
-      window.removeEventListener('agk:wiki-ref', wikiRefHandler as EventListener);
-      if (approvalSendTimeoutRef.current !== null) {
-        clearTimeout(approvalSendTimeoutRef.current);
-        approvalSendTimeoutRef.current = null;
-      }
-    };
-  }, [addMessage, addToast, appendToCurrentAssistantContent, saveToStorage, setStreaming, updateLastAssistantMessage]);
-
-  // ─── Get the last assistant bubble for tool event injection ──────
-  const getLastAssistantBubble = useCallback((): HTMLElement | null => {
-    const historyEl = chatHistoryRef.current;
-    if (!historyEl) return null;
-    const lastMsg = historyEl.lastElementChild;
-    if (!lastMsg?.classList.contains('assistant')) return null;
-    return lastMsg.querySelector('.bubble') as HTMLElement;
-  }, []);
-
-  // ─── Event WebSocket with full agent event handling ──────────────
+  /* ─── WebSocket event listeners ──────────────────────────── */
   useEventWebSocket({
-    onModeChanged: (data) => {
-      const mode = data?.to_mode;
-      if (mode) addToast(`🔄 모드 전환: ${mode.toUpperCase()}`, 'info');
-    },
-    onToolExecutionStarted: (data) => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const toolName = data?.name || data?.tool_name || 'unknown_tool';
-      if (toolIndicatorRef.current?.parentNode) toolIndicatorRef.current.remove();
-
-      const div = document.createElement('div');
-      div.className = 'tool-timeline-badge start';
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="icon">⚙️</span> <span class="text">Running Tool <b style="color:var(--accent-color);">${toolName}</b>... <span class="typing-indicator" style="height:12px;margin-left:4px;"><span></span><span></span><span></span></span></span>`;
-      bubble.appendChild(div);
-      toolIndicatorRef.current = div;
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-    },
-    onToolExecutionFinished: () => {
-      if (toolIndicatorRef.current?.parentNode) {
-        toolIndicatorRef.current.remove();
-        toolIndicatorRef.current = null;
-      }
-    },
-    onFailureDetected: () => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const div = document.createElement('div');
-      div.className = 'tool-timeline-badge error';
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="icon">⚠️</span> <span class="text"><b>Failure Detected:</b> Agent is attempting to recover...</span>`;
-      bubble.appendChild(div);
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-      if (toolIndicatorRef.current?.parentNode) toolIndicatorRef.current.remove();
-    },
-    onCognitiveAdaptation: () => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const div = document.createElement('div');
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="agent-badge adapting">ADAPTING</span> <span style="font-size: 13px; color: var(--warning);">동적 전략 수정 중...</span>`;
-      bubble.appendChild(div);
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-    },
-    onPlanningModeStarted: () => {
-      const bubble = getLastAssistantBubble();
-      if (!bubble) return;
-      const div = document.createElement('div');
-      div.style.marginTop = '8px';
-      div.innerHTML = `<span class="agent-badge planning">PLANNING</span> <span style="font-size: 13px; color: var(--accent-color);">실행 계획 수립 중...</span>`;
-      bubble.appendChild(div);
-      if (chatHistoryRef.current) chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-    },
     onFileOpened: (data) => {
       const filePath = data?.filepath;
       if (filePath) {
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        // Load and open in editor
         fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
-          .then(r => {
-            if (!r.ok) throw new Error(`File read failed (${r.status})`);
-            return r.json();
-          })
+          .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (d.content !== undefined) {
+            if (d?.content !== undefined) {
               openFile(filePath, fileName, d.content);
+              setEnvPanelOpen(true);
+              setEnvTab('code');
             }
           })
           .catch(() => {});
@@ -207,207 +173,634 @@ const ChatPage: React.FC = () => {
       const filePath = data?.filepath;
       if (filePath) {
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        // Open file in editor
         fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
-          .then(r => {
-            if (!r.ok) throw new Error(`File read failed (${r.status})`);
-            return r.json();
-          })
+          .then(r => r.ok ? r.json() : null)
           .then(d => {
-            if (d.content !== undefined) {
+            if (d?.content !== undefined) {
               openFile(filePath, fileName, d.content);
             }
           })
           .catch(() => {});
-        // Register change in Change Store for review
         registerFileModification(filePath, fileName)
           .then((registered) => {
-            if (registered) {
-              addToast(`📋 변경 감지: ${fileName}`, 'info');
-            }
+            if (registered) addToast(`📋 변경 감지: ${fileName}`, 'info');
           })
           .catch(() => {});
       }
     },
   });
 
-  // ─── Handle sending messages ─────────────────────────────────────
-  const handleSend = useCallback(async (text: string, imageDataUrl?: string) => {
-    if (!text && !imageDataUrl) return;
+  /* ─── Elapsed timer while streaming ──────────────────────── */
+  const startElapsedTimer = useCallback(() => {
+    setElapsed(0);
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    elapsedTimerRef.current = setInterval(() => {
+      setElapsed((v) => v + 1);
+    }, 1000);
+  }, []);
 
+  const stopElapsedTimer = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => stopElapsedTimer(), [stopElapsedTimer]);
+
+  /* ─── Send / queue / run loop ────────────────────────────── */
+  const runCompletion = useCallback(async (text: string) => {
     const model = selectedModelRef.current;
     const planMode = isPlanModeRef.current;
     const tddMode = isTddModeRef.current;
 
-    let displayText = text;
-
-    if (imageDataUrl) {
-      displayText = text + ' 📎🖼️';
-    }
-
     firePluginHook('chat:send', { text, model, planMode, tddMode });
-    addMessage({ role: 'user', content: displayText });
+    addMessage({ role: 'user', content: text });
     saveToStorage();
+    setStreamError(null);
+
     addMessage({ role: 'assistant', content: '' });
     setStreaming(true);
+    startElapsedTimer();
 
     let assistantContent = '';
     const abortController = new AbortController();
     abortRef.current = abortController;
 
     const updatedMessages = useChatStore.getState().messages;
+
+    let errorMessage: string | null = null;
     await streamChatCompletion(
-      { model, messages: updatedMessages, stream: true, agent_mode: true, plan_mode: planMode, tdd_mode: tddMode },
       {
-        onChunk: (chunk) => {
+        model,
+        messages: updatedMessages,
+        stream: true,
+        agent_mode: true,
+        plan_mode: planMode,
+        tdd_mode: tddMode,
+        web_search: webSearch,
+        code_mode: codeMode,
+        mcp_servers: mcpEnabled ? ['codebase-memory-mcp'] : [],
+      },
+      {
+        onChunk: (chunk: string) => {
           assistantContent += chunk;
           appendToCurrentAssistantContent(chunk);
-          updateLastAssistantMessage(assistantContent);
-          saveToStorage();
         },
-        onDone: () => {
-          // Update final message
-          updateLastAssistantMessage(assistantContent);
-          saveToStorage();
-          setStreaming(false);
-          abortRef.current = null;
-          firePluginHook('chat:response', { content: assistantContent, model: selectedModelRef.current });
-
-          // ── Auto-detect file changes from assistant response ──
-          if (assistantContent && assistantContent.length > 50) {
-            detectChangesFromAssistantContent(assistantContent)
-              .then(count => {
-                if (count > 0) {
-                  addToast(`📋 ${count}개 파일 변경 감지 — 검토해보세요`, 'info');
-                }
-              })
-              .catch(() => {});
+        onDone: () => {},
+        onError: (err: Error) => {
+          if (err.name !== 'AbortError') {
+            errorMessage = err.message;
           }
         },
-        onError: (err) => {
-          console.error('Stream error:', err);
-          updateLastAssistantMessage(assistantContent || `Error: ${err.message}`);
-          saveToStorage();
-          setStreaming(false);
-          abortRef.current = null;
-          addToast(`오류: ${err.message}`, 'error');
-        },
       },
-      abortController.signal
+      abortController.signal,
     );
-  }, [addMessage, addToast, appendToCurrentAssistantContent, saveToStorage, setStreaming, updateLastAssistantMessage]);
 
-  const handleStop = useCallback(() => {
-    abortRef.current?.abort();
+    updateLastAssistantMessage(assistantContent);
+    saveToStorage();
     setStreaming(false);
-  }, [setStreaming]);
+    stopElapsedTimer();
+    abortRef.current = null;
 
-  const handleExampleClick = useCallback((text: string) => {
-    handleSend(text);
-  }, [handleSend]);
+    if (errorMessage) {
+      setStreamError(errorMessage);
+    } else {
+      detectChangesFromAssistantContent(assistantContent).catch(() => {});
+    }
 
-  // Register input ref with ChatInput via window callback
-  const registerInput = useCallback((el: HTMLTextAreaElement | null) => {
-    inputRef.current = el;
+    // Flush queued messages (Codex-style: sends after agent finishes)
+    const next = queueRef.current.shift();
+    setQueuedMessages([...queueRef.current]);
+    if (next !== undefined) {
+      void runRef.current(next);
+    }
+  }, [
+    addMessage, saveToStorage, setStreaming, appendToCurrentAssistantContent,
+    updateLastAssistantMessage, startElapsedTimer, stopElapsedTimer,
+    webSearch, codeMode, mcpEnabled,
+  ]);
+
+  useEffect(() => {
+    runRef.current = runCompletion;
+  }, [runCompletion]);
+
+  const handleSend = useCallback(async (textToSend?: string) => {
+    const text = textToSend ?? inputText;
+    if (!text.trim()) return;
+
+    if (useChatStore.getState().isStreaming) {
+      queueRef.current = [...queueRef.current, text.trim()];
+      setQueuedMessages([...queueRef.current]);
+      setInputText('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      addToast('에이전트 작업이 끝나면 자동으로 전송됩니다.', 'info');
+      return;
+    }
+
+    setInputText('');
+    setActionMenuOpen(false);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    await runCompletion(text.trim());
+  }, [inputText, runCompletion, addToast]);
+
+  const handleSendNow = useCallback((index: number) => {
+    const item = queueRef.current[index];
+    if (item === undefined) return;
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueuedMessages([...queueRef.current]);
+    if (!useChatStore.getState().isStreaming) {
+      void runCompletion(item);
+    } else {
+      queueRef.current = [item, ...queueRef.current];
+      setQueuedMessages([...queueRef.current]);
+    }
+  }, [runCompletion]);
+
+  const handleEditQueued = useCallback((index: number) => {
+    const item = queueRef.current[index];
+    if (item === undefined) return;
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueuedMessages([...queueRef.current]);
+    setInputText(item);
+    textareaRef.current?.focus();
   }, []);
 
-  return (
-    <div className="ide-layout">
-      <Suspense fallback={<SplitPaneFallback />}>
-      <SplitPane
-        className="chat-split-pane"
-        panelClassNames={['split-panel-explorer', 'split-panel-editor', 'split-panel-chat']}
-        direction="horizontal"
-        storageKey="agk_ide_split_sizes"
-        initialSizes={[20, 40, 40]}
-        minSizes={[180, 240, 280]}
-        gutterSize={6}
-      >
-        {/* Left: File Explorer */}
-        <div className="ide-explorer glass-panel" style={{ borderRight: 'none', height: '100%' }}>
-          <FileExplorer />
-        </div>
+  const handleDeleteQueued = useCallback((index: number) => {
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueuedMessages([...queueRef.current]);
+  }, []);
 
-        {/* Center: Editor / Preview / Changes */}
-        <div className="flex flex-col" style={{ minWidth: 0, overflow: 'hidden', height: '100%' }}>
-          {changePanelVisible ? (
-            <ChangePanel
-              visible={changePanelVisible}
-              onClose={() => setChangePanelVisible(false)}
-            />
-          ) : previewVisible ? (
-            <ArtifactPreview />
-          ) : (
-            <CodeEditor />
-          )}
-        </div>
+  const handleStop = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setStreaming(false);
+    stopElapsedTimer();
+    addToast('생성이 중단되었습니다.', 'info');
+  }, [setStreaming, addToast, stopElapsedTimer]);
 
-        {/* Right: AI Chat */}
-        <div className="ide-chat" style={{ height: '100%' }}>
-          <div className="chat-container">
-          <div className="chat-header">
-            <h2>Vibe Coding <span>Agent</span></h2>
-            <div className="model-selector-wrap">
-              {/* Change Review Button */}
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setInputText(prev => prev ? `${prev}\n[첨부 파일: ${file.name}]` : `[첨부 파일: ${file.name}] `);
+    addToast(`파일 첨부: ${file.name}`, 'info');
+  };
+
+  // Close menus on click outside
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.model-selector-wrap')) setModelDropdownOpen(false);
+      if (!target.closest('.codex-action-plus-wrap')) setActionMenuOpen(false);
+      if (!target.closest('.codex-access-pill-wrap')) setAccessDropdownOpen(false);
+      if (!target.closest('.agk-mcp-chip-wrap')) setMcpMenuOpen(false);
+    };
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, []);
+
+  const isHero = messages.length === 0;
+  const sessionTitle = activeSession?.title || 'New Conversation';
+  const modelLabel = availableModels.find(m => m.id === selectedModel)?.description
+    || MODEL_LABELS[selectedModel]
+    || selectedModel;
+
+  const editorContent = previewVisible ? <ArtifactPreview /> : <CodeEditor />;
+  const changesContent = (
+    <ChangePanel
+      visible={true}
+      onClose={() => {
+        setChangePanelVisible(false);
+        setEnvTab('env');
+      }}
+    />
+  );
+
+  /* ─── Composer card (shared by hero & docked) ─────────────── */
+  const composerCard = (
+    <div className="agk-composer-card">
+      {!isHero && (
+        <div className="codex-context-header-bar docked">
+          <div className="context-item">
+            <span className="item-icon">📁</span>
+            <span className="item-text">{workspaceContext.project_name}</span>
+          </div>
+          <div className="context-item">
+            <span className="item-icon">🖥️</span>
+            <span className="item-text">{workspaceContext.target}</span>
+          </div>
+          <div className="context-item">
+            <span className="item-icon">⑂</span>
+            <span className="item-text branch">{workspaceContext.branch}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="agk-input-main-card">
+        <textarea
+          ref={textareaRef}
+          id="chat-input"
+          className="codex-textarea"
+          placeholder="Ask anything, @ to mention, / for actions"
+          rows={1}
+          value={inputText}
+          onChange={(e) => {
+            setInputText(e.target.value);
+            e.target.style.height = 'auto';
+            e.target.style.height = `${Math.min(220, e.target.scrollHeight)}px`;
+          }}
+          onKeyDown={handleKeyDown}
+          aria-label="메시지 입력"
+        />
+
+        {/* Chip toolbar row */}
+        <div className="agk-chip-toolbar">
+          <div className="agk-chip-group">
+            {/* + attach */}
+            <div className="codex-action-plus-wrap">
               <button
-                className={`icon-btn ${changePanelVisible ? 'active' : ''}`}
-                title={`변경 검토${pendingChangeCount > 0 ? ` (${pendingChangeCount} pending)` : ''}`}
-                aria-label={`변경 검토 패널${pendingChangeCount > 0 ? ` (${pendingChangeCount}개 보류)` : ''}`}
-                style={{
-                  fontSize: 14,
-                  position: 'relative',
-                  color: changePanelVisible ? 'var(--accent-color)' : undefined,
-                  background: changePanelVisible ? 'rgba(124,106,239,0.12)' : undefined,
-                }}
-                onClick={() => setChangePanelVisible(!changePanelVisible)}
+                type="button"
+                className={`plus-action-circle-btn ${actionMenuOpen ? 'open' : ''}`}
+                onClick={() => setActionMenuOpen(!actionMenuOpen)}
+                title="옵션 및 파일 첨부"
+                aria-label="옵션 및 파일 첨부"
               >
-                📋
-                {pendingChangeCount > 0 && (
-                  <span className="change-dot">{pendingChangeCount > 9 ? '9+' : pendingChangeCount}</span>
-                )}
+                +
               </button>
-              <button className="icon-btn" title="New Chat" aria-label="새 채팅 세션" style={{ fontSize: 14 }} onClick={createNewSession}>
-                ➕
+              {actionMenuOpen && (
+                <div className="plus-popover-dropdown">
+                  <button
+                    type="button"
+                    className="popover-row"
+                    onClick={() => { fileInputRef.current?.click(); setActionMenuOpen(false); }}
+                  >
+                    <span>📎</span>
+                    <span>파일 및 사진 첨부</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="popover-row"
+                    onClick={() => { addToast('전체 코드베이스 심층 RAG 분석 활성화', 'info'); setActionMenuOpen(false); }}
+                  >
+                    <span>🧠</span>
+                    <span>코드베이스 전체 탐색</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 전체 액세스 (Approve-for-me equivalent) */}
+            <div className="codex-access-pill-wrap">
+              <button
+                type="button"
+                className={`access-chip ${accessMode === 'full_access' ? 'amber' : 'safe'}`}
+                onClick={() => setAccessDropdownOpen(!accessDropdownOpen)}
+              >
+                <span className="chip-icon">{accessMode === 'full_access' ? '🛡️!' : '🔒'}</span>
+                <span className="chip-label">
+                  {accessMode === 'full_access' ? '전체 액세스' : '읽기 전용'}
+                </span>
+                <span className="chip-chevron">⌄</span>
               </button>
-              <button className="icon-btn" title="Chat History" aria-label="채팅 히스토리" style={{ fontSize: 14 }} onClick={() => setChatHistoryVisible(true)}>
-                📜
+              {accessDropdownOpen && (
+                <div className="access-dropdown-menu">
+                  <div
+                    className={`access-opt ${accessMode === 'full_access' ? 'selected' : ''}`}
+                    onClick={() => handleToggleAccessMode('full_access')}
+                  >
+                    ✓ 전체 액세스 (Full Access)
+                  </div>
+                  <div
+                    className={`access-opt ${accessMode === 'restricted' ? 'selected' : ''}`}
+                    onClick={() => handleToggleAccessMode('restricted')}
+                  >
+                    🔒 읽기 전용 (Read Only)
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Search toggle */}
+            <button
+              type="button"
+              className={`tool-chip ${webSearch ? 'active' : ''}`}
+              onClick={() => setWebSearch((v) => !v)}
+              aria-pressed={webSearch}
+              title="웹 검색 도구 사용"
+            >
+              <span className="chip-icon">🌐</span>
+              <span className="chip-label">Search</span>
+            </button>
+
+            {/* Code toggle */}
+            <button
+              type="button"
+              className={`tool-chip ${codeMode ? 'active' : ''}`}
+              onClick={() => setCodeMode((v) => !v)}
+              aria-pressed={codeMode}
+              title="코드 인터프리터 사용"
+            >
+              <span className="chip-icon">‹/›</span>
+              <span className="chip-label">Code</span>
+            </button>
+
+            {/* MCP selector */}
+            <div className="agk-mcp-chip-wrap">
+              <button
+                type="button"
+                className={`tool-chip ${mcpEnabled ? 'active' : ''}`}
+                onClick={() => setMcpMenuOpen((v) => !v)}
+                aria-pressed={mcpEnabled}
+                title="MCP 서버"
+              >
+                <span className="chip-icon">⊞</span>
+                <span className="chip-label">MCP</span>
+                <span className="chip-chevron">⌄</span>
               </button>
-              <ModelSelector />
+              {mcpMenuOpen && (
+                <div className="mcp-dropdown-menu">
+                  <button
+                    type="button"
+                    className={`mcp-opt ${mcpEnabled ? 'selected' : ''}`}
+                    onClick={() => { setMcpEnabled(true); setMcpMenuOpen(false); }}
+                  >
+                    <span>⊞ codebase-memory-mcp</span>
+                    <span className="mcp-opt-status on">연결됨</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="mcp-opt"
+                    onClick={() => { setMcpEnabled(false); setMcpMenuOpen(false); }}
+                  >
+                    <span>비활성화</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="chat-history" ref={chatHistoryRef}>
-            {messages.length === 0 ? (
-              <EmptyState onExampleClick={handleExampleClick} />
-            ) : (
-              messages.map(msg => (
-                <ChatMessage key={msg.id ?? `${msg.role}:${msg.content}`} message={msg} />
-              ))
-            )}
-            {isStreaming && (
-              <div className="message assistant">
-                <div className="avatar">🤖</div>
-                <div className="bubble glass-panel">
-                  <span className="typing-indicator"><span /><span /><span /></span>
+          <div className="agk-chip-group">
+            {/* Model selector pill */}
+            <div className="model-selector-wrap codex-model-selector-wrap">
+              <button
+                type="button"
+                className="model-pill-trigger"
+                onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                aria-label="모델 선택"
+              >
+                <span className="model-name-text">{modelLabel}</span>
+                <span className="chevron-mini">⌄</span>
+              </button>
+
+              {modelDropdownOpen && (
+                <div className="model-selection-popover">
+                  <div className="popover-sec-title">모델 및 추론 강도</div>
+                  {availableModels.length > 0
+                    ? availableModels.slice(0, 8).map(m => (
+                      <div
+                        key={m.id}
+                        className={`model-choice-row ${m.id === selectedModel ? 'selected' : ''}`}
+                        onClick={() => { setSelectedModel(m.id); setModelDropdownOpen(false); }}
+                      >
+                        <span>{m.description || m.id}</span>
+                        {m.id === selectedModel && <span className="tag-recommended">현재 선택</span>}
+                      </div>
+                    ))
+                    : (
+                      <>
+                        <div
+                          className="model-choice-row selected"
+                          onClick={() => { setSelectedModel('codex-5.6-sol-high'); setModelDropdownOpen(false); }}
+                        >
+                          <span>5.6 Sol High</span>
+                          <span className="tag-recommended">현재 선택</span>
+                        </div>
+                        <div
+                          className="model-choice-row"
+                          onClick={() => { setSelectedModel('qwen-3.8-27b-gguf'); setModelDropdownOpen(false); }}
+                        >
+                          <span>Qwen 3.8 27B GGUF</span>
+                        </div>
+                        <div
+                          className="model-choice-row"
+                          onClick={() => { setSelectedModel('gemma-4-27b'); setModelDropdownOpen(false); }}
+                        >
+                          <span>Gemma 4 27B</span>
+                        </div>
+                        <div
+                          className="model-choice-row"
+                          onClick={() => { setSelectedModel('llama-3.2-mlx'); setModelDropdownOpen(false); }}
+                        >
+                          <span>Llama 3.2 3B MLX</span>
+                        </div>
+                      </>
+                    )}
                 </div>
+              )}
+            </div>
+
+            {/* Mic */}
+            <button
+              type="button"
+              className="mic-action-btn"
+              onClick={() => addToast('음성 입력이 활성화되었습니다.', 'info')}
+              title="음성 입력"
+              aria-label="음성 입력"
+            >
+              🎙️
+            </button>
+
+            {/* Send / Stop */}
+            {isStreaming ? (
+              <button
+                type="button"
+                className="soundwave-circle-btn stop send-btn"
+                onClick={handleStop}
+                title="중단"
+                aria-label="생성 중단"
+              >
+                ⏹
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={`soundwave-circle-btn ${inputText.trim() ? 'send-mode' : ''} send-btn`}
+                onClick={() => handleSend()}
+                title={inputText.trim() ? '전송' : '음성 대화 시작'}
+                aria-label={inputText.trim() ? '메시지 전송' : '음성 대화 시작'}
+              >
+                {inputText.trim() ? '↑' : 'ılı'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={`agk-workspace ${isHero ? 'is-empty' : ''}`}>
+      {/* ── Main column: topbar + canvas + composer ──────────── */}
+      <div className="agk-main-column">
+        <header className="agk-topbar">
+          <div className="agk-breadcrumb">
+            <span className="crumb-project">antigravity-k</span>
+            <span className="crumb-sep">/</span>
+            <span className="crumb-title">{sessionTitle}</span>
+          </div>
+          <div className="agk-topbar-actions">
+            <button
+              type="button"
+              className="topbar-tool-btn"
+              aria-label="채팅 히스토리"
+              title="채팅 히스토리"
+              onClick={() => setHistoryVisible(true)}
+            >
+              🕓
+            </button>
+            <button
+              type="button"
+              className="open-ide-btn"
+              onClick={() => { setEnvPanelOpen(true); setEnvTab('code'); }}
+              title="에디터 열기"
+            >
+              <span className="open-ide-icon">◤</span>
+              Open IDE
+            </button>
+            <button
+              type="button"
+              className={`topbar-tool-btn ${envPanelOpen ? 'active' : ''}`}
+              onClick={() => setEnvPanelOpen((v) => !v)}
+              title="환경 패널 토글"
+              aria-label="환경 패널 토글"
+            >
+              ◫
+            </button>
+            <button
+              type="button"
+              className="topbar-tool-btn"
+              onClick={() => {
+                if (document.fullscreenElement) {
+                  document.exitFullscreen().catch(() => {});
+                } else {
+                  document.documentElement.requestFullscreen().catch(() => {});
+                }
+              }}
+              title="전체화면"
+              aria-label="전체화면"
+            >
+              □
+            </button>
+          </div>
+        </header>
+
+        <div className="agk-canvas">
+          {!isHero && (
+            <div className="agk-feed" ref={feedRef}>
+              <div className="agk-feed-inner">
+                {messages.map(msg => (
+                  <ChatMessage key={msg.id ?? `${msg.role}:${msg.content}`} message={msg} />
+                ))}
+                {isStreaming && <WorkingIndicator elapsed={elapsed} />}
+                {streamError && !isStreaming && (
+                  <StreamErrorBanner
+                    message={`exceeded retry limit — ${streamError}`}
+                    onRetry={() => {
+                      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                      setStreamError(null);
+                      if (lastUser) void runCompletion(lastUser.content);
+                    }}
+                  />
+                )}
+                {!isStreaming && (
+                  <FileEditCard
+                    onReview={() => { setEnvPanelOpen(true); setEnvTab('changes'); }}
+                    onDiscard={() => {
+                      const { rejectAll, clearChanges } = useChangeStore.getState();
+                      rejectAll();
+                      clearChanges();
+                      addToast('편집 변경 사항을 실행 취소했습니다.', 'info');
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {isHero && (
+            <div className="unsloth-hero-head">
+              <span className="hero-mascot" aria-hidden="true">🦥</span>
+              <h1 className="hero-headline" data-testid="hero-headline">
+                <mark className="hero-mark">Ready</mark> when you are
+              </h1>
+              <p className="hero-subline">Ssak-Ai에서 무엇이든 물어보세요 — 코드 작성, 파일 편집, 웹 검색을 도와드립니다.</p>
+            </div>
+          )}
+
+          {/* Composer zone: queued card + composer */}
+          <div className={`agk-composer-zone ${isHero ? 'hero' : 'docked'}`}>
+            <QueuedMessagesCard
+              items={queuedMessages}
+              collapsed={queueCollapsed}
+              onToggleCollapse={() => setQueueCollapsed((v) => !v)}
+              onSendNow={handleSendNow}
+              onEdit={handleEditQueued}
+              onDelete={handleDeleteQueued}
+            />
+            {composerCard}
+            {isHero && (
+              <div
+                className="codex-suggested-prompt-line hero-variant"
+                onClick={() => {
+                  setInputText('Make the two new orchestrator-swarm benchmarks prove real agent work');
+                  textareaRef.current?.focus();
+                }}
+              >
+                <span className="github-cat-icon">🐙</span>
+                <span className="prompt-line-text">
+                  Make the two new orchestrator-swarm benchmarks prove real agent work
+                </span>
               </div>
             )}
           </div>
-
-          <ChatInput
-            onSend={handleSend}
-            onStop={handleStop}
-            isStreaming={isStreaming}
-            textareaRef={registerInput}
-          />
-
-          <PlanToggleBar />
         </div>
-      </div>
-      </SplitPane>
-      </Suspense>
 
-      <ChatHistory visible={chatHistoryVisible} onClose={() => setChatHistoryVisible(false)} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          style={{ display: 'none' }}
+          onChange={handleFileUpload}
+        />
+      </div>
+
+      {/* ── Right: Antigravity 환경 rail ──────────────────────── */}
+      <EnvironmentPanel
+        open={envPanelOpen}
+        tab={envTab}
+        onTabChange={setEnvTab}
+        onClose={() => setEnvPanelOpen(false)}
+        branch={workspaceContext.branch}
+        editorContent={editorContent}
+        changesContent={changesContent}
+      />
+
+      <ChatHistory visible={historyVisible} onClose={() => setHistoryVisible(false)} />
+
+      {/* Screen-reader hint for pending review count */}
+      <span className="visually-hidden" aria-live="polite">
+        {pendingChangeCount > 0 ? `검토 대기 변경 ${pendingChangeCount}건` : ''}
+      </span>
     </div>
   );
 };

@@ -41,32 +41,49 @@ const ModelSelector: React.FC = () => {
     embedding: '📐 Embedding',
   };
 
+function extractQuant(modelId: string): string {
+  if (!modelId) return 'GGUF';
+  if (modelId.includes('UD-Q4_K_XL')) return 'UD-Q4_K_XL';
+  if (modelId.includes('Q5_K_M')) return 'Q5_K_M';
+  if (modelId.includes('Q4_K_M')) return 'Q4_K_M';
+  if (modelId.includes('Q8_0')) return 'Q8_0';
+  if (modelId.includes('4bit') || modelId.includes('mlx')) return 'MLX 4b';
+  if (modelId.includes('FP16')) return 'FP16';
+  if (modelId.includes('gpt') || modelId.includes('claude')) return 'API';
+  return 'Fast';
+}
+
   return (
-    <select
-      className="glass-select"
-      value={selectedModel}
-      onChange={e => setSelectedModel(e.target.value)}
-      disabled={loading}
-      aria-label="AI 모델 선택"
-    >
-      {loading ? (
-        <option>Loading models...</option>
-      ) : (
-        <>
-          {roleOrder.map(role => {
-            const list = grouped[role];
-            if (!list?.length) return null;
-            return (
-              <optgroup key={role} label={roleLabels[role] || role}>
-                {list.map(m => (
-                  <option key={m.id} value={m.id}>{m.id}</option>
-                ))}
-              </optgroup>
-            );
-          })}
-        </>
-      )}
-    </select>
+    <div className="unsloth-model-selector-wrap">
+      <select
+        className="glass-select"
+        value={selectedModel}
+        onChange={e => setSelectedModel(e.target.value)}
+        disabled={loading}
+        aria-label="AI 모델 선택"
+      >
+        {loading ? (
+          <option>Loading models...</option>
+        ) : (
+          <>
+            {roleOrder.map(role => {
+              const list = grouped[role];
+              if (!list?.length) return null;
+              return (
+                <optgroup key={role} label={roleLabels[role] || role}>
+                  {list.map(m => (
+                    <option key={m.id} value={m.id}>{m.id}</option>
+                  ))}
+                </optgroup>
+              );
+            })}
+          </>
+        )}
+      </select>
+      <span className="unsloth-quant-chip" title="모델 가속/양자화 포맷">
+        {extractQuant(selectedModel)}
+      </span>
+    </div>
   );
 };
 

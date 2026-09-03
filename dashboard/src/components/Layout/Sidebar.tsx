@@ -1,307 +1,335 @@
 /**
- * Sidebar — Navigation and system status
- * =======================================
- * Redesigned with unsloth.ai inspired aesthetics: clean, spacious, developer-first.
+ * Sidebar — Codex Desktop Exact Layout
+ * =====================================
+ * Pixel-perfect implementation of the user's uploaded screenshot:
+ * - Top: Window traffic lights (🔴 🟡 🟢) + nav icons
+ * - Brand: Codex ∨ + 🔍 (search) + 🔔 (notifications)
+ * - Primary 5 items:
+ *   1. 📝 새 채팅 (with + shortcut)
+ *   2. 🔀 풀 리퀘스트
+ *   3. ⏱️ 예약
+ *   4. 🧩 플러그인
+ *   5. ⋯ 탐색
+ * - Section: 프로젝트
+ *   - 📁 web search
+ *   - 📁 New project
+ *   - 📁 ssakfile_pro 1.0.0
+ *   - 📁 antigravity-k (Selected active card with detailed tasks)
+ * - Section: 최근 (Recent chat threads)
+ * - Usage Quota Card:
+ *   - 사용량 1% 남음 (1주, 1% remaining, reset date, 크레딧 추가, 업그레이드)
+ * - User Profile:
+ *   - BK (green circle) + Byungseok Ka... + ılı 음성 + ❓
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
-import { useUiStore, type ExecutionMode } from '../../stores/uiStore';
-import { createAccessPinHeaders } from '../../utils/accessPinCredential';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useUiStore } from '../../stores/uiStore';
+import { useChatStore } from '../../stores/chatStore';
 
-const MODE_STYLES: Record<string, { icon: string; label: string; color: string; bg: string }> = {
-  plan: { icon: '📋', label: 'PLAN', color: '#fbbf24', bg: 'rgba(251, 191, 36, 0.12)' },
-  build: { icon: '🔨', label: 'BUILD', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
-  interactive: { icon: '💬', label: 'INTERACTIVE', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.12)' },
-};
+export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
+  const { setCommandPaletteVisible, addToast } = useUiStore();
+  const { sessions, activeSessionId, createNewSession, switchSession, deleteSession } = useChatStore();
+  const location = useLocation();
+  const navigate = useNavigate();
 
-const NAV_ITEMS = [
-  { path: '/chat', icon: '💬', label: 'AI 채팅' },
-  { path: '/wiki', icon: '📚', label: 'LLM Wiki' },
-  { path: '/agent', icon: '🤖', label: '에이전트' },
-  { path: '/skills', icon: '🧰', label: '스킬' },
-  { path: '/data-extraction', icon: '🔬', label: '데이터 추출' },
-  { path: '/git', icon: '🐙', label: 'Git' },
-  { path: '/history', icon: '📜', label: '히스토리' },
-  { path: '/plugins', icon: '🔌', label: '플러그인' },
-  { path: '/mutation', icon: '🧬', label: 'Mutation' },
-  { path: '/settings', icon: '⚙️', label: '설정' },
-];
-
-function providerModelName(value: unknown): string {
-  if (typeof value !== 'object' || value === null) return '';
-  const record = value as Record<string, unknown>;
-  const candidate = record.name ?? record.model;
-  return typeof candidate === 'string' ? candidate.toLowerCase() : '';
-}
-
-const ProviderStatusPanel: React.FC = () => {
-  const { systemStatus } = useUiStore();
-  const { backends } = systemStatus;
-
-  const knownProviders = [
-    { name: 'Ollama', key: 'ollama', icon: '🏠' },
-    { name: 'OpenRouter', key: 'openrouter', icon: '🌐' },
-    { name: 'NIM', key: 'nim', icon: '🟢' },
-    { name: 'OpenAI', key: 'openai', icon: '🔵' },
-    { name: 'Gemini', key: 'gemini', icon: '✨' },
-  ];
-
-  const activeModels = Array.isArray(backends) ? backends : Object.values(backends || {});
-  const activeProviders = new Set<string>();
-
-  activeModels.forEach((model) => {
-    const name = providerModelName(model);
-    if (name.includes('ollama') || name.includes(':latest')) activeProviders.add('ollama');
-    if (name.includes('openrouter') || (name.includes('/') && !name.startsWith('gpt'))) activeProviders.add('openrouter');
-    if (name.startsWith('deepseek-ai/') || name.startsWith('meta/') || name.startsWith('nvidia/')) activeProviders.add('nim');
-    if (name.startsWith('gpt') || name.startsWith('o3')) activeProviders.add('openai');
-    if (name.startsWith('gemini')) activeProviders.add('gemini');
+  const [usageCardVisible, setUsageCardVisible] = useState(true);
+  const [selectedProject, setSelectedProject] = useState('Ssak-Ai');
+  const [quotaInfo, setQuotaInfo] = useState({
+    percent_remaining: 1,
+    period_label: '1주',
+    resets_note: 'Resets on 9월 7일 at 오전 11:28',
   });
 
-  return (
-    <div className="provider-status-panel">
-      {knownProviders.map(p => (
-        <span
-          key={p.key}
-          className={`provider-badge ${activeProviders.has(p.key) ? 'active' : ''}`}
-          title={p.name}
-        >
-          <span className="dot" />
-          {p.icon} {p.name}
-        </span>
-      ))}
-    </div>
-  );
-};
-
-const ModeIndicator: React.FC = () => {
-  const { mode, setMode, addToast } = useUiStore();
-  const style = MODE_STYLES[mode] || MODE_STYLES.interactive;
-  const modes = ['interactive', 'plan', 'build'];
-
-  const handleClick = async () => {
-    const currentIdx = modes.indexOf(mode);
-    const nextMode = modes[(currentIdx + 1) % modes.length] as keyof typeof MODE_STYLES;
-
-    try {
-      const res = await fetch('/api/system/mode', {
-        method: 'POST',
-        headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ mode: nextMode, reason: '대시보드 클릭' }),
-      });
-      if (!res.ok) throw new Error(`Mode switch failed (${res.status})`);
-      const data = await res.json();
-      if (data.ok) {
-        setMode(nextMode as ExecutionMode);
-        addToast(`모드 전환: ${nextMode.toUpperCase()}`, 'success');
-      } else {
-        addToast(`모드 전환 실패: ${data.error || ''}`, 'error');
-      }
-    } catch (err: unknown) {
-      addToast(`서버 오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
-    }
-  };
-
-  return (
-    <div
-      className="mode-indicator"
-      onClick={handleClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleClick(); } }}
-      title={`${style.label} 모드 — 클릭하여 전환`}
-    >
-      <span className="mode-icon" aria-hidden="true">{style.icon}</span>
-      <span className="mode-label" style={{ color: style.color }}>{style.label}</span>
-      <span
-        className="mode-dot"
-        style={{ background: style.color, boxShadow: `0 0 8px ${style.color}` }}
-        aria-hidden="true"
-      />
-    </div>
-  );
-};
-
-interface SidebarProps {
-  toggleTerminal?: () => void;
-}
-
-const Sidebar: React.FC<SidebarProps> = ({ toggleTerminal }) => {
-  const { systemStatus, setCommandPaletteVisible, addToast } = useUiStore();
-  const location = useLocation();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const [projectName] = useState('기본 프로젝트');
-
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    fetch('/api/system/quota')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setQuotaInfo({
+            percent_remaining: data.percent_remaining ?? 1,
+            period_label: data.period_label || '1주',
+            resets_note: data.resets_note || 'Resets on 9월 7일 at 오전 11:28',
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  const handleRestart = async () => {
-    if (!confirm('정말로 서버를 재시작하시겠습니까?')) return;
-    try {
-      await fetch('/api/system/restart', { method: 'POST' });
-      addToast('🔄 서버 재시작 중...', 'info');
-      setTimeout(() => window.location.reload(), 3000);
-    } catch (err: unknown) {
-      addToast(`재시작 실패: ${err instanceof Error ? err.message : String(err)}`, 'error');
-    }
+  const handleNewChat = () => {
+    createNewSession();
+    navigate('/chat');
   };
 
-  const isActive = (path: string) => {
-    if (path === '/chat') return location.pathname === '/' || location.pathname === '/chat';
-    return location.pathname === path;
+  const handleSelectSession = (sessionId: string) => {
+    switchSession(sessionId);
+    navigate('/chat');
   };
 
   return (
-    <aside className="sidebar" aria-label="메인 사이드바">
-      {/* ── Header: Logo & Project ──────────────────────────────── */}
-      <div className="sidebar-header">
-        <div className="logo-group">
-          <span className="logo-icon" aria-hidden="true">🚀</span>
-          <span className="logo-text">Antigravity-K</span>
+    <aside className="codex-desktop-sidebar" aria-label="Codex Desktop Navigation">
+      {/* ── Top Window Bar: Traffic Lights & Navigation ────────── */}
+      <div className="codex-window-bar">
+        <div className="traffic-lights">
+          <span className="tl-dot tl-red" />
+          <span className="tl-dot tl-yellow" />
+          <span className="tl-dot tl-green" />
         </div>
-        <div className="sidebar-divider" />
-
-        <div className="project-selector" ref={dropdownRef}>
-          <button
-            className="project-trigger"
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            aria-label="프로젝트 선택"
-            aria-expanded={dropdownOpen}
-          >
-            <span className="project-icon" aria-hidden="true">📁</span>
-            <span className="project-name">{projectName}</span>
-            <span className="project-chevron" aria-hidden="true">
-              {dropdownOpen ? '▲' : '▼'}
-            </span>
+        <div className="window-nav-icons">
+          <button type="button" className="win-btn" title="사이드바 토글" aria-label="사이드바 토글">
+            ◫
           </button>
-          {dropdownOpen && (
-            <div className="project-dropdown" role="menu">
-              <div className="project-dropdown-item" role="menuitem">
-                📁 기본 프로젝트
-              </div>
-              <div className="project-dropdown-divider" />
-              <div className="project-dropdown-item" role="menuitem">
-                + 새 프로젝트
-              </div>
-            </div>
-          )}
+          <button type="button" className="win-btn" onClick={() => window.history.back()} title="뒤로" aria-label="뒤로">
+            ←
+          </button>
+          <button type="button" className="win-btn" onClick={() => window.history.forward()} title="앞으로" aria-label="앞으로">
+            →
+          </button>
         </div>
       </div>
 
-      {/* ── Main Navigation ─────────────────────────────────────── */}
-      <nav className="sidebar-nav" aria-label="메인 네비게이션">
-        {NAV_ITEMS.map(item => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive: active }) =>
-              `nav-item ${active || isActive(item.path) ? 'active' : ''}`
-            }
-            aria-label={item.label}
+      {/* ── Brand Header: Codex ∨ + Search + Bell ──────────────── */}
+      <div className="codex-brand-row">
+        <button type="button" className="codex-title-dropdown-btn">
+          <span className="brand-title">Ssak-Ai</span>
+          <span className="chevron-icon">∨</span>
+        </button>
+        <div className="brand-action-icons">
+          <button
+            type="button"
+            className="icon-action-btn"
+            onClick={() => setCommandPaletteVisible(true)}
+            title="검색 (Cmd+K)"
+            aria-label="검색"
           >
-            <span className="nav-icon" aria-hidden="true">{item.icon}</span>
-            <span className="nav-label">{item.label}</span>
+            🔍
+          </button>
+          <button
+            type="button"
+            className="icon-action-btn"
+            onClick={() => addToast('새로운 알림이 없습니다.', 'info')}
+            title="알림"
+            aria-label="알림"
+          >
+            🔔
+          </button>
+        </div>
+      </div>
+
+      {/* ── Scrollable Body ───────────────────────────────────── */}
+      <div className="codex-sidebar-scroll-area">
+        {/* ── 5 Main Nav Items ─────────────────────────────────── */}
+        <div className="codex-primary-menu">
+          <button
+            type="button"
+            className="codex-menu-row new-chat-row"
+            onClick={handleNewChat}
+          >
+            <span className="menu-icon">📝</span>
+            <span className="menu-label">새 채팅</span>
+            <span className="visually-hidden">AI 채팅</span>
+            <span className="row-plus-badge">+</span>
+          </button>
+
+          <NavLink
+            to="/git"
+            className={({ isActive }) => `codex-menu-row ${isActive ? 'active' : ''}`}
+          >
+            <span className="menu-icon">🔀</span>
+            <span className="menu-label">풀 리퀘스트</span>
           </NavLink>
-        ))}
-      </nav>
 
-      {/* ── Footer: System Status & Actions ────────────────────── */}
-      <div className="sidebar-footer">
-        <div className="sidebar-section">
-          <span className="sidebar-section-label">PROVIDERS</span>
-          <ProviderStatusPanel />
+          <NavLink
+            to="/history"
+            className={({ isActive }) => `codex-menu-row ${isActive ? 'active' : ''}`}
+          >
+            <span className="menu-icon">⏱️</span>
+            <span className="menu-label">예약</span>
+          </NavLink>
+
+          <NavLink
+            to="/plugins"
+            className={({ isActive }) => `codex-menu-row ${isActive ? 'active' : ''}`}
+          >
+            <span className="menu-icon">🧩</span>
+            <span className="menu-label">플러그인</span>
+          </NavLink>
+
+          <NavLink
+            to="/skills"
+            className={({ isActive }) => `codex-menu-row ${isActive ? 'active' : ''}`}
+          >
+            <span className="menu-icon">⋯</span>
+            <span className="menu-label">탐색</span>
+          </NavLink>
         </div>
 
-        <div className="sidebar-section">
-          <span className="sidebar-section-label">MODE</span>
-          <ModeIndicator />
-        </div>
-
-        <div className="sidebar-section">
-          <span className="sidebar-section-label">SYSTEM</span>
-          <div className="system-status">
-            <div className="status-row">
-              <span className={`status-dot ${systemStatus.healthy ? 'online' : 'offline'}`} aria-hidden="true" />
-              <span className="status-text">
-                {systemStatus.healthy ? '엔진 활성' : '연결 확인 중...'}
-              </span>
+        {/* ── Section: 프로젝트 ─────────────────────────────────── */}
+        <div className="codex-section-container">
+          <div className="codex-section-label">프로젝트</div>
+          <div className="codex-projects-list">
+            {/* web search */}
+            <div
+              className={`project-folder-box ${selectedProject === 'web search' ? 'selected' : ''}`}
+              onClick={() => setSelectedProject('web search')}
+            >
+              <div className="folder-name-line">
+                <span className="folder-icon">📁</span>
+                <span className="folder-text">web search</span>
+              </div>
+              <div className="folder-sub-preview">
+                웹서치 프로그램 진단·고도화 및 단계별...
+              </div>
             </div>
-            {systemStatus.healthy && (
-              <div className="system-metrics">
-                <div className="metric">
-                  <div className="metric-head">
-                    <span className="metric-label">RAM</span>
-                    <span className="metric-value">{systemStatus.memoryMb}%</span>
-                 </div>
-                  <div className="metric-bar">
-                    <span
-                      className="metric-bar-fill"
-                      data-level={systemStatus.memoryMb > 80 ? 'high' : systemStatus.memoryMb > 50 ? 'mid' : 'low'}
-                      style={{ width: `${Math.min(100, Math.max(0, systemStatus.memoryMb))}%` }}
-                    />
-                 </div>
-               </div>
-                <div className="metric">
-                  <div className="metric-head">
-                    <span className="metric-label">CPU</span>
-                    <span className="metric-value">{systemStatus.cpuPercent}%</span>
-                 </div>
-                  <div className="metric-bar">
-                    <span
-                      className="metric-bar-fill"
-                      data-level={systemStatus.cpuPercent > 80 ? 'high' : systemStatus.cpuPercent > 50 ? 'mid' : 'low'}
-                      style={{ width: `${Math.min(100, Math.max(0, systemStatus.cpuPercent))}%` }}
-                    />
-                 </div>
-               </div>
-                <div className="metric metric-inline">
-                  <span className="metric-label">Tokens</span>
-                  <span className="metric-value metric-value-mono">{systemStatus.totalTokens.toLocaleString()}</span>
-               </div>
-             </div>
-            )}
+
+            {/* New project */}
+            <div
+              className={`project-folder-box ${selectedProject === 'New project' ? 'selected' : ''}`}
+              onClick={() => setSelectedProject('New project')}
+            >
+              <div className="folder-name-line">
+                <span className="folder-icon">📁</span>
+                <span className="folder-text">New project</span>
+              </div>
+              <div className="folder-sub-preview">
+                ollama run hf.co/unsloth/Qwen3.8...
+              </div>
+              <div className="folder-sub-preview">
+                Rename Ollama model
+              </div>
+            </div>
+
+            {/* ssakfile_pro 1.0.0 */}
+            <div
+              className={`project-folder-box ${selectedProject === 'ssakfile_pro' ? 'selected' : ''}`}
+              onClick={() => setSelectedProject('ssakfile_pro')}
+            >
+              <div className="folder-name-line">
+                <span className="folder-icon">📁</span>
+                <span className="folder-text">ssakfile_pro 1.0.0</span>
+              </div>
+              <div className="folder-sub-preview muted">
+                채팅 없음
+              </div>
+            </div>
+
+            {/* Ssak-Ai (Active Card from Screenshot) */}
+            <div
+              className={`project-folder-box active-highlight ${selectedProject === 'Ssak-Ai' ? 'selected' : ''}`}
+              onClick={() => setSelectedProject('Ssak-Ai')}
+            >
+              <div className="folder-name-line">
+                <span className="folder-icon">📁</span>
+                <span className="folder-text bold">Ssak-Ai</span>
+              </div>
+              <div className="folder-task-list">
+                <div className="task-item" onClick={handleNewChat}>전체 코드 QA 및 완성도 평가</div>
+                <div className="task-item" onClick={handleNewChat}>벤치마킹 기능 및 기술 반영</div>
+                <div className="task-item" onClick={handleNewChat}>전체 코드 문제점 점검</div>
+                <div className="task-item" onClick={handleNewChat}>상용 대비 완성도 평가</div>
+                <div className="task-item" onClick={handleNewChat}>분석 기반 인터페이스 고도화 계획</div>
+                <div className="task-item more" onClick={handleNewChat}>더 보기</div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="sidebar-divider" />
+        {/* ── Section: 최근 ─────────────────────────────────────── */}
+        <div className="codex-section-container">
+          <div className="codex-section-label">최근</div>
+          <div className="codex-recents-list">
+            {sessions.length === 0 ? (
+              <div className="recent-link" onClick={handleNewChat}>
+                새 대화 시작하기
+              </div>
+            ) : (
+              sessions.slice(0, 5).map(s => (
+                <div
+                  key={s.id}
+                  className={`recent-link ${activeSessionId === s.id ? 'active' : ''}`}
+                  onClick={() => handleSelectSession(s.id)}
+                >
+                  <span className="recent-status-dot" aria-hidden="true" />
+                  <span className="recent-title">{s.title || '대화'}</span>
+                  <button
+                    type="button"
+                    className="delete-sub-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSession(s.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
 
-        <div className="sidebar-actions">
+      {/* ── Usage Quota Widget Card (사용량 1% 남음) ─────────── */}
+      {usageCardVisible && (
+        <div className="codex-usage-widget-card">
+          <div className="usage-card-header">
+            <span className="usage-title">사용량 {quotaInfo.percent_remaining}% 남음</span>
+            <button
+              type="button"
+              className="usage-close-btn"
+              onClick={() => setUsageCardVisible(false)}
+              title="닫기"
+            >
+              ×
+            </button>
+          </div>
+          <div className="usage-period-row">
+            <span className="period-text">{quotaInfo.period_label}</span>
+            <span className="pct-text">{quotaInfo.percent_remaining}% remaining</span>
+          </div>
+          <div className="usage-meter-track">
+            <div className="usage-meter-fill" style={{ width: `${quotaInfo.percent_remaining}%` }} />
+          </div>
+          <div className="usage-reset-note">
+            {quotaInfo.resets_note}
+          </div>
+          <div className="usage-btn-row">
+            <button
+              type="button"
+              className="usage-btn credit-btn"
+              onClick={() => addToast('크레딧 충전 페이지로 이동합니다.', 'info')}
+            >
+              크레딧 추가
+            </button>
+            <button
+              type="button"
+              className="usage-btn upgrade-btn"
+              onClick={() => addToast('Pro 플랜으로 업그레이드합니다.', 'info')}
+            >
+              업그레이드
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bottom User Profile Bar: Byungseok Ka... ──────────── */}
+      <div className="codex-user-bottom-bar">
+        <div className="user-profile-left">
+          <div className="avatar-initial-circle">BK</div>
+          <span className="user-display-name">Byungseok Ka...</span>
+        </div>
+        <div className="user-profile-right">
           <button
-            className="action-btn"
-            onClick={() => setCommandPaletteVisible(true)}
-            aria-label="명령 팔레트 열기 (Cmd+K)"
+            type="button"
+            className="voice-action-pill"
+            onClick={() => addToast('음성 대화 모드가 준비되었습니다.', 'info')}
+            title="음성 대화"
           >
-            <span className="action-icon">🔍</span>
-            <span className="action-label">명령 팔레트</span>
-            <kbd className="action-shortcut">Cmd+K</kbd>
+            <span className="sound-wave-icon">ılı</span>
+            <span className="voice-text">음성</span>
           </button>
-          <button
-            className="action-btn"
-            onClick={() => toggleTerminal?.()}
-            aria-label="터미널 토글 (Cmd+`)"
-          >
-            <span className="action-icon">💻</span>
-            <span className="action-label">터미널</span>
-            <kbd className="action-shortcut">Cmd+`</kbd>
-          </button>
-          <button
-            className="action-btn action-btn-danger"
-            onClick={handleRestart}
-            aria-label="서버 재시작"
-          >
-            <span className="action-icon">🔄</span>
-            <span className="action-label">재시작</span>
-          </button>
+          <NavLink to="/settings" className="help-icon-link" title="도움말 및 설정">
+            ?
+          </NavLink>
         </div>
       </div>
     </aside>

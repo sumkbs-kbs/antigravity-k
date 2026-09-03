@@ -19,7 +19,7 @@ const EmptyState: React.FC<Props> = ({ onExampleClick }) => {
   return (
     <div className="empty-state-container">
       <div className="empty-state-logo">🚀</div>
-      <div className="empty-state-title">Antigravity-K에 오신 것을 환영합니다</div>
+      <div className="empty-state-title">Ssak-Ai에 오신 것을 환영합니다</div>
       <div className="empty-state-subtitle">
         로컬 AI 엔지니어링 에이전트입니다. 코드 작성, 파일 편집, 웹 검색,
         날씨/주가 조회 등 다양한 작업을 도와드릴 수 있습니다.
