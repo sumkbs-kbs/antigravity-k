@@ -436,6 +436,21 @@ class ToolRegistry:
         """
         return name in self._tools
 
+    def get_tool(self, name: str) -> BaseTool | None:
+        """Return the registered tool instance for ``name``, or None.
+
+        Used by ToolExecutor to inspect tool metadata (e.g. MCP server name)
+        when enforcing request-scoped tool policies.
+
+        Args:
+            name (str): str name.
+
+        Returns:
+            BaseTool | None: The registered tool instance, or None.
+
+        """
+        return self._tools.get(name)
+
     @override
     def __repr__(self) -> str:
         """Return a formal string representation.

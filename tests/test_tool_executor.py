@@ -69,6 +69,7 @@ def tool_registry() -> MagicMock:
     dummy = _make_tool("dummy", required=["x"])
     _registry_tools(reg)["dummy"] = dummy
     reg.get = MagicMock(side_effect=partial(_lookup_tool, reg))
+    reg.get_tool = MagicMock(side_effect=partial(_lookup_tool, reg))
     reg.__contains__ = _contains_tool
 
     def execute_with_permission(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
@@ -673,3 +674,60 @@ class TestApprovalWiring:
 
         assert result == "ok"
         assert fake.consumed
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped ToolPolicy (dashboard Search/Code/MCP chips)
+# ---------------------------------------------------------------------------
+
+
+def test_tool_policy_denies_registered_tool(executor: ToolExecutor):
+    """A denied tool must be blocked with a [BLOCKED] message before gates run."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    token = set_tool_policy(ToolPolicy(denied_tools=frozenset({"dummy"})))
+    try:
+        result = executor.execute("dummy", {"x": 1})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" in result
+    assert "disabled for this request" in result
+
+
+def test_tool_policy_absent_keeps_default_behavior(executor: ToolExecutor):
+    """Without a policy (legacy clients) execution must be unchanged."""
+    result = executor.execute("dummy", {"x": 1})
+    assert "[BLOCKED]" not in result
+
+
+def test_tool_policy_filters_unlisted_mcp_server(executor: ToolExecutor, tool_registry: MagicMock):
+    """MCP tools from servers outside the allowlist must be blocked."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    mcp_tool = _make_tool("mcp_query")
+    mcp_tool._server_name = "other-server"
+    _registry_tools(tool_registry)["mcp_query"] = mcp_tool
+
+    token = set_tool_policy(ToolPolicy(allowed_mcp_servers=frozenset({"codebase-memory-mcp"})))
+    try:
+        result = executor.execute("mcp_query", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" in result
+    assert "other-server" in result
+
+
+def test_tool_policy_allows_listed_mcp_server(executor: ToolExecutor, tool_registry: MagicMock):
+    """MCP tools from allowlisted servers must execute normally."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    mcp_tool = _make_tool("mcp_query")
+    mcp_tool._server_name = "codebase-memory-mcp"
+    _registry_tools(tool_registry)["mcp_query"] = mcp_tool
+
+    token = set_tool_policy(ToolPolicy(allowed_mcp_servers=frozenset({"codebase-memory-mcp"})))
+    try:
+        result = executor.execute("mcp_query", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" not in result

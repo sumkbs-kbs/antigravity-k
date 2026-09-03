@@ -824,6 +824,32 @@ async def chat_completions(
         },
     )
 
+    # ─── 대시보드 칩 상태 → 요청 단위 도구 정책 ───────────────────
+    # 프론트엔드 컴포저의 Search/Code/MCP 토글 값(body.web_search,
+    # body.code_mode, body.mcp_servers)을 ToolExecutor 정책으로 변환한다.
+    # 키가 없는 구형 클라이언트는 제한 없이 동작한다(tri-state).
+    from antigravity_k.engine.tool_executor import (
+        ToolPolicy,
+        reset_tool_policy,
+        set_tool_policy,
+    )
+
+    _policy_denied: set[str] = set()
+    _raw_web_search = body.get("web_search")
+    if _raw_web_search is not None and not _bool_value(_raw_web_search):
+        _policy_denied.add("web_search")
+    _raw_code_mode = body.get("code_mode")
+    if _raw_code_mode is not None and not _bool_value(_raw_code_mode):
+        _policy_denied.add("run_bash_command")
+    _raw_mcp = body.get("mcp_servers")
+    _allowed_mcp: frozenset[str] | None = None
+    if isinstance(_raw_mcp, list):
+        _allowed_mcp = frozenset(str(item) for item in _raw_mcp if isinstance(item, str) and item)
+    _tool_policy = ToolPolicy(
+        denied_tools=frozenset(_policy_denied),
+        allowed_mcp_servers=_allowed_mcp,
+    )
+
     if is_stream and is_agent_mode:
         from starlette.concurrency import run_in_threadpool
 
@@ -838,6 +864,7 @@ async def chat_completions(
         async def event_generator():
             full_response = ""
             stream_aiter = None
+            policy_token = set_tool_policy(_tool_policy)
             try:
                 stream_iterator = runtime.stream(cast(Sequence[Mapping[str, str]], messages), target_model=target_model)
                 stream_context = contextvars.copy_context()
@@ -917,6 +944,8 @@ async def chat_completions(
                 yield f"data: {json.dumps(data)}\n\n"
                 yield "data: [DONE]\n\n"
             finally:
+                # 요청 단위 도구 정책 해제
+                reset_tool_policy(policy_token)
                 # 백그라운드 이터레이터 명시적 종료 (스레드 풀 작업 정리)
                 if stream_aiter is not None:
                     aclose = getattr(stream_aiter, "aclose", None)

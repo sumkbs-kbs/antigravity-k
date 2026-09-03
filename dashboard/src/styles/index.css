@@ -14319,3 +14319,170 @@ html, body {
     padding: 18px 14px 12px;
   }
 }
+
+/* ─── A11y contrast fixes (WCAG AA on light surfaces) ─────────── */
+/* Muted grays bumped to ≥4.5:1 on white / #fbfbfc backgrounds. */
+.codex-section-label,
+.usage-reset-note,
+.folder-sub-preview.muted,
+.task-item.more {
+  color: #5d6470;
+}
+
+.avatar-initial-circle {
+  background: #047857;
+}
+
+.env-section-title,
+.env-row-muted,
+.env-sub-empty,
+.env-file-footer,
+.queued-subtitle,
+.working-elapsed {
+  color: #5d6470;
+}
+
+.env-mcp-status,
+.env-branch-current,
+.tool-chip.active {
+  color: #047857;
+}
+
+.crumb-sep,
+.env-chevron {
+  color: #6b7280;
+}
+
+.recent-title {
+  color: #374151;
+}
+
+/* ─── Activity timeline (Antigravity 활동 행) ─────────────────── */
+.agk-activity {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.activity-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.activity-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.activity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #5d6470;
+  background: #f6f7f9;
+  border-radius: 9999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+.activity-count {
+  flex: 1;
+  text-align: right;
+  font-size: 11.5px;
+  color: #5d6470;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.activity-rows {
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.activity-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.activity-row-icon {
+  width: 14px;
+  text-align: center;
+  color: #6b7280;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.activity-row-label {
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.activity-row-detail {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #5d6470;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-row-time {
+  font-size: 10.5px;
+  color: #5d6470;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.activity-row.status-running .activity-row-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  margin-right: 6px;
+  animation: agk-working-pulse 1.2s ease-in-out infinite;
+}
+
+.activity-row.status-done .activity-row-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  margin-right: 6px;
+}
+
+.activity-row.status-failed .activity-row-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  margin-right: 6px;
+}

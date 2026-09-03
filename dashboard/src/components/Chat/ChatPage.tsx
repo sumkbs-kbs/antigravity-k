@@ -25,6 +25,7 @@ import { detectChangesFromAssistantContent, registerFileModification } from '../
 import { firePluginHook } from '../../plugin/pluginRegistry';
 import ChatMessage from './ChatMessage';
 import ChatHistory from './ChatHistory';
+import ActivityTimeline from './ActivityTimeline';
 import CodeEditor from '../Editor/Editor';
 import ArtifactPreview from '../Editor/ArtifactPreview';
 import ChangePanel from '../Editor/ChangePanel';
@@ -35,6 +36,7 @@ import {
   FileEditCard,
   QueuedMessagesCard,
 } from './ChatActivity';
+import { useActivityStore } from '../../stores/activityStore';
 
 const MODEL_LABELS: Record<string, string> = {
   default: '5.6 Sol High',
@@ -53,7 +55,7 @@ export const ChatPage: React.FC = () => {
     loadFromStorage, setSelectedModel,
   } = useChatStore();
 
-  const { addToast } = useUiStore();
+  const { addToast, setCommandPaletteVisible } = useUiStore();
   const { previewVisible, openFile } = useEditorStore();
   const { setPanelVisible: setChangePanelVisible } = useChangeStore();
   const pendingChangeCount = useChangeStore((s) => s.changes.filter((c) => c.status === 'pending').length);
@@ -153,9 +155,22 @@ export const ChatPage: React.FC = () => {
 
   /* ─── WebSocket event listeners ──────────────────────────── */
   useEventWebSocket({
+    onToolExecutionStarted: (data) => {
+      useActivityStore.getState().recordToolStart(data);
+    },
+    onToolExecutionFinished: () => {
+      useActivityStore.getState().recordToolEnd();
+    },
+    onFailureDetected: (data) => {
+      useActivityStore.getState().recordError(data.error ?? data.message ?? '알 수 없는 오류');
+    },
+    onPlanningModeStarted: (data) => {
+      useActivityStore.getState().recordPlan(data.goal ?? '');
+    },
     onFileOpened: (data) => {
       const filePath = data?.filepath;
       if (filePath) {
+        useActivityStore.getState().recordFileRead(filePath);
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
         fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
           .then(r => r.ok ? r.json() : null)
@@ -172,6 +187,7 @@ export const ChatPage: React.FC = () => {
     onFileModified: (data) => {
       const filePath = data?.filepath;
       if (filePath) {
+        useActivityStore.getState().recordFileEdit(filePath);
         const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
         fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`)
           .then(r => r.ok ? r.json() : null)
@@ -215,6 +231,7 @@ export const ChatPage: React.FC = () => {
     const tddMode = isTddModeRef.current;
 
     firePluginHook('chat:send', { text, model, planMode, tddMode });
+    useActivityStore.getState().clear();
     addMessage({ role: 'user', content: text });
     saveToStorage();
     setStreamError(null);
@@ -555,7 +572,7 @@ export const ChatPage: React.FC = () => {
             <div className="model-selector-wrap codex-model-selector-wrap">
               <button
                 type="button"
-                className="model-pill-trigger"
+                className="model-pill-trigger model-select-trigger"
                 onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
                 aria-label="모델 선택"
               >
@@ -663,6 +680,15 @@ export const ChatPage: React.FC = () => {
             <button
               type="button"
               className="topbar-tool-btn"
+              aria-label="명령 팔레트 열기 (Cmd+K)"
+              title="명령 팔레트 (Cmd+K)"
+              onClick={() => setCommandPaletteVisible(true)}
+            >
+              ⌘
+            </button>
+            <button
+              type="button"
+              className="topbar-tool-btn"
               aria-label="채팅 히스토리"
               title="채팅 히스토리"
               onClick={() => setHistoryVisible(true)}
@@ -712,6 +738,7 @@ export const ChatPage: React.FC = () => {
                 {messages.map(msg => (
                   <ChatMessage key={msg.id ?? `${msg.role}:${msg.content}`} message={msg} />
                 ))}
+                <ActivityTimeline />
                 {isStreaming && <WorkingIndicator elapsed={elapsed} />}
                 {streamError && !isStreaming && (
                   <StreamErrorBanner

@@ -151,13 +151,15 @@ test('[A11y] Sidebar — keyboard navigation', async ({ page }) => {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1000);
 
-  // Tab through sidebar items
-  const sidebarLinks = page.locator('.sidebar-nav .nav-item');
+  // Tab through sidebar items (Codex-style sidebar classes)
+  const sidebarLinks = page.locator('.codex-primary-menu .codex-menu-row');
   const linkCount = await sidebarLinks.count();
   expect(linkCount).toBeGreaterThan(0);
 
   // Verify focusable elements exist in sidebar
-  const focusableCount = await page.locator('.sidebar a, .sidebar button, .sidebar [tabindex="0"]').count();
+  const focusableCount = await page
+    .locator('.codex-desktop-sidebar a, .codex-desktop-sidebar button, .sidebar a, .sidebar button, .sidebar [tabindex="0"]')
+    .count();
   console.log(`[A11y] Sidebar focusable elements: ${focusableCount}`);
   expect(focusableCount).toBeGreaterThan(5);
 });

@@ -6,12 +6,14 @@ I-1 리팩터링: Orchestrator에서 분리된 도구 실행/등록 로직.
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
 import re
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, TypedDict, cast, final
 
 from antigravity_k.engine.failure_classifier import (
@@ -31,6 +33,46 @@ if TYPE_CHECKING:
     from antigravity_k.engine.vault import VaultEngine
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ToolPolicy:
+    """요청 단위 도구 허용 정책.
+
+    대시보드 컴포저의 Search/Code/MCP 칩 상태를 채팅 요청에 반영하기 위해
+    ``chat`` 라우트가 설정하고 ``ToolExecutor.execute``가 조회한다.
+    contextvar 기반이므로 요청 스레드풀 컨텍스트 안에서만 유효하다.
+    """
+
+    denied_tools: frozenset[str] = field(default_factory=frozenset)
+    allowed_mcp_servers: frozenset[str] | None = None
+
+
+_tool_policy_var: contextvars.ContextVar[ToolPolicy | None] = contextvars.ContextVar("agk_tool_policy", default=None)
+
+
+def set_tool_policy(policy: ToolPolicy | None) -> contextvars.Token[ToolPolicy | None]:
+    """Set the request-scoped tool policy. Returns a token for :func:`reset_tool_policy`."""
+    return _tool_policy_var.set(policy)
+
+
+def reset_tool_policy(token: contextvars.Token[ToolPolicy | None]) -> None:
+    """Restore the previous tool policy captured by :func:`set_tool_policy`."""
+    _tool_policy_var.reset(token)
+
+
+def _tool_policy_denial(name: str, tool: object | None) -> str | None:
+    """Return a denial message when the active policy blocks this tool, else None."""
+    policy = _tool_policy_var.get()
+    if policy is None:
+        return None
+    if name in policy.denied_tools:
+        return f"Tool '{name}' is disabled for this request by the user's tool toggles."
+    if policy.allowed_mcp_servers is not None and tool is not None:
+        server_name = getattr(tool, "_server_name", "")
+        if server_name and server_name not in policy.allowed_mcp_servers:
+            return f"MCP server '{server_name}' is disabled for this request " "by the user's MCP selection."
+    return None
 
 
 def result_indicates_failure(result: str) -> bool:
@@ -193,6 +235,17 @@ class ToolExecutor:
                     f"There was an error when executing the function: {name}\n"
                     f"Here's the error traceback: Unknown tool '{name}'\n"
                     f"Please call this function again with a valid tool name within XML tags <tool_call></tool_call>"
+                )
+
+            # ─── 요청 단위 도구 정책 (대시보드 Search/Code/MCP 칩) ───
+            policy_tool = self.tool_registry.get_tool(name)
+            policy_denial = _tool_policy_denial(name, policy_tool)
+            if policy_denial is not None:
+                logger.info("ToolPolicy blocked '%s'", name)
+                return (
+                    f"There was an error when executing the function: {name}\n"
+                    f"Here's the error traceback: [BLOCKED] {policy_denial}\n"
+                    f"Please continue without this tool."
                 )
 
             # ─── Phase 1 D3: PlanGuard 모드 기반 도구 차단 ───

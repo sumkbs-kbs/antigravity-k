@@ -19,6 +19,11 @@
 
 import { type Locator, type Page, expect } from '@playwright/test';
 
+type DashboardCredential =
+  | { kind: 'none' }
+  | { kind: 'legacyPin'; value: string }
+  | { kind: 'token'; value: string };
+
 export class DashboardPage {
   readonly page: Page;
 
@@ -132,17 +137,24 @@ export class DashboardPage {
      Navigation
      ═══════════════════════════════════════════════════════════════ */
 
-  /**
-   * Navigate to the dashboard base URL and wait for it to be ready.
-   * Sets a default access PIN in localStorage before navigation to prevent
-   * the PIN authentication modal from appearing on every API 401.
-   */
-  async goto(pin = '0000'): Promise<void> {
-    await this.page.addInitScript(p => {
-      localStorage.setItem('ag_access_pin', p);
-    }, pin);
+  async goto(credential: DashboardCredential = { kind: 'none' }): Promise<void> {
+    if (credential.kind === 'legacyPin') {
+      await this.page.addInitScript(({ pin }) => {
+        localStorage.setItem('ag_access_pin', pin);
+      }, { pin: credential.value });
+    } else if (credential.kind === 'token') {
+      await this.page.addInitScript(({ token }) => {
+        sessionStorage.setItem('ag_access_token', token);
+      }, { token: credential.value });
+    }
     await this.page.goto('/');
     await this.page.waitForLoadState('domcontentloaded');
+  }
+
+  async submitPin(pin: string): Promise<void> {
+    await this.pinModal.waitFor({ state: 'visible', timeout: 3_000 });
+    await this.pinInput.fill(pin);
+    await this.pinSubmit.click();
   }
 
   /** Navigate directly to a page via hash route `/#!{path}`. */
@@ -180,14 +192,11 @@ export class DashboardPage {
      Command Palette
      ═══════════════════════════════════════════════════════════════ */
 
-  /** Open the command palette via button click, then Cmd+K fallback. */
   async openCommandPalette(): Promise<void> {
-    const isVisible = await this.commandPaletteButton.isVisible().catch(() => false);
-    if (isVisible) {
-      await this.commandPaletteButton.first().click();
-    } else {
-      await this.page.keyboard.press('Meta+k');
-    }
+    await this.page
+      .getByRole('button', { name: '명령 팔레트 열기 (Cmd+K)' })
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    await this.page.keyboard.press('ControlOrMeta+k');
     await this.page.waitForTimeout(300);
   }
 
@@ -352,30 +361,12 @@ export class DashboardPage {
     return this.pinModal.isVisible().catch(() => false);
   }
 
-  /**
-   * If the PIN modal is visible, enter the PIN and submit.
-   * Waits up to 3s for the modal to appear (handles async dialog triggers).
-   * After submission, waits for the page reload triggered by PinModal.
-   */
-  async handlePinModal(pin = '0000'): Promise<void> {
-    try {
-      await this.pinModal.waitFor({ state: 'visible', timeout: 3000 });
-      await this.pinInput.fill(pin);
-      await this.pinSubmit.click();
-      // PIN modal reloads the page on success, so wait for stability
-      await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
-      await this.page.waitForTimeout(500);
-    } catch {
-      // PIN modal did not appear — proceed normally
-    }
-  }
-
   /* ═══════════════════════════════════════════════════════════════
      Health / Status
      ═══════════════════════════════════════════════════════════════ */
 
   /** Expect the page title to contain the app name. */
-  async expectTitle(title = 'Antigravity-K'): Promise<void> {
+  async expectTitle(title = 'Ssak-Ai'): Promise<void> {
     await expect(this.page).toHaveTitle(new RegExp(title, 'i'));
   }
 

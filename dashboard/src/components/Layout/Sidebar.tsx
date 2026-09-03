@@ -137,6 +137,7 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
           >
             <span className="menu-icon">🔀</span>
             <span className="menu-label">풀 리퀘스트</span>
+            <span className="visually-hidden">Git</span>
           </NavLink>
 
           <NavLink
