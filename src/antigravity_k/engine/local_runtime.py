@@ -60,8 +60,10 @@ class LocalRuntimeSupervisor:
                 elif gguf_shards:
                     main_shards = [s for s in gguf_shards if not s.name.startswith("mmproj")]
                     model_file = str(main_shards[0] if main_shards else gguf_shards[0])
-        elif repo and Path(repo).exists() and _is_gguf(Path(repo)):
+        elif repo and (repo.casefold().endswith(".gguf") or (Path(repo).exists() and _is_gguf(Path(repo)))):
             model_file = repo
+        elif name and name.casefold().endswith(".gguf"):
+            model_file = name
 
         is_gguf = bool(model_file)
         if not is_gguf or provider not in {"llama.cpp", "llamacpp", "unsloth"}:
@@ -73,17 +75,15 @@ class LocalRuntimeSupervisor:
 
         process = self._processes.get(name)
         if process is not None and process.poll() is None:
-            return api_base
-        if self._probe(api_base):
+            if self._probe(api_base, expected_model=model_file):
+                return api_base
+
+        # 현재 실행 중인 서버가 이미 요청한 모델을 서비스하고 있는지 확인
+        if self._probe(api_base, expected_model=model_file):
             return api_base
 
-        binary = (
-            os.getenv("AGK_LLAMA_SERVER_BIN", "").strip()
-            or shutil.which("llama-server")
-            or "/opt/homebrew/bin/llama-server"
-            or "/usr/local/bin/llama-server"
-        )
-        if not binary or not os.path.exists(binary):
+        binary = self._resolve_binary()
+        if not binary:
             raise RuntimeError(
                 f"GGUF 모델 '{name}'을 실행하려면 llama-server가 필요합니다. llama.cpp를 설치하거나 "
                 + "AGK_LLAMA_SERVER_BIN을 설정하세요."
@@ -91,7 +91,7 @@ class LocalRuntimeSupervisor:
 
         # 기존에 다른 모델이 8080 포트를 점유하고 있으면 종료 후 새 모델 기동
         for existing_name, existing_proc in list(self._processes.items()):
-            if existing_name != name and existing_proc.poll() is None:
+            if existing_proc.poll() is None:
                 existing_proc.terminate()
                 self._processes.pop(existing_name, None)
 
@@ -111,19 +111,53 @@ class LocalRuntimeSupervisor:
             str(ctx_size),
             "-ngl",
             "99",
+            "--reasoning-preserve",
         ]
+
+        log_path = f"/tmp/agk_llama_server_{port}.log"
+        log_file = open(log_path, "w", encoding="utf-8", errors="replace")  # noqa: SIM115
         process = self._process_factory(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
             start_new_session=True,
         )
         self._processes[name] = process
-        if not self._wait_until_available(api_base, timeout=120.0):
+
+        if not self._wait_until_available(api_base, timeout=60.0, process=process):
             process.terminate()
             _ = self._processes.pop(name, None)
-            raise RuntimeError(f"llama-server가 모델 '{name}'을 준비하지 못했습니다.")
+            err_details = self._extract_recent_log_errors(log_path)
+            detail_str = f": {err_details}" if err_details else ""
+            raise RuntimeError(f"llama-server가 모델 '{name}'을 준비하지 못했습니다{detail_str}.")
         return api_base
+
+    @classmethod
+    def _resolve_binary(cls) -> str:
+        binary = os.getenv("AGK_LLAMA_SERVER_BIN", "").strip() or shutil.which("llama-server")
+        if binary and os.path.exists(binary):
+            return binary
+        for candidate in ("/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"):
+            if os.path.exists(candidate):
+                return candidate
+        return ""
+
+    @staticmethod
+    def _extract_recent_log_errors(log_path: str) -> str:
+        if not os.path.exists(log_path):
+            return ""
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = [ln.strip() for ln in f.readlines() if ln.strip()]
+            error_keywords = ("error", "failed", "unknown", "abort", "assert", "exception", "fatal")
+            err_lines = [ln for ln in lines if any(k in ln.lower() for k in error_keywords)]
+            if err_lines:
+                return " | ".join(err_lines[-3:])
+            if lines:
+                return " | ".join(lines[-3:])
+        except OSError:
+            pass
+        return ""
 
     def shutdown(self) -> None:
         for name, process in tuple(self._processes.items()):
@@ -132,18 +166,48 @@ class LocalRuntimeSupervisor:
             _ = self._processes.pop(name, None)
 
     @staticmethod
-    def _probe(api_base: str) -> bool:
+    def _probe(api_base: str, expected_model: str = "") -> bool:
+        import json
+        from pathlib import Path
+
         try:
             request = Request(f"{api_base.rstrip('/')}/models")
-            with safe_urlopen(request, timeout=1):
-                return True
+            with safe_urlopen(request, timeout=1) as response:
+                if not expected_model or not hasattr(response, "read"):
+                    return True
+                try:
+                    payload = json.loads(response.read().decode("utf-8"))
+                    models = payload.get("data", []) or payload.get("models", [])
+                    if not models:
+                        return True
+                    loaded_ids = [str(m.get("id", "") or m.get("name", "") or m.get("model", "")) for m in models]
+                    exp_name = Path(expected_model).name
+                    exp_stem = Path(expected_model).stem
+                    exp_real = str(Path(expected_model).resolve()) if Path(expected_model).exists() else expected_model
+                    return any(
+                        exp_name in lid
+                        or exp_stem in lid
+                        or exp_real in lid
+                        or lid in exp_real
+                        or expected_model in lid
+                        for lid in loaded_ids
+                    )
+                except Exception:
+                    return True
         except (OSError, TimeoutError, ValueError):
             return False
 
     @classmethod
-    def _wait_until_available(cls, api_base: str, timeout: float = 30.0) -> bool:
+    def _wait_until_available(
+        cls,
+        api_base: str,
+        timeout: float = 30.0,
+        process: _Process | None = None,
+    ) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if process is not None and process.poll() is not None:
+                return False
             if cls._probe(api_base):
                 return True
             time.sleep(0.25)

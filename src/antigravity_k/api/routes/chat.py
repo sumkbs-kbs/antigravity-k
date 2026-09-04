@@ -826,8 +826,10 @@ async def chat_completions(
 
     # ─── 대시보드 칩 상태 → 요청 단위 도구 정책 ───────────────────
     # 프론트엔드 컴포저의 Search/Code/MCP 토글 값(body.web_search,
-    # body.code_mode, body.mcp_servers)을 ToolExecutor 정책으로 변환한다.
-    # 키가 없는 구형 클라이언트는 제한 없이 동작한다(tri-state).
+    # body.code_mode, body.mcp_servers)과 실행 권한 모드(읽기 전용)를
+    # ToolExecutor 정책으로 변환한다. 키가 없는 구형 클라이언트는
+    # 도구 토글에 한해 제한 없이 동작한다(tri-state).
+    from antigravity_k.engine.access_mode import AccessMode, get_access_mode
     from antigravity_k.engine.tool_executor import (
         ToolPolicy,
         reset_tool_policy,
@@ -848,6 +850,7 @@ async def chat_completions(
     _tool_policy = ToolPolicy(
         denied_tools=frozenset(_policy_denied),
         allowed_mcp_servers=_allowed_mcp,
+        safe_only=get_access_mode() is AccessMode.READ_ONLY,
     )
 
     if is_stream and is_agent_mode:
@@ -973,6 +976,7 @@ async def chat_completions(
         kwargs = {
             "max_tokens": internal_req.get("max_tokens", 1024),
             "temperature": internal_req.get("temperature", 0.7),
+            "raw_messages": messages,
         }
 
         if is_stream:

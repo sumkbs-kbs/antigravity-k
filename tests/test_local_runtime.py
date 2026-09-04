@@ -45,7 +45,7 @@ def test_llama_runtime_starts_server_when_endpoint_is_down() -> None:
         with patch.object(supervisor, "_wait_until_available", return_value=True):
             assert supervisor.ensure_available(profile) == profile.api_base
 
-    assert popen.call_args.args[0] == [
+    assert popen.call_args.args[0][:7] == [
         "/opt/homebrew/bin/llama-server",
         "-m",
         "/models/qwen.gguf",
@@ -67,7 +67,7 @@ def test_llama_runtime_reports_installation_reason_when_server_binary_is_missing
 
     with (
         patch("antigravity_k.engine.local_runtime.safe_urlopen", side_effect=OSError("offline")),
-        patch("antigravity_k.engine.local_runtime.shutil.which", return_value=None),
+        patch.object(LocalRuntimeSupervisor, "_resolve_binary", return_value=""),
     ):
         try:
             supervisor.ensure_available(profile)

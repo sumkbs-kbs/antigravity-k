@@ -229,6 +229,28 @@ npx vite preview --port 4178 &
       - Python mypy 0 errors in 3 files.
       - 프론트엔드 vitest 53개 파일 632개 전수 통과 (10.83s).
 
+17. ✅ **로컬/언슬로스 모델 응답 품질 이상(횡설수설/비정상 텍스트) 정밀 원인 분석 및 런타임 모델 격리·검증 구축 (10차)**:
+    - **원인 정밀 규명**:
+      1. **런타임 모델 식별 누락 (`LocalRuntimeSupervisor`)**: `_probe(api_base)`가 단순히 HTTP 200 OK 여부만 검사하여, 8080 포트에 기존에 띄워진 모델(`orpheus-3b`)이 있을 때 다른 모델(`Qwen3.8-Flash-Next` 등)을 요청해도 새 프로세스를 띄우지 않고 기존 프로세스로 모든 요청을 전달하는 치명적 오라우팅 발생.
+      2. **`orpheus-3b-0.1-ft`의 특수 목적 모델 성격**: 일반 대화형 AI가 아닌 Canopy Labs Text-to-Speech(TTS) 음성 합성 전용 Speech-LLM으로, 사람의 독백 대본 및 발화 감정/행동 태그(`<scratches>`, `*pensieve*`, `<giggle>`)를 출력하도록 훈련된 모델임.
+      3. **`Qwen3.8-Flash-Next`의 아키텍처 호환성 한계**: 알리바바의 2026년 8월 말 공개 MoE 실험 아키텍처(`qwen4exp`)로, 현재 설치된 `llama-server`(v10360)에서 `unknown model architecture: 'qwen4exp'` 에러로 기동 즉시 종료됨. 그러나 1번 버그 때문에 8080에 남아있던 Orpheus가 대신 응답하여 사용자는 Qwen이 횡설수설하는 것으로 오인함.
+      4. **`NVIDIA-Nemotron-3.5-30B`의 Metal 백엔드 크래시**: Mamba2 SSM + MoE 구조로 Apple Silicon Metal 백엔드에서 `GGML_ASSERT(K >= 1)` 실패로 크래시 발생.
+      5. **대화형 모델 실증 성공**: 순수 대화형 모델인 `unsloth/Qwen3.8-27B-UD-Q8_K_XL` (29.3GB) 및 `qwen3.8:latest` (Ollama 27.3B)는 Metal 가속으로 4.4초 만에 로드되며 완벽한 한국어 추론 및 답변(`1+1은 2입니다.`, 리스트 뒤집기 등) 수행 확인.
+    - **코드 개선 내역**:
+      - `src/antigravity_k/engine/local_runtime.py`:
+        - `_probe(api_base, expected_model)`: 로드된 모델의 ID/경로를 파싱하여 기대 모델과 불일치 시 `False` 반환 및 기존 프로세스 즉각 종료 후 재기동.
+        - `llama-server` 기동 로그 `/tmp/agk_llama_server_{port}.log` 자동 기록 및 기동 실패 시 상세 에러 원인(`unknown model architecture: 'qwen4exp'` 등)을 `RuntimeError` 메시지에 명시.
+        - `--reasoning-preserve` 플래그 추가로 최신 모델 추론 체인 보존.
+      - `src/antigravity_k/engine/local_model_discovery.py`:
+        - `_infer_role`: `orpheus`, `tts`, `asr`, `whisper` 등 음성 관련 모델의 역할을 `audio`로 정확히 분류.
+        - `_discover_huggingface_cache`: `models--*` 디렉터리 순회 루프 버그 수정으로 PC 내 20개 로컬 모델 전수 탐색 보장.
+      - `src/antigravity_k/api/routes/chat.py`:
+        - `manager.generate` 및 `manager.stream_generate`에 `raw_messages: messages`를 전달하여 모델의 Jinja 대화 템플릿과 메시지 역할 구조가 온전히 반영되도록 개선.
+    - **검증 완료**:
+      - 백엔드 pytest 65개 전수 100% 통과 (1.35s).
+      - 프론트엔드 vitest 53개 파일 632개 전수 100% 통과 (10.70s).
+      - `Qwen3.8-27B-UD-Q8_K_XL` 모델 API 실측 추론 질의응답 정상 완료.
+
 ### 6.1 남은 과제
 
 1. **auth-bootstrap 스펙 2건(환경 의존)**: `.env`에 `AGK_ACCESS_PIN`이 설정된 머신에서는

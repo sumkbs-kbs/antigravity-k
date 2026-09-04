@@ -48,6 +48,7 @@ class LocalModelDiscovery:
         openai_endpoints: Sequence[tuple[str, str]] | None = None,
         disable_network: bool = False,
     ) -> None:
+        self._custom_model_dirs: bool = model_dirs is not None
         self._model_dirs: tuple[Path, ...] = (
             tuple(model_dirs) if model_dirs is not None else self._configured_model_dirs()
         )
@@ -168,61 +169,73 @@ class LocalModelDiscovery:
         return tuple(models)
 
     def _discover_huggingface_cache(self) -> tuple[DiscoveredLocalModel, ...]:
-        hf_hub_dir = Path("~/.cache/huggingface/hub").expanduser()
-        if not hf_hub_dir.is_dir():
-            return ()
-        
+        if self._custom_model_dirs:
+            hf_hub_dirs = [d for d in self._model_dirs if d.name.startswith("models--") or list(d.glob("models--*"))]
+            if not hf_hub_dirs:
+                return ()
+        else:
+            default_hf = Path("~/.cache/huggingface/hub").expanduser()
+            if not default_hf.is_dir():
+                return ()
+            hf_hub_dirs = [default_hf]
+
         models: list[DiscoveredLocalModel] = []
-        for repo_dir in hf_hub_dir.glob("models--*"):
-            if not repo_dir.is_dir():
-                continue
-                
-            repo_name = repo_dir.name.removeprefix("models--").replace("--", "/")
-            snapshots_dir = repo_dir / "snapshots"
-            if not snapshots_dir.is_dir():
-                continue
-                
-            snapshots = [d for d in snapshots_dir.iterdir() if d.is_dir()]
-            if not snapshots:
-                continue
-            snapshot_dir = max(snapshots, key=lambda d: d.stat().st_mtime)
-            
-            org = repo_name.split("/")[0] if "/" in repo_name else repo_name
-            provider = "unsloth" if org in ("unsloth", "unslothai") else ("mlx" if org == "mlx-community" else "huggingface")
-            
-            gguf_dirs: set[Path] = set()
-            found_gguf = False
-            for path in snapshot_dir.rglob("*.gguf"):
-                if "mmproj" in path.name.casefold():
+        for hf_hub_dir in hf_hub_dirs:
+            repo_dirs = [hf_hub_dir] if hf_hub_dir.name.startswith("models--") else list(hf_hub_dir.glob("models--*"))
+            for repo_dir in repo_dirs:
+                if not repo_dir.is_dir():
                     continue
-                found_gguf = True
-                if path.parent != snapshot_dir:
-                    gguf_dirs.add(path.parent)
-                else:
-                    model = self._build_hf_model(path, repo_name, provider)
+
+                repo_name = repo_dir.name.removeprefix("models--").replace("--", "/")
+                snapshots_dir = repo_dir / "snapshots"
+                if not snapshots_dir.is_dir():
+                    continue
+
+                snapshots = [d for d in snapshots_dir.iterdir() if d.is_dir()]
+                if not snapshots:
+                    continue
+                snapshot_dir = max(snapshots, key=lambda d: d.stat().st_mtime)
+
+                org = repo_name.split("/")[0] if "/" in repo_name else repo_name
+                provider = (
+                    "unsloth"
+                    if org in ("unsloth", "unslothai")
+                    else ("mlx" if org == "mlx-community" else "huggingface")
+                )
+
+                gguf_dirs: set[Path] = set()
+                found_gguf = False
+                for path in snapshot_dir.rglob("*.gguf"):
+                    if "mmproj" in path.name.casefold():
+                        continue
+                    found_gguf = True
+                    if path.parent != snapshot_dir:
+                        gguf_dirs.add(path.parent)
+                    else:
+                        model = self._build_hf_model(path, repo_name, provider)
+                        if model.disk_size_gb * 1024 >= 10:
+                            models.append(model)
+
+                for gdir in gguf_dirs:
+                    model = self._build_hf_model(gdir, repo_name, provider)
                     if model.disk_size_gb * 1024 >= 10:
                         models.append(model)
-            
-            for gdir in gguf_dirs:
-                model = self._build_hf_model(gdir, repo_name, provider)
-                if model.disk_size_gb * 1024 >= 10:
-                    models.append(model)
-            
-            if not found_gguf:
-                if (snapshot_dir / "mlx_model.safetensors").is_file():
-                    model = self._build_hf_model(snapshot_dir, repo_name, provider)
-                    if model.disk_size_gb * 1024 >= 10:
-                        models.append(model)
-                elif _has_transformer_weights(snapshot_dir):
-                    model = self._build_hf_model(snapshot_dir, repo_name, provider)
-                    if model.disk_size_gb * 1024 >= 10:
-                        models.append(model)
-                
+
+                if not found_gguf:
+                    if (snapshot_dir / "mlx_model.safetensors").is_file():
+                        model = self._build_hf_model(snapshot_dir, repo_name, provider)
+                        if model.disk_size_gb * 1024 >= 10:
+                            models.append(model)
+                    elif _has_transformer_weights(snapshot_dir):
+                        model = self._build_hf_model(snapshot_dir, repo_name, provider)
+                        if model.disk_size_gb * 1024 >= 10:
+                            models.append(model)
+
         return tuple(models)
 
     def _build_hf_model(self, path: Path, repo_name: str, provider: str) -> DiscoveredLocalModel:
         is_gguf = path.is_file() and path.suffix.casefold() == ".gguf"
-        
+
         if is_gguf:
             name = path.stem
         elif path.parent.name == "snapshots":
@@ -243,7 +256,7 @@ class LocalModelDiscovery:
                         size += p.resolve().stat().st_size
                     except OSError:
                         pass
-                        
+
         metadata = _read_model_config(path) if not is_gguf else {}
         text = f"{name} {path}".casefold()
         parameter_count = next(
@@ -263,12 +276,14 @@ class LocalModelDiscovery:
             ),
             0,
         )
-        
+
         return DiscoveredLocalModel(
             name=name,
             repo=repo_name,
             provider=provider,
-            api_base=os.getenv("AGK_LLAMA_CPP_API_BASE", "http://127.0.0.1:8080/v1") if is_gguf or (not is_gguf and list(path.glob("*.gguf"))) else "",
+            api_base=os.getenv("AGK_LLAMA_CPP_API_BASE", "http://127.0.0.1:8080/v1")
+            if is_gguf or (not is_gguf and list(path.glob("*.gguf")))
+            else "",
             role=_infer_role(name),
             parameter_count_b=parameter_count,
             estimated_memory_gb=size / (1024**3) if size > 0 else 0.0,
@@ -432,6 +447,8 @@ def _infer_role(name: str, family: object = None) -> str:
         return "embedding"
     if any(token in text for token in ("vision", "vlm", "llava", "pixtral", "qwen-vl")):
         return "vision"
+    if any(token in text for token in ("orpheus", "tts", "asr", "whisper", "speech", "voice", "audio")):
+        return "audio"
     if any(token in text for token in ("coder", "coding", "code", "deepseek-c")):
         return "coding"
     return "reasoning"
