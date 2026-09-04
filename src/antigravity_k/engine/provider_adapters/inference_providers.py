@@ -460,8 +460,14 @@ class OpenRouterProvider(BaseInferenceProvider):
                     except json.JSONDecodeError:
                         continue
         except Exception as e:
-            logger.exception("OpenRouter API stream failed")
-            yield f"[API Error for {loaded.profile.name}] {e}"
+            err_body = ""
+            if hasattr(e, "read"):
+                try:
+                    err_body = f" Body: {e.read().decode('utf-8', errors='replace')}"
+                except Exception:
+                    pass
+            logger.exception("API stream failed (%s)%s", url, err_body)
+            yield f"[API Error for {loaded.profile.name}] {e}{err_body}"
 
 
 class OllamaProvider(BaseInferenceProvider):

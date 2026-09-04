@@ -88,3 +88,24 @@ def test_router_excludes_over_budget_models_from_config() -> None:
     qwen = registry.get_model("qwen3.8")
     assert qwen is not None
     assert policy.decide(qwen).allowed is True
+
+
+def test_large_local_models_are_not_rejected_by_parameter_cap() -> None:
+    policy = ModelRoutingPolicy(
+        enabled=True,
+        max_parameter_count_b=70.0,
+        min_local_parameter_count_b=20.0,
+    )
+    large_local = ModelProfile(
+        name="Qwen3.8-Flash-Next-GGUF-UD-IQ4_XS",
+        repo="unsloth/Qwen3.8-Flash-Next-GGUF",
+        role="reasoning",
+        provider="unsloth",
+        estimated_memory_gb=87.25,
+        parameter_count_b=87.25,
+    )
+    assert large_local.is_local is True
+    decision = policy.decide(large_local)
+    assert decision.allowed is True
+    assert decision.reason == "eligible"
+

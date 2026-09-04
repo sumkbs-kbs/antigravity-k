@@ -214,6 +214,20 @@ npx vite preview --port 4178 &
       - 프론트엔드: Vitest 53개 파일 632개 테스트 100% 통과.
       - 정적 번들 빌드: `tsc -b && vite build` 1.45초 완료 및 `dashboard_dist` 갱신.
       - E2E: Playwright 테스트 전수 통과 및 `ModelHubPage`, `ChatPage` 실측 스크린샷 2종 캡처 완료.
+16. ✅ **라우팅 정책 parameter_cap_exceeded 결함 및 4096 토큰 초과 400 Bad Request 해결 (9차)**:
+    - **원인 규명**:
+      1. `ModelRoutingPolicy`(`model_policy.py`)의 `max_parameter_count_b: 70.0` 검사가 로컬 모델 여부를 고려하지 않아, 본 PC에 다운로드된 대형 GGUF 모델(`Qwen3.8-Flash-Next`, 87.25GB)이 `effective_parameter_count_b = 87.25 > 70.0`으로 판단되어 라우터에서 `parameter_cap_exceeded` 예외가 발생함.
+      2. `llama-server` 기동 옵션이 `-c 4096`으로 고정되어 있어 시스템 프롬프트 및 도구 정의(4,493 토큰) 주입 시 `HTTP 400 Bad Request (request exceeds available context size 4096)` 에러를 반환하고, tool loop에서 `일시적 오류 (unknown) — 재시도합니다...`를 거쳐 실패함.
+    - **조치 내역**:
+      1. [`src/antigravity_k/engine/model_policy.py`](file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/model_policy.py): `parameter_cap_exceeded` 검사에 `not profile.is_local` 조건을 부여하여 로컬 모델은 파라미터 상한으로 차단되지 않도록 수정.
+      2. [`src/antigravity_k/engine/local_runtime.py`](file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/local_runtime.py): `llama-server` 기동 시 `-c` 값을 모델 설정 및 최소 16,384~32,768로 동적 할당 (`max(16384, min(raw_ctx, 32768))`).
+      3. [`src/antigravity_k/engine/provider_adapters/inference_providers.py`](file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/engine/provider_adapters/inference_providers.py): API 스트림 실패 시 대상 URL 및 응답 에러 바디 상세 로깅 추가.
+      4. [`tests/test_model_policy.py`](file:///Users/mr.k/program/coding/ssak_comp/Ssak-Ai/tests/test_model_policy.py): `test_large_local_models_are_not_rejected_by_parameter_cap` 단위 테스트 신설.
+    - **검증 완료**:
+      - `Qwen3.8-Flash-Next-GGUF-UD-IQ4_XS` (87.25 GB) 실시간 스트리밍 추론 100% 정상 작동 (`data: {"choices": [{"delta": {"content": ...}}]}`).
+      - 백엔드 pytest 46개 전수 통과 (1.67s).
+      - Python mypy 0 errors in 3 files.
+      - 프론트엔드 vitest 53개 파일 632개 전수 통과 (10.83s).
 
 ### 6.1 남은 과제
 

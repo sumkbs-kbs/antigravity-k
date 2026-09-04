@@ -97,13 +97,20 @@ class LocalRuntimeSupervisor:
 
         parsed = urlparse(api_base)
         port = parsed.port or 8080
+        raw_ctx = getattr(profile, "context_length", 0) or 0
+        ctx_size = max(16384, min(int(raw_ctx) if raw_ctx else 16384, 32768))
         cmd = [
             binary,
-            "-m", model_file,
-            "--host", "127.0.0.1",
-            "--port", str(port),
-            "-c", "4096",
-            "-ngl", "99",
+            "-m",
+            model_file,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "-c",
+            str(ctx_size),
+            "-ngl",
+            "99",
         ]
         process = self._process_factory(
             cmd,
@@ -112,7 +119,7 @@ class LocalRuntimeSupervisor:
             start_new_session=True,
         )
         self._processes[name] = process
-        if not self._wait_until_available(api_base, timeout=45.0):
+        if not self._wait_until_available(api_base, timeout=120.0):
             process.terminate()
             _ = self._processes.pop(name, None)
             raise RuntimeError(f"llama-server가 모델 '{name}'을 준비하지 못했습니다.")

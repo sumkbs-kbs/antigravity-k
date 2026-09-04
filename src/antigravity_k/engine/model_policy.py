@@ -38,7 +38,11 @@ class ModelRoutingPolicy:
             return ModelPolicyDecision(allowed=True, reason="policy_disabled")
 
         parameter_count_b = profile.effective_parameter_count_b
-        if self.max_parameter_count_b and parameter_count_b > self.max_parameter_count_b:
+        if (
+            not profile.is_local
+            and self.max_parameter_count_b
+            and parameter_count_b > self.max_parameter_count_b
+        ):
             return ModelPolicyDecision(allowed=False, reason="parameter_cap_exceeded")
         if (
             profile.is_local
