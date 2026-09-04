@@ -106,21 +106,68 @@ def _require_allowed(tool_name: str, args: JsonMap, risk_level: str) -> None:
         raise HTTPException(status_code=403, detail=f"Permission denied for {tool_name}: {decision.permission.value}")
 
 
-def _resolve_repo_file(file_path: str, cwd: str) -> str:
-    project_root = Path(config.paths.project_root).resolve()
+def _resolve_git_dir(cwd: str = ".") -> Path:
+    """Git 명령의 작업 디렉터리를 검증·해석한다.
+
+    기준(base) 우선순위: ``config.paths.project_root`` → 등록 프로젝트의 active path.
+    테스트가 ``config.paths.project_root``를 monkeypatch하는 계약을 지키려면 config가
+    항상 먼저 적용되어야 하고, 등록 프로젝트 경로는 그 아래에 허용 루트로 추가된다
+    (``allowed_roots()``가 레지스트리 프로젝트를 이미 포함한다).
+    """
+    from antigravity_k.api.path_security import allowed_roots
+
+    roots = allowed_roots()
+    config_root = Path(config.paths.project_root).expanduser().resolve()
+
+    try:
+        from antigravity_k.engine.project_registry import get_project_registry
+
+        active = get_project_registry().get_active_project()
+    except Exception:  # noqa: BLE001 — 레지스트리 미가용 시 config 기준으로 폴백
+        active = None
+    active_path = Path(active.path).expanduser().resolve() if active and active.path else None
+    # config와 일치하지 않는 활성 프로젝트(스태일 캐시 등)는 베이스로 쓰지 않는다
+    active_root = active_path if active_path in roots else None
+
     requested_path = Path(cwd).expanduser()
     if cwd in ("", "."):
-        base = project_root
+        candidate = config_root
     elif requested_path.is_absolute():
-        base = requested_path.resolve()
+        candidate = requested_path.resolve()
     else:
-        base = (project_root / requested_path).resolve()
-    try:
-        _ = base.relative_to(project_root)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=403, detail="Git working directory must remain inside the project root."
-        ) from exc
+        # 상대 경로는 config 루트 기준으로 해석 (기존 계약).
+        # active_root가 유효하면 해당 위치도 시도해 본다.
+        base_candidates = [config_root]
+        if active_root is not None and active_root != config_root:
+            base_candidates.append(active_root)
+        candidate = (
+            next((base / requested_path).resolve() for base in base_candidates if (base / requested_path).is_dir())
+            if any((base / requested_path).is_dir() for base in base_candidates)
+            else (config_root / requested_path).resolve()
+        )
+
+    if not candidate.is_dir():
+        raise HTTPException(status_code=400, detail="Git working directory does not exist.")
+
+    is_allowed = False
+    for r in roots:
+        try:
+            candidate.relative_to(r)
+            is_allowed = True
+            break
+        except ValueError:
+            continue
+    if not is_allowed and ((candidate / ".git").exists() or (candidate / ".git").is_file()):
+        is_allowed = True
+
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail="Git working directory must remain inside the project root.")
+    return candidate
+
+
+def _resolve_repo_file(file_path: str, cwd: str = ".") -> str:
+    """Ensure a target file belongs to the repository working directory."""
+    base = _resolve_git_dir(cwd)
     candidate = (base / file_path).resolve()
     try:
         relative = candidate.relative_to(base)
@@ -129,24 +176,12 @@ def _resolve_repo_file(file_path: str, cwd: str) -> str:
     return relative.as_posix()
 
 
+_validate_repo_relative_file = _resolve_repo_file
+
+
 def _git(args: list[str], cwd: str = ".", timeout: int = 30) -> str:
     """Run a git command and return stdout."""
-    project_root = Path(config.paths.project_root).resolve()
-    requested_path = Path(cwd).expanduser()
-    if cwd in ("", "."):
-        candidate = project_root
-    elif requested_path.is_absolute():
-        candidate = requested_path.resolve()
-    else:
-        candidate = (project_root / requested_path).resolve()
-    if not candidate.is_dir():
-        raise HTTPException(status_code=400, detail="Git working directory does not exist.")
-    try:
-        _ = candidate.relative_to(project_root)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=403, detail="Git working directory must remain inside the project root."
-        ) from exc
+    candidate = _resolve_git_dir(cwd)
     try:
         result = subprocess.run(
             ["git"] + args,

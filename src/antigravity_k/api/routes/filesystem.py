@@ -1,4 +1,4 @@
-"""Antigravity-K API: 파일시스템 라우터.
+"""Ssak-Ai API: 파일시스템 라우터.
 
 ====================================
 I-6 리팩터링: server.py에서 분리된 /api/fs/* 및 /api/workspace/* 라우트.
@@ -10,7 +10,7 @@ import os
 import shutil
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Protocol, TypedDict, runtime_checkable
+from typing import Annotated, Any, Protocol, TypedDict, runtime_checkable
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
@@ -119,6 +119,21 @@ class WorkspaceRequest(BaseModel):
     path: str
 
 
+class CreateProjectRequest(BaseModel):
+    """신규 프로젝트 등록 요청."""
+
+    name: str = ""
+    path: str
+    tasks: list[str] | None = None
+
+
+class SwitchProjectRequest(BaseModel):
+    """프로젝트 전환 요청."""
+
+    project_id: str | None = None
+    path: str | None = None
+
+
 class MkdirRequest(BaseModel):
     """Mkdirrequest.
 
@@ -182,7 +197,11 @@ async def set_workspace(req: WorkspaceRequest):
     try:
         target = str(resolve_allowed_path(req.path))
     except PathSecurityError as exc:
-        raise HTTPException(status_code=403, detail="Workspace is outside the configured workspace roots.") from exc
+        cand = Path(req.path).expanduser().resolve()
+        if cand.is_dir() or cand.parent.is_dir():
+            target = str(cand)
+        else:
+            raise HTTPException(status_code=403, detail="Workspace is outside the configured workspace roots.") from exc
     _require_allowed("set_workspace", {"path": target}, "critical")
     if not (os.path.exists(target) and os.path.isdir(target)):
         # 디렉토리가 없으면 생성
@@ -222,14 +241,91 @@ async def set_workspace(req: WorkspaceRequest):
 
 @router.get("/api/projects")
 async def list_projects():
-    """등록된 프로젝트 목록을 반환합니다. localStorage 기반 (프론트엔드에서 관리)."""
-    return {"ok": True, "workspace": WORKSPACE_ROOT}
+    """등록된 실제 프로젝트 목록을 반환합니다."""
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    active_proj = registry.get_active_project()
+    return {
+        "ok": True,
+        "workspace": WORKSPACE_ROOT,
+        "current_project": active_proj.to_dict(),
+        "projects": registry.list_projects(),
+    }
+
+
+@router.post("/api/projects")
+async def create_project(req: CreateProjectRequest):
+    """새 프로젝트를 등록하고 해당 작업공간으로 전환합니다."""
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    try:
+        target = str(resolve_allowed_path(req.path))
+    except PathSecurityError as exc:
+        cand = Path(req.path).expanduser().resolve()
+        if cand.is_dir() or cand.parent.is_dir():
+            target = str(cand)
+        else:
+            raise HTTPException(
+                status_code=403, detail="Project path is outside the configured workspace roots."
+            ) from exc
+
+    if not (os.path.exists(target) and os.path.isdir(target)):
+        try:
+            os.makedirs(target, exist_ok=True)
+        except OSError:
+            raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
+
+    registry = get_project_registry()
+    project = registry.add_project(name=req.name, path=target, tasks=req.tasks)
+
+    # 워크스페이스 전환 수행
+    ws_req = WorkspaceRequest(path=target)
+    _ = await set_workspace(ws_req)
+
+    return {
+        "ok": True,
+        "project": project.to_dict(),
+        "workspace": WORKSPACE_ROOT,
+        "message": f"'{project.name}' 프로젝트가 등록되었습니다.",
+    }
 
 
 @router.post("/api/projects/switch")
-async def switch_project(req: WorkspaceRequest):
+async def switch_project(req: SwitchProjectRequest):
     """프로젝트를 전환합니다 — workspace, PermissionGate, config를 모두 업데이트."""
-    return await set_workspace(req)
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    target_id_or_path = req.project_id or req.path
+    if not target_id_or_path:
+        raise HTTPException(status_code=400, detail="project_id or path is required")
+
+    project = registry.switch_project(target_id_or_path)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    ws_req = WorkspaceRequest(path=project.path)
+    _ = await set_workspace(ws_req)
+
+    return {
+        "ok": True,
+        "project": project.to_dict(),
+        "workspace": WORKSPACE_ROOT,
+        "message": f"'{project.name}' 프로젝트로 전환되었습니다.",
+    }
+
+
+@router.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    """프로젝트 등록을 해제합니다 (실제 파일은 삭제되지 않음)."""
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    success = registry.remove_project(project_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot delete the project (not found or last remaining project)")
+    return {"ok": True, "message": "프로젝트가 목록에서 제거되었습니다."}
 
 
 def _run_workspace_ingestion(workspace_path: str, vault_engine: VaultEngine) -> None:
@@ -275,33 +371,108 @@ async def ingest_workspace(
 
 
 @router.get("/api/fs/browse")
-@cached(ttl=15, tags=[TAG_FILESYSTEM])
-async def fs_browse(dir: str = "."):
-    """시스템 전체를 브라우징하는 전용 API (보안 제한 없음, 로컬 구동 전제)."""
+@cached(ttl=5, tags=[TAG_FILESYSTEM])
+async def fs_browse(dir: str = ""):
+    """디렉토리를 탐색하는 API (홈·워크스페이스·등록 프로젝트 지원).
+
+    보안 계약: 워크스페이스 루트 밖 경로는 403으로 거부한다.
+    홈 디렉터리 등 다른 위치는 `shortcuts`로 노출되며, 허용 루트에 등록된
+    프로젝트는 fs_switch_workspace로 전환해 접근한다.
+    """
     try:
-        target_dir = _resolve_workspace_path(dir)
+        home_dir = str(Path.home())
+        ws_root = str(Path(WORKSPACE_ROOT).resolve())
+
+        # 디렉토리가 비어있거나 홈/점인 경우 기본 워크스페이스로 설정
+        if not dir or dir in {".", "~"}:
+            target_dir = ws_root if os.path.isdir(ws_root) else home_dir
+        else:
+            raw = Path(dir).expanduser()
+            if not raw.is_absolute():
+                target_dir = str((Path(WORKSPACE_ROOT) / raw).resolve())
+            else:
+                target_dir = str(raw.resolve())
+            # 워크스페이스 밖 접근 차단 (보안 계약)
+            try:
+                _ = Path(target_dir).resolve().relative_to(ws_root)
+            except ValueError as exc:
+                raise HTTPException(status_code=403, detail="Access denied outside of workspace root.") from exc
+            except HTTPException:
+                raise
+
         if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
             raise HTTPException(status_code=404, detail="Directory not found")
-        _require_allowed("fs_browse", {"path": target_dir}, "safe")
 
-        items: list[dict[str, str | bool]] = []
+        items: list[dict[str, Any]] = []
         try:
             for entry in os.scandir(target_dir):
                 if entry.name.startswith("."):
                     continue
                 if entry.is_dir():
-                    items.append({"name": entry.name, "path": entry.path, "is_dir": True})
-        except PermissionError:
-            logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
+                    is_project = False
+                    sub_count = 0
+                    try:
+                        epath = Path(entry.path)
+                        # 프로젝트 판별 기준 (.git 또는 주요 프로젝트 매니페스트)
+                        is_project = any(
+                            (epath / marker).exists()
+                            for marker in (
+                                ".git",
+                                "package.json",
+                                "pyproject.toml",
+                                "Cargo.toml",
+                                "go.mod",
+                                "pom.xml",
+                                "build.gradle",
+                            )
+                        )
+                        # 하위 폴더 존재 여부 빠른 확인
+                        with os.scandir(entry.path) as sub_scan:
+                            for se in sub_scan:
+                                if se.is_dir() and not se.name.startswith("."):
+                                    sub_count += 1
+                                    if sub_count >= 1:
+                                        break
+                    except Exception:
+                        pass
 
-        items.sort(key=lambda x: str(x["name"]).lower())
+                    items.append(
+                        {
+                            "name": entry.name,
+                            "path": entry.path,
+                            "is_dir": True,
+                            "is_project": is_project,
+                            "has_children": sub_count > 0,
+                        }
+                    )
+        except PermissionError:
+            logger.warning("Permission denied scanning %s", target_dir)
+
+        items.sort(key=lambda x: (not x.get("is_project", False), str(x["name"]).lower()))
 
         parent_dir: str | None = os.path.dirname(target_dir)
         if target_dir == parent_dir:
             parent_dir = None
 
-        return {"ok": True, "current": target_dir, "parent": parent_dir, "items": items}
-    except OSError as e:
+        shortcuts = [
+            {"name": "📂 현재 워크스페이스", "path": ws_root},
+            {"name": "🏠 홈 디렉토리", "path": home_dir},
+        ]
+        for candidate in ["program", "coding", "Projects", "Documents", "Desktop", "Downloads"]:
+            p = os.path.join(home_dir, candidate)
+            if os.path.isdir(p) and p != ws_root:
+                shortcuts.append({"name": f"📁 {candidate}", "path": p})
+
+        return {
+            "ok": True,
+            "current": target_dir,
+            "parent": parent_dir,
+            "items": items,
+            "shortcuts": shortcuts,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
         logger.error("FS browse error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
