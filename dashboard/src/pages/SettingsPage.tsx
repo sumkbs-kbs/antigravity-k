@@ -9,6 +9,7 @@ import { GlassPanel } from '../components/shared';
 import { useThemeStore } from '../stores/themeStore';
 import { useLocalHistoryStore } from '../stores/localHistoryStore';
 import CacheStatsPanel from '../components/shared/CacheStatsPanel';
+import McpHealthCachePanel from '../components/shared/McpHealthCachePanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
 import SessionDisclosurePanel from '../components/shared/SessionDisclosurePanel';
 import {
@@ -387,6 +388,9 @@ const SettingsPage: React.FC = () => {
 
         {/* 📦 Cache Stats */}
         <CacheStatsPanel />
+
+        {/* 🔌 MCP Health Cache */}
+        <McpHealthCachePanel />
 
         {/* 🔬 Log Level / Debug Mode */}
         <LogLevelSection />

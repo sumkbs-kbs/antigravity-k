@@ -315,6 +315,50 @@ export type WorkspaceContext = z.infer<typeof WorkspaceContextSchema>;
 export type SystemQuota = z.infer<typeof SystemQuotaSchema>;
 export type McpServerItem = z.infer<typeof McpServerItemSchema>;
 export type McpServersResponse = z.infer<typeof McpServersResponseSchema>;
+
+export const McpHealthEntrySchema = z.object({
+  name: z.string(),
+  transport: z.string().default('stdio'),
+  status: z.enum(['healthy', 'error', 'blocked', 'configured', 'unknown']).or(z.string()).default('unknown'),
+  tool_count: z.number().nonnegative().default(0),
+  tools: z.array(z.string()).default([]),
+  error: z.string().nullable().optional(),
+  initialized: z.boolean().default(false),
+  checked_at: z.number().nullable().optional(),
+  latency_ms: z.number().nullable().optional(),
+  source: z.string().optional(),
+  command: z.string().optional(),
+}).passthrough();
+
+export const McpHealthSummarySchema = z.object({
+  total: z.number().nonnegative().default(0),
+  healthy: z.number().nonnegative().default(0),
+  error: z.number().nonnegative().default(0),
+  blocked: z.number().nonnegative().default(0),
+  configured: z.number().nonnegative().default(0),
+  unknown: z.number().nonnegative().default(0),
+}).passthrough();
+
+export const McpHealthResponseSchema = z.object({
+  ok: z.boolean(),
+  servers: z.array(McpHealthEntrySchema).default([]),
+  summary: McpHealthSummarySchema.default({
+    total: 0,
+    healthy: 0,
+    error: 0,
+    blocked: 0,
+    configured: 0,
+    unknown: 0,
+  }),
+  source: z.string().optional(),
+  probed_at: z.number().nullable().optional(),
+  error: z.string().optional(),
+}).passthrough();
+
+export type McpHealthEntry = z.infer<typeof McpHealthEntrySchema>;
+export type McpHealthSummary = z.infer<typeof McpHealthSummarySchema>;
+export type McpHealthResponse = z.infer<typeof McpHealthResponseSchema>;
+
 export type AccessModeResponse = z.infer<typeof AccessModeResponseSchema>;
 
 /* ─── Local Model Discovery Schemas ─────────────────────────────── */

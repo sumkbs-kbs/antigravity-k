@@ -2318,6 +2318,83 @@ async def list_mcp_servers() -> dict[str, JsonValue]:
         return {"ok": False, "servers": [], "source": config_path, "error": str(e)}
 
 
+@router.get("/api/mcp/health")
+async def mcp_health_status() -> JSONDict:
+    """MCP 서버 헬스 캐시 스냅샷을 반환합니다.
+
+    구성(.mcp.json)과 캐시된 initialize/list_tools 결과를 병합해 대시보드에 표시합니다.
+    실제 프로브는 POST /api/mcp/health/refresh 또는 도구 로더 연결 시 갱신됩니다.
+    """
+    from antigravity_k.engine.mcp_health_cache import load_configured_mcp_servers, mcp_health_cache
+
+    try:
+        configured, source = load_configured_mcp_servers()
+        stubs = [
+            {
+                "name": row["name"],
+                "transport": row.get("transport", "stdio"),
+                "command": row.get("command", ""),
+                "source": row.get("source", source),
+            }
+            for row in configured
+        ]
+        servers = mcp_health_cache.merge_with_configured(stubs)
+        probed_values: list[float] = []
+        for s in servers:
+            checked = s.get("checked_at")
+            if isinstance(checked, (int, float)):
+                probed_values.append(float(checked))
+        return {
+            "ok": True,
+            "servers": servers,
+            "summary": mcp_health_cache.summary(servers),
+            "source": source,
+            "probed_at": max(probed_values) if probed_values else None,
+        }
+    except Exception as e:
+        logger.error("MCP health status failed: %s", e)
+        return {"ok": False, "servers": [], "summary": {"total": 0}, "error": str(e)}
+
+
+@router.post("/api/mcp/health/refresh")
+async def mcp_health_refresh() -> JSONDict:
+    """구성된 MCP 서버를 프로브(initialize + list_tools)하고 캐시를 갱신합니다."""
+    from antigravity_k.engine.mcp_health_cache import (
+        load_configured_mcp_servers,
+        mcp_health_cache,
+        probe_configured_servers,
+    )
+
+    try:
+        await probe_configured_servers()
+        configured, source = load_configured_mcp_servers()
+        stubs = [
+            {
+                "name": row["name"],
+                "transport": row.get("transport", "stdio"),
+                "command": row.get("command", ""),
+                "source": row.get("source", source),
+            }
+            for row in configured
+        ]
+        servers = mcp_health_cache.merge_with_configured(stubs)
+        probed_values: list[float] = []
+        for s in servers:
+            checked = s.get("checked_at")
+            if isinstance(checked, (int, float)):
+                probed_values.append(float(checked))
+        return {
+            "ok": True,
+            "servers": servers,
+            "summary": mcp_health_cache.summary(servers),
+            "source": source,
+            "probed_at": max(probed_values) if probed_values else None,
+        }
+    except Exception as e:
+        logger.error("MCP health refresh failed: %s", e)
+        return {"ok": False, "servers": [], "summary": {"total": 0}, "error": str(e)}
+
+
 @router.get("/api/system/access-mode")
 async def get_access_mode() -> dict[str, JsonValue]:
     """현재 실행 권한 수준(전체 액세스 vs 읽기 전용)을 반환합니다."""

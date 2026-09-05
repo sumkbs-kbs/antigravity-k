@@ -21,12 +21,15 @@ import {
   SystemMetricsSchema,
   LocalModelsResponseSchema,
   TrainingRecipeSchema,
+  McpHealthResponseSchema,
 } from './clientSchema';
 import type {
   LocalModelItem,
   LocalModelsResponse,
   CacheStats,
   CacheStatsResponse,
+  McpHealthEntry,
+  McpHealthResponse,
   DebugModeResponse,
   DebugModeResult,
   HealthStatus,
@@ -70,6 +73,8 @@ export type {
   TrainingRecipesResponse,
   LocalModelItem,
   LocalModelsResponse,
+  McpHealthResponse,
+  McpHealthEntry,
   SettingsData,
   SettingsSaveResponse,
 };
@@ -310,6 +315,26 @@ export async function fetchCacheStats(): Promise<CacheStatsResponse> {
   const raw = await requestJson('/api/system/cache-stats', '/api/system/cache-stats');
   return CacheStatsResponseSchema.parse(raw);
 }
+
+/**
+ * MCP server health cache snapshot.
+ */
+export async function fetchMcpHealth(): Promise<McpHealthResponse> {
+  const raw = await requestJson('/api/mcp/health', '/api/mcp/health', { suppressLog: true });
+  return McpHealthResponseSchema.parse(raw);
+}
+
+/**
+ * Probe configured MCP servers and refresh the health cache.
+ */
+export async function refreshMcpHealth(): Promise<McpHealthResponse> {
+  const raw = await requestJson('/api/mcp/health/refresh', '/api/mcp/health/refresh', {
+    method: 'POST',
+    suppressLog: true,
+  });
+  return McpHealthResponseSchema.parse(raw);
+}
+
 
 /**
  * Fetch the session-limits disclosure shown before a session starts.

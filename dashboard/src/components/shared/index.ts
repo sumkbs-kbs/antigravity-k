@@ -18,3 +18,5 @@ export { default as StatBox } from './StatBox';
 export { default as StatBadge } from './StatBadge';
 export { MetricItem, MetricDivider } from './MetricItem';
 export type { MetricItemProps } from './MetricItem';
+
+export { default as McpHealthCachePanel } from './McpHealthCachePanel';

@@ -11,6 +11,7 @@ from typing import Callable, ClassVar, cast, final, override
 from mcp.client.session import ClientSession
 
 from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
+from antigravity_k.engine.mcp_health_cache import mcp_health_cache
 
 from .base_tool import BaseTool, RiskLevel, ToolCategory
 from .mcp_session_manager import MCPSessionManager
@@ -306,6 +307,18 @@ class MCPToolLoader:
         for server_name, server_config in mcp_servers.items():
             if server_name in blocked_servers:
                 logger.error("Skipping MCP server '%s' due to audit errors.", server_name)
+                block_msgs = [
+                    finding.message
+                    for finding in audit.findings
+                    if finding.server == server_name and finding.severity == "error"
+                ]
+                mcp_health_cache.record_blocked(
+                    server_name,
+                    "; ".join(block_msgs) or "audit blocked",
+                    transport=_transport_for(server_config),
+                    source=source,
+                    command=str(server_config.get("command") or server_config.get("url") or ""),
+                )
                 continue
 
             try:
@@ -314,6 +327,7 @@ class MCPToolLoader:
 
                 # Fetch available tools
                 tools_response = await session.list_tools()
+                tool_names: list[str] = []
 
                 for tool in tools_response.tools:
                     annotations = _annotations_to_dict(getattr(tool, "annotations", None))
@@ -328,10 +342,26 @@ class MCPToolLoader:
                         server_policy=_server_policy(server_config),
                     )
                     self.tools.append(mcp_tool)
+                    tool_names.append(tool.name)
                     logger.info("Registered MCP tool: %s from %s", tool.name, server_name)
 
-            except Exception:
+                mcp_health_cache.record_success(
+                    server_name,
+                    transport=transport,
+                    tools=tool_names,
+                    source=source,
+                    command=str(server_config.get("command") or server_config.get("url") or ""),
+                )
+
+            except Exception as exc:
                 logger.exception("Error loading tools from '%s'", server_name)
+                mcp_health_cache.record_failure(
+                    server_name,
+                    str(exc),
+                    transport=_transport_for(server_config),
+                    source=source,
+                    command=str(server_config.get("command") or server_config.get("url") or ""),
+                )
 
     async def _connect_server(
         self,
