@@ -36,7 +36,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 ### 2026-09-06 · GOV-01 REJECT 수정 완료, 재검증 요청
 
 - prior REJECT SHA: `67fe3f1935eb9f7a984690c6e52a96425acf51df`
-- fix SHA: `PENDING_FIX_SHA`
+- fix SHA: `a0e14130c6e91062f31d950b7cc965a4ae359988`
 - reviewer 판정(이전): `REJECT` — HIGH 2건 (동시 사용자 수 부재, 데이터 민감도 부재)
 - 수정: ADR-0003 / support matrix / data·privacy·ops / claims register에
   - concurrent-user disposition (single interactive operator; multi-user unverified/blocked pending VAL-02; owners: product + release + security)
@@ -145,7 +145,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| GOV-01 | gov_01_scope / gov_01_scope_fix | `codex/gov-01-product-scope` | REJECT 수정 후 재검증 대기 | `PENDING_FIX_SHA` 에 대해 `gov_01_verify` 독립 재검증 |
+| GOV-01 | gov_01_scope / gov_01_scope_fix | `codex/gov-01-product-scope` | REJECT 수정 후 재검증 대기 | `a0e14130c6e91062f31d950b7cc965a4ae359988` 에 대해 `gov_01_verify` 독립 재검증 |
 
 ## 차단 및 결정 대기
 

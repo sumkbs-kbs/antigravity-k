@@ -24,7 +24,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | ID | 상태 | Owner | Reviewer | Branch/worktree | Result SHA | Evidence | 선행 |
 |---|---|---|---|---|---|---|---|
 | GA-00 | DONE | ga_00_baseline | ga_00_verify | codex/ga-00-baseline-gate | `7677bc391888ad13aa8413e32634f95912613d49` | `.omo/evidence/commercial-ga-100/GA-00/` | 독립 검증 APPROVE 0.99 |
-| GOV-01 | REVIEW | gov_01_scope | gov_01_verify | codex/gov-01-product-scope | `PENDING_FIX_SHA` | `.omo/evidence/commercial-ga-100/GOV-01/` | GA-00 DONE; prior REJECT `67fe3f19…` fixed |
+| GOV-01 | REVIEW | gov_01_scope | gov_01_verify | codex/gov-01-product-scope | `a0e14130c6e91062f31d950b7cc965a4ae359988` | `.omo/evidence/commercial-ga-100/GOV-01/` | GA-00 DONE; prior REJECT `67fe3f19…` fixed |
 | ARC-01 | TODO |  |  |  |  |  | GA-00, GOV-01 |
 | WS-01 | TODO |  |  |  |  |  | ARC-01 |
 | WS-02 | TODO |  |  |  |  |  | WS-01 |
