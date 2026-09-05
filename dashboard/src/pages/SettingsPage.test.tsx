@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('../api/client', () => apiMocks);
 vi.mock('../components/shared/CacheStatsPanel', () => ({ default: () => <div /> }));
 vi.mock('../components/shared/McpHealthCachePanel', () => ({ default: () => <div /> }));
+vi.mock('../components/shared/McpOAuthPanel', () => ({ default: () => <div /> }));
 vi.mock('../components/shared/ModelOperationsPanel', () => ({ default: () => <div /> }));
 
 import SettingsPage from './SettingsPage';

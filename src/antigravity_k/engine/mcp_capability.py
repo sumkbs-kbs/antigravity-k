@@ -187,14 +187,16 @@ class MCPCapabilityAdvisor:
                     ),
                 )
 
-            if url and not _is_local_url(url) and not _has_auth(server):
+            auth_view = dict(server)
+            auth_view["name"] = name
+            if url and not _is_local_url(url) and not _has_auth(auth_view):
                 findings.append(
                     MCPFinding(
                         name,
                         "error",
                         "remote_without_auth",
                         "Remote MCP server has no auth profile or Authorization header.",
-                        "Use OAuth/API auth metadata before enabling remote tool execution.",
+                        "Use interactive OAuth 2.1 (/api/mcp/oauth) or API auth metadata before enabling remote tool execution.",
                     ),
                 )
 

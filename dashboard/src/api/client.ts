@@ -22,6 +22,8 @@ import {
   LocalModelsResponseSchema,
   TrainingRecipeSchema,
   McpHealthResponseSchema,
+  McpOAuthStatusResponseSchema,
+  McpOAuthStartResponseSchema,
 } from './clientSchema';
 import type {
   LocalModelItem,
@@ -30,6 +32,9 @@ import type {
   CacheStatsResponse,
   McpHealthEntry,
   McpHealthResponse,
+  McpOAuthServerStatus,
+  McpOAuthStatusResponse,
+  McpOAuthStartResponse,
   DebugModeResponse,
   DebugModeResult,
   HealthStatus,
@@ -75,6 +80,9 @@ export type {
   LocalModelsResponse,
   McpHealthResponse,
   McpHealthEntry,
+  McpOAuthServerStatus,
+  McpOAuthStatusResponse,
+  McpOAuthStartResponse,
   SettingsData,
   SettingsSaveResponse,
 };
@@ -333,6 +341,44 @@ export async function refreshMcpHealth(): Promise<McpHealthResponse> {
     suppressLog: true,
   });
   return McpHealthResponseSchema.parse(raw);
+}
+
+
+/**
+ * MCP OAuth connection status (no token values).
+ */
+export async function fetchMcpOAuthStatus(): Promise<McpOAuthStatusResponse> {
+  const raw = await requestJson('/api/mcp/oauth/status', '/api/mcp/oauth/status', { suppressLog: true });
+  return McpOAuthStatusResponseSchema.parse(raw);
+}
+
+/**
+ * Start OAuth 2.1 authorization-code + PKCE for a configured MCP server.
+ */
+export async function startMcpOAuth(
+  serverName: string,
+  opts?: { clientId?: string; redirectUri?: string },
+): Promise<McpOAuthStartResponse> {
+  const raw = await requestJson('/api/mcp/oauth/start', '/api/mcp/oauth/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      server_name: serverName,
+      client_id: opts?.clientId,
+      redirect_uri: opts?.redirectUri,
+    }),
+  });
+  return McpOAuthStartResponseSchema.parse(raw);
+}
+
+/**
+ * Revoke stored MCP OAuth tokens for a server.
+ */
+export async function revokeMcpOAuth(serverName: string): Promise<{ ok: boolean; revoked?: boolean; connected?: boolean }> {
+  const raw = await requestJson('/api/mcp/oauth/revoke', '/api/mcp/oauth/revoke', {
+    method: 'POST',
+    body: JSON.stringify({ server_name: serverName }),
+  });
+  return raw as { ok: boolean; revoked?: boolean; connected?: boolean };
 }
 
 

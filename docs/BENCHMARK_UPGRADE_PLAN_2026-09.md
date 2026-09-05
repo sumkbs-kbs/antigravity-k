@@ -2001,4 +2001,4 @@ CLAUDE_BIN=/path/to/claude ./scripts/e2e_claude_bridge.sh   # CLI 위치 명시
 - [x] 실서버 E2E: `agk serve` 기동 후 Claude Code/Codex 실제 연결 검증 — **완료**. Claude Code (Phase 16: 단턴/멀티턴/도구 루프 3/3) + **Codex (Phase 35 구현, Phase 41 재검증: Responses API 브리지로 2 시나리오 통과)**. `agk start claude|codex`로 환경변수/config 레시피 발급 가능
 - [x] 실시간 토큰 스트리밍: ModelManager.stream_generate 비동기 래퍼 — **완료 (Phase 31)**. `stream_generate_async`(iterate_in_threadpool)가 버퍼링 없이 토큰을 전달. 라이브 재검증(Phase 38): 첫 text_delta 0.51s / 총 1.44s, 20개 델타, stop=end_turn. 테스트 19건 (실시간성 단언 포함) 통과. (구 §6 항목 — Phase 31에서 구현됐으나 체크리스트 미반영 → 2026-09-04 갱신)
 - [x] MCP 서버 헬스 캐시 대시보드 (기존 mcp_upgrade_report P2 계승) — **완료**: `MCPHealthCache` + `GET/POST /api/mcp/health[/refresh]`, Settings `McpHealthCachePanel`, 로더 연동·vitest/pytest
-- [ ] OAuth 2.1 interactive flow (기존 mcp_upgrade_report P1 계승)
+- [x] OAuth 2.1 interactive flow (기존 mcp_upgrade_report P1 계승) — **완료**: `mcp_oauth` (authorization code + PKCE, PRM/AS discovery, vault 토큰 저장/갱신/해제) + `GET/POST /api/mcp/oauth/{status,start,callback,complete,revoke}`, Settings `McpOAuthPanel`, 로더 Bearer 헤더 연동·pytest/vitest. 실브라우저 E2E는 수동 확인(패널 안내) — 네트워크 목 단위 테스트로 코드 경로 검증.

@@ -23,7 +23,17 @@ def has_auth(server: Mapping[str, JsonValue]) -> bool:
         return True
     headers = server.get("headers", {})
     if isinstance(headers, dict):
-        return any(key.lower() == "authorization" for key in headers)
+        if any(key.lower() == "authorization" for key in headers):
+            return True
+    name = server.get("name") or server.get("_name")
+    if isinstance(name, str) and name:
+        try:
+            from antigravity_k.engine.mcp_oauth import has_stored_tokens
+
+            if has_stored_tokens(name):
+                return True
+        except Exception:
+            pass
     return False
 
 

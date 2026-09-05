@@ -10,6 +10,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { useLocalHistoryStore } from '../stores/localHistoryStore';
 import CacheStatsPanel from '../components/shared/CacheStatsPanel';
 import McpHealthCachePanel from '../components/shared/McpHealthCachePanel';
+import McpOAuthPanel from '../components/shared/McpOAuthPanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
 import SessionDisclosurePanel from '../components/shared/SessionDisclosurePanel';
 import {
@@ -391,6 +392,9 @@ const SettingsPage: React.FC = () => {
 
         {/* 🔌 MCP Health Cache */}
         <McpHealthCachePanel />
+
+        {/* 🔐 MCP OAuth 2.1 */}
+        <McpOAuthPanel />
 
         {/* 🔬 Log Level / Debug Mode */}
         <LogLevelSection />

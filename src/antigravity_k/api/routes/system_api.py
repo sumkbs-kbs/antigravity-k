@@ -2161,6 +2161,21 @@ async def save_env_settings(request: Request):
 # ─── Codex / Ssak-Ai Desktop Support Endpoints ──────────────────────────
 
 
+class _McpOAuthStartRequest(BaseModel):
+    server_name: StrictStr = Field(..., min_length=1)
+    client_id: StrictStr | None = None
+    redirect_uri: StrictStr | None = None
+
+
+class _McpOAuthCompleteRequest(BaseModel):
+    code: StrictStr = Field(..., min_length=1)
+    state: StrictStr = Field(..., min_length=1)
+
+
+class _McpOAuthRevokeRequest(BaseModel):
+    server_name: StrictStr = Field(..., min_length=1)
+
+
 class _AccessModePayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
     mode: str = Field(default="full_access")
@@ -2393,6 +2408,130 @@ async def mcp_health_refresh() -> JSONDict:
     except Exception as e:
         logger.error("MCP health refresh failed: %s", e)
         return {"ok": False, "servers": [], "summary": {"total": 0}, "error": str(e)}
+
+
+@router.get("/api/mcp/oauth/status")
+async def mcp_oauth_status() -> JSONDict:
+    """MCP OAuth 연결 상태를 반환합니다 (토큰 값은 노출하지 않음)."""
+    from antigravity_k.engine.mcp_oauth import MCPOAuthError, oauth_status_for_configured
+
+    try:
+        return oauth_status_for_configured()
+    except MCPOAuthError as e:
+        return {
+            "ok": False,
+            "servers": [],
+            "summary": {"total": 0, "oauth_capable": 0, "connected": 0},
+            "error": str(e),
+        }
+    except Exception as e:
+        logger.error("MCP OAuth status failed: %s", e)
+        return {
+            "ok": False,
+            "servers": [],
+            "summary": {"total": 0, "oauth_capable": 0, "connected": 0},
+            "error": str(e),
+        }
+
+
+@router.post("/api/mcp/oauth/start")
+async def mcp_oauth_start(payload: _McpOAuthStartRequest, request: Request) -> JSONDict:
+    """OAuth 2.1 authorization-code + PKCE 플로우를 시작합니다.
+
+    반환된 ``authorization_url`` 을 브라우저에서 열어 사용자 동의를 받은 뒤
+    ``/api/mcp/oauth/callback`` 으로 리다이렉트됩니다.
+    """
+    from antigravity_k.engine.mcp_health_cache import load_configured_mcp_servers
+    from antigravity_k.engine.mcp_oauth import (
+        MCPOAuthError,
+        build_default_redirect_uri,
+        start_authorization,
+    )
+
+    configured, _source = load_configured_mcp_servers()
+    match = next((row for row in configured if str(row.get("name")) == payload.server_name), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"MCP server not configured: {payload.server_name}")
+
+    cfg = match.get("config") if isinstance(match.get("config"), dict) else {}
+    if not isinstance(cfg, dict):
+        cfg = {}
+
+    # Prefer request base URL so callback matches the running server.
+    redirect = payload.redirect_uri
+    if not redirect:
+        try:
+            redirect = build_default_redirect_uri(str(request.base_url).rstrip("/"))
+        except Exception:
+            redirect = build_default_redirect_uri()
+
+    try:
+        return start_authorization(
+            payload.server_name,
+            cfg,
+            redirect_uri=redirect,
+            client_id=payload.client_id,
+        )
+    except MCPOAuthError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("MCP OAuth start failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/mcp/oauth/callback")
+async def mcp_oauth_callback(
+    code: Annotated[str | None, Query()] = None,
+    state: Annotated[str | None, Query()] = None,
+    error: Annotated[str | None, Query()] = None,
+    error_description: Annotated[str | None, Query()] = None,
+):
+    """브라우저 OAuth 콜백 — 코드를 토큰으로 교환하고 HTML 결과 페이지를 반환합니다."""
+    from fastapi.responses import HTMLResponse
+
+    from antigravity_k.engine.mcp_oauth import MCPOAuthError, callback_html, complete_authorization
+
+    if error:
+        html = callback_html(ok=False, message=f"{error}: {error_description or ''}".strip(": "))
+        return HTMLResponse(content=html, status_code=400)
+
+    try:
+        result = complete_authorization(code=code or "", state=state or "")
+        html = callback_html(ok=True, server_name=str(result.get("server_name") or ""))
+        return HTMLResponse(content=html, status_code=200)
+    except MCPOAuthError as e:
+        html = callback_html(ok=False, message=str(e))
+        return HTMLResponse(content=html, status_code=400)
+    except Exception as e:
+        logger.exception("MCP OAuth callback failed")
+        html = callback_html(ok=False, message=str(e))
+        return HTMLResponse(content=html, status_code=500)
+
+
+@router.post("/api/mcp/oauth/complete")
+async def mcp_oauth_complete(payload: _McpOAuthCompleteRequest) -> JSONDict:
+    """대시보드/테스트용 — authorization code를 토큰으로 교환합니다."""
+    from antigravity_k.engine.mcp_oauth import MCPOAuthError, complete_authorization
+
+    try:
+        return complete_authorization(code=payload.code, state=payload.state)
+    except MCPOAuthError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("MCP OAuth complete failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/mcp/oauth/revoke")
+async def mcp_oauth_revoke(payload: _McpOAuthRevokeRequest) -> JSONDict:
+    """저장된 MCP OAuth 토큰을 삭제(연결 해제)합니다."""
+    from antigravity_k.engine.mcp_oauth import revoke_authorization
+
+    try:
+        return revoke_authorization(payload.server_name)
+    except Exception as e:
+        logger.exception("MCP OAuth revoke failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/api/system/access-mode")

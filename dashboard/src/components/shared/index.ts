@@ -20,3 +20,4 @@ export { MetricItem, MetricDivider } from './MetricItem';
 export type { MetricItemProps } from './MetricItem';
 
 export { default as McpHealthCachePanel } from './McpHealthCachePanel';
+export { default as McpOAuthPanel } from './McpOAuthPanel';

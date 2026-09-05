@@ -359,6 +359,60 @@ export type McpHealthEntry = z.infer<typeof McpHealthEntrySchema>;
 export type McpHealthSummary = z.infer<typeof McpHealthSummarySchema>;
 export type McpHealthResponse = z.infer<typeof McpHealthResponseSchema>;
 
+export const McpOAuthServerStatusSchema = z.object({
+  name: z.string(),
+  transport: z.string().default('stdio'),
+  url: z.string().optional().default(''),
+  supports_oauth: z.boolean().default(false),
+  auth_type: z.string().optional().default(''),
+  connected: z.boolean().default(false),
+  has_client_id: z.boolean().optional().default(false),
+  status: z.object({
+    server_name: z.string().optional(),
+    connected: z.boolean().optional(),
+    token_type: z.string().optional(),
+    expires_at: z.number().nullable().optional(),
+    scope: z.string().nullable().optional(),
+    resource: z.string().nullable().optional(),
+    has_refresh_token: z.boolean().optional(),
+    obtained_at: z.number().optional(),
+    expired: z.boolean().optional(),
+  }).nullable().optional(),
+}).passthrough();
+
+export const McpOAuthStatusResponseSchema = z.object({
+  ok: z.boolean(),
+  servers: z.array(McpOAuthServerStatusSchema).default([]),
+  source: z.string().optional(),
+  summary: z.object({
+    total: z.number().nonnegative().default(0),
+    oauth_capable: z.number().nonnegative().default(0),
+    connected: z.number().nonnegative().default(0),
+  }).passthrough().default({ total: 0, oauth_capable: 0, connected: 0 }),
+  error: z.string().optional(),
+}).passthrough();
+
+export const McpOAuthStartResponseSchema = z.object({
+  ok: z.boolean(),
+  server_name: z.string().optional(),
+  authorization_url: z.string().optional(),
+  state: z.string().optional(),
+  redirect_uri: z.string().optional(),
+  resource: z.string().optional(),
+  authorization_server: z.string().optional(),
+  scope: z.string().nullable().optional(),
+  client_id: z.string().optional(),
+  expires_in_seconds: z.number().optional(),
+  detail: z.string().optional(),
+  error: z.string().optional(),
+}).passthrough();
+
+export type McpOAuthServerStatus = z.infer<typeof McpOAuthServerStatusSchema>;
+export type McpOAuthStatusResponse = z.infer<typeof McpOAuthStatusResponseSchema>;
+export type McpOAuthStartResponse = z.infer<typeof McpOAuthStartResponseSchema>;
+
+
+
 export type AccessModeResponse = z.infer<typeof AccessModeResponseSchema>;
 
 /* ─── Local Model Discovery Schemas ─────────────────────────────── */

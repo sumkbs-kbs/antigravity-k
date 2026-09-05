@@ -339,7 +339,7 @@ class MCPToolLoader:
                         server_name=server_name,
                         transport=transport,
                         annotations=annotations,
-                        server_policy=_server_policy(server_config),
+                        server_policy=_server_policy(server_config, server_name),
                     )
                     self.tools.append(mcp_tool)
                     tool_names.append(tool.name)
@@ -376,6 +376,13 @@ class MCPToolLoader:
             return await self.session_manager.connect_server(server_name, command, args, env)
 
         headers = _string_dict(server_config.get("headers", {}))
+        # Inject interactive OAuth 2.1 Bearer token when present (vault-backed).
+        try:
+            from antigravity_k.engine.mcp_oauth import merge_oauth_headers
+
+            headers = merge_oauth_headers(server_name, headers)
+        except Exception:  # noqa: BLE001
+            logger.debug("MCP OAuth header merge skipped for %s", server_name, exc_info=True)
         url = str(server_config.get("url") or server_config.get("endpoint") or "")
         timeout = _timeout_seconds(server_config, default=30)
         sse_read_timeout = _timeout_seconds(
@@ -461,16 +468,26 @@ def _string_dict(raw: object) -> dict[str, str]:
     return {str(key): str(value) for key, value in mapping.items()}
 
 
-def _server_policy(config: Mapping[str, object]) -> dict[str, object]:
+def _server_policy(config: Mapping[str, object], server_name: str = "") -> dict[str, object]:
     headers = config.get("headers", {})
     authenticated = bool(config.get("auth") or config.get("auth_profile"))
     if isinstance(headers, Mapping):
         header_map = cast(Mapping[object, object], headers)
         authenticated = authenticated or any(str(key).lower() == "authorization" for key in header_map)
+    oauth_connected = False
+    if server_name:
+        try:
+            from antigravity_k.engine.mcp_oauth import has_stored_tokens
+
+            oauth_connected = has_stored_tokens(server_name)
+            authenticated = authenticated or oauth_connected
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "trust_level": config.get("trust_level", "experimental"),
         "authenticated": authenticated,
         "timeout_ms": config.get("timeout_ms") or config.get("timeout"),
+        "oauth_connected": oauth_connected,
     }
 
 

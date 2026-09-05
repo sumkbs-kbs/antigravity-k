@@ -24,7 +24,8 @@ def latest_capabilities() -> list[MCPCapability]:
                 "Remote MCP servers should authenticate clients rather than depending on ambient API keys."
             ),
             antigravity_action=(
-                "Flag non-local HTTP MCP servers without Authorization headers or an auth profile before import."
+                "Flag non-local HTTP MCP servers without auth; offer interactive OAuth 2.1 "
+                "(authorization code + PKCE) via /api/mcp/oauth and Settings panel."
             ),
             priority="P0",
             evidence_url="https://modelcontextprotocol.io/specification/2025-03-26/changelog",
@@ -44,9 +45,7 @@ def latest_capabilities() -> list[MCPCapability]:
             why_it_matters=(
                 "Batching reduces round trips; completions improve parameter entry and tool-call accuracy."
             ),
-            antigravity_action=(
-                "Expose batching/completions as optional server capabilities in the MCP audit report."
-            ),
+            antigravity_action=("Expose batching/completions as optional server capabilities in the MCP audit report."),
             priority="P1",
             evidence_url="https://modelcontextprotocol.io/specification/2025-03-26/changelog",
         ),

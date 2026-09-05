@@ -48,7 +48,7 @@ date: 2026-05-07
 
 | 우선순위 | 후보 | 설명 |
 |---|---|---|
-| P1 | OAuth 2.1 interactive flow | 현재는 Authorization header/auth metadata 유무를 감사한다. 다음 단계는 실제 OAuth client flow와 token refresh를 붙이는 것이다. |
+| P1 | OAuth 2.1 interactive flow | **완료** — authorization code + PKCE, PRM/AS discovery, vault 토큰, `/api/mcp/oauth/*`, Settings `McpOAuthPanel`, 로더 Bearer 주입. |
 | P1 | JSON-RPC batching scheduler | 여러 MCP tool discovery/call을 batch로 묶어 latency를 줄인다. |
 | P1 | MCP completions bridge | MCP 서버가 제공하는 argument completion을 Command Palette와 tool form에 연결한다. |
 | P2 | server health cache | MCP 서버별 initialize/list_tools 결과와 실패 원인을 캐시해 대시보드에 표시한다. |
