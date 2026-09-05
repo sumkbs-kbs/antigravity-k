@@ -284,13 +284,13 @@ status: active
 | 항목 | 내용 | 상태 |
 |:---|:---|:---|
 | B4a | **인용 검증 이중 실행 제거** — tool_loop가 최종 출력에 대해 수행한 인용 평가를 `citation_evaluation_output_sha`(평가 대상 출력 지문)와 함께 저장하고, 그래프 COV 검증이 동일 출력이면 재평가 없이 결과 재사용. CoV가 출력을 개정한 경우(해시 불일치)에만 재평가 | ✅ |
-| B4b | **승인 아키텍처 조사 결론** — `ApprovalManager`(요청 큐+API+대기)는 완성됐으나 실행 경로와 미연결. 현재 동작: 게이트가 `[APPROVAL REQUIRED]` 문자열 반환 → tool_loop가 태스크를 `approval_required`로 일시정지. **후속 과제**: 게이트 일시정지 시 `request_approval()` 등록 → 승인 시 `auto_allowed` 반영 후 태스크 재개 연결 (반쪽 연결은 UI 노이즈만 유발하므로 보류) | 📋 기록 |
+| B4b | **승인 아키텍처 조사 결론** — 조사 시점에는 `ApprovalManager`가 실행 경로와 미연결이었음 (게이트 `[APPROVAL REQUIRED]` → tool_loop `approval_required` 일시정지). **완결**: 10·12차 세션에서 게이트/PROMPT ↔ `request_approval()` ↔ 대시보드/API ↔ 재개(`consume_one_time`/`always_allow`) 연결. 2026-09-05: PENDING 재사용이 실제로 새 요청을 만들지 않도록 early-return 보강 + 소비/재사용 테스트 추가 | ✅ |
 | B1 완결 | **페어링 인식 드롭 + 순수 래퍼 보호** — drop 단계에서 도구 결과를 버리면 직전 assistant 호출도, 호출을 버리면 직후 결과도 함께 제거(고아 방지). trim 단계에서는 순수 호출 래퍼(호출 블록이 본문 절반 이상)를 후보에서 제외 — 블록 제거가 빈 껍데기를 남기지 않게 (신규 테스트 3건, 고아 불변식 검증) | ✅ |
 | 복잡도 추정기 | **공통 추정기 정합** — `TestTimeComputeScaler`가 `estimate_complexity`(0~1)가 0.6+로 판정한 과제를 최소 MODERATE로 상향 — 두 추정기의 상반 판정 방지 | ✅ |
 
 **8차 세션 검증**: `pytest tests/` 4,807 passed / 0 failed · `ruff check` 0 issues.
 
-**B그룹 잔여 (후속)**: 5개 트리머 완전 단일화(B1 심화 — 현재 완화 체계: 단일 토큰 추정기·실예산·증거 보호·블록 인식 절단·태그 재닫기·페어링 드롭), ApprovalManager↔게이트 연결(B4b 후속 과제).
+**B그룹 잔여 (후속)**: 5개 트리머 완전 단일화(B1 심화 — 현재 완화 체계: 단일 토큰 추정기·실예산·증거 보호·블록 인식 절단·태그 재닫기·페어링 드롭). B4b(ApprovalManager↔게이트)는 10·12차에서 완결.
 
 ### 9차 세션: 중소 잔여 버그 5건 (2026-09-02)
 
@@ -304,7 +304,7 @@ status: active
 
 **9차 세션 검증**: `pytest tests/` 4,812 passed / 0 failed · `ruff check` 0 issues.
 
-**리뷰 기반 작업 최종 잔여**: (1) 5개 트리머 완전 단일화(B1 심화 — 완화 체계로 실질 해소), (2) ApprovalManager↔게이트 연결(기능 개발), (3) BoN 코드 케이스 실측(조건부), (4) yield-in-try 패턴(저위험), (5) autopilot 실제 실행 엔진 연결(기능 개발).
+**리뷰 기반 작업 최종 잔여**: (1) 5개 트리머 완전 단일화(B1 심화 — 완화 체계로 실질 해소), (2) ~~ApprovalManager↔게이트 연결~~(10·12차 완결), (3) BoN 코드 케이스 실측(조건부), (4) yield-in-try 패턴(저위험), (5) autopilot 실제 실행 엔진 연결(기능 개발).
 
 ### 10차 세션: 승인 시스템 연결 + autopilot 실행 모드 (2026-09-02)
 
@@ -355,6 +355,16 @@ API 서버(uvicorn, 127.0.0.1:8000)를 띄워 실제 대화 경로 검증. 그 �
 **남은 후속 (계획 대비 미반영)**: 컨텍스트 컴파일 파이프라인 5개 트리머 완전 통합(현재는 증거 보호·블록 인식 절단·태그 재닫기로 완화), pinned_context 접두사 동결 구조화, tool_executor 복구 경로 오류 상실(B16)/사전검증 쓰기 부수효과(B17), P2-8 BoN 기본 활성화(런타임 실측 후), `complex_task_thinking: true` 전환(런타임 실측 후).
 
 **다음 단계 권장**: (1) `complex_task_thinking: true` 전환 후 실측 벤치마크(`scripts/run_27b_benchmark.py`), (2) Phase 3-1 토큰 추정기 단일화(CJK 인식) — 컨텍스트 예산 정확성의 전제, (3) Phase 3-2 KV-cache 안정 접두사.
+
+
+### 14차 세션: B4b PENDING 재사용 보강 (2026-09-05)
+
+| 항목 | 내용 | 상태 |
+|:---|:---|:---|
+| B4b 보강 | **PENDING 재사용 early-return** — `_register_approval_request`가 동일 도구 PENDING이 있어도 `request_approval()`을 호출해 고아 요청을 만들던 버그 수정. `is_always_allowed` early-return으로 UI 노이즈 없는 즉시 실행 유지. `consume_one_time_approval` 단위 테스트 3건 + PENDING 재사용 테스트 1건 추가 | ✅ |
+
+**수동 검증**: 승인 필요 도구 실행 → `GET /api/approval/pending`에 1건 → 동일 도구 재호출 시 pending 증가 없음 → `POST /api/approval/{id}` approve/always_allow → `POST /api/tasks/{id}/resume` 후 도구 실행/재일시정지 정상.
+
 
 ---
 

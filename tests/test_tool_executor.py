@@ -767,6 +767,44 @@ class TestApprovalWiring:
 
         assert result == "ok"  # 일시정지 없이 실행됨
 
+    def test_reuses_existing_pending_without_duplicate(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        """동일 도구 PENDING이 있으면 새 요청을 만들지 않고 기존 ID를 재사용한다."""
+        from antigravity_k.engine import approval_manager as am
+
+        existing = am.ApprovalRequest(
+            request_id="req-existing",
+            tool_name="write_file",
+            tool_args={"file_path": "a.txt"},
+            description="기존 요청",
+        )
+        created: list[str] = []
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return False
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return [existing]
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                created.append(tool_name)
+                raise AssertionError("PENDING 재사용 시 새 request_approval을 호출하면 안 된다")
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert "[APPROVAL REQUIRED]" in result
+        assert "req-existing" in result
+        assert created == []
+
     def test_one_time_approval_consumed_on_retry(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         from antigravity_k.engine import approval_manager as am
 

@@ -154,3 +154,25 @@ class TestSingleton:
         reset_approval_manager()
         m2 = get_approval_manager()
         assert m1 is not m2
+
+
+class TestConsumeOneTimeApproval:
+    """일회성 승인 소비 (태스크 재개 재시도 경로)."""
+
+    def test_consume_approved_once(self, manager: ApprovalManager) -> None:
+        req = manager.request_approval("write_file", {"file_path": "x"}, "low")
+        _ = manager.resolve(req.request_id, ApprovalDecision.APPROVE)
+        assert manager.consume_one_time_approval("write_file") is True
+        # 두 번째 소비는 거부
+        assert manager.consume_one_time_approval("write_file") is False
+
+    def test_newer_deny_blocks_consume(self, manager: ApprovalManager) -> None:
+        approved = manager.request_approval("write_file", {"file_path": "a"}, "low")
+        _ = manager.resolve(approved.request_id, ApprovalDecision.APPROVE)
+        denied = manager.request_approval("write_file", {"file_path": "b"}, "low")
+        _ = manager.resolve(denied.request_id, ApprovalDecision.DENY)
+        assert manager.consume_one_time_approval("write_file") is False
+
+    def test_pending_not_consumable(self, manager: ApprovalManager) -> None:
+        _ = manager.request_approval("write_file", {"file_path": "x"}, "low")
+        assert manager.consume_one_time_approval("write_file") is False

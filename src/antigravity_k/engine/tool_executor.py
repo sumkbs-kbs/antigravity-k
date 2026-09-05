@@ -386,8 +386,9 @@ class ToolExecutor:
         """게이트 일시정지를 승인 시스템에 등록한다.
 
         반환: (즉시 실행 여부, 승인 요청 ID — 등록 실패 시 빈 문자열).
-        - '항상 허용' 도구 → 즉시 실행 (request_approval이 자동 승인 반환)
         - 소비 대기 중인 일회성 승인 → 소비 후 즉시 실행 (재시도 경로)
+        - '항상 허용' 도구 → 즉시 실행 (새 요청/일시정지 없음)
+        - 동일 도구 PENDING 요청이 있으면 재사용 (중복 등록 방지)
         - 그 외 → PENDING 요청 등록 후 일시정지
         등록 실패는 기존 문자열 일시정지로 폴백한다(보안 경계 유지).
         """
@@ -403,12 +404,9 @@ class ToolExecutor:
             if manager.consume_one_time_approval(name):
                 return True, ""
 
-            # 동일 도구의 PENDING 요청이 있으면 재사용 (중복 등록 방지)
-            existing_id = ""
-            for pending_request in manager.get_pending():
-                if pending_request.tool_name == name:
-                    existing_id = pending_request.request_id
-                    break
+            # '항상 허용'은 새 요청/일시정지 없이 즉시 실행
+            if manager.is_always_allowed(name):
+                return True, ""
 
             from pydantic import JsonValue
 
@@ -419,6 +417,13 @@ class ToolExecutor:
             description = (
                 str(getattr(reason, "reason", "")) if not isinstance(reason, str) else reason
             ) or f"{name} 실행"
+
+            # 동일 도구의 PENDING 요청이 있으면 재사용 (중복 등록·UI 스팸 방지)
+            for pending_request in manager.get_pending():
+                if pending_request.tool_name == name:
+                    self._broadcast_approval_required(name, pending_request.request_id, description)
+                    return False, pending_request.request_id
+
             request = manager.request_approval(
                 tool_name=name,
                 tool_args=json_args,
@@ -427,9 +432,6 @@ class ToolExecutor:
             )
             if request.status == ApprovalStatus.ALWAYS_ALLOW:
                 return True, request.request_id
-            if existing_id:
-                self._broadcast_approval_required(name, existing_id, description)
-                return False, existing_id
             self._broadcast_approval_required(name, request.request_id, description)
             return False, request.request_id
         except Exception:
