@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "dependency_locks": ["uv.lock"],
+  "gates": [
+    {
+      "id": "fixture-failure",
+      "category": "python_backend",
+      "command": ["/usr/bin/false"],
+      "cwd": ".",
+      "timeout_seconds": 10,
+      "required": true,
+      "finding_ids": ["master E2E/Ruff/format"],
+      "task_ids": ["QLT-01"]
+    },
+    {
+      "id": "fixture-later-pass",
+      "category": "runtime",
+      "command": ["/usr/bin/true"],
+      "cwd": ".",
+      "timeout_seconds": 10,
+      "required": true,
+      "finding_ids": ["CORE-06"],
+      "task_ids": ["TRN-02"]
+    }
+  ]
+}

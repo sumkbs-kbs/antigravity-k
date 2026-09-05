@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "dependency_locks": [
+    "uv.lock",
+    "dashboard/pnpm-lock.yaml",
+    "dashboard/package-lock.json"
+  ],
+  "gates": [
+    {"id":"python-ruff","category":"python_backend","command":["uv","run","--no-sync","ruff","check","src/","tests/","scripts/"],"cwd":".","timeout_seconds":600,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"python-format","category":"python_backend","command":["uv","run","--no-sync","ruff","format","--check","src/","tests/","scripts/"],"cwd":".","timeout_seconds":600,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"python-mypy","category":"python_backend","command":["uv","run","--no-sync","mypy","src/"],"cwd":".","timeout_seconds":900,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"python-basedpyright","category":"python_backend","command":["uv","run","--no-sync","basedpyright","src/","scripts/"],"cwd":".","timeout_seconds":900,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"python-tests","category":"python_backend","command":["uv","run","--no-sync","pytest","tests/","-v","--tb=short"],"cwd":".","timeout_seconds":7200,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"dashboard-install","category":"dashboard","command":["pnpm","install","--frozen-lockfile"],"cwd":"dashboard","timeout_seconds":1200,"required":true,"finding_ids":["OPS-02"],"task_ids":["REL-02"]},
+    {"id":"dashboard-lint","category":"dashboard","command":["pnpm","run","lint"],"cwd":"dashboard","timeout_seconds":600,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"dashboard-typecheck","category":"dashboard","command":["pnpm","run","typecheck"],"cwd":"dashboard","timeout_seconds":600,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"dashboard-test","category":"dashboard","command":["pnpm","run","test"],"cwd":"dashboard","timeout_seconds":1200,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"dashboard-build","category":"dashboard","command":["pnpm","run","build"],"cwd":"dashboard","timeout_seconds":1200,"required":true,"finding_ids":["OPS-03"],"task_ids":["REL-02"]},
+    {"id":"package-build","category":"package","command":["uv","build"],"cwd":".","timeout_seconds":1200,"required":true,"finding_ids":["OPS-01"],"task_ids":["REL-01"]},
+    {"id":"docker-build","category":"docker","command":["docker","build","--tag","antigravity-k:ga-gate","."],"cwd":".","timeout_seconds":2400,"required":true,"finding_ids":["OPS-03","OPS-04"],"task_ids":["REL-02"]},
+    {"id":"sbom-generate","category":"supply_chain","command":["uv","run","--no-sync","python","-m","antigravity_k.engine.release_sbom","generate","--project-root",".","--release-root","src/antigravity_k/release"],"cwd":".","timeout_seconds":1200,"required":true,"finding_ids":["OPS-01"],"task_ids":["REL-01"]},
+    {"id":"dependency-audit-python","category":"supply_chain","command":["uv","run","--no-sync","pip-audit","--strict","--desc"],"cwd":".","timeout_seconds":1200,"required":true,"finding_ids":["OPS-05"],"task_ids":["REL-03"]},
+    {"id":"dependency-audit-dashboard","category":"supply_chain","command":["pnpm","audit","--prod","--audit-level","high"],"cwd":"dashboard","timeout_seconds":1200,"required":true,"finding_ids":["OPS-05"],"task_ids":["REL-03"]},
+    {"id":"security-bandit","category":"security","command":["uv","run","--no-sync","bandit","-r","src/antigravity_k","-ll","-x","src/antigravity_k/engine/secret_scanner.py"],"cwd":".","timeout_seconds":1200,"required":true,"finding_ids":["SEC-01","SEC-02","SEC-03"],"task_ids":["SEC-01","SEC-02","SEC-03"]},
+    {"id":"master-e2e","category":"runtime","command":["uv","run","--no-sync","python","scripts/run_full_system_e2e_test.py"],"cwd":".","timeout_seconds":1800,"required":true,"finding_ids":["master E2E/Ruff/format"],"task_ids":["QLT-01"]},
+    {"id":"api-e2e","category":"runtime","command":["uv","run","--no-sync","pytest","tests/test_e2e_smoke.py","-q","--tb=short"],"cwd":".","timeout_seconds":1800,"required":true,"finding_ids":["CTX-01","WS-01"],"task_ids":["CTX-01","WS-01"]},
+    {"id":"accessibility-e2e","category":"accessibility","command":["pnpm","exec","playwright","test","e2e/tests/accessibility.spec.ts"],"cwd":"dashboard","timeout_seconds":2400,"required":true,"finding_ids":["UI-01","UI-02"],"task_ids":["UI-01","UI-02"]},
+    {"id":"clean-machine-runtime","category":"runtime","command":["bash","scripts/verify_clean_machine.sh"],"cwd":".","timeout_seconds":7200,"required":true,"finding_ids":["OPS-01","OPS-02","OPS-03","OPS-04"],"task_ids":["REL-01","REL-02"]}
+  ]
+}

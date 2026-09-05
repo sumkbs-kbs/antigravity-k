@@ -2,7 +2,7 @@
 # =======================
 # Commercial-grade task runner for development, testing, and deployment
 
-.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine lint format clean build dmg docker-build \
+.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine ga-gate ga-gate-list lint format clean build dmg docker-build \
         docker-run coverage check ci-setup pre-commit install-script \
         security audit audit-egress sbom doctor search-quality search-quality-extended search-live search-live-extended search-load claim-quality quality-contract local-rag-quality local-benchmark local-benchmark-frontier frontier-evidence \
         build-provenance dashboard-build-provenance dashboard-provenance-verify publish-provenance
@@ -83,6 +83,12 @@ smoke-cli: ## Verify the documented CLI entrypoint and local Qwen profile
 	uv run agk --help
 	uv run agk model list
 	uv run agk doctor
+
+ga-gate: ## Run the complete commercial GA gate manifest
+	$(PYTHON) scripts/ga_gate.py --manifest scripts/commercial_ga_gates.json --output .artifacts/commercial-ga.json
+
+ga-gate-list: ## Validate and list commercial GA gates without executing them
+	$(PYTHON) scripts/ga_gate.py --manifest scripts/commercial_ga_gates.json --list
 
 verify-clean-machine: ## 클린머신 재현 검증: HEAD 신규 익스포트 → uv sync(잠금강제) → CLI smoke → API E2E
 	bash scripts/verify_clean_machine.sh $(ARGS)
