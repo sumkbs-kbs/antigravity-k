@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 2 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | ARC-01 REVIEW (owner complete) |
+| 현재 작업 | ARC-01 REVIEW — independent REJECT (escape boundary) |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,6 +33,16 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+
+### 2026-09-06 · ARC-01 독립 review REJECT (`arc_01_verify`)
+
+- Reviewer: `arc_01_verify` (구현 미참여)
+- Tip reviewed: `e6fc73b32f046627ee1bc5a216c5afbf332e11d7` / impl `a0c3b1c778ac16db0abfdc57e198fa101842986d`
+- 재실행: Python 12 passed; Vitest 4 passed (worktree `dashboard/node_modules` partial → main symlink 복구 후); fixtures byte-identical
+- **Verdict: REJECT** — must-verify #2 실패: registry에 기록된 `/etc`, `..` escape, symlink-out이 `canonical_project_root`로 PASS_THROUGH. `project_root_invalid`의 escape 거절이 실질적으로 미구현·미테스트.
+- 비차단: immutable context, raw-path non-authority, revision/typed errors, ADR-0004, fixture 정렬, evidence sanitization은 PASS.
+- 상태: `REVIEW` 유지 (DONE 아님). **WS-01/CTX-01 착수 금지** until escape boundary fix + frozen escape tests + re-review APPROVE.
+- Evidence: `.omo/evidence/commercial-ga-100/ARC-01/review.md`
 
 ### 2026-09-06 · ARC-01 RequestExecutionContext 계약 구현 (REVIEW)
 
@@ -48,7 +58,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - frozen tests: Python 12 passed, Vitest 4 passed
 - Evidence: `.omo/evidence/commercial-ga-100/ARC-01/` (metadata, red, tests, manual-qa; review 자리는 독립 reviewer용)
 - Result SHA: `a0c3b1c778ac16db0abfdc57e198fa101842986d`
-- 상태: `REVIEW` — WS-01/CTX-01 소비 가능 계약 동결. DONE은 독립 review APPROVE 후.
+- 상태: `REVIEW` — 이후 독립 review에서 REJECT (escape boundary).
 
 
 ### 2026-09-06 · GOV-01 독립 재검증 APPROVE (r2)
@@ -174,11 +184,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| ARC-01 | arc_01_contract | codex/arc-01-execution-context | REVIEW — 독립 review 대기 | frozen RequestExecutionContext + ADR-0004 + fixtures; Owner≠Reviewer |
+| ARC-01 | arc_01_contract | codex/arc-01-execution-context | REVIEW — **REJECT** by arc_01_verify | fix root-escape rejection + frozen escape tests; re-review before WS/CTX |
 
 ## 차단 및 결정 대기
 
-`ARC-01`은 owner 구현을 마치고 `REVIEW`다. 독립 reviewer(`arc_01_verify` 등, Owner≠Reviewer) APPROVE 전에는 `DONE`으로 올리지 않는다. WS-01/CTX-01은 frozen contract·fixture·ADR-0004를 소비해 병렬 착수할 수 있으나, ARC-01 REJECT 시 contract 재동결이 필요하다. GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
+`ARC-01`은 독립 reviewer `arc_01_verify`가 **REJECT**했다 (root escape boundary 미거절). `DONE` 금지. **WS-01/CTX-01 착수하지 말 것** — escape 거절 + frozen escape test 추가 후 재심사 APPROVE가 선행이다. GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
 
 ## 증거 위치
 

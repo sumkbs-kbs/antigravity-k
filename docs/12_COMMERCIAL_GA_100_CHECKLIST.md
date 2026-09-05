@@ -25,7 +25,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 |---|---|---|---|---|---|---|---|
 | GA-00 | DONE | ga_00_baseline | ga_00_verify | codex/ga-00-baseline-gate | `7677bc391888ad13aa8413e32634f95912613d49` | `.omo/evidence/commercial-ga-100/GA-00/` | 독립 검증 APPROVE 0.99 |
 | GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
-| ARC-01 | REVIEW | arc_01_contract |  | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `a0c3b1c778ac16db0abfdc57e198fa101842986d` | `.omo/evidence/commercial-ga-100/ARC-01/` | GA-00, GOV-01 |
+| ARC-01 | REVIEW | arc_01_contract | arc_01_verify | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `a0c3b1c778ac16db0abfdc57e198fa101842986d` | `.omo/evidence/commercial-ga-100/ARC-01/` | **REJECT** r1: root escape not rejected at boundary; see review.md |
 | WS-01 | TODO |  |  |  |  |  | ARC-01 |
 | WS-02 | TODO |  |  |  |  |  | WS-01 |
 | WS-03 | TODO |  |  |  |  |  | WS-01 |
@@ -96,13 +96,16 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## ARC-01 · 공용 실행 계약
 
+> 독립 review (`arc_01_verify`) **REJECT** (2026-09-06 KST). DONE 금지. 차단: `project_id→root` boundary에서 root escape(`/etc`, `..`, symlink-out)가 거절되지 않음. Evidence: `.omo/evidence/commercial-ga-100/ARC-01/review.md`.
+
 - [x] `RequestExecutionContext` 필드와 불변성을 정의했다.
 - [x] project ID에서 canonical root를 server가 해석한다.
+- [ ] **root escape가 boundary에서 거절된다** (독립 review FAIL — registry path `/etc`·`..`·symlink-out PASS_THROUGH; frozen escape test 없음).
 - [x] conversation ID/revision protocol을 정의했다.
 - [x] missing/stale/invalid context의 typed error를 정의했다.
 - [x] dashboard/backend schema fixture가 동일하다.
 - [x] legacy 경로의 migration/removal ADR을 작성했다.
-- [x] WS/CTX lane이 사용할 frozen contract test가 통과한다.
+- [x] WS/CTX lane이 사용할 frozen contract test가 통과한다 (재실행 12+4; Vitest는 node_modules symlink 복구 후).
 
 ## WS-01 · backend 프로젝트 바인딩
 
