@@ -9,8 +9,8 @@ from antigravity_k.engine.next_action_recommender import NextActionRecommender
 def test_test_gap_recommendation():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "src").mkdir()
-        (root / "src" / "payment.py").write_text("def charge_card(): pass\n", encoding="utf-8")
+        _ = (root / "src").mkdir()
+        _ = (root / "src" / "payment.py").write_text("def charge_card(): pass\n", encoding="utf-8")
 
         recommender = NextActionRecommender(root)
         batch = recommender.synthesize_recommendations(

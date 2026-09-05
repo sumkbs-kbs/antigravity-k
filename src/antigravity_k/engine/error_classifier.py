@@ -1,7 +1,7 @@
 """ErrorClassifier — API 에러 분류 및 자동 복구 결정 시스템.
 
 ========================================================
-Hermes Agent의 error_classifier.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 error_classifier.py 패턴을 Ssak-Ai에 이식.
 
 구조화된 에러 분류 파이프라인:
   1. 프로바이더 특수 패턴 (Anthropic thinking sig, context tier 등)
@@ -32,9 +32,20 @@ import enum
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol, TypedDict, Unpack, cast
 
 logger = logging.getLogger("antigravity_k.engine.error_classifier")
+
+
+class ClassifiedErrorOverrides(TypedDict, total=False):
+    retryable: bool
+    should_compress: bool
+    should_rotate_credential: bool
+    should_fallback: bool
+
+
+class ResultFn(Protocol):
+    def __call__(self, reason: FailoverReason, **overrides: Unpack[ClassifiedErrorOverrides]) -> ClassifiedError: ...
 
 
 # ── 에러 유형 분류 ──
@@ -87,7 +98,7 @@ class ClassifiedError:
     provider: str | None = None
     model: str | None = None
     message: str = ""
-    error_context: dict[str, Any] = field(default_factory=dict)
+    error_context: dict[str, object] = field(default_factory=dict)
 
     # 복구 힌트 — 재시도 루프에서 사용
     retryable: bool = True
@@ -115,11 +126,11 @@ class ClassifiedError:
         """
         return self.reason in (FailoverReason.context_overflow, FailoverReason.payload_too_large)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
-            dict[str, Any]: The dict[str, any] result.
+            dict[str, object]: The serialized error result.
 
         """
         return {
@@ -278,13 +289,15 @@ def classify_api_error(
 
     # body 메시지도 패턴 매칭에 포함
     if isinstance(body, dict):
-        err_obj = body.get("error", {})
+        body_map = cast(dict[str, object], cast(object, body))
+        err_obj = body_map.get("error", {})
         if isinstance(err_obj, dict):
-            body_msg = str(err_obj.get("message", "")).lower()
+            err_map = cast(dict[str, object], cast(object, err_obj))
+            body_msg = str(err_map.get("message", "")).lower()
             if body_msg and body_msg not in error_msg:
                 error_msg = f"{error_msg} {body_msg}"
 
-    def _result(reason: FailoverReason, **overrides: Any) -> ClassifiedError:
+    def _result(reason: FailoverReason, **overrides: Unpack[ClassifiedErrorOverrides]) -> ClassifiedError:
         return ClassifiedError(
             reason=reason,
             status_code=status_code,
@@ -372,7 +385,7 @@ def _classify_by_status(
     approx_tokens: int,
     context_length: int,
     num_messages: int,
-    result_fn,
+    result_fn: ResultFn,
 ) -> ClassifiedError | None:
     """HTTP 상태 코드 기반 에러 분류."""
     if status_code == 401:
@@ -448,7 +461,7 @@ def _classify_400(
     approx_tokens: int,
     context_length: int,
     num_messages: int,
-    result_fn,
+    result_fn: ResultFn,
 ) -> ClassifiedError:
     """400 Bad Request 세부 분류."""
     # Context overflow
@@ -481,7 +494,7 @@ def _extract_status_code(error: Exception) -> int | None:
         if isinstance(code, int):
             return code
     # httpx.HTTPStatusError 호환
-    response = getattr(error, "response", None)
+    response = cast(object, getattr(error, "response", None))
     if response is not None:
         code = getattr(response, "status_code", None)
         if isinstance(code, int):
@@ -489,28 +502,37 @@ def _extract_status_code(error: Exception) -> int | None:
     return None
 
 
-def _extract_error_body(error: Exception) -> dict[str, Any] | None:
+class JsonCallable(Protocol):
+    def __call__(self) -> object: ...
+
+
+def _extract_error_body(error: Exception) -> dict[str, object] | None:
     """예외에서 응답 body JSON 추출."""
-    response = getattr(error, "response", None)
+    response = cast(object, getattr(error, "response", None))
     if response is None:
         # OpenAI SDK: .body 속성
-        body = getattr(error, "body", None)
+        body = cast(object, getattr(error, "body", None))
         if isinstance(body, dict):
-            return body
+            return cast(dict[str, object], cast(object, body))
         return None
 
     # httpx 응답
     try:
-        if hasattr(response, "json"):
-            return response.json()
+        json_method = cast(JsonCallable | None, getattr(response, "json", None))
+        if json_method is not None:
+            parsed = json_method()
+            if isinstance(parsed, dict):
+                return cast(dict[str, object], cast(object, parsed))
     except Exception as e:
         logger.exception("Unhandled exception")
         logger.debug("Failed to read json from response: %s", e)
 
-    text = getattr(response, "text", None)
-    if text:
+    text = cast(object, getattr(response, "text", None))
+    if isinstance(text, str) and text:
         try:
-            return json.loads(text)
+            parsed = cast(object, json.loads(text))
+            if isinstance(parsed, dict):
+                return cast(dict[str, object], cast(object, parsed))
         except (json.JSONDecodeError, TypeError):
             logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 

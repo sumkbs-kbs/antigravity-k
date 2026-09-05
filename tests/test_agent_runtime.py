@@ -1,19 +1,74 @@
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Protocol, cast, override
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.requests import Request as StarletteRequest
 
-from antigravity_k.engine.agent_runtime import AgentRuntime, TrackedStream
+from antigravity_k.api.task_models import TaskSubmitRequest
+from antigravity_k.engine.agent_runtime import (
+    AgentRuntime as _AgentRuntime,
+)
+from antigravity_k.engine.agent_runtime import (
+    GoalRunnerPort,
+    OrchestratorPort,
+    TaskRunnerPort,
+    TrackedStream,
+)
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.persistent_agency import AgencyConfig, PersistentAgencyController
 from antigravity_k.engine.task_runner import BackgroundTaskRunner
 from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStateStore
+
+
+class _ThreadLike(Protocol):
+    def join(self, timeout: float | None = None) -> None: ...
+
+
+class _ResumedTask(Protocol):
+    output: str
+
+
+class _StreamingResponse(Protocol):
+    body_iterator: AsyncIterator[object]
+
+
+def _mock_method(mock: MagicMock, name: str) -> MagicMock:
+    return cast(MagicMock, getattr(mock, name))
+
+
+def _assert_called_once_with(mock: MagicMock, name: str, *args: object, **kwargs: object) -> None:
+    callback = cast(Callable[..., object], getattr(_mock_method(mock, name), "assert_called_once_with"))
+    _ = callback(*args, **kwargs)
+
+
+def _assert_awaited_once_with(mock: MagicMock, name: str, *args: object, **kwargs: object) -> None:
+    callback = cast(Callable[..., object], getattr(_mock_method(mock, name), "assert_awaited_once_with"))
+    _ = callback(*args, **kwargs)
+
+
+def AgentRuntime(
+    orchestrator: object,
+    task_runner: object | None = None,
+    goal_runner: object | None = None,
+) -> _AgentRuntime:
+    return _AgentRuntime(
+        cast(OrchestratorPort, orchestrator),
+        task_runner=cast(TaskRunnerPort | None, task_runner),
+        goal_runner=cast(GoalRunnerPort | None, goal_runner),
+    )
 
 
 class FakeOrchestrator:
     def __init__(self) -> None:
         self.stream_calls: list[dict[str, object]] = []
+        self.agent_runtime: object | None = None
+        self.max_engine: object | None = None
+        self.tool_registry: object | None = None
 
     def _get_model_for_role(self, role: str) -> str:
         assert role == "default"
@@ -54,17 +109,22 @@ class FakeTaskRunner:
         self.submit_calls.append(kwargs)
         return True
 
-    def cancel_task(self, task_id: str) -> bool:
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+        _ = owner_subject
         self.cancel_calls.append(task_id)
         return True
 
-    def get_status(self, task_id: str) -> dict[str, object] | None:
+    def get_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None:
+        _ = owner_subject
         return {"task_id": task_id, "status": "done"}
 
-    def list_tasks(self, limit: int = 20) -> list[dict[str, object]]:
-        return [{"task_id": "task_runtime_001", "status": "done"}][:limit]
+    def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> list[dict[str, object]]:
+        _ = owner_subject
+        task: dict[str, object] = {"task_id": "task_runtime_001", "status": "done"}
+        return [task][:limit]
 
-    def get_output(self, task_id: str) -> str | None:
+    def get_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
+        _ = owner_subject
         return "runtime-output" if task_id == "task_runtime_001" else None
 
     def wait_task(self, task_id: str, timeout: float | None = None) -> dict[str, object] | None:
@@ -91,6 +151,7 @@ class BoundOrchestrator(FakeOrchestrator):
         finally:
             self._execution_context.reset(token)
 
+    @override
     def run_stream(
         self,
         messages: list[dict[str, str]],
@@ -138,6 +199,76 @@ def test_runtime_cancels_background_task_through_runner():
     assert runner.cancel_calls == ["task_runtime_001"]
 
 
+def test_runtime_records_background_task_lifecycle_in_persistent_agency(tmp_path: Path):
+    orchestrator = FakeOrchestrator()
+    agency = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", agency)
+    runner = FakeTaskRunner()
+    runtime = AgentRuntime(orchestrator, task_runner=runner)
+
+    task_id = runtime.submit_task("index the changed files", context={"trajectory_id": "main"})
+    assert task_id == "task_runtime_001"
+    assert runtime.resume_task(task_id) is True
+    assert runtime.cancel_task(task_id) is True
+
+    events = agency.store.list_events(agency.project_id, "main")
+    assert [event.payload["status"] for event in events] == ["submitted", "resumed", "cancelled"]
+    assert "index the changed files" in str(events[0].payload["text"])
+
+
+def test_runtime_submits_next_objective_and_reconciles_completion(tmp_path: Path):
+    orchestrator = FakeOrchestrator()
+    controller = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", controller)
+    objective = controller.enqueue_objective("demo", "Run the next indexed check", "Check files")
+    runtime = AgentRuntime(orchestrator, task_runner=FakeTaskRunner())
+
+    task_id = runtime.submit_next_objective("demo")
+    assert task_id == "task_runtime_001"
+    status = runtime.get_task_status(task_id)
+    assert status is not None
+    assert status["status"] == "done"
+    stored = controller.get_objective(objective.objective_id)
+    assert stored is not None
+    assert stored.status.value == "done"
+
+
+def test_runtime_projects_durable_context_into_next_objective(tmp_path: Path):
+    orchestrator = FakeOrchestrator()
+    controller = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", controller)
+    _ = controller.record_observation(controller.project_id, "main", "The parser cache must be rebuilt first")
+    _ = controller.enqueue_objective(controller.project_id, "Rebuild parser cache")
+    runner = FakeTaskRunner()
+    runtime = AgentRuntime(orchestrator, task_runner=runner)
+
+    _ = runtime.submit_next_objective(controller.project_id)
+
+    submitted = runner.submit_calls[0]
+    assert "The parser cache must be rebuilt first" in str(submitted["prompt"])
+    context = submitted["context"]
+    assert isinstance(context, dict)
+    assert context["persistent_context_event_ids"]
+
+
+def test_runtime_reconciles_all_claimed_objective_tasks(tmp_path: Path):
+    orchestrator = FakeOrchestrator()
+    controller = PersistentAgencyController(str(tmp_path), AgencyConfig(enabled=True))
+    setattr(orchestrator, "persistent_agency", controller)
+    objective = controller.enqueue_objective(controller.project_id, "Reconcile me")
+    _ = controller.claim_next_objective(controller.project_id)
+    controller.bind_objective_task("task_runtime_001", objective.objective_id, controller.project_id, "main")
+    runtime = AgentRuntime(orchestrator, task_runner=FakeTaskRunner())
+
+    assert runtime.reconcile_persistent_objectives(controller.project_id) == 1
+    stored = controller.get_objective(objective.objective_id)
+    assert stored is not None
+    assert stored.status.value == "done"
+
+    summaries = controller.project_context(controller.project_id, "main").text
+    assert "task_runtime_001 done" in summaries
+
+
 def test_runtime_exposes_durable_task_queries_and_wait_through_runner():
     # Given: the canonical runtime owns a durable task runner.
     runtime = AgentRuntime(FakeOrchestrator(), task_runner=FakeTaskRunner())
@@ -155,7 +286,7 @@ def test_runtime_exposes_durable_task_queries_and_wait_through_runner():
     assert waited == {"task_id": "task_runtime_001", "status": "done", "timeout": 3}
 
 
-def test_runtime_start_stream_persists_direct_execution_and_exposes_task_id(tmp_path):
+def test_runtime_start_stream_persists_direct_execution_and_exposes_task_id(tmp_path: Path):
     store = TaskStateStore(str(tmp_path / "tasks.db"))
     runtime = AgentRuntime(BoundOrchestrator(), task_runner=SimpleNamespace(state_store=store))
 
@@ -163,7 +294,9 @@ def test_runtime_start_stream_persists_direct_execution_and_exposes_task_id(tmp_
 
     assert tracked.task_id is not None
     assert list(tracked.chunks) == ["first", "second"]
-    record = store.get_task(tracked.task_id)
+    task_id = tracked.task_id
+    assert task_id is not None
+    record = store.get_task(task_id)
     assert record is not None
     assert record["status"] == "done"
     assert record["output"] == "firstsecond"
@@ -175,9 +308,10 @@ def test_runtime_start_stream_persists_direct_execution_and_exposes_task_id(tmp_
     ]
 
 
-def test_runtime_direct_stream_persists_normalized_language_output(tmp_path):
+def test_runtime_direct_stream_persists_normalized_language_output(tmp_path: Path):
     # Given: a direct qwen stream splits a known Chinese false friend across chunks.
     class ContaminatedOrchestrator(BoundOrchestrator):
+        @override
         def run_stream(
             self,
             messages: list[dict[str, str]],
@@ -199,16 +333,19 @@ def test_runtime_direct_stream_persists_normalized_language_output(tmp_path):
     # Then: both the user stream and durable output contain Korean terms only.
     normalized = "시간복잡도와 공간복잡도"
     assert "".join(chunks) == normalized
-    record = store.get_task(tracked.task_id)
+    task_id = tracked.task_id
+    assert task_id is not None
+    record = store.get_task(task_id)
     assert record is not None
     assert record["output"] == normalized
 
 
-def test_runtime_direct_task_stores_canonical_final_output(tmp_path):
+def test_runtime_direct_task_stores_canonical_final_output(tmp_path: Path):
     # Given: the user stream shows a rejected draft and then a quality revision.
     class RevisingOrchestrator(BoundOrchestrator):
-        _last_agent_output = ""
+        _last_agent_output: str = ""
 
+        @override
         def run_stream(
             self,
             messages: list[dict[str, str]],
@@ -232,13 +369,15 @@ def test_runtime_direct_task_stores_canonical_final_output(tmp_path):
 
     # Then: the user saw the full stream, but the task record stores only the final answer.
     assert "".join(chunks) == "draft with syntax error\nrevision notice\ncorrected final answer"
-    record = store.get_task(tracked.task_id)
+    task_id = tracked.task_id
+    assert task_id is not None
+    record = store.get_task(task_id)
     assert record is not None
     assert record["status"] == "done"
     assert record["output"] == "corrected final answer"
 
 
-def test_runtime_records_an_explicitly_named_tool_as_a_durable_contract(tmp_path):
+def test_runtime_records_an_explicitly_named_tool_as_a_durable_contract(tmp_path: Path):
     # Given: the user explicitly requires one registered tool in a direct task.
     store = TaskStateStore(str(tmp_path / "tasks.db"))
     orchestrator = BoundOrchestrator()
@@ -255,7 +394,7 @@ def test_runtime_records_an_explicitly_named_tool_as_a_durable_contract(tmp_path
     assert checkpoint["context_json"] == '{"expected_tools": ["read_file"]}'
 
 
-def test_runtime_records_execution_intent_tool_named_with_korean_particle(tmp_path):
+def test_runtime_records_execution_intent_tool_named_with_korean_particle(tmp_path: Path):
     # Given: a coding prompt that asks the model to write code AND execute it via run_bash_command.
     store = TaskStateStore(str(tmp_path / "tasks.db"))
     orchestrator = BoundOrchestrator()
@@ -282,12 +421,13 @@ def test_runtime_records_execution_intent_tool_named_with_korean_particle(tmp_pa
     assert checkpoint is not None
     import json
 
-    payload = json.loads(checkpoint["context_json"])
+    payload = cast(dict[str, list[str]], json.loads(checkpoint["context_json"]))
     assert payload["expected_tools"] == ["run_bash_command"]
 
 
-def test_runtime_preserves_inner_quality_failure_without_terminal_transition_conflict(tmp_path):
+def test_runtime_preserves_inner_quality_failure_without_terminal_transition_conflict(tmp_path: Path):
     class QualityRejectedOrchestrator(BoundOrchestrator):
+        @override
         def run_stream(
             self,
             messages: list[dict[str, str]],
@@ -298,7 +438,7 @@ def test_runtime_preserves_inner_quality_failure_without_terminal_transition_con
             # Given: the bound tool loop has already rejected its own durable task outcome.
             execution_context = self.task_execution_context
             assert execution_context is not None
-            execution_context.state_store.transition(
+            _ = execution_context.state_store.transition(
                 execution_context.task_id,
                 "failed",
                 output="quality rejected",
@@ -330,13 +470,14 @@ def test_runtime_preserves_inner_quality_failure_without_terminal_transition_con
     ]
 
 
-def test_runtime_resumes_failed_direct_task_with_messages_and_partial_output(tmp_path) -> None:
+def test_runtime_resumes_failed_direct_task_with_messages_and_partial_output(tmp_path: Path) -> None:
     class RecoveringDirectOrchestrator(BoundOrchestrator):
         def __init__(self) -> None:
             super().__init__()
-            self.calls = 0
+            self.calls: int = 0
             self.resumed_messages: list[dict[str, str]] = []
 
+        @override
         def run_stream(
             self,
             messages: list[dict[str, str]],
@@ -362,13 +503,15 @@ def test_runtime_resumes_failed_direct_task_with_messages_and_partial_output(tmp
     tracked = runtime.start_stream(messages, target_model="qwen3.6:latest")
     assert tracked.task_id is not None
     with pytest.raises(RuntimeError, match="temporary provider outage"):
-        list(tracked.chunks)
+        _ = list(tracked.chunks)
 
     # When: the caller resumes the returned direct task ID.
     assert runtime.resume_task(tracked.task_id, target_model="qwen3.6:latest") is True
-    resumed = runner._tasks[tracked.task_id]
-    assert resumed._thread is not None
-    resumed._thread.join(timeout=2)
+    tasks = cast(dict[str, _ResumedTask], getattr(runner, "_tasks"))
+    resumed = tasks[tracked.task_id]
+    thread = cast(_ThreadLike | None, getattr(resumed, "_thread"))
+    assert thread is not None
+    thread.join(timeout=2)
 
     # Then: original context and partial output reach the resumed completion.
     restored = "\n".join(message["content"] for message in orchestrator.resumed_messages)
@@ -391,22 +534,22 @@ def test_runtime_binds_itself_to_orchestrator():
 def test_runtime_run_max_uses_orchestrator_engine():
     orchestrator = FakeOrchestrator()
     engine = MagicMock()
-    engine.run.return_value = "max-result"
+    _mock_method(engine, "run").return_value = "max-result"
     orchestrator.max_engine = engine
     runtime = AgentRuntime(orchestrator)
 
-    task_spec = {"prompt": "inspect"}
+    task_spec: dict[str, object] = {"prompt": "inspect"}
 
     assert runtime.run_max(task_spec) == "max-result"
-    engine.run.assert_called_once_with(task_spec, orchestrator=orchestrator)
+    _assert_called_once_with(engine, "run", task_spec, orchestrator=orchestrator)
 
 
-def test_runtime_run_max_persists_a_direct_execution_without_nesting_bound_tasks(tmp_path):
+def test_runtime_run_max_persists_a_direct_execution_without_nesting_bound_tasks(tmp_path: Path):
     store = TaskStateStore(str(tmp_path / "tasks.db"))
     orchestrator = BoundOrchestrator()
     result = SimpleNamespace(final_output="max-result", error=None)
     engine = MagicMock()
-    engine.run.return_value = result
+    _mock_method(engine, "run").return_value = result
     orchestrator.max_engine = engine
     runtime = AgentRuntime(orchestrator, task_runner=SimpleNamespace(state_store=store))
 
@@ -421,17 +564,17 @@ def test_runtime_run_max_persists_a_direct_execution_without_nesting_bound_tasks
         "max_execution_started",
         "max_execution_completed",
     ]
-    engine.run.assert_called_once_with({"prompt": "inspect"}, orchestrator=orchestrator)
+    _assert_called_once_with(engine, "run", {"prompt": "inspect"}, orchestrator=orchestrator)
 
 
-def test_runtime_run_max_reuses_an_existing_state_graph_task_binding(tmp_path):
+def test_runtime_run_max_reuses_an_existing_state_graph_task_binding(tmp_path: Path):
     store = TaskStateStore(str(tmp_path / "tasks.db"))
-    store.create_task("task-bound", "inspect", "pending", "2026-01-01T00:00:00")
-    store.transition("task-bound", "running")
+    _ = store.create_task("task-bound", "inspect", "pending", "2026-01-01T00:00:00")
+    _ = store.transition("task-bound", "running")
     orchestrator = BoundOrchestrator()
     result = SimpleNamespace(final_output="max-result", error=None)
     engine = MagicMock()
-    engine.run.return_value = result
+    _mock_method(engine, "run").return_value = result
     orchestrator.max_engine = engine
     runtime = AgentRuntime(orchestrator, task_runner=SimpleNamespace(state_store=store))
 
@@ -441,11 +584,11 @@ def test_runtime_run_max_reuses_an_existing_state_graph_task_binding(tmp_path):
     tasks = store.list_tasks(10)
     assert [task["task_id"] for task in tasks] == ["task-bound"]
     assert store.list_execution_events("task-bound") == []
-    engine.run.assert_called_once_with({"prompt": "inspect"}, orchestrator=orchestrator)
+    _assert_called_once_with(engine, "run", {"prompt": "inspect"}, orchestrator=orchestrator)
 
 
 @pytest.mark.asyncio
-async def test_runtime_run_parallel_goals_constructs_bound_multiplexer(monkeypatch, tmp_path):
+async def test_runtime_run_parallel_goals_constructs_bound_multiplexer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     import antigravity_k.engine.multiplexer as multiplexer_module
 
     orchestrator = FakeOrchestrator()
@@ -462,7 +605,9 @@ async def test_runtime_run_parallel_goals_constructs_bound_multiplexer(monkeypat
 
     assert result == [{"status": "success"}]
     multiplexer_class.assert_called_once_with(str(tmp_path), agent_runtime=runtime)
-    fake_multiplexer.run_parallel_goals.assert_awaited_once_with(
+    _assert_awaited_once_with(
+        fake_multiplexer,
+        "run_parallel_goals",
         [{"task_id": "task-1", "instruction": "inspect"}],
         base_branch="main",
     )
@@ -470,10 +615,10 @@ async def test_runtime_run_parallel_goals_constructs_bound_multiplexer(monkeypat
 
 def test_runtime_goal_contract_uses_injected_goal_runner():
     class GoalRunner:
-        def run(self, objective, context=None):
+        def run(self, objective: str, context: Mapping[str, object] | None = None) -> dict[str, object]:
             return {"objective": objective, "context": context}
 
-        def render_markdown(self, report):
+        def render_markdown(self, report: Mapping[str, object]) -> str:
             return f"contract:{report['objective']}"
 
     runtime = AgentRuntime(FakeOrchestrator(), goal_runner=GoalRunner())
@@ -485,8 +630,9 @@ def test_slash_goal_uses_bound_agent_runtime():
     from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
     class Runtime:
-        def goal_contract(self, objective, context=None):
-            return f"runtime-goal:{objective}:{context['tool_count']}"
+        def goal_contract(self, objective: str, context: Mapping[str, object] | None = None) -> str:
+            tool_count = context["tool_count"] if context is not None else 0
+            return f"runtime-goal:{objective}:{tool_count}"
 
     registry = SlashCommandRegistry(tool_registry=["tool"], agent_runtime=Runtime())
 
@@ -496,14 +642,14 @@ def test_slash_goal_uses_bound_agent_runtime():
 def test_slash_natural_language_uses_bound_agent_runtime():
     from antigravity_k.engine.slash_commands import SlashCommandRegistry
 
-    calls = []
+    calls: list[dict[str, object]] = []
 
     class ModelManager:
         def get_model_info(self):
             return {"active_model": "qwen3.6:latest"}
 
     class Runtime:
-        def complete(self, messages, target_model):
+        def complete(self, messages: list[dict[str, str]], target_model: str) -> str:
             calls.append({"messages": messages, "target_model": target_model})
             return "runtime-complete"
 
@@ -518,21 +664,23 @@ def test_slash_natural_language_uses_bound_agent_runtime():
     ]
 
 
-def test_legacy_slash_registry_receives_bound_agent_runtime(monkeypatch):
-    from antigravity_k.api.routes import legacy
+def test_legacy_slash_registry_receives_bound_agent_runtime(monkeypatch: pytest.MonkeyPatch):
+    from antigravity_k.api import dependencies
 
     runtime = object()
-    monkeypatch.setattr(legacy, "_slash_registry", None)
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: runtime)
-    monkeypatch.setattr(legacy, "__get_tool_registry", lambda: [])
-    monkeypatch.setattr(legacy, "_get_session_manager", lambda: None)
-    monkeypatch.setattr(legacy, "_get_context_shaper", lambda: None)
-    monkeypatch.setattr(legacy, "get_model_manager", lambda: None)
-    monkeypatch.setattr(legacy, "__get_skill_loader", lambda: None)
+    monkeypatch.setattr(dependencies, "_slash_registry", None)
+    monkeypatch.setattr(dependencies, "get_agent_runtime", lambda: runtime)
+    monkeypatch.setattr(dependencies, "__get_tool_registry", lambda: cast(list[object], []))
+    monkeypatch.setattr(dependencies, "_get_session_manager", lambda: None)
+    monkeypatch.setattr(dependencies, "_get_context_shaper", lambda: None)
+    monkeypatch.setattr(dependencies, "get_model_manager", lambda: None)
+    monkeypatch.setattr(dependencies, "__get_skill_loader", lambda: None)
 
-    registry = legacy._get_slash_registry()
+    from antigravity_k.api.dependencies import get_slash_registry
 
-    assert registry._agent_runtime is runtime
+    registry = get_slash_registry()
+
+    assert getattr(registry, "_agent_runtime") is runtime
 
 
 def test_runtime_submits_background_work_through_same_orchestrator_and_model():
@@ -554,21 +702,23 @@ def test_runtime_submits_background_work_through_same_orchestrator_and_model():
     assert submitted["target_model"] == "qwen3.6:latest"
     assert submitted["use_worktree"] is False
     assert submitted["idempotency_key"] == "request-001"
+    assert submitted["owner_subject"] == "loopback"
     context = submitted["context"]
     assert isinstance(context, dict)
     assert context["expected_tools"] == ["read_file"]
-    plan = context["task_plan"]
+    plan = cast(dict[str, object], context["task_plan"])
     assert isinstance(plan, dict)
     assert plan["objective"] == "inspect the project"
     assert plan["steps"]
-    assert plan["judgment"]["decision"] in {"plan_first", "execute_with_verification"}
+    judgment = cast(dict[str, object], plan["judgment"])
+    assert judgment["decision"] in {"plan_first", "execute_with_verification"}
 
 
 def test_runtime_requires_task_runner_for_background_work():
     runtime = AgentRuntime(FakeOrchestrator())
 
     with pytest.raises(RuntimeError, match="task runner"):
-        runtime.submit_task("run later")
+        _ = runtime.submit_task("run later")
 
 
 def test_runtime_resumes_background_work_through_same_orchestrator():
@@ -582,13 +732,13 @@ def test_runtime_resumes_background_work_through_same_orchestrator():
             "task_id": "task_runtime_001",
             "orchestrator": orchestrator,
             "target_model": "qwen3.6:latest",
+            "owner_subject": None,
         },
     ]
 
 
-@pytest.mark.asyncio
-async def test_background_task_route_uses_canonical_runtime(monkeypatch):
-    from antigravity_k.api.routes import legacy
+def test_background_task_route_uses_canonical_runtime(monkeypatch: pytest.MonkeyPatch):
+    from antigravity_k.api.routes import task_api
 
     calls: list[dict[str, object]] = []
 
@@ -597,97 +747,109 @@ async def test_background_task_route_uses_canonical_runtime(monkeypatch):
             calls.append(kwargs)
             return "task_route_001"
 
-    class Request:
-        async def json(self) -> dict[str, object]:
-            return {
-                "prompt": "inspect the project",
-                "context": {"expected_tools": ["read_file"]},
-                "model": "",
-                "idempotency_key": "route-001",
-            }
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: Runtime())
+    result = task_api.submit_background_task(
+        TaskSubmitRequest(
+            prompt="inspect the project",
+            context={"expected_tools": ["read_file"]},
+            model="",
+            idempotency_key="route-001",
+        ),
+        StarletteRequest({"type": "http", "method": "POST", "path": "/api/tasks/submit", "headers": []}),
+    )
 
-    result = await legacy.submit_background_task(Request(), MagicMock(), None)
-
-    assert result == {"status": "submitted", "task_id": "task_route_001"}
+    assert result.model_dump() == {"status": "submitted", "task_id": "task_route_001"}
     assert calls == [
         {
             "prompt": "inspect the project",
             "context": {"expected_tools": ["read_file"]},
             "target_model": "",
+            "use_worktree": False,
             "idempotency_key": "route-001",
+            "owner_subject": "anonymous",
         },
     ]
 
 
-@pytest.mark.asyncio
-async def test_agent_api_resume_route_uses_canonical_runtime(monkeypatch):
-    from antigravity_k.api.routes import agent_api
+def test_task_api_resume_route_uses_canonical_runtime(monkeypatch: pytest.MonkeyPatch):
+    from antigravity_k.api.routes import task_api
 
     resumed_task_ids: list[str] = []
 
     class Runtime:
-        def resume_task(self, task_id: str) -> bool:
+        def resume_task(self, task_id: str, owner_subject: str | None = None) -> bool:
+            _ = owner_subject
             resumed_task_ids.append(task_id)
             return True
 
-    monkeypatch.setattr(agent_api, "get_agent_runtime", lambda: Runtime())
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    result = await agent_api.resume_task("task_runtime_001")
+    result = task_api.resume_task(
+        "task_runtime_001",
+        StarletteRequest({"type": "http", "method": "POST", "path": "/api/tasks/task_runtime_001/resume", "headers": []}),
+    )
 
-    assert result == {"status": "resumed", "task_id": "task_runtime_001"}
+    assert result.model_dump() == {"status": "resumed", "task_id": "task_runtime_001"}
     assert resumed_task_ids == ["task_runtime_001"]
 
 
-@pytest.mark.asyncio
-async def test_agent_api_task_views_use_canonical_runtime(monkeypatch):
-    from antigravity_k.api.routes import agent_api
+def test_task_api_views_use_canonical_runtime(monkeypatch: pytest.MonkeyPatch):
+    from antigravity_k.api.routes import task_api
 
     class Runtime:
-        def get_task_status(self, task_id: str) -> dict[str, object] | None:
+        def get_task_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None:
+            _ = owner_subject
             return {"task_id": task_id, "status": "failed"}
 
-        def list_tasks(self, limit: int) -> list[dict[str, object]]:
-            return [{"task_id": "direct_001", "status": "failed"}][:limit]
+        def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[dict[str, object]]:
+            _ = owner_subject
+            task: dict[str, object] = {"task_id": "direct_001", "status": "failed"}
+            return [task][:limit]
 
-        def get_task_output(self, task_id: str) -> str | None:
+        def get_task_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
+            _ = owner_subject
             return "partial-output" if task_id == "direct_001" else None
 
-    monkeypatch.setattr(agent_api, "get_agent_runtime", lambda: Runtime())
+    monkeypatch.setattr(task_api, "get_agent_runtime", lambda: Runtime())
 
-    status = await agent_api.get_task_status("direct_001")
-    tasks = await agent_api.list_tasks.__wrapped__(limit=1)
-    output = await agent_api.get_task_output("direct_001")
+    request = StarletteRequest({"type": "http", "method": "GET", "path": "/", "headers": []})
+    status = task_api.get_task_status("direct_001", request)
+    tasks = task_api.list_tasks(request, limit=1)
+    output = task_api.get_task_output("direct_001", request)
 
-    assert status["data"] == {"task_id": "direct_001", "status": "failed"}
-    assert tasks["data"] == [{"task_id": "direct_001", "status": "failed"}]
-    assert output == {"status": "ok", "task_id": "direct_001", "output": "partial-output"}
+    assert status.data == {"task_id": "direct_001", "status": "failed"}
+    assert tasks.data == [{"task_id": "direct_001", "status": "failed"}]
+    assert output.model_dump() == {"status": "ok", "task_id": "direct_001", "output": "partial-output"}
 
 
 @pytest.mark.asyncio
-async def test_agent_stream_route_emits_direct_task_id_before_chunks(monkeypatch):
-    from antigravity_k.api.routes import agent_api
+async def test_agent_stream_route_emits_direct_task_id_before_chunks(monkeypatch: pytest.MonkeyPatch):
+    from antigravity_k.api.routes import agent_stream_api as legacy
 
     class Runtime:
-        orchestrator = None
+        orchestrator: object | None = None
 
-        def start_stream(self, messages: list[dict[str, str]]) -> TrackedStream:
+        def resolve_model(self) -> str:
+            return "qwen3-test"
+
+        def start_stream(self, messages: list[dict[str, str]], target_model: str = "") -> TrackedStream:
             assert messages == [{"role": "user", "content": "track this"}]
+            assert target_model == "qwen3-test"
             return TrackedStream(task_id="direct_001", chunks=iter(["runtime-response"]))
 
-    monkeypatch.setattr(agent_api, "get_agent_runtime", lambda: Runtime())
+    monkeypatch.setattr(legacy, "get_agent_runtime", lambda: Runtime())
 
-    response = await agent_api.stream_agent(q="track this")
+    response = await legacy.stream_agent(q="track this")
     chunks = [chunk async for chunk in response.body_iterator]
-    body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+    body = "".join(chunk.decode() if isinstance(chunk, bytes) else str(chunk) for chunk in chunks)
 
     assert '"task_id": "direct_001"' in body
     assert "runtime-response" in body
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_route_uses_canonical_runtime(monkeypatch):
+async def test_chat_stream_route_uses_canonical_runtime(monkeypatch: pytest.MonkeyPatch):
     from antigravity_k.api.routes import chat
     from antigravity_k.engine.protocol_translator import ProtocolTranslator
 
@@ -708,14 +870,63 @@ async def test_chat_stream_route_uses_canonical_runtime(monkeypatch):
             }
 
     manager = MagicMock()
-    manager.generate.return_value = "GENERAL"
+    _mock_method(manager, "generate").return_value = "GENERAL"
     monkeypatch.setattr(chat, "get_agent_runtime", lambda: Runtime())
 
-    response = await chat.chat_completions(Request(), manager, ProtocolTranslator())
-    chunks = [chunk async for chunk in response.body_iterator]
-    body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
+    response = await chat.chat_completions(
+        cast(StarletteRequest, cast(object, Request())),
+        cast(ModelManager, cast(object, manager)),
+        ProtocolTranslator(),
+    )
+    chunks = [chunk async for chunk in cast(_StreamingResponse, cast(object, response)).body_iterator]
+    body = "".join(chunk.decode() if isinstance(chunk, bytes) else str(chunk) for chunk in chunks)
 
     assert "runtime-response" in body
     assert len(calls) == 1
-    assert calls[0]["messages"][-1] == {"role": "user", "content": "Explain the runtime"}
+    messages = calls[0]["messages"]
+    assert isinstance(messages, list)
+    assert messages[-1] == {"role": "user", "content": "Explain the runtime"}
     assert calls[0]["target_model"] == "test-combo"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_keeps_generator_context_across_threadpool(monkeypatch: pytest.MonkeyPatch):
+    import contextvars
+
+    from antigravity_k.api.routes import chat
+    from antigravity_k.engine.protocol_translator import ProtocolTranslator
+
+    marker = contextvars.ContextVar("chat_stream_marker", default="unset")
+
+    class Runtime:
+        def stream(self, messages: list[dict[str, str]], target_model: str) -> Iterator[str]:
+            del messages, target_model
+            token = marker.set("active")
+            try:
+                yield "runtime-response"
+            finally:
+                marker.reset(token)
+
+    class Request:
+        async def json(self) -> dict[str, object]:
+            return {
+                "model": "test-combo",
+                "messages": [{"role": "user", "content": "Explain the runtime"}],
+                "stream": True,
+                "agent_mode": True,
+            }
+
+    manager = MagicMock()
+    _mock_method(manager, "generate").return_value = "GENERAL"
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda: Runtime())
+
+    response = await chat.chat_completions(
+        cast(StarletteRequest, cast(object, Request())),
+        cast(ModelManager, cast(object, manager)),
+        ProtocolTranslator(),
+    )
+    chunks = [chunk async for chunk in cast(_StreamingResponse, cast(object, response)).body_iterator]
+    body = "".join(chunk.decode() if isinstance(chunk, bytes) else str(chunk) for chunk in chunks)
+
+    assert "runtime-response" in body
+    assert "different Context" not in body

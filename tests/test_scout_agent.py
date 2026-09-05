@@ -1,18 +1,37 @@
 """Tests for the Scout Agent module."""
 
 import json
+from typing import Protocol, cast
 from unittest import mock
 
 import pytest
 
 from antigravity_k.agents.scout_agent import ScoutAgent
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.tools.tool_registry import ToolRegistry
+
+
+class GenerateDouble(Protocol):
+    return_value: str
+    side_effect: object
+
+    def assert_called_once(self) -> None: ...
+
+
+class ModelManagerDouble(Protocol):
+    generate: GenerateDouble
+
+
+class ToolRegistryDouble(Protocol):
+    pass
 
 
 @pytest.fixture
-def mock_model_manager():
+def mock_model_manager() -> ModelManagerDouble:
     """ModelManager 목 객체."""
     mm = mock.MagicMock()
-    mm.generate.return_value = json.dumps(
+    generate = cast(GenerateDouble, getattr(mm, "generate"))
+    generate.return_value = json.dumps(
         {
             "propose_add": {
                 "name": "llama-4:latest",
@@ -23,40 +42,40 @@ def mock_model_manager():
             "propose_remove": None,
         }
     )
-    return mm
+    return cast(ModelManagerDouble, mm)
 
 
 @pytest.fixture
-def mock_tool_registry():
+def mock_tool_registry() -> mock.MagicMock:
     """ToolRegistry 목 객체."""
     return mock.MagicMock()
 
 
 @pytest.fixture
-def scout_agent(mock_model_manager, mock_tool_registry):
+def scout_agent(mock_model_manager: ModelManagerDouble, mock_tool_registry: mock.MagicMock) -> ScoutAgent:
     """ScoutAgent 인스턴스."""
     return ScoutAgent(
-        model_manager=mock_model_manager,
-        tool_registry=mock_tool_registry,
+        model_manager=cast(ModelManager, cast(object, mock_model_manager)),
+        tool_registry=cast(ToolRegistry, mock_tool_registry),
     )
 
 
 class TestScoutAgent:
     """Tests for ScoutAgent class."""
 
-    def test_init(self, scout_agent, mock_model_manager, mock_tool_registry):
+    def test_init(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble, mock_tool_registry: mock.MagicMock) -> None:
         """초기화 시 model_manager와 tool_registry가 설정되어야 함."""
         assert scout_agent.model_manager is mock_model_manager
         assert scout_agent.tool_registry is mock_tool_registry
 
-    def test_propose_model_scout_success(self, scout_agent, mock_model_manager):
+    def test_propose_model_scout_success(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """모델 제안이 성공하면 기안서를 반환해야 함."""
         result = scout_agent.propose_model_scout("latest AI models")
         assert "ScoutAgent" in result
         assert "llama-4" in result or "영입" in result
         mock_model_manager.generate.assert_called_once()
 
-    def test_propose_json_with_code_block(self, scout_agent, mock_model_manager):
+    def test_propose_json_with_code_block(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """JSON이 코드 블록(```json ... ```)으로 감싸져 있어도 파싱되어야 함."""
         mock_model_manager.generate.return_value = (
             '```json\n{\n    "propose_add": {\n        "name": "qwen-2.5:latest",\n'
@@ -66,7 +85,7 @@ class TestScoutAgent:
         result = scout_agent.propose_model_scout("lightweight model")
         assert "qwen-2.5" in result or "에이전트" in result
 
-    def test_propose_with_remove(self, scout_agent, mock_model_manager):
+    def test_propose_with_remove(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """propose_remove가 있을 때 해고 제안이 포함되어야 함."""
         mock_model_manager.generate.return_value = json.dumps(
             {
@@ -82,7 +101,7 @@ class TestScoutAgent:
         result = scout_agent.propose_model_scout("upgrade models")
         assert "gpt-3.5" in result or "해고" in result or "제거" in result
 
-    def test_propose_add_only(self, scout_agent, mock_model_manager):
+    def test_propose_add_only(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """propose_remove가 null일 때 추가 제안만 포함되어야 함."""
         mock_model_manager.generate.return_value = json.dumps(
             {
@@ -98,7 +117,7 @@ class TestScoutAgent:
         result = scout_agent.propose_model_scout("safe AI")
         assert "propose" in result.lower() or "claude" in result
 
-    def test_propose_model_scout_low_memory(self, scout_agent, mock_model_manager):
+    def test_propose_model_scout_low_memory(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """메모리 요구사항이 시스템 RAM의 80% 미만이면 정상 제안."""
         mock_model_manager.generate.return_value = json.dumps(
             {
@@ -112,11 +131,14 @@ class TestScoutAgent:
             }
         )
         with mock.patch("os.path.exists", return_value=True):
-            with mock.patch("builtins.open", mock.mock_open(read_data="memory:\n  total_system_gb: 32.0")):
+            with mock.patch(
+                "builtins.open",
+                new=cast(object, mock.mock_open(read_data="memory:\n  total_system_gb: 32.0")),
+            ):
                 result = scout_agent.propose_model_scout("small model")
                 assert "ScoutAgent" in result
 
-    def test_propose_high_memory_no_config(self, scout_agent, mock_model_manager):
+    def test_propose_high_memory_no_config(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """config.yaml이 없으면 기본 메모리 128GB로 계산되어야 함."""
         mock_model_manager.generate.return_value = json.dumps(
             {
@@ -134,19 +156,19 @@ class TestScoutAgent:
             # 200 > 128*0.8 = 102.4 이므로 HardwareAnalystAgent로 넘어감
             assert "HardwareAnalyst" in result
 
-    def test_propose_model_scout_api_error(self, scout_agent, mock_model_manager):
+    def test_propose_model_scout_api_error(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """API 에러 시 적절한 오류 메시지를 반환해야 함."""
         mock_model_manager.generate.side_effect = RuntimeError("API connection failed")
         result = scout_agent.propose_model_scout("test")
         assert "failed" in result.lower()
 
-    def test_propose_invalid_json(self, scout_agent, mock_model_manager):
+    def test_propose_invalid_json(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """잘못된 JSON 응답 시 오류 메시지를 반환해야 함."""
         mock_model_manager.generate.return_value = "This is not JSON at all"
         result = scout_agent.propose_model_scout("test")
         assert "failed" in result.lower() or "Error" in result or "error" in result
 
-    def test_propose_json_extract_no_code_block(self, scout_agent, mock_model_manager):
+    def test_propose_json_extract_no_code_block(self, scout_agent: ScoutAgent, mock_model_manager: ModelManagerDouble) -> None:
         """코드 블록 없이 순수 JSON만 반환되어도 파싱되어야 함."""
         mock_model_manager.generate.return_value = (
             '{"propose_add": {"name": "test:latest", "repo": "test/repo",'

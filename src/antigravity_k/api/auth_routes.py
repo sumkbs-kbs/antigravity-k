@@ -15,7 +15,10 @@ Routes
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated, ParamSpec, Protocol, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -23,6 +26,7 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from antigravity_k.api.startup_security import is_loopback_host
 from antigravity_k.config import config
 from antigravity_k.engine.auth import TokenService, hash_pin, verify_pin
 
@@ -33,7 +37,33 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Local limiter reference for the login route. The app-level limiter
 # (registered in server.py via app.state.limiter) handles the SlowAPIMiddleware
 # integration; per-route decorators reference a Limiter instance directly.
-_limiter = Limiter(key_func=get_remote_address)
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+class _RateLimitDecorator(Protocol):
+    def __call__(self, function: Callable[_P, _R]) -> Callable[_P, _R]: ...
+
+
+class _Limiter(Protocol):
+    def limit(
+        self,
+        limit_value: str,
+        key_func: Callable[..., str] | None = None,
+        per_method: bool = False,
+        methods: list[str] | None = None,
+        error_message: str | None = None,
+        exempt_when: Callable[..., bool] | None = None,
+        cost: int | Callable[..., int] = 1,
+        override_defaults: bool = True,
+    ) -> _RateLimitDecorator: ...
+
+
+_limiter: _Limiter = Limiter(key_func=get_remote_address)
+
+
+def _rate_limit(limit_value: str) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
+    return _limiter.limit(limit_value)
 
 
 # ---------------------------------------------------------------------------
@@ -70,13 +100,18 @@ def init_auth_state() -> None:
         except OSError:
             logger.warning("Could not read PIN hash from %s", hash_path)
             _pin_hash = None
+        if _pin_hash is not None:
+            try:
+                hash_path.chmod(0o600)
+            except OSError:
+                logger.warning("Could not restrict PIN hash permissions on %s", hash_path)
 
     if _pin_hash is None and config.security.access_pin:
         # Bootstrap: hash the plaintext PIN and persist it.
         _pin_hash = hash_pin(config.security.access_pin)
         try:
             hash_path.parent.mkdir(parents=True, exist_ok=True)
-            hash_path.write_text(_pin_hash, encoding="utf-8")
+            _ = hash_path.write_text(_pin_hash, encoding="utf-8")
             try:
                 hash_path.chmod(0o600)
             except OSError:
@@ -133,7 +168,7 @@ class VerifyResponse(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-@_limiter.limit("5/minute")
+@_rate_limit("5/minute")
 def login(request: Request, body: LoginRequest) -> TokenResponse:
     """Exchange a PIN for a signed bearer token.
 
@@ -162,8 +197,11 @@ def login(request: Request, body: LoginRequest) -> TokenResponse:
 
 
 @router.post("/token", response_model=TokenResponse)
-@_limiter.limit("5/minute")
-def token_login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()) -> TokenResponse:
+@_rate_limit("5/minute")
+def token_login(
+    request: Request,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+) -> TokenResponse:
     """OAuth2-compatible token endpoint (password grant type).
 
     Swagger UI의 Authorize 버튼에서 사용됩니다.
@@ -173,6 +211,7 @@ def token_login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     Returns:
         표준 OAuth2 token response: ``{"access_token": "...", "token_type": "bearer", "expires_in": ...}``
     """
+    _ = request
     stored = get_current_pin_hash()
     if stored is None:
         raise HTTPException(
@@ -208,7 +247,8 @@ def verify_token(request: Request) -> VerifyResponse:
     if claims is None:
         return VerifyResponse(valid=False, subject=None)
 
-    return VerifyResponse(valid=True, subject=claims.get("sub"))
+    subject = claims.get("sub")
+    return VerifyResponse(valid=True, subject=subject if isinstance(subject, str) else None)
 
 
 @router.post("/logout")
@@ -238,6 +278,10 @@ def _extract_bearer(request: Request) -> str | None:
     return parts[1].strip() or None
 
 
+def _mark_authenticated(request: Request, subject: str) -> None:
+    request.state.auth_subject = subject
+
+
 def authenticate_request(request: Request) -> bool:
     """Return True if the request carries valid credentials.
 
@@ -249,9 +293,20 @@ def authenticate_request(request: Request) -> bool:
     This is the single source of truth used by the HTTP middleware so that
     token and legacy PIN auth share one code path.
     """
+    if (
+        not config.security.access_pin
+        and os.environ.get("AGK_ENV", "development").strip().lower() != "production"
+        and is_loopback_host(config.server.host)
+    ):
+        _mark_authenticated(request, "loopback")
+        return True
+
     token = _extract_bearer(request)
     if token is not None:
-        if get_token_service().verify_token(token) is not None:
+        claims = get_token_service().verify_token(token)
+        if claims is not None:
+            subject = claims.get("sub")
+            _mark_authenticated(request, subject if isinstance(subject, str) and subject else "bearer")
             return True
 
     # Legacy PIN compatibility (constant-time via verify_pin).
@@ -259,6 +314,7 @@ def authenticate_request(request: Request) -> bool:
     if pin:
         stored = get_current_pin_hash()
         if stored and verify_pin(pin, stored):
+            _mark_authenticated(request, "pin-user")
             return True
 
     return False

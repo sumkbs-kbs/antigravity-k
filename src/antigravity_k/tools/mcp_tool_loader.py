@@ -6,11 +6,12 @@ import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Callable, ClassVar, cast, final, override
 
 from mcp.client.session import ClientSession
 
 from antigravity_k.engine.mcp_capability import MCPCapabilityAdvisor
+from antigravity_k.engine.mcp_health_cache import mcp_health_cache
 
 from .base_tool import BaseTool, RiskLevel, ToolCategory
 from .mcp_session_manager import MCPSessionManager
@@ -19,6 +20,29 @@ from .system_tools import ReadFileTool, ReplaceFileContentTool, RunBashCommandTo
 logger = logging.getLogger(__name__)
 
 
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [str(item) for item in items]
+
+
+def _optional_string_dict(value: object) -> dict[str, str] | None:
+    if not isinstance(value, Mapping):
+        return None
+    mapping = cast(Mapping[object, object], value)
+    return {str(key): str(item) for key, item in mapping.items()}
+
+
+def _as_float(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float, str)) else default
+
+
+@final
 class MCPTool(BaseTool):
     """MCP(Model Context Protocol) 리소스를 래핑하는 도구.
 
@@ -29,12 +53,12 @@ class MCPTool(BaseTool):
         self,
         name: str,
         description: str,
-        schema: dict[str, Any],
+        schema: dict[str, object],
         mcp_client: ClientSession,
         server_name: str = "",
         transport: str = "stdio",
-        annotations: Mapping[str, Any] | None = None,
-        server_policy: Mapping[str, Any] | None = None,
+        annotations: Mapping[str, object] | None = None,
+        server_policy: Mapping[str, object] | None = None,
     ):
         """Initialize the MCPTool.
 
@@ -63,6 +87,7 @@ class MCPTool(BaseTool):
         self.tags = [tag for tag in ["mcp", server_name, transport] if tag]
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -73,6 +98,7 @@ class MCPTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -83,7 +109,8 @@ class MCPTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         """Parameters Schema.
 
         Returns:
@@ -92,7 +119,8 @@ class MCPTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> object:
         """Execute.
 
         Args:
@@ -116,7 +144,7 @@ class MCPTool(BaseTool):
         # Format the CallToolResult
         # The result might contain .content which is a list of blocks
         if hasattr(result, "content") and result.content:
-            outputs = []
+            outputs: list[str] = []
             for block in result.content:
                 if block.type == "text":
                     outputs.append(block.text)
@@ -126,7 +154,8 @@ class MCPTool(BaseTool):
 
         return result
 
-    def to_metadata(self) -> dict[str, Any]:
+    @override
+    def to_metadata(self) -> dict[str, object]:
         """To Metadata.
 
         Returns:
@@ -146,6 +175,7 @@ class MCPTool(BaseTool):
         return metadata
 
 
+@final
 class MCPToolLoader:
     """설정된 MCP 서버들로부터 도구 목록을 가져와서 BaseTool 객체 리스트로 변환하는 로더.
 
@@ -209,9 +239,11 @@ class MCPToolLoader:
         return self.tools
 
     async def _load_mcp_servers(self, config_path: str):
-        config: dict[str, Any] = json.loads(await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8"))
+        read_text = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
+        load_json = cast(Callable[[str], object], json.loads)
+        config = cast(dict[str, object], load_json(read_text))
 
-        mcp_servers = config.get("mcpServers", {})
+        mcp_servers = cast(dict[str, dict[str, object]], config.get("mcpServers", {}))
         await self._connect_and_load_servers(mcp_servers, config_path)
 
     async def _load_skill_mcp_servers(self):
@@ -229,14 +261,14 @@ class MCPToolLoader:
             )
 
             # 스킬 등록 서버를 .mcp.json 형식의 dict로 변환
-            mcp_servers: dict[str, dict[str, Any]] = {}
+            mcp_servers: dict[str, dict[str, object]] = {}
             for sid, cfg in skill_servers.items():
-                server_config: dict[str, Any] = {
-                    "command": cfg.get("command", ""),
-                    "args": list(cfg.get("args", [])),
+                server_config: dict[str, object] = {
+                    "command": str(cfg.get("command", "")),
+                    "args": _string_list(cfg.get("args", [])),
                 }
                 if cfg.get("env"):
-                    server_config["env"] = dict(cfg["env"])
+                    server_config["env"] = dict(cast(Mapping[str, object], cfg["env"]))
                 mcp_servers[sid] = server_config
 
             await self._connect_and_load_servers(mcp_servers, "skill-registry")
@@ -248,7 +280,7 @@ class MCPToolLoader:
 
     async def _connect_and_load_servers(
         self,
-        mcp_servers: dict[str, dict[str, Any]],
+        mcp_servers: dict[str, dict[str, object]],
         source: str,
     ):
         """MCP 서버 목록을 연결하고 도구를 로드합니다.
@@ -275,6 +307,18 @@ class MCPToolLoader:
         for server_name, server_config in mcp_servers.items():
             if server_name in blocked_servers:
                 logger.error("Skipping MCP server '%s' due to audit errors.", server_name)
+                block_msgs = [
+                    finding.message
+                    for finding in audit.findings
+                    if finding.server == server_name and finding.severity == "error"
+                ]
+                mcp_health_cache.record_blocked(
+                    server_name,
+                    "; ".join(block_msgs) or "audit blocked",
+                    transport=_transport_for(server_config),
+                    source=source,
+                    command=str(server_config.get("command") or server_config.get("url") or ""),
+                )
                 continue
 
             try:
@@ -283,6 +327,7 @@ class MCPToolLoader:
 
                 # Fetch available tools
                 tools_response = await session.list_tools()
+                tool_names: list[str] = []
 
                 for tool in tools_response.tools:
                     annotations = _annotations_to_dict(getattr(tool, "annotations", None))
@@ -294,27 +339,50 @@ class MCPToolLoader:
                         server_name=server_name,
                         transport=transport,
                         annotations=annotations,
-                        server_policy=_server_policy(server_config),
+                        server_policy=_server_policy(server_config, server_name),
                     )
                     self.tools.append(mcp_tool)
+                    tool_names.append(tool.name)
                     logger.info("Registered MCP tool: %s from %s", tool.name, server_name)
 
-            except Exception:
+                mcp_health_cache.record_success(
+                    server_name,
+                    transport=transport,
+                    tools=tool_names,
+                    source=source,
+                    command=str(server_config.get("command") or server_config.get("url") or ""),
+                )
+
+            except Exception as exc:
                 logger.exception("Error loading tools from '%s'", server_name)
+                mcp_health_cache.record_failure(
+                    server_name,
+                    str(exc),
+                    transport=_transport_for(server_config),
+                    source=source,
+                    command=str(server_config.get("command") or server_config.get("url") or ""),
+                )
 
     async def _connect_server(
         self,
         server_name: str,
-        server_config: Mapping[str, Any],
+        server_config: Mapping[str, object],
         transport: str,
     ) -> ClientSession:
         if transport == "stdio":
             command = str(server_config.get("command", "")).strip()
-            args = [str(arg) for arg in server_config.get("args", []) or []]
-            env = server_config.get("env", None)
+            args = _string_list(server_config.get("args", []))
+            env = _optional_string_dict(server_config.get("env"))
             return await self.session_manager.connect_server(server_name, command, args, env)
 
         headers = _string_dict(server_config.get("headers", {}))
+        # Inject interactive OAuth 2.1 Bearer token when present (vault-backed).
+        try:
+            from antigravity_k.engine.mcp_oauth import merge_oauth_headers
+
+            headers = merge_oauth_headers(server_name, headers)
+        except Exception:  # noqa: BLE001
+            logger.debug("MCP OAuth header merge skipped for %s", server_name, exc_info=True)
         url = str(server_config.get("url") or server_config.get("endpoint") or "")
         timeout = _timeout_seconds(server_config, default=30)
         sse_read_timeout = _timeout_seconds(
@@ -344,7 +412,7 @@ class MCPToolLoader:
         raise ValueError(f"Unsupported MCP transport: {transport}")
 
 
-def _transport_for(server: Mapping[str, Any]) -> str:
+def _transport_for(server: Mapping[str, object]) -> str:
     transport = str(server.get("transport") or server.get("type") or "").lower()
     if transport in {"streamable_http", "streamable-http"}:
         return "streamable-http"
@@ -357,19 +425,20 @@ def _transport_for(server: Mapping[str, Any]) -> str:
     return "unknown"
 
 
-def _annotations_to_dict(annotations: Any) -> dict[str, Any]:
+def _annotations_to_dict(annotations: object) -> dict[str, object]:
     if annotations is None:
         return {}
     if hasattr(annotations, "model_dump"):
-        return annotations.model_dump(exclude_none=True)
+        return cast(dict[str, object], getattr(annotations, "model_dump")(exclude_none=True))
     if hasattr(annotations, "dict"):
-        return annotations.dict(exclude_none=True)
+        return cast(dict[str, object], getattr(annotations, "dict")(exclude_none=True))
     if isinstance(annotations, Mapping):
-        return dict(annotations)
+        mapping = cast(Mapping[object, object], annotations)
+        return {str(key): value for key, value in mapping.items()}
     return {}
 
 
-def _risk_from_annotations(annotations: Mapping[str, Any]) -> RiskLevel:
+def _risk_from_annotations(annotations: Mapping[str, object]) -> RiskLevel:
     if annotations.get("destructiveHint"):
         return RiskLevel.HIGH
     if annotations.get("openWorldHint"):
@@ -380,39 +449,52 @@ def _risk_from_annotations(annotations: Mapping[str, Any]) -> RiskLevel:
 
 
 def _timeout_seconds(
-    config: Mapping[str, Any],
+    config: Mapping[str, object],
     default: float,
     keys: tuple[str, str] = ("timeout", "timeout_ms"),
 ) -> float:
     primary, millis = keys
     if primary in config:
-        return float(config[primary])
+        return _as_float(config[primary], default)
     if millis in config:
-        return float(config[millis]) / 1000
+        return _as_float(config[millis], default * 1000) / 1000
     return default
 
 
-def _string_dict(raw: Any) -> dict[str, str]:
+def _string_dict(raw: object) -> dict[str, str]:
     if not isinstance(raw, Mapping):
         return {}
-    return {str(key): str(value) for key, value in raw.items()}
+    mapping = cast(Mapping[object, object], raw)
+    return {str(key): str(value) for key, value in mapping.items()}
 
 
-def _server_policy(config: Mapping[str, Any]) -> dict[str, Any]:
+def _server_policy(config: Mapping[str, object], server_name: str = "") -> dict[str, object]:
     headers = config.get("headers", {})
     authenticated = bool(config.get("auth") or config.get("auth_profile"))
     if isinstance(headers, Mapping):
-        authenticated = authenticated or any(str(key).lower() == "authorization" for key in headers)
+        header_map = cast(Mapping[object, object], headers)
+        authenticated = authenticated or any(str(key).lower() == "authorization" for key in header_map)
+    oauth_connected = False
+    if server_name:
+        try:
+            from antigravity_k.engine.mcp_oauth import has_stored_tokens
+
+            oauth_connected = has_stored_tokens(server_name)
+            authenticated = authenticated or oauth_connected
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "trust_level": config.get("trust_level", "experimental"),
         "authenticated": authenticated,
         "timeout_ms": config.get("timeout_ms") or config.get("timeout"),
+        "oauth_connected": oauth_connected,
     }
 
 
 # ─── MCP 서버 레지스트리 (커뮤니티 무료 서버 카탈로그) ─────────────
 
 
+@final
 class MCPServerRegistry:
     """MCP 에코시스템의 무료 커뮤니티 서버 카탈로그.
 
@@ -427,7 +509,7 @@ class MCPServerRegistry:
     """
 
     # 검증된 무료 MCP 서버 카탈로그
-    CATALOG: ClassVar[dict[str, dict[str, Any]]] = {
+    CATALOG: ClassVar[dict[str, dict[str, object]]] = {
         "filesystem": {
             "name": "Filesystem",
             "description": "로컬 파일시스템 읽기/쓰기/검색",
@@ -505,16 +587,16 @@ class MCPServerRegistry:
     }
 
     # Phase 1 D11: 스킬이 등록한 MCP 서버 저장소 (클래스 레벨 — 모든 인스턴스 공유)
-    _skill_servers: ClassVar[dict[str, dict[str, Any]]] = {}
+    _skill_servers: ClassVar[dict[str, dict[str, object]]] = {}
 
-    def get_all(self) -> dict[str, dict[str, Any]]:
+    def get_all(self) -> dict[str, dict[str, object]]:
         """전체 카탈로그를 반환합니다. (카탈로그 + 스킬 등록 서버 병합)"""
         merged = self.CATALOG.copy()
         for sid, config in self._skill_servers.items():
             merged[sid] = config
         return merged
 
-    def get_by_category(self, category: str) -> dict[str, dict[str, Any]]:
+    def get_by_category(self, category: str) -> dict[str, dict[str, object]]:
         """카테고리별 서버를 반환합니다. (스킬 등록 서버 포함)"""
         result = {k: v for k, v in self.CATALOG.items() if v.get("category") == category}
         result.update({k: v for k, v in self._skill_servers.items() if v.get("category") == category})
@@ -526,7 +608,7 @@ class MCPServerRegistry:
 
     # ─── Phase 1 D11: Skill-MCP 연동 API ────────────────────────────
 
-    def register_skill_mcp(self, skill_name: str, mcp_config: dict[str, Any]) -> bool:
+    def register_skill_mcp(self, skill_name: str, mcp_config: Mapping[str, object]) -> bool:
         """스킬의 MCP 서버를 레지스트리에 등록합니다.
 
         SkillInstaller가 스킬 설치 시 호출하여, 해당 스킬이 제공하는 MCP 서버를
@@ -539,7 +621,7 @@ class MCPServerRegistry:
         Returns:
             등록 성공 여부
         """
-        server_id = mcp_config.get("serverId", f"skill-{skill_name}")
+        server_id = _as_text(mcp_config.get("serverId"), f"skill-{skill_name}")
         if server_id in self.CATALOG:
             logger.warning(
                 "[MCPRegistry] Server '%s' already exists in catalog — skill '%s' registration skipped",
@@ -550,11 +632,14 @@ class MCPServerRegistry:
 
         # skill server config 저장
         self._skill_servers[server_id] = {
-            "name": mcp_config.get("name", skill_name),
-            "description": mcp_config.get("description", f"MCP server from skill '{skill_name}'"),
-            "command": mcp_config.get("command", ""),
-            "args": list(mcp_config.get("args", [])),
-            "env": dict(mcp_config.get("env", {})),
+            "name": _as_text(mcp_config.get("name"), skill_name),
+            "description": _as_text(
+                mcp_config.get("description"),
+                f"MCP server from skill '{skill_name}'",
+            ),
+            "command": _as_text(mcp_config.get("command")),
+            "args": _string_list(mcp_config.get("args", [])),
+            "env": _optional_string_dict(mcp_config.get("env")) or {},
             "category": "skill",
             "free": True,
             "skill_name": skill_name,
@@ -591,7 +676,7 @@ class MCPServerRegistry:
             logger.debug("[MCPRegistry] No MCP servers found for skill '%s'", skill_name)
         return removed
 
-    def get_skill_mcp_servers(self, skill_name: str | None = None) -> dict[str, dict[str, Any]]:
+    def get_skill_mcp_servers(self, skill_name: str | None = None) -> dict[str, dict[str, object]]:
         """스킬이 등록한 MCP 서버 목록을 반환합니다.
 
         Args:
@@ -604,7 +689,7 @@ class MCPServerRegistry:
             return {sid: cfg for sid, cfg in self._skill_servers.items() if cfg.get("skill_name") == skill_name}
         return dict(self._skill_servers)
 
-    def list_skills_with_mcp(self) -> list[dict[str, Any]]:
+    def list_skills_with_mcp(self) -> list[dict[str, object]]:
         """MCP 서버를 등록한 스킬 목록을 반환합니다.
 
         Returns:
@@ -612,7 +697,7 @@ class MCPServerRegistry:
         """
         result: dict[str, list[str]] = {}
         for sid, cfg in self._skill_servers.items():
-            skill_name = cfg.get("skill_name", "")
+            skill_name = _as_text(cfg.get("skill_name"))
             if skill_name:
                 result.setdefault(skill_name, []).append(sid)
         return [{"skill": skill, "servers": servers} for skill, servers in sorted(result.items())]
@@ -633,7 +718,8 @@ class MCPServerRegistry:
         if server_ids is None:
             server_ids = self.get_recommended()
 
-        config: dict[str, Any] = {"mcpServers": {}}
+        config: dict[str, object] = {"mcpServers": {}}
+        mcp_servers = cast(dict[str, object], config["mcpServers"])
         all_servers = self.get_all()
 
         for sid in server_ids:
@@ -649,7 +735,7 @@ class MCPServerRegistry:
             if "env" in entry:
                 server_config["env"] = entry["env"]
 
-            config["mcpServers"][sid] = server_config
+            mcp_servers[sid] = server_config
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
@@ -657,7 +743,7 @@ class MCPServerRegistry:
         logger.info(
             "[MCPRegistry] 설정 생성: %s (%s개 서버, %s개 스킬 서버)",
             output_path,
-            len(config["mcpServers"]),
+            len(mcp_servers),
             len(self._skill_servers),
         )
         return output_path
@@ -687,7 +773,7 @@ class MCPServerRegistry:
     def get_catalog_summary(self) -> str:
         """카탈로그 요약을 사람이 읽기 쉬운 형식으로 반환합니다. (스킬 서버 포함)"""
         lines = ["📦 MCP 서버 카탈로그 (무료)", ""]
-        by_category: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        by_category: dict[str, list[tuple[str, dict[str, object]]]] = {}
 
         all_servers = self.get_all()
         for sid, info in all_servers.items():

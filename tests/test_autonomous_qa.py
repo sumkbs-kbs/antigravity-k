@@ -6,6 +6,10 @@ report serialization, _compare_screenshots, and _apply_patch.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import cast
+
 import pytest
 
 from antigravity_k.engine.autonomous_qa import (
@@ -15,6 +19,102 @@ from antigravity_k.engine.autonomous_qa import (
     FixStatus,
     UIDefect,
 )
+
+
+class _FakeHTTPResponse:
+    def __init__(self, status_code: int, payload: object | None = None) -> None:
+        self.status_code: int = status_code
+        self.payload: object = payload if payload is not None else {}
+
+    def json(self) -> object:
+        return self.payload
+
+
+class _FakeAsyncClient:
+    response: _FakeHTTPResponse | None = None
+    error: Exception | None = None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        _ = (args, kwargs)
+
+    async def __aenter__(self) -> _FakeAsyncClient:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        _ = args
+
+    async def post(self, *args: object, **kwargs: object) -> _FakeHTTPResponse:
+        _ = (args, kwargs)
+        if self.error is not None:
+            raise self.error
+        assert self.response is not None
+        return self.response
+
+
+class _FakePage:
+    def __init__(self, evaluate_result: object, *, query_result: object | None = None) -> None:
+        self.evaluate_result: object = evaluate_result
+        self.query_result: object | None = query_result if query_result is not None else object()
+        self.evaluate_error: Exception | None = None
+
+    async def evaluate(self, expression: str) -> object:
+        _ = expression
+        if self.evaluate_error is not None:
+            raise self.evaluate_error
+        return self.evaluate_result
+
+    async def query_selector(self, selector: str) -> object | None:
+        _ = selector
+        return self.query_result
+
+    async def goto(self, url: str, *, wait_until: str, timeout: int) -> object:
+        _ = (url, wait_until, timeout)
+        return object()
+
+    async def set_viewport_size(self, size: object) -> None:
+        _ = size
+
+
+def _compare(engine: AutonomousQAEngine, before: bytes, after: bytes) -> float:
+    method = cast(Callable[[bytes, bytes], float], getattr(engine, "_compare_screenshots"))
+    return method(before, after)
+
+
+def _apply_patch(engine: AutonomousQAEngine, patch: dict[str, str]) -> bool:
+    method = cast(Callable[[dict[str, str]], bool], getattr(engine, "_apply_patch"))
+    return method(patch)
+
+
+async def _vision_analyze(engine: AutonomousQAEngine, image: str) -> list[UIDefect]:
+    method = cast(Callable[[str], Awaitable[list[UIDefect]]], getattr(engine, "_vision_analyze"))
+    return await method(image)
+
+
+async def _generate_fixes(engine: AutonomousQAEngine, defects: list[UIDefect]) -> list[dict[str, str]]:
+    method = cast(Callable[[list[UIDefect]], Awaitable[list[dict[str, str]]]], getattr(engine, "_generate_code_fixes"))
+    return await method(defects)
+
+
+async def _collect_performance(engine: AutonomousQAEngine, page: object) -> dict[str, object]:
+    method = cast(Callable[[object], Awaitable[dict[str, object]]], getattr(engine, "_collect_performance"))
+    return await method(page)
+
+
+async def _test_viewports(engine: AutonomousQAEngine, page: object, url: str) -> dict[str, object]:
+    method = cast(Callable[[object, str], Awaitable[dict[str, object]]], getattr(engine, "_test_viewports"))
+    return await method(page, url)
+
+
+def _install_httpx(
+    monkeypatch: pytest.MonkeyPatch,
+    response: _FakeHTTPResponse | None = None,
+    error: Exception | None = None,
+) -> None:
+    import httpx
+
+    _FakeAsyncClient.response = response
+    _FakeAsyncClient.error = error
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
 
 # ---------------------------------------------------------------------------
 # FixStatus enum
@@ -181,19 +281,19 @@ class TestCompareScreenshots:
     def test_identical_screenshots_score_zero(self):
         engine = AutonomousQAEngine()
         data = b"screenshot data"
-        assert engine._compare_screenshots(data, data) == 0.0
+        assert _compare(engine, data, data) == 0.0
 
     def test_different_screenshots_score_positive(self):
         engine = AutonomousQAEngine()
-        assert engine._compare_screenshots(b"before", b"after") > 0.0
+        assert _compare(engine, b"before", b"after") > 0.0
 
     def test_both_empty(self):
         engine = AutonomousQAEngine()
-        assert engine._compare_screenshots(b"", b"") == 0.0
+        assert _compare(engine, b"", b"") == 0.0
 
     def test_one_empty(self):
         engine = AutonomousQAEngine()
-        assert engine._compare_screenshots(b"data", b"") == 1.0
+        assert _compare(engine, b"data", b"") == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -202,33 +302,43 @@ class TestCompareScreenshots:
 
 
 class TestApplyPatch:
-    def test_patch_success(self, tmp_path):
+    def test_patch_success(self, tmp_path: Path):
         engine = AutonomousQAEngine(project_root=str(tmp_path))
         target = tmp_path / "test.py"
-        target.write_text("old content", encoding="utf-8")
-        result = engine._apply_patch({"file": "test.py", "search": "old content", "replace": "new content"})
+        _ = target.write_text("old content", encoding="utf-8")
+        result = _apply_patch(engine, {"file": "test.py", "search": "old content", "replace": "new content"})
         assert result is True
         assert target.read_text(encoding="utf-8") == "new content"
 
-    def test_patch_file_not_found_returns_false(self, tmp_path):
+    def test_patch_file_not_found_returns_false(self, tmp_path: Path):
         engine = AutonomousQAEngine(project_root=str(tmp_path))
-        result = engine._apply_patch({"file": "nonexistent.py", "search": "x", "replace": "y"})
+        result = _apply_patch(engine, {"file": "nonexistent.py", "search": "x", "replace": "y"})
         assert result is False
 
-    def test_patch_search_not_found_returns_false(self, tmp_path):
+    def test_patch_search_not_found_returns_false(self, tmp_path: Path):
         engine = AutonomousQAEngine(project_root=str(tmp_path))
         target = tmp_path / "test.py"
-        target.write_text("original", encoding="utf-8")
-        result = engine._apply_patch({"file": "test.py", "search": "not found", "replace": "y"})
+        _ = target.write_text("original", encoding="utf-8")
+        result = _apply_patch(engine, {"file": "test.py", "search": "not found", "replace": "y"})
         assert result is False
         assert target.read_text(encoding="utf-8") == "original"
 
-    def test_patch_empty_search_returns_false(self, tmp_path):
+    def test_patch_empty_search_returns_false(self, tmp_path: Path):
         engine = AutonomousQAEngine(project_root=str(tmp_path))
         target = tmp_path / "test.py"
-        target.write_text("content", encoding="utf-8")
-        result = engine._apply_patch({"file": "test.py", "search": "", "replace": "y"})
+        _ = target.write_text("content", encoding="utf-8")
+        result = _apply_patch(engine, {"file": "test.py", "search": "", "replace": "y"})
         assert result is False
+
+    def test_patch_rejects_path_escape(self, tmp_path: Path):
+        engine = AutonomousQAEngine(project_root=str(tmp_path))
+        outside = tmp_path.parent / "outside.py"
+        _ = outside.write_text("original", encoding="utf-8")
+
+        result = _apply_patch(engine, {"file": "../outside.py", "search": "original", "replace": "changed"})
+
+        assert result is False
+        assert outside.read_text(encoding="utf-8") == "original"
 
 
 # ---------------------------------------------------------------------------
@@ -274,93 +384,72 @@ class TestVisionAnalyze:
     """_vision_analyze with mocked httpx."""
 
     @pytest.mark.asyncio
-    async def test_vision_analyze_returns_defects(self):
-        from unittest.mock import MagicMock, patch
-
+    async def test_vision_analyze_returns_defects(self, monkeypatch: pytest.MonkeyPatch):
         engine = AutonomousQAEngine()
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "message": {
-                "content": '[{"description": "overlapping text", "severity": "high", "suggested_fix": "fix css"}]',
-            },
-        }
-
-        with patch("httpx.AsyncClient.post", return_value=mock_resp):
-            defects = await engine._vision_analyze("fake_base64")
-            assert len(defects) == 1
-            assert defects[0].description == "overlapping text"
-            assert defects[0].severity == "high"
+        _install_httpx(
+            monkeypatch,
+            _FakeHTTPResponse(
+                200,
+                {
+                    "message": {
+                        "content": '[{"description": "overlapping text", "severity": "high", "suggested_fix": "fix css"}]',
+                    },
+                },
+            ),
+        )
+        defects = await _vision_analyze(engine, "fake_base64")
+        assert len(defects) == 1
+        assert defects[0].description == "overlapping text"
+        assert defects[0].severity == "high"
 
     @pytest.mark.asyncio
-    async def test_vision_analyze_no_defects_returns_empty(self):
-        from unittest.mock import MagicMock, patch
-
+    async def test_vision_analyze_no_defects_returns_empty(self, monkeypatch: pytest.MonkeyPatch):
         engine = AutonomousQAEngine()
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"message": {"content": "[]"}}
-
-        with patch("httpx.AsyncClient.post", return_value=mock_resp):
-            defects = await engine._vision_analyze("fake_base64")
-            assert defects == []
+        _install_httpx(monkeypatch, _FakeHTTPResponse(200, {"message": {"content": "[]"}}))
+        defects = await _vision_analyze(engine, "fake_base64")
+        assert defects == []
 
     @pytest.mark.asyncio
-    async def test_vision_analyze_non_200_returns_empty(self):
-        from unittest.mock import MagicMock, patch
-
+    async def test_vision_analyze_non_200_returns_empty(self, monkeypatch: pytest.MonkeyPatch):
         engine = AutonomousQAEngine()
-        mock_resp = MagicMock()
-        mock_resp.status_code = 500
-
-        with patch("httpx.AsyncClient.post", return_value=mock_resp):
-            defects = await engine._vision_analyze("fake_base64")
-            assert defects == []
+        _install_httpx(monkeypatch, _FakeHTTPResponse(500))
+        defects = await _vision_analyze(engine, "fake_base64")
+        assert defects == []
 
     @pytest.mark.asyncio
-    async def test_vision_analyze_httpx_error_returns_empty(self):
-        from unittest.mock import patch
-
+    async def test_vision_analyze_httpx_error_returns_empty(self, monkeypatch: pytest.MonkeyPatch):
         import httpx
 
         engine = AutonomousQAEngine()
-        with patch("httpx.AsyncClient.post", side_effect=httpx.RequestError("connection failed")):
-            defects = await engine._vision_analyze("fake_base64")
-            assert defects == []
+        _install_httpx(monkeypatch, error=httpx.RequestError("connection failed"))
+        defects = await _vision_analyze(engine, "fake_base64")
+        assert defects == []
 
 
 class TestGenerateCodeFixes:
     """_generate_code_fixes with mocked httpx."""
 
     @pytest.mark.asyncio
-    async def test_generates_patches(self):
-        from unittest.mock import MagicMock, patch
-
+    async def test_generates_patches(self, monkeypatch: pytest.MonkeyPatch):
         engine = AutonomousQAEngine()
         defects = [UIDefect(description="bug", severity="high", suggested_fix="fix it")]
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "message": {
-                "content": '[{"file": "test.css", "search": "old", "replace": "new"}]',
-            },
-        }
-
-        with patch("httpx.AsyncClient.post", return_value=mock_resp):
-            patches = await engine._generate_code_fixes(defects)
-            assert len(patches) == 1
-            assert patches[0]["file"] == "test.css"
+        _install_httpx(
+            monkeypatch,
+            _FakeHTTPResponse(
+                200,
+                {"message": {"content": '[{"file": "test.css", "search": "old", "replace": "new"}]'}},
+            ),
+        )
+        patches = await _generate_fixes(engine, defects)
+        assert len(patches) == 1
+        assert patches[0]["file"] == "test.css"
 
     @pytest.mark.asyncio
-    async def test_generate_non_200_returns_empty(self):
-        from unittest.mock import MagicMock, patch
-
+    async def test_generate_non_200_returns_empty(self, monkeypatch: pytest.MonkeyPatch):
         engine = AutonomousQAEngine()
-        mock_resp = MagicMock()
-        mock_resp.status_code = 500
-        with patch("httpx.AsyncClient.post", return_value=mock_resp):
-            patches = await engine._generate_code_fixes([])
-            assert patches == []
+        _install_httpx(monkeypatch, _FakeHTTPResponse(500))
+        patches = await _generate_fixes(engine, [])
+        assert patches == []
 
 
 class TestCollectPerformance:
@@ -368,31 +457,28 @@ class TestCollectPerformance:
 
     @pytest.mark.asyncio
     async def test_returns_metrics(self):
-        from unittest.mock import AsyncMock
-
         engine = AutonomousQAEngine()
-        mock_page = AsyncMock()
-        mock_page.evaluate.return_value = {
+        page = _FakePage(
+            {
             "dom_content_loaded_ms": 350,
             "load_complete_ms": 800,
             "first_contentful_paint_ms": 200,
             "dom_nodes": 123,
             "js_heap_mb": 45,
-        }
+            }
+        )
 
-        metrics = await engine._collect_performance(mock_page)
+        metrics = await _collect_performance(engine, page)
         assert metrics["dom_content_loaded_ms"] == 350
         assert metrics["dom_nodes"] == 123
 
     @pytest.mark.asyncio
     async def test_evaluate_error_returns_empty(self):
-        from unittest.mock import AsyncMock
-
         engine = AutonomousQAEngine()
-        mock_page = AsyncMock()
-        mock_page.evaluate.side_effect = TimeoutError("timeout")
+        page = _FakePage({})
+        page.evaluate_error = TimeoutError("timeout")
 
-        metrics = await engine._collect_performance(mock_page)
+        metrics = await _collect_performance(engine, page)
         assert metrics == {}
 
 
@@ -401,32 +487,21 @@ class TestTestViewports:
 
     @pytest.mark.asyncio
     async def test_all_viewports_pass(self):
-        from unittest.mock import AsyncMock
-
         engine = AutonomousQAEngine()
-        mock_page = AsyncMock()
-        mock_page.evaluate.return_value = False  # no horizontal overflow
-        mock_page.query_selector.return_value = AsyncMock()  # element found
-        mock_page.goto = AsyncMock()
-        mock_page.set_viewport_size = AsyncMock()
+        page = _FakePage(False)
 
-        results = await engine._test_viewports(mock_page, "http://test:3000")
+        results = await _test_viewports(engine, page, "http://test:3000")
         assert len(results) == 3
-        assert results["desktop"]["pass"] is True
-        assert results["tablet"]["pass"] is True
-        assert results["mobile"]["pass"] is True
+        assert cast(bool, cast(dict[str, object], results["desktop"])["pass"]) is True
+        assert cast(bool, cast(dict[str, object], results["tablet"])["pass"]) is True
+        assert cast(bool, cast(dict[str, object], results["mobile"])["pass"]) is True
 
     @pytest.mark.asyncio
     async def test_overflow_detected(self):
-        from unittest.mock import AsyncMock
-
         engine = AutonomousQAEngine()
-        mock_page = AsyncMock()
-        mock_page.evaluate.return_value = True  # horizontal overflow detected
-        mock_page.query_selector.return_value = AsyncMock()
-        mock_page.goto = AsyncMock()
-        mock_page.set_viewport_size = AsyncMock()
+        page = _FakePage(True)
 
-        results = await engine._test_viewports(mock_page, "http://test:3000")
-        assert results["desktop"]["pass"] is False
-        assert "Overflow" in results["desktop"]["summary"]
+        results = await _test_viewports(engine, page, "http://test:3000")
+        desktop = cast(dict[str, object], results["desktop"])
+        assert desktop["pass"] is False
+        assert "Overflow" in cast(str, desktop["summary"])

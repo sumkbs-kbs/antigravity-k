@@ -15,7 +15,7 @@ import re
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import NotRequired, Protocol, TypeAlias, TypedDict, cast
 
 EXCLUDED_ROOT_DIRS = {
     ".changeset",
@@ -35,7 +35,39 @@ EXCLUDED_ROOT_DIRS = {
     "scripts",
 }
 
-AGENT_USAGE_SOURCES = [
+class AgentUsageSource(TypedDict):
+    agent: str
+    paths: list[str]
+    method: str
+    confidence: str
+    fallback: NotRequired[str]
+
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+class CleanupCandidate(TypedDict):
+    skill: str
+    action: str
+    trigger_count: int
+    score: int
+    reasons: list[str]
+
+
+class CliArgs(Protocol):
+    skills_root: str
+    usage_json: str | None
+    log: list[str]
+    scan_default_logs: bool
+    never_use: str
+    keep: str
+    low_usage_threshold: int
+    days: int | None
+    since: str | None
+
+
+AGENT_USAGE_SOURCES: list[AgentUsageSource] = [
     {
         "agent": "Claude Code",
         "paths": ["~/.claude/projects/**/*.jsonl", "~/.claude/transcripts/**/*.jsonl"],
@@ -110,7 +142,7 @@ def find_skill_dirs(root: Path | str) -> list[str]:
     return sorted(skills)
 
 
-def _walk_strings(value: Any, key_hint: str | None = None) -> Iterable[tuple[str | None, str]]:
+def _walk_strings(value: JsonValue, key_hint: str | None = None) -> Iterable[tuple[str | None, str]]:
     if isinstance(value, str):
         yield key_hint, value
     elif isinstance(value, Mapping):
@@ -133,7 +165,7 @@ def _line_mentions_skill(line: str, skill: str) -> bool:
     return any(re.search(pattern, line) for pattern in patterns)
 
 
-def _json_mentions_skill(record: Any, skill: str) -> bool:
+def _json_mentions_skill(record: JsonValue, skill: str) -> bool:
     key_names = {"skill", "skillname", "skill_name", "skillid", "skill_id", "name"}
     for key, value in _walk_strings(record):
         normalized_key = (key or "").replace("-", "").replace("_", "").lower()
@@ -167,7 +199,7 @@ def _parse_datetime(value: str | datetime | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _line_datetime_from_json(record: Any) -> datetime | None:
+def _line_datetime_from_json(record: JsonValue) -> datetime | None:
     timestamp_keys = {
         "timestamp",
         "time",
@@ -211,7 +243,7 @@ def _mtime_datetime(path: Path) -> datetime:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
 
 
-def _line_is_in_window(path: Path, line: str, parsed: Any | None, since: datetime | None) -> bool:
+def _line_is_in_window(path: Path, line: str, parsed: JsonValue | None, since: datetime | None) -> bool:
     if since is None:
         return True
     line_dt = _line_datetime_from_json(parsed) if parsed is not None else None
@@ -244,9 +276,9 @@ def collect_skill_usage(
         try:
             with path.open(encoding="utf-8", errors="replace") as handle:
                 for line in handle:
-                    parsed: Any | None = None
+                    parsed: JsonValue | None = None
                     try:
-                        parsed = json.loads(line)
+                        parsed = cast(JsonValue, json.loads(line))
                     except json.JSONDecodeError:
                         parsed = None
                     if not _line_is_in_window(path, line, parsed, since_dt):
@@ -264,13 +296,13 @@ def collect_skill_usage(
 def load_usage_json(path: Path | str | None) -> dict[str, int]:
     if path is None:
         return {}
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = cast(JsonValue, json.loads(Path(path).read_text(encoding="utf-8")))
     if not isinstance(data, Mapping):
         raise ValueError("usage JSON must be an object mapping skill names to counts")
     counts: dict[str, int] = {}
     for key, value in data.items():
         try:
-            counts[str(key)] = int(value)
+            counts[str(key)] = int(str(value))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"usage count for {key!r} must be an integer") from exc
     return counts
@@ -282,12 +314,12 @@ def rank_cleanup_candidates(
     never_use: Iterable[str] | None = None,
     keep: Iterable[str] | None = None,
     low_usage_threshold: int = 1,
-) -> list[dict[str, Any]]:
+) -> list[CleanupCandidate]:
     """Rank deletion/review candidates without touching the filesystem."""
     counts = usage_counts or {}
     never = set(never_use or [])
     protected = set(keep or [])
-    candidates: list[dict[str, Any]] = []
+    candidates: list[CleanupCandidate] = []
 
     for skill in sorted(set(skill_names)):
         if skill in protected:
@@ -328,7 +360,7 @@ def rank_cleanup_candidates(
 def expand_default_log_paths() -> list[Path]:
     paths: list[Path] = []
     for source in AGENT_USAGE_SOURCES:
-        for pattern in source.get("paths", []):
+        for pattern in source["paths"]:
             paths.extend(
                 Path().glob(os.path.expanduser(pattern))
                 if not pattern.startswith("~")
@@ -361,39 +393,39 @@ def _resolve_since(days: int | None, since: str | None, now: datetime | None = N
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Suggest K-skill cleanup candidates from interviews and usage logs.")
-    parser.add_argument(
+    _ = parser.add_argument(
         "--skills-root",
         default=".",
         help="Directory containing root-level skills; a skill directory with SKILL.md auto-scans its parent",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--usage-json",
         help="Optional JSON object mapping skill names to trigger counts",
     )
-    parser.add_argument("--log", action="append", default=[], help="Agent log file to scan; repeatable")
-    parser.add_argument(
+    _ = parser.add_argument("--log", action="append", default=[], help="Agent log file to scan; repeatable")
+    _ = parser.add_argument(
         "--scan-default-logs",
         action="store_true",
         help="Best-effort scan known local agent log locations",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--never-use",
         default="",
         help="Comma-separated skills the user says they never use",
     )
-    parser.add_argument("--keep", default="", help="Comma-separated skills to protect from suggestions")
-    parser.add_argument(
+    _ = parser.add_argument("--keep", default="", help="Comma-separated skills to protect from suggestions")
+    _ = parser.add_argument(
         "--low-usage-threshold",
         type=int,
         default=1,
         help="Counts at or below this threshold are review candidates",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--days",
         type=int,
         help="Only count log records from the last N days; untimestamped lines use file mtime fallback",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--since",
         help="Only count log records on or after this ISO date/datetime; overrides --days",
     )
@@ -401,7 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    args = cast(CliArgs, cast(object, build_parser().parse_args(argv)))
     skill_names = find_skill_dirs(args.skills_root)
     usage_counts = {skill: 0 for skill in skill_names}
     usage_counts.update(load_usage_json(args.usage_json))

@@ -1,9 +1,12 @@
 import json
 import os
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Request as FastAPIRequest
+from starlette.datastructures import State
 
 from antigravity_k.engine.memory_provider import (
     EpisodicMemoryProvider,
@@ -229,17 +232,19 @@ async def test_memory_compliance_routes_return_audited_contract(monkeypatch):
 
     exported = await system_api.export_memory()
 
-    class Request:
+    class RequestStub:
         async def json(self):
             return {"scope": "all"}
 
-    redacted = await system_api.redact_memory(Request())
+    redacted = await system_api.redact_memory(cast(FastAPIRequest[State], cast(object, RequestStub())))
 
-    class RetentionRequest:
+    class RetentionRequestStub:
         async def json(self):
             return {"max_age_days": 30}
 
-    retained = await system_api.apply_memory_retention(RetentionRequest())
+    retained = await system_api.apply_memory_retention(
+        cast(FastAPIRequest[State], cast(object, RetentionRequestStub()))
+    )
 
     assert exported["vault"]["included"] is False
     assert redacted["changed"] == {"builtin": 2}

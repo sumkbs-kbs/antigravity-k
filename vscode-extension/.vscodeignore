@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+out/**
+src/**
+node_modules/**
+.eslintrc.json
+tsconfig.json
+webpack.config.js
+**/*.map
+antigravity-k-sync-*.vsix

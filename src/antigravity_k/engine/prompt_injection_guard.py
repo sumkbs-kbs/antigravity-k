@@ -43,16 +43,14 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _INSTRUCTION_OVERRIDE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
-            r"ignore (?:all )?(?:previous|prior|above|earlier) "
-            r"(?:instructions?|prompts?|messages|context|directions|rules)",
+            r"ignore (?:all )?(?:previous|prior|above|earlier) (?:instructions?|prompts?|messages|context|directions|rules)",
             re.IGNORECASE,
         ),
         "override_ignore_previous",
     ),
     (
         re.compile(
-            r"disregard (?:all )?(?:previous|prior|above) "
-            r"(?:instructions?|prompts?|messages|context|directions|rules)",
+            r"disregard (?:all )?(?:previous|prior|above) (?:instructions?|prompts?|messages|context|directions|rules)",
             re.IGNORECASE,
         ),
         "override_disregard_previous",

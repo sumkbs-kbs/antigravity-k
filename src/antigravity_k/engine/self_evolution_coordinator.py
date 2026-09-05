@@ -1,4 +1,4 @@
-"""Antigravity-K: Self-Evolution Coordinator (SEC) — Hermes-style Closed Learning Loop.
+"""Ssak-Ai: Self-Evolution Coordinator (SEC) — Hermes-style Closed Learning Loop.
 
 ================================================================================
 Orchestrator의 태스크 완료 후 QualityGate 점수가 C 이하일 때 자동으로 가동되어,
@@ -23,17 +23,101 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Protocol, TypeAlias, cast
 
 import yaml
 
 from antigravity_k.engine.model_manager import ModelManager
 
 logger = logging.getLogger("antigravity_k.self_evolution_coordinator")
+
+JsonObject: TypeAlias = dict[str, object]
+
+
+def _object_dict(value: object) -> JsonObject:
+    if not isinstance(value, Mapping):
+        return {}
+    mapping = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in mapping.items()}
+
+
+def _string_value(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+class _InsightProtocol(Protocol):
+    pattern_name: str
+    occurrence_count: int
+    avg_score: float
+
+
+class _SelfImprovementProtocol(Protocol):
+    def record_turn(self, user_request: str, grade: str, score: float, issues: list[str]) -> None: ...
+
+    def get_insights(self) -> Sequence[_InsightProtocol]: ...
+
+    def get_reinforcement_prompt(self) -> str: ...
+
+
+class _PromptEvolverProtocol(Protocol):
+    def evolve_system_prompt(
+        self,
+        current_prompt: str,
+        performance_data: Mapping[str, object],
+    ) -> tuple[str, float]: ...
+
+    def evolve_few_shots(self, current_examples: list[dict[str, str]], task_type: str) -> list[dict[str, str]]: ...
+
+
+class _RSIEngineProtocol(Protocol):
+    def _diagnose(self, performance_data: Mapping[str, object], result: object) -> list[str]: ...
+
+
+class _SandboxProtocol(Protocol):
+    def safe_mutation(self, label: str = "") -> AbstractContextManager[object]: ...
+
+    def validate_mutation(self, filepath: str, new_content: str) -> Mapping[str, object]: ...
+
+    def dual_audit(
+        self,
+        filepath: str,
+        original: str,
+        modified: str,
+        audit_fn_1: Callable[[str], str] | None = None,
+    ) -> Mapping[str, object]: ...
+
+
+class _ProposalProtocol(Protocol):
+    title: str
+    description: str
+    target_files: list[str]
+
+
+class _MetaArchitectProtocol(Protocol):
+    def analyze_and_propose(self, performance_data: Mapping[str, object]) -> _ProposalProtocol | None: ...
+
+    def execute_proposal(self, proposal: _ProposalProtocol) -> bool: ...
+
+
+class _SkillLearnerProtocol(Protocol):
+    def record_tool_call(
+        self,
+        name: str,
+        arguments: dict[str, object],
+        result: str = "",
+        success: bool = True,
+    ) -> None: ...
+
+    def on_task_complete(self, user_message: str = "") -> str | None: ...
+
+
+class _EvolutionManagerProtocol(Protocol):
+    def evolve_system_prompt(self) -> str | None: ...
 
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────────
@@ -70,7 +154,7 @@ class PerformanceSnapshot:
     quality_grade: str = "A"
     quality_score: float = 1.0
     quality_issues: list[str] = field(default_factory=list)
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    tool_calls: list[JsonObject] = field(default_factory=list)
     failure_count: int = 0
     duration_ms: float = 0.0  # memory_save_handler에서 ctx.get_duration_ms()로 설정
     timestamp: float = field(default_factory=time.time)
@@ -86,7 +170,7 @@ class EvolutionDecision:
     confidence: float = 0.0
     expected_improvement: float = 0.0
     target_file: str = ""
-    mutation_payload: dict[str, Any] = field(default_factory=dict)
+    mutation_payload: JsonObject = field(default_factory=dict)
 
 
 @dataclass
@@ -103,7 +187,7 @@ class EvolutionResult:
     improvement: float = 0.0
     error_message: str = ""
     duration_sec: float = 0.0
-    details: dict[str, Any] = field(default_factory=dict)
+    details: JsonObject = field(default_factory=dict)
 
     @property
     def summary(self) -> str:
@@ -138,13 +222,13 @@ class SelfEvolutionCoordinator:
     """
 
     # 최소 진화 간격 (초) — 과도한 진화 방지
-    MIN_EVOLUTION_INTERVAL = 30.0
+    MIN_EVOLUTION_INTERVAL: float = 30.0
 
     # 최근 N건의 성능 스냅샷 유지
-    MAX_HISTORY_SIZE = 20
+    MAX_HISTORY_SIZE: int = 20
 
     # 진화 후 최소 N턴 동안은 재진화 금지
-    EVOLUTION_COOLDOWN_TURNS = 3
+    EVOLUTION_COOLDOWN_TURNS: int = 3
 
     def __init__(
         self,
@@ -159,19 +243,19 @@ class SelfEvolutionCoordinator:
             model_manager: 모델 매니저 (LLM 호출용)
             verify_fn: LLM 검증 함수 (RSISandbox dual-audit용)
         """
-        self._root = project_root
-        self._manager = model_manager
-        self._verify_fn = verify_fn
+        self._root: str = project_root
+        self._manager: ModelManager | None = model_manager
+        self._verify_fn: Callable[[str], str] | None = verify_fn
 
         # 지연 초기화되는 하위 엔진들
-        self._rsi_engine: Any = None
-        self._prompt_evolver: Any = None
-        self._meta_architect: Any = None
-        self._skill_learner: Any = None
-        self._sandbox: Any = None
-        self._self_improvement: Any = None
-        self._self_repair: Any = None
-        self._evolution_manager: Any = None
+        self._rsi_engine: _RSIEngineProtocol | None = None
+        self._prompt_evolver: _PromptEvolverProtocol | None = None
+        self._meta_architect: _MetaArchitectProtocol | None = None
+        self._skill_learner: _SkillLearnerProtocol | None = None
+        self._sandbox: _SandboxProtocol | None = None
+        self._self_improvement: _SelfImprovementProtocol | None = None
+        self._self_repair: object | None = None
+        self._evolution_manager: _EvolutionManagerProtocol | None = None
 
         # 상태
         self._history: list[EvolutionHistory] = []
@@ -190,30 +274,39 @@ class SelfEvolutionCoordinator:
         try:
             from antigravity_k.engine.rsi_engine import RSIEngine
 
-            self._rsi_engine = RSIEngine(project_root=self._root)
+            self._rsi_engine = cast(
+                _RSIEngineProtocol,
+                cast(object, RSIEngine(project_root=self._root, model_manager=self._manager)),
+            )
         except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.prompt_evolver import PromptEvolver
 
-            self._prompt_evolver = PromptEvolver()
+            self._prompt_evolver = cast(
+                _PromptEvolverProtocol,
+                cast(object, PromptEvolver(model_manager=self._manager)),
+            )
         except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.meta_architect import MetaArchitect
 
-            self._meta_architect = MetaArchitect(project_root=self._root)
+            self._meta_architect = cast(
+                _MetaArchitectProtocol,
+                cast(object, MetaArchitect(project_root=self._root, model_manager=self._manager)),
+            )
         except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
         try:
             from antigravity_k.engine.rsi_sandbox import RSISandbox
 
-            self._sandbox = RSISandbox(
-                project_root=self._root,
-                verify_fn=self._verify_fn,
+            self._sandbox = cast(
+                _SandboxProtocol,
+                RSISandbox(project_root=self._root, verify_fn=self._verify_fn),
             )
         except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
@@ -221,7 +314,10 @@ class SelfEvolutionCoordinator:
         try:
             from antigravity_k.engine.self_improvement import SelfImprovementLoop
 
-            self._self_improvement = SelfImprovementLoop(data_dir=self._root)
+            self._self_improvement = cast(
+                _SelfImprovementProtocol,
+                cast(object, SelfImprovementLoop(data_dir=self._root)),
+            )
         except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
 
@@ -239,9 +335,12 @@ class SelfEvolutionCoordinator:
             vault_path = f"{self._root}/vault_data"
             vault = VaultEngine(vault_path, sync_rag=False)
             if self._manager:
-                self._evolution_manager = EvolutionManager(
-                    model_manager=self._manager,
-                    vault_engine=vault,
+                self._evolution_manager = cast(
+                    _EvolutionManagerProtocol,
+                    EvolutionManager(
+                        model_manager=self._manager,
+                        vault_engine=vault,
+                    ),
                 )
         except (ImportError, RuntimeError, AttributeError):
             logger.warning("[SEC] 진화 단계 실패 (non-critical)", exc_info=True)
@@ -435,7 +534,11 @@ class SelfEvolutionCoordinator:
                     generation=0,
                     before_score=snapshot.quality_score,
                 )
-                weaknesses = self._rsi_engine._diagnose(perf_data, dummy_result)
+                diagnose = cast(
+                    Callable[[Mapping[str, object], object], list[str]],
+                    getattr(cast(object, self._rsi_engine), "_diagnose"),
+                )
+                weaknesses = diagnose(perf_data, dummy_result)
                 for w in weaknesses[:2]:
                     candidates.append(
                         EvolutionDecision(
@@ -548,7 +651,7 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """진화 결정에 따라 변이를 실행합니다.
 
         Args:
@@ -559,7 +662,7 @@ class SelfEvolutionCoordinator:
             변이 결과 (applied, message 등)
         """
         domain = decision.domain
-        result: dict[str, Any] = {"applied": False, "message": ""}
+        result: JsonObject = {"applied": False, "message": ""}
 
         if domain == MutationDomain.SYSTEM_PROMPT:
             result = self._mutate_system_prompt(decision, snapshot)
@@ -580,7 +683,7 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """시스템 프롬프트 진화 — PromptEvolver 또는 EvolutionManager 사용.
 
         현재 프롬프트는 다음 순서로 가져옵니다:
@@ -590,7 +693,8 @@ class SelfEvolutionCoordinator:
           4. config.yaml의 agent_models
           5. 최종 폴백 문자열
         """
-        result: dict[str, Any] = {"applied": False, "message": "", "method": "prompt_evolver"}
+        _ = decision
+        result: JsonObject = {"applied": False, "message": "", "method": "prompt_evolver"}
 
         # 실제 시스템 프롬프트 로드
         current_prompt = self._load_current_system_prompt()
@@ -679,7 +783,7 @@ class SelfEvolutionCoordinator:
 
         # 최종 폴백: 프로젝트 구조 기반 설명
         return (
-            "You are Antigravity-K, a local autonomous engineering agent "
+            "You are Ssak-Ai, a local autonomous engineering agent "
             "running on Apple Silicon. You orchestrate multi-agent workflows "
             "using MoE Swarm architecture with collective intelligence. "
             "Your capabilities include: multi-model orchestration, "
@@ -690,36 +794,44 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """스킬 진화 — SkillAutoLearner 패턴 감지 및 스킬 생성."""
-        result: dict[str, Any] = {"applied": False, "message": ""}
+        _ = decision
+        result: JsonObject = {"applied": False, "message": ""}
 
         if not self._skill_learner:
             try:
                 from antigravity_k.engine.skill_auto_learner import SkillAutoLearner
 
-                self._skill_learner = SkillAutoLearner(
-                    project_root=self._root,
-                    model_manager=self._manager,
+                self._skill_learner = cast(
+                    _SkillLearnerProtocol,
+                    cast(
+                        object,
+                        SkillAutoLearner(
+                            project_root=self._root,
+                            model_manager=self._manager,
+                        ),
+                    ),
                 )
             except (ImportError, RuntimeError, AttributeError):
                 logger.debug("[SEC] SkillAutoLearner init failed")
                 return result
 
-        # 도구 호출 기록을 SkillAutoLearner에 주입
+        learner = self._skill_learner
+
         for tc in snapshot.tool_calls:
             try:
-                self._skill_learner.record_tool_call(
-                    name=tc.get("name", "unknown"),
-                    arguments=tc.get("arguments", {}),
-                    success=tc.get("success", True),
+                learner.record_tool_call(
+                    name=_string_value(tc.get("name"), "unknown"),
+                    arguments=_object_dict(tc.get("arguments")),
+                    success=bool(tc.get("success", True)),
                 )
             except (AttributeError, TypeError, KeyError):
                 continue
 
         # 패턴 감지 및 스킬 생성
         try:
-            skill_path = self._skill_learner.on_task_complete(user_message=snapshot.user_message)
+            skill_path = learner.on_task_complete(user_message=snapshot.user_message)
             if skill_path:
                 result["applied"] = True
                 result["message"] = f"새 스킬 생성됨: {skill_path}"
@@ -733,9 +845,10 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """코드 변이 — MetaArchitect를 통한 대규모 리팩터링."""
-        result: dict[str, Any] = {"applied": False, "message": ""}
+        _ = decision
+        result: JsonObject = {"applied": False, "message": ""}
 
         if not self._meta_architect:
             return result
@@ -767,9 +880,10 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """Few-shot 예시 진화 — PromptEvolver가 예시를 개선합니다."""
-        result: dict[str, Any] = {"applied": False, "message": ""}
+        _ = decision
+        result: JsonObject = {"applied": False, "message": ""}
 
         if not self._prompt_evolver:
             return result
@@ -793,9 +907,10 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """설정 변이 — ConfigEditorTool로 보안/성능 설정 조정."""
-        result: dict[str, Any] = {"applied": False, "message": ""}
+        _ = decision
+        result: JsonObject = {"applied": False, "message": ""}
         result["message"] = "설정 변경은 사용자 승인이 필요합니다"
         result["suggestion"] = (
             f"품질 이슈({snapshot.quality_issues[0] if snapshot.quality_issues else '알 수 없음'}) "
@@ -807,9 +922,10 @@ class SelfEvolutionCoordinator:
         self,
         decision: EvolutionDecision,
         snapshot: PerformanceSnapshot,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """샘플링 프로파일 진화 — temperature/min_p 조정."""
-        result: dict[str, Any] = {"applied": False, "message": ""}
+        _ = decision
+        result: JsonObject = {"applied": False, "message": ""}
         result["message"] = (
             f"샘플링 프로파일 조정 제안: 품질 점수 {snapshot.quality_score:.2f}에 따라 temperature ±0.05 조정"
         )
@@ -820,8 +936,8 @@ class SelfEvolutionCoordinator:
     def _validate(
         self,
         decision: EvolutionDecision,
-        mutation_payload: dict[str, Any],
-    ) -> dict[str, Any]:
+        mutation_payload: JsonObject,
+    ) -> JsonObject:
         """변이 결과를 검증합니다.
 
         P2-2 강화: 결정적 검증(AST/문법)을 sandbox와 무관하게 항상 수행.
@@ -836,24 +952,27 @@ class SelfEvolutionCoordinator:
         if not target_file or not mutation_payload.get("applied"):
             return {"passed": True, "reason": "no_file_to_validate"}
 
-        new_content = mutation_payload.get("new_prompt_snippet", "")
-        if not new_content:
+        new_content_value = mutation_payload.get("new_prompt_snippet", "")
+        if not isinstance(new_content_value, str) or not new_content_value:
             return {"passed": True, "reason": "no_content_to_validate"}
+        new_content = new_content_value
 
         # 1단계: 결정적 검증 (P2-2) — 항상 수행, LLM 의존 없음
         deterministic_result = self._deterministic_validate(target_file, new_content)
-        if not deterministic_result["passed"]:
+        if deterministic_result.get("passed") is not True:
             return deterministic_result
-        validation: dict[str, Any] = dict(deterministic_result.get("details", {}))
+        validation: JsonObject = _object_dict(deterministic_result.get("details"))
 
         # 2단계: RSISandbox 3중 검증 (sandbox 사용 가능 시)
         if self._sandbox:
-            validation = self._sandbox.validate_mutation(
-                filepath=target_file,
-                new_content=new_content,
+            validation = _object_dict(
+                self._sandbox.validate_mutation(
+                    filepath=target_file,
+                    new_content=new_content,
+                )
             )
 
-            failed = [k for k, v in validation.items() if hasattr(v, "value") and v.value == "fail"]
+            failed = [k for k, v in validation.items() if getattr(v, "value", None) == "fail"]
 
             if failed:
                 return {
@@ -864,16 +983,18 @@ class SelfEvolutionCoordinator:
 
         # 3단계: LLM 이중 감사 (보조 — 결정적 검증 통과 후에만)
         if self._sandbox and self._verify_fn:
-            audit = self._sandbox.dual_audit(
-                filepath=target_file,
-                original="",
-                modified=new_content,
-                audit_fn_1=self._verify_fn,
+            audit = _object_dict(
+                self._sandbox.dual_audit(
+                    filepath=target_file,
+                    original="",
+                    modified=new_content,
+                    audit_fn_1=self._verify_fn,
+                )
             )
-            if not audit.get("approved", True):
+            if not bool(audit.get("approved", True)):
                 return {
                     "passed": False,
-                    "reason": f"이중 감사 거부: {audit.get('auditor_1', 'unknown')[:100]}",
+                    "reason": f"이중 감사 거부: {str(audit.get('auditor_1', 'unknown'))[:100]}",
                     "details": audit,
                 }
 
@@ -884,7 +1005,7 @@ class SelfEvolutionCoordinator:
         }
 
     @staticmethod
-    def _deterministic_validate(filepath: str, content: str) -> dict[str, Any]:
+    def _deterministic_validate(filepath: str, content: str) -> JsonObject:
         """결정적 검증 — LLM 없이 항상 수행 (P2-2).
 
         파일 유형에 따라:
@@ -898,7 +1019,7 @@ class SelfEvolutionCoordinator:
         """
         import ast
 
-        details: dict[str, Any] = {"filepath": filepath}
+        details: JsonObject = {"filepath": filepath}
 
         if not content or not content.strip():
             return {
@@ -912,7 +1033,7 @@ class SelfEvolutionCoordinator:
         # Python: AST 파싱
         if ext == "py":
             try:
-                ast.parse(content)
+                _ = ast.parse(content)
                 details["ast_valid"] = True
             except SyntaxError as e:
                 details["ast_valid"] = False
@@ -926,7 +1047,7 @@ class SelfEvolutionCoordinator:
         # YAML 파싱
         elif ext in ("yaml", "yml"):
             try:
-                parsed = yaml.safe_load(content)
+                parsed = cast(object, yaml.safe_load(content))
                 if parsed is None and content.strip():
                     details["yaml_warning"] = "content가 있지만 파싱 결과가 None"
                 details["yaml_valid"] = True
@@ -941,7 +1062,7 @@ class SelfEvolutionCoordinator:
         # JSON 파싱
         elif ext == "json":
             try:
-                json.loads(content)
+                _ = cast(object, json.loads(content))
                 details["json_valid"] = True
             except json.JSONDecodeError as e:
                 details["json_valid"] = False
@@ -966,11 +1087,14 @@ class SelfEvolutionCoordinator:
             history_path = os.path.join(self._root, "data", "evolution_history.json")
             os.makedirs(os.path.dirname(history_path), exist_ok=True)
 
-            existing = []
+            existing: list[JsonObject] = []
             if os.path.exists(history_path):
                 with open(history_path, encoding="utf-8") as f:
                     try:
-                        existing = json.load(f)
+                        loaded = cast(object, json.load(f))
+                        if isinstance(loaded, list):
+                            loaded_items = cast(list[object], loaded)
+                            existing = [_object_dict(item) for item in loaded_items]
                     except json.JSONDecodeError:
                         existing = []
 
@@ -1001,7 +1125,7 @@ class SelfEvolutionCoordinator:
 
     # ─── 보고 및 통계 ────────────────────────────────────────────
 
-    def get_report(self) -> dict[str, Any]:
+    def get_report(self) -> JsonObject:
         """진화 코디네이터의 상태 보고서를 반환합니다."""
         recent = self._history[-10:] if self._history else []
         successes = sum(1 for h in recent if h.result.success)

@@ -1,4 +1,4 @@
-"""Antigravity-K 테스트 설정 파일.
+"""Ssak-Ai 테스트 설정 파일.
 모든 테스트에서 src/ 디렉토리를 sys.path에 추가합니다.
 """
 

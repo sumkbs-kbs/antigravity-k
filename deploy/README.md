@@ -1,6 +1,6 @@
 # Deployment
 
-Antigravity-K can be deployed in three ways, in increasing order of production
+Ssak-Ai can be deployed in three ways, in increasing order of production
 readiness.
 
 ## 1. Local (development)
@@ -88,6 +88,17 @@ kubectl -n antigravity-k port-forward svc/antigravity-k 8080:80
 - **`container-scan.yml`**: Trivy image scan (HIGH/CRITICAL) on Dockerfile changes.
 - **`release.yml`**: on `v*` tags, builds wheel + sdist, publishes to PyPI via
   Trusted Publishing (OIDC, no stored tokens), creates a GitHub Release.
+
+Every Python distribution, dashboard bundle, and Pages payload now receives a
+SHA-256 provenance manifest. The CI and release jobs verify the manifest before
+upload or deployment, so a changed artifact fails the pipeline. Locally, run
+`make build-provenance` or `make dashboard-build-provenance`; use
+`make dashboard-provenance-verify` to re-check an existing bundle.
+
+To attach the verified manifest to a task timeline, configure the repository
+variable `AGK_PROVENANCE_API_URL` and secret `AGK_PROVENANCE_PIN`. The workflow
+creates an execution-free provenance task automatically when
+`AGK_PROVENANCE_TASK_ID` is unset; set that variable to reuse an existing task.
 
 ### Creating a release
 

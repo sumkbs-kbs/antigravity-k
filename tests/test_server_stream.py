@@ -1,18 +1,25 @@
 import json
+from collections.abc import Iterator
+
+import pytest
 
 from antigravity_k.engine.orchestrator import OrchestratorAgent
 
 
 class FakeManager:
-    def is_loaded(self, name):
+    def is_loaded(self, _name: str) -> bool:
         return True
 
-    def stream_generate(self, *args, **kwargs):
+    def stream_generate(self, *_args: object, **_kwargs: object) -> Iterator[str]:
         yield "stream chunk"
 
 
-def test_orchestrator_stream_chunks_can_be_serialized(monkeypatch):
-    def fake_ceo_analyze(self, user_message, target_model):
+def test_orchestrator_stream_chunks_can_be_serialized(monkeypatch: pytest.MonkeyPatch):
+    def fake_ceo_analyze(
+        _self: OrchestratorAgent,
+        user_message: str,
+        _target_model: str,
+    ) -> Iterator[dict[str, str]]:
         yield {
             "task_type": "simple_chat",
             "delegate_to": "SELF",

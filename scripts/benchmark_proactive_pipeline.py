@@ -22,13 +22,26 @@ import os
 import sys
 import tempfile
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import cast
 from unittest.mock import MagicMock
 
 # ─── 로깅 비활성화 (벤치마크 노이즈 최소화) ───────────────────────
 logging.disable(logging.CRITICAL)
+
+Metadata = dict[str, object]
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
 
 
 # ─── 데이터 클래스 ────────────────────────────────────────────────
@@ -41,7 +54,7 @@ class BenchmarkSample:
     stage: str
     iteration: int
     elapsed_ms: float
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Metadata = field(default_factory=dict)
 
 
 @dataclass
@@ -51,7 +64,7 @@ class BenchmarkResult:
     stage: str
     samples: list[BenchmarkSample] = field(default_factory=list)
 
-    def add(self, sample: BenchmarkSample):
+    def add(self, sample: BenchmarkSample) -> None:
         self.samples.append(sample)
 
     @property
@@ -95,17 +108,20 @@ class BenchmarkResult:
             return 0.0
         avg = sum(vals) / n
         variance = sum((v - avg) ** 2 for v in vals) / (n - 1)
-        return variance**0.5
+        return cast(float, variance**0.5)
 
 
 # ─── 타이머 헬퍼 ──────────────────────────────────────────────────
 
 
 @contextlib.contextmanager
-def timer() -> Generator[float, None, None]:
+def timer() -> Generator[Callable[[], float], None, None]:
     """밀리초 단위 타이머 컨텍스트 매니저. elapsed_ms를 yield."""
     start = time.perf_counter()
-    yield lambda: (time.perf_counter() - start) * 1000
+    def elapsed() -> float:
+        return (time.perf_counter() - start) * 1000
+
+    yield elapsed
 
 
 # ─── 벤치마크: context_enrich (P1+P2) ────────────────────────────
@@ -146,8 +162,8 @@ def benchmark_context_enrich(project_root: str, iteration: int) -> BenchmarkSamp
         "file summarizer",
         "user authentication",
     ]
-    search_times = []
-    search_results = []
+    search_times: list[float] = []
+    search_results: list[int] = []
     for q in test_queries:
         with timer() as get_t3:
             _results = indexer.search(q, max_files=8)
@@ -224,7 +240,8 @@ def benchmark_code_review(project_root: str, iteration: int) -> BenchmarkSample:
 
     # 3. 모의 LLM 리뷰 (manager.generate() 대체)
     mock_manager = MagicMock()
-    mock_manager.generate.return_value = "BUGS: None\nTYPES: None\nQUALITY: None"
+    mock_generate = cast(Callable[..., str], getattr(mock_manager, "generate"))
+    setattr(cast(object, mock_generate), "return_value", "BUGS: None\nTYPES: None\nQUALITY: None")
 
     with timer() as get_t3:
         review_prompt = f"""Review the following code changes for bugs or issues.
@@ -237,7 +254,7 @@ QUALITY: <quality concern or None>
 ```diff
 {diff_content[:2000]}
 ```"""
-        _review_response = mock_manager.generate(
+        _review_response = mock_generate(
             prompt=review_prompt,
             target="qa-model",
             max_tokens=256,
@@ -272,7 +289,7 @@ DESC_MAX_ENGINE = "Worker config + mock run + Selector"
 # ─── 벤치마크: max_engine ───────────────────────────────────────
 
 
-def benchmark_rag_indexing(project_root: str, iteration: int) -> BenchmarkSample:
+def benchmark_rag_indexing(_project_root: str, iteration: int) -> BenchmarkSample:
     """RAGIndexer + VectorStore의 성능을 측정합니다.
 
     측정 항목:
@@ -360,7 +377,7 @@ def benchmark_rag_indexing(project_root: str, iteration: int) -> BenchmarkSample
             full_path = os.path.join(tmpdir, rel_path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, "w", encoding="utf-8") as f:
-                f.write(content)
+                _ = f.write(content)
 
         # VectorStore (인메모리 ChromaDB)
         store = VectorStore(persist_directory=os.path.join(tmpdir, ".chroma"), collection_name="bench_rag")
@@ -370,14 +387,16 @@ def benchmark_rag_indexing(project_root: str, iteration: int) -> BenchmarkSample
         py_path = "src/mod0.py"
         py_content = py_files[py_path]
         with timer() as get_t1:
-            _py_chunks = indexer._chunk_python(py_path, py_content.lstrip("\n"))
+            chunk_python = cast(Callable[..., object], getattr(indexer, "_chunk_python"))
+            _ = chunk_python(py_path, py_content.lstrip("\n"))
         t_chunk_python = get_t1()
 
         # 2. _chunk_markdown() — 단일 Markdown 파일 청킹
         md_path = "doc/chapter_0.md"
         md_content = md_files[md_path]
         with timer() as get_t2:
-            _md_chunks = indexer._chunk_markdown(md_path, md_content.lstrip("\n"))
+            chunk_markdown = cast(Callable[..., object], getattr(indexer, "_chunk_markdown"))
+            _ = chunk_markdown(md_path, md_content.lstrip("\n"))
         t_chunk_markdown = get_t2()
 
         # 3. index_project() — 전체 프로젝트 인덱싱
@@ -392,12 +411,14 @@ def benchmark_rag_indexing(project_root: str, iteration: int) -> BenchmarkSample
 
         # 5. RAGIndexer._keyword_search()
         with timer() as get_t5:
-            _kw_results = indexer._keyword_search("Handler validate", n_results=5)
+            keyword_search = cast(Callable[..., object], getattr(indexer, "_keyword_search"))
+            _ = keyword_search("Handler validate", n_results=5)
         t_search_keyword = get_t5()
 
         # 6. RAGIndexer._hybrid_search_rrf()
         with timer() as get_t6:
-            _hybrid_results = indexer._hybrid_search_rrf("process module data", n_results=5)
+            hybrid_search = cast(Callable[..., object], getattr(indexer, "_hybrid_search_rrf"))
+            _ = hybrid_search("process module data", n_results=5)
         t_search_hybrid = get_t6()
 
         # 7. RAGIndexer.search() — 통합 검색 (hybrid mode)
@@ -446,7 +467,7 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
     )
 
     mgr = MagicMock()
-    mgr._loaded_models = {"model-a": {}, "model-b": {}, "model-c": {}}
+    setattr(mgr, "_loaded_models", {"model-a": {}, "model-b": {}, "model-c": {}})
 
     engine = MaxModeEngine(mgr, project_root=project_root)
 
@@ -454,28 +475,30 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
     config_times: dict[str, float] = {}
 
     # 1a: 1개 모델
-    engine._get_available_models = lambda: ["model-a"]
+    build_worker_configs = cast(Callable[..., list[object]], getattr(engine, "_build_worker_configs"))
+    setattr(engine, "_get_available_models", lambda: ["model-a"])
     with timer() as get_t:
-        _ = engine._build_worker_configs("WORKER", "model-a")
+        _ = build_worker_configs("WORKER", "model-a")
     config_times["1_model"] = get_t()
 
     # 1b: 2개 모델
-    engine._get_available_models = lambda: ["model-a", "model-b"]
+    setattr(engine, "_get_available_models", lambda: ["model-a", "model-b"])
     with timer() as get_t:
-        _ = engine._build_worker_configs("WORKER", "model-a")
+        _ = build_worker_configs("WORKER", "model-a")
     config_times["2_models"] = get_t()
 
     # 1c: 3개 모델
-    engine._get_available_models = lambda: ["model-a", "model-b", "model-c"]
+    setattr(engine, "_get_available_models", lambda: ["model-a", "model-b", "model-c"])
     with timer() as get_t:
-        configs_3 = engine._build_worker_configs("WORKER", "model-a")
+        configs_3 = build_worker_configs("WORKER", "model-a")
     config_times["3_models"] = get_t()
 
     # 2. _build_worker_prompt() — 전략별
     prompt_times: dict[str, float] = {}
     for strategy in ("default", "creative", "safe", "balanced"):
         with timer() as get_t:
-            _ = engine._build_worker_prompt(
+            build_worker_prompt = cast(Callable[..., object], getattr(engine, "_build_worker_prompt"))
+            _ = build_worker_prompt(
                 "Create a high-performance API endpoint",
                 "model-a",
                 strategy,
@@ -486,13 +509,17 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
     # 3. _select_best() — 후보 수별
     select_times: dict[str, float] = {}
     qa_orch = MagicMock()
-    qa_orch.manager = mgr
-    qa_orch.manager.generate.return_value = "SELECTED: 1\nREASON: Best output"
-    qa_orch._get_model_for_role = lambda role: "qa-model"
+    setattr(qa_orch, "manager", mgr)
+    mgr_generate = cast(object, getattr(mgr, "generate"))
+    setattr(mgr_generate, "return_value", "SELECTED: 1\nREASON: Best output")
+    def _qa_model(_role: str) -> str:
+        return "qa-model"
+    setattr(qa_orch, "_get_model_for_role", _qa_model)
+    select_best = cast(Callable[..., int], getattr(engine, "_select_best"))
 
     # 3a: 2개 후보
     with timer() as get_t:
-        _ = engine._select_best(
+        _ = select_best(
             "task",
             [
                 WorkerResult(0, "a", "default", "short", 0.5),
@@ -505,7 +532,7 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
 
     # 3b: 3개 후보
     with timer() as get_t:
-        _ = engine._select_best(
+        _ = select_best(
             "task",
             [
                 WorkerResult(0, "a", "default", "short", 0.5),
@@ -519,7 +546,8 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
 
     # 4. _format_trace()
     with timer() as get_t:
-        _ = engine._format_trace(
+        format_trace = cast(Callable[..., object], getattr(engine, "_format_trace"))
+        _ = format_trace(
             [
                 WorkerResult(0, "a", "default", "out1", 0.5),
                 WorkerResult(1, "b", "creative", "out2", 1.2),
@@ -530,15 +558,15 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
     t_trace = get_t()
 
     # 5. total simulation: 모의 run()
-    def mock_run_worker(*args, **kwargs):
+    def mock_run_worker(*_args: object, **_kwargs: object) -> WorkerResult:
         return WorkerResult(0, "model-a", "default", "output result", 0.3)
 
-    engine._run_worker = mock_run_worker
+    setattr(engine, "_run_worker", mock_run_worker)
 
     mock_orch = MagicMock()
-    mock_orch.manager = mgr
-    mock_orch._get_model_for_role = lambda role: "qa-model"
-    mock_orch.manager.generate.return_value = "SELECTED: 1\nREASON: Best"
+    setattr(mock_orch, "manager", mgr)
+    setattr(mock_orch, "_get_model_for_role", _qa_model)
+    setattr(mgr_generate, "return_value", "SELECTED: 1\nREASON: Best")
 
     with timer() as get_t:
         result = engine.run(
@@ -581,7 +609,7 @@ def benchmark_max_engine(project_root: str, iteration: int) -> BenchmarkSample:
 
 def run_benchmark(
     stage: str,
-    benchmark_fn: Callable,
+    benchmark_fn: Callable[[str, int], BenchmarkSample],
     project_root: str,
     iterations: int,
     warmup: bool = True,
@@ -592,7 +620,7 @@ def run_benchmark(
     # 웜업 (1회 실행, 결과 폐기)
     if warmup:
         try:
-            benchmark_fn(project_root, -1)
+            _ = benchmark_fn(project_root, -1)
         except Exception:
             pass  # 웜업 실패는 무시
 
@@ -680,24 +708,25 @@ def export_json(results: dict[str, BenchmarkResult], path: str):
     print(f"\n📄 JSON 결과 저장: {path}")
 
 
-def load_previous_results(path: str) -> dict[str, Any]:
+def load_previous_results(path: str) -> dict[str, object]:
     """이전 벤치마크 결과를 로드합니다."""
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            return _as_mapping(cast(object, json.load(f)))
     return {}
 
 
 def print_comparison(
     current: dict[str, BenchmarkResult],
-    previous: dict[str, Any],
-):
+    previous: dict[str, object],
+) -> None:
     """이전 결과와 비교하여 변화량을 출력합니다."""
     print_header("COMPARISON WITH PREVIOUS RUN")
 
     for name, r in current.items():
-        prev = previous.get(name, {}).get("stats", {})
-        prev_avg = prev.get("avg_ms", 0)
+        prev = _as_mapping(previous.get(name))
+        stats = _as_mapping(prev.get("stats"))
+        prev_avg = _as_float(stats.get("avg_ms"))
         diff = r.avg_ms - prev_avg
         pct = (diff / prev_avg * 100) if prev_avg else 0
 
@@ -716,37 +745,37 @@ def main():
     parser = argparse.ArgumentParser(
         description="Freebuff-Style Proactive Pipeline 성능 벤치마크",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--iterations",
         type=int,
         default=5,
         help="각 스테이지의 반복 횟수 (기본: 5)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--project-dir",
         default=".",
         help="프로젝트 루트 디렉토리 (기본: 현재 디렉토리)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--json",
         default="",
         nargs="?",
         const="benchmark_results.json",
         help="결과를 JSON 파일로 저장 (기본: benchmark_results.json)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--compare",
         default="",
         nargs="?",
         const="benchmark_results.json",
         help="이전 JSON 결과와 비교",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--no-warmup",
         action="store_true",
         help="웜업 실행 건너뛰기",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--skip",
         nargs="*",
         choices=[NAME_CONTEXT_ENRICH, NAME_CODE_REVIEW, NAME_RAG, NAME_MAX_ENGINE],
@@ -754,16 +783,18 @@ def main():
     )
     args = parser.parse_args()
 
-    project_root = os.path.abspath(args.project_dir)
-    iterations = max(1, args.iterations)
-    skip_list = set(args.skip or [])
-    json_path = args.json
-    compare_path = args.compare or json_path
+    project_dir = cast(str, getattr(args, "project_dir", "."))
+    project_root = os.path.abspath(project_dir)
+    iterations = max(1, cast(int, getattr(args, "iterations", 5)))
+    skip_list = set(cast(list[str], getattr(args, "skip", None) or []))
+    json_path = cast(str, getattr(args, "json", ""))
+    compare_path = cast(str, getattr(args, "compare", "") or json_path)
+    no_warmup = cast(bool, getattr(args, "no_warmup", False))
 
     print("📊 Freebuff-Style Proactive Pipeline Benchmark")
     print(f"   프로젝트: {project_root}")
     print(f"   반복 횟수: {iterations}")
-    print(f"   웜업: {'OFF' if args.no_warmup else 'ON'}")
+    print(f"   웜업: {'OFF' if no_warmup else 'ON'}")
     print()
 
     if not os.path.exists(os.path.join(project_root, "src/antigravity_k")):
@@ -773,17 +804,18 @@ def main():
 
     # 실제 import 가능 여부 검증
     try:
-        sys.path.insert(0, project_root)
-        from antigravity_k.engine.code_tree_indexer import CodeTreeIndexer  # noqa: F401
+        _ = sys.path.insert(0, project_root)
+        from antigravity_k.engine.code_tree_indexer import CodeTreeIndexer
+        _ = CodeTreeIndexer
     except ImportError as e:
         print(f"⚠️  antigravity_k 패키지 import 실패: {e}")
         print("   --project-dir 플래그로 올바른 경로를 지정해주세요.")
         sys.exit(1)
 
     # PYTHONPATH 설정
-    sys.path.insert(0, project_root)
+    _ = sys.path.insert(0, project_root)
 
-    stages = []
+    stages: list[tuple[str, str, Callable[[str, int], BenchmarkSample]]] = []
 
     if NAME_CONTEXT_ENRICH not in skip_list:
         stages.append(
@@ -818,7 +850,7 @@ def main():
                     fn,
                     project_root,
                     iterations,
-                    warmup=not args.no_warmup,
+                    warmup=not no_warmup,
                 )
                 results[name] = result
                 print(f" 완료 ({result.avg_ms:.1f} ms 평균)")

@@ -76,9 +76,9 @@ class RecommendationBatch:
 class NextActionRecommender:
     """Synthesizes high-precision follow-up engineering actions."""
 
-    def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
-        self.call_graph = CallHierarchyGraph(self.project_root)
+    def __init__(self, project_root: str | Path) -> None:
+        self.project_root: Path = Path(project_root).resolve()
+        self.call_graph: CallHierarchyGraph = CallHierarchyGraph(self.project_root)
 
     def synthesize_recommendations(
         self,

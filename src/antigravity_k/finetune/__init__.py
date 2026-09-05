@@ -1,4 +1,4 @@
-"""Antigravity-K: Fine-tuning 모듈 (Phase 2에서 구현)."""
+"""Ssak-Ai: Fine-tuning 모듈 (Phase 2에서 구현)."""
 
 # Phase 2, Step 3에서 구현 예정:
 # - MLX LoRA/QLoRA 파인튜닝

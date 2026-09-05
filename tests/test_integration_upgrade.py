@@ -1,28 +1,43 @@
 """시스템 통합 업그레이드 테스트.
 ================================
 이전 세션(tiptap-vuetify 패턴)에서 만든 모듈들이
-실제 핵심 시스템(AppConfig, TeamManager, BaseAgent, SkillsRegistry)에
+실제 핵심 시스템(AppConfig, BaseAgent, SkillsRegistry)에
 올바르게 통합되었는지 검증합니다.
 
 검증 대상:
   A) AppConfig — I18nConfig, max_tool_risk 추가
-  B) TeamManager — ToolRegistry/I18n 자동 초기화
   C) BaseAgent — I18n 기반 다국어 추론 지시문
   D) SkillsRegistry — validate_skill_tools() 연동
   E) ComputerUseTool — 메타데이터 적용 확인
+  (B) TeamManager 섹션은 모듈 삭제(2026-08-25 삭제 감사 A티어)로 제거됨
 """
 
 import os
 import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from antigravity_k.config import AppConfig, I18nConfig
-from antigravity_k.i18n import I18n, set_locale
-from antigravity_k.tools.base_tool import RenderIn, RiskLevel, ToolCategory
+from antigravity_k.i18n import set_locale
+from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from antigravity_k.tools.tool_registry import ToolRegistry
+
+
+class _ToolInstaller(Protocol):
+    def __call__(self, tool_or_class: type[BaseTool] | BaseTool, **kwargs: object) -> ToolRegistry: ...
+
+
+class _ToolBatchInstaller(Protocol):
+    def __call__(self, *tools: type[BaseTool] | BaseTool) -> ToolRegistry: ...
+
+
+class _SkillToolValidator(Protocol):
+    def __call__(self, tool_registry: ToolRegistry) -> dict[str, list[str]]: ...
 
 # ═══════════════ A) AppConfig 통합 테스트 ═══════════════
 
@@ -42,7 +57,7 @@ class TestAppConfigIntegration:
         assert cfg.i18n.locale == "auto"
         assert cfg.i18n.fallback_locale == "en"
 
-    def test_local_qwen_is_runtime_default(self, monkeypatch):
+    def test_local_qwen_is_runtime_default(self, monkeypatch: pytest.MonkeyPatch):
         for name in (
             "AGK_CONFIG_FILE",
             "AGK_PROVIDER",
@@ -60,7 +75,7 @@ class TestAppConfigIntegration:
         assert cfg.model.api_engine == "ollama"
         assert cfg.model.api_base == "http://localhost:11434/v1"
 
-    def test_lm_studio_engine_uses_its_token_environment_variable(self, monkeypatch):
+    def test_lm_studio_engine_uses_its_token_environment_variable(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("AGK_PROVIDER", "lmstudio")
         monkeypatch.setenv("LM_STUDIO_API_KEY", "test-lmstudio-token")
 
@@ -76,10 +91,10 @@ class TestAppConfigIntegration:
         assert hasattr(cfg.security, "max_tool_risk")
         assert cfg.security.max_tool_risk == "high"
 
-    def test_yaml_config_is_loaded(self, tmp_path, monkeypatch):
+    def test_yaml_config_is_loaded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """AppConfig가 config.yaml 값을 실제 런타임에 반영하는지 확인."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(
+        _ = config_file.write_text(
             "security:\n  access_pin: '2468'\nserver:\n  port: 9812\n",
             encoding="utf-8",
         )
@@ -92,10 +107,10 @@ class TestAppConfigIntegration:
         assert cfg.security.access_pin == "2468"
         assert cfg.server.port == 9812
 
-    def test_environment_overrides_yaml_config(self, tmp_path, monkeypatch):
+    def test_environment_overrides_yaml_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """환경변수가 config.yaml보다 높은 우선순위를 갖는지 확인."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("security:\n  access_pin: '2468'\n", encoding="utf-8")
+        _ = config_file.write_text("security:\n  access_pin: '2468'\n", encoding="utf-8")
         monkeypatch.setenv("AGK_CONFIG_FILE", str(config_file))
         monkeypatch.setenv("AGK_SEC_ACCESS_PIN", "env-pin")
 
@@ -109,57 +124,6 @@ class TestAppConfigIntegration:
         summary = cfg.summary()
         assert "도구 위험 한도" in summary
         assert "언어" in summary
-
-
-# ═══════════════ B) TeamManager ToolRegistry 통합 테스트 ═══════════════
-
-
-class TestTeamManagerToolRegistry:
-    """TeamManager가 ToolRegistry와 I18n을 올바르게 초기화하는지 검증."""
-
-    def test_tool_registry_exists(self):
-        """TeamManager에 tool_registry 속성이 존재하는지 확인."""
-        # 직접 import 대신 모듈 로드 테스트
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        assert hasattr(tm, "tool_registry")
-        assert isinstance(tm.tool_registry, ToolRegistry)
-
-    def test_system_tools_auto_registered(self):
-        """시스템 도구들이 자동으로 등록되었는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        assert "read_file" in tm.tool_registry
-        assert "replace_file_content" in tm.tool_registry
-        assert "run_bash_command" in tm.tool_registry
-
-    def test_i18n_exists(self):
-        """TeamManager에 i18n 인스턴스가 존재하는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        assert hasattr(tm, "i18n")
-        assert isinstance(tm.i18n, I18n)
-
-    def test_get_tools_for_role(self):
-        """역할 기반 도구 필터링이 동작하는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        tools = tm.get_tools_for_role("WORKER")
-        # max_tool_risk=high이므로 CRITICAL 도구는 제외
-        for tool in tools:
-            assert tool.risk_level != RiskLevel.CRITICAL
-
-    def test_tool_registry_summary(self):
-        """ToolRegistry 요약이 올바르게 생성되는지 확인."""
-        from antigravity_k.agents.team_manager import TeamManager
-
-        tm = TeamManager(model_manager=None)
-        summary = tm.tool_registry.summary()
-        assert "tools installed" in summary
 
 
 # ═══════════════ C) BaseAgent I18n 통합 테스트 ═══════════════
@@ -179,7 +143,7 @@ class TestBaseAgentI18n:
             system_prompt="테스트 에이전트입니다.",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "한국어로만 답변하세요" in prompt or "출력 품질 규약" in prompt
 
     def test_english_reasoning_prompt(self):
@@ -193,7 +157,7 @@ class TestBaseAgentI18n:
             system_prompt="You are a test agent.",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "highly capable agent" in prompt
 
     def test_japanese_reasoning_prompt(self):
@@ -207,7 +171,7 @@ class TestBaseAgentI18n:
             system_prompt="テストエージェントです。",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "日本語で回答してください" in prompt
 
     def test_fallback_reasoning_prompt(self):
@@ -221,7 +185,7 @@ class TestBaseAgentI18n:
             system_prompt="Agent de test.",
             model_id="test",
         )
-        prompt = agent._build_system_prompt()
+        prompt = cast(Callable[[], str], getattr(agent, "_build_system_prompt"))()
         assert "highly capable agent" in prompt
         # 원복
         set_locale("ko")
@@ -239,8 +203,8 @@ class TestSkillsRegistryIntegration:
 
         registry = SkillsRegistry.__new__(SkillsRegistry)
         registry.profiles = {}
-        registry.skills_dir = None
-        registry.scanner = None
+        setattr(registry, "skills_dir", None)
+        setattr(registry, "scanner", None)
 
         # 가짜 프로필 추가
         registry.profiles["TEST_SKILL"] = SkillProfile(
@@ -253,9 +217,11 @@ class TestSkillsRegistryIntegration:
         tool_reg = ToolRegistry()
         from antigravity_k.tools.system_tools import ReadFileTool
 
-        tool_reg.install(ReadFileTool)
+        install = cast(_ToolInstaller, tool_reg.install)
+        _ = install(ReadFileTool)
 
-        missing = registry.validate_skill_tools(tool_reg)
+        validate = cast(_SkillToolValidator, registry.validate_skill_tools)
+        missing = validate(tool_reg)
         assert "TEST_SKILL" in missing
         assert "nonexistent_tool" in missing["TEST_SKILL"]
         assert "another_fake" in missing["TEST_SKILL"]
@@ -266,8 +232,8 @@ class TestSkillsRegistryIntegration:
 
         registry = SkillsRegistry.__new__(SkillsRegistry)
         registry.profiles = {}
-        registry.skills_dir = None
-        registry.scanner = None
+        setattr(registry, "skills_dir", None)
+        setattr(registry, "scanner", None)
 
         registry.profiles["VALID_SKILL"] = SkillProfile(
             name="VALID_SKILL",
@@ -279,9 +245,11 @@ class TestSkillsRegistryIntegration:
         tool_reg = ToolRegistry()
         from antigravity_k.tools.system_tools import ReadFileTool
 
-        tool_reg.install(ReadFileTool)
+        install = cast(_ToolInstaller, tool_reg.install)
+        _ = install(ReadFileTool)
 
-        missing = registry.validate_skill_tools(tool_reg)
+        validate = cast(_SkillToolValidator, registry.validate_skill_tools)
+        missing = validate(tool_reg)
         assert len(missing) == 0
 
 
@@ -326,8 +294,10 @@ class TestRiskBasedFiltering:
         from antigravity_k.tools.computer_use import ComputerUseTool
         from antigravity_k.tools.system_tools import ReadFileTool, RunBashCommandTool
 
-        reg.install_many(ReadFileTool, RunBashCommandTool)
-        reg.install(ComputerUseTool, force_stub=True)
+        install_many = cast(_ToolBatchInstaller, reg.install_many)
+        _ = install_many(ReadFileTool, RunBashCommandTool)
+        install = cast(_ToolInstaller, reg.install)
+        _ = install(ComputerUseTool, force_stub=True)
 
         safe_tools = reg.filter_by_risk(RiskLevel.HIGH)
         tool_names = [t.name for t in safe_tools]
@@ -341,12 +311,14 @@ class TestRiskBasedFiltering:
         from antigravity_k.tools.computer_use import ComputerUseTool
         from antigravity_k.tools.system_tools import ReadFileTool
 
-        reg.install_many(ReadFileTool)
-        reg.install(ComputerUseTool, force_stub=True)
+        install_many = cast(_ToolBatchInstaller, reg.install_many)
+        _ = install_many(ReadFileTool)
+        install = cast(_ToolInstaller, reg.install)
+        _ = install(ComputerUseTool, force_stub=True)
 
         all_tools = reg.filter_by_risk(RiskLevel.CRITICAL)
         assert len(all_tools) == 2
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    _ = pytest.main([__file__, "-v"])

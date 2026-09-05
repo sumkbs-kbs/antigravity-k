@@ -1,14 +1,14 @@
 ---
 name: ANTIGRAVITY-K-ARCHITECTURE
-description: Antigravity-K 시스템의 상세 아키텍처 및 코어 모듈 구성
+description: Ssak-Ai 시스템의 상세 아키텍처 및 코어 모듈 구성
 tools:
   - read_file
   - view_file
 ---
 
-# Antigravity-K Architecture
+# Ssak-Ai Architecture
 
-Antigravity-K는 로컬 환경(Apple Silicon M5 Max 등)에서 고도의 자율 주행 프로그래밍이 가능한 차세대 AI 에이전트 프레임워크입니다. 초기의 다중 에이전트 협업 엔진(Multi-Agent Collaboration)을 기반으로, 최신 상용 및 오픈소스 기술(oh-my-openagent, not-claude-code-emulator, AiShell)의 패턴들을 통합하여 극한의 안정성과 자율성을 갖춘 플랫폼으로 진화했습니다.
+Ssak-Ai는 로컬 환경(Apple Silicon M5 Max 등)에서 고도의 자율 주행 프로그래밍이 가능한 차세대 AI 에이전트 프레임워크입니다. 초기의 다중 에이전트 협업 엔진(Multi-Agent Collaboration)을 기반으로, 최신 상용 및 오픈소스 기술(oh-my-openagent, not-claude-code-emulator, AiShell)의 패턴들을 통합하여 극한의 안정성과 자율성을 갖춘 플랫폼으로 진화했습니다.
 
 ## 1. Core Principles (핵심 원칙)
 
@@ -23,7 +23,7 @@ Antigravity-K는 로컬 환경(Apple Silicon M5 Max 등)에서 고도의 자율 
 
 ### 2.1 Agent Orchestration & Routing
 - `src/antigravity_k/engine/intent_router.py`: **IntentGate**. 사용자 요청(Prompt)의 성격을 분석하여, 일반(quick), 심층(deep), UI/UX(visual-engineering), 아키텍처(ultrabrain) 등 최적의 서브 에이전트로 라우팅합니다.
-- `src/antigravity_k/agents/team_manager.py`: 다중 에이전트 토론 엔진. Proposer, Critic, Reviewer가 앙상블로 토론하여 코드를 결정합니다.
+- `src/antigravity_k/engine/orchestrator/agent.py`: 현재 오케스트레이션 진입점(`OrchestratorAgent`)입니다. 레거시 `agents/team_manager.py`·`agents/coordinator.py`는 삭제되어 현재 실행 경로에서 사용하지 않습니다.
 - `src/antigravity_k/engine/slash_commands.py`: 슬래시(`/`) 커맨드 중앙 레지스트리. `/qa`, `/project`, `/compact`, `/aishell` 등을 통해 시스템을 직접 제어합니다.
 
 ### 2.2 Advanced Tooling & Safety (Oh-My-OpenAgent & AiShell 패턴)
@@ -55,8 +55,8 @@ Antigravity-K는 로컬 환경(Apple Silicon M5 Max 등)에서 고도의 자율 
 6. **Review**: 사용자에게 워크플로우 아티팩트(`walkthrough.md`)가 반환되며 보고.
 
 ## 4. Usage in Prompts
-이 스킬을 참조하면 Antigravity-K 프레임워크 자체를 개선하거나 확장할 때 어떤 파일을 수정해야 하는지 직관적으로 알 수 있습니다.
-- "새로운 에이전트 라우팅 패턴 추가" -> `intent_router.py` 및 `team_manager.py` 참조.
+이 스킬을 참조하면 Ssak-Ai 프레임워크 자체를 개선하거나 확장할 때 어떤 파일을 수정해야 하는지 직관적으로 알 수 있습니다.
+- "새로운 에이전트 라우팅 패턴 추가" -> `intent_router.py` 및 `engine/orchestrator/agent.py` 참조.
 - "API 통신 로직 및 핑거프린트 추가" -> `model_manager.py` 참조.
 - "코드 정밀 수정 시스템 개선" -> `hashline_tools.py` 및 `ast_grep_tool.py` 참조.
 - "자연어 기반 운영체제 제어" -> `slash_commands.py` (`/aishell`) 및 `system_tools.py` 참조.

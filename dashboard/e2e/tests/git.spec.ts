@@ -21,8 +21,6 @@ test.describe('Git Integration', () => {
   test.beforeEach(async ({ page }) => {
     dashboard = new DashboardPage(page);
     await dashboard.goto();
-    await dashboard.handlePinModal();
-    // Navigate to Git page by clicking sidebar link (SPA-friendly)
     await dashboard.goToGit();
   });
 

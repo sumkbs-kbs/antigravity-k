@@ -6,20 +6,22 @@
  * execution timeline, and system metrics.
  */
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AgentMonitorPanel from '../components/Agent/AgentMonitorPanel';
 import { useAgentMonitorStore } from '../stores/agentMonitorStore';
 import { useEventWebSocket } from '../hooks/useEventWebSocket';
 import { useUiStore } from '../stores/uiStore';
 import { checkHealth, fetchSystemMetrics } from '../api/client';
+import { TaskExecutionPanel } from '../features/task-execution/TaskExecutionPanel';
+import { PersistentAgencyPanel } from '../features/persistent-agency/PersistentAgencyPanel';
 
 const AgentPage: React.FC = () => {
   const {
-    setAgentStatus, addLog, addTask, updateTaskProgress,
+    setAgentStatus, addLog,
     addTimelineEvent, setActiveTool, updateMetrics, setUptime,
   } = useAgentMonitorStore();
   const { setSystemStatus } = useUiStore();
-  const [startTime] = useState(Date.now());
+  const [startTime] = useState(() => Date.now());
 
   // ── WebSocket integration for real-time monitoring ──────────
   useEventWebSocket({
@@ -62,6 +64,61 @@ const AgentPage: React.FC = () => {
       addTimelineEvent({ type: 'plan', label: '📋 계획 시작', detail: data?.goal });
     },
 
+    onApprovalRequired: (data) => {
+      const tool = data?.tool || data?.request_id || '알 수 없는 도구';
+      addLog({ level: 'warn', source: 'System', message: `🛑 승인 대기: ${tool} — ${data?.reason || '사용자 승인 필요'}` });
+      addTimelineEvent({
+        type: 'approval',
+        label: `🛑 승인 대기: ${tool}`,
+        detail: data?.reason || data?.request_id,
+      });
+    },
+
+    onAgentTurnStarted: (data) => {
+      const role = data?.role || 'WORKER';
+      const taskType = data?.task_type || 'Task';
+      addLog({ level: 'info', source: 'Agent', message: `🔄 턴 시작: [${role}] ${taskType}` });
+      addTimelineEvent({ type: 'agent_turn', label: `🔄 턴 시작 [${role}]`, detail: taskType });
+    },
+
+    onAgentTurnEnded: (data) => {
+      const role = data?.role || 'WORKER';
+      addLog({ level: 'success', source: 'Agent', message: `✓ 턴 완료: [${role}]` });
+      addTimelineEvent({ type: 'agent_turn', label: `✓ 턴 완료 [${role}]` });
+    },
+
+    onQualityCheckPassed: (data) => {
+      const grade = data?.grade ? ` (${data.grade})` : '';
+      addLog({ level: 'success', source: 'Quality', message: `🧪 품질 통과${grade}: ${data?.task_type || '작업'}` });
+      addTimelineEvent({
+        type: 'quality',
+        label: `🧪 품질 통과${grade}`,
+        detail: data?.score !== undefined ? `score=${data.score}` : undefined,
+      });
+    },
+
+    onQualityCheckFailed: (data) => {
+      setAgentStatus('error');
+      const grade = data?.grade ? ` (${data.grade})` : '';
+      addLog({ level: 'error', source: 'Quality', message: `❌ 품질 실패${grade}: ${data?.feedback || data?.task_type || '작업'}` });
+      addTimelineEvent({
+        type: 'quality',
+        label: `❌ 품질 실패${grade}`,
+        detail: data?.feedback || (data?.issues ?? []).join(', ') || undefined,
+      });
+    },
+
+    onAntiPatternsDetected: (data) => {
+      setAgentStatus('error');
+      const patterns = (data?.patterns ?? []).join(', ');
+      addLog({ level: 'warn', source: 'Agent', message: `⚠️ 안티패턴 감지: ${data?.reason || patterns || '반복 실패 패턴'}` });
+      addTimelineEvent({
+        type: 'anti_pattern',
+        label: '⚠️ 안티패턴 감지',
+        detail: patterns || data?.reason,
+      });
+    },
+
     onModeChanged: (data) => {
       const mode = data?.to_mode || 'interactive';
       addLog({ level: 'info', source: 'System', message: `🔄 모드 전환: ${mode.toUpperCase()}` });
@@ -90,8 +147,9 @@ const AgentPage: React.FC = () => {
 
         // Update uptime
         setUptime(Math.floor((Date.now() - startTime) / 1000));
-      } catch {
-        // silent
+      } catch (caught: unknown) {
+        if (!(caught instanceof Error)) throw caught;
+        setSystemStatus({ healthy: false, backends: {} });
       }
     };
 
@@ -105,7 +163,7 @@ const AgentPage: React.FC = () => {
       clearInterval(interval);
       clearInterval(uptimeInterval);
     };
-  }, []);
+  }, [setSystemStatus, startTime, setUptime, updateMetrics]);
 
   return (
     <div className="page-container full-height-page agent-page">
@@ -117,6 +175,8 @@ const AgentPage: React.FC = () => {
         </div>
       </div>
       <AgentMonitorPanel />
+      <PersistentAgencyPanel />
+      <TaskExecutionPanel />
     </div>
   );
 };

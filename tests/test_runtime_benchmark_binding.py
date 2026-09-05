@@ -1,12 +1,20 @@
+import threading
+from collections.abc import Callable
+from pathlib import Path
+from typing import Protocol, cast
 from unittest.mock import MagicMock
+
+import pytest
 
 from antigravity_k.api import dependencies
 from antigravity_k.engine.benchmark_harness import BenchmarkHarness
-from antigravity_k.engine.task_runner import BackgroundTaskRunner
+from antigravity_k.engine.model_calibration import TaskBenchmarkMetrics
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.task_runner import BackgroundTask, BackgroundTaskRunner
 
 
 class _Orchestrator:
-    vault_engine = None
+    vault_engine: object = None
 
     def _get_model_for_role(self, role: str) -> str:
         assert role == "default"
@@ -29,11 +37,25 @@ class _Orchestrator:
         return iter(['<tool_call>{"name":"read_file","arguments":{"file_path":"README.md"}}</tool_call>done'])
 
 
-def test_canonical_runtime_records_background_task_outcomes_for_calibration(tmp_path, monkeypatch):
+class _CalibrationMock(Protocol):
+    def assert_called_once(self) -> None: ...
+
+    @property
+    def call_args(self) -> object: ...
+
+
+class _RouterMock(Protocol):
+    set_task_calibration: _CalibrationMock
+
+
+def test_canonical_runtime_records_background_task_outcomes_for_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from antigravity_k.engine import task_runner
 
-    manager = MagicMock()
-    manager._registry._raw = {}
+    manager = cast(ModelManager, MagicMock())
+    registry = cast(object, getattr(manager, "_registry"))
+    setattr(registry, "_raw", {})
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
 
@@ -46,7 +68,8 @@ def test_canonical_runtime_records_background_task_outcomes_for_calibration(tmp_
         "inspect README",
         context={"expected_tools": ["read_file"]},
     )
-    thread = runner._tasks[task_id]._thread
+    tasks = cast(dict[str, BackgroundTask], getattr(runner, "_tasks"))
+    thread = cast(threading.Thread | None, getattr(tasks[task_id], "_thread"))
     assert thread is not None
     thread.join(timeout=2)
 
@@ -56,11 +79,14 @@ def test_canonical_runtime_records_background_task_outcomes_for_calibration(tmp_
     assert report.tool_accuracy == 1.0
 
 
-def test_canonical_runtime_records_direct_task_outcomes_for_calibration(tmp_path, monkeypatch):
+def test_canonical_runtime_records_direct_task_outcomes_for_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from antigravity_k.engine import task_runner
 
-    manager = MagicMock()
-    manager._registry._raw = {}
+    manager = cast(ModelManager, MagicMock())
+    registry = cast(object, getattr(manager, "_registry"))
+    setattr(registry, "_raw", {})
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
 
@@ -81,15 +107,21 @@ def test_canonical_runtime_records_direct_task_outcomes_for_calibration(tmp_path
     assert report.task_success_rate == 1.0
 
 
-def test_canonical_runtime_syncs_task_metrics_to_the_model_router(tmp_path, monkeypatch):
+def test_canonical_runtime_syncs_task_metrics_to_the_model_router(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from antigravity_k.engine import task_runner
 
-    manager = MagicMock()
-    manager._registry._raw = {}
+    manager = cast(ModelManager, MagicMock())
+    registry = cast(object, getattr(manager, "_registry"))
+    setattr(registry, "_raw", {})
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
     harnesses: list[BenchmarkHarness] = []
 
-    def create_harness(manager, task_calibration_updater):
+    def create_harness(
+        manager: ModelManager,
+        task_calibration_updater: Callable[[str, TaskBenchmarkMetrics | None], None] | None,
+    ) -> BenchmarkHarness:
         harness = BenchmarkHarness(
             manager,
             db_path=tmp_path / "benchmark.json",
@@ -109,13 +141,19 @@ def test_canonical_runtime_syncs_task_metrics_to_the_model_router(tmp_path, monk
         "inspect README",
         context={"benchmark_case_id": "tool-001", "expected_tools": ["read_file"]},
     )
-    thread = runner._tasks[task_id]._thread
+    tasks = cast(dict[str, BackgroundTask], getattr(runner, "_tasks"))
+    thread = cast(threading.Thread | None, getattr(tasks[task_id], "_thread"))
     assert thread is not None
     thread.join(timeout=2)
 
     assert len(harnesses) == 1
-    manager.router.set_task_calibration.assert_called_once()
-    model_name, metrics = manager.router.set_task_calibration.call_args.args
+    router = cast(_RouterMock, cast(object, manager.router))
+    router.set_task_calibration.assert_called_once()
+    call_args = router.set_task_calibration.call_args
+    assert call_args is not None
+    call_values = cast(tuple[object, ...], getattr(call_args, "args"))
+    model_name = cast(str, call_values[0])
+    metrics = cast(TaskBenchmarkMetrics, call_values[1])
     assert model_name == "qwen3.6:latest"
     assert metrics.outcome_count == 1
     assert metrics.task_success_rate == 1.0

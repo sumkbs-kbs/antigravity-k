@@ -92,9 +92,8 @@ def test_citation_evaluator_accepts_prior_conflict_acknowledgement_for_the_next_
     )
 
     report = evaluate_citations(
-        "The sources disagree on the model version. "
-        "According to [citation:runtime-v36], the model version is 3.6, while "
-        "[citation:runtime-v37] states that the model version is 3.7.",
+        "The sources disagree on the model version. According to [citation:runtime-v36], "
+        + "the model version is 3.6, while [citation:runtime-v37] states that the model version is 3.7.",
         sources,
         min_overlap=0.3,
     )

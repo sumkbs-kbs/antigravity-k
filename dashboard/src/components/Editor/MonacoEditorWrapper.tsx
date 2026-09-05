@@ -13,8 +13,9 @@
  * ProblemsPanel and StatusBar.
  */
 
-import React, { useEffect, useRef } from 'react';
-import Editor, { BeforeMount, OnMount } from '@monaco-editor/react';
+import React, { useEffect, useRef, useState } from 'react';
+import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
+import type { Uri } from 'monaco-editor';
 import { useProblemsStore } from '../../stores/problemsStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useInlineEditStore } from '../../stores/inlineEditStore';
@@ -63,7 +64,7 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
   const { fontSize, showMinimap, showLineNumbers, wordWrap, tabSize } = useThemeStore();
   const markerListenerRef = useRef<{ dispose: () => void } | null>(null);
   const cursorListenerRef = useRef<{ dispose: () => void } | null>(null);
-  const revealListenerRef = useRef<((e: Event) => void) | null>(null);
+  const [mountedEditor, setMountedEditor] = useState<Parameters<OnMount>[0] | null>(null);
 
   const handleBeforeMount: BeforeMount = (monaco) => {
     monaco.editor.defineTheme('antigravity-dark', ANTIGRAVITY_THEME);
@@ -101,6 +102,7 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
 
   const handleMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+    setMountedEditor(editor);
     onMount(editor, monaco);
 
     // Store editor instance for overlay widgets
@@ -136,8 +138,8 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     };
 
     // Listen for marker changes via Monaco's onDidChangeMarkers
-    const markerListener = monaco.editor.onDidChangeMarkers((resources: any[]) => {
-      if (resources.some((r: any) => r.toString() === modelUri?.toString())) {
+    const markerListener = monaco.editor.onDidChangeMarkers((resources: readonly Uri[]) => {
+      if (resources.some((resource) => resource.toString() === modelUri?.toString())) {
         debouncedUpdate();
       }
     });
@@ -156,19 +158,8 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     });
 
     // ─── Reveal Line Listener (from ProblemsPanel click) ──────────
-    const handleRevealLine = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.line) {
-        editor.revealLineInCenter(detail.line);
-        editor.setPosition({ lineNumber: detail.line, column: detail.column || 1 });
-        editor.focus();
-      }
-    };
-    window.addEventListener('agk:editor-reveal-line', handleRevealLine);
-    revealListenerRef.current = handleRevealLine;
-
     // ─── Ctrl+K: Inline Edit (Cursor-style) ───────────────────────
-    const inlineEditAction = editor.addAction({
+    editor.addAction({
       id: 'inline-edit',
       label: 'Inline Edit (Ctrl+K)',
       keybindings: [
@@ -192,7 +183,7 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     });
 
     // ─── Listen for Ctrl+Enter to accept inline edit suggestion ────
-    const inlineAcceptAction = editor.addAction({
+    editor.addAction({
       id: 'inline-accept',
       label: 'Accept Inline Edit Suggestion',
       keybindings: [
@@ -219,6 +210,20 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
     };
   };
 
+  useEffect(() => {
+    if (!mountedEditor) return undefined;
+    const handleRevealLine = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.line) {
+        mountedEditor.revealLineInCenter(detail.line);
+        mountedEditor.setPosition({ lineNumber: detail.line, column: detail.column || 1 });
+        mountedEditor.focus();
+      }
+    };
+    window.addEventListener('agk:editor-reveal-line', handleRevealLine);
+    return () => window.removeEventListener('agk:editor-reveal-line', handleRevealLine);
+  }, [mountedEditor]);
+
   // Clean up global listeners on unmount
   useEffect(() => {
     return () => {
@@ -229,10 +234,6 @@ const MonacoEditorWrapper: React.FC<Props> = ({ language, value, onChange, onMou
       if (cursorListenerRef.current) {
         cursorListenerRef.current.dispose();
         cursorListenerRef.current = null;
-      }
-      if (revealListenerRef.current) {
-        window.removeEventListener('agk:editor-reveal-line', revealListenerRef.current);
-        revealListenerRef.current = null;
       }
       // Clear editor instance from store
       useEditorStore.getState().setMonacoEditor(null);

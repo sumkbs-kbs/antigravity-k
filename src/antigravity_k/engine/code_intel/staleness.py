@@ -1,19 +1,16 @@
-from typing import Any
-
-
 class StalenessDetector:
     """Detects stale indexed content by comparing file mtimes/hashes to the graph."""
 
-    def __init__(self, repo_manager=None):
+    def __init__(self, repo_manager: object | None = None) -> None:
         """Initialize the StalenessDetector.
 
         Args:
             repo_manager: repo manager.
 
         """
-        self.repo_manager = repo_manager
+        self.repo_manager: object | None = repo_manager
 
-    def check(self, repo_path: str) -> dict[str, Any]:
+    def check(self, _repo_path: str) -> dict[str, object]:
         """Check.
 
         Args:

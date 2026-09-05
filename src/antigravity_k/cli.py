@@ -1,8 +1,11 @@
-"""Antigravity-K command-line interface (Typer-based)."""
+"""Ssak-Ai command-line interface (Typer-based)."""
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Annotated, cast
 
 import typer
 from rich.console import Console
@@ -19,24 +22,34 @@ from antigravity_k.engine.secure_key import (
     rotate_master_key,
     store_api_key,
 )
+from antigravity_k.engine.skill_market_client import SkillDetail, SkillMarketClient
+from antigravity_k.engine.skill_market_registry import (
+    InstallResponse,
+    RegistrySkillInfo,
+    SkillMarketRegistry,
+)
 
-app = typer.Typer(help="Antigravity-K command line interface", no_args_is_help=True)
+app = typer.Typer(help="Ssak-Ai command line interface", no_args_is_help=True)
 key_app = typer.Typer(help="Manage encrypted API keys in vault")
 memory_app = typer.Typer(help="Manage project-scoped memory configuration")
 task_app = typer.Typer(help="Inspect and resume durable agent tasks")
 app.add_typer(key_app, name="key", help="Manage API keys")
 app.add_typer(memory_app, name="memory", help="Manage project memory")
 app.add_typer(task_app, name="task", help="Manage durable agent tasks")
+error_app = typer.Typer(help="Inspect runtime error journal and AI agent fix prompts")
+app.add_typer(error_app, name="error", help="Inspect runtime errors for agentic AI")
 console = Console()
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    version: bool = typer.Option(
-        False,
-        "--version",
-        help="Print the Antigravity-K version and exit.",
-    ),
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Print the Ssak-Ai version and exit.",
+        ),
+    ] = False,
 ) -> None:
     """Run the main entry point.
 
@@ -45,24 +58,126 @@ def main(
 
     """
     if version:
-        console.print(f"antigravity-k {__version__}")
+        console.print(f"ssak-ai {__version__}")
         raise typer.Exit()
 
 
 @app.command()
 def serve(
-    host: str | None = typer.Option(None, "--host", help="Host to bind."),
-    port: int | None = typer.Option(None, "--port", help="Port to bind."),
-    reload: bool = typer.Option(False, "--reload", help="Enable uvicorn reload."),
+    host: Annotated[str | None, typer.Option("--host", help="Host to bind.")] = None,
+    port: Annotated[int | None, typer.Option("--port", help="Port to bind.")] = None,
+    reload: Annotated[bool, typer.Option("--reload", help="Enable uvicorn reload.")] = False,
+    seed_budget: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-budget",
+            help="Seed budget spend for disclosure testing: dollar amount (15.0), percent (30%), or preset (healthy/warning/exhausted).",
+        ),
+    ] = None,
+    seed_level: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-level",
+            help="Shortcut preset level for disclosure testing: healthy (30%), warning (88%), or exhausted (100%).",
+        ),
+    ] = None,
+    seed_actions: Annotated[
+        int | None,
+        typer.Option(
+            "--seed-actions",
+            help="Optional override for hourly action count in disclosure testing.",
+        ),
+    ] = None,
 ) -> None:
-    """Run the FastAPI server."""
+    """Run the FastAPI server with optional session limits seeding."""
     import uvicorn
+
+    from antigravity_k.api.startup_security import validate_startup_security
+
+    bind_host = host or config.server.host
+    target_port = port or config.server.port
+
+    validate_startup_security(
+        host=bind_host,
+        environment=os.environ.get("AGK_ENV", "development"),
+        access_pin=config.security.access_pin,
+        pin_hash_file=Path(config.security.pin_hash_file),
+    )
+
+    if seed_budget or seed_level or seed_actions is not None:
+        if seed_budget:
+            os.environ["AGK_SEED_BUDGET"] = str(seed_budget)
+        if seed_level:
+            os.environ["AGK_SEED_LEVEL"] = str(seed_level)
+        if seed_actions is not None:
+            os.environ["AGK_SEED_ACTIONS"] = str(seed_actions)
+
+        # 사전 진단/배너 출력용 미리보기
+        from antigravity_k.engine.cost_guard import CostGuard
+        from antigravity_k.engine.session_disclosure import seed_cost_guard
+
+        preview_guard = CostGuard(
+            daily_budget_usd=float(os.getenv("AGK_DAILY_BUDGET_USD", "50.0") or 0.0),
+            hourly_action_limit=int(os.getenv("AGK_HOURLY_ACTION_LIMIT", "100") or 0),
+            enabled=True,
+        )
+        spend, acts, lvl = seed_cost_guard(
+            preview_guard,
+            seed_budget=seed_budget,
+            seed_level=seed_level,
+            seed_actions=seed_actions,
+        )
+        level_style = {"healthy": "green", "warning": "yellow", "exhausted": "red"}.get(lvl, "cyan")
+        console.print(
+            f"[bold cyan]🌱 Disclosure Seeding Active:[/bold cyan] "
+            f"Spend=[yellow]${spend:.2f}/{preview_guard.daily_budget_usd:.2f}[/yellow] "
+            f"Actions=[yellow]{acts}/{preview_guard.hourly_action_limit}[/yellow] "
+            f"Level=[bold {level_style}]{lvl}[/bold {level_style}]"
+        )
 
     uvicorn.run(
         "antigravity_k.api.server:app",
-        host=host or config.server.host,
-        port=port or config.server.port,
+        host=bind_host,
+        port=target_port,
         reload=reload,
+    )
+
+
+@app.command("dev", help="Run local development server with auto-reload and optional seed limits.")
+def dev(
+    host: Annotated[str | None, typer.Option("--host", help="Host to bind.")] = None,
+    port: Annotated[int | None, typer.Option("--port", help="Port to bind.")] = None,
+    reload: Annotated[bool, typer.Option("--reload", help="Enable uvicorn reload.")] = True,
+    seed_budget: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-budget",
+            help="Seed budget spend for disclosure testing: dollar amount (15.0), percent (30%), or preset (healthy/warning/exhausted).",
+        ),
+    ] = None,
+    seed_level: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-level",
+            help="Shortcut preset level for disclosure testing: healthy (30%), warning (88%), or exhausted (100%).",
+        ),
+    ] = None,
+    seed_actions: Annotated[
+        int | None,
+        typer.Option(
+            "--seed-actions",
+            help="Optional override for hourly action count in disclosure testing.",
+        ),
+    ] = None,
+) -> None:
+    """Run server in development mode (reload defaults to True)."""
+    serve(
+        host=host,
+        port=port,
+        reload=reload,
+        seed_budget=seed_budget,
+        seed_level=seed_level,
+        seed_actions=seed_actions,
     )
 
 
@@ -70,6 +185,7 @@ def serve(
 def list_models() -> None:
     """List configured model profiles."""
     registry = ModelRegistry()
+    _ = registry.refresh_local_models()
     table = Table(title="Configured Models")
     table.add_column("Name")
     table.add_column("Roles")
@@ -125,8 +241,8 @@ def status() -> None:
 
 @app.command("run")
 def run_agent(
-    prompt: str = typer.Argument(..., help="Prompt to run through the canonical agent runtime."),
-    model: str = typer.Option("", "--model", help="Optional target model override."),
+    prompt: Annotated[str, typer.Argument(help="Prompt to run through the canonical agent runtime.")],
+    model: Annotated[str, typer.Option("--model", help="Optional target model override.")] = "",
 ) -> None:
     from antigravity_k.api.dependencies import get_agent_runtime
 
@@ -139,8 +255,242 @@ def run_agent(
     console.print()
 
 
+@app.command("recipes", help="List training data-recipe presets (unsloth Data Recipes style).")
+def recipes_list() -> None:
+    """데이터 레시피 카탈로그 출력."""
+    from antigravity_k.engine.data_recipes import list_recipes
+
+    table = Table(title="Data Recipes")
+    table.add_column("Name")
+    table.add_column("Format")
+    table.add_column("Min")
+    table.add_column("Description")
+    for recipe in list_recipes():
+        table.add_row(
+            str(recipe["name"]),
+            str(recipe["format"]),
+            str(recipe["min_records"]),
+            str(recipe["description"]),
+        )
+    console.print(table)
+
+
+@app.command("train-recipe", help="Apply a data recipe: source → dataset → training config.")
+def train_recipe(
+    recipe: Annotated[str, typer.Argument(help="Recipe name (see: agk recipes)")],
+    base_model: Annotated[
+        str, typer.Option("--model", help="Base model (HF ID or local path)")
+    ] = "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+    source: Annotated[str, typer.Option("--source", help="File path(s) csv/jsonl/txt/md, or 'harvest'")] = "",
+    output_dir: Annotated[str, typer.Option("--out", help="Output directory")] = "data/recipe_output",
+    platform: Annotated[str, typer.Option("--platform", help="mlx / unsloth / auto")] = "auto",
+    pdf_pages: Annotated[
+        str, typer.Option("--pdf-pages", help="PDF only: page ranges, e.g. '1-5,8' (default: all)")
+    ] = "",
+    pdf_header_filter: Annotated[
+        str, typer.Option("--pdf-header-filter", help="PDF only: header regex ('!' prefix excludes non-matching pages)")
+    ] = "",
+    pdf_question_template: Annotated[
+        str,
+        typer.Option(
+            "--pdf-question-template",
+            help="PDF/DOCX only: force question from template with {page} {title} {header} {body} placeholders",
+        ),
+    ] = "",
+) -> None:
+    """레시피를 적용해 데이터셋과 학습 설정을 생성한다."""
+    import json as _json
+
+    from antigravity_k.engine.data_recipes import UnknownRecipeError
+    from antigravity_k.engine.lora_pipeline import LoRAPipeline
+
+    pipeline = LoRAPipeline()
+    try:
+        result = pipeline.apply_recipe(
+            recipe,
+            base_model=base_model,
+            output_dir=output_dir,
+            source=source,
+            platform=platform,
+            pdf_pages=pdf_pages,
+            pdf_header_filter=pdf_header_filter,
+            pdf_question_template=pdf_question_template,
+        )
+    except (UnknownRecipeError, FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]✗ {exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    warn = "" if result["sufficient"] else " ⚠️ 최소 레코드 미달"
+    console.print(
+        f"[green]✓ {result['recipe']}[/green] — {result['records']}건{warn}\n"
+        f"  데이터셋: {result['dataset_path']}\n"
+        f"  설정: {result['config_path']}",
+    )
+    hyper = result["config"].get("hyperparameters")
+    if isinstance(hyper, dict) and hyper:
+        console.print(f"  하이퍼파라미터: {_json.dumps(hyper, ensure_ascii=False, sort_keys=True)}")
+
+
+@app.command("fuse-and-serve", help="Fuse LoRA adapter with base model and register into Ollama.")
+def fuse_and_serve(
+    base_model: Annotated[
+        str, typer.Option("--model", "-m", help="Base model (HF ID or local snapshot path)")
+    ] = "mlx-community/Qwen2.5-0.5B-4bit",
+    adapter_path: Annotated[
+        str, typer.Option("--adapter", "-a", help="Trained LoRA adapter directory")
+    ] = "data/lora_e2e_out/adapters",
+    output_dir: Annotated[
+        str, typer.Option("--out", "-o", help="Output directory for merged model")
+    ] = "data/lora_e2e_out/merged",
+    ollama_name: Annotated[
+        str, typer.Option("--ollama-name", help="Target Ollama model tag")
+    ] = "ssak-finetuned:qwen2.5-0.5b",
+    de_quantize: Annotated[
+        bool, typer.Option("--de-quantize", help="De-quantize weights to float16 during fuse")
+    ] = False,
+    skip_fuse: Annotated[
+        bool, typer.Option("--skip-fuse", help="Skip fuse step if merged model/GGUF already exists")
+    ] = False,
+    gguf_path: Annotated[str, typer.Option("--gguf", help="Path to pre-converted GGUF file if available")] = "",
+    system_prompt: Annotated[str, typer.Option("--system-prompt", help="System prompt to embed into Modelfile")] = "",
+) -> None:
+    """LoRA 어댑터를 베이스 모델과 병합하고 Ollama에 등록하여 서빙을 준비합니다."""
+    from antigravity_k.engine.lora_pipeline import LoRAPipeline
+
+    console.print("[bold cyan]⚡ Ssak-Ai Train-to-Serve Fuse & Ollama Registration[/bold cyan]")
+    console.print(f"  Base Model: [yellow]{base_model}[/yellow]")
+    console.print(f"  Adapter:    [yellow]{adapter_path}[/yellow]")
+    console.print(f"  Output Dir: [yellow]{output_dir}[/yellow]")
+    console.print(f"  Ollama Tag: [green]{ollama_name}[/green]")
+
+    pipeline = LoRAPipeline()
+    result = pipeline.fuse_and_register_ollama(
+        base_model=base_model,
+        adapter_path=adapter_path,
+        output_dir=output_dir,
+        ollama_model_name=ollama_name,
+        de_quantize=de_quantize,
+        skip_fuse=skip_fuse,
+        gguf_path=gguf_path if gguf_path else None,
+        system_prompt=system_prompt,
+        on_log=lambda line: console.print(f"  [dim]{line}[/dim]"),
+    )
+
+    if not result.get("success"):
+        stage = result.get("stage", "unknown")
+        err = result.get("error", "Unknown error")
+        console.print(f"\n[red]✗ Train-to-Serve failed at stage '{stage}': {err}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print("\n[bold green]✓ Train-to-Serve Complete![/bold green]")
+    console.print(f"  Merged Model: {result.get('merged_path')}")
+    console.print(f"  Modelfile:    {result.get('modelfile_path')}")
+    console.print(f"  Ollama Model: [bold green]{result.get('ollama_model_name')}[/bold green]")
+    console.print(f"  Elapsed Time: {result.get('elapsed_sec', 0.0):.2f}s")
+    console.print(f"\n[dim]Verify inference with:[/dim] [yellow]ollama run {ollama_name}[/yellow]")
+
+
+@app.command("session", help="Show session limits and data-use disclosure before you start.")
+def session_disclosure(
+    seed_budget: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-budget",
+            help="Seed budget amount ($15.0), percent (30%), or preset (healthy/warning/exhausted).",
+        ),
+    ] = None,
+    seed_level: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-level",
+            help="Shortcut preset: healthy (30%), warning (88%), or exhausted (100%).",
+        ),
+    ] = None,
+    seed_actions: Annotated[
+        int | None,
+        typer.Option(
+            "--seed-actions",
+            help="Optional override for hourly action count.",
+        ),
+    ] = None,
+) -> None:
+    """세션 한도·데이터 사용 고지 (벤치마킹: freebuff 사전 고지 UX)."""
+    import os
+
+    from rich.panel import Panel
+
+    from antigravity_k.engine.cost_guard import CostGuard
+    from antigravity_k.engine.session_disclosure import build_session_disclosure, seed_cost_guard
+
+    daily_budget = float(os.getenv("AGK_DAILY_BUDGET_USD", "50.0") or 0.0)
+    hourly_limit = int(os.getenv("AGK_HOURLY_ACTION_LIMIT", "100") or 0)
+    guard = CostGuard(daily_budget_usd=daily_budget, hourly_action_limit=hourly_limit, enabled=True)
+
+    if seed_budget or seed_level or seed_actions is not None:
+        seed_cost_guard(
+            guard,
+            seed_budget=seed_budget,
+            seed_level=seed_level,
+            seed_actions=seed_actions,
+        )
+
+    disclosure = build_session_disclosure(guard.get_daily_stats())
+
+    border = {"healthy": "green", "warning": "yellow", "exhausted": "red"}.get(disclosure.level, "cyan")
+    console.print(Panel.fit(disclosure.to_markdown(), title="Session Limits", border_style=border))
+
+
+@app.command("start", help="Connect an external coding agent (claude/codex/...) to local models.")
+def start_agent_bridge(
+    agent: Annotated[str, typer.Argument(help="Agent to bridge: claude, codex, opencode, openclaw, hermes")],
+    model: Annotated[
+        str, typer.Option("--model", help="Model to expose to the agent. Defaults to routing default.")
+    ] = "",
+    api_base: Annotated[str, typer.Option("--api-base", help="Ssak-Ai API base URL. Defaults to config server.")] = "",
+) -> None:
+    """원커맨드 에이전트 브리지 (벤치마킹: unsloth start)."""
+    from antigravity_k.engine.agent_bridges import UnknownAgentError, format_bridge_plan, resolve_bridge
+
+    resolved_base = api_base or f"http://{config.server.host}:{config.server.port}"
+    default_model = ""
+    context_window = 0
+    try:
+        registry = ModelRegistry()
+        default_model = getattr(config.model, "main_model", "") or ""
+        if not default_model:
+            models = registry.list_models()
+            default_model = models[0].name if models else ""
+        # Phase 36: Claude Code CLAUDE_CODE_MAX_CONTEXT_TOKENS용 실제 윈도 조회.
+        # 레지스트리 이름은 태그 없는 경우가 많아(qwen3.8) ollama 태그(qwen3.8:latest)를
+        # 정규화해 대조한다.
+        effective_model = (model or default_model).strip()
+        if effective_model:
+            requested = effective_model.split(":", 1)[0].strip().casefold()
+            for entry in registry.list_models():
+                entry_name = str(getattr(entry, "name", ""))
+                if entry_name.split(":", 1)[0].strip().casefold() == requested:
+                    context_window = int(getattr(entry, "context_length", 0) or 0)
+                    break
+    except Exception:  # noqa: BLE001
+        default_model = ""
+
+    try:
+        spec, env = resolve_bridge(
+            agent,
+            model=model,
+            api_base=resolved_base,
+            default_model=default_model,
+            context_window=context_window,
+        )
+    except UnknownAgentError as exc:
+        console.print(f"[red]✗ {exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    console.print(format_bridge_plan(spec, env))
+
+
 @task_app.command("list", help="List recent durable agent tasks.")
-def task_list(limit: int = typer.Option(20, "--limit", min=1, max=200)) -> None:
+def task_list(limit: Annotated[int, typer.Option("--limit", min=1, max=200)] = 20) -> None:
     from antigravity_k.api.dependencies import get_agent_runtime
 
     table = Table(title="Durable Tasks")
@@ -183,8 +533,8 @@ def task_output(task_id: str) -> None:
 @task_app.command("resume", help="Resume a failed or paused task and wait for its result.")
 def task_resume(
     task_id: str,
-    model: str = typer.Option("", "--model", help="Optional target model override."),
-    timeout: float = typer.Option(300.0, "--timeout", min=0.1, help="Maximum wait time in seconds."),
+    model: Annotated[str, typer.Option("--model", help="Optional target model override.")] = "",
+    timeout: Annotated[float, typer.Option("--timeout", min=0.1, help="Maximum wait time in seconds.")] = 300.0,
 ) -> None:
     from antigravity_k.api.dependencies import get_agent_runtime
 
@@ -314,9 +664,9 @@ def memory_retain(days: int) -> None:
 
 @app.command()
 def doctor(
-    heal: bool = typer.Option(
-        False, "--heal", "-h", help="Automatically repair detected issues and clean stale caches."
-    ),
+    heal: Annotated[
+        bool, typer.Option("--heal", "-h", help="Automatically repair detected issues and clean stale caches.")
+    ] = False,
 ) -> None:
     """Run a full environment diagnostic with automated self-healing capabilities."""
     from rich.panel import Panel
@@ -419,7 +769,7 @@ def doctor(
         for model in models:
             backend = model.backend.casefold() if model.backend else ""
             if backend in local_backends:
-                representative_models.setdefault(backend, model)
+                _ = representative_models.setdefault(backend, model)
         capability_probe = LocalProviderCapabilityProbe(registry)
         for profile in representative_models.values():
             capability = capability_probe.observe(profile)
@@ -460,7 +810,7 @@ def doctor(
     try:
         vault_path.mkdir(parents=True, exist_ok=True)
         test_file = vault_path / ".doctor_write_test"
-        test_file.write_text("ok")
+        _ = test_file.write_text("ok")
         test_file.unlink()
         check("Vault directory writable", True, str(vault_path.resolve()))
     except Exception as e:
@@ -481,58 +831,55 @@ def doctor(
     def _object_dict(value: object) -> dict[str, object]:
         if not isinstance(value, dict):
             return {}
-        return {str(key): item for key, item in value.items()}
+        raw = cast(Mapping[object, object], value)
+        return {str(key): item for key, item in raw.items()}
 
     amp_section: dict[str, object] = {}
     _cfg_path = config.config_path
     if _cfg_path.exists():
         try:
             with _cfg_path.open() as _f:
-                _raw = _yaml.safe_load(_f) or {}
+                _raw: object = cast(object, _yaml.safe_load(_f) or {})
             if isinstance(_raw, dict):
-                amp_section = _object_dict(_raw.get("amplification"))
+                raw_config = cast(Mapping[str, object], _raw)
+                amp_section = _object_dict(raw_config.get("amplification"))
         except Exception:
             amp_section = {}
 
     _cov = _object_dict(amp_section.get("cognitive"))
-    _cov_enabled = bool(_cov.get("enabled", True)) if isinstance(_cov, dict) else True
+    _cov_enabled = bool(_cov.get("enabled", True))
     check(
         "Amplification: cognitive loop",
         True,
-        f"{'on' if _cov_enabled else 'off'} · retries={_cov.get('max_retries', 2)} "
-        f"dialectic={_cov.get('dialectic_enabled', True)}",
+        f"{'on' if _cov_enabled else 'off'} · retries={_cov.get('max_retries', 2)} dialectic={_cov.get('dialectic_enabled', True)}",
     )
 
     _cog = _object_dict(amp_section.get("cov"))
-    _cog_enabled = bool(_cog.get("enabled", True)) if isinstance(_cog, dict) else True
+    _cog_enabled = bool(_cog.get("enabled", True))
     check(
         "Amplification: chain-of-verification",
         True,
-        f"{'on' if _cog_enabled else 'off'} · revise={_cog.get('max_revise_iterations', 2)} "
-        f"threshold={_cog.get('complexity_threshold', 0.4)}",
+        f"{'on' if _cog_enabled else 'off'} · revise={_cog.get('max_revise_iterations', 2)} threshold={_cog.get('complexity_threshold', 0.4)}",
     )
 
     _sc = _object_dict(amp_section.get("self_consistency"))
-    _sc_enabled = bool(_sc.get("enabled", False)) if isinstance(_sc, dict) else False
+    _sc_enabled = bool(_sc.get("enabled", False))
     check(
         "Amplification: self-consistency",
         True,
-        f"{'on' if _sc_enabled else 'off'} · n={_sc.get('n_samples', 5)} "
-        f"gate={_sc.get('complexity_threshold', 'null')}",
+        f"{'on' if _sc_enabled else 'off'} · n={_sc.get('n_samples', 5)} gate={_sc.get('complexity_threshold', 'null')}",
     )
 
     _td = _object_dict(amp_section.get("task_decomposition"))
-    _td_enabled = bool(_td.get("enabled", False)) if isinstance(_td, dict) else False
+    _td_enabled = bool(_td.get("enabled", False))
     check(
         "Amplification: task decomposition",
         True,
-        f"{'on' if _td_enabled else 'off'} · steps={_td.get('min_steps', 2)}-"
-        f"{_td.get('max_steps', 6)} "
-        f"escalate={'on' if _td.get('escalate_on_revision_failure', False) else 'off'}",
+        f"{'on' if _td_enabled else 'off'} · steps={_td.get('min_steps', 2)}-{_td.get('max_steps', 6)} escalate={'on' if _td.get('escalate_on_revision_failure', False) else 'off'}",
     )
 
     # ── Output ──
-    table = Table(title="🩺 Antigravity-K Doctor", show_header=True, header_style="bold cyan")
+    table = Table(title="🩺 Ssak-Ai Doctor", show_header=True, header_style="bold cyan")
     table.add_column("Check", style="bold")
     table.add_column("Status", justify="center")
     table.add_column("Detail", style="dim", overflow="fold")
@@ -583,14 +930,8 @@ _SOURCE_ICON = {
 
 @key_app.command("set")
 def key_set(
-    service: str = typer.Argument(
-        ...,
-        help="Service name (anthropic, openai, openrouter)",
-    ),
-    key: str = typer.Argument(
-        ...,
-        help="API key to store",
-    ),
+    service: Annotated[str, typer.Argument(help="Service name (anthropic, openai, openrouter)")],
+    key: Annotated[str, typer.Argument(help="API key to store")],
 ) -> None:
     """암호화하여 API 키를 vault 저장소에 저장합니다.
 
@@ -612,8 +953,7 @@ def key_set(
 
     if os.environ.get(env_var):
         console.print(
-            f"[yellow]⚠️  환경변수 {env_var}가 이미 설정되어 있습니다.[/yellow]\n"
-            f"   vault 저장소에 저장해도 환경변수가 우선 적용됩니다.",
+            f"[yellow]⚠️  환경변수 {env_var}가 이미 설정되어 있습니다.[/yellow]\n   vault 저장소에 저장해도 환경변수가 우선 적용됩니다."
         )
 
     success = store_api_key(svc, key)
@@ -670,16 +1010,15 @@ def key_list() -> None:
 
 @key_app.command("remove")
 def key_remove(
-    service: str = typer.Argument(
-        ...,
-        help="Service name to remove from vault (anthropic, openai, openrouter)",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="확인 없이 삭제",
-    ),
+    service: Annotated[str, typer.Argument(help="Service name to remove from vault (anthropic, openai, openrouter)")],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="확인 없이 삭제",
+        ),
+    ] = False,
 ) -> None:
     """Vault 저장소에서 API 키를 삭제합니다.
 
@@ -720,18 +1059,22 @@ def key_remove(
 
 @key_app.command("rotate")
 def key_rotate(
-    seed: str | None = typer.Option(
-        None,
-        "--seed",
-        "-s",
-        help="새 머신 시드 (지정하지 않으면 현재 시드 재사용, 동일 키 유지)",
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="키가 동일해도 강제 재암호화",
-    ),
+    seed: Annotated[
+        str | None,
+        typer.Option(
+            "--seed",
+            "-s",
+            help="새 머신 시드 (지정하지 않으면 현재 시드 재사용, 동일 키 유지)",
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="키가 동일해도 강제 재암호화",
+        ),
+    ] = False,
 ) -> None:
     """마스터 키를 순환(rotation)하고 vault 데이터를 재암호화합니다.
 
@@ -770,13 +1113,45 @@ model_app = typer.Typer(help="Manage models: list, set defaults")
 app.add_typer(model_app, name="model", help="Manage models and set defaults")
 
 
+def _quant_cell(quantization: str) -> str:
+    """양자화 토큰 + 등급 한 글자(색상) rich 셀 — 대시보드 Model Hub 배지와 동일 체계."""
+    from antigravity_k.engine.quant_quality import quant_quality
+
+    info = quant_quality(quantization)
+    if info.level == "unknown":
+        return "[dim]—[/dim]"
+    color = {"premium": "green", "high": "cyan", "balanced": "magenta", "compact": "dark_orange"}[info.level]
+    return f"{quantization} [{color}]{info.grade}[/{color}]"
+
+
 @model_app.command("list")
-def model_list() -> None:
-    """List all available models with role grouping and default markers."""
+def model_list(
+    min_quality: Annotated[
+        str,
+        typer.Option(
+            "--min-quality",
+            "-q",
+            help="이 품질 등급 이상 모델만 표시 (compact < balanced < high < premium). "
+            "대시보드 Model Hub의 품질 pill과 동일한 LEVEL_ORDER 랭킹 (Phase 45).",
+            show_default=False,
+        ),
+    ] = "",
+) -> None:
+    """List all available models with role grouping, quant quality grades, and defaults."""
     from rich.panel import Panel
     from rich.table import Table
 
+    from antigravity_k.engine.quant_quality import LEVEL_ORDER, quant_quality
+
+    min_level = (min_quality or "").strip().lower()
+    if min_level and min_level not in LEVEL_ORDER:
+        valid = " < ".join(k for k in LEVEL_ORDER if k != "unknown")
+        console.print(f"[red]❌ 알 수 없는 품질 등급 '{min_quality}'. 사용 가능: {valid}, unknown[/red]")
+        raise typer.Exit(code=2)
+    min_rank = LEVEL_ORDER.get(min_level, 0) if min_level else 0
+
     registry = ModelRegistry()
+    _ = registry.refresh_local_models()
     defaults = registry.defaults
 
     roles = ["reasoning", "coding", "embedding", "vision"]
@@ -787,31 +1162,50 @@ def model_list() -> None:
         "vision": "👁️ Vision",
     }
 
+    total_shown = 0
     for role in roles:
         models = registry.find_by_role(role)
+        if min_level:
+            # LEVEL_ORDER 랭킹 필터 — unknown(0)은 어떤 하한보다도 낮아 자동 제외.
+            # 대시보드와 달리 CLI는 실행 중 모델 면제가 없다: 출력이 정적 스냅샷이라
+            # 사용자가 명시적으로 품질 하한을 요청하면 그 기준을 유지한다.
+            models = [m for m in models if LEVEL_ORDER[quant_quality(m.quantization).level] >= min_rank]
         if not models:
             continue
+        total_shown += len(models)
 
-        default_name = getattr(defaults, role, None)
+        default_name = cast(str | None, getattr(defaults, role, None))
         label = role_labels.get(role, role)
 
         table = Table(title=f"{label} Models ({len(models)}개)", box=None, show_header=False)
         table.add_column("", style="dim", width=3)
         table.add_column("Name", style="cyan")
+        table.add_column("Quant", width=16)
         table.add_column("Description", style="dim")
 
         for m in models:
             is_default = m.name == default_name
             marker = "⭐" if is_default else ""
             desc = m.description or ""
-            table.add_row(marker, m.name, desc)
+            table.add_row(marker, m.name, _quant_cell(m.quantization), desc)
 
         console.print(table)
         console.print()
 
+    if min_level and total_shown == 0:
+        console.print(
+            f"[yellow]⚠️ 품질 '{min_level}' 이상 모델이 없습니다. 'agk model list'로 전체를 확인하세요.[/yellow]"
+        )
+        return
+
     console.print(
         Panel.fit(
-            "[dim]⭐ = 현재 기본 모델\n사용법: [bold]agk model set <모델명>[/bold] — 기본 모델 변경",
+            "[dim]⭐ = 현재 기본 모델\n"
+            "품질 등급 (unsloth Dynamic 가이드): "
+            "[green]P[/green]=프리미엄 [cyan]H[/cyan]=높음 [magenta]B[/magenta]=균형 [dark_orange]C[/dark_orange]=컴팩트 — 대시보드 Model Hub 배지와 동일\n"
+            + (f"필터: '{min_level}' 이상 표시 중 ({total_shown}개)\n" if min_level else "")
+            + "사용법: [bold]agk model list --min-quality balanced[/bold] — 품질 필터\n"
+            "사용법: [bold]agk model set <모델명>[/bold] — 기본 모델 변경",
             border_style="dim",
         )
     )
@@ -819,10 +1213,9 @@ def model_list() -> None:
 
 @model_app.command("set")
 def model_set(
-    name: str = typer.Argument(
-        ...,
-        help="Set a model as default for its role (e.g. 'nvidia/nemotron-3-ultra-550b-a55b:free')",
-    ),
+    name: Annotated[
+        str, typer.Argument(help="Set a model as default for its role (e.g. 'nvidia/nemotron-3-ultra-550b-a55b:free')")
+    ],
 ) -> None:
     """Set a model as the default for its role in config.yaml.
 
@@ -835,6 +1228,7 @@ def model_set(
     서버 재시작 시 자동으로 반영됩니다.
     """
     registry = ModelRegistry()
+    _ = registry.refresh_local_models()
     model = registry.get_model(name)
 
     if not model:
@@ -855,19 +1249,27 @@ def model_set(
         raise typer.Exit(code=1)
 
     try:
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        loaded = cast(object, yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+        raw: dict[str, object] = (
+            {str(key): value for key, value in cast(Mapping[object, object], loaded).items()}
+            if isinstance(loaded, dict)
+            else {}
+        )
     except Exception as e:
         console.print(f"[red]❌ config.yaml 파싱 실패: {e}[/red]")
         raise typer.Exit(code=1)
 
     role = model.role
-    if "defaults" not in raw:
-        raw["defaults"] = {}
-    if not isinstance(raw["defaults"], dict):
-        raw["defaults"] = {}
+    defaults_value = raw.get("defaults")
+    defaults: dict[str, object] = (
+        {str(key): value for key, value in cast(Mapping[object, object], defaults_value).items()}
+        if isinstance(defaults_value, dict)
+        else {}
+    )
+    raw["defaults"] = defaults
 
-    old_default = raw["defaults"].get(role, "(없음)")
-    raw["defaults"][role] = name
+    old_default = defaults.get(role, "(없음)")
+    defaults[role] = name
 
     try:
         with open(config_path, "w", encoding="utf-8") as f:
@@ -888,22 +1290,23 @@ def model_set(
 
 @app.command()
 def mode(
-    target: str = typer.Argument(
-        "status",
-        help="Target mode: plan, build, interactive, or status",
-    ),
-    reason: str | None = typer.Option(
-        None,
-        "--reason",
-        "-r",
-        help="Reason for mode switch",
-    ),
-    plan_path: str | None = typer.Option(
-        None,
-        "--plan",
-        "-p",
-        help="Plan artifact path (for build mode)",
-    ),
+    target: Annotated[str, typer.Argument(help="Target mode: plan, build, interactive, or status")] = "status",
+    reason: Annotated[
+        str | None,
+        typer.Option(
+            "--reason",
+            "-r",
+            help="Reason for mode switch",
+        ),
+    ] = None,
+    plan_path: Annotated[
+        str | None,
+        typer.Option(
+            "--plan",
+            "-p",
+            help="Plan artifact path (for build mode)",
+        ),
+    ] = None,
 ) -> None:
     """Manage execution mode (Plan/Build/Interactive).
 
@@ -942,11 +1345,7 @@ def mode(
             if mgr.is_plan:
                 console.print(
                     Panel.fit(
-                        "[yellow]❌ Build 모드 전환 실패:[/yellow]\n\n"
-                        "Plan → Build 자동 전환 조건이 충족되지 않았습니다.\n"
-                        "1. Plan 아티팩트(`implementation_plan.md`) 생성 필요\n"
-                        "2. Plan 품질 검증(QualityGate) 통과 필요\n"
-                        "3. 강제 전환: [bold]agk mode build --plan <path>[/bold]",
+                        "[yellow]❌ Build 모드 전환 실패:[/yellow]\n\nPlan → Build 자동 전환 조건이 충족되지 않았습니다.\n1. Plan 아티팩트(`implementation_plan.md`) 생성 필요\n2. Plan 품질 검증(QualityGate) 통과 필요\n3. 강제 전환: [bold]agk mode build --plan <path>[/bold]",
                         title="Build Mode",
                     ),
                 )
@@ -971,17 +1370,20 @@ def mode(
 
 @app.command()
 def tui(
-    dev: bool = typer.Option(
-        False,
-        "--dev",
-        "-d",
-        help="Launch with development tools enabled.",
-    ),
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            "-d",
+            help="Launch with development tools enabled.",
+        ),
+    ] = False,
 ) -> None:
     """Launch the Textual Terminal UI (TUI).
 
     Interactive terminal interface with chat, slash commands, and system monitoring.
     """
+    _ = dev
     try:
         from antigravity_k.tui import run_tui
 
@@ -995,51 +1397,60 @@ def tui(
 # ─── Market Commands ────────────────────────────────────────────────────────
 
 
-@app.command()
-def _market_search(registry, market_client, query: str) -> None:
+def _market_search(registry: SkillMarketRegistry, market_client: SkillMarketClient, query: str) -> None:
     """Search the marketplace for skills."""
     console.print(f"[bold]🔍 Searching for '{query}'...[/bold]\n")
     results = registry.search(query)
-    if isinstance(results, list) and results and "error" not in results[0]:
-        console.print(market_client.format_search_results(results))
+    _ = market_client
+    if results and "error" not in results[0]:
+        lines = ["🔍 **Skill Marketplace 검색 결과**", ""]
+        for result in results[:15]:
+            name = result.get("name", "")
+            version = result.get("version", "")
+            description = result.get("description", "")
+            lines.append(f"  📦 `{name}@{version}`")
+            lines.append(f"     {str(description)[:80]}")
+            lines.append("")
+        console.print("\n".join(lines))
     else:
         console.print("[yellow]No results found or marketplace unreachable.[/yellow]")
-        if results and isinstance(results[0], dict) and "error" in results[0]:
-            console.print(f"[red]  Error: {results[0]['error']}[/red]")
+        if results and "error" in results[0]:
+            console.print(f"[red]  Error: {results[0].get('error', 'unknown')}[/red]")
 
 
-def _market_install(registry, package: str) -> None:
+def _market_install(registry: SkillMarketRegistry, package: str) -> None:
     """Install a skill package."""
     console.print(f"[bold]📦 Installing '{package}'...[/bold]")
-    result = registry.install(package)
+    result: InstallResponse = registry.install(package)
     if result.get("success"):
         console.print(f"[green]✅ {result.get('summary', 'Install complete')}[/green]")
     else:
         console.print(f"[red]❌ Install failed: {result.get('error', 'Unknown error')}[/red]")
-    if result.get("warnings"):
-        for w in result["warnings"]:
+    warnings = result.get("warnings", [])
+    if warnings:
+        for w in warnings:
             console.print(f"[yellow]⚠️  {w}[/yellow]")
 
 
-def _market_remove(registry, name: str) -> None:
+def _market_remove(registry: SkillMarketRegistry, name: str) -> None:
     """Remove an installed skill."""
     console.print(f"[bold]🗑️  Removing '{name}'...[/bold]")
-    result = registry.remove(name)
+    result: InstallResponse = registry.remove(name)
     if result.get("success"):
         console.print(f"[green]✅ {result.get('summary', 'Removed')}[/green]")
     else:
         console.print(f"[red]❌ Remove failed: {result.get('error', 'Unknown error')}[/red]")
 
 
-def _market_info(registry, market_client, name: str) -> None:
+def _market_info(registry: SkillMarketRegistry, market_client: SkillMarketClient, name: str) -> None:
     """Show detailed skill information."""
-    skill_info = registry.get_info(name)
+    skill_info: RegistrySkillInfo | None = registry.get_info(name)
     if skill_info:
         console.print(registry.format_info(skill_info))
         return
     # Try searching the package directly.
     if name.startswith("@antigravity-k/skill-"):
-        detail = market_client.get_detail(name)
+        detail: SkillDetail | None = market_client.get_detail(name)
         if detail:
             from rich.panel import Panel
 
@@ -1072,26 +1483,26 @@ def _market_info(registry, market_client, name: str) -> None:
         console.print(f"   Search: [bold]agk market --search {name}[/bold]")
 
 
-def _market_list(registry) -> None:
+def _market_list(registry: SkillMarketRegistry) -> None:
     """List installed skills."""
-    installed = registry.list_installed()
+    installed: list[RegistrySkillInfo] = registry.list_installed()
     console.print(registry.format_list(installed))
 
 
-def _market_update(registry, name: str) -> None:
+def _market_update(registry: SkillMarketRegistry, name: str) -> None:
     """Update a specific skill."""
     console.print(f"[bold]⬆️  Updating '{name}'...[/bold]")
-    result = registry.update(name)
+    result: InstallResponse = registry.update(name)
     if result.get("success"):
         console.print(f"[green]✅ {result.get('summary', 'Update complete')}[/green]")
     else:
         console.print(f"[red]❌ Update failed: {result.get('error', 'Unknown error')}[/red]")
 
 
-def _market_update_all(registry) -> None:
+def _market_update_all(registry: SkillMarketRegistry) -> None:
     """Update all outdated skills."""
     console.print("[bold]⬆️  Checking for updates across all skills...[/bold]")
-    results = registry.update_all()
+    results: list[Mapping[str, object]] = registry.update_all()
     updated = [r for r in results if r.get("success")]
     if updated:
         for r in updated:
@@ -1169,25 +1580,26 @@ def _market_show_help() -> None:
 
 
 def market(
-    search: str | None = typer.Option(None, "--search", "-s", help="Search for skills in the marketplace"),
-    install: str | None = typer.Option(None, "--install", "-i", help="Install a skill package"),
-    remove: str | None = typer.Option(None, "--remove", "-r", help="Remove an installed skill"),
-    info: str | None = typer.Option(None, "--info", help="Show detailed skill information"),
-    update: str | None = typer.Option(None, "--update", "-u", help="Update a specific skill"),
-    list_skills: bool = typer.Option(False, "--list", "-l", help="List installed skills"),
-    update_all: bool = typer.Option(False, "--update-all", "-U", help="Update all outdated skills"),
-    publish_npm: str | None = typer.Option(
-        None, "--publish-npm", help="Publish a local skill to npm (e.g. 'code-review')"
-    ),
-    publish_github: str | None = typer.Option(
-        None, "--publish-github", help="Publish a local skill via GitHub PR (e.g. 'code-review')"
-    ),
-    publish_repo: str | None = typer.Option(
-        None, "--publish-repo", help="Target GitHub repo for --publish-github (e.g. 'org/skills-repo')"
-    ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate without publishing"),
+    search: Annotated[str | None, typer.Option("--search", "-s", help="Search for skills in the marketplace")] = None,
+    install: Annotated[str | None, typer.Option("--install", "-i", help="Install a skill package")] = None,
+    remove: Annotated[str | None, typer.Option("--remove", "-r", help="Remove an installed skill")] = None,
+    info: Annotated[str | None, typer.Option("--info", help="Show detailed skill information")] = None,
+    update: Annotated[str | None, typer.Option("--update", "-u", help="Update a specific skill")] = None,
+    list_skills: Annotated[bool, typer.Option("--list", "-l", help="List installed skills")] = False,
+    update_all: Annotated[bool, typer.Option("--update-all", "-U", help="Update all outdated skills")] = False,
+    publish_npm: Annotated[
+        str | None, typer.Option("--publish-npm", help="Publish a local skill to npm (e.g. 'code-review')")
+    ] = None,
+    publish_github: Annotated[
+        str | None, typer.Option("--publish-github", help="Publish a local skill via GitHub PR (e.g. 'code-review')")
+    ] = None,
+    publish_repo: Annotated[
+        str | None,
+        typer.Option("--publish-repo", help="Target GitHub repo for --publish-github (e.g. 'org/skills-repo')"),
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Validate without publishing")] = False,
 ) -> None:
-    """Manage skills from the Antigravity-K Marketplace.
+    """Manage skills from the Ssak-Ai Marketplace.
 
     Search, install, remove, list, update, and publish skills.
 
@@ -1242,29 +1654,67 @@ def market(
 
 @app.command()
 def autopilot(
-    goal: str = typer.Argument(..., help="High-level engineering mission to execute autonomously."),
-    max_turns: int = typer.Option(10, "--max-turns", "-m", help="Maximum autonomous flight turns."),
+    goal: Annotated[str, typer.Argument(help="High-level engineering mission to execute autonomously.")],
+    max_turns: Annotated[int, typer.Option("--max-turns", "-m", help="Maximum autonomous flight turns.")] = 10,
+    execute: Annotated[
+        bool,
+        typer.Option("--execute", help="스텝을 오케스트레이터 실행 엔진으로 실제 수행합니다 (기본: 시뮬레이션)."),
+    ] = False,
 ) -> None:
     """Launch full autonomous self-driving flight mission for Qwen3.8-27B."""
-    from antigravity_k.engine.flight_controller import AutonomousFlightController
+    from antigravity_k.engine.flight_controller import AutonomousFlightController, SubgoalInput
 
     console.print(f"[bold cyan]🚀 Launching Autonomous Autopilot Mission:[/bold cyan] {goal}")
 
     controller = AutonomousFlightController(project_root=".", max_flight_turns=max_turns)
 
-    from typing import Any
-
     # Initial starter subgoals inferred from goal
-    subgoals: list[dict[str, Any]] = [
+    subgoals: list[SubgoalInput] = [
         {"id": "plan", "desc": f"Formulate implementation plan for '{goal}'"},
         {"id": "code", "desc": "Implement required changes and patches", "depends_on": ["plan"]},
         {"id": "verify", "desc": "Run TDD tests and static audits", "depends_on": ["code"]},
     ]
 
+    from typing import Any
+
+    _orchestrator_cache: dict[str, Any] = {}
+
+    def _get_orchestrator() -> Any:
+        if "orch" not in _orchestrator_cache:
+            from antigravity_k.api.dependencies import get_orchestrator
+
+            _orchestrator_cache["orch"] = get_orchestrator()
+        return _orchestrator_cache["orch"]
+
     def _execute_step(step_id: str, desc: str) -> bool:
         console.print(f"  [yellow]⚡ Step [{step_id}]:[/yellow] {desc}")
-        # Step simulation / execution hook
-        return True
+        if not execute:
+            # 실행 엔진 미연결 — 시뮬레이션 스텝임을 명시한다 (항상 성공 보고로
+            # 실제 수행이 일어난 것처럼 오인시키지 않는다).
+            console.print("    [dim](simulation — 실행 엔진 미연결)[/dim]")
+            return True
+        try:
+            orch = _get_orchestrator()
+            output_parts: list[str] = []
+            for chunk in orch.run_stream(
+                [{"role": "user", "content": f"미션 스텝을 수행하세요: {desc}"}],
+                target_model="default",
+                max_steps=15,
+            ):
+                output_parts.append(str(chunk))
+            # 성공 기준: 스트림이 예외 없이 완료되고 출력이 비지 않은 경우
+            return bool("".join(output_parts).strip())
+        except Exception as exc:
+            console.print(f"    [red]스텝 실패: {exc}[/red]")
+            return False
+
+    if execute:
+        console.print("[green]⚙️ 실행 모드 — 스텝을 오케스트레이터로 실제 수행합니다.[/green]")
+    else:
+        console.print(
+            "[yellow]⚠️ Autopilot은 현재 시뮬레이션 모드입니다 — 스텝이 실제로 "
+            "실행되지 않습니다. 실제 실행은 --execute 옵션을 사용하세요.[/yellow]"
+        )
 
     report = controller.launch_mission(
         goal=goal,
@@ -1296,7 +1746,7 @@ def autopilot(
 
 @app.command()
 def fast(
-    query: str = typer.Argument(..., help="Deterministic query to resolve instantly (e.g. 'where is ClassName')."),
+    query: Annotated[str, typer.Argument(help="Deterministic query to resolve instantly (e.g. 'where is ClassName').")],
 ) -> None:
     """Execute direct fast-path kernel query with <5ms latency (Zero LLM overhead)."""
     from antigravity_k.engine.fast_path_kernel import FastPathKernel
@@ -1308,6 +1758,98 @@ def fast(
         console.print(res.response)
     else:
         console.print(f"[yellow]⚡ Query '{query}' requires full LLM generation loop.[/yellow]")
+
+
+# ─── Error Journal Commands ───────────────────────────────────────────────
+
+
+@error_app.command("list")
+def list_errors(
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum number of errors to list.")] = 20,
+    component: Annotated[str | None, typer.Option("--component", "-c", help="Filter by component.")] = None,
+) -> None:
+    """List recent runtime errors captured in the Agent Error Journal."""
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    errors = journal.list_errors(limit=limit, component=component)
+
+    if not errors:
+        console.print("[green]✓ No runtime errors recorded in journal.[/green]")
+        return
+
+    table = Table(title=f"Runtime Errors ({len(errors)} records)")
+    table.add_column("Error ID", style="bold cyan", no_wrap=True)
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Component", style="magenta")
+    table.add_column("Error Type", style="red")
+    table.add_column("Location")
+    table.add_column("Message")
+
+    for err in errors:
+        loc = f"{Path(err.failing_file).name}:{err.failing_line}" if err.failing_file else "N/A"
+        msg = err.message.splitlines()[0][:60] if err.message else ""
+        table.add_row(err.error_id, err.timestamp[:19], err.component, err.error_type, loc, msg)
+
+    console.print(table)
+
+
+@error_app.command("inspect")
+def inspect_error(
+    error_id: Annotated[str, typer.Argument(help="ID of the error to inspect (e.g. ERR-20260903-...)")],
+) -> None:
+    """Inspect detailed diagnostics and code context of a runtime error."""
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    err = journal.get_error(error_id)
+
+    if not err:
+        console.print(f"[red]Error ID '{error_id}' not found in journal.[/red]")
+        raise typer.Exit(code=1)
+
+    summary = (
+        f"[bold red]Error Type:[/bold red] {err.error_type}\n"
+        f"[bold]Message:[/bold] {err.message}\n"
+        f"[bold]Component:[/bold] {err.component}\n"
+        f"[bold]Timestamp:[/bold] {err.timestamp}\n"
+        f"[bold]Correlation ID:[/bold] {err.correlation_id or 'N/A'}\n"
+        f"[bold]Failure Point:[/bold] {err.failing_file}:{err.failing_line} ({err.failing_function})"
+    )
+    console.print(Panel(summary, title=f"🚨 Incident Diagnostic: {err.error_id}", expand=False))
+
+    if err.code_context:
+        console.print("\n[bold cyan]💻 Source Code Context:[/bold cyan]")
+        syntax = Syntax(err.code_context, "python", theme="monokai", line_numbers=False)
+        console.print(syntax)
+
+    console.print("\n[bold cyan]📜 Stack Trace:[/bold cyan]")
+    console.print(Panel(err.stack_trace.strip(), border_style="dim"))
+
+    console.print(
+        f"\n[dim]Markdown card saved at: logs/agent_diagnostics/{err.error_id}.md[/dim]\n"
+        f"[dim]Run 'agk error prompt {err.error_id}' to output full AI agent fix prompt.[/dim]"
+    )
+
+
+@error_app.command("prompt")
+def prompt_error(
+    error_id: Annotated[str, typer.Argument(help="ID of the error to generate fix prompt for.")],
+) -> None:
+    """Output the ready-to-run AI agent fix prompt for autonomous remediation."""
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    err = journal.get_error(error_id)
+
+    if not err:
+        console.print(f"[red]Error ID '{error_id}' not found in journal.[/red]")
+        raise typer.Exit(code=1)
+
+    print(err.ai_fix_prompt)
 
 
 if __name__ == "__main__":

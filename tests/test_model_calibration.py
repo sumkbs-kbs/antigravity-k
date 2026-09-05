@@ -45,6 +45,38 @@ def test_calibration_rejects_measured_model_below_quality_threshold(tmp_path: Pa
     assert store.is_eligible("unmeasured-model") is True
 
 
+def test_calibration_auto_discovers_matching_artifacts_without_explicit_paths(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "task-calibration-new-local-model.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "artifact_type": "task_benchmark",
+                "model": "new-local-model:27b",
+                "task_benchmark": {
+                    "outcome_count": 3,
+                    "task_success_rate": 0.4,
+                    "tool_accuracy": 0.4,
+                    "retry_rate": 0.8,
+                    "avg_latency_ms": 100.0,
+                    "avg_cost_usd": 0.0,
+                    "error_count": 1,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = ModelQualityCalibrationConfig(
+        enabled=True,
+        artifact_globs=("task-calibration-*.json",),
+        min_task_outcome_count=3,
+    )
+
+    store = ModelQualityCalibrationStore.from_config(config, tmp_path)
+
+    assert store.is_eligible("new-local-model:27b") is False
+    assert store.summaries()[0].artifact_paths == (artifact_path,)
+
+
 def test_calibration_uses_repeat_minimum_instead_of_only_latest_result(tmp_path: Path) -> None:
     artifact_path = tmp_path / "unstable.json"
     artifact_path.write_text(

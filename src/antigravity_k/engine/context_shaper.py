@@ -18,14 +18,37 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from collections.abc import Mapping
+from typing import TypedDict, cast, final
 
+from pydantic import JsonValue
+
+from antigravity_k.engine.context_budget import context_budget_for_model
+from antigravity_k.engine.long_context_policy import LongContextExecutionPlan
 from antigravity_k.engine.tokenizer import TokenEstimator
 from antigravity_k.engine.tool_evidence_compactor import compact_structured_tool_response
 
 logger = logging.getLogger(__name__)
 
+Message = dict[str, str]
 
+
+class _TokenUsage(TypedDict):
+    total_tokens: int
+    max_tokens: int
+    usage_pct: float
+    by_role: dict[str, int]
+    budget_remaining: int
+
+
+def _mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+@final
 class ContextShaper:
     """5단계 컨텍스트 압축 파이프라인.
 
@@ -34,7 +57,7 @@ class ContextShaper:
     """
 
     # 메시지 역할별 우선순위 (낮을수록 절삭 대상)
-    ROLE_PRIORITY = {
+    ROLE_PRIORITY: dict[str, int] = {
         "system": 10,  # 절대 삭제 안 됨
         "user": 7,  # 높은 보존
         "assistant": 5,  # 중간
@@ -57,10 +80,10 @@ class ContextShaper:
             storage_dir (str | None): str | None storage dir.
 
         """
-        self.max_tokens = max_tokens
-        self.reserve_tokens = reserve_tokens
-        self.collapse_threshold = collapse_threshold
-        self.storage_dir = storage_dir or os.path.join(
+        self.max_tokens: int = max_tokens
+        self.reserve_tokens: int = reserve_tokens
+        self.collapse_threshold: int = collapse_threshold
+        self.storage_dir: str = storage_dir or os.path.join(
             os.path.expanduser("~"),
             ".antigravity",
             "context_store",
@@ -68,7 +91,7 @@ class ContextShaper:
         os.makedirs(self.storage_dir, exist_ok=True)
 
         # 압축 통계
-        self._stats = {
+        self._stats: dict[str, int] = {
             "total_shaped": 0,
             "tokens_saved": 0,
             "collapses": 0,
@@ -77,10 +100,10 @@ class ContextShaper:
 
     def shape(
         self,
-        messages: list[dict[str, str]],
+        messages: list[Message],
         budget: int | None = None,
         force_compact: bool = False,
-    ) -> list[dict[str, str]]:
+    ) -> list[Message]:
         """메시지 리스트에 5단계 압축 파이프라인을 적용합니다.
 
         Args:
@@ -94,7 +117,9 @@ class ContextShaper:
 
         """
         budget = budget or (self.max_tokens - self.reserve_tokens)
-        original_size = self._estimate_tokens(messages)
+        # 원본 측정은 비캐시로 수행한다 — 캐시 기록(_tokens 키)이 복사 이전
+        # 호출자의 원본 딕셔너리에 남으면 "변이 없음" 계약이 깨진다.
+        original_size = self._estimate_tokens(messages, use_cache=False)
 
         if not force_compact and original_size <= budget:
             return messages  # 예산 내 → 그대로 반환
@@ -103,7 +128,10 @@ class ContextShaper:
         if force_compact:
             budget = int(budget * 0.6)  # 60% 수준으로 강제 축소
 
-        shaped = list(messages)
+        # 메시지 딕셔너리를 복사해 작업한다 — 하위 스테이지(_micro_compact 등)가
+        # content를 제자리 수정하므로 얕은 리스트 복사만으로는 호출자(세션
+        # 히스토리)의 원본이 영구 훼손된다.
+        shaped = [dict(message) for message in messages]
 
         # Stage 1: Budget Reducer — 허용량 계산
         target = self._budget_reduce(original_size, budget)
@@ -134,7 +162,22 @@ class ContextShaper:
 
         return shaped
 
-    def clear_old_tool_results(self, messages: list[dict[str, str]], keep_last: int = 3) -> list[dict[str, str]]:
+    def shape_for_model(
+        self,
+        messages: list[Message],
+        config: Mapping[str, JsonValue],
+        model_name: str,
+        force_compact: bool = False,
+        execution_plan: LongContextExecutionPlan | None = None,
+    ) -> list[Message]:
+        """Shape messages against the effective budget of a selected model."""
+        budget = context_budget_for_model(config, model_name)
+        token_limit = budget.token_limit
+        if execution_plan is not None and execution_plan["context_token_limit"] > 0:
+            token_limit = min(token_limit, execution_plan["context_token_limit"])
+        return self.shape(messages, budget=token_limit, force_compact=force_compact)
+
+    def clear_old_tool_results(self, messages: list[Message], keep_last: int = 3) -> list[Message]:
         """오래된 도구 실행 결과(tool_response/tool_result)를 정리합니다.
 
         연속된 tool 결과 메시지 중 최근 keep_last개만 유지하고,
@@ -151,7 +194,7 @@ class ContextShaper:
             return messages
 
         # tool 결과 역할 식별 (role이 tool/function이거나 content가 <tool_response> 포함)
-        tool_result_indices = []
+        tool_result_indices: list[int] = []
         for i, msg in enumerate(messages):
             role = msg.get("role", "")
             content = str(msg.get("content", ""))
@@ -165,7 +208,7 @@ class ContextShaper:
             return messages
 
         to_compact = tool_result_indices[:-keep_last] if keep_last > 0 else tool_result_indices
-        result = []
+        result: list[Message] = []
         for i, msg in enumerate(messages):
             if i in to_compact:
                 content = str(msg.get("content", ""))
@@ -184,7 +227,7 @@ class ContextShaper:
                 result.append(msg)
         return result
 
-    def inject_budget_awareness(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    def inject_budget_awareness(self, messages: list[Message]) -> list[Message]:
         """시스템 메시지에 비용/예산 인식 지시문을 주입합니다.
 
         에이전트가 비용을 의식하며 동작하도록 유도합니다.
@@ -226,7 +269,7 @@ class ContextShaper:
 
     # ─────────── Stage 2: Snip ───────────
 
-    def _snip(self, messages: list[dict[str, str]], target: int) -> list[dict[str, str]]:
+    def _snip(self, messages: list[Message], target: int) -> list[Message]:
         """오래된 저우선 메시지를 절삭합니다.
 
         시스템 메시지와 최근 5턴은 보존.
@@ -243,8 +286,8 @@ class ContextShaper:
         preserved = non_system[-preserve_count:]
         candidates = non_system[:-preserve_count]
 
-        protected_evidence = []
-        removable_candidates = []
+        protected_evidence: list[Message] = []
+        removable_candidates: list[Message] = []
         for message in candidates:
             compacted = compact_structured_tool_response(message.get("content", ""))
             if compacted is None:
@@ -260,7 +303,7 @@ class ContextShaper:
         result = system_msgs + protected_evidence + candidates + preserved
 
         while self._estimate_tokens(result) > target and candidates:
-            candidates.pop(0)
+            _ = candidates.pop(0)
             result = system_msgs + protected_evidence + candidates + preserved
             self._stats["snips"] += 1
 
@@ -268,7 +311,7 @@ class ContextShaper:
 
     # ─────────── Stage 3: MicroCompact ───────────
 
-    def _micro_compact(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    def _micro_compact(self, messages: list[Message]) -> list[Message]:
         """연속 도구 결과를 합치고, 긴 내용을 축약합니다.
 
         Claw Code의 'consecutive tool results merge' 패턴.
@@ -276,8 +319,8 @@ class ContextShaper:
         if len(messages) < 3:
             return messages
 
-        result = []
-        tool_buffer = []
+        result: list[Message] = []
+        tool_buffer: list[Message] = []
 
         for msg in messages:
             if msg.get("role") == "tool":
@@ -301,6 +344,8 @@ class ContextShaper:
                         # 단일 도구 결과도 축약
                         t = tool_buffer[0]
                         t["content"] = self._truncate(t.get("content", ""), 1000)
+                        # 콘텐츠가 변했으므로 토큰 캐시를 무효화한다
+                        _ = t.pop("_tokens", None)
                         result.append(t)
                     tool_buffer = []
                 result.append(msg)
@@ -314,18 +359,20 @@ class ContextShaper:
                 result.append({"role": "tool", "content": merged, "name": "merged_tools"})
             else:
                 tool_buffer[0]["content"] = self._truncate(tool_buffer[0].get("content", ""), 1000)
+                # 콘텐츠가 변했으므로 토큰 캐시를 무효화한다
+                _ = tool_buffer[0].pop("_tokens", None)
                 result.append(tool_buffer[0])
 
         return result
 
     # ─────────── Stage 4: Context Collapse ───────────
 
-    def _context_collapse(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    def _context_collapse(self, messages: list[Message]) -> list[Message]:
         """긴 도구 출력(파일 내용, grep 결과)을 참조 ID로 교체하고 디스크에 저장.
 
         Claw Code의 'reference ID replacement' 패턴.
         """
-        result = []
+        result: list[Message] = []
         for msg in messages:
             content = msg.get("content", "")
 
@@ -333,10 +380,17 @@ class ContextShaper:
                 # 참조 ID 생성 (P0 보안 일관성: MD5 → SHA256)
                 ref_id = hashlib.sha256(content.encode()).hexdigest()[:12]
 
+                # 저장 전 비밀 마스킹 — 전역 스토어에 원문 비밀이 남지 않게
+                # 한다 (복원 시 마스킹본이 돌아오는 것도 의도된 보안 경계).
+                from antigravity_k.engine.secret_scanner import redact
+
+                stored_content = redact(content)
+
                 # 디스크 저장
                 ref_path = os.path.join(self.storage_dir, f"{ref_id}.json")
                 with open(ref_path, "w", encoding="utf-8") as f:
-                    json.dump({"content": content, "ts": time.time()}, f)
+                    json.dump({"content": stored_content, "ts": time.time()}, f)
+                self._gc_storage()
 
                 # 축약 버전 (첫 200자 + 참조 ID)
                 preview = content[:200]
@@ -349,24 +403,51 @@ class ContextShaper:
 
         return result
 
+    _STORE_MAX_FILES: int = 200
+
+    def _gc_storage(self) -> None:
+        """전역 context_store 용량 상한 — 최신 200개 ref만 유지한다."""
+        try:
+            entries: list[tuple[float, str]] = []
+            for name in os.listdir(self.storage_dir):
+                if not name.endswith(".json"):
+                    continue
+                path = os.path.join(self.storage_dir, name)
+                try:
+                    entries.append((os.path.getmtime(path), path))
+                except OSError:
+                    continue
+            if len(entries) <= self._STORE_MAX_FILES:
+                return
+            entries.sort()
+            for _mtime, path in entries[: len(entries) - self._STORE_MAX_FILES]:
+                try:
+                    os.remove(path)
+                except OSError:
+                    continue
+        except OSError:
+            logger.debug("context store GC skipped", exc_info=True)
+
     def restore_collapsed(self, ref_id: str) -> str | None:
         """참조 ID로 저장된 전체 내용을 복원합니다."""
         ref_path = os.path.join(self.storage_dir, f"{ref_id}.json")
         if os.path.exists(ref_path):
             with open(ref_path, encoding="utf-8") as f:
-                data = json.load(f)
-            return data.get("content")
+                data = _mapping(cast(object, json.load(f)))
+            content = data.get("content")
+            return content if isinstance(content, str) else None
         return None
 
     # ─────────── Stage 5: Auto Compact ───────────
 
-    def _auto_compact(self, messages: list[dict[str, str]], budget: int) -> list[dict[str, str]]:
+    def _auto_compact(self, messages: list[Message], budget: int) -> list[Message]:
         """여전히 예산 초과 시, 이전 대화를 요약문으로 교체합니다.
 
         Claw Code의 'auto-compact with LLM summary' 패턴.
 
         Note: LLM 호출 없이 규칙 기반 요약으로 구현 (로컬 LLM 호출은 추후).
         """
+        _ = budget
         system_msgs = [m for m in messages if m.get("role") == "system"]
         non_system = [m for m in messages if m.get("role") != "system"]
 
@@ -385,7 +466,7 @@ class ContextShaper:
         ][-5:]
 
         # 규칙 기반 요약 생성
-        summary_parts = []
+        summary_parts: list[str] = []
         for msg in old:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
@@ -408,11 +489,11 @@ class ContextShaper:
     # ─────────── 유틸리티 ───────────
 
     @staticmethod
-    def _estimate_tokens(messages: list[dict[str, str]]) -> int:
+    def _estimate_tokens(messages: list[Message], use_cache: bool = True) -> int:
         """메시지 리스트의 대략적인 토큰 수를 추정합니다.
         TokenEstimator 통일 모듈에 위임합니다.
         """
-        return TokenEstimator.estimate_messages(messages)
+        return TokenEstimator.estimate_messages(messages, use_cache=use_cache)
 
     @staticmethod
     def _truncate(text: str, max_len: int) -> str:
@@ -425,7 +506,7 @@ class ContextShaper:
         """압축 통계를 반환합니다."""
         return dict(self._stats)
 
-    def get_token_usage(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def get_token_usage(self, messages: list[Message]) -> _TokenUsage:
         """현재 컨텍스트 토큰 사용량을 분석합니다."""
         total = self._estimate_tokens(messages)
         by_role = TokenEstimator.estimate_messages_by_role(messages)

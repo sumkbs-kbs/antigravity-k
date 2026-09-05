@@ -10,11 +10,28 @@
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Final, final
+
+from antigravity_k.security.computer_use_guard_models import (
+    ActionParams,
+    ActionParamValue,
+    AuditEntry,
+    DangerZone,
+    DangerZoneRatio,
+    ValidationResult,
+)
 
 logger = logging.getLogger(__name__)
 
 
+def _int_param(params: ActionParams, key: str, default: int) -> int:
+    value: ActionParamValue = params.get(key)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return default
+
+
+@final
 class ActionGuard:
     """Computer Use 액션에 대한 보안 게이트키퍼.
 
@@ -23,7 +40,7 @@ class ActionGuard:
     """
 
     # 기본 허용 액션 목록
-    SAFE_ACTIONS = frozenset(
+    SAFE_ACTIONS: Final[frozenset[str]] = frozenset(
         {
             "screenshot",
             "mouse_move",
@@ -37,7 +54,7 @@ class ActionGuard:
     )
 
     # HITL (사용자 승인) 필요 액션
-    HITL_REQUIRED_ACTIONS = frozenset(
+    HITL_REQUIRED_ACTIONS: Final[frozenset[str]] = frozenset(
         {
             "left_click_drag",
             "hold_key",
@@ -45,7 +62,7 @@ class ActionGuard:
     )
 
     # 절대 허용 불가 액션
-    BLOCKED_ACTIONS = frozenset(
+    BLOCKED_ACTIONS: Final[frozenset[str]] = frozenset(
         {
             "run_as_admin",
             "format_disk",
@@ -55,7 +72,7 @@ class ActionGuard:
 
     # P1 수정: 비율 기반 위험 영역 — 해상도 독립적 (런타임 계산)
     # 각 값은 0.0 ~ 1.0 비율로, 실제 해상도에 곱하여 사용
-    DANGER_ZONE_RATIOS: list[dict[str, str | float]] = [
+    DANGER_ZONE_RATIOS: Final[list[DangerZoneRatio]] = [
         {
             "name": "taskbar",
             "y_min_ratio": 0.963,
@@ -73,21 +90,17 @@ class ActionGuard:
     ]
 
     @classmethod
-    def get_danger_zones(cls, screen_width: int = 1920, screen_height: int = 1080) -> list[dict[str, str | int]]:
+    def get_danger_zones(cls, screen_width: int = 1920, screen_height: int = 1080) -> list[DangerZone]:
         """화면 해상도에 맞게 위험 영역 좌표를 계산합니다."""
-        zones: list[dict[str, str | int]] = []
+        zones: list[DangerZone] = []
         for zone in cls.DANGER_ZONE_RATIOS:
-            y_min_r = zone["y_min_ratio"]
-            y_max_r = zone["y_max_ratio"]
-            x_min_r = zone["x_min_ratio"]
-            x_max_r = zone["x_max_ratio"]
             zones.append(
                 {
-                    "name": str(zone["name"]),
-                    "y_min": int(float(y_min_r) * screen_height) if isinstance(y_min_r, (int, float)) else 0,
-                    "y_max": int(float(y_max_r) * screen_height) if isinstance(y_max_r, (int, float)) else 0,
-                    "x_min": int(float(x_min_r) * screen_width) if isinstance(x_min_r, (int, float)) else 0,
-                    "x_max": int(float(x_max_r) * screen_width) if isinstance(x_max_r, (int, float)) else 0,
+                    "name": zone["name"],
+                    "y_min": int(zone["y_min_ratio"] * screen_height),
+                    "y_max": int(zone["y_max_ratio"] * screen_height),
+                    "x_min": int(zone["x_min_ratio"] * screen_width),
+                    "x_max": int(zone["x_max_ratio"] * screen_width),
                 },
             )
         return zones
@@ -108,10 +121,10 @@ class ActionGuard:
             custom_blocked_actions (list[str] | None): list[str] | None custom blocked actions.
 
         """
-        self.enabled = enabled
-        self.hitl_required = hitl_required
-        self._blocked_actions = self.BLOCKED_ACTIONS
-        self._audit_log: list[dict[str, Any]] = []
+        self.enabled: bool = enabled
+        self.hitl_required: bool = hitl_required
+        self._blocked_actions: frozenset[str] = self.BLOCKED_ACTIONS
+        self._audit_log: list[AuditEntry] = []
 
         self._audit_file: Path | None = None
         if audit_log_path:
@@ -121,7 +134,7 @@ class ActionGuard:
         if custom_blocked_actions:
             self._blocked_actions = frozenset(self._blocked_actions | frozenset(custom_blocked_actions))
 
-    def validate_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+    def validate_action(self, action: str, params: ActionParams) -> ValidationResult:
         """액션을 검증합니다.
 
         Returns:
@@ -155,11 +168,11 @@ class ActionGuard:
 
         # 3. 위험 영역 클릭 검사
         if action in ("left_click", "right_click", "double_click", "mouse_move"):
-            x = params.get("x", 0)
-            y = params.get("y", 0)
+            x = _int_param(params, "x", 0)
+            y = _int_param(params, "y", 0)
             # P1 수정: 비율 기반 동적 위험 영역 계산
-            screen_w = params.get("screen_width", 1920)
-            screen_h = params.get("screen_height", 1080)
+            screen_w = _int_param(params, "screen_width", 1920)
+            screen_h = _int_param(params, "screen_height", 1080)
             for zone in self.get_danger_zones(screen_w, screen_h):
                 if zone["x_min"] <= x <= zone["x_max"] and zone["y_min"] <= y <= zone["y_max"]:
                     self._log_audit(
@@ -184,20 +197,20 @@ class ActionGuard:
             "requires_hitl": requires_hitl,
         }
 
-    def get_audit_log(self) -> list[dict[str, Any]]:
+    def get_audit_log(self) -> list[AuditEntry]:
         """감사 로그를 반환합니다."""
         return list(self._audit_log)
 
     def _log_audit(
         self,
         action: str,
-        params: dict[str, Any],
+        params: ActionParams,
         allowed: bool,
         reason: str,
         requires_hitl: bool = False,
     ) -> None:
         """감사 로그를 기록합니다."""
-        entry = {
+        entry: AuditEntry = {
             "timestamp": datetime.now().isoformat(),
             "action": action,
             "params": params,
@@ -218,7 +231,7 @@ class ActionGuard:
             try:
                 import json
 
-                with open(self._audit_file, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            except Exception:
+                with self._audit_file.open("a", encoding="utf-8") as f:
+                    _ = f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except (OSError, TypeError, ValueError):
                 logger.exception("Failed to write audit log")

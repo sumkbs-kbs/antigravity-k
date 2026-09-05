@@ -2,6 +2,8 @@
 
 import os
 import tempfile
+from collections.abc import Callable, Iterator
+from typing import cast
 from unittest import mock
 
 import pytest
@@ -45,7 +47,7 @@ class TestWriteFileTool:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test.txt")
             with open(path, "w") as f:
-                f.write("old")
+                _ = f.write("old")
             result = tool.execute(file_path=path, content="new")
             assert "wrote" in result.lower()
             with open(path) as f:
@@ -97,14 +99,14 @@ class TestCreateDirectoryTool:
 
 class TestEditFileTool:
     @pytest.fixture
-    def sample_file(self):
+    def sample_file(self) -> Iterator[str]:
         content = "line1\nline2\nline3\n"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write(content)
+            _ = f.write(content)
             path = f.name
         yield path
         if os.path.exists(path):
-            os.unlink(path)
+            _ = os.unlink(path)
 
     def test_name(self):
         assert EditFileTool().name == "edit_file"
@@ -114,16 +116,16 @@ class TestEditFileTool:
         result = tool.execute(file_path="/nonexistent.txt", old_str="hello", new_str="world")
         assert "not found" in result.lower()
 
-    def test_exact_match(self, sample_file):
+    def test_exact_match(self, sample_file: str):
         tool = EditFileTool()
-        tool.execute(file_path=sample_file, old_str="line2", new_str="line2_edited")
+        _ = tool.execute(file_path=sample_file, old_str="line2", new_str="line2_edited")
         with open(sample_file) as f:
             content = f.read()
         assert "line2_edited" in content
 
-    def test_exact_match_multi_line(self, sample_file):
+    def test_exact_match_multi_line(self, sample_file: str):
         tool = EditFileTool()
-        tool.execute(
+        _ = tool.execute(
             file_path=sample_file,
             old_str="line1\nline2",
             new_str="line1\nline2_edited",
@@ -132,14 +134,14 @@ class TestEditFileTool:
             content = f.read()
         assert "line2_edited" in content
 
-    def test_ambiguous_match(self, sample_file):
+    def test_ambiguous_match(self, sample_file: str):
         tool = EditFileTool()
         with open(sample_file, "w") as f:
-            f.write("dup\nmiddle\ndup\n")
+            _ = f.write("dup\nmiddle\ndup\n")
         result = tool.execute(file_path=sample_file, old_str="dup", new_str="changed")
         assert "found" in result.lower() and "times" in result.lower()
 
-    def test_no_match_hint(self, sample_file):
+    def test_no_match_hint(self, sample_file: str):
         """When old_str has zero similarity to any line, returns base message."""
         tool = EditFileTool()
         result = tool.execute(file_path=sample_file, old_str="nonexistent_text_xyz", new_str="replacement")
@@ -153,10 +155,10 @@ class TestEditFileTool:
                 result = tool.execute(file_path="/fake.txt", old_str="a", new_str="b")
                 assert "error" in result.lower()
 
-    def test_fuzzy_whitespace_match(self, sample_file):
+    def test_fuzzy_whitespace_match(self, sample_file: str):
         """Fuzzy match handles whitespace differences."""
         tool = EditFileTool()
-        tool.execute(
+        _ = tool.execute(
             file_path=sample_file,
             old_str="  line2",  # extra spaces
             new_str="line2_fuzzy",
@@ -169,10 +171,10 @@ class TestEditFileTool:
         """Fuzzy match with single-line similarity."""
         tool = EditFileTool()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write("the quick brown fox\njumps over the lazy dog\n")
+            _ = f.write("the quick brown fox\njumps over the lazy dog\n")
             path = f.name
         try:
-            tool.execute(
+            _ = tool.execute(
                 file_path=path,
                 old_str="quick brown fox",
                 new_str="slow brown fox",
@@ -182,7 +184,7 @@ class TestEditFileTool:
             assert "slow brown fox" in content
         finally:
             if os.path.exists(path):
-                os.unlink(path)
+                _ = os.unlink(path)
 
 
 # ─── MultiReplaceFileContentTool ─────────────────────────────────
@@ -195,7 +197,7 @@ class TestMultiReplaceFileContentTool:
     def test_multi_replace(self):
         tool = MultiReplaceFileContentTool()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write("aaa\nbbb\nccc\n")
+            _ = f.write("aaa\nbbb\nccc\n")
             path = f.name
         try:
             result = tool.execute(
@@ -211,7 +213,7 @@ class TestMultiReplaceFileContentTool:
             assert "AAA" in content
             assert "CCC" in content
         finally:
-            os.unlink(path)
+            _ = os.unlink(path)
 
     def test_file_not_found(self):
         tool = MultiReplaceFileContentTool()
@@ -221,7 +223,7 @@ class TestMultiReplaceFileContentTool:
     def test_chunk_target_not_found(self):
         tool = MultiReplaceFileContentTool()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-            f.write("hello\n")
+            _ = f.write("hello\n")
             path = f.name
         try:
             result = tool.execute(
@@ -232,7 +234,7 @@ class TestMultiReplaceFileContentTool:
             )
             assert "not found" in result.lower()
         finally:
-            os.unlink(path)
+            _ = os.unlink(path)
 
 
 # ─── GlobSearchTool ───────────────────────────────────────────────
@@ -245,8 +247,10 @@ class TestGlobSearchTool:
     def test_find_py_files(self):
         tool = GlobSearchTool()
         with tempfile.TemporaryDirectory() as tmpdir:
-            open(os.path.join(tmpdir, "test.py"), "w").close()
-            open(os.path.join(tmpdir, "test.txt"), "w").close()
+            with open(os.path.join(tmpdir, "test.py"), "w"):
+                pass
+            with open(os.path.join(tmpdir, "test.txt"), "w"):
+                pass
             result = tool.execute(pattern="*.py", root=tmpdir)
             assert "test.py" in result
             assert "found" in result.lower()
@@ -258,8 +262,9 @@ class TestGlobSearchTool:
             assert "no files" in result.lower()
 
     def test_human_size(self):
-        assert GlobSearchTool._human_size(500) == "500B"
-        assert GlobSearchTool._human_size(2048) == "2KB"
+        human_size = cast(Callable[[int], str], getattr(GlobSearchTool, "_human_size"))
+        assert human_size(500) == "500B"
+        assert human_size(2048) == "2KB"
 
     def test_error(self):
         tool = GlobSearchTool()
@@ -279,7 +284,7 @@ class TestGrepSearchTool:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test.py")
             with open(path, "w") as f:
-                f.write("def foo(): pass\n# bar\n")
+                _ = f.write("def foo(): pass\n# bar\n")
             result = tool.execute(query="foo", path=tmpdir, include="*.py")
             assert "foo" in result
             assert "found" in result.lower()
@@ -287,35 +292,35 @@ class TestGrepSearchTool:
     def test_regex_search(self):
         tool = GrepSearchTool()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-            f.write("error_123\nwarning_456\n")
+            _ = f.write("error_123\nwarning_456\n")
             path = f.name
         try:
             result = tool.execute(query=r"error_\d+", path=path, is_regex=True)
             assert "error_123" in result
         finally:
             if os.path.exists(path):
-                os.unlink(path)
+                _ = os.unlink(path)
 
     def test_no_match(self):
         tool = GrepSearchTool()
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test.py")
             with open(path, "w") as f:
-                f.write("hello world\n")
+                _ = f.write("hello world\n")
             result = tool.execute(query="nonexistent", path=tmpdir, include="*.py")
             assert "no matches" in result.lower()
 
     def test_single_file(self):
         tool = GrepSearchTool()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-            f.write("target_text\n")
+            _ = f.write("target_text\n")
             path = f.name
         try:
             result = tool.execute(query="target_text", path=path)
             assert "target_text" in result
             assert "found" in result.lower()
         finally:
-            os.unlink(path)
+            _ = os.unlink(path)
 
     def test_empty_query(self):
         tool = GrepSearchTool()

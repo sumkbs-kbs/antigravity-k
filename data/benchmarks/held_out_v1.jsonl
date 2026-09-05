@@ -1,0 +1,3 @@
+{"id":"heldout-ko-001","category":"korean_reasoning","prompt":"다음 문장을 논리 오류 없이 한 문장으로 요약하세요: 서버가 재시작되었기 때문에 클라이언트 커서를 마지막 event sequence 이후부터 재생해야 하며, 이미 받은 sequence는 다시 실행하지 않습니다.","expected_keywords":["sequence","재생","이후"],"forbidden_for_training":true}
+{"id":"heldout-code-001","category":"verified_code","prompt":"1부터 30까지 숫자 중 7의 배수만 합하는 Python 함수를 작성하고 실행 결과를 print하세요.","expected_output":"63","expected_keywords":["63"],"forbidden_for_training":true}
+{"id":"heldout-tool-001","category":"tool_recovery","prompt":"리소스 예약 API가 device_busy를 반환하면 작업을 큐에 남기고 사용자에게 재시도 가능한 상태를 보여주세요.","expected_keywords":["device_busy","queue","resume"],"forbidden_for_training":true}

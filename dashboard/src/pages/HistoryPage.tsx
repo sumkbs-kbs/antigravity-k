@@ -14,6 +14,7 @@ import { useEditorStore } from '../stores/editorStore';
 import LocalHistoryTimeline from '../components/History/LocalHistoryTimeline';
 import SnapshotDiffView from '../components/History/SnapshotDiffView';
 import { useUiStore } from '../stores/uiStore';
+import { JobOperationsPage } from '../features/job-operations/JobOperationsPage';
 
 /* ─── File selector sidebar ────────────────────────────────── */
 
@@ -170,11 +171,15 @@ const FileListSidebar: React.FC = () => {
             onBlur={handleMaxChange}
             onKeyDown={e => e.key === 'Enter' && handleMaxChange()}
             autoFocus
+            aria-label="파일당 최대 스냅샷 수"
           />
         ) : (
           <span
             className="history-max-value"
             onClick={() => { setMaxInput(String(maxSnapshotsPerFile)); setEditingMax(true); }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMaxInput(String(maxSnapshotsPerFile)); setEditingMax(true); } }}
             title="클릭하여 변경"
           >
             {maxSnapshotsPerFile}
@@ -195,52 +200,117 @@ const FileListSidebar: React.FC = () => {
 
 const HistoryPage: React.FC = () => {
   const { selectedFile, compareIds } = useLocalHistoryStore();
+  const [activeTab, setActiveTab] = useState<'history' | 'jobs'>('history');
 
   return (
-    <div className="page-container full-height-page history-page">
-      <div className="page-header">
+    <div
+      className="page-container full-height-page history-page"
+      style={{ overflow: activeTab === 'jobs' ? 'auto' : 'hidden' }}
+    >
+      <div className="page-header" style={{ marginBottom: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div className="page-header-hero">
-            <div className="hero-eyebrow">LOCAL HISTORY</div>
-            <h2>로컬 히스토리</h2>
+            <div className="hero-eyebrow">{activeTab === 'history' ? 'LOCAL HISTORY' : 'AUTOMATION & JOBS'}</div>
+            <h2>{activeTab === 'history' ? '⏱️ 파일 히스토리' : '📅 예약 작업 관리'}</h2>
             <p className="page-subtitle">
-              파일 변경 내역을 시간순으로 확인하고, 두 시점을 비교하여 차이를 검토합니다.
+              {activeTab === 'history'
+                ? '파일 변경 내역을 시간순으로 확인하고, 두 시점을 비교하여 차이를 검토합니다.'
+                : '백그라운드 스케줄 작업, 주기적 트리거 및 실행 이력을 모니터링합니다.'}
             </p>
           </div>
-          <div className="history-header-actions">
-            <HistorySettingsBar />
-            {compareIds[0] && compareIds[1] && (
-              <span className="history-compare-badge">
-                🔍 A↔B 비교 중
-              </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div
+              className="history-tab-switcher"
+              style={{
+                display: 'inline-flex',
+                gap: 4,
+                background: '#161b22',
+                padding: '3px 4px',
+                borderRadius: 8,
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <button
+                type="button"
+                className={`glass-btn small ${activeTab === 'history' ? 'primary active' : ''}`}
+                onClick={() => setActiveTab('history')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: activeTab === 'history' ? '#21262d' : 'transparent',
+                  color: activeTab === 'history' ? '#f0f6fc' : '#8b949e',
+                  fontWeight: activeTab === 'history' ? 600 : 500,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                ⏱️ 파일 히스토리
+              </button>
+              <button
+                type="button"
+                className={`glass-btn small ${activeTab === 'jobs' ? 'primary active' : ''}`}
+                onClick={() => setActiveTab('jobs')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: activeTab === 'jobs' ? '#21262d' : 'transparent',
+                  color: activeTab === 'jobs' ? '#f0f6fc' : '#8b949e',
+                  fontWeight: activeTab === 'jobs' ? 600 : 500,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                📅 예약 작업
+              </button>
+            </div>
+
+            {activeTab === 'history' && (
+              <div className="history-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <HistorySettingsBar />
+                {compareIds[0] && compareIds[1] && (
+                  <span className="history-compare-badge">
+                    🔍 A↔B 비교 중
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      <div className="history-layout">
-        {/* Left: File List */}
-        <div className="history-left-panel">
-          <FileListSidebar />
-        </div>
+      {activeTab === 'history' ? (
+        <div className="history-layout">
+          {/* Left: File List */}
+          <div className="history-left-panel">
+            <FileListSidebar />
+          </div>
 
-        {/* Center: Timeline */}
-        <div className="history-center-panel">
-          {selectedFile ? (
-            <LocalHistoryTimeline />
-          ) : (
-            <div className="timeline-select-file-hint">
-              <span className="timeline-empty-icon">📂</span>
-              <span>왼쪽에서 파일을 선택하세요</span>
-            </div>
-          )}
-        </div>
+          {/* Center: Timeline */}
+          <div className="history-center-panel">
+            {selectedFile ? (
+              <LocalHistoryTimeline />
+            ) : (
+              <div className="timeline-select-file-hint">
+                <span className="timeline-empty-icon">📂</span>
+                <span>왼쪽에서 파일을 선택하세요</span>
+              </div>
+            )}
+          </div>
 
-        {/* Right: Diff Viewer */}
-        <div className="history-right-panel">
-          <SnapshotDiffView />
+          {/* Right: Diff Viewer */}
+          <div className="history-right-panel">
+            <SnapshotDiffView />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto' }}>
+          <JobOperationsPage />
+        </div>
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-# Antigravity-K Kubernetes deployment manifests.
+# Ssak-Ai Kubernetes deployment manifests.
 #
 # Apply with: kubectl apply -f deploy/k8s/
 #

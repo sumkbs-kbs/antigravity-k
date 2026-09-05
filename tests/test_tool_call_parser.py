@@ -25,6 +25,7 @@ def test_normal_tool_call():
     assert EventType.TOOL_CALL_COMPLETE in types, f"TOOL_CALL_COMPLETE missing: {types}"
 
     complete_event = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE][0]
+    assert complete_event.tool_call is not None
     assert complete_event.tool_call.name == "web_search"
     assert complete_event.tool_call.arguments == {"query": "test"}
     print("✅ test_normal_tool_call PASSED")
@@ -43,6 +44,22 @@ def test_thought_blocks_ignored():
     # 모두 TEXT 이벤트여야 함
     assert all(e.type == EventType.TEXT for e in events), f"Non-TEXT events found: {types}"
     print("✅ test_thought_blocks_ignored PASSED")
+
+
+def test_unclosed_thought_does_not_execute_bare_json_on_flush():
+    """닫히지 않은 <thought>가 스트림 종료 시 bare JSON 도구 호출을 유발하지 않는다.
+
+    모델이 추론 중 {"name": ...} 형태를 "언급"만 하고 스트림이 끝나도
+    실행되어서는 안 된다.
+    """
+    parser = ToolCallParser()
+    events = parser.feed('<thought>\nmaybe call {"name": "run_bash_command", "arguments": {"command": "rm -rf /"}}\n')
+    events += parser.flush()
+
+    types = [e.type for e in events]
+    assert EventType.TOOL_CALL_COMPLETE not in types, f"Bare JSON executed inside thought! {types}"
+    assert EventType.TOOL_CALL_START not in types
+    assert all(e.type == EventType.TEXT for e in events), f"Non-TEXT events found: {types}"
 
 
 def test_thought_then_real_tool_call():
@@ -66,6 +83,7 @@ def test_thought_then_real_tool_call():
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected TOOL_CALL_ERROR: {types}"
 
     complete_event = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE][0]
+    assert complete_event.tool_call is not None
     assert complete_event.tool_call.name == "web_search"
     assert complete_event.tool_call.arguments == {"query": "거제 날씨"}
     print("✅ test_thought_then_real_tool_call PASSED")
@@ -91,6 +109,7 @@ def test_streaming_chunks():
     # thought 안의 <action_call>은 무시, 진짜만 감지
     complete_events = [e for e in all_events if e.type == EventType.TOOL_CALL_COMPLETE]
     assert len(complete_events) == 1, f"Expected exactly 1 TOOL_CALL_COMPLETE, got {len(complete_events)}: {types}"
+    assert complete_events[0].tool_call is not None
     assert complete_events[0].tool_call.name == "web_search"
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected TOOL_CALL_ERROR: {types}"
     print("✅ test_streaming_chunks PASSED")
@@ -126,6 +145,7 @@ def test_multiple_thought_blocks():
     types = [e.type for e in events]
     complete_events = [e for e in events if e.type == EventType.TOOL_CALL_COMPLETE]
     assert len(complete_events) == 1, f"Expected 1 TOOL_CALL_COMPLETE, got {len(complete_events)}"
+    assert complete_events[0].tool_call is not None
     assert complete_events[0].tool_call.name == "test_tool"
     assert EventType.TOOL_CALL_ERROR not in types, f"Unexpected errors: {types}"
     print("✅ test_multiple_thought_blocks PASSED")

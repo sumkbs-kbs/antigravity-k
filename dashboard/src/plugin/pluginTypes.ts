@@ -1,11 +1,9 @@
 /**
  * Plugin System Types (TypeScript)
  * =================================
- * Core type definitions for the Antigravity-K plugin architecture.
+ * Core type definitions for the Ssak-Ai plugin architecture.
  * Supports custom panels, hooks, commands, sidebar items, and toolbar widgets.
  */
-
-import type { ReactNode } from 'react';
 
 /* ─── Plugin Manifest ─────────────────────────────────────── */
 
@@ -40,7 +38,7 @@ export interface PanelRegistration {
   /** Emoji icon for sidebar */
   icon: string;
   /** Optional: sort order in sidebar (lower = higher) */
-  order?: number;
+  order?: number | null;
 }
 
 /* ─── Command Registration ────────────────────────────────── */
@@ -79,9 +77,9 @@ export interface HookRegistration {
   /** Which hook to subscribe to */
   hook: HookType;
   /** Handler function */
-  handler: (data?: any) => void;
+  handler: (data?: unknown) => void;
   /** Optional: priority (higher = runs first, default 0) */
-  priority?: number;
+  priority?: number | null;
 }
 
 /* ─── Toolbar Widget ──────────────────────────────────────── */

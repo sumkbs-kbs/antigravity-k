@@ -24,8 +24,10 @@ const GitCommitDialog: React.FC = () => {
   // Focus input when dialog opens
   useEffect(() => {
     if (commitDialogOpen && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const focusTimer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(focusTimer);
     }
+    return undefined;
   }, [commitDialogOpen]);
 
   const handleClose = useCallback(() => {
@@ -66,10 +68,12 @@ const GitCommitDialog: React.FC = () => {
   if (!commitDialogOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="modal-overlay" onClick={handleClose} role="presentation">
       <div
         className="modal-content glass-panel git-commit-dialog"
         onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-label="Git 커밋"
         style={{ width: 520, maxHeight: '70vh' }}
       >
         {/* Header */}
@@ -78,7 +82,7 @@ const GitCommitDialog: React.FC = () => {
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             <span className="git-branch-name">{status.branch || 'main'}</span>
           </div>
-          <button className="icon-btn" onClick={handleClose} disabled={committing} style={{ fontSize: 12, padding: '4px 8px', color: 'var(--text-secondary)' }}>✕</button>
+          <button className="icon-btn" onClick={handleClose} disabled={committing} aria-label="커밋 대화상자 닫기" style={{ fontSize: 12, padding: '4px 8px', color: 'var(--text-secondary)' }}>✕</button>
         </div>
 
         {/* Branch info */}
@@ -98,6 +102,7 @@ const GitCommitDialog: React.FC = () => {
             onChange={e => setCommitMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Commit message (Ctrl+Enter to commit)"
+            aria-label="커밋 메시지"
             rows={3}
             disabled={committing}
           />

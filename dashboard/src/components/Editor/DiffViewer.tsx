@@ -6,10 +6,10 @@
  * Supports inline accept/reject actions.
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
 import type { DiffOnMount } from '@monaco-editor/react';
-import { useChangeStore, ProposedChange } from '../../stores/changeStore';
+import type { ProposedChange } from '../../stores/changeStore';
 import { useUiStore } from '../../stores/uiStore';
 
 /* ─── Custom Theme ─────────────────────────────────────────── */
@@ -57,29 +57,43 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
   showActions = true,
   height = '100%',
 }) => {
-  const editorRef = useRef<any>(null);
   const { addToast } = useUiStore();
+  const mountCleanupRef = useRef<(() => void) | null>(null);
 
   const handleMount: DiffOnMount = useCallback((diffEditor, monaco) => {
-    const editor = diffEditor.getModifiedEditor();
-    editorRef.current = editor;
+    mountCleanupRef.current?.();
+    diffEditor.getOriginalEditor().updateOptions({ ariaLabel: `${change.fileName} 변경 전` });
+    diffEditor.getModifiedEditor().updateOptions({ ariaLabel: `${change.fileName} 변경 후` });
     monaco.editor.defineTheme('diff-theme', DIFF_THEME);
     monaco.editor.setTheme('diff-theme');
 
-    // Auto-layout on mount
+    let disposed = false;
     const layout = () => {
+      if (disposed) return;
       try { diffEditor?.layout?.(); } catch { /* ignore */ }
     };
-    setTimeout(layout, 50);
+    const timeoutId = window.setTimeout(layout, 50);
 
-    // ResizeObserver
     const container = diffEditor.getContainerDomNode();
+    let observer: ResizeObserver | null = null;
     if (container) {
-      const observer = new ResizeObserver(() => {
+      observer = new ResizeObserver(() => {
+        if (disposed) return;
         try { layout(); } catch { /* ignore */ }
       });
       observer.observe(container);
     }
+
+    mountCleanupRef.current = () => {
+      disposed = true;
+      window.clearTimeout(timeoutId);
+      observer?.disconnect();
+    };
+  }, [change.fileName]);
+
+  useEffect(() => () => {
+    mountCleanupRef.current?.();
+    mountCleanupRef.current = null;
   }, []);
 
   const handleApprove = useCallback(() => {
@@ -133,8 +147,12 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
           modified={change.newContent}
           language={change.language || 'plaintext'}
           theme="diff-theme"
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
           onMount={handleMount}
           options={{
+            originalAriaLabel: `${change.fileName} 변경 전`,
+            modifiedAriaLabel: `${change.fileName} 변경 후`,
             fontSize: 13,
             fontFamily: "'JetBrains Mono', monospace",
             lineNumbers: 'on',

@@ -1,4 +1,4 @@
-"""Antigravity-K: Rule Engine for Deterministic Routing.
+"""Ssak-Ai: Rule Engine for Deterministic Routing.
 =====================================================
 
 StateGraph의 비결정론적 LLM 기반 라우팅을 규칙 엔진으로 대체합니다.
@@ -17,15 +17,23 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sized
 from dataclasses import dataclass, field
 from enum import Enum
+from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, cast, final
 
 from antigravity_k.engine.state_graph import AgentState, StateContext
 
 logger = logging.getLogger("antigravity_k.engine.rule_engine")
+
+RuleValue: TypeAlias = str | int | float | bool | None | list["RuleValue"] | dict[str, "RuleValue"]
+JsonObject: TypeAlias = dict[str, object]
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    return cast(Mapping[str, object], value) if isinstance(value, dict) else {}
 
 
 class RuleOperator(Enum):
@@ -57,7 +65,7 @@ class RuleCondition:
 
     field: str  # StateContext 필드 경로 (점 표기법 지원: "analysis.task_type")
     operator: RuleOperator
-    value: Any = None
+    value: RuleValue = None
     case_sensitive: bool = False
 
     def evaluate(self, ctx: StateContext) -> bool:
@@ -65,23 +73,23 @@ class RuleCondition:
         actual = self._get_field_value(ctx)
         return self._compare(actual, self.value)
 
-    def _get_field_value(self, ctx: StateContext) -> Any:
+    def _get_field_value(self, ctx: StateContext) -> object:
         """점 표기법으로 필드 값을 추출합니다."""
         parts = self.field.split(".")
-        obj: Any = ctx
+        obj: object = ctx
 
         for part in parts:
             if obj is None:
                 return None
             if isinstance(obj, dict):
-                obj = obj.get(part)
+                obj = cast(JsonObject, obj).get(part)
             elif hasattr(obj, part):
-                obj = getattr(obj, part)
+                obj = cast(object, object.__getattribute__(obj, part))
             else:
                 return None
         return obj
 
-    def _compare(self, actual: Any, expected: Any) -> bool:
+    def _compare(self, actual: object, expected: object) -> bool:
         """연산자에 따라 비교를 수행합니다."""
         if actual is None and expected is None:
             return self.operator in (RuleOperator.EQUALS, RuleOperator.IS_EMPTY)
@@ -124,13 +132,29 @@ class RuleCondition:
                 return actual not in expected
             return False
         elif op == RuleOperator.GREATER_THAN:
-            return float(actual) > float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) > float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.GREATER_EQUAL:
-            return float(actual) >= float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) >= float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.LESS_THAN:
-            return float(actual) < float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) < float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.LESS_EQUAL:
-            return float(actual) <= float(expected) if isinstance(actual, (int, float)) and isinstance(expected, (int, float)) else False
+            return (
+                float(actual) <= float(expected)
+                if isinstance(actual, (int, float)) and isinstance(expected, (int, float))
+                else False
+            )
         elif op == RuleOperator.IS_TRUE:
             return bool(actual) is True
         elif op == RuleOperator.IS_FALSE:
@@ -138,19 +162,25 @@ class RuleCondition:
         elif op == RuleOperator.IS_EMPTY:
             if actual is None:
                 return True
-            if isinstance(actual, (str, list, dict, set, tuple)):
+            if isinstance(actual, str):
                 return len(actual) == 0
+            if isinstance(actual, (list, dict, set, tuple)):
+                return len(cast(Sized, cast(object, actual))) == 0
             return False
         elif op == RuleOperator.IS_NOT_EMPTY:
             # IS_NOT_EMPTY: 직접 구현으로 재귀 방지
             if actual is None:
                 return False
-            if isinstance(actual, (str, list, dict, set, tuple)):
+            if isinstance(actual, str):
                 return len(actual) > 0
+            if isinstance(actual, (list, dict, set, tuple)):
+                return len(cast(Sized, cast(object, actual))) > 0
             return True
         elif op == RuleOperator.STARTS_WITH:
             if isinstance(actual, str) and isinstance(expected, str):
-                return actual.startswith(expected) if self.case_sensitive else actual.lower().startswith(expected.lower())
+                return (
+                    actual.startswith(expected) if self.case_sensitive else actual.lower().startswith(expected.lower())
+                )
             return False
         elif op == RuleOperator.ENDS_WITH:
             if isinstance(actual, str) and isinstance(expected, str):
@@ -173,7 +203,7 @@ class Rule:
     target_state: AgentState = AgentState.AGENT_EXECUTE
     priority: int = 100  # 낮을수록 우선순위 높음
     enabled: bool = True
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
 
     def matches(self, ctx: StateContext) -> bool:
         """모든 조건이 만족되는지 확인합니다."""
@@ -183,7 +213,7 @@ class Rule:
             return True  # 조건 없으면 항상 매칭 (기본 규칙용)
         return all(cond.evaluate(ctx) for cond in self.conditions)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         """규칙을 직렬화합니다."""
         return {
             "name": self.name,
@@ -204,29 +234,33 @@ class Rule:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Rule":
+    def from_dict(cls, data: Mapping[str, object]) -> "Rule":
         """딕셔너리에서 규칙을 생성합니다."""
-        conditions = []
-        for c in data.get("conditions", []):
+        conditions: list[RuleCondition] = []
+        raw_conditions = data.get("conditions", [])
+        condition_items = cast(list[object], raw_conditions) if isinstance(raw_conditions, list) else []
+        for raw_condition in condition_items:
+            c = _as_mapping(raw_condition)
             conditions.append(
                 RuleCondition(
-                    field=c["field"],
-                    operator=RuleOperator(c["operator"]),
-                    value=c.get("value"),
-                    case_sensitive=c.get("case_sensitive", False),
+                    field=str(c["field"]),
+                    operator=RuleOperator(str(c["operator"])),
+                    value=cast(RuleValue, c.get("value")),
+                    case_sensitive=bool(c.get("case_sensitive", False)),
                 )
             )
         return cls(
-            name=data["name"],
-            description=data.get("description", ""),
+            name=str(data["name"]),
+            description=str(data.get("description", "")),
             conditions=conditions,
-            target_state=AgentState(data["target_state"]),
-            priority=data.get("priority", 100),
-            enabled=data.get("enabled", True),
-            metadata=data.get("metadata", {}),
+            target_state=AgentState(str(data["target_state"])),
+            priority=int(cast(str | int | float, data.get("priority", 100))),
+            enabled=bool(data.get("enabled", True)),
+            metadata=dict(_as_mapping(data.get("metadata", {}))),
         )
 
 
+@final
 class RuleEngine:
     """결정론적 라우팅 규칙 엔진.
 
@@ -235,8 +269,8 @@ class RuleEngine:
 
     def __init__(self, rules: list[Rule] | None = None, config_path: str | Path | None = None):
         self._rules: list[Rule] = rules or []
-        self._config_path = Path(config_path) if config_path else None
-        self._decision_log: list[dict[str, Any]] = []
+        self._config_path: Path | None = Path(config_path) if config_path else None
+        self._decision_log: list[JsonObject] = []
 
         # 기본 규칙 로드
         if not self._rules:
@@ -287,8 +321,11 @@ class RuleEngine:
                 name="max_mode_large_scale",
                 description="대규모/아키텍처/마이그레이션/리팩토링 키워드 포함",
                 conditions=[
-                    RuleCondition("user_message", RuleOperator.REGEX_MATCH,
-                                  r"(대규모|전면|아키텍처|마이그레이션|refactor|architecture|migrate|redesign|리팩토링|구조개선|전체\s*재작성|full\s*rewrite)"),
+                    RuleCondition(
+                        "user_message",
+                        RuleOperator.REGEX_MATCH,
+                        r"(대규모|전면|아키텍처|마이그레이션|refactor|architecture|migrate|redesign|리팩토링|구조개선|전체\s*재작성|full\s*rewrite)",
+                    ),
                 ],
                 target_state=AgentState.MAX_EXECUTE,
                 priority=35,
@@ -358,29 +395,33 @@ class RuleEngine:
         """YAML/JSON 파일에서 규칙을 로드합니다."""
         path = Path(path)
         if not path.exists():
-            logger.warning(f"[RuleEngine] Config file not found: {path}")
+            logger.warning("[RuleEngine] Config file not found: %s", path)
             return
 
         try:
             content = path.read_text(encoding="utf-8")
             if path.suffix in (".yaml", ".yml"):
                 import yaml
-                data = yaml.safe_load(content)
+
+                data = cast(object, yaml.safe_load(content))
             else:
-                data = json.loads(content)
+                data = cast(object, json.loads(content))
 
             if isinstance(data, dict) and "rules" in data:
-                for rule_data in data["rules"]:
-                    rule = Rule.from_dict(rule_data)
+                config = cast(JsonObject, data)
+                raw_rules = config["rules"]
+                rule_items = cast(list[object], raw_rules) if isinstance(raw_rules, list) else []
+                for raw_rule in rule_items:
+                    rule = Rule.from_dict(_as_mapping(raw_rule))
                     # 기존 규칙과 이름이 같으면 교체, 없으면 추가
                     existing_idx = next((i for i, r in enumerate(self._rules) if r.name == rule.name), None)
                     if existing_idx is not None:
                         self._rules[existing_idx] = rule
                     else:
                         self._rules.append(rule)
-                logger.info(f"[RuleEngine] Loaded {len(data.get('rules', []))} rules from {path}")
+                logger.info("[RuleEngine] Loaded %s rules from %s", len(rule_items), path)
         except Exception as e:
-            logger.exception(f"[RuleEngine] Failed to load rules from {path}: {e}")
+            logger.exception("[RuleEngine] Failed to load rules from %s: %s", path, e)
 
     def save_to_file(self, path: str | Path) -> None:
         """현재 규칙을 파일로 저장합니다."""
@@ -391,12 +432,13 @@ class RuleEngine:
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.suffix in (".yaml", ".yml"):
                 import yaml
-                path.write_text(yaml.dump({"rules": [r.to_dict() for r in self._rules]}, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+                _ = path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
             else:
-                path.write_text(json.dumps({"rules": [r.to_dict() for r in self._rules]}, ensure_ascii=False, indent=2), encoding="utf-8")
-            logger.info(f"[RuleEngine] Saved {len(self._rules)} rules to {path}")
+                _ = path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            logger.info("[RuleEngine] Saved %s rules to %s", len(self._rules), path)
         except Exception as e:
-            logger.exception(f"[RuleEngine] Failed to save rules to {path}: {e}")
+            logger.exception("[RuleEngine] Failed to save rules to %s: %s", path, e)
 
     def add_rule(self, rule: Rule) -> None:
         """규칙을 추가하거나 기존 규칙을 교체합니다."""
@@ -411,7 +453,7 @@ class RuleEngine:
         """이름으로 규칙을 제거합니다."""
         for i, rule in enumerate(self._rules):
             if rule.name == name:
-                self._rules.pop(i)
+                _ = self._rules.pop(i)
                 return True
         return False
 
@@ -437,21 +479,23 @@ class RuleEngine:
             decision_time_ms = round((time.time() - start_time) * 1000, 2)
 
             # 결정 로그 기록
-            decision_record = {
+            decision_record: JsonObject = {
                 "timestamp": time.time(),
                 "rule_name": rule.name,
-                "matched": rule.matches(ctx),
+                "matched": matched,
                 "target_state": rule.target_state.value,
                 "priority": rule.priority,
-                "evaluation_time_ms": round((time.time() - start_time) * 1000, 2),
+                "evaluation_time_ms": decision_time_ms,
             }
-            self._decision_log.append(decision_record)
+            self._decision_log.append(cast(JsonObject, cast(object, decision_record)))
 
-            if rule.matches(ctx):
+            if matched:
                 logger.info(
                     "[RuleEngine] Rule '%s' matched (priority=%s) → %s (%.2fms)",
-                    rule.name, rule.priority, rule.target_state.value,
-                    decision_time_ms
+                    rule.name,
+                    rule.priority,
+                    rule.target_state.value,
+                    decision_time_ms,
                 )
                 return rule.target_state
 
@@ -459,7 +503,7 @@ class RuleEngine:
         logger.warning("[RuleEngine] No rule matched, falling back to AGENT_EXECUTE")
         return AgentState.AGENT_EXECUTE
 
-    def get_decision_log(self) -> list[dict[str, Any]]:
+    def get_decision_log(self) -> list[JsonObject]:
         """결정 로그를 반환합니다."""
         return self._decision_log.copy()
 
@@ -467,7 +511,7 @@ class RuleEngine:
         """결정 로그를 초기화합니다."""
         self._decision_log.clear()
 
-    def get_rules_summary(self) -> list[dict[str, Any]]:
+    def get_rules_summary(self) -> list[JsonObject]:
         """규칙 요약을 반환합니다 (디버깅용)."""
         return [
             {
@@ -512,8 +556,9 @@ def route_decision_deterministic(ctx: StateContext) -> AgentState:
     StateGraph의 add_conditional_edge에 등록할 수 있는 함수입니다.
     """
     # 파이프라인 명시적 단계 합성 (RuleEngine 평가 전 실행)
-    from antigravity_k.engine.orchestrator_handlers import _synthesize_explicit_pipeline
-    _synthesize_explicit_pipeline(ctx)
+    handlers_module = import_module("antigravity_k.engine.orchestrator_handlers")
+    synthesize = cast(Callable[[StateContext], object], getattr(handlers_module, "_synthesize_explicit_pipeline"))
+    _ = synthesize(ctx)
     engine = get_rule_engine()
     return engine.evaluate(ctx)
 
@@ -523,10 +568,11 @@ def route_decision_with_log(ctx: StateContext) -> AgentState:
     engine = get_rule_engine()
     result = engine.evaluate(ctx)
     # 마지막 결정 로그를 컨텍스트에 저장 (디버깅용)
-    if not hasattr(ctx, "_routing_log"):
-        ctx._routing_log = []
-    ctx._routing_log.append({
-        "state": "ROUTE",
-        "target": engine.get_decision_log()[-1] if engine.get_decision_log() else None,
-    })
+    routing_log = cast(list[JsonObject], getattr(ctx, "_routing_log"))
+    routing_log.append(
+        {
+            "state": "ROUTE",
+            "target": engine.get_decision_log()[-1] if engine.get_decision_log() else None,
+        }
+    )
     return result

@@ -67,6 +67,7 @@ describe('useFileStore', () => {
 
   it('loadDirectory returns items on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({
         ok: true,
         items: [
@@ -92,10 +93,24 @@ describe('useFileStore', () => {
     vi.restoreAllMocks();
   });
 
+  it('loadDirectory returns empty array for a non-OK HTTP response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ detail: 'Workspace unavailable' }),
+    });
+
+    const items = await useFileStore.getState().loadDirectory('.');
+    expect(items).toEqual([]);
+
+    vi.restoreAllMocks();
+  });
+
   /* ─── createFolder ─────────────────────────────────────── */
 
   it('createFolder returns true on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 
@@ -118,6 +133,7 @@ describe('useFileStore', () => {
 
   it('getWorkspace returns the workspace path', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true, workspace: '/home/project' }),
     });
 
@@ -143,6 +159,7 @@ describe('useFileStore', () => {
 
   it('renamePath returns ok on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 
@@ -154,6 +171,7 @@ describe('useFileStore', () => {
 
   it('renamePath returns error detail on API failure', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: false, detail: 'File already exists' }),
     });
 
@@ -168,6 +186,7 @@ describe('useFileStore', () => {
 
   it('deletePath returns true on success', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ ok: true }),
     });
 
@@ -190,6 +209,7 @@ describe('useFileStore', () => {
 
   it('refreshTree updates treeData from workspace', async () => {
     global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({
         ok: true,
         items: [
@@ -204,6 +224,37 @@ describe('useFileStore', () => {
     const state = useFileStore.getState();
     expect(state.treeData).toHaveLength(2);
     expect(state.isLoading).toBe(false);
+
+    vi.restoreAllMocks();
+  });
+
+  it('filters malformed directory entries from a successful response', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        ok: true,
+        items: [
+          { name: 'valid.ts', path: 'valid.ts', is_dir: false },
+          { name: 'invalid', path: 'invalid', is_dir: 'no' },
+        ],
+      }),
+    });
+
+    const items = await useFileStore.getState().loadDirectory('.');
+    expect(items).toEqual([{ name: 'valid.ts', path: 'valid.ts', is_dir: false }]);
+
+    vi.restoreAllMocks();
+  });
+
+  it('returns an empty list when an error response has invalid JSON', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: () => Promise.reject(new Error('invalid json')),
+    });
+
+    const items = await useFileStore.getState().loadDirectory('.');
+    expect(items).toEqual([]);
 
     vi.restoreAllMocks();
   });

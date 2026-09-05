@@ -7,7 +7,7 @@ tiptap-vuetify의 TiptapVuetifyPlugin.install() 패턴에서 영감:
 - 확장(Extension)이 각자의 availableActions를 선언적으로 노출
 - 테마/아이콘이 글로벌 설정으로 일괄 관리
 
-이를 Antigravity-K에 적용:
+이를 Ssak-Ai에 적용:
 - BaseTool 서브클래스를 자동 발견하여 레지스트리에 등록
 - 도구를 카테고리/위험도/렌더위치별로 필터링하여 에이전트에 할당
 - 신규 도구 플러그인은 install()만 구현하면 자동 통합
@@ -16,7 +16,8 @@ tiptap-vuetify의 TiptapVuetifyPlugin.install() 패턴에서 영감:
 import importlib
 import logging
 import pkgutil
-from typing import Any
+from collections.abc import Mapping
+from typing import Protocol, TypeAlias, cast, override
 
 from antigravity_k.engine.capability_policy import (
     AutonomousCapabilityPolicy,
@@ -24,10 +25,24 @@ from antigravity_k.engine.capability_policy import (
 )
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
-from .permission_gate import Permission, PermissionGate
-from .tool_contracts import PermissionDecision, ToolInvocation, ToolSpec
+from .permission_gate import PermissionGate
+from .tool_contracts import Permission, PermissionDecision, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
+
+type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+JsonObject: TypeAlias = dict[str, JsonValue]
+
+
+class _ToolFactory(Protocol):
+    def __call__(self, **kwargs: object) -> BaseTool: ...
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        items = cast(Mapping[object, object], value).items()
+        return {str(key): item for key, item in items}
+    return {}
 
 
 class ToolRegistry:
@@ -48,7 +63,7 @@ class ToolRegistry:
     def __init__(
         self,
         project_root: str | None = None,
-        capability_policy_config: dict[str, Any] | None = None,
+        capability_policy_config: Mapping[str, object] | None = None,
     ):
         """Initialize the ToolRegistry.
 
@@ -59,9 +74,9 @@ class ToolRegistry:
         """
         self._tools: dict[str, BaseTool] = {}
         self._installed_classes: set[str] = set()
-        self._permission_gate = PermissionGate(project_root=project_root)
-        policy_config = capability_policy_config or {}
-        self._capability_policy = AutonomousCapabilityPolicy(
+        self._permission_gate: PermissionGate = PermissionGate(project_root=project_root)
+        policy_config = _as_mapping(capability_policy_config or {})
+        self._capability_policy: AutonomousCapabilityPolicy = AutonomousCapabilityPolicy(
             project_root=project_root,
             max_autonomous_risk=str(policy_config.get("max_autonomous_risk", "high")),
             allow_critical_autonomy=bool(policy_config.get("allow_critical_autonomy", False)),
@@ -74,7 +89,7 @@ class ToolRegistry:
 
     # ─────────────────── 등록 API ───────────────────
 
-    def install(self, tool_or_class, **kwargs) -> "ToolRegistry":
+    def install(self, tool_or_class: object, **kwargs: object) -> "ToolRegistry":
         """도구를 레지스트리에 등록합니다 (tiptap-vuetify의 Plugin.install 패턴).
 
         Args:
@@ -85,16 +100,15 @@ class ToolRegistry:
             self (체이닝 가능)
 
         """
-        if isinstance(tool_or_class, type) and issubclass(tool_or_class, BaseTool):
+        if isinstance(tool_or_class, type) and issubclass(cast(type[object], tool_or_class), BaseTool):
             # 클래스 → 인스턴스 생성
-            tool = tool_or_class(**kwargs)
+            tool = cast(_ToolFactory, tool_or_class)(**kwargs)
         elif isinstance(tool_or_class, BaseTool):
             # 이미 인스턴스
             tool = tool_or_class
         else:
-            raise TypeError(
-                f"Expected BaseTool class or instance, got {type(tool_or_class).__name__}",
-            )
+            type_name = type(tool_or_class).__name__
+            raise TypeError(f"Expected BaseTool class or instance, got {type_name}")
 
         # 중복 등록 방지
         class_name = type(tool).__name__
@@ -112,10 +126,10 @@ class ToolRegistry:
         )
         return self
 
-    def install_many(self, *tools) -> "ToolRegistry":
+    def install_many(self, *tools: object) -> "ToolRegistry":
         """여러 도구를 한번에 등록합니다."""
         for t in tools:
-            self.install(t)
+            _ = self.install(t)
         return self
 
     def auto_discover(self, package_name: str) -> int:
@@ -139,26 +153,28 @@ class ToolRegistry:
             logger.warning("'%s' is not a package.", package_name)
             return 0
 
-        for importer, module_name, is_pkg in pkgutil.iter_modules(package.__path__):
+        for _, module_name, _ in pkgutil.iter_modules(package.__path__):
             if module_name.startswith("_") or module_name == "base_tool":
                 continue
 
             try:
                 module = importlib.import_module(f"{package_name}.{module_name}")
                 for attr_name in dir(module):
-                    attr = getattr(module, attr_name)
+                    attr = cast(object, getattr(module, attr_name))
+                    if not isinstance(attr, type):
+                        continue
+                    attr_type = cast(type[object], attr)
                     if (
-                        isinstance(attr, type)
-                        and issubclass(attr, BaseTool)
-                        and attr is not BaseTool
-                        and attr.__name__ not in self._installed_classes
+                        issubclass(attr_type, BaseTool)
+                        and attr_type is not BaseTool
+                        and attr_type.__name__ not in self._installed_classes
                     ):
                         try:
-                            self.install(attr)
+                            _ = self.install(attr_type)
                             count += 1
                         except Exception as e:
                             logger.exception("Unhandled exception")
-                            logger.debug("Could not auto-install %s: %s", attr.__name__, e)
+                            logger.debug("Could not auto-install %s: %s", attr_type.__name__, e)
             except Exception as e:
                 logger.exception("Unhandled exception")
                 logger.debug("Error importing %s.%s: %s", package_name, module_name, e)
@@ -182,7 +198,7 @@ class ToolRegistry:
 
     def get_by_names(self, names: list[str]) -> list[BaseTool]:
         """이름 목록으로 도구들을 조회합니다."""
-        result = []
+        result: list[BaseTool] = []
         for n in names:
             tool = self._tools.get(n)
             if tool:
@@ -237,7 +253,7 @@ class ToolRegistry:
     def execute_with_permission(
         self,
         tool_name: str,
-        args: dict[str, Any],
+        args: Mapping[str, object],
         objective: str = "",
     ) -> tuple[Permission, str]:
         """권한 검증 후 도구를 실행합니다 (Claw Code PermissionPolicy 패턴).
@@ -265,7 +281,7 @@ class ToolRegistry:
     def authorize(
         self,
         tool_name: str,
-        args: dict[str, Any],
+        args: Mapping[str, object],
         objective: str = "",
     ) -> PermissionDecision:
         tool = self.get(tool_name)
@@ -278,6 +294,14 @@ class ToolRegistry:
                 reason="The requested tool is not registered.",
             )
 
+        return self.authorize_tool(tool, args, objective=objective)
+
+    def authorize_tool(
+        self,
+        tool: BaseTool,
+        args: Mapping[str, object],
+        objective: str = "",
+    ) -> PermissionDecision:
         spec = ToolSpec(
             name=tool.name,
             risk_level=tool.risk_level.value,
@@ -311,7 +335,7 @@ class ToolRegistry:
     def decide_tool_use(
         self,
         tool_name: str,
-        args: dict[str, Any] | None = None,
+        args: Mapping[str, object] | None = None,
         objective: str = "",
     ) -> CapabilityDecision | None:
         """도구 실행 전 자율 판단 결과를 반환합니다."""
@@ -330,7 +354,7 @@ class ToolRegistry:
         """LLM 시스템 프롬프트에 주입할 capability 정책 요약."""
         return self._capability_policy.render_policy_prompt()
 
-    def execute_approved(self, tool_name: str, args: dict[str, Any]) -> str:
+    def execute_approved(self, tool_name: str, args: Mapping[str, object]) -> str:
         """승인된 도구를 실행하고 캐시에 기록합니다."""
         tool = self.get(tool_name)
         if not tool:
@@ -342,12 +366,12 @@ class ToolRegistry:
 
     # ─────────────────── 스키마 API ───────────────────
 
-    def to_llm_schemas(self, names: list[str] | None = None) -> list[dict[str, Any]]:
+    def to_llm_schemas(self, names: list[str] | None = None) -> list[JsonObject]:
         """LLM에 전달할 도구 스키마 목록을 생성합니다."""
         tools = self.get_by_names(names) if names else self.get_all()
-        return [t.to_tool_call_schema() for t in tools]
+        return [cast(JsonObject, t.to_tool_call_schema()) for t in tools]
 
-    def to_openai_schemas(self, names: list[str] | None = None) -> list[dict[str, Any]]:
+    def to_openai_schemas(self, names: list[str] | None = None) -> list[JsonObject]:
         """OpenAI function calling 포맷 도구 스키마 목록 (P1-1).
 
         OpenAI 호환 provider(OpenRouter, NIM, Ollama OpenAI mode)의 네이티브
@@ -355,9 +379,9 @@ class ToolRegistry:
         Anthropic 포맷(input_schema)을 OpenAI 포맷(function.parameters)으로 변환.
         """
         tools = self.get_by_names(names) if names else self.get_all()
-        result = []
+        result: list[JsonObject] = []
         for t in tools:
-            schema = t.to_tool_call_schema()
+            schema = cast(JsonObject, t.to_tool_call_schema())
             result.append(
                 {
                     "type": "function",
@@ -370,9 +394,9 @@ class ToolRegistry:
             )
         return result
 
-    def to_metadata_list(self) -> list[dict[str, Any]]:
+    def to_metadata_list(self) -> list[JsonObject]:
         """UI 대시보드용 도구 메타데이터 목록."""
-        return [t.to_metadata() for t in self._tools.values()]
+        return [cast(JsonObject, t.to_metadata()) for t in self._tools.values()]
 
     # ─────────────────── 정보 ───────────────────
 
@@ -411,6 +435,22 @@ class ToolRegistry:
         """
         return name in self._tools
 
+    def get_tool(self, name: str) -> BaseTool | None:
+        """Return the registered tool instance for ``name``, or None.
+
+        Used by ToolExecutor to inspect tool metadata (e.g. MCP server name)
+        when enforcing request-scoped tool policies.
+
+        Args:
+            name (str): str name.
+
+        Returns:
+            BaseTool | None: The registered tool instance, or None.
+
+        """
+        return self._tools.get(name)
+
+    @override
     def __repr__(self) -> str:
         """Return a formal string representation.
 

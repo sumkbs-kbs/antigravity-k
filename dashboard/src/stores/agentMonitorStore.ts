@@ -18,7 +18,7 @@ export interface LogEntry {
   source: string;
   message: string;
   /** Optional structured metadata */
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface ActiveTool {
@@ -42,7 +42,8 @@ export interface TaskProgress {
 export interface ExecutionEvent {
   id: string;
   timestamp: string;
-  type: 'tool_start' | 'tool_end' | 'task_start' | 'task_end' | 'error' | 'plan' | 'mode_change';
+  type: 'tool_start' | 'tool_end' | 'task_start' | 'task_end' | 'error' | 'plan' | 'approval' | 'mode_change'
+    | 'agent_turn' | 'quality' | 'anti_pattern';
   label: string;
   detail?: string;
 }
@@ -72,7 +73,7 @@ export interface AgentMonitorState {
   addTask: (task: TaskProgress) => void;
   removeTask: (taskId: string) => void;
   addTimelineEvent: (event: Omit<ExecutionEvent, 'id' | 'timestamp'>) => void;
-  updateMetrics: (metrics: { memoryMb?: number; cpuPercent?: number; totalTokens?: number }) => void;
+  updateMetrics: (metrics: { memoryMb?: number | null; cpuPercent?: number | null; totalTokens?: number | null }) => void;
   setUptime: (uptime: number) => void;
   clearLogs: () => void;
   reset: () => void;
@@ -89,7 +90,7 @@ const MAX_TASKS = 20;
 let logCounter = 0;
 let eventCounter = 0;
 
-export const useAgentMonitorStore = create<AgentMonitorState>((set, get) => ({
+export const useAgentMonitorStore = create<AgentMonitorState>((set) => ({
   agentStatus: 'idle',
   activeTool: null,
   logs: [],
@@ -177,7 +178,7 @@ export const useAgentMonitorStore = create<AgentMonitorState>((set, get) => ({
 
 /* ─── Convenience helpers ──────────────────────────────────── */
 
-export function logAgent(message: string, level: LogEntry['level'] = 'info', source = 'Agent', data?: Record<string, any>) {
+export function logAgent(message: string, level: LogEntry['level'] = 'info', source = 'Agent', data?: Record<string, unknown>) {
   useAgentMonitorStore.getState().addLog({ level, source, message, data });
 }
 

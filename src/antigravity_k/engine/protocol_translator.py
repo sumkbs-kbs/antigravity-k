@@ -1,4 +1,4 @@
-"""Antigravity-K: 프로토콜 변환기.
+"""Ssak-Ai: 프로토콜 변환기.
 
 ==============================
 9Router의 formats.js 패턴 이식 — OpenAI / Anthropic / 내부 포맷 간 자동 변환.
@@ -14,12 +14,108 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Mapping
 from enum import Enum
-from typing import Any, Union
+from typing import TypedDict, TypeGuard, cast
 
 logger = logging.getLogger("antigravity_k.protocol_translator")
 
-Payload = dict[str, Any]
+Payload = dict[str, object]
+Body = Mapping[str, object]
+
+
+class RequestPayload(TypedDict):
+    prompt: str
+    messages: list[Payload]
+    system: str
+    model: str
+    max_tokens: int
+    temperature: float
+    top_p: float
+    stream: bool
+    stop: list[str]
+    stop_sequences: list[str]
+
+
+class ResponseMessage(TypedDict):
+    role: str
+    content: str
+
+
+class ResponseChoice(TypedDict):
+    index: int
+    message: ResponseMessage
+    finish_reason: str
+
+
+class ResponseUsage(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    input_tokens: int
+    output_tokens: int
+
+
+class ResponseContentBlock(TypedDict):
+    type: str
+    text: str
+
+
+class ResponsePayload(TypedDict):
+    id: str
+    object: str
+    created: int
+    model: str
+    choices: list[ResponseChoice]
+    content: list[ResponseContentBlock]
+    type: str
+    role: str
+    finish_reason: str
+    stop_reason: str
+    usage: ResponseUsage
+    tokens_in: int
+    tokens_out: int
+
+
+def _is_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
+    return isinstance(value, Mapping)
+
+
+def _mapping(value: object) -> Payload:
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[object, object], value)
+        return {str(key): item for key, item in mapping.items()}
+    return {}
+
+
+def _mappings(value: object) -> list[Payload]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [_mapping(item) for item in items if _is_mapping(item)]
+
+
+def _text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _integer(value: object, default: int = 0) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _number(value: object, default: float) -> float:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+def _boolean(value: object, default: bool = False) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _strings(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [item for item in items if isinstance(item, str)]
 
 
 class APIFormat(Enum):
@@ -27,7 +123,7 @@ class APIFormat(Enum):
 
     OPENAI = "openai"  # OpenAI Chat Completion API
     ANTHROPIC = "anthropic"  # Anthropic Messages API
-    INTERNAL = "internal"  # Antigravity-K 내부 포맷
+    INTERNAL = "internal"  # Ssak-Ai 내부 포맷
 
 
 class ProtocolTranslator:
@@ -50,10 +146,10 @@ class ProtocolTranslator:
 
     def translate_request(
         self,
-        body: Payload,
+        body: Body,
         source: APIFormat,
         target: APIFormat = APIFormat.INTERNAL,
-    ) -> Payload:
+    ) -> RequestPayload:
         """요청 포맷을 변환합니다.
 
         Args:
@@ -66,26 +162,26 @@ class ProtocolTranslator:
 
         """
         if source == target:
-            return body.copy()
+            return cast(RequestPayload, cast(object, _mapping(body)))
 
         # 먼저 내부 포맷으로 변환
         if source != APIFormat.INTERNAL:
             internal = self._to_internal_request(body, source)
         else:
-            internal = body.copy()
+            internal = _mapping(body)
 
         # 목표 포맷으로 변환
         if target != APIFormat.INTERNAL:
-            return self._from_internal_request(internal, target)
+            return cast(RequestPayload, cast(object, self._from_internal_request(internal, target)))
 
-        return internal
+        return cast(RequestPayload, cast(object, internal))
 
     def translate_response(
         self,
-        body: Payload,
+        body: Body,
         target: APIFormat,
         source: APIFormat = APIFormat.INTERNAL,
-    ) -> Payload:
+    ) -> ResponsePayload:
         """응답 포맷을 변환합니다.
 
         Args:
@@ -98,24 +194,24 @@ class ProtocolTranslator:
 
         """
         if source == target:
-            return body.copy()
+            return cast(ResponsePayload, cast(object, _mapping(body)))
 
         # 먼저 내부 포맷으로 변환
         if source != APIFormat.INTERNAL:
             internal = self._to_internal_response(body, source)
         else:
-            internal = body.copy()
+            internal = _mapping(body)
 
         # 목표 포맷으로 변환
         if target != APIFormat.INTERNAL:
-            return self._from_internal_response(internal, target)
+            return cast(ResponsePayload, cast(object, self._from_internal_response(internal, target)))
 
-        return internal
+        return cast(ResponsePayload, cast(object, internal))
 
     # ─── 포맷 감지 ───────────────────────────────────────────────────
 
     @staticmethod
-    def detect_format(body: Payload) -> APIFormat:
+    def detect_format(body: Body) -> APIFormat:
         """요청 바디에서 API 포맷을 자동 감지합니다.
 
         - "messages" + "model" → OpenAI
@@ -135,7 +231,7 @@ class ProtocolTranslator:
 
     # ─── 내부 포맷 정의 ──────────────────────────────────────────────
     #
-    # Antigravity-K 내부 포맷:
+    # Ssak-Ai 내부 포맷:
     # {
     #     "prompt": str,                      # 최종 프롬프트 텍스트
     #     "system": str,                      # 시스템 메시지
@@ -150,14 +246,14 @@ class ProtocolTranslator:
 
     # ─── OpenAI → 내부 ──────────────────────────────────────────────
 
-    def _openai_to_internal_request(self, body: Payload) -> Payload:
+    def _openai_to_internal_request(self, body: Body) -> Payload:
         """OpenAI Chat Completion 요청 → 내부 포맷."""
-        messages = body.get("messages", [])
+        messages = _mappings(body.get("messages", []))
         system_msg = ""
-        chat_messages = []
+        chat_messages: list[Payload] = []
 
         for msg in messages:
-            role = msg.get("role", "")
+            role = _text(msg.get("role", ""))
             raw_content = self._extract_content(msg.get("content", ""))
             content: str = raw_content if isinstance(raw_content, str) else ""
             if role == "system":
@@ -168,25 +264,25 @@ class ProtocolTranslator:
         return {
             "messages": chat_messages,
             "system": system_msg,
-            "model": body.get("model", ""),
-            "max_tokens": body.get("max_tokens", 4096),
-            "temperature": body.get("temperature", 0.7),
-            "top_p": body.get("top_p", 0.9),
-            "stream": body.get("stream", False),
-            "stop": body.get("stop", []),
+            "model": _text(body.get("model", "")),
+            "max_tokens": _integer(body.get("max_tokens", 4096), 4096),
+            "temperature": _number(body.get("temperature", 0.7), 0.7),
+            "top_p": _number(body.get("top_p", 0.9), 0.9),
+            "stream": _boolean(body.get("stream", False)),
+            "stop": _strings(body.get("stop", [])),
         }
 
     # ─── Anthropic → 내부 ───────────────────────────────────────────
 
-    def _anthropic_to_internal_request(self, body: Payload) -> Payload:
+    def _anthropic_to_internal_request(self, body: Body) -> Payload:
         """Anthropic Messages API 요청 → 내부 포맷."""
-        messages = body.get("messages", [])
-        system_msg = body.get("system", "")
+        messages = _mappings(body.get("messages", []))
+        system_msg = _text(body.get("system", ""))
 
         # Anthropic의 system은 최상위 필드
-        chat_messages = []
+        chat_messages: list[Payload] = []
         for msg in messages:
-            role = msg.get("role", "")
+            role = _text(msg.get("role", ""))
             raw_content = self._extract_content(msg.get("content", ""))
             content: str = raw_content if isinstance(raw_content, str) else ""
             chat_messages.append({"role": role, "content": content})
@@ -194,20 +290,20 @@ class ProtocolTranslator:
         return {
             "messages": chat_messages,
             "system": system_msg,
-            "model": body.get("model", ""),
-            "max_tokens": body.get("max_tokens", 4096),
-            "temperature": body.get("temperature", 0.7),
-            "top_p": body.get("top_p", 0.9),
-            "stream": body.get("stream", False),
-            "stop": body.get("stop_sequences", []),
+            "model": _text(body.get("model", "")),
+            "max_tokens": _integer(body.get("max_tokens", 4096), 4096),
+            "temperature": _number(body.get("temperature", 0.7), 0.7),
+            "top_p": _number(body.get("top_p", 0.9), 0.9),
+            "stream": _boolean(body.get("stream", False)),
+            "stop": _strings(body.get("stop_sequences", [])),
         }
 
     # ─── 내부 → OpenAI ──────────────────────────────────────────────
 
-    def _internal_to_openai_response(self, body: Payload) -> Payload:
+    def _internal_to_openai_response(self, body: Body) -> Payload:
         """내부 응답 → OpenAI Chat Completion 응답."""
-        content = body.get("content", "")
-        model = body.get("model", "antigravity-k")
+        content = _text(body.get("content", ""))
+        model = _text(body.get("model", "antigravity-k"), "antigravity-k")
 
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -221,22 +317,22 @@ class ProtocolTranslator:
                         "role": "assistant",
                         "content": content,
                     },
-                    "finish_reason": body.get("finish_reason", "stop"),
+                    "finish_reason": _text(body.get("finish_reason", "stop"), "stop"),
                 },
             ],
             "usage": {
-                "prompt_tokens": body.get("tokens_in", 0),
-                "completion_tokens": body.get("tokens_out", 0),
-                "total_tokens": (body.get("tokens_in", 0) + body.get("tokens_out", 0)),
+                "prompt_tokens": _integer(body.get("tokens_in", 0)),
+                "completion_tokens": _integer(body.get("tokens_out", 0)),
+                "total_tokens": _integer(body.get("tokens_in", 0)) + _integer(body.get("tokens_out", 0)),
             },
         }
 
     # ─── 내부 → Anthropic ───────────────────────────────────────────
 
-    def _internal_to_anthropic_response(self, body: Payload) -> Payload:
+    def _internal_to_anthropic_response(self, body: Body) -> Payload:
         """내부 응답 → Anthropic Messages API 응답."""
-        content = body.get("content", "")
-        model = body.get("model", "antigravity-k")
+        content = _text(body.get("content", ""))
+        model = _text(body.get("model", "antigravity-k"), "antigravity-k")
 
         return {
             "id": f"msg_{uuid.uuid4().hex[:24]}",
@@ -249,128 +345,132 @@ class ProtocolTranslator:
                 },
             ],
             "model": model,
-            "stop_reason": body.get("finish_reason", "end_turn"),
+            "stop_reason": _text(body.get("finish_reason", "end_turn"), "end_turn"),
             "usage": {
-                "input_tokens": body.get("tokens_in", 0),
-                "output_tokens": body.get("tokens_out", 0),
+                "input_tokens": _integer(body.get("tokens_in", 0)),
+                "output_tokens": _integer(body.get("tokens_out", 0)),
             },
         }
 
     # ─── 라우팅 메서드 ──────────────────────────────────────────────
 
-    def _to_internal_request(self, body: Payload, source: APIFormat) -> Payload:
+    def _to_internal_request(self, body: Body, source: APIFormat) -> Payload:
         """외부 포맷 → 내부 포맷 변환 라우팅."""
         if source == APIFormat.OPENAI:
             return self._openai_to_internal_request(body)
         elif source == APIFormat.ANTHROPIC:
             return self._anthropic_to_internal_request(body)
         else:
-            return body.copy()
+            return _mapping(body)
 
-    def _from_internal_request(self, body: Payload, target: APIFormat) -> Payload:
+    def _from_internal_request(self, body: Body, target: APIFormat) -> Payload:
         """내부 포맷 → 외부 포맷 변환 라우팅."""
         if target == APIFormat.OPENAI:
             return self._internal_to_openai_request(body)
         elif target == APIFormat.ANTHROPIC:
             return self._internal_to_anthropic_request(body)
         else:
-            return body.copy()
+            return _mapping(body)
 
-    def _to_internal_response(self, body: Payload, source: APIFormat) -> Payload:
+    def _to_internal_response(self, body: Body, source: APIFormat) -> Payload:
         """외부 응답 → 내부 응답 변환 라우팅."""
         if source == APIFormat.OPENAI:
             return self._openai_to_internal_response(body)
         elif source == APIFormat.ANTHROPIC:
             return self._anthropic_to_internal_response(body)
         else:
-            return body.copy()
+            return _mapping(body)
 
-    def _from_internal_response(self, body: Payload, target: APIFormat) -> Payload:
+    def _from_internal_response(self, body: Body, target: APIFormat) -> Payload:
         """내부 응답 → 외부 응답 변환 라우팅."""
         if target == APIFormat.OPENAI:
             return self._internal_to_openai_response(body)
         elif target == APIFormat.ANTHROPIC:
             return self._internal_to_anthropic_response(body)
         else:
-            return body.copy()
+            return _mapping(body)
 
     # ─── 추가 변환 헬퍼 ─────────────────────────────────────────────
 
-    def _internal_to_openai_request(self, body: Payload) -> Payload:
+    def _internal_to_openai_request(self, body: Body) -> Payload:
         """내부 포맷 → OpenAI 요청."""
-        messages = []
-        if body.get("system"):
-            messages.append({"role": "system", "content": body["system"]})
-        messages.extend(body.get("messages", []))
+        messages: list[Payload] = []
+        system = _text(body.get("system", ""))
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.extend(_mappings(body.get("messages", [])))
 
-        result = {
-            "model": body.get("model", ""),
+        result: Payload = {
+            "model": _text(body.get("model", "")),
             "messages": messages,
-            "max_tokens": body.get("max_tokens", 4096),
-            "temperature": body.get("temperature", 0.7),
-            "stream": body.get("stream", False),
+            "max_tokens": _integer(body.get("max_tokens", 4096), 4096),
+            "temperature": _number(body.get("temperature", 0.7), 0.7),
+            "stream": _boolean(body.get("stream", False)),
         }
-        if body.get("stop"):
-            result["stop"] = body["stop"]
+        stop = _strings(body.get("stop", []))
+        if stop:
+            result["stop"] = stop
         return result
 
-    def _internal_to_anthropic_request(self, body: Payload) -> Payload:
+    def _internal_to_anthropic_request(self, body: Body) -> Payload:
         """내부 포맷 → Anthropic 요청."""
-        result: dict[str, Any] = {
-            "model": body.get("model", ""),
-            "messages": body.get("messages", []),
-            "max_tokens": body.get("max_tokens", 4096),
+        result: Payload = {
+            "model": _text(body.get("model", "")),
+            "messages": _mappings(body.get("messages", [])),
+            "max_tokens": _integer(body.get("max_tokens", 4096), 4096),
         }
-        if body.get("system"):
-            result["system"] = body["system"]
-        if body.get("temperature") is not None:
-            result["temperature"] = body["temperature"]
-        if body.get("stop"):
-            result["stop_sequences"] = body["stop"]
-        if body.get("stream"):
+        system = _text(body.get("system", ""))
+        if system:
+            result["system"] = system
+        if "temperature" in body:
+            result["temperature"] = _number(body.get("temperature"), 0.7)
+        stop = _strings(body.get("stop", []))
+        if stop:
+            result["stop_sequences"] = stop
+        if _boolean(body.get("stream", False)):
             result["stream"] = True
         return result
 
-    def _openai_to_internal_response(self, body: Payload) -> Payload:
+    def _openai_to_internal_response(self, body: Body) -> Payload:
         """OpenAI 응답 → 내부 포맷."""
-        choices = body.get("choices", [])
+        choices = _mappings(body.get("choices", []))
         content = ""
         finish_reason = "stop"
         if choices:
-            message = choices[0].get("message", {})
-            content = message.get("content", "")
-            finish_reason = choices[0].get("finish_reason", "stop")
+            message = _mapping(choices[0].get("message", {}))
+            content = _text(message.get("content", ""))
+            finish_reason = _text(choices[0].get("finish_reason", "stop"), "stop")
 
-        usage = body.get("usage", {})
+        usage = _mapping(body.get("usage", {}))
         return {
             "content": content,
-            "model": body.get("model", ""),
+            "model": _text(body.get("model", "")),
             "finish_reason": finish_reason,
-            "tokens_in": usage.get("prompt_tokens", 0),
-            "tokens_out": usage.get("completion_tokens", 0),
+            "tokens_in": _integer(usage.get("prompt_tokens", 0)),
+            "tokens_out": _integer(usage.get("completion_tokens", 0)),
         }
 
-    def _anthropic_to_internal_response(self, body: Payload) -> Payload:
+    def _anthropic_to_internal_response(self, body: Body) -> Payload:
         """Anthropic 응답 → 내부 포맷."""
-        content_blocks = body.get("content", [])
+        content_blocks = _mappings(body.get("content", []))
         content = ""
         for block in content_blocks:
-            if isinstance(block, dict) and block.get("type") == "text":
-                content += block.get("text", "")
+            if _text(block.get("type")) == "text":
+                content += _text(block.get("text", ""))
 
-        usage = body.get("usage", {})
+        usage = _mapping(body.get("usage", {}))
         return {
             "content": content,
-            "model": body.get("model", ""),
-            "finish_reason": body.get("stop_reason", "stop"),
-            "tokens_in": usage.get("input_tokens", 0),
-            "tokens_out": usage.get("output_tokens", 0),
+            "model": _text(body.get("model", "")),
+            "finish_reason": _text(body.get("stop_reason", "stop"), "stop"),
+            "tokens_in": _integer(usage.get("input_tokens", 0)),
+            "tokens_out": _integer(usage.get("output_tokens", 0)),
         }
 
     # ─── 유틸 ────────────────────────────────────────────────────────
 
     @staticmethod
-    def _extract_content(content: Any) -> Union[str, list[Payload]]:
+    def _extract_content(content: object) -> str | list[Payload]:
         """메시지 content 필드 정규화.
 
         OpenAI는 str 또는 List[dict] (멀티모달) 형식을 지원.
@@ -378,15 +478,17 @@ class ProtocolTranslator:
         if isinstance(content, str):
             return content
         elif isinstance(content, list):
+            content_items = cast(list[object], content)
+            items = [_mapping(item) for item in content_items if _is_mapping(item)]
             # Check if there are any non-text items (e.g. image_url)
-            has_multimodal = any(isinstance(item, dict) and item.get("type") != "text" for item in content)
+            has_multimodal = any(_text(item.get("type")) != "text" for item in items)
             if has_multimodal:
-                return content  # Preserve the entire list for VLM processing
+                return items  # Preserve the entire list for VLM processing
 
             # If it's just text blocks, combine them
-            parts = []
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "text":
-                    parts.append(item.get("text", ""))
+            parts: list[str] = []
+            for item in items:
+                if _text(item.get("type")) == "text":
+                    parts.append(_text(item.get("text", "")))
             return "\n".join(parts)
         return str(content) if content else ""

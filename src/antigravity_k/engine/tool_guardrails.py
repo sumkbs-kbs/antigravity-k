@@ -1,7 +1,7 @@
 """ToolCallGuardrail — 도구 호출 루프 가드레일 시스템.
 
 ====================================================
-Hermes Agent의 tool_guardrails.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 tool_guardrails.py 패턴을 Ssak-Ai에 이식.
 
 순수 관찰 기반 컨트롤러:
 - 동일 인자로 반복 실패하는 도구 호출 감지 → 경고/차단
@@ -35,9 +35,24 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import cast
 
 logger = logging.getLogger("antigravity_k.engine.tool_guardrails")
+
+JsonObject = dict[str, object]
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        items = cast(Mapping[object, object], value).items()
+        return {str(key): item for key, item in items}
+    return {}
+
+
+def _as_text(value: object, default: str = "") -> str:
+    if isinstance(value, str):
+        return value
+    return default if value is None else str(value)
 
 
 # ── 읽기 전용 (비진행성 감지 대상) 도구 목록 ──
@@ -58,6 +73,7 @@ IDEMPOTENT_TOOL_NAMES = frozenset(
         "hex_dump",
         "search_knowledge",
         "impact_analyzer",
+        "read_context_artifact",
     },
 )
 
@@ -118,17 +134,13 @@ class ToolCallGuardrailConfig:
     mutating_tools: frozenset[str] = field(default_factory=lambda: MUTATING_TOOL_NAMES)
 
     @classmethod
-    def from_config(cls, data: Mapping[str, Any] | None = None) -> ToolCallGuardrailConfig:
+    def from_config(cls, data: Mapping[str, object] | None = None) -> ToolCallGuardrailConfig:
         """config.yaml의 `tool_loop_guardrails` 섹션에서 설정 로드."""
         if not isinstance(data, Mapping):
             return cls()
 
-        warn_after = data.get("warn_after", {})
-        if not isinstance(warn_after, Mapping):
-            warn_after = {}
-        hard_stop_after = data.get("hard_stop_after", {})
-        if not isinstance(hard_stop_after, Mapping):
-            hard_stop_after = {}
+        warn_after = _as_mapping(data.get("warn_after", {}))
+        hard_stop_after = _as_mapping(data.get("hard_stop_after", {}))
 
         defaults = cls()
         return cls(
@@ -172,7 +184,7 @@ class ToolCallSignature:
     args_hash: str
 
     @classmethod
-    def from_call(cls, tool_name: str, args: Mapping[str, Any]) -> ToolCallSignature:
+    def from_call(cls, tool_name: str, args: Mapping[str, object]) -> ToolCallSignature:
         """From Call.
 
         Args:
@@ -220,14 +232,14 @@ class ToolGuardrailDecision:
         """턴을 강제 중단해야 하는지 여부."""
         return self.action in {"block", "halt"}
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JsonObject:
         """To Dict.
 
         Returns:
             dict[str, Any]: The dict[str, any] result.
 
         """
-        data: dict[str, Any] = {
+        data: JsonObject = {
             "action": self.action,
             "code": self.code,
             "message": self.message,
@@ -259,9 +271,9 @@ def classify_tool_failure(tool_name: str, result: str | None) -> tuple[bool, str
     # 터미널: exit_code 기반
     if tool_name == "terminal":
         try:
-            data = json.loads(result)
-            if isinstance(data, dict):
-                exit_code = data.get("exit_code")
+            data = cast(object, json.loads(result))
+            if isinstance(data, Mapping):
+                exit_code = cast(Mapping[str, object], data).get("exit_code")
                 if exit_code is not None and exit_code != 0:
                     return True, f" [exit {exit_code}]"
         except (json.JSONDecodeError, TypeError):
@@ -293,7 +305,7 @@ class ToolCallGuardrailController:
             config (ToolCallGuardrailConfig | None): ToolCallGuardrailConfig | None config.
 
         """
-        self.config = config or ToolCallGuardrailConfig()
+        self.config: ToolCallGuardrailConfig = config or ToolCallGuardrailConfig()
         self.reset_for_turn()
 
     def reset_for_turn(self) -> None:
@@ -311,7 +323,7 @@ class ToolCallGuardrailController:
     def before_call(
         self,
         tool_name: str,
-        args: Mapping[str, Any] | None = None,
+        args: Mapping[str, object] | None = None,
     ) -> ToolGuardrailDecision:
         """도구 실행 전 사전 검사.
 
@@ -325,7 +337,7 @@ class ToolCallGuardrailController:
         engine = get_policy_engine()
 
         if tool_name in ["run_bash_command", "run_persistent_command"] and args:
-            cmd = args.get("command", "")
+            cmd = _as_text(args.get("command"), "")
             if not engine.is_command_allowed(cmd):
                 return ToolGuardrailDecision(
                     action="block",
@@ -353,7 +365,7 @@ class ToolCallGuardrailController:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         if tool_name in ["web_search", "web_scrape", "fetch_dom"] and args:
-            url = args.get("url", "") or args.get("query", "")
+            url = _as_text(args.get("url") or args.get("query"), "")
             if not engine.is_domain_allowed(url):
                 return ToolGuardrailDecision(
                     action="block",
@@ -408,7 +420,7 @@ class ToolCallGuardrailController:
     def after_call(
         self,
         tool_name: str,
-        args: Mapping[str, Any] | None = None,
+        args: Mapping[str, object] | None = None,
         result: str | None = None,
         *,
         failed: bool | None = None,
@@ -427,11 +439,11 @@ class ToolCallGuardrailController:
             return self._handle_failure(tool_name, signature)
 
         # 성공 시 카운터 리셋
-        self._exact_failure_counts.pop(signature, None)
-        self._same_tool_failure_counts.pop(tool_name, None)
+        _ = self._exact_failure_counts.pop(signature, None)
+        _ = self._same_tool_failure_counts.pop(tool_name, None)
 
         if not self._is_idempotent(tool_name):
-            self._no_progress.pop(signature, None)
+            _ = self._no_progress.pop(signature, None)
             return ToolGuardrailDecision(tool_name=tool_name, signature=signature)
 
         # 비진행성 추적 (읽기 전용 도구)
@@ -466,7 +478,7 @@ class ToolCallGuardrailController:
         # 동일 인자 반복 실패 카운트
         exact_count = self._exact_failure_counts.get(signature, 0) + 1
         self._exact_failure_counts[signature] = exact_count
-        self._no_progress.pop(signature, None)
+        _ = self._no_progress.pop(signature, None)
 
         # 동일 도구 누적 실패 카운트
         same_count = self._same_tool_failure_counts.get(tool_name, 0) + 1
@@ -547,7 +559,7 @@ def append_guardrail_guidance(result: str, decision: ToolGuardrailDecision) -> s
 # ── 유틸리티 ──
 
 
-def _canonical_args(args: Mapping[str, Any]) -> str:
+def _canonical_args(args: Mapping[str, object]) -> str:
     """인자를 정규화된 JSON 문자열로 변환."""
     return json.dumps(
         args,
@@ -558,7 +570,7 @@ def _canonical_args(args: Mapping[str, Any]) -> str:
     )
 
 
-def _coerce_args(args: Mapping[str, Any] | None) -> Mapping[str, Any]:
+def _coerce_args(args: Mapping[str, object] | None) -> Mapping[str, object]:
     return args if isinstance(args, Mapping) else {}
 
 
@@ -566,7 +578,7 @@ def _result_hash(result: str | None) -> str:
     """결과 문자열의 정규화된 해시."""
     content = result or ""
     try:
-        parsed = json.loads(content)
+        parsed = cast(object, json.loads(content))
         canonical = json.dumps(
             parsed,
             ensure_ascii=False,
@@ -583,7 +595,7 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _as_bool(value: Any, default: bool) -> bool:
+def _as_bool(value: object, default: bool) -> bool:
     if value is None:
         return default
     if isinstance(value, bool):
@@ -593,8 +605,10 @@ def _as_bool(value: Any, default: bool) -> bool:
     return default
 
 
-def _positive_int(value: Any, default: int) -> int:
+def _positive_int(value: object, default: int) -> int:
     if value is None:
+        return default
+    if not isinstance(value, (int, float, str)):
         return default
     try:
         parsed = int(value)

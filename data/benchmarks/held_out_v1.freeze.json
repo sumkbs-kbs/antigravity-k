@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "frozen_at": "2026-08-21T00:00:00Z",
+  "dataset_path": "data/benchmarks/held_out_v1.jsonl",
+  "sha256": "8edb1d575b35e0af992a5ff24748148c36ec6c5de142b81ee0776cf41c382b6f",
+  "row_count": 3,
+  "case_ids": [
+    "heldout-ko-001",
+    "heldout-code-001",
+    "heldout-tool-001"
+  ],
+  "selection_rule": "Three internally authored cases spanning Korean reasoning, executable code, and resource-broker tool recovery. No public benchmark fixture or training record is used."
+}

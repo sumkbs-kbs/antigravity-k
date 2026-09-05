@@ -14,7 +14,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
+from typing import Final, override
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +82,12 @@ class CallHierarchyGraph:
     """Maintains an in-memory invocation graph across all Python files in the workspace."""
 
     def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
+        self.project_root: Path = Path(project_root).resolve()
         # Map: called_function_name -> list of FunctionCallSite
         self._inbound_calls: dict[str, list[FunctionCallSite]] = {}
         # Map: file_path -> list of FunctionCallSite originating from that file
         self._file_call_sites: dict[str, list[FunctionCallSite]] = {}
-        self.rebuild_graph()
+        _ = self.rebuild_graph()
 
     def rebuild_graph(self) -> int:
         """Scan workspace and construct the full caller-callee invocation graph."""
@@ -154,21 +154,24 @@ class CallHierarchyGraph:
 
         class CallVisitor(ast.NodeVisitor):
             def __init__(self):
-                self.current_function = "<module>"
+                self.current_function: str = "<module>"
 
-            def visit_FunctionDef(self, node: ast.FunctionDef):
+            @override
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
                 prev = self.current_function
                 self.current_function = node.name
                 self.generic_visit(node)
                 self.current_function = prev
 
-            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+            @override
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
                 prev = self.current_function
                 self.current_function = node.name
                 self.generic_visit(node)
                 self.current_function = prev
 
-            def visit_Call(self, node: ast.Call):
+            @override
+            def visit_Call(self, node: ast.Call) -> None:
                 func_name = ""
                 if isinstance(node.func, ast.Name):
                     func_name = node.func.id

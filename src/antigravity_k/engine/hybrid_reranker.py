@@ -10,9 +10,10 @@ Eliminates 95% of irrelevant context noise, feeding only top-3 pure chunks to 27
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Final, TypeAlias
 
 _DEFAULT_RRF_K: Final[int] = 60
+MetadataValue: TypeAlias = str | int | float | bool | None | list["MetadataValue"] | dict[str, "MetadataValue"]
 
 
 @dataclass
@@ -23,7 +24,7 @@ class SearchCandidate:
     file_path: str
     content: str
     score: float = 0.0
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, MetadataValue] = field(default_factory=dict)
 
 
 class HybridReranker:

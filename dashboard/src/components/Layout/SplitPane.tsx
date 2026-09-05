@@ -7,7 +7,7 @@
  * Re-layouts Monaco Editor and xterm when drag completes.
  */
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import Split from 'split.js';
 
 export interface SplitPaneProps {
@@ -27,6 +27,7 @@ export interface SplitPaneProps {
   onDragEnd?: (sizes: number[]) => void;
   /** Additional className */
   className?: string;
+  panelClassNames?: string[];
 }
 
 const SplitPane: React.FC<SplitPaneProps> = ({
@@ -38,6 +39,7 @@ const SplitPane: React.FC<SplitPaneProps> = ({
   gutterSize = 6,
   onDragEnd,
   className = '',
+  panelClassNames,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const splitRef = useRef<Split.Instance | null>(null);
@@ -124,8 +126,8 @@ const SplitPane: React.FC<SplitPaneProps> = ({
     >
       {childArray.map((child, index) => (
         <div
-          key={index}
-          className="split-panel"
+          key={React.isValidElement(child) ? child.key : `panel-${panelClassNames?.[index] ?? 'default'}`}
+          className={`split-panel ${panelClassNames?.[index] ?? ''}`.trim()}
           style={{
             overflow: 'hidden',
             display: 'flex',

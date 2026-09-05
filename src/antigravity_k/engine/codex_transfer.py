@@ -1,7 +1,7 @@
 """Codex capability transfer contract.
 
 This module turns Codex-like working strengths into deterministic,
-testable Antigravity-K operating rules. It does not copy private model
+testable Ssak-Ai operating rules. It does not copy private model
 weights or hidden prompts; it implements observable engineering behavior.
 """
 
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class CodexStrength:
-    """One transferable working strength and its Antigravity-K mapping."""
+    """One transferable working strength and its Ssak-Ai mapping."""
 
     title: str
     behavior: str
@@ -170,19 +170,20 @@ class CodexTransferEngine:
         lines.extend(
             [
                 "",
-                "## Strengths To Antigravity-K Map",
+                "## Strengths To Ssak-Ai Map",
                 "",
-                "| Strength | Codex-grade behavior | Antigravity-K implementation | Verification gate |",
+                "| Strength | Codex-grade behavior | Ssak-Ai implementation | Verification gate |",
                 "|---|---|---|---|",
             ],
         )
         for strength in report.strengths:
             lines.append(
-                "| "
-                f"{strength.title} | "
-                f"{strength.behavior} | "
-                f"{strength.antigravity_mapping} | "
-                f"{strength.verification_gate} |",
+                "| {title} | {behavior} | {mapping} | {gate} |".format(
+                    title=strength.title,
+                    behavior=strength.behavior,
+                    mapping=strength.antigravity_mapping,
+                    gate=strength.verification_gate,
+                ),
             )
 
         lines.extend(["", "## Zero-Error Completion Gates"])

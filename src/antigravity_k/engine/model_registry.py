@@ -1,21 +1,60 @@
-"""Antigravity-K: 모델 레지스트리.
+"""Ssak-Ai: 모델 레지스트리.
 
 config.yaml에서 모델 프로필을 읽어 카탈로그로 관리합니다.
 """
 
 from __future__ import annotations
 
+import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, cast, final
 
 import yaml
 
-from antigravity_k.engine.provider_adapters.base_adapter import BaseProviderAdapter
-from antigravity_k.engine.provider_adapters.openai_adapter import OpenAIAdapter
 from antigravity_k.runtime_paths import default_config_path as _default_config_path
+
+from .local_model_discovery import DiscoveredLocalModel, LocalModelDiscovery
+
+logger = logging.getLogger("antigravity_k.model_registry")
+
+ConfigScalar: TypeAlias = str | int | float | bool | None
+ProviderConfigValue: TypeAlias = str | int | float | bool | None
+
+
+def _mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _text(data: Mapping[str, object], key: str, default: str = "") -> str:
+    value = data.get(key, default)
+    return value if isinstance(value, str) else default
+
+
+def _number(data: Mapping[str, object], key: str, default: float = 0.0) -> float:
+    value = data.get(key, default)
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+def _integer(data: Mapping[str, object], key: str, default: int = 0) -> int:
+    value = data.get(key, default)
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _boolean(data: Mapping[str, object], key: str, default: bool = False) -> bool:
+    value = data.get(key, default)
+    return value if isinstance(value, bool) else default
+
+
+def _provider_mapping(value: object) -> dict[str, ProviderConfigValue]:
+    return {
+        key: item for key, item in _mapping(value).items() if isinstance(item, (str, int, float, bool)) or item is None
+    }
 
 
 @dataclass
@@ -41,9 +80,10 @@ class ModelProfile:
     roles: tuple[str, ...] = ()
     # 1k 토큰당 평균 비용(USD). 0.0이면 비용 미설정/로컬 — 라우팅 비용 상한 검사에서 제외.
     cost_per_1k_tokens_usd: float = 0.0
+    disk_path: str = ""
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> ModelProfile:
+    def from_dict(cls, data: Mapping[str, object]) -> ModelProfile:
         """From Dict.
 
         Args:
@@ -53,31 +93,31 @@ class ModelProfile:
             'ModelProfile': The 'modelprofile' result.
 
         """
-        role_value = data.get("role", "")
-        primary_role = role_value.strip() if isinstance(role_value, str) else ""
+        primary_role = _text(data, "role")
         raw_roles = data.get("roles", ())
         if isinstance(raw_roles, str):
             role_values = [raw_roles]
         elif isinstance(raw_roles, (list, tuple)):
-            role_values = [item for item in raw_roles if isinstance(item, str)]
+            role_values = [item for item in cast(list[object] | tuple[object, ...], raw_roles) if isinstance(item, str)]
         else:
             role_values = []
         roles = tuple(dict.fromkeys(role for role in (primary_role, *role_values) if role))
         profile = cls(
-            name=data.get("name", ""),
-            repo=data.get("repo", ""),
+            name=_text(data, "name"),
+            repo=_text(data, "repo"),
             role=primary_role or (roles[0] if roles else ""),
-            quantization=data.get("quantization", ""),
-            estimated_memory_gb=data.get("estimated_memory_gb", 0.0),
-            parameter_count_b=data.get("parameter_count_b", 0.0),
-            context_length=data.get("context_length", 0),
-            dimensions=data.get("dimensions", 0),
-            description=data.get("description", ""),
-            provider=data.get("provider", ""),
-            api_base=data.get("api_base", ""),
-            api_key_env=data.get("api_key_env", ""),
+            quantization=_text(data, "quantization"),
+            estimated_memory_gb=_number(data, "estimated_memory_gb"),
+            parameter_count_b=_number(data, "parameter_count_b"),
+            context_length=_integer(data, "context_length"),
+            dimensions=_integer(data, "dimensions"),
+            description=_text(data, "description"),
+            provider=_text(data, "provider"),
+            api_base=_text(data, "api_base"),
+            api_key_env=_text(data, "api_key_env"),
             roles=roles,
             cost_per_1k_tokens_usd=_as_cost(data.get("cost_per_1k_tokens_usd")),
+            disk_path=_text(data, "disk_path"),
         )
         # provider가 명시되지 않았으면 이름/repo에서 자동 추론
         if not profile.provider:
@@ -149,7 +189,22 @@ class ModelProfile:
     def is_local(self) -> bool:
         """Whether this profile is backed by a local runtime."""
         provider = (self.provider or "").lower()
-        if provider in {"ollama", "mlx", "llama.cpp", "llamacpp", "lmstudio", "lm_studio", "local"}:
+        if provider in {
+            "ollama",
+            "mlx",
+            "llama.cpp",
+            "llamacpp",
+            "lmstudio",
+            "lm_studio",
+            "unsloth",
+            "transformers",
+            "vllm",
+            "tgi",
+            "koboldcpp",
+            "text-generation-webui",
+            "openai-compatible-local",
+            "local",
+        }:
             return True
         if provider:
             return False
@@ -160,7 +215,7 @@ class ModelProfile:
         """Whether this model is eligible for quality evaluation."""
         return self.effective_parameter_count_b >= 20.0
 
-    def routing_metadata(self) -> dict[str, Any]:
+    def routing_metadata(self) -> dict[str, object]:
         """Return stable capability metadata for routers and user interfaces."""
         return {
             "provider": self.backend,
@@ -173,14 +228,14 @@ class ModelProfile:
             "context_length": self.context_length,
         }
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        result: dict[str, Any] = {
+        result: dict[str, object] = {
             "name": self.name,
             "repo": self.repo,
             "role": self.role,
@@ -322,7 +377,7 @@ class DefaultModels:
     vision: str | None = None
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> DefaultModels:
+    def from_dict(cls, data: Mapping[str, object]) -> DefaultModels:
         """From Dict.
 
         Args:
@@ -332,7 +387,12 @@ class DefaultModels:
             'DefaultModels': The 'defaultmodels' result.
 
         """
-        return cls(**{k: data.get(k) for k in ("reasoning", "coding", "embedding", "vision")})
+        return cls(
+            reasoning=_text(data, "reasoning") or None,
+            coding=_text(data, "coding") or None,
+            embedding=_text(data, "embedding") or None,
+            vision=_text(data, "vision") or None,
+        )
 
 
 @dataclass
@@ -346,7 +406,7 @@ class MemoryConfig:
     unload_cooldown_sec: int = 30
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> MemoryConfig:
+    def from_dict(cls, data: Mapping[str, object]) -> MemoryConfig:
         """From Dict.
 
         Args:
@@ -357,11 +417,11 @@ class MemoryConfig:
 
         """
         return cls(
-            total_system_gb=data.get("total_system_gb", 128.0),
-            max_loaded_gb=data.get("max_loaded_gb", 100.0),
-            system_reserve_gb=data.get("system_reserve_gb", 16.0),
-            auto_unload=data.get("auto_unload", True),
-            unload_cooldown_sec=data.get("unload_cooldown_sec", 30),
+            total_system_gb=_number(data, "total_system_gb", 128.0),
+            max_loaded_gb=_number(data, "max_loaded_gb", 100.0),
+            system_reserve_gb=_number(data, "system_reserve_gb", 16.0),
+            auto_unload=_boolean(data, "auto_unload", True),
+            unload_cooldown_sec=_integer(data, "unload_cooldown_sec", 30),
         )
 
 
@@ -376,7 +436,7 @@ class ServerConfig:
     enable_caveman_compression: bool = False
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> ServerConfig:
+    def from_dict(cls, data: Mapping[str, object]) -> ServerConfig:
         """From Dict.
 
         Args:
@@ -387,14 +447,41 @@ class ServerConfig:
 
         """
         return cls(
-            host=data.get("host", "127.0.0.1"),
-            port=data.get("port", 8000),
-            workers=data.get("workers", 1),
-            log_level=data.get("log_level", "info"),
-            enable_caveman_compression=data.get("enable_caveman_compression", False),
+            host=_text(data, "host", "127.0.0.1"),
+            port=_integer(data, "port", 8000),
+            workers=_integer(data, "workers", 1),
+            log_level=_text(data, "log_level", "info"),
+            enable_caveman_compression=_boolean(data, "enable_caveman_compression"),
         )
 
 
+@dataclass(frozen=True)
+class ActiveArtifactConfig:
+    state_path: Path
+    model_name: str
+    role: str
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, ConfigScalar]) -> ActiveArtifactConfig | None:
+        if not isinstance(data, dict):
+            return None
+        state_path_value = data.get("state_path", "")
+        model_name_value = data.get("model_name", "")
+        role_value = data.get("role", "reasoning")
+        match state_path_value, model_name_value, role_value:
+            case str() as state_path, str() as model_name, str() as role:
+                pass
+            case _:
+                return None
+        state_path = state_path.strip()
+        model_name = model_name.strip()
+        role = role.strip()
+        if not state_path or not model_name or not role:
+            return None
+        return cls(state_path=Path(state_path), model_name=model_name, role=role)
+
+
+@final
 class ModelRegistry:
     """config.yaml 기반 모델 카탈로그.
 
@@ -410,13 +497,14 @@ class ModelRegistry:
         """
         if config_path is None:
             config_path = str(_default_config_path())
-        self._config_path = config_path
+        self._config_path: str = config_path
         self._models: dict[str, ModelProfile] = {}
         self._defaults = DefaultModels()
         self._memory = MemoryConfig()
         self._server = ServerConfig()
-        self._providers: dict[str, dict[str, Any]] = {}
-        self._raw: dict[str, Any] = {}
+        self._providers: dict[str, dict[str, ProviderConfigValue]] = {}
+        self._active_artifact: ActiveArtifactConfig | None = None
+        self._raw: dict[str, object] = {}
         self._load_config()
 
     def _load_config(self) -> None:
@@ -424,17 +512,19 @@ class ModelRegistry:
         if not path.exists():
             raise FileNotFoundError(f"설정 파일 없음: {path}")
         with open(path, encoding="utf-8") as f:
-            self._raw = yaml.safe_load(f) or {}
+            self._raw = _mapping(cast(object, yaml.safe_load(f) or {}))
 
         self._models.clear()
-        for role, items in self._raw.get("models", {}).items():
+        models_raw = _mapping(self._raw.get("models", {}))
+        for role, items in models_raw.items():
             if not isinstance(items, list):
                 continue
-            for item in items:
+            for item in cast(list[object], items):
                 if not isinstance(item, dict):
                     continue
-                item.setdefault("role", role)
-                p = ModelProfile.from_dict(item)
+                item_data = _mapping(cast(object, item))
+                _ = item_data.setdefault("role", role)
+                p = ModelProfile.from_dict(item_data)
                 if not p.name:
                     continue
                 existing = self._models.get(p.name)
@@ -443,17 +533,51 @@ class ModelRegistry:
                     continue
                 existing.roles = tuple(dict.fromkeys((*existing.supported_roles, *p.supported_roles)))
 
-        self._defaults = DefaultModels.from_dict(self._raw.get("defaults", {}))
+        self._defaults = DefaultModels.from_dict(_mapping(self._raw.get("defaults", {})))
+        self._active_artifact = ActiveArtifactConfig.from_dict(
+            cast(Mapping[str, ConfigScalar], _mapping(self._raw.get("active_artifact", {})))
+        )
+        self._register_active_artifact()
         for default_role in ("reasoning", "coding", "embedding", "vision"):
-            default_name = getattr(self._defaults, default_role, None)
+            default_name = cast(str | None, getattr(self._defaults, default_role, None))
             profile = self._models.get(default_name) if default_name else None
             if profile is not None:
                 profile.roles = tuple(dict.fromkeys((*profile.supported_roles, default_role)))
-        self._memory = MemoryConfig.from_dict(self._raw.get("memory", {}))
-        self._server = ServerConfig.from_dict(self._raw.get("server", {}))
+        self._memory = MemoryConfig.from_dict(_mapping(self._raw.get("memory", {})))
+        self._server = ServerConfig.from_dict(_mapping(self._raw.get("server", {})))
         # providers 섹션 로드 (멀티 프로바이더 지원 — 작업 1)
         providers_raw = self._raw.get("providers", {})
-        self._providers = providers_raw if isinstance(providers_raw, dict) else {}
+        self._providers = {
+            str(provider): _provider_mapping(cast(object, settings))
+            for provider, settings in _mapping(providers_raw).items()
+            if isinstance(settings, dict)
+        }
+
+    def _register_active_artifact(self) -> None:
+        config = self._active_artifact
+        if config is None:
+            return
+        from antigravity_k.finetune.active_artifact import (
+            ActiveArtifactError,
+            read_active_artifact,
+            validate_active_artifact_output,
+        )
+
+        try:
+            active = read_active_artifact(config.state_path)
+            _ = validate_active_artifact_output(active)
+        except ActiveArtifactError:
+            logger.warning("Active artifact model is unavailable.")
+            return
+        profile = ModelProfile(
+            name=config.model_name,
+            repo=str(active.output_path),
+            role=config.role,
+            quantization="fused",
+            description=f"Promoted artifact revision {active.promotion_revision}",
+            provider="mlx",
+        )
+        self._models[profile.name] = profile
 
     def reload(self) -> None:
         """설정 핫 리로드."""
@@ -478,31 +602,56 @@ class ModelRegistry:
             ModelProfile | None: The modelprofile | none result.
 
         """
-        return self._models.get(name)
-
-    def get_adapter_for_model(self, name: str) -> BaseProviderAdapter | None:
-        """주어진 모델이 어떤 API 규격을 사용하는지에 따라 적절한 변환 어댑터를 반환합니다.
-
-        기본적으로 Claude가 아닌 모든 모델은 OpenAIAdapter(OpenRouter, Ollama 호환)를 통과합니다.
-        """
-        model = self.get_model(name)
-        if not model:
-            return None
-
-        # 예시 로직: 이름이나 레포에 'claude'가 없으면 범용 OpenAI 규격으로 취급
-        if "claude" not in model.name.lower() and "anthropic" not in model.repo.lower():
-            return OpenAIAdapter()
-
+        profile = self._models.get(name)
+        if profile is not None:
+            return profile
+        for candidate in self._models.values():
+            if candidate.repo == name:
+                return candidate
         return None
+
+    def merge_discovered_models(
+        self,
+        discovered: Iterable[DiscoveredLocalModel],
+    ) -> tuple[ModelProfile, ...]:
+        added: list[ModelProfile] = []
+        for item in discovered:
+            if not item.name or self.get_model(item.name) is not None or self.get_model(item.repo) is not None:
+                continue
+            profile = ModelProfile(
+                name=item.name,
+                repo=item.repo or item.name,
+                role=item.role or "reasoning",
+                quantization=item.quantization,
+                estimated_memory_gb=item.estimated_memory_gb,
+                parameter_count_b=item.parameter_count_b,
+                context_length=item.context_length,
+                description=f"Auto-discovered local model ({item.source or item.provider})",
+                provider=item.provider,
+                api_base=item.api_base,
+                roles=(item.role,) if item.role else ("reasoning",),
+                disk_path=item.disk_path,
+            )
+            self._models[profile.name] = profile
+            added.append(profile)
+        return tuple(added)
+
+    def refresh_local_models(
+        self,
+        *,
+        discovery: LocalModelDiscovery | None = None,
+    ) -> tuple[ModelProfile, ...]:
+        source = discovery or LocalModelDiscovery()
+        return self.merge_discovered_models(source.discover())
 
     # ─── 멀티 프로바이더 조회 API (작업 1) ──────────────────────────────
 
     @property
-    def providers(self) -> dict[str, dict[str, Any]]:
+    def providers(self) -> dict[str, dict[str, ProviderConfigValue]]:
         """providers 섹션 반환 (ollama/openrouter/nim/anthropic/mlx 별 base_url, api_key_env 등)."""
         return self._providers
 
-    def get_provider_config(self, provider: str) -> dict[str, Any]:
+    def get_provider_config(self, provider: str) -> dict[str, ProviderConfigValue]:
         """특정 provider의 설정(base_url, api_key_env, rate_limit 등)을 반환합니다.
 
         Args:
@@ -511,7 +660,7 @@ class ModelRegistry:
         Returns:
             provider 설정 dict. 없으면 빈 dict.
         """
-        return self._providers.get(provider, {}) if isinstance(self._providers, dict) else {}
+        return self._providers.get(provider, {})
 
     def resolve_endpoint(self, name: str) -> tuple[str, str, str]:
         """모델의 실제 API 엔드포인트와 키를 해석합니다 (멀티 프로바이더 핵심).
@@ -541,8 +690,8 @@ class ModelRegistry:
             key_env = profile.api_key_env
         elif provider and provider in self._providers:
             prov_cfg = self._providers[provider]
-            base_url = prov_cfg.get("base_url", "")
-            key_env = prov_cfg.get("api_key_env", "")
+            base_url = _text(prov_cfg, "base_url")
+            key_env = _text(prov_cfg, "api_key_env")
         else:
             # 전역 config로 폴백 (레거시 단일 프로바이더 호환)
             base_url = app_config.model.api_base
@@ -551,7 +700,7 @@ class ModelRegistry:
 
         # API 키 해석: 환경변수명이 있으면 조회, 없으면 전역 config 키 사용
         if key_env and key_env in os.environ:
-            api_key = os.environ[key_env]
+            api_key = str(os.environ[key_env])
         elif provider == "ollama":
             api_key = os.environ.get("OLLAMA_API_KEY", "") or "ollama"
         elif provider in {"lmstudio", "lm_studio"}:
@@ -587,7 +736,7 @@ class ModelRegistry:
             ModelProfile | None: The modelprofile | none result.
 
         """
-        name = getattr(self._defaults, role, None)
+        name = cast(str | None, getattr(self._defaults, role, None))
         return self._models.get(name) if name else None
 
     def model_exists(self, name: str) -> bool:
@@ -600,7 +749,7 @@ class ModelRegistry:
             bool: The bool result.
 
         """
-        return name in self._models
+        return self.get_model(name) is not None
 
     @property
     def defaults(self) -> DefaultModels:
@@ -640,8 +789,8 @@ class ModelRegistry:
             Path: The path result.
 
         """
-        paths = self._raw.get("paths", {})
-        cache = paths.get("model_cache", "~/.cache/antigravity-k/models")
+        paths = _mapping(self._raw.get("paths", {}))
+        cache = _text(paths, "model_cache", "~/.cache/antigravity-k/models")
         return Path(os.path.expanduser(cache))
 
     def summary(self) -> str:

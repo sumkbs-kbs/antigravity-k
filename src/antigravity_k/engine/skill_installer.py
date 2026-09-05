@@ -19,10 +19,11 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import cast, final
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,23 @@ logger = logging.getLogger(__name__)
 
 AGK_SKILL_SCOPE = "@antigravity-k/skill-"
 MARKET_DIR = ".agent/skills/market"
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast(list[object], value) if isinstance(item, str)]
 
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────────
@@ -93,7 +111,7 @@ class SecurityReport:
         return [f for f in self.findings if f.severity == "warning"]
 
     def summary(self) -> str:
-        parts = []
+        parts: list[str] = []
         if self.errors:
             parts.append(f"🔴 {len(self.errors)} errors")
         if self.warnings:
@@ -183,6 +201,7 @@ _SUSPICIOUS_PATTERNS: list[tuple[str, str, str]] = [
 # ─── 메인 클래스 ──────────────────────────────────────────────────────
 
 
+@final
 class SkillInstaller:
     """npm 패키지 기반 스킬 설치/업데이트/제거 관리자.
 
@@ -199,8 +218,8 @@ class SkillInstaller:
     def __init__(
         self,
         project_root: str | None = None,
-        market_client: Any | None = None,
-        skill_loader: Any | None = None,
+        market_client: object | None = None,
+        skill_loader: object | None = None,
     ):
         """Initialize the SkillInstaller.
 
@@ -273,16 +292,30 @@ class SkillInstaller:
         self._write_meta(dest_dir, package_name, validation, security)
 
         # Step 7: Record installation in market client
-        if self.market_client and hasattr(self.market_client, "record_installation"):
+        if self.market_client is not None:
+            record_installation = getattr(self.market_client, "record_installation", None)
+            if not callable(record_installation):
+                record_installation = None
+        else:
+            record_installation = None
+        if record_installation is not None:
             try:
-                self.market_client.record_installation(package_name, validation.version, str(dest_dir))
+                _ = cast(Callable[[str, str, str], object], record_installation)(
+                    package_name, validation.version, str(dest_dir)
+                )
             except (AttributeError, TypeError, ConnectionError) as e:
                 logger.warning("[SkillInstaller] Failed to record installation: %s", e)
 
         # Step 8: Refresh SkillLoader
-        if self.skill_loader and hasattr(self.skill_loader, "refresh"):
+        if self.skill_loader is not None:
+            refresh = getattr(self.skill_loader, "refresh", None)
+            if not callable(refresh):
+                refresh = None
+        else:
+            refresh = None
+        if refresh is not None:
             try:
-                self.skill_loader.refresh()
+                _ = cast(Callable[[], object], refresh)()
             except (AttributeError, TypeError, ConnectionError) as e:
                 logger.warning("[SkillInstaller] SkillLoader refresh failed: %s", e)
 
@@ -347,16 +380,28 @@ class SkillInstaller:
             logger.info("[SkillInstaller] Directory not found: %s", dest_dir)
 
         # 글로벌 상태 파일에서 제거
-        if self.market_client and hasattr(self.market_client, "remove_installation"):
+        if self.market_client is not None:
+            remove_installation = getattr(self.market_client, "remove_installation", None)
+            if not callable(remove_installation):
+                remove_installation = None
+        else:
+            remove_installation = None
+        if remove_installation is not None:
             try:
-                self.market_client.remove_installation(skill_name)
+                _ = cast(Callable[[str], object], remove_installation)(skill_name)
             except (AttributeError, TypeError, ConnectionError) as e:
                 logger.warning("[SkillInstaller] Failed to remove installation record: %s", e)
 
         # SkillLoader refresh
-        if self.skill_loader and hasattr(self.skill_loader, "refresh"):
+        if self.skill_loader is not None:
+            refresh = getattr(self.skill_loader, "refresh", None)
+            if not callable(refresh):
+                refresh = None
+        else:
+            refresh = None
+        if refresh is not None:
             try:
-                self.skill_loader.refresh()
+                _ = cast(Callable[[], object], refresh)()
             except (AttributeError, TypeError, ConnectionError) as e:
                 logger.warning("[SkillInstaller] SkillLoader refresh failed: %s", e)
 
@@ -393,8 +438,8 @@ class SkillInstaller:
             pkg_json_path = npm_pkg_dir / "package.json"
             if pkg_json_path.exists():
                 try:
-                    pkg_json = json.loads(pkg_json_path.read_text(encoding="utf-8"))
-                    version = pkg_json.get("version", "0.0.0")
+                    pkg_json = _as_mapping(cast(object, json.loads(pkg_json_path.read_text(encoding="utf-8"))))
+                    version = _as_text(pkg_json.get("version"), "0.0.0")
                 except (json.JSONDecodeError, OSError):
                     version = "0.0.0"
             else:
@@ -430,14 +475,12 @@ class SkillInstaller:
             return InstallValidation(valid=False, reason=f"package.json not found in {npm_path}")
 
         try:
-            pkg_json = json.loads(pkg_json_path.read_text(encoding="utf-8"))
+            pkg_json = _as_mapping(cast(object, json.loads(pkg_json_path.read_text(encoding="utf-8"))))
         except json.JSONDecodeError as e:
             return InstallValidation(valid=False, reason=f"package.json parse error: {e}")
 
-        version = str(pkg_json.get("version", "0.0.0"))
-        agk = pkg_json.get("antigravityK", {}) or {}
-        if not isinstance(agk, dict):
-            agk = {}
+        version = _as_text(pkg_json.get("version"), "0.0.0")
+        agk = _as_mapping(pkg_json.get("antigravityK"))
 
         # (2-1) 스킬 패키지 여부 — 완화된 검증
         # 다음 중 하나를 만족하면 스킬로 인정:
@@ -448,7 +491,7 @@ class SkillInstaller:
         skill_flag = bool(agk.get("skill", False)) or package_name.startswith(AGK_SKILL_SCOPE)
         if not skill_flag:
             # 키워드 기반 완화 검증
-            keywords = pkg_json.get("keywords", []) or []
+            keywords = _as_str_list(pkg_json.get("keywords"))
             has_skill_keyword = any(
                 kw in keywords
                 for kw in ["skill", "skills", "agent", "ai-agent", "claude", "antigravity", "agentic", "prompt", "mcp"]
@@ -471,7 +514,7 @@ class SkillInstaller:
                 )
 
         # (2-2) minAgentVersion 검증 (선택)
-        min_version = str(agk.get("minAgentVersion", "") or "")
+        min_version = _as_text(agk.get("minAgentVersion"))
         if min_version:
             current_version = self._get_agk_version()
             if current_version and not self._version_gte(current_version, min_version):
@@ -483,7 +526,7 @@ class SkillInstaller:
                 )
 
         # (2-3) platforms 검증 (선택)
-        platforms = list(agk.get("platforms", []) or [])
+        platforms = _as_str_list(agk.get("platforms"))
         if platforms:
             current_platform = self._get_current_platform()
             if current_platform not in platforms and "all" not in platforms:
@@ -495,15 +538,15 @@ class SkillInstaller:
                 )
 
         # (2-4) 위험도 / 신뢰도
-        risk_level = str(agk.get("riskLevel", "safe") or "safe")
-        trust_level = str(agk.get("trustLevel", "experimental") or "experimental")
+        risk_level = _as_text(agk.get("riskLevel"), "safe") or "safe"
+        trust_level = _as_text(agk.get("trustLevel"), "experimental") or "experimental"
         requires_approval = bool(agk.get("requiresApproval", False))
 
         # (2-5) MCP 설정 (선택)
-        mcp = agk.get("mcp", {}) or {}
-        mcp_server_id = str(mcp.get("serverId", "") or "") if isinstance(mcp, dict) else ""
+        mcp = _as_mapping(agk.get("mcp"))
+        mcp_server_id = _as_text(mcp.get("serverId"))
 
-        warnings = []
+        warnings: list[str] = []
         if risk_level in ("high", "critical"):
             warnings.append(f"위험도 '{risk_level}' — 설치 전 검토 필요")
         if trust_level == "experimental":
@@ -532,9 +575,10 @@ class SkillInstaller:
         Returns:
             SecurityReport
         """
+        _ = skill_name
         findings: list[SecurityFinding] = []
 
-        scan_targets = []
+        scan_targets: list[Path] = []
         skill_md = npm_path / "SKILL.md"
         if skill_md.exists():
             scan_targets.append(skill_md)
@@ -603,9 +647,9 @@ class SkillInstaller:
                 src_item = src / item
                 if src_item.exists():
                     if src_item.is_dir():
-                        shutil.copytree(src_item, dest / item, dirs_exist_ok=True)
+                        _ = shutil.copytree(src_item, dest / item, dirs_exist_ok=True)
                     else:
-                        shutil.copy2(src_item, dest / item)
+                        _ = shutil.copy2(src_item, dest / item)
 
             return True, ""
 
@@ -644,42 +688,45 @@ class SkillInstaller:
                 skill_name = self._parse_skill_name(validation.package_name) or server_id
 
                 # 카탈로그 또는 다른 스킬이 등록한 서버인지 확인
-                existing_config = catalog.get(server_id)
+                existing_config = _as_mapping(catalog.get(server_id))
 
                 if existing_config:
                     # 이미 존재하는 서버 — 스킬 소유권 등록
                     if existing_config.get("source") != "skill":
                         # 카탈로그 서버를 스킬 소유로 등록
-                        registry.register_skill_mcp(
+                        _ = registry.register_skill_mcp(
                             skill_name,
                             {
                                 "serverId": server_id,
-                                "command": existing_config["command"],
-                                "args": existing_config.get("args", []),
-                                "env": existing_config.get("env", {}),
-                                "name": existing_config.get("name", skill_name),
-                                "description": existing_config.get("description", ""),
+                                "command": _as_text(existing_config.get("command")),
+                                "args": _as_str_list(existing_config.get("args")),
+                                "env": _as_mapping(existing_config.get("env")),
+                                "name": _as_text(existing_config.get("name"), skill_name),
+                                "description": _as_text(existing_config.get("description")),
                             },
                         )
 
                     # .mcp.json에 추가
-                    mcp_config: dict[str, Any] = {"mcpServers": {}}
+                    mcp_config: dict[str, object] = {"mcpServers": {}}
                     if mcp_json_path.exists():
                         try:
-                            mcp_config = json.loads(mcp_json_path.read_text(encoding="utf-8"))
+                            mcp_config = _as_mapping(cast(object, json.loads(mcp_json_path.read_text(encoding="utf-8"))))
                         except json.JSONDecodeError:
                             warnings.append(".mcp.json 파싱 실패 — 덮어씁니다")
 
-                    mcp_servers = mcp_config.setdefault("mcpServers", {})
+                    mcp_servers = _as_mapping(mcp_config.get("mcpServers"))
+                    mcp_config["mcpServers"] = mcp_servers
                     if server_id not in mcp_servers:
-                        mcp_servers[server_id] = {
-                            "command": existing_config["command"],
-                            "args": list(existing_config.get("args", [])),
+                        server_entry: dict[str, object] = {
+                            "command": _as_text(existing_config.get("command")),
+                            "args": _as_str_list(existing_config.get("args")),
                         }
-                        if "env" in existing_config:
-                            mcp_servers[server_id]["env"] = dict(existing_config["env"])
+                        env_value = _as_mapping(existing_config.get("env"))
+                        if env_value:
+                            server_entry["env"] = env_value
+                        mcp_servers[server_id] = server_entry
 
-                        mcp_json_path.write_text(
+                        _ = mcp_json_path.write_text(
                             json.dumps(mcp_config, ensure_ascii=False, indent=2),
                             encoding="utf-8",
                         )
@@ -696,26 +743,26 @@ class SkillInstaller:
                     # (install flow: step 4 _copy_to_market 후, step 6 _write_meta 전이므로
                     #  .agk_meta.json은 아직 없고 package.json은 복사되어 있음)
                     pkg_json_path = dest_dir / "package.json"
-                    mcp_skill_config = None
+                    mcp_skill_config: dict[str, object] | None = None
 
                     if pkg_json_path.exists():
                         try:
-                            pkg_json = json.loads(pkg_json_path.read_text(encoding="utf-8"))
-                            agk = pkg_json.get("antigravityK", {}) or {}
-                            if isinstance(agk, dict):
-                                mcp_raw = agk.get("mcp", {}) or {}
-                                if isinstance(mcp_raw, dict) and mcp_raw.get("serverId") == server_id:
+                            pkg_json = _as_mapping(cast(object, json.loads(pkg_json_path.read_text(encoding="utf-8"))))
+                            agk = _as_mapping(pkg_json.get("antigravityK"))
+                            if agk:
+                                mcp_raw = _as_mapping(agk.get("mcp"))
+                                if mcp_raw and mcp_raw.get("serverId") == server_id:
                                     mcp_skill_config = {
                                         "command": mcp_raw.get("command", ""),
-                                        "args": list(mcp_raw.get("args", [])),
-                                        "env": dict(mcp_raw.get("env", {})),
+                                        "args": _as_str_list(mcp_raw.get("args")),
+                                        "env": _as_mapping(mcp_raw.get("env")),
                                     }
                         except (json.JSONDecodeError, OSError):
                             logger.warning("[SkillInstaller] 스킬 설치 단계 실패 (non-critical)", exc_info=True)
 
-                    if mcp_skill_config and mcp_skill_config.get("command"):
+                    if mcp_skill_config and _as_text(mcp_skill_config.get("command")):
                         # 스킬 package.json의 antigravityK.mcp 설정 사용
-                        registry.register_skill_mcp(
+                        _ = registry.register_skill_mcp(
                             skill_name,
                             {
                                 "serverId": server_id,
@@ -731,20 +778,23 @@ class SkillInstaller:
                         mcp_config = {"mcpServers": {}}
                         if mcp_json_path.exists():
                             try:
-                                mcp_config = json.loads(mcp_json_path.read_text(encoding="utf-8"))
+                                mcp_config = _as_mapping(cast(object, json.loads(mcp_json_path.read_text(encoding="utf-8"))))
                             except json.JSONDecodeError:
                                 warnings.append(".mcp.json 파싱 실패 — 덮어씁니다")
 
-                        mcp_servers = mcp_config.setdefault("mcpServers", {})
+                        mcp_servers = _as_mapping(mcp_config.get("mcpServers"))
+                        mcp_config["mcpServers"] = mcp_servers
                         if server_id not in mcp_servers:
-                            mcp_servers[server_id] = {
-                                "command": mcp_skill_config["command"],
-                                "args": list(mcp_skill_config.get("args", [])),
+                            server_entry = {
+                                "command": _as_text(mcp_skill_config.get("command")),
+                                "args": _as_str_list(mcp_skill_config.get("args")),
                             }
-                            if "env" in mcp_skill_config:
-                                mcp_servers[server_id]["env"] = dict(mcp_skill_config["env"])
+                            env_value = _as_mapping(mcp_skill_config.get("env"))
+                            if env_value:
+                                server_entry["env"] = env_value
+                            mcp_servers[server_id] = server_entry
 
-                            mcp_json_path.write_text(
+                            _ = mcp_json_path.write_text(
                                 json.dumps(mcp_config, ensure_ascii=False, indent=2),
                                 encoding="utf-8",
                             )
@@ -755,9 +805,9 @@ class SkillInstaller:
                     else:
                         # 설정을 찾을 수 없음 — 안내
                         warnings.append(
-                            f"MCP 서버 '{server_id}' 설정을 찾을 수 없습니다. "
-                            f"스킬 패키지의 package.json > antigravityK.mcp에 command/args/env가 "
-                            f"포함되어 있는지 확인하거나 .mcp.json에 수동으로 설정해주세요."
+                            f"MCP 서버 '{server_id}' 설정을 찾을 수 없습니다. 스킬 패키지의 "
+                            + "package.json > antigravityK.mcp에 command/args/env가 포함되어 있는지 "
+                            + "확인하거나 .mcp.json에 수동으로 설정해주세요."
                         )
 
             except ImportError:
@@ -775,7 +825,7 @@ class SkillInstaller:
         package_name: str,
         validation: InstallValidation,
         security: SecurityReport | None,
-    ):
+    ) -> None:
         """Step 6: .agk_meta.json 메타데이터 파일 작성.
 
         SkillMarketClient.get_installed()가 이 파일을 읽습니다.
@@ -787,7 +837,7 @@ class SkillInstaller:
             security: 보안 스캔 결과
         """
         now = datetime.now().astimezone().replace(tzinfo=None).isoformat()
-        meta: dict[str, Any] = {
+        meta: dict[str, object] = {
             "name": package_name,
             "version": validation.version,
             "description": "",
@@ -811,19 +861,21 @@ class SkillInstaller:
         try:
             pkg_json_path = dest_dir / "package.json"
             if pkg_json_path.exists():
-                pkg_json = json.loads(pkg_json_path.read_text(encoding="utf-8"))
-                agk = pkg_json.get("antigravityK", {}) or {}
-                if isinstance(agk, dict):
-                    mcp = agk.get("mcp", {}) or {}
-                    if isinstance(mcp, dict) and mcp.get("serverId") == validation.mcp_server_id:
+                pkg_json = _as_mapping(cast(object, json.loads(pkg_json_path.read_text(encoding="utf-8"))))
+                agk = _as_mapping(pkg_json.get("antigravityK"))
+                mcp = _as_mapping(agk.get("mcp"))
+                if mcp.get("serverId") == validation.mcp_server_id:
                         # mcp 필드에 command/args/env가 포함되어 있으면 저장
-                        mcp_config = {}
-                        if mcp.get("command"):
-                            mcp_config["command"] = mcp["command"]
-                        if mcp.get("args"):
-                            mcp_config["args"] = mcp["args"]
-                        if mcp.get("env"):
-                            mcp_config["env"] = mcp["env"]
+                        mcp_config: dict[str, object] = {}
+                        command = _as_text(mcp.get("command"))
+                        if command:
+                            mcp_config["command"] = command
+                        args = _as_str_list(mcp.get("args"))
+                        if args:
+                            mcp_config["args"] = args
+                        env = _as_mapping(mcp.get("env"))
+                        if env:
+                            mcp_config["env"] = env
                         if mcp_config:
                             meta["mcp_config"] = mcp_config
         except (json.JSONDecodeError, OSError):
@@ -831,11 +883,11 @@ class SkillInstaller:
 
         try:
             meta_path = dest_dir / ".agk_meta.json"
-            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            _ = meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError as e:
             logger.warning("[SkillInstaller] Failed to write .agk_meta.json: %s", e)
 
-    def _cleanup_npm(self, npm_path: Path):
+    def _cleanup_npm(self, npm_path: Path) -> None:
         """Step 9: node_modules/<pkg>/ 디렉토리 정리.
 
         npm install --no-save로 생성된 node_modules 항목을 제거합니다.

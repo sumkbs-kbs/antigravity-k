@@ -77,6 +77,6 @@ export interface PublishHistoryEntry {
 }
 
 export function esc(str: string): string {
-  return String(str || '').replace(/[&<>\"]/g, c =>
+  return String(str || '').replace(/[&<>"]/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] || c);
 }

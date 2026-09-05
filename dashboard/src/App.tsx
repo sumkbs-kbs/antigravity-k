@@ -15,10 +15,18 @@ import { useTerminalStore } from './stores/terminalStore';
 import { useThemeStore } from './stores/themeStore';
 import { useEditorStore } from './stores/editorStore';
 import { useLocalHistoryStore } from './stores/localHistoryStore';
+import { SessionDisclosureBanner } from './components/shared';
 import { isMonacoFocused } from './utils/domHelpers';
 import { PluginLifecycleDispatcher } from './plugin/PluginManager';
 import { usePluginRegistry } from './plugin/pluginRegistry';
 import { examplePlugin } from './plugin/examplePlugin';
+import {
+  clearAccessCredential,
+  createAccessPinHeaders,
+  loginWithAccessPin,
+  readLegacyAccessPin,
+  readStoredAccessToken,
+} from './utils/accessPinCredential';
 
 /* ─── Sidebar loading skeleton ──────────────────────────── */
 const SidebarFallback: React.FC = () => (
@@ -32,8 +40,8 @@ const SidebarFallback: React.FC = () => (
   }}>
     <div style={{ height: 24, width: '60%', background: 'rgba(255,255,255,0.06)', borderRadius: 4, marginBottom: 12 }} />
     <div style={{ height: 16, width: '40%', background: 'rgba(255,255,255,0.04)', borderRadius: 4, marginBottom: 24 }} />
-    {[...Array(5)].map((_, i) => (
-      <div key={i} style={{ height: 14, width: `${70 - i * 8}%`, background: 'rgba(255,255,255,0.03)', borderRadius: 4 }} />
+    {['70%', '62%', '54%', '46%', '38%'].map(width => (
+      <div key={width} style={{ height: 14, width, background: 'rgba(255,255,255,0.03)', borderRadius: 4 }} />
     ))}
     <div style={{ flex: 1 }} />
     <div style={{ height: 14, width: '50%', background: 'rgba(255,255,255,0.03)', borderRadius: 4 }} />
@@ -63,6 +71,27 @@ const PageLoadingFallback: React.FC = () => (
   </div>
 );
 
+async function validateAccessCredential(
+  storedToken: string | null,
+  legacyPin: string | null,
+): Promise<boolean> {
+  if (storedToken === null && legacyPin !== null) {
+    try {
+      await loginWithAccessPin(legacyPin);
+      return false;
+    } catch {
+      clearAccessCredential();
+      return true;
+    }
+  }
+
+  const response = await globalThis.fetch('/api/session/info', { headers: createAccessPinHeaders() });
+  if (storedToken === null) return !response.ok;
+  if (response.ok) return false;
+  clearAccessCredential();
+  return true;
+}
+
 // ─── Lazy-loaded page chunks ────────────────────────────────
 const ChatPage = lazy(() => import('./components/Chat/ChatPage'));
 const WikiPage = lazy(() => import('./pages/WikiPage'));
@@ -74,13 +103,17 @@ const GitPage = lazy(() => import('./pages/GitPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const PluginPage = lazy(() => import('./pages/PluginPage'));
 const MutationDashboardPage = lazy(() => import('./pages/MutationDashboardPage'));
+const StudioPage = lazy(() => import('./pages/StudioPage'));
+const ModelHubPage = lazy(() => import('./pages/ModelHubPage'));
+const AgentStartPage = lazy(() => import('./pages/AgentStartPage'));
 
 // ─── Lazy-loaded layout chunks ────────────────────────────
 const Sidebar = lazy(() => import('./components/Layout/Sidebar'));
+const SystemTelemetricsBar = lazy(() => import('./components/Layout/SystemTelemetricsBar'));
 
 // ─── Lazy-loaded modal / overlay chunks ─────────────────────
 const MultiTerminalPanel = lazy(() => import('./components/UI/MultiTerminalPanel'));
-const PluginPanelRoutes = lazy(() => import('./plugin/PluginManager'));
+const PluginPanelRoutes = lazy(() => import('./plugin/PluginPanelRoutes'));
 const OutputPanel = lazy(() => import('./components/UI/OutputPanel'));
 const CommandPalette = lazy(() => import('./components/UI/CommandPalette'));
 const PinModal = lazy(() => import('./components/UI/PinModal'));
@@ -90,7 +123,7 @@ const KeyboardShortcutsModal = lazy(() => import('./components/UI/KeyboardShortc
 type BottomPanelTab = 'terminal' | 'output';
 
 const AppContent: React.FC = () => {
-  const { systemStatus, setSystemStatus } = useUiStore();
+  const { setSystemStatus } = useUiStore();
   const { loadFromStorage } = useChatStore();
   const terminalVisible = useTerminalStore(s => s.visible);
   const toggleTerminal = useTerminalStore(s => s.toggleVisible);
@@ -100,7 +133,10 @@ const AppContent: React.FC = () => {
 
   // Register built-in plugins on mount
   useEffect(() => {
-    usePluginRegistry.getState().register(examplePlugin);
+    const registry = usePluginRegistry.getState();
+    if (!registry.plugins[examplePlugin.manifest.id]) {
+      registry.register(examplePlugin);
+    }
   }, []);
 
   // Load theme preferences on mount
@@ -118,9 +154,10 @@ const AppContent: React.FC = () => {
       if (!state.openFiles.length) return;
       const lh = useLocalHistoryStore.getState();
       if (!lh.autoSaveEnabled) return;
+      const previousFiles = new Map(prevState.openFiles.map(file => [file.path, file]));
 
       for (const file of state.openFiles) {
-        const prev = prevState.openFiles.find(f => f.path === file.path);
+        const prev = previousFiles.get(file.path);
         // Snapshot NEW content when content changes (keeps current state in history)
         if (prev && prev.content !== file.content) {
           lh.addSnapshot({
@@ -184,6 +221,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     loadFromStorage();
+    let chatSlashTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const handlePinRequired = () => {
       useUiStore.getState().setPinModalVisible(true);
@@ -196,7 +234,7 @@ const AppContent: React.FC = () => {
         setSystemStatus({
           healthy: health.status === 'ok',
           backends: health.backends || {},
-          ragFiles: parseInt(health.rag_index_files || '0'),
+          ragFiles: health.rag_index_files ?? 0,
           covActive: health.cov_active || false,
         });
       } catch {
@@ -228,7 +266,8 @@ const AppContent: React.FC = () => {
       // Navigate to chat and set input text
       const { text } = e.detail;
       window.dispatchEvent(new CustomEvent('agk:pushstate', { detail: '/chat' }));
-      setTimeout(() => {
+      if (chatSlashTimeout !== null) clearTimeout(chatSlashTimeout);
+      chatSlashTimeout = setTimeout(() => {
         window.dispatchEvent(new CustomEvent('agk:set-chat-input', { detail: { text } }));
       }, 300);
     };
@@ -241,30 +280,42 @@ const AppContent: React.FC = () => {
       window.removeEventListener('agk:navigate', handleNavigate as EventListener);
       window.removeEventListener('agk:chat-slash', handleChatSlash as EventListener);
       clearInterval(interval);
+      if (chatSlashTimeout !== null) clearTimeout(chatSlashTimeout);
     };
-  }, []);
+  }, [loadFromStorage, setSystemStatus]);
 
   // Simple pushstate-based routing for external events
   useEffect(() => {
     const handler = (e: CustomEvent) => {
       const path = e.detail as string;
-      if (path) window.location.hash = '#!' + path;
+      if (!path) return;
+      window.history.pushState({}, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
     };
     window.addEventListener('agk:pushstate', handler as EventListener);
     return () => window.removeEventListener('agk:pushstate', handler as EventListener);
   }, []);
 
   return (
-    <div className="app-layout">
-      <Suspense fallback={<SidebarFallback />}>
-        <Sidebar toggleTerminal={toggleTerminal} />
+    <div className="app-shell" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+      <Suspense fallback={null}>
+        <SystemTelemetricsBar />
       </Suspense>
-      <div className="app-right-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="app-layout" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <Suspense fallback={<SidebarFallback />}>
+          <Sidebar toggleTerminal={toggleTerminal} />
+        </Suspense>
+        <div className="app-right-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <SessionDisclosureBanner />
         <main className="main-content">
+          <h1 className="visually-hidden">Ssak-Ai Dashboard</h1>
           <Suspense fallback={<PageLoadingFallback />}>
             <Routes>
               <Route path="/" element={<ChatPage />} />
               <Route path="/chat" element={<ChatPage />} />
+              <Route path="/studio" element={<StudioPage />} />
+              <Route path="/models" element={<ModelHubPage />} />
+              <Route path="/start" element={<AgentStartPage />} />
               <Route path="/wiki" element={<WikiPage />} />
               <Route path="/agent" element={<AgentPage />} />
               <Route path="/settings" element={<SettingsPage />} />
@@ -286,8 +337,8 @@ const AppContent: React.FC = () => {
             minHeight: terminalVisible ? 180 : 0,
             transition: 'height 0.25s ease',
             overflow: 'hidden',
-            borderTop: terminalVisible ? '1px solid var(--glass-border)' : 'none',
-            background: '#0f1117',
+            borderTop: terminalVisible ? '1px solid var(--terminal-border)' : 'none',
+            background: 'var(--bg-primary)',
           }}
         >
           {/* ── Bottom Panel Tab Bar ────────────────────────────── */}
@@ -353,19 +404,49 @@ const AppContent: React.FC = () => {
       )}
       <ToastContainer />
       <Suspense fallback={null}>
-        <PinModal />
-      </Suspense>
-      <Suspense fallback={null}>
         <FolderBrowser />
       </Suspense>
+      </div>
     </div>
   );
 };
 
 const App: React.FC = () => {
+  const pinModalVisible = useUiStore(state => state.pinModalVisible);
+  const setPinModalVisible = useUiStore(state => state.setPinModalVisible);
+  const [checkingStoredPin, setCheckingStoredPin] = useState(true);
+
+  useEffect(() => {
+    const storedToken = readStoredAccessToken();
+    const legacyPin = readLegacyAccessPin();
+    let active = true;
+    if (storedToken === null && legacyPin !== null) setPinModalVisible(true);
+    void validateAccessCredential(storedToken, legacyPin)
+      .then(showPinModal => {
+        if (active) setPinModalVisible(showPinModal);
+      })
+      .catch(() => {
+        if (!active) return;
+        clearAccessCredential();
+        setPinModalVisible(true);
+      })
+      .finally(() => {
+        if (active) setCheckingStoredPin(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [setPinModalVisible]);
+
   return (
     <BrowserRouter>
-      <AppContent />
+      {checkingStoredPin ? null : pinModalVisible ? (
+        <Suspense fallback={null}>
+          <PinModal />
+        </Suspense>
+      ) : (
+        <AppContent />
+      )}
     </BrowserRouter>
   );
 };

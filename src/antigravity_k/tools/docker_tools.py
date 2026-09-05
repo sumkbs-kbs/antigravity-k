@@ -2,11 +2,14 @@
 
 import logging
 import subprocess
-from typing import Any
+from typing import override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
+
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | list[str] | list[JsonValue] | dict[str, JsonValue]
 
 
 class DockerBashCommandTool(BaseTool):
@@ -15,22 +18,22 @@ class DockerBashCommandTool(BaseTool):
     위험한 코드 실행이나 악성코드 동적 분석 시 호스트 환경을 보호합니다.
     """
 
-    category = ToolCategory.CODE_EXEC
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.HIGH
-    icon = "🐳"
-    tags = ["docker", "sandbox", "security", "execution"]
+    category: ToolCategory = ToolCategory.CODE_EXEC
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.HIGH
+    icon: str = "🐳"
+    tags: list[str] = ["docker", "sandbox", "security", "execution"]
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the DockerBashCommandTool."""
         super().__init__()
-        self._name = "run_docker_bash"
-        self._description = (
+        self._name: str = "run_docker_bash"
+        self._description: str = (
             "Run a bash command strictly inside a Docker sandbox container. "
             "Use this for compiling unverified code, running suspicious binaries, or anything "
             "that might damage the host OS. By default, it uses 'ubuntu:latest'."
         )
-        self._schema = {
+        self._schema: dict[str, JsonValue] = {
             "type": "object",
             "properties": {
                 "command": {
@@ -52,6 +55,7 @@ class DockerBashCommandTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -62,6 +66,7 @@ class DockerBashCommandTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -72,7 +77,8 @@ class DockerBashCommandTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> dict[str, JsonValue]:
         """Parameters Schema.
 
         Returns:
@@ -81,7 +87,8 @@ class DockerBashCommandTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> str:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -91,9 +98,12 @@ class DockerBashCommandTool(BaseTool):
             str: The str result.
 
         """
-        command = kwargs.get("command")
-        image = kwargs.get("image", "ubuntu:latest")
-        timeout = kwargs.get("timeout_seconds", 30)
+        command_value = kwargs.get("command")
+        command = command_value if isinstance(command_value, str) else ""
+        image_value = kwargs.get("image", "ubuntu:latest")
+        image = image_value if isinstance(image_value, str) else "ubuntu:latest"
+        timeout_value = kwargs.get("timeout_seconds", 30)
+        timeout = float(timeout_value) if isinstance(timeout_value, (int, float)) and not isinstance(timeout_value, bool) else 30.0
 
         if not command:
             return "Error: command is required."
@@ -126,6 +136,6 @@ class DockerBashCommandTool(BaseTool):
 
         except subprocess.TimeoutExpired:
             return f"Error: Command timed out after {timeout} seconds."
-        except Exception as e:
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
             logger.exception("Unhandled exception")
             return f"Error executing docker command: {e}\n(Is Docker running on the host?)"

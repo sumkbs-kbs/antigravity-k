@@ -14,7 +14,7 @@ def test_autonomous_flight_success():
         {"id": "m3", "desc": "Orbit insertion", "depends_on": ["m2"]},
     ]
 
-    def mock_executor(step_id: str, desc: str) -> bool:
+    def mock_executor(_step_id: str, _desc: str) -> bool:
         # All steps succeed
         return True
 

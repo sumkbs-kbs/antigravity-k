@@ -5,19 +5,75 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable
+from typing import cast
 from unittest import mock
 
+import antigravity_k.tools.mcp_tool_loader as _loader
 from antigravity_k.tools.base_tool import RiskLevel
 from antigravity_k.tools.mcp_tool_loader import (
     MCPServerRegistry,
     MCPTool,
-    _annotations_to_dict,
-    _risk_from_annotations,
-    _server_policy,
-    _string_dict,
-    _timeout_seconds,
-    _transport_for,
 )
+
+
+def _annotations_to_dict(value: object) -> dict[str, object]:
+    function = cast(Callable[..., object], getattr(_loader, "_annotations_to_dict"))
+    return cast(dict[str, object], function(value))
+
+
+def _risk_from_annotations(value: object) -> RiskLevel:
+    function = cast(Callable[..., object], getattr(_loader, "_risk_from_annotations"))
+    return cast(RiskLevel, function(value))
+
+
+def _server_policy(value: object) -> dict[str, object]:
+    function = cast(Callable[..., object], getattr(_loader, "_server_policy"))
+    return cast(dict[str, object], function(value))
+
+
+def _string_dict(value: object) -> dict[str, str]:
+    function = cast(Callable[..., object], getattr(_loader, "_string_dict"))
+    return cast(dict[str, str], function(value))
+
+
+def _timeout_seconds(value: object, *, default: float, keys: tuple[str, str] | None = None) -> float:
+    function = cast(Callable[..., object], getattr(_loader, "_timeout_seconds"))
+    if keys is None:
+        return cast(float, function(value, default=default))
+    return cast(float, function(value, default=default, keys=keys))
+
+
+def _transport_for(value: object) -> str:
+    function = cast(Callable[..., object], getattr(_loader, "_transport_for"))
+    return cast(str, function(value))
+
+
+def _skill_servers() -> dict[str, dict[str, object]]:
+    return cast(dict[str, dict[str, object]], getattr(MCPServerRegistry, "_skill_servers"))
+
+
+class _ModelDumpAnnotation:
+    def model_dump(self, *, exclude_none: bool) -> dict[str, object]:
+        return {"readOnlyHint": True} if exclude_none else {}
+
+
+class _DictAnnotation:
+    def dict(self, *, exclude_none: bool) -> dict[str, object]:
+        del exclude_none
+        return {"destructiveHint": True}
+
+
+class _WarningLogger:
+    def __init__(self) -> None:
+        self.warning_calls: list[tuple[object, ...]] = []
+
+    def warning(self, *args: object, **kwargs: object) -> None:
+        del kwargs
+        self.warning_calls.append(args)
+
+    def info(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
 
 # ─── Helper functions (pure) ─────────────────────────────────────────
 
@@ -62,17 +118,12 @@ class TestAnnotationsToDict:
         assert _annotations_to_dict(None) == {}
 
     def test_pydantic_model_dump(self):
-        mock_model = mock.Mock()
-        mock_model.model_dump.return_value = {"readOnlyHint": True}
+        mock_model = _ModelDumpAnnotation()
         result = _annotations_to_dict(mock_model)
         assert result == {"readOnlyHint": True}
-        mock_model.model_dump.assert_called_once_with(exclude_none=True)
 
     def test_dict_method(self):
-        mock_obj = mock.Mock()
-        mock_obj.dict.return_value = {"destructiveHint": True}
-        # Ensure it doesn't have model_dump
-        del mock_obj.model_dump
+        mock_obj = _DictAnnotation()
         result = _annotations_to_dict(mock_obj)
         assert result == {"destructiveHint": True}
 
@@ -209,11 +260,11 @@ class TestMCPServerRegistrySkillIntegration:
 
     def setup_method(self):
         """Ensure clean _skill_servers state before each test."""
-        MCPServerRegistry._skill_servers.clear()
+        _skill_servers().clear()
 
     def teardown_method(self):
         """Clean up _skill_servers after each test."""
-        MCPServerRegistry._skill_servers.clear()
+        _skill_servers().clear()
 
     def test_register_skill_mcp(self):
         registry = MCPServerRegistry()
@@ -224,27 +275,27 @@ class TestMCPServerRegistrySkillIntegration:
         }
         result = registry.register_skill_mcp("my-skill", mcp_config)
         assert result is True
-        assert "my-skill-server" in registry._skill_servers
+        assert "my-skill-server" in _skill_servers()
 
     def test_get_skill_mcp_servers_returns_registered(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("test-skill", {"serverId": "ts1", "command": "echo"})
+        _ = registry.register_skill_mcp("test-skill", {"serverId": "ts1", "command": "echo"})
         servers = registry.get_skill_mcp_servers()
         assert "ts1" in servers
         assert servers["ts1"]["skill_name"] == "test-skill"
 
     def test_get_skill_mcp_servers_filtered_by_name(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("skill-a", {"serverId": "sa1", "command": "echo"})
-        registry.register_skill_mcp("skill-b", {"serverId": "sb1", "command": "echo"})
+        _ = registry.register_skill_mcp("skill-a", {"serverId": "sa1", "command": "echo"})
+        _ = registry.register_skill_mcp("skill-b", {"serverId": "sb1", "command": "echo"})
         filtered = registry.get_skill_mcp_servers("skill-a")
         assert "sa1" in filtered
         assert "sb1" not in filtered
 
     def test_unregister_skill_mcp_removes_servers(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("my-skill", {"serverId": "ms1", "command": "echo"})
-        registry.register_skill_mcp("my-skill", {"serverId": "ms2", "command": "echo"})
+        _ = registry.register_skill_mcp("my-skill", {"serverId": "ms1", "command": "echo"})
+        _ = registry.register_skill_mcp("my-skill", {"serverId": "ms2", "command": "echo"})
         result = registry.unregister_skill_mcp("my-skill")
         assert result is True
         assert registry.get_skill_mcp_servers("my-skill") == {}
@@ -261,8 +312,8 @@ class TestMCPServerRegistrySkillIntegration:
 
     def test_list_skills_with_mcp(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("skill-a", {"serverId": "sa1", "command": "echo"})
-        registry.register_skill_mcp("skill-b", {"serverId": "sb1", "command": "echo"})
+        _ = registry.register_skill_mcp("skill-a", {"serverId": "sa1", "command": "echo"})
+        _ = registry.register_skill_mcp("skill-b", {"serverId": "sb1", "command": "echo"})
         skills = registry.list_skills_with_mcp()
         skill_names = [s["skill"] for s in skills]
         assert "skill-a" in skill_names
@@ -270,13 +321,13 @@ class TestMCPServerRegistrySkillIntegration:
 
     def test_get_all_includes_skill_servers(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("s1", {"serverId": "custom-srv", "command": "echo"})
+        _ = registry.register_skill_mcp("s1", {"serverId": "custom-srv", "command": "echo"})
         all_servers = registry.get_all()
         assert "custom-srv" in all_servers
 
     def test_get_by_category_includes_skill_servers(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("s1", {"serverId": "custom-srv", "command": "echo"})
+        _ = registry.register_skill_mcp("s1", {"serverId": "custom-srv", "command": "echo"})
         # register_skill_mcp always sets category="skill"
         skill_servers = registry.get_by_category("skill")
         assert "custom-srv" in skill_servers
@@ -285,18 +336,19 @@ class TestMCPServerRegistrySkillIntegration:
         # _skill_servers is a class variable shared across instances
         registry1 = MCPServerRegistry()
         registry2 = MCPServerRegistry()
-        registry1.register_skill_mcp("skill", {"serverId": "shared-srv", "command": "echo"})
-        assert "shared-srv" in registry2._skill_servers
+        _ = registry1.register_skill_mcp("skill", {"serverId": "shared-srv", "command": "echo"})
+        assert "shared-srv" in _skill_servers()
+        assert registry2.get_skill_mcp_servers("skill")["shared-srv"]["skill_name"] == "skill"
         # Clean up
-        MCPServerRegistry._skill_servers.clear()
+        _skill_servers().clear()
 
     def test_catalog_summary_includes_skills(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("skill-x", {"serverId": "sx1", "command": "echo"})
+        _ = registry.register_skill_mcp("skill-x", {"serverId": "sx1", "command": "echo"})
         summary = registry.get_catalog_summary()
         assert "sx1" in summary
         assert "skill: skill-x" in summary
-        MCPServerRegistry._skill_servers.clear()
+        _skill_servers().clear()
 
 
 class TestMCPServerRegistryGenerateConfig:
@@ -311,10 +363,11 @@ class TestMCPServerRegistryGenerateConfig:
             assert result == tmp_path
             assert os.path.exists(tmp_path)
             with open(tmp_path, encoding="utf-8") as f:
-                data = json.load(f)
+                data = cast(dict[str, object], json.load(f))
+            servers = cast(dict[str, object], data["mcpServers"])
             assert "mcpServers" in data
-            assert "filesystem" in data["mcpServers"]
-            assert "fetch" in data["mcpServers"]
+            assert "filesystem" in servers
+            assert "fetch" in servers
         finally:
             os.unlink(tmp_path)
 
@@ -324,10 +377,11 @@ class TestMCPServerRegistryGenerateConfig:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
                 tmp_path = tmp.name
             try:
-                registry.generate_config(tmp_path)
+                _ = registry.generate_config(tmp_path)
                 with open(tmp_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                assert "filesystem" in data["mcpServers"]
+                    data = cast(dict[str, object], json.load(f))
+                servers = cast(dict[str, object], data["mcpServers"])
+                assert "filesystem" in servers
             finally:
                 os.unlink(tmp_path)
 
@@ -336,25 +390,27 @@ class TestMCPServerRegistryGenerateConfig:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
             tmp_path = tmp.name
         try:
-            with mock.patch("antigravity_k.tools.mcp_tool_loader.logger") as mock_log:
-                registry.generate_config(tmp_path, server_ids=["nonexistent"])
-                mock_log.warning.assert_called_once()
+            logger_double = _WarningLogger()
+            with mock.patch("antigravity_k.tools.mcp_tool_loader.logger", new=logger_double):
+                _ = registry.generate_config(tmp_path, server_ids=["nonexistent"])
+                assert len(logger_double.warning_calls) == 1
         finally:
             os.unlink(tmp_path)
 
     def test_generate_config_with_skills(self):
         registry = MCPServerRegistry()
-        registry.register_skill_mcp("skill-z", {"serverId": "zs1", "command": "echo"})
+        _ = registry.register_skill_mcp("skill-z", {"serverId": "zs1", "command": "echo"})
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
             tmp_path = tmp.name
         try:
-            registry.generate_config_with_skills(tmp_path)
+            _ = registry.generate_config_with_skills(tmp_path)
             with open(tmp_path, encoding="utf-8") as f:
-                data = json.load(f)
-            assert "zs1" in data["mcpServers"]
+                data = cast(dict[str, object], json.load(f))
+            servers = cast(dict[str, object], data["mcpServers"])
+            assert "zs1" in servers
         finally:
             os.unlink(tmp_path)
-            MCPServerRegistry._skill_servers.clear()
+            _skill_servers().clear()
 
 
 # ─── MCPTool ────────────────────────────────────────────────────────
@@ -391,13 +447,14 @@ class TestMCPTool:
             server_policy={"trust_level": "full", "authenticated": True, "timeout_ms": 5000},
         )
         metadata = tool.to_metadata()
+        mcp_metadata = cast(dict[str, object], metadata["mcp"])
         assert "mcp" in metadata
-        assert metadata["mcp"]["server"] == "server-x"
-        assert metadata["mcp"]["transport"] == "sse"
-        assert metadata["mcp"]["remote"] is True
-        assert metadata["mcp"]["authenticated"] is True
-        assert metadata["mcp"]["timeout_ms"] == 5000
-        assert metadata["mcp"]["trust_level"] == "full"
+        assert mcp_metadata["server"] == "server-x"
+        assert mcp_metadata["transport"] == "sse"
+        assert mcp_metadata["remote"] is True
+        assert mcp_metadata["authenticated"] is True
+        assert mcp_metadata["timeout_ms"] == 5000
+        assert mcp_metadata["trust_level"] == "full"
 
     def test_default_risk_level(self):
         tool = MCPTool(

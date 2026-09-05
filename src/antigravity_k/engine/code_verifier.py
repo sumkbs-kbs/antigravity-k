@@ -90,7 +90,7 @@ class DeterministicCodeVerifier:
     def _verify_python(code: str) -> SyntaxVerificationResult:
         """Verify Python code via ast.parse."""
         try:
-            ast.parse(code)
+            _ = ast.parse(code)
             return SyntaxVerificationResult(is_valid=True)
         except SyntaxError as err:
             return SyntaxVerificationResult(
@@ -129,13 +129,17 @@ class DeterministicCodeVerifier:
         try:
             yaml.safe_load(content)
             return SyntaxVerificationResult(is_valid=True)
-        except yaml.YAMLError as err:
-            line = None
-            if hasattr(err, "problem_mark") and err.problem_mark:
-                line = err.problem_mark.line + 1
+        except yaml.MarkedYAMLError as err:
+            line = err.problem_mark.line + 1 if err.problem_mark is not None else None
             return SyntaxVerificationResult(
                 is_valid=False,
                 error_type="YAMLParseError",
                 error_message=str(err),
                 line_number=line,
+            )
+        except yaml.YAMLError as err:
+            return SyntaxVerificationResult(
+                is_valid=False,
+                error_type="YAMLParseError",
+                error_message=str(err),
             )

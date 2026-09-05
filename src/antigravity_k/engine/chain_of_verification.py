@@ -1,4 +1,4 @@
-"""Antigravity-K: Chain-of-Verification (CoV) 자기검증 루프.
+"""Ssak-Ai: Chain-of-Verification (CoV) 자기검증 루프.
 
 ========================================================
 모델이 생성한 답변을 동일 모델의 별도 호출로 검증하여
@@ -7,106 +7,23 @@
 격차 해소 대상: 추론 깊이 및 정확도
 """
 
+import ast
 import logging
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from typing import Final
+
+from .chain_of_verification_models import (
+    CoVTrace,
+    VerificationResult,
+    estimate_complexity,
+)
 
 logger = logging.getLogger("antigravity_k.chain_of_verification")
 
 
-@dataclass
-class VerificationResult:
-    """검증 결과."""
-
-    issues_found: list[str] = field(default_factory=list)
-    severity: str = "none"  # none, low, medium, high
-    suggested_fixes: list[str] = field(default_factory=list)
-    verification_reasoning: str = ""
-    passed: bool = True
-
-
-@dataclass
-class CoVTrace:
-    """CoV 실행 추적."""
-
-    original_response: str = ""
-    verification_result: VerificationResult | None = None
-    revised_response: str = ""
-    total_passes: int = 1
-    total_latency_ms: float = 0.0
-    skipped: bool = False
-    skip_reason: str = ""
-
-
-# ─── 복잡도 판단 기준 ────────────────────────────────────────
-
-COMPLEX_INDICATORS = [
-    "아키텍처",
-    "설계",
-    "리팩토링",
-    "마이그레이션",
-    "최적화",
-    "architecture",
-    "design",
-    "refactor",
-    "migrate",
-    "optimize",
-    "알고리즘",
-    "algorithm",
-    "시간복잡도",
-    "time complexity",
-    "보안",
-    "security",
-    "취약점",
-    "vulnerability",
-    "데이터베이스",
-    "database",
-    "스키마",
-    "schema",
-    "동시성",
-    "concurrency",
-    "비동기",
-    "async",
-    "분산",
-    "distributed",
-    "캐시",
-    "cache",
-]
-
-SIMPLE_INDICATORS = [
-    "안녕",
-    "hello",
-    "hi",
-    "도움",
-    "help",
-    "파일 읽",
-    "파일 보",
-    "목록",
-    "list",
-    "간단한",
-    "simple",
-    "basic",
-]
-
-
-def estimate_complexity(task: str) -> float:
-    """작업의 복잡도를 0.0~1.0으로 추정한다 (CoV/self-consistency 공유).
-
-    단순 지표가 2개 이상이면 0.1, 그 외는 복잡 지표·코드 요청·길이로 산정.
-    작은 모델의 증폭 자원을 복잡한 작업에 집중하기 위한 공용 게이트다.
-    """
-    task_lower = (task or "").lower()
-    simple_hits = sum(1 for ind in SIMPLE_INDICATORS if ind in task_lower)
-    if simple_hits >= 2:
-        return 0.1
-    complex_hits = sum(1 for ind in COMPLEX_INDICATORS if ind in task_lower)
-    has_code_request = any(
-        kw in task_lower for kw in ["코드", "code", "함수", "function", "클래스", "class", "구현", "implement"]
-    )
-    length_factor = min(len(task) / 500, 1.0) * 0.2
-    return min((complex_hits * 0.15) + (0.2 if has_code_request else 0.0) + length_factor, 1.0)
+CODE_BLOCK_PATTERN: Final[re.Pattern[str]] = re.compile(r"```python\n(.*?)```", re.DOTALL)
 
 
 class ChainOfVerification:
@@ -118,11 +35,11 @@ class ChainOfVerification:
 
     def __init__(
         self,
-        generate_fn: Callable[..., str] | None = None,
+        generate_fn: Callable[[str], str] | None = None,
         min_response_length: int = 200,
         complexity_threshold: float = 0.4,
         max_revise_iterations: int = 1,
-    ):
+    ) -> None:
         """Args:
         generate_fn: 모델 호출 함수 (prompt: str) -> str
         min_response_length: CoV를 적용할 최소 응답 길이
@@ -130,12 +47,12 @@ class ChainOfVerification:
         max_revise_iterations: revise→verify 폐루프 반복 한계 (기본 1)
 
         """
-        self._generate_fn = generate_fn
-        self.min_response_length = min_response_length
-        self.complexity_threshold = complexity_threshold
-        self.max_revise_iterations = max_revise_iterations
+        self._generate_fn: Callable[[str], str] | None = generate_fn
+        self.min_response_length: int = min_response_length
+        self.complexity_threshold: float = complexity_threshold
+        self.max_revise_iterations: int = max_revise_iterations
 
-    def set_generate_fn(self, fn: Callable[..., str]) -> None:
+    def set_generate_fn(self, fn: Callable[[str], str]) -> None:
         """모델 호출 함수를 설정합니다."""
         self._generate_fn = fn
 
@@ -155,35 +72,38 @@ class ChainOfVerification:
 
     def verify(self, task: str, response: str) -> VerificationResult:
         """생성된 응답을 검증합니다 (Pass 2)."""
-        result = VerificationResult()
+        issues_found = self._rule_based_check(task, response)
+        suggested_fixes: list[str] = []
+        verification_reasoning = ""
 
-        # 1. 규칙 기반 빠른 검증
-        rule_issues = self._rule_based_check(task, response)
-        result.issues_found.extend(rule_issues)
-
-        # 2. LLM 기반 심층 검증 (generate_fn이 있는 경우)
         if self._generate_fn and len(response) >= self.min_response_length:
             llm_result = self._llm_verify(task, response)
             if llm_result:
-                result.issues_found.extend(llm_result.issues_found)
-                result.suggested_fixes.extend(llm_result.suggested_fixes)
-                result.verification_reasoning = llm_result.verification_reasoning
+                issues_found.extend(llm_result.issues_found)
+                suggested_fixes.extend(llm_result.suggested_fixes)
+                verification_reasoning = llm_result.verification_reasoning
 
-        # 심각도 판정
-        if len(result.issues_found) == 0:
-            result.severity = "none"
-            result.passed = True
-        elif len(result.issues_found) <= 2:
-            result.severity = "low"
-            result.passed = True  # 경미한 문제는 통과
-        elif len(result.issues_found) <= 4:
-            result.severity = "medium"
-            result.passed = False
+        issue_count = len(issues_found)
+        if issue_count == 0:
+            severity = "none"
+            passed = True
+        elif issue_count <= 2:
+            severity = "low"
+            passed = True
+        elif issue_count <= 4:
+            severity = "medium"
+            passed = False
         else:
-            result.severity = "high"
-            result.passed = False
+            severity = "high"
+            passed = False
 
-        return result
+        return VerificationResult(
+            issues_found=issues_found,
+            severity=severity,
+            suggested_fixes=suggested_fixes,
+            verification_reasoning=verification_reasoning,
+            passed=passed,
+        )
 
     def revise(self, task: str, response: str, verification: VerificationResult) -> str:
         """검증 결과를 바탕으로 응답을 수정합니다 (Pass 3)."""
@@ -213,7 +133,7 @@ class ChainOfVerification:
             revised = self._generate_fn(revise_prompt)
             if revised and len(revised.strip()) > 50:
                 return revised
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError, TimeoutError):
             logger.exception("[CoV] Revision failed")
 
         return response  # 수정 실패 시 원본 유지
@@ -225,37 +145,32 @@ class ChainOfVerification:
             CoVTrace with original, verification, and revised response
 
         """
-        trace = CoVTrace(original_response=response)
         start = time.time()
 
-        # 1. 검증 필요성 판단
         if not self.should_verify(task, response):
-            trace.skipped = True
-            trace.skip_reason = "Low complexity or short response"
-            trace.revised_response = response
-            trace.total_latency_ms = (time.time() - start) * 1000
-            return trace
+            return CoVTrace(
+                original_response=response,
+                revised_response=response,
+                total_latency_ms=(time.time() - start) * 1000,
+                skipped=True,
+                skip_reason="Low complexity or short response",
+            )
 
-        # 2. 검증 (Pass 2)
         verification = self.verify(task, response)
-        trace.verification_result = verification
-        trace.total_passes = 2
+        total_passes = 2
 
-        # 3. 수정 폐루프 (Pass 3+) — 검증 실패 시 revise→verify 반복.
-        # max_revise_iterations=1 이면 단일 revise 후 종료(기존 동작).
-        # 2 이상이면 수정 응답을 재검증하며 통과 또는 한계 도달까지 반복한다.
         current = response
         current_verification = verification
         if not verification.passed:
             for it in range(self.max_revise_iterations):
                 revised = self.revise(task, current, current_verification)
-                trace.total_passes += 1
+                total_passes += 1
                 if revised == current:
-                    break  # revise가 개선을 만들지 못함 → 조기 종료
+                    break
                 current = revised
                 if self.max_revise_iterations > 1:
                     re_verification = self.verify(task, current)
-                    trace.total_passes += 1
+                    total_passes += 1
                     if re_verification.passed:
                         current_verification = re_verification
                         logger.info("[CoV] revise 루프 %s회차 검증 통과", it + 1)
@@ -266,33 +181,34 @@ class ChainOfVerification:
                         it + 1,
                         len(re_verification.issues_found),
                     )
-            trace.verification_result = current_verification
-        trace.revised_response = current
-
-        trace.total_latency_ms = (time.time() - start) * 1000
+        latency_ms = (time.time() - start) * 1000
         logger.info(
             "[CoV] %s-pass complete. Issues: %s, Severity: %s, Latency: %sms",
-            trace.total_passes,
+            total_passes,
             len(current_verification.issues_found),
             current_verification.severity,
-            trace.total_latency_ms,
+            latency_ms,
         )
 
-        return trace
+        return CoVTrace(
+            original_response=response,
+            verification_result=current_verification,
+            revised_response=current,
+            total_passes=total_passes,
+            total_latency_ms=latency_ms,
+        )
 
     # ─── 규칙 기반 빠른 검증 ──────────────────────────────────
 
     def _rule_based_check(self, task: str, response: str) -> list[str]:
         """LLM 호출 없이 규칙 기반으로 빠르게 검증합니다."""
-        issues = []
+        _ = task
+        issues: list[str] = []
 
-        # 1. Python 코드 블록의 구문 검증
-        code_blocks = re.findall(r"```python\n(.*?)```", response, re.DOTALL)
-        for i, code in enumerate(code_blocks):
-            import ast as _ast
-
+        for i, match in enumerate(CODE_BLOCK_PATTERN.finditer(response)):
+            code = match.group(1)
             try:
-                _ast.parse(code)
+                _ = ast.parse(code)
             except SyntaxError as e:
                 issues.append(f"코드 블록 #{i + 1}에 구문 오류: {e.msg} (line {e.lineno})")
 
@@ -314,7 +230,7 @@ class ChainOfVerification:
 
         # 3. 과도한 반복 감지
         sentences = [s.strip() for s in response.split(".") if len(s.strip()) > 20]
-        seen = set()
+        seen: set[str] = set()
         for s in sentences:
             normalized = s.lower().strip()
             if normalized in seen:
@@ -347,24 +263,20 @@ class ChainOfVerification:
             if not result_text:
                 return None
 
-            result = VerificationResult()
-            result.verification_reasoning = result_text
-
-            # "문제 없음" 키워드 체크
             if "문제 없음" in result_text or "no issues" in result_text.lower():
-                return result
+                return VerificationResult(verification_reasoning=result_text)
 
-            # 번호 목록 파싱
+            issues_found: list[str] = []
             lines = result_text.split("\n")
             for line in lines:
                 stripped = line.strip()
                 if re.match(r"^\d+[\.\)]\s", stripped):
                     issue = re.sub(r"^\d+[\.\)]\s*", "", stripped)
                     if len(issue) > 10:
-                        result.issues_found.append(issue)
+                        issues_found.append(issue)
 
-            return result
+            return VerificationResult(issues_found=issues_found, verification_reasoning=result_text)
 
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError, TimeoutError):
             logger.exception("[CoV] LLM verification failed")
             return None

@@ -1,6 +1,6 @@
-# Contributing to Antigravity-K
+# Contributing to Ssak-Ai
 
-We love your input! We want to make contributing to Antigravity-K as easy and transparent as possible.
+We love your input! We want to make contributing to Ssak-Ai as easy and transparent as possible.
 
 ## Development Process
 
@@ -80,7 +80,7 @@ antigravity-k/
 │   ├── security/          # Security modules
 │   ├── tools/             # Tool implementations
 │   └── knowledge/         # Knowledge management
-├── dashboard/             # Web dashboard (Vite + vanilla JS)
+├── dashboard/             # Web dashboard (React + TypeScript + Vite)
 ├── tests/                 # Test suite
 ├── scripts/               # Utility scripts
 └── docs/                  # Documentation

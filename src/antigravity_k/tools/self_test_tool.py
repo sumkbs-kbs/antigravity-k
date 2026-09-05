@@ -1,4 +1,4 @@
-"""Antigravity-K: 브라우저 자가 테스트 도구 (Self-Test Tool).
+"""Ssak-Ai: 브라우저 자가 테스트 도구 (Self-Test Tool).
 
 =========================================================
 에이전트가 "시스템 자가 테스트 해줘"라고 요청하면,
@@ -10,30 +10,45 @@ Playwright로 대시보드 전체를 자동 순회하며 건강 검진합니다.
 import asyncio
 import json
 import logging
-from typing import Any
+from collections.abc import Mapping
+from typing import TypedDict, cast, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger("antigravity_k.tools.self_test")
 
 
+class _ParameterProperty(TypedDict, total=False):
+    type: str
+    enum: list[str]
+    description: str
+    default: str | bool
+
+
+class _ParametersSchema(TypedDict):
+    type: str
+    properties: dict[str, _ParameterProperty]
+    required: list[str]
+
+
 class SelfTestTool(BaseTool):
     """시스템 자가 테스트 도구.
 
-    에이전트가 브라우저를 열어 Antigravity-K 대시보드의
+    에이전트가 브라우저를 열어 Ssak-Ai 대시보드의
     모든 기능(채팅, 탐색기, 터미널, API)을 자동으로 테스트합니다.
     """
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.LOW
-    icon = "🧪"
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.LOW
+    icon: str = "🧪"
 
     def __init__(self) -> None:
         super().__init__()
-        self.tags = ["self-test", "harness", "qa", "browser"]
+        self.tags: list[str] = ["self-test", "harness", "qa", "browser"]
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -44,6 +59,7 @@ class SelfTestTool(BaseTool):
         return "self_test"
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -59,7 +75,8 @@ class SelfTestTool(BaseTool):
         )
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> _ParametersSchema:
         """Parameters Schema.
 
         Returns:
@@ -89,7 +106,8 @@ class SelfTestTool(BaseTool):
             "required": [],
         }
 
-    def execute(self, **kwargs) -> str:
+    @override
+    def execute(self, **kwargs: object) -> str:
         """Execute.
 
         Args:
@@ -99,8 +117,10 @@ class SelfTestTool(BaseTool):
             str: The str result.
 
         """
-        scope = kwargs.get("scope", "full")
-        verbose = kwargs.get("verbose", True)
+        scope_value = kwargs.get("scope", "full")
+        scope = scope_value if isinstance(scope_value, str) else "full"
+        verbose_value = kwargs.get("verbose", True)
+        verbose = verbose_value if isinstance(verbose_value, bool) else True
 
         # 동기 컨텍스트에서 비동기 하네스 실행
         try:
@@ -117,8 +137,9 @@ class SelfTestTool(BaseTool):
         except RuntimeError:
             report_dict = asyncio.run(self._run_async(scope))
 
-        run_hygiene = kwargs.get("run_hygiene_scan", True)
-        hygiene_issues = []
+        run_hygiene_value = kwargs.get("run_hygiene_scan", True)
+        run_hygiene = run_hygiene_value if isinstance(run_hygiene_value, bool) else True
+        hygiene_issues: list[str] = []
         if run_hygiene:
             import os
 
@@ -140,7 +161,7 @@ class SelfTestTool(BaseTool):
         else:
             return json.dumps(report_dict, ensure_ascii=False, indent=2)
 
-    def _run_sync(self, scope: str) -> dict[str, Any]:
+    def _run_sync(self, scope: str) -> dict[str, object]:
         """새 이벤트 루프에서 비동기 테스트 실행."""
         loop = asyncio.new_event_loop()
         try:
@@ -148,7 +169,7 @@ class SelfTestTool(BaseTool):
         finally:
             loop.close()
 
-    async def _run_async(self, scope: str) -> dict[str, Any]:
+    async def _run_async(self, scope: str) -> dict[str, object]:
         """비동기 테스트 실행."""
         from ..engine.harness import TestHarness
 
@@ -165,18 +186,20 @@ class SelfTestTool(BaseTool):
         report = await harness.run_all(use_browser=use_browser)
         return report.to_dict()
 
-    def _format_markdown(self, report: dict[str, Any]) -> str:
+    def _format_markdown(self, report: Mapping[str, object]) -> str:
         """리포트를 마크다운으로 포맷."""
         total = report.get("total", 0)
         passed = report.get("passed", 0)
         healed = report.get("healed", 0)
         failed = report.get("failed", 0)
         skipped = report.get("skipped", 0)
-        pass_rate = report.get("pass_rate", "0%")
-        duration = report.get("duration_ms", 0)
+        pass_rate_value = report.get("pass_rate", "0%")
+        pass_rate = pass_rate_value if isinstance(pass_rate_value, str) else "0%"
+        duration_value = report.get("duration_ms", 0)
+        duration = float(duration_value) if isinstance(duration_value, (int, float)) else 0.0
 
         lines = [
-            "# 🧪 Antigravity-K Self-Test Report",
+            "# 🧪 Ssak-Ai Self-Test Report",
             "",
             "| 항목 | 결과 |",
             "|------|------|",
@@ -191,7 +214,12 @@ class SelfTestTool(BaseTool):
             "## 🧹 Hygiene Scan (위생 검사)",
         ]
 
-        hygiene = report.get("hygiene_issues", [])
+        hygiene_value = report.get("hygiene_issues", [])
+        hygiene = (
+            [item for item in cast(list[object], hygiene_value) if isinstance(item, str)]
+            if isinstance(hygiene_value, list)
+            else []
+        )
         if hygiene:
             lines.append("> [!WARNING]")
             lines.append(
@@ -213,16 +241,25 @@ class SelfTestTool(BaseTool):
             ],
         )
 
-        for r in report.get("results", []):
-            status = r.get("status", "unknown")
+        results_value = report.get("results", [])
+        results = (
+            [cast(dict[str, object], item) for item in cast(list[object], results_value) if isinstance(item, dict)]
+            if isinstance(results_value, list)
+            else []
+        )
+        for result in results:
+            status_value = result.get("status", "unknown")
+            status = status_value if isinstance(status_value, str) else "unknown"
             icon = {"passed": "✅", "failed": "❌", "healed": "🔧", "skipped": "⏭"}.get(
                 status,
                 "❓",
             )
+            result_duration = result.get("duration_ms", 0)
+            duration_ms = float(result_duration) if isinstance(result_duration, (int, float)) else 0.0
             lines.append(
-                f"- {icon} **{r.get('intent_id')}**: {r.get('message')} ({r.get('duration_ms', 0):.0f}ms)",
+                f"- {icon} **{result.get('intent_id')}**: {result.get('message')} ({duration_ms:.0f}ms)",
             )
-            if r.get("healed") and r.get("heal_details"):
-                lines.append(f"  - 🩹 치유: {r.get('heal_details')}")
+            if result.get("healed") and result.get("heal_details"):
+                lines.append(f"  - 🩹 치유: {result.get('heal_details')}")
 
         return "\n".join(lines)

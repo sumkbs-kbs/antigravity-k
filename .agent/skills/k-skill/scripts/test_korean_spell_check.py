@@ -1,16 +1,63 @@
 import contextlib
+import importlib
 import io
 import json
 import unittest
+from collections.abc import Callable
+from typing import Protocol, cast
 
-from scripts.korean_spell_check import (
-    SpellCheckIssue,
-    apply_page_corrections,
-    check_text,
-    extract_result_payload,
-    parse_args,
-    split_text_into_chunks,
-)
+korean_spell_check = importlib.import_module("scripts.korean_spell_check")
+
+Payload = dict[str, object]
+
+
+class _SpellCheckIssue(Protocol):
+    original: str
+    suggestions: list[str]
+
+
+SpellCheckIssue = cast(type[object], getattr(korean_spell_check, "SpellCheckIssue"))
+
+
+def split_text_into_chunks(text: str, *, max_chars: int) -> list[str]:
+    function = cast(Callable[..., list[str]], getattr(korean_spell_check, "split_text_into_chunks"))
+    return function(text, max_chars=max_chars)
+
+
+def extract_result_payload(html: str) -> list[Payload]:
+    function = cast(Callable[[str], list[Payload]], getattr(korean_spell_check, "extract_result_payload"))
+    return function(html)
+
+
+def apply_page_corrections(page: Payload) -> str:
+    function = cast(Callable[[Payload], str], getattr(korean_spell_check, "apply_page_corrections"))
+    return function(page)
+
+
+def check_text(text: str, **kwargs: object) -> Payload:
+    function = cast(Callable[..., Payload], getattr(korean_spell_check, "check_text"))
+    return function(text, **kwargs)
+
+
+def parse_args(argv: list[str]) -> object:
+    function = cast(Callable[[list[str]], object], getattr(korean_spell_check, "parse_args"))
+    return function(argv)
+
+
+def _constant_requester(html: str) -> Callable[..., str]:
+    def requester(_chunk: str, *, strong_rules: bool, timeout: int) -> str:
+        _ = (strong_rules, timeout)
+        return html
+
+    return requester
+
+
+def _payload_list(value: object) -> list[Payload]:
+    return cast(list[Payload], value)
+
+
+def _issue_list(value: object) -> list[_SpellCheckIssue]:
+    return cast(list[_SpellCheckIssue], value)
 
 SAMPLE_RESULTS_HTML = """<!DOCTYPE html>
 <html>
@@ -81,7 +128,8 @@ class ExtractResultPayloadTest(unittest.TestCase):
 
         self.assertEqual(len(pages), 1)
         self.assertEqual(pages[0]["str"], "아버지가방에들어가신다.")
-        self.assertEqual(pages[0]["errInfo"][0]["candWord"], "아버지가 방에 들어가신다")
+        errors = _payload_list(pages[0]["errInfo"])
+        self.assertEqual(errors[0]["candWord"], "아버지가 방에 들어가신다")
 
     def test_apply_page_corrections_uses_the_first_candidate(self):
         pages = extract_result_payload(SAMPLE_RESULTS_HTML)
@@ -95,9 +143,9 @@ class ExtractResultPayloadTest(unittest.TestCase):
 
 class CheckTextTest(unittest.TestCase):
     def test_check_text_builds_chunked_issue_reports(self):
-        requested_texts = []
+        requested_texts: list[tuple[str, bool, int]] = []
 
-        def fake_requester(chunk, *, strong_rules, timeout):
+        def fake_requester(chunk: str, *, strong_rules: bool, timeout: int) -> str:
             requested_texts.append((chunk, strong_rules, timeout))
             payload = json.dumps(
                 [
@@ -145,15 +193,17 @@ $(document).ready(function(){{
             throttle_seconds=0,
         )
 
-        self.assertEqual(len(report["chunks"]), 2)
+        chunks = _payload_list(report["chunks"])
+        issues = _issue_list(report["issues"])
+        self.assertEqual(len(chunks), 2)
         self.assertEqual(
             report["corrected_text"],
             "아버지가 방에 들어가신다.\n\n아버지가 방에 들어가신다.",
         )
-        self.assertEqual(len(report["issues"]), 2)
-        self.assertIsInstance(report["issues"][0], SpellCheckIssue)
-        self.assertEqual(report["issues"][0].original, "아버지가방에들어가신다")
-        self.assertEqual(report["issues"][0].suggestions[0], "아버지가 방에 들어가신다")
+        self.assertEqual(len(issues), 2)
+        self.assertIsInstance(issues[0], SpellCheckIssue)
+        self.assertEqual(issues[0].original, "아버지가방에들어가신다")
+        self.assertEqual(issues[0].suggestions[0], "아버지가 방에 들어가신다")
         self.assertEqual(requested_texts[0][0], "아버지가방에들어가신다.\n\n")
         self.assertTrue(all(call[1] for call in requested_texts))
 
@@ -175,13 +225,14 @@ pageIdx = 0;
         report = check_text(
             "아버지가방에들어가신다.\n\n왠지 않되요.",
             max_chars=50,
-            requester=lambda chunk, *, strong_rules, timeout: html,
+            requester=_constant_requester(html),
             throttle_seconds=0,
         )
 
         self.assertEqual(report["corrected_text"], "아버지가 방에 들어가신다.\n\n왠지 안 돼요.")
+        chunks = _payload_list(report["chunks"])
         self.assertEqual(
-            report["chunks"][0]["corrected_text"],
+            chunks[0]["corrected_text"],
             "아버지가 방에 들어가신다.\n\n왠지 안 돼요.",
         )
 
@@ -206,7 +257,7 @@ pageIdx = 0;
         report = check_text(
             "아버지가방에들어가신다.\n\n왠지 않되요.",
             max_chars=50,
-            requester=lambda chunk, *, strong_rules, timeout: html,
+            requester=_constant_requester(html),
             throttle_seconds=0,
         )
 
@@ -232,7 +283,7 @@ pageIdx = 0;
         report = check_text(
             "아버지가방에들어가신다.\n\n\n  왠지 않되요.",
             max_chars=50,
-            requester=lambda chunk, *, strong_rules, timeout: html,
+            requester=_constant_requester(html),
             throttle_seconds=0,
         )
 
@@ -258,7 +309,7 @@ pageIdx = 0;
         report = check_text(
             "아버지가방에들어가신다.\n\n\n  왠지 않되요.",
             max_chars=50,
-            requester=lambda chunk, *, strong_rules, timeout: html,
+            requester=_constant_requester(html),
             throttle_seconds=0,
         )
 
@@ -281,19 +332,25 @@ pageIdx = 0;
         chunks = iter([SAMPLE_NO_ISSUES_HTML, SAMPLE_NO_ISSUES_HTML, error_html])
         text = "첫 문장은 조금 길겠습니다. 둘째 문장도 길어요.\n\n\n  아버지가방에들어가신다.\n"
 
+        def next_requester(_chunk: str, *, strong_rules: bool, timeout: int) -> str:
+            _ = (strong_rules, timeout)
+            return next(chunks)
+
         report = check_text(
             text,
             max_chars=18,
-            requester=lambda chunk, *, strong_rules, timeout: next(chunks),
+            requester=next_requester,
             throttle_seconds=0,
         )
 
-        self.assertEqual(report["meta"]["chunk_count"], 3)
+        meta = cast(Payload, report["meta"])
+        issues = _payload_list(report["issues"])
+        self.assertEqual(meta["chunk_count"], 3)
         self.assertEqual(
             report["corrected_text"],
             "첫 문장은 조금 길겠습니다. 둘째 문장도 길어요.\n\n\n  아버지가 방에 들어가신다.\n",
         )
-        self.assertEqual(len(report["issues"]), 1)
+        self.assertEqual(len(issues), 1)
 
 
 class ParseArgsTest(unittest.TestCase):
@@ -302,10 +359,10 @@ class ParseArgsTest(unittest.TestCase):
             with self.subTest(value=value):
                 with contextlib.redirect_stderr(io.StringIO()):
                     with self.assertRaises(SystemExit) as ctx:
-                        parse_args(["--text", "테스트", "--max-chars", value])
+                        _ = parse_args(["--text", "테스트", "--max-chars", value])
 
                 self.assertNotEqual(ctx.exception.code, 0)
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

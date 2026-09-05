@@ -63,11 +63,78 @@ describe('ChatMessage rendering', () => {
     expect(screen.queryByText('📋 복사')).not.toBeInTheDocument();
   });
 
+  it('renders user message wrapped in user-message-text span', () => {
+    const { container } = render(<ChatMessage message={createMessage({ role: 'user', content: '안녕' })} />);
+    const userSpan = container.querySelector('.user-message-text');
+    expect(userSpan).toBeInTheDocument();
+    expect(userSpan?.textContent).toBe('안녕');
+  });
+
+  it('formats unicode bullets and tip callouts in assistant messages', () => {
+    const content = '안내 말씀:\n• 📁 src/test/ - 테스트 파일\n• 📁 src/engine/ - 코어 엔진\n💡 팁: 설정은 http://localhost:8000 에서 확인하세요.';
+    const { container } = render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    const listItems = container.querySelectorAll('li');
+    expect(listItems.length).toBe(2);
+    expect(listItems[0]?.textContent).toContain('src/test/');
+    expect(listItems[1]?.textContent).toContain('src/engine/');
+    const callout = container.querySelector('.tip-callout');
+    expect(callout).toBeInTheDocument();
+    expect(callout?.textContent).toContain('팁:');
+    expect(callout?.textContent).toContain('http://localhost:8000');
+    const link = callout?.querySelector('a');
+    expect(link).toBeInTheDocument();
+    expect(link?.getAttribute('href')).toBe('http://localhost:8000');
+  });
+
+  it('renders compact token badge with comma values', () => {
+    const content = '📊 Tokens Used: In: 1,234 | Out: 567';
+    const { container } = render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    const tokenBadge = container.querySelector('.tool-timeline-badge.token');
+    expect(tokenBadge).toBeInTheDocument();
+    expect(tokenBadge?.textContent).toContain('In: 1,234');
+    expect(tokenBadge?.textContent).toContain('Out: 567');
+  });
+
   it('renders assistant message without actions when content is empty', () => {
     const { container } = render(
       <ChatMessage message={createMessage({ role: 'assistant', content: '' })} />,
     );
     expect(container.innerHTML).toBe('');
+  });
+
+  it('sanitizes raw HTML before rendering', () => {
+    const content = '<img src="x" onerror="window.__agkXss = true"><script>window.__agkXss = true</script>';
+    const { container } = render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    expect(container.querySelector('script')).not.toBeInTheDocument();
+    expect(container.querySelector('[onerror]')).not.toBeInTheDocument();
+  });
+
+  it('delegates approval actions without inline handlers', () => {
+    const handler = vi.fn();
+    window.addEventListener('agk:approval-response', handler);
+    const content = "[APPROVAL REQUIRED] Please approve this change\nWait for their 'Yes' before retrying.";
+
+    render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    const approveButton = screen.getByRole('button', { name: /승인/ });
+    expect(approveButton).not.toHaveAttribute('onclick');
+    fireEvent.click(approveButton);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect((handler.mock.calls[0]?.[0] as CustomEvent<{ text: string }>).detail.text).toBe('승인합니다');
+    window.removeEventListener('agk:approval-response', handler);
+  });
+
+  it('delegates artifact preview actions through the window API', () => {
+    const previewArtifact = vi.fn().mockResolvedValue(undefined);
+    const originalPreviewArtifact = window.previewArtifact;
+    window.previewArtifact = previewArtifact;
+    const content = '[ARTIFACT GENERATED: report.html (Type: html)]\nSuccessfully saved to /tmp/report.html.';
+
+    render(<ChatMessage message={createMessage({ role: 'assistant', content })} />);
+    fireEvent.click(screen.getByRole('button', { name: /View Preview/ }));
+
+    expect(previewArtifact).toHaveBeenCalledWith('/tmp/report.html', 'report.html');
+    window.previewArtifact = originalPreviewArtifact;
   });
 });
 
@@ -129,7 +196,7 @@ function mermaidContent(): string {
 
 describe('ChatMessage Mermaid diagram', () => {
   afterAll(() => {
-    delete (window as any).mermaid;
+    delete window.mermaid;
   });
 
   it('shows error when mermaid library not loaded', async () => {
@@ -141,7 +208,7 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('renders mermaid diagram when library is available', async () => {
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockResolvedValue({ svg: '<svg>test</svg>' }),
     };
 
@@ -154,7 +221,7 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('shows loading state while rendering diagram', async () => {
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockReturnValue(new Promise(() => {})),
     };
 
@@ -167,7 +234,7 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('shows error message when mermaid render throws', async () => {
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockRejectedValue(new Error('Syntax error in graph')),
     };
 
@@ -179,10 +246,10 @@ describe('ChatMessage Mermaid diagram', () => {
   });
 
   it('handles cleanup on unmount during render', async () => {
-    let resolveRender: ((v: any) => void) | null = null;
-    const renderPromise = new Promise<any>(resolve => { resolveRender = resolve; });
+    const renderDeferred: { resolve: (value: { svg: string }) => void } = { resolve: () => {} };
+    const renderPromise = new Promise<{ svg: string }>(resolve => { renderDeferred.resolve = resolve; });
 
-    (window as any).mermaid = {
+    window.mermaid = {
       render: vi.fn().mockReturnValue(renderPromise),
     };
 
@@ -195,7 +262,7 @@ describe('ChatMessage Mermaid diagram', () => {
 
     // Unmount and let the cancelled flag handle cleanup
     unmount();
-    resolveRender!({ svg: '<svg>test</svg>' });
+    renderDeferred.resolve({ svg: '<svg>test</svg>' });
 
     await new Promise(r => setTimeout(r, 50));
     expect(screen.queryByText(/다이어그램/)).not.toBeInTheDocument();
@@ -361,5 +428,42 @@ describe('ChatMessage code block', () => {
     expect(pres.length).toBeGreaterThanOrEqual(1);
     const codeInPre = pres[0]?.querySelector('code');
     expect(codeInPre).toBeInTheDocument();
+  });
+
+  it('renders Antigravity thinking box when think tags are present', () => {
+    const content = '<think>이것은 시스템 아키텍처에 대한 심층 사고 과정입니다.</think>최종 분석 결과입니다.';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    const thoughtBox = container.querySelector('.antigravity-thought-box');
+    expect(thoughtBox).toBeInTheDocument();
+    expect(thoughtBox?.textContent).toContain('생각 과정 (Thinking Process)');
+    expect(thoughtBox?.textContent).toContain('이것은 시스템 아키텍처에 대한 심층 사고 과정입니다.');
+    expect(container.textContent).toContain('최종 분석 결과입니다.');
+  });
+
+  it('renders Antigravity tool cards for tool execution pattern', () => {
+    const content = '**도구 실행** (step 1/3): `run_command`\n완료되었습니다.';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    const toolCard = container.querySelector('.antigravity-tool-card');
+    expect(toolCard).toBeInTheDocument();
+    expect(toolCard?.textContent).toContain('Executing Tool');
+    expect(toolCard?.textContent).toContain('run_command');
+    expect(toolCard?.textContent).toContain('Step 1/3');
+  });
+
+  it('renders Antigravity markdown tables in responsive container', () => {
+    const content = '| 항목 | 설명 |\n|---|---|\n| 토큰 | 1500 |\n| 지연시간 | 120ms |';
+    const { container } = render(
+      <ChatMessage message={createMessage({ role: 'assistant', content })} />,
+    );
+    const tableContainer = container.querySelector('.agk-table-container');
+    expect(tableContainer).toBeInTheDocument();
+    const table = container.querySelector('.agk-markdown-table');
+    expect(table).toBeInTheDocument();
+    expect(table?.textContent).toContain('항목');
+    expect(table?.textContent).toContain('120ms');
   });
 });

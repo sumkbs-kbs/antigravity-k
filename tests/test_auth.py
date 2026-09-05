@@ -10,11 +10,16 @@ These cover the Priority #2 hardening:
 
 from __future__ import annotations
 
+import stat
 import time
+from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
+from starlette.requests import Request
 
 from antigravity_k.engine.auth import (
     TokenService,
@@ -58,19 +63,19 @@ def test_verify_pin_constant_time():
 
     # Warm up.
     for _ in range(5):
-        verify_pin("timing-test-pin", stored)
-        verify_pin("wrong", stored)
+        _ = verify_pin("timing-test-pin", stored)
+        _ = verify_pin("wrong", stored)
 
     # Measure. 10 iterations is enough to detect gross timing channels
     # while keeping the test under 1 second (PBKDF2 600K is ~100ms/verify).
     t_correct_start = time.perf_counter()
     for _ in range(10):
-        verify_pin("timing-test-pin", stored)
+        _ = verify_pin("timing-test-pin", stored)
     t_correct = time.perf_counter() - t_correct_start
 
     t_wrong_start = time.perf_counter()
     for _ in range(10):
-        verify_pin("wrong", stored)
+        _ = verify_pin("wrong", stored)
     t_wrong = time.perf_counter() - t_wrong_start
 
     # The two should be in the same ballpark. PBKDF2 dominates, so the ratio
@@ -103,8 +108,10 @@ def test_verify_expired_token():
 
     import antigravity_k.engine.auth as auth_mod
 
-    past_exp = {"sub": "user", "exp": 0, "iat": 0, "iss": auth_mod._JWT_ISSUER}
-    expired_token = jwt.encode(past_exp, ts.secret, algorithm=auth_mod._JWT_ALGORITHM)
+    issuer = cast(str, getattr(auth_mod, "_JWT_ISSUER"))
+    algorithm = cast(str, getattr(auth_mod, "_JWT_ALGORITHM"))
+    past_exp = {"sub": "user", "exp": 0, "iat": 0, "iss": issuer}
+    expired_token = jwt.encode(past_exp, ts.secret, algorithm=algorithm)
     assert ts.verify_token(expired_token) is None
 
 
@@ -138,6 +145,22 @@ def test_extract_bearer_token():
     assert extract_bearer_token("Bearer ") is None
 
 
+def test_authenticate_request_marks_pin_subject(monkeypatch: pytest.MonkeyPatch) -> None:
+    import antigravity_k.api.auth_routes as auth_routes
+    from antigravity_k.config import config
+
+    request = Request({"type": "http", "headers": [(b"x-access-pin", b"pin")]})
+    monkeypatch.setattr(config.security, "access_pin", "configured")
+    monkeypatch.setattr(auth_routes, "get_current_pin_hash", lambda: "stored")
+    def verify_test_pin(pin: str, stored: str) -> bool:
+        return pin == "pin" and stored == "stored"
+
+    monkeypatch.setattr(auth_routes, "verify_pin", verify_test_pin)
+
+    assert auth_routes.authenticate_request(request) is True
+    assert cast(str, getattr(request.state, "auth_subject")) == "pin-user"
+
+
 # ---------------------------------------------------------------------------
 # Integration tests: login flow + middleware (via TestClient)
 # ---------------------------------------------------------------------------
@@ -147,7 +170,7 @@ def test_extract_bearer_token():
 
 
 @pytest.fixture(scope="module")
-def auth_client(tmp_path_factory):
+def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
     """Provide a TestClient with a known PIN and temp secret storage.
 
     We mutate the config *instance* directly (Pydantic Settings fields are not
@@ -171,8 +194,8 @@ def auth_client(tmp_path_factory):
     # Reset auth module state so it re-bootstraps with the patched config.
     import antigravity_k.api.auth_routes as auth_routes_mod
 
-    auth_routes_mod._token_service = None
-    auth_routes_mod._pin_hash = None
+    setattr(auth_routes_mod, "_token_service", None)
+    setattr(auth_routes_mod, "_pin_hash", None)
     auth_routes_mod.init_auth_state()
 
     from antigravity_k.api.server import app
@@ -184,12 +207,12 @@ def auth_client(tmp_path_factory):
     config.security.access_pin = orig_pin
     config.security.pin_hash_file = orig_hash_file
     config.security.token_secret_file = orig_secret_file
-    auth_routes_mod._token_service = None
-    auth_routes_mod._pin_hash = None
+    setattr(auth_routes_mod, "_token_service", None)
+    setattr(auth_routes_mod, "_pin_hash", None)
     auth_routes_mod.init_auth_state()
 
 
-def _login(client: TestClient, pin: str = "test-pin-1234") -> dict:
+def _login(client: TestClient, pin: str = "test-pin-1234") -> Response:
     """Helper: perform login and return the response JSON."""
     resp = client.post("/api/auth/login", json={"pin": pin})
     return resp
@@ -199,10 +222,18 @@ def test_login_correct_pin(auth_client: TestClient):
     """Login with the correct PIN must return a token."""
     resp = _login(auth_client)
     assert resp.status_code == 200
-    data = resp.json()
+    data = cast(dict[str, object], resp.json())
     assert "access_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] > 0
+    assert cast(int, data["expires_in"]) > 0
+
+
+def test_persisted_auth_files_are_owner_only(auth_client: TestClient):
+    from antigravity_k.config import config
+
+    _ = auth_client
+    assert stat.S_IMODE(Path(config.security.pin_hash_file).stat().st_mode) == 0o600
+    assert stat.S_IMODE(Path(config.security.token_secret_file).stat().st_mode) == 0o600
 
 
 def test_login_wrong_pin(auth_client: TestClient):
@@ -220,7 +251,7 @@ def test_protected_route_without_token(auth_client: TestClient):
 def test_protected_route_with_valid_token(auth_client: TestClient):
     """A protected /api/ route with a valid token must succeed (or 503 if the
     vault engine is not configured — but NOT 401)."""
-    token = _login(auth_client).json()["access_token"]
+    token = cast(str, _login(auth_client).json()["access_token"])
     resp = auth_client.get("/api/vault/config", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code != 401, "Valid token was rejected"
 
@@ -254,7 +285,7 @@ def test_login_rate_limited(auth_client: TestClient):
     slowapi tracks limits per-IP; TestClient uses a local test client address.
     We send wrong-PIN attempts to exhaust the /api/auth/login limit.
     """
-    statuses = []
+    statuses: list[int] = []
     for _ in range(7):
         resp = auth_client.post("/api/auth/login", json={"pin": "wrong"})
         statuses.append(resp.status_code)

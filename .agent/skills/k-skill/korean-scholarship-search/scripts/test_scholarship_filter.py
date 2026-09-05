@@ -4,8 +4,11 @@ import subprocess
 import sys
 import unittest
 from argparse import Namespace
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
 from pathlib import Path
+from types import ModuleType
+from typing import Callable, TypedDict, cast
 from unittest import mock
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -13,10 +16,11 @@ FILTER_PATH = SCRIPT_DIR / "scholarship_filter.py"
 PLANNER_PATH = SCRIPT_DIR / "university_search_plan.py"
 
 
-def load_module(module_name: str, path: Path):
+def load_module(module_name: str, path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load module from {path}")
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
@@ -25,18 +29,44 @@ scholarship_filter = load_module("scholarship_filter", FILTER_PATH)
 university_search_plan = load_module("university_search_plan", PLANNER_PATH)
 
 
+class _SchoolQueryPayload(TypedDict):
+    search_queries: list[str]
+
+
+_current_kst_date = cast(Callable[[datetime], date], getattr(scholarship_filter, "current_kst_date"))
+_resolve_today = cast(Callable[[str | None], date], getattr(scholarship_filter, "resolve_today"))
+_infer_deadline_status = cast(
+    Callable[[Mapping[str, object], date], str], getattr(scholarship_filter, "infer_deadline_status")
+)
+_extract_amount_value = cast(
+    Callable[[Mapping[str, object]], int | None], getattr(scholarship_filter, "extract_amount_value")
+)
+_match_filter = cast(
+    Callable[[Mapping[str, object], Namespace], tuple[bool, list[str]]],
+    getattr(scholarship_filter, "match_filter"),
+)
+_eligibility_result = cast(
+    Callable[[Mapping[str, object], Namespace], dict[str, object]],
+    getattr(scholarship_filter, "eligibility_result"),
+)
+_build_school_queries = cast(
+    Callable[..., _SchoolQueryPayload],
+    getattr(university_search_plan, "build_school_queries"),
+)
+
+
 class DeadlineStatusTest(unittest.TestCase):
     def test_current_kst_date_uses_korea_calendar_day(self):
         now = datetime(2026, 4, 15, 16, 30, tzinfo=timezone.utc)
 
-        today = scholarship_filter.current_kst_date(now)
+        today = _current_kst_date(now)
 
         self.assertEqual(today, date(2026, 4, 16))
 
     def test_resolve_today_falls_back_to_kst_when_missing_or_invalid(self):
         with mock.patch.object(scholarship_filter, "current_kst_date", return_value=date(2026, 4, 16)):
-            self.assertEqual(scholarship_filter.resolve_today(None), date(2026, 4, 16))
-            self.assertEqual(scholarship_filter.resolve_today("not-a-date"), date(2026, 4, 16))
+            self.assertEqual(_resolve_today(None), date(2026, 4, 16))
+            self.assertEqual(_resolve_today("not-a-date"), date(2026, 4, 16))
 
     def test_infer_deadline_status_overrides_stale_cached_status_with_dates(self):
         record = {
@@ -47,7 +77,7 @@ class DeadlineStatusTest(unittest.TestCase):
             }
         }
 
-        status = scholarship_filter.infer_deadline_status(record, date(2026, 4, 15))
+        status = _infer_deadline_status(record, date(2026, 4, 15))
 
         self.assertEqual(status, "closed")
 
@@ -56,14 +86,14 @@ class DeadlineStatusTest(unittest.TestCase):
     ):
         record = {"deadline": {"status": "d-3"}}
 
-        status = scholarship_filter.infer_deadline_status(record, date(2026, 4, 15))
+        status = _infer_deadline_status(record, date(2026, 4, 15))
 
         self.assertEqual(status, "unknown")
 
     def test_infer_deadline_status_treats_end_date_equal_to_today_as_open(self):
         record = {"deadline": {"end": "2026-04-15"}}
 
-        status = scholarship_filter.infer_deadline_status(record, date(2026, 4, 15))
+        status = _infer_deadline_status(record, date(2026, 4, 15))
 
         self.assertEqual(status, "open")
 
@@ -85,8 +115,8 @@ class DeadlineStatusTest(unittest.TestCase):
 
 class AmountHandlingTest(unittest.TestCase):
     def test_extract_amount_value_uses_amount_fields_and_ignores_irrelevant_notes(self):
-        from_text = scholarship_filter.extract_amount_value({"amount": {"text": "생활비 250만원 지급"}})
-        ignored_notes = scholarship_filter.extract_amount_value(
+        from_text = _extract_amount_value({"amount": {"text": "생활비 250만원 지급"}})
+        ignored_notes = _extract_amount_value(
             {
                 "amount": {"text": "등록금 전액"},
                 "notes": ["작년에는 500만원 특별지원"],
@@ -118,7 +148,7 @@ class AmountHandlingTest(unittest.TestCase):
             deadline_within_days=None,
         )
 
-        matched, reasons = scholarship_filter.match_filter({"amount": {"text": "등록금 전액"}}, args)
+        matched, reasons = _match_filter({"amount": {"text": "등록금 전액"}}, args)
 
         self.assertTrue(matched)
         self.assertIn("amount>=2000000?", reasons)
@@ -145,7 +175,7 @@ class AmountHandlingTest(unittest.TestCase):
             deadline_within_days=None,
         )
 
-        matched, reasons = scholarship_filter.match_filter({"amount": {"text": "등록금 전액"}}, args)
+        matched, reasons = _match_filter({"amount": {"text": "등록금 전액"}}, args)
 
         self.assertFalse(matched)
         self.assertEqual(reasons, [])
@@ -165,7 +195,7 @@ class SparseFieldPolicyTest(unittest.TestCase):
             income_band=5,
         )
 
-        result = scholarship_filter.eligibility_result({"name": "테스트 장학금"}, args)
+        result = _eligibility_result({"name": "테스트 장학금"}, args)
 
         self.assertEqual(result["status"], "indeterminate")
         self.assertEqual(result["failed"], [])
@@ -200,7 +230,7 @@ class SparseFieldPolicyTest(unittest.TestCase):
             "source_url": "https://www.kosaf.go.kr/snu-notice",
         }
 
-        matched, reasons = scholarship_filter.match_filter(record, args)
+        matched, reasons = _match_filter(record, args)
 
         self.assertFalse(matched)
         self.assertEqual(reasons, [])
@@ -208,7 +238,7 @@ class SparseFieldPolicyTest(unittest.TestCase):
 
 class UniversitySearchPlanTest(unittest.TestCase):
     def test_school_domain_suppresses_broad_ac_kr_fallback_queries(self):
-        payload = university_search_plan.build_school_queries(
+        payload = _build_school_queries(
             school_name="서울대학교",
             school_domain="snu.ac.kr",
             departments=["컴퓨터공학부"],
@@ -222,4 +252,4 @@ class UniversitySearchPlanTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

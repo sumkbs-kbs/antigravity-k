@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable
+from math import pow
 
 from .memory_contracts import MemoryFact, MemoryFactAuthority
 
 # 권위 수준별 기본 점수: 높은 권위일수록 회상 우선순위가 높다
-_AUTHORITY_BASE = {
+_AUTHORITY_BASE: dict[MemoryFactAuthority, float] = {
     MemoryFactAuthority.INFERRED_PREFERENCE: 30.0,
     MemoryFactAuthority.PROJECT_DECISION: 50.0,
     MemoryFactAuthority.DURABLE_PREFERENCE: 60.0,
@@ -30,7 +31,7 @@ def score_fact(fact: MemoryFact, now: float | None = None) -> float:
     now = time.time() if now is None else now
     authority = _AUTHORITY_BASE.get(fact.authority, _DEFAULT_AUTHORITY_BASE)
     age_days = max(0.0, (now - fact.observed_at) / 86400.0)
-    recency = _RECENCY_WEIGHT * (0.5 ** (age_days / _HALF_LIFE_DAYS))
+    recency: float = _RECENCY_WEIGHT * pow(0.5, age_days / _HALF_LIFE_DAYS)
     specificity = _SPECIFICITY_WEIGHT * (
         min(len(fact.value), _MAX_SPECIFICITY_CHARS) / _MAX_SPECIFICITY_CHARS
     )

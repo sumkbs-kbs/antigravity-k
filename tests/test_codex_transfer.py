@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from antigravity_k.engine.codex_transfer import CodexTransferEngine
 from antigravity_k.engine.skill_loader import SkillLoader
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
@@ -36,10 +38,10 @@ def test_codex_prompt_contract_is_concise_and_actionable():
     assert "console error or warning" in contract
 
 
-def test_codex_slash_command_uses_connected_runtime(tmp_path):
+def test_codex_slash_command_uses_connected_runtime(tmp_path: Path) -> None:
     skill_dir = tmp_path / ".agent" / "skills" / "dom-qa"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: DOM QA
 description: DOM testing and zero error browser validation
@@ -52,7 +54,7 @@ Verify browser DOM, console logs, and command palette flows.
     )
 
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.auto_discover("antigravity_k.tools")
+    _ = registry.auto_discover("antigravity_k.tools")
     loader = SkillLoader(project_root=str(tmp_path), include_global=False)
     slash = SlashCommandRegistry(tool_registry=registry, skill_loader=loader)
 

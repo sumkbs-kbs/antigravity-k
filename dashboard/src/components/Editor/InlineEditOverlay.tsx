@@ -14,11 +14,18 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import type { OnMount } from '@monaco-editor/react';
+import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { useInlineEditStore } from '../../stores/inlineEditStore';
 import { useChangeStore } from '../../stores/changeStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
 import { parseDiff, isUnifiedDiff, applyUnifiedDiff, type DiffLine } from '../../utils/diffParser';
+
+type MonacoEditor = Parameters<OnMount>[0];
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 /* ─── Monaco IContentWidget wrapper ────────────────────────── */
 
@@ -28,22 +35,22 @@ import { parseDiff, isUnifiedDiff, applyUnifiedDiff, type DiffLine } from '../..
  * via React portal.
  */
 function createInlineWidget(
-  editor: any,
+  editor: MonacoEditor,
   lineNumber: number,
   column: number,
-): { widget: any; container: HTMLDivElement } {
+): { widget: MonacoEditorApi.IContentWidget; container: HTMLDivElement } {
   const container = document.createElement('div');
   container.className = 'inline-edit-widget-container';
 
-  const widget: any = {
+  const widget: MonacoEditorApi.IContentWidget = {
     getId: () => 'agk-inline-edit-widget',
     getDomNode: () => container,
     getPosition: () => ({
       position: { lineNumber, column },
       preference: [
         // ContentWidgetPositionPreference values (stable Monaco API):
-        // 0 = ABOVE, 1 = BELOW, 2 = EXACT
-        0, 1, // Try ABOVE first, fall back to BELOW
+        // 1 = ABOVE, 2 = BELOW
+        1, 2, // Try ABOVE first, fall back to BELOW
       ],
     }),
   };
@@ -52,7 +59,7 @@ function createInlineWidget(
   return { widget, container };
 }
 
-function removeInlineWidget(editor: any, widget: any) {
+function removeInlineWidget(editor: MonacoEditor, widget: MonacoEditorApi.IContentWidget): void {
   try {
     editor.removeContentWidget(widget);
   } catch {
@@ -73,6 +80,7 @@ const InlineEditOverlay: React.FC = () => {
   const { addToast } = useUiStore();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const portalTargetRef = useRef<HTMLDivElement | null>(null);
+  const inlineWidgetRef = useRef<MonacoEditorApi.IContentWidget | null>(null);
   const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
 
   // ── Parse suggested code as unified diff if applicable ────
@@ -97,7 +105,6 @@ const InlineEditOverlay: React.FC = () => {
   useEffect(() => {
     const editor = useEditorStore.getState().monacoEditor;
     if (!editor || phase === 'idle') {
-      setPortalContainer(null);
       return;
     }
 
@@ -106,13 +113,16 @@ const InlineEditOverlay: React.FC = () => {
       cursorLine || 1,
       cursorColumn || 1,
     );
+    inlineWidgetRef.current = widget;
     portalTargetRef.current = container;
-    setPortalContainer(container);
+    const portalTimer = setTimeout(() => setPortalContainer(container), 0);
 
     return () => {
+      clearTimeout(portalTimer);
       removeInlineWidget(editor, widget);
+      inlineWidgetRef.current = null;
       portalTargetRef.current = null;
-      setPortalContainer(null);
+      setTimeout(() => setPortalContainer(null), 0);
     };
   }, [phase, cursorLine, cursorColumn]);
 
@@ -120,10 +130,15 @@ const InlineEditOverlay: React.FC = () => {
   useEffect(() => {
     if (phase !== 'idle') {
       const editor = useEditorStore.getState().monacoEditor;
-      if (editor) {
+      const widget = inlineWidgetRef.current;
+      if (editor && widget) {
         // Force Monaco to re-layout the widget after DOM updates
         requestAnimationFrame(() => {
-          try { editor.layoutContentWidget?.({ getId: () => 'agk-inline-edit-widget' } as any); } catch {}
+          try {
+            editor.layoutContentWidget(widget);
+          } catch (error: unknown) {
+            void error;
+          }
         });
       }
     }
@@ -154,6 +169,7 @@ const InlineEditOverlay: React.FC = () => {
           cursor_column: cursorColumn,
         }),
       });
+      if (!res.ok) throw new Error(`Suggestion request failed (${res.status})`);
       const data = await res.json();
       if (data.ok && data.suggested_code) {
         store.setSuggestedCode(data.suggested_code, data.start_line || cursorLine, data.end_line || cursorLine);
@@ -161,9 +177,10 @@ const InlineEditOverlay: React.FC = () => {
         store.setError(data.error || 'Failed to generate suggestion');
         addToast('❌ 제안 생성 실패', 'error');
       }
-    } catch (err: any) {
-      store.setError(err.message);
-      addToast(`❌ 오류: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      store.setError(message);
+      addToast(`❌ 오류: ${message}`, 'error');
     }
   }, [activeFilePath, cursorLine, cursorColumn, addToast]);
 
@@ -255,8 +272,10 @@ const InlineEditOverlay: React.FC = () => {
   // ── Auto-focus input when entering input phase ──────────────
   useEffect(() => {
     if (phase === 'input' && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+      const focusTimer = setTimeout(() => inputRef.current?.focus(), 100);
+      return () => clearTimeout(focusTimer);
     }
+    return undefined;
   }, [phase]);
 
   // ── Keyboard handlers ────────────────────────────────────────
@@ -315,6 +334,7 @@ const InlineEditOverlay: React.FC = () => {
             onChange={e => setInstruction(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="Describe what to change... (e.g., 'rename to camelCase', 'add error handling')"
+            aria-label="변경 지시사항"
             rows={3}
             autoFocus
           />
@@ -340,7 +360,7 @@ const InlineEditOverlay: React.FC = () => {
       )}
 
       {phase === 'preview' && (
-        <div className="inline-edit-preview" onKeyDown={handlePreviewKeyDown} tabIndex={0}>
+        <div className="inline-edit-preview" onKeyDown={handlePreviewKeyDown} tabIndex={0} role="region" aria-label="인라인 편집 미리보기">
           <div className="inline-edit-preview-header">
             <span className="inline-edit-title">💡 Suggestion</span>
             <span className="inline-edit-shortcuts">
@@ -350,7 +370,7 @@ const InlineEditOverlay: React.FC = () => {
           {isDiffFormat ? (
             /* ── Unified Diff Preview ─────────────────────────── */
             <div className="inline-edit-diff unified-diff">
-              {parsedDiffLines.map((line, i) => {
+              {parsedDiffLines.map(line => {
                 let className = 'inline-edit-diff-line';
                 let gutter = ' ';
                 if (line.type === 'added') {
@@ -370,7 +390,7 @@ const InlineEditOverlay: React.FC = () => {
                   gutter = ' ';
                 }
                 return (
-                  <div key={i} className={className}>
+                  <div key={`${line.type}:${line.oldLine ?? ''}:${line.newLine ?? ''}:${line.content}`} className={className}>
                     <span className="inline-edit-diff-gutter">{gutter}</span>
                     <span className="inline-edit-diff-text">{line.content || ' '}</span>
                   </div>
@@ -380,8 +400,8 @@ const InlineEditOverlay: React.FC = () => {
           ) : (
             /* ── Plain Code Preview ────────────────────────────── */
             <div className="inline-edit-diff">
-              {parsedDiffLines.map((line, i) => (
-                <div key={i} className="inline-edit-diff-line added">
+              {parsedDiffLines.map(line => (
+                <div key={`${line.type}:${line.oldLine ?? ''}:${line.newLine ?? ''}:${line.content}`} className="inline-edit-diff-line added">
                   <span className="inline-edit-diff-gutter">+</span>
                   <span className="inline-edit-diff-text">{line.content || ' '}</span>
                 </div>

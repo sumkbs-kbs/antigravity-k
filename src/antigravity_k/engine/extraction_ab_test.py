@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: 데이터 추출 A/B 테스트 프레임워크
+Ssak-Ai: 데이터 추출 A/B 테스트 프레임워크
 ==================================================
 두 가지 버전의 데이터 추출 로직을 동일한 입력에 대해 실행하고
 그 결과를 정량적으로 비교/평가합니다.
@@ -22,7 +22,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
 
 from antigravity_k.engine.data_extractor import (
     DataExtractor,
@@ -55,8 +54,8 @@ class FieldScore:
     """개별 필드 추출 정확도 점수."""
 
     field_name: str  # e.g. "close_price", "ticker", "temperature"
-    expected_value: Any = None
-    actual_value: Any = None
+    expected_value: object | None = None
+    actual_value: object | None = None
     match: bool = False  # 완전 일치
     partial: bool = False  # 부분 일치 (null vs value 등)
 
@@ -114,7 +113,7 @@ class ABTestReport:
         """정확도 < 100%인 테스트 케이스 수."""
         return sum(1 for c in self.comparisons if c.has_expected and c.accuracy_pct < 100.0)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """JSON 직렬화용 dict 변환."""
         return {
             "timestamp": self.timestamp,
@@ -200,7 +199,7 @@ class ABTestReport:
                 status = "❌"
             lines.append(
                 f"| {c.case_name} | {c.accuracy_pct:.1f}% | "
-                f"{c.fields_matched}/{c.fields_total} | {c.duration_ms:.0f}ms | {status} |"
+                + f"{c.fields_matched}/{c.fields_total} | {c.duration_ms:.0f}ms | {status} |"
             )
 
         # 실패 케이스 상세
@@ -227,7 +226,7 @@ class ABTestReport:
 # ─── 헬퍼 ─────────────────────────────────────────────────────────
 
 
-def _serialize_value(val: Any) -> str:
+def _serialize_value(val: object | None) -> str:
     """값을 문자열로 직렬화 (None 처리)."""
     if val is None:
         return "-"
@@ -239,10 +238,10 @@ def _serialize_value(val: Any) -> str:
 
 
 def _compare_fields(
-    expected: Optional[Any],
-    actual: Optional[Any],
+    expected: object | None,
+    actual: object | None,
     field_name: str,
-) -> Optional[FieldScore]:
+) -> FieldScore | None:
     """하나의 필드값을 비교하여 FieldScore 반환.
 
     양쪽 모두 None이면 None 반환 (점수 집계에서 제외).
@@ -299,7 +298,7 @@ def _compare_extraction_results(
 
     # ── 주식 데이터 비교 ──
     for i, exp_sp in enumerate(expected.stock_prices):
-        actual_sp: Optional[ExtractedStockPrice] = None
+        actual_sp: ExtractedStockPrice | None = None
         if i < len(actual.stock_prices):
             actual_sp = actual.stock_prices[i]
 
@@ -323,7 +322,7 @@ def _compare_extraction_results(
 
         # ── 날씨 데이터 비교 ──
     for i, exp_w in enumerate(expected.weather):
-        actual_w: Optional[ExtractedWeather] = None
+        actual_w: ExtractedWeather | None = None
         if i < len(actual.weather):
             actual_w = actual.weather[i]
 
@@ -337,7 +336,7 @@ def _compare_extraction_results(
 
         # ── 환율 데이터 비교 ──
     for i, exp_er in enumerate(expected.exchange_rates):
-        actual_er: Optional[ExtractedExchangeRate] = None
+        actual_er: ExtractedExchangeRate | None = None
         if i < len(actual.exchange_rates):
             actual_er = actual.exchange_rates[i]
 
@@ -383,8 +382,8 @@ class ExtractionABTestRunner:
     테스트 케이스 스위트를 실행하고 정확도 보고서를 생성합니다.
     """
 
-    def __init__(self, extractor: Optional[DataExtractor] = None) -> None:
-        self._extractor = extractor or DataExtractor()
+    def __init__(self, extractor: DataExtractor | None = None) -> None:
+        self._extractor: DataExtractor = extractor or DataExtractor()
 
     def run_test(
         self,

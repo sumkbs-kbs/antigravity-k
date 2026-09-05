@@ -1,4 +1,4 @@
-"""Collective intelligence execution for Antigravity-K.
+"""Collective intelligence execution for Ssak-Ai.
 
 This module turns a model combo into a small council:
 independent proposals, focused criticism, and a final synthesis.
@@ -9,11 +9,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger("antigravity_k.collective_intelligence")
 
-GenerateFn = Callable[[str, str, dict[str, Any]], str]
+GenerateFn = Callable[[str, str, dict[str, object]], str]
 
 
 @dataclass(frozen=True)
@@ -38,14 +37,14 @@ class CollectiveRun:
 class CollectiveIntelligenceEngine:
     """Run proposal, critique, and synthesis rounds across multiple local models."""
 
-    def __init__(self, generate_fn: GenerateFn):
+    def __init__(self, generate_fn: GenerateFn) -> None:
         """Initialize the CollectiveIntelligenceEngine.
 
         Args:
             generate_fn (GenerateFn): GenerateFn generate fn.
 
         """
-        self._generate_fn = generate_fn
+        self._generate_fn: GenerateFn = generate_fn
 
     def run(
         self,
@@ -58,7 +57,7 @@ class CollectiveIntelligenceEngine:
         max_critics: int = 2,
         min_participants: int = 2,
         expose_trace: bool = True,
-        generation_kwargs: dict[str, Any] | None = None,
+        generation_kwargs: dict[str, object] | None = None,
     ) -> str:
         """Execute a collective reasoning run and return the final answer."""
         kwargs = dict(generation_kwargs or {})
@@ -95,7 +94,7 @@ class CollectiveIntelligenceEngine:
         self,
         prompt: str,
         models: list[str],
-        kwargs: dict[str, Any],
+        kwargs: dict[str, object],
     ) -> list[CollectiveEntry]:
         proposals: list[CollectiveEntry] = []
         for model in models:
@@ -112,7 +111,7 @@ class CollectiveIntelligenceEngine:
         prompt: str,
         proposals: list[CollectiveEntry],
         models: list[str],
-        kwargs: dict[str, Any],
+        kwargs: dict[str, object],
     ) -> list[CollectiveEntry]:
         critiques: list[CollectiveEntry] = []
         critique_context = self._format_entries(proposals, "후보 답변")
@@ -131,7 +130,7 @@ class CollectiveIntelligenceEngine:
         proposals: list[CollectiveEntry],
         critiques: list[CollectiveEntry],
         arbiter: str,
-        kwargs: dict[str, Any],
+        kwargs: dict[str, object],
     ) -> str:
         synthesis_prompt = self._synthesis_prompt(
             prompt=prompt,
@@ -144,11 +143,11 @@ class CollectiveIntelligenceEngine:
             return self._fallback_synthesis(proposals, critiques)
         return text
 
-    def _safe_generate(self, target: str, prompt: str, kwargs: dict[str, Any]) -> str:
+    def _safe_generate(self, target: str, prompt: str, kwargs: dict[str, object]) -> str:
         try:
             phase_kwargs = dict(kwargs)
-            phase_kwargs.setdefault("temperature", 0.4)
-            phase_kwargs.setdefault("max_tokens", 2048)
+            _ = phase_kwargs.setdefault("temperature", 0.4)
+            _ = phase_kwargs.setdefault("max_tokens", 2048)
             return self._generate_fn(target, prompt, phase_kwargs)
         except Exception as exc:
             logger.exception("Unhandled exception")
@@ -157,7 +156,7 @@ class CollectiveIntelligenceEngine:
     @staticmethod
     def _proposal_prompt(prompt: str, model_name: str) -> str:
         return (
-            "[Antigravity-K 집단지성 제안 라운드]\n"
+            "[Ssak-Ai 집단지성 제안 라운드]\n"
             f"참여 모델: {model_name}\n\n"
             "역할: 다른 모델의 답변을 보지 않고 독립적으로 최선의 후보 답변을 작성합니다.\n"
             "규칙:\n"
@@ -171,7 +170,7 @@ class CollectiveIntelligenceEngine:
     @staticmethod
     def _critique_prompt(prompt: str, proposal_context: str) -> str:
         return (
-            "[Antigravity-K 집단지성 비판 라운드]\n\n"
+            "[Ssak-Ai 집단지성 비판 라운드]\n\n"
             "역할: 후보 답변들의 오류, 누락, 과장, 실행 위험, 품질 저하 지점을 찾습니다.\n"
             "규칙:\n"
             "- 내부 사고 과정은 출력하지 말고 검증 가능한 지적만 작성하세요.\n"
@@ -189,7 +188,7 @@ class CollectiveIntelligenceEngine:
         critique_context: str,
     ) -> str:
         return (
-            "[Antigravity-K 집단지성 최종 합성]\n\n"
+            "[Ssak-Ai 집단지성 최종 합성]\n\n"
             "역할: 후보 답변과 비판 의견을 비교하여 최종 답변 하나로 합성합니다.\n"
             "필수 규칙:\n"
             "- 내부 사고 과정, 토론 로그 원문, <think>/<thought>를 출력하지 마세요.\n"

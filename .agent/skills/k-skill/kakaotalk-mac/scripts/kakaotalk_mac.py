@@ -10,9 +10,10 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import TypeAlias, TypeVar, cast
 
 EMPTY_ACCOUNT_HASH = (
     "31bca02094eb78126a517b206a88c73cfa9ec6f704c7030d18212cace820f025"
@@ -24,6 +25,8 @@ DEFAULT_MAX_USER_ID = 1_000_000_000
 DEFAULT_CHUNK_SIZE = 500_000
 DEFAULT_CACHE_PATH = Path.home() / ".cache" / "k-skill" / "kakaotalk-mac-auth.json"
 READ_ONLY_COMMANDS = ("chats", "messages", "search", "schema")
+PlistValue: TypeAlias = str | int | float | bool | list["PlistValue"] | dict[str, "PlistValue"]
+_Scalar = TypeVar("_Scalar")
 
 
 class AuthResolutionError(RuntimeError):
@@ -48,7 +51,7 @@ class ResolvedAuth:
     source: str
 
 
-def parse_plist_xml(xml_text: str) -> Any:
+def parse_plist_xml(xml_text: str) -> PlistValue:
     tokens = tokenize_plist_xml(xml_text)
     if not tokens:
         raise AuthResolutionError("plist XML was empty")
@@ -82,13 +85,13 @@ def tokenize_plist_xml(xml_text: str) -> list[tuple[str, str]]:
     return [token for token in tokens if token[0] != "text" or token[1]]
 
 
-def _parse_plist_tokens(tokens: list[tuple[str, str]], index: int) -> tuple[Any, int]:
+def _parse_plist_tokens(tokens: list[tuple[str, str]], index: int) -> tuple[PlistValue, int]:
     token_type, tag = tokens[index]
     if token_type != "start":
         raise AuthResolutionError(f"Unexpected token {tokens[index]!r}")
 
     if tag == "dict":
-        result: dict[str, Any] = {}
+        result: dict[str, PlistValue] = {}
         index += 1
         while tokens[index] != ("end", "dict"):
             if tokens[index] != ("start", "key"):
@@ -99,7 +102,7 @@ def _parse_plist_tokens(tokens: list[tuple[str, str]], index: int) -> tuple[Any,
         return result, index + 1
 
     if tag == "array":
-        items: list[Any] = []
+        items: list[PlistValue] = []
         index += 1
         while tokens[index] != ("end", "array"):
             value, index = _parse_plist_tokens(tokens, index)
@@ -127,8 +130,8 @@ def _parse_scalar(
     tokens: list[tuple[str, str]],
     index: int,
     tag: str,
-    caster: Callable[[str], Any],
-) -> tuple[Any, int]:
+    caster: Callable[[str], _Scalar],
+) -> tuple[_Scalar, int]:
     if tokens[index] != ("start", tag):
         raise AuthResolutionError(f"Expected <{tag}>, got {tokens[index]!r}")
     text = ""
@@ -151,7 +154,7 @@ def _unescape_xml(text: str) -> str:
     )
 
 
-def collect_candidate_user_ids(plist_data: dict[str, Any]) -> list[int]:
+def collect_candidate_user_ids(plist_data: Mapping[str, PlistValue]) -> list[int]:
     candidates: list[int] = []
     for key in DIRECT_USER_ID_KEYS:
         value = plist_data.get(key)
@@ -173,7 +176,7 @@ def collect_candidate_user_ids(plist_data: dict[str, Any]) -> list[int]:
     return unique_ints(candidates)
 
 
-def find_active_account_hash(plist_data: dict[str, Any]) -> str | None:
+def find_active_account_hash(plist_data: Mapping[str, PlistValue]) -> str | None:
     prefix = "DESIGNATEDFRIENDSREVISION:"
     for key, value in plist_data.items():
         if not key.startswith(prefix):
@@ -343,17 +346,38 @@ def prioritized_database_paths(database_files: Sequence[Path], derived_name: str
     return [*preferred, *fallback]
 
 
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {key: item for key, item in raw.items() if isinstance(key, str)}
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (float, str)):
+        return int(value)
+    return default
+
+
 def load_cached_auth(cache_path: Path) -> ResolvedAuth | None:
     if not cache_path.exists():
         return None
     try:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-        database_path = Path(payload["database_path"]).expanduser()
-        user_id = int(payload["user_id"])
-        uuid = str(payload["uuid"])
-        database_name = str(payload["database_name"])
-        key = str(payload["key"])
-        source = str(payload.get("source", "cache"))
+        payload = _as_mapping(cast(object, json.loads(cache_path.read_text(encoding="utf-8"))))
+        database_path = Path(_as_text(payload.get("database_path"))).expanduser()
+        user_id = _as_int(payload.get("user_id"))
+        uuid = _as_text(payload.get("uuid"))
+        database_name = _as_text(payload.get("database_name"))
+        key = _as_text(payload.get("key"))
+        source = _as_text(payload.get("source"), "cache")
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
 
@@ -373,7 +397,7 @@ def load_cached_auth(cache_path: Path) -> ResolvedAuth | None:
 def persist_auth_cache(resolved: ResolvedAuth, cache_path: Path | None) -> None:
     if cache_path is None:
         return
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    _ = cache_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "user_id": resolved.user_id,
         "uuid": resolved.uuid,
@@ -382,7 +406,7 @@ def persist_auth_cache(resolved: ResolvedAuth, cache_path: Path | None) -> None:
         "key": resolved.key,
         "source": resolved.source,
     }
-    cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ = cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     try:
         os.chmod(cache_path, 0o600)
     except OSError:
@@ -402,13 +426,16 @@ def convert_plist_to_xml(plist_path: Path) -> str:
     return result.stdout
 
 
-def read_plist_snapshot(plist_path: Path) -> dict[str, Any]:
-    return parse_plist_xml(convert_plist_to_xml(plist_path))
+def read_plist_snapshot(plist_path: Path) -> dict[str, PlistValue]:
+    parsed = parse_plist_xml(convert_plist_to_xml(plist_path))
+    if not isinstance(parsed, dict):
+        raise AuthResolutionError(f"Expected plist root dictionary in {plist_path}")
+    return parsed
 
 
 def collect_detection_state(uuid_override: str | None = None) -> DetectionState:
     uuid = uuid_override or platform_uuid()
-    snapshots = []
+    snapshots: list[dict[str, PlistValue]] = []
     for plist_path in preference_paths():
         if plist_path.exists():
             snapshots.append(read_plist_snapshot(plist_path))
@@ -567,32 +594,33 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         args, forwarded_args = parser.parse_known_args(argv)
-        cache_path = Path(args.cache_path).expanduser()
-        if args.command == "auth":
+        cache_path = Path(cast(str, args.cache_path)).expanduser()
+        command = cast(str, args.command)
+        if command == "auth":
             if forwarded_args:
                 raise AuthResolutionError(f"Unexpected auth arguments: {' '.join(forwarded_args)}")
             resolved = resolve_auth(
-                refresh=args.refresh,
+                refresh=cast(bool, args.refresh),
                 cache_path=cache_path,
-                user_id_override=args.user_id,
-                uuid_override=args.uuid,
-                max_user_id=args.max_user_id,
-                workers=args.workers,
-                chunk_size=args.chunk_size,
+                user_id_override=cast(int | None, args.user_id),
+                uuid_override=cast(str | None, args.uuid),
+                max_user_id=cast(int, args.max_user_id),
+                workers=cast(int | None, args.workers),
+                chunk_size=cast(int, args.chunk_size),
             )
-            print(render_auth(resolved, output_format=args.format, cache_path=cache_path))
+            print(render_auth(resolved, output_format=cast(str, args.format), cache_path=cache_path))
             return 0
 
         resolved = resolve_auth(
-            refresh=args.refresh_auth,
+            refresh=cast(bool, args.refresh_auth),
             cache_path=cache_path,
-            user_id_override=args.user_id,
-            uuid_override=args.uuid,
-            max_user_id=args.max_user_id,
-            workers=args.workers,
-            chunk_size=args.chunk_size,
+            user_id_override=cast(int | None, args.user_id),
+            uuid_override=cast(str | None, args.uuid),
+            max_user_id=cast(int, args.max_user_id),
+            workers=cast(int | None, args.workers),
+            chunk_size=cast(int, args.chunk_size),
         )
-        result = subprocess.run(build_passthrough_command(args.command, resolved, forwarded_args))
+        result = subprocess.run(build_passthrough_command(command, resolved, forwarded_args))
         return result.returncode
     except (AuthResolutionError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -607,13 +635,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     auth_parser = subparsers.add_parser("auth", help="Recover/cache the working KakaoTalk DB/key tuple.")
     add_auth_options(auth_parser)
-    auth_parser.add_argument("--refresh", action="store_true", help="Ignore cached auth and resolve again.")
-    auth_parser.add_argument("--format", choices=("text", "json", "shell"), default="text")
+    _ = auth_parser.add_argument("--refresh", action="store_true", help="Ignore cached auth and resolve again.")
+    _ = auth_parser.add_argument("--format", choices=("text", "json", "shell"), default="text")
 
     for command in READ_ONLY_COMMANDS:
         passthrough = subparsers.add_parser(command, help=f"Run kakaocli {command} with cached/recovered auth.")
         add_auth_options(passthrough)
-        passthrough.add_argument(
+        _ = passthrough.add_argument(
             "--refresh-auth",
             action="store_true",
             help="Refresh cached auth before running.",
@@ -623,12 +651,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_auth_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--cache-path", default=str(DEFAULT_CACHE_PATH))
-    parser.add_argument("--user-id", type=int, help="Explicit Kakao user_id override.")
-    parser.add_argument("--uuid", help="Explicit device UUID override.")
-    parser.add_argument("--max-user-id", type=non_negative_int, default=DEFAULT_MAX_USER_ID)
-    parser.add_argument("--workers", type=positive_int, default=None)
-    parser.add_argument("--chunk-size", type=positive_int, default=DEFAULT_CHUNK_SIZE)
+    _ = parser.add_argument("--cache-path", default=str(DEFAULT_CACHE_PATH))
+    _ = parser.add_argument("--user-id", type=int, help="Explicit Kakao user_id override.")
+    _ = parser.add_argument("--uuid", help="Explicit device UUID override.")
+    _ = parser.add_argument("--max-user-id", type=non_negative_int, default=DEFAULT_MAX_USER_ID)
+    _ = parser.add_argument("--workers", type=positive_int, default=None)
+    _ = parser.add_argument("--chunk-size", type=positive_int, default=DEFAULT_CHUNK_SIZE)
 
 
 def non_negative_int(value: str) -> int:

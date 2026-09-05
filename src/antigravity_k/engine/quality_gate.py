@@ -1,4 +1,4 @@
-"""Antigravity-K: 품질 검증 게이트 (QualityGate).
+"""Ssak-Ai: 품질 검증 게이트 (QualityGate).
 
 =============================================
 E-5: 에이전트 출력물의 품질을 자가 평가하고,
@@ -41,6 +41,10 @@ class QualityScore:
 
 class QualityGate:
     """에이전트 출력 품질 자동 평가. A/B는 통과, C/F는 재시도."""
+
+    max_retries: int
+    _retry_count: int
+    _verify_fn: Callable[[str], str] | None
 
     def __init__(self, max_retries: int = 1, verify_fn: Callable[[str], str] | None = None):
         """Args:
@@ -188,6 +192,7 @@ class QualityGate:
 
         """
         try:
+            _ = task_type
             verify_fn = self._verify_fn
             if verify_fn is None:
                 return 1.0, []
@@ -233,10 +238,10 @@ class QualityGate:
     def _check_code(self, output: str) -> tuple[float, list[str]]:
         score = 1.0
         issues: list[str] = []
-        blocks = re.findall(r"```python\n(.*?)```", output, re.DOTALL)
+        blocks: list[str] = re.findall(r"```python\n(.*?)```", output, re.DOTALL)
         for i, block in enumerate(blocks):
             try:
-                ast.parse(block)
+                _ = ast.parse(block)
             except SyntaxError as e:
                 score *= 0.5
                 issues.append(f"코드블록{i + 1} 구문오류: {e.msg}")
@@ -281,7 +286,7 @@ class QualityGate:
 
         asks_for_code = task_type in ("coding", "complex", "complex_step") or bool(
             re.search(
-                r"(구현|함수|알고리즘|python|javascript|typescript|" r"function|implement|code)",
+                r"(구현|함수|알고리즘|python|javascript|typescript|function|implement|code)",
                 request_lower,
             ),
         )
@@ -305,7 +310,7 @@ class QualityGate:
 
         complexity_requested = bool(
             re.search(
-                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|" r"time complexity|space complexity)",
+                r"(복잡도|big-?o|성능|시간\s*복잡도|공간\s*복잡도|time complexity|space complexity)",
                 request_lower,
             ),
         )
@@ -320,7 +325,7 @@ class QualityGate:
         markdown_table = bool(re.search(r"^\s*\|.+\|\s*$", output, re.MULTILINE))
         structured_comparison = markdown_table or bool(
             re.search(
-                r"(장점|단점|기준|차이점|trade-?off|pros|cons|" r"1\.\s+.+\n\s*2\.\s+)",
+                r"(장점|단점|기준|차이점|trade-?off|pros|cons|1\.\s+.+\n\s*2\.\s+)",
                 output_lower,
                 re.DOTALL,
             ),
@@ -399,16 +404,30 @@ class QualityGate:
         # 코드 대안들은 출력/분석 heading 같은 경계 보일러플레이트를 공유한다.
         # 반복 루프 탐지는 prose만 대상으로 한다.
         prose = re.sub(r"```.*?```", "", output, flags=re.DOTALL)
-        lines = prose.split("\n")
+        # 표 행/헤딩/수평선은 구조지 prose가 아니다 — 여러 표가 같은
+        # 헤더·구분자 패턴을 공유해 오탐한 사례가 있다(라이브 E2E 관찰).
+        structural = re.compile(r"^\s*(\||-{3,}|={3,}|#)")
+        lines = [line for line in prose.split("\n") if not structural.match(line)]
         if len(lines) > 20:
             block_size = 4
-            seen_blocks: dict[str, int] = {}
+            occurrences: dict[str, list[int]] = {}
             for i in range(len(lines) - block_size + 1):
                 block = "\n".join(lines[i : i + block_size]).strip()
                 if len(block) < 40:  # 너무 짧은 블록은 무시
                     continue
-                seen_blocks[block] = seen_blocks.get(block, 0) + 1
-            max_repeats = max(seen_blocks.values()) if seen_blocks else 0
+                occurrences.setdefault(block, []).append(i)
+            # 슬라이딩 윈도우의 겹침 등장은 하나로 묶는다 — 서로 다른 위치에
+            # 재등장한 횟수(비중복 등장)만 센다. 진짜 루프는 같은 블록이
+            # 문서 전역에 여러 번 나타난다.
+            max_repeats = 0
+            for starts in occurrences.values():
+                non_overlapping = 0
+                last_end = -1
+                for start in starts:
+                    if start > last_end:
+                        non_overlapping += 1
+                        last_end = start + block_size - 1
+                max_repeats = max(max_repeats, non_overlapping)
             if max_repeats >= 5:
                 score *= 0.1
                 issues.append(f"심각한 반복 루프 탐지 ({max_repeats}회 반복)")
@@ -496,9 +515,8 @@ class QualityGate:
             return score, issues
 
         bad_spacing_terms = re.findall(
-            r"(할수|될수|사용할수|작성할수|확인할수|알려줄래|"
-            r"당신의프로젝트|확인하고어떻게|로컬LLM모델의을|"
-            r"모델의을|내가업|응답でき|업グ레?드)",
+            r"(할수|될수|사용할수|작성할수|확인할수|알려줄래|당신의프로젝트|확인하고어떻게|로컬LLM모델의을|"
+            + r"모델의을|내가업|응답でき|업グレ?드)",
             prose,
         )
         long_glued_hangul = re.findall(r"[가-힣]{20,}", prose)
@@ -529,7 +547,7 @@ class QualityGate:
         request_lower = request.lower()
         asks_current_info = bool(
             re.search(
-                r"(최신|최근|동향|실시간|현재|오늘|이번\s*주|latest|recent|" r"current|trend|news|today)",
+                r"(최신|최근|동향|실시간|현재|오늘|이번\s*주|latest|recent|current|trend|news|today)",
                 request_lower,
             ),
         )
@@ -540,14 +558,14 @@ class QualityGate:
         stale_or_ungrounded = bool(
             re.search(
                 r"(knowledge cutoff|as of my knowledge cutoff|october\s+2023|"
-                r"2023년\s*10월|실시간\s*데이터.*없|인터넷.*접속.*없|"
-                r"real[- ]?time data.*not|available up until)",
+                + r"2023년\s*10월|실시간\s*데이터.*없|인터넷.*접속.*없|"
+                + r"real[- ]?time data.*not|available up until)",
                 output_lower,
             ),
         )
         has_date_or_source = bool(
             re.search(
-                r"(20\d{2}[년./-]\s*\d{1,2}|출처|source|검색|확인|" r"https?://|github|hugging\s*face)",
+                r"(20\d{2}[년./-]\s*\d{1,2}|출처|source|검색|확인|https?://|github|hugging\s*face)",
                 output_lower,
             ),
         )
@@ -639,7 +657,7 @@ class QualityGate:
         issues: list[str] = []
 
         # 1. Mermaid 블록에 HTML 태그 포함 여부 (에러 유발)
-        mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
+        mermaid_blocks: list[str] = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
         for block in mermaid_blocks:
             if re.search(r"<[a-zA-Z]+.*?>", block):
                 score *= 0.8
@@ -746,8 +764,8 @@ class QualityGate:
         )
 
         if is_plan_context:
-            found_sections = []
-            missing_sections = []
+            found_sections: list[str] = []
+            missing_sections: list[str] = []
             for pattern, name in plan_sections:
                 if re.search(pattern, output, re.IGNORECASE | re.MULTILINE):
                     found_sections.append(name)
@@ -781,7 +799,7 @@ class QualityGate:
                 issues.append(f"체크박스 태스크가 {checkbox_count}개로 과도하게 많음 — 그룹화 필요")
 
         # 4. Mermaid 블록 검증
-        mermaid_blocks = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
+        mermaid_blocks: list[str] = re.findall(r"```mermaid\n(.*?)\n```", output, re.DOTALL)
         mermaid_keywords = r"(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitGraph|journey|mindmap|timeline|xychart|block|quadrantChart)"
         for block in mermaid_blocks:
             if not re.search(

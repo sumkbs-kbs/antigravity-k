@@ -11,7 +11,7 @@ ActiveToolMasker filters the active toolset based on:
 
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Protocol, runtime_checkable
 
 from antigravity_k.engine.execution_mode import ExecutionMode
 
@@ -31,6 +31,7 @@ PLAN_TOOLS: frozenset[str] = frozenset(
         "web_scrape",
         "search_knowledge",
         "impact_analyzer",
+        "read_context_artifact",
         "write_artifact",
     }
 )
@@ -47,6 +48,7 @@ CODE_EDIT_TOOLS: frozenset[str] = frozenset(
         "git_status",
         "git_diff",
         "run_command",
+        "read_context_artifact",
         "write_artifact",
     }
 )
@@ -55,25 +57,43 @@ VERIFICATION_TOOLS: frozenset[str] = frozenset(
     {
         "run_command",
         "read_file",
+        "read_context_artifact",
         "git_status",
         "git_diff",
         "write_artifact",
     }
 )
 
+EDIT_TASK_TYPES: frozenset[str] = frozenset({"CODE", "CODING", "IMPLEMENTATION", "REFACTOR", "FIX"})
+VERIFICATION_TASK_TYPES: frozenset[str] = frozenset({"TEST", "TESTING", "VERIFY", "VERIFICATION", "VALIDATE"})
+
+
+@runtime_checkable
+class _ToolMapping(Protocol):
+    def get(self, key: str, default: object = None) -> object: ...
+
 
 class ActiveToolMasker:
     """Masks and slims the toolset exposed to LLM prompts to prevent attention dilution."""
 
-    def __init__(self, mode: ExecutionMode = ExecutionMode.BUILD):
-        self.current_mode = mode
+    def __init__(self, mode: ExecutionMode = ExecutionMode.BUILD) -> None:
+        self.current_mode: ExecutionMode = mode
+
+    @staticmethod
+    def phase_for_task_type(task_type: str) -> str | None:
+        normalized = task_type.strip().upper()
+        if normalized in EDIT_TASK_TYPES:
+            return "edit"
+        if normalized in VERIFICATION_TASK_TYPES:
+            return "test"
+        return None
 
     def filter_tools(
         self,
-        all_tools: Sequence[Any],
+        all_tools: Sequence[object],
         mode: ExecutionMode | None = None,
         phase: str | None = None,
-    ) -> list[Any]:
+    ) -> list[object]:
         """Filter a list of tool objects or dict schemas according to active constraints.
 
         Args:
@@ -97,11 +117,9 @@ class ActiveToolMasker:
         if allowed_names is None:
             return list(all_tools)
 
-        filtered: list[Any] = []
+        filtered: list[object] = []
         for tool in all_tools:
-            name = getattr(tool, "name", None)
-            if name is None and isinstance(tool, dict):
-                name = tool.get("name") or tool.get("function", {}).get("name")
+            name = _tool_name(tool)
 
             if name and name in allowed_names:
                 filtered.append(tool)
@@ -112,3 +130,19 @@ class ActiveToolMasker:
             return list(all_tools)
 
         return filtered
+
+
+def _tool_name(tool: object) -> str | None:
+    name = getattr(tool, "name", None)
+    if isinstance(name, str):
+        return name
+    if not isinstance(tool, _ToolMapping):
+        return None
+    direct_name = tool.get("name")
+    if isinstance(direct_name, str):
+        return direct_name
+    function = tool.get("function")
+    if not isinstance(function, _ToolMapping):
+        return None
+    nested_name = function.get("name")
+    return nested_name if isinstance(nested_name, str) else None

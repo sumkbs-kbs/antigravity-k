@@ -1,16 +1,27 @@
+from collections.abc import Callable
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
-from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.model_manager import LoadedModel, ModelManager
 from antigravity_k.engine.model_registry import ModelProfile, ModelRegistry
 from antigravity_k.engine.model_router import ModelCombo, ModelRouter, RouteStrategy
 from antigravity_k.engine.usage_tracker import UsageTracker
 
 
-def _make_registry() -> MagicMock:
+def _assert_called_once(manager: ModelManager, method_name: str) -> None:
+    method = cast(MagicMock, getattr(manager, method_name))
+    callback = cast(Callable[[], object], getattr(method, "assert_called_once"))
+    _ = callback()
+
+
+def _make_registry() -> ModelRegistry:
     registry = MagicMock(spec=ModelRegistry)
-    registry.memory_config = MagicMock()
-    registry.memory_config.max_loaded_gb = 1000
-    registry.memory_config.auto_unload = False
+    setattr(
+        registry,
+        "memory_config",
+        SimpleNamespace(max_loaded_gb=1000, auto_unload=False, unload_cooldown_sec=30),
+    )
     profiles = {
         "qwen3.6:latest": ModelProfile(
             name="qwen3.6:latest",
@@ -43,28 +54,33 @@ def _make_registry() -> MagicMock:
             provider="openrouter",
         ),
     }
-    registry.get_model.side_effect = lambda name: profiles.get(name)
-    registry.list_models.return_value = list(profiles.values())
-    registry._raw = {}
-    return registry
+    def get_profile(name: str) -> ModelProfile | None:
+        return profiles.get(name)
+
+    setattr(registry, "get_model", get_profile)
+    setattr(registry, "list_models", lambda: list(profiles.values()))
+    setattr(registry, "_raw", {})
+    return cast(ModelRegistry, registry)
 
 
 def test_router_selects_only_20b_or_larger_evaluator():
     registry = _make_registry()
     router = ModelRouter(registry)
 
-    assert router.select_confidence_evaluator().name == "qwen3.6:latest"
+    selected = router.select_confidence_evaluator()
+    assert selected is not None
+    assert selected.name == "qwen3.6:latest"
     assert router.select_confidence_evaluator("worker-4b") is None
 
 
 def test_router_prefers_configured_large_evaluator():
     registry = _make_registry()
-    registry._raw = {
+    setattr(registry, "_raw", {
         "router": {
             "confidence_evaluator_model": "heavy-72b",
             "confidence_evaluator_min_params_b": 20,
         }
-    }
+    })
     router = ModelRouter(registry)
 
     selected = router.select_confidence_evaluator()
@@ -113,16 +129,16 @@ def test_cascade_uses_large_evaluator_before_escalation():
         router=router,
         tracker=UsageTracker(db_path=None),
     )
-    manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
-    calls = []
+    setattr(manager, "_load_mlx_model", MagicMock(return_value=(MagicMock(), None)))
+    calls: list[str] = []
 
-    def fake_generate(loaded, prompt, **kwargs):
+    def fake_generate(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> str:
         calls.append(loaded.profile.name)
         if loaded.profile.name == "judge-24b":
             return '{"score": 0.9}'
         return "짧은 응답"
 
-    manager._do_generate = MagicMock(side_effect=fake_generate)
+    setattr(manager, "_do_generate", MagicMock(side_effect=fake_generate))
 
     result = manager.generate("질문", "cascade-stack")
 
@@ -132,7 +148,9 @@ def test_cascade_uses_large_evaluator_before_escalation():
 
 def test_qwen_evaluator_uses_native_ollama_stream():
     registry = _make_registry()
-    registry.get_model("qwen3.6:latest").provider = "ollama"
+    qwen = registry.get_model("qwen3.6:latest")
+    assert qwen is not None
+    qwen.provider = "ollama"
     router = ModelRouter(registry)
     router.register_combo(
         ModelCombo(
@@ -152,15 +170,15 @@ def test_qwen_evaluator_uses_native_ollama_stream():
         router=router,
         tracker=UsageTracker(db_path=None),
     )
-    manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
-    manager._do_generate = MagicMock(return_value="짧은 응답")
-    manager._do_stream_generate = MagicMock(return_value=iter(["0.9"]))
+    setattr(manager, "_load_mlx_model", MagicMock(return_value=(MagicMock(), None)))
+    setattr(manager, "_do_generate", MagicMock(return_value="짧은 응답"))
+    setattr(manager, "_do_stream_generate", MagicMock(return_value=iter(["0.9"])))
 
     result = manager.generate("질문", "cascade-stack")
 
     assert result == "짧은 응답"
-    manager._do_stream_generate.assert_called_once()
-    manager._do_generate.assert_called_once()
+    _assert_called_once(manager, "_do_stream_generate")
+    _assert_called_once(manager, "_do_generate")
 
 
 def test_cascade_falls_back_to_heuristic_when_large_evaluator_is_invalid():
@@ -184,10 +202,10 @@ def test_cascade_falls_back_to_heuristic_when_large_evaluator_is_invalid():
         router=router,
         tracker=UsageTracker(db_path=None),
     )
-    manager._load_mlx_model = MagicMock(return_value=(MagicMock(), None))
-    calls = []
+    setattr(manager, "_load_mlx_model", MagicMock(return_value=(MagicMock(), None)))
+    calls: list[str] = []
 
-    def fake_generate(loaded, prompt, **kwargs):
+    def fake_generate(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> str:
         calls.append(loaded.profile.name)
         if loaded.profile.name == "judge-24b":
             return "invalid"
@@ -195,7 +213,7 @@ def test_cascade_falls_back_to_heuristic_when_large_evaluator_is_invalid():
             return "충분히 구체적인 최종 응답입니다. " * 5
         return "짧은 응답"
 
-    manager._do_generate = MagicMock(side_effect=fake_generate)
+    setattr(manager, "_do_generate", MagicMock(side_effect=fake_generate))
 
     result = manager.generate("질문", "cascade-stack")
 

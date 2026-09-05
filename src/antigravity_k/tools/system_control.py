@@ -1,4 +1,4 @@
-"""Antigravity-K: 시스템 전체 제어 + 환경 자동 최적화 도구.
+"""Ssak-Ai: 시스템 전체 제어 + 환경 자동 최적화 도구.
 
 ======================================================
 에이전트가 실행 중인 PC의 시스템 리소스를 모니터링하고 제어하며,
@@ -16,14 +16,49 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Any
+from typing import Callable, Protocol, TypeAlias, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 from .egress_policy import safe_urlopen
 
 logger = logging.getLogger(__name__)
 
+JsonMap: TypeAlias = dict[str, object]
+ActionHandler: TypeAlias = Callable[..., JsonMap]
 
+
+class _MemoryLike(Protocol):
+    total: int
+    available: int
+    percent: float
+
+
+class _DiskLike(Protocol):
+    total: int
+    free: int
+    percent: float
+
+
+def _as_map(value: object) -> JsonMap:
+    if not isinstance(value, dict):
+        return {}
+    mapping = cast(dict[object, object], value)
+    return {str(key): item for key, item in mapping.items()}
+
+
+def _as_list(value: object) -> list[object]:
+    return list(cast(list[object], value)) if isinstance(value, list) else []
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_number(value: object, default: int | float) -> int | float:
+    return value if isinstance(value, (int, float)) else default
+
+
+@final
 class SystemControlTool(BaseTool):
     """macOS/Linux/Windows 시스템 전체 제어 도구.
 
@@ -40,14 +75,14 @@ class SystemControlTool(BaseTool):
     def __init__(self):
         """Initialize the SystemControlTool."""
         super().__init__()
-        self._name = "system_control"
-        self._description = (
+        self._name: str = "system_control"
+        self._description: str = (
             "Control the operating system: manage apps, check system resources, "
             "optimize environment settings, control clipboard/volume/wifi, "
-            "and auto-tune the Antigravity-K configuration for optimal performance. "
+            "and auto-tune the Ssak-Ai configuration for optimal performance. "
             "Always acts in the user's best interest."
         )
-        self._schema = {
+        self._schema: JsonMap = {
             "type": "object",
             "properties": {
                 "action": {
@@ -81,6 +116,7 @@ class SystemControlTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -91,6 +127,7 @@ class SystemControlTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -101,7 +138,8 @@ class SystemControlTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> JsonMap:
         """Parameters Schema.
 
         Returns:
@@ -110,7 +148,8 @@ class SystemControlTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: object) -> JsonMap:
         """Execute.
 
         Args:
@@ -120,14 +159,31 @@ class SystemControlTool(BaseTool):
             Any: The any result.
 
         """
-        action = kwargs.get("action")
-        target = kwargs.get("target", "")
-        value = kwargs.get("value", "")
+        raw_action = kwargs.get("action")
+        action = raw_action if isinstance(raw_action, str) else ""
+        raw_target = kwargs.get("target", "")
+        target = raw_target if isinstance(raw_target, str) else ""
+        raw_value = kwargs.get("value", "")
+        value = raw_value if isinstance(raw_value, str) else ""
 
         if not action:
             return {"error": "No action specified."}
 
-        handler = getattr(self, f"_action_{action}", None)
+        handlers: dict[str, ActionHandler] = {
+            "get_system_info": self._action_get_system_info,
+            "get_running_apps": self._action_get_running_apps,
+            "launch_app": self._action_launch_app,
+            "kill_app": self._action_kill_app,
+            "open_url": self._action_open_url,
+            "get_clipboard": self._action_get_clipboard,
+            "set_clipboard": self._action_set_clipboard,
+            "set_volume": self._action_set_volume,
+            "toggle_wifi": self._action_toggle_wifi,
+            "manage_notifications": self._action_manage_notifications,
+            "auto_optimize": self._action_auto_optimize,
+            "get_env_status": self._action_get_env_status,
+        }
+        handler = handlers.get(action)
         if handler is None:
             return {"error": f"Unknown action: {action}"}
 
@@ -139,9 +195,9 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 시스템 정보 ──────────────
 
-    def _action_get_system_info(self, **kwargs) -> dict[str, Any]:
+    def _action_get_system_info(self, **_kwargs: object) -> JsonMap:
         """CPU, 메모리, 디스크, GPU 등 시스템 정보를 수집합니다."""
-        info: dict[str, Any] = {
+        info: JsonMap = {
             "platform": platform.platform(),
             "architecture": platform.machine(),
             "processor": platform.processor(),
@@ -161,14 +217,14 @@ class SystemControlTool(BaseTool):
         try:
             import psutil
 
-            mem = psutil.virtual_memory()
+            mem = cast(_MemoryLike, cast(object, psutil.virtual_memory()))
             info["memory"] = {
                 "total_gb": round(mem.total / (1024**3), 1),
                 "available_gb": round(mem.available / (1024**3), 1),
                 "used_percent": mem.percent,
             }
             # 디스크 정보
-            disk = psutil.disk_usage("/")
+            disk = cast(_DiskLike, cast(object, psutil.disk_usage("/")))
             info["disk"] = {
                 "total_gb": round(disk.total / (1024**3), 1),
                 "free_gb": round(disk.free / (1024**3), 1),
@@ -200,10 +256,10 @@ class SystemControlTool(BaseTool):
                     timeout=10,
                 )
                 if result.returncode == 0:
-                    gpu_data = json.loads(result.stdout)
-                    displays = gpu_data.get("SPDisplaysDataType", [])
+                    gpu_data = _as_map(cast(object, json.loads(result.stdout)))
+                    displays = _as_list(gpu_data.get("SPDisplaysDataType"))
                     if displays:
-                        gpu = displays[0]
+                        gpu = _as_map(displays[0])
                         info["gpu"] = {
                             "name": gpu.get("sppci_model", "Unknown"),
                             "vram": gpu.get("spdisplays_vram", "Unknown"),
@@ -219,13 +275,13 @@ class SystemControlTool(BaseTool):
 
             req = urllib.request.Request("http://localhost:11434/api/tags")
             with safe_urlopen(req, timeout=5) as resp:
-                models = json.loads(resp.read().decode("utf-8"))
+                models = _as_map(cast(object, json.loads(resp.read().decode("utf-8"))))
                 info["ollama_models"] = [
                     {
-                        "name": m["name"],
-                        "size_gb": round(m.get("size", 0) / (1024**3), 1),
+                        "name": _as_str(_as_map(model).get("name")),
+                        "size_gb": round(_as_number(_as_map(model).get("size"), 0) / (1024**3), 1),
                     }
-                    for m in models.get("models", [])
+                    for model in _as_list(models.get("models"))
                 ]
         except Exception:
             logger.exception("Unhandled exception")
@@ -233,17 +289,17 @@ class SystemControlTool(BaseTool):
 
         return {"status": "ok", "system_info": info}
 
-    def _action_get_env_status(self, **kwargs) -> dict[str, Any]:
-        """현재 Antigravity-K 환경 설정 상태를 조회합니다."""
+    def _action_get_env_status(self, **_kwargs: object) -> JsonMap:
+        """현재 Ssak-Ai 환경 설정 상태를 조회합니다."""
         config_path = self._find_config_path()
-        status: dict[str, Any] = {"config_path": config_path, "settings": {}}
+        status: JsonMap = {"config_path": config_path, "settings": {}}
 
         if config_path and os.path.exists(config_path):
             import yaml
 
             try:
                 with open(config_path, encoding="utf-8") as f:
-                    config = yaml.safe_load(f) or {}
+                    config = _as_map(cast(object, yaml.safe_load(f) or {}))
                 status["settings"] = config
             except Exception as e:
                 logger.exception("Unhandled exception")
@@ -253,9 +309,9 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 앱 관리 ──────────────
 
-    def _action_get_running_apps(self, **kwargs) -> dict[str, Any]:
+    def _action_get_running_apps(self, **_kwargs: object) -> JsonMap:
         """실행 중인 앱 목록을 반환합니다."""
-        apps = []
+        apps: list[str] = []
         if platform.system() == "Darwin":
             try:
                 result = subprocess.run(
@@ -278,21 +334,23 @@ class SystemControlTool(BaseTool):
                 import psutil
 
                 for proc in psutil.process_iter(["pid", "name"]):
-                    apps.append(proc.info["name"])
+                    name = _as_map(cast(object, proc.info)).get("name")
+                    if isinstance(name, str):
+                        apps.append(name)
                 apps = list(set(apps))[:50]
             except ImportError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
 
         return {"status": "ok", "running_apps": sorted(apps)}
 
-    def _action_launch_app(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_launch_app(self, target: str = "", **_kwargs: object) -> JsonMap:
         """앱을 실행합니다."""
         if not target:
             return {"error": "No app name specified."}
 
         if platform.system() == "Darwin":
             try:
-                subprocess.Popen(["open", "-a", target])
+                _ = subprocess.Popen(["open", "-a", target])
                 return {"status": "ok", "action": "launch_app", "app": target}
             except Exception as e:
                 logger.exception("Unhandled exception")
@@ -300,7 +358,7 @@ class SystemControlTool(BaseTool):
         else:
             return {"error": f"App launch not supported on {platform.system()}"}
 
-    def _action_kill_app(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_kill_app(self, target: str = "", **_kwargs: object) -> JsonMap:
         """앱을 종료합니다. 사용자 이익 보호: 시스템 핵심 프로세스는 차단됩니다."""
         if not target:
             return {"error": "No app name specified."}
@@ -322,7 +380,7 @@ class SystemControlTool(BaseTool):
 
         if platform.system() == "Darwin":
             try:
-                subprocess.run(
+                _ = subprocess.run(
                     ["osascript", "-e", f'tell application "{target}" to quit'],
                     timeout=10,
                 )
@@ -333,12 +391,12 @@ class SystemControlTool(BaseTool):
         else:
             return {"error": f"App management not supported on {platform.system()}"}
 
-    def _action_open_url(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_open_url(self, target: str = "", **_kwargs: object) -> JsonMap:
         """기본 브라우저에서 URL을 엽니다."""
         if not target:
             return {"error": "No URL specified."}
         try:
-            subprocess.Popen(
+            _ = subprocess.Popen(
                 ["open", target] if platform.system() == "Darwin" else ["xdg-open", target],
             )
             return {"status": "ok", "action": "open_url", "url": target}
@@ -348,7 +406,7 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 클립보드 ──────────────
 
-    def _action_get_clipboard(self, **kwargs) -> dict[str, Any]:
+    def _action_get_clipboard(self, **_kwargs: object) -> JsonMap:
         """클립보드 내용을 읽습니다."""
         try:
             if platform.system() == "Darwin":
@@ -360,14 +418,14 @@ class SystemControlTool(BaseTool):
             logger.exception("Unhandled exception")
             return {"error": f"Clipboard read failed: {e}"}
 
-    def _action_set_clipboard(self, target: str = "", **kwargs) -> dict[str, Any]:
+    def _action_set_clipboard(self, target: str = "", **_kwargs: object) -> JsonMap:
         """클립보드에 텍스트를 설정합니다."""
         if not target:
             return {"error": "No text specified."}
         try:
             if platform.system() == "Darwin":
                 process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-                process.communicate(target.encode("utf-8"))
+                _ = process.communicate(target.encode("utf-8"))
                 return {
                     "status": "ok",
                     "action": "set_clipboard",
@@ -381,46 +439,46 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 시스템 설정 ──────────────
 
-    def _action_set_volume(self, value: str = "", **kwargs) -> dict[str, Any]:
+    def _action_set_volume(self, value: str = "", **_kwargs: object) -> JsonMap:
         """볼륨을 조절합니다 (0-100)."""
         try:
             level = int(value) if value else 50
             level = max(0, min(100, level))
             if platform.system() == "Darwin":
-                subprocess.run(["osascript", "-e", f"set volume output volume {level}"], timeout=5)
+                _ = subprocess.run(["osascript", "-e", f"set volume output volume {level}"], timeout=5)
                 return {"status": "ok", "action": "set_volume", "level": level}
             return {"error": f"Volume control not supported on {platform.system()}"}
         except Exception as e:
             logger.exception("Unhandled exception")
             return {"error": f"Volume control failed: {e}"}
 
-    def _action_toggle_wifi(self, value: str = "", **kwargs) -> dict[str, Any]:
+    def _action_toggle_wifi(self, value: str = "", **_kwargs: object) -> JsonMap:
         """WiFi를 켜거나 끕니다."""
         if platform.system() != "Darwin":
             return {"error": f"WiFi control not supported on {platform.system()}"}
         try:
             state = "on" if value.lower() in ("on", "true", "1", "") else "off"
-            subprocess.run(["networksetup", "-setairportpower", "en0", state], timeout=10)
+            _ = subprocess.run(["networksetup", "-setairportpower", "en0", state], timeout=10)
             return {"status": "ok", "action": "toggle_wifi", "state": state}
         except Exception as e:
             logger.exception("Unhandled exception")
             return {"error": f"WiFi toggle failed: {e}"}
 
-    def _action_manage_notifications(self, value: str = "", **kwargs) -> dict[str, Any]:
+    def _action_manage_notifications(self, value: str = "", **_kwargs: object) -> JsonMap:
         """방해금지 모드를 토글합니다."""
         if platform.system() != "Darwin":
             return {"error": f"Notification control not supported on {platform.system()}"}
         try:
             # macOS Focus 모드 토글 (Ventura+)
             if value.lower() in ("on", "dnd", "focus"):
-                subprocess.run(
+                _ = subprocess.run(
                     ["shortcuts", "run", "Turn On Do Not Disturb"],
                     timeout=10,
                     capture_output=True,
                 )
                 return {"status": "ok", "action": "dnd_on"}
             else:
-                subprocess.run(
+                _ = subprocess.run(
                     ["shortcuts", "run", "Turn Off Do Not Disturb"],
                     timeout=10,
                     capture_output=True,
@@ -432,8 +490,8 @@ class SystemControlTool(BaseTool):
 
     # ────────────── 환경 자동 최적화 (사용자 피드백 반영) ──────────────
 
-    def _action_auto_optimize(self, **kwargs) -> dict[str, Any]:
-        """시스템 리소스를 감지하고 Antigravity-K config.yaml을 자동 최적화합니다.
+    def _action_auto_optimize(self, **_kwargs: object) -> JsonMap:
+        """시스템 리소스를 감지하고 Ssak-Ai config.yaml을 자동 최적화합니다.
 
         사용자 이익 원칙:
           - 현재 하드웨어에 맞는 최적 모델/컨텍스트 설정 자동 선택
@@ -444,14 +502,14 @@ class SystemControlTool(BaseTool):
         import yaml
 
         # 1. 시스템 정보 수집
-        sys_info = self._action_get_system_info()["system_info"]
+        sys_info = _as_map(self._action_get_system_info().get("system_info"))
 
         # 2. 최적 설정 계산
-        optimizations = []
-        recommended: dict[str, Any] = {}
+        optimizations: list[str] = []
+        recommended: JsonMap = {}
 
         # 메모리 기반 컨텍스트 크기 결정
-        total_mem = sys_info.get("memory", {}).get("total_gb", 8)
+        total_mem = _as_number(_as_map(sys_info.get("memory")).get("total_gb"), 8)
         if total_mem >= 128:
             recommended["context_window"] = 32768
             recommended["max_model_size"] = "70B"
@@ -470,8 +528,8 @@ class SystemControlTool(BaseTool):
             optimizations.append(f"⚠️ 메모리 {total_mem}GB → 컨텍스트 4K, 7B 이하 모델 권장")
 
         # GPU 감지
-        gpu_info = sys_info.get("gpu", {})
-        gpu_name = gpu_info.get("name", "").lower()
+        gpu_info = _as_map(sys_info.get("gpu"))
+        gpu_name = _as_str(gpu_info.get("name")).lower()
         if (
             "apple" in gpu_name
             or "m1" in gpu_name
@@ -483,21 +541,21 @@ class SystemControlTool(BaseTool):
             recommended["gpu_acceleration"] = "mps"
             recommended["keep_alive"] = "30m"
             optimizations.append(
-                f"✅ Apple Silicon GPU 감지 ({gpu_info.get('name', '')}) → MPS 가속 활성화",
+                f"✅ Apple Silicon GPU 감지 ({_as_str(gpu_info.get('name'))}) → MPS 가속 활성화",
             )
         elif gpu_info:
             recommended["gpu_acceleration"] = "cuda"
             optimizations.append("✅ NVIDIA GPU 감지 → CUDA 가속 활성화")
 
         # CPU 코어 기반 병렬 처리
-        cpu_cores = sys_info.get("cpu_cores", 4)
+        cpu_cores = int(_as_number(sys_info.get("cpu_cores"), 4))
         recommended["num_parallel"] = min(cpu_cores, 8)
         optimizations.append(f"✅ CPU {cpu_cores}코어 → 병렬 처리 {recommended['num_parallel']}개")
 
         # Ollama 모델 현황 기반 추천
-        ollama_models = sys_info.get("ollama_models", [])
-        if isinstance(ollama_models, list) and ollama_models:
-            model_names = [m["name"] for m in ollama_models]
+        ollama_models = _as_list(sys_info.get("ollama_models"))
+        if ollama_models:
+            model_names = [name for name in (_as_str(_as_map(model).get("name")) for model in ollama_models) if name]
             recommended["available_models"] = model_names
             optimizations.append(
                 f"✅ Ollama 모델 {len(model_names)}개 감지: {', '.join(model_names[:5])}",
@@ -510,27 +568,27 @@ class SystemControlTool(BaseTool):
         if config_path and os.path.exists(config_path):
             try:
                 with open(config_path, encoding="utf-8") as f:
-                    config = yaml.safe_load(f) or {}
+                    config = _as_map(cast(object, yaml.safe_load(f) or {}))
 
                 # 기존 설정 백업
                 backup_path = config_path + ".backup"
                 if not os.path.exists(backup_path):
-                    shutil.copy2(config_path, backup_path)
+                    _ = shutil.copy2(config_path, backup_path)
                     optimizations.append(f"📋 기존 설정 백업: {backup_path}")
 
                 # 최적 설정 적용
-                if "ollama" not in config:
-                    config["ollama"] = {}
-                config["ollama"]["context_window"] = recommended.get("context_window", 8192)
-                config["ollama"]["keep_alive"] = recommended.get("keep_alive", "15m")
+                ollama = _as_map(config.get("ollama"))
+                config["ollama"] = ollama
+                ollama["context_window"] = recommended.get("context_window", 8192)
+                ollama["keep_alive"] = recommended.get("keep_alive", "15m")
 
-                if "performance" not in config:
-                    config["performance"] = {}
-                config["performance"]["num_parallel"] = recommended.get("num_parallel", 4)
-                config["performance"]["max_model_size"] = recommended.get("max_model_size", "14B")
+                performance = _as_map(config.get("performance"))
+                config["performance"] = performance
+                performance["num_parallel"] = recommended.get("num_parallel", 4)
+                performance["max_model_size"] = recommended.get("max_model_size", "14B")
 
                 if recommended.get("gpu_acceleration"):
-                    config["performance"]["gpu_acceleration"] = recommended["gpu_acceleration"]
+                    performance["gpu_acceleration"] = recommended["gpu_acceleration"]
 
                 with open(config_path, "w", encoding="utf-8") as f:
                     yaml.dump(config, f, default_flow_style=False, allow_unicode=True)

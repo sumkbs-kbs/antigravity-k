@@ -14,12 +14,13 @@ import json
 import logging
 import os
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Optional
+from typing import Protocol, cast
 
 log = logging.getLogger("swarm.llm")
 
-DEFAULTS = {
+DEFAULTS: dict[str, object] = {
     "strategy": "three_tier",
     "local_base_url": "http://localhost:11434",
     "local_model": "qwen3.6-models",
@@ -37,11 +38,47 @@ DEFAULTS = {
 }
 
 
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_mapping_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    result: list[dict[str, object]] = []
+    for item in items:
+        if isinstance(item, Mapping):
+            result.append(_as_mapping(cast(object, item)))
+    return result
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _as_float(value: object, default: float) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+
+
+class _HTTPResponseLike(Protocol):
+    def read(self) -> bytes: ...
+
+    def close(self) -> None: ...
+
+
 def _openrouter_api_key_from_env() -> str:
     return os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OR_API_KEY") or ""
 
 
-def _with_env_overrides(config: dict) -> dict:
+def _with_env_overrides(config: Mapping[str, object]) -> dict[str, object]:
     merged = dict(config)
     env_key = _openrouter_api_key_from_env()
     if env_key:
@@ -49,12 +86,12 @@ def _with_env_overrides(config: dict) -> dict:
     return merged
 
 
-def load_llm_config(config_path: Optional[str] = None) -> dict:
+def load_llm_config(config_path: str | None = None) -> dict[str, object]:
     """Load LLM config from config.json (swarm.lm section)."""
-    config_file = config_path or Path(__file__).parent / "config.json"
+    config_file = Path(config_path) if config_path else Path(__file__).parent / "config.json"
     if config_file.exists():
-        data = json.loads(config_file.read_text())
-        lm = data.get("lm", {})
+        data = _as_mapping(cast(object, json.loads(config_file.read_text(encoding="utf-8"))))
+        lm = _as_mapping(data.get("lm"))
         if lm:
             merged = {**DEFAULTS, **lm}
             log.info(f"Loaded LLM config from {config_file}: {list(merged.keys())}")
@@ -68,7 +105,7 @@ def call_llm(
     system: str = "",
     model: str = "",
     timeout: int = 0,
-    config: Optional[dict] = None,
+    config: Mapping[str, object] | None = None,
     retry_with_or: bool = True,
     paid: bool = False,  # True = tier3 직접 지정
     complex: bool = False,  # True = tier3 요청 (복잡도 자동 판단)
@@ -94,17 +131,22 @@ def call_llm(
     """
     if config is None:
         config = load_llm_config()
+    if model:
+        config = {
+            **config,
+            "local_model_single": model,
+            "or_free_model": model,
+            "or_paid_model": model,
+        }
 
-    three_tier = config.get("three_tier", {})
-    if not isinstance(three_tier, dict):
-        three_tier = {}
+    three_tier = _as_mapping(config.get("three_tier"))
 
     # Tier decision
     target_tier = 1  # 1=local -> 2=free -> 3=paid
     if paid or complex:
         target_tier = 3  # Skip to paid tier
         log.info("Routing to Tier3 (paid): paid=%s, complex=%s", paid, complex)
-    elif three_tier.get("enabled"):
+    elif bool(three_tier.get("enabled")):
         target_tier = 2  # Default to free
 
     if target_tier >= 1:
@@ -131,11 +173,12 @@ def call_llm(
     return "LLM unavailable: all tiers failed."
 
 
-def _call_tier1_local(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
+def _call_tier1_local(prompt: str, system: str, config: Mapping[str, object], timeout: int) -> str | None:
     """Tier 1: Local Ollama — 보안 민감 데이터."""
-    url = config.get("local_base_url", DEFAULTS["local_base_url"])
-    local_timeout = config.get("local_timeout", DEFAULTS["local_timeout"])
-    local_model = config.get("local_model_single", DEFAULTS["local_model_single"])
+    url = _as_text(config.get("local_base_url"), _as_text(DEFAULTS["local_base_url"]))
+    local_timeout = _as_int(config.get("local_timeout"), _as_int(DEFAULTS["local_timeout"], 60))
+    local_model = _as_text(config.get("local_model_single"), _as_text(DEFAULTS["local_model_single"]))
+    effective_timeout = timeout if timeout > 0 else local_timeout
 
     payload = {
         "model": local_model,
@@ -161,47 +204,49 @@ def _call_tier1_local(prompt: str, system: str, config: dict, timeout: int) -> O
             ],
             capture_output=True,
             text=True,
-            timeout=local_timeout,
+            timeout=effective_timeout,
         )
         parts = resp.stdout.rsplit("\n", 1)
         http_code = int(parts[-1]) if len(parts) > 1 else 0
         body = parts[0] if len(parts) > 1 else resp.stdout
 
         if http_code == 200 and body:
-            data = json.loads(body)
-            return data.get("response", body)
+            data = _as_mapping(cast(object, json.loads(body)))
+            return _as_text(data.get("response"), body)
         return None
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
         log.debug(f"T1 Local failed: {e}")
         return None
 
 
-def _call_tier2_free(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
+def _call_tier2_free(prompt: str, system: str, config: Mapping[str, object], timeout: int) -> str | None:
     """Tier 2: OpenRouter free model — 일반 작업."""
-    or_timeout = config.get("or_free_timeout", DEFAULTS["or_free_timeout"])
-    or_model = config.get("or_free_model", DEFAULTS["or_free_model"])
-    url = config.get("or_base_url", DEFAULTS["or_base_url"])
-    or_api_key = config.get("or_api_key", "")
+    or_timeout = _as_int(config.get("or_free_timeout"), _as_int(DEFAULTS["or_free_timeout"], 120))
+    or_model = _as_text(config.get("or_free_model"), _as_text(DEFAULTS["or_free_model"]))
+    url = _as_text(config.get("or_base_url"), _as_text(DEFAULTS["or_base_url"]))
+    or_api_key = _as_text(config.get("or_api_key"))
     if not or_api_key:
         log.debug("Tier2 OpenRouter skipped: OPENROUTER_API_KEY is not set")
         return None
 
-    return _call_openrouter(prompt, system, or_model, config, url, or_api_key, or_timeout, free=True)
+    return _call_openrouter(
+        prompt, system, or_model, config, url, or_api_key, timeout if timeout > 0 else or_timeout, free=True
+    )
 
 
-def _call_tier3_paid(prompt: str, system: str, config: dict, timeout: int) -> Optional[str]:
+def _call_tier3_paid(prompt: str, system: str, config: Mapping[str, object], timeout: int) -> str | None:
     """Tier 3: OpenRouter paid model — 복잡/정교 작업 전용."""
-    or_timeout = config.get("or_paid_timeout", DEFAULTS["or_paid_timeout"])
-    or_model = config.get("or_paid_model", DEFAULTS["or_paid_model"])
-    cost_limit = config.get("or_paid_cost_limit", DEFAULTS["or_paid_cost_limit"])
-    or_base_url = config.get("or_base_url", DEFAULTS["or_base_url"])
-    or_api_key = config.get("or_api_key", "")
+    or_timeout = _as_int(config.get("or_paid_timeout"), _as_int(DEFAULTS["or_paid_timeout"], 180))
+    or_model = _as_text(config.get("or_paid_model"), _as_text(DEFAULTS["or_paid_model"]))
+    cost_limit = _as_float(config.get("or_paid_cost_limit"), _as_float(DEFAULTS["or_paid_cost_limit"], 10.0))
+    or_base_url = _as_text(config.get("or_base_url"), _as_text(DEFAULTS["or_base_url"]))
+    or_api_key = _as_text(config.get("or_api_key"))
     if not or_api_key:
         log.debug("Tier3 OpenRouter skipped: OPENROUTER_API_KEY is not set")
         return None
 
     # Check cost alert threshold
-    cost_alert = config.get("three_tier", {}).get("cost_alert_threshold", 8.0)
+    cost_alert = _as_float(_as_mapping(config.get("three_tier")).get("cost_alert_threshold"), 8.0)
     if cost_limit - cost_alert < cost_alert:
         log.warning(f"⚠️ Cost approaching limit: ${cost_alert:.2f} of ${cost_limit:.2f}")
 
@@ -212,7 +257,7 @@ def _call_tier3_paid(prompt: str, system: str, config: dict, timeout: int) -> Op
         config,
         or_base_url,
         or_api_key,
-        or_timeout,
+        timeout if timeout > 0 else or_timeout,
         free=False,
     )
 
@@ -221,17 +266,17 @@ def _call_openrouter(
     prompt: str,
     system: str,
     model: str,
-    config: dict,
+    config: Mapping[str, object],
     url: str,
     api_key: str,
     timeout: int,
     free: bool,
-) -> Optional[str]:
+) -> str | None:
     """Internal OpenRouter call with free/paid model."""
     import urllib.error
     import urllib.request
 
-    messages = []
+    messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
@@ -247,24 +292,29 @@ def _call_openrouter(
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}" if api_key else "",
-        "HTTP-Referer": "https://github.com/antigravity-k/swarm-mode",
-        "X-Title": "Antigravity-K Swarm Mode",
+        "HTTP-Referer": "https://github.com/ssak-comp/Ssak-Ai",
+        "X-Title": "Ssak-Ai Swarm Mode",
     }
 
     # Paid model: add cost control header
     if not free:
-        cost_limit = config.get("or_paid_cost_limit", DEFAULTS["or_paid_cost_limit"])
+        cost_limit = _as_float(config.get("or_paid_cost_limit"), _as_float(DEFAULTS["or_paid_cost_limit"], 10.0))
         headers["X-Title"] += f" (cost_limit=${cost_limit})"
 
     try:
         req = urllib.request.Request(url + "/chat/completions", data=data, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        resp = cast(_HTTPResponseLike, urllib.request.urlopen(req, timeout=timeout))
+        try:
             body = resp.read().decode("utf-8")
-            data_resp = json.loads(body)
-            choices = data_resp.get("choices", [])
-            if choices:
-                return choices[0].get("message", {}).get("content", "")
+            data_resp = _as_mapping(cast(object, json.loads(body)))
+            choice_items = _as_mapping_list(data_resp.get("choices"))
+            if choice_items:
+                first_choice = choice_items[0]
+                message = _as_mapping(first_choice.get("message"))
+                return _as_text(message.get("content"))
             return None
+        finally:
+            resp.close()
     except urllib.error.URLError as e:
         log.debug(f"OpenRouter URL error: {e}")
         return None
@@ -279,12 +329,26 @@ def _call_openrouter(
 # === Helpers for batch processing ===
 
 
-def call_batch(prompts: list, **kwargs) -> list:
+def call_batch(prompts: list[str], **kwargs: object) -> list[str]:
     """Call LLM batch."""
-    return [call_llm(p, **kwargs) for p in prompts]
+    config_value = kwargs.get("config")
+    config = cast(Mapping[str, object], config_value) if isinstance(config_value, Mapping) else None
+    return [
+        call_llm(
+            prompt,
+            system=_as_text(kwargs.get("system")),
+            model=_as_text(kwargs.get("model")),
+            timeout=_as_int(kwargs.get("timeout"), 0),
+            config=config,
+            retry_with_or=bool(kwargs.get("retry_with_or", True)),
+            paid=bool(kwargs.get("paid", False)),
+            complex=bool(kwargs.get("complex", False)),
+        )
+        for prompt in prompts
+    ]
 
 
-def get_status() -> dict:
+def get_status() -> dict[str, bool]:
     """Check what LLM backends are available."""
     status = {
         "local": False,
@@ -311,16 +375,14 @@ def get_status() -> dict:
     return status
 
 
-def get_cost_alert(config: Optional[dict] = None) -> dict:
+def get_cost_alert(config: Mapping[str, object] | None = None) -> dict[str, object]:
     """Get cost status and alerts for paid tier."""
     if config is None:
         config = load_llm_config()
-    three_tier = config.get("three_tier", {})
-    if not isinstance(three_tier, dict):
-        three_tier = {}
+    three_tier = _as_mapping(config.get("three_tier"))
 
-    cost_limit = config.get("or_paid_cost_limit", 10.0)
-    alert_threshold = three_tier.get("cost_alert_threshold", 8.0)
+    cost_limit = _as_float(config.get("or_paid_cost_limit"), 10.0)
+    alert_threshold = _as_float(three_tier.get("cost_alert_threshold"), 8.0)
 
     return {
         "cost_limit": cost_limit,

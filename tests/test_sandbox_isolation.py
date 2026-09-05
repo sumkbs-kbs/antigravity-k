@@ -7,14 +7,18 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import re
 import shutil
 import socket
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
 
 import pytest
 
-from antigravity_k.engine.sandbox import SandboxRunner
+from antigravity_k.engine.sandbox import SandboxResult, SandboxRunner
 
 
 def _writable_subpaths(profile: str) -> set[str]:
@@ -23,20 +27,29 @@ def _writable_subpaths(profile: str) -> set[str]:
     )
 
 
+def _call_private(target: object, name: str, *args: object) -> object:
+    method = cast(Callable[..., object], cast(object, getattr(target, name)))
+    return method(*args)
+
+
+def _profile(runner: SandboxRunner) -> str:
+    return cast(str, _call_private(runner, "_build_seatbelt_profile"))
+
+
 class TestProfileBasePolicy:
     def test_profile_has_deny_default(self):
         runner = SandboxRunner(project_root="/custom/proj", enabled=True)
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert "(deny default)" in profile
 
     def test_profile_allows_reads(self):
         runner = SandboxRunner(project_root="/custom/proj", enabled=True)
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert "(allow file-read*)" in profile
 
     def test_profile_allows_process_operations(self):
         runner = SandboxRunner(project_root="/custom/proj", enabled=True)
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert "(allow process-fork)" in profile
         assert "(allow process-exec)" in profile
 
@@ -44,72 +57,75 @@ class TestProfileBasePolicy:
 class TestNetworkPolicy:
     def test_network_none_denies_network(self):
         runner = SandboxRunner(project_root="/tmp", enabled=True, network="none")
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert "(deny network*)" in profile
 
     def test_network_all_allows_network(self):
         runner = SandboxRunner(project_root="/tmp", enabled=True, network="all")
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert "(allow network*)" in profile
         assert "(deny network*)" not in profile
 
     def test_network_none_does_not_deny_file_writes(self):
         runner = SandboxRunner(project_root="/tmp", enabled=True, network="none")
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert "(deny file-write*)" not in profile
 
 
 class TestWriteWhitelist:
-    def test_writable_subpaths_are_exactly_the_whitelist(self, tmp_path):
+    def test_writable_subpaths_are_exactly_the_whitelist(self, tmp_path: Path):
         runner = SandboxRunner(project_root=str(tmp_path), enabled=True)
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         expected = {
             str(tmp_path),
             "/tmp",
             "/var/tmp",
             "/private/tmp",
             "/private/var/folders",
-            shutil.os.path.expanduser("~/.cache"),
+            os.path.expanduser("~/.cache"),
         }
         assert _writable_subpaths(profile) == expected
 
     def test_home_other_than_cache_is_not_writable(self):
         runner = SandboxRunner(project_root="/custom/proj", enabled=True)
-        profile = runner._build_seatbelt_profile()
-        home = shutil.os.path.expanduser("~")
+        profile = _profile(runner)
+        home = os.path.expanduser("~")
         assert "/.ssh" not in profile
         assert home not in _writable_subpaths(profile)
 
     def test_system_paths_are_not_writable(self):
         runner = SandboxRunner(project_root="/custom/proj", enabled=True)
-        profile = runner._build_seatbelt_profile()
+        profile = _profile(runner)
         assert _writable_subpaths(profile).isdisjoint({"/etc", "/usr", "/bin", "/Library"})
 
 
 class TestProcessLimits:
     def test_limited_command_sets_ulimits(self):
         runner = SandboxRunner(project_root="/tmp", enabled=True, max_processes=32, max_memory_mb=512)
-        cmd = runner._limited_command("echo hi", timeout=60)
+        cmd = cast(str, _call_private(runner, "_limited_command", "echo hi", 60))
         assert "ulimit -t 60" in cmd
         assert "ulimit -u 32" in cmd
         assert "ulimit -v 524288" in cmd
 
     def test_shell_quote_preserves_single_quotes(self):
-        cmd = SandboxRunner._shell_quote("echo 'a b'")
+        cmd = cast(str, _call_private(SandboxRunner, "_shell_quote", "echo 'a b'"))
         assert cmd == "'echo '\\''a b'\\'''"
 
 
 class TestDockerCwdConfinement:
     def test_cwd_outside_project_root_is_denied(self):
         runner = SandboxRunner(project_root="/tmp/proj", enabled=True)
-        result = runner._execute_docker("pwd", 60, None, "/etc")
+        result = cast(SandboxResult, _call_private(runner, "_execute_docker", "pwd", 60, None, "/etc"))
         assert not result.success
         assert "Working directory must remain inside the project root" in result.error
 
     def test_cwd_inside_project_root_is_accepted(self):
         runner = SandboxRunner(project_root="/tmp/proj", enabled=True)
-        runner._run_limited_process = lambda *a, **kw: (0, "ok", "", False)
-        result = runner._execute_docker("pwd", 60, None, "/tmp/proj/sub")
+        def fake_run_limited_process(*_args: object, **_kwargs: object) -> tuple[int, str, str, bool]:
+            return 0, "ok", "", False
+
+        setattr(runner, "_run_limited_process", fake_run_limited_process)
+        result = cast(SandboxResult, _call_private(runner, "_execute_docker", "pwd", 60, None, "/tmp/proj/sub"))
         assert result.success
 
 
@@ -120,24 +136,24 @@ class TestMacOSIsolation:
         if not shutil.which("sandbox-exec"):
             pytest.skip("sandbox-exec 없음")
 
-    def test_write_to_project_root_succeeds_with_network_none(self, tmp_path):
+    def test_write_to_project_root_succeeds_with_network_none(self, tmp_path: Path):
         runner = SandboxRunner(project_root=str(tmp_path), enabled=True, network="none")
         result = runner.execute("echo hello > out.txt && cat out.txt")
         assert result.success, result.stderr
         assert "hello" in result.stdout
         assert (tmp_path / "out.txt").exists()
 
-    def test_write_to_system_path_is_denied(self, tmp_path):
+    def test_write_to_system_path_is_denied(self, tmp_path: Path):
         runner = SandboxRunner(project_root=str(tmp_path), enabled=True, network="none")
         result = runner.execute("touch /etc/agk_sandbox_probe 2>&1")
         assert not result.success
         assert not result.stdout.strip().endswith("0")
 
-    def test_network_access_is_denied_when_network_none(self, tmp_path):
+    def test_network_access_is_denied_when_network_none(self, tmp_path: Path):
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
-        port = listener.getsockname()[1]
+        port = cast(tuple[str, int], cast(object, listener.getsockname()))[1]
         runner = SandboxRunner(project_root=str(tmp_path), enabled=True, network="none")
         result = runner.execute(
             f"python3 -c \"import socket; socket.create_connection(('127.0.0.1', {port}), timeout=2)\" 2>&1",
@@ -146,16 +162,16 @@ class TestMacOSIsolation:
         assert result.sandboxed
         listener.close()
 
-    def test_network_all_allows_localhost_connection(self, tmp_path):
+    def test_network_all_allows_localhost_connection(self, tmp_path: Path):
         import threading
 
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
-        port = listener.getsockname()[1]
+        port = cast(tuple[str, int], cast(object, listener.getsockname()))[1]
 
         def accept_one():
-            conn, _ = listener.accept()
+            conn, _ = cast(tuple[socket.socket, object], cast(object, listener.accept()))
             conn.close()
 
         thread = threading.Thread(target=accept_one, daemon=True)
@@ -169,8 +185,8 @@ class TestMacOSIsolation:
         assert result.success, result.stderr
         assert "CONNECTED" in result.stdout
 
-    def test_read_from_project_root_succeeds(self, tmp_path):
-        (tmp_path / "data.txt").write_text("sandbox_read_ok", encoding="utf-8")
+    def test_read_from_project_root_succeeds(self, tmp_path: Path):
+        _ = (tmp_path / "data.txt").write_text("sandbox_read_ok", encoding="utf-8")
         runner = SandboxRunner(project_root=str(tmp_path), enabled=True, network="none")
         result = runner.execute("cat data.txt")
         assert result.success

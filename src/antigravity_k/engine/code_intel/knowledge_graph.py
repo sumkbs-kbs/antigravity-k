@@ -1,7 +1,10 @@
 """Knowledge Graph module."""
 
+from collections.abc import Mapping
 from enum import Enum
-from typing import Any
+from typing import TypeAlias, TypedDict
+
+from pydantic import JsonValue
 
 
 class NodeType(str, Enum):
@@ -17,15 +20,31 @@ class NodeType(str, Enum):
     MODULE = "Module"
 
 
+NodePropertyValue: TypeAlias = JsonValue | NodeType
+NodeProperties: TypeAlias = dict[str, NodePropertyValue]
+
+
+class EdgeRecord(TypedDict):
+    source: str
+    target: str
+    relationship: str
+
+
+class KnowledgeGraphStats(TypedDict):
+    total_nodes: int
+    total_edges: int
+    node_types: dict[NodeType, int]
+
+
 class KnowledgeGraph:
     """Code-structure graph (modules, functions, call edges) for impact analysis."""
 
     def __init__(self):
         """Initialize the KnowledgeGraph."""
-        self.nodes = {}
-        self.edges = []
+        self.nodes: dict[str, NodeProperties] = {}
+        self.edges: list[EdgeRecord] = []
 
-    def add_node(self, node_id: str, node_type: NodeType, properties: dict[str, Any]):
+    def add_node(self, node_id: str, node_type: NodeType, properties: Mapping[str, JsonValue]) -> None:
         """Add node.
 
         Args:
@@ -34,11 +53,12 @@ class KnowledgeGraph:
             properties (dict[str, Any]): dict[str, Any] properties.
 
         """
-        properties["id"] = node_id
-        properties["node_type"] = node_type
-        self.nodes[node_id] = properties
+        node: NodeProperties = dict(properties)
+        node["id"] = node_id
+        node["node_type"] = node_type
+        self.nodes[node_id] = node
 
-    def add_edge(self, source_id: str, target_id: str, relationship: str):
+    def add_edge(self, source_id: str, target_id: str, relationship: str) -> None:
         """Add edge.
 
         Args:
@@ -49,7 +69,7 @@ class KnowledgeGraph:
         """
         self.edges.append({"source": source_id, "target": target_id, "relationship": relationship})
 
-    def get_nodes_by_type(self, node_type: NodeType) -> list[dict[str, Any]]:
+    def get_nodes_by_type(self, node_type: NodeType) -> list[NodeProperties]:
         """Retrieve nodes by type.
 
         Args:
@@ -61,7 +81,7 @@ class KnowledgeGraph:
         """
         return [n for n in self.nodes.values() if n["node_type"] == node_type]
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self) -> KnowledgeGraphStats:
         """Stats.
 
         Returns:
@@ -70,8 +90,9 @@ class KnowledgeGraph:
         """
         node_types: dict[NodeType, int] = {}
         for node in self.nodes.values():
-            nt = node["node_type"]
-            node_types[nt] = node_types.get(nt, 0) + 1
+            node_type_value = node["node_type"]
+            if isinstance(node_type_value, NodeType):
+                node_types[node_type_value] = node_types.get(node_type_value, 0) + 1
 
         return {
             "total_nodes": len(self.nodes),

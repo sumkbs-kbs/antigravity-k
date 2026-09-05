@@ -1,0 +1,107 @@
+# Weekly Dependency Drift Guard
+# ==============================
+# Phase 54 — 생성된 학습 명령/스크립트가 **최신** mlx-lm/unsloth/trl에서 아직 유효한지
+# 매주 검사한다. PR CI(test_mlx_command_flags / test_unsloth_script_api_drift)는 잠긴
+# uv.lock 버전만 보므로, 업스트림 rename은 로컬 업그레이드 전에 잡을 수 없다.
+# 이 job은 lock을 무시하고 최신 릴리스를 설치해 드리프트를 먼저 발견한다.
+#
+# 실행: 매주 월요일 04:00 UTC (수동 실행 가능: workflow_dispatch)
+# 실패 시: 워크플로 실패로 표시 — 스크립트 템플릿 갱신(lora_pipeline) 후 재실행
+#
+# 참고:
+#  - mlx-lm 드리프트 체크는 macOS(mps)/리눅스 모두 가능
+#  - unsloth는 CUDA 전용(linux)이며 <3.15 요구 — drift 검사는 실제 GPU 없이
+#    import/signature만 확인하므로 linux CPU 러너로 충분하다
+#  - 최신 버전 설치는 uv.lock을 무시해야 하므로 `uv pip install -U`로 오버레이 설치 후
+#    --no-sync pytest로 실행한다 (uv sync가 lock으로 되돌리는 것을 방지)
+
+name: weekly-drift
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # 월요일 04:00 UTC — 주간 릴리스 사이클 뒤
+  workflow_dispatch: {} # 수동 실행 (drift 의심 시 즉시 검사)
+
+concurrency:
+  group: weekly-drift
+  cancel-in-progress: false
+
+jobs:
+  mlx-lm-drift:
+    name: mlx-lm latest — generated flags drift
+    runs-on: macos-latest
+    timeout-minutes: 20
+    # Phase 57: 드리프트 체크의 `python -m mlx_lm.lora --help` 서브프로세스가
+    # pytest와 동일한 .venv 인터프리터를 쓰게 고정 (tests/_cli_subprocess.py 1순위).
+    # 최신 mlx-lm 오버레이 설치가 .venv에 들어가므로, 고정 없이는 헬프 출력을
+    # 다른 환경에서 받아와 드리프트 오판이 생길 수 있다.
+    env:
+      AGK_TEST_PYTHON: ${{ github.workspace }}/.venv/bin/python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked environment
+        run: uv sync --locked --extra dev --extra mlx
+
+      - name: Upgrade mlx-lm to latest release
+        run: uv pip install -U "mlx-lm" --no-deps || uv pip install -U "mlx-lm"
+
+      - name: Report installed versions
+        run: uv run --no-sync python -c "import mlx_lm, mlx; print('mlx-lm', mlx_lm.__version__); print('mlx', mlx.__version__)"
+
+      - name: Drift check — generated mlx commands vs latest mlx-lm
+        run: uv run --no-sync pytest tests/test_mlx_command_flags.py -v --tb=short
+
+  unsloth-drift:
+    name: unsloth/trl latest — generated script API drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked environment (base only — unsloth brings its own trl/datasets)
+        run: uv sync --locked --extra dev
+
+      - name: Install latest unsloth + trl (unlock — drift guard needs newest APIs)
+        run: |
+          uv pip install -U "unsloth" "trl"
+          uv pip install -U "datasets<4.4.0" || true # unsloth 2026.9.x 호환 범위 유지
+
+      - name: Report installed versions
+        run: |
+          uv run --no-sync python -c "import unsloth; print('unsloth', unsloth.__version__)"
+          uv run --no-sync python -c "import trl; print('trl', trl.__version__)"
+          uv run --no-sync python -c "import transformers; print('transformers', transformers.__version__)"
+
+      - name: Drift check — generated unsloth scripts vs latest APIs
+        run: uv run --no-sync pytest tests/test_unsloth_script_api_drift.py -v --tb=short
+
+      - name: Drift summary (visible even on success)
+        if: always()
+        run: |
+          echo "## Weekly drift report" >> "$GITHUB_STEP_SUMMARY"
+          echo "- mlx-lm: 최신 릴리스 대비 생성 명령 플래그 검증" >> "$GITHUB_STEP_SUMMARY"
+          echo "- unsloth/trl: 최신 릴리스 대비 생성 스크립트 API 검증" >> "$GITHUB_STEP_SUMMARY"
+          echo "실패 시: lora_pipeline의 스크립트/명령 템플릿을 새 API로 갱신하고 재실행." >> "$GITHUB_STEP_SUMMARY"

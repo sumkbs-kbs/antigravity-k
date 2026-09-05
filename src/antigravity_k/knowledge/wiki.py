@@ -1,4 +1,4 @@
-"""Antigravity-K: LLM Wiki — 세컨드 브레인 (Second Brain).
+"""Ssak-Ai: LLM Wiki — 세컨드 브레인 (Second Brain).
 
 ======================================================
 로컬 LLM의 지식을 확장하는 영속적 지식 관리 시스템.
@@ -31,19 +31,20 @@
 
 import json
 import logging
+import os
 import re
 import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import cast, final
 
 logger = logging.getLogger("llm_wiki")
 
 from antigravity_k.config import config
 
 # ─── 데이터 디렉토리 ──────────────────────────────────────────────
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data"
+DATA_DIR = config.paths.data_dir
 WIKI_DB_PATH = DATA_DIR / "wiki.db"
 WIKI_DIR = config.paths.wiki_dir
 
@@ -67,14 +68,14 @@ class WikiEntry:
     access_count: int = 0
     relevance_score: float = 0.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        d = asdict(self)
+        d = cast(dict[str, object], asdict(self))
         d["tags"] = json.dumps(self.tags, ensure_ascii=False)
         return d
 
@@ -91,6 +92,7 @@ class SearchHit:
 # ─── LLM Wiki 코어 ───────────────────────────────────────────────
 
 
+@final
 class LLMWiki:
     """세컨드 브레인 — 로컬 LLM을 위한 영속적 지식 관리.
 
@@ -110,15 +112,28 @@ class LLMWiki:
             db_path (Path | None): Path | None db path.
 
         """
-        self.db_path = db_path or WIKI_DB_PATH
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        WIKI_DIR.mkdir(parents=True, exist_ok=True)
+        p = db_path or WIKI_DB_PATH
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            test_file = p.parent / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            self.db_path = p
+        except OSError:
+            fallback_dir = Path.home() / ".antigravity-k" / "data"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.db_path = fallback_dir / p.name
+
+        try:
+            WIKI_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         self._init_db()
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """DB 스키마 초기화."""
         conn = self._connect()
-        conn.executescript(
+        _ = conn.executescript(
             """
             -- 메인 위키 테이블
 
@@ -189,8 +204,8 @@ class LLMWiki:
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
+        _ = conn.execute("PRAGMA journal_mode=WAL")
+        _ = conn.execute("PRAGMA foreign_keys=ON")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -240,14 +255,14 @@ class LLMWiki:
         logger.info("위키 항목 추가: [%s] %s", entry_id, title)
         return entry_id
 
-    def update_entry(self, entry_id: int, **kwargs) -> bool:
+    def update_entry(self, entry_id: int, **kwargs: object) -> bool:
         """기존 항목을 업데이트합니다.
 
         사용법:
             wiki.update_entry(1, content="새로운 내용", tags=["python", "async"])
         """
         allowed = {"title", "content", "category", "tags", "source_url"}
-        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        updates: dict[str, object] = {k: v for k, v in kwargs.items() if k in allowed}
 
         if not updates:
             return False
@@ -258,10 +273,10 @@ class LLMWiki:
         updates["updated_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat()
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
-        values = list(updates.values()) + [entry_id]
+        values: list[object] = list(updates.values()) + [entry_id]
 
         conn = self._connect()
-        conn.execute(
+        _ = conn.execute(
             f"UPDATE wiki_entries SET {set_clause} WHERE id = ?",
             values,
         )
@@ -287,7 +302,10 @@ class LLMWiki:
     def get_entry(self, entry_id: int) -> WikiEntry | None:
         """ID로 항목을 조회합니다."""
         conn = self._connect()
-        row = conn.execute("SELECT * FROM wiki_entries WHERE id = ?", (entry_id,)).fetchone()
+        row = cast(
+            sqlite3.Row | None,
+            conn.execute("SELECT * FROM wiki_entries WHERE id = ?", (entry_id,)).fetchone(),
+        )
         conn.close()
 
         if not row:
@@ -322,8 +340,10 @@ class LLMWiki:
         fts_query = self._prepare_fts_query(query)
 
         if category:
-            rows = conn.execute(
-                """SELECT e.*, bm25(wiki_fts) as score
+            rows = cast(
+                list[sqlite3.Row],
+                conn.execute(
+                    """SELECT e.*, bm25(wiki_fts) as score
 
                    FROM wiki_fts f
                    JOIN wiki_entries e ON f.rowid = e.id
@@ -331,27 +351,31 @@ class LLMWiki:
                      AND e.category = ?
                    ORDER BY score
                    LIMIT ?""",
-                (fts_query, category, limit),
-            ).fetchall()
+                    (fts_query, category, limit),
+                ).fetchall(),
+            )
         else:
-            rows = conn.execute(
-                """SELECT e.*, bm25(wiki_fts) as score
+            rows = cast(
+                list[sqlite3.Row],
+                conn.execute(
+                    """SELECT e.*, bm25(wiki_fts) as score
 
                    FROM wiki_fts f
                    JOIN wiki_entries e ON f.rowid = e.id
                    WHERE wiki_fts MATCH ?
                    ORDER BY score
                    LIMIT ?""",
-                (fts_query, limit),
-            ).fetchall()
+                    (fts_query, limit),
+                ).fetchall(),
+            )
 
-        results = []
+        results: list[SearchHit] = []
         for row in rows:
             entry = self._row_to_entry(row)
             results.append(
                 SearchHit(
                     entry=entry,
-                    score=abs(row["score"]),
+                    score=abs(cast(float, row["score"])),
                     matched_field="fts",
                 ),
             )
@@ -441,9 +465,9 @@ class LLMWiki:
                 if existing and existing[0].entry.title == title:
                     existing_id = existing[0].entry.id
                     if existing_id is not None:
-                        self.update_entry(existing_id, content=content, tags=tags)
+                        _ = self.update_entry(existing_id, content=content, tags=tags)
                 else:
-                    self.add_entry(
+                    _ = self.add_entry(
                         title=title,
                         content=content,
                         category=category,
@@ -464,7 +488,7 @@ class LLMWiki:
     def save_web_search(
         self,
         query: str,
-        results: list[dict[str, Any]],
+        results: list[dict[str, object]],
         auto_tag: bool = True,
     ) -> int:
         """웹 검색 결과를 위키에 저장합니다.
@@ -502,40 +526,53 @@ class LLMWiki:
 
     # ─── 통계 ────────────────────────────────────────────────────
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> dict[str, object]:
         """위키 통계를 반환합니다."""
         conn = self._connect()
 
-        total = conn.execute("SELECT COUNT(*) FROM wiki_entries").fetchone()[0]
+        total_row = cast(sqlite3.Row | None, conn.execute("SELECT COUNT(*) FROM wiki_entries").fetchone())
+        total = cast(int, total_row[0]) if total_row is not None else 0
 
-        by_category = {}
-        for row in conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM wiki_entries GROUP BY category",
+        by_category: dict[str, int] = {}
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT category, COUNT(*) as cnt FROM wiki_entries GROUP BY category",
+            ).fetchall(),
         ):
-            by_category[row["category"]] = row["cnt"]
+            by_category[cast(str, row["category"])] = cast(int, row["cnt"])
 
-        by_source = {}
-        for row in conn.execute("SELECT source, COUNT(*) as cnt FROM wiki_entries GROUP BY source"):
-            by_source[row["source"]] = row["cnt"]
+        by_source: dict[str, int] = {}
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute("SELECT source, COUNT(*) as cnt FROM wiki_entries GROUP BY source").fetchall(),
+        ):
+            by_source[cast(str, row["source"])] = cast(int, row["cnt"])
 
-        recent = []
-        for row in conn.execute(
-            "SELECT id, title, updated_at FROM wiki_entries ORDER BY updated_at DESC LIMIT 5",
+        recent: list[dict[str, object]] = []
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT id, title, updated_at FROM wiki_entries ORDER BY updated_at DESC LIMIT 5",
+            ).fetchall(),
         ):
             recent.append(
                 {
-                    "id": row["id"],
-                    "title": row["title"],
-                    "updated_at": row["updated_at"],
+                    "id": cast(int, row["id"]),
+                    "title": cast(str, row["title"]),
+                    "updated_at": cast(str, row["updated_at"]),
                 },
             )
 
-        most_accessed = []
-        for row in conn.execute(
-            "SELECT id, title, access_count FROM wiki_entries ORDER BY access_count DESC LIMIT 5",
+        most_accessed: list[dict[str, object]] = []
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT id, title, access_count FROM wiki_entries ORDER BY access_count DESC LIMIT 5",
+            ).fetchall(),
         ):
             most_accessed.append(
-                {"id": row["id"], "title": row["title"], "count": row["access_count"]},
+                {"id": cast(int, row["id"]), "title": cast(str, row["title"]), "count": cast(int, row["access_count"])},
             )
 
         conn.close()
@@ -550,21 +587,27 @@ class LLMWiki:
 
     def clear_all(self) -> int:
         conn = self._connect()
-        entries = conn.execute("SELECT category, title FROM wiki_entries").fetchall()
-        conn.execute("DELETE FROM wiki_access_log")
-        conn.execute("DELETE FROM wiki_links")
-        conn.execute("DELETE FROM wiki_entries")
+        entries = cast(list[sqlite3.Row], conn.execute("SELECT category, title FROM wiki_entries").fetchall())
+        _ = conn.execute("DELETE FROM wiki_access_log")
+        _ = conn.execute("DELETE FROM wiki_links")
+        _ = conn.execute("DELETE FROM wiki_entries")
         conn.commit()
         conn.close()
 
         for entry in entries:
-            safe_title = re.sub(r'[<>:"/\\|?*]', "_", entry["title"])[:80]
-            (WIKI_DIR / entry["category"] / f"{safe_title}.md").unlink(missing_ok=True)
+            safe_title = re.sub(r'[<>:"/\\|?*]', "_", cast(str, entry["title"]))[:80]
+            category = cast(str, entry["category"])
+            (WIKI_DIR / category / f"{safe_title}.md").unlink(missing_ok=True)
         return len(entries)
 
-    def export_all(self) -> list[dict[str, Any]]:
+    def export_all(self) -> list[dict[str, object]]:
         conn = self._connect()
-        rows = [dict(row) for row in conn.execute("SELECT * FROM wiki_entries ORDER BY created_at").fetchall()]
+        rows = [
+            dict(row)
+            for row in cast(
+                list[sqlite3.Row], conn.execute("SELECT * FROM wiki_entries ORDER BY created_at").fetchall()
+            )
+        ]
         conn.close()
         return rows
 
@@ -572,18 +615,18 @@ class LLMWiki:
         from antigravity_k.engine.secret_scanner import redact_full
 
         conn = self._connect()
-        rows = conn.execute("SELECT * FROM wiki_entries").fetchall()
+        rows = cast(list[sqlite3.Row], conn.execute("SELECT * FROM wiki_entries").fetchall())
         changed = 0
         for row in rows:
-            old_title = row["title"]
+            old_title = cast(str, row["title"])
             values = {
-                "title": redact_full(row["title"]),
-                "content": redact_full(row["content"]),
-                "tags": redact_full(row["tags"] or ""),
-                "source_url": redact_full(row["source_url"] or ""),
+                "title": redact_full(cast(str, row["title"])),
+                "content": redact_full(cast(str, row["content"])),
+                "tags": redact_full(cast(str, row["tags"] or "")),
+                "source_url": redact_full(cast(str, row["source_url"] or "")),
             }
-            if any(values[key] != (row[key] or "") for key in values):
-                conn.execute(
+            if any(values[key] != (cast(str, row[key]) or "") for key in values):
+                _ = conn.execute(
                     "UPDATE wiki_entries SET title = ?, content = ?, tags = ?, source_url = ?, updated_at = ? WHERE id = ?",
                     (
                         values["title"],
@@ -591,16 +634,18 @@ class LLMWiki:
                         values["tags"],
                         values["source_url"],
                         datetime.now(UTC).replace(tzinfo=None).isoformat(),
-                        row["id"],
+                        cast(int, row["id"]),
                     ),
                 )
                 try:
-                    tags = json.loads(values["tags"] or "[]")
+                    parsed_tags = cast(object, json.loads(values["tags"] or "[]"))
+                    tags = [str(tag) for tag in cast(list[object], parsed_tags)]
                 except json.JSONDecodeError:
                     tags = []
-                self._save_markdown(row["id"], values["title"], values["content"], row["category"], tags)
-                old_file = WIKI_DIR / row["category"] / f"{re.sub(r'[<>:\"/\\|?*]', '_', old_title)[:80]}.md"
-                new_file = WIKI_DIR / row["category"] / f"{re.sub(r'[<>:\"/\\|?*]', '_', values['title'])[:80]}.md"
+                category = cast(str, row["category"])
+                self._save_markdown(cast(int, row["id"]), values["title"], values["content"], category, tags)
+                old_file = WIKI_DIR / category / f"{re.sub(r'[<>:\"/\\|?*]', '_', old_title)[:80]}.md"
+                new_file = WIKI_DIR / category / f"{re.sub(r'[<>:\"/\\|?*]', '_', values['title'])[:80]}.md"
                 if old_file != new_file:
                     old_file.unlink(missing_ok=True)
                 changed += 1
@@ -615,33 +660,39 @@ class LLMWiki:
 
         cutoff = (datetime.now(UTC).replace(tzinfo=None) - timedelta(days=max_age_days)).isoformat()
         conn = self._connect()
-        rows = conn.execute(
-            "SELECT id, category, title FROM wiki_entries WHERE created_at < ?",
-            (cutoff,),
-        ).fetchall()
-        conn.execute("DELETE FROM wiki_entries WHERE created_at < ?", (cutoff,))
+        rows = cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT id, category, title FROM wiki_entries WHERE created_at < ?",
+                (cutoff,),
+            ).fetchall(),
+        )
+        _ = conn.execute("DELETE FROM wiki_entries WHERE created_at < ?", (cutoff,))
         conn.commit()
         conn.close()
         for row in rows:
-            safe_title = re.sub(r'[<>:"/\\|?*]', "_", row["title"])[:80]
-            (WIKI_DIR / row["category"] / f"{safe_title}.md").unlink(missing_ok=True)
+            safe_title = re.sub(r'[<>:"/\\|?*]', "_", cast(str, row["title"]))[:80]
+            category = cast(str, row["category"])
+            (WIKI_DIR / category / f"{safe_title}.md").unlink(missing_ok=True)
         return len(rows)
 
     # ─── 내부 유틸 ───────────────────────────────────────────────
 
-    def _row_to_entry(self, row) -> WikiEntry:
-        tags = json.loads(row["tags"]) if row["tags"] else []
+    def _row_to_entry(self, row: sqlite3.Row) -> WikiEntry:
+        raw_tags = cast(str, row["tags"] or "[]")
+        parsed_tags = cast(object, json.loads(raw_tags))
+        tags = [str(tag) for tag in cast(list[object], parsed_tags)]
         return WikiEntry(
-            id=row["id"],
-            title=row["title"],
-            content=row["content"],
-            category=row["category"],
+            id=cast(int, row["id"]),
+            title=cast(str, row["title"]),
+            content=cast(str, row["content"]),
+            category=cast(str, row["category"]),
             tags=tags,
-            source=row["source"],
-            source_url=row["source_url"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-            access_count=row["access_count"],
+            source=cast(str, row["source"]),
+            source_url=cast(str, row["source_url"]),
+            created_at=cast(str, row["created_at"]),
+            updated_at=cast(str, row["updated_at"]),
+            access_count=cast(int, row["access_count"]),
         )
 
     def _prepare_fts_query(self, query: str) -> str:
@@ -652,13 +703,13 @@ class LLMWiki:
             return query
         return " OR ".join(words)
 
-    def _log_access(self, conn: sqlite3.Connection, entry_id: int, query: str):
+    def _log_access(self, conn: sqlite3.Connection, entry_id: int, query: str) -> None:
         """접근 이력 기록."""
-        conn.execute(
+        _ = conn.execute(
             "UPDATE wiki_entries SET access_count = access_count + 1 WHERE id = ?",
             (entry_id,),
         )
-        conn.execute(
+        _ = conn.execute(
             "INSERT INTO wiki_access_log (entry_id, query, accessed_at) VALUES (?, ?, ?)",
             (entry_id, query, datetime.now(UTC).replace(tzinfo=None).isoformat()),
         )
@@ -670,7 +721,7 @@ class LLMWiki:
         content: str,
         category: str,
         tags: list[str],
-    ):
+    ) -> None:
         """위키 항목을 Markdown 파일로도 저장 (Obsidian 호환)."""
         safe_title = re.sub(r'[<>:"/\\|?*]', "_", title)[:80]
         md_file = WIKI_DIR / category / f"{safe_title}.md"
@@ -684,7 +735,7 @@ class LLMWiki:
             f"created: {datetime.now(UTC).replace(tzinfo=None).isoformat()}\n"
             f"---\n\n"
         )
-        md_file.write_text(frontmatter + content, encoding="utf-8")
+        _ = md_file.write_text(frontmatter + content, encoding="utf-8")
 
 
 # ─── CLI 테스트 ──────────────────────────────────────────────────
@@ -693,7 +744,7 @@ if __name__ == "__main__":
     wiki = LLMWiki()
 
     # 테스트 항목 추가
-    wiki.add_entry(
+    _ = wiki.add_entry(
         "FastAPI 비동기 패턴",
         "FastAPI는 Starlette 기반의 ASGI 프레임워크로...",
         category="code",

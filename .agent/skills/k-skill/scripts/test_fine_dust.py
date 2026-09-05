@@ -1,27 +1,61 @@
+import importlib
 import io
 import json
 import pathlib
 import unittest
+from collections.abc import MutableMapping
 from contextlib import redirect_stdout
+from typing import Protocol, TypedDict, cast
 from unittest import mock
 
-import fine_dust
+JsonObject = dict[str, object]
+
+
+class ReportArgs(TypedDict):
+    command: str
+    lat: float | None
+    lon: float | None
+    region_hint: str | None
+    station_name: str | None
+    station_file: str | None
+    measurement_file: str | None
+    json: bool
+
+
+class _OsLike(Protocol):
+    environ: MutableMapping[str, str]
+
+
+class _FineDustModule(Protocol):
+    os: _OsLike
+
+    def wgs84_to_air_korea_tm(self, lat: float, lon: float) -> tuple[float, float]: ...
+    def extract_items(self, payload: JsonObject) -> list[JsonObject]: ...
+    def pick_station(self, station_items: list[JsonObject], **kwargs: object) -> JsonObject: ...
+    def build_report(self, **kwargs: object) -> JsonObject: ...
+    def parse_args(self, argv: list[str]) -> ReportArgs: ...
+    def fetch_station_payload(self, args: ReportArgs) -> JsonObject: ...
+    def main(self, argv: list[str]) -> int: ...
+
+
+fine_dust = cast(_FineDustModule, cast(object, importlib.import_module("fine_dust")))
 
 FIXTURES = pathlib.Path(__file__).with_name("fixtures")
 
 
-def load_fixture(name):
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+def load_fixture(name: str) -> JsonObject:
+    payload = cast(object, json.loads((FIXTURES / name).read_text(encoding="utf-8")))
+    return cast(JsonObject, payload)
 
 
 class FineDustTests(unittest.TestCase):
-    def test_wgs84_coordinates_are_converted_to_air_korea_tm(self):
+    def test_wgs84_coordinates_are_converted_to_air_korea_tm(self) -> None:
         tm_x, tm_y = fine_dust.wgs84_to_air_korea_tm(37.5665, 126.9780)
 
         self.assertAlmostEqual(tm_x, 198245.053, places=3)
         self.assertAlmostEqual(tm_y, 451586.838, places=3)
 
-    def test_pick_station_prefers_nearest_station_for_coordinates(self):
+    def test_pick_station_prefers_nearest_station_for_coordinates(self) -> None:
         stations = load_fixture("fine-dust-stations.json")
 
         station = fine_dust.pick_station(
@@ -32,7 +66,7 @@ class FineDustTests(unittest.TestCase):
 
         self.assertEqual(station["stationName"], "중구")
 
-    def test_pick_station_prefers_specific_region_token_over_generic_city_token(self):
+    def test_pick_station_prefers_specific_region_token_over_generic_city_token(self) -> None:
         stations = load_fixture("fine-dust-stations.json")
 
         station = fine_dust.pick_station(
@@ -42,7 +76,7 @@ class FineDustTests(unittest.TestCase):
 
         self.assertEqual(station["stationName"], "강남구")
 
-    def test_pick_station_falls_back_to_region_hint_without_coordinates(self):
+    def test_pick_station_falls_back_to_region_hint_without_coordinates(self) -> None:
         stations = load_fixture("fine-dust-stations.json")
 
         station = fine_dust.pick_station(
@@ -52,7 +86,7 @@ class FineDustTests(unittest.TestCase):
 
         self.assertEqual(station["stationName"], "강남구")
 
-    def test_build_report_combines_station_and_measurement_summary(self):
+    def test_build_report_combines_station_and_measurement_summary(self) -> None:
         stations = load_fixture("fine-dust-stations.json")
         measurements = load_fixture("fine-dust-measurements.json")
 
@@ -68,7 +102,7 @@ class FineDustTests(unittest.TestCase):
         self.assertEqual(report["pm25"], {"value": "19", "grade": "보통"})
         self.assertEqual(report["measured_at"], "2026-03-27 21:00")
 
-    def test_build_report_marks_khai_grade_unknown_when_api_omits_it(self):
+    def test_build_report_marks_khai_grade_unknown_when_api_omits_it(self) -> None:
         report = fine_dust.build_report(
             station_items=[{"stationName": "중구", "addr": "서울 중구 서소문로 124"}],
             measurement_items=[
@@ -87,13 +121,13 @@ class FineDustTests(unittest.TestCase):
 
         self.assertEqual(report["khai_grade"], "정보없음")
 
-    def test_cli_report_supports_fixture_inputs(self):
+    def test_cli_report_supports_fixture_inputs(self) -> None:
         station_path = FIXTURES / "fine-dust-stations.json"
         measurement_path = FIXTURES / "fine-dust-measurements.json"
         stdout = io.StringIO()
 
         with redirect_stdout(stdout):
-            fine_dust.main(
+            _ = fine_dust.main(
                 [
                     "report",
                     "--station-file",
@@ -112,11 +146,11 @@ class FineDustTests(unittest.TestCase):
         self.assertIn("PM10: 42 (보통)", rendered)
         self.assertIn("PM2.5: 19 (보통)", rendered)
 
-    def test_live_station_lookup_converts_lat_lon_before_nearby_request(self):
+    def test_live_station_lookup_converts_lat_lon_before_nearby_request(self) -> None:
         args = fine_dust.parse_args(["report", "--lat", "37.5665", "--lon", "126.9780"])
-        recorded_calls = []
+        recorded_calls: list[tuple[str, dict[str, object]]] = []
 
-        def fake_fetch_json(url, params):
+        def fake_fetch_json(url: str, params: dict[str, object]) -> JsonObject:
             recorded_calls.append((url, params))
             return {"response": {"body": {"items": [{"stationName": "중구", "addr": "서울 중구 서소문로 124"}]}}}
 
@@ -132,14 +166,14 @@ class FineDustTests(unittest.TestCase):
 
         request_url, request_params = recorded_calls[0]
         self.assertTrue(request_url.endswith("/getNearbyMsrstnList"))
-        self.assertAlmostEqual(request_params["tmX"], 198245.053, places=3)
-        self.assertAlmostEqual(request_params["tmY"], 451586.838, places=3)
+        self.assertAlmostEqual(cast(float, request_params["tmX"]), 198245.053, places=3)
+        self.assertAlmostEqual(cast(float, request_params["tmY"]), 451586.838, places=3)
         self.assertNotIn("dmX", request_params)
         self.assertNotIn("dmY", request_params)
 
     def test_live_station_lookup_falls_back_to_region_search_after_empty_nearby_result(
         self,
-    ):
+    ) -> None:
         args = fine_dust.parse_args(
             [
                 "report",
@@ -151,9 +185,9 @@ class FineDustTests(unittest.TestCase):
                 "서울 강남구",
             ]
         )
-        recorded_calls = []
+        recorded_calls: list[tuple[str, dict[str, object]]] = []
 
-        def fake_fetch_json(url, params):
+        def fake_fetch_json(url: str, params: dict[str, object]) -> JsonObject:
             recorded_calls.append((url, params))
             if url.endswith("/getNearbyMsrstnList"):
                 return {"response": {"body": {"items": []}}}
@@ -187,10 +221,10 @@ class FineDustTests(unittest.TestCase):
         fallback_params = recorded_calls[1][1]
         self.assertEqual(fallback_params["addr"], "서울 강남구")
 
-    def test_cli_json_report_marks_region_fallback_when_nearby_lookup_is_empty(self):
+    def test_cli_json_report_marks_region_fallback_when_nearby_lookup_is_empty(self) -> None:
         stdout = io.StringIO()
 
-        def fake_fetch_json(url, params):
+        def fake_fetch_json(url: str, _params: dict[str, object]) -> JsonObject:
             if url.endswith("/getNearbyMsrstnList"):
                 return {"response": {"body": {"items": []}}}
             if url.endswith("/getMsrstnList"):
@@ -232,7 +266,7 @@ class FineDustTests(unittest.TestCase):
             mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
-            fine_dust.main(
+            _ = fine_dust.main(
                 [
                     "report",
                     "--lat",
@@ -245,17 +279,17 @@ class FineDustTests(unittest.TestCase):
                 ]
             )
 
-        rendered = json.loads(stdout.getvalue())
+        rendered = cast(JsonObject, json.loads(stdout.getvalue()))
         self.assertEqual(rendered["station_name"], "강남구")
         self.assertEqual(rendered["lookup_mode"], "fallback")
 
     def test_cli_json_report_uses_station_name_directly_when_station_lookup_is_empty(
         self,
-    ):
+    ) -> None:
         stdout = io.StringIO()
-        recorded_calls = []
+        recorded_calls: list[tuple[str, dict[str, object]]] = []
 
-        def fake_fetch_json(url, params):
+        def fake_fetch_json(url: str, params: dict[str, object]) -> JsonObject:
             recorded_calls.append((url, params))
             if url.endswith("/getMsrstnList"):
                 return {"response": {"body": {"items": []}}}
@@ -285,9 +319,9 @@ class FineDustTests(unittest.TestCase):
             mock.patch.object(fine_dust, "get_required_secret", return_value="test-secret"),
             mock.patch.object(fine_dust, "fetch_json", side_effect=fake_fetch_json),
         ):
-            fine_dust.main(["report", "--station-name", "중구", "--json"])
+            _ = fine_dust.main(["report", "--station-name", "중구", "--json"])
 
-        rendered = json.loads(stdout.getvalue())
+        rendered = cast(JsonObject, json.loads(stdout.getvalue()))
         self.assertEqual(rendered["station_name"], "중구")
         self.assertIsNone(rendered["station_address"])
         self.assertEqual(rendered["lookup_mode"], "fallback")
@@ -297,7 +331,7 @@ class FineDustTests(unittest.TestCase):
         )
         self.assertEqual(recorded_calls[1][1]["stationName"], "중구")
 
-    def test_cli_json_report_prefers_proxy_when_proxy_base_url_is_configured(self):
+    def test_cli_json_report_prefers_proxy_when_proxy_base_url_is_configured(self) -> None:
         stdout = io.StringIO()
         proxy_report = {
             "station_name": "강남구",
@@ -323,12 +357,13 @@ class FineDustTests(unittest.TestCase):
                 side_effect=AssertionError("direct lookup should not run"),
             ),
         ):
-            fine_dust.main(["report", "--region-hint", "서울 강남구", "--json"])
+            _ = fine_dust.main(["report", "--region-hint", "서울 강남구", "--json"])
 
-        rendered = json.loads(stdout.getvalue())
+        rendered = cast(JsonObject, json.loads(stdout.getvalue()))
         self.assertEqual(rendered["station_name"], "강남구")
-        self.assertEqual(rendered["proxy"]["name"], "k-skill-proxy")
+        proxy = cast(JsonObject, rendered["proxy"])
+        self.assertEqual(proxy["name"], "k-skill-proxy")
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

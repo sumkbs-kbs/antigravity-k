@@ -9,7 +9,7 @@ from antigravity_k.engine.fast_path_kernel import FastPathKernel
 def test_fast_path_symbol_lookup():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "model.py").write_text("class RocketEngine:\n    def ignite(self): pass\n", encoding="utf-8")
+        _ = (root / "model.py").write_text("class RocketEngine:\n    def ignite(self): pass\n", encoding="utf-8")
 
         kernel = FastPathKernel(root)
         res = kernel.try_execute("where is RocketEngine")
@@ -23,7 +23,7 @@ def test_fast_path_symbol_lookup():
 def test_fast_path_direct_file_view():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "specs.md").write_text("# Starship Specs\nPayload: 150t\n", encoding="utf-8")
+        _ = (root / "specs.md").write_text("# Starship Specs\nPayload: 150t\n", encoding="utf-8")
 
         kernel = FastPathKernel(root)
         res = kernel.try_execute("view specs.md")

@@ -2,9 +2,40 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from statistics import fmean, pstdev
+from typing import TYPE_CHECKING, Protocol, TypedDict, cast
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.benchmark_harness import BenchmarkReport, BenchmarkResult
+    from antigravity_k.tools.claim_grounding_benchmark import ClaimGroundingCase, ClaimGroundingResult
+    from antigravity_k.tools.search_quality_evaluator import CitationSource
+
+
+class _ModelManagerLike(Protocol):
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+class _SearchRecord(TypedDict):
+    case: ClaimGroundingCase
+    sources: tuple[CitationSource, ...]
+    search: dict[str, object]
+
+
+class _BenchmarkArguments(Protocol):
+    model: str
+    suite: str
+    output: Path
+    grounding_fixture: Path
+    grounding_responses: Path | None
+    grounding_live: bool
+    grounding_live_search: bool
+    grounding_live_search_refresh: bool
+    grounding_repeats: int
+    repeats: int
+
 
 _GROUNDING_RESPONSE_SCHEMA = {
     "type": "object",
@@ -13,11 +44,12 @@ _GROUNDING_RESPONSE_SCHEMA = {
 }
 
 
-def _build_grounding_prompt(case) -> str:
-    question = case.question.strip() or "Restate only the factual claim supported by the evidence."
-    citation_ids = ", ".join(f"[citation:{source.source_id}]" for source in case.sources)
-    evidence = []
-    for source in case.sources:
+def _build_grounding_prompt(case: object) -> str:
+    typed_case = cast("ClaimGroundingCase", case)
+    question = typed_case.question.strip() or "Restate only the factual claim supported by the evidence."
+    citation_ids = ", ".join(f"[citation:{source.source_id}]" for source in typed_case.sources)
+    evidence: list[str] = []
+    for source in typed_case.sources:
         evidence.append(
             "\n".join(
                 (
@@ -39,15 +71,19 @@ def _build_grounding_prompt(case) -> str:
 
 def _extract_grounding_answer(raw: str) -> str:
     try:
-        payload = json.loads(raw)
+        payload = cast(object, json.loads(raw))
     except json.JSONDecodeError:
         return raw
-    answer = payload.get("answer") if isinstance(payload, dict) else None
+    answer = cast(dict[str, object], payload).get("answer") if isinstance(payload, dict) else None
     return answer if isinstance(answer, str) else raw
 
 
-def _generate_grounding_responses(manager, model: str, cases) -> dict[str, str]:
-    responses = {}
+def _generate_grounding_responses(
+    manager: _ModelManagerLike,
+    model: str,
+    cases: Sequence[ClaimGroundingCase],
+) -> dict[str, str]:
+    responses: dict[str, str] = {}
     for case in cases:
         raw_response = manager.generate(
             _build_grounding_prompt(case),
@@ -63,7 +99,10 @@ def _generate_grounding_responses(manager, model: str, cases) -> dict[str, str]:
     return responses
 
 
-def _collect_live_search_contexts(cases, force_refresh: bool = False):
+def _collect_live_search_contexts(
+    cases: Sequence[ClaimGroundingCase],
+    force_refresh: bool = False,
+) -> list[_SearchRecord]:
     import anyio
 
     from antigravity_k.tools.search_quality_evaluator import citation_sources_from_context
@@ -71,7 +110,7 @@ def _collect_live_search_contexts(cases, force_refresh: bool = False):
 
     async def collect():
         engine = WebSearchEngine(max_results=3)
-        records = []
+        records: list[_SearchRecord] = []
         try:
             for case in cases:
                 query = case.query.strip() or case.question.strip()
@@ -111,12 +150,17 @@ def _collect_live_search_contexts(cases, force_refresh: bool = False):
     return anyio.run(collect)
 
 
-def _run_live_search_grounding(manager, model: str, cases, force_refresh: bool = False):
+def _run_live_search_grounding(
+    manager: _ModelManagerLike,
+    model: str,
+    cases: Sequence[ClaimGroundingCase],
+    force_refresh: bool = False,
+) -> tuple[list[ClaimGroundingResult], dict[str, str], list[dict[str, object]]]:
     from antigravity_k.tools.claim_grounding_benchmark import evaluate_live_grounding_case
 
-    generated_responses = {}
-    results = []
-    search_records = []
+    generated_responses: dict[str, str] = {}
+    results: list[ClaimGroundingResult] = []
+    search_records: list[dict[str, object]] = []
     for record in _collect_live_search_contexts(cases, force_refresh=force_refresh):
         case = record["case"]
         sources = tuple(record["sources"])
@@ -127,9 +171,10 @@ def _run_live_search_grounding(manager, model: str, cases, force_refresh: bool =
     return results, generated_responses, search_records
 
 
-def _summarize_grounding_runs(runs):
-    all_results = [result for run in runs for result in run]
-    by_case = {}
+def _summarize_grounding_runs(runs: Sequence[Sequence[object]]) -> dict[str, object]:
+    typed_runs = [[cast("ClaimGroundingResult", result) for result in run] for run in runs]
+    all_results = [result for run in typed_runs for result in run]
+    by_case: dict[str, list[ClaimGroundingResult]] = {}
     for result in all_results:
         by_case.setdefault(result.case_id, []).append(result)
     return {
@@ -137,10 +182,10 @@ def _summarize_grounding_runs(runs):
         "result_count": len(all_results),
         "pass_rate": round(sum(result.passed for result in all_results) / len(all_results), 3) if all_results else 0.0,
         "all_pass_run_rate": round(
-            sum(bool(run) and all(result.passed for result in run) for run in runs) / len(runs),
+            sum(bool(run) and all(result.passed for result in run) for run in typed_runs) / len(typed_runs),
             3,
         )
-        if runs
+        if typed_runs
         else 0.0,
         "by_case": {
             case_id: {
@@ -153,34 +198,34 @@ def _summarize_grounding_runs(runs):
     }
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args() -> _BenchmarkArguments:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="qwen3.6:latest")
-    parser.add_argument("--suite", default="simple")
-    parser.add_argument("--output", type=Path, default=Path("data/benchmarks/local-model.json"))
-    parser.add_argument("--grounding-fixture", type=Path, default=Path("tests/fixtures/claim_grounding_cases.json"))
-    parser.add_argument("--grounding-responses", type=Path, default=None)
-    parser.add_argument(
+    _ = parser.add_argument("--model", default="qwen3.6:latest")
+    _ = parser.add_argument("--suite", default="simple")
+    _ = parser.add_argument("--output", type=Path, default=Path("data/benchmarks/local-model.json"))
+    _ = parser.add_argument("--grounding-fixture", type=Path, default=Path("tests/fixtures/claim_grounding_cases.json"))
+    _ = parser.add_argument("--grounding-responses", type=Path, default=None)
+    _ = parser.add_argument(
         "--grounding-live",
         action="store_true",
         help="Generate grounding responses with the selected local model before evaluating them",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--grounding-live-search",
         action="store_true",
         help="Search live providers, then generate and strictly evaluate a grounded local response",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--grounding-live-search-refresh",
         action="store_true",
         help="Force a provider refresh for every grounding repeat instead of allowing the search cache",
     )
-    parser.add_argument("--grounding-repeats", type=int, default=1)
-    parser.add_argument("--repeats", type=int, default=1)
-    return parser.parse_args()
+    _ = parser.add_argument("--grounding-repeats", type=int, default=1)
+    _ = parser.add_argument("--repeats", type=int, default=1)
+    return cast(_BenchmarkArguments, cast(object, parser.parse_args()))
 
 
-def _is_excellent(result) -> bool:
+def _is_excellent(result: BenchmarkResult) -> bool:
     # For verified_code cases, execution is the ground truth: a verified result is
     # excellent regardless of prose quality, so a terse-but-correct answer does not
     # misrepresent the model's functional capability to the routing calibration.
@@ -189,11 +234,12 @@ def _is_excellent(result) -> bool:
     return result.quality_grade == "excellent"
 
 
-def _summarize_repeats(reports):
-    all_results = [result for report in reports for result in report.results]
+def _summarize_repeats(reports: Sequence[object]) -> dict[str, object]:
+    typed_reports = [cast("BenchmarkReport", report) for report in reports]
+    all_results = [result for report in typed_reports for result in report.results]
     if not all_results:
         return {
-            "repeat_count": len(reports),
+            "repeat_count": len(typed_reports),
             "result_count": 0,
             "mean_benchmark_score": 0.0,
             "benchmark_score_stddev": 0.0,
@@ -203,9 +249,9 @@ def _summarize_repeats(reports):
             "by_case": {},
         }
 
-    run_summaries = []
+    run_summaries: list[dict[str, object]] = []
     all_excellent_runs = 0
-    for index, report in enumerate(reports, start=1):
+    for index, report in enumerate(typed_reports, start=1):
         results = report.results
         excellent = sum(_is_excellent(result) for result in results)
         if results and excellent == len(results):
@@ -221,8 +267,8 @@ def _summarize_repeats(reports):
             },
         )
 
-    by_case = {}
-    case_results = {}
+    by_case: dict[str, object] = {}
+    case_results: dict[str, list[BenchmarkResult]] = {}
     for result in all_results:
         case_results.setdefault(result.case_id, []).append(result)
     for case_id, results in sorted(case_results.items()):
@@ -241,13 +287,13 @@ def _summarize_repeats(reports):
 
     scores = [result.benchmark_score for result in all_results]
     return {
-        "repeat_count": len(reports),
+        "repeat_count": len(typed_reports),
         "result_count": len(all_results),
         "mean_benchmark_score": round(fmean(scores), 3),
         "benchmark_score_stddev": round(pstdev(scores), 3),
         "min_benchmark_score": round(min(scores), 3),
         "excellent_rate": round(sum(_is_excellent(result) for result in all_results) / len(all_results), 3),
-        "all_excellent_run_rate": round(all_excellent_runs / len(reports), 3) if reports else 0.0,
+        "all_excellent_run_rate": round(all_excellent_runs / len(typed_reports), 3) if typed_reports else 0.0,
         "runs": run_summaries,
         "by_case": by_case,
     }
@@ -303,10 +349,12 @@ def main() -> int:
         )
 
         grounding_cases = load_claim_grounding_cases(args.grounding_fixture)
-        grounding_runs = []
-        grounding_run_payloads = []
+        grounding_runs: list[list[ClaimGroundingResult]] = []
+        grounding_run_payloads: list[dict[str, object]] = []
         for repeat in range(1, args.grounding_repeats + 1):
-            search_records = None
+            search_records: list[dict[str, object]] | None = None
+            generated_responses: dict[str, str] | None
+            grounding_results: list[ClaimGroundingResult]
             if args.grounding_live_search:
                 grounding_results, generated_responses, search_records = _run_live_search_grounding(
                     manager,
@@ -318,10 +366,13 @@ def main() -> int:
                 generated_responses = (
                     _generate_grounding_responses(manager, args.model, grounding_cases) if args.grounding_live else None
                 )
-                grounding_responses = generated_responses or load_claim_responses(args.grounding_responses)
-                grounding_results = run_claim_grounding_benchmark(grounding_cases, grounding_responses)
+                grounding_response_path = args.grounding_responses
+                if grounding_response_path is None:
+                    raise SystemExit("--grounding-responses is required unless a live grounding mode is selected")
+                grounding_responses = generated_responses or load_claim_responses(grounding_response_path)
+                grounding_results = list(run_claim_grounding_benchmark(grounding_cases, grounding_responses))
             grounding_runs.append(grounding_results)
-            run_payload = {
+            run_payload: dict[str, object] = {
                 "repeat": repeat,
                 "generated_responses": generated_responses,
                 "results": [result.to_dict() for result in grounding_results],
@@ -347,7 +398,7 @@ def main() -> int:
             "results": [result.to_dict() for result in grounding_results],
         }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ = args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False))
     return 0 if all(not result.error for item in reports for result in item.results) and not grounding_failed else 1
 

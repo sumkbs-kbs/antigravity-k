@@ -3,16 +3,19 @@
 import logging
 import os
 import re
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import Protocol, TypeAlias, cast, final, runtime_checkable
 
 from antigravity_k.agents.personas import get_orchestrator_prompt
 from antigravity_k.engine.capacity_flow import CapacityCheckpoint
 from antigravity_k.engine.ceo_analyzer import ceo_analyze as _ceo_analyze_fn
+from antigravity_k.engine.code_tree_indexer_models import CodeTreeStats
 from antigravity_k.engine.context_budget import context_budget_for_model
+from antigravity_k.engine.direct_task_execution import MaxEnginePort
 from antigravity_k.engine.engine_context import EngineContext
+from antigravity_k.engine.long_context_policy import LongContextExecutionPlan, LongContextPlanner
 from antigravity_k.engine.memory_provider import MemoryManager
 from antigravity_k.engine.memory_recorder import MemoryRecorder
 from antigravity_k.engine.orchestrator.setup import (
@@ -20,20 +23,56 @@ from antigravity_k.engine.orchestrator.setup import (
     create_artifact_engine,
     create_evolution_coordinator,
     create_fact_appender,
-    create_plan_guard_harness,
     create_state_graph,
     create_watchdog,
     load_agent_models,
 )
+from antigravity_k.engine.session_manager import SessionManager
 from antigravity_k.engine.task_state_store import (
     TaskExecutionContext,
     TaskStateStore,
     bind_task_execution_context,
 )
+from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger("antigravity_k.orchestrator")
 
 
+class ModelManagerPort(Protocol):
+    pass
+
+
+@runtime_checkable
+class _GeneratingModelManager(Protocol):
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+AgentMessage: TypeAlias = dict[str, str]
+JsonObject: TypeAlias = dict[str, object]
+
+
+class _CodeTreeIndexer(Protocol):
+    def build_tree(self) -> str: ...
+
+    def stats(self) -> CodeTreeStats: ...
+
+
+def _object_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    raw = cast(dict[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    raw = cast(list[object], value)
+    return [item for item in raw if isinstance(item, str)]
+
+
+@final
 class OrchestratorAgent:
     """CEO 기반 멀티 에이전트 오케스트레이터.
 
@@ -46,11 +85,11 @@ class OrchestratorAgent:
 
     def __init__(
         self,
-        model_manager,
-        vault_engine=None,
-        project_root=None,
-        tool_registry=None,
-        session_manager=None,
+        model_manager: ModelManagerPort | None,
+        vault_engine: VaultEngine | None = None,
+        project_root: str | None = None,
+        tool_registry: ToolRegistry | None = None,
+        session_manager: SessionManager | None = None,
         memory_manager: MemoryManager | None = None,
     ):
         """Initialize the OrchestratorAgent.
@@ -82,6 +121,7 @@ class OrchestratorAgent:
         self.tool_registry = self.ctx.tool_registry
         self.session_manager = self.ctx.session_manager
         self.context_shaper = self.ctx.context_shaper
+        self.persistent_agency = self.ctx.persistent_agency
 
         self._memory_recorder = MemoryRecorder(
             self.vault_engine,
@@ -104,7 +144,6 @@ class OrchestratorAgent:
         )
         self._state_graph = create_state_graph()
         self.artifact_engine = create_artifact_engine(self.project_root)
-        self.plan_guard, self.harness = create_plan_guard_harness(self.project_root)
         self.fact_appender = create_fact_appender(self.manager, self.project_root)
 
         # ─── Self-Evolution Coordinator ───
@@ -122,13 +161,10 @@ class OrchestratorAgent:
         )
 
         # ─── Freebuff-Style Proactive: Code Tree Indexer (P0) ───
-        self._code_tree_indexer = None
+        self._code_tree_indexer: _CodeTreeIndexer | None = None
 
         # ─── P4: MAX Mode Parallel Engine (지연 초기화) ───
-        self._max_engine = None
-
-        # ─── P1-2: 통합 위임 엔진 (지연 초기화) ───
-        self._delegation_engine = None
+        self._max_engine: MaxEnginePort | None = None
 
         # Lazy-init Heavy Components
         self._skill_auto_learner_initialized = False
@@ -137,10 +173,13 @@ class OrchestratorAgent:
         self._trajectory_compressor_instance = None
         self._context_compressor_initialized = False
         self._context_compressor_instance = None
+        self._prompt_components_cache: dict[str, str] = {}
+        # 모델별 ContextCompressor 캐시 (스텝당 디스크 재독 방지)
+        self._context_compressor_by_model: dict[str, object] = {}
 
         # 세션 자동 시작
         try:
-            self.session_manager.start_session(project_path=self.project_root)
+            _ = self.session_manager.start_session(project_path=self.project_root)
         except (RuntimeError, ConnectionError, AttributeError):
             logger.warning("Session start failed (non-critical)", exc_info=True)
 
@@ -148,9 +187,10 @@ class OrchestratorAgent:
         """Self-Evolution Coordinator를 초기화합니다. (self 참조 필요)"""
 
         def _sec_verify_fn(prompt: str) -> str:
-            if self.manager:
+            manager = self.manager
+            if isinstance(manager, _GeneratingModelManager):
                 try:
-                    return self.manager.generate(
+                    return manager.generate(
                         prompt=prompt,
                         target=self._get_model_for_role("QA"),
                         max_tokens=256,
@@ -177,7 +217,7 @@ class OrchestratorAgent:
         return self._task_execution_context.get()
 
     @contextmanager
-    def bind_task_execution(self, task_id: str, state_store: TaskStateStore) -> Iterator[None]:
+    def bind_task_execution(self, task_id: str, state_store: TaskStateStore) -> Generator[None, None, None]:
         execution_context = TaskExecutionContext(task_id, state_store)
         token = self._task_execution_context.set(execution_context)
         try:
@@ -189,27 +229,24 @@ class OrchestratorAgent:
     # ─── Lazy Properties ─────────────────────────────────────────────
 
     def _default_reasoning_model(self) -> str:
-        raw_cfg = getattr(self, "config", {}) or {}
-        if isinstance(raw_cfg, dict):
-            defaults = raw_cfg.get("defaults", {})
-            if isinstance(defaults, dict):
-                model_name = defaults.get("reasoning")
-                if isinstance(model_name, str) and model_name:
-                    return model_name
+        defaults = self.config.get("defaults")
+        if isinstance(defaults, dict):
+            model_name = defaults.get("reasoning")
+            if isinstance(model_name, str) and model_name:
+                return model_name
         return "qwen3.6:latest"
 
     def _compression_budget(self, target_model: str | None = None):
-        raw_cfg = getattr(self, "config", {}) or {}
-        config = raw_cfg if isinstance(raw_cfg, dict) else {}
-        return context_budget_for_model(config, target_model or self._default_reasoning_model())
+        return context_budget_for_model(self.config, target_model or self._default_reasoning_model())
 
     def _compression_summarize_fn(self):
-        if not self.manager:
+        manager = self.manager
+        if not isinstance(manager, _GeneratingModelManager):
             return None
         model_name = self._default_reasoning_model()
 
         def _summarize(prompt: str) -> str:
-            return self.manager.generate(
+            return manager.generate(
                 prompt=prompt,
                 target=model_name,
                 max_tokens=512,
@@ -225,6 +262,9 @@ class OrchestratorAgent:
             summarize_fn=self._compression_summarize_fn(),
             max_messages=budget.trajectory_max_messages,
             max_chars=budget.trajectory_max_chars,
+            # 토큰 상한의 80%에서 트리거 — chars*4 가정이 한국어를 과대 허용해
+            # 실제 컨텍스트 초과가 발생하기 전에 요약한다.
+            max_tokens=int(budget.token_limit * 0.8),
         )
 
     def _build_context_compressor(self, target_model: str | None = None):
@@ -303,33 +343,23 @@ class OrchestratorAgent:
     def context_compressor_for(self, target_model: str):
         if target_model == self._default_reasoning_model():
             return self.context_compressor
+        # 모델별 인스턴스를 캐싱한다 — 도구 루프가 스텝마다 이 함수를 호출하는데
+        # 매번 새로 만들면 long_term_memory.json을 디스크에서 다시 읽는다.
+        cached = self._context_compressor_by_model.get(target_model)
+        if cached is not None:
+            return cached
         try:
-            return self._build_context_compressor(target_model)
+            compressor = self._build_context_compressor(target_model)
         except (ImportError, RuntimeError, AttributeError, ValueError):
             logger.warning("ContextCompressor init failed", exc_info=True)
             return None
-
-    @property
-    def delegation_engine(self):
-        """통합 위임 엔진 (P1-2) — 5개 위임 메커니즘을 단일 인터페이스로.
-
-        기존 MAX/Pipeline/Debate/SubagentSpawner/single을 전략 패턴으로 통합.
-        recommend_strategy()로 결정적 전략 선택, delegate()로 단일 진입점.
-        """
-        if self._delegation_engine is None:
-            try:
-                from antigravity_k.engine.delegation_engine import DelegationEngine
-
-                self._delegation_engine = DelegationEngine(self)
-                logger.info("[Orchestrator] DelegationEngine 활성화 완료")
-            except (ImportError, RuntimeError, AttributeError):
-                logger.warning("DelegationEngine init failed", exc_info=True)
-                self._delegation_engine = None
-        return self._delegation_engine
+        if compressor is not None:
+            self._context_compressor_by_model[target_model] = compressor
+        return compressor
 
     # ─── 툴 프롬프트 ─────────────────────────────────────────────────
 
-    def _build_tool_prompt(self) -> str:
+    def _build_tool_prompt(self, task_type: str = "") -> str:
         """도구 목록을 프롬프트에 주입합니다. few-shot 예시 포함."""
         tool_section = (
             "## Tool Usage Instructions\n"
@@ -400,29 +430,32 @@ class OrchestratorAgent:
             logger.warning("Self-capability contract unavailable: %s", e)
         # ── 30B Model Amplification: Dynamic Tool Masking ──
         raw_schemas = self.tool_registry.to_llm_schemas()
+        schemas_to_render: Sequence[object] = raw_schemas
         try:
             from antigravity_k.engine.tool_masker import ActiveToolMasker
 
-            masker = ActiveToolMasker(mode=getattr(self.mode_manager, "current_mode", None))
-            schemas_to_render = masker.filter_tools(raw_schemas)
+            masker = ActiveToolMasker(mode=self.mode_manager.current_mode)
+            phase = masker.phase_for_task_type(task_type)
+            schemas_to_render = masker.filter_tools(raw_schemas, phase=phase)
         except Exception:
             schemas_to_render = raw_schemas
 
-        for schema in schemas_to_render:
-            params = schema.get("input_schema", {})
-            required = params.get("required") or []
+        for schema_value in schemas_to_render:
+            schema = _object_mapping(schema_value)
+            params = _object_mapping(schema.get("input_schema", {}))
+            required = _string_list(params.get("required"))
             tool_section += f"- **{schema['name']}**: {schema['description']}\n"
-            props = params.get("properties") or {}
+            props = _object_mapping(params.get("properties"))
             if props:
-                param_strs = []
+                param_strs: list[str] = []
                 for k, v in props.items():
-                    p_type = v.get("type", "any")
+                    p_type = _object_mapping(v).get("type", "any")
                     p_req = "required" if k in required else "optional"
                     param_strs.append(f"{k} ({p_type}, {p_req})")
                 tool_section += f"  Parameters: {', '.join(param_strs)}\n"
         return tool_section
 
-    def _requires_planning_mode(self, task_type: str, messages: list[dict[str, str]]) -> bool:
+    def _requires_planning_mode(self, task_type: str, messages: list[dict[str, str]]) -> bool:  # pyright: ignore[reportUnusedFunction]
         """복잡한 구조 변경에만 Planning Mode를 강제합니다.
 
         ModeManager의 should_enforce_plan_mode()에 위임합니다.
@@ -439,13 +472,13 @@ class OrchestratorAgent:
         request_text = "\n".join(str(msg.get("content", "")) for msg in messages if msg.get("role") == "user").lower()
         return bool(
             re.search(
-                r"(아키텍처|구조|전면|대규모|마이그레이션|프레임워크|리팩토링|"
-                r"architecture|refactor|migrate|framework|plugin system)",
+                "(아키텍처|구조|전면|대규모|마이그레이션|프레임워크|리팩토링|"
+                + "architecture|refactor|migrate|framework|plugin system)",
                 request_text,
             ),
         )
 
-    def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
+    def _execute_tool(self, name: str, args: dict[str, object]) -> str:  # pyright: ignore[reportUnusedFunction]
         """ToolExecutor에 위임합니다. (Phase 1 D3: execution_mode 전달)"""
         mode = self._get_execution_mode()
         return self.ctx.tool_executor.execute(name, args, execution_mode=mode)
@@ -466,8 +499,8 @@ class OrchestratorAgent:
     def _inject_mode_prompt(
         self,
         system_prompt: str,
-        task_type: str,
-        messages: list[dict[str, str]],
+        _task_type: str,
+        _messages: list[dict[str, str]],
         delegate_to: str,
     ) -> str:
         """현재 실행 모드에 따라 system prompt에 모드별 지시사항을 주입합니다.
@@ -527,7 +560,7 @@ class OrchestratorAgent:
 
         return system_prompt
 
-    def _latest_user_text(self, messages: list[dict[str, Any]]) -> str:
+    def _latest_user_text(self, messages: Sequence[Mapping[str, object]]) -> str:
         """최근 user 메시지의 텍스트만 반환합니다."""
         for msg in reversed(messages):
             if msg.get("role") != "user":
@@ -536,14 +569,16 @@ class OrchestratorAgent:
             if isinstance(content, str):
                 return content.strip()
             if isinstance(content, list):
-                return " ".join(
-                    str(part.get("text", ""))
-                    for part in content
-                    if isinstance(part, dict) and part.get("type") == "text"
-                ).strip()
+                parts = cast(list[object], content)
+                text_parts = [
+                    str(part_map.get("text", ""))
+                    for part in parts
+                    if (part_map := _object_mapping(part)).get("type") == "text"
+                ]
+                return " ".join(text_parts).strip()
         return ""
 
-    def _render_self_capability_response(self) -> str:
+    def _render_self_capability_response(self) -> str:  # pyright: ignore[reportUnusedFunction]
         """런타임 사실 기반 자기 능력 보고서를 생성합니다."""
         from antigravity_k.engine.self_capability import SelfCapabilityEngine
 
@@ -557,26 +592,27 @@ class OrchestratorAgent:
         )
         return engine.render_markdown(snapshot)
 
-    def _register_claw_tools(self):
+    def _register_claw_tools(self) -> None:  # pyright: ignore[reportUnusedFunction]
         """ToolExecutor에 도구를 등록합니다."""
         self.ctx.tool_executor.register_default_tools()
 
     # ─── CEO 분석 단계 ───────────────────────────────────────────────
 
-    def _ceo_analyze(
+    def _ceo_analyze(  # pyright: ignore[reportUnusedFunction]
         self,
         user_message: str,
         target_model: str,
-    ) -> Generator[str | dict[str, Any], None, None]:
+    ) -> Generator[str | JsonObject, None, None]:
         """CEO 분석을 ceo_analyzer 모듈에 위임합니다."""
-        yield from _ceo_analyze_fn(
+        result = _ceo_analyze_fn(
             user_message=user_message,
             target_model=target_model,
             ceo_prompt_template=get_orchestrator_prompt("CEO"),
             model_manager=self.manager,
         )
+        yield from result
 
-    def _rebuild_prompt(
+    def _rebuild_prompt(  # pyright: ignore[reportUnusedFunction]
         self,
         system_prompt: str,
         tool_prompt: str,
@@ -593,12 +629,12 @@ class OrchestratorAgent:
         prompt += "Assistant: "
         return prompt
 
-    def _prepare_agent_prompt(
+    def _prepare_agent_prompt(  # pyright: ignore[reportUnusedFunction]
         self,
-        messages: list[dict[str, Any]],
+        messages: list[dict[str, str]],
         delegate_to: str,
         task_type: str,
-    ) -> tuple[str, str, str, str, str, list[dict[str, Any]]]:
+    ) -> tuple[str, str, str, str, str, list[dict[str, str]]]:
         """에이전트 실행에 필요한 프롬프트와 컨텍스트를 준비합니다.
 
         Returns:
@@ -612,7 +648,7 @@ class OrchestratorAgent:
         # 실행 모드에 따라 system prompt 분기 (Phase 1 D5)
         system_prompt = self._inject_mode_prompt(system_prompt, task_type, messages, delegate_to)
 
-        tool_prompt = self._build_tool_prompt() if delegate_to != "CEO" else ""
+        tool_prompt = self._build_tool_prompt(task_type) if delegate_to != "CEO" else ""
 
         # 에러 카운터 리셋
         self.ctx.tool_executor.reset_error_counter()
@@ -653,7 +689,13 @@ class OrchestratorAgent:
         except Exception as se:
             logger.debug("StructuralSnapshot/WorkingMemory build skipped: %s", se)
 
-        prompt = f"System: {pinned_context}{system_prompt}\n{skill_prompts}\n"
+        # ── KV-cache 안정 접두사 ──
+        # pinned_context(구조 스냅샷+작업 메모리)는 매 턴 내용이 바뀐다 —
+        # 접두사에 두면 시스템 프롬프트·도구 가이드가 포함된 캐시 가능한
+        # 접두사 전체가 무효화된다. 변동 블록을 후미(recency)로 옮겨
+        # 접두사를 바이트 단위로 안정화한다. 후미 배치는 주의 집중
+        # (recency) 관점에서도 유리하다.
+        prompt = f"System: {system_prompt}\n{skill_prompts}\n"
         if failure_context:
             prompt += f"\n{failure_context}\n"
         if tool_prompt:
@@ -661,11 +703,20 @@ class OrchestratorAgent:
         prompt += "\n"
 
         # Context Shaper 적용
-        shaped_messages = self.context_shaper.shape(messages)
+        execution_plan: LongContextExecutionPlan | None = None
+        manager = self.manager
+        if isinstance(manager, LongContextPlanner):
+            execution_plan = manager.long_context_plan(delegate_model)
+        shaped_messages = self.context_shaper.shape_for_model(
+            messages,
+            self.config,
+            delegate_model,
+            execution_plan=execution_plan,
+        )
         shaped_messages = self.context_shaper.clear_old_tool_results(shaped_messages)
 
         # Decision Anchor 주입
-        decision_anchor = getattr(self.ctx, "decision_anchor", None)
+        decision_anchor = self.ctx.decision_anchor
         if decision_anchor:
             shaped_messages = decision_anchor.inject_into_messages(shaped_messages)
 
@@ -674,7 +725,18 @@ class OrchestratorAgent:
 
         for msg in shaped_messages:
             prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
+        if pinned_context:
+            prompt += f"<working_context>\n{pinned_context}</working_context>\n"
         prompt += "Assistant: "
+
+        # 컨텍스트 압축/재구축 경로에서 원본 프롬프트 구조(고정 컨텍스트 포함)를
+        # 보존할 수 있도록 구성요소를 캐시한다.
+        self._prompt_components_cache = {
+            "pinned_context": pinned_context,
+            "system_prompt": system_prompt,
+            "tool_prompt": tool_prompt,
+            "skill_prompts": skill_prompts,
+        }
 
         return (
             delegate_model,
@@ -688,7 +750,7 @@ class OrchestratorAgent:
     # ─── 실행 ─────────────────────────────────────────────────────────
 
     @property
-    def code_tree_indexer(self):
+    def code_tree_indexer(self) -> _CodeTreeIndexer | None:
         """CodeTreeIndexer 지연 초기화 (Freebuff-Style 자동 컨텍스트).
 
         최초 접근 시 1회 빌드되며, 이후 변경 감지로 증분 갱신됩니다.
@@ -698,7 +760,10 @@ class OrchestratorAgent:
             try:
                 from antigravity_k.engine.code_tree_indexer import CodeTreeIndexer
 
-                self._code_tree_indexer = CodeTreeIndexer(project_root=self.project_root)
+                self._code_tree_indexer = cast(
+                    _CodeTreeIndexer,
+                    CodeTreeIndexer(project_root=self.project_root),
+                )
                 logger.info("[Proactive] CodeTreeIndexer 활성화 완료")
             except (ImportError, RuntimeError, AttributeError):
                 logger.debug("CodeTreeIndexer init failed (non-critical)")
@@ -707,7 +772,7 @@ class OrchestratorAgent:
             # 최초 1회는 try/except 밖에서 백그라운드 빌드 시도
             if self._code_tree_indexer:
                 try:
-                    self._code_tree_indexer.build_tree()
+                    _ = self._code_tree_indexer.build_tree()
                     stats = self._code_tree_indexer.stats()
                     logger.info(
                         "[Proactive] Code tree built: %s files, %s KB",
@@ -720,7 +785,7 @@ class OrchestratorAgent:
         return self._code_tree_indexer
 
     @property
-    def max_engine(self):
+    def max_engine(self) -> MaxEnginePort | None:
         """MaxModeEngine 지연 초기화 (P4: MAX Mode 병렬 편집).
 
         여러 워커를 병렬로 실행하고 Selector가 최적 결과를 선정합니다.
@@ -730,20 +795,21 @@ class OrchestratorAgent:
             try:
                 from antigravity_k.engine.max_engine import MaxModeEngine
 
+                manager = self.manager
+                if not isinstance(manager, _GeneratingModelManager):
+                    return None
                 self._max_engine = MaxModeEngine(
-                    model_manager=self.manager,
+                    model_manager=manager,
                     project_root=self.project_root,
                 )
 
                 # 워커 수 설정 (config에서 또는 기본값)
-                max_workers = (
-                    getattr(self.ctx, "config", {})
-                    .get(
-                        "max_mode",
-                        {},
-                    )
-                    .get("max_workers", 3)
-                )
+                max_workers = 3
+                max_mode = self.ctx.config.get("max_mode")
+                if isinstance(max_mode, dict):
+                    configured_workers = max_mode.get("max_workers")
+                    if isinstance(configured_workers, int):
+                        max_workers = configured_workers
                 self._max_engine.set_max_workers(max_workers)
 
                 logger.info("[MAX] MaxModeEngine 활성화 완료 (%s workers)", max_workers)

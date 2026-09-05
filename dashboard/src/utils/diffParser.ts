@@ -134,7 +134,6 @@ export function applyUnifiedDiff(original: string, diff: string): string {
   const result: string[] = [];
 
   let oldLine = 0;
-  let newLine = 0;
   let inHunk = false;
 
   for (const line of parsedLines) {
@@ -149,14 +148,12 @@ export function applyUnifiedDiff(original: string, diff: string): string {
       // Context line: keep original
       result.push(originalLines[oldLine - 1] ?? '');
       oldLine++;
-      newLine++;
     } else if (inHunk && line.type === 'removed') {
       // Removed line: skip original
       oldLine++;
     } else if (inHunk && line.type === 'added') {
       // Added line: insert new content
       result.push(line.content);
-      newLine++;
     } else if (line.type === 'header') {
       inHunk = false;
     }

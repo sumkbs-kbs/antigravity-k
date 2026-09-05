@@ -42,7 +42,8 @@ const StatusBar: React.FC = () => {
 
   // Reset cursor when file changes
   useEffect(() => {
-    setCursorPosition({ line: 1, column: 1 });
+    const timer = setTimeout(() => setCursorPosition({ line: 1, column: 1 }), 0);
+    return () => clearTimeout(timer);
   }, [activeFilePath]);
 
   const handleProblemsClick = useCallback(() => {

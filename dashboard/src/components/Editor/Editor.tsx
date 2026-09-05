@@ -8,12 +8,11 @@
  * for VS Code-style diagnostics display.
  */
 
-import React, { Suspense, lazy, useCallback, useRef, useEffect, useState, useMemo } from 'react';
+import React, { Suspense, lazy, useCallback, useRef, useEffect, useState } from 'react';
 import type { OnMount } from '@monaco-editor/react';
 import { useEditorStore } from '../../stores/editorStore';
-import { useProblemsStore } from '../../stores/problemsStore';
+import { useProblemsStore, type MonacoMarker } from '../../stores/problemsStore';
 import { useUiStore } from '../../stores/uiStore';
-import { useInlineEditStore } from '../../stores/inlineEditStore';
 import ProblemsPanel from './ProblemsPanel';
 import StatusBar from './StatusBar';
 import InlineEditOverlay from './InlineEditOverlay';
@@ -106,6 +105,9 @@ const EditorTabs: React.FC<EditorTabsProps> = React.memo(({
               whiteSpace: 'nowrap',
             }}
             onClick={() => onSetActiveFile(file.path)}
+            role="tab"
+            tabIndex={0}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSetActiveFile(file.path); } }}
           >
             <span>{file.name}</span>
             {file.isDirty && <span style={{ color: '#ff9e64', fontSize: 10 }}>●</span>}
@@ -127,6 +129,7 @@ const EditorTabs: React.FC<EditorTabsProps> = React.memo(({
                   lineHeight: 1,
                 }}
                 disabled={saving}
+                aria-label={`${file.name} 저장`}
               >
                 💾
               </button>
@@ -146,6 +149,7 @@ const EditorTabs: React.FC<EditorTabsProps> = React.memo(({
                 padding: '0 2px',
                 lineHeight: 1,
               }}
+              aria-label={`${file.name} 탭 닫기`}
             >
               ✕
             </button>
@@ -164,11 +168,13 @@ const CodeEditor: React.FC = () => {
   const closeFile = useEditorStore(s => s.closeFile);
   const setActiveFile = useEditorStore(s => s.setActiveFile);
   const updateFileContent = useEditorStore(s => s.updateFileContent);
-  const saveFile = useEditorStore(s => s.saveFile);
   const { setActiveFile: setProblemsActiveFile } = useProblemsStore();
   const { addToast } = useUiStore();
   const activeFile = openFiles.find(f => f.path === activeFilePath);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const markerRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mountedEditor, setMountedEditor] = useState<Parameters<OnMount>[0] | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Sync active file with problems store
@@ -186,8 +192,11 @@ const CodeEditor: React.FC = () => {
       if (model) {
         try {
           // Force a marker update by dispatching a delayed call
-          setTimeout(() => {
-            const markers = (window as any).monaco?.editor.getModelMarkers({ resource: model.uri }) || [];
+          markerRefreshTimeoutRef.current = setTimeout(() => {
+            const browserWindow = window as Window & {
+              monaco?: { editor?: { getModelMarkers: (options: { resource: unknown }) => MonacoMarker[] } };
+            };
+            const markers = browserWindow.monaco?.editor?.getModelMarkers({ resource: model.uri }) || [];
             if (markers.length > 0) {
               const file = useEditorStore.getState().openFiles.find(f => f.path === activeFilePath);
               if (file) {
@@ -198,6 +207,12 @@ const CodeEditor: React.FC = () => {
         } catch { /* ignore */ }
       }
     }
+    return () => {
+      if (markerRefreshTimeoutRef.current !== null) {
+        clearTimeout(markerRefreshTimeoutRef.current);
+        markerRefreshTimeoutRef.current = null;
+      }
+    };
   }, [activeFilePath]);
 
   const handleSave = useCallback(async () => {
@@ -208,8 +223,12 @@ const CodeEditor: React.FC = () => {
     if (!file || !file.isDirty) return;
 
     setSaving(true);
-    const ok = await doSave(currentPath);
-    setSaving(false);
+    let ok = false;
+    try {
+      ok = await doSave(currentPath);
+    } finally {
+      setSaving(false);
+    }
 
     if (ok) {
       addToast(`✅ ${file.name} 저장됨`, 'success');
@@ -220,6 +239,7 @@ const CodeEditor: React.FC = () => {
 
   const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor;
+    setMountedEditor(editor);
 
     // Register Ctrl+S / Cmd+S keybinding within Monaco
     editor.addAction({
@@ -234,15 +254,23 @@ const CodeEditor: React.FC = () => {
     });
 
     // Dispatch layout on mount
-    setTimeout(() => editor.layout(), 100);
+    layoutTimeoutRef.current = setTimeout(() => editor.layout(), 100);
     // ResizeObserver to auto-layout
-    const container = editor.getContainerDomNode();
-    if (container) {
-      const observer = new ResizeObserver(() => {
-        try { editor.layout(); } catch {}
-      });
-      observer.observe(container);
-    }
+  }, []);
+
+  useEffect(() => {
+    if (!mountedEditor) return undefined;
+    const container = mountedEditor.getContainerDomNode();
+    if (!container) return undefined;
+    const observer = new ResizeObserver(() => {
+      try { mountedEditor.layout(); } catch { void 0; }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [mountedEditor]);
+
+  useEffect(() => () => {
+    if (layoutTimeoutRef.current !== null) clearTimeout(layoutTimeoutRef.current);
   }, []);
 
   const handleChange = useCallback((value: string | undefined) => {
@@ -322,13 +350,41 @@ const CodeEditor: React.FC = () => {
                 top: '50%',
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
-                color: '#999',
-                fontSize: 14,
-                pointerEvents: 'none',
+                color: '#8b949e',
+                fontSize: 13,
                 textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 10,
+                maxWidth: 320,
               }}
             >
-              Select a file from the explorer to view its contents.
+              <span style={{ fontSize: 32 }}>💻</span>
+              <div style={{ fontWeight: 600, color: '#f0f6fc', fontSize: 14 }}>
+                열려 있는 파일이 없습니다
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: '#8b949e' }}>
+                Select a file from the explorer to view its contents.
+                좌측 탐색기에서 파일을 선택하거나, 에이전트가 코드를 읽고 편집할 때 자동으로 이곳에 렌더링됩니다.
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{
+                  marginTop: 6,
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  background: '#21262d',
+                  color: '#f0f6fc',
+                }}
+                onClick={() => useUiStore.getState().setFolderBrowserVisible(true)}
+              >
+                📁 프로젝트 폴더 열기
+              </button>
             </div>
           )}
 

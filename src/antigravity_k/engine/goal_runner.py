@@ -13,11 +13,38 @@ import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import ClassVar, NotRequired, Protocol, TypedDict, cast
 
 from .self_repair import SelfRepairEngine
 
 logger = logging.getLogger("antigravity_k.engine.goal_runner")
+
+
+class _KanbanBoardLike(Protocol):
+    def decompose_from_steps(self, steps: list["GoalStep"]) -> None: ...
+
+    def to_markdown(self) -> str: ...
+
+
+class _VerificationCheck(TypedDict):
+    name: str
+    passed: bool
+    return_code: int
+    output: str
+
+
+class _VerificationFailure(TypedDict):
+    check: str
+    error: str
+
+
+class _VerificationResults(TypedDict):
+    objective: str
+    verified: bool
+    checks: list[_VerificationCheck]
+    failures: list[_VerificationFailure]
+    repair_needed: bool
+    self_repair: NotRequired[dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -75,9 +102,9 @@ class GoalReport:
     judgment: GoalJudgment
     capability_matrix: list[tuple[str, str, str]]
     next_actions: list[str]
-    kanban_board: Any | None = None  # KanbanBoard (Agent-Teams 패턴 이식)
+    kanban_board: _KanbanBoardLike | None = None  # KanbanBoard (Agent-Teams 패턴 이식)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
@@ -133,7 +160,7 @@ class GoalRunner:
     report and execute it step by step.
     """
 
-    _DOMAIN_KEYWORDS = {
+    _DOMAIN_KEYWORDS: ClassVar[dict[str, set[str]]] = {
         "coding": {
             "code",
             "test",
@@ -188,7 +215,7 @@ class GoalRunner:
         },
     }
 
-    _RISK_KEYWORDS = {
+    _RISK_KEYWORDS: ClassVar[set[str]] = {
         "delete",
         "remove",
         "drop",
@@ -207,7 +234,7 @@ class GoalRunner:
         "배포",
     }
 
-    _DELIVERABLE_KEYWORDS = {
+    _DELIVERABLE_KEYWORDS: ClassVar[set[str]] = {
         "create",
         "build",
         "write",
@@ -240,15 +267,15 @@ class GoalRunner:
             instruction (str): str instruction for the goal.
 
         """
-        self.max_iterations = max(1, max_iterations)
-        self.task_id = task_id
-        self.workspace_dir = workspace_dir
-        self.instruction = instruction
+        self.max_iterations: int = max(1, max_iterations)
+        self.task_id: str = task_id
+        self.workspace_dir: str = workspace_dir
+        self.instruction: str = instruction
 
     def run(
         self,
         objective: str,
-        context: Mapping[str, Any] | None = None,
+        context: Mapping[str, object] | None = None,
     ) -> GoalReport:
         """Run.
 
@@ -269,7 +296,7 @@ class GoalRunner:
         try:
             from antigravity_k.engine.kanban_engine import KanbanBoard
 
-            kanban = KanbanBoard(name=f"Goal: {normalized[:50]}")
+            kanban = cast(_KanbanBoardLike, KanbanBoard(name=f"Goal: {normalized[:50]}"))
             kanban.decompose_from_steps(steps)
         except Exception:
             logger.exception("Unhandled exception")
@@ -347,7 +374,20 @@ class GoalRunner:
             lines.extend(["", "---", ""])
             lines.append(report.kanban_board.to_markdown())
 
+        # 장기 자율 실행 하네스 규칙 주입 (파일이 있을 때만)
+        from antigravity_k.engine.harness_enforcer import load_longrun_harness_prompt
+
+        harness_prompt = load_longrun_harness_prompt(self.project_root_hint())
+        if harness_prompt:
+            lines.extend(["", "---", "", "# Long-run Harness Rules", "", harness_prompt])
+
         return "\n".join(lines)
+
+    def project_root_hint(self) -> str:
+        """계약 렌더링 기준 프로젝트 루트 힌트 (workspace_dir 우선, 없으면 cwd)."""
+        import os
+
+        return self.workspace_dir or os.getcwd()
 
     def _normalize(self, objective: str) -> str:
         normalized = re.sub(r"\s+", " ", objective or "").strip()
@@ -356,7 +396,7 @@ class GoalRunner:
     def _assess(
         self,
         normalized: str,
-        context: Mapping[str, Any],
+        context: Mapping[str, object],
     ) -> GoalAssessment:
         lowered = normalized.lower()
         domain_scores = {
@@ -384,7 +424,7 @@ class GoalRunner:
             2,
         )
 
-        missing_inputs = []
+        missing_inputs: list[str] = []
         if normalized == "No objective provided":
             missing_inputs.append("objective")
         if token_count < 5:
@@ -428,7 +468,7 @@ class GoalRunner:
             criteria.append("목표 입력 전에는 실행 대신 요구사항 수집 상태로 머문다.")
         return criteria
 
-    def _steps(self, assessment: GoalAssessment) -> list[GoalStep]:
+    def _steps(self, _assessment: GoalAssessment) -> list[GoalStep]:
         return [
             GoalStep(
                 1,
@@ -484,7 +524,7 @@ class GoalRunner:
         self,
         normalized: str,
         assessment: GoalAssessment,
-        context: Mapping[str, Any],
+        context: Mapping[str, object],
     ) -> GoalJudgment:
         token_count = len(re.findall(r"[\w가-힣]+", normalized))
         clarity_score = min(1.0, max(0.0, token_count / 18))
@@ -606,7 +646,7 @@ class GoalRunner:
         self,
         report: GoalReport,
         project_root: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> _VerificationResults:
         """목표 실행 후 자동 검증을 수행합니다.
 
         ruff, pytest, compileall, npm build 등을 실행하고 결과를 반환합니다.
@@ -616,14 +656,15 @@ class GoalRunner:
         import subprocess
 
         root = project_root or os.getcwd()
-        results: dict[str, Any] = {
+        results: _VerificationResults = {
             "objective": report.objective,
             "verified": True,
             "checks": [],
             "failures": [],
+            "repair_needed": False,
         }
 
-        checks = [
+        checks: list[tuple[str, list[str]]] = [
             ("ruff", ["python", "-m", "ruff", "check", "src", "tests"]),
             ("pytest", ["python", "-m", "pytest", "-q", "--tb=short"]),
             ("compileall", ["python", "-m", "compileall", "-q", "src", "tests"]),
@@ -646,7 +687,7 @@ class GoalRunner:
                     env={**os.environ, "PYTHONPATH": os.path.join(root, "src")},
                 )
                 passed = result.returncode == 0
-                check_result = {
+                check_result: _VerificationCheck = {
                     "name": name,
                     "passed": passed,
                     "return_code": result.returncode,
@@ -671,15 +712,19 @@ class GoalRunner:
                     },
                 )
                 results["verified"] = False
-                results["failures"].append({"check": name, "error": "Timeout (120s)"})
-            except FileNotFoundError:
+                results["failures"].append(_VerificationFailure(check=name, error="Timeout (120s)"))
+            except FileNotFoundError as exc:
                 results["checks"].append(
                     {
                         "name": name,
-                        "passed": True,
-                        "return_code": 0,
-                        "output": "SKIPPED (not found)",
+                        "passed": False,
+                        "return_code": 127,
+                        "output": f"VERIFIER NOT FOUND: {exc}",
                     },
+                )
+                results["verified"] = False
+                results["failures"].append(
+                    _VerificationFailure(check=name, error=f"Verifier command not found: {exc}"),
                 )
 
         results["repair_needed"] = not results["verified"]
@@ -700,7 +745,7 @@ class GoalRunner:
                     {
                         "job_id": report.objective[:50],
                         "state": "in_progress",
-                        "current_tool": (results["failures"][0].get("check", "") if results["failures"] else ""),
+                        "current_tool": results["failures"][0]["check"] if results["failures"] else "",
                     },
                 )
                 repair_result = repair_engine.attempt_repair(detection)
@@ -724,9 +769,9 @@ class GoalRunner:
     def backprop_failures(
         self,
         report: GoalReport,
-        verification_results: dict[str, Any],
+        verification_results: Mapping[str, object],
         spec_path: str = "SPEC.md",
-    ):
+    ) -> None:
         """[Cavekit] Backprop Reflex:
 
         실패한 검증 결과를 SPEC.md의 불변 규칙(§V Invariants)이나
@@ -735,7 +780,8 @@ class GoalRunner:
         if verification_results.get("verified", True):
             return
 
-        failures = verification_results.get("failures", [])
+        failures_value = verification_results.get("failures", [])
+        failures = cast(list[_VerificationFailure], failures_value)
         if not failures:
             return
 
@@ -744,12 +790,12 @@ class GoalRunner:
         mode = "a" if os.path.exists(spec_path) else "w"
         with open(spec_path, mode, encoding="utf-8") as f:
             if mode == "w":
-                f.write("# Autonomous Execution Spec\\n\\n")
+                _ = f.write("# Autonomous Execution Spec\\n\\n")
 
-            f.write("\\n## §B Bugs / Invariants (Auto-Backprop)\\n")
-            f.write(f"Goal: {report.normalized_objective}\\n")
+            _ = f.write("\\n## §B Bugs / Invariants (Auto-Backprop)\\n")
+            _ = f.write(f"Goal: {report.normalized_objective}\\n")
             for fail in failures:
-                check_name = fail.get("check", "Unknown")
-                error_msg = fail.get("error", "").replace("\\n", " ")
-                f.write(f"- [FAILED] {check_name}: {error_msg}\\n")
-            f.write("\\n")
+                check_name = fail["check"]
+                error_msg = fail["error"].replace("\\n", " ")
+                _ = f.write(f"- [FAILED] {check_name}: {error_msg}\\n")
+            _ = f.write("\\n")

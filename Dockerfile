@@ -1,4 +1,4 @@
-# Antigravity-K — Production Docker Image
+# Ssak-Ai — Production Docker Image
 #
 # Multi-stage build:
 #   1. Base: Python 3.12 slim (pinned digest)
@@ -68,7 +68,7 @@ RUN pip install --no-deps "." \
     && rm -rf /root/.cache
 
 # Copy dashboard build from builder
-COPY --from=dashboard-builder /app/dashboard/dist/ ./dashboard/dist/
+COPY --from=dashboard-builder /app/dashboard/dist/ ./src/antigravity_k/dashboard_dist/
 
 # Create data directories owned by the non-root user.
 RUN mkdir -p vault_data logs data \
@@ -88,4 +88,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 EXPOSE 8000
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["uvicorn", "antigravity_k.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["agk", "serve", "--host", "0.0.0.0", "--port", "8000"]

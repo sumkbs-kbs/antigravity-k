@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Callable
 
 from antigravity_k.engine.execution_mode import ExecutionMode
 
@@ -118,6 +118,11 @@ class ModeManager:
         return self._plan_artifact_path
 
     @property
+    def plan_quality_passed(self) -> bool:
+        """Plan 품질 검증 통과 여부."""
+        return self._plan_quality_passed
+
+    @property
     def mode_history(self) -> list[ModeTransition]:
         """모드 전이 이력."""
         return list(self._history)
@@ -144,8 +149,23 @@ class ModeManager:
 
         self._record_transition(previous, ExecutionMode.PLAN, reason)
         self._notify_listeners(previous, ExecutionMode.PLAN, reason)
+        self._publish_planning_started(reason)
         logger.info("[ModeManager] PLAN 모드 전환: %s", reason or "사용자 요청")
         return True
+
+    def _publish_planning_started(self, reason: str) -> None:
+        """EventBus로 PlanningModeStarted 이벤트를 발행합니다.
+
+        Dashboard WebSocket(useEventWebSocket)이 이 이벤트를 수신하여
+        에이전트 모니터링 패널에 계획 모드 시작 로그/타임라인을 표시합니다.
+        이벤트 버스 발행은 선택적(non-critical)이므로 실패해도 모드 전환은 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish("PlanningModeStarted", goal=reason or "")
+        except Exception:
+            logger.warning("PlanningModeStarted publish 실패 (non-critical)", exc_info=True)
 
     def switch_to_build(self, plan_artifact_path: str | None = None, reason: str = "") -> bool:
         """Build 모드로 전환합니다.
@@ -238,7 +258,7 @@ class ModeManager:
 
     # ─── 도구 권한 검사 ────────────────────────────────────────────
 
-    def check_tool_permission(self, tool_name: str) -> dict[str, Any]:
+    def check_tool_permission(self, tool_name: str) -> dict[str, object]:
         """현재 모드에서 도구 실행 권한을 검사합니다.
 
         Args:
@@ -301,7 +321,7 @@ class ModeManager:
 
     # ─── 상태 직렬화 ───────────────────────────────────────────────
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """현재 상태를 딕셔너리로 반환합니다."""
         return {
             "current_mode": self._mode.value,
@@ -339,9 +359,7 @@ class ModeManager:
 
         if self._mode == ExecutionMode.PLAN:
             lines.append(
-                "- 읽기 전용 도구(read_file, grep, glob)와 write_artifact만 허용됩니다.\n"
-                "- `implementation_plan.md`를 작성하여 계획을 수립하세요.\n"
-                "- Plan 완료 후 자동으로 BUILD 모드로 전환됩니다.",
+                "- 읽기 전용 도구(read_file, grep, glob)와 write_artifact만 허용됩니다.\n- `implementation_plan.md`를 작성하여 계획을 수립하세요.\n- Plan 완료 후 자동으로 BUILD 모드로 전환됩니다."
             )
         elif self._mode == ExecutionMode.BUILD:
             lines.append("- 모든 도구 실행이 허용됩니다.")

@@ -1,7 +1,62 @@
 """통합 테스트: Orchestrator에 RAG/CoV 파이프라인이 연결되었는지 검증합니다."""
 
+from collections.abc import Callable, Iterator, Mapping
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
+
+import pytest
+
+
+class _RagIndexerDouble:
+    def __init__(self, result: str) -> None:
+        self.result: str = result
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def format_context(self, query: str, **kwargs: object) -> str:
+        self.calls.append((query, dict(kwargs)))
+        return self.result
+
+
+class _CovManagerDouble:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, object]]] = []
+        self.verification_calls: int = 0
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str:
+        self.calls.append((prompt, target, dict(kwargs)))
+        if "문제점만 명확하게" in prompt:
+            self.verification_calls += 1
+            if self.verification_calls == 1:
+                return "1. 사실 오류가 있습니다.\n2. 논리 문제가 있습니다.\n3. 보안 문제가 있습니다."
+            return "문제 없음"
+        return "개선된 답변입니다. " * 12
+
+
+def _orchestrator() -> MagicMock:
+    orch = MagicMock()
+    ki_engine = MagicMock()
+    _ = setattr(ki_engine, "build_ki_prompt", MagicMock(return_value=""))
+    _ = setattr(orch, "ctx", SimpleNamespace(ki_engine=ki_engine))
+    _ = setattr(orch, "vault_engine", None)
+    _ = setattr(orch, "project_root", "/tmp")
+    return orch
+
+
+def _cov_handler() -> Callable[..., Iterator[str]]:
+    from antigravity_k.engine import orchestrator_handlers
+
+    return cast(Callable[..., Iterator[str]], cast(object, getattr(orchestrator_handlers, "cov_verify_handler")))
+
+
+def _private_mapping(value: object, name: str) -> Mapping[object, object]:
+    return cast(Mapping[object, object], getattr(value, name))
+
+
+def _consume_optional_output(value: object) -> None:
+    if value is None:
+        return
+    _ = list(cast(Iterator[object], value))
 
 
 class TestOrchestratorRAGIntegration:
@@ -20,18 +75,15 @@ class TestOrchestratorRAGIntegration:
             custom_messages=list(msgs),  # init_handler가 설정하는 값
         )
 
-        orch = MagicMock()
-        orch.ctx.ki_engine.build_ki_prompt.return_value = ""
-        orch.vault_engine = None
-        orch.project_root = "/tmp"
+        orch = _orchestrator()
 
         # RAGIndexer가 없을 때도 에러 없이 진행
         if hasattr(orch, "_rag_indexer"):
-            del orch._rag_indexer
+            delattr(orch, "_rag_indexer")
 
         # context_enrich_handler는 yield 없이 끝날 수 있으므로 gen or []
         gen = context_enrich_handler(ctx, orch)
-        list(gen if gen is not None else [])
+        _consume_optional_output(gen)
         # rag_context가 설정되었는지 확인 (빈 문자열이어도 OK)
         assert hasattr(ctx, "rag_context")
 
@@ -48,27 +100,47 @@ class TestOrchestratorRAGIntegration:
             custom_messages=list(msgs),  # init_handler가 설정하는 값
         )
 
-        mock_indexer = MagicMock()
-        mock_indexer.format_context.return_value = "<relevant_code>\ndef vault_init(): pass\n</relevant_code>"
-
-        orch = MagicMock()
-        orch.ctx.ki_engine.build_ki_prompt.return_value = ""
-        orch.vault_engine = None
-        orch.project_root = "/tmp"
-        orch._rag_indexer = mock_indexer
+        orch = _orchestrator()
+        _ = setattr(orch, "_rag_indexer", _RagIndexerDouble("<relevant_code>\ndef vault_init(): pass\n</relevant_code>"))
 
         gen = context_enrich_handler(ctx, orch)
-        list(gen if gen is not None else [])
+        _consume_optional_output(gen)
         assert "<relevant_code>" in ctx.rag_context
         assert "vault_init" in ctx.rag_context
-        mock_indexer.format_context.assert_called_once_with("vault engine 구조 분석")
+        assert cast(_RagIndexerDouble, getattr(orch, "_rag_indexer")).calls == [(user_msg, {})]
+
+    def test_context_enrich_selects_long_context_retrieval_plan(self):
+        from antigravity_k.engine.orchestrator_handlers import context_enrich_handler
+        from antigravity_k.engine.state_graph import StateContext
+
+        user_msg = "long context retrieval"
+        ctx = StateContext(
+            messages=[{"role": "user", "content": user_msg}],
+            user_message=user_msg,
+            target_model="qwen3.8:27b",
+            custom_messages=[{"role": "user", "content": user_msg}],
+        )
+        rag_indexer = _RagIndexerDouble("<relevant_code>needle</relevant_code>")
+        orch = _orchestrator()
+        _ = setattr(orch, "_rag_indexer", rag_indexer)
+        manager = MagicMock()
+        _ = setattr(manager, "long_context_plan", MagicMock(return_value={
+            "strategy": "retrieval_fallback",
+            "retrieval_mode": "long_context",
+            "candidate_pool": 64,
+        }))
+        _ = setattr(orch, "manager", manager)
+
+        context_enrich_handler(ctx, orch)
+
+        assert rag_indexer.calls == [(user_msg, {"n_results": 5, "mode": "long_context", "candidate_pool": 64})]
 
     def test_rag_recall_benchmark(self):
         """RAG 인덱서가 관련된 코드를 상위 5개(recall@5) 이내에 반환하는지 벤치마크 테스트합니다."""
         from antigravity_k.engine.rag_indexer import CodeChunk, RAGIndexer
 
         # 1. 100개의 더미 청크와 1개의 타겟 청크 생성
-        chunks = []
+        chunks: list[object] = []
         for i in range(100):
             chunks.append(
                 CodeChunk(
@@ -95,10 +167,10 @@ class TestOrchestratorRAGIntegration:
 
         # 2. Mock VectorStore 구현
         class MockVectorStore:
-            def search(self, query, n_results=5):
+            def search(self, query: str, n_results: int = 5) -> list[dict[str, object]]:
                 # "oauth 토큰 검증" 쿼리가 들어오면, 타겟 청크를 상위 5개 안에 포함시킴 (단순 텍스트 매칭 시뮬레이션)
                 if "oauth" in query.lower() or "토큰" in query:
-                    return [
+                    return cast(list[dict[str, object]], cast(object, [
                         {
                             "id": "chunk_1",
                             "text": "...",
@@ -129,13 +201,13 @@ class TestOrchestratorRAGIntegration:
                             "text": "...",
                             "metadata": {"source": "d.py"},
                         },
-                    ][:n_results]
+                    ][:n_results]))
                 return []
 
-        indexer = RAGIndexer(project_root="/tmp", vector_store=MockVectorStore())
+        indexer = RAGIndexer(project_root="/tmp", vector_store=cast(object, MockVectorStore()))
 
         # 3. Recall@5 검증
-        results = indexer.search("OAuth 토큰 검증 함수 어디있어?", n_results=5)
+        results = cast(list[Mapping[str, object]], indexer.search("OAuth 토큰 검증 함수 어디있어?", n_results=5))
 
         assert len(results) <= 5
         found = any(r.get("id") == "target_chunk" for r in results)
@@ -147,7 +219,6 @@ class TestOrchestratorCoVIntegration:
 
     def test_cov_verify_skips_short_output(self):
         """짧은 agent_output은 CoV를 스킵하는지 확인."""
-        from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
         from antigravity_k.engine.state_graph import StateContext
 
         ctx = StateContext(
@@ -156,13 +227,12 @@ class TestOrchestratorCoVIntegration:
             agent_output="짧은 응답",
         )
 
-        orch = MagicMock()
-        result = list(cov_verify_handler(ctx, orch))
+        orch = _orchestrator()
+        result = list(_cov_handler()(ctx, orch))
         assert len(result) == 0  # 출력 없이 스킵
 
     def test_cov_verify_detects_syntax_error(self):
         """구문 오류가 있는 코드 응답에서 자기검증이 작동하는지 확인."""
-        from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
         from antigravity_k.engine.state_graph import StateContext
 
         broken_code = (
@@ -180,18 +250,17 @@ class TestOrchestratorCoVIntegration:
             agent_output=broken_code,
         )
 
-        orch = MagicMock()
+        orch = _orchestrator()
         if hasattr(orch, "_cov_engine"):
-            del orch._cov_engine
+            delattr(orch, "_cov_engine")
 
-        result = list(cov_verify_handler(ctx, orch))
+        result = list(_cov_handler()(ctx, orch))
         output = "".join(result)
         assert "자기검증" in output
         assert "구문 오류" in output
 
     def test_cov_verify_passes_clean_code(self):
         """유효한 코드 응답은 검증을 통과하는지 확인."""
-        from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
         from antigravity_k.engine.state_graph import StateContext
 
         valid_response = (
@@ -211,16 +280,15 @@ class TestOrchestratorCoVIntegration:
         )
         original_output = ctx.agent_output
 
-        orch = MagicMock()
+        orch = _orchestrator()
         if hasattr(orch, "_cov_engine"):
-            del orch._cov_engine
+            delattr(orch, "_cov_engine")
 
-        list(cov_verify_handler(ctx, orch))
+        _ = list(_cov_handler()(ctx, orch))
         # 유효한 코드는 수정되지 않아야 함
         assert ctx.agent_output == original_output
 
     def test_cov_verify_rejects_uncited_claim_when_search_evidence_exists(self):
-        from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
         from antigravity_k.engine.state_graph import StateContext
 
         ctx = StateContext(
@@ -234,18 +302,18 @@ class TestOrchestratorCoVIntegration:
             ),
         )
 
-        orch = MagicMock()
+        orch = _orchestrator()
         if hasattr(orch, "_cov_engine"):
-            del orch._cov_engine
+            delattr(orch, "_cov_engine")
 
-        output = "".join(cov_verify_handler(ctx, orch))
+        output = "".join(_cov_handler()(ctx, orch))
 
         assert "근거 검증" in output
         assert ctx.validation_passed is False
-        assert ctx.analysis["citation_evaluation"]["unsupported_claim_count"] == 1
+        citation_evaluation = cast(dict[str, object], ctx.analysis["citation_evaluation"])
+        assert citation_evaluation["unsupported_claim_count"] == 1
 
-    def test_cov_verify_fails_closed_when_verifier_raises(self, monkeypatch):
-        from antigravity_k.engine import orchestrator_handlers
+    def test_cov_verify_fails_closed_when_verifier_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from antigravity_k.engine.state_graph import StateContext
 
         ctx = StateContext(
@@ -254,42 +322,28 @@ class TestOrchestratorCoVIntegration:
         )
 
         class BrokenCov:
-            def __init__(self, **kwargs):
-                pass
+            def __init__(self, **kwargs: object) -> None:
+                _ = kwargs
 
-            def run(self, user_message, agent_output):
+            def run(self, user_message: str, agent_output: str) -> None:
+                _ = user_message
+                _ = agent_output
                 raise RuntimeError("verifier unavailable")
 
-        monkeypatch.setattr(
+        _ = monkeypatch.setattr(
             "antigravity_k.engine.chain_of_verification.ChainOfVerification",
             BrokenCov,
         )
 
-        output = "".join(orchestrator_handlers.cov_verify_handler(ctx, SimpleNamespace()))
+        output = "".join(_cov_handler()(ctx, SimpleNamespace()))
 
         assert "자기검증 실패" in output
         assert ctx.validation_passed is False
         assert ctx.analysis["cov_error"] == "verification_failed"
 
     def test_cov_verify_revises_with_local_manager(self):
-        from antigravity_k.engine.orchestrator_handlers import cov_verify_handler
         from antigravity_k.engine.state_graph import StateContext
-
-        class FakeManager:
-            def __init__(self):
-                self.calls = []
-                self.verification_calls = 0
-
-            def generate(self, prompt, target, **kwargs):
-                self.calls.append((prompt, target, kwargs))
-                if "문제점만 명확하게" in prompt:
-                    self.verification_calls += 1
-                    if self.verification_calls == 1:
-                        return "1. 사실 오류가 있습니다.\n2. 논리 문제가 있습니다.\n3. 보안 문제가 있습니다."
-                    return "문제 없음"
-                return "개선된 답변입니다. " * 12
-
-        manager = FakeManager()
+        manager = _CovManagerDouble()
         original_output = "초안 답변입니다. " * 20
         ctx = StateContext(
             messages=[{"role": "user", "content": "architecture design"}],
@@ -297,7 +351,7 @@ class TestOrchestratorCoVIntegration:
             agent_output=original_output,
         )
 
-        result = list(cov_verify_handler(ctx, SimpleNamespace(manager=manager)))
+        result = list(_cov_handler()(ctx, SimpleNamespace(manager=manager)))
 
         assert len(manager.calls) >= 3
         assert all(call[1] == "qwen3.6:latest" for call in manager.calls)
@@ -324,26 +378,25 @@ class TestStateGraphCoVWiring:
 
         graph = build_orchestrator_graph()
         # AGENT_EXECUTE의 다음 상태가 COV_VERIFY인지 확인
-        assert graph._edges.get(AgentState.AGENT_EXECUTE) == AgentState.COV_VERIFY
+        edges = _private_mapping(graph, "_edges")
+        assert edges.get(AgentState.AGENT_EXECUTE) == AgentState.COV_VERIFY
         # COV_VERIFY → CODE_REVIEW
-        assert graph._edges.get(AgentState.COV_VERIFY) == AgentState.CODE_REVIEW
+        assert edges.get(AgentState.COV_VERIFY) == AgentState.CODE_REVIEW
         # CODE_REVIEW → QUALITY_CHECK
-        assert graph._edges.get(AgentState.CODE_REVIEW) == AgentState.QUALITY_CHECK
+        assert edges.get(AgentState.CODE_REVIEW) == AgentState.QUALITY_CHECK
 
         # QUALITY_CHECK가 조건부 엣지를 가지는지 확인
-        assert AgentState.QUALITY_CHECK in graph._conditional_edges
+        assert AgentState.QUALITY_CHECK in _private_mapping(graph, "_conditional_edges")
 
     def test_cov_verify_handler_registered(self):
         """COV_VERIFY 노드에 핸들러가 등록되었는지 확인."""
-        from antigravity_k.engine.orchestrator_handlers import (
-            build_orchestrator_graph,
-            cov_verify_handler,
-        )
+        from antigravity_k.engine.orchestrator_handlers import build_orchestrator_graph
         from antigravity_k.engine.state_graph import AgentState
 
         graph = build_orchestrator_graph()
-        assert AgentState.COV_VERIFY in graph._nodes
-        assert graph._nodes[AgentState.COV_VERIFY] == cov_verify_handler
+        nodes = _private_mapping(graph, "_nodes")
+        assert AgentState.COV_VERIFY in nodes
+        assert nodes[AgentState.COV_VERIFY] == _cov_handler()
 
     def test_state_graph_error_recovery_loop(self):
         """Phase 5: 검증 실패 시 QUALITY_CHECK에서 AGENT_EXECUTE로 루프백하는지 확인."""
@@ -365,16 +418,16 @@ class TestStateGraphCoVWiring:
         graph = build_orchestrator_graph()
 
         # 2. QUALITY_CHECK 실행 및 루프백 검증
-        handler = graph._nodes[AgentState.QUALITY_CHECK]
+        handler = cast(Callable[..., Iterator[str]], _private_mapping(graph, "_nodes")[AgentState.QUALITY_CHECK])
         gen = handler(ctx, None)
-        output = "".join(list(gen))
+        output = "".join(gen)
 
         assert "에러 복구 루프" in output
         assert ctx.retry_count == 1
-        assert ctx._loop_back is True
+        assert getattr(ctx, "_loop_back") is True
 
         # 3. 조건부 엣지 함수 검증
-        decision_fn = graph._conditional_edges[AgentState.QUALITY_CHECK]
+        decision_fn = cast(Callable[..., object], _private_mapping(graph, "_conditional_edges")[AgentState.QUALITY_CHECK])
         next_state = decision_fn(ctx)
 
         assert next_state == AgentState.AGENT_EXECUTE
@@ -382,13 +435,13 @@ class TestStateGraphCoVWiring:
         # 4. 루프 한계 도달 검증
         ctx.validation_passed = False
         ctx.retry_count = 3
-        ctx._loop_back = False
+        setattr(ctx, "_loop_back", False)
 
         gen = handler(ctx, None)
-        output = "".join(list(gen))
+        output = "".join(gen)
 
         assert "최대 재시도" in output
-        assert ctx._loop_back is False
+        assert getattr(ctx, "_loop_back") is False
 
         next_state = decision_fn(ctx)
         assert next_state == AgentState.MEMORY_SAVE
@@ -408,12 +461,14 @@ class TestCoVStateGraphEndToEnd:
 
         graph = build_orchestrator_graph()
         # COV_VERIFY 노드가 cov_verify_handler에 등록되어 있다.
-        assert AgentState.COV_VERIFY in graph._nodes
-        assert graph._nodes[AgentState.COV_VERIFY].__name__ == "cov_verify_handler"
+        nodes = _private_mapping(graph, "_nodes")
+        assert AgentState.COV_VERIFY in nodes
+        assert getattr(nodes[AgentState.COV_VERIFY], "__name__") == "cov_verify_handler"
 
         # AGENT_EXECUTE -> COV_VERIFY -> CODE_REVIEW 전이가 살아있다.
-        assert graph._edges.get(AgentState.AGENT_EXECUTE) == AgentState.COV_VERIFY
-        assert graph._edges.get(AgentState.COV_VERIFY) == AgentState.CODE_REVIEW
+        edges = _private_mapping(graph, "_edges")
+        assert edges.get(AgentState.AGENT_EXECUTE) == AgentState.COV_VERIFY
+        assert edges.get(AgentState.COV_VERIFY) == AgentState.CODE_REVIEW
 
     def test_cov_verify_entry_executes_handler(self):
         # COV_VERIFY를 entry로 설정하면 핸들러가 실제 실행된다.
@@ -421,8 +476,8 @@ class TestCoVStateGraphEndToEnd:
         from antigravity_k.engine.state_graph import AgentState, StateContext
 
         graph = build_orchestrator_graph()
-        graph.set_entry(AgentState.COV_VERIFY)
-        assert graph._entry_state == AgentState.COV_VERIFY
+        _ = graph.set_entry(AgentState.COV_VERIFY)
+        assert getattr(graph, "_entry_state") == AgentState.COV_VERIFY
 
         # 짧은 응답이면 핸들러가 즉시 반환하지만 노드는 통과한다.
         ctx = StateContext(
@@ -430,11 +485,12 @@ class TestCoVStateGraphEndToEnd:
             user_message="hi",
             agent_output="짧은 응답",
         )
-        orch = MagicMock()
+        orch = _orchestrator()
         if hasattr(orch, "_cov_engine"):
-            del orch._cov_engine
+            delattr(orch, "_cov_engine")
 
         # 핸들러가 예외 없이 실행되는지 (짧은 응답이라 검증은 스킵).
-        list(graph.execute(ctx, orchestrator=orch))
+        execute = cast(Callable[..., Iterator[str]], cast(object, getattr(graph, "execute")))
+        _ = list(execute(ctx, orchestrator=orch))
         # 짧은 응답이므로 cov_engine은 생성되지 않고 정상 통과해야 한다.
         assert ctx.current_state in (AgentState.COMPLETE, AgentState.CODE_REVIEW, AgentState.ERROR)

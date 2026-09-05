@@ -1,7 +1,7 @@
 """MemoryProvider — 플러그인 기반 에이전트 메모리 시스템.
 
 =====================================================
-Hermes Agent의 memory_manager.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 memory_manager.py 패턴을 Ssak-Ai에 이식.
 
 아키텍처:
 - MemoryProvider (ABC): 메모리 제공자 인터페이스
@@ -26,14 +26,16 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import ClassVar, Protocol, TypedDict, cast, override
 
 from antigravity_k.engine.memory_conflicts import (
     MemoryRecallFragment,
     resolve_memory_conflicts,
     resolve_memory_fact_winners,
 )
+from antigravity_k.engine.memory_contracts import JsonValue, ProjectMemoryBindingError
 from antigravity_k.engine.memory_contracts import (
     MemoryFact as MemoryFact,
 )
@@ -43,7 +45,6 @@ from antigravity_k.engine.memory_contracts import (
 from antigravity_k.engine.memory_contracts import (
     MemoryScope as MemoryScope,
 )
-from antigravity_k.engine.memory_contracts import ProjectMemoryBindingError
 from antigravity_k.engine.memory_contracts import (
     normalize_memory_scope as normalize_memory_scope,
 )
@@ -51,6 +52,49 @@ from antigravity_k.engine.memory_importance import rank_facts
 from antigravity_k.engine.project_memory import ProjectMemoryProvider
 
 logger = logging.getLogger("antigravity_k.engine.memory_provider")
+
+
+class _SessionManagerPort(Protocol):
+    def get_working_memory(self) -> dict[str, object]: ...
+
+    def add_turn(self, *, role: str, content: str) -> None: ...
+
+    def start_session(self, project_path: str | None = None, resume: bool = True) -> str: ...
+
+    def clear_memory(self, scope: MemoryScope) -> int: ...
+
+    def export_memory(self, scope: MemoryScope) -> list[dict[str, JsonValue]]: ...
+
+    def redact_memory(self, scope: MemoryScope) -> int: ...
+
+    def apply_retention(self, max_age_days: int) -> int: ...
+
+
+class _Episode(TypedDict):
+    user: str
+    assistant: str
+    timestamp: str
+    metadata: dict[str, JsonValue]
+
+
+def _coerce_episode(value: object) -> _Episode | None:
+    if not isinstance(value, dict):
+        return None
+    record = cast(dict[str, object], value)
+    user = record.get("user")
+    assistant = record.get("assistant")
+    timestamp = record.get("timestamp")
+    metadata = record.get("metadata", {})
+    if not isinstance(user, str) or not isinstance(assistant, str) or not isinstance(timestamp, str):
+        return None
+    if not isinstance(metadata, dict):
+        metadata = {}
+    return {
+        "user": user,
+        "assistant": assistant,
+        "timestamp": timestamp,
+        "metadata": cast(dict[str, JsonValue], metadata),
+    }
 
 
 def _ko_stems(text: str) -> set[str]:
@@ -134,16 +178,17 @@ class BuiltinMemoryProvider(MemoryProvider):
     MemoryManager의 통합 라이프사이클에 참여할 수 있게 합니다.
     """
 
-    def __init__(self, session_manager):
+    def __init__(self, session_manager: _SessionManagerPort) -> None:
         """Initialize the BuiltinMemoryProvider.
 
         Args:
             session_manager: session manager.
 
         """
-        self._session_manager = session_manager
+        self._session_manager: _SessionManagerPort = session_manager
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -153,6 +198,7 @@ class BuiltinMemoryProvider(MemoryProvider):
         """
         return "builtin"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         """Working Memory에서 관련 기억을 회상합니다."""
         try:
@@ -162,7 +208,7 @@ class BuiltinMemoryProvider(MemoryProvider):
 
             # 쿼리 키워드 기반 단순 필터링
             query_lower = query.lower()
-            relevant = []
+            relevant: list[str] = []
             for key, value in memories.items():
                 if query_lower in str(key).lower() or query_lower in str(value).lower():
                     relevant.append(f"- {key}: {value}")
@@ -180,12 +226,13 @@ class BuiltinMemoryProvider(MemoryProvider):
             logger.debug("BuiltinMemoryProvider.prefetch error: %s", e)
             return ""
 
+    @override
     def sync_turn(
         self,
         user_message: str,
         assistant_response: str,
         *,
-        metadata: dict[str, Any] | None = None,
+        metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """턴 정보를 SessionManager에 동기화합니다."""
         try:
@@ -195,32 +242,37 @@ class BuiltinMemoryProvider(MemoryProvider):
             logger.exception("Unhandled exception")
             logger.debug("BuiltinMemoryProvider.sync_turn error: %s", e)
 
+    @override
     def on_session_switch(self, new_session_id: str) -> None:
         """세션 전환 시 SessionManager의 세션을 전환합니다."""
         try:
-            self._session_manager.start_session(resume=True)
+            _ = self._session_manager.start_session(resume=True)
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("BuiltinMemoryProvider.on_session_switch error: %s", e)
 
+    @override
     def clear(self, scope: MemoryScope = "all") -> int:
         scope = normalize_memory_scope(scope)
         if scope in ("session", "working", "all"):
             return self._session_manager.clear_memory(scope)
         return 0
 
-    def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
+    @override
+    def export(self, scope: MemoryScope = "all") -> list[dict[str, JsonValue]]:
         normalized = normalize_memory_scope(scope)
         if normalized == "project":
             return []
         return self._session_manager.export_memory(normalized)
 
+    @override
     def redact(self, scope: MemoryScope = "all") -> int:
         normalized = normalize_memory_scope(scope)
         if normalized == "project":
             return 0
         return self._session_manager.redact_memory(normalized)
 
+    @override
     def apply_retention(self, max_age_days: int) -> int:
         return self._session_manager.apply_retention(max_age_days)
 
@@ -238,13 +290,13 @@ class MemoryManager:
     - sync_all(): 모든 제공자에 턴 동기화
     """
 
-    MAX_EXTERNAL_PROVIDERS = 1
+    MAX_EXTERNAL_PROVIDERS: ClassVar[int] = 1
 
     def __init__(self, project_root: str | None = None) -> None:
         """Initialize the MemoryManager."""
         self._providers: list[MemoryProvider] = []
-        self._external_count = 0
-        self._project_root = Path(project_root).resolve() if project_root is not None else None
+        self._external_count: int = 0
+        self._project_root: Path | None = Path(project_root).resolve() if project_root is not None else None
 
     @property
     def project_root(self) -> Path | None:
@@ -280,8 +332,7 @@ class MemoryManager:
         if provider.is_external:
             if self._external_count >= self.MAX_EXTERNAL_PROVIDERS:
                 raise ValueError(
-                    f"외부 메모리 제공자는 최대 {self.MAX_EXTERNAL_PROVIDERS}개만 "
-                    f"등록할 수 있습니다. 현재: {self._external_count}",
+                    f"외부 메모리 제공자는 최대 {self.MAX_EXTERNAL_PROVIDERS}개만 등록할 수 있습니다. 현재: {self._external_count}",
                 )
             self._external_count += 1
 
@@ -388,7 +439,7 @@ class MemoryManager:
         user_message: str,
         assistant_response: str,
         *,
-        metadata: dict[str, Any] | None = None,
+        metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """모든 제공자에 턴 데이터를 동기화합니다."""
         for provider in self._providers:
@@ -423,13 +474,13 @@ class MemoryManager:
         normalized_scope = normalize_memory_scope(scope)
         return {provider.name: provider.clear(normalized_scope) for provider in self._providers}
 
-    def export(self, scope: str = "all") -> dict[str, Any]:
+    def export(self, scope: str = "all") -> dict[str, object]:
         normalized_scope = normalize_memory_scope(scope)
         from datetime import UTC, datetime
 
         from antigravity_k.engine.secret_scanner import redact_full
 
-        def redact_value(value):
+        def redact_value(value: JsonValue) -> JsonValue:
             if isinstance(value, str):
                 return redact_full(value)
             if isinstance(value, dict):
@@ -442,7 +493,8 @@ class MemoryManager:
             "scope": normalized_scope,
             "exported_at": datetime.now(UTC).isoformat(),
             "providers": {
-                provider.name: redact_value(provider.export(normalized_scope)) for provider in self._providers
+                provider.name: redact_value(cast(JsonValue, provider.export(normalized_scope)))
+                for provider in self._providers
             },
         }
 
@@ -476,12 +528,13 @@ class MemoryManager:
             deleter = getattr(provider, "delete_entry", None)
             if deleter is None:
                 return False
-            return bool(deleter(key))
+            delete_fn = cast(Callable[[str], object], deleter)
+            return bool(delete_fn(key))
         return False
 
-    def get_all_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_all_tool_schemas(self) -> list[dict[str, JsonValue]]:
         """모든 제공자의 도구 스키마를 수집합니다."""
-        schemas = []
+        schemas: list[dict[str, JsonValue]] = []
         for provider in self._providers:
             try:
                 schemas.extend(provider.get_tool_schemas())
@@ -489,7 +542,7 @@ class MemoryManager:
                 logger.exception("Tool schema error [%s]", provider.name)
         return schemas
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> dict[str, JsonValue]:
         """메모리 시스템 통계를 반환합니다."""
         return {
             "total_providers": len(self._providers),
@@ -525,17 +578,18 @@ class EpisodicMemoryProvider(MemoryProvider):
         """
         import os
 
-        self._episodes: list[dict[str, Any]] = []
-        self._max_episodes = max_episodes
-        self._decay_threshold = decay_threshold
+        self._episodes: list[_Episode] = []
+        self._max_episodes: int = max_episodes
+        self._decay_threshold: float = decay_threshold
         self._access_counts: dict[int, int] = {}  # episode_id → access count
         # 작업 3: 디스크 영속화 — 재시작 후에도 에피소드 유지
-        self._persist_dir = persist_dir or os.path.join(os.path.expanduser("~"), ".antigravity-k", "memory")
-        self._persist_path = os.path.join(self._persist_dir, "episodes.json")
+        self._persist_dir: str = persist_dir or os.path.join(os.path.expanduser("~"), ".antigravity-k", "memory")
+        self._persist_path: str = os.path.join(self._persist_dir, "episodes.json")
         os.makedirs(self._persist_dir, exist_ok=True)
         self._load()
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -545,13 +599,14 @@ class EpisodicMemoryProvider(MemoryProvider):
         """
         return "episodic"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         """쿼리와 관련된 과거 에피소드를 회상합니다."""
         if not self._episodes:
             return ""
 
         query_lower = query.lower()
-        scored = []
+        scored: list[tuple[float, int, _Episode]] = []
 
         for i, ep in enumerate(self._episodes):
             score = 0.0
@@ -603,17 +658,18 @@ class EpisodicMemoryProvider(MemoryProvider):
 
         return "\n".join(lines)
 
+    @override
     def sync_turn(
         self,
         user_message: str,
         assistant_response: str,
         *,
-        metadata: dict[str, Any] | None = None,
+        metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """대화 턴을 에피소드로 저장합니다."""
         from datetime import datetime as _dt
 
-        episode = {
+        episode: _Episode = {
             "user": user_message,
             "assistant": assistant_response,
             "timestamp": _dt.now().isoformat(),
@@ -627,6 +683,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         else:
             self._save()  # 작업 3: 디스크 영속화
 
+    @override
     def clear(self, scope: MemoryScope = "all") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("session", "all"):
@@ -647,21 +704,21 @@ class EpisodicMemoryProvider(MemoryProvider):
             return False
         if idx < 0 or idx >= len(self._episodes):
             return False
-        self._episodes.pop(idx)
-        self._access_counts.pop(idx, None)
+        _ = self._episodes.pop(idx)
+        _ = self._access_counts.pop(idx, None)
         # pop 이후 인덱스가 앞당겨진 항목들의 접근 횟수 보정
-        self._access_counts = {
-            i - 1 if i > idx else i: count for i, count in self._access_counts.items()
-        }
+        self._access_counts = {i - 1 if i > idx else i: count for i, count in self._access_counts.items()}
         self._save()
         return True
 
-    def export(self, scope: MemoryScope = "all") -> list[dict[str, Any]]:
+    @override
+    def export(self, scope: MemoryScope = "all") -> list[dict[str, JsonValue]]:
         scope = normalize_memory_scope(scope)
         if scope not in ("session", "all"):
             return []
-        return list(self._episodes)
+        return cast(list[dict[str, JsonValue]], [dict(episode) for episode in self._episodes])
 
+    @override
     def redact(self, scope: MemoryScope = "all") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("session", "all"):
@@ -670,7 +727,7 @@ class EpisodicMemoryProvider(MemoryProvider):
 
         changed = 0
 
-        def redact_value(value):
+        def redact_value(value: JsonValue) -> JsonValue:
             nonlocal changed
             if isinstance(value, str):
                 redacted = redact_full(value)
@@ -682,17 +739,20 @@ class EpisodicMemoryProvider(MemoryProvider):
                 return [redact_value(item) for item in value]
             return value
 
-        self._episodes = redact_value(self._episodes)
+        redacted = redact_value(cast(JsonValue, self._episodes))
+        if isinstance(redacted, list):
+            self._episodes = [episode for item in redacted if (episode := _coerce_episode(item)) is not None]
         self._save()
         return changed
 
+    @override
     def apply_retention(self, max_age_days: int) -> int:
         if max_age_days < 0:
             raise ValueError("max_age_days must be non-negative")
         from datetime import UTC, datetime, timedelta
 
         cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
-        kept = []
+        kept: list[_Episode] = []
         deleted = 0
         for episode in self._episodes:
             try:
@@ -717,7 +777,7 @@ class EpisodicMemoryProvider(MemoryProvider):
             return
 
         # 접근 빈도가 낮은 오래된 에피소드부터 제거
-        scored_indices = []
+        scored_indices: list[tuple[float, int]] = []
         for i in range(len(self._episodes)):
             access = self._access_counts.get(i, 0)
             recency = (i + 1) / len(self._episodes)
@@ -733,11 +793,11 @@ class EpisodicMemoryProvider(MemoryProvider):
 
         # 하위 20% 제거
         remove_count = len(self._episodes) - self._max_episodes + int(self._max_episodes * 0.1)
-        remove_indices = set(idx for _, idx in scored_indices[:remove_count])
+        remove_indices: set[int] = {idx for _, idx in scored_indices[:remove_count]}
 
         self._episodes = [ep for i, ep in enumerate(self._episodes) if i not in remove_indices]
         # 접근 카운트 재인덱싱
-        new_counts = {}
+        new_counts: dict[int, int] = {}
         new_idx = 0
         for i in range(len(self._episodes) + remove_count):
             if i not in remove_indices:
@@ -762,14 +822,19 @@ class EpisodicMemoryProvider(MemoryProvider):
             return
         try:
             with open(self._persist_path, encoding="utf-8") as f:
-                data = json.load(f)
+                data = cast(object, json.load(f))
                 if isinstance(data, list):
-                    self._episodes = data[-self._max_episodes :]
+                    items = cast(list[object], data)
+                    self._episodes = [
+                        episode
+                        for item in items[-self._max_episodes :]
+                        if (episode := _coerce_episode(item)) is not None
+                    ]
                     logger.info("[EpisodicMemory] 디스크에서 %s개 에피소드 로드", len(self._episodes))
         except Exception:
             logger.warning("[EpisodicMemory] 로드 실패 (non-critical)", exc_info=True)
 
-    def _save(self):
+    def _save(self) -> None:
         """에피소드를 디스크에 저장합니다 (작업 3)."""
         import json
 
@@ -779,7 +844,7 @@ class EpisodicMemoryProvider(MemoryProvider):
         except Exception:
             logger.warning("[EpisodicMemory] 저장 실패 (non-critical)", exc_info=True)
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> dict[str, JsonValue]:
         """Retrieve stats.
 
         Returns:
@@ -789,7 +854,9 @@ class EpisodicMemoryProvider(MemoryProvider):
         return {
             "total_episodes": len(self._episodes),
             "max_episodes": self._max_episodes,
-            "most_accessed": sorted(self._access_counts.items(), key=lambda x: x[1], reverse=True)[:5],
+            "most_accessed": [
+                list(item) for item in sorted(self._access_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            ],
         }
 
 
@@ -816,9 +883,10 @@ class WorkingMemoryBuffer(MemoryProvider):
         """
         self._turns: list[dict[str, str]] = []
         self._pinned: set[int] = set()  # 고정된 턴 인덱스
-        self._max_turns = max_turns
+        self._max_turns: int = max_turns
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -828,6 +896,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         """
         return "working_memory"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         """워킹 메모리에서 최근 컨텍스트를 반환합니다."""
         if not self._turns:
@@ -841,12 +910,13 @@ class WorkingMemoryBuffer(MemoryProvider):
 
         return "\n".join(lines)
 
+    @override
     def sync_turn(
         self,
         user_message: str,
         assistant_response: str,
         *,
-        metadata: dict[str, Any] | None = None,
+        metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """턴을 워킹 메모리에 추가합니다."""
         self._turns.append({"role": "user", "content": user_message})
@@ -864,7 +934,7 @@ class WorkingMemoryBuffer(MemoryProvider):
                 self._remove_turn(0)
 
     def _remove_turn(self, turn_index: int) -> None:
-        self._turns.pop(turn_index)
+        _ = self._turns.pop(turn_index)
         self._pinned = {index - 1 if index > turn_index else index for index in self._pinned if index != turn_index}
 
     def pin_turn(self, turn_index: int):
@@ -875,6 +945,7 @@ class WorkingMemoryBuffer(MemoryProvider):
         """최근 N개 턴을 반환합니다."""
         return self._turns[-n * 2 :]
 
+    @override
     def clear(self, scope: MemoryScope = "working") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("working", "all"):
@@ -884,12 +955,14 @@ class WorkingMemoryBuffer(MemoryProvider):
         self._pinned.clear()
         return deleted
 
-    def export(self, scope: MemoryScope = "working") -> list[dict[str, Any]]:
+    @override
+    def export(self, scope: MemoryScope = "working") -> list[dict[str, JsonValue]]:
         scope = normalize_memory_scope(scope)
         if scope not in ("working", "all"):
             return []
-        return list(self._turns)
+        return cast(list[dict[str, JsonValue]], [dict(turn) for turn in self._turns])
 
+    @override
     def redact(self, scope: MemoryScope = "working") -> int:
         scope = normalize_memory_scope(scope)
         if scope not in ("working", "all"):

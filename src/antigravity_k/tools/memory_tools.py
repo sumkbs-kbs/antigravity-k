@@ -3,21 +3,51 @@
 import logging
 import os
 import uuid
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Protocol, TypeAlias, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
+ToolValue: TypeAlias = object
+ToolSchema: TypeAlias = dict[str, object]
 
+
+class _VectorStoreLike(Protocol):
+    def upsert_chunks(self, chunks: Sequence[Mapping[str, object]]) -> None: ...
+
+    def search(self, query: str, n_results: int = 5) -> list[dict[str, object]]: ...
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_tags(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast(list[object], value) if isinstance(item, str)]
+
+
+def _as_positive_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and value > 0 else default
+
+
+@final
 class StoreKnowledgeTool(BaseTool):
     """지식을 벡터 저장소에 영구적으로 기록합니다."""
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "💾"
-    tags = ["memory", "knowledge", "save", "store"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "💾"
+    tags: list[str] = ["memory", "knowledge", "save", "store"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
+    project_root: str
+    _vector_store: _VectorStoreLike | None
 
     def __init__(self, project_root: str | None = None):
         """Initialize the StoreKnowledgeTool.
@@ -47,18 +77,22 @@ class StoreKnowledgeTool(BaseTool):
         self.project_root = project_root or os.getcwd()
         self._vector_store = None
 
-    def _get_vector_store(self):
+    def _get_vector_store(self) -> _VectorStoreLike:
         if not self._vector_store:
             from antigravity_k.engine.vector_store import VectorStore
 
             db_path = os.path.join(self.project_root, ".antigravity", "vault_data")
-            self._vector_store = VectorStore(
+            self._vector_store = cast(
+                _VectorStoreLike,
+                VectorStore(
                 persist_directory=db_path,
                 collection_name="agent_knowledge",
+                ),
             )
         return self._vector_store
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -69,6 +103,7 @@ class StoreKnowledgeTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -79,7 +114,8 @@ class StoreKnowledgeTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -88,7 +124,8 @@ class StoreKnowledgeTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -98,17 +135,17 @@ class StoreKnowledgeTool(BaseTool):
             Any: The any result.
 
         """
-        knowledge_text = kwargs.get("knowledge_text", "")
-        tags = kwargs.get("tags", [])
+        knowledge_text = _as_text(kwargs.get("knowledge_text"))
+        tags = _as_tags(kwargs.get("tags"))
 
         try:
             store = self._get_vector_store()
             chunk_id = f"knowledge_{uuid.uuid4().hex[:8]}"
-            metadata = {"type": "agent_knowledge"}
+            metadata: dict[str, object] = {"type": "agent_knowledge"}
             if tags:
                 metadata["tags"] = ", ".join(tags)
 
-            chunk = {"id": chunk_id, "text": knowledge_text, "metadata": metadata}
+            chunk: dict[str, object] = {"id": chunk_id, "text": knowledge_text, "metadata": metadata}
             store.upsert_chunks([chunk])
             return f"Successfully stored knowledge. ID: {chunk_id}"
         except Exception as e:
@@ -116,14 +153,20 @@ class StoreKnowledgeTool(BaseTool):
             return f"Error storing knowledge: {e}"
 
 
+@final
 class SearchKnowledgeTool(BaseTool):
     """벡터 저장소에서 지식을 검색합니다."""
 
-    category = ToolCategory.SEARCH
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.SAFE
-    icon = "🧠"
-    tags = ["memory", "knowledge", "search", "retrieve"]
+    category: ToolCategory = ToolCategory.SEARCH
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.SAFE
+    icon: str = "🧠"
+    tags: list[str] = ["memory", "knowledge", "search", "retrieve"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
+    project_root: str
+    _vector_store: _VectorStoreLike | None
 
     def __init__(self, project_root: str | None = None):
         """Initialize the SearchKnowledgeTool.
@@ -155,18 +198,22 @@ class SearchKnowledgeTool(BaseTool):
         self.project_root = project_root or os.getcwd()
         self._vector_store = None
 
-    def _get_vector_store(self):
+    def _get_vector_store(self) -> _VectorStoreLike:
         if not self._vector_store:
             from antigravity_k.engine.vector_store import VectorStore
 
             db_path = os.path.join(self.project_root, ".antigravity", "vault_data")
-            self._vector_store = VectorStore(
+            self._vector_store = cast(
+                _VectorStoreLike,
+                VectorStore(
                 persist_directory=db_path,
                 collection_name="agent_knowledge",
+                ),
             )
         return self._vector_store
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -177,6 +224,7 @@ class SearchKnowledgeTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -187,7 +235,8 @@ class SearchKnowledgeTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -196,7 +245,8 @@ class SearchKnowledgeTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -206,8 +256,8 @@ class SearchKnowledgeTool(BaseTool):
             Any: The any result.
 
         """
-        query = kwargs.get("query", "")
-        max_results = kwargs.get("max_results", 5)
+        query = _as_text(kwargs.get("query"))
+        max_results = _as_positive_int(kwargs.get("max_results"), 5)
 
         try:
             store = self._get_vector_store()

@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Protocol, cast
 
 # 프로젝트 루트 경로 추가
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
@@ -9,13 +10,21 @@ from antigravity_k.tools.artifact_tools import WriteArtifactTool
 from antigravity_k.tools.cowork_delegate import CoworkDelegateTool
 
 
+class _ExecutableTool(Protocol):
+    def execute(self, **kwargs: object) -> object:
+        ...
+
+
 def test_write_artifact():
     print("=== Testing WriteArtifactTool ===")
     tool = WriteArtifactTool(project_root=os.getcwd())
-    result = tool.execute(
-        artifact_name="test_preview",
-        content="<html><body><h1>Test Preview!</h1></body></html>",
-        artifact_type="html",
+    result = cast(
+        str,
+        cast(_ExecutableTool, tool).execute(
+            artifact_name="test_preview",
+            content="<html><body><h1>Test Preview!</h1></body></html>",
+            artifact_type="html",
+        ),
     )
     print("Result:", result)
     assert "[ARTIFACT GENERATED: test_preview.html (Type: html)]" in result
@@ -33,7 +42,12 @@ def test_cowork_delegate():
 
     # It requires the database to be initialized by BackgroundTaskRunner
     tool = CoworkDelegateTool(project_root=os.getcwd(), model_manager=manager)
-    result = tool.execute(prompt="Please write a quick summary of what you are.", use_worktree=True)
+    result = cast(
+        str,
+        cast(_ExecutableTool, tool).execute(
+            prompt="Please write a quick summary of what you are.", use_worktree=True
+        ),
+    )
     print("Result:", result)
     assert "[COWORK DELEGATED]" in result
 

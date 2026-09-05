@@ -9,7 +9,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Final, final
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +41,14 @@ class DeepSymbolSignature:
     docstring: str
 
 
+@final
 class DeepCodeIndexer:
     """Fast in-memory whole-repository type signature and documentation indexer."""
 
     def __init__(self, project_root: str | Path):
         self.project_root = Path(project_root).resolve()
         self._signatures: dict[str, list[DeepSymbolSignature]] = {}
-        self.index_repo()
+        _ = self.index_repo()
 
     def index_repo(self) -> int:
         """Index all Python files across the repository."""
@@ -91,12 +92,15 @@ class DeepCodeIndexer:
         sigs: list[DeepSymbolSignature] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                params = []
-                for a in node.args.args:
-                    ann = ast.unparse(a.annotation) if getattr(a, "annotation", None) else "Any"
-                    params.append(f"{a.arg}: {ann}")
+                params: list[str] = []
+                default_offset = len(node.args.args) - len(node.args.defaults)
+                for index, a in enumerate(node.args.args):
+                    ann = ast.unparse(a.annotation) if a.annotation is not None else "Any"
+                    default = node.args.defaults[index - default_offset] if index >= default_offset else None
+                    default_text = f" = {ast.unparse(default)}" if default is not None else ""
+                    params.append(f"{a.arg}: {ann}{default_text}")
 
-                ret = ast.unparse(node.returns) if getattr(node, "returns", None) else ""
+                ret = ast.unparse(node.returns) if node.returns is not None else ""
                 doc = ast.get_docstring(node) or ""
 
                 sigs.append(

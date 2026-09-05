@@ -6,28 +6,7 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
-import { Route, Routes } from 'react-router-dom';
 import { usePluginRegistry, firePluginHook } from './pluginRegistry';
-
-/* ─── Plugin Panel Routes ─────────────────────────────────── */
-
-const PluginPanelRoutes: React.FC = () => {
-  const panels = usePluginRegistry(s => s.panels);
-
-  if (panels.length === 0) return null;
-
-  return (
-    <Routes>
-      {panels.map(panel => (
-        <Route
-          key={panel.path}
-          path={panel.path.replace('/plugins/', '')}
-          element={<panel.component />}
-        />
-      ))}
-    </Routes>
-  );
-};
 
 /* ─── Sidebar Plugin Items ────────────────────────────────── */
 
@@ -107,5 +86,3 @@ export const ToolbarWidgetRenderer: React.FC<ToolbarWidgetRendererProps> = ({ po
     </>
   );
 };
-
-export default PluginPanelRoutes;

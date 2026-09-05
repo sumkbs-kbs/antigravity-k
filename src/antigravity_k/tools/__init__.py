@@ -1,8 +1,8 @@
-"""Antigravity-K 도구 시스템 — Claw Code 아키텍처 기반."""
+"""Ssak-Ai 도구 시스템 — Claw Code 아키텍처 기반."""
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
-from .permission_gate import Permission, PermissionGate
-from .tool_contracts import PermissionDecision, ToolInvocation, ToolSpec
+from .permission_gate import PermissionGate
+from .tool_contracts import Permission, PermissionDecision, ToolInvocation, ToolSpec
 from .tool_registry import ToolRegistry
 
 __all__ = [

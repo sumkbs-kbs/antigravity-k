@@ -1,10 +1,10 @@
-# Antigravity-K Architecture
+# Ssak-Ai Architecture
 
 ## 1. Overview
-Antigravity-K is a local-first, autonomous engineering agent system running primarily on Apple Silicon. The system is designed to minimize dependencies on commercial external APIs, relying on a robust, cross-validating MoE (Mixture of Experts) Swarm Architecture.
+Ssak-Ai is a local-first, autonomous engineering agent system running primarily on Apple Silicon. The system is designed to minimize dependencies on commercial external APIs, relying on a robust, cross-validating MoE (Mixture of Experts) Swarm Architecture.
 
 ## 2. The MoE Swarm Architecture
-Unlike traditional systems that assign a single model to a single role (e.g., `WORKER` = `qwen-coder`), Antigravity-K assigns **Swarm Combos** to roles. This ensures that no single model's biases or hallucinations dictate the final outcome.
+Unlike traditional systems that assign a single model to a single role (e.g., `WORKER` = `qwen-coder`), Ssak-Ai assigns **Swarm Combos** to roles. This ensures that no single model's biases or hallucinations dictate the final outcome.
 
 ### Core Swarm Combos
 - **`orchestrator-swarm`** (CEO / Manager): Combines models like `gemma4` and `qwen3.6` to orchestrate tasks with a balanced, global perspective.
@@ -19,7 +19,7 @@ The `ModelRouter` dynamically loads combos from `config.yaml` and executes routi
 - **Load-Balance**: Selects the lightest model available depending on current RAM pressure.
 
 ## 4. Agent Capabilities & Self-Evolution
-Agents within Antigravity-K possess "Tools" allowing them to perform system-level tasks:
+Agents within Ssak-Ai possess "Tools" allowing them to perform system-level tasks:
 - **Config Management**: Dynamically altering `config.yaml` to restructure swarms.
 - **Wiki Exporting**: Synthesizing session learnings and saving them to the user's Obsidian Vault.
 - **Self-Healing**: Scanning codebase health (e.g., namespace hygiene, fixing parser bugs) automatically.
@@ -813,7 +813,7 @@ Phase 18은 Google Tolaria 수준의 고급 마크다운 렌더링을 대시보�
 
 ### 9.1 개요
 
-Antigravity-K의 AI 응답은 복잡한 마크다운 요소(GitHub Alerts, Mermaid, Carousel, 테이블)를 포함합니다. Phase 18은 이러한 요소가 DOM을 깨지 않고, XSS 위험 없이, 시각적으로 아름답게 렌더링되도록 보장합니다.
+Ssak-Ai의 AI 응답은 복잡한 마크다운 요소(GitHub Alerts, Mermaid, Carousel, 테이블)를 포함합니다. Phase 18은 이러한 요소가 DOM을 깨지 않고, XSS 위험 없이, 시각적으로 아름답게 렌더링되도록 보장합니다.
 
 ```
 AI 응답 (원시 마크다운)
@@ -1027,7 +1027,7 @@ Phase 19부터 43까지는 기반 시스템이 완성된 이후의 테스트 강
 | `test_verify_endpoint` 405 | `/api/auth/verify` 엔드포인트 미존재 | `auth_routes.py`에 verify_token() 추가 |
 | `test_import_error` mock 실패 | `sync_playwright`가 함수 내 `from ... import`로 import되어 module attribute mock이 무효 | mock 대상 `playwright.sync_api.sync_playwright`로 변경 |
 | E2E smoke 7건 ConnectionError | 기본 포트 8400이 서버(8000)와 불일치 | 포트 8000으로 변경 (server_process fixture 포함) |
-| E2E health version 누락 | health 응답에 version/engine 키 없음 | legacy.py + agent_api.py health에 `__version__` 추가 |
+| E2E health version 누락 | health 응답에 version/engine 키 없음 | `routes/models_api.py` health에 `__version__` 추가 |
 | E2E CORS OPTIONS 차단 | auth middleware가 OPTIONS preflight를 401 차단 | `verify_access_token`에 `request.method == "OPTIONS"` 조기 반환 |
 
 ### 10.4 Phase 39: P0 0% 커버리지 모듈 테스트

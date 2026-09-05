@@ -6,7 +6,25 @@
  */
 
 import React, { useCallback, useEffect } from 'react';
+import { z } from 'zod';
 import { useEditorStore } from '../../stores/editorStore';
+
+const ArtifactReadResponseSchema = z.object({
+  content: z.string().optional(),
+  error: z.string().optional(),
+}).loose();
+
+type PreviewArtifact = (filePath: string, fileName: string) => Promise<void>;
+
+declare global {
+  interface Window {
+    previewArtifact?: PreviewArtifact;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 const ArtifactPreview: React.FC = () => {
   const { previewVisible, previewTitle, previewContent, hidePreview } = useEditorStore();
@@ -17,11 +35,12 @@ const ArtifactPreview: React.FC = () => {
 
   // Expose previewArtifact globally for formatContent buttons
   useEffect(() => {
-    const original = (window as any).previewArtifact;
-    (window as any).previewArtifact = async (filePath: string, fileName: string) => {
+    const original = window.previewArtifact;
+    window.previewArtifact = async (filePath: string, fileName: string) => {
       try {
         const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
-        const data = await res.json();
+        if (!res.ok) throw new Error(`Preview read failed (${res.status})`);
+        const data = ArtifactReadResponseSchema.parse(await res.json());
         if (data.content) {
           useEditorStore.getState().showPreview(filePath, fileName, data.content);
         } else {
@@ -31,16 +50,16 @@ const ArtifactPreview: React.FC = () => {
             `<h3>Error loading preview</h3><p>${data.error || 'Unknown error'}</p>`
           );
         }
-      } catch (err: any) {
+      } catch (error) {
         useEditorStore.getState().showPreview(
           filePath,
           `Error: ${fileName}`,
-          `<h3>Error fetching preview</h3><p>${err.message}</p>`
+          `<h3>Error fetching preview</h3><p>${errorMessage(error)}</p>`
         );
       }
     };
     return () => {
-      (window as any).previewArtifact = original;
+      window.previewArtifact = original;
     };
   }, []);
 
@@ -90,6 +109,7 @@ const ArtifactPreview: React.FC = () => {
           className="icon-btn"
           style={{ color: '#666' }}
           onClick={handleClose}
+          aria-label="미리보기 닫기"
         >
           ✕
         </button>

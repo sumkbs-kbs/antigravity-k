@@ -3,8 +3,8 @@
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from enum import Enum
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +73,22 @@ class BaseTool(ABC):
         """
         return self.risk_level in (RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL)
 
-    def pre_execute(self, **kwargs) -> str | None:
+    def pre_execute(self, **kwargs: object) -> str | None:
         """도구 실행 전 훅. Claw Code의 pre-flight check 패턴.
 
         None을 반환하면 실행 진행, 문자열을 반환하면 실행 중단 + 오류 메시지.
         서브클래스에서 오버라이드하여 입력 검증, 전제 조건 확인 등에 사용.
         """
+        _ = kwargs
         return None
 
-    def post_execute(self, result: Any, **kwargs) -> Any:
+    def post_execute(self, result: object, **kwargs: object) -> object:
         """도구 실행 후 훅. Claw Code의 result-shaping 패턴.
 
         결과를 가공하거나 로깅하는 데 사용.
         서브클래스에서 오버라이드 가능.
         """
+        _ = kwargs
         return result
 
     @property
@@ -103,7 +105,7 @@ class BaseTool(ABC):
 
     @property
     @abstractmethod
-    def parameters_schema(self) -> dict[str, Any]:
+    def parameters_schema(self) -> Mapping[str, object]:
         """도구 실행에 필요한 매개변수 JSON 스키마.
 
         예:
@@ -118,14 +120,14 @@ class BaseTool(ABC):
         pass
 
     @abstractmethod
-    def execute(self, **kwargs) -> Any:
+    def execute(self, **kwargs: object) -> object:
         """도구를 실제 실행하는 메서드.
 
         매개변수는 kwargs 형태로 전달됩니다.
         """
         pass
 
-    def to_tool_call_schema(self) -> dict[str, Any]:
+    def to_tool_call_schema(self) -> dict[str, object]:
         """LLM(Anthropic/OpenAI)에 전달하기 위한 도구 스키마 포맷으로 변환합니다."""
         return {
             "name": self.name,
@@ -133,7 +135,7 @@ class BaseTool(ABC):
             "input_schema": self.parameters_schema,
         }
 
-    def to_metadata(self) -> dict[str, Any]:
+    def to_metadata(self) -> dict[str, object]:
         """UI/대시보드에 도구 정보를 표시하기 위한 메타데이터를 반환합니다.
 
         tiptap-vuetify의 테마/아이콘 시스템에서 착안.
@@ -148,7 +150,7 @@ class BaseTool(ABC):
             "tags": self.tags,
         }
 
-    def __call__(self, **kwargs) -> str:
+    def __call__(self, **kwargs: object) -> str:
         """Claw Code 스타일 실행 파이프라인:
 
         pre_execute → execute → post_execute

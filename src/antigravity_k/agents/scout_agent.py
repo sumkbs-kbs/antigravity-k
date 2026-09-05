@@ -1,12 +1,33 @@
 """Scout Agent module."""
 
-import json
 import logging
+import os
+import re
+from typing import ClassVar
+
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ..engine.model_manager import ModelManager
 from ..tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+_MEMORY_GB_PATTERN = re.compile(r"(?m)^\s*total_system_gb\s*:\s*['\"]?(?P<value>\d+(?:\.\d+)?)['\"]?\s*$")
+
+
+class _ScoutAddProposal(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+
+    name: str = ""
+    repo: str = ""
+    description: str = ""
+    estimated_memory_gb: float = 0.0
+
+
+class _ScoutResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
+
+    propose_add: _ScoutAddProposal | None = None
+    propose_remove: str | None = None
 
 
 class ScoutAgent:
@@ -24,8 +45,8 @@ class ScoutAgent:
             tool_registry (ToolRegistry): ToolRegistry tool registry.
 
         """
-        self.model_manager = model_manager
-        self.tool_registry = tool_registry
+        self.model_manager: ModelManager = model_manager
+        self.tool_registry: ToolRegistry = tool_registry
 
     def propose_model_scout(self, search_query: str) -> str:
         """웹 검색 도구를 사용하여 모델을 스카우트하고 기안서를 작성합니다.
@@ -37,7 +58,7 @@ class ScoutAgent:
         # 1. 실제로는 WebSearchTool을 내부적으로 호출하여 정보를 수집합니다.
         # 여기서는 AGI Core의 기안서 작성 로직에 집중합니다.
 
-        prompt = f"""You are the ScoutAgent (Headhunter) of Antigravity-K.
+        prompt = f"""You are the ScoutAgent (Headhunter) of Ssak-Ai.
 
 Search query or goal: {search_query}
 
@@ -62,8 +83,6 @@ Generate ONLY a JSON response in the following format:
                 model_id="default",
             )
 
-            import re
-
             clean = response.strip()
             json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean, re.DOTALL)
             if json_match:
@@ -73,47 +92,45 @@ Generate ONLY a JSON response in the following format:
                 end = clean.rfind("}")
                 if start != -1 and end != -1:
                     clean = clean[start : end + 1]
-            data = json.loads(clean.strip())
+            data = _ScoutResponse.model_validate_json(clean.strip())
 
             # Check Memory Constraints
-            if data.get("propose_add"):
-                required_mem = float(data["propose_add"].get("estimated_memory_gb", 0))
-                import os
-
-                import yaml
-
+            if data.propose_add is not None:
+                proposal = data.propose_add
+                required_mem = proposal.estimated_memory_gb
                 config_path = os.path.join(os.getcwd(), "config.yaml")
                 sys_total_mem = 128.0
                 if os.path.exists(config_path):
                     with open(config_path, encoding="utf-8") as f:
-                        cfg = yaml.safe_load(f)
-                        sys_total_mem = float(cfg.get("memory", {}).get("total_system_gb", 128.0))
+                        memory_match = _MEMORY_GB_PATTERN.search(f.read())
+                        if memory_match:
+                            sys_total_mem = float(memory_match.group("value"))
 
                 if required_mem > sys_total_mem * 0.8:  # If required is more than 80% of total system RAM
                     from .hardware_analyst import HardwareAnalystAgent
 
                     analyst = HardwareAnalystAgent(self.model_manager)
-                    hw_report = analyst.propose_upgrade(data["propose_add"]["name"], required_mem)
+                    hw_report = analyst.propose_upgrade(proposal.name, required_mem)
                     return f"⚠️ **ScoutAgent가 초거대 모델을 발견했으나 하드웨어 한계에 부딪혔습니다.**\n\n{hw_report}"
 
             # 2. 기안서(Artifact) 작성 및 승인 대기 (Approval Gate)
             artifact_content = "# 모델 영입 기안서 (Model Recruitment Proposal)\n\n"
-            if data.get("propose_add"):
-                artifact_content += f"## 🌟 영입 제안: {data['propose_add'].get('name')}\n"
-                artifact_content += f"- **저장소:** {data['propose_add'].get('repo')}\n"
-                artifact_content += f"- **예상 메모리:** {data['propose_add'].get('estimated_memory_gb')} GB\n"
-                artifact_content += f"- **사유:** {data['propose_add'].get('description')}\n\n"
+            if data.propose_add is not None:
+                proposal = data.propose_add
+                artifact_content += f"## 🌟 영입 제안: {proposal.name}\n"
+                artifact_content += f"- **저장소:** {proposal.repo}\n"
+                artifact_content += f"- **예상 메모리:** {proposal.estimated_memory_gb} GB\n"
+                artifact_content += f"- **사유:** {proposal.description}\n\n"
 
-            if data.get("propose_remove"):
-                artifact_content += f"## 🗑 해고 제안: {data['propose_remove']}\n"
+            if data.propose_remove:
+                artifact_content += f"## 🗑 해고 제안: {data.propose_remove}\n"
                 artifact_content += "- **사유:** 디스크 및 메모리 최적화를 위해 제거합니다.\n\n"
 
             artifact_content += "\n> [!CAUTION]\n> 이 기안서를 승인(Approve)하시면, 시스템이 백그라운드에서 기가바이트 단위의 모델 다운로드 및 삭제를 진행하며 `config.yaml`"  # noqa: E501
             "코어를 수정합니다. 승인하시겠습니까?\n"
 
-            return f"ScoutAgent가 인터넷을 분석하여 모델 영입 기안서를 작성했습니다. 기안서 내용:\n\n{artifact_content}\n\n[APPROVAL REQUIRED] 사용자의"  # noqa: E501
-            "승인이 필요합니다. 승인 시 Auto-Roster Manager가 작동합니다."
+            return f"ScoutAgent가 인터넷을 분석하여 모델 영입 기안서를 작성했습니다. 기안서 내용:\n\n{artifact_content}\n\n[APPROVAL REQUIRED] 사용자의 승인이 필요합니다. 승인 시 Auto-Roster Manager가 작동합니다."
 
-        except Exception as e:
+        except (OSError, RuntimeError, TypeError, ValueError, ValidationError) as e:
             logger.exception("Unhandled exception")
             return f"ScoutAgent failed to generate proposal: {e}"

@@ -1,16 +1,37 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from antigravity_k.engine.vault_privacy_contracts import VaultPrivacyAction, VaultPrivacyMutation
 
 if TYPE_CHECKING:
-    from antigravity_k.engine.vault import VaultEngine
     from antigravity_k.knowledge.wiki import LLMWiki
+
+
+class _VaultLike(Protocol):
+    vault_path: Path
+    sync_rag: bool
+
+    def parse_markdown(self, content: str) -> tuple[dict[str, object], str]: ...
+
+
+class _VectorStoreLike(Protocol):
+    def delete_file_chunks_strict(self, file_path: str) -> None: ...
+
+    def upsert_chunks(self, chunks: Sequence[Mapping[str, object]]) -> None: ...
+
+
+class _ChunkerLike(Protocol):
+    def chunk_document(
+        self,
+        file_path: str,
+        metadata: Mapping[str, object],
+        content: str,
+    ) -> Sequence[Mapping[str, object]]: ...
 
 
 class DerivativeMetadata(BaseModel):
@@ -22,7 +43,7 @@ class DerivativeMetadata(BaseModel):
 
 
 def sync_vault_privacy_derivatives(
-    vault: VaultEngine,
+    vault: _VaultLike,
     mutation: VaultPrivacyMutation,
     replacements: Mapping[Path, str],
 ) -> None:
@@ -39,9 +60,12 @@ def sync_vault_privacy_derivatives(
     wiki = LLMWiki()
     _ = wiki.delete_vault_sources(source_urls)
 
+    vector_store = cast(_VectorStoreLike | None, getattr(vault, "vector_store", None))
     if vault.sync_rag:
+        if vector_store is None:
+            raise RuntimeError("Vault RAG sync requires an initialized vector store")
         for relative_path in relative_paths:
-            vault.vector_store.delete_file_chunks_strict(relative_path)
+            vector_store.delete_file_chunks_strict(relative_path)
 
     if mutation.action is VaultPrivacyAction.PURGE:
         return
@@ -55,8 +79,11 @@ def sync_vault_privacy_derivatives(
             raw_metadata["tags"] = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
         metadata = DerivativeMetadata.model_validate(raw_metadata)
         if vault.sync_rag:
-            chunks = vault.chunker.chunk_document(relative_path, metadata.model_dump(), content)
-            vault.vector_store.upsert_chunks(chunks)
+            chunker = cast(_ChunkerLike | None, getattr(vault, "chunker", None))
+            if chunker is None or vector_store is None:
+                raise RuntimeError("Vault RAG sync requires initialized chunker and vector store")
+            chunks = chunker.chunk_document(relative_path, metadata.model_dump(), content)
+            vector_store.upsert_chunks(chunks)
         _add_wiki_derivative(wiki, vault.vault_path, relative_path, metadata, content)
 
 

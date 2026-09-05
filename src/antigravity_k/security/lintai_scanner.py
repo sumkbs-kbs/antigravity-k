@@ -5,9 +5,32 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, cast
 
 logger = logging.getLogger(__name__)
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+def _normalize_json_value(value: object) -> JsonValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        list_items = cast(list[object], value)
+        return [_normalize_json_value(item) for item in list_items]
+    if isinstance(value, dict):
+        dict_items = cast(dict[object, object], value)
+        return {str(key): _normalize_json_value(item) for key, item in dict_items.items()}
+    return str(value)
+
+
+def _parse_scan_output(raw_output: str) -> dict[str, JsonValue]:
+    parsed = cast(object, json.loads(raw_output))
+    if isinstance(parsed, dict):
+        parsed_items = cast(dict[object, object], parsed)
+        return {str(key): _normalize_json_value(value) for key, value in parsed_items.items()}
+    return {"result": _normalize_json_value(parsed)}
 
 
 class LintaiScanner:
@@ -20,7 +43,7 @@ class LintaiScanner:
             executable_path (str): str executable path.
 
         """
-        self.executable_path = executable_path
+        self.executable_path: str = executable_path
 
     def is_installed(self) -> bool:
         """Lintai 바이너리가 시스템에 설치되어 있는지 확인합니다."""
@@ -35,7 +58,7 @@ class LintaiScanner:
         except FileNotFoundError:
             return False
 
-    def scan_file(self, file_path: str) -> tuple[bool, dict[str, Any]]:
+    def scan_file(self, file_path: str) -> tuple[bool, dict[str, JsonValue]]:
         """주어진 파일을 스캔하여 보안 검증 결과를 반환합니다.
 
         반환값: (is_safe, scan_results)
@@ -66,10 +89,10 @@ class LintaiScanner:
             # returncode 2: execution or configuration error
 
             is_safe = result.returncode == 0
-            parsed_output = {}
+            parsed_output: dict[str, JsonValue] = {}
             if result.stdout.strip():
                 try:
-                    parsed_output = json.loads(result.stdout)
+                    parsed_output = _parse_scan_output(result.stdout)
                 except json.JSONDecodeError:
                     parsed_output = {"raw_output": result.stdout}
 
@@ -91,10 +114,10 @@ class LintaiScanner:
 
     def scan_mcp_config(self, mcp_config_path: str) -> bool:
         """.mcp.json 파일 등의 MCP 설정을 스캔합니다."""
-        is_safe, results = self.scan_file(mcp_config_path)
+        is_safe, _ = self.scan_file(mcp_config_path)
         return is_safe
 
     def scan_skill_file(self, skill_file_path: str) -> bool:
         """SKILL.md 등의 스킬/프롬프트 지시사항 파일을 스캔합니다."""
-        is_safe, results = self.scan_file(skill_file_path)
+        is_safe, _ = self.scan_file(skill_file_path)
         return is_safe

@@ -1,5 +1,5 @@
 """
-Antigravity-K: Self-Play Curriculum Generator (Level 3 자가 학습 엔진)
+Ssak-Ai: Self-Play Curriculum Generator (Level 3 자가 학습 엔진)
 =====================================================================
 AI가 스스로 새로운 벤치마크(테스트 코드)를 생성하여 자신의 능력을 무한 확장합니다.
 
@@ -19,18 +19,63 @@ import os
 import random
 import re
 import urllib.request
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Protocol, cast
 
 from antigravity_k.config import config
+from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.tools.egress_policy import safe_urlopen
 
-load_dataset: Any = None
+
+class _DatasetLike(Protocol):
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> dict[str, object]: ...
+
+
+class _DatasetLoader(Protocol):
+    def __call__(self, dataset_name: str, **kwargs: object) -> object: ...
+
+
+class _ModelManagerLike(Protocol):
+    def get_target_for_role(self, role: str, *, default_role: str) -> str | None: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
+
+
+def _as_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_string_mapping(value: object) -> dict[str, str]:
+    return {key: item for key, raw in _as_mapping(value).items() if isinstance(item := raw, str)}
+
+
+def _as_nested_string_mapping(value: object) -> dict[str, dict[str, str]]:
+    return {key: _as_string_mapping(raw) for key, raw in _as_mapping(value).items()}
+
+
+def _as_text_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [item for item in items if isinstance(item, str)]
+
+
+def _as_int(value: object, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+load_dataset: _DatasetLoader | None = None
 _has_datasets = False
 try:
-    load_dataset = import_module("datasets").__dict__["load_dataset"]
+    load_dataset = cast(_DatasetLoader, import_module("datasets").__dict__["load_dataset"])
 
     _has_datasets = True
 except ImportError:
@@ -59,21 +104,21 @@ class SkillLibrary:
     """Voyager 스타일: 성공한 코드 스니펫(스킬)을 누적하는 로컬 라이브러리."""
 
     def __init__(self, root_dir: str):
-        self.library_dir = os.path.join(root_dir, "data", "skill_library")
+        self.library_dir: str = os.path.join(root_dir, "data", "skill_library")
         os.makedirs(self.library_dir, exist_ok=True)
-        self.index_file = os.path.join(self.library_dir, "skills_index.json")
+        self.index_file: str = os.path.join(self.library_dir, "skills_index.json")
 
     def get_known_skills(self) -> list[str]:
         if not os.path.exists(self.index_file):
             return []
         try:
             with open(self.index_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                return _as_text_list(cast(object, json.load(f)))
         except Exception:
             logger.exception("Unhandled exception")
             return []
 
-    def add_skill(self, task_id: str, domain: str, description: str, code: str):
+    def add_skill(self, task_id: str, domain: str, description: str, code: str) -> None:
         skills = self.get_known_skills()
         skill_name = f"{domain}_{task_id}"
         skills.append(description)
@@ -85,66 +130,68 @@ class SkillLibrary:
         # 스킬 코드 저장
         skill_path = os.path.join(self.library_dir, f"{skill_name}.py")
         with open(skill_path, "w", encoding="utf-8") as f:
-            f.write(f'"""\nDescription: {description}\n"""\n\n{code}')
+            _ = f.write(f'"""\nDescription: {description}\n"""\n\n{code}')
 
 
 class DatasetIngestor:
     """Hugging Face 데이터셋을 로드하고 미해결 문제를 샘플링하는 인제스터 (Auto-Mapper 기능 포함)."""
 
-    def __init__(self, project_root: str, ollama_url: str):
-        self.project_root = project_root
-        self.ollama_url = ollama_url
-        self.dataset_name = "openai/openai_humaneval"
-        self.dataset = None
-        self.mappings_file = os.path.join(project_root, "data", "dataset_mappings.json")
+    def __init__(self, project_root: str, ollama_url: str, model_manager: _ModelManagerLike | None = None):
+        self.project_root: str = project_root
+        self.ollama_url: str = ollama_url
+        self.model_manager: _ModelManagerLike | None = model_manager
+        self.dataset_name: str = "openai/openai_humaneval"
+        self.dataset: _DatasetLike | None = None
+        self.mappings_file: str = os.path.join(project_root, "data", "dataset_mappings.json")
         os.makedirs(os.path.dirname(self.mappings_file), exist_ok=True)
-        self.mappings = self._load_mappings()
+        self.mappings: dict[str, dict[str, str]] = self._load_mappings()
 
     def _load_mappings(self) -> dict[str, dict[str, str]]:
         if os.path.exists(self.mappings_file):
             try:
                 with open(self.mappings_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    return _as_nested_string_mapping(cast(object, json.load(f)))
             except Exception:
                 logger.exception("Unhandled exception")
         return {}
 
-    def _save_mappings(self):
+    def _save_mappings(self) -> None:
         try:
             with open(self.mappings_file, "w", encoding="utf-8") as f:
                 json.dump(self.mappings, f, ensure_ascii=False, indent=2)
         except Exception:
             logger.exception("[Curriculum] 데이터셋 매핑 저장 실패")
 
-    def set_dataset(self, dataset_name: str):
+    def set_dataset(self, dataset_name: str) -> None:
         self.dataset_name = dataset_name
         self.dataset = None
 
-    def load(self):
-        if not _has_datasets:
+    def load(self) -> bool:
+        loader = load_dataset
+        if not _has_datasets or loader is None:
             logger.warning("[Curriculum] Hugging Face 'datasets' 라이브러리가 설치되지 않았습니다.")
             return False
         try:
-            logger.info(f"[Curriculum] 데이터셋 로드 중: {self.dataset_name}...")
+            logger.info("[Curriculum] 데이터셋 로드 중: %s...", self.dataset_name)
             # 우선 전체 데이터셋 메타를 로드하여 가능한 분할을 확인 (streaming=True로 빠르게 확인)
             try:
-                ds = load_dataset(self.dataset_name, streaming=True)
-                splits = list(ds.keys())
+                ds = loader(self.dataset_name, streaming=True)
+                splits = [str(key) for key in _as_mapping(ds)]
                 target_split = "test" if "test" in splits else ("train" if "train" in splits else splits[0])
             except Exception:
                 logger.exception("Unhandled exception")
                 target_split = "test"
 
-            self.dataset = load_dataset(self.dataset_name, split=target_split)
-            logger.info(f"[Curriculum] '{target_split}' 분할 데이터셋 로드 완료.")
+            self.dataset = cast(_DatasetLike, loader(self.dataset_name, split=target_split))
+            logger.info("[Curriculum] '%s' 분할 데이터셋 로드 완료.", target_split)
             return True
         except Exception:
             logger.exception("[Curriculum] 데이터셋 로드 실패")
             return False
 
-    def _analyze_schema_with_llm(self, sample_item: dict[str, Any]) -> dict[str, str]:
+    def _analyze_schema_with_llm(self, sample_item: dict[str, object]) -> dict[str, str]:
         """LLM을 사용하여 알 수 없는 데이터셋의 스키마를 자율적으로 분석하고 매핑합니다."""
-        logger.info(f"[Curriculum] '{self.dataset_name}' 데이터셋 스키마 자율 분석 중...")
+        logger.info("[Curriculum] '%s' 데이터셋 스키마 자율 분석 중...", self.dataset_name)
         sample_json = json.dumps(sample_item, ensure_ascii=False, indent=2)
 
         prompt = (
@@ -161,7 +208,28 @@ class DatasetIngestor:
         )
 
         try:
-            # CurriculumGenerator의 _call_llm 로직을 직접 사용할 수 없으므로, 여기에 독립적 구현체 추가
+            if self.model_manager is not None:
+                target = (
+                    os.environ.get("AGK_DATASET_SCHEMA_MODEL")
+                    or self.model_manager.get_target_for_role("dataset_ingestor", default_role="reasoning")
+                    or ""
+                )
+                try:
+                    content = self.model_manager.generate(
+                        prompt,
+                        target=target,
+                        max_tokens=512,
+                        temperature=0.1,
+                    )
+                    if content.strip():
+                        match = re.search(r"\{.*\}", content, re.DOTALL)
+                        if match:
+                            mapping = _as_string_mapping(cast(object, json.loads(match.group())))
+                            logger.info("[Curriculum] 스키마 분석 성공: %s", mapping)
+                            return mapping
+                except Exception:
+                    logger.warning("[Curriculum] ModelManager 스키마 분석 실패, Ollama 폴백", exc_info=True)
+
             data = {
                 "model": "deepseek-r1:32b",
                 "prompt": prompt,
@@ -174,14 +242,15 @@ class DatasetIngestor:
                 headers={"Content-Type": "application/json"},
             )
             with safe_urlopen(req, timeout=60) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                content = result.get("response", "")
+                result = _as_mapping(cast(object, json.loads(resp.read().decode("utf-8"))))
+                raw_content = result.get("response", "")
+                content = raw_content if isinstance(raw_content, str) else ""
                 content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
                 match = re.search(r"\{.*\}", content, re.DOTALL)
                 if match:
-                    mapping = json.loads(match.group())
-                    logger.info(f"[Curriculum] 스키마 분석 성공: {mapping}")
+                    mapping = _as_string_mapping(cast(object, json.loads(match.group())))
+                    logger.info("[Curriculum] 스키마 분석 성공: %s", mapping)
                     return mapping
         except Exception:
             logger.exception("[Curriculum] 스키마 자율 분석 실패")
@@ -227,13 +296,21 @@ class DatasetIngestor:
 class CurriculumGenerator:
     """자가 벤치마크 생성기 (Voyager & Frontier 기반)."""
 
-    def __init__(self, project_root: str, ollama_url: str = config.model.api_base.replace("/v1", "").rstrip("/")):
-        self.project_root = project_root
-        self.ollama_url = ollama_url
-        self.benchmark_dir = os.path.join(project_root, "tests", "curriculum")
+    def __init__(
+        self,
+        project_root: str,
+        ollama_url: str | None = None,
+        model_manager: _ModelManagerLike | None = None,
+    ):
+        self.project_root: str = project_root
+        self.ollama_url: str = ollama_url or config.model.api_base.replace("/v1", "").rstrip("/")
+        self.model_manager: _ModelManagerLike | None = model_manager
+        self.benchmark_dir: str = os.path.join(project_root, "tests", "curriculum")
         os.makedirs(self.benchmark_dir, exist_ok=True)
-        self.skill_library = SkillLibrary(project_root)
-        self.dataset_ingestor = DatasetIngestor(project_root, ollama_url)
+        self.skill_library: SkillLibrary = SkillLibrary(project_root)
+        self.dataset_ingestor: DatasetIngestor = DatasetIngestor(
+            project_root, self.ollama_url, model_manager=model_manager
+        )
 
     def generate_new_challenge(
         self, domain: str = "algorithm", force_synthetic: bool = False, dataset_name: str | None = None
@@ -251,7 +328,7 @@ class CurriculumGenerator:
                 return task
 
         # Mode A (Synthetic Frontier)
-        logger.info(f"[Curriculum] Mode A: '{domain}' 도메인에서 Synthetic Frontier 과제 탐색 중...")
+        logger.info("[Curriculum] Mode A: '%s' 도메인에서 Synthetic Frontier 과제 탐색 중...", domain)
 
         known_skills = self.skill_library.get_known_skills()
         skills_text = (
@@ -283,11 +360,13 @@ class CurriculumGenerator:
                 task = CurriculumTask(
                     task_id=task_id,
                     domain=domain,
-                    difficulty=data.get("difficulty", 5),
-                    prompt_requirement=data["requirement"],
-                    generated_test_code=data["pytest_code"],
+                    difficulty=_as_int(data.get("difficulty"), 5),
+                    prompt_requirement=str(data["requirement"]),
+                    generated_test_code=str(data["pytest_code"]),
                 )
-                logger.info(f"[Curriculum] 과제 생성됨: 난이도 {task.difficulty} - {task.prompt_requirement[:30]}...")
+                logger.info(
+                    "[Curriculum] 과제 생성됨: 난이도 %s - %s...", task.difficulty, task.prompt_requirement[:30]
+                )
                 return task
         except Exception:
             logger.exception("[Curriculum] 과제 생성 실패")
@@ -295,17 +374,17 @@ class CurriculumGenerator:
 
     async def self_play(self, task: CurriculumTask) -> bool:
         """생성된 과제를 OmniTDDEngine을 통해 스스로 풀어봅니다."""
-        logger.info(f"[Curriculum] Self-Play 시작: {task.task_id}")
+        logger.info("[Curriculum] Self-Play 시작: %s", task.task_id)
 
         try:
             from antigravity_k.engine.tdd_engine import OmniTDDEngine
 
             dependencies = import_module("antigravity_k.api.dependencies")
-            get_model_manager = dependencies.__dict__["get_model_manager"]
+            get_model_manager = cast(Callable[[], ModelManager], dependencies.__dict__["get_model_manager"])
 
             # 임시 테스트 파일 저장
             test_file_path = os.path.join(self.benchmark_dir, f"test_{task.task_id}.py")
-            await asyncio.to_thread(
+            _ = await asyncio.to_thread(
                 Path(test_file_path).write_text,
                 task.generated_test_code,
                 encoding="utf-8",
@@ -315,17 +394,15 @@ class CurriculumGenerator:
             engine = OmniTDDEngine(
                 model_manager=get_model_manager(), workspace_dir=os.path.join(self.benchmark_dir, "workspace")
             )
-            # OmniTDDEngine.run_tdd_loop 내부에 target_file_path가 없으면 결과만 리포트
-
-            # TODO: OmniTDDEngine이 외부 test_file_path를 인자로 받도록 구조 확장 필요
-            # 현재 구현은 프롬프트 기반으로 로컬 모델이 테스트까지 스스로 생성하므로,
-            # Curriculum Generator의 요구사항만 전달
-            report = await engine.run_tdd_loop(task.prompt_requirement)
+            report = await engine.run_tdd_loop(
+                task.prompt_requirement,
+                test_file_path=test_file_path,
+            )
 
             task.passed = report.status.value == "passed"
 
             if task.passed:
-                logger.info(f"[Curriculum] 🏆 챌린지 성공! 새로운 능력 획득. ({task.task_id})")
+                logger.info("[Curriculum] 🏆 챌린지 성공! 새로운 능력 획득. (%s)", task.task_id)
                 # 성공 시 벤치마크 아카이브에 영구 저장
                 archive_path = os.path.join(self.benchmark_dir, "passed", f"test_{task.task_id}.py")
                 os.makedirs(os.path.dirname(archive_path), exist_ok=True)
@@ -340,7 +417,7 @@ class CurriculumGenerator:
                         code=report.final_code,
                     )
             else:
-                logger.warning(f"[Curriculum] 💥 챌린지 실패. LoRA 파인튜닝 대기열에 추가. ({task.task_id})")
+                logger.warning("[Curriculum] 💥 챌린지 실패. LoRA 파인튜닝 대기열에 추가. (%s)", task.task_id)
                 fail_log = os.path.join(self.benchmark_dir, "failed", f"{task.task_id}.json")
                 os.makedirs(os.path.dirname(fail_log), exist_ok=True)
 
@@ -355,7 +432,7 @@ class CurriculumGenerator:
                         "tests": task.generated_test_code,
                     }
 
-                await asyncio.to_thread(
+                _ = await asyncio.to_thread(
                     Path(fail_log).write_text,
                     json.dumps(log_data, ensure_ascii=False, indent=2),
                     encoding="utf-8",
@@ -368,6 +445,24 @@ class CurriculumGenerator:
             return False
 
     def _call_llm(self, prompt: str, model: str) -> str:
+        if self.model_manager is not None:
+            target = (
+                os.environ.get("AGK_CURRICULUM_MODEL")
+                or self.model_manager.get_target_for_role("curriculum", default_role="reasoning")
+                or ""
+            )
+            try:
+                content = self.model_manager.generate(
+                    prompt,
+                    target=target,
+                    max_tokens=1024,
+                    temperature=0.4,
+                )
+                if content.strip():
+                    return content.strip()
+            except Exception:
+                logger.warning("[Curriculum] ModelManager 생성 실패, Ollama 폴백", exc_info=True)
+
         data = {
             "model": model,
             "prompt": prompt,
@@ -386,15 +481,16 @@ class CurriculumGenerator:
             headers={"Content-Type": "application/json"},
         )
         with safe_urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            content = result.get("response", "")
+            result = _as_mapping(cast(object, json.loads(resp.read().decode("utf-8"))))
+            raw_content = result.get("response", "")
+            content = raw_content if isinstance(raw_content, str) else ""
             return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-    def _extract_json(self, text: str) -> dict[str, Any] | None:
+    def _extract_json(self, text: str) -> dict[str, object] | None:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group())
+                return _as_mapping(cast(object, json.loads(match.group())))
             except json.JSONDecodeError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return None

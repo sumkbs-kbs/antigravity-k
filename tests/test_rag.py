@@ -1,6 +1,10 @@
 import tempfile
+from collections.abc import Iterator
+from typing import cast
 
 import pytest
+
+pytest.importorskip("chromadb", reason="chromadb not installed (install the rag extra)")
 
 from antigravity_k.engine.chunker import MarkdownChunker
 from antigravity_k.engine.vault import VaultEngine
@@ -24,12 +28,12 @@ Another paragraph under the second header. Let's make it slightly longer.
 
 
 @pytest.fixture
-def temp_chroma():
+def temp_chroma() -> Iterator[str]:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         yield tmpdir
 
 
-def test_vector_store(temp_chroma):
+def test_vector_store(temp_chroma: str):
     store = VectorStore(persist_directory=temp_chroma, collection_name="test_collection")
     chunks = [
         {"id": "test1_0", "text": "Apple is a fruit", "metadata": {"source": "test1"}},
@@ -50,7 +54,7 @@ def test_vector_store(temp_chroma):
     # Search for fruit
     results = store.search("fruit", n_results=2)
     assert len(results) == 2
-    assert "fruit" in results[0]["text"]
+    assert "fruit" in cast(str, results[0]["text"])
 
     # Test delete
     store.delete_file_chunks("test1")
@@ -58,7 +62,7 @@ def test_vector_store(temp_chroma):
 
     # Only the carrot should remain, even if it's not a fruit, or nothing
     assert len(results_after_delete) == 1
-    assert "Carrot" in results_after_delete[0]["text"]
+    assert "Carrot" in cast(str, results_after_delete[0]["text"])
 
 
 def test_vault_rag_sync():
@@ -82,4 +86,4 @@ def test_vault_rag_sync():
         # Search via VectorStore directly
         results = vault.vector_store.search("sweet red", n_results=1)
         assert len(results) == 1
-        assert "Apples" in results[0]["text"]
+        assert "Apples" in cast(str, results[0]["text"])

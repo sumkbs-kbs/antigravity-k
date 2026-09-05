@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Antigravity-K — One-Click Installer
+# Ssak-Ai — One-Click Installer
 # ============================================================================
 # Target: macOS Apple Silicon (M1–M5)
 #
@@ -86,7 +86,7 @@ prompt_yes() {
 print_header() {
     echo -e ""
     echo -e "${CYAN}${BOLD}   ╔══════════════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}${BOLD}   ║${RESET}          ${WHITE}Antigravity-K${RESET} — One-Click Installer   ${CYAN}${BOLD}║${RESET}"
+    echo -e "${CYAN}${BOLD}   ║${RESET}             ${WHITE}Ssak-Ai${RESET} — One-Click Installer       ${CYAN}${BOLD}║${RESET}"
     echo -e "${CYAN}${BOLD}   ║${RESET}     ${DIM}Local Autonomous Engineering Agent${RESET}          ${CYAN}${BOLD}║${RESET}"
     echo -e "${CYAN}${BOLD}   ║${RESET}     ${DIM}for Apple Silicon${RESET}                           ${CYAN}${BOLD}║${RESET}"
     echo -e "${CYAN}${BOLD}   ╚══════════════════════════════════════════════════╝${RESET}"
@@ -190,7 +190,7 @@ check_existing() {
         local installed_ver
         installed_ver=$(cat "${marker}" 2>/dev/null || echo "unknown")
         echo ""
-        log_warn "Antigravity-K ${installed_ver} is already installed at:"
+        log_warn "Ssak-Ai ${installed_ver} is already installed at:"
         echo "  ${PROJECT_DIR}"
         echo ""
         if prompt_yes "Re-install?"; then
@@ -592,7 +592,7 @@ setup_shell_integration() {
     # venv path: add a shell function that auto-activates
     local snippet
     snippet=$(cat <<'FNSNIP'
-# Antigravity-K: auto-activating shell function
+# Ssak-Ai: auto-activating shell function
 agk() {
     local _agk_dir="${HOME}/.antigravity-k"
     if [[ -f "${_agk_dir}/.venv/bin/activate" ]]; then
@@ -601,21 +601,21 @@ agk() {
         command agk "$@"
         deactivate 2>/dev/null || true
     else
-        echo "Antigravity-K not found at ${_agk_dir}. Re-run the installer."
+        echo "Ssak-Ai not found at ${_agk_dir}. Re-run the installer."
         return 1
     fi
 }
 FNSNIP
 )
 
-    if grep -q "Antigravity-K" "${profile}" 2>/dev/null; then
+    if grep -q "Ssak-Ai" "${profile}" 2>/dev/null; then
         log_success "Shell integration exists"
     else
         if [[ "${DRY_RUN}" == "true" ]]; then
             log_dry "Add agk() function to ${profile}"
         else
             echo "" >> "${profile}"
-            echo "# Antigravity-K: auto-activating shell function" >> "${profile}"
+            echo "# Ssak-Ai: auto-activating shell function" >> "${profile}"
             echo "${snippet}" >> "${profile}"
             log_success "Added 'agk' function to ${profile}"
             log_info "  Run: source ${profile}  (or open new terminal)"
@@ -633,7 +633,7 @@ verify_installation() {
 
     local errors=0
 
-    if "${VENV_PYTHON:-python3}" -c "import antigravity_k; print(f'  antigravity-k: {antigravity_k.__version__}')" 2>/dev/null; then
+    if "${VENV_PYTHON:-python3}" -c "import antigravity_k; print(f'  ssak-ai: {antigravity_k.__version__}')" 2>/dev/null; then
         log_success "Package import OK"
     else
         log_error "Package import failed"

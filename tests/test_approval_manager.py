@@ -3,6 +3,9 @@
 승인 요청 생성/해결, 항상 허용, 타임아웃, diff 미리보기를 검증합니다.
 """
 
+from collections.abc import Iterator
+from pathlib import Path
+
 import pytest
 
 from antigravity_k.engine.approval_manager import (
@@ -15,7 +18,7 @@ from antigravity_k.engine.approval_manager import (
 
 
 @pytest.fixture
-def manager():
+def manager() -> Iterator[ApprovalManager]:
     """각 테스트마다 깨끗한 ApprovalManager 인스턴스."""
     m = ApprovalManager(default_timeout_sec=10)
     yield m
@@ -24,7 +27,7 @@ def manager():
 class TestApprovalRequest:
     """승인 요청 생성 검증."""
 
-    def test_request_creates_pending(self, manager):
+    def test_request_creates_pending(self, manager: ApprovalManager) -> None:
         req = manager.request_approval(
             tool_name="edit_file",
             tool_args={"file_path": "app.py", "old_str": "x", "new_str": "y"},
@@ -34,22 +37,22 @@ class TestApprovalRequest:
         assert req.tool_name == "edit_file"
         assert req.request_id  # 비어있지 않은 ID
 
-    def test_request_generates_diff_for_edit(self, manager):
+    def test_request_generates_diff_for_edit(self, manager: ApprovalManager) -> None:
         req = manager.request_approval(
             tool_name="edit_file",
             tool_args={"file_path": "app.py", "old_str": "x=1", "new_str": "x=2"},
         )
         assert "app.py" in req.diff_preview
 
-    def test_request_no_diff_for_non_edit_tool(self, manager):
+    def test_request_no_diff_for_non_edit_tool(self, manager: ApprovalManager) -> None:
         req = manager.request_approval(
             tool_name="run_bash_command",
             tool_args={"command": "ls"},
         )
         assert req.diff_preview == ""
 
-    def test_request_in_pending_list(self, manager):
-        manager.request_approval("edit_file", {"file_path": "x"}, "medium")
+    def test_request_in_pending_list(self, manager: ApprovalManager) -> None:
+        _ = manager.request_approval("edit_file", {"file_path": "x"}, "medium")
         pending = manager.get_pending()
         assert len(pending) == 1
 
@@ -57,24 +60,24 @@ class TestApprovalRequest:
 class TestApprovalResolution:
     """승인 해결 검증."""
 
-    def test_approve(self, manager):
+    def test_approve(self, manager: ApprovalManager) -> None:
         req = manager.request_approval("edit_file", {"file_path": "x"}, "medium")
         ok = manager.resolve(req.request_id, ApprovalDecision.APPROVE)
         assert ok
         assert req.status == ApprovalStatus.APPROVED
 
-    def test_deny(self, manager):
+    def test_deny(self, manager: ApprovalManager) -> None:
         req = manager.request_approval("edit_file", {"file_path": "x"}, "medium")
-        manager.resolve(req.request_id, ApprovalDecision.DENY)
+        _ = manager.resolve(req.request_id, ApprovalDecision.DENY)
         assert req.status == ApprovalStatus.DENIED
 
-    def test_resolve_unknown_returns_false(self, manager):
+    def test_resolve_unknown_returns_false(self, manager: ApprovalManager) -> None:
         ok = manager.resolve("nonexistent-id", ApprovalDecision.APPROVE)
         assert not ok
 
-    def test_resolve_already_resolved_returns_false(self, manager):
+    def test_resolve_already_resolved_returns_false(self, manager: ApprovalManager) -> None:
         req = manager.request_approval("edit_file", {"file_path": "x"}, "medium")
-        manager.resolve(req.request_id, ApprovalDecision.APPROVE)
+        _ = manager.resolve(req.request_id, ApprovalDecision.APPROVE)
         # 두 번째 해결 시도
         ok = manager.resolve(req.request_id, ApprovalDecision.DENY)
         assert not ok
@@ -84,21 +87,21 @@ class TestApprovalResolution:
 class TestAlwaysAllowed:
     """'항상 허용' 기능 검증."""
 
-    def test_always_allow_adds_to_set(self, manager):
+    def test_always_allow_adds_to_set(self, manager: ApprovalManager) -> None:
         req = manager.request_approval("write_file", {"file_path": "x"}, "low")
-        manager.resolve(req.request_id, ApprovalDecision.ALWAYS_ALLOW)
+        _ = manager.resolve(req.request_id, ApprovalDecision.ALWAYS_ALLOW)
         assert manager.is_always_allowed("write_file")
 
-    def test_always_allowed_auto_approves(self, manager):
+    def test_always_allowed_auto_approves(self, manager: ApprovalManager) -> None:
         req1 = manager.request_approval("write_file", {"file_path": "a"}, "low")
-        manager.resolve(req1.request_id, ApprovalDecision.ALWAYS_ALLOW)
+        _ = manager.resolve(req1.request_id, ApprovalDecision.ALWAYS_ALLOW)
         # 두 번째 요청은 자동 승인
         req2 = manager.request_approval("write_file", {"file_path": "b"}, "low")
         assert req2.status == ApprovalStatus.ALWAYS_ALLOW
 
-    def test_reset_always_allowed(self, manager):
+    def test_reset_always_allowed(self, manager: ApprovalManager) -> None:
         req = manager.request_approval("write_file", {"file_path": "x"}, "low")
-        manager.resolve(req.request_id, ApprovalDecision.ALWAYS_ALLOW)
+        _ = manager.resolve(req.request_id, ApprovalDecision.ALWAYS_ALLOW)
         manager.reset_always_allowed()
         assert not manager.is_always_allowed("write_file")
 
@@ -106,7 +109,7 @@ class TestAlwaysAllowed:
 class TestDiffPreview:
     """diff 미리보기 생성 검증."""
 
-    def test_edit_file_diff(self, manager):
+    def test_edit_file_diff(self, manager: ApprovalManager) -> None:
         req = manager.request_approval(
             "edit_file",
             {"file_path": "app.py", "old_str": "x=1", "new_str": "x=2"},
@@ -114,7 +117,7 @@ class TestDiffPreview:
         assert req.diff_preview
         assert "app.py" in req.diff_preview
 
-    def test_write_file_new_file(self, manager, tmp_path):
+    def test_write_file_new_file(self, manager: ApprovalManager, tmp_path: Path) -> None:
         new_file = tmp_path / "new.py"
         req = manager.request_approval(
             "write_file",
@@ -122,7 +125,15 @@ class TestDiffPreview:
         )
         assert "새 파일 생성" in req.diff_preview
 
-    def test_apply_patch_preview(self, manager):
+    def test_sensitive_file_diff_redacts_content(self, manager: ApprovalManager) -> None:
+        req = manager.request_approval(
+            "write_file",
+            {"file_path": ".env", "content": "API_KEY=do-not-display"},
+        )
+        assert "do-not-display" not in req.diff_preview
+        assert "민감 파일 diff가 마스킹되었습니다" in req.diff_preview
+
+    def test_apply_patch_preview(self, manager: ApprovalManager) -> None:
         patch = "*** Begin Patch\n*** Update File: app.py\n@@ x\n-x\n+y\n*** End Patch"
         req = manager.request_approval("apply_patch", {"patch": patch})
         assert "Begin Patch" in req.diff_preview
@@ -131,15 +142,37 @@ class TestDiffPreview:
 class TestSingleton:
     """get_approval_manager 싱글톤 검증."""
 
-    def test_singleton_returns_same_instance(self):
+    def test_singleton_returns_same_instance(self) -> None:
         reset_approval_manager()
         m1 = get_approval_manager()
         m2 = get_approval_manager()
         assert m1 is m2
 
-    def test_reset_creates_new_instance(self):
+    def test_reset_creates_new_instance(self) -> None:
         reset_approval_manager()
         m1 = get_approval_manager()
         reset_approval_manager()
         m2 = get_approval_manager()
         assert m1 is not m2
+
+
+class TestConsumeOneTimeApproval:
+    """일회성 승인 소비 (태스크 재개 재시도 경로)."""
+
+    def test_consume_approved_once(self, manager: ApprovalManager) -> None:
+        req = manager.request_approval("write_file", {"file_path": "x"}, "low")
+        _ = manager.resolve(req.request_id, ApprovalDecision.APPROVE)
+        assert manager.consume_one_time_approval("write_file") is True
+        # 두 번째 소비는 거부
+        assert manager.consume_one_time_approval("write_file") is False
+
+    def test_newer_deny_blocks_consume(self, manager: ApprovalManager) -> None:
+        approved = manager.request_approval("write_file", {"file_path": "a"}, "low")
+        _ = manager.resolve(approved.request_id, ApprovalDecision.APPROVE)
+        denied = manager.request_approval("write_file", {"file_path": "b"}, "low")
+        _ = manager.resolve(denied.request_id, ApprovalDecision.DENY)
+        assert manager.consume_one_time_approval("write_file") is False
+
+    def test_pending_not_consumable(self, manager: ApprovalManager) -> None:
+        _ = manager.request_approval("write_file", {"file_path": "x"}, "low")
+        assert manager.consume_one_time_approval("write_file") is False

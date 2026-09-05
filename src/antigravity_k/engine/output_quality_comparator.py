@@ -1,4 +1,4 @@
-"""Antigravity-K: Output Quality Comparator.
+"""Ssak-Ai: Output Quality Comparator.
 
 =========================================
 동일 질문에 대한 참조 출력과 실제 출력의 품질을 다차원으로 비교합니다.
@@ -15,7 +15,7 @@
     result = comparator.compare(
         question="React와 Vue를 비교해줘",
         reference_output="...",   # 참조 출력 (Codex/Claude 수준)
-        actual_output="...",      # Antigravity-K 실제 출력
+        actual_output="...",      # Ssak-Ai 실제 출력
     )
     print(result.to_markdown())
 """
@@ -225,7 +225,7 @@ class OutputQualityComparator:
 
     def _code_accuracy(self, text: str) -> float:
         """코드 블록의 구문 정확성."""
-        code_blocks = re.findall(
+        code_blocks: list[str] = re.findall(
             r"```(?:python)?\s*\n(.*?)```",
             text,
             re.DOTALL,
@@ -236,7 +236,7 @@ class OutputQualityComparator:
         valid = 0
         for block in code_blocks:
             try:
-                compile(block.strip(), "<test>", "exec")
+                _ = compile(block.strip(), "<test>", "exec")
                 valid += 1
             except SyntaxError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)

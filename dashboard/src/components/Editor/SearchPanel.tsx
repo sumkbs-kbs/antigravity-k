@@ -9,6 +9,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useEditorStore } from '../../stores/editorStore';
 import { useUiStore } from '../../stores/uiStore';
 import { getFileIcon } from '../../utils/fileIcons';
+import { createAccessPinHeaders } from '../../utils/accessPinCredential';
 
 /* ─── Types ───────────────────────────────────────────────── */
 
@@ -32,6 +33,82 @@ interface SearchResponse {
   total_matches: number;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isSearchMatch(value: unknown): value is SearchMatch {
+  return isRecord(value)
+    && typeof value.line === 'number'
+    && typeof value.content === 'string';
+}
+
+function isSearchResult(value: unknown): value is SearchResult {
+  return isRecord(value)
+    && typeof value.file_path === 'string'
+    && typeof value.file_name === 'string'
+    && typeof value.match_count === 'number'
+    && Array.isArray(value.matches)
+    && value.matches.every(isSearchMatch);
+}
+
+function parseSearchResponse(value: unknown): SearchResponse {
+  if (!isRecord(value)) throw new Error('Invalid search response');
+  const { ok, query, results, total_files, total_matches } = value;
+  if (
+    ok !== true
+    || typeof query !== 'string'
+    || !Array.isArray(results)
+    || !results.every(isSearchResult)
+    || typeof total_files !== 'number'
+    || typeof total_matches !== 'number'
+  ) {
+    throw new Error('Invalid search response');
+  }
+  return { ok, query, results, total_files, total_matches };
+}
+
+async function readFileContent(filePath: string): Promise<string> {
+  const response = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`, {
+    headers: createAccessPinHeaders(),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const errorData: unknown = await response.json();
+      if (isRecord(errorData) && typeof errorData.detail === 'string') detail = errorData.detail;
+    } catch {
+      detail = `HTTP ${response.status}`;
+    }
+    throw new Error(detail);
+  }
+  const data: unknown = await response.json();
+  if (!isRecord(data) || data.ok !== true || typeof data.content !== 'string') {
+    throw new Error('Invalid file response');
+  }
+  return data.content;
+}
+
+async function writeFileContent(filePath: string, content: string): Promise<void> {
+  const response = await fetch('/api/fs/write', {
+    method: 'POST',
+    headers: createAccessPinHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ path: filePath, content }),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const errorData: unknown = await response.json();
+      if (isRecord(errorData) && typeof errorData.detail === 'string') detail = errorData.detail;
+    } catch {
+      detail = `HTTP ${response.status}`;
+    }
+    throw new Error(detail);
+  }
+  const data: unknown = await response.json();
+  if (!isRecord(data) || data.ok !== true) throw new Error('Invalid write response');
+}
+
 /* ─── Highlight match in text ─────────────────────────────── */
 
 function highlightText(text: string, query: string, useRegex: boolean): React.ReactNode {
@@ -42,14 +119,19 @@ function highlightText(text: string, query: string, useRegex: boolean): React.Re
     const regex = new RegExp(`(${pattern})`, flags);
     const parts = text.split(regex);
     if (parts.length === 1) return text;
-    return parts.map((part, i) =>
+    return parts.map(part =>
       regex.test(part)
-        ? <span key={i} style={{ background: 'rgba(255,183,77,0.3)', color: '#ffb74d', borderRadius: 2, padding: '0 1px' }}>{part}</span>
+        ? <span key={part} style={{ background: 'rgba(255,183,77,0.3)', color: '#ffb74d', borderRadius: 2, padding: '0 1px' }}>{part}</span>
         : part
     );
   } catch {
     return text;
   }
+}
+
+function createSearchRegExp(query: string, flags: string, useRegex: boolean): RegExp {
+  const pattern = useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return RegExp(pattern, flags);
 }
 
 /* ─── FileResult Component ─────────────────────────────────── */
@@ -60,7 +142,7 @@ interface FileResultProps {
   useRegex: boolean;
   replaceText: string;
   onOpenMatch: (filePath: string, line: number) => void;
-  onReplaceSingle: (filePath: string, line: number, content: string) => void;
+  onReplaceSingle: (filePath: string, line: number) => void;
   onReplaceAllInFile: (filePath: string) => void;
   isFocused: boolean;
   focusedMatchKey: string | null;
@@ -79,7 +161,7 @@ const FileResult: React.FC<FileResultProps> = ({
       addToast('바꿀 내용을 입력하세요', 'info');
       return;
     }
-    onReplaceSingle(result.file_path, match.line, match.content);
+    onReplaceSingle(result.file_path, match.line);
   }, [replaceText, result.file_path, onReplaceSingle, addToast]);
 
   return (
@@ -88,6 +170,9 @@ const FileResult: React.FC<FileResultProps> = ({
       <div
         className="search-file-header"
         onClick={() => setExpanded(!expanded)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(value => !value); } }}
       >
         <span className="search-collapse-icon">{expanded ? '▼' : '▶'}</span>
         <span className="search-file-icon">{getFileIcon(result.file_name)}</span>
@@ -107,14 +192,17 @@ const FileResult: React.FC<FileResultProps> = ({
       {/* Matches list */}
       {expanded && (
         <div className="search-match-list">
-          {result.matches.map((match, i) => {
+          {result.matches.map(match => {
             const matchKey = `${result.file_path}:${match.line}`;
             const isMatchFocused = focusedMatchKey === matchKey;
             return (
               <div
-                key={i}
+                key={matchKey}
                 className={`search-match-line ${isMatchFocused ? 'focused' : ''}`}
                 onClick={() => onOpenMatch(result.file_path, match.line)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenMatch(result.file_path, match.line); } }}
               >
                 <span className="search-match-line-no">{match.line}</span>
                 <span className="search-match-text">
@@ -178,16 +266,22 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
 
   // Focus input when panel becomes visible
   useEffect(() => {
+    let focusTimer: ReturnType<typeof setTimeout> | null = null;
     if (visible && searchInputRef.current) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
+      focusTimer = setTimeout(() => searchInputRef.current?.focus(), 50);
     }
     if (!visible) {
-      setQuery('');
-      setReplaceText('');
-      setResults([]);
-      setSearched(false);
-      setFocusedIdx(-1);
+      void Promise.resolve().then(() => {
+        setQuery('');
+        setReplaceText('');
+        setResults([]);
+        setSearched(false);
+        setFocusedIdx(-1);
+      });
     }
+    return () => {
+      if (focusTimer !== null) clearTimeout(focusTimer);
+    };
   }, [visible]);
 
   // Scroll focused match into view
@@ -231,14 +325,11 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
           case_sensitive: useCS,
         }),
       });
-      const data: SearchResponse = await res.json();
-      if (data.ok) {
-        setResults(data.results);
-        setTotalFiles(data.total_files);
-        setTotalMatches(data.total_matches);
-      } else {
-        setResults([]);
-      }
+      if (!res.ok) throw new Error(`Search failed (${res.status})`);
+      const data = parseSearchResponse(await res.json());
+      setResults(data.results);
+      setTotalFiles(data.total_files);
+      setTotalMatches(data.total_matches);
     } catch {
       setResults([]);
     } finally {
@@ -255,15 +346,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
 
   const handleOpenMatch = useCallback(async (filePath: string, line: number) => {
     try {
-      const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
-      const data = await res.json();
-      if (data.content !== undefined) {
-        const fileName = filePath.split('/').pop() || filePath;
-        openFile(filePath, fileName, data.content);
-        addToast(`🔍 ${fileName}:${line}`, 'success');
-      }
-    } catch (err: any) {
-      addToast(`파일 열기 오류: ${err.message}`, 'error');
+      const content = await readFileContent(filePath);
+      const fileName = filePath.split('/').pop() || filePath;
+      openFile(filePath, fileName, content);
+      addToast(`🔍 ${fileName}:${line}`, 'success');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`파일 열기 오류: ${message}`, 'error');
     }
   }, [openFile, addToast]);
 
@@ -296,16 +385,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
   }, [onClose, handleSearch, query, replaceText, flatMatches, focusedIdx, handleOpenMatch]);
 
   // Replace single match
-  const handleReplaceSingle = useCallback(async (filePath: string, line: number, oldContent: string) => {
+  const handleReplaceSingle = useCallback(async (filePath: string, line: number) => {
     if (!replaceText.trim() || replacing) return;
     setReplacing(true);
     try {
       // Read current file content
-      const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
-      const data = await res.json();
-      if (data.content === undefined) throw new Error('Cannot read file');
-
-      const lines = data.content.split('\n');
+      const content = await readFileContent(filePath);
+      const lines = content.split('\n');
       const idx = line - 1;
       if (idx < 0 || idx >= lines.length) throw new Error('Line out of range');
 
@@ -314,7 +400,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
       let newLine: string;
       const flags = caseSensitive ? 'g' : 'gi';
       try {
-        const pattern = useRegex ? new RegExp(query, flags) : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+        const pattern = createSearchRegExp(query, flags, useRegex);
         newLine = oldLine.replace(pattern, replaceText);
       } catch {
         newLine = oldLine.replace(query, replaceText);
@@ -323,22 +409,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
       const newContent = lines.join('\n');
 
       // Write back
-      const writeRes = await fetch('/api/fs/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, content: newContent }),
-      });
-      const writeData = await writeRes.json();
-      if (writeData.ok) {
-        updateFileContent(filePath, newContent);
-        addToast(`✏️ ${filePath.split('/').pop()}:${line} 수정됨`, 'success');
-        // Re-run search
-        handleSearch(query);
-      } else {
-        throw new Error(writeData.detail || 'Write failed');
-      }
-    } catch (err: any) {
-      addToast(`바꾸기 오류: ${err.message}`, 'error');
+      await writeFileContent(filePath, newContent);
+      updateFileContent(filePath, newContent);
+      addToast(`✏️ ${filePath.split('/').pop()}:${line} 수정됨`, 'success');
+      handleSearch(query);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`바꾸기 오류: ${message}`, 'error');
     } finally {
       setReplacing(false);
     }
@@ -349,40 +426,30 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
     if (!replaceText.trim() || replacing) return;
     setReplacing(true);
     try {
-      const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
-      const data = await res.json();
-      if (data.content === undefined) throw new Error('Cannot read file');
+      const content = await readFileContent(filePath);
 
       const flags = caseSensitive ? 'g' : 'gi';
       let newContent: string;
       try {
-        const pattern = useRegex ? new RegExp(query, flags) : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
-        newContent = data.content.replace(pattern, replaceText);
+        const pattern = createSearchRegExp(query, flags, useRegex);
+        newContent = content.replace(pattern, replaceText);
       } catch {
-        newContent = data.content.split(query).join(replaceText);
+        newContent = content.split(query).join(replaceText);
       }
 
-      if (newContent === data.content) {
+      if (newContent === content) {
         addToast('변경사항 없음', 'info');
         setReplacing(false);
         return;
       }
 
-      const writeRes = await fetch('/api/fs/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, content: newContent }),
-      });
-      const writeData = await writeRes.json();
-      if (writeData.ok) {
-        updateFileContent(filePath, newContent);
-        addToast(`✏️ ${filePath.split('/').pop()} 일괄 바꾸기 완료`, 'success');
-        handleSearch(query);
-      } else {
-        throw new Error(writeData.detail || 'Write failed');
-      }
-    } catch (err: any) {
-      addToast(`일괄 바꾸기 오류: ${err.message}`, 'error');
+      await writeFileContent(filePath, newContent);
+      updateFileContent(filePath, newContent);
+      addToast(`✏️ ${filePath.split('/').pop()} 일괄 바꾸기 완료`, 'success');
+      handleSearch(query);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`일괄 바꾸기 오류: ${message}`, 'error');
     } finally {
       setReplacing(false);
     }
@@ -399,33 +466,22 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
 
     for (const filePath of uniqueFiles) {
       try {
-        const res = await fetch(`/api/fs/read?file=${encodeURIComponent(filePath)}`);
-        const data = await res.json();
-        if (data.content === undefined) throw new Error('Cannot read file');
+        const content = await readFileContent(filePath);
 
         const flags = caseSensitive ? 'g' : 'gi';
         let newContent: string;
         try {
-          const pattern = useRegex ? new RegExp(query, flags) : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
-          newContent = data.content.replace(pattern, replaceText);
+          const pattern = createSearchRegExp(query, flags, useRegex);
+          newContent = content.replace(pattern, replaceText);
         } catch {
-          newContent = data.content.split(query).join(replaceText);
+          newContent = content.split(query).join(replaceText);
         }
 
-        if (newContent === data.content) continue;
+        if (newContent === content) continue;
 
-        const writeRes = await fetch('/api/fs/write', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: filePath, content: newContent }),
-        });
-        const writeData = await writeRes.json();
-        if (writeData.ok) {
-          updateFileContent(filePath, newContent);
-          success++;
-        } else {
-          fail++;
-        }
+        await writeFileContent(filePath, newContent);
+        updateFileContent(filePath, newContent);
+        success++;
       } catch {
         fail++;
       }
@@ -553,9 +609,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ visible, onClose }) => {
         {searching ? (
           <div className="search-status"><span className="search-spinner" /> Searching...</div>
         ) : results.length > 0 ? (
-          results.map((result, i) => (
+          results.map(result => (
             <FileResult
-              key={`${result.file_path}-${i}`}
+              key={result.file_path}
               result={result}
               query={query}
               useRegex={useRegex}

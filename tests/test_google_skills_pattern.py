@@ -9,24 +9,33 @@ google/skills 저장소(https://github.com/google/skills)의 핵심 패턴을 �
 6. get_reference / list_references API
 """
 
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
+
 import pytest
 
 from antigravity_k.agents.skills_registry import (
     SkillsRegistry,
 )
 
+
+def _extract_section_list(body: str, section: str) -> list[str]:
+    extractor = cast(Callable[[str, str], list[str]], getattr(SkillsRegistry, "_extract_section_list"))
+    return extractor(body, section)
+
 # ── 픽스처: Google Skills 스타일 스킬 폴더 생성 ──────────────────────
 
 
 @pytest.fixture
-def google_style_skill(tmp_path):
+def google_style_skill(tmp_path: Path) -> Path:
     """google/skills/gemini-api 스타일의 스킬 폴더를 생성합니다."""
     skills_dir = tmp_path / ".agent" / "skills"
     skill_dir = skills_dir / "gemini-api"
     skill_dir.mkdir(parents=True)
 
     # SKILL.md 작성 (Google Skills 패턴 그대로)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: gemini-api
 description: Guides the usage of the Gemini API on Agent Platform.
@@ -62,15 +71,15 @@ Use `google-genai` for Python.
     # references/ 폴더 작성 (Google Skills 패턴)
     ref_dir = skill_dir / "references"
     ref_dir.mkdir()
-    (ref_dir / "text_and_multimodal.md").write_text(
+    _ = (ref_dir / "text_and_multimodal.md").write_text(
         "# Text & Multimodal\nChat, images, video inputs.",
         encoding="utf-8",
     )
-    (ref_dir / "embeddings.md").write_text(
+    _ = (ref_dir / "embeddings.md").write_text(
         "# Embeddings\nGenerate text embeddings for search.",
         encoding="utf-8",
     )
-    (ref_dir / "safety.md").write_text(
+    _ = (ref_dir / "safety.md").write_text(
         "# Safety\nResponsible AI filters.",
         encoding="utf-8",
     )
@@ -79,13 +88,13 @@ Use `google-genai` for Python.
 
 
 @pytest.fixture
-def simple_skill(tmp_path):
+def simple_skill(tmp_path: Path) -> Path:
     """reference/ (단수) 폴더를 사용하는 스킬."""
     skills_dir = tmp_path / ".agent" / "skills"
     skill_dir = skills_dir / "cloud-run"
     skill_dir.mkdir(parents=True)
 
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: cloud-run-basics
 description: Deploy containerized apps to Cloud Run.
@@ -104,7 +113,7 @@ Deploy containers easily.
     # reference/ (단수 폴더도 지원)
     ref_dir = skill_dir / "reference"
     ref_dir.mkdir()
-    (ref_dir / "deployment.md").write_text(
+    _ = (ref_dir / "deployment.md").write_text(
         "# Deployment\ngcloud run deploy",
         encoding="utf-8",
     )
@@ -116,7 +125,7 @@ Deploy containers easily.
 
 
 class TestReferencesLoading:
-    def test_references_loaded(self, google_style_skill):
+    def test_references_loaded(self, google_style_skill: Path) -> None:
         """references/ 폴더의 .md 파일들이 정상 로드되는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         profile = registry.get_profile("GEMINI-API")
@@ -126,7 +135,7 @@ class TestReferencesLoading:
         assert "embeddings" in profile.references
         assert "safety" in profile.references
 
-    def test_reference_content(self, google_style_skill):
+    def test_reference_content(self, google_style_skill: Path) -> None:
         """참조 문서의 내용이 올바르게 읽혀지는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         content = registry.get_reference("GEMINI-API", "embeddings")
@@ -135,7 +144,7 @@ class TestReferencesLoading:
         assert "Embeddings" in content
         assert "text embeddings" in content
 
-    def test_singular_reference_dir(self, simple_skill):
+    def test_singular_reference_dir(self, simple_skill: Path) -> None:
         """reference/ (단수) 폴더도 지원하는지 확인."""
         registry = SkillsRegistry(skills_dir=str(simple_skill))
         profile = registry.get_profile("CLOUD-RUN")
@@ -143,7 +152,7 @@ class TestReferencesLoading:
         assert len(profile.references) == 1
         assert "deployment" in profile.references
 
-    def test_list_references(self, google_style_skill):
+    def test_list_references(self, google_style_skill: Path) -> None:
         """list_references API가 동작하는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         refs = registry.list_references("GEMINI-API")
@@ -151,7 +160,7 @@ class TestReferencesLoading:
         assert len(refs) == 3
         assert "embeddings" in refs
 
-    def test_get_reference_nonexistent(self, google_style_skill):
+    def test_get_reference_nonexistent(self, google_style_skill: Path) -> None:
         """존재하지 않는 참조 문서 요청 시 None 반환."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         assert registry.get_reference("GEMINI-API", "nonexistent") is None
@@ -162,19 +171,19 @@ class TestReferencesLoading:
 
 
 class TestCompatibility:
-    def test_compatibility_parsed(self, google_style_skill):
+    def test_compatibility_parsed(self, google_style_skill: Path) -> None:
         """YAML frontmatter의 compatibility 필드가 파싱되는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         profile = registry.get_profile("GEMINI-API")
 
         assert profile.compatibility == "Requires active Google Cloud credentials."
 
-    def test_compatibility_empty_when_missing(self, tmp_path):
+    def test_compatibility_empty_when_missing(self, tmp_path: Path) -> None:
         """compatibility가 없는 스킬은 빈 문자열로 설정."""
         skills_dir = tmp_path / ".agent" / "skills"
         skill_dir = skills_dir / "simple"
         skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
+        _ = (skill_dir / "SKILL.md").write_text(
             "---\nname: simple\ndescription: No compat\n---\n# Simple\n",
             encoding="utf-8",
         )
@@ -187,7 +196,7 @@ class TestCompatibility:
 
 
 class TestClarifyingQuestions:
-    def test_questions_extracted(self, google_style_skill):
+    def test_questions_extracted(self, google_style_skill: Path) -> None:
         """'## Clarifying Questions' 섹션에서 질문 목록이 추출되는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         profile = registry.get_profile("GEMINI-API")
@@ -196,7 +205,7 @@ class TestClarifyingQuestions:
         assert any("Google Cloud" in q for q in profile.clarifying_questions)
         assert any("SDK" in q for q in profile.clarifying_questions)
 
-    def test_no_questions_section(self, simple_skill):
+    def test_no_questions_section(self, simple_skill: Path) -> None:
         """Clarifying Questions 섹션이 없는 스킬은 빈 리스트."""
         registry = SkillsRegistry(skills_dir=str(simple_skill))
         profile = registry.get_profile("CLOUD-RUN")
@@ -207,7 +216,7 @@ class TestClarifyingQuestions:
 
 
 class TestValidationLogic:
-    def test_validation_extracted(self, google_style_skill):
+    def test_validation_extracted(self, google_style_skill: Path) -> None:
         """'## Validation Logic' 섹션에서 검증 항목이 추출되는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         profile = registry.get_profile("GEMINI-API")
@@ -216,7 +225,7 @@ class TestValidationLogic:
         assert any("Project" in v for v in profile.validation_logic)
         assert any("CLI" in v for v in profile.validation_logic)
 
-    def test_no_validation_section(self, simple_skill):
+    def test_no_validation_section(self, simple_skill: Path) -> None:
         """Validation Logic 섹션이 없으면 빈 리스트."""
         registry = SkillsRegistry(skills_dir=str(simple_skill))
         profile = registry.get_profile("CLOUD-RUN")
@@ -227,7 +236,7 @@ class TestValidationLogic:
 
 
 class TestMetadataAPI:
-    def test_skill_to_metadata(self, google_style_skill):
+    def test_skill_to_metadata(self, google_style_skill: Path) -> None:
         """SkillProfile.to_metadata()가 올바른 딕셔너리를 반환하는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         profile = registry.get_profile("GEMINI-API")
@@ -240,7 +249,7 @@ class TestMetadataAPI:
         assert meta["has_validation"] is True
         assert meta["compatibility"] == "Requires active Google Cloud credentials."
 
-    def test_registry_to_metadata_list(self, google_style_skill):
+    def test_registry_to_metadata_list(self, google_style_skill: Path) -> None:
         """SkillsRegistry.to_metadata_list()가 전체 목록을 반환하는지 확인."""
         registry = SkillsRegistry(skills_dir=str(google_style_skill))
         meta_list = registry.to_metadata_list()
@@ -266,7 +275,7 @@ class TestExtractSectionList:
 
 ## Next Steps
 """
-        items = SkillsRegistry._extract_section_list(body, "Validation Logic")
+        items = _extract_section_list(body, "Validation Logic")
         assert len(items) == 2
         assert "Project Created:" in items[0]
 
@@ -281,14 +290,14 @@ class TestExtractSectionList:
 
 ## Prerequisites
 """
-        items = SkillsRegistry._extract_section_list(body, "Clarifying Questions")
+        items = _extract_section_list(body, "Clarifying Questions")
         assert len(items) == 3
         assert "Google Account" in items[0]
 
     def test_section_not_found(self):
         """없는 섹션은 빈 리스트."""
         body = "# Hello World\nSome text."
-        items = SkillsRegistry._extract_section_list(body, "Nonexistent")
+        items = _extract_section_list(body, "Nonexistent")
         assert items == []
 
 
@@ -296,7 +305,7 @@ class TestExtractSectionList:
 
 
 class TestBackwardCompatibility:
-    def test_default_profiles_have_empty_new_fields(self, tmp_path):
+    def test_default_profiles_have_empty_new_fields(self, tmp_path: Path) -> None:
         """기존 기본 프로필(PM, BACKEND 등)은 새 필드가 빈 값으로 초기화."""
         skills_dir = tmp_path / ".agent" / "skills"
         registry = SkillsRegistry(skills_dir=str(skills_dir))
@@ -310,4 +319,4 @@ class TestBackwardCompatibility:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    _ = pytest.main([__file__, "-v"])

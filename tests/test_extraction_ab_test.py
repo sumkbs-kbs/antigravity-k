@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: 데이터 추출 A/B 테스트 프레임워크 단위 테스트
+Ssak-Ai: 데이터 추출 A/B 테스트 프레임워크 단위 테스트
 ===========================================================
 ExtractionABTestRunner, ABTestReport, 내장 케이스 등을 검증합니다.
 """
 
 import json
+from collections.abc import Callable
+from typing import cast
 
 import pytest
 
@@ -22,6 +24,21 @@ from antigravity_k.engine.extraction_ab_test import (
     FieldScore,
     run_builtin_suite,
 )
+
+
+def _run_test(runner: ExtractionABTestRunner, case: ExtractionABTestCase) -> ExtractionComparison:
+    callback = cast(Callable[[ExtractionABTestCase], object], cast(object, getattr(runner, "run_test")))
+    return cast(ExtractionComparison, callback(case))
+
+
+def _run_suite(
+    runner: ExtractionABTestRunner,
+    cases: list[ExtractionABTestCase],
+    version_label: str,
+) -> ABTestReport:
+    callback = cast(Callable[..., object], cast(object, getattr(runner, "run_suite")))
+    return cast(ABTestReport, callback(cases, version_label=version_label))
+
 
 # ─── Fixtures ─────────────────────────────────────────────────────
 
@@ -59,7 +76,7 @@ def expected_stock_result() -> ExtractionResult:
 
 
 @pytest.fixture
-def stock_case(sample_texts, expected_stock_result) -> ExtractionABTestCase:
+def stock_case(sample_texts: list[str], expected_stock_result: ExtractionResult) -> ExtractionABTestCase:
     return ExtractionABTestCase(
         name="한화에어로스페이스 테스트",
         query="한화에어로스페이스 주가",
@@ -186,8 +203,10 @@ class TestABTestReport:
         assert d["total_cases"] == 1
         assert d["passed"] == 0
         assert d["failed"] == 1
-        assert len(d["comparisons"]) == 1
-        assert d["comparisons"][0]["accuracy_pct"] == 66.7
+        comparisons = cast(list[object], d["comparisons"])
+        assert len(comparisons) == 1
+        first_comparison = cast(dict[str, object], comparisons[0])
+        assert first_comparison["accuracy_pct"] == 66.7
 
     def test_to_markdown_output(self):
         """to_markdown() 마크다운 출력 검증."""
@@ -231,16 +250,16 @@ class TestABTestReport:
 class TestExtractionABTestRunner:
     """ExtractionABTestRunner 실행 검증."""
 
-    def test_run_test_returns_comparison(self, runner, stock_case):
+    def test_run_test_returns_comparison(self, runner: ExtractionABTestRunner, stock_case: ExtractionABTestCase):
         """단일 테스트 케이스 실행 시 ExtractionComparison 반환."""
-        comparison = runner.run_test(stock_case)
+        comparison = _run_test(runner, stock_case)
         assert isinstance(comparison, ExtractionComparison)
         assert comparison.case_name == "한화에어로스페이스 테스트"
         assert comparison.has_expected is True
 
-    def test_run_test_stock_fields(self, runner, stock_case):
+    def test_run_test_stock_fields(self, runner: ExtractionABTestRunner, stock_case: ExtractionABTestCase):
         """주식 데이터 필드 정확도 검증."""
-        comparison = runner.run_test(stock_case)
+        comparison = _run_test(runner, stock_case)
         # 최소한 ticker, close_price, name은 매칭되어야 함
         ticker_scores = [fs for fs in comparison.field_scores if "ticker" in fs.field_name]
         if ticker_scores:
@@ -249,12 +268,12 @@ class TestExtractionABTestRunner:
         if close_scores:
             assert any(fs.match for fs in close_scores), "close_price should match"
 
-    def test_run_test_duration(self, runner, stock_case):
+    def test_run_test_duration(self, runner: ExtractionABTestRunner, stock_case: ExtractionABTestCase):
         """실행 시간이 측정되는지 확인."""
-        comparison = runner.run_test(stock_case)
+        comparison = _run_test(runner, stock_case)
         assert comparison.duration_ms > 0
 
-    def test_run_test_no_expected(self, runner):
+    def test_run_test_no_expected(self, runner: ExtractionABTestRunner):
         """기대값이 없는 경우 has_expected=False 처리."""
         case = ExtractionABTestCase(
             name="no-expected",
@@ -262,18 +281,18 @@ class TestExtractionABTestRunner:
             input_texts=["테스트 텍스트입니다."],
             expected=ExtractionResult(),  # 빈 결과
         )
-        comparison = runner.run_test(case)
+        comparison = _run_test(runner, case)
         assert comparison.has_expected is False
 
-    def test_run_suite_returns_report(self, runner, stock_case):
+    def test_run_suite_returns_report(self, runner: ExtractionABTestRunner, stock_case: ExtractionABTestCase):
         """여러 케이스 실행 시 ABTestReport 반환."""
         cases = [stock_case]
-        report = runner.run_suite(cases, version_label="test:v1")
+        report = _run_suite(runner, cases, version_label="test:v1")
         assert isinstance(report, ABTestReport)
         assert report.total_cases == 1
         assert report.version_label == "test:v1"
 
-    def test_run_suite_multiple_cases(self, runner, stock_case):
+    def test_run_suite_multiple_cases(self, runner: ExtractionABTestRunner, stock_case: ExtractionABTestCase):
         """2개 케이스 실행 시 total_cases=2."""
         # create a second case
         case2 = ExtractionABTestCase(
@@ -285,21 +304,21 @@ class TestExtractionABTestRunner:
             ),
             tags=["stock"],
         )
-        report = runner.run_suite([stock_case, case2], version_label="test:v2")
+        report = _run_suite(runner, [stock_case, case2], version_label="test:v2")
         assert report.total_cases == 2
         assert report.avg_accuracy > 0
         assert report.avg_duration_ms >= 0
 
-    def test_run_suite_empty(self, runner):
+    def test_run_suite_empty(self, runner: ExtractionABTestRunner):
         """빈 케이스 리스트 처리."""
-        report = runner.run_suite([], version_label="empty")
+        report = _run_suite(runner, [], version_label="empty")
         assert report.total_cases == 0
         assert report.avg_accuracy == 0.0
         assert report.to_dict()["total_cases"] == 0
 
-    def test_tags_accuracy(self, runner, stock_case):
+    def test_tags_accuracy(self, runner: ExtractionABTestRunner, stock_case: ExtractionABTestCase):
         """태그별 정확도가 집계되는지 확인."""
-        report = runner.run_suite([stock_case], version_label="tag-test")
+        report = _run_suite(runner, [stock_case], version_label="tag-test")
         assert "stock" in report.by_tag
         assert "korean" in report.by_tag
 

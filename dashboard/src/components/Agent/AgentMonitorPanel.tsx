@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useAgentMonitorStore, type AgentStatus, type LogEntry, type TaskProgress } from '../../stores/agentMonitorStore';
+import { useAgentMonitorStore, type AgentStatus } from '../../stores/agentMonitorStore';
 
 /* ─── Constants ────────────────────────────────────────────── */
 
@@ -74,7 +74,6 @@ const AgentStatusCard: React.FC = () => {
   const [toolDuration, setToolDuration] = useState(0);
   useEffect(() => {
     if (!activeTool || activeTool.status !== 'running') {
-      setToolDuration(0);
       return;
     }
     const interval = setInterval(() => {
@@ -243,6 +242,20 @@ const TaskProgressList: React.FC = () => {
 
 /* ─── Execution Timeline ────────────────────────────────────── */
 
+const TIMELINE_EVENT_COLORS: Record<string, string> = {
+  tool_start: '#7aa2f7',
+  tool_end: '#9ece6a',
+  task_start: '#7aa2f7',
+  task_end: '#9ece6a',
+  error: '#f7768e',
+  plan: '#e0af68',
+  approval: '#e0af68',
+  mode_change: '#7c82a8',
+  agent_turn: '#7aa2f7',
+  quality: '#e0af68',
+  anti_pattern: '#f7768e',
+};
+
 const ExecutionTimeline: React.FC = () => {
   const timeline = useAgentMonitorStore(s => s.timeline);
 
@@ -256,9 +269,7 @@ const ExecutionTimeline: React.FC = () => {
           timeline.slice(0, 30).map(event => (
             <div key={event.id} className="agent-timeline-event">
               <span className="agent-timeline-dot" style={{
-                background: event.type.includes('error') ? '#f7768e' :
-                            event.type.includes('start') ? '#7aa2f7' :
-                            event.type.includes('end') ? '#9ece6a' : '#7c82a8',
+                background: TIMELINE_EVENT_COLORS[event.type] ?? '#7c82a8',
               }} />
               <span className="agent-timeline-time">{formatTime(event.timestamp)}</span>
               <span className="agent-timeline-label">{event.label}</span>

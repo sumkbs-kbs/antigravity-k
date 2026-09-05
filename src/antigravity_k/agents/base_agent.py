@@ -1,10 +1,53 @@
+import json
 import logging
+import re
+from collections.abc import Callable, Mapping, Sequence
 from importlib import import_module
-from typing import Any, Dict, List, Optional
+from typing import Protocol, TypeAlias, TypedDict, cast
 
 from ..i18n import get_i18n
 
 logger = logging.getLogger(__name__)
+
+
+class ModelRouterProtocol(Protocol):
+    def get_combo(self, name: str) -> object | None: ...
+
+
+class TokenizerProtocol(Protocol):
+    def apply_chat_template(
+        self,
+        messages: Sequence[Mapping[str, str]],
+        *,
+        tokenize: bool,
+        add_generation_prompt: bool,
+    ) -> str: ...
+
+
+class LoadedModelProtocol(Protocol):
+    model: object | None
+    tokenizer: TokenizerProtocol | None
+
+
+class ModelManagerProtocol(Protocol):
+    router: ModelRouterProtocol | None
+
+    def get(self, name: str) -> LoadedModelProtocol: ...
+
+
+class ToolProtocol(Protocol):
+    name: str
+
+    def __call__(self, **kwargs: object) -> object: ...
+
+
+class ToolCallPayload(TypedDict, total=False):
+    name: str
+    arguments: dict[str, "JsonValue"]
+
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
 
 class BaseAgent:
@@ -14,11 +57,11 @@ class BaseAgent:
     """
 
     def __init__(self, name: str, role: str, system_prompt: str, model_id: str):
-        self.name = name
-        self.role = role
-        self.system_prompt = system_prompt
-        self.model_id = model_id
-        self.history: List[Dict[str, str]] = []
+        self.name: str = name
+        self.role: str = role
+        self.system_prompt: str = system_prompt
+        self.model_id: str = model_id
+        self.history: list[dict[str, str]] = []
 
     def _build_system_prompt(self) -> str:
         """
@@ -29,7 +72,7 @@ class BaseAgent:
         locale = i18n.locale
 
         # 언어별 추론 지시문
-        reasoning_templates = {
+        reasoning_templates: dict[str, str] = {
             "ko": (
                 "당신은 고도로 능력 있는 에이전트입니다. 답변하기 전에 반드시 <thought>...</thought> 태그 안에 "
                 "내부 사고 과정을 작성하세요. 문제를 분석하고 엣지 케이스를 고려한 후 최종 응답을 제공하세요.\n\n"
@@ -61,12 +104,17 @@ class BaseAgent:
     def add_message(self, role: str, content: str):
         self.history.append({"role": role, "content": content})
 
-    def get_messages(self) -> List[Dict[str, str]]:
+    def get_messages(self) -> list[dict[str, str]]:
         messages = [{"role": "system", "content": self._build_system_prompt()}]
         messages.extend(self.history)
         return messages
 
-    def run(self, context: str, model_manager=None, tools: Optional[List[Any]] = None) -> str:
+    def run(
+        self,
+        context: str,
+        model_manager: ModelManagerProtocol | None = None,
+        tools: Sequence[ToolProtocol] | None = None,
+    ) -> str:
         """
         주어진 컨텍스트를 처리하고 모델을 통해 응답을 생성합니다.
         <think> 또는 <thought> 태그 내의 추론과 <tool_call> 태그를 파싱하여 도구를 실행하는 재귀적 루프를 포함합니다.
@@ -77,16 +125,17 @@ class BaseAgent:
             logger.warning("ModelManager not provided. Running in mock mode.")
             return self._mock_run()
 
-        loaded_model = None
+        loaded_model: LoadedModelProtocol | None = None
         try:
-            is_combo = bool(getattr(model_manager, "router", None) and model_manager.router.get_combo(self.model_id))
+            router = model_manager.router
+            is_combo = router is not None and router.get_combo(self.model_id) is not None
             if not is_combo:
                 loaded_model = model_manager.get(self.model_id)
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("Model pre-load skipped for %s: %s", self.model_id, e)
 
-        if loaded_model and hasattr(loaded_model.model, "name") and "Dummy" in repr(loaded_model.model):
+        if loaded_model is not None and loaded_model.model is not None and "Dummy" in repr(loaded_model.model):
             return self._mock_run()
 
         MAX_ITERATIONS = 5
@@ -99,51 +148,64 @@ class BaseAgent:
             try:
                 # Use model_manager's standard routing and generation instead of direct mlx_lm
                 # Since prompt format might differ per model, we rely on model_manager (or just pass messages)
-                if hasattr(model_manager, "generate"):
-                    response = model_manager.generate(
+                generate_method = cast(Callable[..., object] | None, getattr(model_manager, "generate", None))
+                if generate_method is not None:
+                    response = str(
+                        generate_method(
                         prompt=messages[-1]["content"] if messages else "",
                         target=self.model_id,
                         raw_messages=messages,
                         max_tokens=2048,
                         temperature=0.7,
+                        )
                     )
                 else:
                     # Fallback if generate not fully compatible with raw_messages
-                    generate = import_module("mlx_lm").__dict__["generate"]
+                    generate_obj = import_module("mlx_lm").__dict__.get("generate")
+                    if not callable(generate_obj):
+                        return "Error: mlx_lm.generate is not available"
+                    generate = generate_obj
 
                     if loaded_model is None or loaded_model.tokenizer is None or loaded_model.model is None:
                         return "Error: Model not initialized"
                     prompt = loaded_model.tokenizer.apply_chat_template(
                         messages, tokenize=False, add_generation_prompt=True
                     )
-                    response = generate(
-                        loaded_model.model,
-                        loaded_model.tokenizer,
-                        prompt=prompt,
-                        max_tokens=2048,
-                        verbose=False,
+                    response = str(
+                        generate(
+                            loaded_model.model,
+                            loaded_model.tokenizer,
+                            prompt=prompt,
+                            max_tokens=2048,
+                            verbose=False,
+                        )
                     )
 
                 self.add_message("assistant", response)
-
-                # 도구 호출 파싱 로직 (<tool_call> JSON </tool_call>)
-                import re
 
                 tool_call_match = re.search(r"<tool_call>(.*?)</tool_call>", response, re.DOTALL)
 
                 if tool_call_match and tools:
                     tool_call_text = tool_call_match.group(1).strip()
                     try:
-                        import json
-
-                        tool_req = json.loads(tool_call_text)
+                        tool_req_value = cast(JsonValue, json.loads(tool_call_text))
+                        if not isinstance(tool_req_value, dict):
+                            raise ValueError("tool call payload must be a JSON object")
+                        tool_req: ToolCallPayload = {}
+                        raw_tool_name = tool_req_value.get("name")
+                        if isinstance(raw_tool_name, str):
+                            tool_req["name"] = raw_tool_name
+                        raw_tool_args = tool_req_value.get("arguments")
+                        if isinstance(raw_tool_args, dict):
+                            tool_req["arguments"] = raw_tool_args
                         tool_name = tool_req.get("name")
-                        tool_args = tool_req.get("arguments", {})
+                        tool_args_value = tool_req.get("arguments", {})
+                        tool_args = dict(tool_args_value)
 
                         tool_result = f"Error: Tool {tool_name} not found"
                         for t in tools:
                             if t.name == tool_name:
-                                tool_result = t(**tool_args)
+                                tool_result = str(t(**tool_args))
                                 break
 
                         self.add_message("tool", f"<tool_response>\n{tool_result}\n</tool_response>")

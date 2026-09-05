@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any
+from typing import Protocol, TypeAlias, cast, final, override
 
 import yaml
 
@@ -10,7 +10,37 @@ from antigravity_k.tools.base_tool import BaseTool, RenderIn, RiskLevel, ToolCat
 
 logger = logging.getLogger(__name__)
 
+ToolValue: TypeAlias = object
+ConfigMap: TypeAlias = dict[str, object]
 
+
+def _as_map(value: object) -> ConfigMap:
+    if not isinstance(value, dict):
+        return {}
+    return cast(ConfigMap, value)
+
+
+def _as_map_list(value: object) -> list[ConfigMap]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in cast(list[object], value) if isinstance(item, dict)]
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+class _YamlModule(Protocol):
+    def safe_load(self, stream: object) -> object: ...
+
+    def dump(self, data: object, stream: object, **kwargs: object) -> object: ...
+
+
+def _as_yaml_module(value: object) -> _YamlModule:
+    return cast(_YamlModule, value)
+
+
+@final
 class ConfigEditorTool(BaseTool):
     """ConfigEditorTool: AGI Core의 Auto-Roster Manager.
 
@@ -18,11 +48,14 @@ class ConfigEditorTool(BaseTool):
     필요 시 ollama 등의 백그라운드 모델 다운로드를 실행합니다.
     """
 
-    category = ToolCategory.SYSTEM
-    render_in = RenderIn.CONTEXTUAL
-    risk_level = RiskLevel.HIGH
-    icon = "⚙️"
-    tags = ["config", "yaml", "model", "roster", "download"]
+    category: ToolCategory = ToolCategory.SYSTEM
+    render_in: RenderIn = RenderIn.CONTEXTUAL
+    risk_level: RiskLevel = RiskLevel.HIGH
+    icon: str = "⚙️"
+    tags: list[str] = ["config", "yaml", "model", "roster", "download"]
+    _name: str
+    _description: str
+    _schema: ConfigMap
 
     def __init__(self):
         """Initialize the ConfigEditorTool."""
@@ -43,8 +76,10 @@ class ConfigEditorTool(BaseTool):
                 },
                 "target_key": {
                     "type": "string",
-                    "description": "If update_agent_map, the agent role (e.g. 'WORKER'). If update_swarm, "
-                    "the combo name.",
+                    "description": (
+                        "If update_agent_map, the agent role (e.g. 'WORKER'). If update_swarm, "
+                        + "the combo name."
+                    ),
                 },
                 "model_category": {
                     "type": "string",
@@ -53,14 +88,18 @@ class ConfigEditorTool(BaseTool):
                 },
                 "model_data": {
                     "type": "object",
-                    "description": "For add/remove, provide the model dict. For update_agent_map, provide {'combo_name': '...'}. For"  # noqa: E501
-                    "update_swarm, provide {'models': [...], 'strategy': '...'}",
+                    "description": (
+                        "For add/remove, provide the model dict. For update_agent_map, "
+                        + "provide {'combo_name': '...'}. For update_swarm, provide "
+                        + "{'models': [...], 'strategy': '...'}"
+                    ),
                 },
             },
             "required": ["action"],
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -71,6 +110,7 @@ class ConfigEditorTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -81,7 +121,8 @@ class ConfigEditorTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ConfigMap:
         """Parameters Schema.
 
         Returns:
@@ -90,7 +131,8 @@ class ConfigEditorTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -100,9 +142,9 @@ class ConfigEditorTool(BaseTool):
             Any: The any result.
 
         """
-        action = kwargs.get("action")
-        category = kwargs.get("model_category")
-        model_data = kwargs.get("model_data") or {}
+        action = _as_text(kwargs.get("action"))
+        category = _as_text(kwargs.get("model_category"))
+        model_data = _as_map(kwargs.get("model_data"))
 
         project_root = os.getcwd()
         config_path = os.path.join(project_root, "config.yaml")
@@ -113,15 +155,18 @@ class ConfigEditorTool(BaseTool):
         try:
             msg = f"Unknown config action: {action}"
             with open(config_path, encoding="utf-8") as f:
-                config = yaml.safe_load(f)
+                yaml_module = _as_yaml_module(yaml)
+                config = _as_map(yaml_module.safe_load(f))
 
-            models_list = config.get("models", {}).get(category, [])
+            models = _as_map(config.get("models"))
+            config["models"] = models
+            models_list = _as_map_list(models.get(category))
 
             if action == "add":
                 if any(m.get("name") == model_data.get("name") for m in models_list):
                     return f"Model {model_data.get('name')} already exists in category {category}."
                 models_list.append(model_data)
-                config["models"][category] = models_list
+                models[category] = models_list
                 logger.info("Triggering background download for model: %s", model_data.get("name"))
                 msg = f"✅ Model {model_data.get('name')} added to {category}. Download initiated in background."
 
@@ -130,31 +175,31 @@ class ConfigEditorTool(BaseTool):
                 new_list = [m for m in models_list if m.get("name") != name_to_remove]
                 if len(new_list) == len(models_list):
                     return f"Model {name_to_remove} not found in category {category}."
-                config["models"][category] = new_list
+                models[category] = new_list
                 logger.info("Triggering background removal for model: %s", name_to_remove)
                 msg = f"🗑️ Model {name_to_remove} removed from {category}. Disk space reclaimed."
 
             elif action == "update_agent_map":
-                target_key = kwargs.get("target_key")
+                target_key = _as_text(kwargs.get("target_key"))
                 new_combo = model_data.get("combo_name")
-                if "agent_models" not in config:
-                    config["agent_models"] = {}
-                config["agent_models"][target_key] = new_combo
+                agent_models = _as_map(config.get("agent_models"))
+                config["agent_models"] = agent_models
+                agent_models[target_key] = new_combo
                 msg = f"🔄 Agent '{target_key}' mapped to swarm combo '{new_combo}'."
 
             elif action == "update_swarm":
-                target_key = kwargs.get("target_key")
-                if "combos" not in config:
-                    config["combos"] = {}
+                target_key = _as_text(kwargs.get("target_key"))
+                combos = _as_map(config.get("combos"))
+                config["combos"] = combos
                 # Update or create the combo
-                if target_key not in config["combos"]:
-                    config["combos"][target_key] = {}
-                config["combos"][target_key].update(model_data)
+                combo = _as_map(combos.get(target_key))
+                combos[target_key] = combo
+                combo.update(model_data)
                 msg = f"🐝 Swarm combo '{target_key}' updated with new models/strategy."
 
             # YAML 덤프 시 원본 포맷을 최대한 유지
             with open(config_path, "w", encoding="utf-8") as f:
-                yaml.dump(
+                _ = yaml_module.dump(
                     config,
                     f,
                     sort_keys=False,

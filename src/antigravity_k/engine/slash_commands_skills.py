@@ -11,9 +11,32 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from typing import Any, ClassVar
+from typing import ClassVar, Protocol, cast
+
+from antigravity_k.engine.slash_commands_base import SlashCommand
+from antigravity_k.engine.slash_commands_session import ModelManagerProtocol, ToolRegistryProtocol
 
 logger = logging.getLogger(__name__)
+
+
+class CapabilityDecisionLike(Protocol):
+    capability_id: str
+    capability_type: str
+    decision: str
+    risk_level: str
+    trust_level: str
+    reason: str
+    score: float
+
+
+class ToolRegistryLike(Protocol):
+    def __len__(self) -> int: ...
+    def render_autonomous_policy(self) -> str: ...
+    def get_autonomous_manifest(self, objective: str) -> list[CapabilityDecisionLike]: ...
+
+
+class SkillLoaderLike(Protocol):
+    def get_autonomous_manifest(self, objective: str) -> list[CapabilityDecisionLike]: ...
 
 
 class SlashCommandSkillsMixin:
@@ -24,18 +47,19 @@ class SlashCommandSkillsMixin:
     """
 
     # Mixin-required attributes (resolved via MRO at runtime)
-    _tool_registry: ClassVar[Any]
-    _skill_loader: ClassVar[Any]
-    _model_manager: ClassVar[Any]
-    _commands: ClassVar[dict[str, Any]]
+    _tool_registry: ClassVar[ToolRegistryProtocol | None]
+    _skill_loader: ClassVar[SkillLoaderLike | None]
+    _model_manager: ClassVar[ModelManagerProtocol | None]
+    _commands: ClassVar[dict[str, SlashCommand]]
 
     def _cmd_self(self, args: list[str]) -> str:
         """런타임 기반 자기 능력 보고서."""
+        _ = args
         from antigravity_k.engine.self_capability import SelfCapabilityEngine
 
         engine = SelfCapabilityEngine()
         snapshot = engine.build(
-            tool_registry=self._tool_registry,
+            tool_registry=cast(ToolRegistryLike | None, self._tool_registry),
             skill_loader=self._skill_loader,
             model_manager=self._model_manager,
             slash_commands=self._commands,
@@ -79,7 +103,7 @@ class SlashCommandSkillsMixin:
         """Skill Marketplace 명령어."""
         try:
             from antigravity_k.engine.skill_market_client import SkillMarketClient
-            from antigravity_k.engine.skill_market_registry import SkillMarketRegistry
+            from antigravity_k.engine.skill_market_registry import LoaderProtocol, SkillMarketRegistry
         except ImportError as e:
             return f"❌ Market dependencies not available: {e}"
 
@@ -87,7 +111,7 @@ class SlashCommandSkillsMixin:
         registry = SkillMarketRegistry(
             project_root=".",
             market_client=market_client,
-            skill_loader=self._skill_loader,
+            skill_loader=cast(LoaderProtocol | None, self._skill_loader),
         )
 
         if not args:
@@ -109,10 +133,10 @@ class SlashCommandSkillsMixin:
             query = " ".join(rest).strip()
             if not query:
                 return "Usage: `/market search <query>`"
-            results = registry.search(query)
-            if isinstance(results, list) and results and "error" not in results[0]:
+            search_results = registry.search(query)
+            if search_results and "error" not in search_results[0]:
                 lines = ["🔍 **Skill Marketplace 검색 결과**", ""]
-                for result in results[:15]:
+                for result in search_results[:15]:
                     name = str(result.get("name", "unknown"))
                     version = str(result.get("version", "0.0.0"))
                     description = str(result.get("description", ""))
@@ -120,8 +144,8 @@ class SlashCommandSkillsMixin:
                     if len(description) > 80:
                         description = description[:80] + "..."
                     lines.extend([f"  {installed_mark} `{name}@{version}`", f"     {description}", ""])
-                if len(results) > 15:
-                    lines.append(f"  ... 외 {len(results) - 15}개 결과")
+                if len(search_results) > 15:
+                    lines.append(f"  ... 외 {len(search_results) - 15}개 결과")
                 return "\n".join(lines)
             return "🔍 검색 결과가 없습니다."
 
@@ -129,11 +153,11 @@ class SlashCommandSkillsMixin:
             if not rest:
                 return "Usage: `/market install <package>`"
             package = rest[0]
-            result = registry.install(package)
-            if result.get("success"):
-                return f"✅ **Install complete**\n\n{result.get('summary', '')}"
-            error = result.get("error", "Unknown error")
-            warnings = result.get("warnings", [])
+            install_result = registry.install(package)
+            if install_result.get("success"):
+                return f"✅ **Install complete**\n\n{install_result.get('summary', '')}"
+            error = install_result.get("error", "Unknown error")
+            warnings = install_result.get("warnings", [])
             msg = f"❌ Install failed: {error}"
             if warnings:
                 msg += "\n\n**Warnings:**\n" + "\n".join(f"- {w}" for w in warnings)
@@ -143,10 +167,10 @@ class SlashCommandSkillsMixin:
             if not rest:
                 return "Usage: `/market remove <name>`"
             name = rest[0]
-            result = registry.remove(name)
-            if result.get("success"):
-                return f"✅ **Removed**\n\n{result.get('summary', '')}"
-            return f"❌ Remove failed: {result.get('error', 'Unknown error')}"
+            remove_result = registry.remove(name)
+            if remove_result.get("success"):
+                return f"✅ **Removed**\n\n{remove_result.get('summary', '')}"
+            return f"❌ Remove failed: {remove_result.get('error', 'Unknown error')}"
 
         elif sub in ("list", "ls"):
             installed = registry.list_installed()
@@ -189,12 +213,12 @@ class SlashCommandSkillsMixin:
         elif sub == "update":
             if rest:
                 name = rest[0]
-                result = registry.update(name)
-                if result.get("success"):
-                    return f"✅ **Updated**\n\n{result.get('summary', '')}"
-                return f"❌ Update failed: {result.get('error', 'Unknown error')}"
-            results = registry.update_all()
-            updated = [r for r in results if r.get("success")]
+                update_result = registry.update(name)
+                if update_result.get("success"):
+                    return f"✅ **Updated**\n\n{update_result.get('summary', '')}"
+                return f"❌ Update failed: {update_result.get('error', 'Unknown error')}"
+            update_results = registry.update_all()
+            updated = [r for r in update_results if r.get("success")]
             if updated:
                 lines = ["✅ **업데이트 완료**", ""]
                 for r in updated:
@@ -214,10 +238,11 @@ class SlashCommandSkillsMixin:
             "",
         ]
 
-        if self._tool_registry is not None:
-            lines.append(self._tool_registry.render_autonomous_policy().strip())
+        tool_registry = cast(ToolRegistryLike | None, self._tool_registry)
+        if tool_registry is not None:
+            lines.append(tool_registry.render_autonomous_policy().strip())
             lines.append("")
-            decisions = self._tool_registry.get_autonomous_manifest(objective)
+            decisions = tool_registry.get_autonomous_manifest(objective)
             counts = {
                 "allow": sum(1 for item in decisions if item.decision == "allow"),
                 "prompt": sum(1 for item in decisions if item.decision == "prompt"),
@@ -233,8 +258,8 @@ class SlashCommandSkillsMixin:
                 for decision in decisions[:30]:
                     lines.append(
                         f"- `{decision.capability_id}` [{decision.capability_type}] "
-                        f"→ **{decision.decision}** "
-                        f"(risk={decision.risk_level}, trust={decision.trust_level}) — {decision.reason}",
+                        + f"→ **{decision.decision}** "
+                        + f"(risk={decision.risk_level}, trust={decision.trust_level}) — {decision.reason}",
                     )
                 if len(decisions) > 30:
                     lines.append(f"- ... {len(decisions) - 30} more capabilities")
@@ -252,7 +277,7 @@ class SlashCommandSkillsMixin:
                 for decision in skill_decisions[:10]:
                     lines.append(
                         f"- `{decision.capability_id}` → **{decision.decision}** "
-                        f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}",
+                        + f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}",
                     )
         else:
             lines.extend(["", "**Skills:** Skill loader not connected."])
@@ -260,7 +285,7 @@ class SlashCommandSkillsMixin:
         return "\n".join(lines)
 
     def _cmd_codex(self, args: list[str]) -> str:
-        """Codex식 강점을 Antigravity-K 실행 계약으로 표시합니다."""
+        """Codex식 강점을 Ssak-Ai 실행 계약으로 표시합니다."""
         objective = " ".join(args).strip()
         connected_tools = len(self._tool_registry) if self._tool_registry else 0
         known_skills = 0
@@ -287,10 +312,11 @@ class SlashCommandSkillsMixin:
 
         from antigravity_k.agents.meta_evolution_agent import MetaEvolutionAgent
         from antigravity_k.engine.orchestrator import OrchestratorAgent
+        from antigravity_k.tools.tool_registry import ToolRegistry
 
         orch = OrchestratorAgent(
             model_manager=self._model_manager,
-            tool_registry=self._tool_registry,
+            tool_registry=cast(ToolRegistry | None, self._tool_registry),
         )
         agent = MetaEvolutionAgent(
             model_manager=self._model_manager,
@@ -299,10 +325,13 @@ class SlashCommandSkillsMixin:
         return agent.evolve(requirement)
 
     def _cmd_approve(self, args: list[str]) -> str:
+        _ = args
         return "System command: /approve is managed by the orchestrator."
 
     def _cmd_browse(self, args: list[str]) -> str:
+        _ = args
         return "System command: /browse is managed by the orchestrator."
 
     def _cmd_skill(self, args: list[str]) -> str:
+        _ = args
         return "System command: /skill is managed by the orchestrator."

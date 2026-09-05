@@ -5,24 +5,35 @@ record()가 preferred_model 인자를 존중하는지 검증합니다:
 - None이면 기본 역할 모델(_get_model("default")) 사용
 """
 
+from collections.abc import Iterator
+from typing import final
+
 from antigravity_k.engine.memory_recorder import MemoryRecorder
 
 
+@final
 class FakeVault:
-    sync_rag = True
+    sync_rag: bool = True
 
     def __init__(self):
-        self.write_calls = []
+        self.write_calls: list[dict[str, object]] = []
 
-    def write_note(self, **kwargs):
+    def write_note(self, **kwargs: object) -> None:
         self.write_calls.append(kwargs)
 
 
+@final
 class FakeManager:
     def __init__(self):
-        self.stream_calls = []
+        self.stream_calls: list[dict[str, object]] = []
 
-    def stream_generate(self, prompt, target, raw_messages, system_prompt):
+    def stream_generate(
+        self,
+        prompt: str,
+        target: str,
+        raw_messages: list[dict[str, str]],
+        system_prompt: str,
+    ) -> Iterator[str]:
         self.stream_calls.append(
             {
                 "prompt": prompt,
@@ -35,6 +46,7 @@ class FakeManager:
 
 
 def _get_model_fn(role: str) -> str:
+    _ = role
     return "default-role-model"
 
 
@@ -43,7 +55,7 @@ def test_record_uses_preferred_model_when_provided():
     manager = FakeManager()
     recorder = MemoryRecorder(vault, manager, _get_model_fn)
 
-    list(
+    _ = list(
         recorder.record(
             user_message="작업 요청",
             agent_output="작업 결과",
@@ -62,7 +74,7 @@ def test_record_falls_back_to_default_role_model_without_preference():
     manager = FakeManager()
     recorder = MemoryRecorder(vault, manager, _get_model_fn)
 
-    list(
+    _ = list(
         recorder.record(
             user_message="작업 요청",
             agent_output="작업 결과",

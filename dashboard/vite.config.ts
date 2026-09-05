@@ -16,7 +16,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
-    allowedHosts: ['antigravity-k.cloud'],
+    allowedHosts: ['antigravity-k.cloud', 'ssak-ai.cloud'],
     proxy: {
       '/v1': { target: backendTarget, changeOrigin: true },
       '/api': { target: backendTarget, changeOrigin: true },
@@ -24,12 +24,17 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: 'dist',
+    outDir: path.resolve(__dirname, '../src/antigravity_k/dashboard_dist'),
     emptyOutDir: true,
     chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {
         manualChunks(id: string) {
+          // Keep ky explicit: its entry (distribution/index.js) auto-splits into a
+          // chunk literally named "index", colliding with the app entry chunk name.
+          if (id.includes('/src/api/') || id.includes('node_modules/ky/')) {
+            return 'api-client';
+          }
           // Core vendor — React, Router, Zustand (excludes @tanstack for separate chunk)
           if (id.includes('node_modules/react/') ||
               id.includes('node_modules/react-dom/') ||
@@ -64,7 +69,9 @@ export default defineConfig({
           // Split from highlighting so non-code markdown loads faster.
           if (id.includes('node_modules/react-markdown') ||
               id.includes('node_modules/rehype-raw') ||
+              id.includes('node_modules/rehype-sanitize') ||
               id.includes('node_modules/rehype-stringify') ||
+              id.includes('node_modules/unified') ||
               id.includes('node_modules/remark-') ||
               id.includes('node_modules/mdast-') ||
               id.includes('node_modules/micromark') ||

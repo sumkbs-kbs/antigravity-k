@@ -13,8 +13,9 @@ WRAPPER_PATH = REPO_ROOT / "coupang-product-search" / "scripts" / "coupang_partn
 
 def load_wrapper_module():
     spec = importlib.util.spec_from_file_location("coupang_partners_mcp", WRAPPER_PATH)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"unable to load wrapper module from {WRAPPER_PATH}")
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 

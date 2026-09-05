@@ -6,22 +6,41 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Generator, Mapping
-from typing import Any, Final, TypeAlias
+from collections.abc import Generator, Iterator, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final, Protocol, TypeAlias, TypeGuard, final, runtime_checkable
+
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from antigravity_k.engine.benchmark_harness import TaskOutcome
+from antigravity_k.engine.capacity_flow import CapacityDecision
+from antigravity_k.engine.cognitive_loop import ReflectionResult
+from antigravity_k.engine.context_artifact_recall import ContextArtifactRecall
+from antigravity_k.engine.context_artifact_store import ContextArtifactStore
+from antigravity_k.engine.context_shaper import ContextShaper
 from antigravity_k.engine.error_classifier import classify_api_error
 from antigravity_k.engine.language_normalizer import normalize_foreign_technical_terms
 from antigravity_k.engine.llm_task_decomposer import is_complex_task
+from antigravity_k.engine.long_context_policy import LongContextExecutionPlan, LongContextPlanner
 from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
-from antigravity_k.engine.task_state_store import TaskExecutionContext, TaskStatusName
-from antigravity_k.engine.tool_call_parser import EventType, ToolCall
-from antigravity_k.engine.tool_executor import _result_indicates_failure as _tool_result_failed
+from antigravity_k.engine.task_context_snapshot import (
+    ContextSnapshotStoreError,
+    save_task_context_snapshot,
+)
+from antigravity_k.engine.task_execution_context import TaskStateStoreProtocol
+from antigravity_k.engine.task_state_store import TaskExecutionContext
+from antigravity_k.engine.task_state_types import TaskStatusName
+from antigravity_k.engine.tokenizer import TokenEstimator
+from antigravity_k.engine.tool_call_parser import EventType, ToolCall, ToolCallParser
+from antigravity_k.engine.tool_executor import result_indicates_failure as _tool_result_failed
 from antigravity_k.engine.tool_guardrails import (
     MUTATING_TOOL_NAMES,
+    ToolGuardrailDecision,
     append_guardrail_guidance,
     guardrail_synthetic_result,
 )
+from antigravity_k.engine.working_memory_compactor import WorkingMemoryCompactor
 from antigravity_k.tools.search_quality_evaluator import (
     CitationEvaluationReport,
     CitationSource,
@@ -37,17 +56,337 @@ _TOOL_EVIDENCE_TAIL_CHARS: Final = 800
 _TOOL_EVIDENCE_FOCUS_CHARS: Final = 900
 _TOOL_EVIDENCE_MAX_FOCUSES: Final = 2
 _TOOL_SOURCE_FIELDS: Final = ("file_path", "path", "url", "query", "command")
+_MAX_TOOL_LOOP_STEPS: Final[int] = 50
+_MAX_CONSECUTIVE_BLOCKED_ROUNDS: Final[int] = 3
+_MAX_CONTEXT_COMPRESS_RETRIES: Final[int] = 2
+_MAX_PARSE_NUDGE_ROUNDS: Final[int] = 2
 _FOCUS_TERM_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{2,}|[가-힣]{2,}")
 _AUTHORITATIVE_PROJECT_VALUE: Final[re.Pattern[str]] = re.compile(
     r"\[resolved:project:(?:decision|fact):[^\]]+ source=project scope=project]\s*(?P<value>[^\n]{1,120})",
     re.IGNORECASE,
 )
 
-ToolArgumentValue: TypeAlias = (
-    str | int | float | bool | None | list["ToolArgumentValue"] | dict[str, "ToolArgumentValue"]
+ToolArgumentValue: TypeAlias = JsonValue
+ToolGenerationValue: TypeAlias = ToolArgumentValue | list[dict[str, ToolArgumentValue]]
+EventValue: TypeAlias = ToolGenerationValue | Path
+ExpectedToolsValue: TypeAlias = str | list[str] | tuple[str, ...] | set[str] | frozenset[str] | None
+
+_TOOL_ARGUMENT_MAP_ADAPTER: Final[TypeAdapter[dict[str, JsonValue]]] = TypeAdapter(
+    dict[str, JsonValue],
 )
+_EXPECTED_TOOLS_ADAPTER: Final[TypeAdapter[list[str]]] = TypeAdapter(list[str])
 
 
+def _config_mapping(value: ToolArgumentValue | None) -> Mapping[str, ToolArgumentValue]:
+    return value if isinstance(value, dict) else {}
+
+
+def _expected_tools_value(owner: object) -> ExpectedToolsValue:
+    value: object = getattr(owner, "expected_tools", ())
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple, set, frozenset)):
+        try:
+            return [item for item in _EXPECTED_TOOLS_ADAPTER.validate_python(value) if item]
+        except (ValidationError, ValueError, TypeError):
+            return None
+    return None
+
+
+def _decode_json_mapping(raw: str) -> dict[str, ToolArgumentValue] | None:
+    try:
+        return _TOOL_ARGUMENT_MAP_ADAPTER.validate_json(raw)
+    except (ValidationError, ValueError, TypeError):
+        return None
+
+
+def _publish_event(event_name: str, **kwargs: EventValue) -> None:
+    from antigravity_k.engine.event_bus import global_event_bus
+
+    publisher: _EventPublisherLike = global_event_bus
+    publisher.publish(event_name, **kwargs)
+
+
+def _publish_quality_event(task_type: str, user_task: str, quality: QualityScore) -> None:
+    """QualityGate 최종 평가를 QualityCheckPassed/Failed 이벤트로 발행합니다.
+
+    대시보드 WebSocket(useEventWebSocket)이 이 이벤트를 수신하여 에이전트 모니터링
+    타임라인과 Kanban 보드에 품질 검사 결과를 표시합니다.
+    이벤트 발행은 선택적(non-critical)이므로 실패해도 실행 경로는 계속됩니다.
+    """
+    from antigravity_k.engine.event_bus import global_event_bus
+
+    passed = quality.grade in {QualityGrade.A, QualityGrade.B}
+    global_event_bus.publish(
+        "QualityCheckPassed" if passed else "QualityCheckFailed",
+        task_type=task_type,
+        user_task=user_task[:500],
+        score=quality.score,
+        grade=quality.grade.value,
+        issues=list(quality.issues or []),
+        feedback=quality.feedback,
+    )
+
+
+@runtime_checkable
+class TaskOutcomeRecorder(Protocol):
+    def __call__(self, outcome: TaskOutcome) -> TaskOutcome | None: ...
+
+
+class _EventPublisherLike(Protocol):
+    def publish(self, event_name: str, **kwargs: EventValue) -> None: ...
+
+
+class ToolLoopConfigurationError(ValueError):
+    pass
+
+
+@dataclass
+class LoopTelemetry:
+    """도구 루프 프로토콜 건강도 카운터.
+
+    소형 모델 하네스 튜닝의 근거 데이터 — 파서 오류/수리/넛지/압축 빈도를
+    관찰해 XML 프로토콜↔네이티브 FC 전환, 프롬프트 개정 여부를 판단한다.
+    """
+
+    parse_errors: int = 0
+    repaired_tool_calls: int = 0
+    format_nudges: int = 0
+    context_compressions: int = 0
+    blocked_rounds: int = 0
+    tool_exceptions: int = 0
+    deduped_calls: int = 0
+
+    def summary(self) -> str:
+        return (
+            f"parse_errors={self.parse_errors} repaired={self.repaired_tool_calls} "
+            f"nudges={self.format_nudges} compressions={self.context_compressions} "
+            f"blocked_rounds={self.blocked_rounds} exceptions={self.tool_exceptions} "
+            f"deduped={self.deduped_calls}"
+        )
+
+
+ToolExecutionResult: TypeAlias = tuple[
+    ToolCall,
+    ToolGuardrailDecision | None,
+    ToolGuardrailDecision | None,
+    str,
+    bool,
+]
+
+
+class _ModelProfileLike(Protocol):
+    provider: str
+
+
+@runtime_checkable
+class _ModelRegistryLike(Protocol):
+    def get_model(self, name: str) -> _ModelProfileLike | None: ...
+
+
+class _ModelComboLike(Protocol):
+    pass
+
+
+class _ModelRouterLike(Protocol):
+    def get_combo(self, name: str) -> _ModelComboLike | None: ...
+
+
+class _ModelManagerLike(Protocol):
+    router: _ModelRouterLike
+    _registry: _ModelRegistryLike
+
+    def provider_capability(self, name: str) -> Mapping[str, ToolArgumentValue] | None: ...
+
+    def get_system_prompt(self) -> str: ...
+
+    def get_tool_prompt(self) -> str: ...
+
+    def is_loaded(self, name: str) -> bool: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: ToolGenerationValue) -> str: ...
+
+    def stream_generate(self, **kwargs: ToolGenerationValue) -> Iterator[str]: ...
+
+    def generate_best_of_n(self, prompt: str, target: str, **kwargs: ToolGenerationValue) -> str: ...
+
+    def generate_self_consistent(self, prompt: str, target: str, **kwargs: ToolGenerationValue) -> str: ...
+
+    def generate_decomposed(
+        self,
+        prompt: str,
+        target: str,
+        *,
+        force: bool = False,
+        **kwargs: ToolGenerationValue,
+    ) -> str: ...
+
+
+class _ToolRegistryLike(Protocol):
+    def to_openai_schemas(self, names: list[str] | None = None) -> list[dict[str, ToolArgumentValue]]: ...
+
+
+class _ContextCompressorLike(Protocol):
+    def needs_compression(self, messages: list[dict[str, str]]) -> bool: ...
+
+    def usage_percent(self, messages: list[dict[str, str]]) -> float: ...
+
+    def adaptive_compress(self, messages: list[dict[str, str]], *, task_type: str) -> list[dict[str, str]]: ...
+
+
+class _ToolGuardrailLike(Protocol):
+    def reset(self) -> None: ...
+
+    def before_call(
+        self,
+        tool_name: str,
+        args: Mapping[str, ToolArgumentValue] | None = None,
+    ) -> ToolGuardrailDecision: ...
+
+    def after_call(
+        self,
+        tool_name: str,
+        args: Mapping[str, ToolArgumentValue] | None = None,
+        result: str | None = None,
+        *,
+        failed: bool | None = None,
+    ) -> ToolGuardrailDecision: ...
+
+
+class _ToolExecutorLike(Protocol):
+    async def execute_async(
+        self,
+        name: str,
+        args: dict[str, ToolArgumentValue],
+        *,
+        guardrail_prechecked: bool = False,
+    ) -> str: ...
+
+
+class _CognitiveLoopLike(Protocol):
+    def reflect(self, task: str, full_output: str) -> ReflectionResult: ...
+
+    def verify_tool_result(
+        self,
+        tool_name: str,
+        tool_args: dict[str, ToolArgumentValue],
+        result: str,
+    ) -> dict[str, ToolArgumentValue]: ...
+
+    async def adapt_strategy(self, task: str, step_ctx: ToolArgumentValue | None) -> str | None: ...
+
+
+class _DecisionAnchorLike(Protocol):
+    def auto_extract(self, user_msg: str, assistant_msg: str) -> dict[str, str] | None: ...
+
+    def add(
+        self,
+        decision: str,
+        category: str = "general",
+        priority: int = 5,
+        source: str = "user",
+    ) -> str: ...
+
+
+class _QualityGateLike(Protocol):
+    max_retries: int
+
+    def evaluate(
+        self,
+        task_type: str,
+        user_request: str,
+        agent_output: str,
+        execution_mode: str | None = None,
+    ) -> QualityScore: ...
+
+    def mark_retry(self) -> None: ...
+
+    def reset(self) -> None: ...
+
+
+class _EngineContextLike(Protocol):
+    tool_guardrail: _ToolGuardrailLike
+    tool_executor: _ToolExecutorLike
+    cognitive_loop: _CognitiveLoopLike | None
+    quality_gate: _QualityGateLike | None
+    decision_anchor: _DecisionAnchorLike | None
+    expected_tools: ExpectedToolsValue
+
+
+class _IncrementalCodeGraphLike(Protocol):
+    def update_file(self, rel_path: str, content: str | None = None) -> int: ...
+
+
+@runtime_checkable
+class _CapacityCheckpointLike(Protocol):
+    def check_step_budget(self, current_step: int, max_steps: int) -> CapacityDecision: ...
+
+
+class _OrchestratorLike(Protocol):
+    manager: _ModelManagerLike
+    ctx: _EngineContextLike
+    project_root: str | Path
+    config: Mapping[str, ToolArgumentValue]
+    tool_registry: _ToolRegistryLike | None
+    context_shaper: ContextShaper
+    _incremental_code_graph: _IncrementalCodeGraphLike | None
+    _capacity_checkpoint: _CapacityCheckpointLike
+    cost_usd: float
+    task_execution_context: TaskExecutionContext | None
+    task_outcome_recorder: TaskOutcomeRecorder | None
+    expected_tools: ExpectedToolsValue
+
+    def context_compressor_for(self, target_model: str) -> _ContextCompressorLike | None: ...
+
+    def _get_model_for_role(self, role: str) -> str: ...
+
+    def _prepare_agent_prompt(
+        self,
+        messages: list[dict[str, str]],
+        delegate_to: str,
+        task_type: str,
+    ) -> tuple[str, str, str, str, str, list[dict[str, str]]]: ...
+
+    def _rebuild_prompt(
+        self,
+        system_prompt: str,
+        tool_prompt: str,
+        skill_prompts: str,
+        messages: list[dict[str, str]],
+    ) -> str: ...
+
+
+def _is_orchestrator(value: object) -> TypeGuard[_OrchestratorLike]:
+    return hasattr(value, "ctx")
+
+
+@runtime_checkable
+class _PromptRebuilderLike(Protocol):
+    def __call__(
+        self,
+        system_prompt: str,
+        tool_prompt: str,
+        skill_prompts: str,
+        messages: list[dict[str, str]],
+    ) -> str: ...
+
+
+@runtime_checkable
+class _ModelResolverLike(Protocol):
+    def __call__(self, role: str) -> str: ...
+
+
+@runtime_checkable
+class _PromptPreparerLike(Protocol):
+    def __call__(
+        self,
+        messages: list[dict[str, str]],
+        delegate_to: str,
+        task_type: str,
+    ) -> tuple[str, str, str, str, str, list[dict[str, str]]]: ...
+
+
+@final
 class ToolLoopEngine:
     """Orchestrator에서 분리된 도구 실행 루프(Tool Loop) 관리 엔진.
 
@@ -59,22 +398,36 @@ class ToolLoopEngine:
 
     def __init__(
         self,
-        orchestrator,
-        outcome_recorder: Callable[[TaskOutcome], Any] | None = None,
-    ):
+        orchestrator: object,
+        outcome_recorder: TaskOutcomeRecorder | None = None,
+    ) -> None:
         """Initialize the ToolLoopEngine.
 
         Args:
             orchestrator: orchestrator.
 
         """
-        self.orch = orchestrator
-        self._quality_retry_count = 0
-        self._citation_validation_failed = False
-        self.outcome_recorder = outcome_recorder
+        if not _is_orchestrator(orchestrator):
+            raise TypeError("orchestrator must expose an execution context")
+        self.orch: _OrchestratorLike = orchestrator
+        self._quality_retry_count: int = 0
+        self._citation_validation_failed: bool = False
+        # 이 엔진의 최종 출력 — 종전에는 공유 오케스트레이터의
+        # _last_agent_output 사이드채널에 기록되어 MAX 워커 등 병렬 실행에서
+        # 서로의 출력을 덮어썼다. 인스턴스 속성으로 소유권을 분리한다.
+        self.last_output: str = ""
+        self.telemetry = LoopTelemetry()
+        self._checkpoint_messages: list[dict[str, str]] = []
+        self._checkpoint_target_model = ""
+        self._working_memory_block = ""
+        self._context_artifact_store: ContextArtifactStore | None = None
+        self.outcome_recorder: TaskOutcomeRecorder | None = outcome_recorder
         if self.outcome_recorder is None:
-            candidate = getattr(orchestrator, "__dict__", {}).get("task_outcome_recorder")
-            if callable(candidate):
+            try:
+                candidate = self.orch.task_outcome_recorder
+            except AttributeError:
+                candidate = None
+            if isinstance(candidate, TaskOutcomeRecorder):
                 self.outcome_recorder = candidate
 
     @staticmethod
@@ -84,6 +437,40 @@ class ToolLoopEngine:
             if isinstance(value, str) and value:
                 return value
         return ""
+
+    def _artifact_store(self) -> ContextArtifactStore | None:
+        project_root = getattr(self.orch, "project_root", None)
+        if not isinstance(project_root, (str, Path)) or not str(project_root):
+            return None
+        if self._context_artifact_store is None:
+            self._context_artifact_store = ContextArtifactStore(
+                Path(project_root) / ".antigravity" / "context_artifacts",
+            )
+        return self._context_artifact_store
+
+    def restore_context_artifact(self, ref_id: str, chunk_index: int | None = None) -> str | None:
+        """Restore a stored tool artifact or one of its bounded chunks."""
+        store = self._artifact_store()
+        return store.read(ref_id, chunk_index=chunk_index) if store is not None else None
+
+    def _recall_context_artifacts(
+        self,
+        messages: list[dict[str, str]],
+        focus_terms: tuple[str, ...],
+    ) -> str | None:
+        if not focus_terms:
+            return None
+        store = self._artifact_store()
+        if store is None:
+            return None
+        recall_messages = tuple(
+            {
+                "role": str(message.get("role", "user")),
+                "content": str(message.get("content", "")),
+            }
+            for message in messages
+        )
+        return ContextArtifactRecall(store).recall(recall_messages, focus_terms)
 
     @staticmethod
     def _focus_terms(user_task: str) -> tuple[str, ...]:
@@ -130,6 +517,14 @@ class ToolLoopEngine:
 
         evidence = PromptInjectionGuard().sanitize_tool_result(evidence)
         truncated = len(raw_result) > _TOOL_EVIDENCE_MAX_CHARS
+        artifact = None
+        if truncated:
+            store = self._artifact_store()
+            if store is not None:
+                artifact = store.store(
+                    evidence,
+                    source=self._tool_source(tool_call.arguments),
+                )
         if truncated:
             focused = self._focused_evidence(evidence, focus_terms)
             focus_section = ""
@@ -147,6 +542,15 @@ class ToolLoopEngine:
             "sha256_prefix": hashlib.sha256(raw_result.encode("utf-8")).hexdigest()[:16],
             "truncated": truncated,
         }
+        if artifact is not None:
+            metadata.update(
+                {
+                    "context_artifact_ref": artifact.ref_id,
+                    "context_artifact_chunks": artifact.chunk_count,
+                    "context_artifact_chunk_chars": artifact.chunk_chars,
+                    "context_artifact_tool": "read_context_artifact",
+                },
+            )
         return (
             "<tool_response>\n"
             f"[TOOL_EVIDENCE] {json.dumps(metadata, ensure_ascii=False, sort_keys=True)}\n"
@@ -156,21 +560,114 @@ class ToolLoopEngine:
             "</tool_response>"
         )
 
+    def _resolve_model_name(self, delegate_model: str) -> str:
+        """콤보명(coding-swarm)을 대표 모델명으로 해석한다.
+
+        registry.get_model 등 모델명 기준 조회는 콤보명으로 호출하면
+        항상 None을 반환한다 — 라우터 실제 선택 전에 사용할 대표 후보를
+        콤보의 모델 체인에서 구한다.
+        """
+        if not delegate_model:
+            return delegate_model
+        try:
+            router = getattr(self.orch.manager, "router", None)
+            get_combo = getattr(router, "get_combo", None)
+            combo = get_combo(delegate_model) if callable(get_combo) else None
+        except Exception:
+            combo = None
+        if combo is None:
+            return delegate_model
+        models = list(getattr(combo, "models", []) or [])
+        registry = getattr(self.orch.manager, "_registry", None)
+        get_model = getattr(registry, "get_model", None)
+        for name in models:
+            if not callable(get_model) or get_model(str(name)) is not None:
+                return str(name)
+        return delegate_model
+
+    def _model_family_for_sampling(self, delegate_model: str) -> str:
+        """샘플링 계열 판별용 — 콤보 대상에도 모델명 기준으로 판별한다."""
+        return self._resolve_model_name(delegate_model).lower()
+
+    def _model_context_budget(self, delegate_model: str) -> int | None:
+        """모델의 실제 컨텍스트 토큰 예산을 반환한다 (압축 budget용).
+
+        우선순위: 해당 모델 ContextCompressor의 token_limit → 전역 상한.
+        조회 실패 시 None(shaper 기본값)로 폴백한다.
+        """
+        compressor_factory = getattr(self.orch, "context_compressor_for", None)
+        if callable(compressor_factory):
+            try:
+                compressor = compressor_factory(delegate_model)
+                token_limit = int(getattr(compressor, "token_limit", 0) or 0)
+                if token_limit > 0:
+                    return token_limit
+            except Exception:
+                logger.debug("context budget lookup failed", exc_info=True)
+        try:
+            from antigravity_k.engine.context_budget import MAX_CONTEXT_TOKEN_LIMIT
+
+            return int(MAX_CONTEXT_TOKEN_LIMIT)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _insert_working_context(prompt: str, pinned: str) -> str:
+        """재구축 프롬프트에 working_context 블록을 Assistant: 큐 앞에 삽입한다.
+
+        _prepare_agent_prompt가 pinned(구조 스냅샷+작업 메모리)를 후미
+        recency 블록으로 배치하는 것과 동일한 구조를 유지한다.
+        """
+        if not pinned:
+            return prompt
+        block = f"<working_context>\n{pinned}</working_context>\n"
+        if prompt.endswith("Assistant: "):
+            return prompt[: -len("Assistant: ")] + block + "Assistant: "
+        return prompt + "\n" + block
+
+    def _cached_pinned_context(self) -> str:
+        cached = getattr(self.orch, "_prompt_components_cache", None)
+        if isinstance(cached, dict):
+            value = cached.get("pinned_context")
+            return value if isinstance(value, str) else ""
+        return ""
+
+    def _repair_tool_calls(self, full_response: str) -> list[ToolCall]:
+        """파서가 거부한 도구 호출을 결정적으로 수리해 복구한다.
+
+        RobustToolParser는 단일 따옴표/트레일링 콤마/Python 리터럴/미닫힌
+        중괄호를 JSON으로 수리한다 — 27B급 모델이 가장 흔히 내는 형식
+        오류 클래스다. <thought> 블록 내부의 언급은 실행하지 않는다.
+        """
+        try:
+            from antigravity_k.engine.robust_tool_parser import RobustToolParser
+        except Exception:
+            return []
+
+        thought_stripped = re.sub(r"<thought>.*?</thought>", "", full_response, flags=re.DOTALL)
+        calls: list[ToolCall] = []
+        try:
+            for parsed in RobustToolParser.extract_tool_calls(thought_stripped):
+                calls.append(ToolCall(name=parsed.name, arguments=dict(parsed.arguments)))
+        except Exception:
+            logger.debug("Robust tool call repair failed", exc_info=True)
+        if calls:
+            logger.info("[ToolLoop] Repaired %d malformed tool call(s) deterministically", len(calls))
+        return calls
+
     def _native_tools_kwargs(
         self,
         delegate_model: str,
         required_tools: tuple[str, ...] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, ToolGenerationValue]:
         """네이티브 function calling 지원 provider에 tools 스키마를 전달 (P1-1).
 
         OpenAI 호환 provider와 Ollama 모델이 네이티브 function calling을 사용할 수 있습니다.
         config의 native_function_calling 플래그로 전역 제어합니다.
         """
         # config에서 네이티브 function calling 활성화 여부
-        raw_cfg = getattr(self.orch, "config", {}) or {}
-        native_fc_enabled = (
-            raw_cfg.get("tool_loop", {}).get("native_function_calling", False) if isinstance(raw_cfg, dict) else False
-        )
+        raw_cfg = self.orch.config or {}
+        native_fc_enabled = _config_mapping(raw_cfg.get("tool_loop")).get("native_function_calling", False)
         if not native_fc_enabled:
             return {}
         if required_tools == ():
@@ -178,14 +675,26 @@ class ToolLoopEngine:
 
         # 모델의 provider 확인 — OpenAI 호환 provider만 네이티브 지원
         try:
-            registry = self.orch.manager._registry
-            profile = registry.get_model(delegate_model)
-            if profile and profile.provider in ("ollama", "lmstudio", "lm_studio", "openrouter", "nim"):
+            registry = getattr(self.orch.manager, "_registry", None)
+            get_model = getattr(registry, "get_model", None)
+            if not callable(get_model):
+                return {}
+            # 콤보명이면 대표 모델명으로 해석해서 조회한다 (콤보명 조회는
+            # 항상 None → 네이티브 FC가 사실상 비활성화되던 버그).
+            profile_value: object = get_model(self._resolve_model_name(delegate_model))
+            provider_value: object = getattr(profile_value, "provider", None)
+            if isinstance(provider_value, str) and provider_value in (
+                "ollama",
+                "lmstudio",
+                "lm_studio",
+                "openrouter",
+                "nim",
+            ):
                 capability = self.orch.manager.provider_capability(delegate_model)
                 if capability is not None and capability.get("native_tool_calling") == "unsupported":
                     return {}
-                tool_registry = getattr(self.orch, "tool_registry", None)
-                if tool_registry and hasattr(tool_registry, "to_openai_schemas"):
+                tool_registry = self.orch.tool_registry
+                if tool_registry is not None:
                     schemas = tool_registry.to_openai_schemas(
                         names=list(required_tools) if required_tools is not None else None,
                     )
@@ -197,14 +706,15 @@ class ToolLoopEngine:
 
     def _maybe_compress_context(
         self,
-        shaped_messages: list[dict[str, Any]],
+        shaped_messages: list[dict[str, str]],
         prompt_str: str,
         delegate_model: str,
         task_type: str,
         system_prompt: str,
         tool_prompt: str,
         skill_prompts: str,
-    ) -> tuple[list[dict[str, Any]], str, float | None, float | None]:
+        focus_terms: tuple[str, ...] = (),
+    ) -> tuple[list[dict[str, str]], str, float | None, float | None]:
         """ContextCompressor 자동 트리거 — 토큰 예산 초과 시 루프 내 메시지를 압축합니다.
 
         Returns:
@@ -219,19 +729,49 @@ class ToolLoopEngine:
                 return shaped_messages, prompt_str, None, None
             needs = compressor.needs_compression(shaped_messages)
             # mock 대응: needs_compression이 bool이 아니면 (예: MagicMock) 압축 생략
-            if not isinstance(needs, bool) or not needs:
+            if needs is not True:
                 return shaped_messages, prompt_str, None, None
             usage_before = float(compressor.usage_percent(shaped_messages))
-            task_key = task_type.upper() if isinstance(task_type, str) else "GENERAL"
+            task_key = task_type.upper()
             compressed = compressor.adaptive_compress(shaped_messages, task_type=task_key)
             if compressed == shaped_messages:
                 return shaped_messages, prompt_str, None, None
             usage_after = float(compressor.usage_percent(compressed))
-            rebuilt = self.orch._rebuild_prompt(system_prompt, tool_prompt, skill_prompts, compressed)
+            rebuild_prompt = getattr(self.orch, "_rebuild_prompt", None)
+            if not isinstance(rebuild_prompt, _PromptRebuilderLike):
+                return shaped_messages, prompt_str, None, None
+            rebuilt = rebuild_prompt(system_prompt, tool_prompt, skill_prompts, compressed)
+            rebuilt = self._insert_working_context(rebuilt, self._cached_pinned_context())
+            recalled = self._recall_context_artifacts(shaped_messages, focus_terms)
+            if recalled:
+                # Assistant: 큐 앞에 삽입한다 — 큐 뒤에 붙이면 복원 컨텍스트가
+                # 모델 생성 슬롯을 침범해 모델 자신의 출력 접두사로 오인된다.
+                if rebuilt.endswith("Assistant: "):
+                    rebuilt = rebuilt[: -len("Assistant: ")] + f"\n{recalled}\nAssistant: "
+                else:
+                    rebuilt = f"{rebuilt}\n{recalled}"
             return compressed, rebuilt, usage_before, usage_after
         except Exception:
             logger.warning("Context compression error (non-critical)", exc_info=True)
             return shaped_messages, prompt_str, None, None
+
+    def _refresh_checkpoint_context(self, messages: list[dict[str, str]]) -> None:
+        checkpoint_messages = [
+            {
+                "role": str(message.get("role", "user")),
+                "content": str(message.get("content", "")),
+                **({"name": str(message["name"])} if message.get("name") is not None else {}),
+            }
+            for message in messages
+        ]
+        if len(checkpoint_messages) > 256:
+            system_messages = [message for message in checkpoint_messages if message["role"] == "system"][:16]
+            recent_messages = checkpoint_messages[-(256 - len(system_messages)) :]
+            checkpoint_messages = [*system_messages, *recent_messages]
+        self._checkpoint_messages = checkpoint_messages
+        self._working_memory_block = WorkingMemoryCompactor.compact(
+            self._checkpoint_messages,
+        ).format_pinned_working_memory()
 
     def run_loop(
         self,
@@ -242,6 +782,7 @@ class ToolLoopEngine:
         target_model: str | None = None,
         direct_response: bool = False,
         evaluation_user_task: str | None = None,
+        sampling_overrides: Mapping[str, float] | None = None,
     ) -> Generator[str, None, None]:
         """Run the agentic tool-execution loop, yielding output chunks.
 
@@ -260,11 +801,14 @@ class ToolLoopEngine:
             direct_response: Stream one final model response without agent or tool prompts.
             evaluation_user_task: Original user request when messages contain a refined
                 or RAG-augmented prompt for generation.
+            sampling_overrides: Optional per-call sampling params (temperature,
+                repeat_penalty, min_p). Used by MAX 모드 워커 다양성 등.
 
         Yields:
             Streaming text chunks and tool-execution status messages.
 
         """
+        max_steps = max(1, min(int(max_steps), _MAX_TOOL_LOOP_STEPS))
         started_at = time.monotonic()
         task_id = self._task_id()
         self._transition_task_state("running")
@@ -280,22 +824,51 @@ class ToolLoopEngine:
         success = False
         error_text = ""
 
+        if target_model and target_model != "default":
+            delegate_model = target_model
+        else:
+            resolve_model = getattr(self.orch, "_get_model_for_role", None)
+            if not isinstance(resolve_model, _ModelResolverLike):
+                raise ToolLoopConfigurationError("orchestrator model resolver is unavailable")
+            delegate_model = resolve_model(delegate_to)
+
+        shaped_messages: list[dict[str, str]] = list(messages)
+        prompt_str = ""
+        _system_prompt_part = ""
+        _tool_prompt_part = ""
+        _skill_prompts_part = ""
         if direct_response:
+            shaped_messages = list(messages)
+            context_shaper = getattr(self.orch, "context_shaper", None)
+            if isinstance(context_shaper, ContextShaper) and isinstance(getattr(self.orch, "config", None), dict):
+                execution_plan: LongContextExecutionPlan | None = None
+                manager = self.orch.manager
+                if isinstance(manager, LongContextPlanner):
+                    execution_plan = manager.long_context_plan(delegate_model)
+                shaped_messages = context_shaper.shape_for_model(
+                    shaped_messages,
+                    self.orch.config,
+                    delegate_model,
+                    execution_plan=execution_plan,
+                )
+            user_task = next(
+                (message.get("content", "") for message in reversed(shaped_messages) if message.get("role") == "user"),
+                "",
+            )
             recalled_context = "\n\n".join(
-                message.get("content", "")
-                for message in messages
-                if message.get("role") == "system" and message.get("content", "").startswith("[Recalled Memory]")
+                record.get("content", "")
+                for record in shaped_messages
+                if record.get("role") == "system" and record.get("content", "").startswith("[Recalled Memory]")
             )
             prompt_str = (
                 "[DIRECT LOCAL RESPONSE MODE]\n"
-                "Return the complete final answer. Do not use tools, modify files, emit agent status, "
-                "or reveal hidden reasoning. Follow the user's requested format and brevity exactly.\n"
-                "For code, return valid code in a fenced block and include requested complexity as comments.\n\n"
+                + "Return the complete final answer. Do not use tools, modify files, emit agent status, "
+                + "or reveal hidden reasoning. Follow the user's requested format and brevity exactly.\n"
+                + "For code, return valid code in a fenced block and include requested complexity as comments.\n\n"
                 + (f"Authoritative recalled context:\n{recalled_context}\n\n" if recalled_context else "")
                 + f"User request:\n{user_task}\n\n"
                 + "Final answer:\n"
             )
-            shaped_messages = list(messages)
         else:
             prompt_messages = list(messages)
             if expected_tools:
@@ -310,6 +883,9 @@ class ToolLoopEngine:
                     },
                 )
             # 내부 상태 및 의존성 복사
+            prepare_prompt = getattr(self.orch, "_prepare_agent_prompt", None)
+            if not isinstance(prepare_prompt, _PromptPreparerLike):
+                raise ToolLoopConfigurationError("orchestrator prompt preparation is unavailable")
             (
                 _,  # We determine delegate_model below
                 _system_prompt_part,
@@ -317,24 +893,42 @@ class ToolLoopEngine:
                 _skill_prompts_part,
                 prompt_str,
                 shaped_messages,
-            ) = self.orch._prepare_agent_prompt(prompt_messages, delegate_to, task_type)
+            ) = prepare_prompt(prompt_messages, delegate_to, task_type)
 
-        if target_model and target_model != "default":
-            delegate_model = target_model
-        else:
-            # If target_model is 'default', resolve it to the actual default model for the role
-            delegate_model = self.orch._get_model_for_role(delegate_to)
+        self._refresh_checkpoint_context(shaped_messages)
 
-        system_prompt = self.orch.manager.get_system_prompt() if hasattr(self.orch.manager, "get_system_prompt") else ""
-        tool_prompt = self.orch.manager.get_tool_prompt() if hasattr(self.orch.manager, "get_tool_prompt") else ""
-        skill_prompts = getattr(self.orch, "_skill_prompts_cache", "")
+        self._checkpoint_target_model = delegate_model
+
+        # _prepare_agent_prompt가 반환한 실제 구성요소를 사용한다.
+        # (이전에는 manager.get_system_prompt()라는 존재하지 않는 메서드를
+        # 읽어 항상 빈 문자열로 폐기되었다 — 압축 재구축 시 도구 프로토콜이
+        # 소실되는 치명 버그의 원인.)
+        system_prompt = _system_prompt_part
+        tool_prompt = _tool_prompt_part
+        skill_prompts = _skill_prompts_part
+        # pinned(구조 스냅샷+작업 메모리)는 이제 접두사가 아니라 후미 recency
+        # 블록이다 — 재구축 시 _insert_working_context로 동일 위치에 복원한다.
+        _ = getattr(self.orch, "_prompt_components_cache", None)
         # We use prompt_str for the prompt to stream_generate
 
         full_output = ""
-        parser: Any = None
+        parser = ToolCallParser()
         self._quality_retry_count = 0
         self._citation_validation_failed = False
+        self.telemetry = LoopTelemetry()
         step = 0
+        consecutive_blocked_rounds = 0
+        parse_nudge_count = 0
+
+        # 턴 시작 시 가드레일 실패 카운터를 초기화한다.
+        # (없으면 프로세스 수명 동안 카운터가 누적되어 무관한 세션의
+        # 실패 이력이 "N회 실패했습니다" 경고로 모델을 오도한다.)
+        _guardrail = getattr(self.orch.ctx, "tool_guardrail", None)
+        if _guardrail is not None:
+            if hasattr(_guardrail, "reset_for_turn"):
+                _guardrail.reset_for_turn()
+            elif hasattr(_guardrail, "reset"):
+                _guardrail.reset()
 
         while step < max_steps:
             step += 1
@@ -356,14 +950,25 @@ class ToolLoopEngine:
                 )
                 return
 
-            if self.orch.ctx.tool_guardrail and hasattr(self.orch.ctx.tool_guardrail, "reset"):
-                self.orch.ctx.tool_guardrail.reset()
-
             from antigravity_k.engine.capacity_flow import CapacityAction
 
-            if hasattr(self.orch, "_capacity_checkpoint"):
-                decision = self.orch._capacity_checkpoint.check_step_budget(step, max_steps)
-                action = decision.action
+            checkpoint = getattr(self.orch, "_capacity_checkpoint", None)
+            check_step_budget = getattr(checkpoint, "check_step_budget", None)
+            if callable(check_step_budget) and step >= max_steps:
+                # 마지막 스텝: 중단 대신 최종 답변 강제 지시.
+                # (기존에는 이 스텝이 항상 100% HALT로 폐기되어 실효 예산이
+                # max_steps-1이었다. 지시는 Assistant: 큐 앞에 삽입해 모델
+                # 생성 슬롯을 침범하지 않게 한다.)
+                if prompt_str.endswith("Assistant: "):
+                    prompt_str = prompt_str[: -len("Assistant: ")]
+                prompt_str += (
+                    "\n[SYSTEM] This is the final step. Do not call any more tools. "
+                    "Produce the final answer now using the evidence collected so far.\n"
+                    "Assistant: "
+                )
+            elif callable(check_step_budget):
+                decision_value: object = check_step_budget(step, max_steps)
+                action = getattr(decision_value, "action", None)
                 if action == CapacityAction.HALT:
                     yield "\n\n⚠️ **[Capacity Limit]** 시스템 리소스 보호를 위해 작업을 중단합니다.\n"
                     self._record_task_outcome(
@@ -389,18 +994,39 @@ class ToolLoopEngine:
                     system_prompt,
                     tool_prompt,
                     skill_prompts,
+                    focus_terms,
                 )
+                self._refresh_checkpoint_context(shaped_messages)
                 if usage_before is not None:
+                    self.telemetry.context_compressions += 1
                     yield f"\n📦 **[Context Compressor]** 토큰 사용량 {usage_before:.0f}% → {usage_after:.0f}% 압축\n\n"
                     logger.info("[ToolLoop] Context compressed: %.0f%% → %.0f%%", usage_before, usage_after)
 
-            stream_kwargs: dict[str, Any] = {
+            stream_kwargs: dict[str, ToolGenerationValue] = {
                 "prompt": prompt_str,
                 "target": delegate_model,
                 "task_type": task_type,
             }
-            if "qwen3" in delegate_model.lower():
+            if "qwen3" in self._model_family_for_sampling(delegate_model):
                 stream_kwargs.update({"temperature": 0.2, "repeat_penalty": 1.1, "min_p": 0.0})
+            if sampling_overrides:
+                # 샘플링 파라미터만 허용 (prompt/target 주입 방지)
+                stream_kwargs.update(
+                    {
+                        key: value
+                        for key, value in sampling_overrides.items()
+                        if key in ("temperature", "repeat_penalty", "min_p", "top_p")
+                    },
+                )
+
+            # ── 복잡도 게이트 thinking ──
+            # qwen3 추론(thinking)은 27B급 모델의 최대 미사용 품질 레버다.
+            # 복잡한 태스크에만 켜서 지연 폭증을 막는다 (config:
+            # model.complex_task_thinking). thinking은 content와 분리 반환되므로
+            # 도구 호출 파싱/사용자 스트림은 영향받지 않는다.
+            _model_cfg = _config_mapping(self.orch.config.get("model"))
+            if bool(_model_cfg.get("complex_task_thinking", False)) and is_complex_task(user_task):
+                stream_kwargs["think"] = True
             if not direct_response:
                 remaining_tools = tuple(tool for tool in expected_tools if tool not in used_tools)
                 stream_kwargs.update(
@@ -412,95 +1038,146 @@ class ToolLoopEngine:
             # 직접 응답(최종 답변) 경로에서 증폭을 결정한다.
             # amplification.self_consistency.enabled가 켜져 있으면 모델 종류와 무관하게
             # N샘플링 증폭을 적용한다 (qwen 하드코딩에서 벗어나 20B+ 모델 전반 지원).
-            _raw_cfg = getattr(self.orch, "config", None)
-            _sc_cfg = (
-                _raw_cfg.get("amplification", {}).get("self_consistency", {}) if isinstance(_raw_cfg, dict) else {}
-            )
-            _sc_enabled = bool(_sc_cfg.get("enabled", False)) if isinstance(_sc_cfg, dict) else False
-            _td_cfg = (
-                _raw_cfg.get("amplification", {}).get("task_decomposition", {}) if isinstance(_raw_cfg, dict) else {}
-            )
-            _td_enabled = bool(_td_cfg.get("enabled", False)) if isinstance(_td_cfg, dict) else False
-            if direct_response and _td_enabled and hasattr(self.orch.manager, "generate_decomposed"):
-                # 분해는 self-consistency보다 상위 계층: 복잡 작업을 먼저 단계로
-                # 나누고, 게이트를 통과하지 못하면 내부에서 SC→일반 생성으로 폴백한다.
-                stream_gen = iter([self.orch.manager.generate_decomposed(**stream_kwargs)])
-            elif direct_response and _sc_enabled and hasattr(self.orch.manager, "generate_self_consistent"):
-                stream_gen = iter([self.orch.manager.generate_self_consistent(**stream_kwargs)])
-            elif direct_response:
-                stream_gen = iter([self.orch.manager.generate(**stream_kwargs)])
+            _raw_cfg = self.orch.config
+            _amp_cfg = _config_mapping(_raw_cfg.get("amplification"))
+            _sc_cfg = _config_mapping(_amp_cfg.get("self_consistency"))
+            _sc_enabled = bool(_sc_cfg.get("enabled", False))
+            _bon_cfg = _config_mapping(_amp_cfg.get("best_of_n"))
+            _bon_enabled = bool(_bon_cfg.get("enabled", False))
+            _td_cfg = _config_mapping(_amp_cfg.get("task_decomposition"))
+            _td_enabled = bool(_td_cfg.get("enabled", False))
+            if direct_response:
+                manager_kwargs = dict(stream_kwargs)
+                generation_prompt = manager_kwargs.pop("prompt", None)
+                generation_target = manager_kwargs.pop("target", None)
+                generation_force = manager_kwargs.pop("force", False)
+                if not isinstance(generation_prompt, str) or not isinstance(generation_target, str):
+                    raise ToolLoopConfigurationError("manager generation requires string prompt and target")
+                if not isinstance(generation_force, bool):
+                    raise ToolLoopConfigurationError("manager decomposition force flag must be boolean")
+                if _td_enabled and hasattr(self.orch.manager, "generate_decomposed"):
+                    # 분해는 self-consistency보다 상위 계층: 복잡 작업을 먼저 단계로
+                    # 나누고, 게이트를 통과하지 못하면 내부에서 SC→일반 생성으로 폴백한다.
+                    stream_gen = iter(
+                        [
+                            self.orch.manager.generate_decomposed(
+                                prompt=generation_prompt,
+                                target=generation_target,
+                                force=generation_force,
+                                **manager_kwargs,
+                            )
+                        ]
+                    )
+                elif _bon_enabled and hasattr(self.orch.manager, "generate_best_of_n"):
+                    # 실행 검증 Best-of-N은 유사도 다수결(SC)보다 강한 신호:
+                    # 검증 통과 답변은 실행 가능성이 보장되므로 SC보다 우선한다.
+                    stream_gen = iter(
+                        [
+                            self.orch.manager.generate_best_of_n(
+                                prompt=generation_prompt,
+                                target=generation_target,
+                                **manager_kwargs,
+                            )
+                        ]
+                    )
+                elif _sc_enabled and hasattr(self.orch.manager, "generate_self_consistent"):
+                    stream_gen = iter(
+                        [
+                            self.orch.manager.generate_self_consistent(
+                                prompt=generation_prompt,
+                                target=generation_target,
+                                **manager_kwargs,
+                            )
+                        ]
+                    )
+                else:
+                    stream_gen = iter(
+                        [
+                            self.orch.manager.generate(
+                                prompt=generation_prompt,
+                                target=generation_target,
+                                **manager_kwargs,
+                            )
+                        ]
+                    )
             else:
                 stream_gen = self.orch.manager.stream_generate(**stream_kwargs)
 
             from antigravity_k.engine.stream_processor import StreamProcessor
-            from antigravity_k.engine.tool_call_parser import ToolCallParser
 
             stream_proc = StreamProcessor()
             tool_parser = ToolCallParser()
 
             full_response = ""
-            pending_tool_calls = []
+            pending_tool_calls: list[ToolCall] = []
+            parse_error_count = 0
 
             requires_approval_break = False
             tool_executed = False
+            blocked_in_round = 0
+            executed_in_round = 0
 
-            try:
-                for chunk in stream_gen:
-                    chunk_str = str(chunk)
-                    full_response += chunk_str
+            # ── 스트림 소비/방출 분리 ──
+            # yield는 try 밖에서만 수행한다 — try 안의 yield는 소비자(FastAPI
+            # 스트림 등)가 던지는 예외를 API 오류로 오분류해 가짜 재시도를
+            # 유발한다. 소비(파싱·상태 변경)만 try로 감싼다.
 
-                    events = tool_parser.feed(chunk_str)
-                    for event in events:
-                        if event.type == EventType.TEXT:
+            def _consume_chunk(chunk_str: str) -> list[str]:
+                """단일 청크를 소비해 방출할 텍스트를 반환한다 (yield 없음)."""
+                nonlocal full_response, parse_error_count
+                emissions: list[str] = []
+                full_response += chunk_str
+                for event in tool_parser.feed(chunk_str):
+                    match event.type:
+                        case EventType.TEXT:
                             cleaned_text, _is_repeat = stream_proc.process_text(event.data)
                             if cleaned_text:
-                                yield cleaned_text
-                                full_output += cleaned_text
-                        elif event.type == EventType.TOOL_CALL_COMPLETE:
-                            if direct_response:
+                                emissions.append(cleaned_text)
+                        case EventType.TOOL_CALL_COMPLETE:
+                            if direct_response or event.tool_call is None:
                                 continue
-                            assert event.tool_call is not None
                             tool_name = event.tool_call.name
-                            tool_args = event.tool_call.arguments
                             if tool_name not in used_tools:
                                 used_tools.append(tool_name)
-
                             try:
-                                from antigravity_k.engine.event_bus import global_event_bus
-
-                                global_event_bus.publish("ToolExecutionStarted", name=tool_name)
+                                _publish_event("ToolExecutionStarted", name=tool_name)
                             except Exception:
                                 logger.exception("Unhandled exception")
-
-                            # Pre-call guardrail
-                            pre_decision = self.orch.ctx.tool_guardrail.before_call(
-                                tool_name,
-                                tool_args,
-                            )
-                            if not pre_decision.allows_execution:
-                                yield f"\n\n🛡️ **[Guardrail]** {pre_decision.message}\n"
-
-                            if event.tool_call is not None:
-                                pending_tool_calls.append(event.tool_call)
-
-                # Flush parser and stream
-                events = tool_parser.flush()
-                for event in events:
-                    if event.type == EventType.TEXT:
-                        cleaned_text, _is_repeat = stream_proc.process_text(event.data)
-                        if cleaned_text:
-                            yield cleaned_text
-                            full_output += cleaned_text
-                    elif event.type == EventType.TOOL_CALL_COMPLETE:
-                        if not direct_response and event.tool_call is not None:
-                            if event.tool_call.name not in used_tools:
-                                used_tools.append(event.tool_call.name)
+                            # Pre-call 가드레일 평가는 _run_tool_task_async에서
+                            # 단일로 수행한다 (이중 평가·이중 차단 메시지 방지).
                             pending_tool_calls.append(event.tool_call)
+                        case EventType.TOOL_CALL_ERROR:
+                            # 형식 오류를 조용히 폐기하지 않고 추후 수리/넛지에 사용
+                            parse_error_count += 1
+                            self.telemetry.parse_errors += 1
+                        case _:
+                            pass
+                return emissions
+
+            def _finish_stream() -> list[str]:
+                """스트림 종료 처리(flush·복구·수리) 후 방출할 텍스트를 반환한다."""
+                nonlocal parse_error_count
+                emissions: list[str] = []
+                for event in tool_parser.flush():
+                    match event.type:
+                        case EventType.TEXT:
+                            cleaned_text, _is_repeat = stream_proc.process_text(event.data)
+                            if cleaned_text:
+                                emissions.append(cleaned_text)
+                        case EventType.TOOL_CALL_COMPLETE:
+                            if not direct_response and event.tool_call is not None:
+                                if event.tool_call.name not in used_tools:
+                                    used_tools.append(event.tool_call.name)
+                                pending_tool_calls.append(event.tool_call)
+                        case EventType.TOOL_CALL_ERROR:
+                            parse_error_count += 1
+                            self.telemetry.parse_errors += 1
+                        case _:
+                            pass
 
                 processed = stream_proc.process_flush_text("")
                 if processed and processed.strip():
-                    yield processed
-                    full_output += processed
+                    emissions.append(processed)
                 recovered_tool_call = self._qwen_scratchpad_tool_call(
                     full_response,
                     delegate_model,
@@ -511,47 +1188,128 @@ class ToolLoopEngine:
                     used_tools.append(recovered_tool_call.name)
                     pending_tool_calls.append(recovered_tool_call)
 
-            except Exception as e:
+                # ── 도구 호출 형식 수리 (27B급 모델의 1위 실패 모드) ──
+                # 파서가 거부한 호출이 있을 때 결정적 수리기를 1차 시도한다.
+                if not pending_tool_calls and not direct_response and parse_error_count > 0:
+                    for repaired in self._repair_tool_calls(full_response):
+                        if repaired.name not in used_tools:
+                            used_tools.append(repaired.name)
+                        pending_tool_calls.append(repaired)
+                        self.telemetry.repaired_tool_calls += 1
+                return emissions
+
+            _STREAM_END = object()
+            retry_step = False  # 압축/재시도 후 스텝 루프로 복귀 플래그
+            stream_iter = iter(stream_gen)
+            while True:
+                step_texts: list[str] = []
+                stream_error: Exception | None = None
+                reached_end = False
+                chunk: object = _STREAM_END
+                try:
+                    chunk = next(stream_iter)
+                except StopIteration:
+                    reached_end = True
+                    chunk = _STREAM_END
+                except Exception as e:
+                    stream_error = e
+                    chunk = _STREAM_END
+                if chunk is not _STREAM_END:
+                    try:
+                        step_texts = _consume_chunk(str(chunk))
+                    except Exception as e:
+                        stream_error = e
+                elif reached_end:
+                    try:
+                        step_texts = _finish_stream()
+                    except Exception as e:
+                        stream_error = e
+
+                # try 밖 방출 — 소비자 예외가 이 generator 밖으로 전파된다
+                for text in step_texts:
+                    yield text
+                    full_output += text
+
+                if reached_end or stream_error is None:
+                    if not reached_end:
+                        continue
+                    break
+
+                # ── 스트림 오류 처리 (try 밖 — 제어 메시지 yield 안전) ──
+                stream_exc = stream_error
                 classified = classify_api_error(
-                    e,
+                    stream_exc,
                     provider="ollama",
                     model=delegate_model,
-                    approx_tokens=len(prompt_str) // 4,
+                    approx_tokens=TokenEstimator.estimate_text(prompt_str),
                 )
                 logger.exception("Error during stream generation")
 
                 if classified.should_compress:
+                    # 압축 재시도 상한 — 압축으로도 예산 내로 줄지 못하면
+                    # 같은 초과 프롬프트를 스텝 한계까지 재전송하며 낭비한다.
+                    if retry_count >= _MAX_CONTEXT_COMPRESS_RETRIES:
+                        error_text = (
+                            "context_overflow: compression could not reduce the prompt "
+                            f"below the model context limit after {retry_count} attempts"
+                        )
+                        yield "\n\n❌ **컨텍스트 압축 실패** — 프롬프트가 모델 컨텍스트 한계 이내로 줄지 않아 종료합니다.\n"
+                        self._record_task_outcome(
+                            task_id,
+                            delegate_model,
+                            expected_tools,
+                            used_tools,
+                            retry_count,
+                            started_at,
+                            False,
+                            "context_overflow",
+                            error_text,
+                        )
+                        return
                     retry_count += 1
                     yield "\n\n⚠️ **컨텍스트 초과 감지** — 자동 압축을 시도합니다...\n"
                     if not direct_response and hasattr(self.orch, "context_shaper"):
+                        # 실제 모델 컨텍스트 예산으로 압축한다 — budget 미지정 시
+                        # shaper의 128k 기본값이 쓰여 실제 num_ctx(예: 32k)를
+                        # 초과한 채 압축이 "성공"하고 같은 오류가 반복됐다.
                         shaped_messages = self.orch.context_shaper.shape(
                             shaped_messages,
+                            budget=self._model_context_budget(delegate_model),
                             force_compact=True,
                         )
                     if not direct_response:
-                        system_prompt = (
-                            self.orch.manager.get_system_prompt()
-                            if hasattr(self.orch.manager, "get_system_prompt")
-                            else ""
-                        )
-                        tool_prompt = (
-                            self.orch.manager.get_tool_prompt() if hasattr(self.orch.manager, "get_tool_prompt") else ""
-                        )
-                        skill_prompts = getattr(self.orch, "_skill_prompts_cache", "")
-                        prompt_str = self.orch._rebuild_prompt(
+                        # 루프 진입 시 확보한 실제 프롬프트 구성요소로 재구축한다
+                        # (시스템 프롬프트·도구 프로토콜 보존).
+                        rebuild_prompt = getattr(self.orch, "_rebuild_prompt", None)
+                        if not isinstance(rebuild_prompt, _PromptRebuilderLike):
+                            raise ToolLoopConfigurationError("orchestrator prompt rebuilding is unavailable")
+                        prompt_str = rebuild_prompt(
                             system_prompt,
                             tool_prompt,
                             skill_prompts,
                             shaped_messages,
                         )
-                    continue
+                        prompt_str = self._insert_working_context(prompt_str, self._cached_pinned_context())
+                    self._refresh_checkpoint_context(shaped_messages)
+                    self._checkpoint_task_state(
+                        step,
+                        delegate_to,
+                        task_type,
+                        used_tools,
+                        full_output,
+                        "context_overflow",
+                        tool_evidence_context,
+                    )
+                    retry_step = True  # 압축 후 스텝 루프로 복귀
+                    break
                 elif classified.retryable and step < max_steps - 1:
                     retry_count += 1
                     yield f"\n\n⚠️ **일시적 오류** ({classified.reason.value}) — 재시도합니다...\n"
-                    continue
+                    retry_step = True  # 스텝 루프로 복귀해 재시도
+                    break
                 else:
-                    error_text = str(e)
-                    yield f"\n\n❌ **에이전트 실행 오류**: {e!s}\n"
+                    error_text = str(stream_exc)
+                    yield f"\n\n❌ **에이전트 실행 오류**: {stream_exc!s}\n"
                     self._record_task_outcome(
                         task_id,
                         delegate_model,
@@ -565,21 +1323,21 @@ class ToolLoopEngine:
                     )
                     return
 
+            if retry_step:
+                # 압축/일시적 오류 재시도 — 도구 실행 없이 스텝을 다시 시작한다
+                continue
+
             if pending_tool_calls:
                 yield f"\n\n🚀 **[{len(pending_tool_calls)}개의 도구 비동기 병렬 실행 시작]**\n"
 
                 # Phase 2: Async Execution Batching
-                results_collected = []
+                results_collected: list[ToolExecutionResult] = []
 
                 # DAG 기반 도구 실행 그룹화 (waitForPreviousTools 처리)
-                execution_batches = []
-                current_batch: list[Any] = []
+                execution_batches: list[list[ToolCall]] = []
+                current_batch: list[ToolCall] = []
                 for tc in pending_tool_calls:
-                    if tc is None:
-                        continue
-                    wait_for_previous = False
-                    if isinstance(tc.arguments, dict):
-                        wait_for_previous = tc.arguments.get("waitForPreviousTools", False)
+                    wait_for_previous = tc.arguments.get("waitForPreviousTools", False)
                     if wait_for_previous and current_batch:
                         execution_batches.append(current_batch)
                         current_batch = []
@@ -587,47 +1345,51 @@ class ToolLoopEngine:
                 if current_batch:
                     execution_batches.append(current_batch)
 
-                for batch in execution_batches:
-                    # Run the batch concurrently
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        tasks = [self._run_tool_task_async(tc, user_task) for tc in batch]
-                        batch_results = loop.run_until_complete(
-                            asyncio.gather(*tasks, return_exceptions=True),
+                # 라운드 전체 배치에 단일 이벤트 루프를 사용한다 — 배치마다
+                # 루프를 만들고 닫으면 스레드 전역 상태(asyncio.set_event_loop)가
+                # 오염되고, 제너레이터가 중간에 폐기되면 GC 전까지 닫힌 루프가
+                # 스레드에 남는다.
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    for batch in execution_batches:
+                        results_collected.extend(
+                            loop.run_until_complete(self._run_batch_with_dedup(batch, user_task)),
                         )
-                    finally:
-                        loop.close()
-
-                    # Error handling inside batch results
-                    for idx, res in enumerate(batch_results):
-                        if isinstance(res, BaseException):
-                            tc = batch[idx]
-                            results_collected.append((tc, None, None, f"Exception: {res}", True))
-                        else:
-                            results_collected.append(res)
+                finally:
+                    loop.close()
 
                 # UI Formatting (Markdown rather than hardcoded raw HTML where possible)
-                from antigravity_k.engine.tool_call_parser import ToolCallParser
-
                 parser = ToolCallParser()
                 parser.tool_responses = []
 
-                for tc, pre_decision, post_decision, tool_result, blocked in results_collected:
-                    if tc is None:
-                        continue
+                for tc, batch_pre_decision, batch_post_decision, tool_result, blocked in results_collected:
                     tool_name = tc.name
                     if blocked:
-                        yield f"\n> 🛡️ **[Tool Blocked]** {pre_decision.message if pre_decision else tool_result}\n"
-                        parser.tool_responses.append(
-                            self._format_tool_response(tc, str(tool_result), focus_terms),
+                        yield (
+                            f"\n> 🛡️ **[Tool Blocked]** "
+                            f"{batch_pre_decision.message if batch_pre_decision else tool_result}\n"
                         )
+                        block_reason = batch_pre_decision.message if batch_pre_decision else str(tool_result)
+                        parser.tool_responses.append(
+                            self._format_tool_response(
+                                tc,
+                                f"[Tool Blocked] {block_reason}\n"
+                                "The tool call was rejected by a security guardrail. "
+                                "Change the approach or use a different, permitted tool.",
+                                focus_terms,
+                            ),
+                        )
+                        # 차단 사유를 모델에 피드백하고 루프를 유지한다 —
+                        # 여기서 조기 종료하면 success=True로 잘못 기록되고 모델은
+                        # 차단 이유를 영영 알지 못한다.
+                        tool_executed = True
+                        blocked_in_round += 1
                         continue
+                    executed_in_round += 1
 
-                    is_failed = isinstance(tool_result, str) and tool_result.strip().startswith(
-                        "Error",
-                    )
-                    is_approval_required = isinstance(tool_result, str) and (
+                    is_failed = _tool_result_failed(str(tool_result))
+                    is_approval_required = (
                         "[APPROVAL REQUIRED]" in tool_result or "WAITING_FOR_USER_APPROVAL" in tool_result
                     )
                     if is_approval_required:
@@ -635,13 +1397,16 @@ class ToolLoopEngine:
 
                     if is_approval_required:
                         status_icon = "✋"
-                    elif is_failed or (post_decision and (post_decision.action == "warn" or post_decision.should_halt)):
+                    elif is_failed or (
+                        batch_post_decision
+                        and (batch_post_decision.action == "warn" or batch_post_decision.should_halt)
+                    ):
                         status_icon = "❌"
                     else:
                         status_icon = "✅"
 
-                    tool_summary = tc.arguments.get("toolSummary", "") if isinstance(tc.arguments, dict) else ""
-                    tool_action = tc.arguments.get("toolAction", "") if isinstance(tc.arguments, dict) else ""
+                    tool_summary = tc.arguments.get("toolSummary", "")
+                    tool_action = tc.arguments.get("toolAction", "")
                     display_name = (
                         f"{tool_action} - {tool_summary}"
                         if tool_action and tool_summary
@@ -651,16 +1416,14 @@ class ToolLoopEngine:
                     # Yield Markdown formatted response instead of HTML details/summary
                     yield f"\n> 🛠️ **{display_name}** (Step {step}/{max_steps}) {status_icon}\n"
 
-                    if post_decision and post_decision.action == "warn":
-                        tool_result = append_guardrail_guidance(tool_result, post_decision)
-                        yield f"> ⚠️ {post_decision.message}\n"
-                    elif post_decision and post_decision.should_halt:
-                        tool_result = append_guardrail_guidance(tool_result, post_decision)
-                        yield f"\n> 🛡️ **[Tool Loop Guard]** {post_decision.message}\n"
+                    if batch_post_decision and batch_post_decision.action == "warn":
+                        tool_result = append_guardrail_guidance(tool_result, batch_post_decision)
+                        yield f"> ⚠️ {batch_post_decision.message}\n"
+                    elif batch_post_decision and batch_post_decision.should_halt:
+                        tool_result = append_guardrail_guidance(tool_result, batch_post_decision)
+                        yield f"\n> 🛡️ **[Tool Loop Guard]** {batch_post_decision.message}\n"
 
-                    result_preview = (
-                        tool_result[:1500] if isinstance(tool_result, str) and len(tool_result) > 1500 else tool_result
-                    )
+                    result_preview = tool_result[:1500] if len(tool_result) > 1500 else tool_result
 
                     yield f"> ```\n> {result_preview}\n> ```\n\n"
 
@@ -672,6 +1435,12 @@ class ToolLoopEngine:
             if tool_executed:
                 import re
 
+                # 전부 차단된 라운드만 가산 — 정상 실행이 섞이면 초기화
+                if blocked_in_round > 0 and executed_in_round == 0:
+                    consecutive_blocked_rounds += 1
+                else:
+                    consecutive_blocked_rounds = 0
+
                 tool_call_blocks = re.findall(
                     r"(<(?:tool_call|action_call)>.*?</(?:tool_call|action_call)>)",
                     full_response,
@@ -679,7 +1448,7 @@ class ToolLoopEngine:
                 )
                 clean_assistant_content = "\n".join(tool_call_blocks) if tool_call_blocks else full_response
 
-                all_tool_responses = "\n".join(getattr(parser, "tool_responses", []))
+                all_tool_responses = "\n".join(parser.tool_responses)
                 tool_evidence_context += f"\n{all_tool_responses}"
                 completion_instruction = ""
                 if expected_tools and all(tool in used_tools for tool in expected_tools):
@@ -694,6 +1463,7 @@ class ToolLoopEngine:
 
                 shaped_messages.append({"role": "assistant", "content": clean_assistant_content})
                 shaped_messages.append({"role": "user", "content": all_tool_responses})
+                self._refresh_checkpoint_context(shaped_messages)
 
                 if requires_approval_break:
                     self._checkpoint_task_state(
@@ -716,6 +1486,46 @@ class ToolLoopEngine:
                     full_output,
                     "tool_round_completed",
                     tool_evidence_context,
+                )
+                if consecutive_blocked_rounds >= _MAX_CONSECUTIVE_BLOCKED_ROUNDS:
+                    yield (
+                        "\n\n🛡️ **[Tool Blocked]** 도구 호출이 "
+                        f"{_MAX_CONSECUTIVE_BLOCKED_ROUNDS}회 연속 차단되어 작업을 중단합니다.\n"
+                    )
+                    completion_reason = "tools_blocked"
+                    success = False
+                    self.telemetry.blocked_rounds = consecutive_blocked_rounds
+                    error_text = "tools_blocked: guardrail rejected every tool call in recent rounds"
+                    break
+                continue
+
+            # 도구 호출 없이 종료 — 단, 형식 오류로 호출이 유실된 경우에는
+            # 수정 넛지를 주고 재시도한다 (현재 그대로 "done" 처리되어
+            # 깨진 출력이 최종 답변이 된다).
+            if (
+                not direct_response
+                and parse_error_count > 0
+                and not pending_tool_calls
+                and parse_nudge_count < _MAX_PARSE_NUDGE_ROUNDS
+            ):
+                parse_nudge_count += 1
+                self.telemetry.format_nudges += 1
+                yield "\n\n🔧 **[Format Repair]** 도구 호출 형식 오류 — 정확한 형식으로 재요청합니다...\n"
+                prompt_str += (
+                    full_response + "\n[SYSTEM] Your tool call above was malformed JSON and could not be executed. "
+                    "Re-emit the tool call exactly in this format, with valid JSON only:\n"
+                    '<tool_call>{"name": "tool_name", "arguments": {"key": "value"}}</tool_call>\n'
+                    "Assistant: "
+                )
+                shaped_messages.append({"role": "assistant", "content": full_response})
+                shaped_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "[SYSTEM] Your tool call was malformed JSON. "
+                            'Re-emit it exactly as <tool_call>{"name": ..., "arguments": {...}}</tool_call>.'
+                        ),
+                    },
                 )
                 continue
             completion_reason = "done"
@@ -751,7 +1561,7 @@ class ToolLoopEngine:
             "",
         )
         quality_user_task = evaluation_user_task or user_task
-        self.orch._last_agent_output = full_output
+        self.last_output = full_output
         quality = yield from self._post_loop_checks(
             messages,
             task_type,
@@ -760,7 +1570,7 @@ class ToolLoopEngine:
             delegate_model,
             evidence_context=tool_evidence_context,
         )
-        final_output = getattr(self.orch, "_last_agent_output", full_output)
+        final_output = self.last_output or full_output
         if isinstance(quality, QualityScore) and quality.grade in {QualityGrade.C, QualityGrade.F}:
             success = False
             completion_reason = "quality_gate_failed"
@@ -797,42 +1607,44 @@ class ToolLoopEngine:
     def _expected_tools(self) -> tuple[str, ...]:
         task_context = self._task_execution_context()
         if task_context is not None:
-            checkpoint = task_context.state_store.get_last_checkpoint(task_context.task_id)
+            state_store = self._state_store(task_context)
+            checkpoint = state_store.get_last_checkpoint(task_context.task_id)
             if checkpoint is not None:
-                try:
-                    payload = json.loads(checkpoint["context_json"])
-                except (json.JSONDecodeError, TypeError):
-                    payload = None
-                if isinstance(payload, dict):
-                    value = payload.get("expected_tools")
-                    if isinstance(value, str) and value.strip():
-                        return (value.strip(),)
-                    if isinstance(value, (list, tuple, set, frozenset)):
-                        return tuple(str(item).strip() for item in value if str(item).strip())
-        for owner in (self.orch, getattr(self.orch, "ctx", None)):
-            value = getattr(owner, "expected_tools", None)
+                payload = _decode_json_mapping(checkpoint["context_json"])
+                if payload is not None:
+                    checkpoint_value = payload.get("expected_tools")
+                    if isinstance(checkpoint_value, str) and checkpoint_value.strip():
+                        return (checkpoint_value.strip(),)
+                    if isinstance(checkpoint_value, list):
+                        return tuple(str(item).strip() for item in checkpoint_value if str(item).strip())
+        for value in (
+            _expected_tools_value(self.orch),
+            _expected_tools_value(self.orch.ctx),
+        ):
             if isinstance(value, str):
                 return (value,)
             if isinstance(value, (list, tuple, set, frozenset)):
-                return tuple(str(item) for item in value if str(item))
+                return tuple(value)
         return ()
 
     def _task_execution_context(self) -> TaskExecutionContext | None:
         value = getattr(self.orch, "task_execution_context", None)
         return value if isinstance(value, TaskExecutionContext) else None
 
+    @staticmethod
+    def _state_store(task_context: TaskExecutionContext) -> TaskStateStoreProtocol:
+        return task_context.state_store
+
     def _is_read_only_benchmark(self) -> bool:
         task_context = self._task_execution_context()
         if task_context is None:
             return False
-        checkpoint = task_context.state_store.get_last_checkpoint(task_context.task_id)
+        state_store = self._state_store(task_context)
+        checkpoint = state_store.get_last_checkpoint(task_context.task_id)
         if checkpoint is None:
             return False
-        try:
-            payload = json.loads(checkpoint["context_json"])
-        except (json.JSONDecodeError, TypeError):
-            return False
-        return isinstance(payload, dict) and payload.get("benchmark_read_only") is True
+        payload = _decode_json_mapping(checkpoint["context_json"])
+        return payload is not None and payload.get("benchmark_read_only") is True
 
     @staticmethod
     def _qwen_scratchpad_tool_call(
@@ -846,7 +1658,7 @@ class ToolLoopEngine:
             return None
         match = re.search(
             r"<scratch_pad>.*?\bActions:\s*Call\s+(?P<tool>[A-Za-z_][A-Za-z0-9_]*)\s+with\s+"
-            r"(?P<argument>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"](?P<value>[^'\"]+)['\"]",
+            + r"(?P<argument>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*['\"](?P<value>[^'\"]+)['\"]",
             full_response,
             re.IGNORECASE | re.DOTALL,
         )
@@ -861,14 +1673,12 @@ class ToolLoopEngine:
         task_context = self._task_execution_context()
         if task_context is None:
             return [], ""
-        checkpoint = task_context.state_store.get_last_checkpoint(task_context.task_id)
+        state_store = self._state_store(task_context)
+        checkpoint = state_store.get_last_checkpoint(task_context.task_id)
         if checkpoint is None:
             return [], ""
-        try:
-            payload = json.loads(checkpoint["context_json"])
-        except (json.JSONDecodeError, TypeError):
-            return [], ""
-        if not isinstance(payload, dict):
+        payload = _decode_json_mapping(checkpoint["context_json"])
+        if payload is None:
             return [], ""
         tool_loop = payload.get("tool_loop")
         if not isinstance(tool_loop, dict):
@@ -887,7 +1697,8 @@ class ToolLoopEngine:
         if task_context is None:
             return
         try:
-            task_context.state_store.transition(
+            state_store = self._state_store(task_context)
+            _ = state_store.transition(
                 task_context.task_id,
                 status,
                 output=output or None,
@@ -909,14 +1720,12 @@ class ToolLoopEngine:
         task_context = self._task_execution_context()
         if task_context is None:
             return
-        checkpoint = task_context.state_store.get_last_checkpoint(task_context.task_id)
-        payload: dict[str, Any] = {}
+        state_store = self._state_store(task_context)
+        checkpoint = state_store.get_last_checkpoint(task_context.task_id)
+        payload: dict[str, ToolArgumentValue] = {}
         if checkpoint is not None:
-            try:
-                decoded = json.loads(checkpoint["context_json"])
-            except json.JSONDecodeError:
-                decoded = None
-            if isinstance(decoded, dict):
+            decoded = _decode_json_mapping(checkpoint["context_json"])
+            if decoded is not None:
                 payload = decoded
         checkpoint_step = step
         if checkpoint is not None:
@@ -924,17 +1733,56 @@ class ToolLoopEngine:
         payload["tool_loop"] = {
             "delegate_to": delegate_to,
             "task_type": task_type,
-            "step": step,
+            # 행(step)과 payload를 일치시킨다 — 불일치 시 복원 로직이 잘못된
+            # 스텝에서 재개한다
+            "step": checkpoint_step,
             "used_tools": list(used_tools),
             "tool_evidence_context": tool_evidence_context,
             "completion_reason": completion_reason,
         }
-        task_context.state_store.save_checkpoint(
+        if self._working_memory_block:
+            payload["working_memory"] = self._working_memory_block
+        state_store.save_checkpoint(
             task_context.task_id,
             checkpoint_step,
             json.dumps(payload, ensure_ascii=False),
             output,
         )
+        if self._checkpoint_messages and self._checkpoint_target_model:
+            try:
+                _ = save_task_context_snapshot(
+                    state_store,
+                    task_context.task_id,
+                    self._checkpoint_messages,
+                    self._checkpoint_target_model,
+                )
+            except ContextSnapshotStoreError as error:
+                logger.warning("Task context snapshot failed: %s", error, exc_info=True)
+
+    def _publish_telemetry(self, task_id: str, target: str, completion_reason: str, success: bool) -> None:
+        """프로토콜 건강도 통계를 로그와 이벤트 버스로 발행한다."""
+        t = self.telemetry
+        logger.info(
+            "[ToolLoop] task=%s model=%s reason=%s success=%s | %s",
+            task_id,
+            target,
+            completion_reason,
+            success,
+            t.summary(),
+        )
+        try:
+            _publish_event(
+                "ToolLoopProtocolStats",
+                parse_errors=t.parse_errors,
+                repaired_tool_calls=t.repaired_tool_calls,
+                format_nudges=t.format_nudges,
+                context_compressions=t.context_compressions,
+                blocked_rounds=t.blocked_rounds,
+                tool_exceptions=t.tool_exceptions,
+                deduped_calls=t.deduped_calls,
+            )
+        except Exception:
+            logger.debug("protocol stats event publish failed", exc_info=True)
 
     def _record_task_outcome(
         self,
@@ -950,6 +1798,8 @@ class ToolLoopEngine:
         prompt: str = "",
         output: str = "",
     ) -> None:
+        # 모든 종료 경로가 이 함수를 거치므로 여기서 프로토콜 통계를 발행한다
+        self._publish_telemetry(task_id, str(target), completion_reason, success)
         if self._is_read_only_benchmark():
             return
         if success:
@@ -972,12 +1822,12 @@ class ToolLoopEngine:
                 used_tools=tuple(used_tools),
                 retry_count=retry_count,
                 latency_ms=(time.monotonic() - started_at) * 1000,
-                tokens_in=max(0, len(prompt) // 4),
-                tokens_out=max(0, len(output) // 4),
+                tokens_in=max(0, TokenEstimator.estimate_text(prompt)),
+                tokens_out=max(0, TokenEstimator.estimate_text(output)),
                 cost_usd=max(0.0, cost_usd),
                 error=error,
             )
-            self.outcome_recorder(outcome)
+            _ = self.outcome_recorder(outcome)
         except Exception:
             logger.warning("Task outcome recording failed", exc_info=True)
 
@@ -997,30 +1847,32 @@ class ToolLoopEngine:
         """
         final_quality: QualityScore | None = None
         full_output = normalize_foreign_technical_terms(full_output)
-        self.orch._last_agent_output = full_output
+        self.last_output = full_output
         try:
             if self.orch.ctx.cognitive_loop:
-                self.orch.ctx.cognitive_loop.reflect(user_task, full_output)
+                _ = self.orch.ctx.cognitive_loop.reflect(user_task, full_output)
         except Exception as e:
             logger.exception("Unhandled exception")
             logger.debug("Reflection error: %s", e)
 
         if not self._matches_authoritative_project_value(messages, full_output):
             try:
-                quality_gate = getattr(getattr(self.orch, "ctx", None), "quality_gate", None)
-                if quality_gate:
-                    if hasattr(quality_gate, "reset"):
-                        quality_gate.reset()
+                quality_gate = self.orch.ctx.quality_gate
+                if quality_gate is not None:
+                    quality_gate.reset()
                     quality = quality_gate.evaluate(task_type, user_task, full_output)
-                    if isinstance(quality, QualityScore):
+                    if type(quality) is QualityScore:
                         final_quality = quality
                     if quality.user_message:
                         yield f"\n{quality.user_message}\n"
 
                     best_quality = quality
-                    best_score = getattr(quality, "score", None)
-                    raw_max_retries = getattr(quality_gate, "max_retries", 1)
-                    max_retries = raw_max_retries if isinstance(raw_max_retries, int) else 1
+                    raw_best_score = getattr(quality, "score", None)
+                    best_score: float | int | None = (
+                        raw_best_score if isinstance(raw_best_score, (int, float)) else None
+                    )
+                    raw_max_retries = quality_gate.max_retries
+                    max_retries = raw_max_retries if type(raw_max_retries) is int else 1
                     revision_count = 0
                     revision_improved = False
                     while (
@@ -1029,7 +1881,7 @@ class ToolLoopEngine:
                         and revision_count < max_retries
                     ):
                         quality_gate.mark_retry()
-                        self._quality_retry_count = getattr(self, "_quality_retry_count", 0) + 1
+                        self._quality_retry_count += 1
                         revision_count += 1
                         revised = self._quality_revision(
                             user_task,
@@ -1051,29 +1903,28 @@ class ToolLoopEngine:
                             best_quality = revised_quality
                             best_score = revised_score
                             full_output = revised
-                            self.orch._last_agent_output = revised
-                            if isinstance(revised_quality, QualityScore):
+                            self.last_output = revised
+                            if type(revised_quality) is QualityScore:
                                 final_quality = revised_quality
                             yield "\n\n🔁 **[Quality Revision]** 피드백을 반영해 응답을 다시 생성했습니다.\n\n"
                             yield revised
 
-                    if not revision_improved and self._should_escalate_to_decomposition(user_task, delegate_model):
+                    if (
+                        delegate_model is not None
+                        and not revision_improved
+                        and self._should_escalate_to_decomposition(user_task, delegate_model)
+                    ):
                         quality_gate.mark_retry()
                         self._quality_retry_count += 1
                         decomposed = self.orch.manager.generate_decomposed(user_task, delegate_model, force=True)
                         decomposed_quality = (
                             quality_gate.evaluate(task_type, user_task, decomposed) if decomposed else None
                         )
-                        decomposed_score = getattr(decomposed_quality, "score", None)
-                        if (
-                            isinstance(best_score, (int, float))
-                            and isinstance(decomposed_score, (int, float))
-                            and decomposed_score > best_score
-                        ):
+                        decomposed_score = decomposed_quality.score if decomposed_quality is not None else None
+                        if decomposed_score is not None and best_score is not None and decomposed_score > best_score:
                             full_output = decomposed
-                            self.orch._last_agent_output = decomposed
-                            if isinstance(decomposed_quality, QualityScore):
-                                final_quality = decomposed_quality
+                            self.last_output = decomposed
+                            final_quality = decomposed_quality
                             yield "\n\n**[Task Decomposition Recovery]** 재생성이 실패해 단계 분해로 응답을 복구했습니다.\n\n"
                             yield decomposed
             except Exception as e:
@@ -1091,7 +1942,7 @@ class ToolLoopEngine:
                     if not self._has_invalid_citations(revised_report):
                         full_output = revised
                         citation_report = revised_report
-                        self.orch._last_agent_output = revised
+                        self.last_output = revised
                         yield "\n\n🔗 **[Citation Revision]** 웹 근거를 다시 검증해 응답을 수정했습니다.\n\n"
                         yield revised
             if self._has_invalid_citations(citation_report):
@@ -1102,7 +1953,7 @@ class ToolLoopEngine:
                         full_output = recovered
                         citation_report = recovered_report
                         citation_recovery = "deterministic_claim_filter"
-                        self.orch._last_agent_output = recovered
+                        self.last_output = recovered
                         yield "\n\n🔗 **[Citation Recovery]** 검증된 주장만 남겨 응답을 안전하게 복구했습니다.\n\n"
                         yield recovered
             if self._has_invalid_citations(citation_report):
@@ -1113,23 +1964,29 @@ class ToolLoopEngine:
                         full_output = recovered
                         citation_report = recovered_report
                         citation_recovery = "deterministic_source_titles"
-                        self.orch._last_agent_output = recovered
+                        self.last_output = recovered
                         yield "\n\n🔗 **[Citation Recovery]** 검증 가능한 원본 출처만 남겨 응답을 안전하게 복구했습니다.\n\n"
                         yield recovered
             self._citation_validation_failed = self._has_invalid_citations(citation_report)
             analysis = getattr(getattr(self.orch, "ctx", None), "analysis", None)
             if isinstance(analysis, dict):
                 analysis["citation_evaluation"] = citation_report.to_dict()
+                # 평가 대상 출력의 지문 — 그래프 COV 검증이 동일 출력에 대해
+                # 재평가하지 않고 재사용할 수 있는 근거
+                analysis["citation_evaluation_output_sha"] = hashlib.sha256(full_output.encode("utf-8")).hexdigest()[
+                    :16
+                ]
                 if citation_recovery:
                     analysis["citation_recovery"] = citation_recovery
             if self._citation_validation_failed:
                 yield "\n\n🔗 **[근거 검증]** 출처로 뒷받침되지 않는 주장 또는 인용 충돌이 남아 있습니다.\n"
 
         try:
-            if hasattr(self.orch, "ctx") and hasattr(self.orch.ctx, "decision_anchor"):
-                candidate = self.orch.ctx.decision_anchor.auto_extract(user_task, full_output)
+            decision_anchor = self.orch.ctx.decision_anchor
+            if decision_anchor is not None:
+                candidate = decision_anchor.auto_extract(user_task, full_output)
                 if candidate:
-                    self.orch.ctx.decision_anchor.add(
+                    _ = decision_anchor.add(
                         decision=candidate["decision"],
                         category=candidate["category"],
                         priority=5,
@@ -1139,9 +1996,7 @@ class ToolLoopEngine:
             logger.exception("Unhandled exception")
 
         try:
-            from antigravity_k.engine.event_bus import global_event_bus
-
-            global_event_bus.publish(
+            _publish_event(
                 "AgentTurnCompleted",
                 user_message=user_task,
                 assistant_response=full_output,
@@ -1150,18 +2005,20 @@ class ToolLoopEngine:
         except Exception:
             logger.exception("Unhandled exception")
 
+        if final_quality is not None:
+            try:
+                _publish_quality_event(task_type, user_task, final_quality)
+            except Exception:
+                logger.exception("Unhandled exception")
+
         return final_quality
 
     def _should_escalate_to_decomposition(self, user_task: str, delegate_model: str | None) -> bool:
         if not delegate_model or not is_complex_task(user_task):
             return False
-        raw_cfg = getattr(self.orch, "config", None)
-        if not isinstance(raw_cfg, dict):
-            return False
-        amp_cfg = raw_cfg.get("amplification", {})
-        td_cfg = amp_cfg.get("task_decomposition", {}) if isinstance(amp_cfg, dict) else {}
-        if not isinstance(td_cfg, dict):
-            return False
+        raw_cfg = self.orch.config
+        amp_cfg = _config_mapping(raw_cfg.get("amplification"))
+        td_cfg = _config_mapping(amp_cfg.get("task_decomposition"))
         return bool(td_cfg.get("escalate_on_revision_failure", False)) and hasattr(
             self.orch.manager, "generate_decomposed"
         )
@@ -1233,7 +2090,7 @@ class ToolLoopEngine:
         except Exception:
             logger.exception("Citation revision generation failed")
             return ""
-        return candidate.strip() if isinstance(candidate, str) else str(candidate).strip()
+        return candidate.strip() if type(candidate) is str else str(candidate).strip()
 
     def _quality_revision(
         self,
@@ -1269,7 +2126,7 @@ class ToolLoopEngine:
             f"{tool_evidence}\n"
             "[수정된 최종 답변]\n"
         )
-        generation_kwargs: dict[str, Any] = {"max_tokens": 4096, "temperature": 0.2}
+        generation_kwargs: dict[str, ToolArgumentValue] = {"max_tokens": 4096, "temperature": 0.2}
         if delegate_model and "qwen3" in delegate_model.lower():
             generation_kwargs.update({"temperature": 0.08, "repeat_penalty": 1.15, "min_p": 0.0})
         try:
@@ -1281,9 +2138,67 @@ class ToolLoopEngine:
         except Exception:
             logger.exception("Quality revision generation failed")
             return ""
-        return candidate.strip() if isinstance(candidate, str) else str(candidate).strip()
+        return candidate.strip() if type(candidate) is str else str(candidate).strip()
 
-    async def _run_tool_task_async(self, tc, user_task: str = ""):
+    async def _run_batch_with_dedup(
+        self,
+        batch: list[ToolCall],
+        user_task: str,
+    ) -> list[ToolExecutionResult]:
+        """배치를 병렬 실행한다. 동일 호출(이름+인자)은 1회만 실행하고 결과를 공유한다.
+
+        소형 모델은 같은 도구 호출을 한 배치에 여러 번 내는 경우가 잦다 —
+        중복 실행은 지연/비용만 배로 만들 뿐 아니라 부수효과(파일 쓰기 등)를
+        중복 유발한다. 예외는 "차단"이 아니라 실패한 도구 결과로 정규화해
+        모델에 피드백한다.
+        """
+
+        def _key(tc: ToolCall) -> tuple[str, str]:
+            return (tc.name, json.dumps(tc.arguments, sort_keys=True, ensure_ascii=False, default=str))
+
+        first_index: dict[tuple[str, str], int] = {}
+        unique_calls: list[ToolCall] = []
+        for tc in batch:
+            key = _key(tc)
+            if key not in first_index:
+                first_index[key] = len(unique_calls)
+                unique_calls.append(tc)
+
+        if len(unique_calls) < len(batch):
+            self.telemetry.deduped_calls += len(batch) - len(unique_calls)
+            logger.info(
+                "[ToolLoop] dedup: %d → %d unique calls in batch",
+                len(batch),
+                len(unique_calls),
+            )
+
+        gathered = await asyncio.gather(
+            *(self._run_tool_task_async(tc, user_task) for tc in unique_calls),
+            return_exceptions=True,
+        )
+
+        normalized: list[ToolExecutionResult] = []
+        for idx, res in enumerate(gathered):
+            if isinstance(res, BaseException):
+                self.telemetry.tool_exceptions += 1
+                normalized.append(
+                    (
+                        unique_calls[idx],
+                        None,
+                        None,
+                        f"Error: tool execution exception: {res}",
+                        False,
+                    ),
+                )
+            else:
+                normalized.append(res)
+
+        if len(unique_calls) == len(batch):
+            return normalized
+        # 중복 호출 위치에는 대표 1회 실행의 결과를 재사용한다.
+        return [normalized[first_index[_key(tc)]] for tc in batch]
+
+    async def _run_tool_task_async(self, tc: ToolCall, user_task: str = "") -> ToolExecutionResult:
         """Execute a single tool call with guardrails and cognitive verification.
 
         Extracted from ``run_loop`` as a top-level async method so it can be
@@ -1291,7 +2206,9 @@ class ToolLoopEngine:
         ``(tool_call, pre_decision, post_decision, result, blocked)``.
         """
         tool_name = tc.name
-        tool_args = tc.arguments
+        # DAG 그룹화 전용 플래그는 실제 도구로 전달하지 않는다 — 엄격한
+        # 스키마 검증 도구가 unknown argument로 거부할 수 있다.
+        tool_args = {k: v for k, v in tc.arguments.items() if k != "waitForPreviousTools"}
 
         if self._is_read_only_benchmark() and tool_name in MUTATING_TOOL_NAMES:
             return (
@@ -1303,9 +2220,7 @@ class ToolLoopEngine:
             )
 
         try:
-            from antigravity_k.engine.event_bus import global_event_bus
-
-            global_event_bus.publish("ToolExecutionStarted", name=tool_name)
+            _publish_event("ToolExecutionStarted", name=tool_name)
         except Exception:
             logger.exception("Unhandled exception")
 
@@ -1313,14 +2228,20 @@ class ToolLoopEngine:
         if not pre_decision.allows_execution:
             synthetic = guardrail_synthetic_result(pre_decision)
             try:
-                from antigravity_k.engine.event_bus import global_event_bus
-
-                global_event_bus.publish("ToolExecutionFinished", name=tool_name)
+                _publish_event("ToolExecutionFinished", name=tool_name)
             except Exception:
                 logger.exception("Unhandled exception")
             return tc, pre_decision, None, synthetic, True
 
-        tool_result = await self.orch.ctx.tool_executor.execute_async(tool_name, tool_args)
+        # before_call already ran above — tell GatePipeline/RateLimitGate to
+        # skip the duplicate guardrail check on this allow-path execute (A4).
+        tool_result = str(
+            await self.orch.ctx.tool_executor.execute_async(
+                tool_name,
+                tool_args,
+                guardrail_prechecked=True,
+            )
+        )
 
         # ── 30B Model Amplification: Deterministic Syntax & Error Distillation ──
         if _tool_result_failed(tool_result):
@@ -1350,7 +2271,7 @@ class ToolLoopEngine:
                             if not gate_report.passed:
                                 tool_result = f"{tool_result}\n\n{gate_report.format_for_model()}"
                     except Exception:
-                        pass
+                        logger.debug("Static security gate skipped after file update", exc_info=True)
 
                     # Update real-time symbol index
                     try:
@@ -1359,15 +2280,13 @@ class ToolLoopEngine:
                         graph = getattr(self.orch, "_incremental_code_graph", None)
                         if graph is None:
                             graph = IncrementalCodeGraph(self.orch.project_root)
-                            self.orch._incremental_code_graph = graph
-                        graph.update_file(target_file)
+                            setattr(self.orch, "_incremental_code_graph", graph)
+                        _ = graph.update_file(target_file)
                     except Exception:
-                        pass
+                        logger.debug("Incremental code graph update skipped", exc_info=True)
 
         try:
-            from antigravity_k.engine.event_bus import global_event_bus
-
-            global_event_bus.publish("ToolExecutionFinished", name=tool_name)
+            _publish_event("ToolExecutionFinished", name=tool_name)
         except Exception:
             logger.exception("Unhandled exception")
 

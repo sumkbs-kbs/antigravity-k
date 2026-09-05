@@ -17,7 +17,8 @@ pip install -e ".[dev,rag]"
 - 기본 모델: `config.yaml`의 `model.main_model` 및 `code_model` = `qwen3.6:latest`.
 - 기본 inference engine: Ollama.
 - LM Studio: `lmstudio/qwen3.6` 프로필을 선택한다. Local Server에서 API 토큰을 활성화한 경우에만 `LM_STUDIO_API_KEY`를 설정한다. `repo` 값은 LM Studio `/v1/models`가 노출하는 실제 model identifier와 같아야 한다.
-- Direct MLX: `uv sync --extra mlx --extra dev` 후 `mlx-community/Qwen2.5-Coder-32B-Instruct-4bit` 프로필을 선택한다. 가중치를 미리 받으려면 `uv run hf download mlx-community/Qwen2.5-Coder-32B-Instruct-4bit`를 실행한다. 기본 Qwen/Ollama 설정은 바꾸지 않는다.
+- Direct MLX: `uv sync --extra mlx --extra dev` 후 `mlx-community/Qwen2.5-Coder-32B-Instruct-4bit` 프로필을 선택한다. 가중치를 미리 받으려면 `uv run hf download mlx-community/Qwen2.5-Coder-32B-Instruct-4bit`를 실행한다. 기본 Qwen/Ollama 설정은 바꾸지 않는다. MLX 프로필은 mflux 0.19 계열과 공존할 수 있도록 `mlx>=0.32,<0.33`으로 고정한다.
+- 로컬 FLUX 이미지 생성(`generate_image`)까지 사용할 때는 `uv sync --extra mlx --extra mlx-media --extra dev`를 사용한다. `mflux`는 0.19 계열로 맞춰야 MLX 0.32 계열과 의존성이 정렬된다.
 - remote provider key는 `.env`에만 두고 저장소/로그에 기록하지 않는다.
 - `SEARXNG_URL`, `TAVILY_API_KEY`, `JINA_API_KEY`, `AGK_SEARCH_ENGINE_URL`은 선택적 검색 설정이다.
 - `AGK_SEARCH_FALLBACK_BUDGET_MS`는 self-hosted primary가 느릴 때 추가 query fan-out을 생략하는 latency budget이며 기본값은 `1500`이다.
@@ -62,6 +63,13 @@ Ollama local smoke:
 ```bash
 ollama list
 ollama run qwen3.6:latest
+```
+
+로컬 RAG 검색 품질을 측정할 때는 기본적으로 fixture가 참조하는 엔진 코드만 인덱싱해 초기 임베딩 시간을 제한한다. 더 넓은 범위가 필요하면 `--subdir`를 반복 지정한다.
+
+```bash
+python scripts/benchmark_local_rag.py --output /tmp/local-rag-quality.json
+python scripts/benchmark_local_rag.py --subdir src --subdir docs --output /tmp/local-rag-wide.json
 ```
 
 검색 provider live smoke를 실행할 때는 선택적 self-hosted endpoint를 명시한다.

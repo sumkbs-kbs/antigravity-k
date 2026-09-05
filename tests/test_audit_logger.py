@@ -1,4 +1,5 @@
 import json
+from typing import cast
 
 from antigravity_k.engine.audit_logger import AuditLogger
 
@@ -22,13 +23,17 @@ def test_mask_sensitive_data():
     }
 
     masked = logger._mask_sensitive_data(test_data)
+    masked_dict = cast(dict[str, object], masked)
+    nested = cast(dict[str, object], masked_dict["nested"])
+    list_data = cast(list[object], masked_dict["list_data"])
+    list_item = cast(dict[str, object], list_data[0])
 
-    assert masked["user_id"] == "user123"
-    assert masked["api_key"] == "***MASKED***"
-    assert masked["nested"]["token"] == "***MASKED***"
-    assert masked["nested"]["safe_data"] == "hello"
-    assert masked["list_data"][0]["password"] == "***MASKED***"
-    assert masked["list_data"][1] == "normal_string"
+    assert masked_dict["user_id"] == "user123"
+    assert masked_dict["api_key"] == "***MASKED***"
+    assert nested["token"] == "***MASKED***"
+    assert nested["safe_data"] == "hello"
+    assert list_item["password"] == "***MASKED***"
+    assert list_data[1] == "normal_string"
 
 
 def test_log_event(tmp_path):

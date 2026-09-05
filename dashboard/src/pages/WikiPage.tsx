@@ -24,7 +24,7 @@ const WikiPage: React.FC = () => {
   const [showNewModal, setShowNewModal] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { initVault(); }, []);
+  useEffect(() => { initVault(); }, [initVault]);
 
   const handleSelect = useCallback((path: string) => loadDocument(path), [loadDocument]);
 
@@ -52,7 +52,8 @@ const WikiPage: React.FC = () => {
       ? currentDoc.content.substring(0, 500) + '...'
       : currentDoc.content;
 
-    (window as any).__wikiChatRef = {
+    const wikiWindow = window as Window & { __wikiChatRef?: unknown };
+    wikiWindow.__wikiChatRef = {
       path: currentDoc.path,
       content: currentDoc.content,
       metadata: currentDoc.metadata,

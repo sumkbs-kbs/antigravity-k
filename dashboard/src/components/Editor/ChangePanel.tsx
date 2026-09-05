@@ -11,6 +11,7 @@ import { useChangeStore, ProposedChange } from '../../stores/changeStore';
 import { useUiStore } from '../../stores/uiStore';
 import DiffViewer from './DiffViewer';
 import { useFileStore } from '../../stores/fileStore';
+import { useEditorStore } from '../../stores/editorStore';
 
 /* ─── Change Card (compact list view) ─────────────────────── */
 
@@ -136,10 +137,12 @@ const ChangePanel: React.FC<ChangePanelProps> = ({ visible, onClose }) => {
     rejectAll,
     setPanelMode,
     clearChanges,
+    markApplied,
+    markFailed,
   } = useChangeStore();
   const { addToast } = useUiStore();
   const panelRef = useRef<HTMLDivElement>(null);
-  const { refreshTree } = useFileStore();
+  const { createFile, refreshTree } = useFileStore();
 
   const selectedChange = changes.find((c) => c.id === selectedChangeId) || null;
   const pendingChanges = changes.filter((c) => c.status === 'pending');
@@ -163,11 +166,31 @@ const ChangePanel: React.FC<ChangePanelProps> = ({ visible, onClose }) => {
   }, [visible, panelMode, setPanelMode, onClose]);
 
   const handleApproveChange = useCallback(
-    (id: string) => {
-      approveChange(id);
-      addToast('✅ 변경 승인됨', 'success');
+    async (id: string) => {
+      const change = changes.find((c) => c.id === id);
+      if (!change) return;
+      try {
+        const ok = await createFile(change.filePath, change.newContent);
+        if (ok) {
+          markApplied(id);
+          const openFiles = useEditorStore.getState().openFiles;
+          if (openFiles.some((f) => f.path === change.filePath)) {
+            useEditorStore.getState().updateFileContent(change.filePath, change.newContent);
+            useEditorStore.getState().markFileSaved(change.filePath);
+          }
+          await refreshTree();
+          addToast(`✅ 파일에 변경사항이 적용되었습니다: ${change.fileName}`, 'success');
+        } else {
+          markFailed(id);
+          addToast(`⚠️ 파일 적용 실패: ${change.fileName}`, 'error');
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        markFailed(id);
+        addToast(`⚠️ 파일 적용 오류: ${msg}`, 'error');
+      }
     },
-    [approveChange, addToast],
+    [changes, createFile, markApplied, markFailed, refreshTree, addToast],
   );
 
   const handleRejectChange = useCallback(
@@ -179,11 +202,28 @@ const ChangePanel: React.FC<ChangePanelProps> = ({ visible, onClose }) => {
   );
 
   const handleApproveAll = useCallback(async () => {
-    approveAll();
-    addToast(`✅ ${pendingChanges.length}개 변경 일괄 승인됨`, 'success');
-    // Trigger file refresh if any changes were approved
+    let successCount = 0;
+    for (const change of pendingChanges) {
+      try {
+        const ok = await createFile(change.filePath, change.newContent);
+        if (ok) {
+          markApplied(change.id);
+          successCount++;
+          const openFiles = useEditorStore.getState().openFiles;
+          if (openFiles.some((f) => f.path === change.filePath)) {
+            useEditorStore.getState().updateFileContent(change.filePath, change.newContent);
+            useEditorStore.getState().markFileSaved(change.filePath);
+          }
+        } else {
+          markFailed(change.id);
+        }
+      } catch {
+        markFailed(change.id);
+      }
+    }
     await refreshTree();
-  }, [approveAll, pendingChanges.length, addToast, refreshTree]);
+    addToast(`✅ ${successCount}/${pendingChanges.length}개 변경이 실제 파일에 적용되었습니다.`, 'success');
+  }, [pendingChanges, createFile, markApplied, markFailed, refreshTree, addToast]);
 
   const handleRejectAll = useCallback(() => {
     rejectAll();

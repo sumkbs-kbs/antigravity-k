@@ -1,5 +1,5 @@
 """
-Antigravity-K: Kanban 태스크 관리 엔진
+Ssak-Ai: Kanban 태스크 관리 엔진
 =======================================
 Agent-Teams-AI 아키텍처 이식 — Kanban 보드 기반 태스크 오케스트레이션.
 
@@ -14,11 +14,16 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+
+from pydantic import JsonValue
 
 logger = logging.getLogger(__name__)
+
+type TaskValue = str | int | float | list[str]
+type TaskRecord = dict[str, TaskValue]
 
 
 class TaskStatus(str, Enum):
@@ -54,9 +59,9 @@ class KanbanTask:
     assignee: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JsonValue] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> TaskRecord:
         return {
             "task_id": self.task_id,
             "title": self.title,
@@ -98,7 +103,7 @@ class KanbanBoard:
         self.tasks[task.task_id] = task
         col = self.column_order.setdefault(TaskStatus.TODO.value, [])
         col.append(task.task_id)
-        logger.debug(f"Kanban: added task '{title}' ({task.task_id})")
+        logger.debug("Kanban: added task '%s' (%s)", title, task.task_id)
         return task
 
     def get_task(self, task_id: str) -> KanbanTask | None:
@@ -115,7 +120,7 @@ class KanbanBoard:
         if target not in allowed:
             raise ValueError(
                 f"Cannot transition task '{task.title}' from {task.status.value} → {target.value}. "
-                f"Allowed: {[s.value for s in allowed]}"
+                + f"Allowed: {[s.value for s in allowed]}"
             )
 
         # Dependency check
@@ -136,7 +141,7 @@ class KanbanBoard:
         return task
 
     def _check_dependencies(self, task: KanbanTask) -> list[str]:
-        blocked = []
+        blocked: list[str] = []
         for dep_id in task.depends_on:
             dep = self.tasks.get(dep_id)
             if dep and dep.status != TaskStatus.DONE:
@@ -167,12 +172,14 @@ class KanbanBoard:
 
     # ─── GoalRunner Integration ─────────────────────────────────
 
-    def decompose_from_steps(self, steps: list[Any]) -> None:
+    def decompose_from_steps(self, steps: Sequence[object]) -> None:
         """GoalRunner의 GoalStep 리스트를 칸반 태스크로 변환."""
         prev_id: str | None = None
         for step in steps:
-            title = getattr(step, "title", str(step))
-            desc = getattr(step, "purpose", "")
+            title_value: object = getattr(step, "title", None)
+            title = title_value if isinstance(title_value, str) else str(step)
+            description_value: object = getattr(step, "purpose", None)
+            desc = description_value if isinstance(description_value, str) else ""
             task = self.add_task(
                 title=title,
                 description=desc,
@@ -212,7 +219,7 @@ class KanbanBoard:
 
         return "\n".join(lines)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, str | float | dict[str, TaskRecord]]:
         return {
             "board_id": self.board_id,
             "name": self.name,

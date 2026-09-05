@@ -24,6 +24,9 @@ const TreeNode: React.FC<Props> = ({ item, depth, onSelect }) => {
           className="tree-item folder"
           style={{ paddingLeft: 12 + depth * 16, cursor: 'pointer' }}
           onClick={() => setOpen(!open)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(value => !value); } }}
         >
           <span className="tree-icon">{open ? '📂' : '📁'}</span>
           <span className="tree-name">{item.name}</span>
@@ -33,8 +36,8 @@ const TreeNode: React.FC<Props> = ({ item, depth, onSelect }) => {
         </div>
         {open && item.children && (
           <div className="tree-children">
-            {item.children.map((child, i) => (
-              <TreeNode key={child.path || i} item={child} depth={depth + 1} onSelect={onSelect} />
+            {item.children.map(child => (
+              <TreeNode key={child.path} item={child} depth={depth + 1} onSelect={onSelect} />
             ))}
           </div>
         )}
@@ -47,6 +50,9 @@ const TreeNode: React.FC<Props> = ({ item, depth, onSelect }) => {
       className="tree-item file"
       style={{ paddingLeft: 12 + depth * 16, cursor: 'pointer' }}
       onClick={() => onSelect(item.path)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(item.path); } }}
     >
       <span className="tree-icon">📄</span>
       <span className="tree-name">{item.name}</span>

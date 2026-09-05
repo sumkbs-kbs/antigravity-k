@@ -5,7 +5,7 @@ from scripts.audit_egress import audit_tree, build_report
 
 def test_audit_tree_classifies_local_public_and_configured_endpoints(tmp_path: Path):
     source = tmp_path / "sample.py"
-    source.write_text(
+    _ = source.write_text(
         (
             "import httpx\n"
             "from urllib.request import urlopen\n"

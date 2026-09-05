@@ -1,10 +1,15 @@
 """FastAPI dependency injection providers (singletons and getters)."""
 
+from __future__ import annotations
+
 import json
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Final, Protocol, runtime_checkable
+
+from pydantic import TypeAdapter, ValidationError
 
 from antigravity_k.engine.agent_runtime import AgentRuntime
 from antigravity_k.engine.benchmark_harness import BenchmarkHarness
@@ -21,14 +26,54 @@ from antigravity_k.engine.memory_provider import (
 from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.model_registry import ModelRegistry
 from antigravity_k.engine.orchestrator import OrchestratorAgent
-from antigravity_k.engine.project_memory import ProjectMemoryProvider, project_memory_dir
+from antigravity_k.engine.project_memory import ProjectMemoryProvider
+from antigravity_k.engine.project_memory_paths import project_memory_dir
 from antigravity_k.engine.protocol_translator import ProtocolTranslator
+from antigravity_k.engine.scheduled_job_service import ScheduledJobService
 from antigravity_k.engine.session_manager import SessionManager
 from antigravity_k.engine.skill_loader import SkillLoader
 from antigravity_k.engine.vault import VaultEngine
+from antigravity_k.engine.voice_service import VoiceService
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger("antigravity_k.api.dependencies")
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.mode_manager import ModeManager
+
+
+type JsonPrimitive = str | int | float | bool | None
+type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
+
+
+@runtime_checkable
+class _SlashRegistryLike(Protocol):
+    def bind_runtime(self, runtime: AgentRuntime) -> None: ...
+
+
+@runtime_checkable
+class _RuntimeContextLike(Protocol):
+    slash_commands: _SlashRegistryLike
+
+
+_JSON_VALUE_ADAPTER: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
+_DURABLE_EXPORT_ADAPTER: Final[TypeAdapter[list[dict[str, JsonValue]]]] = TypeAdapter(list[dict[str, JsonValue]])
+
+
+def _json_object(value: JsonValue | None) -> dict[str, JsonValue]:
+    return value if isinstance(value, dict) else {}
+
+
+def _json_text(value: JsonValue | None) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _widen_graph_record(record: Mapping[str, object]) -> dict[str, object]:
+    widened: dict[str, object] = {}
+    for key, value in record.items():
+        widened[key] = value
+    return widened
+
 
 # Global instances
 model_manager: ModelManager | None = None
@@ -41,12 +86,14 @@ _context_shaper: ContextShaper | None = None
 _session_manager: SessionManager | None = None
 _orchestrator: OrchestratorAgent | None = None
 _agent_runtime: AgentRuntime | None = None
+_scheduled_job_service: ScheduledJobService | None = None
+_voice_service: VoiceService | None = None
 _benchmark_harness: BenchmarkHarness | None = None
 _memory_manager: MemoryManager | None = None
-_mode_manager: Any | None = None
+_mode_manager: ModeManager | None = None
 
 
-def get_mode_manager():
+def get_mode_manager() -> ModeManager:
     """ModeManager 싱글톤을 반환합니다.
 
     Phase 1 D7: Dashboard WebSocket이 실제 실행 모드를 조회하기 위해 사용.
@@ -66,6 +113,9 @@ def _get_session_manager() -> SessionManager:
     if _session_manager is None:
         _session_manager = SessionManager()
     return _session_manager
+
+
+get_session_manager = _get_session_manager
 
 
 def get_memory_manager(project_root: str | None = None) -> MemoryManager:
@@ -148,7 +198,9 @@ def _clear_project_vector() -> int:
 
 
 def _clear_search_cache() -> int:
-    cache_dir = Path.cwd() / "data" / "search_cache"
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
+
+    cache_dir = CACHE_DIR
     if not cache_dir.exists():
         return 0
 
@@ -159,10 +211,10 @@ def _clear_search_cache() -> int:
     return deleted
 
 
-def _export_memory_service() -> list[dict[str, Any]]:
+def _export_memory_service() -> list[dict[str, JsonValue]]:
     from antigravity_k.knowledge.memory_service import MemoryService
 
-    return MemoryService().export_all()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(MemoryService().export_all())
 
 
 def _redact_memory_service() -> int:
@@ -177,10 +229,10 @@ def _retain_memory_service(max_age_days: int) -> int:
     return MemoryService().apply_retention(max_age_days)
 
 
-def _export_wiki() -> list[dict[str, Any]]:
+def _export_wiki() -> list[dict[str, JsonValue]]:
     from antigravity_k.knowledge.wiki import LLMWiki
 
-    return LLMWiki().export_all()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(LLMWiki().export_all())
 
 
 def _redact_wiki() -> int:
@@ -195,10 +247,12 @@ def _retain_wiki(max_age_days: int) -> int:
     return LLMWiki().apply_retention(max_age_days)
 
 
-def _export_gbrain() -> list[dict[str, Any]]:
+def _export_gbrain() -> list[dict[str, JsonValue]]:
     from antigravity_k.engine.gbrain import global_gbrain
 
-    return global_gbrain.export_all()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(
+        [_widen_graph_record(record) for record in global_gbrain.export_all()],
+    )
 
 
 def _redact_gbrain() -> int:
@@ -207,7 +261,7 @@ def _redact_gbrain() -> int:
     return global_gbrain.redact_all()
 
 
-def _export_project_vector() -> list[dict[str, Any]]:
+def _export_project_vector() -> list[dict[str, JsonValue]]:
     vector_path = Path.cwd() / ".antigravity" / "vault_data"
     if not vector_path.exists():
         return []
@@ -215,7 +269,9 @@ def _export_project_vector() -> list[dict[str, Any]]:
 
     vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
     try:
-        return vector_store.export_all()
+        return _DURABLE_EXPORT_ADAPTER.validate_python(
+            [_widen_graph_record(record) for record in vector_store.export_all()],
+        )
     finally:
         vector_store.close()
 
@@ -233,28 +289,35 @@ def _redact_project_vector() -> int:
         vector_store.close()
 
 
-def _export_search_cache() -> list[dict[str, Any]]:
-    cache_dir = Path.cwd() / "data" / "search_cache"
+def _export_search_cache() -> list[dict[str, JsonValue]]:
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
+
+    cache_dir = CACHE_DIR
     if not cache_dir.exists():
         return []
-    records = []
+    records: list[dict[str, JsonValue]] = []
     for cache_file in cache_dir.glob("*.json"):
         try:
-            records.append({"file": cache_file.name, "data": json.loads(cache_file.read_text(encoding="utf-8"))})
-        except (OSError, json.JSONDecodeError):
+            data = _JSON_VALUE_ADAPTER.validate_json(cache_file.read_text(encoding="utf-8"))
+            records.append({"file": cache_file.name, "data": data})
+        except (OSError, ValidationError):
             continue
     return records
 
 
 def _redact_search_cache() -> int:
     from antigravity_k.engine.secret_scanner import redact_full
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
 
     changed = 0
     for record in _export_search_cache():
         data = json.dumps(record["data"], ensure_ascii=False)
         redacted = redact_full(data)
         if redacted != data:
-            (Path.cwd() / "data" / "search_cache" / record["file"]).write_text(redacted, encoding="utf-8")
+            cache_file = _json_text(record.get("file"))
+            if not cache_file:
+                continue
+            _ = (CACHE_DIR / cache_file).write_text(redacted, encoding="utf-8")
             changed += 1
     return changed
 
@@ -264,10 +327,12 @@ def _retain_search_cache(max_age_days: int) -> int:
         raise ValueError("max_age_days must be non-negative")
     from datetime import UTC, datetime, timedelta
 
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
+
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     deleted = 0
     for record in _export_search_cache():
-        cached_at = record["data"].get("cached_at", "")
+        cached_at = _json_text(_json_object(record.get("data")).get("cached_at"))
         try:
             timestamp = datetime.fromisoformat(cached_at)
             if timestamp.tzinfo is None:
@@ -276,7 +341,10 @@ def _retain_search_cache(max_age_days: int) -> int:
             continue
         if timestamp < cutoff:
             try:
-                (Path.cwd() / "data" / "search_cache" / record["file"]).unlink()
+                cache_file = _json_text(record.get("file"))
+                if not cache_file:
+                    continue
+                (CACHE_DIR / cache_file).unlink()
                 deleted += 1
             except OSError:
                 continue
@@ -287,8 +355,12 @@ def __get_tool_registry() -> ToolRegistry:
     global _tool_registry
     if _tool_registry is None:
         _tool_registry = ToolRegistry(project_root=os.getcwd())
-        _tool_registry.auto_discover("antigravity_k.tools")
+        _ = _tool_registry.auto_discover("antigravity_k.tools")
     return _tool_registry
+
+
+def get_tool_registry() -> ToolRegistry:
+    return __get_tool_registry()
 
 
 def __get_skill_loader() -> SkillLoader:
@@ -317,7 +389,7 @@ def get_model_manager() -> ModelManager:
         logger.info("Lazy initializing ModelManager...")
         from antigravity_k.engine.usage_tracker import UsageTracker
 
-        registry = ModelRegistry("config.yaml")
+        registry = ModelRegistry()
         tracker = UsageTracker(db_path="data/token_usage.json")
         model_manager = ModelManager(registry, tracker=tracker)
     return model_manager
@@ -390,10 +462,35 @@ def get_agent_runtime() -> AgentRuntime:
             task_runner,
             task_outcome_recorder=benchmark_harness.record_task_outcome,
         )
-        ctx = getattr(_agent_runtime.orchestrator, "ctx", None)
-        if ctx is not None:
+        context_value = vars(_agent_runtime.orchestrator).get("ctx")
+        if isinstance(context_value, _RuntimeContextLike):
+            ctx = context_value
             ctx.slash_commands.bind_runtime(_agent_runtime)
     return _agent_runtime
+
+
+def get_scheduled_job_service() -> ScheduledJobService:
+    global _scheduled_job_service
+    if _scheduled_job_service is None:
+        from antigravity_k.engine.scheduled_job_store import ScheduledJobStore
+        from antigravity_k.engine.task_runner import get_task_runner
+
+        runtime = get_agent_runtime()
+        configured_path = os.environ.get("AGK_JOB_DB_PATH", "").strip()
+        db_path = configured_path or get_task_runner().db_path
+        _scheduled_job_service = ScheduledJobService(
+            ScheduledJobStore(db_path),
+            runtime.submit_task,
+            runtime.get_task_status,
+        )
+    return _scheduled_job_service
+
+
+def get_voice_service() -> VoiceService:
+    global _voice_service
+    if _voice_service is None:
+        _voice_service = VoiceService()
+    return _voice_service
 
 
 def get_translator() -> ProtocolTranslator:
@@ -420,3 +517,23 @@ def get_embedding_engine() -> EmbeddingEngine:
     engine = EmbeddingEngine()
     engine.initialize()
     return engine
+
+
+_slash_registry = None
+
+
+def get_slash_registry():
+    """Slash command registry singleton (DI-wired)."""
+    global _slash_registry
+    if _slash_registry is None:
+        from antigravity_k.engine.slash_commands import SlashCommandRegistry
+
+        _slash_registry = SlashCommandRegistry(
+            tool_registry=__get_tool_registry(),
+            session_manager=_get_session_manager(),
+            context_shaper=_get_context_shaper(),
+            model_manager=get_model_manager(),
+            skill_loader=__get_skill_loader(),
+            agent_runtime=get_agent_runtime(),
+        )
+    return _slash_registry

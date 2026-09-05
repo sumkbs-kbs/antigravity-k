@@ -1,5 +1,5 @@
 # ============================================================================
-# Antigravity-K: vLLM 서버 Docker Compose
+# Ssak-Ai: vLLM 서버 Docker Compose
 # ============================================================================
 # 사용법:
 #   docker compose -f docker-compose.vllm.yml up -d

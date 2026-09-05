@@ -1,28 +1,43 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast, override
+
 from antigravity_k.engine.capability_policy import AutonomousCapabilityPolicy
 from antigravity_k.engine.skill_loader import SkillLoader
 from antigravity_k.engine.slash_commands import SlashCommandRegistry
 from antigravity_k.tools.base_tool import BaseTool, RiskLevel, ToolCategory
-from antigravity_k.tools.permission_gate import Permission
+from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 
+def _install(registry: ToolRegistry, tool: BaseTool) -> None:
+    install = cast(Callable[[BaseTool], ToolRegistry], getattr(registry, "install"))
+    _ = install(tool)
+
+
 class DummyTool(BaseTool):
-    category = ToolCategory.SYSTEM
-    risk_level = RiskLevel.CRITICAL
+    category: ToolCategory = ToolCategory.SYSTEM
+    risk_level: RiskLevel = RiskLevel.CRITICAL
 
     @property
-    def name(self):
+    @override
+    def name(self) -> str:
         return "desktop_control"
 
     @property
-    def description(self):
+    @override
+    def description(self) -> str:
         return "Control the local desktop"
 
     @property
-    def parameters_schema(self):
+    @override
+    def parameters_schema(self) -> dict[str, object]:
         return {"type": "object", "properties": {}}
 
-    def execute(self, **kwargs):
+    @override
+    def execute(self, **kwargs: object) -> str:
         return "controlled"
 
 
@@ -36,7 +51,7 @@ def test_capability_policy_prompts_for_critical_pc_control():
 
 def test_tool_registry_applies_autonomous_policy_before_execution():
     registry = ToolRegistry()
-    registry.install(DummyTool())
+    _install(registry, DummyTool())
 
     permission, result = registry.execute_with_permission("desktop_control", {}, objective="본 PC를 조작해서 테스트")
 
@@ -44,10 +59,10 @@ def test_tool_registry_applies_autonomous_policy_before_execution():
     assert "Critical PC capabilities" in result
 
 
-def test_skill_loader_autonomously_activates_relevant_safe_skill(tmp_path):
+def test_skill_loader_autonomously_activates_relevant_safe_skill(tmp_path: Path):
     skill_dir = tmp_path / ".agent" / "skills" / "browser-qa"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: Browser QA
 description: DOM browser testing and UI quality validation
@@ -67,10 +82,10 @@ Use DOM inspection, screenshots, and browser self-test loops for UI QA.
     assert "browser-qa" in loader.active_skills
 
 
-def test_skill_loader_does_not_auto_activate_critical_skill(tmp_path):
+def test_skill_loader_does_not_auto_activate_critical_skill(tmp_path: Path):
     skill_dir = tmp_path / ".agent" / "skills" / "system-reset"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: System Reset
 description: reset, delete, and reconfigure the local system
@@ -90,16 +105,16 @@ Reset system settings and delete generated files.
     assert loader.get_last_decisions()[0].decision == "prompt"
 
 
-def test_skill_loader_recovers_scalar_metadata_from_invalid_yaml(tmp_path):
+def test_skill_loader_recovers_scalar_metadata_from_invalid_yaml(tmp_path: Path):
     skill_dir = tmp_path / ".agent" / "skills" / "recovered"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         "---\n"
-        "name: Recovered Skill\n"
-        "description: Use this skill when the input contains: a colon\n"
-        "tags: [recovery, local]\n"
-        "---\n"
-        "Skill body.\n",
+        + "name: Recovered Skill\n"
+        + "description: Use this skill when the input contains: a colon\n"
+        + "tags: [recovery, local]\n"
+        + "---\n"
+        + "Skill body.\n",
         encoding="utf-8",
     )
 
@@ -112,10 +127,10 @@ def test_skill_loader_recovers_scalar_metadata_from_invalid_yaml(tmp_path):
     assert skill["tags"] == ["recovery", "local"]
 
 
-def test_capabilities_slash_command_reports_tool_and_skill_decisions(tmp_path):
+def test_capabilities_slash_command_reports_tool_and_skill_decisions(tmp_path: Path):
     skill_dir = tmp_path / ".agent" / "skills" / "browser-qa"
     skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
+    _ = (skill_dir / "SKILL.md").write_text(
         """---
 name: Browser QA
 description: DOM browser testing
@@ -127,7 +142,7 @@ Inspect DOM and test browser flows.
         encoding="utf-8",
     )
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(DummyTool())
+    _install(registry, DummyTool())
     loader = SkillLoader(project_root=str(tmp_path), include_global=False)
     slash = SlashCommandRegistry(tool_registry=registry, skill_loader=loader)
 

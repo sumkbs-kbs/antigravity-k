@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-09-01T23:01:53.711520+00:00",
+  "target": "qwen3.8",
+  "n_samples": 3,
+  "modes": [
+    "cascade_off",
+    "bon_on"
+  ],
+  "rows": [
+    {
+      "case": "sim-001",
+      "repeats": 2,
+      "baseline": "cascade_off",
+      "cascade_off": {
+        "mean_score": 1.0,
+        "scores": [
+          1.0,
+          1.0
+        ]
+      },
+      "bon_on": {
+        "mean_score": 1.0,
+        "scores": [
+          1.0,
+          1.0
+        ]
+      },
+      "delta_vs_baseline": {
+        "bon_on": 0.0
+      }
+    },
+    {
+      "case": "lh-001",
+      "repeats": 2,
+      "baseline": "cascade_off",
+      "cascade_off": {
+        "mean_score": 0.783,
+        "scores": [
+          0.566,
+          1.0
+        ]
+      },
+      "bon_on": {
+        "mean_score": 0.8075,
+        "scores": [
+          0.615,
+          1.0
+        ]
+      },
+      "delta_vs_baseline": {
+        "bon_on": 0.0245
+      }
+    }
+  ],
+  "improvement": {
+    "baseline": "cascade_off",
+    "mean_delta": 0.0,
+    "improved": 0,
+    "worse": 0,
+    "same": 2
+  }
+}

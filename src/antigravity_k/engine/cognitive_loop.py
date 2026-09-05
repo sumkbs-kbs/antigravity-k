@@ -1,9 +1,9 @@
-"""Antigravity-K: 인지 루프 엔진 (CognitiveLoop).
+"""Ssak-Ai: 인지 루프 엔진 (CognitiveLoop).
 
 ==============================================
 E-1: AI 에이전트의 사고 패턴을 구현합니다.
 
-현재 Antigravity-K: CEO 분류 → 에이전트 실행 → 끝 (1-pass)
+현재 Ssak-Ai: CEO 분류 → 에이전트 실행 → 끝 (1-pass)
 개선 후:          Plan → Execute → Verify → Reflect → Adapt (순환)
 
 이 모듈은 에이전트가 "생각하고 → 실행하고 → 검증하고 → 배우는"
@@ -11,45 +11,51 @@ E-1: AI 에이전트의 사고 패턴을 구현합니다.
 """
 
 import ast
-import json
 import logging
 import os
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import NotRequired, Protocol, TypedDict, cast, final
 
 import anyio
 
+from antigravity_k.engine.external_brain import BrainResponse
+from antigravity_k.engine.failure_memory import FailureMemory
 from antigravity_k.engine.memory.cavemem_store import CavememStore
-from antigravity_k.engine.project_memory import project_memory_dir
+from antigravity_k.engine.project_memory_paths import project_memory_dir
 from antigravity_k.engine.tool_guardrails import classify_tool_failure
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class PlanStep:
-    """실행 계획의 단일 단계."""
-
-    step_id: int
-    description: str
-    tool: str | None = None
-    args: dict[str, Any] | None = None
-    status: str = "pending"  # pending, running, done, failed, skipped
-    result: str | None = None
-    verification: str | None = None  # 검증 결과
+class StepHistoryEntry(TypedDict):
+    tool: str
+    grade: str
+    passed: bool
+    issues: list[str]
+    timestamp: NotRequired[str]
 
 
-@dataclass
-class ExecutionPlan:
-    """에이전트의 실행 계획."""
+class VerificationResult(TypedDict):
+    passed: bool
+    grade: str
+    issues: list[str]
+    suggestion: str
+    dialectic_applied: bool
 
-    goal: str
-    steps: list[PlanStep] = field(default_factory=list)
-    created_at: str = ""
-    confidence: str = "medium"  # high, medium, low
-    reasoning: str = ""
+
+class ExecutionTrace(TypedDict):
+    plan_goal: str
+    total_steps: int
+    replans: int
+    success: bool
+    timestamp: str
+
+
+class ExternalBrainRouterLike(Protocol):
+    async def send(self, prompt: str, strategy: str = "fallback") -> BrainResponse: ...
 
 
 @dataclass
@@ -86,6 +92,7 @@ def _split_explicit_steps(task: str) -> list[str]:
     return []
 
 
+@final
 class CognitiveLoop:
     """Plan → Execute → Verify → Reflect → Adapt 인지 순환 엔진.
 
@@ -101,8 +108,8 @@ class CognitiveLoop:
     def __init__(
         self,
         project_root: str = ".",
-        failure_memory=None,
-        external_brain_router=None,
+        failure_memory: FailureMemory | None = None,
+        external_brain_router: ExternalBrainRouterLike | None = None,
         enable_caveman: bool = False,
         max_retries: int | None = None,
         dialectic_enabled: bool | None = None,
@@ -118,81 +125,29 @@ class CognitiveLoop:
             dialectic_enabled: 정반합 자기 비판 적용 여부 (None=기본값 True).
 
         """
-        self.project_root = str(Path(project_root).resolve())
-        self.failure_memory = failure_memory
-        self._external_brain_router = external_brain_router
-        self._current_plan: ExecutionPlan | None = None
-        self._step_history: list[dict[str, Any]] = []
-        self._retry_count = 0
-        self._max_retries = 2 if max_retries is None else max_retries
+        self.project_root: str = str(Path(project_root).resolve())
+        self.failure_memory: FailureMemory | None = failure_memory
+        self._external_brain_router: ExternalBrainRouterLike | None = external_brain_router
+        self._step_history: list[StepHistoryEntry] = []
+        self._retry_count: int = 0
+        self._max_retries: int = 2 if max_retries is None else max_retries
         # amplification.cognitive.dialectic_enabled로 오버라이드 가능 (기본 True).
-        self._dialectic_enabled = True if dialectic_enabled is None else dialectic_enabled
-        self.enable_caveman = enable_caveman
+        self._dialectic_enabled: bool = True if dialectic_enabled is None else dialectic_enabled
+        self.enable_caveman: bool = enable_caveman
         cavemem_path = project_memory_dir(self.project_root) / "cavemem.sqlite3"
-        self.cavemem_store = CavememStore(str(cavemem_path))
+        self.cavemem_store: CavememStore = CavememStore(str(cavemem_path))
 
-    # ─── Phase 1: PLAN ─────────────────────────────────────
+    @property
+    def max_retries(self) -> int:
+        return self._max_retries
 
-    def create_plan_prompt(self, task: str, available_tools: list[str] | None = None) -> str:
-        """에이전트에게 계획을 세우도록 하는 프롬프트를 생성합니다."""
-        failure_context = ""
-        if self.failure_memory:
-            similar = self.failure_memory.find_similar(task)
-            if similar:
-                failure_context = (
-                    "\n\n⚠️ 과거 유사 작업에서의 실패 기록:\n"
-                    + "\n".join(f"- {f['error_pattern']}: {f['fix_applied']}" for f in similar[:3])
-                    + "\n위 실수를 반복하지 마세요.\n"
-                )
-
-        caveman_instruction = ""
-        if self.enable_caveman:
-            caveman_instruction = (
-                "\n<caveman_mode>\n"
-                "CRITICAL: Drop filler words, articles, and pleasantries. "
-                "Output maximum compression prose. "
-                "Keep 100% technical accuracy. Do not use 'I will', 'Here is', etc. "
-                "Just give the answer or the exact action.\n"
-                "</caveman_mode>\n"
-            )
-
-        cavemem_context = ""
-        past_observations = self.cavemem_store.search_observations(task, limit=3)
-        if past_observations:
-            cavemem_context = (
-                "\n\n🧠 과거 장기 기억(Cavemem):\n"
-                + "\n".join(f"- {obs['compressed_content']}" for obs in past_observations)
-                + "\n"
-            )
-
-        gitnexus_instruction = (
-            "\n<gitnexus_guidance>\n"
-            "If GitNexus tools (`impact`, `context`, `query`, `detect_changes`) are available, "
-            "you MUST use them before modifying files to understand blast radius and dependencies. "
-            "Never perform blind edits without codebase context.\n"
-            "</gitnexus_guidance>\n"
-        )
-
-        return (
-            "<scratch_pad>\n"
-            f"Goal: {task}\n"
-            f"Available Tools: {', '.join((available_tools or [])[:20])}\n"
-            f"{failure_context}"
-            f"{cavemem_context}"
-            f"{caveman_instruction}"
-            f"{gitnexus_instruction}"
-            "Actions: 먼저 아래 형식으로 실행 계획을 세우세요:\n"
-            "1. [단계 설명] — 사용할 도구\n"
-            "2. [단계 설명] — 사용할 도구\n"
-            "...\n"
-            "Observation: None (아직 실행 전)\n"
-            "Reflection: 이 계획이 목표를 달성하기에 충분한지 자가 검증하세요.\n"
-            "</scratch_pad>"
-        )
+    @property
+    def dialectic_enabled(self) -> bool:
+        return self._dialectic_enabled
 
     # ─── Phase 2: VERIFY ─────────────────────────────────────
 
-    def verify_tool_result(self, tool_name: str, tool_args: dict[str, Any], result: str) -> dict[str, Any]:
+    def verify_tool_result(self, tool_name: str, tool_args: dict[str, object], result: str) -> VerificationResult:
         """도구 실행 결과를 자동 검증합니다.
 
         Returns:
@@ -204,23 +159,23 @@ class CognitiveLoop:
             }
 
         """
-        issues = []
-        grade = "A"
+        issues: list[str] = []
+        grade: str = "A"
 
         # 에러 감지
-        if isinstance(result, str):
-            result_lower = result.lower()
+        result_lower = result.lower()
 
-            # 명시적 에러
-            tool_failed, _ = classify_tool_failure(tool_name, result)
-            if tool_failed or result.strip().startswith(
-                "There was an error",
-            ):
-                grade = "F"
-                issues.append(f"도구 '{tool_name}'이 에러를 반환했습니다")
+        # 명시적 에러
+        tool_failed, _ = classify_tool_failure(tool_name, result)
+        if tool_failed or result.strip().startswith(
+            "There was an error",
+        ):
+            grade = "F"
+            issues.append(f"도구 '{tool_name}'이 에러를 반환했습니다")
 
             # 파일 관련 도구: 파일 존재 여부 확인
-            file_path = tool_args.get("file_path") or tool_args.get("path", "")
+            raw_file_path = tool_args.get("file_path") or tool_args.get("path", "")
+            file_path = raw_file_path if isinstance(raw_file_path, str) else ""
             if tool_name in ("write_file", "edit_file", "replace_file_content"):
                 if file_path and not os.path.exists(file_path):
                     # 상대 경로면 프로젝트 루트 기준
@@ -235,7 +190,7 @@ class CognitiveLoop:
                     actual_path = file_path if os.path.exists(file_path) else os.path.join(self.project_root, file_path)
                     if os.path.exists(actual_path):
                         with open(actual_path, encoding="utf-8") as f:
-                            ast.parse(f.read())
+                            _ = ast.parse(f.read())
                 except SyntaxError as e:
                     grade = "F"
                     issues.append(f"생성된 Python 코드에 구문 오류: {e}")
@@ -279,7 +234,7 @@ class CognitiveLoop:
         obs_content = (
             f"Tool '{tool_name}' returned grade {grade}. Passed: {passed}. Issues: {issues}. Suggestion: {suggestion}"
         )
-        self.cavemem_store.store_observation(session_id="cognitive_loop", content=obs_content)
+        _ = self.cavemem_store.store_observation(session_id="cognitive_loop", content=obs_content)
 
         return {
             "passed": passed,
@@ -289,7 +244,7 @@ class CognitiveLoop:
             "dialectic_applied": not passed and self._dialectic_enabled,
         }
 
-    def _suggest_fix(self, tool_name: str, args: dict[str, Any], result: str, issues: list[str]) -> str:
+    def _suggest_fix(self, _tool_name: str, _args: dict[str, object], _result: str, issues: list[str]) -> str:
         """검증 실패 시 수정 제안을 생성합니다."""
         if "구문 오류" in str(issues):
             return "코드를 다시 검토하고, 들여쓰기와 괄호 매칭을 확인하세요."
@@ -303,7 +258,7 @@ class CognitiveLoop:
 
     # ─── Phase 2.5: Auto Memory Extraction (SurfSense 패턴) ───
 
-    def auto_extract_memory(self, user_message: str, model_fn=None) -> None:
+    def auto_extract_memory(self, user_message: str, model_fn: Callable[[str], str] | None = None) -> None:
         """사용자 메시지에서 장기 기억할 가치가 있는 정보를 자동 추출합니다.
 
         SurfSense의 memory_extraction.py 패턴을 적용하여,
@@ -311,7 +266,7 @@ class CognitiveLoop:
         """
         # 기억 추출 실패가 메인 루프를 막지 않도록 모든 예외를 안전하게 처리
         try:
-            self.cavemem_store.extract_memory(
+            _ = self.cavemem_store.extract_memory(
                 user_message=user_message,
                 session_id="cognitive_loop",
                 model_fn=model_fn,
@@ -323,7 +278,7 @@ class CognitiveLoop:
 
     # ─── Phase 3: REFLECT ─────────────────────────────────────
 
-    def reflect(self, task: str, full_output: str) -> ReflectionResult:
+    def reflect(self, task: str, _full_output: str) -> ReflectionResult:
         """작업 완료 후 성찰을 수행합니다."""
         result = ReflectionResult()
 
@@ -383,7 +338,7 @@ class CognitiveLoop:
 
     # ─── Phase 4: ADAPT ──────────────────────────────────────
 
-    async def adapt_strategy(self, task: str, step_ctx) -> str | None:
+    async def adapt_strategy(self, task: str, _step_ctx: object) -> str | None:
         """StepContext 상태를 분석하여 반복되는 오류가 있는지 확인하고,.
 
         필요 시 에이전트의 전략을 동적으로 적응(Adapt)시킵니다.
@@ -399,6 +354,14 @@ class CognitiveLoop:
             delegation_result = await self.auto_delegate_to_external_brain(task, recent_failures)
             if delegation_result:
                 self._retry_count += 1
+                self._publish_cognitive_adaptation(
+                    reason="반복 실패 감지 — External Brain 자동 위임",
+                    adaptation=delegation_result,
+                )
+                self._publish_anti_patterns(
+                    reason="반복 실패 감지 — External Brain 자동 위임",
+                    tools=[str(f["tool"]) for f in recent_failures],
+                )
                 return delegation_result
 
         # 최근 3번 중 2번 이상 실패한 경우 전략 변경 제안
@@ -414,14 +377,60 @@ class CognitiveLoop:
                 "2. 문제를 더 작은 단위로 쪼개어 단순한 도구부터 검증하세요.\n"
                 "3. 파일 권한이나 환경의 제약이 있는지 확인하는 도구(예: run_bash_command로 ls -la)를 먼저 실행하세요.\n"  # noqa: E501
             )
+            self._publish_cognitive_adaptation(
+                reason=f"반복 실패 감지 (실패 도구: {', '.join(tools_failed)})",
+                adaptation=adaptation,
+            )
+            self._publish_anti_patterns(
+                reason=f"반복 실패 감지 (실패 도구: {', '.join(tools_failed)})",
+                tools=tools_failed,
+            )
             return adaptation
 
         return None
 
+    def _publish_cognitive_adaptation(self, reason: str, adaptation: str) -> None:
+        """EventBus로 CognitiveAdaptation 이벤트를 발행합니다.
+
+        Dashboard WebSocket(useEventWebSocket)이 이 이벤트를 수신하여
+        에이전트 모니터링 패널에 전략 적응(Adapt) 로그를 표시합니다.
+        이벤트 발행은 선택적(non-critical)이므로 실패해도 적응 로직은 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish(
+                "CognitiveAdaptation",
+                reason=reason,
+                adaptation=adaptation,
+            )
+        except Exception:
+            logger.exception("[CognitiveLoop] CognitiveAdaptation publish failed")
+
+    def _publish_anti_patterns(self, reason: str, tools: list[str]) -> None:
+        """EventBus로 AntiPatternsDetected 이벤트를 발행합니다.
+
+        반복 실패(안티패턴) 감지 시 세션에서 누적된 실패 패턴을 전달합니다.
+        Dashboard WebSocket(useEventWebSocket)과 Kanban 보드(kanban_api)가
+        이 이벤트를 소비합니다.
+        이벤트 발행은 선택적(non-critical)이므로 실패해도 적응 로직은 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish(
+                "AntiPatternsDetected",
+                reason=reason,
+                tools=tools,
+                patterns=self.get_anti_patterns(),
+            )
+        except Exception:
+            logger.exception("[CognitiveLoop] AntiPatternsDetected publish failed")
+
     async def auto_delegate_to_external_brain(
         self,
         task: str,
-        failures: list[dict[str, Any]],
+        failures: Sequence[Mapping[str, object]],
     ) -> str | None:
         """반복 실패 시 External Brain(Gemini/ChatGPT)에 자동 위임하여.
 
@@ -435,7 +444,13 @@ class CognitiveLoop:
             return None
 
         # 위임 프롬프트 구성: 실패 이력 + 원래 목표
-        failure_summary = "\n".join(f"- 도구 '{f['tool']}': {', '.join(f.get('issues', []))}" for f in failures[:3])
+        def format_failure(failure: Mapping[str, object]) -> str:
+            tool = str(failure.get("tool", "unknown"))
+            raw_issues = failure.get("issues", [])
+            issues = cast(list[object], raw_issues) if isinstance(raw_issues, list) else [raw_issues]
+            return f"- 도구 '{tool}': {', '.join(str(issue) for issue in issues)}"
+
+        failure_summary = "\n".join(format_failure(failure) for failure in failures[:3])
 
         delegation_prompt = (
             f"다음 작업을 수행하려 했으나 {len(failures)}회 연속 실패했습니다.\n\n"
@@ -463,7 +478,7 @@ class CognitiveLoop:
 
                 # 실패 메모리에 저장
                 if self.failure_memory:
-                    failed_tool = failures[0].get("tool", "unknown")
+                    failed_tool = str(failures[0].get("tool", "unknown"))
                     self.failure_memory.record(
                         tool=failed_tool,
                         error_text=f"3x_failure_{failed_tool}",
@@ -505,7 +520,7 @@ class CognitiveLoop:
 
     def get_anti_patterns(self) -> list[str]:
         """이번 세션에서 실패한 패턴 목록을 반환합니다 (프롬프트 주입용)."""
-        patterns = []
+        patterns: list[str] = []
         for step in self._step_history:
             if not step["passed"]:
                 patterns.append(
@@ -513,214 +528,7 @@ class CognitiveLoop:
                 )
         return patterns
 
-    def reset(self):
+    def reset(self) -> None:
         """새 작업을 위해 루프를 초기화합니다."""
-        self._current_plan = None
         self._step_history = []
         self._retry_count = 0
-
-
-# ─── Plan-Execute 분리 엔진 (Graph-of-Thought 지원) ───────────────
-
-
-class PlannerExecutor:
-    """고수준 Planner-Executor 분리 엔진.
-
-    기존 CognitiveLoop가 도구 실행 검증에 집중한다면,
-    PlannerExecutor는 **작업 전체의 계획 수립과 병렬 실행**을 담당합니다.
-
-    아키텍처:
-        1. Plan Phase: 작업을 DAG(방향 비순환 그래프)로 분해
-        2. Execute Phase: 병렬 가능한 스텝을 asyncio.gather로 동시 실행
-        3. Validate Phase: 결과 검증 + 필요시 re-plan
-        4. Consolidate Phase: 결과 통합 및 최종 출력
-
-    사용법:
-        planner = PlannerExecutor(cognitive_loop)
-        result = await planner.run(task, executor_fn)
-    """
-
-    def __init__(self, cognitive_loop: CognitiveLoop | None = None, max_replans: int = 2):
-        """Initialize the PlannerExecutor.
-
-        Args:
-            cognitive_loop (CognitiveLoop | None): CognitiveLoop | None cognitive loop.
-            max_replans (int): int max replans.
-
-        """
-        self.cognitive_loop = cognitive_loop or CognitiveLoop()
-        self.max_replans = max_replans
-        self._replan_count = 0
-        self._execution_trace: list[dict[str, Any]] = []
-
-    def decompose_task(self, task: str, available_tools: list[str] | None = None) -> ExecutionPlan:
-        """작업을 실행 계획으로 분해합니다 (동기, LLM 호출 없이 휴리스틱).
-
-        복잡한 작업을 식별하여 병렬 실행 가능한 그룹으로 나눕니다.
-        """
-        plan = ExecutionPlan(
-            goal=task,
-            created_at=datetime.now().isoformat(),
-            reasoning="Task decomposition via PlannerExecutor",
-        )
-
-        sub_tasks = _split_explicit_steps(task)
-        if sub_tasks:
-            for idx, desc in enumerate(sub_tasks, start=1):
-                plan.steps.append(PlanStep(step_id=idx, description=desc, status="pending"))
-            return plan
-
-        # 기본: 단일 스텝 (외부에서 LLM을 통해 더 정교한 계획 생성 가능)
-        plan.steps.append(
-            PlanStep(
-                step_id=1,
-                description=task,
-                status="pending",
-            ),
-        )
-
-        return plan
-
-    async def execute_plan(
-        self,
-        plan: ExecutionPlan,
-        executor_fn,  # async callable(step: PlanStep) -> str
-    ) -> dict[str, Any]:
-        """실행 계획을 수행합니다. 병렬 가능한 스텝은 동시 실행합니다.
-
-        Args:
-            plan: 실행 계획
-            executor_fn: 각 스텝을 실행하는 비동기 함수
-
-        Returns:
-            {"success": bool, "results": [...], "trace": [...]}
-
-        """
-        import asyncio
-
-        results = []
-
-        # 병렬 그룹별로 실행
-        parallel_groups = self._group_parallel_steps(plan.steps)
-
-        for group_idx, group in enumerate(parallel_groups):
-            if len(group) > 1:
-                # 병렬 실행
-                logger.info(
-                    "[PlannerExecutor] 병렬 실행 그룹 %s: %s개 스텝",
-                    group_idx + 1,
-                    len(group),
-                )
-                group_results = await asyncio.gather(
-                    *[self._execute_step(step, executor_fn) for step in group],
-                    return_exceptions=True,
-                )
-                for step, result in zip(group, group_results):
-                    if isinstance(result, Exception):
-                        step.status = "failed"
-                        step.result = str(result)
-                    results.append(
-                        {
-                            "step": step.step_id,
-                            "result": step.result,
-                            "status": step.status,
-                        },
-                    )
-            else:
-                # 순차 실행
-                step = group[0]
-                await self._execute_step(step, executor_fn)
-                results.append({"step": step.step_id, "result": step.result, "status": step.status})
-
-        # 검증
-        all_passed = all(s.status == "done" for s in plan.steps)
-
-        # 실패 시 re-plan 시도
-        if not all_passed and self._replan_count < self.max_replans:
-            self._replan_count += 1
-            failed_steps = [s for s in plan.steps if s.status == "failed"]
-            logger.info(
-                "[PlannerExecutor] Re-plan #%s: %s개 스텝 실패",
-                self._replan_count,
-                len(failed_steps),
-            )
-            # 실패한 스텝만 재시도
-            for step in failed_steps:
-                step.status = "pending"
-                step.result = None
-                await self._execute_step(step, executor_fn)
-                results.append(
-                    {
-                        "step": step.step_id,
-                        "result": step.result,
-                        "status": step.status,
-                        "retry": True,
-                    },
-                )
-
-        trace_entry = {
-            "plan_goal": plan.goal,
-            "total_steps": len(plan.steps),
-            "replans": self._replan_count,
-            "success": all(s.status == "done" for s in plan.steps),
-            "timestamp": datetime.now().isoformat(),
-        }
-        self._execution_trace.append(trace_entry)
-
-        return {
-            "success": trace_entry["success"],
-            "results": results,
-            "trace": trace_entry,
-        }
-
-    async def _execute_step(self, step: PlanStep, executor_fn) -> str:
-        """단일 스텝을 실행하고 CognitiveLoop의 검증을 적용합니다."""
-        step.status = "running"
-        try:
-            result = await executor_fn(step)
-            step.result = result if isinstance(result, str) else str(result)
-
-            # CognitiveLoop의 도구 결과 검증 적용
-            if step.tool and self.cognitive_loop:
-                verification = self.cognitive_loop.verify_tool_result(
-                    step.tool,
-                    step.args or {},
-                    step.result,
-                )
-                step.verification = json.dumps(verification, ensure_ascii=False)
-                if verification["passed"]:
-                    step.status = "done"
-                else:
-                    step.status = "failed"
-            else:
-                step.status = "done"
-
-            return step.result
-        except Exception as e:
-            step.status = "failed"
-            step.result = f"Error: {e}"
-            logger.exception("[PlannerExecutor] Step %s failed", step.step_id)
-            return step.result
-
-    def _group_parallel_steps(self, steps: list[PlanStep]) -> list[list[PlanStep]]:
-        """스텝들을 병렬 실행 가능한 그룹으로 분류합니다.
-
-        현재: 의존성 없는 연속 스텝을 같은 그룹으로 묶음.
-        향후: DAG 기반 의존성 분석으로 확장 가능.
-        """
-        if not steps:
-            return []
-
-        # 기본 구현: 각 스텝을 개별 그룹으로 (순차 실행)
-        # TODO: step.depends_on 필드 추가 후 DAG 기반 병렬 그루핑
-        return [[step] for step in steps]
-
-    def get_execution_trace(self) -> list[dict[str, Any]]:
-        """실행 궤적을 반환합니다 (관찰성/디버깅용)."""
-        return self._execution_trace
-
-    def reset(self):
-        """상태를 초기화합니다."""
-        self._replan_count = 0
-        self._execution_trace = []
-        self.cognitive_loop.reset()

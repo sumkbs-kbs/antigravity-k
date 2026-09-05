@@ -1,20 +1,88 @@
 """Inference Providers module."""
 
+from __future__ import annotations
+
 import json
 import logging
 import time
 import urllib.request
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from importlib import import_module
-from typing import Any
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, ContextManager, Protocol, TypeAlias, cast, override
 
 from antigravity_k.engine.context_budget import context_budget_for_context_length
 from antigravity_k.tools.egress_policy import safe_urlopen
 
+if TYPE_CHECKING:
+    from antigravity_k.engine.model_registry import ModelProfile
+
 logger = logging.getLogger("antigravity_k.inference_providers")
 
-Message = dict[str, Any]
+Message = dict[str, object]
+Prompt = str | list[Message]
+
+# 공유 ModelRegistry — 생성 시마다 config.yaml을 다시 읽고 구문분석하므로
+# 호출 단위 생성은 per-request 지연+I/O 낭비다 (provider base_url 조회용).
+_shared_model_registry_cache: Any = None
+
+
+def _shared_model_registry() -> Any:
+    global _shared_model_registry_cache
+    if _shared_model_registry_cache is None:
+        from antigravity_k.engine.model_registry import ModelRegistry
+
+        _shared_model_registry_cache = ModelRegistry()
+    return _shared_model_registry_cache
+
+
+DynamicValue: TypeAlias = object
+JsonMap: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
+DynamicConfig: TypeAlias = tuple[str, float, JsonMap | None, str]
+
+
+class _AnthropicStream(Protocol):
+    text_stream: Iterator[str]
+
+
+class _AnthropicMessages(Protocol):
+    def stream(self, **kwargs: object) -> ContextManager[_AnthropicStream]: ...
+
+
+class _AnthropicClient(Protocol):
+    messages: _AnthropicMessages
+
+
+class _AnthropicModule(Protocol):
+    def Anthropic(self, *, api_key: str) -> _AnthropicClient: ...
+
+
+def _as_json_map(value: object) -> JsonMap:
+    return cast(JsonMap, value) if isinstance(value, dict) else {}
+
+
+def _first_choice(payload: JsonMap) -> JsonMap:
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        return cast(JsonMap, choices[0])
+    return {}
+
+
+def _as_json_maps(value: object) -> list[JsonMap]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [_as_json_map(cast(object, item)) for item in items if isinstance(item, dict)]
+
+
+class LoadedModelLike(Protocol):
+    profile: ModelProfile
+    model: DynamicValue
+    tokenizer: DynamicValue
+
+
+LoadedModelArg = LoadedModelLike | SimpleNamespace
 
 
 class BaseInferenceProvider(ABC):
@@ -24,7 +92,7 @@ class BaseInferenceProvider(ABC):
     """
 
     @abstractmethod
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -39,7 +107,7 @@ class BaseInferenceProvider(ABC):
         pass
 
     @abstractmethod
-    def stream_generate(self, loaded, prompt, **kwargs) -> Iterator[str]:
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -66,13 +134,18 @@ class BaseInferenceProvider(ABC):
 
         return [{"role": "system", "content": directive}, *prepared]
 
-    def _apply_dynamic_inference_config(self, loaded_profile, prompt_or_messages, kwargs):
+    def _apply_dynamic_inference_config(
+        self,
+        loaded_profile: ModelProfile,
+        prompt_or_messages: Prompt,
+        kwargs: JsonMap,
+    ) -> DynamicConfig:
         import hashlib
 
         model_name = loaded_profile.name
         thinking_config = None
-        temperature = kwargs.get("temperature", 0.7)
-        max_tokens = kwargs.get("max_tokens", 8192)
+        temperature = cast(float, kwargs.get("temperature", 0.7))
+        max_tokens = cast(float, kwargs.get("max_tokens", 8192))
 
         if ":" in model_name:
             base_model, spec = model_name.split(":", 1)
@@ -103,17 +176,17 @@ class BaseInferenceProvider(ABC):
         return model_name, temperature, thinking_config, attribution
 
     @staticmethod
-    def _native_tool_call_xml(tool_name: str, arguments) -> str:
+    def _native_tool_call_xml(tool_name: str, arguments: DynamicValue) -> str:
         if not tool_name:
             return ""
         if isinstance(arguments, str):
             try:
-                arguments = json.loads(arguments)
+                arguments = cast(object, json.loads(arguments))
             except json.JSONDecodeError:
                 arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
-        payload = {"name": tool_name, "arguments": arguments}
+        payload: JsonMap = {"name": tool_name, "arguments": arguments}
         return f"\n<tool_call>\n{json.dumps(payload, ensure_ascii=False)}\n</tool_call>\n"
 
 
@@ -123,7 +196,8 @@ class AnthropicProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -140,7 +214,8 @@ class AnthropicProvider(BaseInferenceProvider):
             result += chunk
         return result
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -149,7 +224,7 @@ class AnthropicProvider(BaseInferenceProvider):
             **kwargs: Additional keyword arguments.
 
         """
-        anthropic = import_module("anthropic")
+        anthropic = cast(_AnthropicModule, cast(object, import_module("anthropic")))
 
         from antigravity_k.engine.secure_key import get_api_key
 
@@ -159,21 +234,21 @@ class AnthropicProvider(BaseInferenceProvider):
             return
 
         client = anthropic.Anthropic(api_key=api_key)
-        system_prompt = kwargs.get("system_prompt", "")
-        raw_messages = kwargs.get("raw_messages", [{"role": "user", "content": prompt}])
+        system_prompt = cast(str, kwargs.get("system_prompt", ""))
+        raw_messages = cast(list[Message], kwargs.get("raw_messages", [{"role": "user", "content": prompt}]))
         model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile,
             raw_messages,
             kwargs,
         )
 
-        anthropic_msgs = []
+        anthropic_msgs: list[JsonMap] = []
         for msg in raw_messages:
             if msg["role"] in ["user", "assistant"]:
                 anthropic_msgs.append({"role": msg["role"], "content": msg["content"]})
 
-        cache_blocks = []
-        system_blocks = []
+        cache_blocks: list[JsonMap] = []
+        system_blocks: list[JsonMap] = []
         if system_prompt:
             system_blocks.append(
                 {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}},
@@ -182,9 +257,9 @@ class AnthropicProvider(BaseInferenceProvider):
 
         for msg in anthropic_msgs:
             if isinstance(msg["content"], list):
-                for block in msg["content"]:
+                for block in cast(list[object], msg["content"]):
                     if isinstance(block, dict) and "cache_control" in block:
-                        cache_blocks.append(block)
+                        cache_blocks.append(cast(JsonMap, block))
 
         if len(cache_blocks) > 4:
             keep_first = cache_blocks[0]
@@ -201,7 +276,7 @@ class AnthropicProvider(BaseInferenceProvider):
                 {"type": "text", "text": attribution, "cache_control": {"type": "ephemeral"}},
             )
 
-        request_params = {
+        request_params: JsonMap = {
             "max_tokens": kwargs.get("max_tokens", 8192),
             "system": system_blocks if system_blocks else system_prompt,
             "messages": anthropic_msgs,
@@ -213,7 +288,7 @@ class AnthropicProvider(BaseInferenceProvider):
             request_params["thinking"] = thinking_config
 
         try:
-            with client.messages.stream(**request_params) as stream:
+            with client.messages.stream(**cast(dict[str, object], request_params)) as stream:
                 for text in stream.text_stream:
                     yield text
         except Exception as e:
@@ -227,10 +302,12 @@ class OpenRouterProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
-    requires_api_key = True
-    includes_openrouter_attribution = True
+    requires_api_key: bool = True
+    includes_openrouter_attribution: bool = True
+    forwards_native_tools: bool = True
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -247,7 +324,7 @@ class OpenRouterProvider(BaseInferenceProvider):
             result += chunk
         return result
 
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         """loaded.profile에서 per-model 엔드포인트와 키를 해석 (멀티 프로바이더)."""
         import os
 
@@ -265,7 +342,8 @@ class OpenRouterProvider(BaseInferenceProvider):
             api_key = get_api_key("openrouter") or ""
         return base_url, api_key
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -285,32 +363,37 @@ class OpenRouterProvider(BaseInferenceProvider):
 
         url = f"{base_url}/chat/completions"
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
-            api_msgs = (
-                [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"] if sys_msg else kwargs["raw_messages"]
+            sys_msg = cast(str, kwargs.get("system_prompt", ""))
+            raw_messages = cast(list[Message], kwargs["raw_messages"])
+            api_msgs: list[Message] = (
+                [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages if sys_msg else raw_messages
             )
         else:
             api_msgs = [{"role": "user", "content": prompt}]
 
-        model_name, temperature, _, _ = self._apply_dynamic_inference_config(
+        model_name, temperature, thinking_config, _ = self._apply_dynamic_inference_config(
             loaded.profile,
-            api_msgs,
+            cast(Prompt, api_msgs),
             kwargs,
         )
         model_id = getattr(loaded.profile, "repo", "") or model_name
         if model_id.startswith("openrouter/"):
             model_id = model_id[len("openrouter/") :]
 
-        data = {
+        data: dict[str, object] = {
             "model": model_id,
             "messages": api_msgs,
             "stream": True,
             "temperature": temperature,
             "max_tokens": kwargs.get("max_tokens", 4096),
         }
+        # "model:high/4096" 사양 → OpenRouter reasoning 파라미터로 매핑
+        if thinking_config is not None and isinstance(thinking_config, dict):
+            budget = thinking_config.get("budget_tokens", 1024)
+            data["reasoning"] = {"max_tokens": int(budget) if isinstance(budget, (int, float)) else 1024}
 
         # 네이티브 function calling 지원 (P1-1): tools 스키마가 제공되면 전송
-        tools_schema = kwargs.get("tools")
+        tools_schema = kwargs.get("tools") if self.forwards_native_tools else None
         if tools_schema and isinstance(tools_schema, list):
             data["tools"] = tools_schema
             # tool_choice: "auto" (모델이 자동 판단)
@@ -320,8 +403,8 @@ class OpenRouterProvider(BaseInferenceProvider):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         if self.includes_openrouter_attribution:
-            headers["HTTP-Referer"] = "https://github.com/ssak-comp/antigravity-k"
-            headers["X-Title"] = "Antigravity-K"
+            headers["HTTP-Referer"] = "https://github.com/ssak-comp/Ssak-Ai"
+            headers["X-Title"] = "Ssak-Ai"
 
         req = urllib.request.Request(
             url,
@@ -331,37 +414,38 @@ class OpenRouterProvider(BaseInferenceProvider):
         try:
             with safe_urlopen(req, timeout=300) as response:
                 # 네이티브 tool_call 누적 버퍼 (스트리밍 tool_calls 조립용)
-                pending_tool_calls: dict[int, dict[str, Any]] = {}
+                pending_tool_calls: dict[int, JsonMap] = {}
                 for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line or line == "data: [DONE]":
+                    line_text = line.decode("utf-8").strip()
+                    if not line_text or line_text == "data: [DONE]":
                         continue
-                    if line.startswith("data: "):
-                        line = line[6:]
+                    if line_text.startswith("data: "):
+                        line_text = line_text[6:]
                     try:
-                        chunk = json.loads(line)
-                        if "choices" in chunk and chunk["choices"]:
-                            delta = chunk["choices"][0].get("delta", {})
+                        chunk = _as_json_map(cast(object, json.loads(line_text)))
+                        choice = _first_choice(chunk)
+                        if choice:
+                            delta = cast(JsonMap, choice.get("delta", {}))
                             # 1. 일반 텍스트 content
                             if "content" in delta and delta["content"]:
                                 yield delta["content"]
                             # 2. 네이티브 tool_calls 누적 (P1-1)
                             if "tool_calls" in delta:
-                                for tc in delta["tool_calls"]:
-                                    idx = tc.get("index", 0)
+                                for tc in _as_json_maps(cast(object, delta["tool_calls"])):
+                                    idx = cast(int, tc.get("index", 0))
                                     if idx not in pending_tool_calls:
                                         pending_tool_calls[idx] = {
                                             "id": tc.get("id", ""),
                                             "type": "function",
                                             "function": {"name": "", "arguments": ""},
                                         }
-                                    func = tc.get("function", {})
+                                    func = _as_json_map(cast(object, tc.get("function", {})))
                                     if func.get("name"):
                                         pending_tool_calls[idx]["function"]["name"] += func["name"]
                                     if func.get("arguments"):
                                         pending_tool_calls[idx]["function"]["arguments"] += func["arguments"]
                             # 3. finish_reason이 tool_calls면 조립된 tool_call을 이벤트로 yield
-                            finish_reason = chunk["choices"][0].get("finish_reason")
+                            finish_reason = choice.get("finish_reason")
                             if finish_reason == "tool_calls" and pending_tool_calls:
                                 for idx in sorted(pending_tool_calls):
                                     tc = pending_tool_calls[idx]
@@ -376,8 +460,14 @@ class OpenRouterProvider(BaseInferenceProvider):
                     except json.JSONDecodeError:
                         continue
         except Exception as e:
-            logger.exception("OpenRouter API stream failed")
-            yield f"[API Error for {loaded.profile.name}] {e}"
+            err_body = ""
+            if hasattr(e, "read"):
+                try:
+                    err_body = f" Body: {e.read().decode('utf-8', errors='replace')}"
+                except Exception:
+                    pass
+            logger.exception("API stream failed (%s)%s", url, err_body)
+            yield f"[API Error for {loaded.profile.name}] {e}{err_body}"
 
 
 class OllamaProvider(BaseInferenceProvider):
@@ -386,7 +476,7 @@ class OllamaProvider(BaseInferenceProvider):
     Bases: BaseInferenceProvider
     """
 
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         """loaded.profile에서 per-model Ollama 엔드포인트와 키를 해석 (멀티 프로바이더)."""
         import os
 
@@ -419,22 +509,21 @@ class OllamaProvider(BaseInferenceProvider):
     def _registry_provider_base(provider: str) -> str:
         """ModelRegistry의 providers 섹션에서 base_url을 조회합니다."""
         try:
-            from antigravity_k.engine.model_registry import ModelRegistry
-
-            registry = ModelRegistry()
-            prov_cfg = registry.get_provider_config(provider)
-            return prov_cfg.get("base_url", "")
+            prov_cfg = _shared_model_registry().get_provider_config(provider)
+            base_url = prov_cfg.get("base_url")
+            return base_url if isinstance(base_url, str) else ""
         except Exception:
             return ""
 
     @staticmethod
-    def _context_window(loaded, kwargs) -> int:
+    def _context_window(loaded: LoadedModelArg, kwargs: JsonMap) -> int:
         return context_budget_for_context_length(
             getattr(loaded.profile, "context_length", None),
             kwargs.get("context_token_limit"),
         ).token_limit
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -446,16 +535,17 @@ class OllamaProvider(BaseInferenceProvider):
             str: The str result.
 
         """
-        from antigravity_k.engine.sampling_config import SAMPLING_PROFILES
+        from antigravity_k.engine.sampling_config import resolve_sampling_profile
 
         base_url, api_key = self._resolve_endpoint(loaded)
         url = f"{base_url}/chat/completions"
 
-        task_type = kwargs.get("task_type", "GENERAL")
-        profile = SAMPLING_PROFILES.get(task_type, SAMPLING_PROFILES["GENERAL"])
-        temperature = kwargs.get("temperature", profile.temperature)
-        min_p = kwargs.get("min_p", profile.min_p)
-        repeat_penalty = kwargs.get("repeat_penalty", profile.repeat_penalty)
+        # task_type 정규화 — 라이브 경로는 소문자("code")로 전달되므로
+        # 대소문자 무시 조회가 없으면 항상 GENERAL로 폴백되었다.
+        profile = resolve_sampling_profile(kwargs.get("task_type"))
+        temperature = cast(float, kwargs.get("temperature", profile.temperature))
+        min_p = cast(float, kwargs.get("min_p", profile.min_p))
+        repeat_penalty = cast(float, kwargs.get("repeat_penalty", profile.repeat_penalty))
         if "qwen3" in loaded.profile.name.lower():
             return self._generate_native(
                 loaded,
@@ -486,11 +576,12 @@ class OllamaProvider(BaseInferenceProvider):
             data["tools"] = tools_schema
 
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
+            sys_msg = cast(str, kwargs.get("system_prompt", ""))
+            raw_messages = cast(list[Message], kwargs["raw_messages"])
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + list(kwargs["raw_messages"])
+                api_msgs: list[Message] = [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages
             else:
-                api_msgs = list(kwargs["raw_messages"])
+                api_msgs = list(raw_messages)
         else:
             api_msgs = [{"role": "user", "content": prompt}]
 
@@ -504,23 +595,22 @@ class OllamaProvider(BaseInferenceProvider):
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                result = json.loads(response.read().decode("utf-8"))
-                message = result["choices"][0]["message"]
-                content = message.get("content", "")
-                native_tool_calls = message.get("tool_calls") or []
+                result = _as_json_map(cast(object, json.loads(response.read().decode("utf-8"))))
+                message = _as_json_map(_first_choice(result).get("message"))
+                content = cast(str, message.get("content", ""))
+                native_tool_calls = _as_json_maps(cast(object, message.get("tool_calls")))
                 if native_tool_calls:
                     content += "".join(
                         self._native_tool_call_xml(
-                            call.get("function", {}).get("name", ""),
-                            call.get("function", {}).get("arguments", {}),
+                            cast(str, _as_json_map(cast(object, call.get("function", {}))).get("name", "")),
+                            cast(object, _as_json_map(cast(object, call.get("function", {}))).get("arguments", {})),
                         )
                         for call in native_tool_calls
-                        if isinstance(call, dict)
                     )
                 # qwen3.6 등 thinking 모델은 content가 비고 reasoning/thinking에 담길 수 있음
                 # — reasoning을 content로 승격 (비어 있을 때만)
                 if not content:
-                    reasoning = message.get("reasoning") or message.get("thinking") or ""
+                    reasoning = cast(str, message.get("reasoning") or message.get("thinking") or "")
                     if reasoning:
                         # reasoning이 아직 진행 중이면 (완결된 content가 없음) 빈 응답 방지
                         content = reasoning.strip()
@@ -531,9 +621,9 @@ class OllamaProvider(BaseInferenceProvider):
 
     def _generate_native(
         self,
-        loaded,
-        prompt,
-        kwargs,
+        loaded: LoadedModelArg,
+        prompt: Prompt,
+        kwargs: JsonMap,
         base_url: str,
         api_key: str,
         temperature: float,
@@ -545,19 +635,23 @@ class OllamaProvider(BaseInferenceProvider):
         native_base = re.sub(r"/v\d+$", "", base_url.rstrip("/"))
         url = f"{native_base}/api/chat"
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
+            sys_msg = cast(str, kwargs.get("system_prompt", ""))
+            raw_messages = cast(list[Message], kwargs["raw_messages"])
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + list(kwargs["raw_messages"])
+                api_msgs: list[Message] = [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages
             else:
-                api_msgs = list(kwargs["raw_messages"])
+                api_msgs = list(raw_messages)
         else:
             api_msgs = [{"role": "user", "content": prompt}]
-        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
+        # thinking이 명시적으로 켜진 경우 /no_think 주입을 건너뛴다(충돌 방지)
+        think_enabled = bool(kwargs.get("think", False))
+        if not think_enabled:
+            api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
         data = {
             "model": loaded.profile.name,
             "stream": False,
             "keep_alive": "30m",
-            "think": False,
+            "think": think_enabled,
             "options": {
                 "num_ctx": self._context_window(loaded, kwargs),
                 "num_predict": kwargs.get("max_tokens", 4096),
@@ -580,53 +674,58 @@ class OllamaProvider(BaseInferenceProvider):
         )
         try:
             with safe_urlopen(request, timeout=300) as response:
-                message = json.loads(response.read().decode("utf-8")).get("message", {})
-                content = message.get("content", "")
-                native_tool_calls = message.get("tool_calls") or []
+                message = _as_json_map(
+                    _as_json_map(cast(object, json.loads(response.read().decode("utf-8")))).get("message")
+                )
+                content = cast(str, message.get("content", ""))
+                native_tool_calls = _as_json_maps(cast(object, message.get("tool_calls")))
                 if native_tool_calls:
                     content += "".join(
                         self._native_tool_call_xml(
-                            call.get("function", {}).get("name", ""),
-                            call.get("function", {}).get("arguments", {}),
+                            cast(str, _as_json_map(cast(object, call.get("function", {}))).get("name", "")),
+                            cast(object, _as_json_map(cast(object, call.get("function", {}))).get("arguments", {})),
                         )
                         for call in native_tool_calls
-                        if isinstance(call, dict)
                     )
                 return content
         except Exception as e:
             logger.exception("Local native API generation failed")
             return f"[API Error for {loaded.profile.name}] {e}"
 
-    def _iter_stream_response(self, response, tools_schema: list[Any] | None = None):
-        pending_tool_calls = []
-        buffered_content = []
+    def _iter_stream_response(
+        self, response: Iterator[bytes], tools_schema: list[DynamicValue] | None = None
+    ) -> Iterator[str]:
+        pending_tool_calls: list[JsonMap] = []
+        buffered_content: list[str] = []
         for line in response:
-            line = line.decode("utf-8").strip()
-            if not line:
+            line_text = line.decode("utf-8").strip()
+            if not line_text:
                 continue
             try:
-                chunk = json.loads(line)
-                if "message" in chunk:
-                    msg = chunk["message"]
-                    native_tool_calls = msg.get("tool_calls") or []
-                    if isinstance(native_tool_calls, list):
-                        pending_tool_calls.extend(native_tool_calls)
+                chunk = _as_json_map(cast(object, json.loads(line_text)))
+                msg = _as_json_map(cast(object, chunk.get("message")))
+                if msg:
+                    native_tool_calls = _as_json_maps(cast(object, msg.get("tool_calls")))
+                    pending_tool_calls.extend(native_tool_calls)
                     if msg.get("content"):
+                        content = cast(str, msg["content"])
                         if tools_schema:
-                            buffered_content.append(msg["content"])
+                            buffered_content.append(content)
                         else:
-                            yield msg["content"]
+                            yield content
             except json.JSONDecodeError:
                 continue
-        for call in pending_tool_calls:
-            if not isinstance(call, dict):
-                continue
-            function = call.get("function", {})
-            yield self._native_tool_call_xml(
-                function.get("name", ""),
-                function.get("arguments", {}),
-            )
         if pending_tool_calls:
+            # 네이티브 도구 호출과 함께 생성된 텍스트는 폐기하지 않는다 —
+            # 모델이 "검색하겠습니다" 같은 안내/추론 텍스트를 쓰고 도구를
+            # 호출하는 경우가 많다. 텍스트를 먼저, 도구 호출을 뒤에.
+            yield from buffered_content
+            for call in pending_tool_calls:
+                function = _as_json_map(cast(object, call.get("function", {})))
+                yield self._native_tool_call_xml(
+                    cast(str, function.get("name", "")),
+                    cast(object, function.get("arguments", {})),
+                )
             return
         synthesized_call = self._single_tool_content_call("".join(buffered_content), tools_schema)
         if synthesized_call:
@@ -634,38 +733,34 @@ class OllamaProvider(BaseInferenceProvider):
             return
         yield from buffered_content
 
-    def _single_tool_content_call(self, content: str, tools_schema: list[Any] | None) -> str:
+    def _single_tool_content_call(self, content: str, tools_schema: list[DynamicValue] | None) -> str:
         if not isinstance(tools_schema, list) or len(tools_schema) != 1:
             return ""
-        tool = tools_schema[0]
-        if not isinstance(tool, dict):
-            return ""
-        function = tool.get("function")
-        if not isinstance(function, dict):
-            return ""
+        tool = _as_json_map(tools_schema[0])
+        function = _as_json_map(cast(object, tool.get("function")))
         tool_name = function.get("name")
-        parameters = function.get("parameters")
-        if not isinstance(tool_name, str) or not isinstance(parameters, dict):
+        parameters = _as_json_map(cast(object, function.get("parameters")))
+        if not isinstance(tool_name, str) or not parameters:
             return ""
-        required_fields = parameters.get("required")
+        required_fields = cast(object, parameters.get("required"))
         if not isinstance(required_fields, list) or not required_fields:
             return ""
+        required_fields = cast(list[object], required_fields)
         import re
 
         match = re.fullmatch(r"\s*```(?:json)?\s*(\{.*\})\s*```\s*", content, re.IGNORECASE | re.DOTALL)
         if match is None:
             return ""
         try:
-            arguments = json.loads(match.group(1))
+            arguments = _as_json_map(cast(object, json.loads(match.group(1))))
         except json.JSONDecodeError:
             return ""
-        if not isinstance(arguments, dict) or not all(
-            isinstance(field, str) and field in arguments for field in required_fields
-        ):
+        if not all(isinstance(field, str) and field in arguments for field in required_fields):
             return ""
-        return self._native_tool_call_xml(tool_name, arguments)
+        return self._native_tool_call_xml(tool_name, cast(object, arguments))
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -682,54 +777,74 @@ class OllamaProvider(BaseInferenceProvider):
         url = f"{native_base}/api/chat"
 
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
+            sys_msg = cast(str, kwargs.get("system_prompt", ""))
+            raw_messages = cast(list[Message], kwargs["raw_messages"])
             if sys_msg:
-                api_msgs = [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"]
+                api_msgs: list[Message] = [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages
             else:
-                api_msgs = kwargs["raw_messages"]
+                api_msgs = raw_messages
         else:
             if isinstance(prompt, list):
                 api_msgs = prompt
             else:
                 api_msgs = [{"role": "user", "content": prompt}]
 
-        normalized_msgs = []
+        normalized_msgs: list[Message] = []
         for msg in api_msgs:
             content = msg.get("content", "")
             if isinstance(content, list):
-                str_content = []
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        str_content.append(part.get("text", ""))
+                str_content: list[str] = []
+                for part in cast(list[object], content):
+                    part_map = _as_json_map(part)
+                    if isinstance(part, dict) and part_map.get("type") == "text":
+                        str_content.append(cast(str, part_map.get("text", "")))
                     elif isinstance(part, str):
                         str_content.append(part)
                 content = " ".join(str_content)
             normalized_msgs.append({**msg, "content": content})
         api_msgs = normalized_msgs
 
-        api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
-        model_name, temperature, _, attribution = self._apply_dynamic_inference_config(
+        model_name, temperature, thinking_config, attribution = self._apply_dynamic_inference_config(
             loaded.profile,
             api_msgs,
             kwargs,
         )
 
-        if api_msgs and isinstance(api_msgs[0].get("content"), str):
-            api_msgs = list(api_msgs)
-            api_msgs[0] = {**api_msgs[0], "content": api_msgs[0]["content"] + f"\n{attribution}"}
+        # thinking이 명시적으로 켜진 경우 /no_think 주입을 건너뛴다(충돌 방지).
+        # "model:high/4096" 사양(thinking_config)도 thinking 활성으로 해석한다 —
+        # 사양이 파싱되는데 요청에 반영되지 않으면 이름만 잘린 채 실행된다.
+        think_enabled = bool(kwargs.get("think", False)) or thinking_config is not None
+        if not think_enabled:
+            api_msgs = self._suppress_model_thinking(loaded.profile.name, api_msgs)
+
+        # attribution 지문을 메시지에 주입하지 않는다 — 다시 파싱되지 않는
+        # 프롬프트 오염이다 (토큰 낭비 + 요청마다 달라지는 접두사).
+        _ = attribution
 
         default_repeat_penalty = 1.0 if "qwen3" in loaded.profile.name.lower() else 1.3
 
-        data = {
+        # 스트리밍 경로(실 라이브 에이전트 경로)에도 작업 유형별 샘플링
+        # 프로파일을 적용한다 — 기존에는 비스트리밍 generate에만 적용되었다.
+        from antigravity_k.engine.sampling_config import resolve_sampling_profile
+
+        profile = resolve_sampling_profile(kwargs.get("task_type"))
+        if thinking_config is None and "temperature" not in kwargs:
+            temperature = profile.temperature
+
+        data: dict[str, object] = {
             "model": model_name,
             "stream": True,
             "keep_alive": "30m",
-            "think": False,  # qwen3.6 등 thinking 모델의 빈 content 스트리밍 방지
+            # 기본은 off(빈 content 스트리밍 방지). 복잡 태스크 증폭을 위해
+            # kwargs.think=true로 켤 수 있다 — thinking은 content와 분리되어
+            # 반환되므로 사용자 스트림은 오염되지 않는다.
+            "think": think_enabled,
             "options": {
                 "num_ctx": self._context_window(loaded, kwargs),
                 "num_predict": kwargs.get("max_tokens", 4096),
                 "temperature": temperature,
                 "repeat_penalty": kwargs.get("repeat_penalty", default_repeat_penalty),
+                "min_p": kwargs.get("min_p", profile.min_p),
             },
             "messages": api_msgs,
         }
@@ -738,6 +853,13 @@ class OllamaProvider(BaseInferenceProvider):
         if tools_schema and isinstance(tools_schema, list):
             data["tools"] = tools_schema
 
+        # 구조화 출력 (제어 평면용): Ollama /api/chat은 format에 "json" 또는
+        # JSON 스키마를 받아 문법 제약 디코딩을 수행한다. thinking과 동시
+        # 적용은 불가하지만 제어 평면은 항상 no-think이므로 안전하다.
+        json_format = kwargs.get("response_format")
+        if json_format:
+            data["format"] = json_format
+
         req = urllib.request.Request(
             url,
             data=json.dumps(data).encode("utf-8"),
@@ -745,14 +867,14 @@ class OllamaProvider(BaseInferenceProvider):
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                yield from self._iter_stream_response(response, tools_schema)
+                yield from self._iter_stream_response(response, cast(list[DynamicValue] | None, tools_schema))
                 return
         except Exception as outer_error:
             error_message = str(outer_error)
             if tools_schema:
                 logger.warning("Ollama native tools rejected; retrying with XML tool protocol")
                 fallback_data = dict(data)
-                fallback_data.pop("tools", None)
+                _ = fallback_data.pop("tools", None)
                 fallback_req = urllib.request.Request(
                     url,
                     data=json.dumps(fallback_data).encode("utf-8"),
@@ -777,8 +899,8 @@ class NimProvider(BaseInferenceProvider):
     """
 
     # NIM 무료 티어 rate limit: 분당 40 요청 (초당 약 0.67)
-    _RATE_LIMIT_RPM = 40
-    _RATE_LIMIT_WINDOW_SEC = 60.0
+    _RATE_LIMIT_RPM: int = 40
+    _RATE_LIMIT_WINDOW_SEC: float = 60.0
 
     def __init__(self):
         """Initialize the NimProvider — 분당 rate 카운터 초기화."""
@@ -798,7 +920,7 @@ class NimProvider(BaseInferenceProvider):
         self._request_timestamps.append(now)
         return True
 
-    def _resolve_endpoint(self, loaded):
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         """loaded.profile과 registry에서 NIM 엔드포인트와 API 키를 해석합니다."""
         import os
 
@@ -821,7 +943,8 @@ class NimProvider(BaseInferenceProvider):
 
         return base_url, api_key
 
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -833,14 +956,17 @@ class NimProvider(BaseInferenceProvider):
             str: The str result.
 
         """
-        if not self._check_rate_limit():
-            return "[API Error for NIM] rate limit(40rpm) 초과 — 잠시 후 재시도하거나 다른 모델로 폴백하세요."
+        # rate limit 검사는 stream_generate에서 단일로 수행한다 — 여기서도
+        # 검사하면 요청 1건에 타임스탬프가 2개 기록되어 실효 한도가 절반으로
+        # 줄어든다. 제한 초과 시 stream_generate가 에러 문자열을 yield하고
+        # 여기서 그대로 반환된다.
         result = ""
         for chunk in self.stream_generate(loaded, prompt, **kwargs):
             result += chunk
         return result
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -864,9 +990,10 @@ class NimProvider(BaseInferenceProvider):
         url = f"{base_url}/chat/completions"
 
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
-            api_msgs = (
-                [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"] if sys_msg else kwargs["raw_messages"]
+            sys_msg = cast(str, kwargs.get("system_prompt", ""))
+            raw_messages = cast(list[Message], kwargs["raw_messages"])
+            api_msgs: list[Message] = (
+                [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages if sys_msg else raw_messages
             )
         else:
             if isinstance(prompt, list):
@@ -875,21 +1002,26 @@ class NimProvider(BaseInferenceProvider):
                 api_msgs = [{"role": "user", "content": prompt}]
 
         # 메시지 정규화 (string content 보장)
-        normalized = []
+        normalized: list[Message] = []
         for msg in api_msgs:
             content = msg.get("content", "")
             if isinstance(content, list):
-                parts = []
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        parts.append(part.get("text", ""))
+                parts: list[str] = []
+                for part in cast(list[object], content):
+                    part_map = _as_json_map(part)
+                    if isinstance(part, dict) and part_map.get("type") == "text":
+                        parts.append(cast(str, part_map.get("text", "")))
                     elif isinstance(part, str):
                         parts.append(part)
                 content = " ".join(parts)
             normalized.append({**msg, "content": content})
         api_msgs = self._suppress_model_thinking(loaded.profile.name, normalized)
 
-        model_name, temperature, _, _ = self._apply_dynamic_inference_config(loaded.profile, api_msgs, kwargs)
+        model_name, temperature, _, _ = self._apply_dynamic_inference_config(
+            loaded.profile,
+            cast(Prompt, api_msgs),
+            kwargs,
+        )
         # NIM 모델명은 이미 "nvidia/..." 또는 "meta/..." 형태 — 그대로 사용
 
         data = {
@@ -917,35 +1049,36 @@ class NimProvider(BaseInferenceProvider):
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                pending_tool_calls: dict[int, dict[str, Any]] = {}
+                pending_tool_calls: dict[int, JsonMap] = {}
                 for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line or line == "data: [DONE]":
+                    line_text = line.decode("utf-8").strip()
+                    if not line_text or line_text == "data: [DONE]":
                         continue
-                    if line.startswith("data: "):
-                        line = line[6:]
+                    if line_text.startswith("data: "):
+                        line_text = line_text[6:]
                     try:
-                        chunk = json.loads(line)
-                        if "choices" in chunk and chunk["choices"]:
-                            delta = chunk["choices"][0].get("delta", {})
+                        chunk = _as_json_map(cast(object, json.loads(line_text)))
+                        choice = _first_choice(chunk)
+                        if choice:
+                            delta = cast(JsonMap, choice.get("delta", {}))
                             if "content" in delta and delta["content"]:
                                 yield delta["content"]
                             # 네이티브 tool_calls 누적 (P1-1)
                             if "tool_calls" in delta:
-                                for tc in delta["tool_calls"]:
-                                    idx = tc.get("index", 0)
+                                for tc in _as_json_maps(cast(object, delta["tool_calls"])):
+                                    idx = cast(int, tc.get("index", 0))
                                     if idx not in pending_tool_calls:
                                         pending_tool_calls[idx] = {
                                             "id": tc.get("id", ""),
                                             "type": "function",
                                             "function": {"name": "", "arguments": ""},
                                         }
-                                    func = tc.get("function", {})
+                                    func = _as_json_map(cast(object, tc.get("function", {})))
                                     if func.get("name"):
                                         pending_tool_calls[idx]["function"]["name"] += func["name"]
                                     if func.get("arguments"):
                                         pending_tool_calls[idx]["function"]["arguments"] += func["arguments"]
-                            finish_reason = chunk["choices"][0].get("finish_reason")
+                            finish_reason = choice.get("finish_reason")
                             if finish_reason == "tool_calls" and pending_tool_calls:
                                 for idx in sorted(pending_tool_calls):
                                     tc = pending_tool_calls[idx]
@@ -971,7 +1104,8 @@ class OpenAIDirectProvider(OpenRouterProvider):
     HTTP-Referer/X-Title 헤더 없음.
     """
 
-    def _resolve_endpoint(self, loaded):
+    @override
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         """OpenAI 직접 엔드포인트와 키를 해석."""
         import os
 
@@ -990,7 +1124,8 @@ class OpenAIDirectProvider(OpenRouterProvider):
                 api_key = ""
         return base_url, api_key
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """OpenAI 직접 스트리밍 (HTTP-Referer 헤더 없음)."""
         base_url, api_key = self._resolve_endpoint(loaded)
         if not api_key:
@@ -1012,14 +1147,19 @@ class OpenAIDirectProvider(OpenRouterProvider):
         import urllib.request
 
         if "raw_messages" in kwargs:
-            sys_msg = kwargs.get("system_prompt", "")
-            api_msgs = (
-                [{"role": "system", "content": sys_msg}] + kwargs["raw_messages"] if sys_msg else kwargs["raw_messages"]
+            sys_msg = cast(str, kwargs.get("system_prompt", ""))
+            raw_messages = cast(list[Message], kwargs["raw_messages"])
+            api_msgs: list[Message] = (
+                [cast(Message, {"role": "system", "content": sys_msg})] + raw_messages if sys_msg else raw_messages
             )
         else:
             api_msgs = [{"role": "user", "content": prompt}] if not isinstance(prompt, list) else prompt
 
-        model_name, temperature, _, _ = self._apply_dynamic_inference_config(loaded.profile, api_msgs, kwargs)
+        model_name, temperature, _, _ = self._apply_dynamic_inference_config(
+            loaded.profile,
+            cast(Prompt, api_msgs),
+            kwargs,
+        )
 
         data = {
             "model": model_name,
@@ -1043,34 +1183,35 @@ class OpenAIDirectProvider(OpenRouterProvider):
         )
         try:
             with safe_urlopen(req, timeout=300) as response:
-                pending_tool_calls: dict[int, dict[str, Any]] = {}
+                pending_tool_calls: dict[int, JsonMap] = {}
                 for line in response:
-                    line = line.decode("utf-8").strip()
-                    if not line or line == "data: [DONE]":
+                    line_text = line.decode("utf-8").strip()
+                    if not line_text or line_text == "data: [DONE]":
                         continue
-                    if line.startswith("data: "):
-                        line = line[6:]
+                    if line_text.startswith("data: "):
+                        line_text = line_text[6:]
                     try:
-                        chunk = json.loads(line)
-                        if "choices" in chunk and chunk["choices"]:
-                            delta = chunk["choices"][0].get("delta", {})
+                        chunk = _as_json_map(cast(object, json.loads(line_text)))
+                        choice = _first_choice(chunk)
+                        if choice:
+                            delta = cast(JsonMap, choice.get("delta", {}))
                             if "content" in delta and delta["content"]:
                                 yield delta["content"]
                             if "tool_calls" in delta:
-                                for tc in delta["tool_calls"]:
-                                    idx = tc.get("index", 0)
+                                for tc in _as_json_maps(cast(object, delta["tool_calls"])):
+                                    idx = cast(int, tc.get("index", 0))
                                     if idx not in pending_tool_calls:
                                         pending_tool_calls[idx] = {
                                             "id": tc.get("id", ""),
                                             "type": "function",
                                             "function": {"name": "", "arguments": ""},
                                         }
-                                    func = tc.get("function", {})
+                                    func = _as_json_map(cast(object, tc.get("function", {})))
                                     if func.get("name"):
                                         pending_tool_calls[idx]["function"]["name"] += func["name"]
                                     if func.get("arguments"):
                                         pending_tool_calls[idx]["function"]["arguments"] += func["arguments"]
-                            finish_reason = chunk["choices"][0].get("finish_reason")
+                            finish_reason = choice.get("finish_reason")
                             if finish_reason == "tool_calls" and pending_tool_calls:
                                 for idx in sorted(pending_tool_calls):
                                     tc = pending_tool_calls[idx]
@@ -1090,7 +1231,8 @@ class GeminiProvider(OpenAIDirectProvider):
     base_url: https://generativelanguage.googleapis.com/v1beta/openai
     """
 
-    def _resolve_endpoint(self, loaded):
+    @override
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         import os
 
         profile = loaded.profile
@@ -1115,7 +1257,8 @@ class ZaiProvider(OpenAIDirectProvider):
     base_url: https://open.bigmodel.cn/api/paas/v4
     """
 
-    def _resolve_endpoint(self, loaded):
+    @override
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         import os
 
         profile = loaded.profile
@@ -1134,10 +1277,11 @@ class ZaiProvider(OpenAIDirectProvider):
 
 
 class LMStudioProvider(OpenRouterProvider):
-    requires_api_key = False
-    includes_openrouter_attribution = False
+    requires_api_key: bool = False
+    includes_openrouter_attribution: bool = False
 
-    def _resolve_endpoint(self, loaded):
+    @override
+    def _resolve_endpoint(self, loaded: LoadedModelArg) -> tuple[str, str]:
         import os
 
         from antigravity_k.config import config
@@ -1146,9 +1290,7 @@ class LMStudioProvider(OpenRouterProvider):
         base_url = getattr(profile, "api_base", "") or ""
         if not base_url:
             try:
-                from antigravity_k.engine.model_registry import ModelRegistry
-
-                base_url = ModelRegistry().get_provider_config("lmstudio").get("base_url", "")
+                base_url = cast(str, _shared_model_registry().get_provider_config("lmstudio").get("base_url", ""))
             except (ImportError, OSError, RuntimeError, TypeError, ValueError):
                 base_url = ""
         if not base_url:
@@ -1166,7 +1308,8 @@ class LMStudioProvider(OpenRouterProvider):
 
 
 class MlxProvider(BaseInferenceProvider):
-    def generate(self, loaded, prompt, **kwargs) -> str:
+    @override
+    def generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> str:
         """Generate.
 
         Args:
@@ -1179,9 +1322,12 @@ class MlxProvider(BaseInferenceProvider):
 
         """
         try:
-            mlx_generate = import_module("mlx_lm").__dict__["generate"]
+            mlx_generate = cast(
+                Callable[..., str],
+                cast(object, import_module("mlx_lm").__dict__["generate"]),
+            )
 
-            max_tokens = kwargs.get("max_tokens", 1024)
+            max_tokens = cast(int, kwargs.get("max_tokens", 1024))
             return mlx_generate(
                 model=loaded.model,
                 tokenizer=loaded.tokenizer,
@@ -1191,7 +1337,8 @@ class MlxProvider(BaseInferenceProvider):
         except ImportError as exc:
             raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
-    def stream_generate(self, loaded, prompt, **kwargs):
+    @override
+    def stream_generate(self, loaded: LoadedModelArg, prompt: Prompt, **kwargs: DynamicValue) -> Iterator[str]:
         """Stream Generate.
 
         Args:
@@ -1201,9 +1348,12 @@ class MlxProvider(BaseInferenceProvider):
 
         """
         try:
-            mlx_stream_generate = import_module("mlx_lm").__dict__["stream_generate"]
+            mlx_stream_generate = cast(
+                Callable[..., Iterator[str]],
+                cast(object, import_module("mlx_lm").__dict__["stream_generate"]),
+            )
 
-            max_tokens = kwargs.get("max_tokens", 1024)
+            max_tokens = cast(int, kwargs.get("max_tokens", 1024))
             yield from mlx_stream_generate(
                 model=loaded.model,
                 tokenizer=loaded.tokenizer,
@@ -1214,7 +1364,7 @@ class MlxProvider(BaseInferenceProvider):
             raise RuntimeError("mlx-lm is required for direct MLX inference; install the mlx extra first") from exc
 
 
-def get_inference_provider(loaded) -> BaseInferenceProvider:
+def get_inference_provider(loaded: LoadedModelArg) -> BaseInferenceProvider:
     """loaded.profile.provider 기반으로 적절한 추론 프로바이더를 반환합니다.
 
     우선순위 (작업 2):
@@ -1250,10 +1400,38 @@ def get_inference_provider(loaded) -> BaseInferenceProvider:
         return GeminiProvider()
     if provider == "zai":
         return ZaiProvider()
-    if provider in {"lmstudio", "lm_studio"}:
+    if provider in {
+        "lmstudio",
+        "lm_studio",
+        "llama.cpp",
+        "llamacpp",
+        "openai-compatible-local",
+        "vllm",
+        "tgi",
+        "koboldcpp",
+        "text-generation-webui",
+    }:
         return LMStudioProvider()
+    if provider == "unsloth":
+        from pathlib import Path
+
+        local_repo = Path(getattr(profile, "repo", ""))
+        if (local_repo / "adapter_config.json").is_file() or (
+            (local_repo / "config.json").is_file()
+            and any(local_repo.glob(pattern) for pattern in ("*.safetensors", "*.bin", "*.pt", "*.pth"))
+        ):
+            transformers_module = import_module(".transformers_provider", package=__package__)
+            provider_class = cast(type[BaseInferenceProvider], transformers_module.__dict__["TransformersProvider"])
+            return provider_class()
+        unsloth_module = import_module(".unsloth_provider", package=__package__)
+        provider_class = cast(type[BaseInferenceProvider], unsloth_module.__dict__["UnslothProvider"])
+        return provider_class()
     if provider == "mlx":
         return MlxProvider()
+    if provider == "transformers":
+        transformers_module = import_module(".transformers_provider", package=__package__)
+        provider_class = cast(type[BaseInferenceProvider], transformers_module.__dict__["TransformersProvider"])
+        return provider_class()
 
     # 2. 레거시 휴리스틱 폴백 (provider 필드가 빈 경우)
     if profile.name.startswith("claude") and "anthropic/" not in (profile.repo or "").lower():
@@ -1272,7 +1450,11 @@ def get_inference_provider(loaded) -> BaseInferenceProvider:
     if engine == "nim":
         return NimProvider()
 
-    if config.model.force_api or platform.system() != "Darwin" or type(loaded.model).__name__ == "_OllamaModel":
+    if (
+        config.model.force_api
+        or platform.system() != "Darwin"
+        or type(cast(object, loaded.model)).__name__ == "_OllamaModel"
+    ):
         return OllamaProvider()
 
     return MlxProvider()

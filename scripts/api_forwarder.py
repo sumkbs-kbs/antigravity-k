@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Antigravity-K: OpenAI 호환 API 통합 포워더 (Unified Proxy)
+"""Ssak-Ai: OpenAI 호환 API 통합 포워더 (Unified Proxy)
 ===========================================================
 모든 로컬 추론 엔진(mlx-lm, Ollama, vLLM, LM Studio)을
 단일 엔드포인트 http://localhost:1234/v1 로 통합합니다.
@@ -18,11 +18,14 @@
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Protocol, TypeAlias, cast
 
 import httpx
 import uvicorn
@@ -30,17 +33,94 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+JsonScalar: TypeAlias = None | bool | int | float | str
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+JsonMap: TypeAlias = dict[str, JsonValue]
+
+
+class KanbanBoardProtocol(Protocol):
+    def get_board_state(self) -> JsonValue: ...
+
+    def create_task(self, description: str, assignee: str | None = None) -> str: ...
+
+    def move_task(self, task_id: str, status: str) -> object: ...
+
+
+class SearchResultProtocol(Protocol):
+    title: str
+    snippet: str
+    url: str
+    source: str
+
+
+class SearchResponseProtocol(Protocol):
+    query: str
+    engine: str
+    cached: bool
+    search_time_ms: float
+    total_results: int
+    results: Sequence[SearchResultProtocol]
+
+
+class WebSearchEngineProtocol(Protocol):
+    async def search(self, query: str) -> SearchResponseProtocol: ...
+
+    def format_for_llm(self, response: SearchResponseProtocol) -> str: ...
+
+
+class WikiEntryProtocol(Protocol):
+    id: int
+    title: str
+    content: str
+    category: str
+    tags: list[str]
+    source: str
+    source_url: str | None
+    created_at: str
+    updated_at: str
+    access_count: int
+
+
+class WikiHitProtocol(Protocol):
+    entry: WikiEntryProtocol
+    score: float
+
+
+class WikiProtocol(Protocol):
+    def search_for_llm(self, query: str, limit: int = 3) -> str: ...
+
+    def search(self, query: str, category: str | None = None, limit: int = 10) -> Sequence[WikiHitProtocol]: ...
+
+    def save_web_search(self, query: str, results: list[JsonMap]) -> object: ...
+
+    def add_entry(self, **kwargs: str | list[str]) -> int: ...
+
+    def get_entry(self, entry_id: int) -> WikiEntryProtocol | None: ...
+
+    def delete_entry(self, entry_id: int) -> bool: ...
+
+    def get_stats(self) -> JsonMap: ...
+
+    def import_obsidian_vault(self, vault_path: str) -> int: ...
+
+
 # ─── 프로젝트 모듈 임포트 ────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+KanbanBoardFactory: type[KanbanBoardProtocol] | None = None
+WikiFactory: type[WikiProtocol] | None = None
+WebSearchEngineFactory: type[WebSearchEngineProtocol] | None = None
 try:
-    from antigravity_k.agents.kanban import KanbanBoard
-    from antigravity_k.knowledge.wiki import LLMWiki
-    from antigravity_k.tools.web_search import WebSearchEngine
+    from antigravity_k.agents.kanban import KanbanBoard as imported_kanban_board
+    from antigravity_k.knowledge.wiki import LLMWiki as imported_wiki
+    from antigravity_k.tools.web_search import WebSearchEngine as imported_search_engine
 
-    HAS_TOOLS = True
+    has_tools = True
 except ImportError:
-    HAS_TOOLS = False
-    KanbanBoard = None
+    has_tools = False
+else:
+    KanbanBoardFactory = cast(type[KanbanBoardProtocol], imported_kanban_board)
+    WikiFactory = cast(type[WikiProtocol], imported_wiki)
+    WebSearchEngineFactory = cast(type[WebSearchEngineProtocol], imported_search_engine)
 
 # ─── 로깅 설정 ───────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -49,6 +129,14 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("api_forwarder")
+
+
+def _json_map(value: object) -> JsonMap:
+    if not isinstance(value, dict):
+        return {}
+    mapping = cast(dict[object, object], value)
+    return {str(key): cast(JsonValue, item) for key, item in mapping.items()}
+
 
 # ─── 백엔드 정의 ─────────────────────────────────────────────────────────────
 
@@ -104,21 +192,21 @@ MODEL_ROUTES: dict[str, str] = {
 }
 
 # 시스템 프롬프트 (Reasoning Traces)
-SYSTEM_PROMPT: str = ""
+_system_prompt: str = ""
 SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "system_prompt.md"
 
 
-def load_system_prompt():
+def load_system_prompt() -> None:
     """시스템 프롬프트 파일을 로드합니다."""
-    global SYSTEM_PROMPT
+    global _system_prompt
     if SYSTEM_PROMPT_PATH.exists():
-        SYSTEM_PROMPT = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
-        logger.info(f"시스템 프롬프트 로드 완료: {len(SYSTEM_PROMPT)}자")
+        _system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+        logger.info(f"시스템 프롬프트 로드 완료: {len(_system_prompt)}자")
     else:
         logger.warning(f"시스템 프롬프트 파일 없음: {SYSTEM_PROMPT_PATH}")
 
 
-def scan_finetuned_models():
+def scan_finetuned_models() -> None:
     """models/finetuned/ 디렉토리에서 파인튜닝 모델을 자동 감지합니다."""
     ft_dir = Path(__file__).resolve().parent.parent / "models" / "finetuned"
     if not ft_dir.exists():
@@ -126,8 +214,8 @@ def scan_finetuned_models():
 
     for meta_file in ft_dir.glob("*/agk_model_meta.json"):
         try:
-            meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            model_name = meta.get("name", meta_file.parent.name)
+            meta = _json_map(cast(object, json.loads(meta_file.read_text(encoding="utf-8"))))
+            model_name = str(meta.get("name", meta_file.parent.name))
             # 라우팅 규칙에 추가
             MODEL_ROUTES[f"finetuned/{model_name}"] = "mlx-lm"
             logger.info(f"파인튜닝 모델 등록: finetuned/{model_name}")
@@ -135,15 +223,87 @@ def scan_finetuned_models():
             logger.warning(f"파인튜닝 모델 로드 실패: {meta_file} — {e}")
 
 
-# ─── FastAPI 앱 ───────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="Antigravity-K API Forwarder",
+    title="Ssak-Ai API Forwarder",
     description="로컬 추론 엔진 통합 프록시",
     version="0.1.0",
 )
 
+
+_forwarder_auth_required = True
+_forwarder_pin_hash: str | None = None
+_FORWARDER_PUBLIC_PATHS = frozenset({"/", "/v1/health", "/docs", "/openapi.json"})
+
+
+def validate_forwarder_startup(host: str) -> None:
+    global _forwarder_auth_required, _forwarder_pin_hash
+    from antigravity_k.api.startup_security import validate_startup_security
+    from antigravity_k.engine.auth import hash_pin
+
+    environment = os.environ.get("AGK_ENV", "development")
+    pin_hash_file = Path(os.environ.get("AGK_SEC_PIN_HASH_FILE", "data/auth_hash"))
+    validate_startup_security(
+        host=host,
+        environment=environment,
+        access_pin=os.environ.get("AGK_SEC_ACCESS_PIN", ""),
+        pin_hash_file=pin_hash_file,
+    )
+    _forwarder_auth_required = environment.strip().lower() == "production" or host.strip().lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+    if _forwarder_auth_required:
+        try:
+            _forwarder_pin_hash = pin_hash_file.read_text(encoding="utf-8").strip() or None
+        except OSError:
+            _forwarder_pin_hash = None
+        if _forwarder_pin_hash is None:
+            access_pin = os.environ.get("AGK_SEC_ACCESS_PIN", "").strip()
+            if access_pin:
+                _forwarder_pin_hash = hash_pin(access_pin)
+                try:
+                    pin_hash_file.parent.mkdir(parents=True, exist_ok=True)
+                    pin_hash_file.write_text(_forwarder_pin_hash, encoding="utf-8")
+                    pin_hash_file.chmod(0o600)
+                except OSError:
+                    pass
+    else:
+        _forwarder_pin_hash = None
+
+
+def _forwarder_request_authenticated(request: Request) -> bool:
+    if not _forwarder_auth_required:
+        return True
+    pin = request.headers.get("X-Access-Pin") or request.cookies.get("ag_access_pin")
+    if not pin or not _forwarder_pin_hash:
+        return False
+    from antigravity_k.engine.auth import verify_pin
+
+    return verify_pin(pin, _forwarder_pin_hash)
+
+
+def _forwarder_pin_authenticated(pin: str | None) -> bool:
+    if not _forwarder_auth_required:
+        return True
+    if not pin or not _forwarder_pin_hash:
+        return False
+    from antigravity_k.engine.auth import verify_pin
+
+    return verify_pin(pin, _forwarder_pin_hash)
+
+
+@app.middleware("http")
+async def verify_forwarder_access(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in _FORWARDER_PUBLIC_PATHS:
+        return await call_next(request)
+    if not _forwarder_request_authenticated(request):
+        return JSONResponse(status_code=401, content={"ok": False, "detail": "Invalid or missing credentials"})
+    return await call_next(request)
+
+
 # HTTP 클라이언트 (커넥션 풀)
-http_client: Optional[httpx.AsyncClient] = None
+http_client: httpx.AsyncClient | None = None
 
 # 요청 카운터 (감사용)
 request_counter = 0
@@ -164,10 +324,10 @@ async def check_backend_health(backend: Backend) -> bool:
             timeout=3.0,
         )
         if resp.status_code == 200:
-            data = resp.json()
+            data = _json_map(cast(object, resp.json()))
             # 사용 가능한 모델 목록 업데이트
             if "data" in data:
-                backend.models = [m.get("id", "") for m in data["data"]]
+                backend.models = [cast(str, _json_map(m).get("id", "")) for m in cast(list[object], data["data"])]
             backend.healthy = True
         else:
             backend.healthy = False
@@ -181,14 +341,14 @@ async def check_backend_health(backend: Backend) -> bool:
 async def refresh_all_backends():
     """모든 백엔드의 상태를 갱신합니다."""
     tasks = [check_backend_health(b) for b in BACKENDS.values()]
-    await asyncio.gather(*tasks, return_exceptions=True)
+    _ = await asyncio.gather(*tasks, return_exceptions=True)
 
     healthy = [b.name for b in BACKENDS.values() if b.healthy]
     logger.info(f"활성 백엔드: {healthy if healthy else '없음'}")
 
 
 # ─── 라우팅 로직 ─────────────────────────────────────────────────────────────
-def resolve_backend(model: str) -> Optional[Backend]:
+def resolve_backend(model: str) -> Backend | None:
     """모델 이름에 따라 적절한 백엔드를 선택합니다."""
     # 1. 명시적 라우팅 규칙 확인
     for prefix, backend_name in MODEL_ROUTES.items():
@@ -230,13 +390,13 @@ def log_request(method: str, path: str, model: str, backend_name: str):
     # 로그 파일에 추가
     log_file = LOG_DIR / "api_requests.jsonl"
     with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        _ = f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
 
 # ─── API 엔드포인트 ──────────────────────────────────────────────────────────
 
 # Kanban 상태 및 WebSocket 관련 전역 변수
-kanban_board: Optional[KanbanBoard] = None
+kanban_board: KanbanBoardProtocol | None = None
 active_websockets: list[WebSocket] = []
 
 
@@ -255,7 +415,7 @@ async def kanban_broadcaster():
             # 상태 변경 시 모든 연결된 클라이언트에게 전송
             if current_state_str != last_state_str and active_websockets:
                 last_state_str = current_state_str
-                disconnected = []
+                disconnected: list[WebSocket] = []
                 for ws in active_websockets:
                     try:
                         await ws.send_json(board_state)
@@ -272,7 +432,6 @@ async def kanban_broadcaster():
         await asyncio.sleep(1.0)  # 1초마다 폴링 (SQLite WAL 모드이므로 부하 적음)
 
 
-@app.on_event("startup")
 async def startup():
     """앱 시작 시 HTTP 클라이언트 생성, 시스템 프롬프트 로드, 백엔드 체크."""
     global http_client, kanban_board
@@ -281,16 +440,15 @@ async def startup():
     scan_finetuned_models()
 
     # Kanban 보드 초기화 및 브로드캐스터 시작
-    if HAS_TOOLS and KanbanBoard:
-        kanban_board = KanbanBoard()
-        asyncio.create_task(kanban_broadcaster())
+    if has_tools and KanbanBoardFactory is not None:
+        kanban_board = KanbanBoardFactory()
+        _ = asyncio.create_task(kanban_broadcaster())
         logger.info("Kanban 보드 및 웹소켓 브로드캐스터 시작됨")
 
     await refresh_all_backends()
     logger.info("API Forwarder 시작됨 — http://localhost:1234/v1")
 
 
-@app.on_event("shutdown")
 async def shutdown():
     """앱 종료 시 HTTP 클라이언트 정리."""
     global http_client
@@ -303,8 +461,8 @@ async def list_models():
     """모든 활성 백엔드의 모델을 통합 반환합니다."""
     await refresh_all_backends()
 
-    all_models = []
-    seen = set()
+    all_models: list[JsonMap] = []
+    seen: set[str] = set()
 
     for backend in sorted(BACKENDS.values(), key=lambda b: b.priority):
         if backend.healthy:
@@ -325,14 +483,14 @@ async def list_models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     """Chat Completions 요청을 적절한 백엔드로 포워딩합니다."""
-    body = await request.json()
-    model = body.get("model", "")
-    stream = body.get("stream", False)
-    agent_mode = body.get("agent_mode", False)
+    body = _json_map(cast(object, await request.json()))
+    model = cast(str, body.get("model", ""))
+    stream = cast(bool, body.get("stream", False))
+    agent_mode = cast(bool, body.get("agent_mode", False))
 
     # ── Reasoning Traces: 시스템 프롬프트 자동 주입 ──────────────
-    if SYSTEM_PROMPT and "messages" in body:
-        messages = body["messages"]
+    if _system_prompt and "messages" in body:
+        messages = cast(list[JsonMap], body["messages"])
         has_system = any(m.get("role") == "system" for m in messages)
         if not has_system:
             # Agent Mode 여부에 따라 사용 가능한 도구 설명 주입
@@ -343,7 +501,7 @@ async def chat_completions(request: Request):
 - <tool_call>{"name": "wiki_search", "arguments": {"query": "검색어"}}</tool_call>
 필요하다면 위 형식에 맞춰 <tool_call> 태그를 출력하세요. 실행 결과는 <tool_response> 로 전달됩니다."""
             body["messages"] = [
-                {"role": "system", "content": SYSTEM_PROMPT + system_ext},
+                {"role": "system", "content": _system_prompt + system_ext},
                 *messages,
             ]
             logger.info("[Reasoning] 시스템 프롬프트 자동 주입 완료")
@@ -366,18 +524,19 @@ async def chat_completions(request: Request):
     logger.info(f"[#{request_counter}] {model} → {backend.name} ({target_url})")
 
     assert http_client is not None
+    client = http_client
 
     if stream:
         if agent_mode and agent_executor:
             # Agent Loop Stream (QueryEngine Pattern)
             return StreamingResponse(
-                agent_executor.run_agent_stream(http_client, target_url, body),
+                agent_executor.run_agent_stream(client, target_url, body),
                 media_type="text/event-stream",
             )
         else:
             # 일반 스트리밍 응답 포워딩
             async def stream_response():
-                async with http_client.stream(
+                async with client.stream(
                     "POST", target_url, json=body, headers={"Content-Type": "application/json"}
                 ) as resp:
                     async for chunk in resp.aiter_bytes():
@@ -410,8 +569,8 @@ async def chat_completions(request: Request):
 @app.post("/v1/embeddings")
 async def embeddings(request: Request):
     """임베딩 요청 포워딩."""
-    body = await request.json()
-    model = body.get("model", "")
+    body = _json_map(cast(object, await request.json()))
+    model = cast(str, body.get("model", ""))
 
     backend = resolve_backend(model)
     if not backend:
@@ -448,7 +607,7 @@ async def health_check():
 async def root():
     """루트 경로 — 사용법 안내."""
     return {
-        "service": "Antigravity-K API Forwarder",
+        "service": "Ssak-Ai API Forwarder",
         "version": "0.2.0",
         "endpoints": {
             "models": "/v1/models",
@@ -478,7 +637,7 @@ async def get_kanban_state():
 
 class TaskCreateRequest(BaseModel):
     description: str
-    assignee: Optional[str] = None
+    assignee: str | None = None
 
 
 @app.post("/api/kanban/tasks")
@@ -500,7 +659,7 @@ async def move_kanban_task(task_id: str, req: TaskMoveRequest):
     if not kanban_board:
         raise HTTPException(status_code=503, detail="KanbanBoard가 초기화되지 않았습니다.")
     try:
-        kanban_board.move_task(task_id, req.status)
+        _ = kanban_board.move_task(task_id, req.status)
         return {"id": task_id, "status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -509,6 +668,9 @@ async def move_kanban_task(task_id: str, req: TaskMoveRequest):
 @app.websocket("/ws/kanban")
 async def websocket_kanban(websocket: WebSocket):
     """Kanban 보드 실시간 업데이트를 위한 WebSocket 엔드포인트"""
+    if not _forwarder_pin_authenticated(websocket.headers.get("X-Access-Pin")):
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
     await websocket.accept()
     active_websockets.append(websocket)
     logger.info(f"Kanban 웹소켓 클라이언트 연결됨. 현재 접속: {len(active_websockets)}명")
@@ -520,7 +682,7 @@ async def websocket_kanban(websocket: WebSocket):
 
         # 클라이언트 연결 유지용 무한 루프
         while True:
-            await websocket.receive_text()
+            _ = await websocket.receive_text()
     except WebSocketDisconnect:
         logger.info("Kanban 웹소켓 클라이언트 연결 종료")
     finally:
@@ -530,18 +692,18 @@ async def websocket_kanban(websocket: WebSocket):
 
 # ─── 웹 검색 및 에이전트 도구 API ────────────────────────────────────────────────
 
-search_engine: Optional[WebSearchEngine] = None
-wiki: Optional[LLMWiki] = None
+search_engine: WebSearchEngineProtocol | None = None
+wiki: WikiProtocol | None = None
 
 
 class AgentExecutor:
     """Hermes Agent Reasoning Traces 형식의 도구 호출을 처리하는 실행기"""
 
-    def __init__(self, search_engine, wiki):
-        self.search_engine = search_engine
-        self.wiki = wiki
+    def __init__(self, search_engine: WebSearchEngineProtocol | None, wiki: WikiProtocol | None) -> None:
+        self.search_engine: WebSearchEngineProtocol | None = search_engine
+        self.wiki: WikiProtocol | None = wiki
 
-    async def execute_tool(self, tool_name: str, arguments: dict) -> str:
+    async def execute_tool(self, tool_name: str, arguments: JsonMap) -> str:
         logger.info(f"[AgentExecutor] 도구 실행: {tool_name}({arguments})")
         try:
             # 외부 MCP 서버 라우팅 훅
@@ -551,13 +713,13 @@ class AgentExecutor:
                 return f"MCP Error: 외부 MCP 서버 연동이 구성되지 않았습니다. (요청: {tool_name})"
 
             if tool_name == "web_search":
-                query = arguments.get("query", "")
+                query = str(arguments.get("query", ""))
                 if self.search_engine:
                     res = await self.search_engine.search(query)
                     return self.search_engine.format_for_llm(res)
                 return "Error: 웹 검색 엔진이 활성화되지 않았습니다."
             elif tool_name == "wiki_search":
-                query = arguments.get("query", "")
+                query = str(arguments.get("query", ""))
                 if self.wiki:
                     hits = self.wiki.search_for_llm(query, limit=3)
                     return hits if hits else "관련 문서가 없습니다."
@@ -567,7 +729,7 @@ class AgentExecutor:
         except Exception as e:
             return f"Error: 도구 실행 중 오류 발생 - {e}"
 
-    async def run_agent_stream(self, client: httpx.AsyncClient, target_url: str, body: dict):
+    async def run_agent_stream(self, client: httpx.AsyncClient, target_url: str, body: JsonMap) -> AsyncIterator[str]:
         """Tool execution loop 처리. 클라이언트에는 SSE 형식으로 스트리밍"""
         import re
 
@@ -590,9 +752,11 @@ class AgentExecutor:
                         if data_str == "[DONE]":
                             break
                         try:
-                            data = json.loads(data_str)
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
+                            data = _json_map(cast(object, json.loads(data_str)))
+                            choices = data.get("choices", [])
+                            first_choice = cast(JsonMap, choices[0]) if isinstance(choices, list) and choices else {}
+                            delta = _json_map(first_choice.get("delta", {}))
+                            content = str(delta.get("content", ""))
                             if content:
                                 full_content += content
                         except Exception:
@@ -605,14 +769,19 @@ class AgentExecutor:
             if not calls:
                 break
 
-            body["messages"].append({"role": "assistant", "content": full_content})
+            messages = body.get("messages")
+            if not isinstance(messages, list):
+                messages = []
+                body["messages"] = messages
+            typed_messages: list[JsonValue] = messages
+            typed_messages.append({"role": "assistant", "content": full_content})
 
-            tool_responses = []
+            tool_responses: list[str] = []
             for match in calls:
                 try:
-                    tool_data = json.loads(match.group(1))
-                    t_name = tool_data.get("name")
-                    t_args = tool_data.get("arguments", {})
+                    tool_data = _json_map(cast(object, json.loads(match.group(1))))
+                    t_name = str(tool_data.get("name", ""))
+                    t_args = _json_map(tool_data.get("arguments", {}))
 
                     logger.info(f"[{loop}] 도구 실행 감지: {t_name}")
 
@@ -632,23 +801,35 @@ class AgentExecutor:
                 except Exception as e:
                     tool_responses.append(f"<tool_response>\nError: {e}\n</tool_response>")
 
-            body["messages"].append({"role": "user", "content": "\n".join(tool_responses)})
+            typed_messages.append({"role": "user", "content": "\n".join(tool_responses)})
 
 
-agent_executor: Optional[AgentExecutor] = None
+agent_executor: AgentExecutor | None = None
 
 
-@app.on_event("startup")
 async def init_tools():
     """웹 검색 엔진, Wiki 및 AgentExecutor를 초기화합니다."""
     global search_engine, wiki, agent_executor
-    if HAS_TOOLS:
-        search_engine = WebSearchEngine()
-        wiki = LLMWiki()
+    if has_tools and WebSearchEngineFactory is not None and WikiFactory is not None:
+        search_engine = WebSearchEngineFactory()
+        wiki = WikiFactory()
         agent_executor = AgentExecutor(search_engine, wiki)
         logger.info("웹 검색 엔진 + LLM Wiki + AgentExecutor 초기화 완료")
     else:
         logger.warning("tools/knowledge 모듈 없음 — 검색/Wiki/Agent 비활성화")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    await startup()
+    await init_tools()
+    try:
+        yield
+    finally:
+        await shutdown()
+
+
+app.router.lifespan_context = lifespan
 
 
 class SearchRequest(BaseModel):
@@ -667,7 +848,7 @@ async def web_search(req: SearchRequest):
 
     # Wiki에 자동 저장
     if req.save_to_wiki and wiki and response.results:
-        wiki.save_web_search(
+        _ = wiki.save_web_search(
             req.query,
             [{"title": r.title, "snippet": r.snippet, "url": r.url} for r in response.results],
         )
@@ -712,7 +893,7 @@ async def wiki_add(req: WikiAddRequest):
 
 
 @app.get("/api/wiki/search")
-async def wiki_search(q: str, category: Optional[str] = None, limit: int = 10):
+async def wiki_search(q: str, category: str | None = None, limit: int = 10):
     """위키를 검색합니다."""
     if not wiki:
         raise HTTPException(status_code=503, detail="Wiki 미초기화")
@@ -800,10 +981,10 @@ def main():
     """CLI에서 직접 실행."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Antigravity-K API Forwarder")
-    parser.add_argument("--host", default="127.0.0.1", help="바인딩 호스트")
-    parser.add_argument("--port", type=int, default=1234, help="포트 (기본: 1234)")
-    parser.add_argument(
+    parser = argparse.ArgumentParser(description="Ssak-Ai API Forwarder")
+    _ = parser.add_argument("--host", default="127.0.0.1", help="바인딩 호스트")
+    _ = parser.add_argument("--port", type=int, default=1234, help="포트 (기본: 1234)")
+    _ = parser.add_argument(
         "--default-backend",
         choices=list(BACKENDS.keys()),
         default=None,
@@ -812,17 +993,21 @@ def main():
     args = parser.parse_args()
 
     # 기본 백엔드 우선순위 조정
-    if args.default_backend and args.default_backend in BACKENDS:
-        BACKENDS[args.default_backend].priority = 0
-        logger.info(f"기본 백엔드: {args.default_backend}")
+    default_backend = cast(str | None, args.default_backend)
+    host = cast(str, args.host)
+    port = cast(int, args.port)
+    validate_forwarder_startup(host)
+    if default_backend and default_backend in BACKENDS:
+        BACKENDS[default_backend].priority = 0
+        logger.info(f"기본 백엔드: {default_backend}")
 
-    logger.info(f"API Forwarder 시작: http://{args.host}:{args.port}/v1")
+    logger.info(f"API Forwarder 시작: http://{host}:{port}/v1")
     logger.info("Swagger UI: http://{args.host}:{args.port}/docs")
 
-    uvicorn.run(
+    _ = uvicorn.run(
         app,
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         log_level="info",
     )
 

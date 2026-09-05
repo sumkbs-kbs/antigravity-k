@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib
 import json
 import os
 import random
@@ -10,79 +11,214 @@ import re
 import string
 import sys
 import time
+from collections.abc import Callable
 from functools import reduce
+from typing import ClassVar, Protocol, TypeVar, cast, final
 
+_PassengerT = TypeVar("_PassengerT")
+JsonPrimitive = str | int | float | bool | None
+JsonValue = JsonPrimitive | dict[str, "JsonValue"] | list["JsonValue"]
+
+
+class _CipherProtocol(Protocol):
+    def encrypt(self, data: bytes) -> bytes: ...
+
+
+class _AESProtocol(Protocol):
+    MODE_CBC: int
+
+    def new(self, key: bytes, mode: int, *, iv: bytes) -> _CipherProtocol: ...
+
+
+class _KorailModuleProtocol(Protocol):
+    EMAIL_REGEX: re.Pattern[str]
+    PHONE_NUMBER_REGEX: re.Pattern[str]
+    KORAIL_LOGIN: str
+    KORAIL_SEARCH_SCHEDULE: str
+    KORAIL_TICKETRESERVATION: str
+    KORAIL_MYRESERVATIONLIST: str
+    KORAIL_CANCEL: str
+    Train: type["_TrainProtocol"]
+    Reservation: type["_ReservationProtocol"]
+
+
+def _parse_json_object(text: str) -> dict[str, JsonValue]:
+    value: object = cast(object, json.loads(text))
+    if not isinstance(value, dict):
+        raise ValueError("Korail response must be a JSON object")
+    return cast(dict[str, JsonValue], value)
+
+
+def _json_object(value: JsonValue, field: str) -> dict[str, JsonValue]:
+    if not isinstance(value, dict):
+        raise ValueError(f"Korail response field {field!r} must be an object")
+    return value
+
+
+def _json_string(data: dict[str, JsonValue], field: str) -> str:
+    value = data.get(field)
+    if not isinstance(value, str):
+        raise ValueError(f"Korail response field {field!r} must be a string")
+    return value
+
+
+def _json_object_for_constructor(value: JsonValue, field: str) -> dict[str, object]:
+    return dict(_json_object(value, field))
+
+
+def _json_list(value: JsonValue, field: str) -> list[JsonValue]:
+    if not isinstance(value, list):
+        raise ValueError(f"Korail response field {field!r} must be a list")
+    return value
+
+
+class _PassengerProtocol(Protocol):
+    def __init__(self, count: int = 1) -> None: ...
+
+    count: int
+
+    @staticmethod
+    def reduce(passengers: list[_PassengerT]) -> list[_PassengerT]: ...
+
+    def get_dict(self, index: int) -> dict[str, str]: ...
+
+
+class _KorailBase:
+    def __init__(
+        self,
+        korail_id: str,
+        korail_pw: str,
+        auto_login: bool = True,
+        want_feedback: bool = False,
+    ) -> None:
+        del korail_id, korail_pw, auto_login, want_feedback
+
+
+class _ReserveOptionValues(Protocol):
+    GENERAL_FIRST: ClassVar[str]
+    GENERAL_ONLY: ClassVar[str]
+    SPECIAL_FIRST: ClassVar[str]
+    SPECIAL_ONLY: ClassVar[str]
+
+
+class _TrainTypeValues(Protocol):
+    KTX: ClassVar[str]
+    ITX_SAEMAEUL: ClassVar[str]
+    MUGUNGHWA: ClassVar[str]
+    NURIRO: ClassVar[str]
+    TONGGUEN: ClassVar[str]
+    ITX_CHEONGCHUN: ClassVar[str]
+    AIRPORT: ClassVar[str]
+    ALL: ClassVar[str]
+
+
+class _KorailPackageProtocol(Protocol):
+    AdultPassenger: type[_PassengerProtocol]
+    ChildPassenger: type[_PassengerProtocol]
+    Korail: type[_KorailBase]
+    KorailError: type[Exception]
+    NeedToLoginError: type[Exception]
+    NoResultsError: type[Exception]
+    Passenger: type[_PassengerProtocol]
+    ReserveOption: type[_ReserveOptionValues]
+    SeniorPassenger: type[_PassengerProtocol]
+    SoldOutError: type[Exception]
+    ToddlerPassenger: type[_PassengerProtocol]
+    TrainType: type[_TrainTypeValues]
+
+
+_aes: _AESProtocol | None = None
+_pad: Callable[[bytes, int], bytes] | None = None
+_crypto_import_error: ModuleNotFoundError | None = None
 try:
-    from Crypto.Cipher import AES
-    from Crypto.Util.Padding import pad
+    _crypto_cipher = importlib.import_module("Crypto.Cipher.AES")
+    _crypto_padding = importlib.import_module("Crypto.Util.Padding")
+    _aes = cast(_AESProtocol, cast(object, _crypto_cipher))
+    _pad = cast(Callable[[bytes, int], bytes], _crypto_padding.pad)
 except ModuleNotFoundError as exc:
-    AES = None
-    pad = None
-    _CRYPTO_IMPORT_ERROR = exc
-else:
-    _CRYPTO_IMPORT_ERROR = None
+    _crypto_import_error = exc
+AES: _AESProtocol | None = _aes
+pad: Callable[[bytes, int], bytes] | None = _pad
+_CRYPTO_IMPORT_ERROR = _crypto_import_error
 
+korail_mod: _KorailModuleProtocol
+AdultPassenger: type[_PassengerProtocol]
+ChildPassenger: type[_PassengerProtocol]
+Korail: type[_KorailBase]
+KorailError: type[Exception]
+NeedToLoginError: type[Exception]
+NoResultsError: type[Exception]
+Passenger: type[_PassengerProtocol]
+ReserveOption: type[_ReserveOptionValues]
+SeniorPassenger: type[_PassengerProtocol]
+SoldOutError: type[Exception]
+ToddlerPassenger: type[_PassengerProtocol]
+TrainType: type[_TrainTypeValues]
+_korail_import_error: ModuleNotFoundError | None = None
 try:
-    import korail2.korail2 as korail_mod
-    from korail2 import (
-        AdultPassenger,
-        ChildPassenger,
-        Korail,
-        KorailError,
-        NeedToLoginError,
-        NoResultsError,
-        Passenger,
-        ReserveOption,
-        SeniorPassenger,
-        SoldOutError,
-        ToddlerPassenger,
-        TrainType,
-    )
+    korail_mod = cast(_KorailModuleProtocol, cast(object, importlib.import_module("korail2.korail2")))
+    _korail = cast(_KorailPackageProtocol, cast(object, importlib.import_module("korail2")))
+    AdultPassenger = cast(type[_PassengerProtocol], cast(object, _korail.AdultPassenger))
+    ChildPassenger = cast(type[_PassengerProtocol], cast(object, _korail.ChildPassenger))
+    Korail = cast(type[_KorailBase], cast(object, _korail.Korail))
+    KorailError = cast(type[Exception], cast(object, _korail.KorailError))
+    NeedToLoginError = cast(type[Exception], cast(object, _korail.NeedToLoginError))
+    NoResultsError = cast(type[Exception], cast(object, _korail.NoResultsError))
+    Passenger = cast(type[_PassengerProtocol], cast(object, _korail.Passenger))
+    ReserveOption = cast(type[_ReserveOptionValues], cast(object, _korail.ReserveOption))
+    SeniorPassenger = cast(type[_PassengerProtocol], cast(object, _korail.SeniorPassenger))
+    SoldOutError = cast(type[Exception], cast(object, _korail.SoldOutError))
+    ToddlerPassenger = cast(type[_PassengerProtocol], cast(object, _korail.ToddlerPassenger))
+    TrainType = cast(type[_TrainTypeValues], cast(object, _korail.TrainType))
 except ModuleNotFoundError as exc:
-    _KORAIL_IMPORT_ERROR = exc
+    _korail_import_error = exc
 
-    class KorailError(Exception):
+    class _FallbackKorailError(Exception):
         pass
 
-    class NeedToLoginError(KorailError):
+    class _FallbackNeedToLoginError(_FallbackKorailError):
         pass
 
-    class NoResultsError(KorailError):
+    class _FallbackNoResultsError(_FallbackKorailError):
         pass
 
-    class SoldOutError(KorailError):
+    class _FallbackSoldOutError(_FallbackKorailError):
         pass
 
-    class Passenger:
-        def __init__(self, count: int = 1):
-            self.count = count
+    class _FallbackPassenger(_KorailBase):
+        def __init__(self, count: int = 1) -> None:
+            super().__init__("", "")
+            self.count: int = count
 
         @staticmethod
-        def reduce(passengers):
+        def reduce(passengers: list[_PassengerT]) -> list[_PassengerT]:
             return passengers
 
-        def get_dict(self, _: int) -> dict[str, str]:
+        def get_dict(self, index: int) -> dict[str, str]:
+            del index
             return {}
 
-    class AdultPassenger(Passenger):
+    class _FallbackAdultPassenger(_FallbackPassenger):
         pass
 
-    class ChildPassenger(Passenger):
+    class _FallbackChildPassenger(_FallbackPassenger):
         pass
 
-    class ToddlerPassenger(Passenger):
+    class _FallbackToddlerPassenger(_FallbackPassenger):
         pass
 
-    class SeniorPassenger(Passenger):
+    class _FallbackSeniorPassenger(_FallbackPassenger):
         pass
 
-    class ReserveOption:
+    @final
+    class _FallbackReserveOption:
         GENERAL_FIRST = "GENERAL_FIRST"
         GENERAL_ONLY = "GENERAL_ONLY"
         SPECIAL_FIRST = "SPECIAL_FIRST"
         SPECIAL_ONLY = "SPECIAL_ONLY"
 
-    class TrainType:
+    @final
+    class _FallbackTrainType:
         # Fallback constants used only when korail2 is missing so module
         # import succeeds and ensure_runtime_dependencies() can surface
         # the install message. Values mirror upstream korail2.TrainType.
@@ -97,17 +233,37 @@ except ModuleNotFoundError as exc:
         AIRPORT = "105"
         ALL = "109"
 
-    class Korail:
-        def __init__(self, *args, **kwargs):
+    class _FallbackKorail(_KorailBase):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__("", "")
             raise ModuleNotFoundError("korail2")
 
+    @final
     class _FallbackKorailModule:
         EMAIL_REGEX = re.compile(r".+@.+")
         PHONE_NUMBER_REGEX = re.compile(r"^\d+$")
+        KORAIL_LOGIN = ""
+        KORAIL_SEARCH_SCHEDULE = ""
+        KORAIL_TICKETRESERVATION = ""
+        KORAIL_MYRESERVATIONLIST = ""
+        KORAIL_CANCEL = ""
+        Train = object
+        Reservation = object
 
-    korail_mod = _FallbackKorailModule()
-else:
-    _KORAIL_IMPORT_ERROR = None
+    KorailError = cast(type[Exception], _FallbackKorailError)
+    NeedToLoginError = cast(type[Exception], _FallbackNeedToLoginError)
+    NoResultsError = cast(type[Exception], _FallbackNoResultsError)
+    SoldOutError = cast(type[Exception], _FallbackSoldOutError)
+    Passenger = cast(type[_PassengerProtocol], _FallbackPassenger)
+    AdultPassenger = cast(type[_PassengerProtocol], _FallbackAdultPassenger)
+    ChildPassenger = cast(type[_PassengerProtocol], _FallbackChildPassenger)
+    ToddlerPassenger = cast(type[_PassengerProtocol], _FallbackToddlerPassenger)
+    SeniorPassenger = cast(type[_PassengerProtocol], _FallbackSeniorPassenger)
+    ReserveOption = cast(type[_ReserveOptionValues], _FallbackReserveOption)
+    TrainType = cast(type[_TrainTypeValues], _FallbackTrainType)
+    Korail = cast(type[_KorailBase], _FallbackKorail)
+    korail_mod = cast(_KorailModuleProtocol, cast(object, _FallbackKorailModule()))
+_KORAIL_IMPORT_ERROR = _korail_import_error
 
 DEFAULT_USER_AGENT = "Dalvik/2.1.0 (Linux; U; Android 13; SM-S928N Build/UP1A.231005.007)"
 DYNAPATH_PATHS = [
@@ -152,6 +308,83 @@ TRAIN_ID_FIELDS = (
 )
 
 
+class _TripArgs(Protocol):
+    dep: str
+    arr: str
+    date: str
+    time: str
+    adults: int
+    children: int
+    toddlers: int
+    seniors: int
+
+
+class _SearchArgs(_TripArgs, Protocol):
+    train_type: str
+    include_no_seats: bool
+    include_waiting_list: bool
+    limit: int
+
+
+class _ReserveArgs(_SearchArgs, Protocol):
+    train_id: str
+    seat_option: str
+    try_waiting: bool
+
+
+class _CancelArgs(Protocol):
+    reservation_id: str
+
+
+class _TrainProtocol(Protocol):
+    def __init__(self, info: dict[str, object]) -> None: ...
+
+    dep_name: str
+    arr_name: str
+    dep_date: str
+    dep_code: str
+    dep_time: str
+    arr_code: str
+    arr_date: str
+    arr_time: str
+    train_no: str
+    run_date: str
+    train_type: str
+    train_type_name: str
+    train_group: str
+
+    def has_seat(self) -> bool: ...
+
+    def has_general_seat(self) -> bool: ...
+
+    def has_special_seat(self) -> bool: ...
+
+    def has_waiting_list(self) -> bool: ...
+
+    def has_general_waiting_list(self) -> bool: ...
+
+
+class _ReservationProtocol(Protocol):
+    def __init__(self, info: dict[str, object]) -> None: ...
+
+    rsv_id: str
+    train_no: object
+    train_type_name: object
+    dep_name: object
+    dep_date: object
+    dep_time: object
+    arr_name: object
+    arr_date: object
+    arr_time: object
+    seat_no_count: object
+    price: object
+    buy_limit_date: object
+    buy_limit_time: object
+    journey_no: str
+    journey_cnt: str
+    rsv_chg_no: str
+
+
 def ensure_runtime_dependencies() -> None:
     missing: list[str] = []
     if _KORAIL_IMPORT_ERROR is not None:
@@ -160,12 +393,11 @@ def ensure_runtime_dependencies() -> None:
         missing.append("pycryptodome")
     if missing:
         install_command = f"python3 -m pip install {' '.join(missing)}"
-        raise SystemExit(
-            "scripts/ktx_booking.py requires additional Python packages "
-            f"({', '.join(missing)}). Install them before running this helper: {install_command}"
-        )
+        error = f"scripts/ktx_booking.py requires additional Python packages ({', '.join(missing)}). Install them before running this helper: {install_command}"
+        raise SystemExit(error)
 
 
+@final
 class DynaPathMasterEngine:
     APP_ID = "com.korail.talk"
     AS_VALUE = "%5B38ff229cb34c7dda8e28220a2d750cce%5D"
@@ -276,6 +508,7 @@ class DynaPathMasterEngine:
         return f"bEeEP{self.table[len(key_encoded)]}{key_encoded}{body_encoded}"
 
 
+@final
 class PatchedKorail(Korail):
     _device = "AD"
     _version = "250601002"
@@ -291,16 +524,29 @@ class PatchedKorail(Korail):
     ):
         import requests
 
+        self.korail_id = korail_id
+        self.korail_pw = korail_pw
+        self._key = ""
+        self.membership_number = ""
+        self.name = ""
+        self.email = ""
+        self.logined = False
         self._session = requests.session()
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         self._engine = DynaPathMasterEngine()
         super().__init__(korail_id, korail_pw, auto_login=False, want_feedback=want_feedback)
         self._session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
         if auto_login:
-            self.login(korail_id, korail_pw)
+            _ = self.login(korail_id, korail_pw)
+
+    def _check_result(self, data: object) -> bool:
+        checker = cast(Callable[[object], object], cast(object, getattr(self, "_result_check")))
+        return bool(checker(data))
 
     def _generate_sid(self, timestamp_ms: int) -> str:
         ensure_runtime_dependencies()
+        if AES is None or pad is None:
+            raise RuntimeError("crypto dependencies are unavailable")
         plaintext = f"{self._device}{timestamp_ms}".encode("utf-8")
         cipher = AES.new(self._sid_key, AES.MODE_CBC, iv=self._sid_key)
         return base64.b64encode(cipher.encrypt(pad(plaintext, 16))).decode("utf-8") + "\n"
@@ -339,19 +585,19 @@ class PatchedKorail(Korail):
             "Version": self._version,
             "txtInputFlg": input_flag,
             "txtMemberNo": korail_id,
-            "txtPwd": self._Korail__enc_password(korail_pw),
-            "idx": self._idx,
+            "txtPwd": getattr(self, "_Korail__enc_password")(korail_pw),
+            "idx": getattr(self, "_idx", ""),
         }
         if sid:
             payload["Sid"] = sid
 
         response = self._session.post(korail_mod.KORAIL_LOGIN, data=payload, headers=headers)
-        data = json.loads(response.text)
+        data = _parse_json_object(response.text)
         if data["strResult"] == "SUCC" and data.get("strMbCrdNo") is not None:
-            self._key = data["Key"]
-            self.membership_number = data["strMbCrdNo"]
-            self.name = data["strCustNm"]
-            self.email = data["strEmailAdr"]
+            self._key = _json_string(data, "Key")
+            self.membership_number = _json_string(data, "strMbCrdNo")
+            self.name = _json_string(data, "strCustNm")
+            self.email = _json_string(data, "strEmailAdr")
             self.logined = True
             return True
 
@@ -365,11 +611,13 @@ class PatchedKorail(Korail):
         date: str | None = None,
         time_value: str | None = None,
         train_type: str = TrainType.ALL,
-        passengers: list[Passenger] | None = None,
+        passengers: list[_PassengerProtocol] | None = None,
         include_no_seats: bool = False,
         include_waiting_list: bool = False,
-    ):
-        kst_now = korail_mod.datetime.now(korail_mod.timezone.utc) + korail_mod.timedelta(hours=9)
+    ) -> list[_TrainProtocol]:
+        from datetime import datetime, timedelta, timezone
+
+        kst_now = datetime.now(timezone.utc) + timedelta(hours=9)
         if date is None:
             date = kst_now.strftime("%Y%m%d")
         if time_value is None:
@@ -377,7 +625,7 @@ class PatchedKorail(Korail):
         if passengers is None:
             passengers = [AdultPassenger()]
 
-        passengers = Passenger.reduce(passengers)
+        passengers = list(Passenger.reduce(passengers) or [])
         adult_count = reduce(
             lambda total, passenger: total + passenger.count,
             [p for p in passengers if isinstance(p, AdultPassenger)],
@@ -428,11 +676,16 @@ class PatchedKorail(Korail):
             payload["Sid"] = sid
 
         response = self._session.post(korail_mod.KORAIL_SEARCH_SCHEDULE, params=payload, headers=headers)
-        data = json.loads(response.text)
-        if self._result_check(data):
-            trains = [korail_mod.Train(info) for info in data["trn_infos"]["trn_info"]]
+        data = _parse_json_object(response.text)
+        if self._check_result(data):
+            train_info = _json_object(data.get("trn_infos"), "trn_infos").get("trn_info")
+            if not isinstance(train_info, list):
+                raise NoResultsError()
+            trains: list[_TrainProtocol] = [
+                korail_mod.Train(_json_object_for_constructor(info, "trn_info")) for info in train_info
+            ]
             trains = [train for train in trains if train.dep_name == dep and train.arr_name == arr]
-            filters = [lambda train: train.has_seat()]
+            filters: list[Callable[[_TrainProtocol], bool]] = [lambda train: train.has_seat()]
             if include_no_seats:
                 filters.append(lambda train: not train.has_seat())
             if include_waiting_list:
@@ -441,14 +694,15 @@ class PatchedKorail(Korail):
             if not trains:
                 raise NoResultsError()
             return trains
+        raise NoResultsError()
 
     def reserve(
         self,
-        train,
-        passengers=None,
-        option=ReserveOption.GENERAL_FIRST,
-        try_waiting=False,
-    ):
+        train: _TrainProtocol,
+        passengers: list[_PassengerProtocol] | None = None,
+        option: str = ReserveOption.GENERAL_FIRST,
+        try_waiting: bool = False,
+    ) -> _ReservationProtocol | None:
         reserving_seat = True
         try:
             if not train.has_seat():
@@ -530,30 +784,39 @@ class PatchedKorail(Korail):
             payload.update(passenger.get_dict(index))
 
         response = self._session.get(korail_mod.KORAIL_TICKETRESERVATION, params=payload, headers=headers)
-        data = json.loads(response.text)
-        if self._result_check(data):
-            reservation_id = data["h_pnr_no"]
+        data = _parse_json_object(response.text)
+        if self._check_result(data):
+            reservation_id = _json_string(data, "h_pnr_no")
             matches = [reservation for reservation in self.reservations() if reservation.rsv_id == reservation_id]
             if len(matches) == 1:
                 return matches[0]
             raise KorailError(f"reservation {reservation_id} was created but could not be reloaded")
 
-    def reservations(self):
+    def reservations(self) -> list[_ReservationProtocol]:
         payload = {"Device": self._device, "Version": self._version, "Key": self._key}
         response = self._session.get(korail_mod.KORAIL_MYRESERVATIONLIST, params=payload)
-        data = json.loads(response.text)
+        data = _parse_json_object(response.text)
         try:
-            if self._result_check(data):
+            if self._check_result(data):
+                journey_infos = _json_object(data.get("jrny_infos"), "jrny_infos").get("jrny_info")
+                if not isinstance(journey_infos, list):
+                    return []
                 return [
-                    korail_mod.Reservation(train_info)
-                    for journey in data["jrny_infos"]["jrny_info"]
-                    for train_info in journey["train_infos"]["train_info"]
+                    korail_mod.Reservation(_json_object_for_constructor(train_info, "train_info"))
+                    for journey in journey_infos
+                    for train_info in _json_list(
+                        _json_object(_json_object(journey, "journey").get("train_infos"), "train_infos").get(
+                            "train_info"
+                        ),
+                        "train_info",
+                    )
+                    if isinstance(train_info, dict)
                 ]
         except NoResultsError:
             return []
         return []
 
-    def cancel(self, reservation):
+    def cancel(self, reservation: _ReservationProtocol) -> bool:
         assert isinstance(reservation, korail_mod.Reservation)
         payload = {
             "Device": self._device,
@@ -565,14 +828,14 @@ class PatchedKorail(Korail):
             "hidRsvChgNo": reservation.rsv_chg_no,
         }
         response = self._session.get(korail_mod.KORAIL_CANCEL, params=payload)
-        data = json.loads(response.text)
-        if self._result_check(data):
+        data = _parse_json_object(response.text)
+        if self._check_result(data):
             return True
         return False
 
 
-def parse_passengers(args: argparse.Namespace) -> list[Passenger]:
-    passengers: list[Passenger] = []
+def parse_passengers(args: _TripArgs) -> list[_PassengerProtocol]:
+    passengers: list[_PassengerProtocol] = []
     if args.adults:
         passengers.append(AdultPassenger(args.adults))
     if args.children:
@@ -586,11 +849,11 @@ def parse_passengers(args: argparse.Namespace) -> list[Passenger]:
     return passengers
 
 
-def build_train_id_payload(train) -> dict[str, str]:
+def build_train_id_payload(train: _TrainProtocol) -> dict[str, str]:
     return {field: getattr(train, field) for field in TRAIN_ID_FIELDS}
 
 
-def build_train_id(train) -> str:
+def build_train_id(train: _TrainProtocol) -> str:
     payload = json.dumps(build_train_id_payload(train), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
     return f"{TRAIN_ID_PREFIX}{encoded}"
@@ -602,20 +865,19 @@ def parse_train_id(train_id: str) -> dict[str, str]:
     encoded = train_id.removeprefix(TRAIN_ID_PREFIX)
     padded = encoded + ("=" * ((4 - len(encoded) % 4) % 4))
     try:
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        payload = _parse_json_object(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
     except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise SystemExit(TRAIN_ID_INVALID_MESSAGE) from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(TRAIN_ID_INVALID_MESSAGE)
-    invalid_fields = [
-        field for field in TRAIN_ID_FIELDS if not isinstance(payload.get(field), str) or not payload[field]
-    ]
-    if invalid_fields:
-        raise SystemExit(TRAIN_ID_INVALID_MESSAGE)
-    return {field: payload[field] for field in TRAIN_ID_FIELDS}
+    result: dict[str, str] = {}
+    for field in TRAIN_ID_FIELDS:
+        value = payload.get(field)
+        if not isinstance(value, str) or not value:
+            raise SystemExit(TRAIN_ID_INVALID_MESSAGE)
+        result[field] = value
+    return result
 
 
-def find_train_by_id(trains, train_id: str):
+def find_train_by_id(trains: list[_TrainProtocol], train_id: str) -> _TrainProtocol | None:
     expected = parse_train_id(train_id)
     for train in trains:
         if build_train_id_payload(train) == expected:
@@ -623,7 +885,7 @@ def find_train_by_id(trains, train_id: str):
     return None
 
 
-def normalize_train(train, index: int) -> dict[str, object]:
+def normalize_train(train: _TrainProtocol, index: int) -> dict[str, object]:
     return {
         "index": index,
         "train_id": build_train_id(train),
@@ -642,7 +904,7 @@ def normalize_train(train, index: int) -> dict[str, object]:
     }
 
 
-def normalize_reservation(reservation) -> dict[str, object]:
+def normalize_reservation(reservation: _ReservationProtocol) -> dict[str, object]:
     return {
         "reservation_id": reservation.rsv_id,
         "train_no": reservation.train_no,
@@ -675,8 +937,8 @@ def build_client() -> PatchedKorail:
     if not korail_id or not korail_pw:
         raise SystemExit(
             "이 작업에는 KSKILL_KTX_ID, KSKILL_KTX_PASSWORD 환경변수가 필요합니다. "
-            "환경변수가 설정되어 있지 않으면 ~/.config/k-skill/secrets.env 에 추가하거나 "
-            "에이전트의 secret vault에서 주입해 주세요."
+            + "환경변수가 설정되어 있지 않으면 ~/.config/k-skill/secrets.env 에 추가하거나 "
+            + "에이전트의 secret vault에서 주입해 주세요."
         )
     client = PatchedKorail(korail_id, korail_pw)
     if not client.logined:
@@ -684,7 +946,7 @@ def build_client() -> PatchedKorail:
     return client
 
 
-def command_search(args: argparse.Namespace) -> None:
+def command_search(args: _SearchArgs) -> None:
     client = build_client()
     passengers = parse_passengers(args)
     trains = client.search_train(
@@ -706,7 +968,7 @@ def command_search(args: argparse.Namespace) -> None:
     )
 
 
-def command_reserve(args: argparse.Namespace) -> None:
+def command_reserve(args: _ReserveArgs) -> None:
     client = build_client()
     passengers = parse_passengers(args)
     include_waiting_list = args.include_waiting_list or args.try_waiting
@@ -729,6 +991,8 @@ def command_reserve(args: argparse.Namespace) -> None:
         option=RESERVE_OPTION_MAP[args.seat_option],
         try_waiting=args.try_waiting,
     )
+    if reservation is None:
+        raise KorailError("reservation request did not return a reservation")
     print_json({"reservation": normalize_reservation(reservation)})
 
 
@@ -743,7 +1007,7 @@ def command_reservations(_: argparse.Namespace) -> None:
     )
 
 
-def command_cancel(args: argparse.Namespace) -> None:
+def command_cancel(args: _CancelArgs) -> None:
     client = build_client()
     reservations = client.reservations()
     match = next(
@@ -752,19 +1016,19 @@ def command_cancel(args: argparse.Namespace) -> None:
     )
     if match is None:
         raise SystemExit(f"reservation {args.reservation_id} not found")
-    client.cancel(match)
+    _ = client.cancel(match)
     print_json({"cancelled": True, "reservation_id": args.reservation_id})
 
 
 def add_common_trip_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("dep", help="출발역")
-    parser.add_argument("arr", help="도착역")
-    parser.add_argument("date", help="출발일 YYYYMMDD")
-    parser.add_argument("time", help="희망 시작 시각 HHMMSS")
-    parser.add_argument("--adults", type=int, default=1, help="성인 수")
-    parser.add_argument("--children", type=int, default=0, help="어린이 수")
-    parser.add_argument("--toddlers", type=int, default=0, help="유아 수")
-    parser.add_argument("--seniors", type=int, default=0, help="경로 수")
+    _ = parser.add_argument("dep", help="출발역")
+    _ = parser.add_argument("arr", help="도착역")
+    _ = parser.add_argument("date", help="출발일 YYYYMMDD")
+    _ = parser.add_argument("time", help="희망 시작 시각 HHMMSS")
+    _ = parser.add_argument("--adults", type=int, default=1, help="성인 수")
+    _ = parser.add_argument("--children", type=int, default=0, help="어린이 수")
+    _ = parser.add_argument("--toddlers", type=int, default=0, help="유아 수")
+    _ = parser.add_argument("--seniors", type=int, default=0, help="경로 수")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -773,46 +1037,46 @@ def build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="KTX/Korail 열차를 조회합니다")
     add_common_trip_args(search_parser)
-    search_parser.add_argument("--limit", type=int, default=5, help="출력할 최대 열차 수")
-    search_parser.add_argument(
+    _ = search_parser.add_argument("--limit", type=int, default=5, help="출력할 최대 열차 수")
+    _ = search_parser.add_argument(
         "--train-type",
         choices=sorted(TRAIN_TYPE_MAP),
         default="ktx",
         help="조회할 열차 종류 (기본 ktx). ITX-청춘 노선은 itx-cheongchun, 무궁화는 mugunghwa, 전체는 all 사용",
     )
-    search_parser.add_argument("--include-no-seats", action="store_true", help="매진 열차도 포함")
-    search_parser.add_argument("--include-waiting-list", action="store_true", help="예약 대기 가능 열차도 포함")
-    search_parser.set_defaults(func=command_search)
+    _ = search_parser.add_argument("--include-no-seats", action="store_true", help="매진 열차도 포함")
+    _ = search_parser.add_argument("--include-waiting-list", action="store_true", help="예약 대기 가능 열차도 포함")
+    _ = search_parser.set_defaults(func=command_search)
 
     reserve_parser = subparsers.add_parser("reserve", help="조회 결과 중 하나를 예약합니다")
     add_common_trip_args(reserve_parser)
-    reserve_parser.add_argument("--train-id", required=True, help="search 결과에서 복사한 stable train_id")
-    reserve_parser.add_argument("--seat-option", choices=sorted(RESERVE_OPTION_MAP), default="general-first")
-    reserve_parser.add_argument(
+    _ = reserve_parser.add_argument("--train-id", required=True, help="search 결과에서 복사한 stable train_id")
+    _ = reserve_parser.add_argument("--seat-option", choices=sorted(RESERVE_OPTION_MAP), default="general-first")
+    _ = reserve_parser.add_argument(
         "--train-type",
         choices=sorted(TRAIN_TYPE_MAP),
         default="ktx",
         help="재조회할 열차 종류 — search 단계에서 사용한 값과 동일하게 지정 (기본 ktx)",
     )
-    reserve_parser.add_argument("--include-no-seats", action="store_true", help="검색 시 매진 열차도 포함")
-    reserve_parser.add_argument(
+    _ = reserve_parser.add_argument("--include-no-seats", action="store_true", help="검색 시 매진 열차도 포함")
+    _ = reserve_parser.add_argument(
         "--include-waiting-list",
         action="store_true",
         help="검색 시 예약대기 열차도 포함",
     )
-    reserve_parser.add_argument(
+    _ = reserve_parser.add_argument(
         "--try-waiting",
         action="store_true",
         help="좌석이 없으면 예약대기를 시도 (reserve 재조회 시 예약대기 열차 자동 포함)",
     )
-    reserve_parser.set_defaults(func=command_reserve)
+    _ = reserve_parser.set_defaults(func=command_reserve)
 
     reservations_parser = subparsers.add_parser("reservations", help="현재 예약 목록을 조회합니다")
-    reservations_parser.set_defaults(func=command_reservations)
+    _ = reservations_parser.set_defaults(func=command_reservations)
 
     cancel_parser = subparsers.add_parser("cancel", help="예약번호로 예약을 취소합니다")
-    cancel_parser.add_argument("reservation_id", help="취소할 예약번호")
-    cancel_parser.set_defaults(func=command_cancel)
+    _ = cancel_parser.add_argument("reservation_id", help="취소할 예약번호")
+    _ = cancel_parser.set_defaults(func=command_cancel)
 
     return parser
 
@@ -821,7 +1085,8 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
-        args.func(args)
+        func = cast(Callable[[argparse.Namespace], None], cast(object, getattr(args, "func")))
+        func(args)
     except (KorailError, NeedToLoginError, NoResultsError, SoldOutError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -649,7 +649,7 @@ describe('usePluginRegistry', () => {
   /* ─── rebuildLists Edge Cases ───────────────────────────── */
 
   it('rebuilds lists skipping disabled plugins', () => {
-    const panel = { path: '/p1', component: () => null as any, label: 'P1', icon: '1' };
+    const panel = { path: '/p1', component: () => null, label: 'P1', icon: '1' };
     const p1 = createTestPlugin('p1', { panels: [panel] });
     const p2 = createTestPlugin('p2', { panels: [panel] });
 
@@ -663,10 +663,10 @@ describe('usePluginRegistry', () => {
 
   it('handles plugins with undefined feature arrays', () => {
     const plugin = createTestPlugin('partial', {
-      panels: undefined as any,
-      commands: undefined as any,
-      hooks: undefined as any,
-      widgets: undefined as any,
+      panels: undefined,
+      commands: undefined,
+      hooks: undefined,
+      widgets: undefined,
     });
 
     // Should not throw when rebuilding lists
@@ -683,9 +683,9 @@ describe('usePluginRegistry', () => {
   it('handles null order in panel sorting', () => {
     const plugin = createTestPlugin('order-test', {
       panels: [
-        { path: '/z', component: () => null as any, label: 'Z', icon: 'Z', order: 100 },
-        { path: '/a', component: () => null as any, label: 'A', icon: 'A', order: null as any },
-        { path: '/m', component: () => null as any, label: 'M', icon: 'M', order: 50 },
+        { path: '/z', component: () => null, label: 'Z', icon: 'Z', order: 100 },
+        { path: '/a', component: () => null, label: 'A', icon: 'A', order: null },
+        { path: '/m', component: () => null, label: 'M', icon: 'M', order: 50 },
       ],
     });
 
@@ -701,7 +701,7 @@ describe('usePluginRegistry', () => {
     const plugin = createTestPlugin('hook-priority-null', {
       hooks: [
         { hook: 'app:init', handler, priority: 50 },
-        { hook: 'app:init', handler, priority: null as any },
+        { hook: 'app:init', handler, priority: null },
         { hook: 'app:init', handler, priority: 10 },
       ],
     });

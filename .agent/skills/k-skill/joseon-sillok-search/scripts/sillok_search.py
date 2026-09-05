@@ -10,14 +10,48 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from http.cookiejar import CookieJar
-from typing import Any, Iterable
+from typing import Protocol, cast
 
 try:
-    import requests
+    import requests as _requests
 except ImportError:  # pragma: no cover - optional runtime dependency
-    requests = None
+    requests: object | None = None
+else:
+    requests = _requests
+
+
+class _ResponseLike(Protocol):
+    def __enter__(self) -> "_ResponseLike": ...
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None: ...
+
+    def read(self) -> bytes: ...
+
+
+class _OpenerLike(Protocol):
+    def open(self, request: urllib.request.Request, timeout: int) -> _ResponseLike: ...
+
+
+class _RequestsResponse(Protocol):
+    text: str
+
+    def raise_for_status(self) -> None: ...
+
+
+class _RequestsExceptions(Protocol):
+    HTTPError: type[BaseException]
+    RequestException: type[BaseException]
+
+
+class _RequestsModule(Protocol):
+    exceptions: _RequestsExceptions
+
+    def get(self, url: str, **kwargs: object) -> _RequestsResponse: ...
+
+    def post(self, url: str, **kwargs: object) -> _RequestsResponse: ...
 
 
 BASE_URL = "https://sillok.history.go.kr"
@@ -55,8 +89,8 @@ CATEGORY_PATTERN = re.compile(
 )
 RESULT_PATTERN = re.compile(
     r"<div\s+class=\"result-box\">.*?"
-    r"<a\s+href=\"javascript:goView\('([^']+)',\s*\d+\);\"\s+class=\"subject\">(.*?)</a>\s*"
-    r"<p\s+class=\"text\">(.*?)</p>",
+    + r"<a\s+href=\"javascript:goView\('([^']+)',\s*\d+\);\"\s+class=\"subject\">(.*?)</a>\s*"
+    + r"<p\s+class=\"text\">(.*?)</p>",
     re.S,
 )
 TITLE_HEAD_PATTERN = re.compile(
@@ -149,7 +183,7 @@ KING_ALIASES = {
 }
 
 for canonical in KING_ACCESSION_YEARS:
-    KING_ALIASES.setdefault(canonical, canonical)
+    _ = KING_ALIASES.setdefault(canonical, canonical)
 
 
 @dataclass(frozen=True)
@@ -244,20 +278,20 @@ def build_opener() -> urllib.request.OpenerDirector:
     )
 
 
-def build_http_client() -> Any:
-    return build_opener()
+def build_http_client() -> _OpenerLike:
+    return cast(_OpenerLike, cast(object, build_opener()))
 
 
 def should_fallback_to_opener(error: Exception) -> bool:
     if requests is None:
         return False
 
-    exceptions = getattr(requests, "exceptions", None)
-    http_error = getattr(exceptions, "HTTPError", None)
+    exceptions = cast(object, getattr(requests, "exceptions", None))
+    http_error = cast(object, getattr(exceptions, "HTTPError", None))
     if isinstance(http_error, type) and isinstance(error, http_error):
         return False
 
-    request_exception = getattr(exceptions, "RequestException", None)
+    request_exception = cast(object, getattr(exceptions, "RequestException", None))
     if isinstance(request_exception, type) and isinstance(error, request_exception):
         return True
 
@@ -265,7 +299,7 @@ def should_fallback_to_opener(error: Exception) -> bool:
 
 
 def fetch_text(
-    opener: Any,
+    opener: _OpenerLike | None,
     url: str,
     *,
     data: dict[str, str] | None = None,
@@ -276,12 +310,14 @@ def fetch_text(
     if referer is not None:
         headers["Referer"] = referer
 
-    if requests is not None:
+    client = requests
+    if client is not None:
+        requests_client = cast(_RequestsModule, client)
         try:
             if data is not None:
-                response = requests.post(url, data=data, timeout=timeout, headers=headers)
+                response = requests_client.post(url, data=data, timeout=timeout, headers=headers)
             else:
-                response = requests.get(url, timeout=timeout, headers=headers)
+                response = requests_client.get(url, timeout=timeout, headers=headers)
             response.raise_for_status()
             return response.text
         except Exception as error:  # noqa: BLE001
@@ -291,12 +327,14 @@ def fetch_text(
     body = urllib.parse.urlencode(data).encode("utf-8") if data is not None else None
     request = urllib.request.Request(url, data=body, headers=headers, method="POST" if body else "GET")
 
+    if opener is None:
+        raise RuntimeError(f"Sillok request failed for {url}: no HTTP opener available")
     try:
         with opener.open(request, timeout=timeout) as response:
             return response.read().decode("utf-8", "ignore")
-    except urllib.error.HTTPError as error:  # type: ignore[attr-defined]
+    except urllib.error.HTTPError as error:
         raise RuntimeError(f"Sillok request failed with HTTP {error.code} for {url}") from error
-    except urllib.error.URLError as error:  # type: ignore[attr-defined]
+    except urllib.error.URLError as error:
         raise RuntimeError(f"Sillok request failed for {url}: {error.reason}") from error
 
 
@@ -343,7 +381,8 @@ def parse_search_results(html_text: str, *, query: str, search_type: str) -> Sea
         type_count = total_results
 
     categories: list[SearchCategory] = []
-    for token, label_html in CATEGORY_PATTERN.findall(html_text):
+    category_matches = cast(list[tuple[str, str]], CATEGORY_PATTERN.findall(html_text))
+    for token, label_html in category_matches:
         label = clean_text(label_html)
         match = re.match(r"(.+?)\s*\((\d+)\)", label)
         if not match:
@@ -351,7 +390,8 @@ def parse_search_results(html_text: str, *, query: str, search_type: str) -> Sea
         categories.append(SearchCategory(label=match.group(1), count=int(match.group(2)), token=token))
 
     items: list[SearchResult] = []
-    for article_id, subject_html, summary_html in RESULT_PATTERN.findall(html_text):
+    result_matches = cast(list[tuple[str, str, str]], RESULT_PATTERN.findall(html_text))
+    for article_id, subject_html, summary_html in result_matches:
         title = clean_text(subject_html)
         title = re.sub(r"^\d+\.\s*", "", title)
         metadata = parse_result_title_metadata(title)
@@ -432,7 +472,7 @@ def build_search_payload(*, query: str, search_type: str, page_index: int) -> di
 
 
 def fetch_search_page(
-    opener: urllib.request.OpenerDirector,
+    opener: _OpenerLike,
     *,
     query: str,
     search_type: str,
@@ -451,7 +491,7 @@ def fetch_search_page(
 
 
 def fetch_detail_page(
-    opener: urllib.request.OpenerDirector,
+    opener: _OpenerLike,
     *,
     article_id: str,
     timeout: int,
@@ -469,7 +509,7 @@ def search_sillok(
     limit: int = DEFAULT_LIMIT,
     search_type: str = "k",
     timeout: int = DEFAULT_TIMEOUT,
-) -> dict:
+) -> dict[str, object]:
     opener = build_http_client()
     reports: list[SearchReport] = []
     filtered_results: list[SearchResult] = []
@@ -503,7 +543,7 @@ def search_sillok(
     details = [fetch_detail_page(opener, article_id=item.article_id, timeout=timeout) for item in limited_results]
     detail_map = {detail.article_id: detail for detail in details}
 
-    serialized_items = []
+    serialized_items: list[dict[str, object]] = []
     for item in limited_results:
         detail = detail_map.get(item.article_id)
         serialized_items.append(
@@ -528,27 +568,27 @@ def search_sillok(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Search Joseon Sillok records from sillok.history.go.kr")
-    parser.add_argument(
+    _ = parser.add_argument(
         "--query",
         required=True,
         help="Search keyword to send to the Joseon Sillok site",
     )
-    parser.add_argument("--king", help="Optional king filter, e.g. 세종 or 세종실록")
-    parser.add_argument("--year", type=positive_int, help="Optional Gregorian year filter, e.g. 1443")
-    parser.add_argument(
+    _ = parser.add_argument("--king", help="Optional king filter, e.g. 세종 or 세종실록")
+    _ = parser.add_argument("--year", type=positive_int, help="Optional Gregorian year filter, e.g. 1443")
+    _ = parser.add_argument(
         "--limit",
         type=positive_int,
         default=DEFAULT_LIMIT,
         help="Number of results to return",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--type",
         dest="search_type",
         choices=["k", "w"],
         default="k",
         help="Search translated text (k) or original text (w)",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--timeout",
         type=positive_int,
         default=DEFAULT_TIMEOUT,
@@ -559,15 +599,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    query = cast(str, getattr(args, "query"))
+    king = cast(str | None, getattr(args, "king"))
+    year = cast(int | None, getattr(args, "year"))
+    limit = cast(int, getattr(args, "limit"))
+    search_type = cast(str, getattr(args, "search_type"))
+    timeout = cast(int, getattr(args, "timeout"))
 
     try:
         report = search_sillok(
-            args.query,
-            king=args.king,
-            year=args.year,
-            limit=args.limit,
-            search_type=args.search_type,
-            timeout=args.timeout,
+            query,
+            king=king,
+            year=year,
+            limit=limit,
+            search_type=search_type,
+            timeout=timeout,
         )
     except Exception as error:  # noqa: BLE001
         print(

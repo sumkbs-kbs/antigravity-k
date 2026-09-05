@@ -8,11 +8,21 @@ Changes descriptive/3rd person docstring starts to imperative mood.
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict, cast
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-def run_ruff():
+class RuffLocation(TypedDict):
+    row: int
+
+
+class RuffViolation(TypedDict):
+    filename: str
+    location: RuffLocation
+
+
+def run_ruff() -> list[RuffViolation]:
     """Get D401 violations."""
     cmd = ["ruff", "check", "--select=D401", "--output-format=json", "src/"]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT, timeout=30)
@@ -21,7 +31,10 @@ def run_ruff():
     import json
 
     try:
-        return json.loads(result.stdout)
+        payload = cast(object, json.loads(result.stdout))
+        if not isinstance(payload, list):
+            return []
+        return cast(list[RuffViolation], payload)
     except json.JSONDecodeError:
         print("Failed to parse ruff output", file=sys.stderr)
         return []
@@ -97,7 +110,7 @@ def main():
         return 0
 
     # Group by file
-    files = {}
+    files: dict[str, list[int]] = {}
     for v in violations:
         fname = v["filename"]
         lineno = v["location"]["row"]
@@ -109,7 +122,7 @@ def main():
         if not fpath.exists():
             continue
 
-        with open(fpath, "r", encoding="utf-8") as f:
+        with fpath.open("r", encoding="utf-8") as f:
             content = f.read()
 
         original = content
@@ -144,7 +157,7 @@ def main():
 
         new_content = "\n".join(code_lines)
         if new_content != original:
-            fpath.write_text(new_content, encoding="utf-8")
+            _ = fpath.write_text(new_content, encoding="utf-8")
             fixed_count += 1
             print(f"Fixed: {fname} ({len(lines)} violations)")
 

@@ -5,7 +5,8 @@ import argparse
 import json
 import pathlib
 import sys
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Protocol, TypeAlias, TypedDict, cast
 
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
@@ -22,14 +23,68 @@ MATCH_REASON_ORDER = {
 }
 
 
-def load_index(path: str | None = None) -> dict:
+class SlangEntry(TypedDict, total=False):
+    term: str
+    aliases: list[str]
+    still_usable: bool
+    mood_tags: list[str]
+    usage_context: list[str]
+    safety: str
+    intensity: str
+    era: str
+    meaning_short: str
+    example_usage: list[str]
+    namuwiki_url: str
+    match_reason: str
+
+
+class SearchFilters(TypedDict):
+    mood: list[str]
+    context: list[str]
+    safety: list[str]
+    intensity: list[str]
+    limit: int
+    include_deprecated: bool
+
+
+class SearchResult(TypedDict):
+    query: str | None
+    filters_applied: SearchFilters
+    matched_before_limit: int
+    total_candidates: int
+    candidates: list[SlangEntry]
+    source: str
+    last_reviewed: str
+
+
+class ParsedArgs(Protocol):
+    query: str | None
+    mood: str
+    context: str
+    safety: str
+    intensity: str
+    limit: int
+    include_deprecated: bool
+    index_path: str | None
+    format: str
+
+
+SlangIndex: TypeAlias = dict[str, object]
+
+
+def load_index(path: str | None = None) -> SlangIndex:
     target = pathlib.Path(path) if path else DEFAULT_INDEX_PATH
     if not target.exists():
         raise FileNotFoundError(f"slang index not found at: {target}")
     with target.open(encoding="utf-8") as fh:
-        data = json.load(fh)
-    if not isinstance(data, dict) or "entries" not in data:
+        raw_data = cast(object, json.load(fh))
+    if not isinstance(raw_data, dict) or "entries" not in raw_data:
         raise ValueError(f"invalid slang index (missing 'entries'): {target}")
+    data = cast(dict[str, object], raw_data)
+    entries = data["entries"]
+    entries_as_objects = cast(list[object], entries) if isinstance(entries, list) else []
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries_as_objects):
+        raise ValueError(f"invalid slang index (entries must be objects): {target}")
     return data
 
 
@@ -37,7 +92,7 @@ def _normalize(text: str) -> str:
     return " ".join(text.lower().split())
 
 
-def _collect_match(entry: dict, query_norm: str) -> str | None:
+def _collect_match(entry: SlangEntry, query_norm: str) -> str | None:
     term_norm = _normalize(entry.get("term", ""))
     if not query_norm:
         return "no-query"
@@ -55,7 +110,7 @@ def _collect_match(entry: dict, query_norm: str) -> str | None:
     return None
 
 
-def _ensure_list(value: Any) -> list[str]:
+def _ensure_list(value: object) -> list[str]:
     if value is None:
         return []
     if isinstance(value, str):
@@ -98,13 +153,13 @@ def search(
     intensity: str | list[str] | None = None,
     limit: int = DEFAULT_LIMIT,
     include_deprecated: bool = False,
-    index: dict | None = None,
+    index: SlangIndex | None = None,
     index_path: str | None = None,
-) -> dict:
+) -> SearchResult:
     if index is None:
         index = load_index(index_path)
 
-    entries: list[dict] = list(index.get("entries", []))
+    entries = cast(list[SlangEntry], index.get("entries", []))
 
     mood_list = _ensure_list(mood)
     context_list = _ensure_list(context)
@@ -114,7 +169,7 @@ def search(
     query_norm = _normalize(query) if query else ""
     clamped_limit = max(1, min(int(limit), MAX_LIMIT))
 
-    scored: list[tuple[int, int, str, dict]] = []
+    scored: list[tuple[int, int, str, SlangEntry]] = []
 
     for entry in entries:
         if not include_deprecated and not entry.get("still_usable", True):
@@ -140,7 +195,7 @@ def search(
                 order,
                 era_rank,
                 str(entry.get("term", "")),
-                {**entry, "match_reason": match_reason},
+                cast(SlangEntry, cast(object, {**entry, "match_reason": match_reason})),
             )
         )
 
@@ -149,7 +204,9 @@ def search(
     matched_before_limit = len(scored)
     candidates = [row[3] for row in scored[:clamped_limit]]
 
-    return {
+    source = index.get("source", "")
+    last_reviewed = index.get("last_reviewed", "")
+    result: SearchResult = {
         "query": query,
         "filters_applied": {
             "mood": mood_list,
@@ -162,12 +219,13 @@ def search(
         "matched_before_limit": matched_before_limit,
         "total_candidates": len(candidates),
         "candidates": candidates,
-        "source": index.get("source", ""),
-        "last_reviewed": index.get("last_reviewed", ""),
+        "source": source if isinstance(source, str) else "",
+        "last_reviewed": last_reviewed if isinstance(last_reviewed, str) else "",
     }
+    return result
 
 
-def _format_text(result: dict) -> str:
+def _format_text(result: SearchResult) -> str:
     if not result["candidates"]:
         return "No candidates found.\n"
     lines: list[str] = []
@@ -179,8 +237,12 @@ def _format_text(result: dict) -> str:
         mood = ", ".join(entry.get("mood_tags") or []) or "-"
         context = ", ".join(entry.get("usage_context") or []) or "-"
         lines.append(
-            f"{idx}. {entry['term']} ({entry.get('era', '?')}) "
-            f"[{entry.get('safety', '?')}, {entry.get('intensity', '?')}]"
+            "".join(
+                (
+                    f"{idx}. {entry.get('term', '')} ({entry.get('era', '?')}) ",
+                    f"[{entry.get('safety', '?')}, {entry.get('intensity', '?')}]",
+                )
+            )
         )
         lines.append(f"   mood: {mood}")
         lines.append(f"   context: {context}")
@@ -207,44 +269,44 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "Returns candidates the calling agent can use when writing text with slang."
         )
     )
-    parser.add_argument("--query", default=None, help="Keyword to match against term/aliases.")
-    parser.add_argument(
+    _ = parser.add_argument("--query", default=None, help="Keyword to match against term/aliases.")
+    _ = parser.add_argument(
         "--mood",
         default="",
         help="Comma-separated mood tags (긍정, 부정, 유머, 의지, ...).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--context",
         default="",
         help="Comma-separated context tags (SNS, 마케팅, 음식, 스포츠, ...).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--safety",
         default="",
         help="Comma-separated safety levels: safe, spicy, risky.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--intensity",
         default="",
         help="Comma-separated intensity levels: subtle, medium, strong.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--limit",
         type=int,
         default=DEFAULT_LIMIT,
         help=f"Max candidates to return (1..{MAX_LIMIT}).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--include-deprecated",
         action="store_true",
         help="Include entries marked still_usable=false.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--index-path",
         default=None,
         help="Override path to a slang index JSON (defaults to bundled seed).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--format",
         choices=["json", "text"],
         default="json",
@@ -254,7 +316,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv if argv is not None else sys.argv[1:])
+    args = cast(ParsedArgs, cast(object, parse_args(argv if argv is not None else sys.argv[1:])))
 
     try:
         result = search(
@@ -277,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.format == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
-        sys.stdout.write(_format_text(result))
+        _ = sys.stdout.write(_format_text(result))
     return 0
 
 

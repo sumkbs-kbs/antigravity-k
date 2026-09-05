@@ -3,13 +3,15 @@
 import json
 import logging
 import platform
-from typing import Any
+from typing import Final
 
 import psutil
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from ..engine.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
+_PROPOSAL_ADAPTER: Final[TypeAdapter[dict[str, JsonValue]]] = TypeAdapter(dict[str, JsonValue])
 
 
 class HardwareAnalystAgent:
@@ -19,25 +21,30 @@ class HardwareAnalystAgent:
     물리적 한계를 계산하여 사용자에게 정식 '하드웨어 업그레이드 기안서'를 작성합니다.
     """
 
-    def __init__(self, model_manager: ModelManager):
+    def __init__(self, model_manager: ModelManager) -> None:
         """Initialize the HardwareAnalystAgent.
 
         Args:
             model_manager (ModelManager): ModelManager model manager.
 
         """
-        self.model_manager = model_manager
+        self.model_manager: ModelManager = model_manager
 
-    def _get_system_specs(self) -> dict[str, Any]:
+    def _get_system_specs(self) -> dict[str, object]:
         """현재 시스템의 물리적 스펙을 수집합니다."""
-        specs = {
+        memory = psutil.virtual_memory()
+        total_bytes = getattr(memory, "total", 0)
+        available_bytes = getattr(memory, "available", 0)
+        total_ram_gb = round(total_bytes / (1024**3), 2) if isinstance(total_bytes, (int, float)) else 0.0
+        available_ram_gb = round(available_bytes / (1024**3), 2) if isinstance(available_bytes, (int, float)) else 0.0
+        specs: dict[str, object] = {
             "os": platform.system(),
             "os_release": platform.release(),
             "architecture": platform.machine(),
             "cpu_cores": psutil.cpu_count(logical=False),
             "logical_cores": psutil.cpu_count(logical=True),
-            "total_ram_gb": round(psutil.virtual_memory().total / (1024**3), 2),
-            "available_ram_gb": round(psutil.virtual_memory().available / (1024**3), 2),
+            "total_ram_gb": total_ram_gb,
+            "available_ram_gb": available_ram_gb,
         }
         return specs
 
@@ -51,7 +58,7 @@ class HardwareAnalystAgent:
 
         sys_specs = self._get_system_specs()
 
-        prompt = f"""You are the Hardware Analyst Agent of Antigravity-K.
+        prompt = f"""You are the Hardware Analyst Agent of Ssak-Ai.
 
 The ScoutAgent found a highly advanced AI model ('{target_model_name}') that requires
 {required_memory_gb}GB of memory to run efficiently.
@@ -82,7 +89,7 @@ Format as ONLY a JSON object:
             if response.startswith("[API Error"):
                 logger.error("HardwareAnalystAgent received API error: %s", response)
                 # Fallback proposal when API fails
-                data = {
+                data: dict[str, JsonValue] = {
                     "current_bottleneck": "시스템 인프라 또는 외부 API 연동 오류 발생",
                     "target_capabilities": "API 복구 및 안정적인 모델 구동",
                     "recommended_hardware": "API 서비스 점검 및 로컬 모델(llama4 등) 가용성 확인",
@@ -106,7 +113,7 @@ Format as ONLY a JSON object:
                         f"모델이 올바른 JSON 형식을 반환하지 않았습니다: {response[:100]}...",
                     )
 
-                data = json.loads(clean.strip())
+                data = _PROPOSAL_ADAPTER.validate_json(clean.strip())
 
             artifact_content = "# 인프라 업그레이드 기안서 (Hardware Evolution Proposal)\n\n"
             artifact_content += f"## 🖥 현재 신체 진단 (Current Bottleneck)\n{data.get('current_bottleneck')}\n\n"
@@ -122,10 +129,10 @@ Format as ONLY a JSON object:
             return (
                 f"HardwareAnalystAgent가 시스템의 한계를 분석하여 인프라 투자 기안서를"
                 f" 작성했습니다. 보고서 내용:\n\n{artifact_content}\n\n사용자님, 시스템의"
+                "지능을 더 확장하시려면 이 제안을 고려해 주십시오."
             )
-            "지능을 더 확장하시려면 이 제안을 고려해 주십시오."
 
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValidationError) as e:
             return f"HardwareAnalystAgent failed to parse JSON proposal: {e}\nRaw output: {response[:200]}"
         except Exception as e:
             logger.exception("Unhandled exception")

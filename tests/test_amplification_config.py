@@ -5,11 +5,13 @@ orch.config는 raw dict(로드된 config.yaml)이므로, 증폭 서브시스템�
 을 써서 항상 기본값으로 폴백하던 버그의 회귀 테스트를 포함한다.
 """
 
-from types import SimpleNamespace
+from collections.abc import Mapping
 from unittest.mock import MagicMock
 
+from antigravity_k.engine.chain_of_verification import ChainOfVerification
 from antigravity_k.engine.cognitive_loop import CognitiveLoop
 from antigravity_k.engine.engine_context import cognitive_config_from_raw
+from antigravity_k.engine.memory_contracts import JsonValue
 from antigravity_k.engine.orchestrator_handlers import (
     _amplification_section,
     _cov_settings,
@@ -29,12 +31,23 @@ LONG_AGENT_OUTPUT = (
 )
 
 
-def _orch_with_config(config: dict) -> SimpleNamespace:
-    """raw dict config를 가진 최소 orch stub."""
-    orch = SimpleNamespace()
-    orch.config = config
-    orch.manager = MagicMock()
-    return orch
+class _OrchestratorStub:
+    config: Mapping[str, JsonValue] | None
+    manager: MagicMock
+    _cov_engine: ChainOfVerification | None
+
+    def __init__(self, config: Mapping[str, JsonValue] | None) -> None:
+        self.config = config
+        self.manager = MagicMock()
+        self._cov_engine = None
+
+    @property
+    def cov_engine(self) -> ChainOfVerification | None:
+        return self._cov_engine
+
+
+def _orch_with_config(config: Mapping[str, JsonValue]) -> _OrchestratorStub:
+    return _OrchestratorStub(config)
 
 
 class TestCovSettingsReader:
@@ -63,7 +76,7 @@ class TestCovSettingsReader:
         assert model == "qwen3.6:latest"
 
     def test_handles_none_config(self):
-        orch = SimpleNamespace(config=None)
+        orch = _OrchestratorStub(None)
         enabled, model, *_ = _cov_settings(orch)
         assert enabled is True
         assert model == "qwen3.6:latest"
@@ -81,7 +94,7 @@ class TestCovSettingsReader:
                 },
             }
         )
-        enabled, model, min_len, threshold, max_iter = _cov_settings(orch)
+        enabled, _, min_len, threshold, max_iter = _cov_settings(orch)
         assert enabled is True
         assert min_len == 120
         assert threshold == 0.7
@@ -101,7 +114,7 @@ class TestCovHandlerToggle:
         ctx = StateContext(user_message=COMPLEX_TASK, agent_output=LONG_AGENT_OUTPUT)
         result = list(cov_verify_handler(ctx, orch))
         assert result == []
-        assert not hasattr(orch, "_cov_engine")
+        assert orch.cov_engine is None
 
     def test_handler_creates_engine_with_config_params(self):
         orch = _orch_with_config(
@@ -117,11 +130,11 @@ class TestCovHandlerToggle:
             }
         )
         ctx = StateContext(user_message=COMPLEX_TASK, agent_output=LONG_AGENT_OUTPUT)
-        list(cov_verify_handler(ctx, orch))
-        assert hasattr(orch, "_cov_engine")
-        assert orch._cov_engine.complexity_threshold == 0.5
-        assert orch._cov_engine.min_response_length == 60
-        assert orch._cov_engine.max_revise_iterations == 3
+        _ = list(cov_verify_handler(ctx, orch))
+        assert orch.cov_engine is not None
+        assert orch.cov_engine.complexity_threshold == 0.5
+        assert orch.cov_engine.min_response_length == 60
+        assert orch.cov_engine.max_revise_iterations == 3
 
 
 class TestSelfEvolutionPrecedence:
@@ -140,7 +153,10 @@ class TestSelfEvolutionPrecedence:
         # amplification.self_evolution.enabled가 null이면 기존 self_evolution.auto_modify 사용.
         orch = _orch_with_config({"self_evolution": {"auto_modify": True}})
         assert _amplification_section(orch, "self_evolution").get("enabled") is None
-        assert orch.config["self_evolution"]["auto_modify"] is True
+        assert orch.config is not None
+        self_evolution = orch.config.get("self_evolution")
+        assert isinstance(self_evolution, dict)
+        assert self_evolution["auto_modify"] is True
 
 
 class TestCognitiveLoopConfig:
@@ -149,23 +165,23 @@ class TestCognitiveLoopConfig:
     def test_defaults_when_no_params(self):
         # max_retries/dialectic_enabled 미지정 → 기본값(2, True)으로 폴백.
         loop = CognitiveLoop(project_root="/tmp")
-        assert loop._max_retries == 2
-        assert loop._dialectic_enabled is True
+        assert loop.max_retries == 2
+        assert loop.dialectic_enabled is True
 
     def test_max_retries_override(self):
         # qwen3.6 튜닝: 작은 모델은 retry를 늘려 추론 깊이 보완.
         loop = CognitiveLoop(project_root="/tmp", max_retries=5)
-        assert loop._max_retries == 5
+        assert loop.max_retries == 5
 
     def test_dialectic_disabled(self):
         loop = CognitiveLoop(project_root="/tmp", dialectic_enabled=False)
-        assert loop._dialectic_enabled is False
+        assert loop.dialectic_enabled is False
 
     def test_none_preserves_default(self):
         # None 명시 시 기본값 유지 (config 누락 경로).
         loop = CognitiveLoop(project_root="/tmp", max_retries=None, dialectic_enabled=None)
-        assert loop._max_retries == 2
-        assert loop._dialectic_enabled is True
+        assert loop.max_retries == 2
+        assert loop.dialectic_enabled is True
 
 
 class TestCognitiveConfigMapping:
@@ -196,16 +212,18 @@ class TestCognitiveConfigMapping:
         # max_retries/dialectic_enabled 누락 → None → CognitiveLoop 기본값.
         e, kw = cognitive_config_from_raw({"amplification": {"cognitive": {"enabled": True}}})
         assert e is True
+        assert "max_retries" in kw and "dialectic_enabled" in kw
         assert kw["max_retries"] is None
         assert kw["dialectic_enabled"] is None
 
     def test_missing_section_defaults_to_enabled(self):
-        e, kw = cognitive_config_from_raw({})
+        e, _ = cognitive_config_from_raw({})
         assert e is True
 
     def test_non_dict_config_safe(self):
         e, kw = cognitive_config_from_raw(None)
         assert e is True
+        assert "max_retries" in kw
         assert kw["max_retries"] is None
 
     def test_kwargs_build_valid_cognitive_loop(self):
@@ -216,5 +234,5 @@ class TestCognitiveConfigMapping:
             }
         )
         loop = CognitiveLoop(project_root="/tmp", **kw)
-        assert loop._max_retries == 4
-        assert loop._dialectic_enabled is True  # None → 기본값
+        assert loop.max_retries == 4
+        assert loop.dialectic_enabled is True

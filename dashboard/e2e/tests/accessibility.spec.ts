@@ -14,7 +14,7 @@
  * Moderate + minor violations are reported as warnings.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 const PAGES = [
@@ -33,13 +33,13 @@ const PAGES = [
 // ─── Helper: Run axe-core scan and collect violations ───────────
 
 interface A11yResult {
-  violations: { id: string; impact: string; description: string; help: string; tags: string[]; nodes: number; failingElements?: string[][] }[];
+  violations: { id: string; impact: string; description: string; help: string; tags: string[]; nodes: number; failingElements?: unknown[] }[];
   incomplete: { id: string; impact: string; description: string }[];
   inapplicable: { id: string }[];
   passes: number;
 }
 
-async function scanPage(page: any): Promise<A11yResult> {
+async function scanPage(page: Page): Promise<A11yResult> {
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'])
     .analyze();
@@ -96,7 +96,7 @@ for (const { path, name } of PAGES) {
         console.log(`  ${tag} [${v.impact}] ${v.id}: ${v.help} (${v.nodes} nodes)`);
         if (v.failingElements) {
           for (const targets of v.failingElements) {
-            console.log(`    → ${targets.join(', ')}`);
+            console.log(`    → ${JSON.stringify(targets)}`);
           }
         }
       }
@@ -151,13 +151,15 @@ test('[A11y] Sidebar — keyboard navigation', async ({ page }) => {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1000);
 
-  // Tab through sidebar items
-  const sidebarLinks = page.locator('.sidebar-nav .nav-item');
+  // Tab through sidebar items (Codex-style sidebar classes)
+  const sidebarLinks = page.locator('.codex-primary-menu .codex-menu-row');
   const linkCount = await sidebarLinks.count();
   expect(linkCount).toBeGreaterThan(0);
 
   // Verify focusable elements exist in sidebar
-  const focusableCount = await page.locator('.sidebar a, .sidebar button, .sidebar [tabindex="0"]').count();
+  const focusableCount = await page
+    .locator('.codex-desktop-sidebar a, .codex-desktop-sidebar button, .sidebar a, .sidebar button, .sidebar [tabindex="0"]')
+    .count();
   console.log(`[A11y] Sidebar focusable elements: ${focusableCount}`);
   expect(focusableCount).toBeGreaterThan(5);
 });

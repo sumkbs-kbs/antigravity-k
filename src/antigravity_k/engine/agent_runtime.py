@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Protocol, final
+
+from pydantic import TypeAdapter, ValidationError
 
 from antigravity_k.engine.direct_task_execution import (
     DirectTaskExecution,
@@ -12,6 +15,13 @@ from antigravity_k.engine.direct_task_execution import (
     TrackedStream,
 )
 from antigravity_k.engine.goal_runner import GoalReport, GoalRunner
+from antigravity_k.engine.persistent_agency import Objective, ProjectedContext
+from antigravity_k.engine.task_events import ExecutionEventRecord
+from antigravity_k.engine.task_steering import TaskSteeringResult
+
+logger = logging.getLogger(__name__)
+
+_TASK_IDS_ADAPTER = TypeAdapter(list[str])
 
 
 class OrchestratorPort(Protocol):
@@ -38,6 +48,7 @@ class TaskRunnerPort(Protocol):
         target_model: str = "",
         use_worktree: bool = False,
         idempotency_key: str | None = None,
+        owner_subject: str = "loopback",
     ) -> str: ...
 
     def resume_task(
@@ -45,15 +56,23 @@ class TaskRunnerPort(Protocol):
         task_id: str,
         orchestrator: OrchestratorPort | None = None,
         target_model: str = "",
+        owner_subject: str | None = None,
     ) -> bool: ...
 
-    def cancel_task(self, task_id: str) -> bool: ...
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool: ...
 
-    def get_status(self, task_id: str) -> dict[str, object] | None: ...
+    def steer_task(
+        self,
+        task_id: str,
+        instruction: str,
+        owner_subject: str | None = None,
+    ) -> TaskSteeringResult | None: ...
 
-    def list_tasks(self, limit: int = 20) -> list[dict[str, object]]: ...
+    def get_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None: ...
 
-    def get_output(self, task_id: str) -> str | None: ...
+    def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> list[dict[str, object]]: ...
+
+    def get_output(self, task_id: str, owner_subject: str | None = None) -> str | None: ...
 
     def wait_task(
         self,
@@ -169,43 +188,130 @@ class AgentRuntime:
         target_model: str = "",
         use_worktree: bool = False,
         idempotency_key: str | None = None,
+        owner_subject: str = "loopback",
     ) -> str:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for background task submission")
         execution_context = dict(context or {})
         execution_context["task_plan"] = self.plan_task(prompt, context=execution_context).to_dict()
-        return self.task_runner.submit_task(
+        task_id = self.task_runner.submit_task(
             prompt=prompt,
             context=execution_context,
             orchestrator=self.orchestrator,
             target_model=self.resolve_model(target_model),
             use_worktree=use_worktree,
             idempotency_key=idempotency_key,
+            owner_subject=owner_subject,
         )
+        self._record_agency_task_event(task_id, "submitted", prompt, execution_context)
+        return task_id
 
-    def resume_task(self, task_id: str, target_model: str = "") -> bool:
+    def resume_task(self, task_id: str, target_model: str = "", owner_subject: str | None = None) -> bool:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for background task resume")
-        return self.task_runner.resume_task(
+        resumed = self.task_runner.resume_task(
             task_id=task_id,
             orchestrator=self.orchestrator,
             target_model=self.resolve_model(target_model),
+            owner_subject=owner_subject,
         )
+        self._record_agency_task_event(task_id, "resumed" if resumed else "resume_failed")
+        return resumed
 
-    def get_task_status(self, task_id: str) -> dict[str, object] | None:
+    def get_task_status(self, task_id: str, owner_subject: str | None = None) -> dict[str, object] | None:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for task status")
-        return self.task_runner.get_status(task_id)
+        status = self.task_runner.get_status(task_id, owner_subject=owner_subject)
+        if status is not None:
+            self._reconcile_agency_task(task_id, status)
+        return status
 
-    def list_tasks(self, limit: int = 20) -> list[dict[str, object]]:
+    def submit_next_objective(self, project_id: str, target_model: str = "", use_worktree: bool = False) -> str | None:
+        controller = getattr(self.orchestrator, "persistent_agency", None)
+        claim = getattr(controller, "claim_next_objective", None)
+        binder = getattr(controller, "bind_objective_task", None)
+        if not callable(claim) or not callable(binder):
+            return None
+        objective = claim(project_id)
+        if not isinstance(objective, Objective):
+            return None
+        prompt = objective.title
+        if objective.description.strip():
+            prompt = f"{prompt}\n\n{objective.description}"
+        context: dict[str, object] = {
+            "trajectory_id": objective.trajectory_id,
+            "persistent_objective_id": objective.objective_id,
+        }
+        project_context = getattr(controller, "project_context", None)
+        if callable(project_context):
+            try:
+                projection = project_context(project_id, objective.trajectory_id, query=objective.title)
+                if isinstance(projection, ProjectedContext) and projection.text:
+                    prompt = f"Durable context:\n{projection.text}\n\nObjective:\n{prompt}"
+                    context["persistent_context_event_ids"] = list(projection.event_ids)
+            except Exception:
+                logger.exception("[AgentRuntime] persistent context projection failed")
+        try:
+            task_id = self.submit_task(prompt, context=context, target_model=target_model, use_worktree=use_worktree)
+            _ = binder(task_id, objective.objective_id, project_id, objective.trajectory_id)
+            return task_id
+        except Exception:
+            requeue = getattr(controller, "requeue_objective", None)
+            if callable(requeue):
+                _ = requeue(objective.objective_id)
+            raise
+
+    def reconcile_persistent_objectives(self, project_id: str) -> int:
+        if self.task_runner is None:
+            return 0
+        controller = getattr(self.orchestrator, "persistent_agency", None)
+        list_tasks = getattr(controller, "list_objective_tasks", None)
+        reconcile = getattr(controller, "reconcile_task_status", None)
+        if not callable(list_tasks) or not callable(reconcile):
+            return 0
+        changed = 0
+        try:
+            task_ids = _TASK_IDS_ADAPTER.validate_python(list_tasks(project_id))
+        except ValidationError:
+            return 0
+        for task_id in task_ids:
+            status = self.task_runner.get_status(task_id)
+            state = status.get("status") if status else None
+            if isinstance(state, str):
+                if state in {"done", "failed", "cancelled"}:
+                    self._record_agency_task_result(task_id, state, status or {})
+                if reconcile(task_id, state) is True:
+                    changed += 1
+        return changed
+
+    def list_tasks(self, limit: int = 20, owner_subject: str | None = None) -> list[dict[str, object]]:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for task listing")
-        return self.task_runner.list_tasks(limit=limit)
+        return self.task_runner.list_tasks(limit=limit, owner_subject=owner_subject)
 
-    def get_task_output(self, task_id: str) -> str | None:
+    def get_task_output(self, task_id: str, owner_subject: str | None = None) -> str | None:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for task output")
-        return self.task_runner.get_output(task_id)
+        return self.task_runner.get_output(task_id, owner_subject=owner_subject)
+
+    def list_task_events(
+        self,
+        task_id: str,
+        after_sequence: int = 0,
+        limit: int = 1_000,
+        owner_subject: str | None = None,
+    ) -> list[ExecutionEventRecord]:
+        from antigravity_k.engine.task_state_store import TaskStateStore
+
+        state_store = getattr(self.task_runner, "state_store", None)
+        if not isinstance(state_store, TaskStateStore):
+            raise RuntimeError("task state store is required for event replay")
+        return state_store.list_execution_events(
+            task_id,
+            after_sequence=after_sequence,
+            limit=limit,
+            owner_subject=owner_subject,
+        )
 
     def wait_task(
         self,
@@ -216,10 +322,68 @@ class AgentRuntime:
             raise RuntimeError("task runner is required for task wait")
         return self.task_runner.wait_task(task_id, timeout=timeout)
 
-    def cancel_task(self, task_id: str) -> bool:
+    def cancel_task(self, task_id: str, owner_subject: str | None = None) -> bool:
         if self.task_runner is None:
             raise RuntimeError("task runner is required for background task cancellation")
-        return self.task_runner.cancel_task(task_id)
+        cancelled = self.task_runner.cancel_task(task_id, owner_subject=owner_subject)
+        self._record_agency_task_event(task_id, "cancelled" if cancelled else "cancel_failed")
+        return cancelled
+
+    def steer_task(
+        self,
+        task_id: str,
+        instruction: str,
+        owner_subject: str | None = None,
+    ) -> TaskSteeringResult | None:
+        if self.task_runner is None:
+            raise RuntimeError("task runner is required for active-turn steering")
+        return self.task_runner.steer_task(task_id, instruction, owner_subject=owner_subject)
+
+    def _record_agency_task_event(
+        self,
+        task_id: str,
+        status: str,
+        prompt: str = "",
+        context: Mapping[str, object] | None = None,
+    ) -> None:
+        controller = getattr(self.orchestrator, "persistent_agency", None)
+        recorder = getattr(controller, "record_task_event", None)
+        project_id = getattr(controller, "project_id", None) or getattr(self.orchestrator, "project_root", None)
+        if not callable(recorder) or not isinstance(project_id, str) or not project_id.strip():
+            return
+        trajectory_id = context.get("trajectory_id", "main") if context else "main"
+        if not isinstance(trajectory_id, str) or not trajectory_id.strip():
+            trajectory_id = "main"
+        try:
+            _ = recorder(project_id, trajectory_id, task_id, status, prompt)
+        except Exception:
+            logger.exception("[AgentRuntime] persistent agency event record failed")
+
+    def _reconcile_agency_task(self, task_id: str, status: Mapping[str, object]) -> None:
+        controller = getattr(self.orchestrator, "persistent_agency", None)
+        reconcile = getattr(controller, "reconcile_task_status", None)
+        if not callable(reconcile):
+            return
+        state = status.get("status")
+        if isinstance(state, str):
+            try:
+                if state in {"done", "failed", "cancelled"}:
+                    self._record_agency_task_result(task_id, state, status)
+                _ = reconcile(task_id, state)
+            except Exception:
+                logger.exception("[AgentRuntime] persistent agency objective reconciliation failed")
+
+    def _record_agency_task_result(self, task_id: str, state: str, status: Mapping[str, object]) -> None:
+        controller = getattr(self.orchestrator, "persistent_agency", None)
+        recorder = getattr(controller, "record_task_result", None)
+        if not callable(recorder):
+            return
+        output = self.task_runner.get_output(task_id) if self.task_runner is not None and state == "done" else ""
+        error = status.get("error", "")
+        try:
+            _ = recorder(task_id, state, output if isinstance(output, str) else "", error if isinstance(error, str) else "")
+        except Exception:
+            logger.exception("[AgentRuntime] persistent agency task result recording failed")
 
 
 __all__ = ["AgentRuntime", "GoalRunnerPort", "OrchestratorPort", "TaskRunnerPort", "TrackedStream"]

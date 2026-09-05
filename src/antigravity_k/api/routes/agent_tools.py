@@ -1,44 +1,152 @@
 """Agent Tools module."""
 
+import asyncio
 import base64
+import hashlib
+import inspect
 import logging
 import os
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Protocol, cast
 
 from fastapi import APIRouter, Body, HTTPException, Request
-from playwright.async_api import Browser, BrowserContext, Error, Page, async_playwright
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from antigravity_k.api.browser_session_state import (
+    BrowserSessionLimitError,
+    BrowserSessionRegistry,
+    BrowserSessionState,
+)
 from antigravity_k.config import config
 from antigravity_k.engine.sandbox import SandboxRunner
-from antigravity_k.tools.egress_policy import validate_httpx_request_async
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
-from antigravity_k.tools.tool_contracts import ToolInvocation, ToolSpec
+from antigravity_k.tools.egress_policy import EgressPolicyError, validate_egress_url, validate_httpx_request_async
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission, ToolInvocation, ToolSpec
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class BrowserState:
-    """Tracks browser session state (active page, URL, cookies)."""
-
-    playwright: Any = None
-    browser: Browser | None = None
-    context: BrowserContext | None = None
-    page: Page | None = None
-    console_errors: list[Any] = []
-    console_logs: list[Any] = []
+browser_state = BrowserSessionState()
+browser_sessions = BrowserSessionRegistry(default_state=browser_state)
+_MAX_CONSOLE_ENTRIES = 500
+_BROWSER_SESSION_HEADER = "X-AGK-Browser-Session"
+_MAX_BROWSER_SESSION_ID_LENGTH = 128
 
 
-browser_state = BrowserState()
+class _AccessibilityLike(Protocol):
+    async def snapshot(self) -> object: ...
+
+
+class _PageLike(Protocol):
+    accessibility: _AccessibilityLike
+    url: str
+
+    def aria_snapshot(self) -> Awaitable[object]: ...
+
+    async def screenshot(self) -> bytes: ...
+
+    async def goto(self, url: str, *, wait_until: str) -> object: ...
+
+    async def click(self, selector: str) -> object: ...
+
+    async def fill(self, selector: str, text: str) -> object: ...
+
+    def on(self, event: str, handler: Callable[[object], object]) -> object: ...
+
+
+class _RouteLike(Protocol):
+    async def abort(self, *, error_code: str) -> object: ...
+
+    async def continue_(self) -> object: ...
+
+
+class _RequestLike(Protocol):
+    url: str
+
+
+def _as_text(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else {}
+
+
+def _append_console_entry(entries: list[dict[str, str]], entry: dict[str, str]) -> None:
+    entries.append(entry)
+    if len(entries) > _MAX_CONSOLE_ENTRIES:
+        del entries[:-_MAX_CONSOLE_ENTRIES]
+
+
+def _browser_session_id(request: Request | None) -> str:
+    if request is None:
+        return "default"
+    raw_session_id = request.headers.get(_BROWSER_SESSION_HEADER, "").strip()
+    if len(raw_session_id) > _MAX_BROWSER_SESSION_ID_LENGTH:
+        raise HTTPException(status_code=400, detail="Browser session identifier is too long")
+    auth_subject = getattr(request.state, "auth_subject", "anonymous")
+    if not isinstance(auth_subject, str) or not auth_subject:
+        auth_subject = "anonymous"
+    if not raw_session_id:
+        raw_session_id = "default"
+    session_key = f"{auth_subject}:{raw_session_id}"
+    return hashlib.sha256(session_key.encode("utf-8")).hexdigest()
+
+
+def _browser_state_for(request: Request | None) -> tuple[str, BrowserSessionState]:
+    session_id = _browser_session_id(request)
+    try:
+        return session_id, browser_sessions.get(session_id)
+    except BrowserSessionLimitError as exc:
+        raise HTTPException(status_code=429, detail="Too many active browser sessions") from exc
+
+
+def _browser_error_status(error: Exception) -> int:
+    message = str(error).lower()
+    if "executable doesn't exist" in message or "please run the following command" in message:
+        return 503
+    return 500
+
+
+async def _accessibility_tree(page: object) -> str | None:
+    page_obj = cast(_PageLike, page)
+    if hasattr(page_obj, "aria_snapshot"):
+        result = page_obj.aria_snapshot()
+        if not inspect.isawaitable(result):
+            return None
+        snapshot = await result
+        return snapshot if isinstance(snapshot, str) and snapshot else None
+
+    accessibility = getattr(page_obj, "accessibility", None)
+    if accessibility is None:
+        return None
+    snapshot_value = await cast(_AccessibilityLike, accessibility).snapshot()
+    snapshot = _as_mapping(snapshot_value)
+    return _flatten_a11y_tree(snapshot) if snapshot else None
+
+
+async def _guard_browser_route(route: object, request: object) -> None:
+    route_obj = cast(_RouteLike, route)
+    request_obj = cast(_RequestLike, request)
+    scheme = request_obj.url.split(":", 1)[0].lower()
+    if scheme not in {"http", "https"}:
+        _ = await route_obj.abort(error_code="blockedbyclient")
+        return
+    try:
+        _ = validate_egress_url(request_obj.url, allow_local=False)
+    except EgressPolicyError:
+        _ = await route_obj.abort(error_code="blockedbyclient")
+        return
+    _ = await route_obj.continue_()
 
 
 def _permission_gate() -> PermissionGate:
     return PermissionGate(project_root=str(config.paths.project_root), mode="auto-pilot")
 
 
-def _require_allowed(tool_name: str, args: dict[str, Any], risk_level: str):
+def _require_allowed(tool_name: str, args: dict[str, object], risk_level: str) -> None:
     decision = _permission_gate().decide(
         ToolInvocation(ToolSpec(name=tool_name, risk_level=risk_level, category="api"), args),
     )
@@ -53,7 +161,7 @@ def _resolve_project_cwd(cwd: str | None) -> str:
     project_root = Path(config.paths.project_root).resolve()
     candidate = (project_root if not cwd else Path(cwd).expanduser()).resolve()
     try:
-        candidate.relative_to(project_root)
+        _ = candidate.relative_to(project_root)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail="Working directory must remain inside the project root") from exc
     if not candidate.is_dir():
@@ -66,7 +174,7 @@ def _resolve_project_path(path: str) -> str:
     raw_path = Path(path).expanduser()
     candidate = (raw_path if raw_path.is_absolute() else project_root / raw_path).resolve()
     try:
-        candidate.relative_to(project_root)
+        _ = candidate.relative_to(project_root)
     except ValueError as exc:
         raise HTTPException(status_code=403, detail="File path must remain inside the project root") from exc
     return str(candidate)
@@ -127,7 +235,7 @@ def write_file(req: FileWriteRequest):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(req.content)
+            _ = f.write(req.content)
         return {"ok": True, "path": path}
     except OSError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -182,7 +290,7 @@ class BrowserActionRequest(BaseModel):
 
 
 @router.post("/api/agent/tools/browser/action")
-async def browser_action(req: BrowserActionRequest):
+async def browser_action(req: BrowserActionRequest, request: Request):
     """Playwright 기반 브라우저 자동화 엔진 API."""
     risk_level = "safe" if req.action in {"snapshot", "console_errors"} else "medium"
     if req.action == "goto":
@@ -192,47 +300,58 @@ async def browser_action(req: BrowserActionRequest):
         {"action": req.action, "url": req.url, "selector": req.selector},
         risk_level,
     )
+    session_id, state = _browser_state_for(request)
+    try:
+        from playwright.async_api import Error, async_playwright
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Browser automation is unavailable; install the dev dependency group to enable Playwright.",
+        ) from exc
     try:
         if req.action == "launch":
-            if not browser_state.playwright:
-                browser_state.playwright = await async_playwright().start()
-            assert browser_state.playwright is not None
-            if not browser_state.browser:
-                browser_state.browser = await browser_state.playwright.chromium.launch(
+            if not state.playwright:
+                state.playwright = await async_playwright().start()
+            assert state.playwright is not None
+            if not state.browser:
+                state.browser = await state.playwright.chromium.launch(
                     headless=True,
                 )
-                browser = browser_state.browser
+                browser = state.browser
                 assert browser is not None
-                browser_state.context = await browser.new_context(
+                state.context = await browser.new_context(
                     viewport={"width": 1280, "height": 800},
                 )
-                browser_state.page = await browser_state.context.new_page()
+                _ = await state.context.route("**/*", _guard_browser_route)
+                state.page = await state.context.new_page()
                 # Console error/log auto-collection
-                browser_state.console_errors = []
-                browser_state.console_logs = []
-                browser_state.page.on(
+                state.console_errors = []
+                state.console_logs = []
+                state.page.on(
                     "console",
                     lambda msg: (
-                        browser_state.console_errors.append({"type": msg.type, "text": msg.text})
+                        _append_console_entry(state.console_errors, {"type": msg.type, "text": msg.text})
                         if msg.type in ("error", "warning")
-                        else browser_state.console_logs.append({"type": msg.type, "text": msg.text})
+                        else _append_console_entry(state.console_logs, {"type": msg.type, "text": msg.text})
                     ),
                 )
             return {"ok": True, "message": "Browser launched with console capture"}
 
         elif req.action == "close":
-            if browser_state.browser:
-                await browser_state.browser.close()
-                browser_state.browser = None
-                browser_state.context = None
-                browser_state.page = None
-            if browser_state.playwright:
-                await browser_state.playwright.stop()
-                browser_state.playwright = None
+            if state.browser:
+                await state.browser.close()
+                state.browser = None
+                state.context = None
+                state.page = None
+            if state.playwright:
+                await state.playwright.stop()
+                state.playwright = None
+            if session_id != "default":
+                _ = browser_sessions.discard(session_id)
             return {"ok": True, "message": "Browser closed"}
 
         # For remaining actions, ensure page exists
-        if not browser_state.page:
+        if not state.page:
             raise HTTPException(
                 status_code=400,
                 detail="Browser is not launched. Call 'launch' first.",
@@ -241,13 +360,17 @@ async def browser_action(req: BrowserActionRequest):
         if req.action == "goto":
             if not req.url:
                 raise HTTPException(status_code=400, detail="URL is required for goto")
-            await browser_state.page.goto(req.url, wait_until="networkidle")
+            try:
+                _ = validate_egress_url(req.url, allow_local=False)
+            except EgressPolicyError as exc:
+                raise HTTPException(status_code=403, detail="Browser navigation target is not public.") from exc
+            _ = await state.page.goto(req.url, wait_until="networkidle")
             return {"ok": True, "url": req.url}
 
         elif req.action == "click":
             if not req.selector:
                 raise HTTPException(status_code=400, detail="Selector is required for click")
-            await browser_state.page.click(req.selector)
+            await state.page.click(req.selector)
             return {"ok": True, "selector": req.selector}
 
         elif req.action == "type":
@@ -256,37 +379,35 @@ async def browser_action(req: BrowserActionRequest):
                     status_code=400,
                     detail="Selector and text are required for type",
                 )
-            await browser_state.page.fill(req.selector, req.text)
+            await state.page.fill(req.selector, req.text)
             return {"ok": True, "selector": req.selector, "text": req.text}
 
         elif req.action == "snapshot":
             # Accessibility Tree + Screenshot + Console errors
-            screenshot_bytes = await browser_state.page.screenshot()
+            screenshot_bytes = await state.page.screenshot()
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
 
             # Accessibility Tree (compact text representation for LLM)
             a11y_tree = None
             try:
-                a11y_snapshot = await getattr(browser_state.page, "accessibility").snapshot()
-                a11y_tree = _flatten_a11y_tree(a11y_snapshot) if a11y_snapshot else None
-            except Exception:
-                logger.exception("Unhandled exception")
-                pass
+                a11y_tree = await _accessibility_tree(state.page)
+            except (Error, TimeoutError, TypeError) as exc:
+                logger.warning("Accessibility snapshot unavailable: %s", exc)
 
             return {
                 "ok": True,
                 "screenshot_base64": screenshot_b64,
                 "accessibility_tree": a11y_tree,
-                "console_errors": browser_state.console_errors[-20:],
-                "console_logs_count": len(browser_state.console_logs),
-                "url": browser_state.page.url,
+                "console_errors": state.console_errors[-20:],
+                "console_logs_count": len(state.console_logs),
+                "url": state.page.url,
             }
 
         elif req.action == "console_errors":
             return {
                 "ok": True,
-                "errors": browser_state.console_errors,
-                "total": len(browser_state.console_errors),
+                "errors": state.console_errors,
+                "total": len(state.console_errors),
             }
         else:
             raise HTTPException(status_code=400, detail=f"Unknown action: {req.action}")
@@ -294,11 +415,11 @@ async def browser_action(req: BrowserActionRequest):
     except HTTPException:
         raise
     except (Error, OSError, TimeoutError) as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=_browser_error_status(e), detail=str(e))
 
 
 # ─── Accessibility Tree Flattener ─────────────────────────────
-def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
+def _flatten_a11y_tree(node: Mapping[str, object], depth: int = 0) -> str:
     """Playwright의 Accessibility Tree를 LLM이 이해할 수 있는.
 
     컴팩트한 텍스트 표현으로 변환합니다.
@@ -308,10 +429,10 @@ def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
         [img] "send icon"
       [textbox] "채팅 입력" value="hello"
     """
-    lines = []
-    role = node.get("role", "unknown")
-    name = node.get("name", "")
-    value = node.get("value", "")
+    lines: list[str] = []
+    role = _as_text(node.get("role"), "unknown")
+    name = _as_text(node.get("name"))
+    value = _as_text(node.get("value"))
     focused = " focused" if node.get("focused") else ""
     checked = " checked" if node.get("checked") else ""
     disabled = " disabled" if node.get("disabled") else ""
@@ -326,8 +447,11 @@ def _flatten_a11y_tree(node: dict[str, Any], depth: int = 0) -> str:
 
     lines.append(f"{indent}{label}")
 
-    for child in node.get("children", []):
-        lines.extend(_flatten_a11y_tree(child, depth + 1).split("\n"))
+    children = node.get("children", [])
+    if isinstance(children, list):
+        for child in cast(list[object], children):
+            if isinstance(child, Mapping):
+                lines.extend(_flatten_a11y_tree(cast(Mapping[str, object], child), depth + 1).split("\n"))
 
     return "\n".join(lines)
 
@@ -345,14 +469,17 @@ class BrowserSelfTestRequest(BaseModel):
     ws_url: str | None = None
 
 
+_DEFAULT_BROWSER_SELF_TEST_REQUEST = BrowserSelfTestRequest()
+
+
 @router.post("/api/agent/tools/browser/self-test")
 async def browser_self_test(
     request: Request,
-    req: BrowserSelfTestRequest = Body(default_factory=BrowserSelfTestRequest),
+    req: Annotated[BrowserSelfTestRequest, Body()] = _DEFAULT_BROWSER_SELF_TEST_REQUEST,
 ):
     """기존 TestHarness 프레임워크를 활용하여.
 
-    Antigravity-K가 스스로를 테스트하는 멀티스텝 오케스트레이션 루프.
+    Ssak-Ai가 스스로를 테스트하는 멀티스텝 오케스트레이션 루프.
 
     실행 흐름:
     1. TestHarness가 API 테스트 실행 (health, models)
@@ -393,7 +520,7 @@ class AutonomousQARequest(BaseModel):
     """
 
     url: str = "http://localhost:5173"
-    max_iterations: int = 3
+    max_iterations: int = Field(default=3, ge=1, le=10)
     vision_model: str = "qwen3.6:latest"
     coding_model: str = "qwen3.6:latest"
 
@@ -410,8 +537,13 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
     5. 결함 해소 확인될 때까지 최대 N회 반복
     6. 반응형 테스트(desktop/tablet/mobile) + 성능 메트릭 수집
     """
+    try:
+        _ = validate_egress_url(req.url, allow_local=True)
+    except EgressPolicyError as exc:
+        raise HTTPException(status_code=403, detail="Autonomous QA target must be a valid HTTP(S) URL") from exc
     _require_allowed("autonomous_qa", {"url": req.url}, "critical")
     try:
+        from antigravity_k.api.dependencies import get_model_manager
         from antigravity_k.engine.autonomous_qa import AutonomousQAEngine
 
         engine = AutonomousQAEngine(
@@ -419,6 +551,7 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
             vision_model=req.vision_model,
             coding_model=req.coding_model,
             max_iterations=req.max_iterations,
+            model_manager=get_model_manager(),
         )
         report = await engine.run_full_loop(req.url)
         return {
@@ -445,7 +578,7 @@ class VisionAnalyzeRequest(BaseModel):
 
 
 @router.post("/api/agent/tools/browser/vision-analyze")
-async def vision_analyze(req: VisionAnalyzeRequest):
+async def vision_analyze(req: VisionAnalyzeRequest, request: Request):
     """멀티모달 비전 LLM을 활용한 UI 스크린샷 자동 분석.
 
     1. screenshot_base64가 없으면 현재 브라우저에서 자동 캡처
@@ -455,10 +588,19 @@ async def vision_analyze(req: VisionAnalyzeRequest):
     import httpx
 
     try:
+        _, state = _browser_state_for(request)
         # 스크린샷 자동 캡처 (없으면)
         screenshot_b64 = req.screenshot_base64
-        if not screenshot_b64 and browser_state.page:
-            screenshot_bytes = await browser_state.page.screenshot()
+        if not screenshot_b64 and state.page:
+            try:
+                screenshot_bytes = await state.page.screenshot()
+            except ModuleNotFoundError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Browser capture is unavailable; install the dev dependency group to enable Playwright.",
+                ) from exc
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
             screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
 
         if not screenshot_b64:
@@ -466,6 +608,28 @@ async def vision_analyze(req: VisionAnalyzeRequest):
                 status_code=400,
                 detail="No screenshot available. Launch browser and navigate first, or provide screenshot_base64.",
             )
+
+        from antigravity_k.api.dependencies import get_model_manager
+
+        model_manager = get_model_manager()
+        target = req.model
+        if target == "qwen3.6:latest":
+            target = model_manager.get_target_for_role("vision", default_role="vision")
+        try:
+            analysis = await asyncio.to_thread(
+                model_manager.generate,
+                req.prompt,
+                target=target,
+                raw_messages=[
+                    {"role": "user", "content": req.prompt, "images": [screenshot_b64]},
+                ],
+                max_tokens=2048,
+                temperature=0.2,
+            )
+            if analysis.strip():
+                return {"ok": True, "model": target, "analysis": analysis}
+        except Exception:
+            logger.warning("Managed vision route failed, HTTP fallback", exc_info=True)
 
         # Ollama 멀티모달 API 호출
         async with httpx.AsyncClient(
@@ -488,8 +652,8 @@ async def vision_analyze(req: VisionAnalyzeRequest):
             )
 
             if response.status_code == 200:
-                data = response.json()
-                analysis = data.get("message", {}).get("content", "분석 결과 없음")
+                data = _as_mapping(cast(object, response.json()))
+                analysis = _as_text(_as_mapping(data.get("message")).get("content"), "분석 결과 없음")
                 return {
                     "ok": True,
                     "model": req.model,
@@ -503,7 +667,7 @@ async def vision_analyze(req: VisionAnalyzeRequest):
 
     except HTTPException:
         raise
-    except (httpx.RequestError, httpx.HTTPStatusError, Error) as e:
+    except (httpx.RequestError, httpx.HTTPStatusError) as e:
         raise HTTPException(status_code=500, detail=str(e))
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"Response parse error: {e}")
@@ -536,7 +700,7 @@ async def external_brain_list():
 async def external_brain_send(req: ExternalBrainRequest):
     """외부 AI 두뇌에 프롬프트를 전송합니다.
 
-    Antigravity-K가 설치된 Gemini 앱이나 ChatGPT 웹의 채팅 UI를
+    Ssak-Ai가 설치된 Gemini 앱이나 ChatGPT 웹의 채팅 UI를
     GUI 자동화로 제어하여 API 없이 추론 결과를 획득합니다.
 
     전략:
@@ -577,7 +741,7 @@ class TDDGenerateRequest(BaseModel):
 
     prompt: str
     target_file_path: str | None = None
-    max_iterations: int = 3
+    max_iterations: int = Field(default=3, ge=1, le=10)
     coding_model: str = "qwen3.6:latest"
 
 
@@ -587,9 +751,10 @@ async def tdd_generate(req: TDDGenerateRequest):
 
     코드와 테스트를 생성하고, 실패 시 에러 로그를 분석하여 코드를 자동 수정합니다.
     """
+    target_file_path = _resolve_project_path(req.target_file_path) if req.target_file_path else None
     _require_allowed(
         "tdd_generate",
-        {"target_file_path": req.target_file_path, "max_iterations": req.max_iterations},
+        {"path": target_file_path, "max_iterations": req.max_iterations},
         "critical",
     )
     try:
@@ -601,7 +766,7 @@ async def tdd_generate(req: TDDGenerateRequest):
             coding_model=req.coding_model,
             max_iterations=req.max_iterations,
         )
-        report = await engine.run_tdd_loop(req.prompt, target_file_path=req.target_file_path)
+        report = await engine.run_tdd_loop(req.prompt, target_file_path=target_file_path)
         return {
             "ok": report.status == "passed",
             "report": report.to_dict(),

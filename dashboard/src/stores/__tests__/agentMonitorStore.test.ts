@@ -402,7 +402,7 @@ describe('useAgentMonitorStore', () => {
   it('preserves existing value when metric is null', () => {
     useAgentMonitorStore.getState().updateMetrics({ memoryMb: 1024, cpuPercent: 50, totalTokens: 1000 });
     // Update with null value — should keep existing
-    useAgentMonitorStore.getState().updateMetrics({ memoryMb: null as any, cpuPercent: undefined, totalTokens: 2000 });
+    useAgentMonitorStore.getState().updateMetrics({ memoryMb: null, cpuPercent: undefined, totalTokens: 2000 });
 
     const state = useAgentMonitorStore.getState();
     // null should NOT override (?? preserves for null/undefined)

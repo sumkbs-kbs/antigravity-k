@@ -34,6 +34,7 @@ repos:
         additional_dependencies:
           - "pydantic>=2.10.0"
           - "types-PyYAML>=6.0.2"
+          - "types-croniter>=6.0.0"
         args: [--ignore-missing-imports, --no-strict-optional]
         # Only check files that have type annotations at module level
         # Exclude tests and generated/legacy files

@@ -16,7 +16,6 @@ test.describe('Command Palette', () => {
   test.beforeEach(async ({ page }) => {
     dashboard = new DashboardPage(page);
     await dashboard.goto();
-    await dashboard.handlePinModal();
   });
 
   test('should open command palette and search for goal', async () => {

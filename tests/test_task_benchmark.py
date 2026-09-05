@@ -1,4 +1,7 @@
 import json
+from collections.abc import Callable
+from pathlib import Path
+from typing import Protocol, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,7 +12,20 @@ from antigravity_k.engine.benchmark_harness import (
     TaskOutcome,
     TaskThresholds,
 )
+from antigravity_k.engine.model_calibration import TaskBenchmarkMetrics
+from antigravity_k.engine.model_manager import ModelManager
 from antigravity_k.engine.task_runner import BackgroundTaskRunner
+
+
+class _OutcomeRecorderLike(Protocol):
+    outcome_recorder: Callable[[TaskOutcome], object] | None
+
+
+def _manager() -> ModelManager:
+    manager = cast(ModelManager, MagicMock())
+    registry = cast(object, getattr(manager, "_registry"))
+    setattr(registry, "_raw", {})
+    return manager
 
 
 def test_task_outcome_tracks_tool_accuracy_and_execution_cost():
@@ -90,9 +106,8 @@ def test_task_benchmark_report_recovery_success_rate_is_retry_then_succeed_fract
     assert report.to_dict()["recovery_success_rate"] == 0.5
 
 
-def test_harness_persists_and_reloads_task_outcomes(tmp_path):
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_harness_persists_and_reloads_task_outcomes(tmp_path: Path) -> None:
+    manager = _manager()
     db_path = tmp_path / "benchmark.json"
     outcome = TaskOutcome(
         case_id="task-001",
@@ -102,18 +117,17 @@ def test_harness_persists_and_reloads_task_outcomes(tmp_path):
     )
 
     harness = BenchmarkHarness(manager, db_path=db_path)
-    harness.record_task_outcome(outcome)
+    _ = harness.record_task_outcome(outcome)
     restored = BenchmarkHarness(manager, db_path=db_path)
 
     assert restored.task_report().outcomes == [outcome]
     assert restored.task_report().task_success_rate == 1.0
 
 
-def test_task_comparison_table_exposes_operational_metrics(tmp_path):
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_task_comparison_table_exposes_operational_metrics(tmp_path: Path) -> None:
+    manager = _manager()
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
-    harness.record_task_outcome(
+    _ = harness.record_task_outcome(
         TaskOutcome(
             case_id="task-001",
             target="local",
@@ -135,15 +149,15 @@ def test_task_comparison_table_exposes_operational_metrics(tmp_path):
     assert "비용" in table
 
 
-def test_harness_binds_to_task_runner_outcome_sink(tmp_path):
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_harness_binds_to_task_runner_outcome_sink(tmp_path: Path) -> None:
+    manager = _manager()
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
     runner = BackgroundTaskRunner(db_path=str(tmp_path / "tasks.db"))
 
     assert harness.bind_task_runner(runner) is runner
     assert runner.outcome_recorder is not None
-    runner.outcome_recorder(
+    recorder = cast(Callable[[TaskOutcome], object], getattr(runner, "outcome_recorder"))
+    _ = recorder(
         TaskOutcome(
             case_id="task-001",
             target="local",
@@ -155,14 +169,14 @@ def test_harness_binds_to_task_runner_outcome_sink(tmp_path):
     assert harness.task_report().task_success_rate == 1.0
 
 
-def test_harness_binds_to_tool_loop_outcome_sink(tmp_path):
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_harness_binds_to_tool_loop_outcome_sink(tmp_path: Path) -> None:
+    manager = _manager()
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
-    tool_loop = MagicMock()
+    tool_loop = cast(_OutcomeRecorderLike, MagicMock())
 
     assert harness.bind_tool_loop(tool_loop) is tool_loop
-    tool_loop.outcome_recorder(
+    recorder = cast(Callable[[TaskOutcome], object], getattr(tool_loop, "outcome_recorder"))
+    _ = recorder(
         TaskOutcome(
             case_id="loop-001",
             target="local",
@@ -174,17 +188,16 @@ def test_harness_binds_to_tool_loop_outcome_sink(tmp_path):
     assert harness.task_report().task_success_rate == 1.0
 
 
-def test_harness_calibrates_only_explicit_benchmark_outcomes(tmp_path):
-    updates = []
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_harness_calibrates_only_explicit_benchmark_outcomes(tmp_path: Path) -> None:
+    updates: list[tuple[str, TaskBenchmarkMetrics | None]] = []
+    manager = _manager()
     harness = BenchmarkHarness(
         manager,
         db_path=tmp_path / "benchmark.json",
         task_calibration_updater=lambda model, metrics: updates.append((model, metrics)),
     )
 
-    harness.record_task_outcome(
+    _ = harness.record_task_outcome(
         TaskOutcome(
             case_id="task-ad-hoc",
             target="qwen3.6:latest",
@@ -196,7 +209,7 @@ def test_harness_calibrates_only_explicit_benchmark_outcomes(tmp_path):
 
     assert updates[-1] == ("qwen3.6:latest", None)
 
-    harness.record_task_outcome(
+    _ = harness.record_task_outcome(
         TaskOutcome(
             case_id="sim-001",
             target="qwen3.6:latest",
@@ -239,11 +252,10 @@ def test_task_report_thresholds_pass_and_expose_failures():
     assert TaskBenchmarkReport().check_thresholds(thresholds) == ("no_outcomes",)
 
 
-def test_harness_exports_model_scoped_task_calibration_artifact(tmp_path):
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_harness_exports_model_scoped_task_calibration_artifact(tmp_path: Path) -> None:
+    manager = _manager()
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
-    harness.record_task_outcome(
+    _ = harness.record_task_outcome(
         TaskOutcome(
             case_id="task-001",
             target="qwen3.6:latest",
@@ -256,22 +268,22 @@ def test_harness_exports_model_scoped_task_calibration_artifact(tmp_path):
             calibration_eligible=True,
         ),
     )
-    artifact_path = tmp_path / "qwen-task-calibration.json"
+    artifact_path: Path = tmp_path / "qwen-task-calibration.json"
 
     result_path = harness.export_task_calibration_artifact("qwen3.6:latest", artifact_path)
 
-    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    payload = cast(dict[str, object], json.loads(result_path.read_text(encoding="utf-8")))
+    task_benchmark = cast(dict[str, object], payload["task_benchmark"])
     assert payload["model"] == "qwen3.6:latest"
-    assert payload["task_benchmark"]["outcome_count"] == 1
-    assert payload["task_benchmark"]["task_success_rate"] == 1.0
-    assert payload["task_benchmark"]["tool_accuracy"] == 1.0
-    assert payload["task_benchmark"]["retry_rate"] == 0.0
+    assert task_benchmark["outcome_count"] == 1
+    assert task_benchmark["task_success_rate"] == 1.0
+    assert task_benchmark["tool_accuracy"] == 1.0
+    assert task_benchmark["retry_rate"] == 0.0
 
 
-def test_harness_rejects_task_calibration_export_without_target_outcomes(tmp_path):
-    manager = MagicMock()
-    manager._registry._raw = {}
+def test_harness_rejects_task_calibration_export_without_target_outcomes(tmp_path: Path) -> None:
+    manager = _manager()
     harness = BenchmarkHarness(manager, db_path=tmp_path / "benchmark.json")
 
     with pytest.raises(ValueError, match="task outcomes"):
-        harness.export_task_calibration_artifact("qwen3.6:latest", tmp_path / "missing.json")
+        _ = harness.export_task_calibration_artifact("qwen3.6:latest", tmp_path / "missing.json")

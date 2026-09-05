@@ -16,12 +16,17 @@ Covers the main execution paths:
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from functools import partial
+from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from antigravity_k.engine.tool_executor import ToolExecutor
-from antigravity_k.tools.permission_gate import Permission, PermissionGate
+from antigravity_k.tools.permission_gate import PermissionGate
+from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -29,7 +34,24 @@ from antigravity_k.tools.tool_registry import ToolRegistry
 # ---------------------------------------------------------------------------
 
 
-def _make_tool(name="dummy", *, required=None, schema=None):
+def _registry_tools(registry: MagicMock) -> dict[str, MagicMock]:
+    return cast(dict[str, MagicMock], getattr(registry, "_tools"))
+
+
+def _lookup_tool(registry: MagicMock, name: str) -> MagicMock | None:
+    return _registry_tools(registry).get(name)
+
+
+def _contains_tool(_registry: object, name: str) -> bool:
+    return name in _registry_tools(cast(MagicMock, _registry))
+
+
+def _make_tool(
+    name: str = "dummy",
+    *,
+    required: list[str] | None = None,
+    schema: dict[str, object] | None = None,
+) -> MagicMock:
     """Create a mock tool object with a parameters_schema."""
     tool = MagicMock()
     tool.name = name
@@ -38,18 +60,20 @@ def _make_tool(name="dummy", *, required=None, schema=None):
 
 
 @pytest.fixture
-def tool_registry():
+def tool_registry() -> MagicMock:
     """A minimal ToolRegistry with one registered 'dummy' tool and readonly tools."""
     reg = MagicMock(spec=ToolRegistry)
     reg._tools = {}
 
     # Register a dummy tool
     dummy = _make_tool("dummy", required=["x"])
-    reg._tools["dummy"] = dummy
-    reg.get = MagicMock(side_effect=lambda n: reg._tools.get(n))
-    reg.__contains__ = lambda self, name: name in reg._tools
+    _registry_tools(reg)["dummy"] = dummy
+    reg.get = MagicMock(side_effect=partial(_lookup_tool, reg))
+    reg.get_tool = MagicMock(side_effect=partial(_lookup_tool, reg))
+    reg.__contains__ = _contains_tool
 
-    def execute_with_permission(name, args, objective=""):
+    def execute_with_permission(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
         return Permission.ALLOW, "ok"
 
     reg.execute_with_permission = execute_with_permission
@@ -57,12 +81,12 @@ def tool_registry():
 
 
 @pytest.fixture
-def permission_gate():
+def permission_gate() -> MagicMock:
     return MagicMock(spec=PermissionGate)
 
 
 @pytest.fixture
-def executor(tool_registry, permission_gate, tmp_path):
+def executor(tool_registry: MagicMock, permission_gate: MagicMock, tmp_path: Path) -> ToolExecutor:
     """Create a ToolExecutor with mocked ImmuneSystem (disabled)."""
     with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
         ex = ToolExecutor(
@@ -71,7 +95,7 @@ def executor(tool_registry, permission_gate, tmp_path):
             project_root=str(tmp_path),
         )
     # Disable immune system for deterministic tests.
-    ex._immune_system = None
+    setattr(ex, "_immune_system", None)
     return ex
 
 
@@ -80,28 +104,30 @@ def executor(tool_registry, permission_gate, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_execute_unknown_tool_returns_error(executor):
+def test_execute_unknown_tool_returns_error(executor: ToolExecutor):
     """Calling an unregistered tool must return a structured error."""
     result = executor.execute("nonexistent", {})
     assert "Unknown tool" in result
     assert "nonexistent" in result
-    assert executor._consecutive_errors == 1
+    # 스키마 실수는 롤백 임계 카운터에 가산되지 않는다 (과잉 볼트 롤백 방지)
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 0
 
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 
 
-def test_readonly_tool_uses_permission_boundary(executor, tool_registry):
+def test_readonly_tool_uses_permission_boundary(executor: ToolExecutor, tool_registry: MagicMock):
     readonly_tool = MagicMock()
     readonly_tool.parameters_schema = {"required": []}
     readonly_tool.return_value = "file content"
-    tool_registry._tools["read_file"] = readonly_tool
-    tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
+    _registry_tools(tool_registry)["read_file"] = readonly_tool
+    tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
 
-    called = []
+    called: list[str] = []
 
-    def execute_with_permission(name, args, objective=""):
+    def execute_with_permission(name: str, args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
         called.append(name)
         return Permission.ALLOW, readonly_tool(**args)
 
@@ -112,12 +138,13 @@ def test_readonly_tool_uses_permission_boundary(executor, tool_registry):
     assert called == ["read_file"]
 
 
-def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path):
+def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path: Path):
     from antigravity_k.engine.tool_executor import ToolExecutor
     from antigravity_k.tools.system_tools import ReadFileTool
 
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(ReadFileTool())
+    install = cast(Callable[..., ToolRegistry], getattr(registry, "install"))
+    _ = install(ReadFileTool())
     with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
         executor = ToolExecutor(
             tool_registry=registry,
@@ -130,13 +157,14 @@ def test_readonly_protected_path_is_denied_by_permission_gate(tmp_path):
     assert "[DENIED]" in result
 
 
-def test_approved_execution_rechecks_permission_boundary(tmp_path):
+def test_approved_execution_rechecks_permission_boundary(tmp_path: Path):
     from antigravity_k.tools.system_tools import ReadFileTool
 
     target = tmp_path / "protected-by-override.txt"
-    target.write_text("must not be read", encoding="utf-8")
+    _ = target.write_text("must not be read", encoding="utf-8")
     registry = ToolRegistry(project_root=str(tmp_path))
-    registry.install(ReadFileTool())
+    install = cast(Callable[..., ToolRegistry], getattr(registry, "install"))
+    _ = install(ReadFileTool())
     registry.permission_gate.set_override("read_file", Permission.DENY)
 
     result = registry.execute_approved("read_file", {"file_path": str(target)})
@@ -144,14 +172,14 @@ def test_approved_execution_rechecks_permission_boundary(tmp_path):
     assert "[DENIED]" in result
 
 
-def test_readonly_tool_records_history(executor, tool_registry):
+def test_readonly_tool_records_history(executor: ToolExecutor, tool_registry: MagicMock):
     """Readonly tool execution must be recorded in tool_call_history."""
     readonly_tool = MagicMock(return_value="content")
     readonly_tool.parameters_schema = {"required": []}
-    tool_registry._tools["read_file"] = readonly_tool
-    tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
+    _registry_tools(tool_registry)["read_file"] = readonly_tool
+    tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
 
-    executor.execute("read_file", {"file_path": "/tmp/x"})
+    _ = executor.execute("read_file", {"file_path": "/tmp/x"})
     assert len(executor.tool_call_history) == 1
     assert executor.tool_call_history[0]["name"] == "read_file"
     assert executor.tool_call_history[0]["success"] is True
@@ -162,31 +190,32 @@ def test_readonly_tool_records_history(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_plan_guard_blocks_tool(executor, tool_registry):
+def test_plan_guard_blocks_tool(executor: ToolExecutor, tool_registry: MagicMock):
     """When PlanGuard denies execution, a [BLOCKED] error is returned."""
     # Register write_file so it passes the 'name not in tool_registry' check.
     write_tool = _make_tool("write_file", required=["file_path"])
-    tool_registry._tools["write_file"] = write_tool
+    _registry_tools(tool_registry)["write_file"] = write_tool
 
     guard = MagicMock()
     decision = MagicMock()
     decision.allows_execution = False
     decision.message = "Write tools not allowed in PLAN mode"
-    guard.evaluate_tool_call.return_value = decision
+    setattr(guard, "evaluate_tool_call", MagicMock(return_value=decision))
     executor.plan_guard = guard
 
     result = executor.execute("write_file", {"file_path": "x"})
     assert "[BLOCKED]" in result
     assert "PLAN mode" in result
-    assert executor._consecutive_errors == 1
+    # 정책 차단은 롤백 임계 카운터에 가산되지 않는다
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 0
 
 
-def test_plan_guard_allows_tool(executor, tool_registry):
+def test_plan_guard_allows_tool(executor: ToolExecutor):
     """When PlanGuard allows, execution proceeds normally."""
     guard = MagicMock()
     decision = MagicMock()
     decision.allows_execution = True
-    guard.evaluate_tool_call.return_value = decision
+    setattr(guard, "evaluate_tool_call", MagicMock(return_value=decision))
     executor.plan_guard = guard
 
     # The dummy tool is not readonly, so it goes through the full path.
@@ -199,12 +228,13 @@ def test_plan_guard_allows_tool(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_missing_required_args_returns_error(executor):
+def test_missing_required_args_returns_error(executor: ToolExecutor):
     """Missing required arguments must produce a structured error."""
     result = executor.execute("dummy", {})
     assert "Missing required arguments" in result
     assert "x" in result
-    assert executor._consecutive_errors == 1
+    # 스키마 실수는 롤백 임계 카운터에 가산되지 않는다
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -212,18 +242,23 @@ def test_missing_required_args_returns_error(executor):
 # ---------------------------------------------------------------------------
 
 
-def test_preflight_creates_missing_directory(executor, tool_registry, tmp_path):
-    """Write tools auto-create missing parent directories."""
-    # Register write_file as a real tool with no required args for simplicity.
+def test_preflight_validation_has_no_write_side_effect(
+    executor: ToolExecutor, tool_registry: MagicMock, tmp_path: Path
+):
+    """검증 단계는 디렉터리를 생성하지 않는다 — 생성은 실제 쓰기 도구의 책임.
+
+    (오타 경로가 조용히 잘못된 디렉터리 트리를 만드는 부수효과 방지)
+    """
+    # no-op 도구로 등록 (실제 쓰기는 일어나지 않음)
     write_tool = _make_tool("write_file", required=[])
-    tool_registry._tools["write_file"] = write_tool
-    tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
+    _registry_tools(tool_registry)["write_file"] = write_tool
+    tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
 
     target = str(tmp_path / "newdir" / "subdir" / "file.txt")
     result = executor.execute("write_file", {"file_path": target})
     assert result == "ok"
-    # The parent directory should now exist.
-    assert os.path.isdir(os.path.dirname(target))
+    # 검증만 거친 시점에는 디렉터리가 생성되지 않는다.
+    assert not os.path.isdir(os.path.dirname(target))
 
 
 # ---------------------------------------------------------------------------
@@ -231,18 +266,28 @@ def test_preflight_creates_missing_directory(executor, tool_registry, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_permission_deny_returns_blocked(executor, tool_registry):
+def test_permission_deny_returns_blocked(executor: ToolExecutor, tool_registry: MagicMock):
     """When execute_with_permission returns DENY, a [DENIED] error is returned."""
-    tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.DENY, "blocked")
+
+    def deny_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
+        return Permission.DENY, "blocked"
+
+    tool_registry.execute_with_permission = deny_execution
     result = executor.execute("dummy", {"x": 1})
     assert "[DENIED]" in result
-    assert executor._consecutive_errors == 1
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 0  # 정책 차단은 카운터 제외
     assert executor.tool_call_history[-1]["permission"] == "deny"
 
 
-def test_permission_prompt_returns_approval_required(executor, tool_registry):
+def test_permission_prompt_returns_approval_required(executor: ToolExecutor, tool_registry: MagicMock):
     """When execute_with_permission returns PROMPT, an [APPROVAL REQUIRED] message is returned."""
-    tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.PROMPT, "needs approval")
+
+    def prompt_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
+        return Permission.PROMPT, "needs approval"
+
+    tool_registry.execute_with_permission = prompt_execution
     result = executor.execute("dummy", {"x": 1})
     assert "[APPROVAL REQUIRED]" in result
     assert executor.tool_call_history[-1]["permission"] == "prompt"
@@ -253,26 +298,32 @@ def test_permission_prompt_returns_approval_required(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_consecutive_error_reset_on_success(executor, tool_registry):
+def test_consecutive_error_reset_on_success(executor: ToolExecutor):
     """A successful tool call resets the consecutive error counter."""
-    executor._consecutive_errors = 2
-    executor.execute("dummy", {"x": 1})
-    assert executor._consecutive_errors == 0
+    setattr(executor, "_consecutive_errors", 2)
+    _ = executor.execute("dummy", {"x": 1})
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 0
 
 
-def test_three_consecutive_errors_trigger_recovery(executor, tool_registry):
+def test_three_consecutive_errors_trigger_recovery(executor: ToolExecutor, tool_registry: MagicMock):
     """Three consecutive errors trigger the recovery path (_trigger_recovery)."""
-    # Make execute_with_permission return errors.
-    tool_registry.execute_with_permission = lambda n, a, objective="": (Permission.ALLOW, "Error: something failed")
-    # Mock _trigger_recovery to verify it's called.
-    executor._trigger_recovery = MagicMock(return_value="recovery result")
 
-    executor.execute("dummy", {"x": 1})  # error 1
-    executor.execute("dummy", {"x": 1})  # error 2
+    # Make execute_with_permission return errors.
+    def failing_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
+        return Permission.ALLOW, "Error: something failed"
+
+    tool_registry.execute_with_permission = failing_execution
+    # Mock _trigger_recovery to verify it's called.
+    recovery = MagicMock(return_value="recovery result")
+    setattr(executor, "_trigger_recovery", recovery)
+
+    _ = executor.execute("dummy", {"x": 1})  # error 1
+    _ = executor.execute("dummy", {"x": 1})  # error 2
     result = executor.execute("dummy", {"x": 1})  # error 3 → trigger
 
     assert result == "recovery result"
-    executor._trigger_recovery.assert_called_once()
+    recovery.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -280,15 +331,15 @@ def test_three_consecutive_errors_trigger_recovery(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_tool_call_history_capped_at_20(executor, tool_registry):
+def test_tool_call_history_capped_at_20(executor: ToolExecutor, tool_registry: MagicMock):
     """The history list must not exceed 20 entries."""
     readonly_tool = MagicMock(return_value="ok")
     readonly_tool.parameters_schema = {"required": []}
-    tool_registry._tools["read_file"] = readonly_tool
-    tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
+    _registry_tools(tool_registry)["read_file"] = readonly_tool
+    tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
 
     for i in range(25):
-        executor.execute("read_file", {"file_path": f"/tmp/{i}"})
+        _ = executor.execute("read_file", {"file_path": f"/tmp/{i}"})
 
     assert len(executor.tool_call_history) == 20
     # The oldest entries should have been dropped; the last should be the most recent.
@@ -300,32 +351,48 @@ def test_tool_call_history_capped_at_20(executor, tool_registry):
 # ---------------------------------------------------------------------------
 
 
-def test_validate_and_preflight_returns_none_on_success(executor):
+def test_validate_and_preflight_returns_none_on_success(executor: ToolExecutor):
     """_validate_and_preflight returns None when validation passes."""
-    result = executor._validate_and_preflight("dummy", {"x": 1})
+    validate = cast(
+        Callable[[str, dict[str, object]], str | None],
+        getattr(executor, "_validate_and_preflight"),
+    )
+    result = validate("dummy", {"x": 1})
     assert result is None
 
 
-def test_validate_and_preflight_missing_args(executor):
+def test_validate_and_preflight_missing_args(executor: ToolExecutor):
     """_validate_and_preflight returns an error string for missing args."""
-    result = executor._validate_and_preflight("dummy", {})
+    validate = cast(
+        Callable[[str, dict[str, object]], str | None],
+        getattr(executor, "_validate_and_preflight"),
+    )
+    result = validate("dummy", {})
     assert result is not None
     assert "Missing required arguments" in result
 
 
-def test_record_tool_call_adds_entry(executor):
+def test_record_tool_call_adds_entry(executor: ToolExecutor):
     """_record_tool_call appends a single history entry."""
     initial = len(executor.tool_call_history)
-    executor._record_tool_call("test_tool", {"k": "v"}, "result")
+    record = cast(
+        Callable[[str, dict[str, object], str], None],
+        getattr(executor, "_record_tool_call"),
+    )
+    record("test_tool", {"k": "v"}, "result")
     assert len(executor.tool_call_history) == initial + 1
     entry = executor.tool_call_history[-1]
     assert entry["name"] == "test_tool"
     assert entry["success"] is True
 
 
-def test_record_tool_call_error_result_marked_unsuccessful(executor):
+def test_record_tool_call_error_result_marked_unsuccessful(executor: ToolExecutor):
     """An error result string must be marked as unsuccessful in history."""
-    executor._record_tool_call("bad_tool", {}, "Error: failed")
+    record = cast(
+        Callable[[str, dict[str, object], str], None],
+        getattr(executor, "_record_tool_call"),
+    )
+    record("bad_tool", {}, "Error: failed")
     assert executor.tool_call_history[-1]["success"] is False
 
 
@@ -334,49 +401,110 @@ def test_record_tool_call_error_result_marked_unsuccessful(executor):
 # ---------------------------------------------------------------------------
 
 
-def test_broadcast_file_event_skips_non_file_tools(executor):
+def test_broadcast_file_event_skips_non_file_tools(executor: ToolExecutor):
     """_broadcast_file_event does nothing for non-file tools."""
     # Should not raise even if the tool is not a file tool.
-    executor._broadcast_file_event("web_search", {"query": "test"})
+    broadcast = cast(
+        Callable[[str, dict[str, object]], None],
+        getattr(executor, "_broadcast_file_event"),
+    )
+    _ = broadcast("web_search", {"query": "test"})
 
 
-def test_broadcast_file_event_publishes_for_read_file(executor, tmp_path):
+def test_broadcast_file_event_publishes_for_read_file(executor: ToolExecutor, tmp_path: Path):
     """_broadcast_file_event publishes FileOpened for read_file on an existing file."""
     test_file = tmp_path / "test.txt"
-    test_file.write_text("hello")
+    _ = test_file.write_text("hello")
 
-    published = []
+    published: list[tuple[str, dict[str, object]]] = []
     with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
-        mock_bus.publish = lambda event_type, **kwargs: published.append((event_type, kwargs))
-        executor._broadcast_file_event("read_file", {"file_path": str(test_file)})
+
+        def publish(event_type: str, **kwargs: object) -> None:
+            published.append((event_type, kwargs))
+
+        mock_bus.publish = publish
+        broadcast = cast(
+            Callable[[str, dict[str, object]], None],
+            getattr(executor, "_broadcast_file_event"),
+        )
+        _ = broadcast("read_file", {"file_path": str(test_file)})
 
     assert len(published) == 1
     assert published[0][0] == "FileOpened"
     assert published[0][1]["filepath"] == str(test_file)
 
 
-def test_broadcast_file_event_publishes_for_write_file(executor, tmp_path):
+def test_broadcast_file_event_publishes_for_write_file(executor: ToolExecutor, tmp_path: Path):
     """_broadcast_file_event publishes FileModified for write_file."""
     test_file = tmp_path / "output.txt"
-    test_file.write_text("data")
+    _ = test_file.write_text("data")
 
-    published = []
+    published: list[tuple[str, dict[str, object]]] = []
     with patch("antigravity_k.engine.event_bus.global_event_bus") as mock_bus:
-        mock_bus.publish = lambda event_type, **kwargs: published.append((event_type, kwargs))
-        executor._broadcast_file_event("write_file", {"file_path": str(test_file)})
+
+        def publish(event_type: str, **kwargs: object) -> None:
+            published.append((event_type, kwargs))
+
+        mock_bus.publish = publish
+        broadcast = cast(
+            Callable[[str, dict[str, object]], None],
+            getattr(executor, "_broadcast_file_event"),
+        )
+        _ = broadcast("write_file", {"file_path": str(test_file)})
 
     assert published[0][0] == "FileModified"
 
 
-def test_broadcast_file_event_skips_nonexistent_file(executor):
+def test_post_execute_failure_publishes_failure_detected(executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch):
+    """실패한 도구 결과는 Dashboard용 FailureDetected 이벤트로 브로드캐스트된다."""
+    published: list[tuple[str, dict[str, object]]] = []
+
+    class _FakeBus:
+        def publish(self, event_name: str, **kwargs: object) -> None:
+            published.append((event_name, kwargs))
+
+    monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+    executor._post_execute("dummy", {"x": 1}, "Error: boom", permission=Permission.ALLOW)
+
+    assert published, "FailureDetected 이벤트가 발행되어야 한다"
+    event_name, kwargs = published[0]
+    assert event_name == "FailureDetected"
+    assert kwargs["tool"] == "dummy"
+    assert "boom" in str(kwargs["error"])
+    assert kwargs["message"]
+
+
+def test_post_execute_success_does_not_publish_failure_detected(
+    executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+):
+    """성공한 도구 결과는 FailureDetected를 발행하지 않는다."""
+    published: list[tuple[str, dict[str, object]]] = []
+
+    class _FakeBus:
+        def publish(self, event_name: str, **kwargs: object) -> None:
+            published.append((event_name, kwargs))
+
+    monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+    executor._post_execute("read_file", {"path": "x"}, "ok", permission=Permission.ALLOW)
+
+    assert all(name != "FailureDetected" for name, _ in published)
+
+
+def test_broadcast_file_event_skips_nonexistent_file(executor: ToolExecutor):
     """_broadcast_file_event does nothing for a non-existent file path."""
     # Should not raise.
-    executor._broadcast_file_event("read_file", {"file_path": "/nonexistent/path/file.txt"})
+    broadcast = cast(
+        Callable[[str, dict[str, object]], None],
+        getattr(executor, "_broadcast_file_event"),
+    )
+    _ = broadcast("read_file", {"file_path": "/nonexistent/path/file.txt"})
 
 
-def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
+def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path: Path):
     # Given: a task whose checkpoint records write_file as a tool the user explicitly requested.
-    from antigravity_k.engine.gate_pipeline import create_default_pipeline
+    from antigravity_k.engine import gate_pipeline
     from antigravity_k.engine.task_state_store import (
         TaskExecutionContext,
         TaskStateStore,
@@ -384,17 +512,22 @@ def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
     )
 
     store = TaskStateStore(str(tmp_path / "tasks.db"))
-    store.create_task("task-contract", "write and run", "pending", "2026-08-13T00:00:00+00:00")
+    _ = store.create_task("task-contract", "write and run", "pending", "2026-08-13T00:00:00+00:00")
     store.save_checkpoint("task-contract", 0, '{"expected_tools": ["write_file"]}', "")
 
     reg = MagicMock(spec=ToolRegistry)
     reg._tools = {}
     write_tool = _make_tool("write_file", required=["file_path"])
     write_tool.return_value = "wrote"
-    reg._tools["write_file"] = write_tool
-    reg.get = MagicMock(side_effect=lambda n: reg._tools.get(n))
-    reg.__contains__ = lambda self, name: name in reg._tools
-    reg.execute_with_permission = lambda n, a, objective="": (Permission.ALLOW, "wrote")
+    _registry_tools(reg)["write_file"] = write_tool
+    reg.get = MagicMock(side_effect=partial(_lookup_tool, reg))
+    reg.__contains__ = _contains_tool
+
+    def write_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
+        return Permission.ALLOW, "wrote"
+
+    reg.execute_with_permission = write_execution
 
     gate = MagicMock(spec=PermissionGate)
     with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
@@ -402,9 +535,9 @@ def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
             tool_registry=reg,
             permission_gate=gate,
             project_root=str(tmp_path),
-            gate_pipeline=create_default_pipeline(),
+            gate_pipeline=cast(Callable[[], object], getattr(gate_pipeline, "create_default_pipeline"))(),
         )
-    ex._immune_system = None
+    setattr(ex, "_immune_system", None)
 
     # When: write_file executes inside a task that explicitly contracted it.
     with bind_task_execution_context(TaskExecutionContext("task-contract", store)):
@@ -416,28 +549,30 @@ def test_explicitly_contracted_tool_bypasses_approval_pause(tmp_path):
     assert "APPROVAL REQUIRED" not in str(result)
 
 
-def test_nonzero_exit_code_result_is_classified_as_failure(executor, tool_registry):
+def test_nonzero_exit_code_result_is_classified_as_failure(executor: ToolExecutor, tool_registry: MagicMock):
     # Given: a tool whose result carries the [exit_code=N] failure marker surfaced by
     # run_bash_command when a command exits non-zero.
     failing_tool = _make_tool("run_bash_command", required=["command"])
     failing_tool.return_value = "[exit_code=2]\nSTDERR:\nboom"
-    tool_registry._tools["run_bash_command"] = failing_tool
-    tool_registry.get = MagicMock(side_effect=lambda n: tool_registry._tools.get(n))
-    tool_registry.execute_with_permission = lambda n, a, objective="": (
-        Permission.ALLOW,
-        "[exit_code=2]\nSTDERR:\nboom",
-    )
+    _registry_tools(tool_registry)["run_bash_command"] = failing_tool
+    tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+
+    def failing_command_execution(_name: str, _args: dict[str, object], objective: str = "") -> tuple[Permission, str]:
+        _ = objective
+        return Permission.ALLOW, "[exit_code=2]\nSTDERR:\nboom"
+
+    tool_registry.execute_with_permission = failing_command_execution
 
     # When: the executor runs the tool and records the outcome.
-    executor.execute("run_bash_command", {"command": "false"})
+    _ = executor.execute("run_bash_command", {"command": "false"})
 
     # Then: the result is classified as a failure so the consecutive-error counter
     # advances and the recovery loop can trigger — the exit-code marker must not mask it.
     assert executor.tool_call_history[-1]["success"] is False
-    assert executor._consecutive_errors == 1
+    assert cast(int, getattr(executor, "_consecutive_errors")) == 1
 
 
-def test_dangerous_command_is_denied_even_when_run_bash_is_user_contracted(tmp_path):
+def test_dangerous_command_is_denied_even_when_run_bash_is_user_contracted(tmp_path: Path):
     # Given: a task that explicitly contracted run_bash_command (auto-approved via the
     # user-contract path), so the ApprovalGate is bypassed.
     from antigravity_k.tools.permission_gate import PermissionGate
@@ -452,3 +587,346 @@ def test_dangerous_command_is_denied_even_when_run_bash_is_user_contracted(tmp_p
     # Then: the dangerous-command policy denies it — pre-approval authorizes *which tool*
     # but never *which destructive payload*.
     assert decision.is_denied
+
+
+class TestApprovalWiring:
+    """게이트 일시정지 ↔ ApprovalManager 연동."""
+
+    @staticmethod
+    def _executor_with_pipeline(tool_registry, permission_gate, tmp_path):
+        from antigravity_k.engine import gate_pipeline
+        from antigravity_k.engine.tool_executor import ToolExecutor
+
+        with patch("antigravity_k.engine.tool_executor.ImmuneSystem"):
+            ex = ToolExecutor(
+                tool_registry=tool_registry,
+                permission_gate=permission_gate,
+                project_root=str(tmp_path),
+                gate_pipeline=cast(Callable[[], object], getattr(gate_pipeline, "create_default_pipeline"))(),
+            )
+        setattr(ex, "_immune_system", None)
+        return ex
+
+    def test_pause_registers_approval_request(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        """게이트 일시정지 시 승인 요청이 등록되고 요청 ID가 결과에 포함된다."""
+        from antigravity_k.engine import approval_manager as am
+
+        requests: list[dict] = []
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return False
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                requests.append({"tool": tool_name, "desc": description})
+                req = am.ApprovalRequest(
+                    request_id="req-123",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    description=description,
+                )
+                return req
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert "[APPROVAL REQUIRED]" in result
+        assert "req-123" in result
+        assert requests and requests[0]["tool"] == "write_file"
+
+    def test_pause_publishes_approval_required_event(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        """게이트 일시정지(APPROVAL REQUIRED) 시 Dashboard용 ApprovalRequired 이벤트가 발행된다."""
+        from antigravity_k.engine import approval_manager as am
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return False
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                return am.ApprovalRequest(
+                    request_id="req-123",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    description=description,
+                )
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert "[APPROVAL REQUIRED]" in result
+        assert published, "ApprovalRequired 이벤트가 발행되어야 한다"
+        event_name, kwargs = published[0]
+        assert event_name == "ApprovalRequired"
+        assert kwargs["tool"] == "write_file"
+        assert kwargs["request_id"] == "req-123"
+        assert kwargs["reason"]
+
+    def test_always_allowed_tool_does_not_publish_approval_required(
+        self, tool_registry, permission_gate, tmp_path, monkeypatch
+    ):
+        """자동 승인(ALWAYS_ALLOW) 도구는 ApprovalRequired를 발행하지 않는다."""
+        from antigravity_k.engine import approval_manager as am
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return True
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                return am.ApprovalRequest(
+                    request_id="req-123",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    description=description,
+                    status=am.ApprovalStatus.ALWAYS_ALLOW,
+                )
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        # 항상 허용 경로에서는 승인 일시정지 없이 실행된다 — ApprovalRequired 미발행 검증
+        _ = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert all(name != "ApprovalRequired" for name, _ in published)
+
+    def test_always_allowed_tool_executes_without_pause(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        from antigravity_k.engine import approval_manager as am
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return True
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, tool_name, tool_args, **kw):
+                req = am.ApprovalRequest(
+                    request_id="auto-1",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    status=am.ApprovalStatus.ALWAYS_ALLOW,
+                )
+                return req
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "b.txt"), "content": "x"})
+
+        assert result == "ok"  # 일시정지 없이 실행됨
+
+    def test_reuses_existing_pending_without_duplicate(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        """동일 도구 PENDING이 있으면 새 요청을 만들지 않고 기존 ID를 재사용한다."""
+        from antigravity_k.engine import approval_manager as am
+
+        existing = am.ApprovalRequest(
+            request_id="req-existing",
+            tool_name="write_file",
+            tool_args={"file_path": "a.txt"},
+            description="기존 요청",
+        )
+        created: list[str] = []
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return False
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return [existing]
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                created.append(tool_name)
+                raise AssertionError("PENDING 재사용 시 새 request_approval을 호출하면 안 된다")
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert "[APPROVAL REQUIRED]" in result
+        assert "req-existing" in result
+        assert created == []
+
+    def test_one_time_approval_consumed_on_retry(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        from antigravity_k.engine import approval_manager as am
+
+        class FakeManager:
+            def __init__(self):
+                self.consumed = False
+
+            def is_always_allowed(self, tool_name):
+                return False
+
+            def consume_one_time_approval(self, tool_name):
+                if self.consumed:
+                    return False
+                self.consumed = True
+                return True
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, *a, **kw):
+                raise AssertionError("소비 가능한 승인이 있으면 새 요청을 만들지 않는다")
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: fake)
+        fake = FakeManager()
+        monkeypatch.setattr(am, "get_approval_manager", lambda: fake)
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "c.txt"), "content": "x"})
+
+        assert result == "ok"
+        assert fake.consumed
+
+
+# ---------------------------------------------------------------------------
+# Request-scoped ToolPolicy (dashboard Search/Code/MCP chips)
+# ---------------------------------------------------------------------------
+
+
+def test_tool_policy_denies_registered_tool(executor: ToolExecutor):
+    """A denied tool must be blocked with a [BLOCKED] message before gates run."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    token = set_tool_policy(ToolPolicy(denied_tools=frozenset({"dummy"})))
+    try:
+        result = executor.execute("dummy", {"x": 1})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" in result
+    assert "disabled for this request" in result
+
+
+def test_tool_policy_absent_keeps_default_behavior(executor: ToolExecutor):
+    """Without a policy (legacy clients) execution must be unchanged."""
+    result = executor.execute("dummy", {"x": 1})
+    assert "[BLOCKED]" not in result
+
+
+def test_tool_policy_filters_unlisted_mcp_server(executor: ToolExecutor, tool_registry: MagicMock):
+    """MCP tools from servers outside the allowlist must be blocked."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    mcp_tool = _make_tool("mcp_query")
+    mcp_tool._server_name = "other-server"
+    _registry_tools(tool_registry)["mcp_query"] = mcp_tool
+
+    token = set_tool_policy(ToolPolicy(allowed_mcp_servers=frozenset({"codebase-memory-mcp"})))
+    try:
+        result = executor.execute("mcp_query", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" in result
+    assert "other-server" in result
+
+
+def test_tool_policy_allows_listed_mcp_server(executor: ToolExecutor, tool_registry: MagicMock):
+    """MCP tools from allowlisted servers must execute normally."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    mcp_tool = _make_tool("mcp_query")
+    mcp_tool._server_name = "codebase-memory-mcp"
+    _registry_tools(tool_registry)["mcp_query"] = mcp_tool
+
+    token = set_tool_policy(ToolPolicy(allowed_mcp_servers=frozenset({"codebase-memory-mcp"})))
+    try:
+        result = executor.execute("mcp_query", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" not in result
+
+
+def test_tool_policy_safe_only_blocks_side_effect_tools(executor: ToolExecutor, tool_registry: MagicMock):
+    """Read-only mode (safe_only) must block tools whose risk_level != SAFE."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    writer = _make_tool("write_file")
+    writer.risk_level = "low"  # RiskLevel.LOW (문자열 비교 대신 identity가 아닌 != 비교)
+    _registry_tools(tool_registry)["write_file"] = writer
+
+    token = set_tool_policy(ToolPolicy(safe_only=True))
+    try:
+        result = executor.execute("write_file", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" in result
+    assert "read-only mode" in result
+
+
+def test_tool_policy_safe_only_allows_safe_tools(executor: ToolExecutor, tool_registry: MagicMock):
+    """Read-only mode must still allow SAFE (side-effect-free) tools."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.tools.base_tool import RiskLevel
+
+    reader = _make_tool("read_file")
+    reader.risk_level = RiskLevel.SAFE
+    _registry_tools(tool_registry)["read_file"] = reader
+
+    token = set_tool_policy(ToolPolicy(safe_only=True))
+    try:
+        result = executor.execute("read_file", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" not in result

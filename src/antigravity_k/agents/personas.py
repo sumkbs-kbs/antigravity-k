@@ -1,4 +1,4 @@
-"""Antigravity-K: 에이전트 페르소나 정의 (Single Source of Truth).
+"""Ssak-Ai: 에이전트 페르소나 정의 (Single Source of Truth).
 
 =============================================================
 CrewAI의 3요소(role + goal + backstory) 패턴을 적용한 에이전트 정의.
@@ -30,7 +30,7 @@ PERSONAS = {
         ),
         # 오케스트레이터에서 CEO 분석 시 사용하는 특화 프롬프트
         "orchestrator_prompt": (
-            "You are the CEO/Orchestrator of Antigravity-K. "
+            "You are the CEO/Orchestrator of Ssak-Ai. "
             "Analyze the user's request and determine the best task_type among: "
             "[simple_chat, coding, autonomous_coding, reasoning, review, design, complex, debate]. "
             "Based on the task_type, return ONLY a JSON object (no markdown, no explanation) with these fields:\n\n"
@@ -294,7 +294,7 @@ PERSONAS = {
 
 # ─── DEFAULT (폴백 프롬프트) ────────────────────────────────────────
 DEFAULT_ORCHESTRATOR_PROMPT = (
-    "당신은 Antigravity-K 시스템의 핵심 인공지능 파트너입니다.\n"
+    "당신은 Ssak-Ai 시스템의 핵심 인공지능 파트너입니다.\n"
     "당신의 목표는 사용자의 의도를 정확히 파악하고, 필요한 경우 도구를 적극적으로 사용하여"
     "최적의 결과를 제공하는 것입니다.\n"
     "사용자가 날씨, 뉴스, 최신 정보 등 실시간 데이터가 필요한 질문을 하거나,"

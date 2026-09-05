@@ -1,4 +1,4 @@
-"""Antigravity-K: 실패 학습 메모리 (FailureMemory).
+"""Ssak-Ai: 실패 학습 메모리 (FailureMemory).
 
 ===============================================
 E-3: 실패 패턴을 기록하고 동일 실수를 방지합니다.
@@ -9,14 +9,16 @@ import logging
 import os
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
 
 from antigravity_k.engine.gbrain import global_gbrain
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_LOG = ".antigravity/failure_log.jsonl"
+type FailureValue = str | bool
+type FailureRecord = dict[str, FailureValue]
 
 
 class FailureMemory:
@@ -28,16 +30,16 @@ class FailureMemory:
     3. build_prompt(): 에이전트에게 "이전 실패" 컨텍스트 주입
     """
 
-    def __init__(self, project_root: str = "."):
+    def __init__(self, project_root: str = ".") -> None:
         """Initialize the FailureMemory.
 
         Args:
             project_root (str): str project root.
 
         """
-        self.project_root = project_root
-        self._log_path = os.path.join(project_root, _DEFAULT_LOG)
-        self._session_failures: list[dict[str, Any]] = []  # 현재 세션 내 실패
+        self.project_root: str = project_root
+        self._log_path: str = os.path.join(project_root, _DEFAULT_LOG)
+        self._session_failures: list[FailureRecord] = []
         os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
 
     def record(
@@ -47,9 +49,9 @@ class FailureMemory:
         args_summary: str = "",
         fix_applied: str = "",
         success_after_fix: bool = False,
-    ):
+    ) -> None:
         """실패를 기록합니다."""
-        entry = {
+        entry: FailureRecord = {
             "tool": tool,
             "error_pattern": self._extract_pattern(error_text),
             "error_text": error_text[:500],
@@ -80,13 +82,13 @@ class FailureMemory:
         # 하위 호환을 위해 JSONL에도 백업
         try:
             with open(self._log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                _ = f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             # 로테이션: 1000줄 초과 시 최신 500줄만 유지 (디스크 고갈 방지)
             self._rotate_log_if_needed()
-        except Exception:
+        except (OSError, TypeError, ValueError):
             logger.exception("[FailureMemory] Failed to write fallback log")
 
-    def _rotate_log_if_needed(self, max_lines: int = 1000, keep_lines: int = 500):
+    def _rotate_log_if_needed(self, max_lines: int = 1000, keep_lines: int = 500) -> None:
         """JSONL 로그가 max_lines를 초과하면 최신 keep_lines줄만 유지합니다."""
         try:
             if not os.path.exists(self._log_path):
@@ -96,14 +98,14 @@ class FailureMemory:
             if len(lines) > max_lines:
                 logger.info("[FailureMemory] Rotating log: %s → %s lines", len(lines), keep_lines)
                 with open(self._log_path, "w", encoding="utf-8") as f:
-                    f.writelines(lines[-keep_lines:])
-        except Exception as e:
+                    _ = f.write("".join(lines[-keep_lines:]))
+        except (OSError, ValueError) as e:
             logger.exception("Unhandled exception")
             logger.debug("[FailureMemory] Log rotation failed: %s", e)
 
-    def find_similar(self, task_or_error: str, max_results: int = 3) -> list[dict[str, Any]]:
+    def find_similar(self, task_or_error: str, max_results: int = 3) -> list[FailureRecord]:
         """GBrain 의미론적 검색을 사용하여 유사한 과거 실패를 검색합니다."""
-        results = []
+        results: list[FailureRecord] = []
 
         # 1. 먼저 GBrain VectorDB 조회
         try:
@@ -114,15 +116,23 @@ class FailureMemory:
             )
             for r in gbrain_results:
                 # FailureMemory의 포맷에 맞게 변환
+                raw_pattern = r.get("error_pattern")
+                if isinstance(raw_pattern, str):
+                    error_pattern = raw_pattern
+                else:
+                    raw_content = r.get("content", "")
+                    error_pattern = raw_content[:50] if isinstance(raw_content, str) else ""
+                raw_tool = r.get("tool", "unknown")
+                tool = raw_tool if isinstance(raw_tool, str) else "unknown"
                 results.append(
                     {
-                        "tool": r.get("tool", "unknown"),
-                        "error_pattern": r.get("error_pattern", r.get("content", "")[:50]),
-                        "fix_applied": "",  # GBrain content에 포함되어 있음
+                        "tool": tool,
+                        "error_pattern": error_pattern,
+                        "fix_applied": "",
                         "source": "gbrain",
                     },
                 )
-        except Exception as e:
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             logger.exception("Unhandled exception")
             logger.debug("[FailureMemory] GBrain search failed, fallback to keyword: %s", e)
 
@@ -183,7 +193,7 @@ class FailureMemory:
         first_line = error_text.strip().split("\n")[0]
         return first_line[:100]
 
-    def _is_similar(self, entry: dict[str, Any], keywords: set[str]) -> bool:
+    def _is_similar(self, entry: Mapping[str, FailureValue], keywords: set[str]) -> bool:
         """키워드 기반 유사도 판단."""
         entry_text = f"{entry.get('tool', '')} {entry.get('error_pattern', '')} {entry.get('args_summary', '')}".lower()
         entry_words = set(re.findall(r"[a-zA-Z_]{3,}", entry_text))

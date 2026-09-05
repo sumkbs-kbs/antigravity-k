@@ -12,13 +12,23 @@ import glob as glob_module
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, TypeAlias, TypedDict, cast, final, override
 
 from .base_tool import BaseTool, RenderIn, RiskLevel, ToolCategory
 
 logger = logging.getLogger(__name__)
 
+ToolValue: TypeAlias = object
+ToolSchema: TypeAlias = dict[str, Any]  # pyright: ignore[reportExplicitAny]
 
+
+class _FileInfo(TypedDict):
+    path: str
+    size: int
+    modified: float
+
+
+@final
 class WriteFileTool(BaseTool):
     """새 파일 생성 또는 덮어쓰기. 디렉토리가 없으면 자동 생성."""
 
@@ -27,6 +37,9 @@ class WriteFileTool(BaseTool):
     risk_level = RiskLevel.LOW
     icon = "📝"
     tags = ["file", "write", "create"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the WriteFileTool."""
@@ -52,6 +65,7 @@ class WriteFileTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -62,6 +76,7 @@ class WriteFileTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -72,7 +87,8 @@ class WriteFileTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -81,7 +97,8 @@ class WriteFileTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -91,8 +108,8 @@ class WriteFileTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path", "")
-        content = kwargs.get("content", "")
+        file_path = cast(str, kwargs.get("file_path", ""))
+        content = cast(str, kwargs.get("content", ""))
 
         try:
             dir_path = os.path.dirname(file_path)
@@ -100,7 +117,7 @@ class WriteFileTool(BaseTool):
                 os.makedirs(dir_path, exist_ok=True)
 
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
+                _ = f.write(content)
 
             return f"Successfully wrote {len(content)} chars to {file_path}"
         except Exception as e:
@@ -108,6 +125,7 @@ class WriteFileTool(BaseTool):
             return f"Error writing file: {e}"
 
 
+@final
 class CreateDirectoryTool(BaseTool):
     """새로운 디렉토리를 생성합니다."""
 
@@ -116,6 +134,9 @@ class CreateDirectoryTool(BaseTool):
     risk_level = RiskLevel.LOW
     icon = "📁"
     tags = ["file", "directory", "mkdir", "create"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the CreateDirectoryTool."""
@@ -137,6 +158,7 @@ class CreateDirectoryTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -147,6 +169,7 @@ class CreateDirectoryTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -157,7 +180,8 @@ class CreateDirectoryTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -166,7 +190,8 @@ class CreateDirectoryTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -176,7 +201,7 @@ class CreateDirectoryTool(BaseTool):
             Any: The any result.
 
         """
-        dir_path = kwargs.get("dir_path", "")
+        dir_path = cast(str, kwargs.get("dir_path", ""))
 
         try:
             os.makedirs(dir_path, exist_ok=True)
@@ -186,6 +211,7 @@ class CreateDirectoryTool(BaseTool):
             return f"Error creating directory: {e}"
 
 
+@final
 class EditFileTool(BaseTool):
     """Claw Code 스타일 diff 기반 정밀 편집.
 
@@ -197,6 +223,9 @@ class EditFileTool(BaseTool):
     risk_level = RiskLevel.LOW
     icon = "✂️"
     tags = ["file", "edit", "diff", "replace"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the EditFileTool."""
@@ -227,6 +256,7 @@ class EditFileTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -237,6 +267,7 @@ class EditFileTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -247,7 +278,8 @@ class EditFileTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -256,7 +288,8 @@ class EditFileTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -266,9 +299,9 @@ class EditFileTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path", "")
-        old_str = kwargs.get("old_str", "")
-        new_str = kwargs.get("new_str", "")
+        file_path = cast(str, kwargs.get("file_path", ""))
+        old_str = cast(str, kwargs.get("old_str", ""))
+        new_str = cast(str, kwargs.get("new_str", ""))
 
         if not os.path.exists(file_path):
             return f"Error: File not found: {file_path}"
@@ -282,7 +315,7 @@ class EditFileTool(BaseTool):
             if count == 1:
                 new_content = content.replace(old_str, new_str, 1)
                 with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
+                    _ = f.write(new_content)
                 old_lines = old_str.count("\n") + 1
                 new_lines = new_str.count("\n") + 1
                 return (
@@ -301,7 +334,7 @@ class EditFileTool(BaseTool):
             matched_content, match_info = self._fuzzy_replace(content, old_str, new_str)
             if matched_content is not None:
                 with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(matched_content)
+                    _ = f.write(matched_content)
                 return (
                     f"Successfully edited {file_path} (fuzzy match): "
                     f"{match_info}. "
@@ -347,7 +380,7 @@ class EditFileTool(BaseTool):
 
         # 슬라이딩 윈도우로 정규화된 content에서 매칭
         old_len = len(norm_old_lines)
-        matches = []
+        matches: list[int] = []
         for i in range(len(norm_content_lines) - old_len + 1):
             window = norm_content_lines[i : i + old_len]
             if window == norm_old_lines:
@@ -372,7 +405,7 @@ class EditFileTool(BaseTool):
                 first_new_indent_match = re.match(r"(\s*)", first_new)
                 first_new_indent = first_new_indent_match.group(1) if first_new_indent_match else ""
                 # 첫 라인이 base_indent와 같거나 더 깊으면 상대 들여쓰기 계산
-                new_lines_adjusted = []
+                new_lines_adjusted: list[str] = []
                 for j, line in enumerate(new_raw_lines):
                     line_indent_match = re.match(r"(\s*)", line)
                     line_indent = line_indent_match.group(1) if line_indent_match else ""
@@ -401,7 +434,7 @@ class EditFileTool(BaseTool):
 
             # content에서 old_str과 가장 유사한 라인 찾기
             target = normalize(old_str)
-            candidates = []
+            candidates: list[tuple[float, int]] = []
             for i, nline in enumerate(norm_content_lines):
                 if nline and target:
                     ratio = difflib.SequenceMatcher(None, target, nline).ratio()
@@ -438,7 +471,7 @@ class EditFileTool(BaseTool):
 
         target = re.sub(r"\s+", " ", lines[0].strip())
         content_lines = content.splitlines()
-        scored = []
+        scored: list[tuple[float, int, str]] = []
         for i, cline in enumerate(content_lines):
             norm = re.sub(r"\s+", " ", cline.strip())
             if norm and target:
@@ -455,6 +488,7 @@ class EditFileTool(BaseTool):
         return base_msg + "Verify whitespace/indentation matches exactly."
 
 
+@final
 class MultiReplaceFileContentTool(BaseTool):
     """한 파일에서 여러 개의 비연속적인 텍스트 영역을 정밀하게(라인 기반으로) 찾아 바꿉니다."""
 
@@ -463,6 +497,9 @@ class MultiReplaceFileContentTool(BaseTool):
     risk_level = RiskLevel.MEDIUM
     icon = "🛠️"
     tags = ["file", "edit", "multi", "replace", "refactor"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the MultiReplaceFileContentTool."""
@@ -508,6 +545,7 @@ class MultiReplaceFileContentTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -518,6 +556,7 @@ class MultiReplaceFileContentTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -528,7 +567,8 @@ class MultiReplaceFileContentTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -537,7 +577,8 @@ class MultiReplaceFileContentTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -547,9 +588,9 @@ class MultiReplaceFileContentTool(BaseTool):
             Any: The any result.
 
         """
-        file_path = kwargs.get("file_path", "")
+        file_path = cast(str, kwargs.get("file_path", ""))
         # Backward compatibility check
-        chunks = kwargs.get("ReplacementChunks", kwargs.get("chunks", []))
+        chunks = cast(list[dict[str, object]], kwargs.get("ReplacementChunks", kwargs.get("chunks", [])))
 
         if not os.path.exists(file_path):
             return f"Error: File not found: {file_path}"
@@ -564,10 +605,10 @@ class MultiReplaceFileContentTool(BaseTool):
 
             for idx, chunk in enumerate(chunks):
                 # Backwards compatible
-                target = chunk.get("TargetContent", chunk.get("old_str", ""))
-                replacement = chunk.get("ReplacementContent", chunk.get("new_str", ""))
-                start_line = chunk.get("StartLine", 1)
-                end_line = chunk.get("EndLine", len(lines))
+                target = cast(str, chunk.get("TargetContent", chunk.get("old_str", "")))
+                replacement = cast(str, chunk.get("ReplacementContent", chunk.get("new_str", "")))
+                start_line = cast(int, chunk.get("StartLine", 1))
+                end_line = cast(int, chunk.get("EndLine", len(lines)))
 
                 # If precise lines are given, scope the count check to those lines
                 # Convert 1-indexed to 0-indexed
@@ -592,7 +633,7 @@ class MultiReplaceFileContentTool(BaseTool):
                 lines[start_idx:end_idx] = [new_scoped_text]
 
                 with open(file_path, "w", encoding="utf-8") as f:
-                    f.write("".join(lines))
+                    _ = f.write("".join(lines))
 
             return f"Successfully applied {len(chunks)} replacements to {file_path}."
         except Exception as e:
@@ -600,6 +641,7 @@ class MultiReplaceFileContentTool(BaseTool):
             return f"Error applying multi-replace: {e}"
 
 
+@final
 class ApplyPatchTool(BaseTool):
     """apply_patch 포맷을 파싱하여 다중 파일에 정밀 패치 적용 (P0-1).
 
@@ -613,6 +655,9 @@ class ApplyPatchTool(BaseTool):
     risk_level = RiskLevel.MEDIUM
     icon = "🔧"
     tags = ["file", "edit", "patch", "diff", "multi-file"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the ApplyPatchTool."""
@@ -642,18 +687,22 @@ class ApplyPatchTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -663,7 +712,7 @@ class ApplyPatchTool(BaseTool):
             Any: The any result.
 
         """
-        patch_text = kwargs.get("patch", "")
+        patch_text = cast(str, kwargs.get("patch", ""))
         if not patch_text.strip():
             return "Error: patch is empty"
 
@@ -689,7 +738,7 @@ class ApplyPatchTool(BaseTool):
                     continue
                 os.makedirs(os.path.dirname(patch.file_path) or ".", exist_ok=True)
                 with open(patch.file_path, "w", encoding="utf-8") as f:
-                    f.write("\n".join(patch.new_file_content))
+                    _ = f.write("\n".join(patch.new_file_content))
                 results.append(f"CREATED {patch.file_path}")
                 continue
 
@@ -712,7 +761,7 @@ class ApplyPatchTool(BaseTool):
             result = engine.apply_patch(patch, content)
             if result.success:
                 with open(patch.file_path, "w", encoding="utf-8") as f:
-                    f.write(result.new_content)
+                    _ = f.write(result.new_content)
                 fuzzy_tag = f" (fuzzy: {result.fuzzy_matches})" if result.is_fuzzy else ""
                 results.append(f"OK {patch.file_path}: {result.hunks_applied}/{result.hunks_total} hunks{fuzzy_tag}")
             else:
@@ -727,6 +776,7 @@ class ApplyPatchTool(BaseTool):
         return summary + "\n" + "\n".join(results)
 
 
+@final
 class GlobSearchTool(BaseTool):
     """파일 패턴 검색 (수정 시간순 정렬).
 
@@ -738,6 +788,9 @@ class GlobSearchTool(BaseTool):
     risk_level = RiskLevel.SAFE
     icon = "🔍"
     tags = ["search", "glob", "files", "find"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the GlobSearchTool."""
@@ -770,6 +823,7 @@ class GlobSearchTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -780,6 +834,7 @@ class GlobSearchTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -790,7 +845,8 @@ class GlobSearchTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -799,7 +855,8 @@ class GlobSearchTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -809,16 +866,16 @@ class GlobSearchTool(BaseTool):
             Any: The any result.
 
         """
-        pattern = kwargs.get("pattern", "")
-        root = kwargs.get("root", ".")
-        max_results = kwargs.get("max_results", 50)
+        pattern = cast(str, kwargs.get("pattern", ""))
+        root = cast(str, kwargs.get("root", "."))
+        max_results = cast(int, kwargs.get("max_results", 50))
 
         try:
             full_pattern = os.path.join(root, pattern)
             matches = glob_module.glob(full_pattern, recursive=True)
 
             # 수정 시간순 정렬 (최신 우선) — Claw Code 패턴
-            file_info = []
+            file_info: list[_FileInfo] = []
             for m in matches:
                 try:
                     mtime = os.path.getmtime(m)
@@ -858,6 +915,7 @@ class GlobSearchTool(BaseTool):
         return f"{size:.0f}TB"
 
 
+@final
 class GrepSearchTool(BaseTool):
     """코드 내 텍스트/정규식 검색.
 
@@ -869,6 +927,9 @@ class GrepSearchTool(BaseTool):
     risk_level = RiskLevel.SAFE
     icon = "🔎"
     tags = ["search", "grep", "text", "regex"]
+    _name: str
+    _description: str
+    _schema: ToolSchema
 
     def __init__(self):
         """Initialize the GrepSearchTool."""
@@ -910,6 +971,7 @@ class GrepSearchTool(BaseTool):
         }
 
     @property
+    @override
     def name(self) -> str:
         """Name.
 
@@ -920,6 +982,7 @@ class GrepSearchTool(BaseTool):
         return self._name
 
     @property
+    @override
     def description(self) -> str:
         """Description.
 
@@ -930,7 +993,8 @@ class GrepSearchTool(BaseTool):
         return self._description
 
     @property
-    def parameters_schema(self) -> dict[str, Any]:
+    @override
+    def parameters_schema(self) -> ToolSchema:
         """Parameters Schema.
 
         Returns:
@@ -939,7 +1003,8 @@ class GrepSearchTool(BaseTool):
         """
         return self._schema
 
-    def execute(self, **kwargs) -> Any:
+    @override
+    def execute(self, **kwargs: ToolValue) -> str:
         """Execute.
 
         Args:
@@ -949,11 +1014,11 @@ class GrepSearchTool(BaseTool):
             Any: The any result.
 
         """
-        query = kwargs.get("query", "")
-        path = kwargs.get("path", ".")
-        include = kwargs.get("include", "")
-        max_results = kwargs.get("max_results", 30)
-        is_regex = kwargs.get("is_regex", False)
+        query = cast(str, kwargs.get("query", ""))
+        path = cast(str, kwargs.get("path", "."))
+        include = cast(str, kwargs.get("include", ""))
+        max_results = cast(int, kwargs.get("max_results", 30))
+        is_regex = cast(bool, kwargs.get("is_regex", False))
 
         if not query:
             return "Error: No search query provided."

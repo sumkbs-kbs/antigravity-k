@@ -6,6 +6,10 @@ _load_current_system_prompt, get_report, render_markdown_report, last_result.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+from typing import cast
+
 from antigravity_k.engine.self_evolution_coordinator import (
     EvolutionDecision,
     EvolutionHistory,
@@ -15,6 +19,24 @@ from antigravity_k.engine.self_evolution_coordinator import (
     PerformanceSnapshot,
     SelfEvolutionCoordinator,
 )
+
+
+def _history(coord: SelfEvolutionCoordinator) -> list[EvolutionHistory]:
+    return cast(list[EvolutionHistory], getattr(coord, "_history"))
+
+
+def _deterministic_validate(filepath: str, content: str) -> dict[str, object]:
+    validate = cast(
+        Callable[[str, str], dict[str, object]],
+        cast(object, getattr(SelfEvolutionCoordinator, "_deterministic_validate")),
+    )
+    return validate(filepath, content)
+
+
+def _load_prompt(coord: SelfEvolutionCoordinator) -> str:
+    load = cast(Callable[[], str], cast(object, getattr(coord, "_load_current_system_prompt")))
+    return load()
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -55,7 +77,11 @@ class TestEvolutionResultSummary:
         assert "🔄" in result.summary
         assert "AST parse failed" in result.summary
 
-    def test_success(self, mutation_domain=MutationDomain.SYSTEM_PROMPT, improvement=0.12):
+    def test_success(
+        self,
+        mutation_domain: MutationDomain = MutationDomain.SYSTEM_PROMPT,
+        improvement: float = 0.12,
+    ):
         result = EvolutionResult(success=True, mutation_domain=mutation_domain, improvement=improvement)
         assert "✅" in result.summary
         assert "+0.12" in result.summary
@@ -117,19 +143,19 @@ class TestEvolutionHistory:
 class TestCoordinatorInit:
     def test_default_init(self):
         coord = SelfEvolutionCoordinator()
-        assert coord._history == []
-        assert coord._last_evolution_time == 0.0
-        assert coord._turns_since_last_evolution == 0
-        assert coord._deps_initialized is False
-        assert coord._verify_fn is None
+        assert _history(coord) == []
+        assert cast(float, getattr(coord, "_last_evolution_time")) == 0.0
+        assert cast(int, getattr(coord, "_turns_since_last_evolution")) == 0
+        assert cast(bool, getattr(coord, "_deps_initialized")) is False
+        assert cast(object, getattr(coord, "_verify_fn")) is None
 
     def test_custom_init(self):
         coord = SelfEvolutionCoordinator(
             project_root="/tmp/test",
             verify_fn=lambda x: "verified",
         )
-        assert coord._root == "/tmp/test"
-        assert coord._verify_fn is not None
+        assert cast(str, getattr(coord, "_root")) == "/tmp/test"
+        assert cast(object, getattr(coord, "_verify_fn")) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -145,25 +171,25 @@ class TestShouldEvolve:
 
     def test_grade_c_returns_true_when_cooldown_passed(self):
         coord = SelfEvolutionCoordinator()
-        coord._last_evolution_time = 0  # never evolved
-        coord._turns_since_last_evolution = 10  # enough turns passed
+        setattr(coord, "_last_evolution_time", 0)  # never evolved
+        setattr(coord, "_turns_since_last_evolution", 10)  # enough turns passed
         assert coord.should_evolve("C") is True
 
     def test_grade_f_returns_true_when_cooldown_passed(self):
         coord = SelfEvolutionCoordinator()
-        coord._last_evolution_time = 0
-        coord._turns_since_last_evolution = 5
+        setattr(coord, "_last_evolution_time", 0)
+        setattr(coord, "_turns_since_last_evolution", 5)
         assert coord.should_evolve("F") is True
 
     def test_cooldown_turns_not_met_returns_false(self):
         coord = SelfEvolutionCoordinator()
-        coord._last_evolution_time = 0
-        coord._turns_since_last_evolution = 1  # less than EVOLUTION_COOLDOWN_TURNS (3)
+        setattr(coord, "_last_evolution_time", 0)
+        setattr(coord, "_turns_since_last_evolution", 1)  # less than EVOLUTION_COOLDOWN_TURNS (3)
         assert coord.should_evolve("C") is False
 
     def test_retry_and_fail_grades(self):
         coord = SelfEvolutionCoordinator()
-        coord._turns_since_last_evolution = 10
+        setattr(coord, "_turns_since_last_evolution", 10)
         assert coord.should_evolve("retry") is True
         assert coord.should_evolve("fail") is True
 
@@ -178,17 +204,17 @@ class TestRecordPerformance:
         coord = SelfEvolutionCoordinator()
         snap = PerformanceSnapshot(user_message="hello", quality_grade="C", quality_score=0.5)
         coord.record_performance(snap)
-        assert len(coord._history) == 1
-        assert coord._history[0].snapshot.user_message == "hello"
-        assert coord._turns_since_last_evolution == 1
+        assert len(_history(coord)) == 1
+        assert _history(coord)[0].snapshot.user_message == "hello"
+        assert cast(int, getattr(coord, "_turns_since_last_evolution")) == 1
 
     def test_max_history_size(self):
         coord = SelfEvolutionCoordinator()
         for i in range(25):
             coord.record_performance(PerformanceSnapshot(user_message=f"msg{i}"))
-        assert len(coord._history) <= coord.MAX_HISTORY_SIZE
+        assert len(_history(coord)) <= coord.MAX_HISTORY_SIZE
         # oldest entries should be removed (keeps last 20 of 25 = msg5 through msg24)
-        assert coord._history[0].snapshot.user_message == "msg5"
+        assert _history(coord)[0].snapshot.user_message == "msg5"
 
 
 # ---------------------------------------------------------------------------
@@ -198,41 +224,45 @@ class TestRecordPerformance:
 
 class TestDeterministicValidate:
     def test_empty_content(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("test.py", "")
+        r = _deterministic_validate("test.py", "")
         assert r["passed"] is False
-        assert "비어 있음" in r["reason"]
+        reason = r["reason"]
+        assert isinstance(reason, str)
+        assert "비어 있음" in reason
 
     def test_valid_python(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("test.py", "x = 1\ny = x + 1")
+        r = _deterministic_validate("test.py", "x = 1\ny = x + 1")
         assert r["passed"] is True
 
     def test_invalid_python(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("test.py", "if True")
+        r = _deterministic_validate("test.py", "if True")
         assert r["passed"] is False
-        assert "문법 오류" in r["reason"]
+        reason = r["reason"]
+        assert isinstance(reason, str)
+        assert "문법 오류" in reason
 
     def test_valid_yaml(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("config.yaml", "key: value\nnested:\n  sub: 42")
+        r = _deterministic_validate("config.yaml", "key: value\nnested:\n  sub: 42")
         assert r["passed"] is True
 
     def test_invalid_yaml(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("config.yaml", "key: : broken")
+        r = _deterministic_validate("config.yaml", "key: : broken")
         assert r["passed"] is False
 
     def test_valid_json(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("data.json", '{"key": "value", "num": 42}')
+        r = _deterministic_validate("data.json", '{"key": "value", "num": 42}')
         assert r["passed"] is True
 
     def test_invalid_json(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("data.json", "{key: value}")
+        r = _deterministic_validate("data.json", "{key: value}")
         assert r["passed"] is False
 
     def test_unknown_extension_passes(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("readme.md", "# Hello")
+        r = _deterministic_validate("readme.md", "# Hello")
         assert r["passed"] is True
 
     def test_whitespace_only_fails(self):
-        r = SelfEvolutionCoordinator._deterministic_validate("test.py", "   \n  \n")
+        r = _deterministic_validate("test.py", "   \n  \n")
         assert r["passed"] is False
 
 
@@ -242,19 +272,19 @@ class TestDeterministicValidate:
 
 
 class TestLoadSystemPrompt:
-    def test_file_not_found_returns_fallback(self, tmp_path):
+    def test_file_not_found_returns_fallback(self, tmp_path: Path):
         coord = SelfEvolutionCoordinator(project_root=str(tmp_path))
-        result = coord._load_current_system_prompt()
-        assert "Antigravity-K" in result
+        result = _load_prompt(coord)
+        assert "Ssak-Ai" in result
         assert "Apple Silicon" in result
         assert len(result) > 50
 
-    def test_loads_from_system_prompt_md(self, tmp_path):
+    def test_loads_from_system_prompt_md(self, tmp_path: Path):
         prompt_dir = tmp_path / "prompts"
         prompt_dir.mkdir()
-        (prompt_dir / "system_prompt.md").write_text("Custom system prompt content", encoding="utf-8")
+        _ = (prompt_dir / "system_prompt.md").write_text("Custom system prompt content", encoding="utf-8")
         coord = SelfEvolutionCoordinator(project_root=str(tmp_path))
-        result = coord._load_current_system_prompt()
+        result = _load_prompt(coord)
         assert result == "Custom system prompt content"
 
 
@@ -275,7 +305,7 @@ class TestReport:
         snap = PerformanceSnapshot(quality_grade="C", quality_score=0.5)
         coord.record_performance(snap)
         result = EvolutionResult(success=True, mutation_domain=MutationDomain.SYSTEM_PROMPT, improvement=0.1)
-        coord._history[-1].result = result
+        _history(coord)[-1].result = result
         report = coord.get_report()
         assert report["total_evolutions"] == 1  # non-skipped result
         assert report["recent_successes"] == 1
@@ -294,6 +324,6 @@ class TestReport:
         coord = SelfEvolutionCoordinator()
         coord.record_performance(PerformanceSnapshot())
         result = EvolutionResult(success=True, improvement=0.15)
-        coord._history[-1].result = result
+        _history(coord)[-1].result = result
         assert coord.last_result is not None
         assert coord.last_result.improvement == 0.15

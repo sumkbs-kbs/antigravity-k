@@ -41,8 +41,8 @@ class TransactionResult:
 class AtomicTransactionEngine:
     """Manages transactional safety for multi-file modifications."""
 
-    def __init__(self, project_root: str | Path):
-        self.project_root = Path(project_root).resolve()
+    def __init__(self, project_root: str | Path) -> None:
+        self.project_root: Path = Path(project_root).resolve()
         self._active_ops: list[FilePatchOp] = []
 
     def stage_file_patch(self, rel_path: str, new_content: str) -> None:
@@ -79,7 +79,7 @@ class AtomicTransactionEngine:
             for op in self._active_ops:
                 full_p = self.project_root / op.file_path
                 full_p.parent.mkdir(parents=True, exist_ok=True)
-                full_p.write_text(op.new_content, encoding="utf-8")
+                _ = full_p.write_text(op.new_content, encoding="utf-8")
                 written_files.append(op)
 
             # Transaction successful
@@ -93,7 +93,7 @@ class AtomicTransactionEngine:
             for op in written_files:
                 full_p = self.project_root / op.file_path
                 if op.original_content:
-                    full_p.write_text(op.original_content, encoding="utf-8")
+                    _ = full_p.write_text(op.original_content, encoding="utf-8")
                 elif full_p.exists():
                     full_p.unlink()
 

@@ -1,5 +1,7 @@
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from typing import cast, override
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,12 +20,15 @@ from antigravity_k.engine.project_memory import ProjectMemoryProvider
 
 class _NoDeleteProvider(MemoryProvider):
     @property
+    @override
     def name(self) -> str:
         return "plain"
 
+    @override
     def prefetch(self, query: str, session_id: str | None = None) -> str:
         return ""
 
+    @override
     def sync_turn(
         self,
         user_message: str,
@@ -32,6 +37,25 @@ class _NoDeleteProvider(MemoryProvider):
         metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         return None
+
+
+class _CallSpy:
+    def __init__(self, return_value: object = None) -> None:
+        self.return_value: object = return_value
+        self.calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        self.calls.append((args, kwargs))
+        return self.return_value
+
+    def assert_called_with(self, *args: object, **kwargs: object) -> None:
+        assert self.calls and self.calls[-1] == (args, kwargs)
+
+
+class _MemoryManagerDouble:
+    def __init__(self, ranked_facts: list[tuple[MemoryFact, float]]) -> None:
+        self.ranked_facts: _CallSpy = _CallSpy(ranked_facts)
+        self.delete_entry: _CallSpy = _CallSpy(True)
 
 
 def test_project_delete_entry(tmp_path: Path) -> None:
@@ -125,12 +149,11 @@ def test_manager_ranked_facts(tmp_path: Path) -> None:
 
 
 @pytest.fixture
-def memory_client():
+def memory_client() -> Iterator[tuple[TestClient, _MemoryManagerDouble]]:
     from antigravity_k.api.server import app
     from antigravity_k.config import config
 
-    fake_manager = MagicMock()
-    fake_manager.ranked_facts.return_value = [
+    fake_manager = _MemoryManagerDouble([
         (
             MemoryFact(
                 key="identity:name",
@@ -141,9 +164,8 @@ def memory_client():
                 observed_at=1000.0,
             ),
             81.25,
-        )
-    ]
-    fake_manager.delete_entry.return_value = True
+        ),
+    ])
     with patch("antigravity_k.api.routes.system_api._get_memory_manager", return_value=fake_manager):
         with TestClient(app) as client:
             if config.security.access_pin:
@@ -151,28 +173,29 @@ def memory_client():
             yield client, fake_manager
 
 
-def test_ranked_memory_facts_endpoint(memory_client) -> None:
+def test_ranked_memory_facts_endpoint(memory_client: tuple[TestClient, _MemoryManagerDouble]) -> None:
     client, fake_manager = memory_client
     response = client.get("/api/memory/ranked")
     assert response.status_code == 200
-    body = response.json()
-    assert len(body["facts"]) == 1
-    fact = body["facts"][0]
+    body = cast(dict[str, object], response.json())
+    facts = cast(list[dict[str, object]], body["facts"])
+    assert len(facts) == 1
+    fact = facts[0]
     assert fact["key"] == "identity:name"
     assert fact["authority"] == 80
     assert fact["score"] == 81.25
     fake_manager.ranked_facts.assert_called_with(top_k=20)
 
 
-def test_ranked_memory_facts_clamps_top_k(memory_client) -> None:
+def test_ranked_memory_facts_clamps_top_k(memory_client: tuple[TestClient, _MemoryManagerDouble]) -> None:
     client, fake_manager = memory_client
-    client.get("/api/memory/ranked?top_k=0")
+    _ = client.get("/api/memory/ranked?top_k=0")
     fake_manager.ranked_facts.assert_called_with(top_k=1)
-    client.get("/api/memory/ranked?top_k=999")
+    _ = client.get("/api/memory/ranked?top_k=999")
     fake_manager.ranked_facts.assert_called_with(top_k=100)
 
 
-def test_delete_memory_entry_endpoint(memory_client) -> None:
+def test_delete_memory_entry_endpoint(memory_client: tuple[TestClient, _MemoryManagerDouble]) -> None:
     client, fake_manager = memory_client
     response = client.delete("/api/memory/entries?provider=project&key=decision:db")
     assert response.status_code == 200
@@ -180,7 +203,7 @@ def test_delete_memory_entry_endpoint(memory_client) -> None:
     fake_manager.delete_entry.assert_called_with("project", "decision:db")
 
 
-def test_delete_memory_entry_not_found(memory_client) -> None:
+def test_delete_memory_entry_not_found(memory_client: tuple[TestClient, _MemoryManagerDouble]) -> None:
     client, fake_manager = memory_client
     fake_manager.delete_entry.return_value = False
     response = client.delete("/api/memory/entries?provider=global&key=identity:missing")

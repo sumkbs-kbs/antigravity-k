@@ -38,7 +38,7 @@ def run_flight_doctor_tests():
         fast_path_latency_ms=1.8,
     )
     panel = FlightDeckRenderer.render_panel(state)
-    if panel and "FLIGHT DECK" in panel.title:
+    if panel and "FLIGHT DECK" in str(panel.title or ""):
         print("  ✅ Flight Deck panel rendered cleanly with real-time telemetry")
         passed += 1
     else:
@@ -59,7 +59,7 @@ def run_flight_doctor_tests():
             print("  ❌ Doctor check failed")
 
     print("\n" + "=" * 75)
-    print(f"🏆 FLIGHT DECK & DOCTOR SCORE: {passed}/{total} ({(passed/total)*100:.0f}%)")
+    print(f"🏆 FLIGHT DECK & DOCTOR SCORE: {passed}/{total} ({(passed / total) * 100:.0f}%)")
     print("=" * 75)
     return passed == total
 

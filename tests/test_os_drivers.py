@@ -19,46 +19,46 @@ class TestStubMouseDriver:
     def test_move_records_action(self):
         driver = StubMouseDriver()
         driver.move(100, 200, duration=0.5)
-        assert driver.last_action == ("move", 100, 200)
+        assert getattr(driver, "last_action", None) == ("move", 100, 200)
 
     def test_move_default_duration(self):
         driver = StubMouseDriver()
         driver.move(50, 60)
-        assert driver.last_action == ("move", 50, 60)
+        assert getattr(driver, "last_action", None) == ("move", 50, 60)
 
     def test_click_default_button(self):
         driver = StubMouseDriver()
         driver.click(10, 20)
-        assert driver.last_action == ("click", 10, 20, "left")
+        assert getattr(driver, "last_action", None) == ("click", 10, 20, "left")
 
     def test_click_right_button(self):
         driver = StubMouseDriver()
         driver.click(10, 20, button="right")
-        assert driver.last_action == ("click", 10, 20, "right")
+        assert getattr(driver, "last_action", None) == ("click", 10, 20, "right")
 
     def test_double_click(self):
         driver = StubMouseDriver()
         driver.double_click(30, 40)
-        assert driver.last_action == ("double_click", 30, 40)
+        assert getattr(driver, "last_action", None) == ("double_click", 30, 40)
 
     def test_drag(self):
         driver = StubMouseDriver()
         driver.drag(0, 0, 100, 100, duration=1.0)
-        assert driver.last_action == ("drag", 0, 0, 100, 100)
+        assert getattr(driver, "last_action", None) == ("drag", 0, 0, 100, 100)
 
     def test_scroll_default(self):
         driver = StubMouseDriver()
         driver.scroll(50, 50)
-        assert driver.last_action == ("scroll", 50, 50, "down", 3)
+        assert getattr(driver, "last_action", None) == ("scroll", 50, 50, "down", 3)
 
     def test_scroll_up(self):
         driver = StubMouseDriver()
         driver.scroll(50, 50, direction="up", amount=5)
-        assert driver.last_action == ("scroll", 50, 50, "up", 5)
+        assert getattr(driver, "last_action", None) == ("scroll", 50, 50, "up", 5)
 
     def test_initial_last_action_is_none(self):
         driver = StubMouseDriver()
-        assert driver.last_action is None
+        assert getattr(driver, "last_action", None) is None
 
 
 class TestStubKeyboardDriver:
@@ -67,26 +67,26 @@ class TestStubKeyboardDriver:
     def test_type_text(self):
         driver = StubKeyboardDriver()
         driver.type_text("hello", interval=0.1)
-        assert driver.last_action == ("type", "hello")
+        assert getattr(driver, "last_action", None) == ("type", "hello")
 
     def test_press_key(self):
         driver = StubKeyboardDriver()
         driver.press_key("enter")
-        assert driver.last_action == ("press", "enter")
+        assert getattr(driver, "last_action", None) == ("press", "enter")
 
     def test_hotkey(self):
         driver = StubKeyboardDriver()
         driver.hotkey("ctrl", "c")
-        assert driver.last_action == ("hotkey", ("ctrl", "c"))
+        assert getattr(driver, "last_action", None) == ("hotkey", ("ctrl", "c"))
 
     def test_hold_key(self):
         driver = StubKeyboardDriver()
         driver.hold_key("shift", duration=2.0)
-        assert driver.last_action == ("hold_key", "shift", 2.0)
+        assert getattr(driver, "last_action", None) == ("hold_key", "shift", 2.0)
 
     def test_initial_last_action_is_none(self):
         driver = StubKeyboardDriver()
-        assert driver.last_action is None
+        assert getattr(driver, "last_action", None) is None
 
 
 class TestStubScreenDriver:
@@ -132,9 +132,9 @@ class TestDriverSet:
             screen=StubScreenDriver(),
         )
         ds.mouse.move(1, 2)
-        assert ds.mouse.last_action == ("move", 1, 2)
+        assert getattr(ds.mouse, "last_action", None) == ("move", 1, 2)
         ds.keyboard.press_key("tab")
-        assert ds.keyboard.last_action == ("press", "tab")
+        assert getattr(ds.keyboard, "last_action", None) == ("press", "tab")
         assert ds.screen.get_screen_size() == (1920, 1080)
 
 
@@ -150,9 +150,11 @@ class TestGetDriverSet:
     def test_stub_drivers_are_functional(self):
         ds = get_driver_set(force_stub=True)
         ds.mouse.click(100, 100)
-        assert ds.mouse.last_action[0] == "click"
+        last_action = getattr(ds.mouse, "last_action", None)
+        assert last_action is not None
+        assert last_action[0] == "click"
         ds.keyboard.type_text("test")
-        assert ds.keyboard.last_action == ("type", "test")
+        assert getattr(ds.keyboard, "last_action", None) == ("type", "test")
         assert ds.screen.get_screen_size() == (1920, 1080)
 
     @mock.patch("antigravity_k.tools.os_drivers.sys.platform", "linux")
@@ -164,7 +166,7 @@ class TestGetDriverSet:
     @mock.patch("antigravity_k.tools.os_drivers.WindowsKeyboardDriver", side_effect=ImportError("mocked"))
     @mock.patch("antigravity_k.tools.os_drivers.WindowsScreenDriver", side_effect=ImportError("mocked"))
     @mock.patch("antigravity_k.tools.os_drivers.sys.platform", "win32")
-    def test_windows_falls_back_to_stub(self, *_mocks):
+    def test_windows_falls_back_to_stub(self, *_mocks: object):
         ds = get_driver_set(force_stub=False)
         assert isinstance(ds.mouse, StubMouseDriver)
         assert isinstance(ds.keyboard, StubKeyboardDriver)

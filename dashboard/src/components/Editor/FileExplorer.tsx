@@ -26,9 +26,14 @@ const NewFolderModal: React.FC<NewFolderModalProps> = ({ visible, onClose, onCre
 
   useEffect(() => {
     if (visible) {
-      setName('');
-      setTimeout(() => inputRef.current?.focus(), 50);
+      const resetTimer = setTimeout(() => setName(''), 0);
+      const focusTimer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => {
+        clearTimeout(resetTimer);
+        clearTimeout(focusTimer);
+      };
     }
+    return undefined;
   }, [visible]);
 
   const handleCreate = async () => {
@@ -62,19 +67,21 @@ const NewFolderModal: React.FC<NewFolderModalProps> = ({ visible, onClose, onCre
           }}
         >
           <h3 style={{ margin: 0, fontSize: 14 }}>📁 새 폴더</h3>
-          <button className="icon-btn" onClick={onClose} style={{ color: 'var(--text-secondary)' }}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="새 폴더 대화상자 닫기" style={{ color: 'var(--text-secondary)' }}>✕</button>
         </div>
         <div style={{ padding: 16 }}>
-          <label style={{ display: 'block', marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <label htmlFor="new-folder-name" style={{ display: 'block', marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
             새로 생성할 폴더 이름을 입력하세요 (워크스페이스 기준):
           </label>
           <input
             ref={inputRef}
+            id="new-folder-name"
             type="text"
             value={name}
             onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleCreate()}
             placeholder="새 폴더"
+            aria-label="새 폴더 이름"
             style={{
               width: '100%',
               padding: 8,
@@ -133,7 +140,7 @@ const NewFolderModal: React.FC<NewFolderModalProps> = ({ visible, onClose, onCre
 };
 
 const FileExplorer: React.FC = () => {
-  const { refreshTree, createFolder, loadDirectory, getWorkspace } = useFileStore();
+  const { refreshTree, createFolder, getWorkspace } = useFileStore();
   const { openFiles, saveFile } = useEditorStore();
   const { setFolderBrowserVisible, addToast } = useUiStore();
   const [showNewFolder, setShowNewFolder] = useState(false);
@@ -163,14 +170,15 @@ const FileExplorer: React.FC = () => {
   const handleIndexWorkspace = async () => {
     try {
       const res = await fetch('/api/workspace/ingest', { method: 'POST' });
+      if (!res.ok) throw new Error(`Workspace indexing failed (${res.status})`);
       const data = await res.json();
       if (data.ok) {
         addToast('🧠 워크스페이스 인덱싱 시작됨', 'info');
       } else {
         addToast(`인덱싱 실패: ${data.detail}`, 'error');
       }
-    } catch (err: any) {
-      addToast(`오류: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      addToast(`오류: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   };
 
@@ -182,11 +190,14 @@ const FileExplorer: React.FC = () => {
     }
     setSavingAll(true);
     let successCount = 0;
-    for (const file of dirtyFiles) {
-      const ok = await saveFile(file.path);
-      if (ok) successCount++;
+    try {
+      for (const file of dirtyFiles) {
+        const ok = await saveFile(file.path);
+        if (ok) successCount++;
+      }
+    } finally {
+      setSavingAll(false);
     }
-    setSavingAll(false);
     addToast(`💾 ${successCount}/${dirtyFiles.length} 파일 저장됨`, successCount === dirtyFiles.length ? 'success' : 'error');
   };
 
@@ -277,7 +288,7 @@ const FileExplorer: React.FC = () => {
           <SearchPanel visible={showSearch} onClose={() => setShowSearch(false)} />
         </div>
       ) : (
-        <div className="file-tree" style={{ flex: 1, overflow: 'auto' }}>
+        <div className="file-tree" tabIndex={0} aria-label="파일 트리 스크롤 영역" style={{ flex: 1, overflow: 'auto' }}>
           <FileTree />
         </div>
       )}

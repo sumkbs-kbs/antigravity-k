@@ -1,14 +1,14 @@
 ---
 name: expose-tunnel
 description: |
-  Automates the exposure of Antigravity-K to the public internet using Cloudflare Zero Trust Tunnels.
+  Automates the exposure of Ssak-Ai to the public internet using Cloudflare Zero Trust Tunnels.
   Handles cloudflared installation, DNS routing, and interactive user guidance for nameserver setup.
   Use when the user asks to "expose the app to the internet", "setup cloudflare tunnel", or "make it globally accessible".
 ---
 
 # Expose Tunnel Skill
 
-This skill allows Antigravity-K to automatically set up a Cloudflare Tunnel, mapping `localhost:5173` to a public domain with an optional PIN security layer.
+This skill allows Ssak-Ai to automatically set up a Cloudflare Tunnel, mapping `localhost:5173` to a public domain with an optional PIN security layer.
 
 ## How to use this skill
 

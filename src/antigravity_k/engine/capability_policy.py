@@ -1,6 +1,6 @@
 """Autonomous capability policy.
 
-Antigravity-K can see many capability sources: built-in tools, MCP tools,
+Ssak-Ai can see many capability sources: built-in tools, MCP tools,
 skills, local shell access, browser/DOM control, external brains, and desktop
 automation.  This module gives them one decision language so the agent can use
 safe capabilities by itself while escalating risky actions.
@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Protocol, cast
 
 RISK_ORDER = {
     "safe": 0,
@@ -47,10 +47,10 @@ class MetadataTool(Protocol):
     Bases: Protocol
     """
 
-    name: str
-    risk_level: Any
+    @property
+    def name(self) -> str: ...
 
-    def to_metadata(self) -> dict[str, Any]: ...
+    def to_metadata(self) -> Mapping[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -114,9 +114,9 @@ class AutonomousCapabilityPolicy:
             allow_critical_autonomy (bool): bool allow critical autonomy.
 
         """
-        self.project_root = os.path.abspath(project_root or os.getcwd())
-        self.max_autonomous_risk = max_autonomous_risk
-        self.allow_critical_autonomy = allow_critical_autonomy
+        self.project_root: str = os.path.abspath(project_root or os.getcwd())
+        self.max_autonomous_risk: str = max_autonomous_risk
+        self.allow_critical_autonomy: bool = allow_critical_autonomy
 
     def set_project_root(self, project_root: str) -> None:
         """Set project root.
@@ -129,8 +129,8 @@ class AutonomousCapabilityPolicy:
 
     def decide_tool(
         self,
-        tool: Any,
-        args: Mapping[str, Any] | None = None,
+        tool: MetadataTool,
+        args: Mapping[str, object] | None = None,
         objective: str = "",
     ) -> CapabilityDecision:
         """Decide Tool.
@@ -144,13 +144,13 @@ class AutonomousCapabilityPolicy:
             CapabilityDecision: The capabilitydecision result.
 
         """
-        metadata = tool.to_metadata() or {}
+        metadata = dict(tool.to_metadata() or {})
         risk = str(metadata.get("risk_level") or "medium")
         mcp_raw = metadata.get("mcp")
-        mcp: dict[str, Any] = dict(mcp_raw) if isinstance(mcp_raw, Mapping) else {}
+        mcp: dict[str, object] = dict(cast(Mapping[str, object], mcp_raw)) if isinstance(mcp_raw, Mapping) else {}
         mcp_trust = mcp.get("trust_level")
         trust = str(mcp_trust or metadata.get("trust_level") or "builtin")
-        capability_id = str(metadata.get("name") or getattr(tool, "name", "tool"))
+        capability_id = str(metadata.get("name") or tool.name)
 
         if mcp and mcp.get("remote") and not mcp.get("authenticated"):
             return CapabilityDecision(
@@ -221,7 +221,7 @@ class AutonomousCapabilityPolicy:
     def decide_skill(
         self,
         skill_id: str,
-        skill: Mapping[str, Any],
+        skill: Mapping[str, object],
         objective: str,
     ) -> CapabilityDecision:
         """Decide Skill.
@@ -268,7 +268,7 @@ class AutonomousCapabilityPolicy:
             evidence=["skill_relevance", "skill_risk"],
         )
 
-    def score_skill(self, skill_id: str, skill: Mapping[str, Any], objective: str) -> float:
+    def score_skill(self, skill_id: str, skill: Mapping[str, object], objective: str) -> float:
         """Score Skill.
 
         Args:
@@ -286,7 +286,7 @@ class AutonomousCapabilityPolicy:
 
         name = str(skill.get("name") or skill_id)
         description = str(skill.get("description") or "")
-        tags = " ".join(str(tag) for tag in skill.get("tags", []) or [])
+        tags = " ".join(_string_values(skill.get("tags")))
         preview = str(skill.get("content") or "")[:1000]
         haystack = f"{skill_id} {name} {description} {tags} {preview}".lower()
 
@@ -331,7 +331,7 @@ class AutonomousCapabilityPolicy:
     def _is_trusted(self, trust_level: str) -> bool:
         return trust_level.lower() in SAFE_TRUST_LEVELS
 
-    def _has_high_risk_intent(self, objective: str, args: Mapping[str, Any] | None) -> bool:
+    def _has_high_risk_intent(self, objective: str, args: Mapping[str, object] | None) -> bool:
         text = objective.lower()
         if args:
             text += " " + " ".join(str(value).lower() for value in args.values())
@@ -339,7 +339,7 @@ class AutonomousCapabilityPolicy:
 
 
 def _normalize_tokens(text: str) -> set[str]:
-    tokens = re.findall(r"[a-zA-Z0-9_가-힣-]{2,}", text.lower())
+    tokens = cast(list[str], re.findall(r"[a-zA-Z0-9_가-힣-]{2,}", text.lower()))
     stopwords = {
         "the",
         "and",
@@ -356,3 +356,16 @@ def _normalize_tokens(text: str) -> set[str]:
         "관련",
     }
     return {token for token in tokens if token not in stopwords}
+
+
+def _string_values(value: object) -> list[str]:
+    items: Iterable[object]
+    if isinstance(value, list):
+        items = cast(list[object], value)
+    elif isinstance(value, tuple):
+        items = cast(tuple[object, ...], value)
+    elif isinstance(value, set):
+        items = cast(set[object], value)
+    else:
+        return []
+    return [str(item) for item in items]

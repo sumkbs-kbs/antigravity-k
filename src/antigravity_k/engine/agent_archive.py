@@ -1,4 +1,4 @@
-"""Antigravity-K: Agent Archive (에이전트 변이체 아카이브).
+"""Ssak-Ai: Agent Archive (에이전트 변이체 아카이브).
 
 =====================================================
 성공한 에이전트 변이체를 저장하고 진화 계보를 추적합니다.
@@ -17,11 +17,33 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
 
 logger = logging.getLogger("antigravity_k.agent_archive")
+
+
+class AgentVariantPayload(TypedDict, total=False):
+    variant_id: str
+    generation: int
+    parent_id: str
+    system_prompt_hash: str
+    system_prompt_snippet: str
+    tool_prompt_hash: str
+    few_shot_examples: list[str]
+    sampling_profiles: dict[str, dict[str, float]]
+    benchmark_score: float
+    quality_avg: float
+    keyword_coverage: float
+    latency_avg_ms: float
+    mutation_type: str
+    mutation_description: str
+    improvement_delta: float
+    timestamp: float
+    archived: bool
+    retired: bool
 
 
 @dataclass
@@ -57,17 +79,17 @@ class AgentVariant:
     archived: bool = False
     retired: bool = False
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        return asdict(self)
+        return cast(dict[str, object], cast(object, asdict(self)))
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgentVariant":
+    def from_dict(cls, data: Mapping[str, object]) -> "AgentVariant":
         """From Dict.
 
         Args:
@@ -77,7 +99,27 @@ class AgentVariant:
             'AgentVariant': The 'agentvariant' result.
 
         """
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        payload = cast(AgentVariantPayload, cast(object, data))
+        return cls(
+            variant_id=payload.get("variant_id", ""),
+            generation=payload.get("generation", 0),
+            parent_id=payload.get("parent_id", ""),
+            system_prompt_hash=payload.get("system_prompt_hash", ""),
+            system_prompt_snippet=payload.get("system_prompt_snippet", ""),
+            tool_prompt_hash=payload.get("tool_prompt_hash", ""),
+            few_shot_examples=payload.get("few_shot_examples", []),
+            sampling_profiles=payload.get("sampling_profiles", {}),
+            benchmark_score=payload.get("benchmark_score", 0.0),
+            quality_avg=payload.get("quality_avg", 0.0),
+            keyword_coverage=payload.get("keyword_coverage", 0.0),
+            latency_avg_ms=payload.get("latency_avg_ms", 0.0),
+            mutation_type=payload.get("mutation_type", ""),
+            mutation_description=payload.get("mutation_description", ""),
+            improvement_delta=payload.get("improvement_delta", 0.0),
+            timestamp=payload.get("timestamp", 0.0),
+            archived=payload.get("archived", False),
+            retired=payload.get("retired", False),
+        )
 
 
 class AgentArchive:
@@ -87,8 +129,8 @@ class AgentArchive:
     성공한 변이체만 저장하고, 실패한 변이체는 기록만 남깁니다.
     """
 
-    MAX_ARCHIVE_SIZE = 50  # 최대 보존 변이체 수
-    MIN_IMPROVEMENT_THRESHOLD = 0.01  # 최소 개선율 (1%)
+    MAX_ARCHIVE_SIZE: int = 50  # 최대 보존 변이체 수
+    MIN_IMPROVEMENT_THRESHOLD: float = 0.01  # 최소 개선율 (1%)
 
     def __init__(self, archive_dir: str = "data/agent_archive"):
         """Initialize the AgentArchive.
@@ -97,10 +139,10 @@ class AgentArchive:
             archive_dir (str): str archive dir.
 
         """
-        self._dir = Path(archive_dir)
+        self._dir: Path = Path(archive_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
         self._variants: list[AgentVariant] = []
-        self._generation_counter = 0
+        self._generation_counter: int = 0
         self._load()
 
     # ─── 핵심 API ────────────────────────────────────────────────
@@ -175,7 +217,7 @@ class AgentArchive:
 
     def lineage(self, variant_id: str) -> list[AgentVariant]:
         """변이체의 진화 계보를 추적합니다 (자손 → 조상)."""
-        chain = []
+        chain: list[AgentVariant] = []
         current_id = variant_id
 
         while current_id:
@@ -203,9 +245,11 @@ class AgentArchive:
         for i, v in enumerate(chain):
             prefix = "🏆" if i == 0 else "  " * i + "↑"
             lines.append(
-                f"{prefix} **Gen {v.generation}** `{v.variant_id}` "
-                f"— {v.mutation_type} ({v.benchmark_score:.1%}, "
-                f"Δ{v.improvement_delta:+.1%})",
+                (
+                    f"{prefix} **Gen {v.generation}** `{v.variant_id}` "
+                    + f"— {v.mutation_type} ({v.benchmark_score:.1%}, "
+                    + f"Δ{v.improvement_delta:+.1%})"
+                ),
             )
             if v.mutation_description:
                 lines.append(f"{'  ' * (i + 1)}*{v.mutation_description}*")
@@ -267,7 +311,7 @@ class AgentArchive:
 
     # ─── 통계 및 유틸 ────────────────────────────────────────────
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self) -> dict[str, object]:
         """아카이브 통계를 반환합니다."""
         active = [v for v in self._variants if not v.retired]
         if not active:
@@ -302,9 +346,21 @@ class AgentArchive:
             return
         try:
             with open(archive_file, encoding="utf-8") as f:
-                data = json.load(f)
-            self._variants = [AgentVariant.from_dict(v) for v in data.get("variants", [])]
-            self._generation_counter = data.get("generation_counter", 0)
+                data = cast(object, json.load(f))
+            if not isinstance(data, dict):
+                return
+            payload = cast(dict[str, object], cast(object, data))
+            raw_variants = payload.get("variants", [])
+            if isinstance(raw_variants, list):
+                variants = cast(list[object], cast(object, raw_variants))
+                self._variants = [
+                    AgentVariant.from_dict(cast(Mapping[str, object], item))
+                    for item in variants
+                    if isinstance(item, dict)
+                ]
+            generation_counter = payload.get("generation_counter", 0)
+            if isinstance(generation_counter, int):
+                self._generation_counter = generation_counter
             logger.info("[Archive] %s개 변이체 로드", len(self._variants))
         except Exception:
             logger.exception("[Archive] 로드 실패")
@@ -324,4 +380,4 @@ class AgentArchive:
             logger.exception("[Archive] 저장 실패")
 
 
-"""Antigravity-K Agent Archive — Evolutionary variant storage with lineage tracking."""
+"""Ssak-Ai Agent Archive — Evolutionary variant storage with lineage tracking."""

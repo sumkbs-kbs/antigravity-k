@@ -24,10 +24,13 @@ import sqlite3
 import stat
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias, cast
 
 logger = logging.getLogger("antigravity_k.engine.audit_db")
+
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS hook_events (
@@ -62,8 +65,12 @@ class AuditDb:
         """
         self._db_path: Path | None = Path(db_path) if db_path else None
         self._conn: sqlite3.Connection | None = None
-        self._lock = threading.Lock()
-        self._initialized = False
+        self._lock: threading.Lock = threading.Lock()
+        self._initialized: bool = False
+
+    @property
+    def initialized(self) -> bool:
+        return self._initialized
 
     def init(self, vault_data_dir: str | None = None) -> "AuditDb":
         """DB를 초기화합니다."""
@@ -75,10 +82,23 @@ class AuditDb:
         elif self._db_path:
             db_dir = self._db_path.parent
         else:
-            project_root = Path(__file__).resolve().parent.parent.parent.parent
-            db_dir = project_root / "vault_data"
+            try:
+                from antigravity_k.config import config
 
-        db_dir.mkdir(parents=True, exist_ok=True)
+                db_dir = config.paths.data_dir / "vault_data"
+            except Exception:
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                db_dir = project_root / "vault_data"
+
+        try:
+            db_dir.mkdir(parents=True, exist_ok=True)
+            test_file = db_dir / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+        except OSError:
+            db_dir = Path.home() / ".antigravity-k" / "vault_data"
+            db_dir.mkdir(parents=True, exist_ok=True)
+
         self._db_path = db_dir / "audit.sqlite3"
 
         try:
@@ -87,9 +107,9 @@ class AuditDb:
                 check_same_thread=False,
                 timeout=10.0,
             )
-            self._conn.executescript(SCHEMA_SQL)
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
+            _ = self._conn.executescript(SCHEMA_SQL)
+            _ = self._conn.execute("PRAGMA journal_mode=WAL")
+            _ = self._conn.execute("PRAGMA synchronous=NORMAL")
         except Exception as e:
             logger.error("[AuditDb] DB 초기화 실패: %s", e)
             raise
@@ -138,23 +158,23 @@ class AuditDb:
 
         try:
             with self._lock:
-                self._conn.execute(
-                    "INSERT INTO hook_events "
-                    "(ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                _ = self._conn.execute(
+                    "INSERT INTO hook_events (ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json) "
+                    + "VALUES (?, ?, ?, ?, ?, ?)",
                     (ts_ms, panel_id, kind, hook_event_name, tool_name, payload_json),
                 )
                 self._conn.commit()
         except Exception:
             logger.exception("[AuditDb] insert 실패")
 
-    def insert_from_dict(self, event_dict: dict[str, Any]) -> None:
+    def insert_from_dict(self, event_dict: dict[str, object]) -> None:
         """딕셔너리 형태의 이벤트를 삽입합니다."""
-        meta = event_dict.get("_antigravity", {})
-        panel_id = meta.get("panel_id") if isinstance(meta, dict) else None
-        kind = event_dict.get("event", event_dict.get("hook_event_name", "unknown"))
-        hook_event_name = event_dict.get("hook_event_name")
-        tool_name = event_dict.get("tool_name")
+        meta_raw = event_dict.get("_antigravity")
+        meta = cast(Mapping[str, object], meta_raw) if isinstance(meta_raw, Mapping) else cast(dict[str, object], {})
+        panel_id = _optional_string(meta.get("panel_id"))
+        kind = str(event_dict.get("event") or event_dict.get("hook_event_name") or "unknown")
+        hook_event_name = _optional_string(event_dict.get("hook_event_name"))
+        tool_name = _optional_string(event_dict.get("tool_name"))
 
         payload_json = json.dumps(event_dict, ensure_ascii=False, default=str)
         self.insert(panel_id, kind, hook_event_name, tool_name, payload_json)
@@ -167,13 +187,13 @@ class AuditDb:
         kind: str | None = None,
         panel_id: str | None = None,
         since_ms: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, object]]:
         """최근 이벤트를 조회합니다."""
         if not self._conn:
             return []
 
-        conditions = []
-        params: list[Any] = []
+        conditions: list[str] = []
+        params: list[object] = []
 
         if kind:
             conditions.append("kind = ?")
@@ -198,7 +218,7 @@ class AuditDb:
         try:
             with self._lock:
                 cursor = self._conn.execute(query, params)
-                rows = cursor.fetchall()
+                rows = cast(list[tuple[object, ...]], cursor.fetchall())
         except Exception:
             logger.exception("[AuditDb] query 실패")
             return []
@@ -211,18 +231,18 @@ class AuditDb:
                 "kind": row[3],
                 "hook_event_name": row[4],
                 "tool_name": row[5],
-                "payload": json.loads(row[6]) if row[6] else {},
+                "payload": _loads_payload(row[6]),
             }
             for row in rows
         ]
 
-    def query_tool_stats(self, since_ms: int | None = None) -> list[dict[str, Any]]:
+    def query_tool_stats(self, since_ms: int | None = None) -> list[dict[str, object]]:
         """도구별 호출 통계를 조회합니다."""
         if not self._conn:
             return []
 
         where = ""
-        params: list[Any] = []
+        params: list[object] = []
         if since_ms:
             where = " WHERE ts_ms >= ? AND tool_name IS NOT NULL"
             params.append(since_ms)
@@ -238,7 +258,7 @@ class AuditDb:
         try:
             with self._lock:
                 cursor = self._conn.execute(query, params)
-                rows = cursor.fetchall()
+                rows = cast(list[tuple[object, ...]], cursor.fetchall())
         except Exception:
             logger.exception("[AuditDb] tool_stats query 실패")
             return []
@@ -267,7 +287,11 @@ class AuditDb:
                     )
                 else:
                     cursor = self._conn.execute("SELECT COUNT(*) FROM hook_events")
-                return cursor.fetchone()[0]
+                row = cast(tuple[object, ...] | None, cursor.fetchone())
+                if not row:
+                    return 0
+                value = row[0]
+                return int(value) if isinstance(value, (int, float, str)) else 0
         except Exception:
             logger.exception("[AuditDb] count 실패")
             return 0
@@ -292,7 +316,7 @@ def get_audit_db() -> AuditDb:
 def init_audit_db(vault_data_dir: str | None = None) -> AuditDb:
     """글로벌 AuditDb를 초기화합니다."""
     db = get_audit_db()
-    db.init(vault_data_dir)
+    _ = db.init(vault_data_dir)
     return db
 
 
@@ -307,4 +331,17 @@ def _close_global_audit_db():
         _global_audit_db = None
 
 
-atexit.register(_close_global_audit_db)
+_ = atexit.register(_close_global_audit_db)
+
+
+def _optional_string(value: object) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _loads_payload(value: object) -> object:
+    if not isinstance(value, str) or not value:
+        return {}
+    try:
+        return cast(JsonValue, json.loads(value))
+    except (TypeError, ValueError):
+        return {}

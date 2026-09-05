@@ -9,7 +9,7 @@ from antigravity_k.engine.call_hierarchy_graph import CallHierarchyGraph
 def test_call_hierarchy_resolution():
     with tempfile.TemporaryDirectory() as tmpdir:
         root = Path(tmpdir)
-        (root / "math_lib.py").write_text(
+        _ = (root / "math_lib.py").write_text(
             """
 def calculate_tax(amount):
     return amount * 0.1
@@ -17,7 +17,7 @@ def calculate_tax(amount):
             encoding="utf-8",
         )
 
-        (root / "checkout.py").write_text(
+        _ = (root / "checkout.py").write_text(
             """
 from math_lib import calculate_tax
 

@@ -13,7 +13,7 @@ import os
 import pathlib
 import subprocess
 import sys
-from typing import Sequence
+from collections.abc import Sequence
 
 UPSTREAM_REPO_URL = "https://github.com/retention-corp/coupang_partners.git"
 DEFAULT_MCP_ENDPOINT = "local://coupang-mcp"
@@ -27,7 +27,33 @@ class BootstrapError(RuntimeError):
     """Raised when the upstream checkout cannot be prepared."""
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+class _ParsedArguments(argparse.Namespace):
+    repo_dir: str
+    no_clone: bool
+    update: bool
+    upstream_args: list[str]
+
+    def __init__(
+        self,
+        *,
+        repo_dir: str,
+        no_clone: bool,
+        update: bool,
+        upstream_args: list[str],
+    ) -> None:
+        super().__init__(
+            repo_dir=repo_dir,
+            no_clone=no_clone,
+            update=update,
+            upstream_args=upstream_args,
+        )
+        self.repo_dir = repo_dir
+        self.no_clone = no_clone
+        self.update = update
+        self.upstream_args = upstream_args
+
+
+def parse_args(argv: Sequence[str] | None = None) -> _ParsedArguments:
     parser = argparse.ArgumentParser(
         description="Run the retention-corp/coupang_partners local Coupang MCP-compatible CLI.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -57,31 +83,39 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "skill keeps working without Coupang Partners credentials."
         ),
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--repo-dir",
         default=str(DEFAULT_REPO_DIR),
         help="Checkout directory for retention-corp/coupang_partners (default: %(default)s).",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--no-clone",
         action="store_true",
         help="Do not clone the upstream repository if it is missing; fail with setup guidance instead.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--update",
         action="store_true",
         help="Run git pull --ff-only in an existing upstream checkout before delegating.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "upstream_args",
         nargs=argparse.REMAINDER,
         help="Arguments passed to bin/coupang_mcp.py, for example: tools, search 생수, rocket 에어팟.",
     )
-    args = parser.parse_args(argv)
-    if args.upstream_args and args.upstream_args[0] == "--":
-        args.upstream_args = args.upstream_args[1:]
-    if not args.upstream_args:
+    args = _ParsedArguments(
+        repo_dir=str(DEFAULT_REPO_DIR),
+        no_clone=False,
+        update=False,
+        upstream_args=[],
+    )
+    _ = parser.parse_args(argv, namespace=args)
+    upstream_args = tuple(args.upstream_args)
+    if upstream_args and upstream_args[0] == "--":
+        upstream_args = upstream_args[1:]
+    if not upstream_args:
         parser.error("missing upstream command; try: tools, init, search <keyword>, rocket <keyword>, budget <keyword>")
+    args.upstream_args = list(upstream_args)
     return args
 
 
@@ -100,16 +134,12 @@ def ensure_repo(repo_dir: pathlib.Path, *, clone: bool = True, update: bool = Fa
         return cli_path
 
     if repo_dir.exists():
-        raise BootstrapError(
-            f"{repo_dir} exists but does not look like retention-corp/coupang_partners "
-            f"(missing {UPSTREAM_CLI}). Recreate it with: git clone {UPSTREAM_REPO_URL} {repo_dir}"
-        )
+        guidance = f"(missing {UPSTREAM_CLI}). Recreate it with: git clone {UPSTREAM_REPO_URL} {repo_dir}"
+        raise BootstrapError(f"{repo_dir} exists but does not look like retention-corp/coupang_partners {guidance}")
 
     if not clone:
-        raise BootstrapError(
-            f"Missing retention-corp/coupang_partners checkout at {repo_dir}. "
-            f"Create it with: git clone {UPSTREAM_REPO_URL} {repo_dir}"
-        )
+        guidance = f"Create it with: git clone {UPSTREAM_REPO_URL} {repo_dir}"
+        raise BootstrapError(f"Missing retention-corp/coupang_partners checkout at {repo_dir}. {guidance}")
 
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
     run_checked(
@@ -123,7 +153,7 @@ def ensure_repo(repo_dir: pathlib.Path, *, clone: bool = True, update: bool = Fa
 
 def run_checked(command: Sequence[str], context: str) -> None:
     try:
-        subprocess.run(command, check=True)
+        _ = subprocess.run(command, check=True)
     except FileNotFoundError as exc:
         raise BootstrapError(f"{context}: required executable not found: {command[0]}") from exc
     except subprocess.CalledProcessError as exc:
@@ -145,7 +175,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     env = os.environ.copy()
-    env.setdefault("COUPANG_MCP_ENDPOINT", DEFAULT_MCP_ENDPOINT)
+    _ = env.setdefault("COUPANG_MCP_ENDPOINT", DEFAULT_MCP_ENDPOINT)
     completed = subprocess.run(build_command(cli_path, args.upstream_args), env=env)
     return int(completed.returncode)
 

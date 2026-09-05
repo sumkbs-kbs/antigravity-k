@@ -1,15 +1,101 @@
 """Mcp Session Manager module."""
 
 import logging
-from contextlib import AsyncExitStack
-from typing import Any
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
+from datetime import timedelta
+from importlib import import_module
+from typing import Protocol, runtime_checkable
 
+import httpx
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class _LegacySseClient(Protocol):
+    def __call__(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = 5,
+        sse_read_timeout: float = 300,
+        auth: httpx.Auth | None = None,
+    ) -> AbstractAsyncContextManager[
+        tuple[
+            MemoryObjectReceiveStream[SessionMessage | Exception],
+            MemoryObjectSendStream[SessionMessage],
+        ]
+    ]: ...
+
+
+@runtime_checkable
+class _LegacyStreamableHttpClient(Protocol):
+    def __call__(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: float | timedelta = 30,
+        sse_read_timeout: float | timedelta = 300,
+        auth: httpx.Auth | None = None,
+    ) -> AbstractAsyncContextManager[
+        tuple[
+            MemoryObjectReceiveStream[SessionMessage | Exception],
+            MemoryObjectSendStream[SessionMessage],
+            Callable[[], str | None],
+        ]
+    ]: ...
+
+
+def _legacy_sse_client() -> _LegacySseClient:
+    candidate = getattr(import_module("mcp.client.sse"), "sse_client", None)
+    if not isinstance(candidate, _LegacySseClient):
+        raise RuntimeError("MCP legacy SSE client is unavailable")
+    return candidate
+
+
+def _legacy_streamable_http_client() -> _LegacyStreamableHttpClient:
+    candidate = getattr(import_module("mcp.client.streamable_http"), "streamablehttp_client", None)
+    if not isinstance(candidate, _LegacyStreamableHttpClient):
+        raise RuntimeError("MCP streamable HTTP client is unavailable")
+    return candidate
+
+
+def streamablehttp_client(
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: float | timedelta = 30,
+    sse_read_timeout: float | timedelta = 300,
+    auth: httpx.Auth | None = None,
+) -> AbstractAsyncContextManager[
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+        Callable[[], str | None],
+    ]
+]:
+    return _legacy_streamable_http_client()(url, headers, timeout, sse_read_timeout, auth)
+
+
+def sse_client(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float = 5,
+    sse_read_timeout: float = 300,
+    auth: httpx.Auth | None = None,
+) -> AbstractAsyncContextManager[
+    tuple[
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
+    ]
+]:
+    return _legacy_sse_client()(url, headers=headers, timeout=timeout, sse_read_timeout=sse_read_timeout, auth=auth)
 
 
 class MCPSessionManager:
@@ -51,7 +137,7 @@ class MCPSessionManager:
 
             # Create and initialize the session
             session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            _ = await session.initialize()
 
             self.sessions[server_name] = session
             logger.info("Successfully connected and initialized MCP server '%s'", server_name)
@@ -71,7 +157,7 @@ class MCPSessionManager:
         headers: dict[str, str] | None = None,
         timeout: float = 30,
         sse_read_timeout: float = 300,
-        auth: Any | None = None,
+        auth: httpx.Auth | None = None,
     ) -> ClientSession:
         """Connect to an MCP server using the current Streamable HTTP transport."""
         logger.info("Connecting to MCP server '%s' over Streamable HTTP: %s", server_name, url)
@@ -91,7 +177,7 @@ class MCPSessionManager:
             )
 
             session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            _ = await session.initialize()
 
             self.sessions[server_name] = session
             self.session_ids[server_name] = get_session_id()
@@ -121,7 +207,7 @@ class MCPSessionManager:
         headers: dict[str, str] | None = None,
         timeout: float = 5,
         sse_read_timeout: float = 300,
-        auth: Any | None = None,
+        auth: httpx.Auth | None = None,
     ) -> ClientSession:
         """Connect to an MCP server using the legacy HTTP+SSE transport.
 
@@ -134,7 +220,7 @@ class MCPSessionManager:
 
         try:
             read, write = await stack.enter_async_context(
-                sse_client(
+                    sse_client(
                     url,
                     headers=headers,
                     timeout=timeout,
@@ -144,7 +230,7 @@ class MCPSessionManager:
             )
 
             session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            _ = await session.initialize()
 
             self.sessions[server_name] = session
             logger.info(
@@ -160,7 +246,7 @@ class MCPSessionManager:
                 del self.exit_stacks[server_name]
             raise
 
-    async def disconnect_server(self, server_name: str):
+    async def disconnect_server(self, server_name: str) -> None:
         """Disconnects from an MCP server and cleans up resources."""
         if server_name in self.exit_stacks:
             logger.info("Disconnecting MCP server '%s'", server_name)
@@ -185,7 +271,7 @@ class MCPSessionManager:
         """
         return self.sessions.get(server_name)
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Disconnects all active MCP servers."""
         servers = list(self.exit_stacks.keys())
         for server in servers:

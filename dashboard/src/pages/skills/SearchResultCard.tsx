@@ -59,8 +59,8 @@ const SearchResultCard: React.FC<SearchResultCardProps> = ({ result, installed, 
       </div>
       {keywords.length > 0 && (
         <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
-          {keywords.map((k, i) => (
-            <span key={i} style={{
+          {keywords.map(k => (
+            <span key={k} style={{
               fontSize: 9,
               padding: '1px 6px',
               background: 'rgba(255,255,255,0.05)',

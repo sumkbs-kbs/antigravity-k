@@ -1,4 +1,4 @@
-"""Antigravity-K: Prompt Evolver (OPRO 기반 프롬프트 자동 최적화).
+"""Ssak-Ai: Prompt Evolver (OPRO 기반 프롬프트 자동 최적화).
 
 =============================================================
 LLM이 자기 시스템 프롬프트를 분석하고 최적화하는 자동 진화 엔진.
@@ -15,7 +15,7 @@ LLM이 자기 시스템 프롬프트를 분석하고 최적화하는 자동 진�
 
   "내가 하는 것과 같은 행위":
     - 나(Antigravity)가 프롬프트를 수정하는 것과 정확히 같은 방식으로
-    - Antigravity-K의 LLM이 자기 프롬프트를 수정합니다.
+    - Ssak-Ai의 LLM이 자기 프롬프트를 수정합니다.
 """
 
 from __future__ import annotations
@@ -26,15 +26,39 @@ import logging
 import re
 import time
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypeAlias, cast, final
 
 from antigravity_k.config import config
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger("antigravity_k.prompt_evolver")
+JsonMap: TypeAlias = dict[str, object]
+
+
+class ModelManagerLike(Protocol):
+    def get_target_for_role(self, role: str, *, default_role: str) -> object: ...
+
+    def generate(self, *args: object, **kwargs: object) -> object: ...
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else {}
+
+
+def _as_string_list(value: object) -> list[str]:
+    items = cast(list[object], value) if isinstance(value, list) else []
+    return [item for item in items if isinstance(item, str)]
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else default
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
 
 
 @dataclass
@@ -49,7 +73,7 @@ class PromptCandidate:
     keyword_coverage: float = 0.0
     latency_ms: float = 0.0
     mutation_op: str = ""  # rephrase, expand, compress, restructure
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonMap = field(default_factory=dict)
 
     @property
     def content_hash(self) -> str:
@@ -74,6 +98,7 @@ class EvolutionRecord:
     improvement: float = 0.0
 
 
+@final
 class PromptEvolver:
     """OPRO 기반 프롬프트 자동 최적화 엔진.
 
@@ -93,10 +118,11 @@ class PromptEvolver:
 
     def __init__(
         self,
-        ollama_url: str = config.model.api_base.replace("/v1", "").rstrip("/"),
+        ollama_url: str | None = None,
         optimizer_model: str = "",
         candidates_per_gen: int = 3,
         persist_dir: str = "data/prompt_evolution",
+        model_manager: object | None = None,
     ):
         """Initialize the PromptEvolver.
 
@@ -107,10 +133,11 @@ class PromptEvolver:
             persist_dir (str): str persist dir.
 
         """
-        self._ollama_url = ollama_url
-        self._optimizer_model = optimizer_model
-        self._candidates_per_gen = candidates_per_gen
-        self._persist_dir = Path(persist_dir)
+        self._ollama_url: str = ollama_url or config.model.api_base.replace("/v1", "").rstrip("/")
+        self._optimizer_model: str = optimizer_model
+        self._manager: object | None = model_manager
+        self._candidates_per_gen: int = candidates_per_gen
+        self._persist_dir: Path = Path(persist_dir)
         self._persist_dir.mkdir(parents=True, exist_ok=True)
         self._history: list[EvolutionRecord] = []
         self._generation = 0
@@ -121,7 +148,7 @@ class PromptEvolver:
     def evolve_system_prompt(
         self,
         current_prompt: str,
-        performance_data: dict[str, Any],
+        performance_data: JsonMap,
         eval_fn: Callable[[str], float] | None = None,
     ) -> tuple[str, float]:
         """시스템 프롬프트를 한 세대 진화시킵니다.
@@ -199,7 +226,7 @@ class PromptEvolver:
         self,
         current_examples: list[dict[str, str]],
         task_type: str,
-        eval_fn: Callable[..., Any] | None = None,
+        eval_fn: Callable[..., object] | None = None,
     ) -> list[dict[str, str]]:
         """Few-shot 예시를 자동 발견/교체합니다.
 
@@ -207,20 +234,23 @@ class PromptEvolver:
         """
         prompt = (
             "[ROLE] 당신은 AI 프롬프트 엔지니어링 전문가입니다.\n\n"
-            "[TASK] 아래 few-shot 예시를 분석하고, "
-            f"'{task_type}' 작업에 더 효과적인 예시 3개를 생성하세요.\n\n"
-            "현재 예시:\n" + json.dumps(current_examples, ensure_ascii=False, indent=2) + "\n\n"
-            "더 나은 예시를 JSON 배열로 반환하세요. "
-            '각 예시는 {"input": "...", "output": "..."} 형태입니다.\n'
-            "JSON만 반환하세요."
+            + "[TASK] 아래 few-shot 예시를 분석하고, "
+            + f"'{task_type}' 작업에 더 효과적인 예시 3개를 생성하세요.\n\n"
+            + "현재 예시:\n"
+            + json.dumps(current_examples, ensure_ascii=False, indent=2)
+            + "\n\n"
+            + "더 나은 예시를 JSON 배열로 반환하세요. "
+            + '각 예시는 {"input": "...", "output": "..."} 형태입니다.\n'
+            + "JSON만 반환하세요."
         )
+        _ = eval_fn
 
         try:
             response = self._call_optimizer(prompt)
             # JSON 추출
             examples = self._extract_json_array(response)
-            if examples and isinstance(examples, list):
-                return examples[:3]
+            if examples:
+                return [cast(dict[str, str], item) for item in examples[:3] if isinstance(item, dict)]
         except Exception:
             logger.exception("[PromptEvolver] Few-shot 진화 실패")
 
@@ -231,10 +261,10 @@ class PromptEvolver:
     def _generate_candidates(
         self,
         current_prompt: str,
-        performance_data: dict[str, Any],
+        performance_data: JsonMap,
     ) -> list[PromptCandidate]:
         """OPRO 패턴: LLM이 프롬프트 개선안을 생성합니다."""
-        candidates = []
+        candidates: list[PromptCandidate] = []
 
         # 성능 데이터를 분석용 텍스트로 변환
         perf_text = self._format_performance_data(performance_data)
@@ -296,7 +326,7 @@ class PromptEvolver:
 
     # ─── 통계 및 유틸 ────────────────────────────────────────────
 
-    def get_evolution_trend(self) -> dict[str, Any]:
+    def get_evolution_trend(self) -> JsonMap:
         """진화 트렌드를 반환합니다."""
         if not self._history:
             return {"generations": 0, "message": "진화 기록 없음"}
@@ -315,15 +345,15 @@ class PromptEvolver:
             "improving": (sum(1 for i in improvements if i > 0) > len(improvements) / 2),
         }
 
-    def _format_performance_data(self, data: dict[str, Any]) -> str:
+    def _format_performance_data(self, data: JsonMap) -> str:
         """성능 데이터를 분석용 텍스트로 변환합니다."""
-        lines = []
+        lines: list[str] = []
         if "quality_avg" in data:
             lines.append(f"평균 품질 점수: {data['quality_avg']:.2%}")
         if "weaknesses" in data:
-            lines.append(f"약점: {', '.join(data['weaknesses'])}")
+            lines.append(f"약점: {', '.join(_as_string_list(data['weaknesses']))}")
         if "failure_patterns" in data:
-            lines.append(f"반복 실패 패턴: {', '.join(data['failure_patterns'])}")
+            lines.append(f"반복 실패 패턴: {', '.join(_as_string_list(data['failure_patterns']))}")
         if "keyword_coverage" in data:
             lines.append(f"키워드 커버리지: {data['keyword_coverage']:.2%}")
         if "hallucination_rate" in data:
@@ -332,13 +362,36 @@ class PromptEvolver:
 
     def _call_optimizer(self, prompt: str) -> str:
         """Optimizer LLM을 호출합니다."""
+        if self._manager is not None:
+            resolver = getattr(self._manager, "get_target_for_role", None)
+            generate = getattr(self._manager, "generate", None)
+            if callable(resolver) and callable(generate):
+                try:
+                    target = resolver("prompt_evolver", default_role="reasoning")
+                    if isinstance(target, str) and target.strip():
+                        response = generate(
+                            prompt,
+                            target.strip(),
+                            max_tokens=2048,
+                            temperature=0.4,
+                        )
+                        if isinstance(response, str):
+                            return response
+                except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                    logger.warning("Managed prompt evolution failed; using API fallback", exc_info=True)
         model = self._optimizer_model
         if not model:
             # 사용 가능한 모델 자동 탐지
             try:
                 resp = safe_urlopen(f"{self._ollama_url}/api/tags", timeout=5)
-                tags = json.loads(resp.read())
-                models = [m["name"] for m in tags.get("models", [])]
+                tags = _as_mapping(cast(object, json.loads(resp.read())))
+                raw_models = tags.get("models")
+                models: list[str] = []
+                if isinstance(raw_models, list):
+                    for item in cast(list[object], raw_models):
+                        name = _as_mapping(item).get("name")
+                        if isinstance(name, str):
+                            models.append(name)
                 model = models[0] if models else "llama3.2:latest"
             except Exception:
                 logger.exception("Unhandled exception")
@@ -360,19 +413,20 @@ class PromptEvolver:
         )
 
         with safe_urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read())
-            return result.get("response", "")
+            result = _as_mapping(cast(object, json.loads(resp.read())))
+            return str(result.get("response", ""))
 
-    def _extract_json_array(self, text: str) -> Any:
+    def _extract_json_array(self, text: str) -> list[object] | None:
         """텍스트에서 JSON 배열을 추출합니다."""
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
         decoder = json.JSONDecoder()
         for i, ch in enumerate(text):
             if ch == "[":
                 try:
-                    obj, _ = decoder.raw_decode(text, i)
+                    decoded = decoder.raw_decode(text, i)
+                    obj: object = cast(object, decoded[0])
                     if isinstance(obj, list):
-                        return obj
+                        return cast(list[object], obj)
                 except json.JSONDecodeError:
                     continue
         return None
@@ -382,11 +436,11 @@ class PromptEvolver:
         version_file = self._persist_dir / f"gen{candidate.generation}_{candidate.mutation_op}.txt"
         try:
             with open(version_file, "w", encoding="utf-8") as f:
-                f.write(f"# Generation {candidate.generation}\n")
-                f.write(f"# Mutation: {candidate.mutation_op}\n")
-                f.write(f"# Score: {candidate.score:.4f}\n")
-                f.write(f"# Timestamp: {time.time()}\n\n")
-                f.write(candidate.content)
+                _ = f.write(f"# Generation {candidate.generation}\n")
+                _ = f.write(f"# Mutation: {candidate.mutation_op}\n")
+                _ = f.write(f"# Score: {candidate.score:.4f}\n")
+                _ = f.write(f"# Timestamp: {time.time()}\n\n")
+                _ = f.write(candidate.content)
         except Exception:
             logger.exception("[PromptEvolver] 버전 저장 실패")
 
@@ -396,9 +450,23 @@ class PromptEvolver:
             return
         try:
             with open(history_file, encoding="utf-8") as f:
-                data = json.load(f)
-            self._history = [EvolutionRecord(**r) for r in data.get("records", [])]
-            self._generation = data.get("generation", 0)
+                data = _as_mapping(cast(object, json.load(f)))
+            records = data.get("records")
+            self._history = []
+            if isinstance(records, list):
+                for raw_record in cast(list[object], records):
+                    record = _as_mapping(raw_record)
+                    self._history.append(
+                        EvolutionRecord(
+                            generation=_as_int(record.get("generation")),
+                            candidates_tested=_as_int(record.get("candidates_tested")),
+                            best_score=_as_float(record.get("best_score")),
+                            selected_id=str(record.get("selected_id", "")),
+                            timestamp=_as_float(record.get("timestamp")),
+                            improvement=_as_float(record.get("improvement")),
+                        )
+                    )
+            self._generation = _as_int(data.get("generation"))
         except Exception:
             logger.exception("[PromptEvolver] 이력 로드 실패")
 
@@ -416,4 +484,4 @@ class PromptEvolver:
             logger.exception("[PromptEvolver] 이력 저장 실패")
 
 
-"""Antigravity-K Prompt Evolver — OPRO-based automated prompt optimization."""
+"""Ssak-Ai Prompt Evolver — OPRO-based automated prompt optimization."""

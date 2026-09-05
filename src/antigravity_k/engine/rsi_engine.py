@@ -1,4 +1,4 @@
-"""Antigravity-K: RSI Engine (재귀적 자기개선 오케스트레이터).
+"""Ssak-Ai: RSI Engine (재귀적 자기개선 오케스트레이터).
 
 ========================================================
 Darwin Gödel Machine + ADAS 패턴 기반 7단계 자기개선 사이클.
@@ -13,13 +13,21 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Protocol, cast
 
 from antigravity_k.engine.agent_archive import AgentArchive
 from antigravity_k.engine.prompt_evolver import PromptEvolver
 from antigravity_k.engine.rsi_sandbox import RSISandbox
 
 logger = logging.getLogger("antigravity_k.rsi_engine")
+
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+
+
+class _ModelManagerLike(Protocol):
+    def get_target_for_role(self, role: str, default_role: str = "") -> str: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> str: ...
 
 
 class RSIPhase(Enum):
@@ -69,7 +77,7 @@ class RSICycleResult:
 
     cycle_id: str
     generation: int
-    phase_results: dict[str, Any] = field(default_factory=dict)
+    phase_results: dict[str, object] = field(default_factory=dict)
     before_score: float = 0.0
     after_score: float = 0.0
     improvement: float = 0.0
@@ -80,14 +88,14 @@ class RSICycleResult:
     duration_sec: float = 0.0
     timestamp: float = 0.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, JsonValue]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        return asdict(self)
+        return cast(dict[str, JsonValue], asdict(self))
 
 
 @dataclass
@@ -116,7 +124,12 @@ class RSIEngine:
     - LoRAPipeline: 고품질 데이터 수확
     """
 
-    def __init__(self, config: RSIConfig | None = None, project_root: str = ""):
+    def __init__(
+        self,
+        config: RSIConfig | None = None,
+        project_root: str = "",
+        model_manager: object | None = None,
+    ) -> None:
         """Initialize the RSIEngine.
 
         Args:
@@ -124,18 +137,19 @@ class RSIEngine:
             project_root (str): str project root.
 
         """
-        self.config = config or RSIConfig()
-        self._root = project_root
+        self.config: RSIConfig = config or RSIConfig()
+        self._root: str = project_root
+        self._manager: object | None = model_manager
         self._cycle_history: list[RSICycleResult] = []
-        self._generation = 0
+        self._generation: int = 0
 
         # 지연 초기화 (의존성 주입 가능)
         self._sandbox: RSISandbox | None = None
         self._archive: AgentArchive | None = None
         self._evolver: PromptEvolver | None = None
-        self._quality_gate = None
-        self._metacognitive = None
-        self._lora = None
+        self._quality_gate: object | None = None
+        self._metacognitive: object | None = None
+        self._lora: object | None = None
 
     # ─── 의존성 초기화 ───────────────────────────────────────────
 
@@ -154,18 +168,18 @@ class RSIEngine:
         if self._evolver is None:
             from .prompt_evolver import PromptEvolver
 
-            self._evolver = PromptEvolver()
+            self._evolver = PromptEvolver(model_manager=cast(_ModelManagerLike | None, self._manager))
 
     # ─── 메인 RSI 루프 ──────────────────────────────────────────
 
     def run_cycle(
         self,
         benchmark_fn: Callable[[], float] | None = None,
-        performance_data: dict[str, Any] | None = None,
+        performance_data: dict[str, JsonValue] | None = None,
     ) -> RSICycleResult:
         """RSI 사이클 1회를 실행합니다.
 
-        이것이 "내가 하는 모든 행위를 Antigravity-K도 할 수 있도록" 만드는
+        이것이 "내가 하는 모든 행위를 Ssak-Ai도 할 수 있도록" 만드는
         핵심 루프입니다. 7단계를 순차적으로 실행합니다.
         """
         self._ensure_deps()
@@ -239,11 +253,11 @@ class RSIEngine:
         self,
         max_cycles: int | None = None,
         benchmark_fn: Callable[[], float] | None = None,
-        performance_data: dict[str, Any] | None = None,
+        performance_data: dict[str, JsonValue] | None = None,
     ) -> list[RSICycleResult]:
         """여러 RSI 사이클을 연속 실행합니다 (진화 루프)."""
         cycles = max_cycles or self.config.max_cycles
-        results = []
+        results: list[RSICycleResult] = []
 
         for i in range(cycles):
             logger.info("[RSI] 진화 루프 %s/%s", i + 1, cycles)
@@ -291,19 +305,23 @@ class RSIEngine:
 
     def _diagnose(
         self,
-        performance_data: dict[str, Any],
+        performance_data: dict[str, JsonValue],
         result: RSICycleResult,
     ) -> list[str]:
         """Phase 2: DIAGNOSE — 약점 패턴을 발견합니다."""
-        weaknesses = []
+        weaknesses: list[str] = []
 
         # QualityGate 이력에서 약점 추출
         if "weaknesses" in performance_data:
-            weaknesses.extend(performance_data["weaknesses"])
+            value = performance_data["weaknesses"]
+            if isinstance(value, list):
+                weaknesses.extend(str(item) for item in value)
 
         # MetacognitiveTracker 패턴 감지
         if "failure_patterns" in performance_data:
-            weaknesses.extend(performance_data["failure_patterns"])
+            value = performance_data["failure_patterns"]
+            if isinstance(value, list):
+                weaknesses.extend(str(item) for item in value)
 
         # 벤치마크 점수 기반 진단
         if result.before_score < 0.6:
@@ -314,7 +332,7 @@ class RSIEngine:
         if not weaknesses:
             weaknesses = ["특별한 약점 없음 — 탐색적 개선 시도"]
 
-        result.phase_results["diagnose"] = {"weaknesses": weaknesses}
+        result.phase_results["diagnose"] = cast(JsonValue, {"weaknesses": weaknesses})
         logger.info("[RSI:DIAGNOSE] 발견된 약점: %s개", len(weaknesses))
         return weaknesses
 
@@ -324,7 +342,7 @@ class RSIEngine:
         result: RSICycleResult,
     ) -> list[ImprovementHypothesis]:
         """Phase 3: HYPOTHESIZE — 개선 가설을 생성합니다."""
-        hypotheses = []
+        hypotheses: list[ImprovementHypothesis] = []
 
         # 약점 기반 가설 자동 생성
         for i, weakness in enumerate(weaknesses[:3]):
@@ -375,9 +393,9 @@ class RSIEngine:
         self,
         hypothesis: ImprovementHypothesis,
         result: RSICycleResult,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """Phase 4: MUTATE — 가설에 따른 변이체를 생성합니다."""
-        mutation: dict[str, Any] = {"type": hypothesis.mutation_type, "applied": False}
+        mutation: dict[str, JsonValue] = {"type": hypothesis.mutation_type, "applied": False}
         result.hypothesis_applied = hypothesis.hypothesis_id
         result.mutation_type = hypothesis.mutation_type
 
@@ -389,7 +407,7 @@ class RSIEngine:
                 builder = PromptBuilder.__new__(PromptBuilder)
                 current_prompt = getattr(builder, "_system_prompt", "")
                 if not current_prompt:
-                    current_prompt = "You are Antigravity-K, an autonomous AI agent."
+                    current_prompt = "You are Ssak-Ai, an autonomous AI agent."
 
                 assert self._evolver is not None
                 new_prompt, score = self._evolver.evolve_system_prompt(
@@ -414,7 +432,7 @@ class RSIEngine:
     def _evaluate(
         self,
         benchmark_fn: Callable[[], float] | None,
-        mutation: dict[str, Any],
+        mutation: dict[str, JsonValue],
         result: RSICycleResult,
     ) -> float:
         """Phase 5: EVALUATE — 변이체를 벤치마크로 검증합니다."""
@@ -451,7 +469,7 @@ class RSIEngine:
         self,
         accepted: bool,
         result: RSICycleResult,
-        mutation: dict[str, Any],
+        _mutation: dict[str, JsonValue],
     ) -> None:
         """Phase 7: INTEGRATE — 승인 시 반영, 실패 시 롤백."""
         if accepted:
@@ -468,7 +486,7 @@ class RSIEngine:
                     mutation_description=result.hypothesis_applied,
                     improvement_delta=result.improvement,
                 )
-                self._archive.archive(variant)
+                _ = self._archive.archive(variant)
             except Exception:
                 logger.exception("[RSI:INTEGRATE] 아카이브 저장 실패")
 
@@ -483,16 +501,16 @@ class RSIEngine:
 
     # ─── Level 3 연동 ──────────────────────────────────────────
 
-    def _trigger_meta_architect(self, performance_data: dict[str, Any]) -> None:
+    def _trigger_meta_architect(self, performance_data: dict[str, JsonValue]) -> None:
         """Level 3: 메타 아키텍트를 가동하여 대규모 리팩터링을 시도합니다."""
         logger.info("[RSI Level 3] Meta-Architect 엔진 가동...")
         try:
             from .meta_architect import MetaArchitect
 
-            architect = MetaArchitect(project_root=self._root)
+            architect = MetaArchitect(project_root=self._root, model_manager=self._manager)
             proposal = architect.analyze_and_propose(performance_data)
             if proposal:
-                architect.execute_proposal(proposal)
+                _ = architect.execute_proposal(proposal)
         except Exception:
             logger.exception("[RSI Level 3] Meta-Architect 실행 실패")
 
@@ -504,7 +522,10 @@ class RSIEngine:
 
             from .curriculum_generator import CurriculumGenerator
 
-            generator = CurriculumGenerator(project_root=self._root)
+            generator = CurriculumGenerator(
+                project_root=self._root,
+                model_manager=cast(_ModelManagerLike | None, self._manager),
+            )
             task = generator.generate_new_challenge()
             if task:
                 # 동기 환경에서 비동기 호출 (새 루프 생성)
@@ -516,15 +537,15 @@ class RSIEngine:
 
                 if loop.is_running():
                     # 이미 루프가 돌고 있다면 task 생성
-                    loop.create_task(generator.self_play(task))
+                    _ = loop.create_task(generator.self_play(task))
                 else:
-                    loop.run_until_complete(generator.self_play(task))
+                    _ = loop.run_until_complete(generator.self_play(task))
         except Exception:
             logger.exception("[RSI Level 3] Self-Play 실행 실패")
 
     # ─── 통계 및 보고 ────────────────────────────────────────────
 
-    def get_evolution_report(self) -> dict[str, Any]:
+    def get_evolution_report(self) -> dict[str, JsonValue]:
         """전체 진화 보고서를 반환합니다."""
         if not self._cycle_history:
             return {"message": "진화 기록 없음", "cycles": 0}
@@ -568,12 +589,10 @@ class RSIEngine:
         for cycle in self._cycle_history[-5:]:
             status = "✅" if cycle.success else ("🔄" if cycle.rolled_back else "⏭")
             lines.append(
-                f"- {status} Gen {cycle.generation}: "
-                f"{cycle.before_score:.1%} → {cycle.after_score:.1%} "
-                f"(Δ{cycle.improvement:+.1%}, {cycle.mutation_type})",
+                f"- {status} Gen {cycle.generation}: {cycle.before_score:.1%} → {cycle.after_score:.1%} (Δ{cycle.improvement:+.1%}, {cycle.mutation_type})"
             )
 
         return "\n".join(lines)
 
 
-"""Antigravity-K RSI Engine — Darwin Gödel Machine recursive self-improvement."""
+"""Ssak-Ai RSI Engine — Darwin Gödel Machine recursive self-improvement."""

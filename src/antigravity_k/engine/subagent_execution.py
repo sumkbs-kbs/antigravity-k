@@ -68,7 +68,7 @@ def _bound_subagent_stream(
     state_store = execution_context.state_store
     output_parts: list[str] = []
     outcome_recorded = False
-    state_store.append_execution_event(
+    _ = state_store.append_execution_event(
         execution_context.task_id,
         "subagent_started",
         json.dumps({"kind": subagent_kind, "model": target_model}, sort_keys=True),
@@ -84,7 +84,7 @@ def _bound_subagent_stream(
                 yield chunk
     except Exception as error:  # noqa: BLE001
         logger.exception("Subagent execution failed for task %s", execution_context.task_id)
-        state_store.append_execution_event(
+        _ = state_store.append_execution_event(
             execution_context.task_id,
             "subagent_failed",
             json.dumps(
@@ -95,7 +95,7 @@ def _bound_subagent_stream(
         outcome_recorded = True
         raise
     else:
-        state_store.append_execution_event(
+        _ = state_store.append_execution_event(
             execution_context.task_id,
             "subagent_completed",
             json.dumps(
@@ -106,7 +106,7 @@ def _bound_subagent_stream(
         outcome_recorded = True
     finally:
         if not outcome_recorded:
-            state_store.append_execution_event(
+            _ = state_store.append_execution_event(
                 execution_context.task_id,
                 "subagent_cancelled",
                 json.dumps(

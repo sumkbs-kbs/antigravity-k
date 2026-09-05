@@ -1,4 +1,4 @@
-"""Antigravity-K TUI — Custom Widgets.
+"""Ssak-Ai TUI — Custom Widgets.
 
 MessageBubble:        Renders a chat message bubble (user/assistant/system).
 SlashInput:           Input widget with /slash command auto-completion.
@@ -8,6 +8,8 @@ ProgressScreen:       Modal overlay with progress bar.
 """
 
 from __future__ import annotations
+
+from typing import final, override
 
 from textual import events
 from textual.app import ComposeResult
@@ -27,6 +29,7 @@ STATUS_BG = "#0d1117"
 # ─── Messages ──────────────────────────────────────────────────────────────────
 
 
+@final
 class SuggestionClicked(Message):
     """Emitted when a follow-up suggestion is clicked."""
 
@@ -35,6 +38,7 @@ class SuggestionClicked(Message):
         super().__init__()
 
 
+@final
 class UserMessage(Message):
     """Text submitted by the user."""
 
@@ -115,6 +119,7 @@ COMPLETION_COMMANDS = [
 ]
 
 
+@final
 class SlashInput(Input):
     """Input widget with /slash command auto-completion."""
 
@@ -155,21 +160,24 @@ class SlashInput(Input):
         """Handle key events: Ctrl+Space for completions, Tab to cycle, Enter to submit."""
         if event.key == "ctrl+space":
             self.action_show_completions()
-            event.stop()
-        elif event.key == "tab":
+            _ = event.stop()
+            return
+        if event.key == "tab":
             self.action_next_completion()
-            event.stop()
-        elif event.key == "enter":
+            _ = event.stop()
+            return
+        if event.key == "enter":
             text = self.value.strip()
             if text:
-                self.post_message(UserMessage(text))
+                _ = self.post_message(UserMessage(text))
                 self.value = ""
-            event.stop()
+            _ = event.stop()
 
 
 # ─── Suggestion Bar ───────────────────────────────────────────────────────────
 
 
+@final
 class SuggestionBar(Container):
     """Horizontal bar of clickable follow-up suggestion buttons."""
 
@@ -183,7 +191,7 @@ class SuggestionBar(Container):
         """Replace all buttons with new suggestions."""
         # Remove existing children
         for child in list(self.children):
-            child.remove()
+            _ = child.remove()
         # Add new buttons
         for text in suggestions:
             display = text[:50] + "..." if len(text) > 50 else text
@@ -192,16 +200,17 @@ class SuggestionBar(Container):
             btn.styles.margin = (0, 1, 0, 0)
             btn.styles.background = FOLLOWUP_BG
             btn.styles.border = ("solid", "#3a3a5e")
-            self.mount(btn)
+            _ = self.mount(btn)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle suggestion button click."""
-        self.post_message(SuggestionClicked(str(event.button.label)))
+        _ = self.post_message(SuggestionClicked(str(event.button.label)))
 
 
 # ─── Status Footer ────────────────────────────────────────────────────────────
 
 
+@final
 class StatusFooter(Container):
     """Bottom status bar showing system state."""
 
@@ -225,6 +234,7 @@ class StatusFooter(Container):
         self._tools_label = Static("", id="tools-label")
         self._server_label = Static("", id="server-label")
 
+    @override
     def compose(self) -> ComposeResult:
         self.styles.background = STATUS_BG
         self.styles.height = 1
@@ -264,6 +274,7 @@ class StatusFooter(Container):
 # ─── Progress Overlay ─────────────────────────────────────────────────────────
 
 
+@final
 class ProgressScreen(ModalScreen[None]):
     """Modal overlay showing a progress bar."""
 
@@ -271,6 +282,7 @@ class ProgressScreen(ModalScreen[None]):
         self.task_message = message
         super().__init__()
 
+    @override
     def compose(self) -> ComposeResult:
         yield Container(
             Label(f"[bold]{self.task_message}[/bold]", id="progress-label"),

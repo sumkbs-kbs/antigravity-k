@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable, Iterator
+from typing import cast
 
 import pytest
 
@@ -23,6 +25,8 @@ from antigravity_k.engine.artifact_engine import (
 from antigravity_k.engine.execution_mode import ExecutionMode
 from antigravity_k.engine.mode_manager import ModeManager
 from antigravity_k.engine.quality_gate import QualityGate, QualityGrade
+
+ModeListener = Callable[[ExecutionMode, ExecutionMode, str], None]
 
 # ═══════════════════════════════════════════════════════════════════════
 # D1: ExecutionMode + ModeManager
@@ -166,11 +170,11 @@ class TestD1_ModeManager:
     def test_mode_history_tracking(self):
         """모든 전환이 이력에 기록되어야 함."""
         mgr = ModeManager()
-        mgr.switch_to_plan("Step 1")
-        mgr.set_plan_artifact("plan.md")
-        mgr.set_plan_quality_passed(True)
-        mgr.switch_to_build(reason="Step 2")
-        mgr.switch_to_interactive("Step 3")
+        _ = mgr.switch_to_plan("Step 1")
+        _ = mgr.set_plan_artifact("plan.md")
+        _ = mgr.set_plan_quality_passed(True)
+        _ = mgr.switch_to_build(reason="Step 2")
+        _ = mgr.switch_to_interactive("Step 3")
 
         assert len(mgr.mode_history) == 3
         transitions = [(h.from_mode, h.to_mode) for h in mgr.mode_history]
@@ -183,8 +187,12 @@ class TestD1_ModeManager:
     def test_mode_history_limit(self):
         """히스토리는 최대 100개까지 유지."""
         mgr = ModeManager()
+        record_transition = cast(
+            Callable[[ExecutionMode, ExecutionMode, str], None],
+            getattr(mgr, "_record_transition"),
+        )
         for i in range(105):
-            mgr._record_transition(ExecutionMode.INTERACTIVE, ExecutionMode.PLAN, f"test {i}")
+            record_transition(ExecutionMode.INTERACTIVE, ExecutionMode.PLAN, f"test {i}")
         assert len(mgr.mode_history) == 100
 
     def test_check_tool_permission_plan(self):
@@ -224,24 +232,24 @@ class TestD1_ModeManager:
         assert mgr.should_enforce_plan_mode("simple", "Some task") is False
 
         # 이미 PLAN 모드
-        mgr.switch_to_plan()
+        _ = mgr.switch_to_plan()
         assert mgr.should_enforce_plan_mode("complex", "Any") is False
 
         # 코딩 + 키워드 (PLAN → INTERACTIVE로 복귀 후 테스트)
-        mgr.switch_to_interactive()
+        _ = mgr.switch_to_interactive()
         assert mgr.should_enforce_plan_mode("coding", "Refactor the auth module") is True
         assert mgr.should_enforce_plan_mode("coding", "Fix a small bug") is False
 
     def test_listener_notification(self):
         """모드 변경 시 등록된 리스너가 호출되어야 함."""
         mgr = ModeManager()
-        calls = []
+        calls: list[tuple[ExecutionMode, ExecutionMode, str]] = []
 
-        def listener(from_mode, to_mode, reason):
+        def listener(from_mode: ExecutionMode, to_mode: ExecutionMode, reason: str) -> None:
             calls.append((from_mode, to_mode, reason))
 
-        mgr.add_listener(listener)
-        mgr.switch_to_plan("Testing listener")
+        _ = mgr.add_listener(listener)
+        _ = mgr.switch_to_plan("Testing listener")
 
         assert len(calls) == 1
         assert calls[0][0] == ExecutionMode.INTERACTIVE
@@ -251,20 +259,20 @@ class TestD1_ModeManager:
     def test_remove_listener(self):
         """리스너 제거 후 호출되지 않아야 함."""
         mgr = ModeManager()
-        calls = []
+        calls: list[int] = []
 
-        def listener(from_mode, to_mode, reason):
+        def listener(_from_mode: ExecutionMode, _to_mode: ExecutionMode, _reason: str) -> None:
             calls.append(1)
 
-        mgr.add_listener(listener)
-        mgr.remove_listener(listener)
-        mgr.switch_to_plan("After remove")
+        _ = mgr.add_listener(listener)
+        _ = mgr.remove_listener(listener)
+        _ = mgr.switch_to_plan("After remove")
         assert len(calls) == 0
 
     def test_to_dict(self):
         """직렬화 딕셔너리에 모든 필드가 포함되어야 함."""
         mgr = ModeManager()
-        mgr.switch_to_plan("Testing")
+        _ = mgr.switch_to_plan("Testing")
         d = mgr.to_dict()
         assert d["current_mode"] == "plan"
         assert d["is_plan"] is True
@@ -281,7 +289,7 @@ class TestD1_ModeManager:
         assert "PLAN" in status
         assert "읽기 전용" in status or "read-only" in status.lower()
 
-        mgr.switch_to_interactive()
+        _ = mgr.switch_to_interactive()
         status = mgr.format_status()
         assert "INTERACTIVE" in status
 
@@ -295,11 +303,11 @@ class TestD2_ArtifactEngine:
     """ArtifactEngine — Plan 작성, 검증, 태스크 추출."""
 
     @pytest.fixture
-    def engine(self):
+    def engine(self) -> Iterator[ArtifactEngine]:
         with tempfile.TemporaryDirectory() as tmpdir:
             yield ArtifactEngine(project_root=tmpdir)
 
-    def test_write_and_read_artifact(self, engine):
+    def test_write_and_read_artifact(self, engine: ArtifactEngine) -> None:
         """아티팩트 쓰기/읽기."""
         result = engine.write_artifact(
             "implementation_plan.md",
@@ -312,32 +320,32 @@ class TestD2_ArtifactEngine:
         assert content is not None
         assert "Test Plan" in content
 
-    def test_write_artifact_appends_extension(self, engine):
+    def test_write_artifact_appends_extension(self, engine: ArtifactEngine) -> None:
         """확장자 없는 파일명에 .md 자동 추가."""
         result = engine.write_artifact("myplan", "# Content")
         assert result["success"] is True
         content = engine.read_artifact("myplan.md")
         assert content == "# Content"
 
-    def test_read_nonexistent_artifact(self, engine):
+    def test_read_nonexistent_artifact(self, engine: ArtifactEngine) -> None:
         """존재하지 않는 아티팩트 읽기 → None."""
         assert engine.read_artifact("nonexistent.md") is None
 
-    def test_delete_artifact(self, engine):
+    def test_delete_artifact(self, engine: ArtifactEngine) -> None:
         """아티팩트 삭제."""
-        engine.write_artifact("test.md", "# Hello")
+        _ = engine.write_artifact("test.md", "# Hello")
         assert engine.delete_artifact("test.md") is True
         assert engine.read_artifact("test.md") is None
         assert engine.delete_artifact("test.md") is False
 
-    def test_validate_plan_complete_missing(self, engine):
+    def test_validate_plan_complete_missing(self, engine: ArtifactEngine) -> None:
         """파일이 없으면 검증 실패."""
         result = engine.validate_plan_complete("missing.md")
         assert result.is_complete is False
         assert result.score == 0.0
         assert "(artifact not found)" in result.missing_sections
 
-    def test_validate_plan_complete_complete(self, engine):
+    def test_validate_plan_complete_complete(self, engine: ArtifactEngine) -> None:
         """완전한 Plan 검증 통과."""
         content = (
             "# Overview\n\nRefactor auth module.\n\n"
@@ -352,22 +360,22 @@ class TestD2_ArtifactEngine:
             "## Timeline\n\n"
             "Week 1.\n\n"
         )
-        engine.write_artifact("implementation_plan.md", content)
+        _ = engine.write_artifact("implementation_plan.md", content)
         result = engine.validate_plan_complete()
         assert result.is_complete is True
         assert result.score >= 0.6
         assert result.task_count >= 3
 
-    def test_validate_plan_complete_incomplete(self, engine):
+    def test_validate_plan_complete_incomplete(self, engine: ArtifactEngine) -> None:
         """불완전한 Plan은 검증 실패."""
         content = "# Overview\n\nJust a thought."
-        engine.write_artifact("implementation_plan.md", content)
+        _ = engine.write_artifact("implementation_plan.md", content)
         result = engine.validate_plan_complete()
         assert result.is_complete is False
         assert result.score < 0.6
         assert len(result.missing_sections) > 0
 
-    def test_extract_plan_tasks(self, engine):
+    def test_extract_plan_tasks(self, engine: ArtifactEngine) -> None:
         """Plan에서 체크박스 태스크 추출."""
         content = (
             "## Tasks\n\n"
@@ -376,7 +384,7 @@ class TestD2_ArtifactEngine:
             "- [x] Completed task\n"
             "- [ ] 🔴 Critical—Must do\n"
         )
-        engine.write_artifact("plan.md", content)
+        _ = engine.write_artifact("plan.md", content)
         tasks = engine.extract_plan_tasks("plan.md")
         assert len(tasks) == 4
         assert tasks[0].title == "First"
@@ -386,16 +394,16 @@ class TestD2_ArtifactEngine:
         assert tasks[2].status == "done"
         assert tasks[3].priority == 2  # 🔴 matches r"^🔴\s*"
 
-    def test_extract_plan_tasks_empty(self, engine):
+    def test_extract_plan_tasks_empty(self, engine: ArtifactEngine) -> None:
         """태스크가 없는 Plan → 빈 리스트."""
-        engine.write_artifact("empty.md", "# No tasks")
+        _ = engine.write_artifact("empty.md", "# No tasks")
         assert engine.extract_plan_tasks("empty.md") == []
 
-    def test_list_artifacts(self, engine):
+    def test_list_artifacts(self, engine: ArtifactEngine) -> None:
         """아티팩트 목록 조회."""
-        engine.write_artifact("plan.md", "# Plan")
-        engine.write_artifact("task.md", "# Task")
-        engine.write_artifact("walkthrough.md", "# Summary")
+        _ = engine.write_artifact("plan.md", "# Plan")
+        _ = engine.write_artifact("task.md", "# Task")
+        _ = engine.write_artifact("walkthrough.md", "# Summary")
 
         artifacts = engine.list_artifacts()
         assert len(artifacts) == 3
@@ -404,7 +412,7 @@ class TestD2_ArtifactEngine:
         assert "walkthrough.md" in filenames
         assert all(a["type"] in ("implementation_plan", "task", "walkthrough", "other") for a in artifacts)
 
-    def test_is_plan_ready_for_build(self, engine):
+    def test_is_plan_ready_for_build(self, engine: ArtifactEngine) -> None:
         """Plan 검증 통과 시 Build 준비 완료."""
         content = (
             "# Overview\n\n"
@@ -427,7 +435,7 @@ class TestD2_ArtifactEngine:
             "Week 1: Core implementation\n"
             "Week 2: Testing and migration\n"
         )
-        engine.write_artifact("implementation_plan.md", content)
+        _ = engine.write_artifact("implementation_plan.md", content)
         assert engine.is_plan_ready_for_build() is True
 
 
@@ -521,7 +529,7 @@ class TestD4_PlanToBuildPipeline:
                 "## Tasks\n\n- [ ] Task 1\n- [ ] Task 2\n- [ ] Task 3\n\n"
                 "## Timeline\n\nWeek 1.\n\n"
             )
-            ae.write_artifact("implementation_plan.md", content)
+            _ = ae.write_artifact("implementation_plan.md", content)
 
             pipeline = PlanToBuildPipeline(
                 mode_manager=mgr,
@@ -546,7 +554,7 @@ class TestD4_PlanToBuildPipeline:
             ae = ArtifactEngine(tmpdir)
 
             # 불완전한 Plan
-            ae.write_artifact("implementation_plan.md", "# Short")
+            _ = ae.write_artifact("implementation_plan.md", "# Short")
 
             pipeline = PlanToBuildPipeline(
                 mode_manager=mgr,
@@ -664,7 +672,7 @@ class TestD6_FormatStatus:
     def test_format_status_contains_history(self):
         """format_status에 전환 이력 포함."""
         mgr = ModeManager()
-        mgr.switch_to_plan("Test plan")
+        _ = mgr.switch_to_plan("Test plan")
         status = mgr.format_status()
         assert "전환 이력" in status or "transitions" in status.lower() or "1회" in status
 
@@ -680,18 +688,18 @@ class TestD7_EventBusPublish:
     def test_listener_receives_all_modes(self):
         """리스너가 모든 모드 전환 이벤트를 수신."""
         mgr = ModeManager()
-        events = []
+        events: list[tuple[str, str, str]] = []
 
-        def listener(from_mode, to_mode, reason):
+        def listener(from_mode: ExecutionMode, to_mode: ExecutionMode, reason: str) -> None:
             events.append((from_mode.value, to_mode.value, reason))
 
-        mgr.add_listener(listener)
+        _ = mgr.add_listener(listener)
 
-        mgr.switch_to_plan("E2E plan")
-        mgr.set_plan_artifact("plan.md")
-        mgr.set_plan_quality_passed(True)
-        mgr.switch_to_build(reason="E2E build")
-        mgr.switch_to_interactive("E2E done")
+        _ = mgr.switch_to_plan("E2E plan")
+        _ = mgr.set_plan_artifact("plan.md")
+        _ = mgr.set_plan_quality_passed(True)
+        _ = mgr.switch_to_build(reason="E2E build")
+        _ = mgr.switch_to_interactive("E2E done")
 
         # 3 mode switch events: plan, build, interactive
         # set_plan_artifact / set_plan_quality_passed do NOT fire listeners
@@ -703,46 +711,46 @@ class TestD7_EventBusPublish:
     def test_listener_receives_reason(self):
         """리스너에 전환 사유 전달."""
         mgr = ModeManager()
-        reasons = []
+        reasons: list[str] = []
 
-        def listener(from_mode, to_mode, reason):
+        def listener(_from_mode: ExecutionMode, _to_mode: ExecutionMode, reason: str) -> None:
             reasons.append(reason)
 
-        mgr.add_listener(listener)
-        mgr.switch_to_plan("Specific reason for E2E")
+        _ = mgr.add_listener(listener)
+        _ = mgr.switch_to_plan("Specific reason for E2E")
         assert "Specific reason for E2E" in reasons
 
     def test_eventbus_publish_noncritical(self):
         """EventBus publish 실패는 non-critical (에러 아님)."""
         mgr = ModeManager(initial_mode=ExecutionMode.INTERACTIVE)
         # EventBus가 없어도 모드 전환은 정상 동작
-        mgr.switch_to_plan("Test without EventBus")
+        _ = mgr.switch_to_plan("Test without EventBus")
         assert mgr.is_plan is True
 
     def test_multiple_listeners(self):
         """다중 리스너 등록/해제."""
         mgr = ModeManager()
-        calls1 = []
-        calls2 = []
+        calls1: list[tuple[ExecutionMode, ExecutionMode]] = []
+        calls2: list[tuple[ExecutionMode, ExecutionMode]] = []
 
-        def listener1(f, t, r):
+        def listener1(f: ExecutionMode, t: ExecutionMode, _r: str) -> None:
             calls1.append((f, t))
 
-        def listener2(f, t, r):
+        def listener2(f: ExecutionMode, t: ExecutionMode, _r: str) -> None:
             calls2.append((f, t))
 
-        mgr.add_listener(listener1)
-        mgr.add_listener(listener2)
-        mgr.switch_to_plan("Multi")
+        _ = mgr.add_listener(listener1)
+        _ = mgr.add_listener(listener2)
+        _ = mgr.switch_to_plan("Multi")
 
         assert len(calls1) == 1
         assert len(calls2) == 1
 
         # switch_to_build from PLAN requires quality → set flags first
-        mgr.set_plan_artifact("plan.md")
-        mgr.set_plan_quality_passed(True)
-        mgr.remove_listener(listener1)
-        mgr.switch_to_build(reason="After remove")
+        _ = mgr.set_plan_artifact("plan.md")
+        _ = mgr.set_plan_quality_passed(True)
+        _ = mgr.remove_listener(listener1)
+        _ = mgr.switch_to_build(reason="After remove")
 
         assert len(calls1) == 1  # 더 이상 호출 안 됨
         assert len(calls2) == 2  # 여전히 호출됨
@@ -765,16 +773,16 @@ class TestWeek1_E2E_FullFlow:
             mgr = ModeManager()
             ae = ArtifactEngine(tmpdir)
             qg = QualityGate()
-            events = []
+            events: list[tuple[str, str, str]] = []
 
-            def event_logger(from_mode, to_mode, reason):
+            def event_logger(from_mode: ExecutionMode, to_mode: ExecutionMode, reason: str) -> None:
                 events.append((from_mode.value, to_mode.value, reason))
 
-            mgr.add_listener(event_logger)
+            _ = mgr.add_listener(event_logger)
 
             # ── Phase 1: Interactive → Plan ──
             assert mgr.is_interactive is True
-            mgr.switch_to_plan("Complex refactoring needed")
+            _ = mgr.switch_to_plan("Complex refactoring needed")
             assert mgr.is_plan is True
             assert events[-1] == ("interactive", "plan", "Complex refactoring needed")
 
@@ -848,7 +856,7 @@ class TestWeek1_E2E_FullFlow:
             assert mgr.check_tool_permission("deploy")["requires_approval"] is True
 
             # ── Phase 8: Interactive 복귀 ──
-            mgr.switch_to_interactive("Refactoring complete")
+            _ = mgr.switch_to_interactive("Refactoring complete")
             assert mgr.is_interactive is True
             assert events[-1][1] == "interactive"
 

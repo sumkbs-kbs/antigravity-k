@@ -1,10 +1,15 @@
-"""FastAPI application factory, middleware, and lifespan for the Antigravity-K API."""
+"""FastAPI application factory, middleware, and lifespan for the Ssak-Ai API."""
 
 import asyncio
 import logging
 import os
-from typing import Any, cast
+import re
+import threading
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import cast, override
 
+import anyio
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,8 +18,12 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
+from starlette.types import Scope
 
-load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
+_ = load_dotenv()  # .env 로드 — config import 전에 실행되어야 함
 
 from antigravity_k.config import config
 from antigravity_k.tools.egress_policy import validate_httpx_request_async
@@ -37,6 +46,15 @@ async def lifespan(app: FastAPI):
         app (FastAPI): FastAPI app.
 
     """
+    from antigravity_k.api.startup_security import validate_startup_security
+
+    validate_startup_security(
+        host=config.server.host,
+        environment=os.environ.get("AGK_ENV", "development"),
+        access_pin=config.security.access_pin,
+        pin_hash_file=Path(config.security.pin_hash_file),
+    )
+
     # Startup — Sidabari 패턴 기반 서브시스템 초기화
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
     vault_data_dir = os.path.join(project_root, "vault_data")
@@ -55,7 +73,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.hook_event_bus import init_hook_event_bus
 
-        init_hook_event_bus(vault_data_dir)
+        _ = init_hook_event_bus(vault_data_dir)
         logger.info("[Startup] HookEventBus initialized")
     except Exception:
         logger.exception("[Startup] HookEventBus init skipped")
@@ -64,7 +82,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.audit_db import init_audit_db
 
-        init_audit_db(vault_data_dir)
+        _ = init_audit_db(vault_data_dir)
         logger.info("[Startup] AuditDb initialized")
     except Exception:
         logger.exception("[Startup] AuditDb init skipped")
@@ -75,7 +93,7 @@ async def lifespan(app: FastAPI):
             init_panel_activity_tracker,
         )
 
-        init_panel_activity_tracker()
+        _ = init_panel_activity_tracker()
         logger.info("[Startup] PanelActivityTracker initialized")
     except Exception:
         logger.exception("[Startup] PanelActivityTracker init skipped")
@@ -84,7 +102,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.event_bus import bridge_to_hook_event_bus
 
-        bridge_to_hook_event_bus()
+        bridge_to_hook_event_bus(project_root=project_root)
         logger.info("[Startup] EventBus dual-sync bridge established")
     except Exception:
         logger.exception("[Startup] EventBus bridge skipped")
@@ -93,7 +111,7 @@ async def lifespan(app: FastAPI):
     try:
         from antigravity_k.engine.rag_indexer import RAGIndexer
 
-        async def _bg_index():
+        def _run_index() -> None:
             try:
                 indexer = RAGIndexer(project_root=project_root)
                 count = indexer.index_project()
@@ -101,12 +119,18 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("[RAG] Background indexing failed")
 
-        task = asyncio.create_task(_bg_index())
-        if not hasattr(app.state, "background_tasks"):
-            app.state.background_tasks = set()
-        app.state.background_tasks.add(task)
-        task.add_done_callback(app.state.background_tasks.discard)
-        logger.info("[RAG] Background indexing started")
+        active_indexer = getattr(app.state, "rag_index_thread", None)
+        if not isinstance(active_indexer, threading.Thread) or not active_indexer.is_alive():
+            index_thread = threading.Thread(
+                target=_run_index,
+                name="antigravity-rag-index",
+                daemon=True,
+            )
+            app.state.rag_index_thread = index_thread
+            index_thread.start()
+            logger.info("[RAG] Background indexing started")
+        else:
+            logger.info("[RAG] Background indexing already running")
     except Exception:
         logger.exception("[RAG] Auto-index startup skipped")
 
@@ -142,18 +166,44 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[Startup] API Cache cleanup init skipped")
 
+    _scheduled_job_task: asyncio.Task[None] | None = None
+
+    try:
+
+        async def _scheduled_job_loop() -> None:
+            while True:
+                await anyio.sleep(15)
+                try:
+                    from antigravity_k.api.dependencies import get_scheduled_job_service
+
+                    service = get_scheduled_job_service()
+                    _ = await asyncio.to_thread(service.tick)
+                except Exception:
+                    logger.exception("[Jobs] Scheduled job tick failed")
+
+        _scheduled_job_task = asyncio.create_task(_scheduled_job_loop())
+        logger.info("[Startup] Scheduled job loop started (interval=15s)")
+    except Exception:
+        logger.exception("[Startup] Scheduled job loop init skipped")
+
     yield
 
     # Cancel cache cleanup
     if _cache_cleanup_task is not None and not _cache_cleanup_task.done():
-        _cache_cleanup_task.cancel()
+        _ = _cache_cleanup_task.cancel()
+    if _scheduled_job_task is not None and not _scheduled_job_task.done():
+        _ = _scheduled_job_task.cancel()
     # Shutdown
     logger.info("Server shutting down — cancelling application background tasks...")
-    tasks = [task for task in getattr(app.state, "background_tasks", set()) if not task.done()]
+    background_tasks = cast(
+        set[asyncio.Task[object]],
+        getattr(app.state, "background_tasks", cast(set[asyncio.Task[object]], set())),
+    )
+    tasks: list[asyncio.Task[object]] = [task for task in background_tasks if not task.done()]
     for task in tasks:
-        task.cancel()
+        _ = task.cancel()
     if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        _ = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Sidabari 서브시스템 정리
     try:
@@ -174,7 +224,7 @@ async def lifespan(app: FastAPI):
 
     try:
         if hasattr(app.state, "ide_server"):
-            app.state.ide_server.stop()
+            _ = app.state.ide_server.stop()
     except Exception:
         logger.exception("Unhandled exception")
         pass
@@ -185,9 +235,9 @@ async def lifespan(app: FastAPI):
 from antigravity_k import __version__
 
 app = FastAPI(
-    title="Antigravity-K API",
+    title="Ssak-Ai API",
     description=(
-        "OpenAI-compatible API for Antigravity-K Local Engine — "
+        "OpenAI-compatible API for Ssak-Ai Local Engine — "
         "로컬 AI 엔지니어링 에이전트. 채팅, 웹 검색, 파일 조작, "
         "코드 생성/분석, Git 연동, 워크스페이스 관리 등 다양한 작업을 지원합니다.\n\n"
         "## 주요 기능\n"
@@ -205,9 +255,9 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
     contact={
-        "name": "Antigravity-K Team",
-        "url": "https://github.com/antigravity-k/antigravity-k",
-        "email": "team@antigravity-k.dev",
+        "name": "Ssak-Ai Team",
+        "url": "https://github.com/ssak-comp/Ssak-Ai",
+        "email": "team@ssak-ai.dev",
     },
     license_info={
         "name": "MIT",
@@ -215,11 +265,11 @@ app = FastAPI(
     },
     servers=[
         {"url": "http://localhost:8000", "description": "로컬 개발 서버"},
-        {"url": "https://api.antigravity-k.dev", "description": "프로덕션 서버"},
+        {"url": "https://api.ssak-ai.dev", "description": "프로덕션 서버"},
     ],
     externalDocs={
         "description": "온보딩 가이드",
-        "url": "https://github.com/antigravity-k/antigravity-k/blob/main/ONBOARDING.md",
+        "url": "https://github.com/ssak-comp/Ssak-Ai/blob/main/ONBOARDING.md",
     },
     # 태그 메타데이터 — Swagger UI에서 그룹 설명 표시
     openapi_tags=[
@@ -258,9 +308,15 @@ if _cors_env:
 else:
     cors_origins = [
         "http://localhost:5173",  # Vite dev server
+        "http://localhost:5174",
+        "http://localhost:4178",  # Vite preview server
         "http://localhost:8000",  # Production uvicorn
+        "http://localhost:8012",  # Test / E2E uvicorn
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:4178",
         "http://127.0.0.1:8000",
+        "http://127.0.0.1:8012",
     ]
 
 app.add_middleware(
@@ -275,30 +331,31 @@ app.add_middleware(
 # slowapi state + middleware registration
 # ---------------------------------------------------------------------------
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, cast(Any, _rate_limit_exceeded_handler))
+app.add_exception_handler(
+    RateLimitExceeded,
+    cast(Callable[[Request, Exception], Response | Awaitable[Response]], _rate_limit_exceeded_handler),
+)
 
 
 @app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
+async def security_headers_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Inject security headers on every response.
 
-    The CSP allows the CDN-hosted scripts the dashboard depends on (cdnjs,
-    jsdelivr, Google Fonts) and inline styles/scripts (required by the
-    vanilla-JS dashboard), but blocks ``javascript:`` navigation and restricts
-    frame ancestors. This is defense-in-depth alongside DOMPurify sanitization
-    of agent output in the frontend.
+    The CSP allows the CDN-hosted scripts and inline React style attributes the
+    dashboard depends on, but blocks inline scripts, ``javascript:`` navigation,
+    and external frame ancestors. This is defense-in-depth alongside DOMPurify
+    sanitization of agent output in the frontend.
     """
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=(), payment=()"
-    # CSP: allow self + the specific CDNs the dashboard uses. 'unsafe-inline'
-    # is required for the vanilla-JS dashboard's inline styles/handlers; this
-    # will be tightened when the frontend moves to a build-time CSP nonce.
+    # CSP: allow self + the specific CDNs the React dashboard uses. Inline
+    # styles remain until component styles move behind a build-time CSP nonce.
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' "
+        "script-src 'self' "
         "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' "
         "https://cdn.jsdelivr.net https://fonts.googleapis.com; "
@@ -320,6 +377,9 @@ _PUBLIC_EXACT_PATHS = frozenset(
     {
         "/api/auth/login",
         "/api/auth/token",
+        "/api/remote/pairing/complete",
+        "/api/remote/pairing/relay",
+        "/api/remote/pairing/relay/poll",
         "/health",
         "/v1/health",
         "/api/health/deep",
@@ -346,8 +406,17 @@ def _is_protected_path(path: str) -> bool:
     return path.startswith(_PROTECTED_PREFIXES)
 
 
+def _metric_path(request: Request) -> str:
+    """Return a bounded-cardinality route label for an HTTP request."""
+    route = request.scope.get("route")
+    template = getattr(route, "path", None)
+    if isinstance(template, str) and template:
+        return template
+    return re.sub(r"/(?:[0-9]+|[0-9a-f]{8,})(?=/|$)", "/:id", request.url.path)
+
+
 @app.middleware("http")
-async def verify_access_token(request: Request, call_next):
+async def verify_access_token(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Authenticate requests to protected paths via bearer token (or legacy PIN).
 
     Coverage is widened from the previous ``/api/``-only guard to also include
@@ -377,7 +446,7 @@ async def verify_access_token(request: Request, call_next):
 
 
 @app.middleware("http")
-async def metrics_middleware(request: Request, call_next):
+async def metrics_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Collect RED (Rate, Errors, Duration) metrics for every HTTP request.
 
     Records request count (by method/path/status), latency histogram, and an
@@ -404,10 +473,9 @@ async def metrics_middleware(request: Request, call_next):
     finally:
         elapsed = asyncio.get_event_loop().time() - start
         requests_in_flight().dec()
-        # Normalize path templates to avoid high-cardinality label explosion.
-        # Use the raw path with query stripped; route templating would be ideal
-        # but the middleware runs before route resolution.
-        path = request.url.path
+        # Prefer the resolved route template; only fall back to a bounded
+        # identifier scrubber for unmatched or mounted paths.
+        path = _metric_path(request)
         request_counter().labels(method=request.method, path=path, status=status_code).inc()
         request_latency().labels(method=request.method, path=path).observe(elapsed)
 
@@ -482,14 +550,12 @@ def _custom_openapi():
     return app.openapi_schema
 
 
-app.openapi = _custom_openapi  # type: ignore[assignment]
+setattr(app, "openapi", _custom_openapi)
 
 # Prometheus metrics endpoint (public — Prometheus scrapers need access).
 # We expose a plain GET route at exactly /metrics (the ASGI mount from
 # make_asgi_app only serves /metrics/ with a trailing slash, which Prometheus
 # does not send by default).
-from fastapi import Response  # noqa: E402
-
 from antigravity_k.engine.metrics import render_metrics  # noqa: E402
 
 
@@ -516,7 +582,7 @@ from antigravity_k.api.error_handler import (  # noqa: E402
 
 
 @app.middleware("http")
-async def correlation_id_middleware(request: Request, call_next):
+async def correlation_id_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Assign or propagate a correlation id for every request.
 
     Reads an inbound ``X-Request-Id`` header if present (so callers can trace
@@ -565,7 +631,7 @@ async def reverse_proxy_ide(request: Request, path: str):
     async with httpx.AsyncClient(event_hooks={"request": [validate_httpx_request_async]}) as client:
         # 헤더 조작 시 Host 헤더 등이 충돌할 수 있으므로 필터링 필요
         req_headers = dict(request.headers)
-        req_headers.pop("host", None)
+        _ = req_headers.pop("host", None)
 
         rp_req = client.build_request(
             request.method,
@@ -588,13 +654,20 @@ async def reverse_proxy_ide(request: Request, path: str):
 
 
 # --- STATIC FILES FOR DASHBOARD ---
-dashboard_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "dashboard",
-    "dist",
-)
-if os.path.exists(dashboard_path):
-    app.mount("/", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
+dashboard_path = Path(__file__).resolve().parents[1] / "dashboard_dist"
+if dashboard_path.is_dir():
+
+    class _DashboardStaticFiles(StaticFiles):
+        @override
+        async def get_response(self, path: str, scope: Scope) -> Response:
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404 and "." not in Path(path).name:
+                    return await super().get_response("index.html", scope)
+                raise
+
+    app.mount("/", _DashboardStaticFiles(directory=dashboard_path, html=True), name="dashboard")
 else:
     logger.warning(
         "Dashboard build not found at %s. Please run npm run build in dashboard/",
@@ -604,10 +677,18 @@ else:
 if __name__ == "__main__":
     import uvicorn
 
+    from antigravity_k.api.startup_security import validate_startup_security
+
+    validate_startup_security(
+        host=config.server.host,
+        environment=os.environ.get("AGK_ENV", "development"),
+        access_pin=config.security.access_pin,
+        pin_hash_file=Path(config.security.pin_hash_file),
+    )
     uvicorn.run(
         "antigravity_k.api.server:app",
-        host="0.0.0.0",
-        port=8000,
+        host=config.server.host,
+        port=config.server.port,
         reload=True,
         reload_dirs=["src", "config.yaml"],
     )

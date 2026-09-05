@@ -5,8 +5,9 @@ from unittest import mock
 
 MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "naver-blog-research" / "scripts" / "naver_search.py"
 MODULE_SPEC = importlib.util.spec_from_file_location("naver_search", MODULE_PATH)
+if MODULE_SPEC is None or MODULE_SPEC.loader is None:
+    raise ImportError(f"unable to load Naver search module from {MODULE_PATH}")
 naver_search = importlib.util.module_from_spec(MODULE_SPEC)
-assert MODULE_SPEC.loader is not None
 MODULE_SPEC.loader.exec_module(naver_search)
 
 
@@ -61,7 +62,7 @@ class SearchWorkflowTest(unittest.TestCase):
             fetch_starts.append(start)
             return f"page-{start}"
 
-        def fake_parse(html: str) -> list[dict]:
+        def fake_parse(html: str) -> list[dict[str, str]]:
             return parsed_pages[html]
 
         with (

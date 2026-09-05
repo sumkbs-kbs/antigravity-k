@@ -23,11 +23,35 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Protocol, cast
 
 logger = logging.getLogger("antigravity_k.engine.runtime_recovery")
+
+
+class _ModelManagerLike(Protocol):
+    def list_models(self) -> list[object]: ...
+
+    def loaded_names(self) -> list[str]: ...
+
+
+class _SessionManagerLike(Protocol):
+    def get_session_info(self) -> object: ...
+
+
+class _MemoryManagerLike(Protocol):
+    def get_stats(self) -> object: ...
+
+
+class _ToolsetManagerLike(Protocol):
+    def get_active_tools(self) -> list[str]: ...
+
+
+class _ShieldsManagerLike(Protocol):
+    @property
+    def is_up(self) -> bool: ...
 
 
 # ── 상태 분류 열거형 ──
@@ -126,10 +150,10 @@ class SystemHealth:
 
 
 def classify_agent_state(
-    orchestrator=None,
+    orchestrator: object | None = None,
     *,
-    model_manager=None,
-    session_manager=None,
+    model_manager: object | None = None,
+    session_manager: object | None = None,
 ) -> StateClassification:
     """에이전트의 현재 런타임 상태를 분류합니다.
 
@@ -146,7 +170,7 @@ def classify_agent_state(
     # 2. 모델 매니저 상태 확인
     if model_manager is not None:
         try:
-            models = model_manager.list_models()
+            models = cast(_ModelManagerLike, model_manager).list_models()
             if not models:
                 return StateClassification(
                     state=AgentState.DEGRADED,
@@ -171,7 +195,7 @@ def classify_agent_state(
     # 3. 세션 매니저 상태 확인
     if session_manager is not None:
         try:
-            session_manager.get_session_info()
+            _ = cast(_SessionManagerLike, session_manager).get_session_info()
         except Exception as e:
             logger.exception("Unhandled exception")
             return StateClassification(
@@ -337,11 +361,11 @@ def determine_recovery(
 
 def deep_health_check(
     *,
-    model_manager=None,
-    session_manager=None,
-    memory_manager=None,
-    toolset_manager=None,
-    shields_manager=None,
+    model_manager: object | None = None,
+    session_manager: object | None = None,
+    memory_manager: object | None = None,
+    toolset_manager: object | None = None,
+    shields_manager: object | None = None,
 ) -> SystemHealth:
     """시스템 전체 깊은 Health Check를 수행합니다.
 
@@ -357,7 +381,7 @@ def deep_health_check(
         _check_component(
             "model_manager",
             model_manager,
-            check_fn=lambda mm: bool(mm.list_models()),
+            check_fn=lambda mm: bool(cast(_ModelManagerLike, mm).loaded_names()),
         ),
     )
 
@@ -366,7 +390,7 @@ def deep_health_check(
         _check_component(
             "session_manager",
             session_manager,
-            check_fn=lambda sm: sm.get_session_info() is not None,
+            check_fn=lambda sm: cast(_SessionManagerLike, sm).get_session_info() is not None,
         ),
     )
 
@@ -375,7 +399,7 @@ def deep_health_check(
         _check_component(
             "memory_manager",
             memory_manager,
-            check_fn=lambda mm: mm.get_stats() is not None,
+            check_fn=lambda mm: cast(_MemoryManagerLike, mm).get_stats() is not None,
         ),
     )
 
@@ -384,7 +408,7 @@ def deep_health_check(
         _check_component(
             "toolset_manager",
             toolset_manager,
-            check_fn=lambda ts: len(ts.get_active_tools()) > 0,
+            check_fn=lambda ts: len(cast(_ToolsetManagerLike, ts).get_active_tools()) > 0,
         ),
     )
 
@@ -394,7 +418,7 @@ def deep_health_check(
             ComponentHealth(
                 name="shields",
                 status=HealthStatus.HEALTHY,
-                detail=f"{'UP' if shields_manager.is_up else 'DOWN'}",
+                detail=f"{'UP' if cast(_ShieldsManagerLike, shields_manager).is_up else 'DOWN'}",
             ),
         )
     else:
@@ -433,8 +457,8 @@ def deep_health_check(
 
 def _check_component(
     name: str,
-    component: Any,
-    check_fn=None,
+    component: object | None,
+    check_fn: Callable[[object], bool] | None = None,
 ) -> ComponentHealth:
     """개별 컴포넌트를 체크합니다."""
     if component is None:

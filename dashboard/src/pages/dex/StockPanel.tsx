@@ -15,8 +15,8 @@ const StockPanel: React.FC<Props> = ({ stocks }) => {
   return (
     <GlassPanel title="📈 주식 데이터" count={stocks.length}>
       {stocks.length > 0 ? (
-        stocks.map((s, i) => (
-          <div key={i} style={{
+        stocks.map(s => (
+          <div key={`${s.ticker ?? s.name ?? 'stock'}:${s.close_price ?? ''}`} style={{
             padding: 12, borderRadius: 8,
             background: 'rgba(255,255,255,0.03)',
             border: '1px solid rgba(255,255,255,0.06)',

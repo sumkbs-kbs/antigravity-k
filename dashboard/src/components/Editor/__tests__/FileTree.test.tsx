@@ -174,9 +174,10 @@ describe('FileTreeNode click behavior', () => {
   });
 
   it('opens file on click', async () => {
-    vi.mocked(global.fetch as any).mockResolvedValue({
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ content: 'const x = 1;' }),
-    });
+    } as unknown as Response);
 
     render(<FileTree />);
     await act(async () => { fireEvent.click(screen.getByText('app.ts')); });
@@ -187,9 +188,10 @@ describe('FileTreeNode click behavior', () => {
   });
 
   it('shows error toast when file read fails', async () => {
-    vi.mocked(global.fetch as any).mockResolvedValue({
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
       json: () => Promise.resolve({ detail: 'File not found', content: undefined }),
-    });
+    } as unknown as Response);
 
     render(<FileTree />);
     await act(async () => { fireEvent.click(screen.getByText('utils.ts')); });
@@ -200,6 +202,41 @@ describe('FileTreeNode click behavior', () => {
         'error',
       );
     });
+  });
+
+  it('shows an error toast without parsing a non-OK file response as success', async () => {
+    const json = vi.fn().mockResolvedValue({ detail: 'File not found' });
+    vi.mocked(global.fetch).mockResolvedValue({ ok: false, status: 404, json } as unknown as Response);
+
+    render(<FileTree />);
+    await act(async () => { fireEvent.click(screen.getByText('utils.ts')); });
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.stringContaining('File not found'),
+        'error',
+      );
+    });
+    expect(mockOpenFile).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a successful response with invalid file content', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ content: 42 }),
+    } as unknown as Response);
+
+    render(<FileTree />);
+    await act(async () => { fireEvent.click(screen.getByText('package.json')); });
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        '파일 읽기 실패: 알 수 없는 오류',
+        'error',
+      );
+    });
+    expect(mockOpenFile).not.toHaveBeenCalled();
   });
 });
 

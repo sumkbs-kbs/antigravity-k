@@ -1,6 +1,6 @@
 ---
 name: OS_AI_COMPUTER_USE
-description: OS AI Computer Use 프레임워크 아키텍처 분석 및 Antigravity-K 통합 가이드
+description: OS AI Computer Use 프레임워크 아키텍처 분석 및 Ssak-Ai 통합 가이드
 tools:
   - computer_use
   - screenshot
@@ -68,7 +68,7 @@ DriverSet:
   └── SoundDriver   (알림 사운드)
 ```
 
-## 3. Antigravity-K 통합 현황
+## 3. Ssak-Ai 통합 현황
 
 ### 구현 완료
 - `tools/computer_use.py` — ComputerUseTool (BaseTool 상속)

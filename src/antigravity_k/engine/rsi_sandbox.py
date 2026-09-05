@@ -1,4 +1,4 @@
-"""Antigravity-K: RSI Safety Sandbox (재귀적 자기개선 안전 샌드박스).
+"""Ssak-Ai: RSI Safety Sandbox (재귀적 자기개선 안전 샌드박스).
 
 ================================================================
 자기 수정 시 안전을 보장하는 이중 감사 + 자동 롤백 시스템.
@@ -25,9 +25,31 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TypedDict, cast
+
+from antigravity_k.engine.sandbox import run_sandboxed_argv
 
 logger = logging.getLogger("antigravity_k.rsi_sandbox")
+
+
+class MutationPayload(TypedDict):
+    mutation_id: str
+    timestamp: float
+    target_file: str
+    mutation_type: str
+    risk_level: str
+    before_hash: str
+    after_hash: str
+    validations: dict[str, str]
+    approved: bool
+    rolled_back: bool
+    benchmark_delta: float
+
+
+class AuditResult(TypedDict):
+    approved: bool
+    auditor_1: str
+    auditor_2: str
 
 
 # ─── 불변 파일 목록 (절대 자기수정 불가) ─────────────────────────────
@@ -85,14 +107,14 @@ class MutationRecord:
     rolled_back: bool = False
     benchmark_delta: float = 0.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """To Dict.
 
         Returns:
             dict: The dict result.
 
         """
-        return asdict(self)
+        return cast(dict[str, object], cast(object, asdict(self)))
 
 
 @dataclass
@@ -130,10 +152,10 @@ class RSISandbox:
             verify_fn (Callable | None): Callable | None verify fn.
 
         """
-        self._root = project_root or os.getcwd()
-        self._audit_dir = Path(audit_dir)
+        self._root: str = project_root or os.getcwd()
+        self._audit_dir: Path = Path(audit_dir)
         self._audit_dir.mkdir(parents=True, exist_ok=True)
-        self._verify_fn = verify_fn  # LLM 검증 함수
+        self._verify_fn: Callable[[str], str] | None = verify_fn  # LLM 검증 함수
         self._mutation_log: list[MutationRecord] = []
         self._snapshots: list[SnapshotInfo] = []
         self._load_audit_log()
@@ -254,7 +276,7 @@ class RSISandbox:
         # 1단계: AST 구문 검증
         if filepath.endswith(".py"):
             try:
-                ast.parse(new_content)
+                _ = ast.parse(new_content)
                 results["ast"] = ValidationResult.PASS
             except SyntaxError as e:
                 logger.warning("[RSI Sandbox] AST 실패: %s: %s", filepath, e)
@@ -274,10 +296,10 @@ class RSISandbox:
 
                 # 임시 교체
                 with open(full_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
+                    _ = f.write(new_content)
 
                 # pytest 실행
-                test_result = subprocess.run(
+                test_result = run_sandboxed_argv(
                     [
                         "python",
                         "-m",
@@ -288,13 +310,10 @@ class RSISandbox:
                         "-x",
                     ],
                     cwd=self._root,
-                    capture_output=True,
-                    text=True,
                     timeout=60,
-                    check=False,
                     env={**os.environ, "PYTHONPATH": os.path.join(self._root, "src")},
                 )
-                results["tests"] = ValidationResult.PASS if test_result.returncode == 0 else ValidationResult.FAIL
+                results["tests"] = ValidationResult.PASS if test_result.return_code == 0 else ValidationResult.FAIL
             else:
                 results["tests"] = ValidationResult.SKIP
         except Exception:
@@ -304,7 +323,7 @@ class RSISandbox:
             # 원복
             if original_content is not None and os.path.exists(full_path):
                 with open(full_path, "w", encoding="utf-8") as f:
-                    f.write(original_content)
+                    _ = f.write(original_content)
 
         # 3단계: 벤치마크 회귀
         if benchmark_fn:
@@ -328,7 +347,7 @@ class RSISandbox:
         modified: str,
         audit_fn_1: Callable[[str], str] | None = None,
         audit_fn_2: Callable[[str], str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> AuditResult:
         """두 개의 독립 LLM이 변이를 교차 검증합니다.
 
         Args:
@@ -354,7 +373,7 @@ class RSISandbox:
             "판단: APPROVE 또는 REJECT (이유 포함)"
         )
 
-        result = {"approved": True, "auditor_1": "skip", "auditor_2": "skip"}
+        result: AuditResult = {"approved": True, "auditor_1": "skip", "auditor_2": "skip"}
 
         fn_1 = audit_fn_1 or self._verify_fn
         fn_2 = audit_fn_2 or self._verify_fn
@@ -398,7 +417,7 @@ class RSISandbox:
             logger.info("[RSI Sandbox] 안전 수정 완료: %s", label)
         except Exception as e:
             logger.error("[RSI Sandbox] 수정 중 오류, 롤백 시작: %s", e)
-            self.rollback_to(snapshot)
+            _ = self.rollback_to(snapshot)
             raise
 
     # ─── 변이 기록 ───────────────────────────────────────────────
@@ -408,11 +427,11 @@ class RSISandbox:
         self._mutation_log.append(record)
         self._save_audit_log()
 
-    def get_mutation_history(self, last_n: int = 20) -> list[dict[str, Any]]:
+    def get_mutation_history(self, last_n: int = 20) -> list[dict[str, object]]:
         """최근 변이 이력을 반환합니다."""
         return [m.to_dict() for m in self._mutation_log[-last_n:]]
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> dict[str, object]:
         """샌드박스 통계를 반환합니다."""
         total = len(self._mutation_log)
         approved = sum(1 for m in self._mutation_log if m.approved)
@@ -447,8 +466,18 @@ class RSISandbox:
         if log_path.exists():
             try:
                 with open(log_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                self._mutation_log = [MutationRecord(**r) for r in data.get("mutations", [])]
+                    data = cast(object, json.load(f))
+                if not isinstance(data, dict):
+                    return
+                payload = cast(dict[str, object], cast(object, data))
+                raw_mutations = payload.get("mutations", [])
+                if isinstance(raw_mutations, list):
+                    mutations = cast(list[object], cast(object, raw_mutations))
+                    self._mutation_log = [
+                        MutationRecord(**cast(MutationPayload, cast(object, item)))
+                        for item in mutations
+                        if isinstance(item, dict)
+                    ]
             except Exception:
                 logger.exception("[RSI Sandbox] 감사 로그 로드 실패")
 
@@ -466,4 +495,4 @@ class RSISandbox:
             logger.exception("[RSI Sandbox] 감사 로그 저장 실패")
 
 
-"""Antigravity-K RSI Safety Sandbox — Dual-audit + auto-rollback."""
+"""Ssak-Ai RSI Safety Sandbox — Dual-audit + auto-rollback."""

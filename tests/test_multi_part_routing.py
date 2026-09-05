@@ -1,8 +1,10 @@
+from typing import cast
+
 from antigravity_k.engine.orchestrator_handlers import route_decision
 from antigravity_k.engine.state_graph import AgentState, StateContext
 
 
-def _ctx(user_message: str, task_type: str = "simple_chat", analysis: dict | None = None) -> StateContext:
+def _ctx(user_message: str, task_type: str = "simple_chat", analysis: dict[str, object] | None = None) -> StateContext:
     ctx = StateContext()
     ctx.user_message = user_message
     ctx.task_type = task_type
@@ -43,10 +45,16 @@ class TestMultiPartRouting:
             "1. 첫 번째\n2. 두 번째\n3. 세 번째",
             task_type="simple_chat",
         )
-        route_decision(ctx)
+        _ = route_decision(ctx)
 
-        pipeline = ctx.analysis.get("pipeline", [])
+        pipeline_value = ctx.analysis.get("pipeline", [])
+        assert isinstance(pipeline_value, list)
+        pipeline_items = cast(list[object], pipeline_value)
+        pipeline = [cast(dict[str, object], item) for item in pipeline_items]
         assert len(pipeline) == 3
-        assert all("첫 번째" not in s.get("task", "") or "번째" in s.get("task", "") for s in pipeline)
-        descriptions = [s["task"] for s in pipeline]
+        assert all(
+            "첫 번째" not in str(s.get("task", "")) or "번째" in str(s.get("task", ""))
+            for s in pipeline
+        )
+        descriptions = [str(s["task"]) for s in pipeline]
         assert descriptions == ["첫 번째", "두 번째", "세 번째"]

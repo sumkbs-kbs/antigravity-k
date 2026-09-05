@@ -3,10 +3,33 @@
 오케스트레이터의 각 컴포넌트를 초기화하는 함수들을 제공합니다.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Protocol, cast
+
+from pydantic import JsonValue
+
+from antigravity_k.engine.fact_appender import FactAppender
+from antigravity_k.engine.model_manager import ModelManager
+from antigravity_k.engine.vault import VaultEngine
+
+if TYPE_CHECKING:
+    from antigravity_k.engine.ambient_watchdog import AmbientWatchdog
+    from antigravity_k.engine.self_evolution_coordinator import SelfEvolutionCoordinator
 
 logger = logging.getLogger("antigravity_k.orchestrator.setup")
+
+
+class _ManagerInput(Protocol): ...
+
+
+def _json_mapping(value: JsonValue) -> Mapping[str, JsonValue]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
 
 # ─── Planning Mode fallback prompt (ArtifactEngine 미사용 시) ──────────
 
@@ -20,9 +43,10 @@ PLANNING_MODE_BLOCK = (
 )
 
 
-def load_agent_models(config: dict[str, Any]) -> dict[str, str]:
+def load_agent_models(config: Mapping[str, JsonValue]) -> dict[str, str]:
     """Config dict에서 역할별 모델 매핑을 추출합니다."""
-    return config.get("agent_models", {})
+    raw_models = _json_mapping(config.get("agent_models", {}))
+    return {role: model for role, model in raw_models.items() if isinstance(model, str)}
 
 
 def create_state_graph():
@@ -33,7 +57,7 @@ def create_state_graph():
         graph = build_orchestrator_graph()
         logger.info("[Orchestrator] State Graph 엔진 활성화 완료")
         return graph
-    except Exception:
+    except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - optional component initialization must preserve fallback behavior
         logger.exception("[Orchestrator] State Graph 초기화 실패")
         return None
 
@@ -46,51 +70,46 @@ def create_artifact_engine(project_root: str):
         engine = ArtifactEngine(project_root)
         logger.info("[Orchestrator] Artifact Engine 활성화 완료")
         return engine
-    except Exception:
+    except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - optional component initialization must preserve fallback behavior
         logger.exception("Failed to initialize ArtifactEngine")
         return None
 
 
-def create_watchdog(config: dict[str, Any], project_root: str, manager, vault_engine):
+def create_watchdog(
+    config: Mapping[str, JsonValue],
+    project_root: str,
+    manager: _ManagerInput | None,
+    vault_engine: VaultEngine | None,
+) -> AmbientWatchdog | None:
     """AmbientWatchdog을 조건부로 초기화합니다."""
-    if not config.get("ambient_partner", {}).get("watchdog_enabled", False):
+    ambient_config = _json_mapping(config.get("ambient_partner", {}))
+    watchdog_enabled = ambient_config.get("watchdog_enabled", False)
+    if not isinstance(watchdog_enabled, bool) or not watchdog_enabled or manager is None:
         return None
     try:
         from antigravity_k.engine.ambient_watchdog import AmbientWatchdog
 
-        watchdog = AmbientWatchdog(project_root, manager, vault_engine)
+        watchdog = AmbientWatchdog(project_root, cast(ModelManager, manager), vault_engine)
         watchdog.start()
         return watchdog
-    except Exception:
+    except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - optional component initialization must preserve fallback behavior
         logger.exception("Failed to start AmbientWatchdog")
         return None
 
 
-def create_plan_guard_harness(project_root: str):
-    """PlanGuard + HarnessEnforcer를 초기화합니다."""
-    try:
-        from antigravity_k.engine.harness_enforcer import HarnessEnforcer
-        from antigravity_k.engine.plan_guard import PlanGuard
-
-        plan_guard = PlanGuard()
-        harness = HarnessEnforcer(project_root=project_root, strict_mode=False)
-        harness.load_guidelines()
-        logger.info("[Orchestrator] PlanGuard + HarnessEnforcer 활성화 완료")
-        return plan_guard, harness
-    except Exception:
-        logger.exception("PlanGuard/Harness init failed")
-        return None, None
-
-
-def create_fact_appender(manager, project_root: str):
+def create_fact_appender(manager: _ManagerInput | None, project_root: str) -> FactAppender | None:
     """FactAppender를 초기화합니다."""
     try:
         from antigravity_k.engine.fact_appender import initialize_fact_appender
 
-        appender = initialize_fact_appender(manager, project_root)
+        initializer = cast(
+            Callable[[_ManagerInput | None, str], FactAppender],
+            initialize_fact_appender,
+        )
+        appender = initializer(manager, project_root)
         logger.info("[Orchestrator] FactAppender 활성화 완료")
         return appender
-    except Exception:
+    except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - optional component initialization must preserve fallback behavior
         logger.exception("Failed to initialize FactAppender")
         return None
 
@@ -103,16 +122,16 @@ def create_mode_manager():
         mgr = ModeManager()
         logger.info("[Orchestrator] ModeManager 활성화 완료 (mode=%s)", mgr.current_mode.value)
         return mgr
-    except Exception:
+    except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - optional component initialization must preserve fallback behavior
         logger.exception("Failed to initialize ModeManager")
         return None
 
 
 def create_evolution_coordinator(
     project_root: str,
-    model_manager,
-    verify_fn,
-):
+    model_manager: _ManagerInput | None,
+    verify_fn: Callable[[str], str] | None,
+) -> SelfEvolutionCoordinator | None:
     """Self-Evolution Coordinator를 초기화합니다."""
     try:
         from antigravity_k.engine.self_evolution_coordinator import (
@@ -121,11 +140,11 @@ def create_evolution_coordinator(
 
         coordinator = SelfEvolutionCoordinator(
             project_root=project_root,
-            model_manager=model_manager,
+            model_manager=cast(ModelManager, model_manager) if model_manager is not None else None,
             verify_fn=verify_fn,
         )
         logger.info("[Orchestrator] Self-Evolution Coordinator 활성화 완료")
         return coordinator
-    except Exception:
+    except Exception:  # noqa: BLE001  # noqa: BROAD_EXCEPT_OK - optional component initialization must preserve fallback behavior
         logger.exception("[Orchestrator] Self-Evolution Coordinator 초기화 실패")
         return None

@@ -1,5 +1,8 @@
 import json
 import sys
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import cast, final
 from unittest.mock import MagicMock
 
 import pytest
@@ -7,25 +10,30 @@ import pytest
 from antigravity_k.engine.orchestrator import OrchestratorAgent
 
 
+def _mock_method(value: MagicMock, name: str) -> MagicMock:
+    return cast(MagicMock, getattr(value, name))
+
+
+@final
 class ProgramBuilderManager:
-    def __init__(self, app_path):
+    def __init__(self, app_path: Path) -> None:
         self.app_path = app_path
         self.calls = 0
-        self.config = {}
-        self._loaded_models = {}
+        self.config: dict[str, object] = {}
+        self._loaded_models: dict[str, object] = {}
         self.tracker = MagicMock()
-        self.tracker.get_recent.return_value = []
-        self.tracker.get_total_tokens.return_value = 0
+        setattr(_mock_method(self.tracker, "get_recent"), "return_value", [])
+        setattr(_mock_method(self.tracker, "get_total_tokens"), "return_value", 0)
 
-    def is_loaded(self, name):
+    def is_loaded(self, _name: str) -> bool:
         return True
 
-    def generate(self, prompt="", target="", **kwargs):
+    def generate(self, _prompt: str = "", _target: str = "", **_kwargs: object) -> str:
         self.calls += 1
         if self.calls == 1:
             return (
                 "def greet(name: str) -> str:\n"
-                "    return f'Hello, {name}! Antigravity-K made this.'\n\n"
+                "    return f'Hello, {name}! Ssak-Ai made this.'\n\n"
                 "if __name__ == '__main__':\n"
                 "    print(greet('QA'))\n"
             )
@@ -34,12 +42,12 @@ class ProgramBuilderManager:
         else:
             return "Created and executed the sample program successfully."
 
-    def stream_generate(self, *args, **kwargs):
+    def stream_generate(self, *_args: object, **_kwargs: object) -> Iterator[str]:
         self.calls += 1
         if self.calls == 1:
             content = (
                 "def greet(name: str) -> str:\n"
-                "    return f'Hello, {name}! Antigravity-K made this.'\n\n"
+                "    return f'Hello, {name}! Ssak-Ai made this.'\n\n"
                 "if __name__ == '__main__':\n"
                 "    print(greet('QA'))\n"
             )
@@ -70,21 +78,21 @@ class ProgramBuilderManager:
         else:
             yield "Created and executed the sample program successfully."
 
-    def get_target_for_role(self, role_name="", default_role=""):
+    def get_target_for_role(self, _role_name: str = "", _default_role: str = "") -> str:
         return "test-model"
 
-    def status(self):
+    def status(self) -> dict[str, list[object]]:
         return {"loaded_models": []}
 
 
 @pytest.mark.skip(
     reason="OrchestratorAgent has been significantly refactored (state graph + engine context). This integration test needs comprehensive updates to match the new architecture."
 )
-def test_agent_can_create_and_run_a_simple_program(tmp_path, monkeypatch):
+def test_agent_can_create_and_run_a_simple_program(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app_path = tmp_path / "hello_agent.py"
     manager = ProgramBuilderManager(app_path)
 
-    def fake_ceo_analyze(self, user_message, target_model):
+    def fake_ceo_analyze(_self: OrchestratorAgent, user_message: str, _target_model: str) -> Iterator[dict[str, str]]:
         yield {
             "task_type": "coding",
             "delegate_to": "WORKER",
@@ -113,10 +121,12 @@ def test_agent_can_create_and_run_a_simple_program(tmp_path, monkeypatch):
             )
         )
     finally:
-        if orchestrator.watchdog:
-            orchestrator.watchdog.stop()
+        watchdog = cast(object | None, getattr(orchestrator, "watchdog", None))
+        if watchdog is not None:
+            stopper = cast(Callable[[], object], getattr(watchdog, "stop"))
+            _ = stopper()
 
     assert app_path.exists()
-    assert "Antigravity-K made this." in app_path.read_text(encoding="utf-8")
-    assert "Hello, QA! Antigravity-K made this." in output
+    assert "Ssak-Ai made this." in app_path.read_text(encoding="utf-8")
+    assert "Hello, QA! Ssak-Ai made this." in output
     assert "Created and executed the sample program successfully." in output

@@ -1,4 +1,4 @@
-"""Antigravity-K: 명령 실행 샌드박스 (P2-1).
+"""Ssak-Ai: 명령 실행 샌드박스 (P2-1).
 
 ====================================
 에이전트가 실행하는 셸 명령을 OS 수준에서 격리합니다.
@@ -18,14 +18,16 @@ macOS의 sandbox-exec(seatbelt)와 Docker 컨테이너를 지원합니다.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import platform
+import shlex
 import subprocess
 import tempfile
-import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import BinaryIO
+
+from antigravity_k.engine.limited_process_runner import LimitedProcessRunner
 
 logger = logging.getLogger("antigravity_k.sandbox")
 
@@ -42,6 +44,45 @@ class SandboxResult:
     sandboxed: bool = False
     output_truncated: bool = False
     error: str = ""
+
+
+def run_sandboxed_argv(
+    args: list[str],
+    *,
+    cwd: str,
+    timeout: float,
+    env: Mapping[str, str] | None = None,
+    max_output_bytes: int = 1_000_000,
+) -> SandboxResult:
+    """Execute model-generated code through the mandatory OS sandbox.
+
+    This boundary deliberately has no raw-process fallback. A verifier must fail
+    closed when seatbelt/Docker is unavailable instead of executing generated code
+    with the parent process privileges.
+    """
+    if not args:
+        return SandboxResult(
+            success=False,
+            return_code=-1,
+            sandboxed=True,
+            error="Sandbox execution requires a non-empty argv.",
+        )
+
+    workspace = os.path.abspath(cwd)
+    effective_timeout = max(1, math.ceil(timeout))
+    runner = SandboxRunner(
+        project_root=workspace,
+        enabled=True,
+        network="none",
+        timeout=effective_timeout,
+        max_output_bytes=max_output_bytes,
+    )
+    return runner.execute(
+        shlex.join(args),
+        timeout=effective_timeout,
+        env=env,
+        cwd=workspace,
+    )
 
 
 class SandboxRunner:
@@ -142,7 +183,7 @@ class SandboxRunner:
                 profile_path,
                 "sh",
                 "-c",
-                self._limited_command(command, timeout),
+                self._limited_command(command, timeout, process_limit=self._macos_process_limit()),
             ]
 
             return_code, stdout, stderr, output_truncated = self._run_limited_process(
@@ -188,6 +229,10 @@ class SandboxRunner:
             if profile_path and os.path.exists(profile_path):
                 os.unlink(profile_path)
 
+    def build_seatbelt_profile(self) -> str:
+        """Return the seatbelt profile used by long-lived sandbox clients."""
+        return self._build_seatbelt_profile()
+
     def _build_seatbelt_profile(self) -> str:
         """macOS seatbelt 샌드박스 프로파일을 생성합니다.
 
@@ -203,11 +248,7 @@ class SandboxRunner:
 
         # (deny default)가 네트워크도 포함해 전부 차단하므로, 허용 모드에서는
         # 명시적 allow가 없으면 실제로는 항상 차단된다
-        network_policy = (
-            "(allow network*)\n;; network allowed"
-            if allow_net
-            else "(deny network*)\n;; network blocked"
-        )
+        network_policy = "(allow network*)\n;; network allowed" if allow_net else "(deny network*)\n;; network blocked"
 
         return f"""(version 1)
 (deny default)
@@ -223,6 +264,7 @@ class SandboxRunner:
 (allow file-write* (subpath "/var/tmp"))
 (allow file-write* (subpath "/private/tmp"))
 (allow file-write* (subpath "/private/var/folders"))
+(allow file-write* (literal "/dev/null"))
 ;; 사용자 캐시 (pip, npm 등)
 (allow file-write* (subpath "{os.path.expanduser("~/.cache")}"))
 {network_policy}
@@ -333,10 +375,25 @@ class SandboxRunner:
         except (OSError, ValueError) as e:
             return SandboxResult(success=False, error=str(e))
 
-    def _limited_command(self, command: str, timeout: int) -> str:
+    def _macos_process_limit(self) -> int:
+        try:
+            result = subprocess.run(
+                ["ps", "-u", str(os.getuid()), "-o", "pid="],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            current = len([line for line in result.stdout.splitlines() if line.strip()])
+            return max(self.max_processes, current + self.max_processes)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return self.max_processes
+
+    def _limited_command(self, command: str, timeout: int, process_limit: int | None = None) -> str:
+        limit = process_limit or self.max_processes
         return (
             f"ulimit -t {max(1, timeout)} 2>/dev/null; "
-            f"ulimit -u {self.max_processes} 2>/dev/null; "
+            f"ulimit -u {limit} 2>/dev/null; "
             f"ulimit -v {self.max_memory_mb * 1024} 2>/dev/null; "
             f"exec sh -c {self._shell_quote(command)}"
         )
@@ -366,60 +423,14 @@ class SandboxRunner:
         env: Mapping[str, str] | None,
         cwd: str | None,
     ) -> tuple[int, str, str, bool]:
-        process = subprocess.Popen(
+        result = LimitedProcessRunner(self.max_output_bytes).run(
             args,
             shell=shell,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            env=dict(env) if env is not None else os.environ.copy(),
+            timeout=timeout,
+            env=env,
             cwd=cwd or self.project_root,
         )
-        stdout_buffer = bytearray()
-        stderr_buffer = bytearray()
-        truncated = [False, False]
-
-        def drain(stream: BinaryIO | None, buffer: bytearray, index: int) -> None:
-            if stream is None:
-                return
-            while True:
-                chunk = stream.read(8192)
-                if not chunk:
-                    return
-                remaining = self.max_output_bytes - len(buffer)
-                if remaining > 0:
-                    buffer.extend(chunk[:remaining])
-                if len(chunk) > max(remaining, 0):
-                    truncated[index] = True
-
-        threads = [
-            threading.Thread(target=drain, args=(process.stdout, stdout_buffer, 0), daemon=True),
-            threading.Thread(target=drain, args=(process.stderr, stderr_buffer, 1), daemon=True),
-        ]
-        for thread in threads:
-            thread.start()
-
-        timed_out = False
-        try:
-            _ = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _ = process.kill()
-            _ = process.wait()
-        finally:
-            for thread in threads:
-                thread.join(timeout=1)
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
-
-        stdout = bytes(stdout_buffer).decode("utf-8", errors="replace")
-        stderr = bytes(stderr_buffer).decode("utf-8", errors="replace")
-        if timed_out:
-            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
-        return process.returncode or 0, stdout, stderr, any(truncated)
+        return result.return_code, result.stdout, result.stderr, result.output_truncated
 
     @staticmethod
     def _is_docker_available() -> bool:

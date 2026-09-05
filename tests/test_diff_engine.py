@@ -4,6 +4,8 @@ apply_patch 포맷 파싱, hunk 매칭, 퍼지 폴백, 신규/삭제 파일,
 다중 hunk, 매치 실패 에러 처리를 검증합니다.
 """
 
+from pathlib import Path
+
 from antigravity_k.engine.diff_engine import DiffApplyEngine, FilePatch, Hunk
 from antigravity_k.tools.file_tools import ApplyPatchTool
 
@@ -275,10 +277,10 @@ class TestApplyPatchTool:
         result = tool.execute(patch="")
         assert "Error" in result or "empty" in result.lower()
 
-    def test_tool_update_existing_file(self, tmp_path):
+    def test_tool_update_existing_file(self, tmp_path: Path):
         """기존 파일 업데이트."""
         test_file = tmp_path / "target.py"
-        test_file.write_text("x = 1\ny = 2\n")
+        _ = test_file.write_text("x = 1\ny = 2\n")
 
         tool = ApplyPatchTool()
         patch_text = f"""*** Begin Patch
@@ -294,7 +296,7 @@ class TestApplyPatchTool:
         assert "x = 10" in test_file.read_text()
         assert "y = 2" in test_file.read_text()
 
-    def test_tool_create_new_file(self, tmp_path):
+    def test_tool_create_new_file(self, tmp_path: Path):
         """신규 파일 생성."""
         new_file = tmp_path / "created.py"
 
@@ -313,10 +315,10 @@ class TestApplyPatchTool:
         assert "def new_func()" in content
         assert "return 42" in content
 
-    def test_tool_multi_file_operations(self, tmp_path):
+    def test_tool_multi_file_operations(self, tmp_path: Path):
         """다중 파일 작업 (업데이트 + 생성)."""
         existing = tmp_path / "existing.py"
-        existing.write_text("a = 1\n")
+        _ = existing.write_text("a = 1\n")
         new_file = tmp_path / "new.py"
 
         tool = ApplyPatchTool()
@@ -336,7 +338,7 @@ class TestApplyPatchTool:
         assert "a = 100" in existing.read_text()
         assert new_file.exists()
 
-    def test_tool_missing_file_reports_error(self, tmp_path):
+    def test_tool_missing_file_reports_error(self, tmp_path: Path):
         """존재하지 않는 파일 에러 보고."""
         missing = tmp_path / "nonexistent.py"
 

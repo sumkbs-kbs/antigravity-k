@@ -1,16 +1,43 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
 from html import unescape
+from typing import Protocol, cast
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _naver_http import TAG_RE, is_naver_url, urlopen
+_naver_http_name = "_naver" + "_http"
+
+
+class _Response(Protocol):
+    def __enter__(self) -> "_Response": ...
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None: ...
+
+    def read(self) -> bytes: ...
+
+
+class _NaverHttpModule(Protocol):
+    TAG_RE: re.Pattern[str]
+    is_naver_url: Callable[[str], bool]
+    urlopen: Callable[..., _Response]
+
+
+_naver_http = cast(
+    _NaverHttpModule,
+    cast(object, importlib.import_module(f"{__package__}.{_naver_http_name}" if __package__ else _naver_http_name)),
+)
+TAG_RE = _naver_http.TAG_RE
+is_naver_url = _naver_http.is_naver_url
+urlopen = _naver_http.urlopen
 
 MOBILE_UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
@@ -62,10 +89,7 @@ def fetch_blog_page(url: str, timeout: int = 20, *, insecure: bool = False) -> s
         with urlopen(request, timeout, insecure=insecure) as response:
             return response.read().decode("utf-8", "ignore")
     except urllib.error.HTTPError as error:
-        raise RuntimeError(
-            f"Naver blog returned HTTP {error.code} for {mobile_url}. "
-            "The post may not exist or access may be restricted."
-        ) from error
+        raise RuntimeError(f"Naver blog returned HTTP {error.code} for {mobile_url}. The post may not exist or access may be restricted.") from error
 
 
 def extract_title(html: str) -> str:
@@ -129,7 +153,7 @@ def extract_text(html_fragment: str) -> str:
     text = TAG_RE.sub("", text)
     text = unescape(text)
 
-    lines = []
+    lines: list[str] = []
     for line in text.split("\n"):
         stripped = WHITESPACE_RE.sub(" ", line).strip()
         if stripped:
@@ -140,8 +164,8 @@ def extract_text(html_fragment: str) -> str:
     return result.strip()
 
 
-def extract_images(html_fragment: str) -> list[dict]:
-    images: list[dict] = []
+def extract_images(html_fragment: str) -> list[dict[str, str]]:
+    images: list[dict[str, str]] = []
     seen_base: set[str] = set()
 
     img_tags = re.finditer(r"<img\s[^>]+>", html_fragment, re.IGNORECASE)
@@ -181,7 +205,7 @@ def read_blog(
     timeout: int = 20,
     *,
     insecure: bool = False,
-) -> dict:
+) -> dict[str, object]:
     html = fetch_blog_page(url, timeout=timeout, insecure=insecure)
     mobile_url = to_mobile_url(url)
 
@@ -192,7 +216,7 @@ def read_blog(
     if max_length > 0 and len(content) > max_length:
         content = content[:max_length] + "..."
 
-    result: dict = {
+    result: dict[str, object] = {
         "url": mobile_url,
         "title": title,
         "content": content,
@@ -208,32 +232,41 @@ def read_blog(
     return result
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+@dataclass(frozen=True)
+class CliArgs:
+    url: str
+    no_images: bool
+    max_length: int
+    timeout: int
+    insecure: bool
+
+
+def parse_args(argv: list[str]) -> CliArgs:
     parser = argparse.ArgumentParser(description="Read a Naver blog post and extract text content and images.")
-    parser.add_argument("url", help="Naver blog post URL (PC or mobile).")
-    parser.add_argument(
+    _ = parser.add_argument("url", help="Naver blog post URL (PC or mobile).")
+    _ = parser.add_argument(
         "--no-images",
         action="store_true",
         help="Exclude image URLs from output.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--max-length",
         type=int,
         default=0,
         help="Maximum content length in characters (0 = unlimited). Default: 0.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--timeout",
         type=int,
         default=20,
         help="HTTP request timeout in seconds. Default: 20.",
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--insecure",
         action="store_true",
         help="Skip SSL certificate verification (use only when certificate errors occur).",
     )
-    return parser.parse_args(argv)
+    return cast(CliArgs, cast(object, parser.parse_args(argv)))
 
 
 def main(argv: list[str] | None = None) -> int:

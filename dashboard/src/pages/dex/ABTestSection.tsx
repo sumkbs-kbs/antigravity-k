@@ -75,7 +75,7 @@ const ABTestReportPanel: React.FC<{ report: ABTestReport }> = ({ report }) => {
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>
             케이스별 상세
           </div>
-          {comparisons.map((c, i) => <TestCaseRow key={i} testCase={c} />)}
+          {comparisons.map(c => <TestCaseRow key={c.case_name} testCase={c} />)}
         </div>
       )}
     </div>

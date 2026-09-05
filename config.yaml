@@ -7,6 +7,11 @@ model:
   max_tokens: 8192
   temperature: 0.7
   top_p: 0.9
+  # 복잡도 게이트 thinking: is_complex_task 통과 태스크에만 qwen3 추론(think)을
+  # 켠다. 2026-09-01 실측(scripts/measure_thinking_ab.py, 검증 가능한 8문제,
+  # qwen3.8:27b): OFF 5/8 → ON 8/8 정답, 지연 3.32x — 정확도 2배급 향상.
+  # 단순 대화(simple_chat)는 이 게이트를 통과하지 않아 속도 유지.
+  complex_task_thinking: true
 models:
   reasoning:
   - name: qwen3.8
@@ -60,12 +65,16 @@ models:
     repo: qwen/qwen3-next-80b-a3b-instruct:free
     role: reasoning
     estimated_memory_gb: 0.0
+    # MoE 활성 파라미터(3B) 기준 — 총 80B로 추정되면 parameter_cap_exceeded로
+    # 폴백 체인에서 조용히 제외된다
+    parameter_count_b: 3.0
     context_length: 131072
     description: Qwen3 Next 80B (OpenRouter 무료)
   - name: qwen/qwen3-next-80b-a3b-instruct
     repo: qwen/qwen3-next-80b-a3b-instruct
     role: reasoning
     estimated_memory_gb: 0.0
+    parameter_count_b: 3.0
     context_length: 131072
     # 공개 가격 평균(입출력 1:1): $0.18/M in + $0.72/M out → $0.45/M
     cost_per_1k_tokens_usd: 0.00045
@@ -74,24 +83,28 @@ models:
     repo: nvidia/nemotron-3-super-120b-a12b:free
     role: reasoning
     estimated_memory_gb: 0.0
+    parameter_count_b: 12.0
     context_length: 131072
     description: Nemotron 3 Super 120B (OpenRouter 무료)
   - name: nvidia/nemotron-3-ultra-550b-a55b:free
     repo: nvidia/nemotron-3-ultra-550b-a55b:free
     role: reasoning
     estimated_memory_gb: 0.0
+    parameter_count_b: 55.0
     context_length: 131072
     description: Nemotron 3 Ultra 550B (OpenRouter 무료)
   - name: google/gemma-4-26b-a4b-it:free
     repo: google/gemma-4-26b-a4b-it:free
     role: reasoning
     estimated_memory_gb: 0.0
+    parameter_count_b: 4.0
     context_length: 262144
     description: Gemma 4 26B (OpenRouter 무료, 빠름)
   - name: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
     repo: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
     role: reasoning
     estimated_memory_gb: 0.0
+    parameter_count_b: 3.0
     context_length: 131072
     description: Nemotron 3 Nano Omni 30B (OpenRouter 무료, 추론)
   - name: anthropic/claude-3.5-sonnet
@@ -324,6 +337,9 @@ providers:
     base_url: http://127.0.0.1:1234/v1
     api_key_env: LM_STUDIO_API_KEY
     description: LM Studio local OpenAI-compatible server
+  unsloth:
+    api_key_env: UNSLOTH_API_KEY
+    description: Optional loopback-only Unsloth OpenAI-compatible process
   mlx:
     description: Direct MLX runtime on Apple Silicon
   openrouter:
@@ -407,7 +423,7 @@ server:
   host: 127.0.0.1
   port: 8000
 security:
-  access_pin: '0000'
+  access_pin: ''
   sandbox_enabled: true
   sandbox_network: none
   max_execution_time: 30
@@ -435,6 +451,7 @@ router:
     prefer_local: true
     max_parameter_count_b: 70.0
     min_local_parameter_count_b: 20.0
+    allow_small_local_models: false
     # 1k 토큰당 평균 비용 상한(USD) — 평균 $5/M(입출력 1:1) 초과 모델을 자동 라우팅에서 제외.
     # 0.0이면 비용 기준 미적용. 비용 미설정(0.0) 모델은 오탐 방지를 위해 항상 통과.
     max_cost_per_1k_tokens_usd: 0.005
@@ -448,6 +465,8 @@ router:
     artifact_paths:
     - data/benchmarks/local-model-stable-simple.json
     - data/benchmarks/local-model-frontier.json
+    artifact_globs:
+    - data/benchmarks/task-calibration-*.json
     min_mean_benchmark_score: 0.8
     min_min_benchmark_score: 0.7
     min_excellent_rate: 0.8
@@ -505,6 +524,27 @@ amplification:
     escalate_on_revision_failure: true
     min_steps: 2
     max_steps: 6
+  best_of_n:
+    # 실행 검증 기반 Best-of-N. N개 후보를 샘플링해 검증자를 통과한 첫 답변 선택.
+    # 유사도 다수결(self_consistency)과 달리 실행 가능성을 실제로 검증하므로
+    # 코딩 과제에서 더 강한 신호다. 통과 즉시 반환해 나머지 샘플 비용을 생략한다.
+    # verifier: "syntax"(구문 검사, 기본) 또는 외부에서 주입한 실행 검증 함수.
+    enabled: false
+    n_samples: 3
+    # use_compute_budget: true면 TestTimeComputeScaler 복잡도 티어가 n_samples를
+    # 덮어쓴다 (SIMPLE=1 ~ EXTREME=5). 어려운 작업일수록 검증 시도를 늘린다.
+    use_compute_budget: false
+    # verifier: "syntax"(구문 검사) 또는 "worktree_tests"(답변의 ```lang path 펜스를
+    # git worktree 스냅샷에 적용하고 test_command로 실제 통과 판정 — 더 강한 신호).
+    verifier: syntax
+    test_command: pytest -q
+    test_timeout_sec: 120
+    base_temperature: 0.7
+    temperature_spread: 0.3
+    language_hint: python
+    feedback_loop: true
+    max_feedback_rounds: 1
+    complexity_threshold: null
 self_evolution:
   auto_modify: false
 cost:

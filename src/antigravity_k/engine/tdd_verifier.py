@@ -6,10 +6,11 @@ extracting assertion errors and producing high-signal, zero-noise repair prompts
 
 import logging
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+
+from antigravity_k.engine.sandbox import run_sandboxed_argv
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +60,13 @@ class TDDVerifier:
         test_path_to_run = str(candidate_test) if candidate_test.exists() else str(root / "tests")
 
         try:
-            res = subprocess.run(
+            res = run_sandboxed_argv(
                 ["pytest", test_path_to_run, "-q", "--tb=short"],
-                cwd=root,
-                capture_output=True,
-                text=True,
+                cwd=str(root),
                 timeout=15,
-                check=False,
             )
             output = res.stdout + "\n" + res.stderr
-            return TDDVerifier._parse_pytest_output(output, res.returncode == 0)
+            return TDDVerifier._parse_pytest_output(output, res.return_code == 0)
         except Exception as err:
             return TDDExecutionResult(
                 passed=False,

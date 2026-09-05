@@ -1,4 +1,4 @@
-"""Antigravity-K: Meta-Architect Engine (Level 3 자율 아키텍처 재설계).
+"""Ssak-Ai: Meta-Architect Engine (Level 3 자율 아키텍처 재설계).
 
 ================================================================
 에이전트가 전체 시스템 아키텍처를 분석하고, 구조적 병목을 해결하기 위해
@@ -17,13 +17,48 @@ import logging
 import os
 import re
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol, TypeAlias, cast
 
 from antigravity_k.config import config
 from antigravity_k.tools.egress_policy import safe_urlopen
 
 logger = logging.getLogger("antigravity_k.meta_architect")
+
+JsonMap: TypeAlias = dict[str, object]
+
+
+class _ModelManagerLike(Protocol):
+    def get_target_for_role(self, role_name: str, default_role: str = "reasoning") -> str | None: ...
+
+    def generate(self, prompt: str, target: str, **kwargs: object) -> object: ...
+
+
+def _as_mapping(value: object) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    raw = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in raw.items()}
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return value if isinstance(value, str) else default
+
+
+def _as_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = cast(list[object], value)
+    return [item for item in items if isinstance(item, str)]
+
+
+def _as_object_list(value: object) -> list[object]:
+    return list(cast(list[object], value)) if isinstance(value, list) else []
+
+
+def _load_json(text: str) -> object:
+    return cast(object, json.loads(text))
 
 
 @dataclass
@@ -35,7 +70,7 @@ class ArchitectureProposal:
     target_files: list[str]
     description: str
     expected_benefit: str
-    modifications: dict[str, str] = field(default_factory=dict)  # filepath -> new_content
+    modifications: dict[str, str] = field(default_factory=dict)
     passed: bool = False
 
 
@@ -45,7 +80,8 @@ class MetaArchitect:
     def __init__(
         self,
         project_root: str,
-        ollama_url: str = config.model.api_base.replace("/v1", "").rstrip("/"),
+        ollama_url: str | None = None,
+        model_manager: object | None = None,
     ):
         """Initialize the MetaArchitect.
 
@@ -54,10 +90,13 @@ class MetaArchitect:
             ollama_url (str): str ollama url.
 
         """
-        self.project_root = project_root
-        self.ollama_url = ollama_url
-        self._engine_dir = os.path.join(project_root, "src", "antigravity_k", "engine")
-        self._archive_path = os.path.join(project_root, "data", "arch_archive.json")
+        self.project_root: str = project_root
+        self.ollama_url: str = (
+            ollama_url if ollama_url is not None else config.model.api_base.replace("/v1", "").rstrip("/")
+        )
+        self.manager: object | None = model_manager
+        self._engine_dir: str = os.path.join(project_root, "src", "antigravity_k", "engine")
+        self._archive_path: str = os.path.join(project_root, "data", "arch_archive.json")
         os.makedirs(os.path.dirname(self._archive_path), exist_ok=True)
 
     def _get_evolution_history(self) -> str:
@@ -66,14 +105,17 @@ class MetaArchitect:
             return "No previous evolution history."
         try:
             with open(self._archive_path, encoding="utf-8") as f:
-                history = json.load(f)
-                recent = history[-3:]  # 최근 3개만
+                history = _as_object_list(_load_json(f.read()))
+                recent = history[-3:]
                 if not recent:
                     return "No previous evolution history."
-                lines = []
-                for h in recent:
-                    status = "✅ SUCCESS" if h.get("passed") else "❌ FAILED"
-                    lines.append(f"[{status}] {h.get('title')} - {h.get('description')}")
+                lines: list[str] = []
+                for raw_entry in recent:
+                    entry = _as_mapping(raw_entry)
+                    status = "✅ SUCCESS" if entry.get("passed") is True else "❌ FAILED"
+                    title = _as_str(entry.get("title"))
+                    description = _as_str(entry.get("description"))
+                    lines.append(f"[{status}] {title} - {description}")
                 return "\n".join(lines)
         except Exception:
             logger.exception("Unhandled exception")
@@ -81,7 +123,7 @@ class MetaArchitect:
 
     def _get_architecture_context(self) -> str:
         """시스템의 현재 구조적 컨텍스트를 수집합니다."""
-        context = []
+        context: list[str] = []
         arch_file = os.path.join(self.project_root, "ARCHITECTURE.md")
         if os.path.exists(arch_file):
             with open(arch_file, encoding="utf-8") as f:
@@ -90,18 +132,18 @@ class MetaArchitect:
         # 코어 엔진 파일 목록 및 크기
         if os.path.exists(self._engine_dir):
             files = [f for f in os.listdir(self._engine_dir) if f.endswith(".py")]
-            files_info = []
-            for file in files:
-                path = os.path.join(self._engine_dir, file)
+            files_info: list[str] = []
+            for filename in files:
+                path = os.path.join(self._engine_dir, filename)
                 size = os.path.getsize(path)
-                files_info.append(f"- {file} ({size} bytes)")
+                files_info.append(f"- {filename} ({size} bytes)")
             context.append("--- Core Modules ---\n" + "\n".join(files_info))
 
         return "\n".join(context)
 
     def analyze_and_propose(
         self,
-        performance_data: dict[str, Any],
+        performance_data: Mapping[str, object],
     ) -> ArchitectureProposal | None:
         """현재 시스템의 병목을 분석하고 리팩터링을 제안합니다."""
         logger.info("[Meta-Architect] 전체 아키텍처 분석 및 제안 시작...")
@@ -129,13 +171,16 @@ class MetaArchitect:
         try:
             response = self._call_llm(prompt, "deepseek-v4", 1024)
             data = self._extract_json(response)
-            if data and "title" in data:
+            if data and all(key in data for key in ("title", "description", "expected_benefit")):
+                title = _as_str(data.get("title"))
+                description = _as_str(data.get("description"))
+                expected_benefit = _as_str(data.get("expected_benefit"))
                 proposal = ArchitectureProposal(
                     proposal_id=f"arch_{int(os.path.getmtime(self._engine_dir))}",
-                    title=data["title"],
-                    target_files=data.get("target_files", []),
-                    description=data["description"],
-                    expected_benefit=data["expected_benefit"],
+                    title=title,
+                    target_files=_as_str_list(data.get("target_files")),
+                    description=description,
+                    expected_benefit=expected_benefit,
                 )
                 logger.info("[Meta-Architect] 제안 생성: %s", proposal.title)
                 return proposal
@@ -153,7 +198,7 @@ class MetaArchitect:
             sandbox = RSISandbox(project_root=self.project_root)
 
             # 파일 내용 읽기
-            file_contents = {}
+            file_contents: dict[str, str] = {}
             for filename in proposal.target_files:
                 if sandbox.is_immutable(filename):
                     logger.warning("[Meta-Architect] 불변 파일(%s) 수정 시도 차단.", filename)
@@ -183,7 +228,7 @@ class MetaArchitect:
                 for filename, new_code in proposal.modifications.items():
                     path = os.path.join(self._engine_dir, filename)
                     with open(path, "w", encoding="utf-8") as f:
-                        f.write(new_code)
+                        _ = f.write(new_code)
 
                 # 2. 샌드박스 일괄 검증
                 for filename, new_code in proposal.modifications.items():
@@ -214,13 +259,13 @@ class MetaArchitect:
             logger.exception("[Meta-Architect] 실행 중 롤백됨")
             return False
 
-    def _save_archive(self, proposal: ArchitectureProposal):
+    def _save_archive(self, proposal: ArchitectureProposal) -> None:
         """EUREKA 스타일: 진화 기록 저장."""
         try:
-            history = []
+            history: list[JsonMap] = []
             if os.path.exists(self._archive_path):
                 with open(self._archive_path, encoding="utf-8") as f:
-                    history = json.load(f)
+                    history = [dict(_as_mapping(item)) for item in _as_object_list(_load_json(f.read()))]
 
             history.append(
                 {
@@ -299,7 +344,7 @@ class MetaArchitect:
         try:
             resp = self._call_llm(prompt, "deepseek-v4", 8192)
             # 코드 블록 추출
-            matches = re.findall(r"```(?:python)?\s*(.*?)\s*```", resp, re.DOTALL)
+            matches = cast(list[str], re.findall(r"```(?:python)?\s*(.*?)\s*```", resp, re.DOTALL))
             if matches:
                 return max(matches, key=len)
             return resp.strip()
@@ -323,13 +368,17 @@ class MetaArchitect:
             "3. 보안 및 스레드 안전성 (Side-effects)\n\n"
             "응답은 반드시 아래 JSON 형식으로만 하세요:\n"
             '{"score": 3, "feedback": "변수명이 명확해졌으나, 스레드 안전성 처리가 누락되었습니다."}\n'
-            "절대로 마크다운을 씌우지 말고 JSON만 출력하세요."
+            "절대로 마크다운을 씌우지 말고 JSON만 출력하세요.\n\n"
+            f"파일명: {filename}\n--- 원본 코드 ---\n{original_code}\n"
+            f"--- 새 코드 ---\n{new_code}\n"
         )
         try:
             resp = self._call_llm(prompt, "deepseek-v4", 512)
             data = self._extract_json(resp)
             if data and "score" in data:
-                return int(data["score"]), data.get("feedback", "")
+                raw_score = data.get("score")
+                if isinstance(raw_score, (int, float, str)) and not isinstance(raw_score, bool):
+                    return int(raw_score), _as_str(data.get("feedback"))
         except Exception:
             logger.exception("Unhandled exception")
             pass
@@ -337,6 +386,21 @@ class MetaArchitect:
         return 4, "Self-judge failed. Defaulting to 4."
 
     def _call_llm(self, prompt: str, model: str, num_predict: int) -> str:
+        if self.manager is not None:
+            try:
+                manager = cast(_ModelManagerLike, self.manager)
+                target = manager.get_target_for_role("meta_architect", default_role="reasoning")
+                if target is not None and target.strip():
+                    response = manager.generate(
+                        prompt,
+                        target.strip(),
+                        max_tokens=num_predict,
+                        temperature=0.2,
+                    )
+                    if isinstance(response, str):
+                        return response
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+                logger.warning("Managed Meta-Architect generation failed; using API fallback", exc_info=True)
         data = {
             "model": model,
             "prompt": prompt,
@@ -355,15 +419,16 @@ class MetaArchitect:
             headers={"Content-Type": "application/json"},
         )
         with safe_urlopen(req, timeout=180) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            content = result.get("response", "")
+            result = _as_mapping(_load_json(resp.read().decode("utf-8")))
+            content = _as_str(result.get("response"))
             return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
-    def _extract_json(self, text: str) -> dict[str, Any] | None:
+    def _extract_json(self, text: str) -> JsonMap | None:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group())
+                parsed = _as_mapping(_load_json(match.group()))
+                return dict(parsed) if parsed else None
             except json.JSONDecodeError:
                 logger.warning("예외 발생 (silent swallow 제거)", exc_info=True)
         return None
