@@ -18,13 +18,16 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, ClassVar, Final, Literal
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic_core import PydanticCustomError
 
 type JsonValue = None | bool | int | float | str | Sequence[JsonValue] | Mapping[str, JsonValue]
+
+OUTPUT_ENCODING: Final = "utf-8"
+OUTPUT_ERRORS: Final = "backslashreplace"
 
 
 class Gate(BaseModel):
@@ -109,7 +112,8 @@ def _run_gate(gate: Gate, root: Path) -> tuple[dict[str, bool | float | int | li
             cwd=root / gate.cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            encoding=OUTPUT_ENCODING,
+            errors=OUTPUT_ERRORS,
             start_new_session=True,
         )
     except OSError as error:
@@ -227,6 +231,7 @@ def main(
             "python_version": platform.python_version(),
         },
         "manifest": {"path": str(manifest_path), "sha256": _sha256(manifest_path)},
+        "output_decoding": {"encoding": OUTPUT_ENCODING, "errors": OUTPUT_ERRORS},
         "dependency_locks": locks,
         "gates": [],
         "summary": {"failed": 0, "passed": 0, "required_failed": 0, "total": 0},

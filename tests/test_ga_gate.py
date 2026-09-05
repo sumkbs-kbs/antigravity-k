@@ -109,3 +109,67 @@ def test_runner_rejects_unmapped_gate_before_execution(tmp_path: Path) -> None:
     # Then: validation fails before any result artifact can claim a gate outcome.
     assert completed.returncode == 2
     assert not output.exists()
+
+
+def test_runner_records_invalid_utf8_and_continues(tmp_path: Path) -> None:
+    # Given: a required child emits an invalid UTF-8 byte before failing, followed by a marker-writing gate.
+    marker = tmp_path / "later-command-ran.txt"
+    manifest = tmp_path / "invalid-output.json"
+    output = tmp_path / "result.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "dependency_locks": ["uv.lock"],
+                "gates": [
+                    {
+                        "id": "invalid-output",
+                        "category": "runtime",
+                        "command": [
+                            sys.executable,
+                            "-c",
+                            "import os; os.write(1, bytes([255])); raise SystemExit(7)",
+                        ],
+                        "cwd": ".",
+                        "timeout_seconds": 10,
+                        "required": True,
+                        "finding_ids": ["CORE-06"],
+                        "task_ids": ["TRN-02"],
+                    },
+                    {
+                        "id": "after-invalid-output",
+                        "category": "runtime",
+                        "command": [
+                            sys.executable,
+                            "-c",
+                            f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')",
+                        ],
+                        "cwd": ".",
+                        "timeout_seconds": 10,
+                        "required": True,
+                        "finding_ids": ["CORE-06"],
+                        "task_ids": ["TRN-02"],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # When: the real CLI captures both child processes.
+    completed = subprocess.run(
+        [sys.executable, str(RUNNER), "--manifest", str(manifest), "--output", str(output)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    # Then: the invalid byte is deterministic, exit 7 is mapped, continuation occurs, and valid JSON is complete.
+    assert completed.returncode == 1
+    assert marker.read_text(encoding="utf-8") == "ran"
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["output_decoding"] == {"encoding": "utf-8", "errors": "backslashreplace"}
+    assert [(gate["exit_code"], gate["status"]) for gate in report["gates"]] == [(7, "failed"), (0, "passed")]
+    assert report["gates"][0]["stdout"] == "\\xff"
+    assert report["summary"]["required_failed"] == 1
