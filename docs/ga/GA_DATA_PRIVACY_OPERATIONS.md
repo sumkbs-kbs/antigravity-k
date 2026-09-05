@@ -13,6 +13,10 @@ scope in [ADR-0003](../adr/0003-ga-product-scope.md). It records implemented
 storage signals separately from unapproved policy promises. It does not assert
 legal approval or that a delete reaches every copy.
 
+Concurrent-user capacity (동시 사용자 수) remains the single-operator GA
+target in ADR-0003; multi-user concurrency stays unverified pending `VAL-02`.
+This document owns the data-sensitivity (데이터 민감도) classification below.
+
 ## Data flow and storage
 
 | Data class | Flow | Observed/configured locations | Scope limitation |
@@ -22,6 +26,27 @@ legal approval or that a delete reaches every copy.
 | Logs and audit events | Runtime → local log/audit storage | `.env.example` defaults to `logs/agent_json.log`; Docker creates `/app/logs`; Kubernetes mounts `/app/logs` as ephemeral `emptyDir` | Content, rotation, redaction, and export coverage require release-candidate verification. |
 | Application state and credentials | Runtime → application data / operator secret store | Docker creates `/app/data`; Kubernetes mounts `/app/data`; provider keys and PIN are environment/secret inputs | Secrets must not be put in documentation, evidence, logs, or exports. Customer controls its secret store. |
 | Project alias/configuration | CLI/runtime → workspace-local metadata | README identifies `.antigravity/memory/project_aliases.json` | Scope, persistence, and deletion coverage must be demonstrated by DAT-01–03. |
+
+
+## Data sensitivity classes (데이터 민감도)
+
+This section is the GOV-01 sensitivity boundary. It states which classes may be
+treated as inside the sellable local-first / self-hosted edition, which remain
+unverified, and which are excluded pending legal, privacy, and security gates.
+
+| Sensitivity class | Disposition | Customer-facing rule until gate closes | Blocking evidence / owner |
+|---|---|---|---|
+| Operator workspace content (source, vault notes, tool outputs) | Allowed under operator control | Operator classifies and protects workspace data; product makes no certified privacy or residency claim | Privacy disclosure; DAT-01–03 inventory; privacy owner |
+| Non-secret application/config metadata | Allowed | Operator-managed; include in delete/export inventory before promising lifecycle coverage | DAT-01–03; data owner |
+| Provider credentials, access PINs, and other secrets | Customer-held only; prohibited in docs/evidence/logs/exports | Do not store secrets in product documentation or release evidence. Do not market certified secret management. | Security owner (`SEC-*`); redaction proof |
+| Credentials/secrets inside prompts or exported artifacts | Prohibited in product surfaces | Treat as a release blocker if observed; redact before any share/export | Security + privacy |
+| Ordinary / incidental PII | Unverified | Do not market GDPR/PIPA readiness or approved PII processing | Legal/privacy approval artifact |
+| Regulated / high-sensitivity data (PHI, PCI, government classified, children’s data, special-category sensitive personal data) | **Excluded** from GA sellable scope | Do not sell or market the current edition for these classes | Legal + privacy + security; new scoped ADR before `RC-01` |
+| Content sent to a selected cloud provider | Conditional | Disclose that selected-provider routing leaves the operator environment; provider retention is out of product control | Provider terms/privacy review; legal + privacy |
+
+“Exports are sensitive” and the data-flow table above do **not** by themselves
+authorize regulated-data use. Regulated and high-sensitivity classes stay
+excluded until an explicit SKU and approval record exist.
 
 ## Retention, deletion, export, and backup-copy rules
 

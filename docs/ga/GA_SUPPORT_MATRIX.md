@@ -45,6 +45,17 @@ labels below do not authorize a general “private” claim; see
 | ZAI / Zhipu | Experimental | Provider endpoint and environment-variable configuration are present. | Credentialed staging, current terms/privacy review, and outbound-data disclosure; legal + release owner. |
 | Any unlisted provider, model, accelerator, or deployment | Unsupported | No GOV-01 evidence record. | New scoped validation and ADR update. |
 
+
+## Concurrent-user capacity (동시 사용자 수)
+
+| Surface | Classification | Current repository evidence | Missing gate / owner |
+|---|---|---|---|
+| Single interactive operator on one local/self-hosted instance | GA target disposition (not a load certification) | ADR-0003 single-operator boundary; no marketed seat count | Product owner; keep wording as single-operator only |
+| Concurrent / simultaneous multi-user interactive sessions on one instance | Unverified / unsupported for GA claims | No VAL-02 concurrency or multi-seat staging evidence in GOV-01 | `VAL-02` load/concurrency evidence; release coordinator + security owner |
+| Multi-tenant or multi-customer concurrent tenancy | Unsupported / excluded | SaaS excluded by ADR-0003 | SaaS expansion gate before `RC-01` |
+
+Do not convert “single tenant” into a concurrent-user capacity number. Any marketed concurrent-user limit requires candidate-SHA `VAL-02` evidence and release-coordinator approval.
+
 ## How to use the matrix
 
 - Sales may describe an experimental row only as “available for evaluation”; it
@@ -57,3 +68,7 @@ labels below do not authorize a general “private” claim; see
 
 The required marketing wording and the third-party review state are in the
 [claim and review register](GA_CLAIMS_AND_REVIEW_REGISTER.md).
+
+Data-sensitivity classes (데이터 민감도) are not platform rows; they are
+frozen in [ADR-0003](../adr/0003-ga-product-scope.md) and
+[GA data, privacy, and operations](GA_DATA_PRIVACY_OPERATIONS.md).

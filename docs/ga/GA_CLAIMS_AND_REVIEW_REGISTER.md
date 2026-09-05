@@ -12,6 +12,10 @@ This `GOV-01` register maps every market-facing claim to a release gate and
 evidence. “Pending” and “blocked” are deliberate outcomes: configuration,
 historical reports, and a prior SHA do not substitute for approval.
 
+Scope dimensions from ADR-0003 — including concurrent-user capacity
+(동시 사용자 수) and data sensitivity (데이터 민감도) — are claim-gated
+in the matrix below. Unverified capacity or sensitivity claims stay blocked.
+
 ## Claim-to-gate matrix
 
 | Proposed claim | Current disposition | Required gate/evidence | Owner |
@@ -27,6 +31,9 @@ historical reports, and a prior SHA do not substitute for approval.
 | “No telemetry” | Blocked | Outbound inventory, telemetry disclosure, opt-out behavior, and approval | Privacy + security |
 | “SLA,” “uptime,” “RPO,” or “RTO” | Prohibited | Approved SLO, monitoring, incident/support runbook, and restore rehearsal | Operations owner |
 | “Multi-tenant SaaS” | Prohibited | SaaS expansion gate in ADR-0003 fully implemented and verified before RC-01 | Product + security |
+| “Supports N concurrent users” / multi-seat capacity | Prohibited until verified; current disposition is single-operator only | `VAL-02` concurrency/load evidence at candidate SHA plus release-coordinator approval; ADR-0003 concurrent-user boundary | Product + release + security |
+| “Approved for regulated / high-sensitivity data” (PHI, PCI, classified, children’s, special-category) | Prohibited | Legal + privacy + security approval and a scoped ADR/SKU update before RC-01 | Legal + privacy + security |
+| “PII-ready” / GDPR or PIPA compliance claim | Blocked | Legal/privacy review artifact naming scope, lawful basis, and evidence | Legal/privacy owner |
 
 ## Third-party license, model, and provider review register
 
