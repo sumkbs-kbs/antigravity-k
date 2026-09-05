@@ -171,6 +171,9 @@ def vault_read(path: str, engine: VaultDependency):
     try:
         metadata, content = engine.read_note(path)
         return {"path": path, "metadata": metadata, "content": content}
+    except ValueError as e:
+        # Absolute / traversal / symlink escape from VaultEngine._safe_resolve
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Note not found: {path}")
     except OSError as e:
@@ -195,6 +198,8 @@ async def vault_write(request: Request, engine: VaultDependency):
     try:
         engine.write_note(path, metadata, content, commit_message=f"Wiki edit: {path}")
         return {"ok": True, "path": path}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except (OSError, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e))
 

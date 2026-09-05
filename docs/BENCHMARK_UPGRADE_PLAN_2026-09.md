@@ -80,11 +80,11 @@ uv run --no-sync pytest -m slow -q                 # 느린 E2E 4건 (필요시)
 
 ### 📍 현재 위치와 다음 할 일
 
-- 완료: Phase 0–56 (전부 §4 로그 + §5 기록). 최근: 53/54 unsloth·mlx 드리프트 가드+주간 CI,
-  55 전체 스위트 제로 실패, 56 경로 보안 계약 고정(뮤테이션 7/7 검증).
+- 완료: Phase 0–58 (전부 §4 로그 + §5 기록). 최근: 56 경로 보안 계약, 57 CI mlx AGK_TEST_PYTHON,
+  **58 egress/vault 보안 계약 고정**(뮤테이션 9/9 검증) + 모호 IPv4·IPv6 canonicalize 하드닝.
 - 미완료: §6 P3 목록 참조. 추천 우선순위: (1) 누적 변경물의 **논리적 커밋 분할** — 기준선이
-  커밋으로 고정되지 않으면 다시 유실될 수 있다, (2) egress/vault 등 남은 보안면에 Phase 56의
-  계약-고정+뮤테이션 패턴 적용, (3) nightly 전체 스위트 CI.
+  커밋으로 고정되지 않으면 다시 유실될 수 있다, (2) nightly 전체 스위트 CI,
+  (3) egress 잔여(도메인 allowlist/차단 정책·web_search 기본 훅의 로컬 carve-out 정책 결정).
 
 ---
 
@@ -1385,6 +1385,77 @@ list_projects에 있는 경로는 항상 roots에도 있으므로 "roots에 없�
 수정하는 PR에서 논의할 것. (3) stub은 `get_project_registry` 소스 속성만 패치한다 —
 전역 `_global_registry`를 건드리면 테스트 간 오염이 생긴다.
 
+
+### Phase 58 — egress / vault 보안 계약 고정 (완료)
+
+**목표**: Phase 56의 계약-고정+뮤테이션 패턴을 egress(SSRF)와 vault(경로·복원·export·privacy)
+남은 보안면에 적용. 엔드포인트 우연 검증을 넘어 모듈 레벨 계약을 잠그고, 잠그는 과정에서
+발견한 실제 갭을 최소 하드닝한다.
+
+**새 스위트**
+- `tests/test_egress_contracts.py` (11 테스트, 5 섹션)
+- `tests/test_vault_contracts.py` (11 테스트, 5 섹션)
+
+**Egress 계약 (A–E)**
+- A. `validate_egress_url` — HTTP(S)만 / 자격증명 URL 거부 / `allow_local` 게이트 /
+  RFC1918·링크로컬·메타데이터 IP 거부 / **모호 IPv4 표기(decimal·short·hex·octal) 거부**
+- B. DNS 재바인딩 가드 기본 ON (`resolve_dns` 기본 True)
+- C. `validate_public_httpx_request` 는 항상 `allow_local=False` /
+  기본 `validate_httpx_request` 로컬 carve-out(Ollama) 문서화
+- D. `safe_urlopen` 은 urlopen **전에** 정책 적용
+- E. `is_public_http_url` False ⇒ egress(`allow_local=False`)도 거부 (교차 일관성)
+
+**Vault 계약 (A–E)**
+- A. `_safe_resolve` — 절대경로 / `..` / 심링크 이탈 거부, 내부 상대경로 허용
+- B. `_is_safe_restore_target` — `/`·`$HOME`·Desktop·home 직계 자식 거부
+- C. `export_notes` — `redact=True` / `include_assets=False` 기본, 시크릿 마스킹
+- D. privacy path — `.md`만 / `.git`·`.chroma` 거부 / resolver ValueError→INVALID_PATH /
+  unsafe vault→UNSAFE_VAULT
+- E. API — config는 `resolve_allowed_path` 필수 / engine ValueError→**400**(500 금지)
+
+**하드닝 (계약 잠금 중 발견)**
+1. `is_public_http_url` / `_coerce_ip_hostname` — `inet_aton`으로 모호 IPv4 해석 후 private면
+   차단. 파서 실패 숫자 호스트도 공개 DNS로 취급하지 않음.
+   (`2130706433`, `127.1`, `0x7f.0.0.1`, `0177.0.0.1` — macOS에서 getaddrinfo와
+   inet_aton이 `0177.*`에 대해 서로 다른 주소를 주던 갭 포함)
+2. `canonicalize_url` — IPv6 netloc 대괄호 유지 (`http://[::1]:port/...`). 깨진 netloc는
+   hostname=None → 빈 호스트를 public으로 오인하던 경로를 함께 차단.
+3. `vault_api` read/write — `VaultEngine._safe_resolve` ValueError를 400으로 매핑
+   (절대경로가 `..` 가드를 우회해 500으로 새던 갭).
+
+**뮤테이션 검증 (9종 전부 차단, 소스 무손상 복구)**:
+
+| 변이 | 결과 |
+|:--|:--|
+| E1 is_public 모호 IPv4 가드 제거(구동작 회귀) | ✅ 잡음 |
+| E2 public httpx 훅 allow_local=True | ✅ 잡음 |
+| E3 safe_urlopen 선검증 제거 | ✅ 잡음 |
+| E4 DNS 가드 비활성 | ✅ 잡음 |
+| E5 IPv6 canonicalize 대괄호 제거 | ✅ 잡음 |
+| V1 _safe_resolve relative_to 제거 | ✅ 잡음 |
+| V2 restore safety 항상 True | ✅ 잡음 |
+| V3 export redact 기본 False | ✅ 잡음 |
+| V4 API ValueError→400 매핑 제거 | ✅ 잡음 |
+
+**의도적으로 잠그지 않은 잔여**
+- web_search 기본 `validate_httpx_request`(로컬 허용) vs 공개 전용 훅 정책 통일 —
+  Ollama carve-out으로 문서화만. 공개 웹훅/에이전트 도구는 이미 `allow_local=False` /
+  `validate_public_*` 사용.
+- security_policy 도메인 allowlist/blocked_domains 와 egress_policy 교차 일관성.
+- vault config PermissionGate critical 경로의 세부 정책(allowed_roots 교차는 Phase 56과 공유).
+
+**회귀**: egress/vault/path 계약 + 인접 스위트 통과, 뮤테이션 9/9.
+
+- [x] 58.1 egress/vault 계약 갭 분석 + 최고위험 경계 선정
+- [x] 58.2 계약 스위트 작성 + 하드닝 3건 + 뮤테이션 9종 검증
+- [x] 58.3 계획서/인수인계 기록 + 커밋
+
+**인수인계**: (1) 모호 IPv4 가드는 `web_search_quality.is_public_http_url`에 있으므로
+egress뿐 아니라 검색/fetch 경로도 같이 잠긴다. (2) IPv6 canonicalize 변경은 URL 정체성
+캐시 키에도 영향 — 대괄호 있는 형태가 canonical. (3) vault API 400 매핑은 write의
+PermissionGate보다 뒤이므로, 게이트가 먼저 막으면 403이 될 수 있음(절대경로 계약
+테스트는 `_require_allowed` no-op으로 엔진 매핑만 잠금).
+
 ### Phase 55 — 전체 백엔드 스위트 제로 실패 달성 (완료)
 
 **목표**: 4건 잔존 실패(config.yaml 드리프트, unsloth 프로브 계약, 프롬프트 패키징 바이트
@@ -1973,6 +2044,7 @@ CLAUDE_BIN=/path/to/claude ./scripts/e2e_claude_bridge.sh   # CLI 위치 명시
 | 2026-09-05 | **기준선 프론트 (§⭐)** | `cd dashboard && npx vitest run` + `tsc --noEmit` | ✅ **698 passed (63 files)**, tsc clean |
 | 2026-09-05 | slow E2E | `uv run --no-sync pytest -m slow -q` | ✅ 4 passed (기본 스위트 제외 확인) |
 | 2026-09-05 | Phase 56 계약 | 관련 6스위트 + 뮤테이션 7종 | ✅ 66 passed, 변이 전부 차단, 소스 무손상 복구 |
+| 2026-09-05 | Phase 58 egress/vault 계약 | 신규 2스위트(22) + 뮤테이션 9종 + IPv4/IPv6·API 하드닝 | ✅ 계약/인접 65+ passed, 변이 9/9 차단, 소스 복구 |
 
 ### 테스트 중 발견·수정한 결함
 

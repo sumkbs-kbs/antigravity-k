@@ -711,6 +711,10 @@ def test_is_public_http_url_rejects_local_and_non_http_targets():
     assert is_public_http_url("http://127.0.0.1:8000/health") is False
     assert is_public_http_url("file:///etc/passwd") is False
     assert is_public_http_url("http://service.local") is False
+    # Ambiguous IPv4 encodings that some stacks treat as loopback
+    assert is_public_http_url("http://2130706433/") is False
+    assert is_public_http_url("http://127.1/") is False
+    assert is_public_http_url("http://0177.0.0.1/") is False
 
 
 def test_sync_dns_resolution_rejects_private_address(monkeypatch: pytest.MonkeyPatch):
