@@ -132,8 +132,8 @@ STOP WHEN: result SHA의 검증과 review artifact가 모두 생성됨
 
 ### GA-00 · 재현 가능한 기준선과 gate manifest
 
-**담당 역할:** release coordinator  
-**예상:** 1~2일  
+**담당 역할:** release coordinator
+**예상:** 1~2일
 **주 소유:** `Makefile`, `pyproject.toml`, `dashboard/package.json`, 새 `scripts/ga_gate.py`, `.omo/evidence/commercial-ga-100/GA-00/`
 
 현재 실패를 숨기지 않는 machine-readable gate manifest를 만든다. Python, dashboard, package, Docker, accessibility, security, runtime scenario의 명령과 성공 조건을 한 곳에 정의한다. 현재 실패는 baseline으로 기록하고 task ID와 연결한다.
@@ -147,9 +147,9 @@ STOP WHEN: result SHA의 검증과 review artifact가 모두 생성됨
 
 ### GOV-01 · GA 제품 경계·지원 범위·상용 책임 고정
 
-**담당 역할:** product owner, security architect, release coordinator  
-**예상:** 1~2일  
-**선행:** GA-00  
+**담당 역할:** product owner, security architect, release coordinator
+**예상:** 1~2일
+**선행:** GA-00
 **주 소유:** 새 product-scope ADR, privacy/data-flow 문서, support matrix, release claim 목록
 
 상용 100%를 판정할 제품 edition을 고정한다. 기본 계획은 local-first desktop과 self-hosted single-tenant 배포를 대상으로 하며, multi-tenant SaaS를 포함하면 tenant isolation, RBAC/SSO, 관리자 감사, data residency, billing과 abuse control을 별도 blocking task로 추가한다. 지원 OS, CPU/GPU, provider, 동시 사용자 수, 데이터 민감도, 보존/삭제/내보내기, SLA와 기술지원 범위를 명시한다.
@@ -165,9 +165,9 @@ STOP WHEN: result SHA의 검증과 review artifact가 모두 생성됨
 
 ### ARC-01 · RequestExecutionContext와 project/conversation 계약
 
-**담당 역할:** architecture/backend contract agent  
-**예상:** 2~3일  
-**선행:** GA-00, GOV-01  
+**담당 역할:** architecture/backend contract agent
+**예상:** 2~3일
+**선행:** GA-00, GOV-01
 **주 소유:** `src/antigravity_k/api/contracts/`, `src/antigravity_k/engine/`의 새 context contract, dashboard shared API schema
 
 request, task, tool, memory, RAG에 전달할 immutable typed context를 정의한다. project registry가 `project_id → canonical root`를 해석하고, 대화 revision 충돌을 명시적 HTTP 상태와 typed error로 반환하도록 API schema를 고정한다. 기존 route 호환이 필요한 범위와 제거할 legacy path를 ADR에 기록한다.
@@ -181,9 +181,9 @@ request, task, tool, memory, RAG에 전달할 immutable typed context를 정의�
 
 ### WS-01 · backend request scoped 프로젝트 해석과 의존성 주입
 
-**담당 역할:** workspace backend agent  
-**예상:** 3~4일  
-**선행:** ARC-01  
+**담당 역할:** workspace backend agent
+**예상:** 3~4일
+**선행:** ARC-01
 **주 소유:** `src/antigravity_k/api/routes/chat.py`, `src/antigravity_k/api/routes/filesystem.py`, `src/antigravity_k/api/dependencies.py`, project API contracts
 
 chat과 task 생성마다 project ID를 요구하거나 session의 명시적 active project revision을 사용한다. singleton 전역 root를 변경하는 방식 대신 request context로 orchestrator/runtime dependency를 해석한다. 프로젝트 삭제·전환 중 진행 task의 의미도 고정한다.
@@ -197,9 +197,9 @@ chat과 task 생성마다 project ID를 요구하거나 session의 명시적 act
 
 ### WS-02 · 파일·셸·Git·검색 도구의 canonical root 적용
 
-**담당 역할:** tool runtime/security agent  
-**예상:** 4~5일  
-**선행:** ARC-01, WS-01  
+**담당 역할:** tool runtime/security agent
+**예상:** 4~5일
+**선행:** ARC-01, WS-01
 **주 소유:** `src/antigravity_k/engine/tool_executor.py`, `src/antigravity_k/tools/system_tools.py`, `src/antigravity_k/tools/tool_registry.py`, sandbox adapters
 
 모든 파일 관련 tool이 request context의 canonical root 아래에서만 절대 경로를 실행하도록 만든다. PermissionGate가 검사한 정확한 resolved path를 실제 tool에 전달한다. shell, Git, subprocess는 명시적 cwd를 사용한다.
@@ -213,9 +213,9 @@ chat과 task 생성마다 project ID를 요구하거나 session의 명시적 act
 
 ### WS-03 · project scoped runtime·memory·RAG·artifact·compressor lifecycle
 
-**담당 역할:** runtime state agent  
-**예상:** 4~5일  
-**선행:** WS-01  
+**담당 역할:** runtime state agent
+**예상:** 4~5일
+**선행:** WS-01
 **주 소유:** `src/antigravity_k/engine/orchestrator/agent.py`, `engine_context.py`, memory/RAG/artifact factories, dependency caches
 
 orchestrator와 내부 서비스 cache를 project ID로 keying한다. project switch 시 기존 객체의 일부 field만 바꾸지 않는다. project별 persistence directory와 lifetime, eviction, shutdown을 명시한다.
@@ -229,9 +229,9 @@ orchestrator와 내부 서비스 cache를 project ID로 keying한다. project sw
 
 ### WS-04 · dashboard 프로젝트 전환과 request identity 동기화
 
-**담당 역할:** frontend state agent  
-**예상:** 2~3일  
-**선행:** ARC-01, WS-01  
+**담당 역할:** frontend state agent
+**예상:** 2~3일
+**선행:** ARC-01, WS-01
 **주 소유:** `dashboard/src/components/Editor/FolderBrowser.tsx`, `dashboard/src/components/Chat/ChatPage.tsx`, project/chat stores, `dashboard/src/api/client.ts`
 
 project store를 단일 source로 만들고 ChatPage가 project change를 구독한다. 모든 chat/task/file request가 project ID와 project revision을 보낸다. project 전환 중 pending request 취소와 사용자 표시를 구현한다.
@@ -245,9 +245,9 @@ project store를 단일 source로 만들고 ChatPage가 project change를 구독
 
 ### CTX-01 · authoritative conversation store와 revision protocol
 
-**담당 역할:** conversation/session agent  
-**예상:** 4~5일  
-**선행:** ARC-01  
+**담당 역할:** conversation/session agent
+**예상:** 4~5일
+**선행:** ARC-01
 **주 소유:** session manager, chat route, slash command session, dashboard chat store/API client
 
 서버 conversation store를 authoritative history로 정하고 append와 compact를 revision CAS로 처리한다. dashboard는 신규 turn과 예상 revision만 보낸다. offline/reconnect와 fork 동작을 정의한다.
@@ -261,9 +261,9 @@ project store를 단일 source로 만들고 ChatPage가 project change를 구독
 
 ### CTX-02 · 최종 프롬프트 예산과 결정적 압축 pipeline
 
-**담당 역할:** model context agent  
-**예상:** 4~6일  
-**선행:** ARC-01, CTX-01  
+**담당 역할:** model context agent
+**예상:** 4~6일
+**선행:** ARC-01, CTX-01
 **주 소유:** `context_budget.py`, `context_budget_enforcer.py`, `context_compressor.py`, `context_shaper.py`, `tool_loop.py`, orchestrator stream
 
 모델 호출 직전 최종 serialized prompt를 계산한다. system, tools, skills, pinned/recalled context, messages, output reserve별 token ledger를 만들고, 정해진 우선순위로 축약한다. provider tokenizer 차이는 conservative adapter로 처리한다.
@@ -278,9 +278,9 @@ project store를 단일 source로 만들고 ChatPage가 project change를 구독
 
 ### CTX-03 · 압축 실패 정책과 관측성
 
-**담당 역할:** context/observability agent  
-**예상:** 2~3일  
-**선행:** CTX-02  
+**담당 역할:** context/observability agent
+**예상:** 2~3일
+**선행:** CTX-02
 **주 소유:** tool loop/orchestrator telemetry, event schemas, dashboard execution diagnostics
 
 모든 예외를 원문 prompt로 되돌리는 현재 fail-open을 제거한다. 읽기 작업의 제한적 degrade와 hard-limit 초과 중단을 구분하고 운영 지표를 제공한다.
@@ -294,9 +294,9 @@ project store를 단일 source로 만들고 ChatPage가 project change를 구독
 
 ### DAT-01 · task transition CAS와 terminal winner
 
-**담당 역할:** persistence concurrency agent  
-**예상:** 2~3일  
-**선행:** GA-00  
+**담당 역할:** persistence concurrency agent
+**예상:** 2~3일
+**선행:** GA-00
 **주 소유:** `src/antigravity_k/engine/task_state_store.py`, transition callers/tests
 
 generic transition을 expected status/version 기반 conditional update로 바꾼다. cancel, completion, timeout, crash recovery의 우선순위를 문서화한다.
@@ -310,9 +310,9 @@ generic transition을 expected status/version 기반 conditional update로 바�
 
 ### DAT-02 · task별 vault 변경 격리와 안전한 rollback
 
-**담당 역할:** Git/vault agent  
-**예상:** 5~7일  
-**선행:** GA-00  
+**담당 역할:** Git/vault agent
+**예상:** 5~7일
+**선행:** GA-00
 **주 소유:** `src/antigravity_k/engine/task_runner.py`, `vault.py`, worktree/patch lifecycle
 
 task mutation을 독립 worktree 또는 task-owned patch/staging 영역에서 실행한다. 성공 시 충돌 검증 후 merge하고 실패·취소 시 해당 영역만 폐기한다. `git reset --hard`와 `git clean -fd`를 공유 vault rollback으로 사용하지 않는다.
@@ -326,9 +326,9 @@ task mutation을 독립 worktree 또는 task-owned patch/staging 영역에서 �
 
 ### DAT-03 · ProjectRegistry 원자성·내구성
 
-**담당 역할:** persistence agent  
-**예상:** 2~4일  
-**선행:** GA-00  
+**담당 역할:** persistence agent
+**예상:** 2~4일
+**선행:** GA-00
 **주 소유:** `src/antigravity_k/engine/project_registry.py`, registry API/tests
 
 process 공유 lock 아래 reload-modify-save와 temp file fsync/atomic replace를 구현하거나 SQLite로 이동한다. 저장 실패를 성공으로 반환하지 않고 손상 파일을 격리 보존한다.
@@ -342,9 +342,9 @@ process 공유 lock 아래 reload-modify-save와 temp file fsync/atomic replace�
 
 ### SEC-01 · 단일 인증 정책과 저장 PIN 상태 일치
 
-**담당 역할:** security/auth agent  
-**예상:** 2~3일  
-**선행:** GA-00  
+**담당 역할:** security/auth agent
+**예상:** 2~3일
+**선행:** GA-00
 **주 소유:** `startup_security.py`, `auth_routes.py`, `session_state.py`, auth middleware/tests
 
 startup, HTTP, SSE, WebSocket이 같은 `AuthPolicy`를 사용한다. 저장된 PIN hash가 있으면 loopback 개발 모드도 보호 상태로 처리한다. UI 표시도 같은 status endpoint를 사용한다.
@@ -358,9 +358,9 @@ startup, HTTP, SSE, WebSocket이 같은 `AuthPolicy`를 사용한다. 저장된 
 
 ### SEC-02 · PIN 교환 제한과 credential 표면 축소
 
-**담당 역할:** security agent  
-**예상:** 2~3일  
-**선행:** SEC-01  
+**담당 역할:** security agent
+**예상:** 2~3일
+**선행:** SEC-01
 **주 소유:** auth middleware/routes, rate limiter, audit events
 
 보호 resource middleware에서 legacy raw PIN 검증을 제거하고 rate-limited login/token route에서만 PIN을 받는다. 마이그레이션 기간이 필요하면 모든 경로에 동일 실패 제한, backoff와 audit를 적용한다.
@@ -374,9 +374,9 @@ startup, HTTP, SSE, WebSocket이 같은 `AuthPolicy`를 사용한다. 저장된 
 
 ### SEC-03 · WebSocket Origin과 단기 ticket
 
-**담당 역할:** WebSocket security agent  
-**예상:** 2~3일  
-**선행:** SEC-01  
+**담당 역할:** WebSocket security agent
+**예상:** 2~3일
+**선행:** SEC-01
 **주 소유:** WebSocket auth helpers/routes, dashboard WS client
 
 query의 PIN/token 전달을 제거한다. authenticated HTTP session에서 짧은 수명의 1회성 WS ticket을 발급하고 Origin allowlist를 적용한다.
@@ -390,9 +390,9 @@ query의 PIN/token 전달을 제거한다. authenticated HTTP session에서 짧�
 
 ### EVO-01 · 자기 진화 sandbox fail-closed
 
-**담당 역할:** self-evolution safety agent  
-**예상:** 2~3일  
-**선행:** GA-00  
+**담당 역할:** self-evolution safety agent
+**예상:** 2~3일
+**선행:** GA-00
 **주 소유:** `self_evolution_coordinator.py`, RSI sandbox integration/tests
 
 sandbox 또는 필수 validator 초기화 실패 시 mutation을 실행하지 않는다. validation, commit, rollback의 상태 machine과 audit evidence를 명확히 한다.
@@ -406,9 +406,9 @@ sandbox 또는 필수 validator 초기화 실패 시 mutation을 실행하지 �
 
 ### EVO-02 · 기대 개선과 실측 평가 분리
 
-**담당 역할:** evaluation agent  
-**예상:** 2~4일  
-**선행:** EVO-01  
+**담당 역할:** evaluation agent
+**예상:** 2~4일
+**선행:** EVO-01
 **주 소유:** self-evolution result schema, evaluator, history/UI projection
 
 `expected_improvement`와 `measured_after_metric`을 별도 field로 만들고 held-out task 재평가 전 상태를 `pending_evaluation`으로 유지한다. 실측 없는 개선 주장을 금지한다.
@@ -422,9 +422,9 @@ sandbox 또는 필수 validator 초기화 실패 시 mutation을 실행하지 �
 
 ### TRN-01 · 학습 recipe 단일 source와 실행 인자 일치
 
-**담당 역할:** training pipeline agent  
-**예상:** 3~5일  
-**선행:** GA-00  
+**담당 역할:** training pipeline agent
+**예상:** 3~5일
+**선행:** GA-00
 **주 소유:** `lora_pipeline.py`, `finetune/training_recipe.py`, `training_jobs_api.py`, training result schema
 
 legacy 문자열 command 생성과 typed recipe를 통합한다. iterations, batch, layers, learning rate를 validation 후 한 번 resolve하고 동일 구조에서 argv, progress, recipe digest와 결과 metadata를 만든다.
@@ -438,9 +438,9 @@ legacy 문자열 command 생성과 typed recipe를 통합한다. iterations, bat
 
 ### TRN-02 · 학습 timeout·취소·자원 반환
 
-**담당 역할:** process/resource agent  
-**예상:** 2~4일  
-**선행:** TRN-01  
+**담당 역할:** process/resource agent
+**예상:** 2~4일
+**선행:** TRN-01
 **주 소유:** training subprocess runner, resource admission, API cancellation/tests
 
 `timeout_sec`를 실제 supervised process group에 적용하고 stdout 정체와 child descendant까지 종료한다. timeout/cancel/crash에서 checkpoint와 resource lease 상태를 정의한다.
@@ -454,9 +454,9 @@ legacy 문자열 command 생성과 typed recipe를 통합한다. iterations, bat
 
 ### RAG-01 · 충돌 없는 chunk identity와 재색인
 
-**담당 역할:** RAG indexing agent  
-**예상:** 2~3일  
-**선행:** GA-00  
+**담당 역할:** RAG indexing agent
+**예상:** 2~3일
+**선행:** GA-00
 **주 소유:** `rag_indexer.py`, vector-store adapter/tests
 
 canonical file ID, structural ordinal, normalized heading path와 content digest를 사용해 stable unique chunk ID를 만든다. 동일 내용 이동/수정/삭제 시 재색인 정책을 명시한다.
@@ -470,9 +470,9 @@ canonical file ID, structural ordinal, normalized heading path와 content digest
 
 ### RAG-02 · 정확한 source line과 citation provenance
 
-**담당 역할:** RAG provenance agent  
-**예상:** 2~3일  
-**선행:** RAG-01  
+**담당 역할:** RAG provenance agent
+**예상:** 2~3일
+**선행:** RAG-01
 **주 소유:** Markdown chunker, citation formatter/validator/tests
 
 strip 전 원문 offset을 유지하고 prose/table/code block 모두 absolute line range를 계산한다. 검색 응답 링크가 원문을 정확히 가리키게 한다.
@@ -486,9 +486,9 @@ strip 전 원문 offset을 유지하고 prose/table/code block 모두 absolute l
 
 ### REL-01 · clean build 순서와 SBOM 실행 가능성
 
-**담당 역할:** release engineering agent  
-**예상:** 2~3일  
-**선행:** GA-00  
+**담당 역할:** release engineering agent
+**예상:** 2~3일
+**선행:** GA-00
 **주 소유:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, packaging scripts
 
 프로젝트 설치 또는 명시적 build backend 환경 이후 SBOM 모듈을 실행하도록 순서를 고친다. wheel/sdist 내부의 SBOM/NOTICE/provenance 일치를 검증한다.
@@ -502,9 +502,9 @@ strip 전 원문 offset을 유지하고 prose/table/code block 모두 absolute l
 
 ### REL-02 · frontend lock/output와 Docker runtime 계약
 
-**담당 역할:** frontend build/container agent  
-**예상:** 3~5일  
-**선행:** GA-00  
+**담당 역할:** frontend build/container agent
+**예상:** 3~5일
+**선행:** GA-00
 **주 소유:** dashboard lockfiles/Vite config, CI provenance step, Dockerfile, package data config
 
 package manager와 lockfile source를 하나로 정하고 frozen install을 복구한다. dashboard output path를 한 상수/manifest로 통일한다. container에서 Vault Git 기능을 제공하거나 기능을 명시적으로 비활성화한다.
@@ -518,9 +518,9 @@ package manager와 lockfile source를 하나로 정하고 frozen install을 복�
 
 ### REL-03 · 실제 배포 의존성 보안 audit
 
-**담당 역할:** supply-chain security agent  
-**예상:** 2~3일  
-**선행:** REL-01, REL-02  
+**담당 역할:** supply-chain security agent
+**예상:** 2~3일
+**선행:** REL-01, REL-02
 **주 소유:** dependency audit workflow, release policy, exception registry
 
 pip-audit/npm 또는 pnpm audit가 tool 환경이 아니라 exact production dependency set을 검사하도록 한다. 취약점 예외는 owner, 근거, 만료일과 대체 통제를 요구한다.
@@ -534,9 +534,9 @@ pip-audit/npm 또는 pnpm audit가 tool 환경이 아니라 exact production dep
 
 ### UI-01 · 실제 BrowserRouter 접근성 gate
 
-**담당 역할:** frontend QA agent  
-**예상:** 1~2일  
-**선행:** GA-00  
+**담당 역할:** frontend QA agent
+**예상:** 1~2일
+**선행:** GA-00
 **주 소유:** `dashboard/e2e/tests/accessibility.spec.ts`, Playwright config/fixtures
 
 hash URL을 제거하고 실제 16개 BrowserRouter URL을 desktop/mobile에서 연다. 검사한 pathname과 route marker를 결과에 기록해 거짓 통과를 방지한다.
@@ -550,9 +550,9 @@ hash URL을 제거하고 실제 16개 BrowserRouter URL을 desktop/mobile에서 
 
 ### UI-02 · 대비·label·heading·landmark 개선과 keyboard QA
 
-**담당 역할:** accessibility/frontend agent  
-**예상:** 4~6일  
-**선행:** UI-01  
+**담당 역할:** accessibility/frontend agent
+**예상:** 4~6일
+**선행:** UI-01
 **주 소유:** studio/models/start/agent/settings/skills/git/history/plugins/wiki 관련 component와 token/style
 
 감사에서 확인한 contrast, settings/plugins form label, wiki heading order, plugin job main landmark 결함을 design token과 semantic component에서 수정한다. 주요 workflow를 keyboard-only로 검증한다.
@@ -566,9 +566,9 @@ hash URL을 제거하고 실제 16개 BrowserRouter URL을 desktop/mobile에서 
 
 ### QLT-01 · 정적 품질·master E2E·전체 회귀 gate 복구
 
-**담당 역할:** quality integration agent  
-**예상:** 3~5일  
-**선행:** 기능 lane 전체  
+**담당 역할:** quality integration agent
+**예상:** 3~5일
+**선행:** 기능 lane 전체
 **주 소유:** `scripts/run_full_system_e2e_test.py`, test/CI orchestration, task-owned lint debt
 
 undefined import/main을 수정하고 명칭이 주장하는 실제 system path를 검증하도록 master E2E를 재구성한다. Ruff/format/dashboard lint를 green으로 만들되 대규모 formatting은 기능 변경과 분리한다.
@@ -582,9 +582,9 @@ undefined import/main을 수정하고 명칭이 주장하는 실제 system path�
 
 ### OBS-01 · 운영 관측·경보·복구 runbook
 
-**담당 역할:** SRE/operations agent  
-**예상:** 3~4일  
-**선행:** QLT-01  
+**담당 역할:** SRE/operations agent
+**예상:** 3~4일
+**선행:** QLT-01
 **주 소유:** telemetry/event schema, health/readiness, `docs/09_OPERATION_GUIDE.md`, alert rules
 
 request/project/task/conversation correlation을 log와 metric에 연결한다. 압축 실패, auth lockout, registry write, vault merge, task terminal conflict, provider failure를 관측한다.
@@ -598,9 +598,9 @@ request/project/task/conversation correlation을 log와 metric에 연결한다. 
 
 ### VAL-01 · 실제 provider·RAG·학습 hardware staging
 
-**담당 역할:** staging validation agent  
-**예상:** 4~6일  
-**선행:** QLT-01, REL-03  
+**담당 역할:** staging validation agent
+**예상:** 4~6일
+**선행:** QLT-01, REL-03
 **주 소유:** staging scripts와 evidence만, 제품 변경은 원 task로 환류
 
 지원한다고 표시한 최소 provider matrix와 실제 Chroma persistence, MLX 또는 CUDA 학습을 실행한다. secret은 CI/staging secret store에서만 사용한다.
@@ -614,9 +614,9 @@ request/project/task/conversation correlation을 log와 metric에 연결한다. 
 
 ### VAL-02 · 동시성·장시간·장애 주입 staging
 
-**담당 역할:** resilience/performance agent  
-**예상:** 4~6일  
-**선행:** QLT-01  
+**담당 역할:** resilience/performance agent
+**예상:** 4~6일
+**선행:** QLT-01
 **주 소유:** load/chaos scenarios와 evidence, 발견 결함은 원 lane으로 환류
 
 다중 project, concurrent task, process kill, disk-full, network loss, provider timeout, browser reconnect를 실제 process 경계에서 검증한다.
@@ -630,9 +630,9 @@ request/project/task/conversation correlation을 log와 metric에 연결한다. 
 
 ### DOC-01 · 사용자·관리자·개발자 문서 동기화
 
-**담당 역할:** documentation agent  
-**예상:** 2~3일  
-**선행:** 기능/운영 lane 전체  
+**담당 역할:** documentation agent
+**예상:** 2~3일
+**선행:** 기능/운영 lane 전체
 **주 소유:** README, architecture, API, security, operation, release, migration docs
 
 프로젝트 선택, conversation compact, 인증, backup/restore, container 기능, 지원 provider/hardware와 제한을 실제 UI/API와 맞춘다. 과거 완료 주장 중 현재 동작과 불일치하는 항목을 갱신한다.
@@ -646,9 +646,9 @@ request/project/task/conversation correlation을 log와 metric에 연결한다. 
 
 ### RC-01 · 최종 release candidate 100점 gate
 
-**담당 역할:** release coordinator, 독립 code/security/QA/gate reviewers  
-**예상:** 2~4일  
-**선행:** 모든 task  
+**담당 역할:** release coordinator, 독립 code/security/QA/gate reviewers
+**예상:** 2~4일
+**선행:** 모든 task
 **주 소유:** release evidence와 readiness report만
 
 하나의 immutable candidate SHA를 고정하고 전체 gate를 clean environment에서 실행한다. 중간 fix가 생기면 SHA를 새로 고정하고 모든 영향 gate를 다시 실행한다.
