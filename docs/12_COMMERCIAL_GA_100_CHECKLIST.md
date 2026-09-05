@@ -24,7 +24,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | ID | 상태 | Owner | Reviewer | Branch/worktree | Result SHA | Evidence | 선행 |
 |---|---|---|---|---|---|---|---|
 | GA-00 | DONE | ga_00_baseline | ga_00_verify | codex/ga-00-baseline-gate | `7677bc391888ad13aa8413e32634f95912613d49` | `.omo/evidence/commercial-ga-100/GA-00/` | 독립 검증 APPROVE 0.99 |
-| GOV-01 | REVIEW | gov_01_scope | gov_01_verify | codex/gov-01-product-scope | `a0e14130c6e91062f31d950b7cc965a4ae359988` | `.omo/evidence/commercial-ga-100/GOV-01/` | GA-00 DONE; prior REJECT `67fe3f19…` fixed |
+| GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
 | ARC-01 | TODO |  |  |  |  |  | GA-00, GOV-01 |
 | WS-01 | TODO |  |  |  |  |  | ARC-01 |
 | WS-02 | TODO |  |  |  |  |  | WS-01 |
@@ -84,15 +84,15 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## GOV-01 · GA 제품 경계와 상용 책임
 
-- [ ] GA deployment mode와 제외 범위가 승인됐다.
-- [ ] local/single-tenant와 multi-tenant/SaaS 요구를 구분했다.
-- [ ] 지원 OS/hardware/provider matrix가 있다.
+- [x] GA deployment mode와 제외 범위가 승인됐다 (planning-boundary ADR-0003; public GA still Not granted).
+- [x] local/single-tenant와 multi-tenant/SaaS 요구를 구분했다.
+- [x] 지원 OS/hardware/provider matrix가 있다 (Supported rows 없음; Experimental/Unsupported만).
 - [x] 동시 사용자 수(동시성) 경계와 disposition/gate owner가 명시됐다 (single-operator target; multi-user unverified pending VAL-02).
 - [x] 데이터 민감도 등급(allowed/excluded/unverified)과 legal/privacy/security gate가 명시됐다.
-- [ ] 사용자 데이터 흐름·보존·삭제·export·backup 정책이 있다.
-- [ ] license/provider 약관/telemetry/privacy 검토 항목이 있다.
-- [ ] marketing claim마다 검증 증거가 연결된다.
-- [ ] SaaS 범위이면 RBAC/SSO/tenant isolation 등 추가 blocking task가 생성됐다.
+- [x] 사용자 데이터 흐름·보존·삭제·export·backup 정책이 있다 (한계·게이트 명시).
+- [x] license/provider 약관/telemetry/privacy 검토 항목이 있다 (Pending register).
+- [x] marketing claim마다 검증 증거가 연결된다.
+- [x] SaaS는 현재 edition에서 제외; ADR SaaS expansion gate에 RBAC/SSO/tenant isolation 등 blocking 요건을 명시했다.
 
 ## ARC-01 · 공용 실행 계약
 

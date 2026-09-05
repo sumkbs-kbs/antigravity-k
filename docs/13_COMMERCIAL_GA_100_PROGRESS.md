@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 1 |
-| 진행 중 | 1 |
+| 완료 | 2 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | GOV-01 · REJECT 수정 후 재검증 대기 |
+| 현재 작업 | GOV-01 DONE · 다음 ARC-01 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,17 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · GOV-01 독립 재검증 APPROVE (r2)
+
+- 검증 tip SHA: `27844f48d77ebced90bcfed733b2dcc33aa5e9f3`
+- governance fix SHA: `a0e14130c6e91062f31d950b7cc965a4ae359988` (네 문서 tip과 동일)
+- reviewer: `gov_01_verify` (Owner≠Reviewer)
+- 판정: `APPROVE`, `AdversarialVerify=confirmed`, confidence 0.95
+- prior REJECT HIGH 2건 종결: 동시 사용자 수(single-operator; multi-user unverified pending VAL-02), 데이터 민감도(allowed/unverified/excluded + gates)
+- adversarial: Supported 행 없음, legal/privacy Pending, SaaS 제외·expansion gate 유지, SLA/telemetry overclaim 없음
+- 보고서: `.omo/evidence/commercial-ga-100/GOV-01/review-r2.md` (prior `review.md` REJECT 보존)
+- 상태: `DONE`
 
 ### 2026-09-06 · GOV-01 REJECT 수정 완료, 재검증 요청
 
@@ -145,11 +156,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| GOV-01 | gov_01_scope / gov_01_scope_fix | `codex/gov-01-product-scope` | REJECT 수정 후 재검증 대기 | `a0e14130c6e91062f31d950b7cc965a4ae359988` 에 대해 `gov_01_verify` 독립 재검증 |
+| ARC-01 | (미할당) |  | GOV-01 DONE 후 시작 가능 | GOV-01 tip `27844f48…` APPROVE 이후 공용 실행 계약 |
 
 ## 차단 및 결정 대기
 
-`GOV-01`은 prior SHA에서 독립 review REJECT를 받았고, concurrent-user·data-sensitivity 수정을 반영한 뒤 재검증 대기 중이다. ARC-01은 GOV-01 APPROVE 전까지 시작하지 않는다. local-first desktop + self-hosted single-tenant GA target과 SaaS 제외는 유지된다.
+`GOV-01`은 tip `27844f48d77ebced90bcfed733b2dcc33aa5e9f3`에서 독립 r2 APPROVE를 받았다. prior REJECT(`67fe3f19…`)의 concurrent-user·data-sensitivity HIGH는 종결됐다. ARC-01을 시작할 수 있다. local-first desktop + self-hosted single-tenant GA target과 SaaS 제외는 유지되며, 본 APPROVE는 public GA/legal/provider 승인이 아니다.
 
 ## 증거 위치
 
