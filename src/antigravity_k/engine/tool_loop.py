@@ -254,7 +254,13 @@ class _ToolGuardrailLike(Protocol):
 
 
 class _ToolExecutorLike(Protocol):
-    async def execute_async(self, name: str, args: dict[str, ToolArgumentValue]) -> str: ...
+    async def execute_async(
+        self,
+        name: str,
+        args: dict[str, ToolArgumentValue],
+        *,
+        guardrail_prechecked: bool = False,
+    ) -> str: ...
 
 
 class _CognitiveLoopLike(Protocol):
@@ -2227,7 +2233,15 @@ class ToolLoopEngine:
                 logger.exception("Unhandled exception")
             return tc, pre_decision, None, synthetic, True
 
-        tool_result = str(await self.orch.ctx.tool_executor.execute_async(tool_name, tool_args))
+        # before_call already ran above — tell GatePipeline/RateLimitGate to
+        # skip the duplicate guardrail check on this allow-path execute (A4).
+        tool_result = str(
+            await self.orch.ctx.tool_executor.execute_async(
+                tool_name,
+                tool_args,
+                guardrail_prechecked=True,
+            )
+        )
 
         # ── 30B Model Amplification: Deterministic Syntax & Error Distillation ──
         if _tool_result_failed(tool_result):

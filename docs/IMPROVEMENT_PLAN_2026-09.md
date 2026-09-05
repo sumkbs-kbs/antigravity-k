@@ -43,7 +43,7 @@ status: active
 | A1 | 차단/예외 도구 결과가 모델에 피드백되지 않고 `success=True`로 루프 종료 | tool_loop.py:1062-1181 |
 | A2 | 도구 실행 예외가 `blocked=True`로 오분류 | tool_loop.py:1062-1066 |
 | A3 | 가드레일 reset 불가 — `hasattr(reset)` 항상 False, 실패 카운터 평생 누적 | tool_loop.py:758, tool_guardrails.py:294 |
-| A4 | `before_call` 이중 실행 (블록 메시지 2회, 정책 regex 2회) | tool_loop.py:922-927, 1775 |
+| A4 | `before_call` 이중 실행 (블록 메시지 2회, 정책 regex 2회) — **수정**: tool_loop allow-path가 `guardrail_prechecked=True`로 GatePipeline RateLimitGate의 중복 `before_call` 생략 (PLAN/BUILD·SecurityPolicyGate는 유지) | tool_loop.py, gate_pipeline.py, tool_executor.py |
 | A5 | 컨텍스트 오버플로 재시도 무한 (최대 50회 동일 프롬프트 재전송) | tool_loop.py:973-1010 |
 | A6 | `TOOL_CALL_ERROR` 조용히 폐기 — 수정 넛지 없음. `RobustToolParser`(수리기)는 데드코드 | tool_loop.py:930-947, robust_tool_parser.py |
 
@@ -67,7 +67,7 @@ status: active
 | C2 | 스트리밍 경로(실 라이브 경로)에 샘플링 프로파일/min_p 미적용 | inference_providers.py:790-802 |
 | C3 | qwen3 샘플링 오버라이드가 콤보명("coding-swarm") 대상이라 발동 불가 | tool_loop.py:805-806 |
 | C4 | 네이티브 함수 호출이 콤보명으로 `get_model()` → None → 항상 `{}` 반환 | tool_loop.py:527-529 |
-| C7 | 스트림 중간 폴백이 부분 출력+전체 응답을 **연결**해서 반환 | model_manager.py:798-846 |
+| C7 | 스트림 중간 폴백이 부분 출력+전체 응답을 **연결**해서 반환 — **수정**: 콤보 경로는 성공 전까지 청크 버퍼링, 폴백 시 부분 출력 폐기 후 폴백만 방출 (복구 마커 연결 제거) | model_manager.py stream_generate |
 | C9 | 정책이 구성된 폴백 모델들을 조용히 제외 (80b>70, 120b, 550b → 전원 제외) | model_policy.py:41-50, config.yaml:439 |
 | C11 | thinking이 시스템 전역 하드 비활성 (`think:false` + `/no_think` 시스템 주입) — 복잡 태스크에서 최대 품질 레버 미사용 | inference_providers.py:628,794 |
 
@@ -93,7 +93,7 @@ status: active
 | # | 작업 | 수정 파일 | 해결 버그 |
 |:---|:---|:---|:---|
 | P1-1 | 차단/예외 도구 결과를 모델에 피드백 + `tool_executed` 설정 + 계속 (blocked 연속 2-3회 제한) | tool_loop.py | A1, A2 |
-| P1-2 | 가드레일 생명주기: `run_loop` 시작 시 `reset_for_turn()`, `before_call` 단일 실행 | tool_loop.py, tool_guardrails.py | A3, A4 |
+| P1-2 | 가드레일 생명주기: `run_loop` 시작 시 `reset_for_turn()`, allow-path `before_call` 단일 실행(`guardrail_prechecked`) | tool_loop.py, tool_guardrails.py, gate_pipeline.py, tool_executor.py | A3, A4 |
 | P1-3 | MAX 선택자 인덱스 수정 — `selected`를 `results` 기준으로 재매핑 (또는 WorkerResult 직접 반환) | max_engine.py, orchestrator_execution_handlers.py | B1 |
 | P1-4 | 재시도 루프백 피드백 보존 — 원본 사용자 턴 교체 방식으로 변경 | orchestrator_execution_handlers.py | B4 |
 | P1-5 | 마지막 스텝 capacity 중단 제거 — `step >= max_steps` 시 최종 답변 강제 생성 | tool_loop.py, capacity_flow.py | B6 |
@@ -157,7 +157,7 @@ status: active
 | P2-4 | MAX 워커 실제 온도 전달 (`run_loop(sampling_overrides=...)`) | ✅ |
 | P2-5 | PIPELINE_EXECUTE 단계별 작업 주입 | ✅ |
 | P2-6 | MoE 활성 파라미터 명시(폴백 체인 복원) + 정책 제외 WARNING 노출 | ✅ |
-| P2-7 | 스트림 폴백 복구 마커 + 에러 스니핑 전체 청크 검사 | ✅ |
+| P2-7 | 스트림 폴백 **부분 출력 억제**(콤보 버퍼링) + 에러 스니핑 전체 청크 검사 — 복구 마커만으로는 join 이중 출력 미해결이므로 폐기 전략으로 교체 | ✅ |
 | B13 | 토론 ARBITER 종합 단계 추가 | ✅ |
 | B15 | CEO 라우터 max_tokens 2048 + `<think>` 제거 + 키워드 폴백이 사용자 요청 기준으로 분류 | ✅ |
 

@@ -185,6 +185,9 @@ class GateContext:
     execution_mode: str = "interactive"  # interactive / autonomous / container
     auto_approved_tools: frozenset[str] = field(default_factory=frozenset)
     source_channel: str = "web"
+    # When True, RateLimitGate skips ToolCallGuardrailController.before_call
+    # because the caller (tool_loop) already evaluated it for this invocation.
+    guardrail_prechecked: bool = False
 
 
 # ── ExecutionGate 프로토콜 ──
@@ -284,6 +287,12 @@ class RateLimitGate:
                 )
 
         if self._guardrails is None:
+            return GateDecision(gate_name=self.name())
+
+        # tool_loop already ran before_call for this allow-path invocation —
+        # skip the duplicate policy/rate check (A4) without dropping PLAN/BUILD
+        # mode gates above or SecurityPolicyGate later in the pipeline.
+        if ctx.guardrail_prechecked:
             return GateDecision(gate_name=self.name())
 
         decision = self._guardrails.before_call(ctx.tool_name, dict(ctx.args))

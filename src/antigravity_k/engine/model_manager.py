@@ -804,6 +804,11 @@ class ModelManager:
             raise
 
         full_text = ""
+        # Combo routes may fall back mid-stream. Buffer chunks until the
+        # current model succeeds so callers ("".join / full_response accumulators)
+        # never concatenate a partial primary answer with the fallback reply.
+        # Single-model targets still stream live.
+        pending_chunks: list[str] = []
         try:
             loaded = self.get(used_model)
 
@@ -813,7 +818,14 @@ class ModelManager:
                 if combo_name and chunk.strip().lower().startswith("[api error"):
                     raise RuntimeError(chunk.strip())
                 full_text += chunk
-                yield chunk
+                if combo_name:
+                    pending_chunks.append(chunk)
+                else:
+                    yield chunk
+
+            # Success — release buffered combo chunks as one coherent stream.
+            if combo_name:
+                yield from pending_chunks
 
             # Record usage after completion
             tokens_in = _token_count(loaded.tokenizer, prompt)
@@ -850,11 +862,10 @@ class ModelManager:
                     error_msg,
                     combo_name,
                 )
-                # 부분 출력이 이미 스트리밍된 경우, 폴백 전체 응답을 구분자
-                # 없이 이어 붙이면 두 모델의 텍스트가 뒤섞인 채답이 된다 —
-                # 복구 마커로 경계를 명시한다.
-                if full_text:
-                    yield "\n\n[⚠️ 스트림 중단 — 폴백 모델로 재생성합니다]\n\n"
+                # Discard buffered partials (never yielded) and return only the
+                # successful fallback stream — do not concatenate or emit a
+                # recovery marker that still leaves dual content in join().
+                pending_chunks.clear()
                 yield from self.stream_generate(prompt, combo_name, **kwargs)
             else:
                 logger.error("[%s] 단일 모델 추론 실패: %s", used_model, error_msg)

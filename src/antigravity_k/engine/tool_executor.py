@@ -227,7 +227,13 @@ class ToolExecutor:
         self.current_objective = objective or ""
 
     def execute(
-        self, name: str, args: dict[str, object], objective: str = "", execution_mode: str = "interactive"
+        self,
+        name: str,
+        args: dict[str, object],
+        objective: str = "",
+        execution_mode: str = "interactive",
+        *,
+        guardrail_prechecked: bool = False,
     ) -> str:
         """ToolRegistry를 통해 도구를 실행합니다. (사전 검증 및 구조화된 에러 반환 포함).
 
@@ -237,6 +243,8 @@ class ToolExecutor:
             objective: 현재 목표
             execution_mode: 실행 모드 ("plan", "build", "interactive")
                           Phase 1 D3: PlanGuard/GatePipeline에 전달되어 모드별 도규 차단/승인 처리.
+            guardrail_prechecked: True면 RateLimitGate의 before_call을 건너뛴다
+                          (tool_loop가 이미 평가한 allow-path). 직접 호출 경로는 False 유지.
         """
         try:
             if name not in self.tool_registry:
@@ -286,6 +294,7 @@ class ToolExecutor:
                     args=args,
                     execution_mode=execution_mode,
                     auto_approved_tools=self._user_contracted_tools(),
+                    guardrail_prechecked=guardrail_prechecked,
                 )
                 gate_decision = self.gate_pipeline.evaluate(gate_ctx)
                 if gate_decision.is_denied:
@@ -602,9 +611,22 @@ class ToolExecutor:
         except Exception:
             logger.exception("Failed to read file for event broadcast")
 
-    async def execute_async(self, name: str, args: dict[str, object], execution_mode: str = "interactive") -> str:
+    async def execute_async(
+        self,
+        name: str,
+        args: dict[str, object],
+        execution_mode: str = "interactive",
+        *,
+        guardrail_prechecked: bool = False,
+    ) -> str:
         """비동기 스레드 풀에서 도구를 실행하여 메인 이벤트 루프를 블로킹하지 않습니다."""
-        return await asyncio.to_thread(self.execute, name, args, execution_mode=execution_mode)
+        return await asyncio.to_thread(
+            self.execute,
+            name,
+            args,
+            execution_mode=execution_mode,
+            guardrail_prechecked=guardrail_prechecked,
+        )
 
     def _trigger_recovery(self, name: str, args: dict[str, object], result: str) -> str:
         """연속 에러 3회 시 실패 유형별 복구 플레이북 → Immune System → Vault Rollback 순으로 복구 시도."""

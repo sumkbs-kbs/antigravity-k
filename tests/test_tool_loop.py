@@ -1073,7 +1073,9 @@ class TestToolLoopEngineRunToolTaskAsync:
             ("ctx", "tool_executor", "execute_async"),
             "run_bash",
             {"command": "ls"},
+            guardrail_prechecked=True,
         )
+        _assert_mock_called_once(mock_orch, ("ctx", "tool_guardrail", "before_call"))
         _assert_mock_called_once(mock_orch, ("ctx", "tool_guardrail", "after_call"))
 
     @pytest.mark.asyncio

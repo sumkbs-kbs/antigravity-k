@@ -446,6 +446,36 @@ class TestStreamDispatchAndGenerate:
         assert chunks == ["복구"]
         assert calls == ["model-a", "model-b"]
 
+    def test_stream_generate_midstream_fallback_discards_partial(self, manager: ModelManager):
+        """C7: mid-stream failure must not concatenate partial + fallback."""
+        combo = ModelCombo(
+            name="fb-combo",
+            models=["model-a", "model-b"],
+            strategy=RouteStrategy.FALLBACK,
+        )
+        manager.router.register_combo(combo)
+
+        calls: list[str] = []
+
+        def fake_stream(loaded: LoadedModel, _prompt: str, **_kwargs: object) -> Iterator[str]:
+            calls.append(loaded.profile.name)
+            if loaded.profile.name == "model-a":
+                yield "부분출력"
+                raise RuntimeError("mid-stream boom")
+            yield "완전한"
+            yield "폴백답변"
+
+        setattr(manager, "_do_stream_generate", fake_stream)
+
+        chunks = list(manager.stream_generate("Hello", "fb-combo"))
+        joined = "".join(chunks)
+
+        assert "부분출력" not in joined
+        assert "스트림 중단" not in joined
+        assert joined == "완전한폴백답변"
+        assert chunks == ["완전한", "폴백답변"]
+        assert calls == ["model-a", "model-b"]
+
     def test_stream_generate_collective_chunks_full_text(self, manager: ModelManager):
         combo = ModelCombo(
             name="swarm",

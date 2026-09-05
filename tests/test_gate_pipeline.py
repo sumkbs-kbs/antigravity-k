@@ -67,6 +67,7 @@ def _record_and_allow(call_order: list[str], label: str) -> Callable[..., object
 
     return callback
 
+
 # ---------------------------------------------------------------------------
 # GateDecision / GateAction
 # ---------------------------------------------------------------------------
@@ -287,6 +288,30 @@ class TestRateLimitGate:
         ctx = GateContext(tool_name="read_file")
         decision = gate.evaluate(ctx)
         assert decision.is_allowed
+
+    def test_skips_before_call_when_guardrail_prechecked(self):
+        """A4: tool_loop pre-check must not re-run before_call on allow path."""
+        from unittest.mock import MagicMock
+
+        guardrails = MagicMock()
+        guardrails.before_call.return_value = MagicMock(should_halt=False, message="", code="allow")
+        gate = RateLimitGate(guardrails=guardrails)
+
+        decision = gate.evaluate(GateContext(tool_name="read_file", args={"path": "/x"}, guardrail_prechecked=True))
+        assert decision.is_allowed
+        guardrails.before_call.assert_not_called()
+
+    def test_runs_before_call_when_not_prechecked(self):
+        """Direct executor paths still evaluate before_call via RateLimitGate."""
+        from unittest.mock import MagicMock
+
+        guardrails = MagicMock()
+        guardrails.before_call.return_value = MagicMock(should_halt=False, message="", code="allow")
+        gate = RateLimitGate(guardrails=guardrails)
+
+        decision = gate.evaluate(GateContext(tool_name="read_file", args={"path": "/x"}))
+        assert decision.is_allowed
+        guardrails.before_call.assert_called_once_with("read_file", {"path": "/x"})
 
 
 # ---------------------------------------------------------------------------
