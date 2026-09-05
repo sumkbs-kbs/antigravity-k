@@ -1,4 +1,4 @@
-"""Antigravity-K: 에이전트 상태 그래프 엔진 (AgentStateGraph).
+"""Ssak-Ai: 에이전트 상태 그래프 엔진 (AgentStateGraph).
 
 ==========================================================
 오케스트레이터의 암묵적 분기 로직을 명시적 상태 전이 그래프로 구조화합니다.
@@ -395,7 +395,7 @@ class AgentStateGraph:
 
 
 def build_default_graph() -> AgentStateGraph:
-    """Antigravity-K의 기본 에이전트 상태 그래프를 구성합니다.
+    """Ssak-Ai의 기본 에이전트 상태 그래프를 구성합니다.
 
     핸들러는 orchestrator_handlers.py에서 제공됩니다.
     이 함수는 그래프 구조(노드+엣지)만 정의합니다.

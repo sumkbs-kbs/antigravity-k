@@ -9,7 +9,7 @@ roots, prohibited licenses, and prohibited packages.
 ## Upstream provenance
 
 An upstream may be consulted for design or interoperation, but files are copied
-into Antigravity-K only after being listed in `copied_files` with their upstream
+into Ssak-Ai only after being listed in `copied_files` with their upstream
 path, destination path, and applicable license. An empty `copied_files` list is
 the required default. Updates to the upstream pin require a new pinned commit
 SHA and a fresh review of the copied-file list.

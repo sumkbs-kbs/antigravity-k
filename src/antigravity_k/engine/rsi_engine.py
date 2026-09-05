@@ -1,4 +1,4 @@
-"""Antigravity-K: RSI Engine (재귀적 자기개선 오케스트레이터).
+"""Ssak-Ai: RSI Engine (재귀적 자기개선 오케스트레이터).
 
 ========================================================
 Darwin Gödel Machine + ADAS 패턴 기반 7단계 자기개선 사이클.
@@ -179,7 +179,7 @@ class RSIEngine:
     ) -> RSICycleResult:
         """RSI 사이클 1회를 실행합니다.
 
-        이것이 "내가 하는 모든 행위를 Antigravity-K도 할 수 있도록" 만드는
+        이것이 "내가 하는 모든 행위를 Ssak-Ai도 할 수 있도록" 만드는
         핵심 루프입니다. 7단계를 순차적으로 실행합니다.
         """
         self._ensure_deps()
@@ -407,7 +407,7 @@ class RSIEngine:
                 builder = PromptBuilder.__new__(PromptBuilder)
                 current_prompt = getattr(builder, "_system_prompt", "")
                 if not current_prompt:
-                    current_prompt = "You are Antigravity-K, an autonomous AI agent."
+                    current_prompt = "You are Ssak-Ai, an autonomous AI agent."
 
                 assert self._evolver is not None
                 new_prompt, score = self._evolver.evolve_system_prompt(
@@ -588,9 +588,11 @@ class RSIEngine:
 
         for cycle in self._cycle_history[-5:]:
             status = "✅" if cycle.success else ("🔄" if cycle.rolled_back else "⏭")
-            lines.append(f"- {status} Gen {cycle.generation}: {cycle.before_score:.1%} → {cycle.after_score:.1%} (Δ{cycle.improvement:+.1%}, {cycle.mutation_type})")
+            lines.append(
+                f"- {status} Gen {cycle.generation}: {cycle.before_score:.1%} → {cycle.after_score:.1%} (Δ{cycle.improvement:+.1%}, {cycle.mutation_type})"
+            )
 
         return "\n".join(lines)
 
 
-"""Antigravity-K RSI Engine — Darwin Gödel Machine recursive self-improvement."""
+"""Ssak-Ai RSI Engine — Darwin Gödel Machine recursive self-improvement."""

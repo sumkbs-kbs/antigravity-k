@@ -149,8 +149,23 @@ class ModeManager:
 
         self._record_transition(previous, ExecutionMode.PLAN, reason)
         self._notify_listeners(previous, ExecutionMode.PLAN, reason)
+        self._publish_planning_started(reason)
         logger.info("[ModeManager] PLAN 모드 전환: %s", reason or "사용자 요청")
         return True
+
+    def _publish_planning_started(self, reason: str) -> None:
+        """EventBus로 PlanningModeStarted 이벤트를 발행합니다.
+
+        Dashboard WebSocket(useEventWebSocket)이 이 이벤트를 수신하여
+        에이전트 모니터링 패널에 계획 모드 시작 로그/타임라인을 표시합니다.
+        이벤트 버스 발행은 선택적(non-critical)이므로 실패해도 모드 전환은 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish("PlanningModeStarted", goal=reason or "")
+        except Exception:
+            logger.warning("PlanningModeStarted publish 실패 (non-critical)", exc_info=True)
 
     def switch_to_build(self, plan_artifact_path: str | None = None, reason: str = "") -> bool:
         """Build 모드로 전환합니다.

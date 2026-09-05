@@ -479,7 +479,7 @@ async def browser_self_test(
 ):
     """기존 TestHarness 프레임워크를 활용하여.
 
-    Antigravity-K가 스스로를 테스트하는 멀티스텝 오케스트레이션 루프.
+    Ssak-Ai가 스스로를 테스트하는 멀티스텝 오케스트레이션 루프.
 
     실행 흐름:
     1. TestHarness가 API 테스트 실행 (health, models)
@@ -538,7 +538,7 @@ async def autonomous_qa_loop(req: AutonomousQARequest):
     6. 반응형 테스트(desktop/tablet/mobile) + 성능 메트릭 수집
     """
     try:
-            _ = validate_egress_url(req.url, allow_local=True)
+        _ = validate_egress_url(req.url, allow_local=True)
     except EgressPolicyError as exc:
         raise HTTPException(status_code=403, detail="Autonomous QA target must be a valid HTTP(S) URL") from exc
     _require_allowed("autonomous_qa", {"url": req.url}, "critical")
@@ -700,7 +700,7 @@ async def external_brain_list():
 async def external_brain_send(req: ExternalBrainRequest):
     """외부 AI 두뇌에 프롬프트를 전송합니다.
 
-    Antigravity-K가 설치된 Gemini 앱이나 ChatGPT 웹의 채팅 UI를
+    Ssak-Ai가 설치된 Gemini 앱이나 ChatGPT 웹의 채팅 UI를
     GUI 자동화로 제어하여 API 없이 추론 결과를 획득합니다.
 
     전략:

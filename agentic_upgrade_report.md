@@ -8,11 +8,11 @@ date: 2026-05-07
 
 ## 조사 범위
 
-GitHub와 Hugging Face의 최신 에이전틱 프레임워크 흐름을 실시간 검색하여 Antigravity-K에 이식 가능한 구조만 선별했다. 외부 프레임워크를 그대로 끌어오기보다는 현재 코드베이스의 `StateGraph`, `ToolRegistry`, `QualityGate`, `SessionManager`, `AgentTracer`에 맞는 결정론적 업그레이드 레이더로 반영했다.
+GitHub와 Hugging Face의 최신 에이전틱 프레임워크 흐름을 실시간 검색하여 Ssak-Ai에 이식 가능한 구조만 선별했다. 외부 프레임워크를 그대로 끌어오기보다는 현재 코드베이스의 `StateGraph`, `ToolRegistry`, `QualityGate`, `SessionManager`, `AgentTracer`에 맞는 결정론적 업그레이드 레이더로 반영했다.
 
 ## 핵심 관찰
 
-| 출처 | 관찰한 최신 흐름 | Antigravity-K 반영 방향 |
+| 출처 | 관찰한 최신 흐름 | Ssak-Ai 반영 방향 |
 |------|------------------|--------------------------|
 | LangGraph | durable execution, human-in-the-loop, memory, tracing/observability | `StateContext` 체크포인트 영속화와 resume/replay 명령이 최우선 |
 | Hugging Face smolagents | CodeAgent, sandboxed execution, model/tool agnostic, MCP tool support | 별도 CodeAction lane은 sandbox/import allowlist/timeout/diff gate 없이는 열지 않음 |
@@ -24,7 +24,7 @@ GitHub와 Hugging Face의 최신 에이전틱 프레임워크 흐름을 실시�
 
 | 파일 | 반영 내용 |
 |------|----------|
-| `src/antigravity_k/engine/agentic_tech_radar.py` | 최신 에이전틱 기술을 Antigravity-K 업그레이드 우선순위로 변환하는 결정론적 레이더 추가 |
+| `src/antigravity_k/engine/agentic_tech_radar.py` | 최신 에이전틱 기술을 Ssak-Ai 업그레이드 우선순위로 변환하는 결정론적 레이더 추가 |
 | `src/antigravity_k/engine/slash_commands.py` | `/agentic [objective]` 명령 추가 |
 | `dashboard/src/command_palette.js` | Command Palette에 `Agentic Upgrade Radar (/agentic)` 추가 |
 | `tests/test_agentic_tech_radar.py` | 레이더, Markdown 출력, slash command 회귀 테스트 추가 |

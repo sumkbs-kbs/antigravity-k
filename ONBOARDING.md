@@ -1,6 +1,6 @@
-# 🚀 Antigravity-K 온보딩 가이드
+# 🚀 Ssak-Ai 온보딩 가이드
 
-Antigravity-K는 로컬에서 실행되는 AI 엔지니어링 에이전트입니다.
+Ssak-Ai는 로컬에서 실행되는 AI 엔지니어링 에이전트입니다.
 OpenAI 호환 API를 제공하며, 웹 검색, 파일 조작, Git 연동, 코드 분석 등
 다양한 작업을 자동화합니다.
 

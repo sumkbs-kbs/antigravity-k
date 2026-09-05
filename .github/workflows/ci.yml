@@ -1,4 +1,4 @@
-# Antigravity-K CI — Code Quality Pipeline
+# Ssak-Ai CI — Code Quality Pipeline
 #
 # Runs on every push and pull request (and nightly at midnight):
 #   1. Linting (ruff check)
@@ -111,15 +111,24 @@ jobs:
             src/antigravity_k/tools/search_benchmark.py
 
   test:
-    name: "Tests (${{ matrix.os }})"
+    name: "Tests (${{ matrix.os }}, ${{ matrix.deps }})"
     strategy:
       fail-fast: false
       matrix:
         # Run on both Linux and macOS so the Apple-Silicon / MLX code path is
         # exercised in CI (the product's primary platform).
+        # deps=mlx installs mlx-lm so test_mlx_command_flags.py can verify that
+        # the flags in generated training commands still exist (Phase 22).
         os: [ubuntu-latest, macos-latest]
+        deps: [base, rag, mlx]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    # Phase 57: 서브프로세스 기반 테스트(drift/smoke)가 pytest 인터프리터와
+    # 동일한 .venv python을 쓰게 고정한다 (tests/_cli_subprocess.py 1순위).
+    # uv run 안에서 uv run을 다시 띄우는 네스팅을 없애고, 드리프트 체크와
+    # 스모크 테스트가 같은 인터프리터·같은 의존성 세트를 공유하게 한다.
+    env:
+      AGK_TEST_PYTHON: ${{ github.workspace }}/.venv/bin/python
 
     steps:
       - name: Checkout
@@ -129,17 +138,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: pyproject.toml
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,rag]"
+          if [ "${{ matrix.deps }}" = "base" ]; then
+            uv sync --locked --extra dev
+          elif [ "${{ matrix.deps }}" = "mlx" ]; then
+            uv sync --locked --extra dev --extra mlx
+          else
+            uv sync --locked --extra dev --extra rag
+          fi
 
       - name: Run Tests (exclude slow/benchmark)
         run: |
-          python -m pytest tests/ \
+          uv run --no-sync pytest tests/ \
             -v --tb=short \
             -m 'not slow and not benchmark' \
             --junit-xml=test-results.xml \
@@ -149,7 +167,7 @@ jobs:
 
       - name: Agent, Search Golden, and Citation Contract
         run: |
-          python -m pytest \
+          uv run --no-sync pytest \
             tests/test_web_search_quality.py \
             tests/test_task_benchmark.py \
             tests/test_long_horizon_benchmark.py \
@@ -159,7 +177,7 @@ jobs:
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.os }}
+          name: test-results-${{ matrix.os }}-${{ matrix.deps }}
           path: test-results.xml
           retention-days: 30
           if-no-files-found: warn
@@ -168,7 +186,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-xml-${{ matrix.os }}
+          name: coverage-xml-${{ matrix.os }}-${{ matrix.deps }}
           path: coverage.xml
           retention-days: 30
           if-no-files-found: warn
@@ -196,6 +214,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
 
+      - name: Generate release SBOMs and notices
+        run: |
+          python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
+          python -m antigravity_k.engine.release_sbom generate \
+            --project-root . \
+            --release-root src/antigravity_k/release
+
       - name: Build wheel + sdist
         run: |
           python -m build
@@ -205,6 +230,19 @@ jobs:
           pip install dist/*.whl
           python -c "from antigravity_k import __version__; print(f'Package version: {__version__}')" 2>/dev/null || \
           python -c "import antigravity_k; print('Package imported successfully')"
+
+      - name: Verify built distribution metadata
+        run: |
+          python -m antigravity_k.engine.release_metadata \
+            --distribution-root dist \
+            --git-ref "$GITHUB_REF"
+
+      - name: Verify release SBOMs and notices
+        run: |
+          python -m antigravity_k.engine.release_sbom verify \
+            --distribution-root dist \
+            --release-root src/antigravity_k/release \
+            --output dist/release-supply-chain.json
 
       - name: Install provenance verifier
         run: python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
@@ -245,6 +283,7 @@ jobs:
           path: |
             dist/
             .artifacts/python-dist.json
+            dist/release-supply-chain.json
           retention-days: 7
           if-no-files-found: warn
 
@@ -510,6 +549,10 @@ jobs:
 
       - name: Start Backend Server
         run: |
+          E2E_STATE="$(mktemp -d)"
+          printf '%s' "e2e-secret-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > "$E2E_STATE/token_secret"
+          AGK_SEC_TOKEN_SECRET_FILE="$E2E_STATE/token_secret" \
+          AGK_SEC_PIN_HASH_FILE="$E2E_STATE/auth_hash" \
           PYTHONPATH=src python -m uvicorn antigravity_k.api.server:app \
             --host 127.0.0.1 --port 8000 &
           SERVER_PID=$!
@@ -528,24 +571,25 @@ jobs:
 
       - name: Run Python E2E Smoke Tests
         run: |
+          set -o pipefail
           python -m pytest tests/test_e2e_smoke.py -v --tb=short 2>&1 | tee e2e-smoke-results.txt
 
       - name: Run Accessibility E2E Tests (Playwright)
-        # Accessibility is the hard gate — all 12 tests must pass.
         env:
           PLAYWRIGHT_OUTPUT_DIR: a11y-test-results
         run: |
+          set -o pipefail
           pnpm --dir dashboard exec playwright test \
             e2e/tests/accessibility.spec.ts \
             --project=chromium --reporter=list 2>&1 | tee e2e-a11y-results.txt
 
       - name: Run Full Playwright E2E Suite
-        # Full suite is informational (continue-on-error) — accessibility is the hard gate.
-        continue-on-error: true
+        # Full suite is a hard gate. Shell pipelines must preserve Playwright's nonzero exit.
+        run: |
+          set -o pipefail
+          pnpm --dir dashboard exec playwright test --project=chromium --reporter=list 2>&1 | tee e2e-full-results.txt
         env:
           PLAYWRIGHT_OUTPUT_DIR: test-results-full
-        run: |
-          pnpm --dir dashboard exec playwright test --project=chromium --reporter=list 2>&1 | tee e2e-full-results.txt
 
       - name: Upload E2E Smoke Test Results
         if: always()
@@ -615,18 +659,33 @@ jobs:
           cache: "pip"
           cache-dependency-path: pyproject.toml
 
-      - name: Generate SBOM (CycloneDX)
+      - name: Generate release SBOMs and notices
         run: |
-          python -m pip install --upgrade pip cyclonedx-bom
-          # Generate a CycloneDX SBOM from the dependency manifest.
-          cyclonedx-py environment -o sbom.cdx.json --schema-version 1.5
+          python -m pip install --upgrade pip "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
+          python -m antigravity_k.engine.release_sbom generate \
+            --project-root . \
+            --release-root src/antigravity_k/release
+
+      - name: Build SBOM distribution
+        run: python -m pip install --upgrade build && python -m build
+
+      - name: Verify release SBOM distribution
+        run: |
+          python -m antigravity_k.engine.release_sbom verify \
+            --distribution-root dist \
+            --release-root src/antigravity_k/release \
+            --output release-supply-chain.json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
-          path: sbom.cdx.json
+          path: |
+            src/antigravity_k/release/python.cdx.json
+            src/antigravity_k/release/dashboard.cdx.json
+            release-supply-chain.json
           retention-days: 90
+          if-no-files-found: error
 
   clean-machine:
     name: "Clean-machine reproduction (${{ matrix.os }})"
@@ -669,8 +728,7 @@ jobs:
       - name: Download Coverage XML
         uses: actions/download-artifact@v4
         with:
-          # After adding the OS matrix, the artifact name includes the OS.
-          name: coverage-xml-ubuntu-latest
+          name: coverage-xml-ubuntu-latest-rag
           path: ./
           run-id: ${{ github.event.workflow_run.id || github.run_id }}
 

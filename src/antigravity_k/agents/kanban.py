@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 from datetime import datetime
@@ -18,10 +19,22 @@ class KanbanBoard:
 
     def __init__(self, db_path: str | None = None) -> None:
         if db_path is None:
-            # 기본 DB 경로는 src/antigravity_k/data/kanban.db
-            base_dir = Path(__file__).resolve().parent.parent / "data"
-            base_dir.mkdir(parents=True, exist_ok=True)
-            db_path = str(base_dir / "kanban.db")
+            configured_path = os.environ.get("AGK_KANBAN_DB_PATH", "").strip()
+            if configured_path:
+                db_path = configured_path
+            else:
+                try:
+                    from antigravity_k.config import config
+
+                    base_dir = config.paths.data_dir
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                    test_file = base_dir / f".agk_write_test_{os.getpid()}"
+                    test_file.touch()
+                    test_file.unlink()
+                except OSError:
+                    base_dir = Path.home() / ".antigravity-k" / "data"
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                db_path = str(base_dir / "kanban.db")
 
         self.db_path: str = db_path
         self._lock: threading.Lock = threading.Lock()

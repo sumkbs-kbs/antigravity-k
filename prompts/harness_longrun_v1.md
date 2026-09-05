@@ -1,5 +1,5 @@
 # ============================================================================
-# Antigravity-K — AVO-Style Long-Run Harness Prompt (v1)
+# Ssak-Ai — AVO-Style Long-Run Harness Prompt (v1)
 # 대상 모델: qwen3.8:27b (로컬) — 프론티어급 하네스 성능 보강용
 # 근거: NVIDIA AVO (ARC-AGI-3 완주 / 7일 무인 커널 최적화)
 #       "성능의 본체는 모델이 아니라 하네스다"

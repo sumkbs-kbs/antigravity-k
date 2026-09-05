@@ -7,7 +7,7 @@ tags: [tdd, dom, browser, automation, harness, qa]
 # Browser-TDD (DOM-based Test-Driven Generation)
 
 **Description:**
-This skill enables the Antigravity-K agent to autonomously create a web program, open it in a headless browser, interact with the DOM elements, verify functionality, and iteratively fix the code up to 3 times until the program works perfectly.
+This skill enables the Ssak-Ai agent to autonomously create a web program, open it in a headless browser, interact with the DOM elements, verify functionality, and iteratively fix the code up to 3 times until the program works perfectly.
 
 **When to use:**
 - When the user asks to "build and test a web UI" or "use DOM to test the program".

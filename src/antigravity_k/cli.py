@@ -1,4 +1,4 @@
-"""Antigravity-K command-line interface (Typer-based)."""
+"""Ssak-Ai command-line interface (Typer-based)."""
 
 from __future__ import annotations
 
@@ -29,13 +29,15 @@ from antigravity_k.engine.skill_market_registry import (
     SkillMarketRegistry,
 )
 
-app = typer.Typer(help="Antigravity-K command line interface", no_args_is_help=True)
+app = typer.Typer(help="Ssak-Ai command line interface", no_args_is_help=True)
 key_app = typer.Typer(help="Manage encrypted API keys in vault")
 memory_app = typer.Typer(help="Manage project-scoped memory configuration")
 task_app = typer.Typer(help="Inspect and resume durable agent tasks")
 app.add_typer(key_app, name="key", help="Manage API keys")
 app.add_typer(memory_app, name="memory", help="Manage project memory")
 app.add_typer(task_app, name="task", help="Manage durable agent tasks")
+error_app = typer.Typer(help="Inspect runtime error journal and AI agent fix prompts")
+app.add_typer(error_app, name="error", help="Inspect runtime errors for agentic AI")
 console = Console()
 
 
@@ -45,7 +47,7 @@ def main(
         bool,
         typer.Option(
             "--version",
-            help="Print the Antigravity-K version and exit.",
+            help="Print the Ssak-Ai version and exit.",
         ),
     ] = False,
 ) -> None:
@@ -56,7 +58,7 @@ def main(
 
     """
     if version:
-        console.print(f"antigravity-k {__version__}")
+        console.print(f"ssak-ai {__version__}")
         raise typer.Exit()
 
 
@@ -65,24 +67,117 @@ def serve(
     host: Annotated[str | None, typer.Option("--host", help="Host to bind.")] = None,
     port: Annotated[int | None, typer.Option("--port", help="Port to bind.")] = None,
     reload: Annotated[bool, typer.Option("--reload", help="Enable uvicorn reload.")] = False,
+    seed_budget: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-budget",
+            help="Seed budget spend for disclosure testing: dollar amount (15.0), percent (30%), or preset (healthy/warning/exhausted).",
+        ),
+    ] = None,
+    seed_level: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-level",
+            help="Shortcut preset level for disclosure testing: healthy (30%), warning (88%), or exhausted (100%).",
+        ),
+    ] = None,
+    seed_actions: Annotated[
+        int | None,
+        typer.Option(
+            "--seed-actions",
+            help="Optional override for hourly action count in disclosure testing.",
+        ),
+    ] = None,
 ) -> None:
-    """Run the FastAPI server."""
+    """Run the FastAPI server with optional session limits seeding."""
     import uvicorn
 
     from antigravity_k.api.startup_security import validate_startup_security
 
     bind_host = host or config.server.host
+    target_port = port or config.server.port
+
     validate_startup_security(
         host=bind_host,
         environment=os.environ.get("AGK_ENV", "development"),
         access_pin=config.security.access_pin,
         pin_hash_file=Path(config.security.pin_hash_file),
     )
+
+    if seed_budget or seed_level or seed_actions is not None:
+        if seed_budget:
+            os.environ["AGK_SEED_BUDGET"] = str(seed_budget)
+        if seed_level:
+            os.environ["AGK_SEED_LEVEL"] = str(seed_level)
+        if seed_actions is not None:
+            os.environ["AGK_SEED_ACTIONS"] = str(seed_actions)
+
+        # 사전 진단/배너 출력용 미리보기
+        from antigravity_k.engine.cost_guard import CostGuard
+        from antigravity_k.engine.session_disclosure import seed_cost_guard
+
+        preview_guard = CostGuard(
+            daily_budget_usd=float(os.getenv("AGK_DAILY_BUDGET_USD", "50.0") or 0.0),
+            hourly_action_limit=int(os.getenv("AGK_HOURLY_ACTION_LIMIT", "100") or 0),
+            enabled=True,
+        )
+        spend, acts, lvl = seed_cost_guard(
+            preview_guard,
+            seed_budget=seed_budget,
+            seed_level=seed_level,
+            seed_actions=seed_actions,
+        )
+        level_style = {"healthy": "green", "warning": "yellow", "exhausted": "red"}.get(lvl, "cyan")
+        console.print(
+            f"[bold cyan]🌱 Disclosure Seeding Active:[/bold cyan] "
+            f"Spend=[yellow]${spend:.2f}/{preview_guard.daily_budget_usd:.2f}[/yellow] "
+            f"Actions=[yellow]{acts}/{preview_guard.hourly_action_limit}[/yellow] "
+            f"Level=[bold {level_style}]{lvl}[/bold {level_style}]"
+        )
+
     uvicorn.run(
         "antigravity_k.api.server:app",
         host=bind_host,
-        port=port or config.server.port,
+        port=target_port,
         reload=reload,
+    )
+
+
+@app.command("dev", help="Run local development server with auto-reload and optional seed limits.")
+def dev(
+    host: Annotated[str | None, typer.Option("--host", help="Host to bind.")] = None,
+    port: Annotated[int | None, typer.Option("--port", help="Port to bind.")] = None,
+    reload: Annotated[bool, typer.Option("--reload", help="Enable uvicorn reload.")] = True,
+    seed_budget: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-budget",
+            help="Seed budget spend for disclosure testing: dollar amount (15.0), percent (30%), or preset (healthy/warning/exhausted).",
+        ),
+    ] = None,
+    seed_level: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-level",
+            help="Shortcut preset level for disclosure testing: healthy (30%), warning (88%), or exhausted (100%).",
+        ),
+    ] = None,
+    seed_actions: Annotated[
+        int | None,
+        typer.Option(
+            "--seed-actions",
+            help="Optional override for hourly action count in disclosure testing.",
+        ),
+    ] = None,
+) -> None:
+    """Run server in development mode (reload defaults to True)."""
+    serve(
+        host=host,
+        port=port,
+        reload=reload,
+        seed_budget=seed_budget,
+        seed_level=seed_level,
+        seed_actions=seed_actions,
     )
 
 
@@ -158,6 +253,240 @@ def run_agent(
     for chunk in tracked_stream.chunks:
         console.print(chunk, end="")
     console.print()
+
+
+@app.command("recipes", help="List training data-recipe presets (unsloth Data Recipes style).")
+def recipes_list() -> None:
+    """데이터 레시피 카탈로그 출력."""
+    from antigravity_k.engine.data_recipes import list_recipes
+
+    table = Table(title="Data Recipes")
+    table.add_column("Name")
+    table.add_column("Format")
+    table.add_column("Min")
+    table.add_column("Description")
+    for recipe in list_recipes():
+        table.add_row(
+            str(recipe["name"]),
+            str(recipe["format"]),
+            str(recipe["min_records"]),
+            str(recipe["description"]),
+        )
+    console.print(table)
+
+
+@app.command("train-recipe", help="Apply a data recipe: source → dataset → training config.")
+def train_recipe(
+    recipe: Annotated[str, typer.Argument(help="Recipe name (see: agk recipes)")],
+    base_model: Annotated[
+        str, typer.Option("--model", help="Base model (HF ID or local path)")
+    ] = "mlx-community/Qwen2.5-Coder-32B-Instruct-4bit",
+    source: Annotated[str, typer.Option("--source", help="File path(s) csv/jsonl/txt/md, or 'harvest'")] = "",
+    output_dir: Annotated[str, typer.Option("--out", help="Output directory")] = "data/recipe_output",
+    platform: Annotated[str, typer.Option("--platform", help="mlx / unsloth / auto")] = "auto",
+    pdf_pages: Annotated[
+        str, typer.Option("--pdf-pages", help="PDF only: page ranges, e.g. '1-5,8' (default: all)")
+    ] = "",
+    pdf_header_filter: Annotated[
+        str, typer.Option("--pdf-header-filter", help="PDF only: header regex ('!' prefix excludes non-matching pages)")
+    ] = "",
+    pdf_question_template: Annotated[
+        str,
+        typer.Option(
+            "--pdf-question-template",
+            help="PDF/DOCX only: force question from template with {page} {title} {header} {body} placeholders",
+        ),
+    ] = "",
+) -> None:
+    """레시피를 적용해 데이터셋과 학습 설정을 생성한다."""
+    import json as _json
+
+    from antigravity_k.engine.data_recipes import UnknownRecipeError
+    from antigravity_k.engine.lora_pipeline import LoRAPipeline
+
+    pipeline = LoRAPipeline()
+    try:
+        result = pipeline.apply_recipe(
+            recipe,
+            base_model=base_model,
+            output_dir=output_dir,
+            source=source,
+            platform=platform,
+            pdf_pages=pdf_pages,
+            pdf_header_filter=pdf_header_filter,
+            pdf_question_template=pdf_question_template,
+        )
+    except (UnknownRecipeError, FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]✗ {exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    warn = "" if result["sufficient"] else " ⚠️ 최소 레코드 미달"
+    console.print(
+        f"[green]✓ {result['recipe']}[/green] — {result['records']}건{warn}\n"
+        f"  데이터셋: {result['dataset_path']}\n"
+        f"  설정: {result['config_path']}",
+    )
+    hyper = result["config"].get("hyperparameters")
+    if isinstance(hyper, dict) and hyper:
+        console.print(f"  하이퍼파라미터: {_json.dumps(hyper, ensure_ascii=False, sort_keys=True)}")
+
+
+@app.command("fuse-and-serve", help="Fuse LoRA adapter with base model and register into Ollama.")
+def fuse_and_serve(
+    base_model: Annotated[
+        str, typer.Option("--model", "-m", help="Base model (HF ID or local snapshot path)")
+    ] = "mlx-community/Qwen2.5-0.5B-4bit",
+    adapter_path: Annotated[
+        str, typer.Option("--adapter", "-a", help="Trained LoRA adapter directory")
+    ] = "data/lora_e2e_out/adapters",
+    output_dir: Annotated[
+        str, typer.Option("--out", "-o", help="Output directory for merged model")
+    ] = "data/lora_e2e_out/merged",
+    ollama_name: Annotated[
+        str, typer.Option("--ollama-name", help="Target Ollama model tag")
+    ] = "ssak-finetuned:qwen2.5-0.5b",
+    de_quantize: Annotated[
+        bool, typer.Option("--de-quantize", help="De-quantize weights to float16 during fuse")
+    ] = False,
+    skip_fuse: Annotated[
+        bool, typer.Option("--skip-fuse", help="Skip fuse step if merged model/GGUF already exists")
+    ] = False,
+    gguf_path: Annotated[str, typer.Option("--gguf", help="Path to pre-converted GGUF file if available")] = "",
+    system_prompt: Annotated[str, typer.Option("--system-prompt", help="System prompt to embed into Modelfile")] = "",
+) -> None:
+    """LoRA 어댑터를 베이스 모델과 병합하고 Ollama에 등록하여 서빙을 준비합니다."""
+    from antigravity_k.engine.lora_pipeline import LoRAPipeline
+
+    console.print("[bold cyan]⚡ Ssak-Ai Train-to-Serve Fuse & Ollama Registration[/bold cyan]")
+    console.print(f"  Base Model: [yellow]{base_model}[/yellow]")
+    console.print(f"  Adapter:    [yellow]{adapter_path}[/yellow]")
+    console.print(f"  Output Dir: [yellow]{output_dir}[/yellow]")
+    console.print(f"  Ollama Tag: [green]{ollama_name}[/green]")
+
+    pipeline = LoRAPipeline()
+    result = pipeline.fuse_and_register_ollama(
+        base_model=base_model,
+        adapter_path=adapter_path,
+        output_dir=output_dir,
+        ollama_model_name=ollama_name,
+        de_quantize=de_quantize,
+        skip_fuse=skip_fuse,
+        gguf_path=gguf_path if gguf_path else None,
+        system_prompt=system_prompt,
+        on_log=lambda line: console.print(f"  [dim]{line}[/dim]"),
+    )
+
+    if not result.get("success"):
+        stage = result.get("stage", "unknown")
+        err = result.get("error", "Unknown error")
+        console.print(f"\n[red]✗ Train-to-Serve failed at stage '{stage}': {err}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print("\n[bold green]✓ Train-to-Serve Complete![/bold green]")
+    console.print(f"  Merged Model: {result.get('merged_path')}")
+    console.print(f"  Modelfile:    {result.get('modelfile_path')}")
+    console.print(f"  Ollama Model: [bold green]{result.get('ollama_model_name')}[/bold green]")
+    console.print(f"  Elapsed Time: {result.get('elapsed_sec', 0.0):.2f}s")
+    console.print(f"\n[dim]Verify inference with:[/dim] [yellow]ollama run {ollama_name}[/yellow]")
+
+
+@app.command("session", help="Show session limits and data-use disclosure before you start.")
+def session_disclosure(
+    seed_budget: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-budget",
+            help="Seed budget amount ($15.0), percent (30%), or preset (healthy/warning/exhausted).",
+        ),
+    ] = None,
+    seed_level: Annotated[
+        str | None,
+        typer.Option(
+            "--seed-level",
+            help="Shortcut preset: healthy (30%), warning (88%), or exhausted (100%).",
+        ),
+    ] = None,
+    seed_actions: Annotated[
+        int | None,
+        typer.Option(
+            "--seed-actions",
+            help="Optional override for hourly action count.",
+        ),
+    ] = None,
+) -> None:
+    """세션 한도·데이터 사용 고지 (벤치마킹: freebuff 사전 고지 UX)."""
+    import os
+
+    from rich.panel import Panel
+
+    from antigravity_k.engine.cost_guard import CostGuard
+    from antigravity_k.engine.session_disclosure import build_session_disclosure, seed_cost_guard
+
+    daily_budget = float(os.getenv("AGK_DAILY_BUDGET_USD", "50.0") or 0.0)
+    hourly_limit = int(os.getenv("AGK_HOURLY_ACTION_LIMIT", "100") or 0)
+    guard = CostGuard(daily_budget_usd=daily_budget, hourly_action_limit=hourly_limit, enabled=True)
+
+    if seed_budget or seed_level or seed_actions is not None:
+        seed_cost_guard(
+            guard,
+            seed_budget=seed_budget,
+            seed_level=seed_level,
+            seed_actions=seed_actions,
+        )
+
+    disclosure = build_session_disclosure(guard.get_daily_stats())
+
+    border = {"healthy": "green", "warning": "yellow", "exhausted": "red"}.get(disclosure.level, "cyan")
+    console.print(Panel.fit(disclosure.to_markdown(), title="Session Limits", border_style=border))
+
+
+@app.command("start", help="Connect an external coding agent (claude/codex/...) to local models.")
+def start_agent_bridge(
+    agent: Annotated[str, typer.Argument(help="Agent to bridge: claude, codex, opencode, openclaw, hermes")],
+    model: Annotated[
+        str, typer.Option("--model", help="Model to expose to the agent. Defaults to routing default.")
+    ] = "",
+    api_base: Annotated[str, typer.Option("--api-base", help="Ssak-Ai API base URL. Defaults to config server.")] = "",
+) -> None:
+    """원커맨드 에이전트 브리지 (벤치마킹: unsloth start)."""
+    from antigravity_k.engine.agent_bridges import UnknownAgentError, format_bridge_plan, resolve_bridge
+
+    resolved_base = api_base or f"http://{config.server.host}:{config.server.port}"
+    default_model = ""
+    context_window = 0
+    try:
+        registry = ModelRegistry()
+        default_model = getattr(config.model, "main_model", "") or ""
+        if not default_model:
+            models = registry.list_models()
+            default_model = models[0].name if models else ""
+        # Phase 36: Claude Code CLAUDE_CODE_MAX_CONTEXT_TOKENS용 실제 윈도 조회.
+        # 레지스트리 이름은 태그 없는 경우가 많아(qwen3.8) ollama 태그(qwen3.8:latest)를
+        # 정규화해 대조한다.
+        effective_model = (model or default_model).strip()
+        if effective_model:
+            requested = effective_model.split(":", 1)[0].strip().casefold()
+            for entry in registry.list_models():
+                entry_name = str(getattr(entry, "name", ""))
+                if entry_name.split(":", 1)[0].strip().casefold() == requested:
+                    context_window = int(getattr(entry, "context_length", 0) or 0)
+                    break
+    except Exception:  # noqa: BLE001
+        default_model = ""
+
+    try:
+        spec, env = resolve_bridge(
+            agent,
+            model=model,
+            api_base=resolved_base,
+            default_model=default_model,
+            context_window=context_window,
+        )
+    except UnknownAgentError as exc:
+        console.print(f"[red]✗ {exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    console.print(format_bridge_plan(spec, env))
 
 
 @task_app.command("list", help="List recent durable agent tasks.")
@@ -550,7 +879,7 @@ def doctor(
     )
 
     # ── Output ──
-    table = Table(title="🩺 Antigravity-K Doctor", show_header=True, header_style="bold cyan")
+    table = Table(title="🩺 Ssak-Ai Doctor", show_header=True, header_style="bold cyan")
     table.add_column("Check", style="bold")
     table.add_column("Status", justify="center")
     table.add_column("Detail", style="dim", overflow="fold")
@@ -784,11 +1113,42 @@ model_app = typer.Typer(help="Manage models: list, set defaults")
 app.add_typer(model_app, name="model", help="Manage models and set defaults")
 
 
+def _quant_cell(quantization: str) -> str:
+    """양자화 토큰 + 등급 한 글자(색상) rich 셀 — 대시보드 Model Hub 배지와 동일 체계."""
+    from antigravity_k.engine.quant_quality import quant_quality
+
+    info = quant_quality(quantization)
+    if info.level == "unknown":
+        return "[dim]—[/dim]"
+    color = {"premium": "green", "high": "cyan", "balanced": "magenta", "compact": "dark_orange"}[info.level]
+    return f"{quantization} [{color}]{info.grade}[/{color}]"
+
+
 @model_app.command("list")
-def model_list() -> None:
-    """List all available models with role grouping and default markers."""
+def model_list(
+    min_quality: Annotated[
+        str,
+        typer.Option(
+            "--min-quality",
+            "-q",
+            help="이 품질 등급 이상 모델만 표시 (compact < balanced < high < premium). "
+            "대시보드 Model Hub의 품질 pill과 동일한 LEVEL_ORDER 랭킹 (Phase 45).",
+            show_default=False,
+        ),
+    ] = "",
+) -> None:
+    """List all available models with role grouping, quant quality grades, and defaults."""
     from rich.panel import Panel
     from rich.table import Table
+
+    from antigravity_k.engine.quant_quality import LEVEL_ORDER, quant_quality
+
+    min_level = (min_quality or "").strip().lower()
+    if min_level and min_level not in LEVEL_ORDER:
+        valid = " < ".join(k for k in LEVEL_ORDER if k != "unknown")
+        console.print(f"[red]❌ 알 수 없는 품질 등급 '{min_quality}'. 사용 가능: {valid}, unknown[/red]")
+        raise typer.Exit(code=2)
+    min_rank = LEVEL_ORDER.get(min_level, 0) if min_level else 0
 
     registry = ModelRegistry()
     _ = registry.refresh_local_models()
@@ -802,10 +1162,17 @@ def model_list() -> None:
         "vision": "👁️ Vision",
     }
 
+    total_shown = 0
     for role in roles:
         models = registry.find_by_role(role)
+        if min_level:
+            # LEVEL_ORDER 랭킹 필터 — unknown(0)은 어떤 하한보다도 낮아 자동 제외.
+            # 대시보드와 달리 CLI는 실행 중 모델 면제가 없다: 출력이 정적 스냅샷이라
+            # 사용자가 명시적으로 품질 하한을 요청하면 그 기준을 유지한다.
+            models = [m for m in models if LEVEL_ORDER[quant_quality(m.quantization).level] >= min_rank]
         if not models:
             continue
+        total_shown += len(models)
 
         default_name = cast(str | None, getattr(defaults, role, None))
         label = role_labels.get(role, role)
@@ -813,20 +1180,32 @@ def model_list() -> None:
         table = Table(title=f"{label} Models ({len(models)}개)", box=None, show_header=False)
         table.add_column("", style="dim", width=3)
         table.add_column("Name", style="cyan")
+        table.add_column("Quant", width=16)
         table.add_column("Description", style="dim")
 
         for m in models:
             is_default = m.name == default_name
             marker = "⭐" if is_default else ""
             desc = m.description or ""
-            table.add_row(marker, m.name, desc)
+            table.add_row(marker, m.name, _quant_cell(m.quantization), desc)
 
         console.print(table)
         console.print()
 
+    if min_level and total_shown == 0:
+        console.print(
+            f"[yellow]⚠️ 품질 '{min_level}' 이상 모델이 없습니다. 'agk model list'로 전체를 확인하세요.[/yellow]"
+        )
+        return
+
     console.print(
         Panel.fit(
-            "[dim]⭐ = 현재 기본 모델\n사용법: [bold]agk model set <모델명>[/bold] — 기본 모델 변경",
+            "[dim]⭐ = 현재 기본 모델\n"
+            "품질 등급 (unsloth Dynamic 가이드): "
+            "[green]P[/green]=프리미엄 [cyan]H[/cyan]=높음 [magenta]B[/magenta]=균형 [dark_orange]C[/dark_orange]=컴팩트 — 대시보드 Model Hub 배지와 동일\n"
+            + (f"필터: '{min_level}' 이상 표시 중 ({total_shown}개)\n" if min_level else "")
+            + "사용법: [bold]agk model list --min-quality balanced[/bold] — 품질 필터\n"
+            "사용법: [bold]agk model set <모델명>[/bold] — 기본 모델 변경",
             border_style="dim",
         )
     )
@@ -1220,7 +1599,7 @@ def market(
     ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Validate without publishing")] = False,
 ) -> None:
-    """Manage skills from the Antigravity-K Marketplace.
+    """Manage skills from the Ssak-Ai Marketplace.
 
     Search, install, remove, list, update, and publish skills.
 
@@ -1379,6 +1758,98 @@ def fast(
         console.print(res.response)
     else:
         console.print(f"[yellow]⚡ Query '{query}' requires full LLM generation loop.[/yellow]")
+
+
+# ─── Error Journal Commands ───────────────────────────────────────────────
+
+
+@error_app.command("list")
+def list_errors(
+    limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum number of errors to list.")] = 20,
+    component: Annotated[str | None, typer.Option("--component", "-c", help="Filter by component.")] = None,
+) -> None:
+    """List recent runtime errors captured in the Agent Error Journal."""
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    errors = journal.list_errors(limit=limit, component=component)
+
+    if not errors:
+        console.print("[green]✓ No runtime errors recorded in journal.[/green]")
+        return
+
+    table = Table(title=f"Runtime Errors ({len(errors)} records)")
+    table.add_column("Error ID", style="bold cyan", no_wrap=True)
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Component", style="magenta")
+    table.add_column("Error Type", style="red")
+    table.add_column("Location")
+    table.add_column("Message")
+
+    for err in errors:
+        loc = f"{Path(err.failing_file).name}:{err.failing_line}" if err.failing_file else "N/A"
+        msg = err.message.splitlines()[0][:60] if err.message else ""
+        table.add_row(err.error_id, err.timestamp[:19], err.component, err.error_type, loc, msg)
+
+    console.print(table)
+
+
+@error_app.command("inspect")
+def inspect_error(
+    error_id: Annotated[str, typer.Argument(help="ID of the error to inspect (e.g. ERR-20260903-...)")],
+) -> None:
+    """Inspect detailed diagnostics and code context of a runtime error."""
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    err = journal.get_error(error_id)
+
+    if not err:
+        console.print(f"[red]Error ID '{error_id}' not found in journal.[/red]")
+        raise typer.Exit(code=1)
+
+    summary = (
+        f"[bold red]Error Type:[/bold red] {err.error_type}\n"
+        f"[bold]Message:[/bold] {err.message}\n"
+        f"[bold]Component:[/bold] {err.component}\n"
+        f"[bold]Timestamp:[/bold] {err.timestamp}\n"
+        f"[bold]Correlation ID:[/bold] {err.correlation_id or 'N/A'}\n"
+        f"[bold]Failure Point:[/bold] {err.failing_file}:{err.failing_line} ({err.failing_function})"
+    )
+    console.print(Panel(summary, title=f"🚨 Incident Diagnostic: {err.error_id}", expand=False))
+
+    if err.code_context:
+        console.print("\n[bold cyan]💻 Source Code Context:[/bold cyan]")
+        syntax = Syntax(err.code_context, "python", theme="monokai", line_numbers=False)
+        console.print(syntax)
+
+    console.print("\n[bold cyan]📜 Stack Trace:[/bold cyan]")
+    console.print(Panel(err.stack_trace.strip(), border_style="dim"))
+
+    console.print(
+        f"\n[dim]Markdown card saved at: logs/agent_diagnostics/{err.error_id}.md[/dim]\n"
+        f"[dim]Run 'agk error prompt {err.error_id}' to output full AI agent fix prompt.[/dim]"
+    )
+
+
+@error_app.command("prompt")
+def prompt_error(
+    error_id: Annotated[str, typer.Argument(help="ID of the error to generate fix prompt for.")],
+) -> None:
+    """Output the ready-to-run AI agent fix prompt for autonomous remediation."""
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    err = journal.get_error(error_id)
+
+    if not err:
+        console.print(f"[red]Error ID '{error_id}' not found in journal.[/red]")
+        raise typer.Exit(code=1)
+
+    print(err.ai_fix_prompt)
 
 
 if __name__ == "__main__":

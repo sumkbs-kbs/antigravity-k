@@ -11,10 +11,19 @@ class PathSecurityError(ValueError):
 
 
 def allowed_roots() -> tuple[Path, ...]:
-    """Return the configured project root plus explicitly allowlisted roots."""
+    """Return the configured project root plus explicitly allowlisted roots and registered projects."""
     from antigravity_k.config import config
 
     roots = [config.paths.project_root.expanduser().resolve()]
+    try:
+        from antigravity_k.engine.project_registry import get_project_registry
+
+        registry = get_project_registry()
+        for p in registry.list_projects():
+            if p.get("path"):
+                roots.append(Path(p["path"]).expanduser().resolve())
+    except Exception:
+        pass
     configured = os.environ.get("AGK_ALLOWED_ROOTS", "")
     roots.extend(Path(item).expanduser().resolve() for item in configured.split(os.pathsep) if item.strip())
     return tuple(dict.fromkeys(roots))

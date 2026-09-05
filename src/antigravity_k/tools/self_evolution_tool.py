@@ -68,7 +68,7 @@ class SelfEvolutionTool(BaseTool):
     """SelfEvolutionTool: 자체 진화 도구.
 
     =================================
-    Antigravity-K가 자기 자신의 코드베이스를 분석하고 개선하는 메타-도구입니다.
+    Ssak-Ai가 자기 자신의 코드베이스를 분석하고 개선하는 메타-도구입니다.
 
     워크플로우:
       1. 진화 목표 분석 (LLM)
@@ -91,7 +91,7 @@ class SelfEvolutionTool(BaseTool):
         self.tags: list[str] = ["evolve", "meta", "self_healing", "refactor"]
         self._name: str = "trigger_self_evolution"
         self._description: str = (
-            "Triggers the Self-Evolution Engine to analyze and improve the Antigravity-K codebase. "
+            "Triggers the Self-Evolution Engine to analyze and improve the Ssak-Ai codebase. "
             "Use when the user asks to 'evolve', 'upgrade yourself', 'refactor your core engine', "
             "or 'create a new tool/skill'. Supports two modes:\n"
             "  - mode='evolve': Improve existing code\n"
@@ -431,7 +431,7 @@ class SelfEvolutionTool(BaseTool):
             files_text += f"\n--- {fname} ---\n{content}\n"
 
         prompt = (
-            "You are an expert Python developer evolving the Antigravity-K AI framework.\n\n"
+            "You are an expert Python developer evolving the Ssak-Ai AI framework.\n\n"
             f"Evolution Goal: {goal}\n\n"
             f"Current Code:\n{files_text}\n"
         )
@@ -462,7 +462,9 @@ class SelfEvolutionTool(BaseTool):
                             )
                             text = generated if isinstance(generated, str) else None
                     except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
-                        logger.warning("Managed self-evolution generation failed; using configured API fallback", exc_info=True)
+                        logger.warning(
+                            "Managed self-evolution generation failed; using configured API fallback", exc_info=True
+                        )
             if not isinstance(text, str):
                 data = {
                     "model": config.model.code_model,

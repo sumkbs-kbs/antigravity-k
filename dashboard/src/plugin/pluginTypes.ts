@@ -1,7 +1,7 @@
 /**
  * Plugin System Types (TypeScript)
  * =================================
- * Core type definitions for the Antigravity-K plugin architecture.
+ * Core type definitions for the Ssak-Ai plugin architecture.
  * Supports custom panels, hooks, commands, sidebar items, and toolbar widgets.
  */
 

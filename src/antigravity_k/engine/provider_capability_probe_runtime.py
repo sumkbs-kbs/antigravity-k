@@ -76,14 +76,12 @@ class ProviderProbeRuntime(ProviderProbeUtilities):
             api_key = os.environ.get("OLLAMA_API_KEY", "") or "ollama"
         return str(base_url).rstrip("/"), api_key
 
-
     @staticmethod
     def _request_json(request: urllib.request.Request) -> dict[str, JsonValue]:
         opener = _urlopen_provider or _safe_urlopen
         with opener(request, timeout=2) as response:
             payload = RESPONSE_ADAPTER.validate_json(response.read())
         return payload
-
 
     @staticmethod
     def _capability(
@@ -120,6 +118,7 @@ class ProviderProbeRuntime(ProviderProbeUtilities):
             source,
             f"{type(exc).__name__}: {exc}",
         )
+
     def _probe_unsloth(self, profile: ModelProfile) -> ProviderCapability:
         model_path = Path(profile.repo)
         has_adapter = (model_path / "adapter_config.json").is_file()
@@ -137,7 +136,7 @@ class ProviderProbeRuntime(ProviderProbeUtilities):
 
         provider_config = self._registry.get_provider_config(profile.backend)
         try:
-            api_base, api_key = resolve_unsloth_settings(profile, provider_config)
+            api_base, api_key = resolve_unsloth_settings(profile, provider_config, allow_default_endpoint=False)
         except UnslothEndpointError as exc:
             return self._capability(
                 profile,
@@ -208,7 +207,7 @@ class ProviderProbeRuntime(ProviderProbeUtilities):
             "unsupported",
             "available",
             "unsloth:/v1/models",
-            "Unsloth process reachable; server-side tools are disabled by Antigravity-K policy.",
+            "Unsloth process reachable; server-side tools are disabled by Ssak-Ai policy.",
             capabilities,
             reported_model_count=len(models),
             reported_model_ids=loaded_ids[:5],

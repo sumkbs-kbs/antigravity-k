@@ -1,4 +1,4 @@
-"""Antigravity-K: Browser Surfing Agent.
+"""Ssak-Ai: Browser Surfing Agent.
 
 ======================================
 Vision-Language 기반 자율 웹 브라우징 에이전트.

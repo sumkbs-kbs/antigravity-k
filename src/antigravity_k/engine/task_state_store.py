@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -51,8 +52,17 @@ def _row_value(row: sqlite3.Row, key: str) -> object:
 @final
 class TaskStateStore:
     def __init__(self, db_path: str) -> None:
-        self.db_path: str = db_path
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        p = Path(db_path)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            test_file = p.parent / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            self.db_path = str(p)
+        except OSError:
+            fallback_dir = Path.home() / ".antigravity-k" / "data"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.db_path = str(fallback_dir / p.name)
         self.initialize()
 
     @contextmanager
@@ -87,14 +97,18 @@ class TaskStateStore:
                 + "PRIMARY KEY (idempotency_key, owner_subject))",
             )
             initialize_execution_event_schema(connection)
-            columns = {_row_value(row, "name") for row in _fetchall(connection.execute("PRAGMA table_info(task_history)"))}
+            columns = {
+                _row_value(row, "name") for row in _fetchall(connection.execute("PRAGMA table_info(task_history)"))
+            }
             if "updated_at" not in columns:
                 _ = connection.execute("ALTER TABLE task_history ADD COLUMN updated_at TEXT")
                 _ = connection.execute("UPDATE task_history SET updated_at = created_at WHERE updated_at IS NULL")
             if "owner_pid" not in columns:
                 _ = connection.execute("ALTER TABLE task_history ADD COLUMN owner_pid INTEGER")
             if "owner_subject" not in columns:
-                _ = connection.execute("ALTER TABLE task_history ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'")
+                _ = connection.execute(
+                    "ALTER TABLE task_history ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'"
+                )
             idempotency_info = _fetchall(connection.execute("PRAGMA table_info(task_idempotency)"))
             idempotency_columns = {_row_value(row, "name") for row in idempotency_info}
             if "owner_subject" not in idempotency_columns:
@@ -102,7 +116,9 @@ class TaskStateStore:
                     "ALTER TABLE task_idempotency ADD COLUMN owner_subject TEXT NOT NULL DEFAULT 'loopback'",
                 )
                 idempotency_info = _fetchall(connection.execute("PRAGMA table_info(task_idempotency)"))
-            if any(_row_value(row, "name") == "idempotency_key" and _row_value(row, "pk") == 1 for row in idempotency_info) and not any(
+            if any(
+                _row_value(row, "name") == "idempotency_key" and _row_value(row, "pk") == 1 for row in idempotency_info
+            ) and not any(
                 _row_value(row, "name") == "owner_subject" and _row_value(row, "pk") == 2 for row in idempotency_info
             ):
                 _ = connection.execute("ALTER TABLE task_idempotency RENAME TO task_idempotency_legacy")
@@ -134,10 +150,12 @@ class TaskStateStore:
         with self._connection() as connection:
             _ = connection.execute("BEGIN IMMEDIATE")
             if idempotency_key:
-                row = _fetchone(connection.execute(
-                    "SELECT task_id FROM task_idempotency WHERE idempotency_key = ? AND owner_subject = ?",
-                    (idempotency_key, normalized_owner),
-                ))
+                row = _fetchone(
+                    connection.execute(
+                        "SELECT task_id FROM task_idempotency WHERE idempotency_key = ? AND owner_subject = ?",
+                        (idempotency_key, normalized_owner),
+                    )
+                )
                 if row:
                     return str(_row_value(row, "task_id"))
 
@@ -157,17 +175,21 @@ class TaskStateStore:
     def get_task(self, task_id: str, owner_subject: str | None = None) -> TaskRecord | None:
         with self._connection() as connection:
             if owner_subject is None:
-                row = _fetchone(connection.execute(
-                    "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    + "FROM task_history WHERE task_id = ?",
-                    (task_id,),
-                ))
+                row = _fetchone(
+                    connection.execute(
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        + "FROM task_history WHERE task_id = ?",
+                        (task_id,),
+                    )
+                )
             else:
-                row = _fetchone(connection.execute(
-                    "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    + "FROM task_history WHERE task_id = ? AND owner_subject = ?",
-                    (task_id, owner_subject),
-                ))
+                row = _fetchone(
+                    connection.execute(
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        + "FROM task_history WHERE task_id = ? AND owner_subject = ?",
+                        (task_id, owner_subject),
+                    )
+                )
         if not row:
             return None
         return {
@@ -192,10 +214,12 @@ class TaskStateStore:
             raise InvalidTaskStatusError(status)
 
         with self._connection() as connection:
-            row = _fetchone(connection.execute(
-                "SELECT status, output, error FROM task_history WHERE task_id = ?",
-                (task_id,),
-            ))
+            row = _fetchone(
+                connection.execute(
+                    "SELECT status, output, error FROM task_history WHERE task_id = ?",
+                    (task_id,),
+                )
+            )
             if not row:
                 return False
 
@@ -224,15 +248,19 @@ class TaskStateStore:
     def prepare_resume(self, task_id: str, owner_subject: str | None = None) -> bool:
         with self._connection() as connection:
             if owner_subject is None:
-                row = _fetchone(connection.execute(
-                    "SELECT status, owner_pid FROM task_history WHERE task_id = ?",
-                    (task_id,),
-                ))
+                row = _fetchone(
+                    connection.execute(
+                        "SELECT status, owner_pid FROM task_history WHERE task_id = ?",
+                        (task_id,),
+                    )
+                )
             else:
-                row = _fetchone(connection.execute(
-                    "SELECT status, owner_pid FROM task_history WHERE task_id = ? AND owner_subject = ?",
-                    (task_id, owner_subject),
-                ))
+                row = _fetchone(
+                    connection.execute(
+                        "SELECT status, owner_pid FROM task_history WHERE task_id = ? AND owner_subject = ?",
+                        (task_id, owner_subject),
+                    )
+                )
             owner_pid_value = _row_value(row, "owner_pid") if row else None
             owner_pid = None if owner_pid_value is None else int(cast(int, owner_pid_value))
             raw_status = "" if not row else str(_row_value(row, "status"))
@@ -259,17 +287,21 @@ class TaskStateStore:
     def list_tasks(self, limit: int, owner_subject: str | None = None) -> list[TaskRecord]:
         with self._connection() as connection:
             if owner_subject is None:
-                rows = _fetchall(connection.execute(
-                    "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    + "FROM task_history ORDER BY created_at DESC LIMIT ?",
-                    (limit,),
-                ))
+                rows = _fetchall(
+                    connection.execute(
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        + "FROM task_history ORDER BY created_at DESC LIMIT ?",
+                        (limit,),
+                    )
+                )
             else:
-                rows = _fetchall(connection.execute(
-                    "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
-                    + "FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
-                    (owner_subject, limit),
-                ))
+                rows = _fetchall(
+                    connection.execute(
+                        "SELECT task_id, prompt, status, output, error, created_at, updated_at, completed_at "
+                        + "FROM task_history WHERE owner_subject = ? ORDER BY created_at DESC LIMIT ?",
+                        (owner_subject, limit),
+                    )
+                )
         return [self._row_to_task(row) for row in rows]
 
     def save_checkpoint(self, task_id: str, step: int, context_json: str, output: str) -> None:

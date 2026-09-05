@@ -18,7 +18,7 @@ except ImportError:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Antigravity-K Swarm Mode")
+    parser = argparse.ArgumentParser(description="Ssak-Ai Swarm Mode")
     parser.add_argument(
         "--workers", type=str, default=None, help='Workers to run: "financial,tech" or "financial,tech,correlator"'
     )

@@ -1,4 +1,4 @@
-"""Antigravity-K: 모델 매니저.
+"""Ssak-Ai: 모델 매니저.
 
 런타임 모델 로드/언로드/핫스왑 + 메모리 자동 관리
 """
@@ -1357,8 +1357,8 @@ class ModelManager:
         }
         # OpenRouter 전용 헤더 (식별용)
         if self._is_openrouter():
-            headers["HTTP-Referer"] = "https://github.com/sumkbs-kbs/antigravity-k"
-            headers["X-Title"] = "Antigravity-K"
+            headers["HTTP-Referer"] = "https://github.com/ssak-comp/Ssak-Ai"
+            headers["X-Title"] = "Ssak-Ai"
 
         req = urllib.request.Request(
             url,
@@ -1627,8 +1627,8 @@ class ModelManager:
 
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
         if is_openrouter:
-            headers["HTTP-Referer"] = "https://github.com/sumkbs-kbs/antigravity-k"
-            headers["X-Title"] = "Antigravity-K"
+            headers["HTTP-Referer"] = "https://github.com/ssak-comp/Ssak-Ai"
+            headers["X-Title"] = "Ssak-Ai"
             url = f"{base_url}/chat/completions"
             data = {
                 "model": model_name,

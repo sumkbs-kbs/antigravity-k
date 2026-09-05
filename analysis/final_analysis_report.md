@@ -1,7 +1,7 @@
-# Antigravity-K — 종합 정밀 분석 보고서
+# Ssak-Ai — 종합 정밀 분석 보고서
 
 > 분석일: 2026-05-12  
-> 대상: /Users/mr.k/program/coding/ssak_comp/antigravity-k/src/antigravity_k/  
+> 대상: /Users/mr.k/program/coding/ssak_comp/Ssak-Ai/src/antigravity_k/  
 > 분석 방법: 핵심 파일 소스 코드 직접 읽기 + 정량 지표 산정
 
 ---

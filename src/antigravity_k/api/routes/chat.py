@@ -3,7 +3,7 @@ import contextvars
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
-from typing import Annotated, Callable, TypeAlias, cast
+from typing import Annotated, Any, Callable, TypeAlias, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -298,6 +298,79 @@ async def chat_reconnect() -> StreamingResponse:
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+async def _openai_tools_passthrough(body: JsonMap, manager: ModelManager) -> object:
+    """OpenAI tools passthrough — Codex 등 function-calling 에이전트용.
+
+    기존 chat_completions는 내부 오케스트레이터 경로라 요청 body의 ``tools``를
+    소비하지 않는다. tools가 있으면 이 분기로 위임해 anthropic_tool_bridge와
+    동일한 텍스트 프로토콜 (도구 카탈로그 주입 → json 코드펜스 파싱)로 왕복
+    변환한다 (Phase 35 — openai_tool_bridge).
+
+    Note:
+        streaming은 buffer-then-emit (완성 후 프rame 직렬화) — tool_calls 판정이
+        완성 텍스트 기반이라 anthropic 경계도 동일 순서. TTFB 손해, 정확성 무손해.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    from antigravity_k.engine.openai_tool_bridge import (
+        build_openai_response,
+        build_tool_prompt,
+        convert_tool_choice,
+        effective_system,
+        extract_blocks,
+        openai_messages_to_internal,
+        openai_stream_frames,
+        validate_openai_tools,
+    )
+    from antigravity_k.engine.prompt_injection_guard import PromptInjectionGuard
+
+    tools, tools_error = validate_openai_tools(body.get("tools"))
+    if tools_error is not None:
+        raise HTTPException(status_code=400, detail=tools_error)
+    model = _string_value(body.get("model"))
+    if not model:
+        raise HTTPException(status_code=400, detail="Model is required")
+    raw_messages = body.get("messages")
+    if not isinstance(raw_messages, Sequence) or isinstance(raw_messages, (str, bytes)):
+        raise HTTPException(status_code=400, detail="messages must be an array")
+    raw_message_list = [m for m in cast(list[object], raw_messages) if isinstance(m, dict)]
+    max_tokens_raw = body.get("max_tokens")
+    max_tokens = max_tokens_raw if isinstance(max_tokens_raw, int) and max_tokens_raw > 0 else 4096
+    temperature_raw = body.get("temperature")
+    temperature = temperature_raw if isinstance(temperature_raw, (int, float)) else 0.7
+    stream = _bool_value(body.get("stream"))
+
+    system_text, internal = openai_messages_to_internal(cast("list[dict[str, Any]]", raw_message_list))
+    guarded = PromptInjectionGuard().augment_user_input(internal)
+    tool_choice = convert_tool_choice(body.get("tool_choice"))
+    prompt = build_tool_prompt(effective_system(system_text, tools, tool_choice), guarded)
+
+    def _generate() -> str:
+        return manager.generate(
+            prompt=prompt,
+            target=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    try:
+        text = await run_in_threadpool(_generate)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("openai tools passthrough generate failed")
+        raise HTTPException(status_code=529, detail=f"Model generation failed: {exc}") from exc
+
+    blocks = extract_blocks(text)
+    if stream:
+        frames = openai_stream_frames(model, [text], blocks)
+
+        async def _sse() -> AsyncIterator[str]:
+            for frame in frames:
+                yield frame
+
+        return StreamingResponse(_sse(), media_type="text/event-stream")
+    return build_openai_response(model, text, blocks)
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: Request,
@@ -308,6 +381,11 @@ async def chat_completions(
         body = _validate_chat_request_body(cast(object, await request.json()))
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    # Phase 35: body에 tools가 있으면 OpenAI function-calling passthrough 위임
+    # (기존 오케스트레이터 경로는 tools를 소비하지 않음)
+    if body.get("tools") is not None:
+        return await _openai_tools_passthrough(body, manager)
 
     source_format = translator.detect_format(body)
     internal_req = translator.translate_request(body, source=source_format)

@@ -98,7 +98,7 @@ class HarnessReport:
     def to_markdown(self) -> str:
         """Render the report as a Markdown summary."""
         lines = [
-            "# 🧪 Antigravity-K Self-Test Report",
+            "# 🧪 Ssak-Ai Self-Test Report",
             "",
             "| 항목 | 값 |",
             "|------|-----|",

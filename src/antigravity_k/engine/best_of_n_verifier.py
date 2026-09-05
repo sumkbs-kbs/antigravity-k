@@ -1,4 +1,4 @@
-"""Antigravity-K: 실행 검증 기반 Best-of-N 샘플러 (Execution-Verified Best-of-N).
+"""Ssak-Ai: 실행 검증 기반 Best-of-N 샘플러 (Execution-Verified Best-of-N).
 
 ========================================================
 유사도 다수결(self_consistency)과 달리, N개 후보를 **실제 실행/검증**해서
@@ -91,11 +91,14 @@ def extract_code(text: str, language_hint: str = "") -> str:
     if not fences:
         return (text or "").strip()
     if language_hint:
-        hinted = cast(list[str], re.findall(
-            rf"```{re.escape(language_hint)}\s*\n(.*?)```",
-            text or "",
-            re.DOTALL,
-        ))
+        hinted = cast(
+            list[str],
+            re.findall(
+                rf"```{re.escape(language_hint)}\s*\n(.*?)```",
+                text or "",
+                re.DOTALL,
+            ),
+        )
         if hinted:
             return hinted[-1].strip()
     return max(fences, key=len).strip()

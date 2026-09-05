@@ -1,11 +1,11 @@
 ---
-title: Antigravity-K 전체 코드 리뷰 기반 고도화 개발계획 (2026-09)
+title: Ssak-Ai 전체 코드 리뷰 기반 고도화 개발계획 (2026-09)
 tags: [architecture, harness, plan, review, frontier-amplification]
 date: 2026-09-01
 status: active
 ---
 
-# Antigravity-K 고도화 개발계획
+# Ssak-Ai 고도화 개발계획
 
 ## 0. 배경 및 목표
 

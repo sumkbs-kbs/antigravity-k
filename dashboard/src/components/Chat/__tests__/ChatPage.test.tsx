@@ -30,7 +30,8 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
     expect(screen.getByText('Search')).toBeInTheDocument();
     expect(screen.getByText('Code')).toBeInTheDocument();
     expect(screen.getByText('MCP')).toBeInTheDocument();
-    expect(screen.getByText('5.6 Sol High')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /모델 선택/i })).toBeInTheDocument();
+    expect(screen.queryByText('5.6 Sol High')).toBeNull();
     expect(screen.getByText(/orchestrator-swarm/i)).toBeInTheDocument();
     expect(screen.getByLabelText('채팅 히스토리')).toBeInTheDocument();
     expect(screen.getByText('Open IDE')).toBeInTheDocument();
@@ -45,7 +46,8 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
     expect(screen.getByText('커밋 또는 푸시')).toBeInTheDocument();
     expect(screen.getByText('풀 리퀘스트 만들기')).toBeInTheDocument();
     expect(screen.getByText('파일 액티브티')).toBeInTheDocument();
-    expect(screen.getByText('codebase-memory-mcp')).toBeInTheDocument();
+    // 소스 섹션은 /api/mcp/servers 결과를 반영 (빈 환경에서는 안내 문구)
+    expect(screen.getByText('소스')).toBeInTheDocument();
   });
 
   it('renders the docked context bar and breadcrumb when a conversation exists', () => {
@@ -64,7 +66,7 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
     renderChatPage();
 
     expect(screen.getByText('Continuing Previous Agent Work')).toBeInTheDocument();
-    expect(screen.getByText('antigravity-k')).toBeInTheDocument();
+    expect(screen.getByText('Ssak-Ai', { selector: '.crumb-project' })).toBeInTheDocument();
     expect(screen.getByText('로컬')).toBeInTheDocument();
     // Branch appears in both the docked context bar and the 환경 rail
     expect(screen.getAllByText('codex/m1-task-events').length).toBeGreaterThanOrEqual(2);

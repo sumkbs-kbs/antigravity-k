@@ -455,6 +455,43 @@ def test_broadcast_file_event_publishes_for_write_file(executor: ToolExecutor, t
     assert published[0][0] == "FileModified"
 
 
+def test_post_execute_failure_publishes_failure_detected(executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch):
+    """실패한 도구 결과는 Dashboard용 FailureDetected 이벤트로 브로드캐스트된다."""
+    published: list[tuple[str, dict[str, object]]] = []
+
+    class _FakeBus:
+        def publish(self, event_name: str, **kwargs: object) -> None:
+            published.append((event_name, kwargs))
+
+    monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+    executor._post_execute("dummy", {"x": 1}, "Error: boom", permission=Permission.ALLOW)
+
+    assert published, "FailureDetected 이벤트가 발행되어야 한다"
+    event_name, kwargs = published[0]
+    assert event_name == "FailureDetected"
+    assert kwargs["tool"] == "dummy"
+    assert "boom" in str(kwargs["error"])
+    assert kwargs["message"]
+
+
+def test_post_execute_success_does_not_publish_failure_detected(
+    executor: ToolExecutor, monkeypatch: pytest.MonkeyPatch
+):
+    """성공한 도구 결과는 FailureDetected를 발행하지 않는다."""
+    published: list[tuple[str, dict[str, object]]] = []
+
+    class _FakeBus:
+        def publish(self, event_name: str, **kwargs: object) -> None:
+            published.append((event_name, kwargs))
+
+    monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+    executor._post_execute("read_file", {"path": "x"}, "ok", permission=Permission.ALLOW)
+
+    assert all(name != "FailureDetected" for name, _ in published)
+
+
 def test_broadcast_file_event_skips_nonexistent_file(executor: ToolExecutor):
     """_broadcast_file_event does nothing for a non-existent file path."""
     # Should not raise.
@@ -608,6 +645,96 @@ class TestApprovalWiring:
         assert "req-123" in result
         assert requests and requests[0]["tool"] == "write_file"
 
+    def test_pause_publishes_approval_required_event(self, tool_registry, permission_gate, tmp_path, monkeypatch):
+        """게이트 일시정지(APPROVAL REQUIRED) 시 Dashboard용 ApprovalRequired 이벤트가 발행된다."""
+        from antigravity_k.engine import approval_manager as am
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return False
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                return am.ApprovalRequest(
+                    request_id="req-123",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    description=description,
+                )
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        result = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert "[APPROVAL REQUIRED]" in result
+        assert published, "ApprovalRequired 이벤트가 발행되어야 한다"
+        event_name, kwargs = published[0]
+        assert event_name == "ApprovalRequired"
+        assert kwargs["tool"] == "write_file"
+        assert kwargs["request_id"] == "req-123"
+        assert kwargs["reason"]
+
+    def test_always_allowed_tool_does_not_publish_approval_required(
+        self, tool_registry, permission_gate, tmp_path, monkeypatch
+    ):
+        """자동 승인(ALWAYS_ALLOW) 도구는 ApprovalRequired를 발행하지 않는다."""
+        from antigravity_k.engine import approval_manager as am
+
+        class FakeManager:
+            def is_always_allowed(self, tool_name):
+                return True
+
+            def consume_one_time_approval(self, tool_name):
+                return False
+
+            def get_pending(self):
+                return []
+
+            def request_approval(self, tool_name, tool_args, description="", project_root=None, **kw):
+                return am.ApprovalRequest(
+                    request_id="req-123",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    description=description,
+                    status=am.ApprovalStatus.ALWAYS_ALLOW,
+                )
+
+        monkeypatch.setattr(am, "get_approval_manager", lambda: FakeManager())
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        write_tool = _make_tool("write_file", required=[])
+        _registry_tools(tool_registry)["write_file"] = write_tool
+        tool_registry.get = MagicMock(side_effect=partial(_lookup_tool, tool_registry))
+        ex = self._executor_with_pipeline(tool_registry, permission_gate, tmp_path)
+
+        # 항상 허용 경로에서는 승인 일시정지 없이 실행된다 — ApprovalRequired 미발행 검증
+        _ = ex.execute("write_file", {"file_path": str(tmp_path / "a.txt"), "content": "x"})
+
+        assert all(name != "ApprovalRequired" for name, _ in published)
+
     def test_always_allowed_tool_executes_without_pause(self, tool_registry, permission_gate, tmp_path, monkeypatch):
         from antigravity_k.engine import approval_manager as am
 
@@ -728,6 +855,40 @@ def test_tool_policy_allows_listed_mcp_server(executor: ToolExecutor, tool_regis
     token = set_tool_policy(ToolPolicy(allowed_mcp_servers=frozenset({"codebase-memory-mcp"})))
     try:
         result = executor.execute("mcp_query", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" not in result
+
+
+def test_tool_policy_safe_only_blocks_side_effect_tools(executor: ToolExecutor, tool_registry: MagicMock):
+    """Read-only mode (safe_only) must block tools whose risk_level != SAFE."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+
+    writer = _make_tool("write_file")
+    writer.risk_level = "low"  # RiskLevel.LOW (문자열 비교 대신 identity가 아닌 != 비교)
+    _registry_tools(tool_registry)["write_file"] = writer
+
+    token = set_tool_policy(ToolPolicy(safe_only=True))
+    try:
+        result = executor.execute("write_file", {})
+    finally:
+        reset_tool_policy(token)
+    assert "[BLOCKED]" in result
+    assert "read-only mode" in result
+
+
+def test_tool_policy_safe_only_allows_safe_tools(executor: ToolExecutor, tool_registry: MagicMock):
+    """Read-only mode must still allow SAFE (side-effect-free) tools."""
+    from antigravity_k.engine.tool_executor import ToolPolicy, reset_tool_policy, set_tool_policy
+    from antigravity_k.tools.base_tool import RiskLevel
+
+    reader = _make_tool("read_file")
+    reader.risk_level = RiskLevel.SAFE
+    _registry_tools(tool_registry)["read_file"] = reader
+
+    token = set_tool_policy(ToolPolicy(safe_only=True))
+    try:
+        result = executor.execute("read_file", {})
     finally:
         reset_tool_policy(token)
     assert "[BLOCKED]" not in result

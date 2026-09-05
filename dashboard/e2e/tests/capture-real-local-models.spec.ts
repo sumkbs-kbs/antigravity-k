@@ -33,4 +33,3 @@ test('capture ChatPage model selector with real running and unsloth models', asy
   // Take screenshot with model selection popover open
   await page.screenshot({ path: '../artifacts_real_local_models_chat.png', fullPage: true });
 });
-

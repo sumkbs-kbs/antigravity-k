@@ -57,7 +57,7 @@ class PromptCompiler:
         lines = [
             "---",
             f"role: {role.lower()}",
-            "optimized_by: Antigravity-K PromptCompiler (27B Tuning)",
+            "optimized_by: Ssak-Ai PromptCompiler (27B Tuning)",
             "---",
             base_instructions.strip(),
         ]

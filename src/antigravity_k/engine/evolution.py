@@ -132,7 +132,7 @@ class EvolutionManager:
     def evolve_system_prompt(self, target_model: str = "qwen3.6:latest") -> str | None:
         """시스템 프롬프트를 과거 실패 기록을 바탕으로 진화시킵니다."""
         # System prompt path assuming it's in config.yaml or a specific file.
-        # For Antigravity-K, we use config.yaml or orchestrator.py directly.
+        # For Ssak-Ai, we use config.yaml or orchestrator.py directly.
         # Let's save the evolved system prompt to the vault root for review.
         original_text = (
             "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team "

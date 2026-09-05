@@ -1,4 +1,4 @@
-"""Antigravity-K: Self-Consistency 증폭 엔진.
+"""Ssak-Ai: Self-Consistency 증폭 엔진.
 
 ========================================================
 단일 로컬 모델(qwen3.6 등)에서 같은 프롬프트를 N회 샘플링하고,

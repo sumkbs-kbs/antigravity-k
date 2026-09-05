@@ -1,4 +1,4 @@
-"""Antigravity-K: 도구 실행 엔진 (ToolExecutor).
+"""Ssak-Ai: 도구 실행 엔진 (ToolExecutor).
 
 =============================================
 I-1 리팩터링: Orchestrator에서 분리된 도구 실행/등록 로직.
@@ -24,6 +24,7 @@ from antigravity_k.engine.failure_classifier import (
 )
 from antigravity_k.engine.immune_system import ImmuneSystem
 from antigravity_k.engine.task_state_store import current_task_execution_context
+from antigravity_k.tools.base_tool import RiskLevel
 from antigravity_k.tools.permission_gate import PermissionGate
 from antigravity_k.tools.tool_contracts import Permission
 from antigravity_k.tools.tool_registry import ToolRegistry
@@ -39,13 +40,16 @@ logger = logging.getLogger(__name__)
 class ToolPolicy:
     """요청 단위 도구 허용 정책.
 
-    대시보드 컴포저의 Search/Code/MCP 칩 상태를 채팅 요청에 반영하기 위해
-    ``chat`` 라우트가 설정하고 ``ToolExecutor.execute``가 조회한다.
-    contextvar 기반이므로 요청 스레드풀 컨텍스트 안에서만 유효하다.
+    대시보드 컴포저의 Search/Code/MCP 칩 상태와 실행 권한 모드(읽기 전용)를
+    채팅 요청에 반영하기 위해 ``chat`` 라우트가 설정하고
+    ``ToolExecutor.execute``가 조회한다. contextvar 기반이므로 요청
+    스레드풀 컨텍스트 안에서만 유효하다.
     """
 
     denied_tools: frozenset[str] = field(default_factory=frozenset)
     allowed_mcp_servers: frozenset[str] | None = None
+    safe_only: bool = False
+    """True면 risk_level != SAFE(부작용 있는) 도구를 모두 차단한다(읽기 전용 모드)."""
 
 
 _tool_policy_var: contextvars.ContextVar[ToolPolicy | None] = contextvars.ContextVar("agk_tool_policy", default=None)
@@ -68,10 +72,15 @@ def _tool_policy_denial(name: str, tool: object | None) -> str | None:
         return None
     if name in policy.denied_tools:
         return f"Tool '{name}' is disabled for this request by the user's tool toggles."
+    if policy.safe_only and tool is not None:
+        risk_level = getattr(tool, "risk_level", None)
+        if risk_level is not None and risk_level != RiskLevel.SAFE:
+            risk_value = getattr(risk_level, "value", risk_level)
+            return f"Tool '{name}' has side effects (risk: {risk_value}) and is blocked in read-only mode."
     if policy.allowed_mcp_servers is not None and tool is not None:
         server_name = getattr(tool, "_server_name", "")
         if server_name and server_name not in policy.allowed_mcp_servers:
-            return f"MCP server '{server_name}' is disabled for this request " "by the user's MCP selection."
+            return f"MCP server '{server_name}' is disabled for this request by the user's MCP selection."
     return None
 
 
@@ -410,7 +419,9 @@ class ToolExecutor:
             if request.status == ApprovalStatus.ALWAYS_ALLOW:
                 return True, request.request_id
             if existing_id:
+                self._broadcast_approval_required(name, existing_id, description)
                 return False, existing_id
+            self._broadcast_approval_required(name, request.request_id, description)
             return False, request.request_id
         except Exception:
             logger.debug(
@@ -418,6 +429,27 @@ class ToolExecutor:
                 exc_info=True,
             )
             return False, ""
+
+    def _broadcast_approval_required(self, name: str, request_id: str, reason: str) -> None:
+        """승인 대기(APPROVAL REQUIRED) 상태를 Dashboard에 ApprovalRequired 이벤트로 브로드캐스트합니다.
+
+        GatePipeline 일시정지와 Permission PROMPT 승인 요청이 등록될 때 호출되어
+        useEventWebSocket의 onApprovalRequired 핸들러(에이전트 모니터링 패널)가
+        승인 대기 도구를 실시간으로 표시할 수 있게 합니다.
+        이벤트 발행은 선택적(non-critical)이므로 실패해도 실행 경로는 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            event_bus = cast(_EventBusLike, global_event_bus)
+            event_bus.publish(
+                "ApprovalRequired",
+                tool=name,
+                request_id=request_id,
+                reason=reason,
+            )
+        except Exception:
+            logger.exception("Failed to broadcast approval-required event")
 
     def _user_contracted_tools(self) -> frozenset[str]:
         """Tools the user explicitly named in the active task's prompt.
@@ -523,10 +555,31 @@ class ToolExecutor:
         if result_indicates_failure(result):
             self._consecutive_errors += 1
             self._last_failure = classify_tool_failure(name, str(result))
+            self._broadcast_failure_event(name, result)
         else:
             self._consecutive_errors = 0  # Reset on success
             self._last_failure = None
             self._broadcast_file_event(name, args)
+
+    def _broadcast_failure_event(self, name: str, result: str) -> None:
+        """실패한 도구 호출을 Dashboard에 FailureDetected 이벤트로 브로드캐스트합니다.
+
+        useEventWebSocket의 onFailureDetected 핸들러(에이전트 모니터링 패널의
+        오류 로그/타임라인, ChatPage 활동 레일)가 이 이벤트를 소비합니다.
+        이벤트 발행은 선택적(non-critical)이므로 실패해도 실행 경로는 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            event_bus = cast(_EventBusLike, global_event_bus)
+            event_bus.publish(
+                "FailureDetected",
+                tool=name,
+                error=str(result)[:400],
+                message=f"'{name}' 도구 실행 실패",
+            )
+        except Exception:
+            logger.exception("Failed to broadcast failure event")
 
     def _broadcast_file_event(self, name: str, args: dict[str, object]) -> None:
         """Broadcast FileOpened / FileModified events to the dashboard."""

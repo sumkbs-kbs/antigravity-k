@@ -4,18 +4,15 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-import anyio
 import httpx
 from anyio import to_thread
-from anyio.abc import TaskGroup
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, HTTPException, Request, WebSocket, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.background import BackgroundTask
-from starlette.websockets import WebSocketState
-from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed, InvalidStatus
 
+from antigravity_k.api.routes.session_state import close_unauthorized_ws
+from antigravity_k.api.routes.workspace_websocket import relay_workspace_websocket
 from antigravity_k.engine.workspace_service_registry import (
     InvalidServiceTargetError,
     ServiceConflictError,
@@ -34,7 +31,18 @@ from antigravity_k.engine.workspace_service_runtime import (
 router = APIRouter(prefix="/api/workspace/services", tags=["workspaces"])
 _registry = WorkspaceServiceRegistry()
 _runtime = WorkspaceServiceRuntime(_registry)
-_HOP_BY_HOP = frozenset({"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"})
+_HOP_BY_HOP = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
 
 
 class ServiceRegistration(BaseModel):
@@ -269,61 +277,15 @@ async def proxy_http(hostname: str, request: Request, path: str = "") -> Streami
     )
 
 
-async def _client_to_upstream(websocket: WebSocket, upstream: ClientConnection, task_group: TaskGroup) -> None:
-    try:
-        while True:
-            message = await websocket.receive()
-            if message["type"] == "websocket.disconnect":
-                return
-            text_message = message.get("text")
-            raw_bytes = message.get("bytes")
-            bytes_message: bytes | None = raw_bytes if isinstance(raw_bytes, bytes) else None
-            if isinstance(text_message, str):
-                await upstream.send(text_message)
-            elif bytes_message is not None:
-                await upstream.send(bytes_message)
-    except WebSocketDisconnect:
-        return
-    finally:
-        task_group.cancel_scope.cancel()
-
-
-async def _upstream_to_client(websocket: WebSocket, upstream: ClientConnection, task_group: TaskGroup) -> None:
-    try:
-        async for message in upstream:
-            if isinstance(message, str):
-                await websocket.send_text(message)
-            else:
-                await websocket.send_bytes(message)
-    finally:
-        task_group.cancel_scope.cancel()
-
-
-def _websocket_headers(websocket: WebSocket, record: ServiceRecord) -> dict[str, str]:
-    return {
-        "x-forwarded-host": websocket.headers.get("host", ""),
-        "x-forwarded-proto": "ws",
-        "x-workspace-service": record.service,
-        "x-workspace-branch": record.branch,
-        "x-workspace-project": record.project,
-    }
-
-
 async def _proxy_websocket(websocket: WebSocket, hostname: str, path: str) -> None:
-    record = _require_ready(hostname)
-    await websocket.accept()
-    target = f"{record.websocket_base_url}/{path.lstrip('/')}"
-    query_string = str(websocket.query_params)
-    if query_string:
-        target = f"{target}?{query_string}"
+    if await close_unauthorized_ws(websocket):
+        return
     try:
-        async with connect(target, additional_headers=_websocket_headers(websocket, record)) as upstream:
-            async with anyio.create_task_group() as task_group:
-                task_group.start_soon(_client_to_upstream, websocket, upstream, task_group)
-                task_group.start_soon(_upstream_to_client, websocket, upstream, task_group)
-    except (ConnectionClosed, InvalidStatus, OSError):
-        if websocket.application_state == WebSocketState.CONNECTED:
-            await websocket.close(code=1011, reason="workspace service unavailable")
+        record = _require_ready(hostname)
+    except HTTPException:
+        await websocket.close(code=1008, reason="workspace service unavailable")
+        return
+    await relay_workspace_websocket(websocket, record, path)
 
 
 @router.websocket("/{hostname}/ws")

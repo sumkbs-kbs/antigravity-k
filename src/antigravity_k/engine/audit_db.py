@@ -30,9 +30,7 @@ from typing import TypeAlias, cast
 
 logger = logging.getLogger("antigravity_k.engine.audit_db")
 
-JsonValue: TypeAlias = (
-    None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
-)
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS hook_events (
@@ -84,10 +82,23 @@ class AuditDb:
         elif self._db_path:
             db_dir = self._db_path.parent
         else:
-            project_root = Path(__file__).resolve().parent.parent.parent.parent
-            db_dir = project_root / "vault_data"
+            try:
+                from antigravity_k.config import config
 
-        db_dir.mkdir(parents=True, exist_ok=True)
+                db_dir = config.paths.data_dir / "vault_data"
+            except Exception:
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                db_dir = project_root / "vault_data"
+
+        try:
+            db_dir.mkdir(parents=True, exist_ok=True)
+            test_file = db_dir / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+        except OSError:
+            db_dir = Path.home() / ".antigravity-k" / "vault_data"
+            db_dir.mkdir(parents=True, exist_ok=True)
+
         self._db_path = db_dir / "audit.sqlite3"
 
         try:
@@ -220,7 +231,7 @@ class AuditDb:
                 "kind": row[3],
                 "hook_event_name": row[4],
                 "tool_name": row[5],
-                    "payload": _loads_payload(row[6]),
+                "payload": _loads_payload(row[6]),
             }
             for row in rows
         ]

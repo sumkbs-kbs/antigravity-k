@@ -27,6 +27,7 @@ import {
   type ModelInfo,
   type LocalModelItem,
 } from '../../api/client';
+import { QuantBadge } from '../shared';
 import {
   WorkspaceContextSchema,
   AccessModeResponseSchema,
@@ -90,6 +91,7 @@ export const ChatPage: React.FC = () => {
 
   const [workspaceContext, setWorkspaceContext] = useState({
     project_name: 'Ssak-Ai',
+    workspace_path: '.',
     target: '로컬',
     branch: 'codex/m1-task-events',
   });
@@ -167,6 +169,7 @@ export const ChatPage: React.FC = () => {
           if (parsed.success) {
             setWorkspaceContext({
               project_name: parsed.data.project_name,
+              workspace_path: parsed.data.workspace_path || '.',
               target: parsed.data.target,
               branch: parsed.data.branch,
             });
@@ -801,7 +804,7 @@ export const ChatPage: React.FC = () => {
                                       <span className="badge-disk">{m.disk_size_gb} GB</span>
                                     )}
                                     {m.quantization && (
-                                      <span className="badge-quant">{m.quantization}</span>
+                                      <QuantBadge quantization={m.quantization} variant="chip" />
                                     )}
                                     {m.role && <span className="badge-role">{m.role}</span>}
                                   </div>
@@ -835,7 +838,7 @@ export const ChatPage: React.FC = () => {
                                       <span className="badge-disk">{m.disk_size_gb} GB</span>
                                     )}
                                     {m.quantization && (
-                                      <span className="badge-quant">{m.quantization}</span>
+                                      <QuantBadge quantization={m.quantization} variant="chip" />
                                     )}
                                     {m.role && <span className="badge-role">{m.role}</span>}
                                   </div>
@@ -920,7 +923,7 @@ export const ChatPage: React.FC = () => {
       <div className="agk-main-column">
         <header className="agk-topbar">
           <div className="agk-breadcrumb">
-            <span className="crumb-project">antigravity-k</span>
+            <span className="crumb-project">{workspaceContext?.project_name || 'Ssak-Ai'}</span>
             <span className="crumb-sep">/</span>
             <span className="crumb-title">{sessionTitle}</span>
           </div>
@@ -1070,6 +1073,7 @@ export const ChatPage: React.FC = () => {
         onTabChange={setEnvTab}
         onClose={() => setEnvPanelOpen(false)}
         branch={workspaceContext.branch}
+        workspacePath={workspaceContext.workspace_path}
         mcpServers={mcpServerList}
         editorContent={editorContent}
         changesContent={changesContent}

@@ -1,4 +1,4 @@
-"""Antigravity-K: Deterministic Worker (결정론적 실행 엔진).
+"""Ssak-Ai: Deterministic Worker (결정론적 실행 엔진).
 
 =========================================================
 LLM은 "무엇을 할지 판단"만 하고, 실제 실행은 Python이 담당.
@@ -613,5 +613,5 @@ class DeterministicWorker:
 
 
 """
-Antigravity-K Deterministic Worker — LLM judges, Python executes.
+Ssak-Ai Deterministic Worker — LLM judges, Python executes.
 """

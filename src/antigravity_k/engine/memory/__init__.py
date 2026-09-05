@@ -1,2 +1,2 @@
 """Memory package."""
-# Memory package for Antigravity-K
+# Memory package for Ssak-Ai

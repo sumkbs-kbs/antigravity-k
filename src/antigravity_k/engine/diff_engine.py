@@ -1,4 +1,4 @@
-"""Antigravity-K: Diff/Apply 엔진 (P0-1).
+"""Ssak-Ai: Diff/Apply 엔진 (P0-1).
 
 ====================================
 정교한 패치 적용을 위한 unified diff 파싱 + apply 엔진.

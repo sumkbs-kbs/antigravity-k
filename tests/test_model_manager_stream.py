@@ -257,7 +257,7 @@ class TestStreamRequestBuilder:
         assert isinstance(req.data, bytes)
         body = cast(dict[str, object], json.loads(req.data.decode("utf-8")))
         assert req.full_url.endswith("/chat/completions")
-        assert req.headers.get("X-title") == "Antigravity-K"
+        assert req.headers.get("X-title") == "Ssak-Ai"
         assert model_name == "model-a"
         assert body["stream"] is True
 

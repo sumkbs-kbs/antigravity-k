@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: PipelineTimer 단위 테스트
+Ssak-Ai: PipelineTimer 단위 테스트
 ========================================
 PipelineTimer의 record(), get_stats(), measure(), reset() 등을 검증합니다.
 """

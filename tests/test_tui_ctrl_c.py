@@ -28,7 +28,7 @@ async def test_workbench_renders_one_welcome_message() -> None:
         await pilot.pause()
         screen = app.screen
         assert isinstance(screen, ChatScreen)
-        title_lines = [line for line in screen.chat_log.lines if "Antigravity-K TUI" in str(line)]
+        title_lines = [line for line in screen.chat_log.lines if "Ssak-Ai TUI" in str(line)]
 
         assert len(title_lines) == 1
 

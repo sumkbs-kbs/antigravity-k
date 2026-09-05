@@ -118,7 +118,7 @@ def test_self_slash_command_reports_runtime_capabilities(tmp_path: Path) -> None
 
     result = slash.execute("/self")
 
-    assert "Antigravity-K Self Capability Report" in result
+    assert "Ssak-Ai Self Capability Report" in result
     assert "등록 도구: `1`개" in result
     assert "`fetch_dom`" in result
     assert "/capabilities <목표>" in result

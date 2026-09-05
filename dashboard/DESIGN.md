@@ -1,8 +1,9 @@
-# Antigravity-K Dashboard Design System
+# Ssak-Ai Dashboard Design System
 
 ## 1. Atmosphere & Identity
 
-Antigravity-K is a dense, developer-first command center. It should feel calm under load: dark neutral surfaces, restrained violet focus, compact operational typography, and clear status semantics. The signature is traceable execution: every task, agent, step, and tool result reads as one connected run rather than a collection of unrelated cards.
+Inspired by **TERMINAL-7 — Cold-blooded engineering for warm-blooded users**.
+Ssak-Ai is a dense, developer-first command center with a distinctive aesthetic: **Brutalist Terminal Precision meets Warm Editorial Serif Elegance**. Deep obsidian charcoal surfaces, restrained warm amber gold focus, terminal radar green status telemetrics, and high-contrast editorial typography. The signature is traceable execution and telemetric observability: every task, agent, step, and tool result reads as one connected, precision-engineered run.
 
 ## 2. Color
 
@@ -10,51 +11,53 @@ The implementation source of truth is `src/styles/index.css`. New components use
 
 | Role | Token | Current value | Usage |
 |---|---|---:|---|
-| Surface / primary | `--bg-primary` | `#0a0c10` | App shell background |
-| Surface / secondary | `--bg-secondary` | `#111318` | Recessed regions |
-| Surface / tertiary | `--bg-tertiary` | `#181b22` | Rows and grouped content |
-| Surface / elevated | `--bg-elevated` | `#1e222a` | Selected or elevated content |
-| Glass / default | `--glass-bg` | `rgba(17, 19, 24, 0.85)` | Operational panels |
-| Glass / strong | `--glass-bg-strong` | `rgba(24, 27, 34, 0.92)` | Popovers and emphasized panels |
-| Border / default | `--glass-border` | `rgba(255, 255, 255, 0.06)` | Surface separation |
-| Border / strong | `--glass-border-strong` | `rgba(255, 255, 255, 0.1)` | Hover and selected states |
-| Text / primary | `--text-primary` | `#e4e6eb` | Primary labels and values |
-| Text / secondary | `--text-secondary` | `#b0b4c0` | Supporting copy |
-| Text / muted | `--text-muted` | `#7a7f8e` | Metadata and placeholders |
-| Text / dim | `--text-dim` | `#5a5e6c` | Disabled content |
-| Accent / primary | `--accent-color` | `#7c6aef` | Focus, selection, active state |
-| Accent / hover | `--accent-hover` | `#6b5ad8` | Interactive hover |
-| Accent / light | `--accent-light` | `#9b8ef5` | High-contrast accent text |
+| Surface / primary | `--bg-primary` | `#080908` | Deep obsidian app shell background |
+| Surface / secondary | `--bg-secondary` | `#0d0f0d` | Recessed regions & sidebar |
+| Surface / tertiary | `--bg-tertiary` | `#131613` | Rows, cards, and grouped content |
+| Surface / elevated | `--bg-elevated` | `#1a1e1a` | Selected or elevated content |
+| Glass / default | `--glass-bg` | `rgba(13, 16, 13, 0.88)` | Operational panels |
+| Glass / strong | `--glass-bg-strong` | `rgba(19, 23, 19, 0.94)` | Popovers and emphasized panels |
+| Border / default | `--glass-border` | `rgba(255, 255, 255, 0.08)` | Surface separation |
+| Border / strong | `--glass-border-strong` | `rgba(229, 169, 59, 0.25)` | Hover and selected states |
+| Border / terminal | `--terminal-border` | `#1e241e` | Terminal hairline borders |
+| Text / primary | `--text-primary` | `#eef0eb` | Primary bone-white labels and values |
+| Text / secondary | `--text-secondary` | `#a6aca1` | Supporting sage-tinted copy |
+| Text / muted | `--text-muted` | `#666e63` | Terminal comments (`//`) & metadata |
+| Text / dim | `--text-dim` | `#41483e` | Disabled content |
+| Accent / primary | `--accent-color` | `#e5a93b` | Warm amber focus, italic accents, CTA |
+| Accent / hover | `--accent-hover` | `#f59e0b` | Interactive hover |
+| Accent / light | `--accent-light` | `#fde68a` | High-contrast accent text |
+| Telemetrics / radar | `--terminal-green` | `#00ff66` | Radar indicators, NOMINAL tags, prompts |
 | Status / success | `--success-color` | `#10b981` | Completed and healthy |
-| Status / warning | `--warning-color` | `#f59e0b` | Paused and attention |
+| Status / warning | `--warning-color` | `#e5a93b` | Paused and attention |
 | Status / error | `--error-color` | `#ef4444` | Failed and disconnected |
-| Status / info | `--info-color` | `#06b6d4` | Live and informational |
+| Status / info | `--info-color` | `#38bdf8` | Live and informational (code cyan) |
 
 Rules:
 
-- Violet communicates interaction, selection, and the primary running state. It is not decorative.
+- Warm Amber (`#e5a93b`) communicates primary user intention, interactive focus, and editorial italic highlights.
+- Terminal Radar Green (`#00ff66` / `#10b981`) communicates machine health, boot nominal status, and terminal prompt prefixes (`$`).
+- All technical metadata prefixes use the comment syntax (`// 01 · CHAT`, `// PROJECTS`).
 - Status colors communicate real state only.
-- New color roles are added here and to `index.css` before use.
-- Both supported themes retain the same semantic hierarchy. The current product default is dark.
 
 ## 3. Typography
 
 | Level | Token | Size | Weight | Line height | Usage |
 |---|---|---:|---:|---:|---|
-| Page title | `--text-5xl` | 36px | 700 | `--leading-tight` | Primary page heading |
-| Section title | `--text-3xl` | 22px | 600 | `--leading-tight` | Major panel heading |
+| Page title | `--text-5xl` | 38px | 400 | `1.15` | Editorial Serif primary page heading |
+| Section title | `--text-3xl` | 24px | 400 | `1.2` | Editorial Serif major panel heading |
 | Panel title | `--text-xl` | 16px | 600 | `--leading-normal` | Panel and group heading |
 | Body | `--text-md` | 14px | 400 | `--leading-normal` | Readable prose and controls |
 | Compact body | `--text-base` | 13px | 400 | `--leading-normal` | Dense operational rows |
 | Metadata | `--text-sm` | 12px | 500 | `--leading-normal` | Timestamps and secondary labels |
-| Micro label | `--text-xs` | 11px | 600 | `--leading-tight` | Short status labels only |
+| Micro label | `--text-xs` | 11px | 600 | `--leading-tight` | Terminal status labels & telemetrics |
 
 Font stacks:
 
-- Primary: `--font-sans`, currently Inter with system fallbacks.
-- Monospace: `--font-mono`, currently JetBrains Mono with code-oriented fallbacks.
-- Operational output, IDs, sequence numbers, and durations use the monospace stack.
-- User-facing body copy does not go below 14px. Compact 11-13px text is reserved for metadata and dense monitoring data.
+- Display / Editorial: `--font-serif`, Newsreader and Instrument Serif with Georgia fallbacks. Key words use *Italic Amber* (`.editorial-accent`).
+- Primary UI: `--font-sans`, Inter with system fallbacks.
+- Monospace: `--font-mono`, JetBrains Mono with code/terminal fallbacks.
+- Operational output, IDs, sequence numbers, durations, telemetric bars, and buttons use the monospace stack.
 
 ## 4. Spacing & Layout
 
@@ -80,6 +83,7 @@ Layout rules:
 - Task execution uses an intrinsic grid that reflows to one readable column without horizontal page scroll.
 - Agent tree and checklist are content regions. Terminal output is the only nested scroll owner in a terminal card.
 - Grid tracks use overflow-safe intrinsic sizing. Long IDs and output use `overflow-wrap: anywhere`.
+- Korean prose wraps at spaces and keeps Korean words/endings intact (`word-break: keep-all`). Unbroken code, path, and identifier text retains `overflow-wrap: anywhere` and may break as needed.
 - Viewport breakpoints remain `640px`, `768px`, `1024px`, `1280px`, and `1536px`. Components prefer intrinsic and container-local adaptation.
 
 ## 5. Components
@@ -203,6 +207,16 @@ Layout rules:
 - **Accessibility**: objective title has a persistent label; pause/resume is a named button; scheduler state is exposed through `role="status"` text and not color alone.
 - **Motion**: no layout animation; state feedback uses existing control transitions and reduced-motion behavior.
 - **Layout**: intrinsic single-column stack inside the agent page; context preview and long objective text wrap without horizontal overflow.
+
+### Mutation Snapshot Console
+
+- **Structure**: provenance summary, aggregate metrics, filter controls, and per-target historical result cards.
+- **Variants**: historical snapshot, stale snapshot, invalid snapshot, and empty filter result.
+- **Spacing**: summary and cards use `--space-5`; compact metric clusters use `--space-2` and `--space-4`.
+- **States**: snapshot metadata, threshold comparison, stale warning, parse error, and no-match empty state.
+- **Accessibility**: provenance and freshness are visible text with `role="status"`; threshold state is text plus color and cards remain keyboard operable.
+- **Motion**: only the existing card border/hover transition; no motion implies live data.
+- **Layout**: single-column stack with wrapping metric clusters; the page shell remains the scroll owner.
 
 ## 6. Motion & Interaction
 

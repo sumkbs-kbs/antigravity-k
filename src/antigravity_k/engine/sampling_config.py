@@ -1,4 +1,4 @@
-"""Antigravity-K: 중앙 집중형 샘플링 프로파일 (Single Source of Truth).
+"""Ssak-Ai: 중앙 집중형 샘플링 프로파일 (Single Source of Truth).
 
 ================================================================
 모든 모듈은 이 모듈에서 SAMPLING_PROFILES를 임포트해야 합니다.

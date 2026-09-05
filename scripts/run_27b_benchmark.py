@@ -25,7 +25,7 @@ from antigravity_k.engine.tool_masker import ActiveToolMasker
 
 def run_benchmark():
     print("=" * 60)
-    print("🚀 Running Antigravity-K 27B/30B Amplification Benchmark")
+    print("🚀 Running Ssak-Ai 27B/30B Amplification Benchmark")
     print("=" * 60)
 
     score = 0

@@ -1,4 +1,4 @@
-# Antigravity-K: Python Dependencies
+# Ssak-Ai: Python Dependencies
 #
 # This file is a convenience mirror of pyproject.toml for environments that use
 # pip install -r directly. The canonical source of truth is pyproject.toml.

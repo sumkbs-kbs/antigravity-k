@@ -1,4 +1,4 @@
-"""Antigravity-K: 프로토콜 변환기.
+"""Ssak-Ai: 프로토콜 변환기.
 
 ==============================
 9Router의 formats.js 패턴 이식 — OpenAI / Anthropic / 내부 포맷 간 자동 변환.
@@ -123,7 +123,7 @@ class APIFormat(Enum):
 
     OPENAI = "openai"  # OpenAI Chat Completion API
     ANTHROPIC = "anthropic"  # Anthropic Messages API
-    INTERNAL = "internal"  # Antigravity-K 내부 포맷
+    INTERNAL = "internal"  # Ssak-Ai 내부 포맷
 
 
 class ProtocolTranslator:
@@ -231,7 +231,7 @@ class ProtocolTranslator:
 
     # ─── 내부 포맷 정의 ──────────────────────────────────────────────
     #
-    # Antigravity-K 내부 포맷:
+    # Ssak-Ai 내부 포맷:
     # {
     #     "prompt": str,                      # 최종 프롬프트 텍스트
     #     "system": str,                      # 시스템 메시지

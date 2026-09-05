@@ -1,4 +1,4 @@
-"""Antigravity-K: Meta-Architect Engine (Level 3 자율 아키텍처 재설계).
+"""Ssak-Ai: Meta-Architect Engine (Level 3 자율 아키텍처 재설계).
 
 ================================================================
 에이전트가 전체 시스템 아키텍처를 분석하고, 구조적 병목을 해결하기 위해
@@ -92,9 +92,7 @@ class MetaArchitect:
         """
         self.project_root: str = project_root
         self.ollama_url: str = (
-            ollama_url
-            if ollama_url is not None
-            else config.model.api_base.replace("/v1", "").rstrip("/")
+            ollama_url if ollama_url is not None else config.model.api_base.replace("/v1", "").rstrip("/")
         )
         self.manager: object | None = model_manager
         self._engine_dir: str = os.path.join(project_root, "src", "antigravity_k", "engine")
@@ -267,10 +265,7 @@ class MetaArchitect:
             history: list[JsonMap] = []
             if os.path.exists(self._archive_path):
                 with open(self._archive_path, encoding="utf-8") as f:
-                    history = [
-                        dict(_as_mapping(item))
-                        for item in _as_object_list(_load_json(f.read()))
-                    ]
+                    history = [dict(_as_mapping(item)) for item in _as_object_list(_load_json(f.read()))]
 
             history.append(
                 {

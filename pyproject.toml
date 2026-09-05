@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "antigravity-k"
 dynamic = ["version"]
-description = "Antigravity-K: Local Autonomous Engineering Agent for Apple Silicon"
+description = "Ssak-Ai: Local Autonomous Engineering Agent for Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -26,7 +26,7 @@ dependencies = [
     "networkx>=3.0,<4.0",
     "rank-bm25>=0.2.2,<0.3",
     "nest-asyncio>=1.6.0,<2.0",
-    "cryptography>=48.0.0,<50.0",
+    "cryptography>=50.0.1,<51.0",
     "textual>=8.0.0,<9.0",
     "filelock>=3.16.0,<4.0",
     "pyjwt>=2.8.0,<3.0",
@@ -62,8 +62,8 @@ rag = [
 ]
 # 개발 & 테스트
 dev = [
-    "pytest>=8.3.0,<9.0",
-    "pytest-asyncio>=0.24.0,<1.0",
+    "pytest>=9.0.3,<10.0",
+    "pytest-asyncio>=1.4.0,<2.0",
     "pytest-cov>=6.0,<8.0",
     "ruff>=0.8.0,<1.0",
     "basedpyright>=1.39.0,<2.0",
@@ -76,9 +76,18 @@ dev = [
 ]
 # 파인튜닝 (데이터셋 처리, LoRA) — 선택적
 finetune = [
-    "datasets>=2.19.0,<4.0",
+    "datasets>=5.0.1,<6.0",
     "alembic>=1.13.0,<2.0",
 ]
+# 문서 소스 기반 학습 데이터셋 (data_recipes PDF/DOCX 변환) — 선택적
+documents = [
+    "pypdf>=6.1.0,<7.0",
+    "python-docx>=1.1.0,<2.0",
+]
+# GPU 파인튜닝 스크립트 API 드리프트 가드 (unsloth_script_api, Phase 53→54)는 extra로
+# 정의하지 않는다 — unsloth의 datasets<4.4 요구가 finetune extra(datasets>=5)와 정면 충돌해
+# extra 조합 해석이 깨진다. 대신 주간 drift-guard CI job이 `uv pip install`로 직접 설치한다
+# (.github/workflows/weekly-drift.yml).
 
 [project.scripts]
 agk = "antigravity_k.cli:app"
@@ -90,6 +99,9 @@ where = ["src"]
 antigravity_k = [
     "config.yaml",
     "py.typed",
+    "release/python.cdx.json",
+    "release/dashboard.cdx.json",
+    "release/THIRD_PARTY_NOTICES.txt",
     "dashboard_dist/*",
     "dashboard_dist/assets/*",
     "prompts/*",
@@ -203,4 +215,4 @@ ignore_missing_imports = true
 
 [tool.coverage.html]
 directory = "coverage_html"
-title = "Antigravity-K Coverage Report"
+title = "Ssak-Ai Coverage Report"

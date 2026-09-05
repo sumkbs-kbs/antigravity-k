@@ -1,4 +1,4 @@
-"""Antigravity-K: BenchmarkHarness 단위 테스트.
+"""Ssak-Ai: BenchmarkHarness 단위 테스트.
 ============================================
 mock ModelManager로 BenchmarkHarness 실행 플로우를 검증합니다.
 """
@@ -30,25 +30,29 @@ def mock_model_manager() -> MagicMock:
     """ModelManager를 모킹합니다."""
     manager = MagicMock(spec=ModelManager)
     # generate() 호출 시 항상 유효한 한국어 코드 응답을 반환
-    _set_mock_return(manager, "generate", (
-        "### 🔍 분석\n\n피보나치 수열을 구하는 함수입니다.\n\n"
-        "### 💻 구현 코드\n\n"
-        "```python\n"
-        "def fibonacci(n: int) -> int:\n"
-        "    if n < 0:\n"
-        "        raise ValueError('음수는 허용되지 않습니다')\n"
-        "    if n <= 1:\n"
-        "        return n\n"
-        "    a, b = 0, 1\n"
-        "    for _ in range(2, n + 1):\n"
-        "        a, b = b, a + b\n"
-        "    return b\n"
-        "```\n\n"
-        "### 📊 설명\n\n"
-        "- 반복 방법의 시간복잡도는 O(n)이며, 공간복잡도는 O(1)입니다.\n"
-        "- 재귀 방법의 시간복잡도는 O(2^n)이며, 메모이제이션 없이는 비효율적입니다.\n\n"
-        "💡 팁: 큰 n에 대해서는 반복 방법을 사용하세요."
-    ))
+    _set_mock_return(
+        manager,
+        "generate",
+        (
+            "### 🔍 분석\n\n피보나치 수열을 구하는 함수입니다.\n\n"
+            "### 💻 구현 코드\n\n"
+            "```python\n"
+            "def fibonacci(n: int) -> int:\n"
+            "    if n < 0:\n"
+            "        raise ValueError('음수는 허용되지 않습니다')\n"
+            "    if n <= 1:\n"
+            "        return n\n"
+            "    a, b = 0, 1\n"
+            "    for _ in range(2, n + 1):\n"
+            "        a, b = b, a + b\n"
+            "    return b\n"
+            "```\n\n"
+            "### 📊 설명\n\n"
+            "- 반복 방법의 시간복잡도는 O(n)이며, 공간복잡도는 O(1)입니다.\n"
+            "- 재귀 방법의 시간복잡도는 O(2^n)이며, 메모이제이션 없이는 비효율적입니다.\n\n"
+            "💡 팁: 큰 n에 대해서는 반복 방법을 사용하세요."
+        ),
+    )
     # _registry._raw for _default_targets()
     registry = MagicMock()
     _ = setattr(registry, "_raw", {"combos": {"collective-council": {"models": ["model-a", "model-b", "model-c"]}}})
@@ -176,11 +180,15 @@ class TestBenchmarkCases:
 
     def test_quality_gate_uses_case_category_for_non_coding_tasks(self, harness: BenchmarkHarness):
         case = get_suite("srch-002")[0]
-        _set_mock_return(_manager_mock(harness), "generate", (
-            "- AI 반도체 시장의 최신 동향입니다.\n"
-            "- 출처: https://example.com/report\n"
-            "- 핵심 변화와 영향을 정리했습니다."
-        ))
+        _set_mock_return(
+            _manager_mock(harness),
+            "generate",
+            (
+                "- AI 반도체 시장의 최신 동향입니다.\n"
+                "- 출처: https://example.com/report\n"
+                "- 핵심 변화와 영향을 정리했습니다."
+            ),
+        )
 
         result = harness.run_case(case, ["test-model"])[0]
 
@@ -206,10 +214,14 @@ class TestBenchmarkCases:
         case = get_suite("srch-002")[0]
         quality_gate = cast(object, getattr(harness, "_quality_gate"))
         setattr(quality_gate, "max_retries", 1)
-        _set_mock_side_effect(_manager_mock(harness), "generate", [
-            "최신 동향을 단정합니다.",
-            "최신 동향은 출처와 함께 확인해야 합니다.\n출처: https://example.com",
-        ])
+        _set_mock_side_effect(
+            _manager_mock(harness),
+            "generate",
+            [
+                "최신 동향을 단정합니다.",
+                "최신 동향은 출처와 함께 확인해야 합니다.\n출처: https://example.com",
+            ],
+        )
 
         result = harness.run_case(case, ["test-model"])[0]
 
@@ -219,7 +231,9 @@ class TestBenchmarkCases:
     def test_quality_revision_uses_second_attempt_when_first_is_still_weak(self, harness: BenchmarkHarness):
         case = get_suite("sim-001")[0]
         valid = cast(object, getattr(_mock_method(_manager_mock(harness), "generate"), "return_value"))
-        _set_mock_side_effect(_manager_mock(harness), "generate", ["응답이 너무 짧습니다.", "여전히 요구사항이 부족합니다.", valid])
+        _set_mock_side_effect(
+            _manager_mock(harness), "generate", ["응답이 너무 짧습니다.", "여전히 요구사항이 부족합니다.", valid]
+        )
 
         result = harness.run_case(case, ["test-model"])[0]
 
@@ -572,10 +586,14 @@ class TestVerifiedCodeExecution:
             prompt="print 5050",
             expected_output="5050",
         )
-        _set_mock_side_effect(mock_model_manager, "generate", [
-            "```python\nprint(1234)\n```",
-            "```python\nprint(5050)\n```",
-        ])
+        _set_mock_side_effect(
+            mock_model_manager,
+            "generate",
+            [
+                "```python\nprint(1234)\n```",
+                "```python\nprint(5050)\n```",
+            ],
+        )
 
         # When: the harness executes the first answer, detects the mismatch, and revises.
         result = _execute_single(harness, case, "qwen3.6:latest")

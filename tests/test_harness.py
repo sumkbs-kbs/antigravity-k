@@ -479,13 +479,13 @@ class TestDashboardLoad:
     def test_load_success_by_title(self):
         harness = TestHarness(base_url="http://test:8000", dashboard_url="http://test:5173")
         intent = TestIntent(id="dashboard_load", intent="load", category="ui", priority=1, timeout_sec=15)
-        page = _MockPage(title=AsyncMock(return_value="Antigravity-K Dashboard"))
+        page = _MockPage(title=AsyncMock(return_value="Ssak-Ai Dashboard"))
 
         import asyncio
 
         result = asyncio.run(_test_dashboard_load(harness, page, intent))
         assert result.status == TestStatus.PASSED
-        assert "Antigravity" in result.message
+        assert "Ssak-Ai" in result.message
 
     def test_load_success_by_app_selector(self):
         harness = TestHarness(base_url="http://test:8000", dashboard_url="http://test:5173")

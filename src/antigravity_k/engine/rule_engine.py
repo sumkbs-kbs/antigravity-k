@@ -1,4 +1,4 @@
-"""Antigravity-K: Rule Engine for Deterministic Routing.
+"""Ssak-Ai: Rule Engine for Deterministic Routing.
 =====================================================
 
 StateGraph의 비결정론적 LLM 기반 라우팅을 규칙 엔진으로 대체합니다.

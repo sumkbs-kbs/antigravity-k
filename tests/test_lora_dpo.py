@@ -104,6 +104,11 @@ class TestDpoConfigGeneration:
         )
         assert config["platform"] == "mlx"
         assert "--fine-tune-type dora" in config["command"]
+        # mlx-lm 0.31.x: --lora-layers 플래그 제거됨, --num-layers가 정식 이름
+        assert "--num-layers" in config["command"]
+        assert "--lora-layers" not in config["command"]
+        # unsloth 가이드: DPO/RL 학습률 권장값 5e-6
+        assert "--learning-rate 5e-6" in config["command"]
         assert (tmp_path / "out" / "dpo_config.json").exists()
 
     def test_unsloth_platform_config(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -119,6 +124,38 @@ class TestDpoConfigGeneration:
         assert config["platform"] == "unsloth"
         assert "DPOTrainer" in config["script"]
         assert "beta=0.1" in config["script"]
+        # unsloth DPO 노트북 기준 갱신 값 검증
+        assert "ref_model=None" in config["script"]
+        assert 'optim="adamw_8bit"' in config["script"]
+        assert "warmup_ratio=0.1" in config["script"]
+        assert "num_train_epochs=1" in config["script"]
+        assert "warmup_steps" not in config["script"]
+
+    def test_sft_script_uses_unsloth_guide_values(self) -> None:
+        """SFT 스크립트가 unsloth LoRA 하이퍼파라미터 가이드 기준값을 따르는지."""
+        config = LoRAPipeline._unsloth_config("model-x", "data.jsonl", "out")
+        script = str(config["script"])
+        # effective batch size 16 = batch 2 × grad-accum 8 (unsloth 가이드 권장)
+        assert "per_device_train_batch_size=2" in script
+        assert "gradient_accumulation_steps=8" in script
+        assert "num_train_epochs=1" in script
+        assert "warmup_ratio=0.03" in script
+        assert "weight_decay=0.01" in script
+        assert "learning_rate=2e-4" in script
+        hyper = config["hyperparameters"]
+        assert hyper["gradient_accumulation_steps"] == 8
+        assert hyper["num_train_epochs"] == 1
+        assert "max_steps" not in hyper  # epochs 기반으로 전환
+
+    def test_mlx_sft_command_flag_names_current(self) -> None:
+        """mlx-lm 0.31.x 플래그 이름 검증 — --lora-layers는 제거된 구형 이름."""
+        config = LoRAPipeline._mlx_lora_config("model-x", "data.jsonl", "out")
+        command = str(config["command"])
+        assert "--num-layers" in command
+        assert "--lora-layers" not in command
+        hyper = config["hyperparameters"]
+        assert "num_layers" in hyper
+        assert "lora_layers" not in hyper
 
 
 def test_preference_pair_to_dpo_format():

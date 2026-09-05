@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
@@ -85,8 +86,17 @@ class PersistentAgencyStore:
     """SQLite-backed append-only trajectory and objective store."""
 
     def __init__(self, db_path: str) -> None:
-        self.db_path: str = db_path
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        p = Path(db_path)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            test_file = p.parent / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            self.db_path = str(p)
+        except OSError:
+            fallback_dir = Path.home() / ".antigravity-k"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.db_path = str(fallback_dir / p.name)
         self._initialize()
 
     @contextmanager
@@ -168,10 +178,16 @@ class PersistentAgencyStore:
 
     def list_events(self, project_id: str, trajectory_id: str, limit: int = 1_000) -> list[TrajectoryEvent]:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT event_id, project_id, trajectory_id, branch_id, parent_event_id, event_type, payload_json, sensitivity, created_at FROM agency_events WHERE project_id = ? AND trajectory_id = ? ORDER BY event_id ASC LIMIT ?",
-                (project_id, trajectory_id, limit),
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute(
+                        "SELECT event_id, project_id, trajectory_id, branch_id, parent_event_id, event_type, payload_json, sensitivity, created_at FROM agency_events WHERE project_id = ? AND trajectory_id = ? ORDER BY event_id ASC LIMIT ?",
+                        (project_id, trajectory_id, limit),
+                    ),
+                ),
+            )
             rows = cursor.fetchall()
         return [self._event_from_row(row) for row in rows]
 
@@ -195,28 +211,44 @@ class PersistentAgencyStore:
 
     def get_objective(self, objective_id: str) -> Objective | None:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT * FROM agency_objectives WHERE objective_id = ?", (objective_id,)
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute("SELECT * FROM agency_objectives WHERE objective_id = ?", (objective_id,)),
+                ),
+            )
             row = cursor.fetchone()
         return self._objective_from_row(row) if row else None
 
     def list_objectives(self, project_id: str, limit: int = 100) -> list[Objective]:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT * FROM agency_objectives WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT ?",
-                (project_id, max(1, limit)),
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute(
+                        "SELECT * FROM agency_objectives WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+                        (project_id, max(1, limit)),
+                    ),
+                ),
+            )
             rows = cursor.fetchall()
         return [self._objective_from_row(row) for row in rows]
 
     def claim_next_objective(self, project_id: str) -> Objective | None:
         with self._connection() as connection:
             _ = connection.execute("BEGIN IMMEDIATE")
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT * FROM agency_objectives WHERE project_id = ? AND status = ? ORDER BY priority DESC, created_at ASC LIMIT 1",
-                (project_id, ObjectiveStatus.PENDING.value),
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute(
+                        "SELECT * FROM agency_objectives WHERE project_id = ? AND status = ? ORDER BY priority DESC, created_at ASC LIMIT 1",
+                        (project_id, ObjectiveStatus.PENDING.value),
+                    ),
+                ),
+            )
             row = cursor.fetchone()
             if row is None:
                 return None
@@ -281,10 +313,16 @@ class PersistentAgencyStore:
 
     def objective_task(self, task_id: str) -> tuple[str, str, str] | None:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT objective_id, project_id, trajectory_id FROM agency_objective_tasks WHERE task_id = ?",
-                (task_id,),
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute(
+                        "SELECT objective_id, project_id, trajectory_id FROM agency_objective_tasks WHERE task_id = ?",
+                        (task_id,),
+                    ),
+                ),
+            )
             row = cursor.fetchone()
         if row is None:
             return None
@@ -300,19 +338,31 @@ class PersistentAgencyStore:
 
     def list_objective_tasks(self, project_id: str) -> list[str]:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT t.task_id FROM agency_objective_tasks AS t JOIN agency_objectives AS o ON o.objective_id = t.objective_id WHERE t.project_id = ? AND o.status = ? ORDER BY t.created_at ASC",
-                (project_id, ObjectiveStatus.CLAIMED.value),
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute(
+                        "SELECT t.task_id FROM agency_objective_tasks AS t JOIN agency_objectives AS o ON o.objective_id = t.objective_id WHERE t.project_id = ? AND o.status = ? ORDER BY t.created_at ASC",
+                        (project_id, ObjectiveStatus.CLAIMED.value),
+                    ),
+                ),
+            )
             rows = cursor.fetchall()
         return [str(row["task_id"]) for row in rows]
 
     def has_pending_objective(self, project_id: str) -> bool:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT 1 FROM agency_objectives WHERE project_id = ? AND status IN (?, ?) LIMIT 1",
-                (project_id, ObjectiveStatus.PENDING.value, ObjectiveStatus.CLAIMED.value),
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object,
+                    connection.execute(
+                        "SELECT 1 FROM agency_objectives WHERE project_id = ? AND status IN (?, ?) LIMIT 1",
+                        (project_id, ObjectiveStatus.PENDING.value, ObjectiveStatus.CLAIMED.value),
+                    ),
+                ),
+            )
             row = cursor.fetchone()
         return row is not None
 
@@ -325,9 +375,12 @@ class PersistentAgencyStore:
 
     def is_paused(self, project_id: str) -> bool:
         with self._connection() as connection:
-            cursor = cast(_CursorLike, cast(object, connection.execute(
-                "SELECT paused FROM agency_controls WHERE project_id = ?", (project_id,)
-            )))
+            cursor = cast(
+                _CursorLike,
+                cast(
+                    object, connection.execute("SELECT paused FROM agency_controls WHERE project_id = ?", (project_id,))
+                ),
+            )
             row = cursor.fetchone()
         return bool(row and row["paused"])
 
@@ -340,7 +393,10 @@ class PersistentAgencyStore:
             str(row["branch_id"]),
             cast(int | None, row["parent_event_id"]),
             EventType(str(row["event_type"])),
-            cast(Mapping[str, JsonValue], cast(object, json.loads(str(row["payload_json"]))),),
+            cast(
+                Mapping[str, JsonValue],
+                cast(object, json.loads(str(row["payload_json"]))),
+            ),
             str(row["sensitivity"]),
             str(row["created_at"]),
         )

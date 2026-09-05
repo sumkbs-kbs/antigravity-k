@@ -74,6 +74,7 @@ def _widen_graph_record(record: Mapping[str, object]) -> dict[str, object]:
         widened[key] = value
     return widened
 
+
 # Global instances
 model_manager: ModelManager | None = None
 protocol_translator: ProtocolTranslator | None = None
@@ -197,7 +198,9 @@ def _clear_project_vector() -> int:
 
 
 def _clear_search_cache() -> int:
-    cache_dir = Path.cwd() / "data" / "search_cache"
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
+
+    cache_dir = CACHE_DIR
     if not cache_dir.exists():
         return 0
 
@@ -287,7 +290,9 @@ def _redact_project_vector() -> int:
 
 
 def _export_search_cache() -> list[dict[str, JsonValue]]:
-    cache_dir = Path.cwd() / "data" / "search_cache"
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
+
+    cache_dir = CACHE_DIR
     if not cache_dir.exists():
         return []
     records: list[dict[str, JsonValue]] = []
@@ -302,6 +307,7 @@ def _export_search_cache() -> list[dict[str, JsonValue]]:
 
 def _redact_search_cache() -> int:
     from antigravity_k.engine.secret_scanner import redact_full
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
 
     changed = 0
     for record in _export_search_cache():
@@ -311,7 +317,7 @@ def _redact_search_cache() -> int:
             cache_file = _json_text(record.get("file"))
             if not cache_file:
                 continue
-            _ = (Path.cwd() / "data" / "search_cache" / cache_file).write_text(redacted, encoding="utf-8")
+            _ = (CACHE_DIR / cache_file).write_text(redacted, encoding="utf-8")
             changed += 1
     return changed
 
@@ -320,6 +326,8 @@ def _retain_search_cache(max_age_days: int) -> int:
     if max_age_days < 0:
         raise ValueError("max_age_days must be non-negative")
     from datetime import UTC, datetime, timedelta
+
+    from antigravity_k.tools.web_search_cache import CACHE_DIR
 
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     deleted = 0
@@ -336,7 +344,7 @@ def _retain_search_cache(max_age_days: int) -> int:
                 cache_file = _json_text(record.get("file"))
                 if not cache_file:
                     continue
-                (Path.cwd() / "data" / "search_cache" / cache_file).unlink()
+                (CACHE_DIR / cache_file).unlink()
                 deleted += 1
             except OSError:
                 continue

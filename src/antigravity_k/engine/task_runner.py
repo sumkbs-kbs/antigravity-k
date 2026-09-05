@@ -226,8 +226,17 @@ class BackgroundTaskRunner:
             if configured_path:
                 db_path = configured_path
             else:
-                base_dir = Path(__file__).resolve().parent.parent / "data"
-                base_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    from antigravity_k.config import config
+
+                    base_dir = config.paths.data_dir
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                    test_file = base_dir / f".agk_write_test_{os.getpid()}"
+                    test_file.touch()
+                    test_file.unlink()
+                except OSError:
+                    base_dir = Path.home() / ".antigravity-k" / "data"
+                    base_dir.mkdir(parents=True, exist_ok=True)
                 db_path = str(base_dir / "tasks.db")
 
         self.db_path = db_path

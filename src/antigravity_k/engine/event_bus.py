@@ -10,6 +10,17 @@ from typing import Protocol, cast
 
 logger = logging.getLogger(__name__)
 
+# HookEventBus의 hook kind → plain EventBus 이벤트 이름 변환 (브릿지 전용).
+# 직접 발행자가 있는 이벤트(ToolExecutionStarted/Finished, FailureDetected 등)는
+# 이중 발행을 막기 위해 여기에 넣지 않는다 — 이 목록은 반드시 "직접 발행자가 없는"
+# 이벤트만 담아야 한다. 추가/삭제 시 tests/test_event_bus.py의 브릿지 테스트와
+# tests/test_events.py의 발행자 문서화 테스트를 함께 갱신할 것.
+HOOK_KIND_TO_EVENT_NAME: dict[str, str] = {
+    "agent-turn-start": "AgentTurnStarted",
+    "agent-turn-end": "AgentTurnEnded",
+}
+
+
 class _SyncCallback(Protocol):
     def __call__(self, **kwargs: object) -> object: ...
 
@@ -45,7 +56,7 @@ class _HookEventBusLike(Protocol):
 class EventBus:
     """비동기/동기 이벤트 버스 (Pub/Sub).
 
-    Antigravity-K의 단일 동기 루프의 병목을 해소하고,
+    Ssak-Ai의 단일 동기 루프의 병목을 해소하고,
     다양한 모듈(인지, 로깅, UI)이 이벤트 기반으로 통신할 수 있게 합니다.
     """
 
@@ -208,6 +219,11 @@ def bridge_to_hook_event_bus(
                 cast(Mapping[str, object], payload_value) if isinstance(payload_value, Mapping) else {}
             )
             _ = original_publish(f"Hook:{kind}", **payload)
+            # 직접 발행자가 없는 hook kind는 plain 이벤트 이름으로도 발행한다
+            # (예: AgentTurnStarted/Ended → kanban_api 구독자 연동).
+            plain_name = HOOK_KIND_TO_EVENT_NAME.get(kind)
+            if plain_name is not None:
+                _ = original_publish(plain_name, **payload)
 
         hook_bus.subscribe_all(on_hook_event)
 

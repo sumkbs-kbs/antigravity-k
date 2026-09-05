@@ -1,4 +1,4 @@
-"""Antigravity-K: External Brain E2E Integration Test.
+"""Ssak-Ai: External Brain E2E Integration Test.
 ==================================================
 ExternalBrainRouter의 엔드투엔드 위임 동작을 검증합니다.
 """

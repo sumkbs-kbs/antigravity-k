@@ -1,4 +1,4 @@
-"""Antigravity-K: Self-Improvement Feedback Loop.
+"""Ssak-Ai: Self-Improvement Feedback Loop.
 
 ===============================================
 매 턴의 QualityGate 점수를 누적 기록하고, 반복적으로 낮은 점수를 받는

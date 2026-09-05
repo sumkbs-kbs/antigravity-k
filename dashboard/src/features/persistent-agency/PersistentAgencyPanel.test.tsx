@@ -19,7 +19,7 @@ vi.mock('./persistentAgencyApi', () => ({
 }));
 
 const status = {
-  project_id: '/workspace/antigravity-k',
+  project_id: '/workspace/Ssak-Ai',
   enabled: true,
   paused: false,
   scheduler: { should_wake: true, reason: 'objective_ready', delay_seconds: 0, objective_id: 'objective-1' },

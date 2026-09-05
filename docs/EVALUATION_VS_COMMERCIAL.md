@@ -1,4 +1,4 @@
-# Antigravity-K 상용 서비스 대비 완성도 평가 (냉정한 버전)
+# Ssak-Ai 상용 서비스 대비 완성도 평가 (냉정한 버전)
 
 > 작성일: 2026-08-23 · 평가 기준 커밋: 작업 브랜치 HEAD
 > 비교 대상: **OpenAI Codex CLI** (오픈소스 코딩 에이전트), **Unsloth** (LLM 파인튜닝 툴체인)
@@ -10,7 +10,7 @@
 
 **기능 나열은 상용 서비스를 능가하지만, 기능의 "깊이"와 "신뢰성"에서 격차가 있다.**
 Codex CLI는 좁지만 철벽적인 실행 인프라(sandbox 강제, apply-patch 원자성, 검증 루프)를 갖추었고,
-Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 구현되어 있었다(예: Speculative Branching의
+Ssak-Ai는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 구현되어 있었다(예: Speculative Branching의
 "병렬+worktree" 주장 → 실제로는 순차+빈 tempdir. 이번 사이클에서 수정).
 30B 로컬 모델로 프론티어급 성능을 내려면 "더 많은 검증된 시도"가 필요하며,
 이번에 그 핵심 메커니즘(실행 검증 Best-of-N)을 프로덕션 경로에 통합했다.
@@ -23,7 +23,7 @@ Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 �
 
 > 외부 팩트 출처: developers.openai.com/codex (agent-approvals-security, sandboxing, cli/reference, mcp, config-advanced) — 2026-08 검증
 
-| 역량 | Codex CLI | Antigravity-K | 우위 |
+| 역량 | Codex CLI | Ssak-Ai | 우위 |
 |---|---|---|---|
 | 샌드박스 | **기본 활성**: macOS Seatbelt(`sandbox-exec -p`) / Linux bwrap+seccomp, workspace-write 기본, **네트워크 기본 차단**, 파생 프로세스까지 상속 | `sandbox-exec`(seatbelt) 선택적(`sandbox_enabled`), approval manager 존재, 네트워크 차단 기본 아님 | Codex |
 | 승인 흐름 | untrusted/on-request/never/granular 4종 + **auto_review**(승인 요청을 리뷰어 에이전트가 자동 검토) | approval manager(diff 미리보기, 수락/거부/항상허용) + **fail-closed 자동 정책 검토·대시보드 표시** | 무승부* |
@@ -56,7 +56,7 @@ Antigravity-K는 넓지만 일부 모듈이 문서 주장과 다르게 얕게 �
 
 > 외부 팩트 출처: unsloth.ai/docs (fine-tuning-llms-guide, unsloth-requirements), github.com/unslothai/unsloth README, unsloth-zoo PR #620 / unsloth PR #5265 (MLX 지원) — 2026-08 검증
 
-| 역량 | Unsloth | Antigravity-K (LoRAPipeline) |
+| 역량 | Unsloth | Ssak-Ai (LoRAPipeline) |
 |---|---|---|
 | 학습 실행 | **실제 학습 수행** — 공식 주장 기준 2x 빠른 학습·70% VRAM 절감, dynamic 4-bit 양자화로 QLoRA 정확도 손실 회복 | 설정 생성만 수행, 실행은 외부 mlx-lm/Unsloth에 위임 |
 | 방법 커버리지 | SFT/LoRA/QLoRA/full FT/pretraining + RL(GRPO/GSPO) + **DPO/ORPO/KTO** + FP8 + vision/TTS/embedding | SFT 데이터셋 + DPO 데이터셋 준비 (학습 실행 없음) |

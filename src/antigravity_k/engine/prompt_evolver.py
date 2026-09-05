@@ -1,4 +1,4 @@
-"""Antigravity-K: Prompt Evolver (OPRO 기반 프롬프트 자동 최적화).
+"""Ssak-Ai: Prompt Evolver (OPRO 기반 프롬프트 자동 최적화).
 
 =============================================================
 LLM이 자기 시스템 프롬프트를 분석하고 최적화하는 자동 진화 엔진.
@@ -15,7 +15,7 @@ LLM이 자기 시스템 프롬프트를 분석하고 최적화하는 자동 진�
 
   "내가 하는 것과 같은 행위":
     - 나(Antigravity)가 프롬프트를 수정하는 것과 정확히 같은 방식으로
-    - Antigravity-K의 LLM이 자기 프롬프트를 수정합니다.
+    - Ssak-Ai의 LLM이 자기 프롬프트를 수정합니다.
 """
 
 from __future__ import annotations
@@ -484,4 +484,4 @@ class PromptEvolver:
             logger.exception("[PromptEvolver] 이력 저장 실패")
 
 
-"""Antigravity-K Prompt Evolver — OPRO-based automated prompt optimization."""
+"""Ssak-Ai Prompt Evolver — OPRO-based automated prompt optimization."""

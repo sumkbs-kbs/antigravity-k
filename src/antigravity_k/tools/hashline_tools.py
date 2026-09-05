@@ -34,7 +34,7 @@ def _mapping_chunks(value: object) -> list[Params] | None:
 def compute_line_hash(line: str) -> str:
     """Compute a short hash for a given line of code."""
     # Use MD5 or SHA256 and take first 4-6 chars
-    return hashlib.md5(line.encode("utf-8")).hexdigest()[:4].upper()
+    return hashlib.md5(line.encode("utf-8"), usedforsecurity=False).hexdigest()[:4].upper()
 
 
 @final

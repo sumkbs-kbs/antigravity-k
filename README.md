@@ -1,11 +1,11 @@
 <div align="center">
 
-# Antigravity-K 🚀
+# Ssak-Ai 🚀
 
 **Qwen3.8 27B 로컬 우선 자율형 엔지니어링 에이전트 — Apple Silicon 최적화**
 
-[![CI](https://github.com/sumkbs-kbs/antigravity-k/actions/workflows/ci.yml/badge.svg)](https://github.com/sumkbs-kbs/antigravity-k/actions/workflows/ci.yml)
-[![Benchmark Dashboard](https://img.shields.io/badge/📊_Benchmark_Dashboard-GitHub_Pages-9C27B0?style=for-the-badge)](https://sumkbs-kbs.github.io/antigravity-k/benchmark/)
+[![CI](https://github.com/ssak-comp/Ssak-Ai/actions/workflows/ci.yml/badge.svg)](https://github.com/ssak-comp/Ssak-Ai/actions/workflows/ci.yml)
+[![Benchmark Dashboard](https://img.shields.io/badge/📊_Benchmark_Dashboard-GitHub_Pages-9C27B0?style=for-the-badge)](https://ssak-comp.github.io/Ssak-Ai/benchmark/)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Ruff](https://img.shields.io/badge/code_style-ruff-000000)](https://github.com/astral-sh/ruff)
@@ -14,8 +14,8 @@
 
 ---
 
-> Apple Silicon에서 Ollama `qwen3.8`을 기본으로 사용하는 로컬 우선 자율형 엔지니어링 에이전트입니다.
-> Ollama, 직접 MLX, LM Studio OpenAI 호환 서버를 하나의 모델 레지스트리와 CLI로 연결하고, 계획·도구 호출·RAG·메모리·평가 루프로 로컬 모델의 작업 품질을 보강합니다.
+> Apple Silicon에서 Ollama `qwen3.8`을 기본으로 사용하는 로컬 우선 자율형 엔지니어링 에이전트 **Ssak-Ai**입니다.
+> Ollama, 직접 MLX, LM Studio OpenAI 호환 서버를 하나의 모델 레지스트리와 CLI, 모던 데스크톱 대시보드로 연결하고, 계획·도구 호출·RAG·메모리·평가 루프로 로컬 모델의 작업 품질을 극대화합니다.
 
 ## 기능
 
@@ -61,8 +61,8 @@
 
 ```bash
 # 1. 저장소 클론
-git clone https://github.com/sumkbs-kbs/antigravity-k.git
-cd antigravity-k
+git clone https://github.com/ssak-comp/Ssak-Ai.git
+cd Ssak-Ai
 
 # 2. 의존성 설치 (개발·RAG·직접 MLX 런타임 포함)
 uv sync --extra dev --extra rag --extra mlx
@@ -109,7 +109,7 @@ make dev-dashboard
 ## 프로젝트 구조
 
 ```
-antigravity-k/
+Ssak-Ai/
 ├── src/antigravity_k/          # 메인 패키지
 │   ├── engine/                 # 코어 엔진
 │   │   ├── orchestrator/agent.py # 오케스트레이터 (상태 그래프)

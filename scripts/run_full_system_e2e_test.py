@@ -1,29 +1,15 @@
 #!/usr/bin/env python3
-"""Master End-to-End System Verification for Antigravity-K (Qwen3.8-27B).
+"""Master End-to-End System Verification for Ssak-Ai (Qwen3.8-27B).
 
 Executes a full flight mission from CLI-level fast path down to kernel verifiers.
 """
 
 import sys
-import tempfile
-from pathlib import Path
-
-# Add src to sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-from antigravity_k.engine.call_hierarchy_graph import CallHierarchyGraph
-from antigravity_k.engine.code_verifier import DeterministicCodeVerifier
-from antigravity_k.engine.fast_path_kernel import FastPathKernel
-from antigravity_k.engine.flight_controller import AutonomousFlightController
-from antigravity_k.engine.reflexion_memory import ReflexionMemory
-from antigravity_k.engine.static_type_security_gate import StaticTypeSecurityGate
-from antigravity_k.engine.working_memory_compactor import WorkingMemoryCompactor
-from antigravity_k.engine.zero_waste_compressor import ZeroWasteCompressor
 
 
-def run_master_e2e():
+def run_master_test():
     print("=" * 80)
-    print("🛸 MASTER END-TO-END SYSTEM TEST: ANTIGRAVITY-K (QWEN3.8-27B)")
+    print("🛸 MASTER END-TO-END SYSTEM TEST: SSAK-AI (QWEN3.8-27B)")
     print("=" * 80)
 
     score = 0

@@ -1,4 +1,4 @@
-"""Antigravity-K: External Brain Unit Tests.
+"""Ssak-Ai: External Brain Unit Tests.
 ==========================================
 ExternalBrainRouter 전략 라우팅, 어댑터 가용성 확인, 예외 처리 등
 GUI/브라우저 없이 단위 테스트 가능한 모든 코드 경로 검증.
@@ -30,6 +30,7 @@ def _response_side_effect(text: str, source: str, latency_ms: float = 0.0) -> Ca
         return BrainResponse(text=text, source=source, success=True, latency_ms=latency_ms)
 
     return respond
+
 
 # ─── BrainResponse ─────────────────────────────────────────────────
 
@@ -131,7 +132,9 @@ class TestExternalBrainRouterFallback:
     @pytest.mark.asyncio
     async def test_all_fail(self, mock_adapter: MagicMock):
         _mock_async(mock_adapter, "is_available").return_value = True
-        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="", source="mock_brain", success=False, error="fail")
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(
+            text="", source="mock_brain", success=False, error="fail"
+        )
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="fallback")
@@ -229,7 +232,9 @@ class TestExternalBrainRouterCompare:
     @pytest.mark.asyncio
     async def test_all_fail(self, mock_adapter: MagicMock):
         _mock_async(mock_adapter, "is_available").return_value = True
-        _mock_async(mock_adapter, "send").return_value = BrainResponse(text="", source="mock_brain", success=False, error="fail")
+        _mock_async(mock_adapter, "send").return_value = BrainResponse(
+            text="", source="mock_brain", success=False, error="fail"
+        )
         router = ExternalBrainRouter(adapters=[mock_adapter])
 
         result = await router.send("test", strategy="compare")

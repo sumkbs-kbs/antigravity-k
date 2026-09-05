@@ -24,7 +24,7 @@ import threading
 from collections.abc import Mapping
 from typing import ClassVar, TypedDict, cast
 
-# ─── Antigravity-K 로거 네임스페이스 ───────────────────────────
+# ─── Ssak-Ai 로거 네임스페이스 ───────────────────────────
 
 ROOT_LOGGER_NAME = "antigravity_k"
 

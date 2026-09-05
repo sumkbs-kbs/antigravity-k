@@ -1,4 +1,4 @@
-"""Antigravity-K: 벤치마크 하네스 (BenchmarkHarness).
+"""Ssak-Ai: 벤치마크 하네스 (BenchmarkHarness).
 
 ===================================================
 collective-council vs 단일 모델 품질/속도/토큰 효율 A/B 비교 엔진.
@@ -984,9 +984,7 @@ class BenchmarkHarness:
                         feedback = f"{intervention['reason']}\n{feedback}"
                     elif failure_sig in seen_failure_sigs:
                         # 클러스터 임계 미달 상태의 동일 지문 재시도도 차단한다.
-                        feedback = (
-                            f"{type(supervisor).build_stall_message('revision')}\n{feedback}"
-                        )
+                        feedback = f"{type(supervisor).build_stall_message('revision')}\n{feedback}"
                     seen_failure_sigs.add(failure_sig)
                 revised = self._quality_revision(case, output, feedback, target)
                 if not revised:

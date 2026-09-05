@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Antigravity-K: OpenAI 호환 API 통합 포워더 (Unified Proxy)
+"""Ssak-Ai: OpenAI 호환 API 통합 포워더 (Unified Proxy)
 ===========================================================
 모든 로컬 추론 엔진(mlx-lm, Ollama, vLLM, LM Studio)을
 단일 엔드포인트 http://localhost:1234/v1 로 통합합니다.
@@ -224,7 +224,7 @@ def scan_finetuned_models() -> None:
 
 
 app = FastAPI(
-    title="Antigravity-K API Forwarder",
+    title="Ssak-Ai API Forwarder",
     description="로컬 추론 엔진 통합 프록시",
     version="0.1.0",
 )
@@ -607,7 +607,7 @@ async def health_check():
 async def root():
     """루트 경로 — 사용법 안내."""
     return {
-        "service": "Antigravity-K API Forwarder",
+        "service": "Ssak-Ai API Forwarder",
         "version": "0.2.0",
         "endpoints": {
             "models": "/v1/models",
@@ -981,7 +981,7 @@ def main():
     """CLI에서 직접 실행."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Antigravity-K API Forwarder")
+    parser = argparse.ArgumentParser(description="Ssak-Ai API Forwarder")
     _ = parser.add_argument("--host", default="127.0.0.1", help="바인딩 호스트")
     _ = parser.add_argument("--port", type=int, default=1234, help="포트 (기본: 1234)")
     _ = parser.add_argument(

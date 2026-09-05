@@ -1,4 +1,4 @@
-"""Antigravity-K: 도구 호출 파서 (ToolCallParser).
+"""Ssak-Ai: 도구 호출 파서 (ToolCallParser).
 
 ==============================================
 스트리밍 LLM 출력에서 <tool_call>...</tool_call> 블록을

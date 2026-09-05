@@ -5,7 +5,6 @@ with accurate metadata and sensible recommended default.
 """
 
 from fastapi.testclient import TestClient
-import pytest
 
 from antigravity_k.api.server import app
 
@@ -67,4 +66,3 @@ def test_load_local_model():
     # Test invalid model returns 404
     bad_res = client.post("/api/models/load", json={"model": "non_existent_fake_model_xyz"})
     assert bad_res.status_code == 404
-

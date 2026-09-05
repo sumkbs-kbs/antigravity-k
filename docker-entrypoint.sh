@@ -1,5 +1,5 @@
 #!/bin/bash
-# Antigravity-K Docker Entrypoint
+# Ssak-Ai Docker Entrypoint
 set -e
 
 # If AGK_ACCESS_PIN is set, export it for the application
@@ -12,5 +12,5 @@ if [ -n "$AGK_CORS_ORIGINS" ]; then
     export AGK_CORS_ORIGINS
 fi
 
-echo "Starting Antigravity-K server..."
+echo "Starting Ssak-Ai server..."
 exec "$@"

@@ -1,10 +1,10 @@
 ---
-title: Antigravity-K MoE Swarm 아키텍처 및 안정성 패치 기록
+title: Ssak-Ai MoE Swarm 아키텍처 및 안정성 패치 기록
 tags: [architecture, antigravity-k, moe, swarm, troubleshooting]
 date: 2026-05-04
 ---
 
-# Antigravity-K 시스템 정비 및 아키텍처 진화 (2026-05-04)
+# Ssak-Ai 시스템 정비 및 아키텍처 진화 (2026-05-04)
 
 ## 1. 개요
 단일 모델에 의존하는 에이전트 구조의 한계를 탈피하고, 다국적/다중 모델이 교차 검증하는 **MoE(Mixture of Experts) Swarm 아키텍처**를 도입함. 또한 시스템 장기 구동 시 발생하는 JSON 파싱 에러, 테스트 프레임워크 혼동, 그리고 컨텍스트 폭발 등의 버그를 수정함.

@@ -1,4 +1,4 @@
-"""Antigravity-K: Context Compressor (Memory Pruning + RAG Retrieval).
+"""Ssak-Ai: Context Compressor (Memory Pruning + RAG Retrieval).
 
 ==================================================================
 Monitors conversation history and automatically compresses or prunes

@@ -1,4 +1,4 @@
-"""Antigravity-K: 스킬 자동 생성기 (Skill Generator).
+"""Ssak-Ai: 스킬 자동 생성기 (Skill Generator).
 
 ==================================================
 에이전트가 새로운 도구(auto_skill)를 자동으로 생성하는 메타-도구입니다.
@@ -305,7 +305,7 @@ class SkillGenerator:
     def _generate_spec(self, requirement: str) -> JsonObject | None:
         """LLM에게 도구 스펙 생성을 요청합니다."""
         prompt = (
-            "You are a tool specification generator for the Antigravity-K AI agent framework.\n"
+            "You are a tool specification generator for the Ssak-Ai AI agent framework.\n"
             "Given a requirement, generate a JSON specification for a new tool.\n\n"
             f"Requirement: {requirement}\n\n"
             "Return ONLY a JSON object with these fields:\n"

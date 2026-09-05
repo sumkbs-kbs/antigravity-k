@@ -1,4 +1,4 @@
-"""Antigravity-K: 하네스 엔지니어링 프레임워크.
+"""Ssak-Ai: 하네스 엔지니어링 프레임워크.
 
 ===========================================
 Intent 기반 테스트, Self-Healing Loop, 피드백 수집기를 포함한
@@ -181,7 +181,7 @@ class TestHarness:
 
     __test__: ClassVar[bool] = False
 
-    # Antigravity-K 대시보드 기본 테스트 시나리오
+    # Ssak-Ai 대시보드 기본 테스트 시나리오
     DEFAULT_INTENTS: ClassVar[list[TestIntent]] = [
         TestIntent(
             id="health_api",
@@ -546,7 +546,7 @@ class TestHarness:
         title = await page.title()
         elapsed = (time.time() - start) * 1000
 
-        if "Antigravity" in title or await page.query_selector("#app"):
+        if "Ssak-Ai" in title or "Antigravity" in title or await page.query_selector("#app"):
             return TestResult(intent.id, TestStatus.PASSED, elapsed, f"Dashboard loaded: {title}")
         else:
             return TestResult(intent.id, TestStatus.FAILED, elapsed, f"Unexpected title: {title}")

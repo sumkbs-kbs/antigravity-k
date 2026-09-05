@@ -1,4 +1,4 @@
-"""FastAPI application factory, middleware, and lifespan for the Antigravity-K API."""
+"""FastAPI application factory, middleware, and lifespan for the Ssak-Ai API."""
 
 import asyncio
 import logging
@@ -235,9 +235,9 @@ async def lifespan(app: FastAPI):
 from antigravity_k import __version__
 
 app = FastAPI(
-    title="Antigravity-K API",
+    title="Ssak-Ai API",
     description=(
-        "OpenAI-compatible API for Antigravity-K Local Engine — "
+        "OpenAI-compatible API for Ssak-Ai Local Engine — "
         "로컬 AI 엔지니어링 에이전트. 채팅, 웹 검색, 파일 조작, "
         "코드 생성/분석, Git 연동, 워크스페이스 관리 등 다양한 작업을 지원합니다.\n\n"
         "## 주요 기능\n"
@@ -255,9 +255,9 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
     contact={
-        "name": "Antigravity-K Team",
-        "url": "https://github.com/antigravity-k/antigravity-k",
-        "email": "team@antigravity-k.dev",
+        "name": "Ssak-Ai Team",
+        "url": "https://github.com/ssak-comp/Ssak-Ai",
+        "email": "team@ssak-ai.dev",
     },
     license_info={
         "name": "MIT",
@@ -265,11 +265,11 @@ app = FastAPI(
     },
     servers=[
         {"url": "http://localhost:8000", "description": "로컬 개발 서버"},
-        {"url": "https://api.antigravity-k.dev", "description": "프로덕션 서버"},
+        {"url": "https://api.ssak-ai.dev", "description": "프로덕션 서버"},
     ],
     externalDocs={
         "description": "온보딩 가이드",
-        "url": "https://github.com/antigravity-k/antigravity-k/blob/main/ONBOARDING.md",
+        "url": "https://github.com/ssak-comp/Ssak-Ai/blob/main/ONBOARDING.md",
     },
     # 태그 메타데이터 — Swagger UI에서 그룹 설명 표시
     openapi_tags=[
@@ -308,9 +308,15 @@ if _cors_env:
 else:
     cors_origins = [
         "http://localhost:5173",  # Vite dev server
+        "http://localhost:5174",
+        "http://localhost:4178",  # Vite preview server
         "http://localhost:8000",  # Production uvicorn
+        "http://localhost:8012",  # Test / E2E uvicorn
         "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:4178",
         "http://127.0.0.1:8000",
+        "http://127.0.0.1:8012",
     ]
 
 app.add_middleware(
@@ -576,9 +582,7 @@ from antigravity_k.api.error_handler import (  # noqa: E402
 
 
 @app.middleware("http")
-async def correlation_id_middleware(
-    request: Request, call_next: RequestResponseEndpoint
-) -> Response:
+async def correlation_id_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Assign or propagate a correlation id for every request.
 
     Reads an inbound ``X-Request-Id`` header if present (so callers can trace

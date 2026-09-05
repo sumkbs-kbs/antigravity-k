@@ -403,8 +403,8 @@ class OpenRouterProvider(BaseInferenceProvider):
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         if self.includes_openrouter_attribution:
-            headers["HTTP-Referer"] = "https://github.com/ssak-comp/antigravity-k"
-            headers["X-Title"] = "Antigravity-K"
+            headers["HTTP-Referer"] = "https://github.com/ssak-comp/Ssak-Ai"
+            headers["X-Title"] = "Ssak-Ai"
 
         req = urllib.request.Request(
             url,

@@ -142,8 +142,8 @@ def setup_tunnel(domain):
 
 
 if __name__ == "__main__":
-    print("🚀 Antigravity-K Global Access Automator 🚀")
-    domain = input("Enter your custom domain (e.g., antigravity-k.cloud): ").strip()
+    print("🚀 Ssak-Ai Global Access Automator 🚀")
+    domain = input("Enter your custom domain (e.g., ssak-ai.cloud): ").strip()
     if not domain:
         print("[-] Domain is required.")
         sys.exit(1)

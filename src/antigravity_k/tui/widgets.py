@@ -1,4 +1,4 @@
-"""Antigravity-K TUI — Custom Widgets.
+"""Ssak-Ai TUI — Custom Widgets.
 
 MessageBubble:        Renders a chat message bubble (user/assistant/system).
 SlashInput:           Input widget with /slash command auto-completion.

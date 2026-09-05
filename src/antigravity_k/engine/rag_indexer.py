@@ -1,4 +1,4 @@
-"""Antigravity-K: RAG Indexer.
+"""Ssak-Ai: RAG Indexer.
 
 ===========================
 프로젝트 소스 파일을 AST 기반으로 함수/클래스 단위 청크로 분할하고
@@ -761,7 +761,9 @@ class RAGIndexer:
             ),
         )
 
-    def _extract_class_chunk(self, chunks: list[CodeChunk], rel_path: str, lines: list[str], node: ast.ClassDef) -> None:
+    def _extract_class_chunk(
+        self, chunks: list[CodeChunk], rel_path: str, lines: list[str], node: ast.ClassDef
+    ) -> None:
         """클래스 노드를 청크로 추출합니다. 메서드는 개별 청크로 분리."""
         # 클래스 시그니처 + docstring
         class_start = node.lineno - 1

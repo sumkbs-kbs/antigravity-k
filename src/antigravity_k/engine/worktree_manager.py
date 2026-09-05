@@ -20,7 +20,7 @@ def _stderr_text(error: subprocess.CalledProcessError) -> str:
 class WorktreeManager:
     """Git Worktree 기반의 샌드박스 격리 매니저.
 
-    Antigravity-K 에이전트가 본래의 디렉토리를 오염시키지 않고,
+    Ssak-Ai 에이전트가 본래의 디렉토리를 오염시키지 않고,
     격리된 환경(Worktree)에서 작업할 수 있도록 지원합니다.
     """
 

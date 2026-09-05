@@ -1,4 +1,4 @@
-"""Antigravity-K: CEO 분석 엔진 (CEOAnalyzer).
+"""Ssak-Ai: CEO 분석 엔진 (CEOAnalyzer).
 
 ==========================================
 I-1 리팩터링: Orchestrator에서 분리된 CEO 태스크 분류 로직.

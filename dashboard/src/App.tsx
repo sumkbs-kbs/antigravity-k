@@ -15,6 +15,7 @@ import { useTerminalStore } from './stores/terminalStore';
 import { useThemeStore } from './stores/themeStore';
 import { useEditorStore } from './stores/editorStore';
 import { useLocalHistoryStore } from './stores/localHistoryStore';
+import { SessionDisclosureBanner } from './components/shared';
 import { isMonacoFocused } from './utils/domHelpers';
 import { PluginLifecycleDispatcher } from './plugin/PluginManager';
 import { usePluginRegistry } from './plugin/pluginRegistry';
@@ -102,9 +103,13 @@ const GitPage = lazy(() => import('./pages/GitPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const PluginPage = lazy(() => import('./pages/PluginPage'));
 const MutationDashboardPage = lazy(() => import('./pages/MutationDashboardPage'));
+const StudioPage = lazy(() => import('./pages/StudioPage'));
+const ModelHubPage = lazy(() => import('./pages/ModelHubPage'));
+const AgentStartPage = lazy(() => import('./pages/AgentStartPage'));
 
 // ─── Lazy-loaded layout chunks ────────────────────────────
 const Sidebar = lazy(() => import('./components/Layout/Sidebar'));
+const SystemTelemetricsBar = lazy(() => import('./components/Layout/SystemTelemetricsBar'));
 
 // ─── Lazy-loaded modal / overlay chunks ─────────────────────
 const MultiTerminalPanel = lazy(() => import('./components/UI/MultiTerminalPanel'));
@@ -292,17 +297,25 @@ const AppContent: React.FC = () => {
   }, []);
 
   return (
-    <div className="app-layout">
-      <Suspense fallback={<SidebarFallback />}>
-        <Sidebar toggleTerminal={toggleTerminal} />
+    <div className="app-shell" style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+      <Suspense fallback={null}>
+        <SystemTelemetricsBar />
       </Suspense>
-      <div className="app-right-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="app-layout" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <Suspense fallback={<SidebarFallback />}>
+          <Sidebar toggleTerminal={toggleTerminal} />
+        </Suspense>
+        <div className="app-right-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <SessionDisclosureBanner />
         <main className="main-content">
-          <h1 className="visually-hidden">Antigravity-K Dashboard</h1>
+          <h1 className="visually-hidden">Ssak-Ai Dashboard</h1>
           <Suspense fallback={<PageLoadingFallback />}>
             <Routes>
               <Route path="/" element={<ChatPage />} />
               <Route path="/chat" element={<ChatPage />} />
+              <Route path="/studio" element={<StudioPage />} />
+              <Route path="/models" element={<ModelHubPage />} />
+              <Route path="/start" element={<AgentStartPage />} />
               <Route path="/wiki" element={<WikiPage />} />
               <Route path="/agent" element={<AgentPage />} />
               <Route path="/settings" element={<SettingsPage />} />
@@ -324,8 +337,8 @@ const AppContent: React.FC = () => {
             minHeight: terminalVisible ? 180 : 0,
             transition: 'height 0.25s ease',
             overflow: 'hidden',
-            borderTop: terminalVisible ? '1px solid var(--glass-border)' : 'none',
-            background: '#0f1117',
+            borderTop: terminalVisible ? '1px solid var(--terminal-border)' : 'none',
+            background: 'var(--bg-primary)',
           }}
         >
           {/* ── Bottom Panel Tab Bar ────────────────────────────── */}
@@ -393,6 +406,7 @@ const AppContent: React.FC = () => {
       <Suspense fallback={null}>
         <FolderBrowser />
       </Suspense>
+      </div>
     </div>
   );
 };

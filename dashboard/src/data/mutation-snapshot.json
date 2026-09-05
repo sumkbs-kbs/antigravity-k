@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-snapshot",
+  "capturedAt": "2026-09-03T00:00:00Z",
+  "lastMeasuredAt": "2026-07-21T00:00:00Z",
+  "source": "Manually preserved Stryker result summary (reports/mutation/mutation.html)",
+  "sourceCommit": "6d0a24d4e6a0686693ce29a4d13a69443ae5149b",
+  "breakThreshold": 55,
+  "scopeNote": "Historical records exist for these three targets. The current CI command also mutates terminalStore and outputStore, but no preserved score is available for them.",
+  "targets": [
+    {
+      "id": "pluginRegistry",
+      "name": "pluginRegistry",
+      "file": "src/plugin/pluginRegistry.ts",
+      "score": 86.78,
+      "killed": 105,
+      "survived": 13,
+      "noCoverage": 3,
+      "lastMeasuredAt": "2026-07-17T00:00:00Z"
+    },
+    {
+      "id": "agentMonitorStore",
+      "name": "agentMonitorStore",
+      "file": "src/stores/agentMonitorStore.ts",
+      "score": 78.13,
+      "killed": 100,
+      "survived": 26,
+      "noCoverage": 2,
+      "lastMeasuredAt": "2026-07-21T00:00:00Z"
+    },
+    {
+      "id": "localHistoryStore",
+      "name": "localHistoryStore",
+      "file": "src/stores/localHistoryStore.ts",
+      "score": 64.52,
+      "killed": 100,
+      "survived": 28,
+      "noCoverage": 27,
+      "lastMeasuredAt": "2026-07-15T00:00:00Z"
+    }
+  ],
+  "timeline": [
+    {
+      "phase": "Phase 1",
+      "date": "2026-07-10",
+      "summary": "localHistoryStore initial measurement",
+      "score": 58.71
+    },
+    {
+      "phase": "Mutation 1",
+      "date": "2026-07-15",
+      "summary": "11 tests added (trim, clearFile, getAllFiles)",
+      "score": 64.52
+    },
+    {
+      "phase": "Phase 2",
+      "date": "2026-07-16",
+      "summary": "pluginRegistry initial measurement",
+      "score": 69.42
+    },
+    {
+      "phase": "Mutation 2",
+      "date": "2026-07-17",
+      "summary": "14 tests added (localStorage, onLoad/Unload, rebuildLists)",
+      "score": 86.78
+    },
+    {
+      "phase": "Phase 3",
+      "date": "2026-07-18",
+      "summary": "agentMonitorStore initial measurement",
+      "score": 74.22
+    },
+    {
+      "phase": "Mutation 3",
+      "date": "2026-07-21",
+      "summary": "14 tests added (boundary, slice, prepend, nullish)",
+      "score": 78.13
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-"""Antigravity-K: 완전 자율 QA 루프 엔진 (AutonomousQA).
+"""Ssak-Ai: 완전 자율 QA 루프 엔진 (AutonomousQA).
 
 =====================================================
 비전 분석 → 코드 수정 생성 → 자동 적용 → 재테스트 → 검증
@@ -214,8 +214,7 @@ class AutonomousQAReport:
             "total_resolved": self.total_resolved,
             "performance": self.performance_metrics,
             "viewport_results": {
-                name: cast(_ViewportResult, cast(object, result))
-                for name, result in self.viewport_results.items()
+                name: cast(_ViewportResult, cast(object, result)) for name, result in self.viewport_results.items()
             },
             "console_errors_count": len(self.console_errors),
             "duration_ms": round(self.duration_ms, 1),
@@ -652,8 +651,10 @@ class AutonomousQAEngine:
         """Core Web Vitals 및 로딩 성능을 측정합니다."""
         try:
             typed_page = cast("Page", page)
-            metrics: object = cast(object, await typed_page.evaluate(
-                """() => {
+            metrics: object = cast(
+                object,
+                await typed_page.evaluate(
+                    """() => {
 
                 const perf = performance.getEntriesByType('navigation')[0];
                 const paint = performance.getEntriesByType('paint');
@@ -666,7 +667,8 @@ class AutonomousQAEngine:
                     js_heap_mb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
                 };
             }""",
-            ))
+                ),
+            )
             return _object_dict(metrics)
         except (TimeoutError, AttributeError, TypeError, ValueError) as e:
             logger.warning("Performance collection failed: %s", e, exc_info=True)
@@ -686,26 +688,35 @@ class AutonomousQAEngine:
                 _ = await typed_page.goto(url, wait_until="networkidle", timeout=15000)
 
                 # 가로 스크롤 발생 여부 확인 (레이아웃 깨짐 지표)
-                overflow_value = cast(object, await typed_page.evaluate(
-                    "() => document.documentElement.scrollWidth > document.documentElement.clientWidth",
-                ))
+                overflow_value = cast(
+                    object,
+                    await typed_page.evaluate(
+                        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth",
+                    ),
+                )
                 overflow = bool(overflow_value)
                 # 주요 요소 가시성 확인
                 app_visible = await typed_page.query_selector("#app")
 
-                results[name] = cast(_ViewportResult, cast(object, {
-                    "viewport": vp,
-                    "horizontal_overflow": overflow,
-                    "app_visible": app_visible is not None,
-                    "pass": not overflow and app_visible is not None,
-                    "summary": (
-                        "OK"
-                        if (not overflow and app_visible)
-                        else "Overflow detected"
-                        if overflow
-                        else "App not visible"
+                results[name] = cast(
+                    _ViewportResult,
+                    cast(
+                        object,
+                        {
+                            "viewport": vp,
+                            "horizontal_overflow": overflow,
+                            "app_visible": app_visible is not None,
+                            "pass": not overflow and app_visible is not None,
+                            "summary": (
+                                "OK"
+                                if (not overflow and app_visible)
+                                else "Overflow detected"
+                                if overflow
+                                else "App not visible"
+                            ),
+                        },
                     ),
-                }))
+                )
             except (TimeoutError, ConnectionError, AttributeError, ValueError) as e:
                 logger.warning("Viewport test failed for %s: %s", name, e, exc_info=True)
                 results[name] = cast(_ViewportResult, cast(object, {"pass": False, "summary": str(e)}))

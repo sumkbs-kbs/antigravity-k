@@ -1,4 +1,4 @@
-"""Agentic technology radar for Antigravity-K.
+"""Agentic technology radar for Ssak-Ai.
 
 The radar turns current public agent-framework patterns into a deterministic
 upgrade plan.  It is intentionally dependency-free: the project can expose a
@@ -76,7 +76,7 @@ class AgenticTechRadar:
             AgenticUpgradeReport: The agenticupgradereport result.
 
         """
-        normalized = objective.strip() or "Antigravity-K agentic upgrade review"
+        normalized = objective.strip() or "Ssak-Ai agentic upgrade review"
         signals = [
             AgenticTechSignal(
                 source="LangGraph",
@@ -104,8 +104,7 @@ class AgenticTechRadar:
                     "inside a constrained sandbox with explicit imports and tool bridges."
                 ),
                 current_status=(
-                    "Antigravity-K has PermissionGate and shell/file tools, but no "
-                    "separate code-action sandbox contract."
+                    "Ssak-Ai has PermissionGate and shell/file tools, but no " "separate code-action sandbox contract."
                 ),
                 recommendation=(
                     "Add a CodeAction lane that requires sandbox root, import allowlist, "
@@ -140,7 +139,7 @@ class AgenticTechRadar:
                     "session memory, and traces over LLM/tool/handoff spans."
                 ),
                 current_status=(
-                    "Antigravity-K has OrchestratorAgent, QualityGate, SessionManager, "
+                    "Ssak-Ai has OrchestratorAgent, QualityGate, SessionManager, "
                     "and AgentTracer, but they are not summarized as one readiness score."
                 ),
                 recommendation=(
@@ -158,7 +157,7 @@ class AgenticTechRadar:
                     "and terminal specialists, then validate with benchmark harnesses."
                 ),
                 current_status=(
-                    "Antigravity-K has CEO routing, persona agents, browser QA, and "
+                    "Ssak-Ai has CEO routing, persona agents, browser QA, and "
                     "self-test, but no public benchmark profile command."
                 ),
                 recommendation=(

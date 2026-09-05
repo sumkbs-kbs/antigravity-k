@@ -1,4 +1,4 @@
-"""Antigravity-K: 에이전트 기억 기록기 (MemoryRecorder).
+"""Ssak-Ai: 에이전트 기억 기록기 (MemoryRecorder).
 
 =====================================================
 에이전트의 작업 결과를 LLM Wiki(Vault)에 자동 기록합니다.

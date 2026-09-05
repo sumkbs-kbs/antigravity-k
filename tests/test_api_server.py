@@ -480,7 +480,7 @@ def test_chat_completions_self_capability_bypasses_llm(client: TestClient, mock_
 
     assert response.status_code == 200
     content = _response_content(response)
-    assert "Antigravity-K Self Capability Report" in content
+    assert "Ssak-Ai Self Capability Report" in content
     assert "현재 런타임에 등록되지 않은 도구" in content
     assert "등록 도구" in content
     mock_manager.generate.assert_not_called()

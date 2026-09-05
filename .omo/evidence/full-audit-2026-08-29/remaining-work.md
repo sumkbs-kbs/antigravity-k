@@ -1,5 +1,5 @@
 ---
-title: Antigravity-K remaining work inventory
+title: Ssak-Ai remaining work inventory
 tags: [audit, backlog, ownership, warning-zero]
 date: 2026-08-29
 ---

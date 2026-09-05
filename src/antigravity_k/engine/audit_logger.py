@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import time
 from collections.abc import Mapping
 from datetime import datetime
@@ -84,7 +85,7 @@ class OCSFEventBuilder:
         self.event: AuditEvent = {
             "metadata": {
                 "version": "1.1.0",
-                "product": {"name": "Antigravity-K", "vendor_name": "Antigravity"},
+                "product": {"name": "Ssak-Ai", "vendor_name": "Ssak-Ai"},
             },
             "class_uid": class_uid,
             "class_name": class_name,
@@ -211,16 +212,29 @@ class SecurityDetectionBuilder(OCSFEventBuilder):
 class AuditLogger:
     """OCSF-compliant Audit Logging System."""
 
-    def __init__(self, log_dir: str = "logs"):
+    def __init__(self, log_dir: str | Path = "logs"):
         """Initialize the AuditLogger.
 
         Args:
-            log_dir (str): str log dir.
+            log_dir (str | Path): log directory path.
 
         """
-        self.log_dir: Path = Path(log_dir)
-        self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.log_file: Path = self.log_dir / f"audit_ocsf_{datetime.now().strftime('%Y%m')}.jsonl"
+        p = Path(log_dir)
+        try:
+            if not p.is_absolute() and os.getcwd() == "/":
+                from antigravity_k.config import config
+
+                p = config.paths.logs_dir
+            p.mkdir(parents=True, exist_ok=True)
+            test_file = p / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            self.log_dir = p
+        except OSError:
+            fallback_dir = Path.home() / ".antigravity-k" / "logs"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.log_dir = fallback_dir
+        self.log_file = self.log_dir / f"audit_ocsf_{datetime.now().strftime('%Y%m')}.jsonl"
 
     def _mask_sensitive_data(self, data: object) -> object:
         if isinstance(data, dict):

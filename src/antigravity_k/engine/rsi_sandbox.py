@@ -1,4 +1,4 @@
-"""Antigravity-K: RSI Safety Sandbox (재귀적 자기개선 안전 샌드박스).
+"""Ssak-Ai: RSI Safety Sandbox (재귀적 자기개선 안전 샌드박스).
 
 ================================================================
 자기 수정 시 안전을 보장하는 이중 감사 + 자동 롤백 시스템.
@@ -495,4 +495,4 @@ class RSISandbox:
             logger.exception("[RSI Sandbox] 감사 로그 저장 실패")
 
 
-"""Antigravity-K RSI Safety Sandbox — Dual-audit + auto-rollback."""
+"""Ssak-Ai RSI Safety Sandbox — Dual-audit + auto-rollback."""

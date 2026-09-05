@@ -65,7 +65,7 @@ class TestFormatMarkdown:
             ],
         }
         md = _format_markdown(tool, report)
-        assert "# 🧪 Antigravity-K Self-Test Report" in md
+        assert "# 🧪 Ssak-Ai Self-Test Report" in md
         assert "| 총 테스트 | 10 |" in md
         assert "| ✅ 통과 | 7 |" in md
         assert "| 🔧 자가치유 | 1 |" in md

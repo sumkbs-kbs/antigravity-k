@@ -75,6 +75,7 @@ def _cache_entry(cache: ApiCache, key: str) -> ApiCacheEntry | None:
     entries = cast(dict[str, ApiCacheEntry], getattr(cache, "_entries"))
     return entries.get(key)
 
+
 # ═══════════════════════════════════════════════════════════════════
 # ApiCacheEntry tests
 # ═══════════════════════════════════════════════════════════════════
@@ -135,9 +136,9 @@ class TestApiCache:
     @pytest.mark.asyncio
     async def test_set_and_get(self, cache: ApiCache):
         """저장 후 조회."""
-        await cache.set("name", "Antigravity-K")
+        await cache.set("name", "Ssak-Ai")
         val = await _cache_get(cache, "name")
-        assert val == "Antigravity-K"
+        assert val == "Ssak-Ai"
 
     @pytest.mark.asyncio
     async def test_get_expired(self, cache: ApiCache):

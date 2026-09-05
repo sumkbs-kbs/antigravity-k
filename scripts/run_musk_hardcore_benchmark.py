@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Elon Musk Hardcore Engineering Benchmark for Antigravity-K (Qwen3.8-27B).
+"""Elon Musk Hardcore Engineering Benchmark for Ssak-Ai (Qwen3.8-27B).
 
 Evaluates the 3 First-Principles pillars:
 1. Zero-Latency Direct Fast-Path Kernel (<5ms response)

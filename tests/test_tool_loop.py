@@ -2227,3 +2227,86 @@ class TestConsumerExceptionPropagation:
 
         # API 오류로 오분류되어 재시도가 일어나지 않았는지 확인
         assert stream_calls["n"] == 1
+
+
+class TestPublishQualityEvent:
+    """QualityGate 결과가 QualityCheckPassed/Failed 이벤트로 발행된다."""
+
+    def test_publish_quality_event_maps_grades_to_pass_fail(self, monkeypatch: pytest.MonkeyPatch):
+        from antigravity_k.engine import tool_loop
+        from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
+
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        tool_loop._publish_quality_event(
+            "plan", "테스트 작업", QualityScore(QualityGrade.A, 0.9, "", "PASS", False, [])
+        )
+        tool_loop._publish_quality_event(
+            "code", "테스트 작업", QualityScore(QualityGrade.F, 0.2, "개선 필요", "FAIL", True, ["issue1", "issue2"])
+        )
+
+        assert [name for name, _ in published] == ["QualityCheckPassed", "QualityCheckFailed"]
+        _name, failed_kwargs = published[1]
+        assert failed_kwargs["grade"] == "fail"
+        assert failed_kwargs["score"] == 0.2
+        assert failed_kwargs["issues"] == ["issue1", "issue2"]
+        assert failed_kwargs["feedback"] == "개선 필요"
+
+    def test_post_loop_publishes_final_quality_event_after_revision(self, mock_orch: MagicMock):
+        """수정으로 C→B가 되면 최종 결과(B)만 QualityCheckPassed로 발행된다."""
+        from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
+
+        initial = QualityScore(QualityGrade.C, 0.4, "보완 필요", "", True, ["불명확"])
+        revised = QualityScore(QualityGrade.B, 0.8, "", "", False, [])
+        _set_mock_attr(mock_orch, ("ctx", "quality_gate", "max_retries"), 1)
+        _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised])
+        _set_mock_return(mock_orch, ("_get_model_for_role",), "qwen3.6:latest")
+        _set_mock_return(mock_orch, ("manager", "stream_generate"), iter(["초안"]))
+        _set_mock_return(mock_orch, ("manager", "generate"), "보완된 최종 답변")
+
+        with patch("antigravity_k.engine.event_bus.global_event_bus") as event_bus:
+            engine = _engine(mock_orch)
+            _ = list(engine.run_loop([{"role": "user", "content": "요청"}], "CODER", "chat"))
+
+        quality_calls = [
+            c
+            for c in event_bus.publish.call_args_list
+            if c.args and c.args[0] in {"QualityCheckPassed", "QualityCheckFailed"}
+        ]
+        assert [c.args[0] for c in quality_calls] == ["QualityCheckPassed"]
+        passed = quality_calls[0]
+        assert passed.kwargs["grade"] == "good"
+        assert passed.kwargs["issues"] == []
+
+    def test_post_loop_publishes_failed_event_when_revision_does_not_improve(self, mock_orch: MagicMock):
+        """수정이 개선되지 않으면 최종 C등급을 QualityCheckFailed로 발행한다."""
+        from antigravity_k.engine.quality_gate import QualityGrade, QualityScore
+
+        initial = QualityScore(QualityGrade.C, 0.4, "보완 필요", "", True, ["불명확"])
+        revised = QualityScore(QualityGrade.C, 0.35, "여전히 부족", "", True, ["불명확", "중복"])
+        _set_mock_attr(mock_orch, ("ctx", "quality_gate", "max_retries"), 1)
+        _set_mock_side_effect(mock_orch, ("ctx", "quality_gate", "evaluate"), [initial, revised])
+        _set_mock_return(mock_orch, ("_get_model_for_role",), "qwen3.6:latest")
+        _set_mock_return(mock_orch, ("manager", "stream_generate"), iter(["초안"]))
+        _set_mock_return(mock_orch, ("manager", "generate"), "여전히 부족한 답변")
+
+        with patch("antigravity_k.engine.event_bus.global_event_bus") as event_bus:
+            engine = _engine(mock_orch)
+            _ = list(engine.run_loop([{"role": "user", "content": "요청"}], "CODER", "chat"))
+
+        quality_calls = [
+            c
+            for c in event_bus.publish.call_args_list
+            if c.args and c.args[0] in {"QualityCheckPassed", "QualityCheckFailed"}
+        ]
+        assert [c.args[0] for c in quality_calls] == ["QualityCheckFailed"]
+        failed = quality_calls[0]
+        assert failed.kwargs["grade"] == "retry"
+        # final_quality는 개선 분기에서만 갱신되므로 미개선 시 초기 평가가 유지된다
+        assert failed.kwargs["issues"] == ["불명확"]

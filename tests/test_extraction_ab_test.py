@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: 데이터 추출 A/B 테스트 프레임워크 단위 테스트
+Ssak-Ai: 데이터 추출 A/B 테스트 프레임워크 단위 테스트
 ===========================================================
 ExtractionABTestRunner, ABTestReport, 내장 케이스 등을 검증합니다.
 """
@@ -38,6 +38,7 @@ def _run_suite(
 ) -> ABTestReport:
     callback = cast(Callable[..., object], cast(object, getattr(runner, "run_suite")))
     return cast(ABTestReport, callback(cases, version_label=version_label))
+
 
 # ─── Fixtures ─────────────────────────────────────────────────────
 

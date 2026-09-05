@@ -10,6 +10,7 @@ import { useThemeStore } from '../stores/themeStore';
 import { useLocalHistoryStore } from '../stores/localHistoryStore';
 import CacheStatsPanel from '../components/shared/CacheStatsPanel';
 import ModelOperationsPanel from '../components/shared/ModelOperationsPanel';
+import SessionDisclosurePanel from '../components/shared/SessionDisclosurePanel';
 import {
   fetchLogLevels,
   fetchSettings,
@@ -249,6 +250,8 @@ const SettingsPage: React.FC = () => {
         {/* 4. Cost Control */}
         <GlassPanel title={<><span className="section-index">04</span> 비용 제어</>} variant="section" className="settings-section">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* 현재 한도 상태 고지 (설정 입력 바로 위) */}
+            <SessionDisclosurePanel />
             <div className="settings-row">
               <div className="settings-row-label">
                 <div className="settings-row-title">💰 일일 예산 (USD)</div>

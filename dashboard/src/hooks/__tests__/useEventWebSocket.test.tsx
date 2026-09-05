@@ -100,6 +100,51 @@ describe('useEventWebSocket', () => {
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
+  it('routes a quality check failed event to its handler', () => {
+    // Given
+    const onQualityCheckFailed = vi.fn();
+    render(<HookHarness handlers={{ onQualityCheckFailed }} />);
+    const socket = MockWebSocket.instances.at(0);
+
+    // When
+    act(() => {
+      socket?.emitMessage({
+        event: 'QualityCheckFailed',
+        data: { task_type: 'plan', grade: 'retry', issues: ['불명확'], feedback: '보완 필요' },
+      });
+    });
+
+    // Then
+    expect(onQualityCheckFailed).toHaveBeenCalledWith({
+      task_type: 'plan',
+      grade: 'retry',
+      issues: ['불명확'],
+      feedback: '보완 필요',
+    });
+  });
+
+  it('routes an anti-patterns detected event to its handler', () => {
+    // Given
+    const onAntiPatternsDetected = vi.fn();
+    render(<HookHarness handlers={{ onAntiPatternsDetected }} />);
+    const socket = MockWebSocket.instances.at(0);
+
+    // When
+    act(() => {
+      socket?.emitMessage({
+        event: 'AntiPatternsDetected',
+        data: { reason: '반복 실패 감지', tools: ['run_bash_command'], patterns: ['timeout 발생'] },
+      });
+    });
+
+    // Then
+    expect(onAntiPatternsDetected).toHaveBeenCalledWith({
+      reason: '반복 실패 감지',
+      tools: ['run_bash_command'],
+      patterns: ['timeout 발생'],
+    });
+  });
+
   it('authenticates the event websocket with a bearer subprotocol', () => {
     // Given
     sessionStorage.setItem('ag_access_token', 'event-token');

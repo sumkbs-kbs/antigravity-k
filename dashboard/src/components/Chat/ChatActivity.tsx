@@ -119,6 +119,10 @@ interface QueuedMessagesCardProps {
   onSendNow: (index: number) => void;
   onEdit: (index: number) => void;
   onDelete: (index: number) => void;
+  onMoveUp?: (index: number) => void;
+  onMoveDown?: (index: number) => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void;
+  onClearAll?: () => void;
 }
 
 export const QueuedMessagesCard: React.FC<QueuedMessagesCardProps> = ({
@@ -128,7 +132,14 @@ export const QueuedMessagesCard: React.FC<QueuedMessagesCardProps> = ({
   onSendNow,
   onEdit,
   onDelete,
+  onMoveUp,
+  onMoveDown,
+  onReorder,
+  onClearAll,
 }) => {
+  const [dragIndex, setDragIndex] = React.useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = React.useState<number | null>(null);
+
   if (items.length === 0) return null;
 
   return (
@@ -145,42 +156,109 @@ export const QueuedMessagesCard: React.FC<QueuedMessagesCardProps> = ({
         <span className={`env-chevron ${collapsed ? '' : 'open'}`}>⌄</span>
       </button>
       {!collapsed && (
-        <div className="queued-rows">
-          {items.map((text, i) => (
-            <div key={`${i}:${text.slice(0, 24)}`} className="queued-row">
-              <span className="queued-text" title={text}>{text}</span>
-              <span className="queued-actions">
-                <button
-                  type="button"
-                  className="queued-action-btn"
-                  title="지금 보내기"
-                  aria-label="지금 보내기"
-                  onClick={() => onSendNow(i)}
-                >
-                  →
-                </button>
-                <button
-                  type="button"
-                  className="queued-action-btn"
-                  title="편집"
-                  aria-label="대기 메시지 편집"
-                  onClick={() => onEdit(i)}
-                >
-                  ✎
-                </button>
-                <button
-                  type="button"
-                  className="queued-action-btn danger"
-                  title="삭제"
-                  aria-label="대기 메시지 삭제"
-                  onClick={() => onDelete(i)}
-                >
-                  🗑
-                </button>
-              </span>
+        <>
+          <div className="queued-rows">
+            {items.map((text, i) => (
+              <div
+                key={`${i}:${text.slice(0, 24)}`}
+                className={`queued-row ${dragIndex === i ? 'dragging' : ''} ${dragOverIndex === i ? 'drag-over' : ''}`}
+                draggable={Boolean(onReorder)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', String(i));
+                  setDragIndex(i);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (dragOverIndex !== i) setDragOverIndex(i);
+                }}
+                onDragLeave={() => setDragOverIndex(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverIndex(null);
+                  const from = dragIndex;
+                  if (from !== null && from !== i && onReorder) {
+                    onReorder(from, i);
+                  }
+                  setDragIndex(null);
+                }}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setDragOverIndex(null);
+                }}
+              >
+                {onReorder && items.length > 1 && (
+                  <span className="queued-drag-handle" title="드래그하여 순서 변경" aria-hidden="true">
+                    ⋮⋮
+                  </span>
+                )}
+                <span className="queued-text" title={text}>{text}</span>
+                <span className="queued-actions">
+                  {onMoveUp && i > 0 && (
+                    <button
+                      type="button"
+                      className="queued-action-btn"
+                      title="위로 이동"
+                      aria-label="위로 이동"
+                      onClick={() => onMoveUp(i)}
+                    >
+                      ↑
+                    </button>
+                  )}
+                  {onMoveDown && i < items.length - 1 && (
+                    <button
+                      type="button"
+                      className="queued-action-btn"
+                      title="아래로 이동"
+                      aria-label="아래로 이동"
+                      onClick={() => onMoveDown(i)}
+                    >
+                      ↓
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="queued-action-btn"
+                    title="지금 보내기"
+                    aria-label="지금 보내기"
+                    onClick={() => onSendNow(i)}
+                  >
+                    →
+                  </button>
+                  <button
+                    type="button"
+                    className="queued-action-btn"
+                    title="편집"
+                    aria-label="대기 메시지 편집"
+                    onClick={() => onEdit(i)}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="queued-action-btn danger"
+                    title="삭제"
+                    aria-label="대기 메시지 삭제"
+                    onClick={() => onDelete(i)}
+                  >
+                    🗑
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+          {onClearAll && items.length > 1 && (
+            <div className="queued-footer">
+              <button
+                type="button"
+                className="queued-clear-btn"
+                onClick={onClearAll}
+                title="모든 대기 메시지 삭제"
+              >
+                대기열 모두 비우기
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );

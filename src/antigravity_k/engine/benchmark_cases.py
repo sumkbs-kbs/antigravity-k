@@ -1,4 +1,4 @@
-"""Antigravity-K: 벤치마크 과제 세트 (Built-in).
+"""Ssak-Ai: 벤치마크 과제 세트 (Built-in).
 
 =============================================
 collective-council vs 단일 모델 비교를 위한 내장 코딩 과제 정의.
@@ -361,4 +361,4 @@ def get_suite(name: str = "all") -> list[BenchmarkCase]:
     return list(BUILTIN_CASES)
 
 
-"""Antigravity-K Benchmark Cases — Built-in coding challenge suite."""
+"""Ssak-Ai Benchmark Cases — Built-in coding challenge suite."""

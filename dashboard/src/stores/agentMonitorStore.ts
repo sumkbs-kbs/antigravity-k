@@ -42,7 +42,8 @@ export interface TaskProgress {
 export interface ExecutionEvent {
   id: string;
   timestamp: string;
-  type: 'tool_start' | 'tool_end' | 'task_start' | 'task_end' | 'error' | 'plan' | 'mode_change';
+  type: 'tool_start' | 'tool_end' | 'task_start' | 'task_end' | 'error' | 'plan' | 'approval' | 'mode_change'
+    | 'agent_turn' | 'quality' | 'anti_pattern';
   label: string;
   detail?: string;
 }

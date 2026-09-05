@@ -458,8 +458,12 @@ class WebSearchEngine:
 
             raw_data = cast(object, resp.json())
             data = _json_object(raw_data)
-            items = _json_list(cast(list[object], raw_data)) if isinstance(raw_data, list) else _json_list(
-                data.get("data", data.get("results")),
+            items = (
+                _json_list(cast(list[object], raw_data))
+                if isinstance(raw_data, list)
+                else _json_list(
+                    data.get("data", data.get("results")),
+                )
             )
 
             for i, item in enumerate(items[: self.fetch_results]):
@@ -734,7 +738,8 @@ class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
         port: int,
         timeout: float | None = None,
         local_address: str | None = None,
-        socket_options: Iterable[tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]] | None = None,
+        socket_options: Iterable[tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]]
+        | None = None,
     ) -> httpcore.AsyncNetworkStream:
         address = self._pins.get(host.rstrip(".").lower())
         if address is None:
@@ -752,7 +757,8 @@ class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
         self,
         path: str,
         timeout: float | None = None,
-        socket_options: Iterable[tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]] | None = None,
+        socket_options: Iterable[tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]]
+        | None = None,
     ) -> httpcore.AsyncNetworkStream:
         return await self._delegate.connect_unix_socket(path, timeout=timeout, socket_options=socket_options)
 
@@ -790,7 +796,7 @@ class PageScraper:
                 timeout=10.0,
                 event_hooks={"request": [validate_httpx_request_async]},
                 follow_redirects=False,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Antigravity-K/1.0)"},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Ssak-Ai/1.0)"},
             )
         return self._client
 

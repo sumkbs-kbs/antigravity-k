@@ -1,4 +1,4 @@
-"""Antigravity-K: MLX LoRA/QLoRA 파인튜닝 엔진.
+"""Ssak-Ai: MLX LoRA/QLoRA 파인튜닝 엔진.
 
 =============================================
 Apple Silicon 128GB Unified Memory에서 로컬 파인튜닝 실행.
@@ -334,7 +334,7 @@ class FineTuneEngine:
         import sys
 
         logger.info("=" * 60)
-        logger.info("Antigravity-K LoRA 파인튜닝 시작")
+        logger.info("Ssak-Ai LoRA 파인튜닝 시작")
         logger.info("=" * 60)
         logger.info("  베이스 모델: %s", self.config.base_model)
         logger.info("  학습 데이터: %s", self.config.train_data)
@@ -567,7 +567,7 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
-    parser = argparse.ArgumentParser(description="Antigravity-K LoRA 파인튜닝")
+    parser = argparse.ArgumentParser(description="Ssak-Ai LoRA 파인튜닝")
     sub = parser.add_subparsers(dest="command", help="명령")
 
     # train

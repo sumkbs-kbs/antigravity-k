@@ -150,8 +150,37 @@ def _on_agent_turn_ended(**kwargs: object) -> None:
             break
 
 
+def _on_quality_check_failed(**kwargs: object) -> None:
+    """진행 중인 작업 카드에 QualityGate 실패 정보를 표시합니다."""
+    grade = _as_text(kwargs.get("grade"), "?")
+    issues = _as_text(kwargs.get("feedback"), "") or "품질 게이트 미달"
+    for task in reversed(kanban_tasks):
+        if task["status"] == "in_progress":
+            task["quality_failed"] = True
+            task["quality_grade"] = grade
+            detail = f"[품질 실패 {grade}] {issues}"
+            task["description"] = f"{_as_text(task.get('description'), '')}\n{detail}".strip()
+            break
+
+
+def _on_anti_patterns_detected(**kwargs: object) -> None:
+    """진행 중인 작업 카드에 반복 실패(안티패턴) 감지 정보를 표시합니다."""
+    raw_patterns = kwargs.get("patterns")
+    pattern_text = (
+        "; ".join(_as_text(p) for p in raw_patterns) if isinstance(raw_patterns, list) else _as_text(raw_patterns)
+    )
+    for task in reversed(kanban_tasks):
+        if task["status"] == "in_progress":
+            task["anti_patterns"] = True
+            detail = f"[안티패턴 감지] {pattern_text or '반복 실패 패턴'}"
+            task["description"] = f"{_as_text(task.get('description'), '')}\n{detail}".strip()
+            break
+
+
 global_event_bus.subscribe("AgentTurnStarted", _on_agent_turn_started)
 global_event_bus.subscribe("AgentTurnEnded", _on_agent_turn_ended)
+global_event_bus.subscribe("QualityCheckFailed", _on_quality_check_failed)
+global_event_bus.subscribe("AntiPatternsDetected", _on_anti_patterns_detected)
 
 
 class StatusUpdate(BaseModel):
@@ -175,9 +204,7 @@ async def create_kanban_task(request: Request):
     data = _as_map(cast(object, await request.json()))
     project_path = _normalize_project_path(
         _as_text(
-            data.get("project_path")
-            or data.get("workspace_path")
-            or data.get("workspace"),
+            data.get("project_path") or data.get("workspace_path") or data.get("workspace"),
             "",
         ),
     )

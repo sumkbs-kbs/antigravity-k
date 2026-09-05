@@ -151,6 +151,17 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     """
     cid = _get_correlation_id()
 
+    # Safely extract request context for agentic diagnosis
+    client_obj = getattr(request, "client", None)
+    client_ip = str(getattr(client_obj, "host", "")) if client_obj is not None else ""
+    req_context = {
+        "method": getattr(request, "method", "UNKNOWN"),
+        "path": str(getattr(getattr(request, "url", None), "path", "/")),
+        "query": dict(getattr(request, "query_params", {})) if hasattr(request, "query_params") else {},
+        "client_ip": client_ip,
+        "headers": dict(getattr(request, "headers", {})) if hasattr(request, "headers") else {},
+    }
+
     # Handle our structured exceptions
     if isinstance(exc, APIError):
         tb_str = traceback.format_exc()
@@ -162,11 +173,25 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             exc.error_code,
             exc.detail,
         )
+        content = exc.to_dict(correlation_id=cid)
         if exc.status_code >= 500:
             logger.error("Traceback:\n%s", tb_str)
+            try:
+                from antigravity_k.engine.agent_error_journal import record_agent_error
+
+                record = record_agent_error(
+                    exc=exc,
+                    component="api",
+                    correlation_id=cid,
+                    request_context=req_context,
+                )
+                content["error_id"] = record.error_id
+            except Exception as rec_err:
+                logger.error("Failed to record error in agent journal: %s", rec_err)
+
         return JSONResponse(
             status_code=exc.status_code,
-            content=exc.to_dict(correlation_id=cid),
+            content=content,
         )
 
     # Generic fallback for unhandled exceptions
@@ -180,15 +205,33 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         tb_str,
     )
 
+    error_id = ""
+    try:
+        from antigravity_k.engine.agent_error_journal import record_agent_error
+
+        record = record_agent_error(
+            exc=exc,
+            component="api",
+            correlation_id=cid,
+            request_context=req_context,
+        )
+        error_id = record.error_id
+    except Exception as rec_err:
+        logger.error("Failed to record unhandled error in agent journal: %s", rec_err)
+
+    response_content: dict[str, object] = {
+        "ok": False,
+        "error": "internal_error",
+        "detail": "Internal Server Error",
+        "correlation_id": cid,
+        "path": str(request.url.path),
+    }
+    if error_id:
+        response_content["error_id"] = error_id
+
     return JSONResponse(
         status_code=500,
-        content={
-            "ok": False,
-            "error": "internal_error",
-            "detail": "Internal Server Error",
-            "correlation_id": cid,
-            "path": str(request.url.path),
-        },
+        content=response_content,
     )
 
 

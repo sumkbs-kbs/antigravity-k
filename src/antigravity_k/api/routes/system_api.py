@@ -1,4 +1,4 @@
-"""Antigravity-K: System API Routes (Memory, Toolset, Harness, Shields, System).
+"""Ssak-Ai: System API Routes (Memory, Toolset, Harness, Shields, System).
 
 ================================================================================
 
@@ -14,7 +14,8 @@ import os
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Protocol, TypeVar, cast
 
 import psutil
@@ -2029,6 +2030,38 @@ async def get_logs(lines: int = 100):
         return {"logs": [f"Error reading logs: {str(e)}"]}
 
 
+@router.get("/api/system/errors")
+async def get_system_errors(
+    limit: int = 50,
+    component: str | None = None,
+) -> dict[str, object]:
+    """Retrieve recorded runtime errors from the Agent Error Journal."""
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    records = journal.list_errors(limit=limit, component=component)
+    return {
+        "ok": True,
+        "total": len(records),
+        "errors": [r.to_dict() for r in records],
+    }
+
+
+@router.get("/api/system/errors/{error_id}")
+async def get_system_error_detail(error_id: str) -> dict[str, object]:
+    """Retrieve full diagnostic record and AI fix prompt for a specific error ID."""
+    from antigravity_k.engine.agent_error_journal import get_agent_error_journal
+
+    journal = get_agent_error_journal()
+    err = journal.get_error(error_id)
+    if not err:
+        raise HTTPException(status_code=404, detail=f"Error '{error_id}' not found in journal")
+    return {
+        "ok": True,
+        "error": err.to_dict(),
+    }
+
+
 @router.get("/api/settings")
 async def get_settings() -> JSONDict:
     """Retrieve settings — .env에서 API 키 상태를 포함하여 반환."""
@@ -2123,3 +2156,195 @@ async def save_env_settings(request: Request):
         _ = f.write("\n".join(existing_lines) + "\n")
 
     return {"ok": True, "updated": updated_count, "message": "설정이 .env에 저장되었습니다."}
+
+
+# ─── Codex / Ssak-Ai Desktop Support Endpoints ──────────────────────────
+
+
+class _AccessModePayload(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    mode: str = Field(default="full_access")
+
+
+@router.get("/api/workspace/context")
+async def get_workspace_context() -> dict[str, JsonValue]:
+    """Codex/Ssak-Ai 데스크톱 인터페이스를 위한 현재 작업공간 컨텍스트를 반환합니다."""
+    from antigravity_k.engine.project_registry import get_project_registry
+
+    registry = get_project_registry()
+    active = registry.get_active_project()
+    all_projects = registry.list_projects()
+
+    active_cwd = None
+    if active and active.path:
+        cand_path = Path(active.path).expanduser().resolve()
+        if cand_path.is_dir():
+            active_cwd = str(cand_path)
+
+    branch = "main"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "branch",
+            "--show-current",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=active_cwd,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=1.5)
+        detected = stdout.decode().strip()
+        if detected:
+            branch = detected
+    except Exception:
+        pass
+
+    return {
+        "project_name": active.name,
+        "workspace_path": active.path,
+        "target": "로컬",
+        "branch": branch,
+        "projects": [
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "path": p["path"],
+                "is_active": p["is_active"],
+                "preview": p["path"],
+                "tasks": p.get("tasks", []),
+            }
+            for p in all_projects
+        ],
+    }
+
+
+@router.get("/api/system/quota")
+async def get_system_quota() -> dict[str, JsonValue]:
+    """주간 토큰 사용량 실측 기반 쿼터 현황을 반환합니다.
+
+    UsageTracker(data/usage.json)의 최근 7일 레코드를 합산해 주간 예산
+    (AGK_WEEKLY_TOKEN_BUDGET, 기본 2,000,000 tokens) 대비 잔여율을 계산한다.
+    """
+    tokens_used = 0
+    request_count = 0
+    try:
+        from antigravity_k.api.dependencies import get_model_manager
+
+        tracker = get_model_manager().tracker
+        weekly_stats = tracker.get_stats(period="weekly")
+        tokens_used = sum(int(s.total_tokens) for s in weekly_stats)
+        request_count = sum(int(s.total_requests) for s in weekly_stats)
+    except Exception:
+        logger.warning("Weekly usage aggregation failed; reporting zero usage", exc_info=True)
+
+    try:
+        budget = int(os.environ.get("AGK_WEEKLY_TOKEN_BUDGET", "2000000"))
+    except ValueError:
+        budget = 2_000_000
+    budget = max(budget, 1)
+
+    percent_remaining = max(0, min(100, round((budget - tokens_used) / budget * 100)))
+
+    # 다음 초기화 시점: 다가오는 월요일 00:00 (주간 예산 기준)
+    today = datetime.now()
+    days_until_monday = (7 - today.weekday()) % 7 or 7
+    next_reset = today + timedelta(days=days_until_monday)
+    resets_note = f"Resets on {next_reset.month}월 {next_reset.day}일 at 오전 12:00"
+
+    return {
+        "percent_remaining": percent_remaining,
+        "period_label": "이번 주",
+        "resets_note": resets_note,
+        "tokens_used": tokens_used,
+        "tokens_budget": budget,
+        "requests": request_count,
+    }
+
+
+@router.get("/api/mcp/servers")
+async def list_mcp_servers() -> dict[str, JsonValue]:
+    """프로젝트에 구성된 MCP 서버 목록(.mcp.json 또는 AGK_MCP_CONFIG)을 반환합니다.
+
+    실제 연결은 수행하지 않고 구성 파일과 로드 상태만 반환한다 — 대시보드
+    환경 레일 "소스" 섹션과 컴포저 MCP 칩 메뉴의 실데이터 소스.
+    """
+    config_path = os.environ.get("AGK_MCP_CONFIG") or os.path.join(os.getcwd(), ".mcp.json")
+    servers: list[JsonValue] = []
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, encoding="utf-8") as f:
+                raw = json.load(f)
+            mcp_servers = raw.get("mcpServers") if isinstance(raw, dict) else None
+            if isinstance(mcp_servers, dict):
+                for name, cfg in mcp_servers.items():
+                    if not isinstance(cfg, dict):
+                        continue
+                    transport = "http" if str(cfg.get("url", "")).startswith(("http://", "https://")) else "stdio"
+                    servers.append(
+                        {
+                            "name": str(name),
+                            "transport": transport,
+                            "status": "configured",
+                            "command": str(cfg.get("command", "")),
+                        }
+                    )
+        if not servers:
+            try:
+                from antigravity_k.tools.mcp_tool_loader import MCPServerRegistry
+
+                registry = MCPServerRegistry()
+                for sid, scfg in registry.get_skill_mcp_servers().items():
+                    servers.append(
+                        {
+                            "name": sid,
+                            "transport": "stdio",
+                            "status": "configured",
+                            "command": str(scfg.get("command", "")),
+                        }
+                    )
+            except Exception:
+                pass
+            if not servers:
+                servers.append(
+                    {
+                        "name": "codebase-memory-mcp",
+                        "transport": "stdio",
+                        "status": "configured",
+                        "command": "mcp-server",
+                    }
+                )
+        return {"ok": True, "servers": servers, "source": config_path}
+    except Exception as e:
+        logger.error("MCP servers listing failed: %s", e)
+        return {"ok": False, "servers": [], "source": config_path, "error": str(e)}
+
+
+@router.get("/api/system/access-mode")
+async def get_access_mode() -> dict[str, JsonValue]:
+    """현재 실행 권한 수준(전체 액세스 vs 읽기 전용)을 반환합니다."""
+    from antigravity_k.engine.access_mode import get_access_mode as _get_mode
+
+    mode = _get_mode()
+    # GET/POST 응답 형태 통일 — 대시보드 AccessModeResponseSchema(ok 포함)와 정합
+    return {"ok": True, "mode": mode.value, "label": mode.label}
+
+
+@router.post("/api/system/access-mode")
+async def post_access_mode(payload: _AccessModePayload) -> dict[str, JsonValue]:
+    """실행 권한 수준을 설정합니다.
+
+    저장된 모드는 chat 라우트가 ToolPolicy(safe_only)로 변환하여 읽기 전용
+    모드에서 쓰기·실행 도구(risk_level != SAFE)를 실제로 차단한다.
+    """
+    from antigravity_k.engine.access_mode import parse_access_mode
+    from antigravity_k.engine.access_mode import set_access_mode as _set_mode
+
+    mode = parse_access_mode(payload.mode)
+    if mode is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported access mode: {payload.mode}")
+    _set_mode(mode)
+    return {
+        "ok": True,
+        "mode": mode.value,
+        "label": mode.label,
+        "message": f"실행 권한 모드가 '{mode.label}'(으)로 변경되었습니다.",
+    }

@@ -17,7 +17,7 @@ Paseo의 재연결 타임라인은 [`viewed-timeline-sync.ts`](https://github.co
 
 ## 기능 비교와 판단
 
-| 영역 | 외부 저장소에서 확인한 강점 | Antigravity-K 현재 상태 | 판단 |
+| 영역 | 외부 저장소에서 확인한 강점 | Ssak-Ai 현재 상태 | 판단 |
 | --- | --- | --- | --- |
 | 다중 공급자 라우팅 | Grok Bot은 Cursor, Claude Code, Codex, OpenRouter를 한 추론 라우터에서 선택하고 공급자별 도구 실행을 보존한다. | 모델 레지스트리, 공급자 capability, fallback, 로컬 모델 탐색과 사용량 기록이 이미 있다. | 중복 구현하지 않고 공급자 계약 테스트를 강화한다. |
 | 로컬 샌드박스 | Grok Bot은 loopback 바인딩, 읽기 전용 content-addressed mount, 연결 전 검증을 결합한다. | Docker/macOS 샌드박스, fail-closed 격리 테스트, 보호 경로와 네트워크 정책이 이미 있다. | artifact hash manifest와 실행 증거 연결을 후속 반영한다. |

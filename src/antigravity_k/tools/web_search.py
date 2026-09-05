@@ -1,4 +1,4 @@
-"""Antigravity-K: Multi-Engine 웹 서칭 엔진 (Web Search Tool)
+"""Ssak-Ai: Multi-Engine 웹 서칭 엔진 (Web Search Tool)
 ==========================================================
 Phase 23 리팩토링: 4개 모듈로 분할됨.
 이 파일은 하위 호환성을 위한 re-export 모듈입니다.

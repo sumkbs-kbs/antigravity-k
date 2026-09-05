@@ -213,7 +213,7 @@ const SkillsPage: React.FC = () => {
               type="text"
               className="glass-input"
               aria-label="npm 스킬 검색"
-              placeholder="npm에서 @antigravity-k/skill-* 패키지 검색..."
+              placeholder="npm에서 @ssak-ai/skill-* 패키지 검색..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}

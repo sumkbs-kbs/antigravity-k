@@ -1,4 +1,4 @@
-"""Antigravity-K: 브라우저 자가 테스트 도구 (Self-Test Tool).
+"""Ssak-Ai: 브라우저 자가 테스트 도구 (Self-Test Tool).
 
 =========================================================
 에이전트가 "시스템 자가 테스트 해줘"라고 요청하면,
@@ -34,7 +34,7 @@ class _ParametersSchema(TypedDict):
 class SelfTestTool(BaseTool):
     """시스템 자가 테스트 도구.
 
-    에이전트가 브라우저를 열어 Antigravity-K 대시보드의
+    에이전트가 브라우저를 열어 Ssak-Ai 대시보드의
     모든 기능(채팅, 탐색기, 터미널, API)을 자동으로 테스트합니다.
     """
 
@@ -199,7 +199,7 @@ class SelfTestTool(BaseTool):
         duration = float(duration_value) if isinstance(duration_value, (int, float)) else 0.0
 
         lines = [
-            "# 🧪 Antigravity-K Self-Test Report",
+            "# 🧪 Ssak-Ai Self-Test Report",
             "",
             "| 항목 | 결과 |",
             "|------|------|",

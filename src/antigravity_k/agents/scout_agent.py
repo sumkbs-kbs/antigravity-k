@@ -58,7 +58,7 @@ class ScoutAgent:
         # 1. 실제로는 WebSearchTool을 내부적으로 호출하여 정보를 수집합니다.
         # 여기서는 AGI Core의 기안서 작성 로직에 집중합니다.
 
-        prompt = f"""You are the ScoutAgent (Headhunter) of Antigravity-K.
+        prompt = f"""You are the ScoutAgent (Headhunter) of Ssak-Ai.
 
 Search query or goal: {search_query}
 

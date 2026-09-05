@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Antigravity-K will be documented in this file.
+All notable changes to Ssak-Ai will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Complete Train-to-Serve loop: LoRA adapter weight fusing via `mlx_lm.fuse`, Modelfile generation, GGUF export compatibility, Ollama registration, and `agk fuse-and-serve` CLI command with auto-discovery in `LocalModelDiscovery` (Phase 23)
+- Auto-split datasets into mlx-lm train/valid directory layout (`mlx_dataset/train.jsonl` + `valid.jsonl`) in `LoRAPipeline.apply_recipe` when `platform="mlx"`, with fallback record reuse for small datasets (Phase 23 P2)
 - Pre-commit hooks configuration (ruff, mypy, trailing-whitespace, etc.)
 - EditorConfig for consistent coding styles
 - Makefile with development, testing, linting, deployment, and Docker Compose targets
@@ -140,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-04-26
 
 ### Added
-- Initial release of Antigravity-K Local Autonomous Engineering Agent
+- Initial release of Ssak-Ai Local Autonomous Engineering Agent
 - MLX-based local inference engine with model registry
 - Multi-agent orchestration with state graph
 - RAG pipeline with ChromaDB vector store

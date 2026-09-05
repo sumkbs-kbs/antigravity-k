@@ -1,6 +1,6 @@
 # Deployment
 
-Antigravity-K can be deployed in three ways, in increasing order of production
+Ssak-Ai can be deployed in three ways, in increasing order of production
 readiness.
 
 ## 1. Local (development)

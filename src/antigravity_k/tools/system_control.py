@@ -1,4 +1,4 @@
-"""Antigravity-K: 시스템 전체 제어 + 환경 자동 최적화 도구.
+"""Ssak-Ai: 시스템 전체 제어 + 환경 자동 최적화 도구.
 
 ======================================================
 에이전트가 실행 중인 PC의 시스템 리소스를 모니터링하고 제어하며,
@@ -79,7 +79,7 @@ class SystemControlTool(BaseTool):
         self._description: str = (
             "Control the operating system: manage apps, check system resources, "
             "optimize environment settings, control clipboard/volume/wifi, "
-            "and auto-tune the Antigravity-K configuration for optimal performance. "
+            "and auto-tune the Ssak-Ai configuration for optimal performance. "
             "Always acts in the user's best interest."
         )
         self._schema: JsonMap = {
@@ -290,7 +290,7 @@ class SystemControlTool(BaseTool):
         return {"status": "ok", "system_info": info}
 
     def _action_get_env_status(self, **_kwargs: object) -> JsonMap:
-        """현재 Antigravity-K 환경 설정 상태를 조회합니다."""
+        """현재 Ssak-Ai 환경 설정 상태를 조회합니다."""
         config_path = self._find_config_path()
         status: JsonMap = {"config_path": config_path, "settings": {}}
 
@@ -491,7 +491,7 @@ class SystemControlTool(BaseTool):
     # ────────────── 환경 자동 최적화 (사용자 피드백 반영) ──────────────
 
     def _action_auto_optimize(self, **_kwargs: object) -> JsonMap:
-        """시스템 리소스를 감지하고 Antigravity-K config.yaml을 자동 최적화합니다.
+        """시스템 리소스를 감지하고 Ssak-Ai config.yaml을 자동 최적화합니다.
 
         사용자 이익 원칙:
           - 현재 하드웨어에 맞는 최적 모델/컨텍스트 설정 자동 선택
@@ -555,11 +555,7 @@ class SystemControlTool(BaseTool):
         # Ollama 모델 현황 기반 추천
         ollama_models = _as_list(sys_info.get("ollama_models"))
         if ollama_models:
-            model_names = [
-                name
-                for name in (_as_str(_as_map(model).get("name")) for model in ollama_models)
-                if name
-            ]
+            model_names = [name for name in (_as_str(_as_map(model).get("name")) for model in ollama_models) if name]
             recommended["available_models"] = model_names
             optimizations.append(
                 f"✅ Ollama 모델 {len(model_names)}개 감지: {', '.join(model_names[:5])}",

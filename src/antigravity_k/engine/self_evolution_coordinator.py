@@ -1,4 +1,4 @@
-"""Antigravity-K: Self-Evolution Coordinator (SEC) — Hermes-style Closed Learning Loop.
+"""Ssak-Ai: Self-Evolution Coordinator (SEC) — Hermes-style Closed Learning Loop.
 
 ================================================================================
 Orchestrator의 태스크 완료 후 QualityGate 점수가 C 이하일 때 자동으로 가동되어,
@@ -783,7 +783,7 @@ class SelfEvolutionCoordinator:
 
         # 최종 폴백: 프로젝트 구조 기반 설명
         return (
-            "You are Antigravity-K, a local autonomous engineering agent "
+            "You are Ssak-Ai, a local autonomous engineering agent "
             "running on Apple Silicon. You orchestrate multi-agent workflows "
             "using MoE Swarm architecture with collective intelligence. "
             "Your capabilities include: multi-model orchestration, "
@@ -965,10 +965,12 @@ class SelfEvolutionCoordinator:
 
         # 2단계: RSISandbox 3중 검증 (sandbox 사용 가능 시)
         if self._sandbox:
-            validation = _object_dict(self._sandbox.validate_mutation(
-                filepath=target_file,
-                new_content=new_content,
-            ))
+            validation = _object_dict(
+                self._sandbox.validate_mutation(
+                    filepath=target_file,
+                    new_content=new_content,
+                )
+            )
 
             failed = [k for k, v in validation.items() if getattr(v, "value", None) == "fail"]
 
@@ -981,12 +983,14 @@ class SelfEvolutionCoordinator:
 
         # 3단계: LLM 이중 감사 (보조 — 결정적 검증 통과 후에만)
         if self._sandbox and self._verify_fn:
-            audit = _object_dict(self._sandbox.dual_audit(
-                filepath=target_file,
-                original="",
-                modified=new_content,
-                audit_fn_1=self._verify_fn,
-            ))
+            audit = _object_dict(
+                self._sandbox.dual_audit(
+                    filepath=target_file,
+                    original="",
+                    modified=new_content,
+                    audit_fn_1=self._verify_fn,
+                )
+            )
             if not bool(audit.get("approved", True)):
                 return {
                     "passed": False,

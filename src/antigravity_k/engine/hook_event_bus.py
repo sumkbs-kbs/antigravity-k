@@ -197,11 +197,23 @@ class HookEventBus:
         if vault_data_dir:
             self._base_dir = Path(vault_data_dir) / HOOKS_SUBDIR
         elif self._base_dir is None:
-            project_root = Path(__file__).resolve().parent.parent.parent.parent
-            self._base_dir = project_root / "vault_data" / HOOKS_SUBDIR
+            try:
+                from antigravity_k.config import config
 
-        # 디렉토리 생성
-        self._base_dir.mkdir(parents=True, exist_ok=True)
+                self._base_dir = config.paths.data_dir / "vault_data" / HOOKS_SUBDIR
+            except Exception:
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                self._base_dir = project_root / "vault_data" / HOOKS_SUBDIR
+
+        # 디렉토리 생성 및 권한 확인 (읽기 전용 환경 폴백)
+        try:
+            self._base_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self._base_dir / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+        except OSError:
+            self._base_dir = Path.home() / ".antigravity-k" / "vault_data" / HOOKS_SUBDIR
+            self._base_dir.mkdir(parents=True, exist_ok=True)
 
         # Unix 권한 설정 (0700)
         if platform.system() != "Windows":

@@ -109,7 +109,7 @@ class SlashCommandSessionMixin:
 
     def _cmd_help(self, _args: list[str]) -> str:
         """도움말 표시."""
-        lines = ["📚 **Antigravity-K 슬래시 커맨드**", ""]
+        lines = ["📚 **Ssak-Ai 슬래시 커맨드**", ""]
 
         categories: dict[str, list[SlashCommand]] = {}
         for cmd in self._commands.values():
@@ -228,7 +228,7 @@ class SlashCommandSessionMixin:
 
     def _cmd_status(self, _args: list[str]) -> str:
         """전체 상태 요약."""
-        lines = ["⚡ **Antigravity-K 상태**", ""]
+        lines = ["⚡ **Ssak-Ai 상태**", ""]
 
         if self._session_manager:
             info = self._session_manager.get_session_info()

@@ -34,7 +34,7 @@ class TrainerAgent:
         """특정 도메인에 대한 학습 제안서를 작성합니다."""
         logger.info("TrainerAgent planning fine-tuning for domain: %s", domain_goal)
 
-        prompt = f"""You are the TrainerAgent of Antigravity-K AGI Core.
+        prompt = f"""You are the TrainerAgent of Ssak-Ai AGI Core.
 
 Domain/Goal requiring reinforcement: {domain_goal}
 

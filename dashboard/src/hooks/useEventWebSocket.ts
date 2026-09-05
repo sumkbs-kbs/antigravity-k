@@ -1,8 +1,10 @@
 /**
  * useEventWebSocket — Real-time agent event WebSocket hook
  * ========================================================
- * Handles 7+ event types: ModeChanged, ToolExecutionStarted/Finished,
- * FailureDetected, CognitiveAdaptation, PlanningModeStarted, FileOpened/Modified.
+ * Handles 14 event types: ModeChanged, ToolExecutionStarted/Finished,
+ * FailureDetected, CognitiveAdaptation, PlanningModeStarted, ApprovalRequired,
+ * AgentTurnStarted/Ended, QualityCheckPassed/Failed, AntiPatternsDetected,
+ * FileOpened/Modified.
  * Auto-reconnects with 3s delay, prevents duplicate connections.
  */
 
@@ -29,6 +31,28 @@ const cognitiveAdaptationDataSchema = z.object({
 const planningModeDataSchema = z.object({
   goal: z.string().optional(),
 }).catchall(z.unknown()).readonly();
+const approvalRequiredDataSchema = z.object({
+  tool: z.string().optional(),
+  request_id: z.string().optional(),
+  reason: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const agentTurnDataSchema = z.object({
+  role: z.string().optional(),
+  task_type: z.string().optional(),
+}).catchall(z.unknown()).readonly();
+const qualityCheckDataSchema = z.object({
+  task_type: z.string().optional(),
+  user_task: z.string().optional(),
+  score: z.union([z.number(), z.string()]).optional(),
+  grade: z.string().optional(),
+  issues: z.array(z.string()).optional(),
+  feedback: z.string().nullable().optional(),
+}).catchall(z.unknown()).readonly();
+const antiPatternsDataSchema = z.object({
+  reason: z.string().optional(),
+  tools: z.array(z.string()).optional(),
+  patterns: z.array(z.string()).optional(),
+}).catchall(z.unknown()).readonly();
 const fileEventDataSchema = z.object({
   filepath: z.string().optional(),
   content: z.string().optional(),
@@ -47,6 +71,12 @@ const eventMessageSchema = z.discriminatedUnion('event', [
   z.object({ event: z.literal('FailureDetected'), data: failureDataSchema }).readonly(),
   z.object({ event: z.literal('CognitiveAdaptation'), data: cognitiveAdaptationDataSchema }).readonly(),
   z.object({ event: z.literal('PlanningModeStarted'), data: planningModeDataSchema }).readonly(),
+  z.object({ event: z.literal('ApprovalRequired'), data: approvalRequiredDataSchema }).readonly(),
+  z.object({ event: z.literal('AgentTurnStarted'), data: agentTurnDataSchema }).readonly(),
+  z.object({ event: z.literal('AgentTurnEnded'), data: agentTurnDataSchema }).readonly(),
+  z.object({ event: z.literal('QualityCheckPassed'), data: qualityCheckDataSchema }).readonly(),
+  z.object({ event: z.literal('QualityCheckFailed'), data: qualityCheckDataSchema }).readonly(),
+  z.object({ event: z.literal('AntiPatternsDetected'), data: antiPatternsDataSchema }).readonly(),
   z.object({ event: z.literal('FileOpened'), data: fileEventDataSchema }).readonly(),
   z.object({ event: z.literal('FileModified'), data: fileEventDataSchema }).readonly(),
 ]);
@@ -55,6 +85,10 @@ type ToolExecutionData = z.infer<typeof toolExecutionDataSchema>;
 type FailureData = z.infer<typeof failureDataSchema>;
 type CognitiveAdaptationData = z.infer<typeof cognitiveAdaptationDataSchema>;
 type PlanningModeData = z.infer<typeof planningModeDataSchema>;
+type ApprovalRequiredData = z.infer<typeof approvalRequiredDataSchema>;
+type AgentTurnData = z.infer<typeof agentTurnDataSchema>;
+type QualityCheckData = z.infer<typeof qualityCheckDataSchema>;
+type AntiPatternsData = z.infer<typeof antiPatternsDataSchema>;
 type FileEventData = z.infer<typeof fileEventDataSchema>;
 type ModeChangedData = z.infer<typeof modeChangedDataSchema>;
 type EventMessage = z.infer<typeof eventMessageSchema>;
@@ -69,6 +103,12 @@ export type EventHandlers = Readonly<{
   onFailureDetected?: (data: FailureData) => void;
   onCognitiveAdaptation?: (data: CognitiveAdaptationData) => void;
   onPlanningModeStarted?: (data: PlanningModeData) => void;
+  onApprovalRequired?: (data: ApprovalRequiredData) => void;
+  onAgentTurnStarted?: (data: AgentTurnData) => void;
+  onAgentTurnEnded?: (data: AgentTurnData) => void;
+  onQualityCheckPassed?: (data: QualityCheckData) => void;
+  onQualityCheckFailed?: (data: QualityCheckData) => void;
+  onAntiPatternsDetected?: (data: AntiPatternsData) => void;
   onFileOpened?: (data: FileEventData) => void;
   onFileModified?: (data: FileEventData) => void;
   onModeChanged?: (data: ModeChangedData) => void;
@@ -98,6 +138,24 @@ function dispatchEventMessage(message: EventMessage, handlers: EventHandlers): v
       return;
     case 'PlanningModeStarted':
       handlers.onPlanningModeStarted?.(message.data);
+      return;
+    case 'ApprovalRequired':
+      handlers.onApprovalRequired?.(message.data);
+      return;
+    case 'AgentTurnStarted':
+      handlers.onAgentTurnStarted?.(message.data);
+      return;
+    case 'AgentTurnEnded':
+      handlers.onAgentTurnEnded?.(message.data);
+      return;
+    case 'QualityCheckPassed':
+      handlers.onQualityCheckPassed?.(message.data);
+      return;
+    case 'QualityCheckFailed':
+      handlers.onQualityCheckFailed?.(message.data);
+      return;
+    case 'AntiPatternsDetected':
+      handlers.onAntiPatternsDetected?.(message.data);
       return;
     case 'FileOpened':
       handlers.onFileOpened?.(message.data);

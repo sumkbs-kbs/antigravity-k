@@ -37,6 +37,7 @@ def _load_prompt(coord: SelfEvolutionCoordinator) -> str:
     load = cast(Callable[[], str], cast(object, getattr(coord, "_load_current_system_prompt")))
     return load()
 
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -274,7 +275,7 @@ class TestLoadSystemPrompt:
     def test_file_not_found_returns_fallback(self, tmp_path: Path):
         coord = SelfEvolutionCoordinator(project_root=str(tmp_path))
         result = _load_prompt(coord)
-        assert "Antigravity-K" in result
+        assert "Ssak-Ai" in result
         assert "Apple Silicon" in result
         assert len(result) > 50
 

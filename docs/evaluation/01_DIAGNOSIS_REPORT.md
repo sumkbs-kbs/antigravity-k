@@ -1,10 +1,10 @@
 ---
-title: Antigravity-K 종합 진단 보고서
+title: Ssak-Ai 종합 진단 보고서
 tags: [diagnosis, evaluation, architecture, roadmap, antigravity-k]
 date: 2026-08-17
 ---
 
-# Antigravity-K 종합 진단 보고서
+# Ssak-Ai 종합 진단 보고서
 
 > **대상**: `antigravity-k` (Apple Silicon 로컬 우선 자율형 엔지니어링 에이전트, Qwen3.6 36B 급)
 > **범위**: 코드 구조 분석 기반 진단 — **이번 세션은 분석 전용, 코드 수정 없음**

@@ -59,6 +59,7 @@ class ModelOperationsResponse(TypedDict):
     provider_capabilities: dict[str, ProviderCapability]
     quality_calibration: QualityCalibrationStatus
 
+
 router = APIRouter()
 logger = logging.getLogger("antigravity_k.api.routes.models")
 
@@ -225,7 +226,8 @@ def list_local_models(
     recommended_default: str | None = None
     running_models = [m for m in local_models if m.get("status") == "running"]
     primary_running = [
-        m for m in running_models
+        m
+        for m in running_models
         if m.get("role") in ("reasoning", "coding", "general") and cast(float, m.get("parameter_count_b", 0)) > 0
     ]
     if primary_running:
@@ -235,7 +237,8 @@ def list_local_models(
         recommended_default = cast(str, running_models[0]["id"])
     elif local_models:
         primary_cached = [
-            m for m in local_models
+            m
+            for m in local_models
             if m.get("role") in ("reasoning", "coding", "general") and cast(float, m.get("parameter_count_b", 0)) > 0
         ]
         if primary_cached:

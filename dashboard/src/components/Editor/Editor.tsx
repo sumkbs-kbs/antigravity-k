@@ -350,13 +350,41 @@ const CodeEditor: React.FC = () => {
                 top: '50%',
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
-                color: '#999',
-                fontSize: 14,
-                pointerEvents: 'none',
+                color: '#8b949e',
+                fontSize: 13,
                 textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 10,
+                maxWidth: 320,
               }}
             >
-              Select a file from the explorer to view its contents.
+              <span style={{ fontSize: 32 }}>💻</span>
+              <div style={{ fontWeight: 600, color: '#f0f6fc', fontSize: 14 }}>
+                열려 있는 파일이 없습니다
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: '#8b949e' }}>
+                Select a file from the explorer to view its contents.
+                좌측 탐색기에서 파일을 선택하거나, 에이전트가 코드를 읽고 편집할 때 자동으로 이곳에 렌더링됩니다.
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{
+                  marginTop: 6,
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  background: '#21262d',
+                  color: '#f0f6fc',
+                }}
+                onClick={() => useUiStore.getState().setFolderBrowserVisible(true)}
+              >
+                📁 프로젝트 폴더 열기
+              </button>
             </div>
           )}
 

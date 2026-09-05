@@ -1,7 +1,7 @@
 """Computer Use Tool — 데스크탑 자동화 도구.
 
 ==========================================
-os-ai-computer-use 프레임워크의 핵심 패턴을 Antigravity-K의 BaseTool 인터페이스에
+os-ai-computer-use 프레임워크의 핵심 패턴을 Ssak-Ai의 BaseTool 인터페이스에
 맞춰 이식한 도구입니다.
 
 에이전트가 이 도구를 호출하면 실제 마우스/키보드/스크린샷 명령이 실행됩니다.
@@ -44,11 +44,7 @@ def _str_arg(args: dict[str, ActionValue], key: str, default: str = "") -> str:
 
 
 def _action_params(kwargs: Mapping[str, object]) -> dict[str, ActionValue]:
-    return {
-        key: value
-        for key, value in kwargs.items()
-        if value is None or isinstance(value, (str, int, float, bool))
-    }
+    return {key: value for key, value in kwargs.items() if value is None or isinstance(value, (str, int, float, bool))}
 
 
 @final

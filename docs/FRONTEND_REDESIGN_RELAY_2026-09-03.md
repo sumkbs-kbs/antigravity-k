@@ -3,7 +3,7 @@ title: 프론트엔드 화면구성 리디자인 릴레이 문서 (Antigravity �
 tags: [frontend, dashboard, redesign, antigravity, codex, unsloth, relay, agent-workspace, e2e, tool-policy]
 date: 2026-09-03
 branch: codex/m1-task-events
-status: 3차 완결 (mypy 0 errors·375px 모바일 반응형 해결·MCP 동적화·인라인 브랜치 전환·큐 전체 비우기)
+status: 15차 완결 (WS 이벤트 14종 전부 실발행자·프론트 소비 확보 — QualityCheck/AgentTurn/AntiPatterns를 AgentPage 타임라인 + Kanban 보드에 표시 — 남은 과제 0건)
 ---
 
 # 프론트엔드 화면구성 리디자인 릴레이 문서
@@ -12,8 +12,36 @@ status: 3차 완결 (mypy 0 errors·375px 모바일 반응형 해결·MCP 동적
 > 동일한 화면 구성으로 대시보드를 개선하는 작업의 **전체 진행 사항과 남은 과제**를 기록한다.
 > 다른 에이전트는 이 문서만 읽고 이어서 작업할 수 있어야 한다.
 >
-> **3차 완결(2026-09-03 저녁)**: mypy 0 errors 달성, 375px 모바일 반응형 버그 해결(task-execution 전수 PASS),
-> 소스(MCP) 실데이터 동적화, 환경 레일 브랜치 인라인 체크아웃 승격, 큐 전체 비우기 버튼 추가까지 완료 — §6 참조.
+> **작업 문서화 규칙 (필수)**: 매 작업(세션)이 끝나면 반드시 ① 본 문서 §6에 완료/남은 과제를 갱신하고,
+> ② 작업별 상세 기록(`docs/qa/YYYY-MM-DD/session-NN-<slug>.md` 양식, 원인/구현/검증/잔여 위험 포함)을 남긴다.
+> ③ 세션 인덱스 `docs/qa/YYYY-MM-DD/README.md`에 링크를 추가한다. 커밋 전 미커밋 상태도 명시한다.
+> 이 규칙을 지키지 않으면 작업을 완료로 간주하지 않는다.
+>
+> **15차 완결(2026-09-04)**: §6.3 후속 — 세션 14에서 제거했던 QualityCheck*/AntiPatternsDetected를
+> **실제 발행자와 함께 재도입**: `tool_loop._publish_quality_event`(QualityGate 최종 등급 A/B→Passed,
+> C/F→Failed), `cognitive_loop._publish_anti_patterns`(반복 실패 감지). `TRACKED_EVENTS` 14개로 확장,
+> React `useEventWebSocket` 9→14종 스키마/핸들러, AgentPage 타임라인·로그 표시, kanban_api 카드 주석
+> (품질 실패/안티패턴) + vanilla 보드 `agent.js` 배지. 상세: [세션 15 진행 기록](qa/2026-09-04/session-15-kanban-quality-events.md)
+>
+> **14차 완결(2026-09-04)**: §6.3 후속 — `TRACKED_EVENTS` 죽은 구독 정리: 발행자 없는 5종
+> (QualityCheck*, FailureRecovered, AntiPatternsDetected) 제거. `AgentTurnStarted/Ended`는
+> `HOOK_KIND_TO_EVENT_NAME` 브릿지로 연결(autonomous_learner 발신 → kanban_api 소비) + 페이로드 보강.
+> 죽은 구독 재발 방지 계약 테스트 추가. 상세: [세션 14 진행 기록](qa/2026-09-04/session-14-dead-ws-subscriptions.md)
+>
+> **13차 완결(2026-09-04)**: §6.3 후속 — GatePipeline 승인 대기(APPROVAL REQUIRED) 경로에
+> `ApprovalRequired{tool, request_id, reason}` WS 이벤트 발행 추가 (tool_executor).
+> `TRACKED_EVENTS`/프론트 `useEventWebSocket`/AgentPage 소비 + 양쪽 계약 테스트 동기화.
+> 상세: [세션 13 진행 기록](qa/2026-09-04/session-13-approval-required-ws-event.md)
+>
+> **12차 완결(2026-09-04)**: FE↔BE 정합성 전수 감사(§6.3) — 프론트 `useEventWebSocket`이 소비하는
+> `PlanningModeStarted`/`CognitiveAdaptation`/`FailureDetected` 3개 이벤트가 백엔드에서 영구 무음이던 갭을
+> 발행자 추가(mode_manager/cognitive_loop/tool_executor) + `/v1/ws/events` 구독 보강으로 해결.
+> `GET /api/system/access-mode`에 `ok` 추가, 양쪽 계약 테스트 고정(백엔드 4건 + 프론트 2건).
+>
+> **11차 완결(2026-09-04)**: §6.1의 마지막 남은 과제(auth-bootstrap E2E 2건, 환경 의존)를
+> 격리 백엔드 스폰 방식으로 해결 — 4/4 전수 통과. 부수 발견으로 `/v1/ws/events` 핸들러의
+> disconnect 미감지로 인한 graceful shutdown ~30초 지연 버그도 수정(SIGTERM→exit 194ms).
+> 선존·환경 의존 실패(a11y `.folder-sub-preview` 대비, 로컬 모델 캡처)는 §6.2에 기록.
 
 ---
 
@@ -253,17 +281,66 @@ npx vite preview --port 4178 &
 
 ### 6.1 남은 과제
 
-1. **auth-bootstrap 스펙 2건(환경 의존)**: `.env`에 `AGK_ACCESS_PIN`이 설정된 머신에서는
-   "no-auth 부트스트랩" 시나리오(잘못된 PIN → 503)가 성립하지 않음. 코드 결함 아님.
-   클린 환경(PIN 미설정)에서만 통과. (제품 코드 및 기능적 결함은 현재 0건 완결 상태)
+1. ✅ **auth-bootstrap 스펙 전수 자급(self-contained)화 (11차 완료, 2026-09-04)**:
+   - `auth-bootstrap.spec.ts` 4개 시나리오가 모두 **자체 소유의 격리 백엔드**를 스폰하도록 변경
+     (`startBackendServer` 헬퍼). 자식 프로세스 env에서 `AGK_SEC_ACCESS_PIN`/`AGK_ACCESS_PIN`을
+     빈 문자열로 고정하고, `AGK_ENV_FILE`을 빈 임시 파일로, `AGK_SEC_PIN_HASH_FILE`을
+     미존재 임시 경로로, `AGK_SEC_TOKEN_SECRET_FILE`을 신규 랜덤 시크릿으로 지정해
+     머신의 `.env`·`data/auth_hash`·`data/token_secret`과 무관하게 동작한다.
+   - no-auth 2건(503 부트스트랩, legacy PIN 거절)이 이제 어떤 머신에서도 통과.
+   - **부수 발견·수정**: `src/antigravity_k/api/routes/events.py`의 `/v1/ws/events` 핸들러가
+     `queue.get()`에 30초 keepalive 타임아웃으로 블록하며 disconnect를 듣지 않아,
+     대시보드가 열린 상태에서 서버 SIGTERM 시 graceful shutdown이 최대 ~30초 지연됐다.
+     전용 receive 워처 + `disconnect_event` 레이스로 즉시 종료되도록 수정
+     (측정: app-mounted 시나리오 SIGTERM→exit 28,226ms → **194ms**).
+   - 회귀 테스트: `tests/test_events.py`에 즉시 종료/이벤트 전달 2건 추가 (3/3 통과),
+     `tests/test_workspace_websocket*.py` 포함 31 passed, 전체 pytest 4907 passed.
+   - auth-bootstrap 스펙: **4/4 passed, 4.1s** (기존 ~33s → 4.1s, 4 workers).
+   - 스펙 셀렉터·DashboardPage·제품 DOM은 변경 없음 (F09/F10 계약 유지).
+   - 상세 원인/구현/검증/잔여 위험: [세션 11 진행 기록](qa/2026-09-04/session-11-auth-bootstrap-e2e.md)
 
-### 6.2 E2E 현재 상태 (2026-09-03, 4차 완결 기준)
+### 6.2 E2E 현재 상태 (2026-09-04, 11차 완결 기준)
 
-- **57개 중 55 통과.** 실패 2건 = 위 6.1의 1번(환경 의존 테스트 2건).
+- **auth-bootstrap 4/4 통과** (공유 백엔드 불필요 — 자체 서버 스폰).
+- 전체 스위트: **50 passed / 11 failed** (실패 전수 선존·환경 의존):
+  - accessibility 10건: `.folder-sub-preview` color-contrast — 미커밋 `index.css`/`Sidebar.tsx`
+    변경(타 작업자)에 의한 선존 회귀. 본 작업(백엔드 WS만 변경)과 무관.
+  - `capture-real-local-models.spec.ts` 1건: `orpheus-3b` 모델이 실제 실행 중일 때만 통과하는
+    스크린샷 캡처 유틸 스펙 (현재 미실행 → 실패).
 - 실행:
   - 터미널 1) `uv run agk serve --port 8012`
   - 터미널 2) `cd dashboard && NO_PROXY="*" AGK_BACKEND_URL=http://127.0.0.1:8012 npx playwright test`
 - 프론트엔드 수정 후에는 `npx vite build`로 dist 재생성 후 E2E할 것(백엔드가 dist를 서빙).
+
+### 6.3 FE↔BE 정합성 감사 결과 (12차 완료, 2026-09-04)
+
+- **감사 범위**: 백엔드 라우터 31개(~220개 엔드포인트) ↔ 프론트엔드 호출 전수
+  (fetch/ky/apiRequest/streamChatCompletion/WebSocket) — 메서드·경로·요청 필드·응답 스키마(zod↔Pydantic) 대조.
+- **일치 확인**: Git/Tasks/Jobs/Agency/Approval/Models/Chat-SSE/Vault-Wiki/Filesystem/System(workspace-context,
+  quota, mcp/servers, skills, log-level, settings) — 전부 계약 일치, 수정 불필요.
+- **발견·수정된 갭** (프론트가 소비하지만 백엔드에서 영구 무음이던 WS 이벤트 3종):
+  - `PlanningModeStarted{goal}` — `mode_manager.switch_to_plan()`에서 발행 추가 (`_publish_planning_started`).
+  - `CognitiveAdaptation{reason, adaptation}` — `cognitive_loop.adapt_strategy()`의 적응 경로에서 발행 추가.
+  - `FailureDetected{tool, error, message}` — `tool_executor._post_execute()` 실패 결과에서 발행 추가.
+  - `events.py` 구독 목록을 모듈 상수 `TRACKED_EVENTS`로 승격하고 위 2종(CognitiveAdaptation/PlanningModeStarted) 추가.
+- **형태 통일**: `GET /api/system/access-mode` 응답에 `ok: true` 추가 (POST와 동일 형태, zod 스키마와 정합).
+- **계약 고정**: `tests/test_events.py::FRONTEND_WS_EVENTS`(백엔드)와
+  `dashboard/src/api/contractAlignment.test.ts::FRONTEND_WS_EVENT_NAMES`(프론트)를 쌍으로 고정 —
+  새 WS 이벤트 추가 시 양쪽 동시 갱신 필수.
+- **13차 추가**: GatePipeline `is_paused`/Permission `PROMPT` 승인 대기 경로에서
+  `ApprovalRequired{tool, request_id, reason}` 발행 (tool_executor `_register_approval_request` 일시정지 반환 직전).
+  AgentPage에 승인 대기 로그/타임라인(`approval` 타입) 표시. 상세: [세션 13 진행 기록](qa/2026-09-04/session-13-approval-required-ws-event.md)
+- **14차 정리·연결**: 발행자 없는 죽은 구독 5종(QualityCheck*, FailureRecovered, AntiPatternsDetected) 제거,
+  `AgentTurnStarted/Ended`를 `HOOK_KIND_TO_EVENT_NAME` 브릿지로 연결(autonomous_learner → kanban).
+  상세: [세션 14 진행 기록](qa/2026-09-04/session-14-dead-ws-subscriptions.md)
+- **15차 실소비 연결**: 세션 14가 문서화한 "재도입 조건"(실제 발행자)을 충족해 QualityCheck*/AntiPatternsDetected를
+  재도입 — tool_loop QualityGate 최종 등급 발행, cognitive_loop 반복 실패 발행. `TRACKED_EVENTS` 14개.
+  React AgentPage 타임라인(`useEventWebSocket` 14종 스키마, 로그·타임라인·상태) + Kanban 보드
+  (kanban_api 카드 주석·플래그 + vanilla `agent.js` 배지). 양쪽 계약 테스트 14종 동기화.
+  상세: [세션 15 진행 기록](qa/2026-09-04/session-15-kanban-quality-events.md)
+- **검증**: 관련 pytest 160 passed(12차) → 115 passed(13차) → 147 passed(14차) → **143 passed(15차)**, ruff/mypy 클린,
+  vitest contractAlignment + useEventWebSocket 17 passed, `tsc -b` 0 errors.
+- 상세: [세션 12 진행 기록](qa/2026-09-04/session-12-fe-be-contract-audit.md)
 
 ## 7. 주의사항
 

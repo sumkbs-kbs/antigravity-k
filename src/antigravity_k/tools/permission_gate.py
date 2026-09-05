@@ -227,8 +227,8 @@ class PermissionGate:
                 logger.warning("DENIED access to protected path: %s", abs_path)
                 return Permission.DENY
 
-        # 읽기 전용 도구는 안전 도구로 분류되어 경로 밖 조회도 자동 허용합니다.
-        if tool_name in ("read_file", "grep_search", "glob_search"):
+        # 읽기 전용 도구 및 워크스페이스 전환 도구는 안전 도구로 분류되어 경로 밖 조회도 자동 허용합니다.
+        if tool_name in ("read_file", "grep_search", "glob_search", "set_workspace"):
             return Permission.ALLOW
 
         # 프로젝트 외부 파일 접근

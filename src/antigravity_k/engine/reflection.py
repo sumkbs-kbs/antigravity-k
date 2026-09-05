@@ -68,7 +68,7 @@ class ReflectionAgent:
             return
 
         # 2. 메타 인지 프롬프트 구성
-        prompt = f"""You are the ECA (Evolutionary Cognitive Architecture) Reflection Agent for Antigravity-K.
+        prompt = f"""You are the ECA (Evolutionary Cognitive Architecture) Reflection Agent for Ssak-Ai.
 
 A task has just been completed. Your job is to extract long-term architectural knowledge or identify repetitive skills.
 
@@ -123,9 +123,7 @@ Based on this, return ONLY a JSON object:
             if isinstance(title, str) and title:
                 ki_id = f"ki_{uuid.uuid4().hex[:8]}"
                 target_file_names = (
-                    [item for item in target_files if isinstance(item, str)]
-                    if isinstance(target_files, list)
-                    else []
+                    [item for item in target_files if isinstance(item, str)] if isinstance(target_files, list) else []
                 )
                 ki_data = {
                     "id": ki_id,

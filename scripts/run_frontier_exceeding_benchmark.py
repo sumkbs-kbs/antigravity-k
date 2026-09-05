@@ -23,7 +23,7 @@ from antigravity_k.engine.speculative_branching import SpeculativeBranchingEngin
 
 def run_exceeding_benchmark():
     print("=" * 70)
-    print("🌌 Running Antigravity-K Frontier-Exceeding Benchmark (Qwen3.8-27B)")
+    print("🌌 Running Ssak-Ai Frontier-Exceeding Benchmark (Qwen3.8-27B)")
     print("=" * 70)
 
     score = 0

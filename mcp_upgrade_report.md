@@ -8,7 +8,7 @@ date: 2026-05-07
 
 ## 1. 최신 기술 조사 근거
 
-| 출처 | 확인한 핵심 변화 | Antigravity-K 반영 |
+| 출처 | 확인한 핵심 변화 | Ssak-Ai 반영 |
 |---|---|---|
 | https://modelcontextprotocol.io/specification/2025-11-25/basic/transports | 최신 MCP는 `stdio`와 `Streamable HTTP`를 표준 transport로 정의하고, HTTP 서버의 Origin 검증/localhost 바인딩/인증을 요구 | `MCPSessionManager.connect_streamable_http()` 추가, 원격 서버 인증 감사 추가 |
 | https://modelcontextprotocol.io/specification/2025-03-26/changelog | OAuth 2.1 authorization, Streamable HTTP, JSON-RPC batching, tool annotations, completions 추가 | `/mcp` 레이더에 capability matrix 반영, tool annotation을 위험도에 매핑 |
@@ -25,7 +25,7 @@ date: 2026-05-07
 | 서버 로딩 안전성 | `src/antigravity_k/tools/mcp_tool_loader.py` | 연결 전 MCP config 감사, 원격 무인증 서버 차단, timeout/trust/tool annotation 경고 |
 | 도구 품질/권한 | `src/antigravity_k/tools/mcp_tool_loader.py` | MCP `readOnlyHint`, `destructiveHint`, `openWorldHint`를 `RiskLevel`로 매핑 |
 | 자율 실행 정책 | `src/antigravity_k/engine/capability_policy.py` | MCP/Skills/내장 도구/PC control을 `allow/prompt/deny`로 공통 판정 |
-| 실행 직전 게이트 | `src/antigravity_k/tools/tool_registry.py`, `src/antigravity_k/engine/tool_executor.py` | 모델이 도구 호출을 생성해도 Antigravity-K가 자체 정책으로 재판정 |
+| 실행 직전 게이트 | `src/antigravity_k/tools/tool_registry.py`, `src/antigravity_k/engine/tool_executor.py` | 모델이 도구 호출을 생성해도 Ssak-Ai가 자체 정책으로 재판정 |
 | 사용자 접근성 | `src/antigravity_k/engine/slash_commands.py` | `/mcp [radar|audit <path>|template]` 추가 |
 | 전체 capability manifest | `src/antigravity_k/engine/slash_commands.py` | `/capabilities [objective]`로 도구/MCP/Skills 자율 사용 가능성 확인 |
 | UI 검색성 | `dashboard/src/command_palette.js` | Command Palette에 `MCP Upgrade Radar (/mcp)`, `Autonomous Capabilities (/capabilities)` 추가 |

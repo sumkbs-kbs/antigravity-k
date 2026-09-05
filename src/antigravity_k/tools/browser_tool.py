@@ -1,4 +1,4 @@
-"""Antigravity-K: 브라우저 자동화 도구 (Harness Engineering 적용).
+"""Ssak-Ai: 브라우저 자동화 도구 (Harness Engineering 적용).
 
 =============================================================
 Playwright 기반 브라우저 자동화 + Intent 기반 테스트 + Self-Healing.
@@ -364,8 +364,10 @@ class BrowserTool(BaseTool):
         selector = _param_text(params, "selector", "body")
 
         # 주요 인터랙티브 요소만 추출
-        result = cast(object, page.evaluate(
-            f"""() => {{
+        result = cast(
+            object,
+            page.evaluate(
+                f"""() => {{
 
             const el = document.querySelector('{selector}');
             if (!el) return 'Element not found';
@@ -384,7 +386,8 @@ class BrowserTool(BaseTool):
                 ariaLabel: e.getAttribute('aria-label') || null,
             }}));
         }}""",
-        ))
+            ),
+        )
 
         return json.dumps(result, ensure_ascii=False, indent=2)
 

@@ -1,4 +1,4 @@
-"""Antigravity-K: 불확실성 인식기 (UncertaintyEstimator).
+"""Ssak-Ai: 불확실성 인식기 (UncertaintyEstimator).
 
 ====================================================
 E-2: 에이전트가 자신의 확신도를 평가하는 메타인지 모듈.

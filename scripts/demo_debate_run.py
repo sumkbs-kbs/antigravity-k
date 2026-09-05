@@ -12,7 +12,7 @@ def log_agent_message(agent_name: str, message: str, color_code: str = "\033[0m"
 
 def run_debate_demo(*, create_git_checkpoint: bool = False) -> None:
     print("=" * 60)
-    print("Antigravity-K Agentic Framework Debate & Autopilot Demo")
+    print("Ssak-Ai Agentic Framework Debate & Autopilot Demo")
     print("=" * 60)
 
     # 1. 스킬 로드

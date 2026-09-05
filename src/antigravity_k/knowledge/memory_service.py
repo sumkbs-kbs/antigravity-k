@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -79,6 +80,7 @@ class StatsPayload(TypedDict):
     db_path: str
     vector_store: dict[str, object]
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,9 +104,22 @@ class MemoryService:
 
         """
         if db_path is None:
-            base_dir = Path(__file__).resolve().parent.parent / "data"
-            base_dir.mkdir(parents=True, exist_ok=True)
-            db_path = str(base_dir / "memory.db")
+            configured_path = os.environ.get("AGK_MEMORY_DB_PATH", "").strip()
+            if configured_path:
+                db_path = configured_path
+            else:
+                try:
+                    from antigravity_k.config import config
+
+                    base_dir = config.paths.data_dir
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                    test_file = base_dir / f".agk_write_test_{os.getpid()}"
+                    test_file.touch()
+                    test_file.unlink()
+                except OSError:
+                    base_dir = Path.home() / ".antigravity-k" / "data"
+                    base_dir.mkdir(parents=True, exist_ok=True)
+                db_path = str(base_dir / "memory.db")
 
         self.db_path = db_path
         self._vector_store: _VectorStoreLike | None = None
@@ -158,10 +173,15 @@ class MemoryService:
         now = datetime.now().astimezone().replace(tzinfo=None).isoformat()
         tags_str = json.dumps(tags) if tags else "[]"
         with self._get_connection() as conn:
-            cursor = _cursor(cast(object, conn.execute(
-                "INSERT INTO knowledge_items (topic, content, tags, created_at) VALUES (?, ?, ?, ?)",
-                (topic, content, tags_str, now),
-            )))
+            cursor = _cursor(
+                cast(
+                    object,
+                    conn.execute(
+                        "INSERT INTO knowledge_items (topic, content, tags, created_at) VALUES (?, ?, ?, ?)",
+                        (topic, content, tags_str, now),
+                    ),
+                )
+            )
             item_id = cursor.lastrowid
             if item_id is None:
                 raise sqlite3.DatabaseError("SQLite did not return an inserted knowledge item id")
@@ -236,7 +256,9 @@ class MemoryService:
 
         placeholders = ",".join("?" * len(ids))
         with self._get_connection() as conn:
-            cur = _cursor(cast(object, conn.execute(f"SELECT * FROM knowledge_items WHERE id IN ({placeholders})", ids)))
+            cur = _cursor(
+                cast(object, conn.execute(f"SELECT * FROM knowledge_items WHERE id IN ({placeholders})", ids))
+            )
             rows = [_row_dict(row) for row in cur.fetchall()]
 
         # 유사도 순 정렬
@@ -346,12 +368,14 @@ class MemoryService:
 
     def export_all(self) -> list[dict[str, object]]:
         with self._get_connection() as conn:
-            knowledge = [_row_dict(row) for row in _fetchall(conn.execute("SELECT * FROM knowledge_items ORDER BY created_at"))]
-            snapshots = [_row_dict(row) for row in _fetchall(conn.execute("SELECT * FROM context_snapshots ORDER BY created_at"))]
+            knowledge = [
+                _row_dict(row) for row in _fetchall(conn.execute("SELECT * FROM knowledge_items ORDER BY created_at"))
+            ]
+            snapshots = [
+                _row_dict(row) for row in _fetchall(conn.execute("SELECT * FROM context_snapshots ORDER BY created_at"))
+            ]
         result: list[dict[str, object]] = [{"kind": "knowledge", "data": row} for row in knowledge]
-        return result + [
-            {"kind": "snapshot", "data": row} for row in snapshots
-        ]
+        return result + [{"kind": "snapshot", "data": row} for row in snapshots]
 
     def redact_all(self) -> int:
         from antigravity_k.engine.secret_scanner import redact_full

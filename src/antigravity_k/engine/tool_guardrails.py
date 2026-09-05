@@ -1,7 +1,7 @@
 """ToolCallGuardrail — 도구 호출 루프 가드레일 시스템.
 
 ====================================================
-Hermes Agent의 tool_guardrails.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 tool_guardrails.py 패턴을 Ssak-Ai에 이식.
 
 순수 관찰 기반 컨트롤러:
 - 동일 인자로 반복 실패하는 도구 호출 감지 → 경고/차단

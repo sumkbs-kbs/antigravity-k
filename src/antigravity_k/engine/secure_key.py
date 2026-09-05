@@ -1,4 +1,4 @@
-"""Antigravity-K: Secure Key Provider.
+"""Ssak-Ai: Secure Key Provider.
 
 ====================================
 
@@ -80,6 +80,7 @@ _FERNET_KEY_LEN = 44
 # 기존 vault 데이터는 rotate_master_key(force=True)로 마이그레이션합니다.
 
 _CURRENT_KDF_VERSION = 3
+
 
 class _KdfParams(TypedDict):
     salt: bytes
@@ -428,9 +429,7 @@ def _load_config_keys() -> dict[str, str]:
             # 자리표시자 키는 무시
             mapping = cast(dict[object, object], keys)
             return {
-                k: v
-                for k, v in mapping.items()
-                if isinstance(k, str) and isinstance(v, str) and not _is_placeholder(v)
+                k: v for k, v in mapping.items() if isinstance(k, str) and isinstance(v, str) and not _is_placeholder(v)
             }
     except Exception:
         logger.exception("Failed to load config keys")
@@ -457,11 +456,7 @@ def _load_vault_keys() -> dict[str, str]:
         if not isinstance(value, dict):
             return {}
         mapping = cast(dict[object, object], value)
-        return {
-            key: item
-            for key, item in mapping.items()
-            if isinstance(key, str) and isinstance(item, str)
-        }
+        return {key: item for key, item in mapping.items() if isinstance(key, str) and isinstance(item, str)}
     except Exception:
         logger.exception("Failed to load vault keys (may need re-init)")
         return {}

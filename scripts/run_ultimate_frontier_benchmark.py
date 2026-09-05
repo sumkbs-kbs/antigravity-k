@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ultimate Frontier Amplification Test Suite for Antigravity-K (Qwen3.8-27B).
+"""Ultimate Frontier Amplification Test Suite for Ssak-Ai (Qwen3.8-27B).
 
 Comprehensive validation across all 8 capability amplification dimensions:
 1. Robust Tool Call Parser (Self-Healing JSON)

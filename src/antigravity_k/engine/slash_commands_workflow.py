@@ -418,7 +418,7 @@ class SlashCommandWorkflowMixin:
         return (
             "💼 **Financial Assistant 가동 준비 완료**\n\n"
             f"요청하신 분석 대상: `{query if query else '미지정'}`\n\n"
-            "Antigravity-K 시스템이 **financial-assistant** 및 **fa-modeling** 스킬을 장착했습니다.\n"
+            "Ssak-Ai 시스템이 **financial-assistant** 및 **fa-modeling** 스킬을 장착했습니다.\n"
             "이제 DCF(가치평가), Comps(비교분석), 3-Statement 모델링 등 전문 금융 분석 요청을 자유롭게 대화로 이어가세요!\n"
             '(예시: "해당 기업의 과거 3년 재무 데이터를 기반으로 DCF 모델을 작성해줘. Base/Bear/Bull 시나리오를 적용해.")'
         )

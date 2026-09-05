@@ -1,5 +1,5 @@
 """
-Antigravity-K: Kanban 태스크 관리 엔진
+Ssak-Ai: Kanban 태스크 관리 엔진
 =======================================
 Agent-Teams-AI 아키텍처 이식 — Kanban 보드 기반 태스크 오케스트레이션.
 

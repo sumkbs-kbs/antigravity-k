@@ -1,12 +1,12 @@
 ---
 name: antigravity-agent-rules
-description: Antigravity-K의 업무 매뉴얼 — 조직 전반 공통 규칙, 작업 프로세스, 프로젝트별 접근법
+description: Ssak-Ai의 업무 매뉴얼 — 조직 전반 공통 규칙, 작업 프로세스, 프로젝트별 접근법
 version: "1.0.0"
 tags: [agent, rules, workflow, procedure]
 triggers: ["메뉴얼", "업무", "프로세스", "절차"]
 ---
 
-# AGENT.md — Antigravity-K 업무 매뉴얼
+# AGENT.md — Ssak-Ai 업무 매뉴얼
 
 > ⚠️ **핵심 원칙**: Soul.md에 업무 프로세스를 길게 쓰지 마라 → 컨텍스트 오염.
 > 세세한 규칙은 이 파일에 분리되고, Soul.md에서 pointer로 연결한다.
@@ -39,7 +39,7 @@ triggers: ["메뉴얼", "업무", "프로세스", "절차"]
 4. **리포트 작성**: 결론 → 근거 → 액션 아이템
 5. **저장**: Wiki + Git commit
 
-### B. 개발 작업 (Antigravity-K 등)
+### B. 개발 작업 (Ssak-Ai 등)
 1. **설계 먼저**: 코드 작성 전 구조/인터페이스 정의
 2. **작은 커밋**: 한 번에 하나의 기능
 3. **테스트 병행**: 작성과 동시에 검증
@@ -53,7 +53,7 @@ triggers: ["메뉴얼", "업무", "프로세스", "절차"]
 
 ## 프로젝트별 접근법
 
-### Antigravity-K (자율 에이전트)
+### Ssak-Ai (자율 에이전트)
 - AGENTS.md가 루트 프로토콜
 - `.agent/skills/` 에 스킬 관리
 - `config.yaml` 에 모델/라우팅 설정

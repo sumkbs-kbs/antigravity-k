@@ -1,7 +1,7 @@
 """ToolsetManager — 시나리오별 도구 그룹 관리 시스템.
 
 =================================================
-Hermes Agent의 toolsets.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 toolsets.py 패턴을 Ssak-Ai에 이식.
 
 시나리오별 도구 조합을 프리셋으로 관리:
 - coding: 파일 + 터미널 + 테스트 + Git
@@ -26,8 +26,13 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 
 logger = logging.getLogger("antigravity_k.engine.toolset_manager")
 
-ToolsetDefinition = TypedDict("ToolsetDefinition", {"description": str, "tools": list[str], "includes": list[str]}, total=False)
-ToolsetSummary = TypedDict("ToolsetSummary", {"description": str, "tools": list[str], "includes": list[str], "resolved_count": int, "is_active": bool})
+ToolsetDefinition = TypedDict(
+    "ToolsetDefinition", {"description": str, "tools": list[str], "includes": list[str]}, total=False
+)
+ToolsetSummary = TypedDict(
+    "ToolsetSummary",
+    {"description": str, "tools": list[str], "includes": list[str], "resolved_count": int, "is_active": bool},
+)
 
 
 _ConfigValue = TypeVar("_ConfigValue")
@@ -263,9 +268,7 @@ class ToolsetManager:
         logger.info("Custom toolset added: %s", name)
 
     @classmethod
-    def from_config(
-        cls, config: Mapping[str, _ConfigValue] | None = None
-    ) -> "ToolsetManager":
+    def from_config(cls, config: Mapping[str, _ConfigValue] | None = None) -> "ToolsetManager":
         """config.yaml의 `toolsets` 섹션에서 인스턴스를 생성합니다."""
         if not isinstance(config, Mapping):
             return cls()

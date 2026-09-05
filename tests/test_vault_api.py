@@ -159,6 +159,34 @@ class TestVaultSync:
         assert isinstance(body["commit"], str) and len(body["commit"]) >= 7
 
 
+class TestVaultWriteTransaction:
+    def test_write_preserves_unrelated_staged_change(self, client: TestClient, vault: Path) -> None:
+        unrelated = vault / "unrelated.md"
+        _ = unrelated.write_text("user staged change", encoding="utf-8")
+        _git(["add", "unrelated.md"], str(vault))
+
+        response = client.post(
+            "/api/vault/write",
+            json={"path": "note.md", "metadata": {"title": "API"}, "content": "api body"},
+        )
+
+        assert response.status_code == 200
+        assert subprocess.run(
+            ["git", "show", "--name-only", "--format=", "HEAD"],
+            cwd=vault,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines() == ["note.md"]
+        assert subprocess.run(
+            ["git", "status", "--short"],
+            cwd=vault,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines() == ["A  unrelated.md"]
+
+
 # ─── /v1/notes/search ────────────────────────────────────────────
 
 

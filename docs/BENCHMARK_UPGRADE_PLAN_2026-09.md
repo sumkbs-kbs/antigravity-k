@@ -5,11 +5,88 @@ sources:
   - https://github.com/CodebuffAI/freebuff
   - https://github.com/unslothai/unsloth
 date: 2026-09-04
+last_verified: 2026-09-05
 status: in-progress
 owner: Buffy (Codebuff agent) — 타 에이전트 인수인계 가능하도록 작성
+baseline: backend 5280 passed / 13 skipped / 0 failed · frontend vitest 698 passed (63 files) / tsc clean
 ---
 
 # 외부 레포 벤치마킹 기반 업그레이드 개발 계획서
+
+## ⭐ 인수인계 요약 — 다음 에이전트는 여기서 시작 (2026-09-05 기준)
+
+> **한 줄**: HEAD `460d712`(`codex/m1-task-events`)의 **working tree 전체가 검증된
+> known-good 상태**다. 커밋 안 된 파일을 "정리"한다고 되돌리면 검증 상태가 깨진다.
+
+### ✅ 검증된 기준선 (baseline)
+
+2026-09-05에 현재 working tree 기준으로 직접 재실행해 확인한 값:
+
+| 영역 | 명령 | 결과 |
+|:---|:---|:---|
+| 백엔드 전체 | `uv run --no-sync pytest tests/ -q` | **5280 passed, 13 skipped, 0 failed** |
+| 프론트 전체 | `cd dashboard && npx vitest run` | **698 passed (63 files)** |
+| 프론트 타입 | `cd dashboard && npx tsc --noEmit` | **clean** |
+| 느린 E2E (온디맨드) | `uv run --no-sync pytest -m slow` | 4 passed (기본 스위트에서 제외됨) |
+| 드리프트 가드 | `uv run --no-sync pytest tests/test_mlx_command_flags.py tests/test_unsloth_script_api_drift.py` | mlx 4 + unsloth 7(설치 환경 한정) 통과 |
+
+13 skipped는 전부 정상 가드다 (unsloth/trl 미설치 환경 스킵, e2e 마커 등). 실패가 아니다.
+
+### ⚠️ working tree 상태 — 반드시 읽고 시작할 것
+
+- `git status`에 **764개 변경 경로**가 보인다. 구성은 세 부류다:
+  1. **본 계획서의 벤치마킹 업그레이드 산출물** (`src/antigravity_k/engine|api|cli`, `tests/`,
+     `dashboard/src`, `docs/`, `scripts/`, 워크플로) — 위 기준선이 이 상태를 검증한 것이다.
+     Phase 27 조정 파일(`path_security.py`, `git_api.py`, `filesystem.py`)과 이를 잠그는
+     `tests/test_path_contracts.py`는 **반드시 함께 커밋**할 것.
+  2. **타 에이전트의 리브랜드 대대적 변경** (`.agent/`, 루트 문서, `config.yaml.example` 등
+     Antigravity-K→Ssak-Ai 명칭 교체) — 본 계획서 소관 아님. 커밋 시 분리할 것.
+  3. `dashboard/.stryker-tmp/` 삭제 (빌드 산물 청소) — 무해.
+- **`stash@{0}`이 이미 존재**한다(다른 스레드 WIP). pop/적용 금지. Phase 45에서 확인한 바로는
+  `node_modules` 심볼릭 링크 문제로 pop이 깨질 수 있다.
+- §3 파일 매니페스트는 Phase ~39까지의 요약이고 **전체 목록이 아니다**. 권위 있는 목록은 `git status`다.
+
+### 🔁 기준선 재확인 레시피 (작업 시작/종료 시)
+
+```bash
+uv run --no-sync pytest tests/ -q                 # 백엔드: 5280 passed 기대
+cd dashboard && npx vitest run 2>&1 | tail -3     # 프론트: 698 passed 기대
+npx tsc --noEmit                                   # (dashboard 디렉터리에서)
+uv run --no-sync pytest -m slow -q                 # 느린 E2E 4건 (필요시)
+```
+
+기준선에서 벗어나면: 실패 목록 → §5/§4 최근 로그 → 해당 Phase 인수인계 노트 순으로 대조.
+
+### 🧨 축적된 환경 함정 (위반 시 실제로 깨짐 — 전부 실측)
+
+1. pytest는 항상 `uv run --no-sync`로 실행 — sync가 잠금 환경을 뒤집어 드리프트 테스트가
+   오검출될 수 있다 (Phase 54).
+2. subprocess 기반 테스트는 `tests/_cli_subprocess.py` 헬퍼 사용. `sys.executable` 직접 사용 금지
+   — 외부 인터프리터(miniforge)에서 모듈 미설치로 실패한다 (Phase 12/55). CI의 mlx 매트릭스와
+   주간 드리프트 job은 `AGK_TEST_PYTHON=$GITHUB_WORKSPACE/.venv/bin/python`을 설정해 드리프트
+   체크와 스모크 테스트가 같은 고정 인터프리터를 공유한다 (Phase 57).
+3. `prompts/`(루트)이 소스, `src/antigravity_k/prompts/`는 패키지 파생 사본. 루트만 고치고
+   동기화할 것 — wheel-assets 테스트가 바이트 일치를 강제한다 (Phase 55).
+4. `config.yaml`은 번들 기본값과 일치해야 한다. 라이브 테스트용 예산 변경은 끝나면 복구
+   (`git checkout -- config.yaml`) — bundled-default 테스트가 잠근다 (Phase 52/55).
+5. `pyproject.toml`에 unsloth extra를 **추가하지 말 것** — finetune extra(datasets>=5)와
+   충돌해 `uv sync` 자체가 깨진다. 주간 드리프트 job이 `uv pip install`로 직접 설치한다 (Phase 54).
+6. `resolve_unsloth_settings`의 `allow_default_endpoint` 기본값(True) 유지 — 런타임 어댑터는
+   127.0.0.1:8080 폴백이 정상, 프로브만 False를 쓴다 (Phase 55).
+7. 전역 싱글턴(`get_project_registry` 등) 테스트에서는 전역 객체가 아니라 **소스 속성을
+   패치**할 것 — 테스트 간 오염이 생긴다 (Phase 56).
+8. 양자화 품질 쌍둥이(`quantQuality.ts` ↔ `quant_quality.py`)는
+   `tests/fixtures/quant_quality_conformance.json`으로 잠겨 있다. 토큰 추가는 fixture 먼저 (Phase 46).
+
+### 📍 현재 위치와 다음 할 일
+
+- 완료: Phase 0–56 (전부 §4 로그 + §5 기록). 최근: 53/54 unsloth·mlx 드리프트 가드+주간 CI,
+  55 전체 스위트 제로 실패, 56 경로 보안 계약 고정(뮤테이션 7/7 검증).
+- 미완료: §6 P3 목록 참조. 추천 우선순위: (1) 누적 변경물의 **논리적 커밋 분할** — 기준선이
+  커밋으로 고정되지 않으면 다시 유실될 수 있다, (2) egress/vault 등 남은 보안면에 Phase 56의
+  계약-고정+뮤테이션 패턴 적용, (3) nightly 전체 스위트 CI.
+
+---
 
 ## 0. 목적
 
@@ -595,9 +672,9 @@ Phase 14의 "제거됨" 기록은 이력으로 유지 — 본 Phase 19가 최종
 - **ChatML 단일 JSONL은 mlx-lm이 직접 받지 않는다**: mlx-lm 로컬 데이터셋은
   `train/valid(/test).jsonl` **디렉터리** 구조가 필요하고, 각 분할이 `batch_size` 이상이어야 하며
   (validator: `Dataset must have at least batch_size=N examples`), 빈 `test.jsonl`도 에러를 낸다.
-- → **개선 백로그(P2)**: `apply_recipe`가 mlx 플랫폼에서 train/valid을 자동 분할해
-  디렉터리 구조로 출력하도록 확장해야 함 (현재는 단일 JSONL 경로만 산출).
-  이 E2E에서는 수동 분할(train 6/valid 6, 동일 데이터 재사용)로 우회했다.
+- → **개선 백로그(P2, 완료)**: `apply_recipe`가 mlx 플랫폼(`platform="mlx"`)에서
+  `split_dataset_for_mlx`를 통해 train/valid을 자동 분할하여 mlx-lm 디렉터리 구조
+  (`mlx_dataset/train.jsonl` + `valid.jsonl`)로 산출하도록 확장 완료 (레코드 부족 시 재사용 폴백 포함).
 
 **산출물 보존**: `data/lora_e2e_out/` (데이터셋·설정·어댑터) — 재실행 불필요, 참조용으로 유지.
 
@@ -1225,6 +1302,128 @@ vite(:5199)에서 시각 검증한다.
 설계해야 한다 — 기존 `data-theme="dark"` overlay 블록은 그대로 두어도 무해. 런타임 테마
 토글 UI/스토어도 없으므로 별도 작업 필요.
 
+### Phase 57 — CI mlx 매트릭스 AGK_TEST_PYTHON 고정 (완료)
+
+**목표**: 드리프트 체크와 스모크 테스트가 CI에서 **같은 고정 인터프리터**를 쓰게 한다 —
+`tests/_cli_subprocess.py`가 1순위로 존중하는 `AGK_TEST_PYTHON`을 워크플로 레벨에서 설정.
+
+**변경**:
+- `ci.yml` `test` job (os × deps 매트릭스, mlx leg 포함): job-level `env: AGK_TEST_PYTHON:
+  ${{ github.workspace }}/.venv/bin/python`. uv sync가 만드는 .venv를 가리키므로
+  서브프로세스가 pytest와 동일 의존성 세트를 공유하고, uv-run-inside-uv-run 네스팅이 사라진다.
+- `weekly-drift.yml` `mlx-lm-drift` job: 동일 env. 최신 mlx-lm 오버레이 설치가 .venv에
+  들어가므로, 고정 없이는 `--help` 출력을 다른 환경에서 받아와 드리프트 오판 가능.
+- `tests/test_mlx_command_flags.py`: `_valid_flags()`가 남발하던 bare `sys.executable`을
+  `python_invocation(project=True)`로 마이그레이션 — 드리프트 테스트도 AGK_TEST_PYTHON을
+  존중하게 돼 위 env 고정이 실제로 적용된다.
+
+**검증**:
+- `test_mlx_command_flags` 4 passed (mlx 환경), `test_unsloth_script_api_drift` 7+7(스킵) 유지.
+- AGK_TEST_PYTHON 설정 시 헬퍼가 해당 경로를 정확히 반환하는지 확인 (설정 전엔 uv run 폴백).
+- 드리프트+스모크 3스위트(24 테스트)를 env 설정/미설정 양쪽으로 실행 — 모두 통과.
+- 두 워크플로 YAML 파싱 + env 키 실재 확인, ruff/mypy clean.
+
+- [x] 57.1 CI test job + weekly-drift mlx job에 AGK_TEST_PYTHON 설정
+- [x] 57.2 test_mlx_command_flags를 헬퍼로 마이그레이션 (마지막 sys.executable 잔존 제거)
+- [x] 57.3 로컬 검증 + YAML 검증 + 계획서 기록
+
+**인수인계**: AGK_TEST_PYTHON은 `_cli_subprocess.resolve_interpreter`의 1순위다 — 새 서브프로세스
+테스트는 이 env가 설정된 CI에서도 헬퍼만 쓰면 자동으로 같은 인터프리터를 공유한다. .venv 경로는
+macOS/리눅스 공통(`.venv/bin/python`)이므로 매트릭스 분기 불필요. Windows 러너를 추가한다면
+`.venv/Scripts/python.exe` 분기가 필요하다.
+
+### Phase 56 — allowed_roots / WORKSPACE_ROOT 보안 계약 고정 (완료)
+
+**목표**: git_api.py·filesystem.py가 재작성돼도 경로 보안 계약이 조용히 무너지지 않게,
+엔드포인트 테스트 우연 검증을 넘어 **계약 자체**를 모듈 레벨에서 고정한다.
+
+**새 스위트** `tests/test_path_contracts.py` (13 테스트, 5 섹션):
+
+- **A. allowed_roots() 구성 (4)** — 첫 루트는 config.paths.project_root / 레지스트리
+  프로젝트 포함 + 중복 제거 순서 유지 / `AGK_ALLOWED_ROOTS`(os.pathsep) env 루트 추가 /
+  레지스트리 예외 시에도 config 루트로 살아남음(다운그레이드 없음).
+- **B. resolve_allowed_path() (2)** — **모든** 루트를 검사(첫 루트만 검사하는 재작성은
+  등록 프로젝트 경로를 전부 차단해 기능도 깨짐) / `..` 이탈 거부.
+- **C. git_api._resolve_git_dir (4)** — 루트 밖 + .git 없음 → 403 / **루트 밖 독립 git
+  저장소 허용은 문서화된 carve-out**(제거하려면 보안 결정 필요 — 테스트가 이를 명시) /
+  roots 밖 활성 프로젝트 무시(TOCTOU 방어) / 유효 활성 프로젝트가 상대 경로 기준 확장.
+- **D. filesystem.WORKSPACE_ROOT (2)** — `_resolve_workspace_path`가 런타임 WORKSPACE_ROOT
+  기준으로 이탈 403 / 상대 경로 내부 해석.
+- **E. 교차 일관성 (1)** — allowed_roots()가 보고한 모든 루트를 git 경계도 받아야 함
+  (두 보안면이 서로 다른 allowlist를 갖는 재작성 차단).
+
+**뮤테이션 검증 (7종 변이 전부 차단 확인)**:
+
+| 변이 | 결과 |
+|:--|:--|
+| M1 config 루트가 첫 원소 아님 | ✅ 잡음 |
+| M2 중복 제거 제거 | ✅ 잡음 |
+| M3 첫 루트만 relative_to | ✅ 잡음 |
+| M4 레지스트리 예외 전파 | ✅ 잡음 |
+| G1 .git carve-out 제거 | ✅ 잡음 |
+| G2 stale active 가드 제거 | ✅ 잡음 (1차 시도 실패 후 강화 — 아래) |
+| G3 git_api 자체 allowlist 하드코딩 | ✅ 잡음 |
+
+**작성 중 발견한 함정 (문서화 가치)**: 스태일 프로젝트 테스트의 첫 버전은
+`allowed_roots()`가 **레지스트리 프로젝트를 포함**한다는 사실(A2)과 모순됐다 —
+list_projects에 있는 경로는 항상 roots에도 있으므로 "roots에 없는 등록 프로젝트"는
+평소 존재하지 않는다. 가드의 실제 역할은 allowed_roots()와 get_active_project()
+**두 읽기 사이**에 레지스트리 파일이 수정되는 TOCTOU 창 방어다. 테스트를
+`projects=[], active_path=stale` 스텁으로 재현해 잠금(변이 시 403 대신 승인으로
+전환 확인).
+
+**회귀**: 관련 6스위트 66건 통과, ruff/mypy clean.
+**전체 스위트: 5280 passed, 13 skipped, 0 failed.**
+
+- [x] 56.1 계약 갭 분석 (기존 boundary 테스트가 잠그지 않는 지점 12건 도출)
+- [x] 56.2 계약 고정 스위트 작성 + 뮤테이션 7종 검증
+- [x] 56.3 전체 회귀 + 계획서 기록
+
+**인수인계**: (1) `path_security.py`의 현재 working tree 상태는 Phase 27 조정의 일부로
+**레지스트리 확장이 포함된 미커밋 버전**이다 — 이 테스트가 이를 잠그므로 커밋 시 함께
+가야 한다. (2) `.git` carve-out을 빼는 정책 변경 시에는 이 테스트를 의도적으로
+수정하는 PR에서 논의할 것. (3) stub은 `get_project_registry` 소스 속성만 패치한다 —
+전역 `_global_registry`를 건드리면 테스트 간 오염이 생긴다.
+
+### Phase 55 — 전체 백엔드 스위트 제로 실패 달성 (완료)
+
+**목표**: 4건 잔존 실패(config.yaml 드리프트, unsloth 프로브 계약, 프롬프트 패키징 바이트
+불일치, KDF CLI E2E)를 전부 규명·수정해 전체 스위트를 제로 실패로 만든다.
+
+**실패 4건 트리아지 결과**:
+
+1. **`test_bundled_default_config_matches_repository_default`** — Phase 52 라이브 검증용으로
+   잠시 바꿨던 `config.yaml` `daily_budget_usd`(50→12) 복귀가 누락됐던 것. `git checkout`으로
+   복원 → 통과. 소스 코드 변경 없음.
+2. **`test_unsloth_probe_is_optional_when_endpoint_is_not_configured`** — 커밋 f18f0de(on-demand
+   unsloth 런타임)가 `resolve_unsloth_settings`에 하드코딩 폴백 `http://127.0.0.1:8080/v1`을
+   넣으면서, 미설정 상태에서도 프로브가 네트워크를 치게 됨. 수정: `allow_default_endpoint`
+   키워드 인자 추가(기본 True로 런타임 어댑터 계약 유지) — 프로브는 `False`로 호출해
+   `UnslothEndpointError("is not configured")`를 복원. 양쪽 계약 모두 유지.
+3. **`test_wheel_contains_dashboard_and_runtime_resources`** — `prompts/Modelfile.reasoning`
+   (루트)과 `src/antigravity_k/prompts/` 패키지 사본이 서로 다른 방향으로 동시 수정됨
+   (루트: 리브랜딩+베이스 모델 교체 glm4→qwen2.5-coder, src: 리브랜딩만). 테스트 계약상
+   루트 `prompts/`가 소스이고 패키지 사본이 파생물 — 루트 내용으로 src 사본 동기화.
+   **주의: 두 사본을 따로 고치면 이 테스트가 잡는다. 루트가 소스.**
+4. **`test_kdf_migration_v1_to_v2_via_cli`** — `sys.executable` subprocess가 miniforge 인터프리터를
+   가리켜 `antigravity_k` 미설정으로 ModuleNotFoundError. Phase 12의 `tests/_cli_subprocess.py`
+   헬퍼로 마이그레이션(`python_invocation(project=True)`) — 외부 인터프리터에서 pytest를 돌려도
+   통과 확인.
+
+**회귀**: 관련 스위트(provider 24+24, secure_key, wheel assets) 전부 통과,
+ruff/mypy clean. **전체 스위트: 5267 passed, 13 skipped, 0 failed** (스킵은 unsloth/e2e
+정상 가드).
+
+- [x] 55.1 실패 4건 원인 규명 (Phase 52 잔여 / f18f0de 회귀 / 동시 수정 충돌 / 인터프리터 편향)
+- [x] 55.2 수정 3건 + 복원 1건 — 양쪽 계약(프로브 옵션성/어댑터 기본 폴백) 모두 보존
+- [x] 55.3 전체 스위트 제로 실패 확인 + 계획서 기록
+
+**인수인계**: (1) `resolve_unsloth_settings`에 새 인자 추가 시 기본값 True 유지 — 런타임
+어댑터는 127.0.0.1:8080 폴백이 정상 동작이고, 프로브만 False를 쓴다. (2) `prompts/`를 고칠 때는
+반드시 루트를 고치고 `src/antigravity_k/prompts/`에 동기화 — wheel-assets 테스트가 파생물
+정합성을 잠근다. (3) subprocess 기반 테스트 신규 작성 시 `sys.executable` 대신
+`tests/_cli_subprocess.py` 헬퍼 사용이 원칙 (Phase 12 문서 참조).
+
 ### Phase 53/54 — Unsloth 스크립트 API 드리프트 가드 + 주간 최신 버전 체크 (완료)
 
 **목표**: mlx-lm 플래그 드리프트 가드(Phase 22)의 Python API 판 — lora_pipeline이 생성하는
@@ -1557,6 +1756,12 @@ CLAUDE_BIN=/path/to/claude ./scripts/e2e_claude_bridge.sh   # CLI 위치 명시
 
 > 형식: `[날짜] Phase.x — 작업 / 테스트 결과 / 다음 담당자가 알아야 할 것`
 
+### [2026-09-05] 핸드오버 요약 정비 — 문서 최상단 §⭐ 섹션 추가
+- 문서 최상단에 **인수인계 요약**을 추가했다: 검증된 기준선(2026-09-05 실측), working tree
+  3부류 구성(업그레이드 산출물/타 에이전트 리브랜드/빌드 청소), stash 경고, 기준선 재확인
+  레시피, 축적된 환경 함정 8건, 다음 할 일 추천. **다음 에이전트는 §⭐만 읽어도 시작 가능.**
+- 이 로그의 상세 Phase 노트들은 참조 자료이고, 현재 상태의 단일 진실원은 §⭐다.
+
 ### [2026-09-04] Phase 0 — 계획 수립 완료
 - freebuff: 멀티 에이전트 분업 + 격리 worktree + 에이전트 브리지 = Ssak-Ai에 대부분 존재. 유일한 P0 gap은 표준 프로토콜 브리지.
 - unsloth: Dynamic GGUF 양자화 네이밍 + OpenAI/Anthropic 동시 호환 API + `unsloth start` 원커맨드 브리지.
@@ -1764,6 +1969,10 @@ CLAUDE_BIN=/path/to/claude ./scripts/e2e_claude_bridge.sh   # CLI 위치 명시
 | 2026-09-04 | Phase 24 레시피 UI | 프론트 Studio 프리셋 테스트 + 백엔드 API/오버라이드 검증 | ✅ 프론트 3 passed (657), 백엔드 48 passed, API 라이브 확인 |
 | 2026-09-04 | Phase 25 커버리지 100% | coverage run (대상 3파일) + 인접 스위트 79 passed | ✅ 3파일 모두 100%, ruff/mypy clean |
 | 2026-09-04 | Phase 26 러너 무관화 | uv run pytest + miniforge pytest × (cli_smoke, e2e_smoke) | ✅ 양쪽 러너 모두 cli 8/8, e2e 9/9 |
+| 2026-09-05 | **기준선 (§⭐)** | `uv run --no-sync pytest tests/ -q` | ✅ **5280 passed, 13 skipped, 0 failed** (Phase 52~56 포함 working tree) |
+| 2026-09-05 | **기준선 프론트 (§⭐)** | `cd dashboard && npx vitest run` + `tsc --noEmit` | ✅ **698 passed (63 files)**, tsc clean |
+| 2026-09-05 | slow E2E | `uv run --no-sync pytest -m slow -q` | ✅ 4 passed (기본 스위트 제외 확인) |
+| 2026-09-05 | Phase 56 계약 | 관련 6스위트 + 뮤테이션 7종 | ✅ 66 passed, 변이 전부 차단, 소스 무손상 복구 |
 
 ### 테스트 중 발견·수정한 결함
 
@@ -1780,9 +1989,9 @@ CLAUDE_BIN=/path/to/claude ./scripts/e2e_claude_bridge.sh   # CLI 위치 명시
 
 ## 6. 미완료 후속 작업 (P3)
 
-- [ ] **P2 (Phase 23 발견)**: `apply_recipe`가 mlx 플랫폼에서 train/valid을 자동 분할해
-  mlx-lm 디렉터리 구조(`mlx_dataset/train.jsonl` + `valid.jsonl`)로 산출하도록 확장 —
-  현재는 단일 JSONL만 출력되어 사용자가 수동 분할해야 함
+- [x] **P2 (Phase 23 발견)**: `apply_recipe`가 mlx 플랫폼(`platform="mlx"`)에서 train/valid을 자동 분할해
+  mlx-lm 디렉터리 구조(`mlx_dataset/train.jsonl` + `valid.jsonl`)로 산출하도록 확장 — **완료**
+  (`split_dataset_for_mlx` 구현, 2*batch_size 미만 시 전체 재사용 폴백, lora_config.json 연동 및 단위 테스트 6종 완료)
 
 - [x] 세션 한도/데이터 사용 고지 UX (freebuff 벤치마킹) — Phase 6A 완료 → **Phase 14에서 제거** (개인 사용 불필요 판단)
 - [x] 학습 데이터 레시피(Data Recipe) 프리셋 (unsloth 벤치마킹) — Phase 6B 완료 (6 프리셋 + `agk train-recipe`)

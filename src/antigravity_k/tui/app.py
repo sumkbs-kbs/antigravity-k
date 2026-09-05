@@ -1,8 +1,10 @@
-"""Antigravity-K Textual TUI — Main Application.
+"""Ssak-Ai Textual TUI — Main Application.
 
-Usage:
-    agk tui                         # Launch the TUI
-    agk tui --dev                   # Launch with dev mode
+Terminal User Interface for local engineering agent with:
+- Dual-channel chat log (left) + tool inspector (right)
+- Slash command auto-completion popup
+- Model status widget
+- Hotkey help modal
 """
 
 from __future__ import annotations
@@ -57,7 +59,7 @@ class HelpScreen(Screen[None]):
     @override
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("[bold]Antigravity-K TUI Help[/bold]", id="help-title"),
+            Label("[bold]Ssak-Ai TUI Help[/bold]", id="help-title"),
             Static(
                 "\n".join(
                     line
@@ -184,7 +186,7 @@ class ChatScreen(Screen[None]):
         """Print welcome message."""
         welcome = "".join(
             (
-                f"[bold #00ff87]Antigravity-K TUI v{__version__}[/]\n\n",
+                f"[bold #00ff87]Ssak-Ai TUI v{__version__}[/]\n\n",
                 "[dim]Terminal UI for the Local Autonomous Engineering Agent[/dim]\n\n",
                 "Type a [bold]message[/bold] for conversation, or use [bold]/commands[/bold]:\n",
                 "  [dim]/help[/dim]   — Show available commands\n",
@@ -402,9 +404,9 @@ class ChatScreen(Screen[None]):
 
 @final
 class AgkTUI(App[None]):
-    """Antigravity-K Terminal User Interface."""
+    """Ssak-Ai Terminal User Interface."""
 
-    TITLE = f"Antigravity-K TUI v{__version__}"
+    TITLE = f"Ssak-Ai TUI v{__version__}"
     CSS = """
     Screen {
         background: #0d1117;

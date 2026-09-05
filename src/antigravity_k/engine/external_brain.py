@@ -1,4 +1,4 @@
-"""Antigravity-K: 외부 AI 두뇌 어댑터 (ExternalBrainAdapter).
+"""Ssak-Ai: 외부 AI 두뇌 어댑터 (ExternalBrainAdapter).
 
 ==========================================================
 설치된 AI 앱(Gemini Desktop, ChatGPT Web)의 채팅 UI를

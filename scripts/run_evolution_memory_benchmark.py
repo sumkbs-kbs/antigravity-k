@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Continuous Evolution & Working Memory Benchmark for Antigravity-K (Qwen3.8-27B).
+"""Run Continuous Evolution & Working Memory Benchmark for Ssak-Ai (Qwen3.8-27B).
 
 Validates:
 1. Self-Evolving Prompt Compilation

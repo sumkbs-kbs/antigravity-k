@@ -119,10 +119,25 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
         </div>
       )}
 
-      {/* Input Area */}
-      <div className="chat-input-area" style={{ borderTopLeftRadius: imageDataUrl ? 0 : undefined, borderTopRightRadius: imageDataUrl ? 0 : undefined }}>
+      {/* Input Area (TERMINAL-7 Prompt Design) */}
+      <div className="chat-input-area" style={{ borderTopLeftRadius: imageDataUrl ? 0 : undefined, borderTopRightRadius: imageDataUrl ? 0 : undefined, alignItems: 'center' }}>
         <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
-        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="이미지 첨부 (Vision)" aria-label="이미지 첨부" style={{ padding: 8, fontSize: 18, opacity: 0.7, cursor: 'pointer', background: 'transparent', border: 'none' }} disabled={disabled}>
+        <span
+          className="terminal-prompt-prefix"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+            color: 'var(--terminal-green)',
+            paddingLeft: '4px',
+            userSelect: 'none',
+            whiteSpace: 'nowrap',
+          }}
+          aria-hidden="true"
+        >
+          $ ssak-ai &gt;
+        </span>
+
+        <button className="icon-btn" onClick={() => fileInputRef.current?.click()} title="이미지 첨부 (Vision)" aria-label="이미지 첨부" style={{ padding: '4px 6px', fontSize: 16, opacity: 0.6, cursor: 'pointer', background: 'transparent', border: 'none' }} disabled={disabled}>
           📎
         </button>
 
@@ -134,23 +149,27 @@ const ChatInput: React.FC<Props> = ({ onSend, onStop, isStreaming, disabled, tex
           onKeyDown={handleKeyDown}
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
-          placeholder="명령어나 질문을 입력하세요... (이미지 Drag & Drop 가능)"
+          placeholder="enter instructions, --flags, or queries... (Shift+Enter for newline)"
           aria-label="메시지 입력"
           rows={1}
           disabled={disabled}
         />
 
-        <button className={`send-btn ${isStreaming ? 'sending' : ''}`} onClick={handleSend} disabled={disabled && !isStreaming} title={isStreaming ? '중단' : '전송'} aria-label={isStreaming ? '스트리밍 중단' : '메시지 전송'}>
-          {isStreaming ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          )}
+        <button
+          className={`btn-terminal ${isStreaming ? 'btn-stop' : ''}`}
+          onClick={handleSend}
+          disabled={disabled && !isStreaming}
+          title={isStreaming ? '중단' : '전송'}
+          aria-label={isStreaming ? '스트리밍 중단' : '메시지 전송'}
+          style={{
+            padding: '5px 12px',
+            fontSize: '11px',
+            height: '32px',
+            borderColor: isStreaming ? 'var(--error-color)' : 'var(--accent-color)',
+            color: isStreaming ? 'var(--error-color)' : 'var(--accent-color)',
+          }}
+        >
+          {isStreaming ? '■ STOP' : '$ RUN ↵'}
         </button>
       </div>
     </div>

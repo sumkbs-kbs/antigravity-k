@@ -1,4 +1,4 @@
-# Antigravity-K — Production Docker Image
+# Ssak-Ai — Production Docker Image
 #
 # Multi-stage build:
 #   1. Base: Python 3.12 slim (pinned digest)

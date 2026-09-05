@@ -1,4 +1,4 @@
-"""Antigravity-K: secure_key.py 단위 테스트.
+"""Ssak-Ai: secure_key.py 단위 테스트.
 
 커버리지:
   - _get_machine_seed(): 4단계 우선순위 (IOPlatformUUID → machine-id → MAC → fallback)
@@ -845,9 +845,9 @@ class TestCliKeyRotateE2E:
           5. vault 데이터 여전히 접근 가능한지 확인
         """
         import subprocess
-        import sys
 
         import antigravity_k.engine.secure_key as sk
+        from tests._cli_subprocess import python_invocation
 
         vault_dir = patch_paths  # patch_paths fixture의 tmp_path/.agk_vault
 
@@ -866,7 +866,7 @@ class TestCliKeyRotateE2E:
         _ = env.pop("AGK_ANTHROPIC_KEY", None)  # 환경변수 vault 간섭 방지
 
         result = subprocess.run(
-            [sys.executable, "-m", "antigravity_k.cli", "key", "rotate", "--force"],
+            [*python_invocation(project=True), "-m", "antigravity_k.cli", "key", "rotate", "--force"],
             capture_output=True,
             text=True,
             env=env,

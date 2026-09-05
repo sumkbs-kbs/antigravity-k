@@ -31,6 +31,15 @@ _BACKTICK_TOOL_REGEX: Final[re.Pattern[str]] = re.compile(
     re.DOTALL,
 )
 
+# 말단 fence 미종료 변형: ```json\n{...} 뒤에 닫는 fence 없이 (그리고 종종
+# 짝 없는 </tool_call>만 붙은) 생성이 끝나는 경우 — 27B급 모델의 실측 변형
+# (2026-09-04 Codex E2E에서 발견). 닫는 fence가 있으면 위 정규식이 먼저 매치되고,
+# 이 패턴은 최후 폴백으로만 쓰인다.
+_BACKTICK_UNTERMINATED_REGEX: Final[re.Pattern[str]] = re.compile(
+    r"```(?:json)?\s*(?P<body>\{\s*\"name\"\s*:\s*\"[^\"]+\".*?)\s*(?:</tool_call>)?\s*$",
+    re.DOTALL,
+)
+
 type JsonPrimitive = str | int | float | bool | None
 type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
 type JsonMap = dict[str, JsonValue]
@@ -95,6 +104,24 @@ class RobustToolParser:
                                 arguments=args,
                                 raw_content=match.group(0),
                                 repaired=repaired,
+                            )
+                        )
+
+        # 3. 최후 폴백: 닫는 fence 없이 끝난 미종료 코드펜스 (말단 변형)
+        if not calls:
+            for match in _BACKTICK_UNTERMINATED_REGEX.finditer(text):
+                body = match.group("body").strip()
+                parsed, repaired = RobustToolParser._parse_or_repair_json(body)
+                if parsed:
+                    name = parsed.get("name")
+                    args = parsed.get("arguments") or {}
+                    if name and isinstance(name, str) and isinstance(args, dict):
+                        calls.append(
+                            ParsedToolCall(
+                                name=name,
+                                arguments=args,
+                                raw_content=match.group(0),
+                                repaired=True,
                             )
                         )
 

@@ -1,4 +1,4 @@
-"""Antigravity-K: Engine Context (DI Container).
+"""Ssak-Ai: Engine Context (DI Container).
 
 ============================================
 Provides a unified context holding initialized services (Singletons/Scoped)
@@ -266,7 +266,9 @@ class EngineContext:
         )
 
         slash_commands_module = import_module("antigravity_k.engine.slash_commands")
-        slash_registry = cast(Callable[..., _SlashCommandRegistryLike], slash_commands_module.__dict__["SlashCommandRegistry"])
+        slash_registry = cast(
+            Callable[..., _SlashCommandRegistryLike], slash_commands_module.__dict__["SlashCommandRegistry"]
+        )
 
         self.slash_commands: _SlashCommandRegistryLike = slash_registry(
             tool_registry=self.tool_registry,

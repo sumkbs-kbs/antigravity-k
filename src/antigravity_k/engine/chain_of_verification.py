@@ -1,4 +1,4 @@
-"""Antigravity-K: Chain-of-Verification (CoV) 자기검증 루프.
+"""Ssak-Ai: Chain-of-Verification (CoV) 자기검증 루프.
 
 ========================================================
 모델이 생성한 답변을 동일 모델의 별도 호출로 검증하여

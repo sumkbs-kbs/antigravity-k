@@ -1,7 +1,9 @@
-from __future__ import annotations
-
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+_SRC = str(Path(__file__).resolve().parent.parent / "src")
 
 _IMPORT_SERVER_WITHOUT_PLAYWRIGHT = """
 import builtins
@@ -22,14 +24,16 @@ print(app.title)
 def test_server_import_does_not_require_dev_only_playwright() -> None:
     # Given: a core runtime where the dev-only Playwright package cannot be imported.
     # When: a fresh interpreter imports the production FastAPI server entrypoint.
+    env = {**os.environ, "PYTHONPATH": f"{_SRC}:{os.environ.get('PYTHONPATH', '')}"}
     result = subprocess.run(
         [sys.executable, "-c", _IMPORT_SERVER_WITHOUT_PLAYWRIGHT],
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
+        env=env,
     )
 
     # Then: route registration completes without loading the optional browser backend.
     assert result.returncode == 0, result.stderr
-    assert "Antigravity-K API" in result.stdout
+    assert "Ssak-Ai API" in result.stdout

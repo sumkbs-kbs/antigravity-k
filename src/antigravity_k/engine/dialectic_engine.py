@@ -1,5 +1,5 @@
 """
-Antigravity-K: 변증법적 추론 엔진 (DialecticEngine)
+Ssak-Ai: 변증법적 추론 엔진 (DialecticEngine)
 ====================================================
 Hegelion 아키텍처 이식 — Thesis → Antithesis → Synthesis 3단계 추론.
 """

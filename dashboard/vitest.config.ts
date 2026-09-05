@@ -22,4 +22,7 @@ export default defineConfig({
       exclude: ['src/**/*.test.*', 'src/tests/**'],
     },
   },
+  ssr: {
+    noExternal: ['zod'],
+  },
 });

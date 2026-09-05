@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: 데이터 추출 레이어 (Data Extractor)
+Ssak-Ai: 데이터 추출 레이어 (Data Extractor)
 ==================================================
 검색 결과의 원시 텍스트에서 숫자/날짜/가격 등 구조화된 데이터를
 자동으로 추출하여 LLM이 정확히 인용할 수 있도록 합니다.
@@ -75,6 +75,7 @@ def _as_json_object(value: object) -> dict[str, JsonValue] | None:
         return None
     items = cast(Mapping[object, object], value).items()
     return {key: cast(JsonValue, item) for key, item in items if isinstance(key, str)}
+
 
 # ─── 데이터 모델 ──────────────────────────────────────────────────
 

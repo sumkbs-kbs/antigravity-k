@@ -1,4 +1,4 @@
-"""Antigravity-K: Code Tree Indexer (Freebuff-Style Proactive Context).
+"""Ssak-Ai: Code Tree Indexer (Freebuff-Style Proactive Context).
 
 =============================================================
 사용자 메시지 수신 시 관련 파일을 자동 탐색하기 위한 경량 코드 트리 인덱서.
@@ -98,6 +98,7 @@ IGNORE_DIRS = {
     "fonts",
     ".agent",  # 에이전트 스킬/메타데이터는 제외
 }
+
 
 class CodeTreeIndexer:
     """프로젝트 코드 트리를 구축하고 쿼리 기반 검색을 제공합니다.

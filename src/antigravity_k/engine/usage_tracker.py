@@ -1,4 +1,4 @@
-"""Antigravity-K: 사용량 추적기.
+"""Ssak-Ai: 사용량 추적기.
 
 ============================
 9Router의 usageDb 패턴 이식 — 모델별 토큰·레이턴시·성공률 메트릭 추적.
@@ -317,7 +317,7 @@ class UsageTracker:
 
         try:
             with open(self._db_path, encoding="utf-8") as f:
-                    data = cast(object, json.load(f))
+                data = cast(object, json.load(f))
 
             if not isinstance(data, dict):
                 return

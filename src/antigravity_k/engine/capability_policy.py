@@ -1,6 +1,6 @@
 """Autonomous capability policy.
 
-Antigravity-K can see many capability sources: built-in tools, MCP tools,
+Ssak-Ai can see many capability sources: built-in tools, MCP tools,
 skills, local shell access, browser/DOM control, external brains, and desktop
 automation.  This module gives them one decision language so the agent can use
 safe capabilities by itself while escalating risky actions.
@@ -147,9 +147,7 @@ class AutonomousCapabilityPolicy:
         metadata = dict(tool.to_metadata() or {})
         risk = str(metadata.get("risk_level") or "medium")
         mcp_raw = metadata.get("mcp")
-        mcp: dict[str, object] = (
-            dict(cast(Mapping[str, object], mcp_raw)) if isinstance(mcp_raw, Mapping) else {}
-        )
+        mcp: dict[str, object] = dict(cast(Mapping[str, object], mcp_raw)) if isinstance(mcp_raw, Mapping) else {}
         mcp_trust = mcp.get("trust_level")
         trust = str(mcp_trust or metadata.get("trust_level") or "builtin")
         capability_id = str(metadata.get("name") or tool.name)

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
@@ -19,7 +21,33 @@ logger = logging.getLogger("web_search")
 
 # ─── 검색 캐시 디렉토리 ──────────────────────────────────────────
 
-CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "search_cache"
+
+def _resolve_cache_dir() -> Path:
+    try:
+        from antigravity_k.config import config
+
+        candidate = config.paths.data_dir / "search_cache"
+    except Exception:
+        candidate = Path.home() / ".antigravity-k" / "data" / "search_cache"
+
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+        test_file = candidate / f".agk_write_test_{os.getpid()}"
+        test_file.touch()
+        test_file.unlink()
+        return candidate
+    except OSError:
+        fallback = Path.home() / ".antigravity-k" / "data" / "search_cache"
+        try:
+            fallback.mkdir(parents=True, exist_ok=True)
+            return fallback
+        except OSError:
+            tmp = Path(tempfile.gettempdir()) / "antigravity-k" / "search_cache"
+            tmp.mkdir(parents=True, exist_ok=True)
+            return tmp
+
+
+CACHE_DIR = _resolve_cache_dir()
 
 
 # ─── 실시간 키워드 ──────────────────────────────────────────────
@@ -223,7 +251,10 @@ class SearchCache:
 
     def __init__(self, ttl_hours: int = 24) -> None:
         self.ttl_hours: int = ttl_hours
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
     def _cache_key(self, query: str) -> str:
         """쿼리를 안전한 파일명으로 변환."""

@@ -7,7 +7,7 @@
 
 import React from 'react';
 import type { WikiDocument } from '../../stores/wikiStore';
-import { renderMarkdown } from './MarkdownRenderer';
+import { WikiMarkdown } from './MarkdownRenderer';
 
 interface Props {
   currentDoc: WikiDocument | null;
@@ -104,7 +104,7 @@ const ContentPanel: React.FC<Props> = ({
         ) : (
           <>
             {metaHtml}
-            <div dangerouslySetInnerHTML={{ __html: renderMarkdown(currentDoc.content) }} />
+            <WikiMarkdown content={currentDoc.content} />
           </>
         )}
       </div>

@@ -1,4 +1,4 @@
-"""Antigravity-K: MAX Mode Parallel Editing Engine (P4).
+"""Ssak-Ai: MAX Mode Parallel Editing Engine (P4).
 
 =============================================================
 Codebuff의 MAX 모드에서 영감을 받은 병렬 편집 시스템:

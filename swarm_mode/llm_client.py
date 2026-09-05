@@ -229,7 +229,9 @@ def _call_tier2_free(prompt: str, system: str, config: Mapping[str, object], tim
         log.debug("Tier2 OpenRouter skipped: OPENROUTER_API_KEY is not set")
         return None
 
-    return _call_openrouter(prompt, system, or_model, config, url, or_api_key, timeout if timeout > 0 else or_timeout, free=True)
+    return _call_openrouter(
+        prompt, system, or_model, config, url, or_api_key, timeout if timeout > 0 else or_timeout, free=True
+    )
 
 
 def _call_tier3_paid(prompt: str, system: str, config: Mapping[str, object], timeout: int) -> str | None:
@@ -290,8 +292,8 @@ def _call_openrouter(
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}" if api_key else "",
-        "HTTP-Referer": "https://github.com/antigravity-k/swarm-mode",
-        "X-Title": "Antigravity-K Swarm Mode",
+        "HTTP-Referer": "https://github.com/ssak-comp/Ssak-Ai",
+        "X-Title": "Ssak-Ai Swarm Mode",
     }
 
     # Paid model: add cost control header

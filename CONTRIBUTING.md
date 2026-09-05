@@ -1,6 +1,6 @@
-# Contributing to Antigravity-K
+# Contributing to Ssak-Ai
 
-We love your input! We want to make contributing to Antigravity-K as easy and transparent as possible.
+We love your input! We want to make contributing to Ssak-Ai as easy and transparent as possible.
 
 ## Development Process
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from subprocess import CompletedProcess
 from typing import cast
 
@@ -57,6 +57,112 @@ def test_git_auto_commit(vault_engine: VaultEngine):
     )
 
     assert "Add commit test" in result.stdout
+
+
+def _git_status(engine: VaultEngine) -> list[str]:
+    result = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=engine.vault_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.splitlines()
+
+
+def _committed_paths(engine: VaultEngine) -> list[str]:
+    result = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=engine.vault_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.splitlines()
+
+
+def test_write_note_preserves_unrelated_staged_file(vault_engine: VaultEngine) -> None:
+    vault_engine.write_note("base.md", {"title": "base"}, "base body")
+    unrelated = vault_engine.vault_path / "unrelated.md"
+    _ = unrelated.write_text("user staged change", encoding="utf-8")
+    subprocess.run(["git", "add", "unrelated.md"], cwd=vault_engine.vault_path, check=True)
+
+    vault_engine.write_note("folder/note.md", {"title": "note"}, "note body")
+
+    assert _committed_paths(vault_engine) == ["folder/note.md"]
+    assert _git_status(vault_engine) == ["A  unrelated.md"]
+    assert not (vault_engine.vault_path / ".git" / "agk-vault-index").exists()
+    assert not (vault_engine.vault_path / ".git" / "agk-vault-index-backup").exists()
+
+
+def test_write_note_preserves_existing_note_staged_and_unstaged_state(vault_engine: VaultEngine) -> None:
+    vault_engine.write_note("note.md", {"title": "base"}, "base body")
+    note = vault_engine.vault_path / "note.md"
+    _ = note.write_text("---\ntitle: staged\n---\nstaged body\n", encoding="utf-8")
+    subprocess.run(["git", "add", "note.md"], cwd=vault_engine.vault_path, check=True)
+    _ = note.write_text("---\ntitle: unstaged\n---\nstaged and unstaged body\n", encoding="utf-8")
+
+    vault_engine.write_note("unrelated.md", {"title": "other"}, "other body")
+
+    assert _committed_paths(vault_engine) == ["unrelated.md"]
+    assert _git_status(vault_engine) == ["MM note.md"]
+
+
+def test_identical_write_does_not_create_commit(vault_engine: VaultEngine) -> None:
+    metadata = {"title": "same"}
+    vault_engine.write_note("note.md", metadata, "same body")
+    before = subprocess.run(
+        ["git", "rev-list", "--count", "HEAD"],
+        cwd=vault_engine.vault_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    vault_engine.write_note("note.md", metadata, "same body")
+
+    after = subprocess.run(
+        ["git", "rev-list", "--count", "HEAD"],
+        cwd=vault_engine.vault_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert after == before
+
+
+def test_failed_hook_preserves_file_user_index_and_head(vault_engine: VaultEngine) -> None:
+    vault_engine.write_note("base.md", {"title": "base"}, "base body")
+    head_before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=vault_engine.vault_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    unrelated = vault_engine.vault_path / "unrelated.md"
+    _ = unrelated.write_text("user staged change", encoding="utf-8")
+    subprocess.run(["git", "add", "unrelated.md"], cwd=vault_engine.vault_path, check=True)
+    hook = vault_engine.vault_path / ".git" / "hooks" / "pre-commit"
+    _ = hook.write_text("#!/bin/sh\necho 'hook rejected note' >&2\nexit 17\n", encoding="utf-8")
+    _ = hook.chmod(0o755)
+
+    with pytest.raises(VaultCommitError, match="hook rejected note"):
+        vault_engine.write_note("failed.md", {"title": "failed"}, "failed body")
+
+    assert (vault_engine.vault_path / "failed.md").exists()
+    assert _git_status(vault_engine) == ["A  unrelated.md", "?? failed.md"]
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=vault_engine.vault_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        == head_before
+    )
+    assert hook.read_text(encoding="utf-8") == "#!/bin/sh\necho 'hook rejected note' >&2\nexit 17\n"
 
 
 def test_search_notes(vault_engine: VaultEngine):
@@ -152,6 +258,35 @@ def test_concurrent_writes_no_index_lock_error(vault_engine: VaultEngine):
 
     stderr = _capture_git_stderr(vault_engine.vault_path, run_all)
     assert "index.lock" not in stderr.lower(), f"git hit index.lock contention under concurrent writes:\n{stderr}"
+
+
+def _process_write(vault_path: str, index: int) -> tuple[str, list[str]]:
+    engine = VaultEngine(vault_path, sync_rag=False)
+    relative_path = f"process-{index}.md"
+    engine.write_note(relative_path, {"title": f"process {index}"}, f"process body {index}")
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=engine.vault_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    return relative_path, committed
+
+
+def test_process_writes_commit_one_note_each(vault_engine: VaultEngine) -> None:
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(_process_write, [str(vault_engine.vault_path)] * 4, range(4)))
+
+    assert [relative_path for relative_path, _ in results] == [
+        "process-0.md",
+        "process-1.md",
+        "process-2.md",
+        "process-3.md",
+    ]
+    for _, committed in results:
+        assert len(committed) == 1
+        assert committed[0].startswith("process-")
 
 
 # ---------------------------------------------------------------------------

@@ -65,7 +65,7 @@ const PublishTab: React.FC = () => {
   const [publishMode, setPublishMode] = useState<PublishMode>('npm');
   const [step, setStep] = useState<Step>('idle');
   const [result, setResult] = useState<PublishResult | null>(null);
-  const [ghRepo, setGhRepo] = useState('ssak-comp/antigravity-k');
+  const [ghRepo, setGhRepo] = useState('ssak-comp/Ssak-Ai');
   const [ghDraft, setGhDraft] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [npmTag, setNpmTag] = useState('latest');

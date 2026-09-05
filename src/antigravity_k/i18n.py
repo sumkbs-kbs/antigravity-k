@@ -8,7 +8,7 @@ tiptap-vuetify의 i18n 패턴에서 영감:
 - 폴백(fallback) 언어 지원
 - 확장 가능한 번역 키 시스템
 
-이를 Antigravity-K에 적용:
+이를 Ssak-Ai에 적용:
 - 에이전트 시스템 메시지의 다국어 지원
 - 도구 설명/에러 메시지의 자동 번역
 - 사용자 언어 자동 감지 및 전환
@@ -65,7 +65,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "search.no_results": "'{query}' 검색 결과가 없습니다.",
         "search.error": "검색 중 오류가 발생했습니다: {error}",
         # 시스템
-        "system.startup": "Antigravity-K 시스템을 시작합니다...",
+        "system.startup": "Ssak-Ai 시스템을 시작합니다...",
         "system.shutdown": "시스템을 종료합니다.",
         "system.ready": "시스템 준비 완료.",
         "system.restarting": "시스템을 재시작합니다...",
@@ -150,7 +150,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "search.no_results": "No results found for '{query}'.",
         "search.error": "Search error: {error}",
         # System
-        "system.startup": "Starting Antigravity-K system...",
+        "system.startup": "Starting Ssak-Ai system...",
         "system.shutdown": "Shutting down system.",
         "system.ready": "System ready.",
         "system.restarting": "Restarting system...",
@@ -235,7 +235,7 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "search.no_results": "'{query}' の検索結果はありません。",
         "search.error": "検索エラー: {error}",
         # System
-        "system.startup": "Antigravity-K システムを起動中...",
+        "system.startup": "Ssak-Ai システムを起動中...",
         "system.shutdown": "システムをシャットダウンします。",
         "system.ready": "システム準備完了。",
         "system.restarting": "システムを再起動中...",

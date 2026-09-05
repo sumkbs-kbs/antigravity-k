@@ -1,9 +1,9 @@
 {
-  "name": "antigravity-k-dashboard-react",
+  "name": "ssak-ai-dashboard-react",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Antigravity-K Dashboard — React + TypeScript",
+  "description": "Ssak-Ai Dashboard — React + TypeScript",
   "scripts": {
     "dev": "vite --port 5174",
     "build": "tsc -b && vite build",

@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import sqlite3
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, cast
@@ -116,10 +117,15 @@ class TestMemoryServiceAddKnowledge:
         item_id = mem.add_knowledge("pytest", "Testing framework", tags=["test", "python"])
         assert item_id is not None
 
-    def test_adds_knowledge_with_vector_store_still_works(self, mem: MemoryService):
-        assert mem.vector_store is not None
+    def test_adds_knowledge_when_vector_backend_is_unavailable(
+        self,
+        mem: MemoryService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "chromadb", None)
         item_id = mem.add_knowledge("topic", "content")
         assert item_id is not None
+        assert mem.vector_store is None
 
     def test_adds_knowledge_with_vector_store(self, tmp_path: Path) -> None:
         """vector_store가 있으면 store_embedding 호출."""
@@ -132,9 +138,7 @@ class TestMemoryServiceAddKnowledge:
         _ = ms.add_knowledge("test", "vector content")
         mock_vs.store_embedding.assert_called_once()
 
-    def test_add_knowledge_rejects_missing_sqlite_id(
-        self, mem: MemoryService, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_add_knowledge_rejects_missing_sqlite_id(self, mem: MemoryService, monkeypatch: pytest.MonkeyPatch) -> None:
         conn = _ConnectionDouble()
         monkeypatch.setattr(mem, "_get_connection", lambda: conn)
 
@@ -204,9 +208,13 @@ class TestMemoryServiceVectorSearch:
         _ = mem.add_knowledge("python", "content")
         mock_vs = cast(_VectorStoreDouble, MagicMock())
         # search_similar returns results with source_id
-        setattr(mock_vs.search_similar, "return_value", [
-            {"source_id": 1, "similarity": 0.95},
-        ])
+        setattr(
+            mock_vs.search_similar,
+            "return_value",
+            [
+                {"source_id": 1, "similarity": 0.95},
+            ],
+        )
         _set_vector_store(mem, mock_vs)
 
         results = _search(mem, "_vector_search", "python", 10)
@@ -236,9 +244,13 @@ class TestMemoryServiceHybridSearch:
         _ = mem.add_knowledge("python", "best language")
 
         mock_vs = cast(_VectorStoreDouble, MagicMock())
-        setattr(mock_vs.search_similar, "return_value", [
-            {"source_id": 1, "similarity": 0.9},
-        ])
+        setattr(
+            mock_vs.search_similar,
+            "return_value",
+            [
+                {"source_id": 1, "similarity": 0.9},
+            ],
+        )
         _set_vector_store(mem, mock_vs)
 
         results = _search(mem, "_hybrid_search", "python", 10)

@@ -531,7 +531,7 @@ class SkillPublisher:
         package: dict[str, JsonValue] = {
             "name": package_name,
             "version": version,
-            "description": description or f"Antigravity-K skill: {display_name}",
+            "description": description or f"Ssak-Ai skill: {display_name}",
             "keywords": [
                 "antigravity-k",
                 "skill",
@@ -571,7 +571,7 @@ class SkillPublisher:
 
 ## Description
 
-Antigravity-K skill: {display_name}
+Ssak-Ai skill: {display_name}
 
 ## Installation
 

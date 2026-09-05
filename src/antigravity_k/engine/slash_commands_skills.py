@@ -277,8 +277,7 @@ class SlashCommandSkillsMixin:
                 for decision in skill_decisions[:10]:
                     lines.append(
                         f"- `{decision.capability_id}` → **{decision.decision}** "
-                        +
-                        f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}",
+                        + f"(score={decision.score}, risk={decision.risk_level}) — {decision.reason}",
                     )
         else:
             lines.extend(["", "**Skills:** Skill loader not connected."])
@@ -286,7 +285,7 @@ class SlashCommandSkillsMixin:
         return "\n".join(lines)
 
     def _cmd_codex(self, args: list[str]) -> str:
-        """Codex식 강점을 Antigravity-K 실행 계약으로 표시합니다."""
+        """Codex식 강점을 Ssak-Ai 실행 계약으로 표시합니다."""
         objective = " ".join(args).strip()
         connected_tools = len(self._tool_registry) if self._tool_registry else 0
         known_skills = 0

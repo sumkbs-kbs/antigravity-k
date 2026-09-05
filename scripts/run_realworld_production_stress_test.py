@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ultimate Real-World Production Stress Test for Antigravity-K.
+"""Ultimate Real-World Production Stress Test for Ssak-Ai.
 
 Executes an end-to-end multi-file asynchronous microservice build mission
 through the complete 15-pillar engine harness:

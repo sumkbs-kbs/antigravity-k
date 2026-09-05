@@ -53,3 +53,28 @@ def test_tool_call_preserves_nested_arguments():
 
     assert len(calls) == 1
     assert calls[0].arguments == {"config": {"retry": 3}, "enabled": True}
+
+
+def test_unterminated_fence_with_stray_closing_tag():
+    """말단 변형: 닫는 fence 없이 생성 종료 + 짝 없는 </tool_call>만 붙은 경우.
+
+    2026-09-04 Codex E2E에서 실측된 27B 모델 출력 (Phase 35).
+    """
+    text = '```json\n{"name": "exec_command", "arguments": {"cmd": "cat note.txt"}}\n</tool_call>'
+
+    calls = RobustToolParser.extract_tool_calls(text)
+
+    assert len(calls) == 1
+    assert calls[0].name == "exec_command"
+    assert calls[0].arguments == {"cmd": "cat note.txt"}
+    assert calls[0].repaired is True
+
+
+def test_unterminated_fence_without_any_tag():
+    text = '```json\n{"name": "shell", "arguments": {"command": ["ls"]}}'
+
+    calls = RobustToolParser.extract_tool_calls(text)
+
+    assert len(calls) == 1
+    assert calls[0].name == "shell"
+    assert calls[0].arguments == {"command": ["ls"]}

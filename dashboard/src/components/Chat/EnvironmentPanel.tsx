@@ -12,12 +12,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchGitStatus, fetchGitBranches, fetchGitLog } from '../../stores/gitApi';
+import { fetchGitStatus, fetchGitBranches, fetchGitLog, checkoutGitBranch } from '../../stores/gitApi';
 import type { GitBranch, GitCommit, GitFile } from '../../stores/gitSchema';
 import { useChangeStore } from '../../stores/changeStore';
 import { useUiStore } from '../../stores/uiStore';
 
+import { type McpServerItem } from '../../api/clientSchema';
+
 export type EnvPanelTab = 'env' | 'code' | 'changes';
+
+export type McpServerInfo = McpServerItem;
 
 interface Props {
   open: boolean;
@@ -25,12 +29,17 @@ interface Props {
   onTabChange: (tab: EnvPanelTab) => void;
   onClose: () => void;
   branch: string;
+  workspacePath?: string;
+  mcpServers: McpServerInfo[];
   editorContent: React.ReactNode;
   changesContent: React.ReactNode;
 }
 
-function workspacePath(): string {
-  return localStorage.getItem('agk_active_project') || '/';
+function getEffectiveWorkspacePath(propPath?: string): string {
+  if (propPath && propPath !== '/') return propPath;
+  const stored = localStorage.getItem('agk_active_project');
+  if (stored && stored !== '/') return stored;
+  return '.';
 }
 
 function shortFilePath(filePath: string): string {
@@ -44,6 +53,8 @@ export const EnvironmentPanel: React.FC<Props> = ({
   onTabChange,
   onClose,
   branch,
+  workspacePath,
+  mcpServers,
   editorContent,
   changesContent,
 }) => {
@@ -57,28 +68,55 @@ export const EnvironmentPanel: React.FC<Props> = ({
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [commits, setCommits] = useState<GitCommit[]>([]);
 
+  const effectivePath = getEffectiveWorkspacePath(workspacePath);
+  const currentBranchName = branches.find((b) => b.is_current)?.name || branch || 'main';
+
   const diffAdds = changes.reduce((sum, c) => sum + (c.diffStats?.additions ?? 0), 0);
   const diffDels = changes.reduce((sum, c) => sum + (c.diffStats?.deletions ?? 0), 0);
 
   useEffect(() => {
     if (!open) return;
-    const path = workspacePath();
+    const path = effectivePath;
     fetchGitStatus(path)
       .then((res) => { if (res.ok) setGitFiles(res.files); })
       .catch(() => {});
     fetchGitBranches(path)
-      .then((res) => { if (res.ok) setBranches(res.branches); })
+      .then((res) => {
+        if (res.ok) {
+          setBranches(res.branches);
+          const active = res.branches.find((b) => b.is_current)?.name || branch;
+          fetchGitLog(path, 5, active).then((lr) => { if (lr.ok) setCommits(lr.commits); }).catch(() => {});
+        }
+      })
       .catch(() => {});
-    fetchGitLog(path, 5, branch)
-      .then((res) => { if (res.ok) setCommits(res.commits); })
-      .catch(() => {});
-  }, [open, branch]);
+  }, [open, branch, effectivePath]);
 
   if (!open) return null;
 
   const goGit = (note: string) => {
     addToast(note, 'info');
     navigate('/git');
+  };
+
+  const handleCheckoutBranch = async (b: GitBranch) => {
+    if (b.is_current) return;
+    const confirmed = window.confirm(`'${b.name}' 브랜치로 전환하시겠습니까?\n작업 트리의 변경사항이 변경될 수 있습니다.`);
+    if (!confirmed) return;
+    const path = effectivePath;
+    try {
+      const res = await checkoutGitBranch(b.name, path);
+      if (res.ok) {
+        addToast(`'${b.name}' 브랜치로 전환되었습니다.`, 'success');
+        fetchGitBranches(path).then((r) => { if (r.ok) setBranches(r.branches); });
+        fetchGitStatus(path).then((r) => { if (r.ok) setGitFiles(r.files); });
+        fetchGitLog(path, 5, b.name).then((r) => { if (r.ok) setCommits(r.commits); });
+      } else {
+        addToast('브랜치 전환 실패: 오류가 발생했습니다.', 'error');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast(`브랜치 전환 실패: ${msg}`, 'error');
+    }
   };
 
   return (
@@ -181,7 +219,7 @@ export const EnvironmentPanel: React.FC<Props> = ({
                 aria-expanded={branchOpen}
               >
                 <span className="env-row-icon">⑂</span>
-                <span className="env-row-label branch-name">{branch}</span>
+                <span className="env-row-label branch-name">{currentBranchName}</span>
                 <span className={`env-chevron ${branchOpen ? 'open' : ''}`}>⌄</span>
               </button>
               {branchOpen && (
@@ -194,7 +232,8 @@ export const EnvironmentPanel: React.FC<Props> = ({
                         key={b.name}
                         type="button"
                         className={`env-branch-row ${b.is_current ? 'current' : ''}`}
-                        onClick={() => goGit('브랜치 전환은 Git 페이지에서 수행합니다.')}
+                        onClick={() => { void handleCheckoutBranch(b); }}
+                        title={b.is_current ? '현재 브랜치' : `${b.name} 브랜치로 전환`}
                       >
                         <span className="env-branch-name">{b.name}</span>
                         {b.is_current && <span className="env-branch-current">현재</span>}
@@ -282,13 +321,21 @@ export const EnvironmentPanel: React.FC<Props> = ({
                 ⊕
               </button>
             </div>
-            <div className="env-mcp-row">
-              <span className="env-mcp-icon">⊞</span>
-              <div className="env-mcp-text">
-                <span className="env-mcp-name">codebase-memory-mcp</span>
-                <span className="env-mcp-status">연결됨</span>
-              </div>
-            </div>
+            {mcpServers.length === 0 ? (
+              <div className="env-sub-empty">구성된 MCP 서버가 없습니다 (.mcp.json)</div>
+            ) : (
+              <>
+                {mcpServers.map((server) => (
+                  <div key={server.name} className="env-mcp-row">
+                    <span className="env-mcp-icon">⊞</span>
+                    <div className="env-mcp-text">
+                      <span className="env-mcp-name">{server.name}</span>
+                      <span className="env-mcp-status">{server.transport} · 구성됨</span>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
             <button
               type="button"
               className="env-mcp-more"

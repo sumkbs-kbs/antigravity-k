@@ -25,7 +25,7 @@ def _text(value: JsonValue | None) -> str:
 
 @final
 class ImmuneSystem:
-    """Antigravity-K 자가 수복/자가 발전 엔진 (ECA Phase 2).
+    """Ssak-Ai 자가 수복/자가 발전 엔진 (ECA Phase 2).
 
     에이전트가 동작 중 치명적 오류나 무한루프에 빠졌을 때,
     자신의 엔진 코드를 스스로 분석하고 패치하는 면역 체계입니다.
@@ -90,7 +90,7 @@ class ImmuneSystem:
                 logger.exception("Unhandled exception")
                 snapshot_msg = f"Vault snapshot failed: {e}"
 
-        prompt = f"""You are the Antigravity-K MetaAgent (Immune System).
+        prompt = f"""You are the Ssak-Ai MetaAgent (Immune System).
 
 Your core engine just encountered a critical repetitive error. You need to write a code patch for YOURSELF.
 

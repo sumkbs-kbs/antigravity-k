@@ -29,7 +29,8 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from datetime import time as dt_time
 from typing import TypedDict
 
 logger = logging.getLogger("antigravity_k.engine.cost_guard")
@@ -178,7 +179,7 @@ class SpendRecord:
     tokens_out: int = 0
 
 
-class DailyStats(TypedDict):
+class DailyStats(TypedDict, total=False):
     global_daily_spend_usd: float
     daily_budget_usd: float
     remaining_usd: float
@@ -187,6 +188,8 @@ class DailyStats(TypedDict):
     hourly_actions: int
     hourly_limit: int
     reset_date: str
+    budget_reset_at: str
+    action_reset_at: str | None
 
 
 class SpendSummary(TypedDict):
@@ -382,6 +385,24 @@ class CostGuard:
         """일일 비용 통계를 반환합니다."""
         with self._lock:
             self._maybe_reset_daily()
+            now = time.time()
+            cutoff = now - 3600
+            while self._action_timestamps and self._action_timestamps[0] < cutoff:
+                self._action_timestamps.popleft()
+
+            # UTC 자정 리셋 시각 (다음날 00:00:00 UTC)
+            now_dt = datetime.now(timezone.utc)
+            tomorrow_date = now_dt.date() + timedelta(days=1)
+            budget_reset_dt = datetime.combine(tomorrow_date, dt_time.min, tzinfo=timezone.utc)
+            budget_reset_at = budget_reset_dt.isoformat()
+
+            # 시간당 액션 리셋 시각: 한도에 도달한 경우 가장 오래된 타임스탬프 + 3600초
+            action_reset_at: str | None = None
+            if len(self._action_timestamps) >= self.hourly_action_limit and self._action_timestamps:
+                oldest_ts = self._action_timestamps[0]
+                action_reset_dt = datetime.fromtimestamp(oldest_ts + 3600, tz=timezone.utc)
+                action_reset_at = action_reset_dt.isoformat()
+
             return {
                 "global_daily_spend_usd": round(self._global_daily_spend, 6),
                 "daily_budget_usd": self.daily_budget_usd,
@@ -394,6 +415,8 @@ class CostGuard:
                 "hourly_actions": len(self._action_timestamps),
                 "hourly_limit": self.hourly_action_limit,
                 "reset_date": self._last_reset_date,
+                "budget_reset_at": budget_reset_at,
+                "action_reset_at": action_reset_at,
             }
 
     def to_dashboard_data(self) -> DashboardData:

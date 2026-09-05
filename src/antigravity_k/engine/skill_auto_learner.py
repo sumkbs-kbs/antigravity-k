@@ -1,4 +1,4 @@
-"""Antigravity-K: Skill Auto-Learner (Closed Learning Loop).
+"""Ssak-Ai: Skill Auto-Learner (Closed Learning Loop).
 
 =========================================================
 Hermes Agent의 핵심 기술을 흡수한 폐쇄 학습 루프.

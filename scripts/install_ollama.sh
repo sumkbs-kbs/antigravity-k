@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Antigravity-K: Ollama 설치 및 구성 (Apple Silicon)
+# Ssak-Ai: Ollama 설치 및 구성 (Apple Silicon)
 # ============================================================================
 # Ollama = 빠른 테스트용 로컬 LLM 런타임
 # 설치 후 자동으로 OpenAI 호환 API 제공 (http://localhost:11434/v1)
@@ -162,7 +162,7 @@ print_summary() {
 
 # ─── 메인 ─────────────────────────────────────────────────────────────────────
 main() {
-    echo -e "\n${CYAN}Antigravity-K — Ollama 설치 & 구성${NC}\n"
+    echo -e "\n${CYAN}Ssak-Ai — Ollama 설치 & 구성${NC}\n"
 
     install_ollama
     start_ollama

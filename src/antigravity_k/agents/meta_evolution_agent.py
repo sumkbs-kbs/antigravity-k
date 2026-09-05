@@ -1,4 +1,4 @@
-"""Antigravity-K: Meta-Evolution Agent (Phase 7).
+"""Ssak-Ai: Meta-Evolution Agent (Phase 7).
 
 ==============================================
 본 프로그램 스스로 소스코드를 수정하고, 테스트를 실행하며,

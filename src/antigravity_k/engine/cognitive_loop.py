@@ -1,9 +1,9 @@
-"""Antigravity-K: 인지 루프 엔진 (CognitiveLoop).
+"""Ssak-Ai: 인지 루프 엔진 (CognitiveLoop).
 
 ==============================================
 E-1: AI 에이전트의 사고 패턴을 구현합니다.
 
-현재 Antigravity-K: CEO 분류 → 에이전트 실행 → 끝 (1-pass)
+현재 Ssak-Ai: CEO 분류 → 에이전트 실행 → 끝 (1-pass)
 개선 후:          Plan → Execute → Verify → Reflect → Adapt (순환)
 
 이 모듈은 에이전트가 "생각하고 → 실행하고 → 검증하고 → 배우는"
@@ -354,6 +354,14 @@ class CognitiveLoop:
             delegation_result = await self.auto_delegate_to_external_brain(task, recent_failures)
             if delegation_result:
                 self._retry_count += 1
+                self._publish_cognitive_adaptation(
+                    reason="반복 실패 감지 — External Brain 자동 위임",
+                    adaptation=delegation_result,
+                )
+                self._publish_anti_patterns(
+                    reason="반복 실패 감지 — External Brain 자동 위임",
+                    tools=[str(f["tool"]) for f in recent_failures],
+                )
                 return delegation_result
 
         # 최근 3번 중 2번 이상 실패한 경우 전략 변경 제안
@@ -369,9 +377,55 @@ class CognitiveLoop:
                 "2. 문제를 더 작은 단위로 쪼개어 단순한 도구부터 검증하세요.\n"
                 "3. 파일 권한이나 환경의 제약이 있는지 확인하는 도구(예: run_bash_command로 ls -la)를 먼저 실행하세요.\n"  # noqa: E501
             )
+            self._publish_cognitive_adaptation(
+                reason=f"반복 실패 감지 (실패 도구: {', '.join(tools_failed)})",
+                adaptation=adaptation,
+            )
+            self._publish_anti_patterns(
+                reason=f"반복 실패 감지 (실패 도구: {', '.join(tools_failed)})",
+                tools=tools_failed,
+            )
             return adaptation
 
         return None
+
+    def _publish_cognitive_adaptation(self, reason: str, adaptation: str) -> None:
+        """EventBus로 CognitiveAdaptation 이벤트를 발행합니다.
+
+        Dashboard WebSocket(useEventWebSocket)이 이 이벤트를 수신하여
+        에이전트 모니터링 패널에 전략 적응(Adapt) 로그를 표시합니다.
+        이벤트 발행은 선택적(non-critical)이므로 실패해도 적응 로직은 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish(
+                "CognitiveAdaptation",
+                reason=reason,
+                adaptation=adaptation,
+            )
+        except Exception:
+            logger.exception("[CognitiveLoop] CognitiveAdaptation publish failed")
+
+    def _publish_anti_patterns(self, reason: str, tools: list[str]) -> None:
+        """EventBus로 AntiPatternsDetected 이벤트를 발행합니다.
+
+        반복 실패(안티패턴) 감지 시 세션에서 누적된 실패 패턴을 전달합니다.
+        Dashboard WebSocket(useEventWebSocket)과 Kanban 보드(kanban_api)가
+        이 이벤트를 소비합니다.
+        이벤트 발행은 선택적(non-critical)이므로 실패해도 적응 로직은 계속됩니다.
+        """
+        try:
+            from antigravity_k.engine.event_bus import global_event_bus
+
+            global_event_bus.publish(
+                "AntiPatternsDetected",
+                reason=reason,
+                tools=tools,
+                patterns=self.get_anti_patterns(),
+            )
+        except Exception:
+            logger.exception("[CognitiveLoop] AntiPatternsDetected publish failed")
 
     async def auto_delegate_to_external_brain(
         self,

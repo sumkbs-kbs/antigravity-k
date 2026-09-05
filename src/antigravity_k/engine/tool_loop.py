@@ -107,6 +107,27 @@ def _publish_event(event_name: str, **kwargs: EventValue) -> None:
     publisher.publish(event_name, **kwargs)
 
 
+def _publish_quality_event(task_type: str, user_task: str, quality: QualityScore) -> None:
+    """QualityGate 최종 평가를 QualityCheckPassed/Failed 이벤트로 발행합니다.
+
+    대시보드 WebSocket(useEventWebSocket)이 이 이벤트를 수신하여 에이전트 모니터링
+    타임라인과 Kanban 보드에 품질 검사 결과를 표시합니다.
+    이벤트 발행은 선택적(non-critical)이므로 실패해도 실행 경로는 계속됩니다.
+    """
+    from antigravity_k.engine.event_bus import global_event_bus
+
+    passed = quality.grade in {QualityGrade.A, QualityGrade.B}
+    global_event_bus.publish(
+        "QualityCheckPassed" if passed else "QualityCheckFailed",
+        task_type=task_type,
+        user_task=user_task[:500],
+        score=quality.score,
+        grade=quality.grade.value,
+        issues=list(quality.issues or []),
+        feedback=quality.feedback,
+    )
+
+
 @runtime_checkable
 class TaskOutcomeRecorder(Protocol):
     def __call__(self, outcome: TaskOutcome) -> TaskOutcome | None: ...
@@ -1977,6 +1998,12 @@ class ToolLoopEngine:
             )
         except Exception:
             logger.exception("Unhandled exception")
+
+        if final_quality is not None:
+            try:
+                _publish_quality_event(task_type, user_task, final_quality)
+            except Exception:
+                logger.exception("Unhandled exception")
 
         return final_quality
 

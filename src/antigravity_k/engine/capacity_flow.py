@@ -1,4 +1,4 @@
-"""Antigravity-K: Capacity Flow 가드레일.
+"""Ssak-Ai: Capacity Flow 가드레일.
 
 ======================================
 DeepSeek-TUI 아키텍처 이식 — 용량 체크포인트 + 크래시 복구.
@@ -22,15 +22,7 @@ from typing import TypeGuard, cast
 
 logger = logging.getLogger(__name__)
 type CapacityMetadataValue = str | int | float | bool | None
-type CapacityJsonValue = (
-    str
-    | int
-    | float
-    | bool
-    | None
-    | list[CapacityJsonValue]
-    | dict[str, CapacityJsonValue]
-)
+type CapacityJsonValue = str | int | float | bool | None | list[CapacityJsonValue] | dict[str, CapacityJsonValue]
 type CapacityState = dict[str, CapacityJsonValue]
 
 

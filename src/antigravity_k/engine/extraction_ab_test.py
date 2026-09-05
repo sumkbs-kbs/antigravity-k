@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Antigravity-K: 데이터 추출 A/B 테스트 프레임워크
+Ssak-Ai: 데이터 추출 A/B 테스트 프레임워크
 ==================================================
 두 가지 버전의 데이터 추출 로직을 동일한 입력에 대해 실행하고
 그 결과를 정량적으로 비교/평가합니다.
@@ -199,8 +199,7 @@ class ABTestReport:
                 status = "❌"
             lines.append(
                 f"| {c.case_name} | {c.accuracy_pct:.1f}% | "
-                +
-                f"{c.fields_matched}/{c.fields_total} | {c.duration_ms:.0f}ms | {status} |"
+                + f"{c.fields_matched}/{c.fields_total} | {c.duration_ms:.0f}ms | {status} |"
             )
 
         # 실패 케이스 상세

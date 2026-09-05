@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 else:
     Graph = nx.DiGraph
 
+
 class _ChromaCollectionOps(Protocol):
     def count(self) -> int: ...
 
@@ -85,22 +86,14 @@ def _as_float_list(value: object) -> list[float]:
 
 
 def _as_graph_attributes(value: Mapping[object, object]) -> GraphAttributes:
-    return {
-        str(key): item
-        for key, item in value.items()
-        if isinstance(item, (str, int, float, bool))
-    }
+    return {str(key): item for key, item in value.items() if isinstance(item, (str, int, float, bool))}
 
 
 def _as_chroma_map(value: object) -> dict[str, ChromaValue]:
     if not isinstance(value, Mapping):
         return {}
     raw = cast(Mapping[object, object], value)
-    return {
-        str(key): item
-        for key, item in raw.items()
-        if isinstance(item, (str, int, float, bool))
-    }
+    return {str(key): item for key, item in raw.items() if isinstance(item, (str, int, float, bool))}
 
 
 def _collection_or_none(owner: object) -> _ChromaCollectionOps | None:
@@ -130,7 +123,7 @@ except Exception as _chroma_exc:  # pragma: no cover - 환경 의존적 의존�
 
 @final
 class GBrain:
-    """Antigravity-K Graph + Vector Memory (GBrain).
+    """Ssak-Ai Graph + Vector Memory (GBrain).
 
     JSONL 파일의 한계를 극복하기 위해, 노드 간 관계(NetworkX)와 의미론적 검색(ChromaDB)을 결합합니다.
     """

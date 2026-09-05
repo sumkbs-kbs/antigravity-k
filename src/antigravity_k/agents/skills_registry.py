@@ -140,7 +140,7 @@ class SkillProfile:
 
 
 class SkillsRegistry:
-    """Antigravity-K의 페르소나 및 스킬 맵핑을 관리합니다.
+    """Ssak-Ai의 페르소나 및 스킬 맵핑을 관리합니다.
 
     에이전트 생성 시 이 레지스트리에서 역할을 조회하여 해당 역할에 맞는
     시스템 프롬프트와 사용 가능한 도구(Tool) 목록을 제공합니다.

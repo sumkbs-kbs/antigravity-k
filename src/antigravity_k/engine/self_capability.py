@@ -1,9 +1,8 @@
 """
-Runtime self-capability reporting for Antigravity-K.
+Runtime self-capability reporting for Ssak-Ai.
 
-The agent must not invent what it can do.  This module builds a compact,
-runtime-derived capability snapshot from the actual ToolRegistry, SkillLoader,
-slash-command registry, and model manager.
+Inspects registered tools, skills, slash commands, project roots, and model status
+to explain what the system can groundedly do right now.
 """
 
 from __future__ import annotations
@@ -120,9 +119,9 @@ class SelfCapabilityEngine:
     def render_markdown(self, snapshot: RuntimeCapabilitySnapshot) -> str:
         """Render a Korean self-introduction grounded in the runtime snapshot."""
         lines = [
-            "# Antigravity-K Self Capability Report",
+            "# Ssak-Ai Self Capability Report",
             "",
-            "저는 이 프로젝트 안에서 실행되는 Antigravity-K 에이전트입니다. "
+            "저는 이 프로젝트 안에서 실행되는 Ssak-Ai 에이전트입니다. "
             + "답변, 코드 분석, 파일 작업, 테스트, DOM 기반 UI 점검, 문서화 같은 작업을 "
             + "현재 연결된 도구와 정책 범위 안에서 수행합니다.",
             "",

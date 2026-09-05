@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 
 class BaseProviderAdapter(ABC):
-    """Antigravity-K 코어(Anthropic 규격)와 타사 모델 API 간의.
+    """Ssak-Ai 코어(Anthropic 규격)와 타사 모델 API 간의.
 
     요청/응답을 투명하게 번역해주는 어댑터의 기본 인터페이스입니다.
     (Inspired by free-claude-code)

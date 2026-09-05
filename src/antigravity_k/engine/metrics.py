@@ -1,4 +1,4 @@
-"""Prometheus metrics registry and ASGI app for the Antigravity-K API.
+"""Prometheus metrics registry and ASGI app for the Ssak-Ai API.
 
 Exposes standard RED (Rate, Errors, Duration) metrics for HTTP requests plus a
 few process-level gauges. The metrics are served at ``/metrics`` via the

@@ -56,10 +56,21 @@ def normalize_unsloth_api_base(base_url: str) -> str:
 def resolve_unsloth_settings(
     profile: UnslothProfile,
     provider_config: Mapping[str, ProviderConfigValue],
+    *,
+    allow_default_endpoint: bool = True,
 ) -> tuple[str, str]:
+    """unsloth API base/key를 해석한다.
+
+    allow_default_endpoint=True(기본) — 런타임 어댑터 경로: 아무것도 설정되지
+    않았으면 f18f0de의 on-demand 동작대로 기본 loopback 주소로 폴백한다.
+    allow_default_endpoint=False — 프로브 경로: 능동적 설정 없이 네트워크를
+    치지 않도록 UnslothEndpointError("is not configured")를 그대로 올린다
+    (test_unsloth_probe_is_optional_when_endpoint_is_not_configured 계약).
+    """
     configured_base = provider_config.get("base_url", "")
     config_base_url = configured_base if isinstance(configured_base, str) else ""
-    base_url = profile.api_base or config_base_url or os.environ.get("UNSLOTH_API_BASE", "") or "http://127.0.0.1:8080/v1"
+    default_endpoint = "http://127.0.0.1:8080/v1" if allow_default_endpoint else ""
+    base_url = profile.api_base or config_base_url or os.environ.get("UNSLOTH_API_BASE", "") or default_endpoint
 
     configured_key_env = provider_config.get("api_key_env", "")
     config_key_env = configured_key_env if isinstance(configured_key_env, str) else ""

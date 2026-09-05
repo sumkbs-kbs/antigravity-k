@@ -1,4 +1,4 @@
-"""Antigravity-K: File Summarizer (Freebuff-Style Content Summary).
+"""Ssak-Ai: File Summarizer (Freebuff-Style Content Summary).
 
 =============================================================
 CodeTreeIndexer가 선정한 관련 파일의 핵심 내용을 요약하여
@@ -25,8 +25,7 @@ MAX_SUMMARIZE_FILES = 8
 
 @runtime_checkable
 class _ModelManagerLike(Protocol):
-    def generate(self, **kwargs: object) -> str:
-        ...
+    def generate(self, **kwargs: object) -> str: ...
 
 
 def _string_list(value: object) -> list[str]:

@@ -1,4 +1,4 @@
-"""Antigravity-K: 자율 학습 파이프라인 (Autonomous Learner).
+"""Ssak-Ai: 자율 학습 파이프라인 (Autonomous Learner).
 
 =======================================================
 사용자 명령 수행 시 에이전트가 자동으로 지식 갭을 감지하고,
@@ -28,6 +28,7 @@ from antigravity_k.tools.web_search_models import SearchResponse
 logger = logging.getLogger(__name__)
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+
 
 class _ModelManagerLike(Protocol):
     def get_target_for_role(self, role_name: str, *, default_role: str = "reasoning") -> str: ...
@@ -403,8 +404,16 @@ class AutonomousLearner:
 
         async def _run_vibe_coding_pipeline():
             if bus:
+                # role/task_type는 kanban_api의 AgentTurnStarted 구독자가 사용
                 bus.emit(
-                    HookEventEmit(kind="agent-turn-start", payload={"panel_id": "auto_learner"}),
+                    HookEventEmit(
+                        kind="agent-turn-start",
+                        payload={
+                            "panel_id": "auto_learner",
+                            "role": "AutoLearner",
+                            "task_type": "Vibe Coding Pipeline",
+                        },
+                    ),
                 )
             for gap in gaps:
                 try:
@@ -474,7 +483,17 @@ class AutonomousLearner:
                     logger.exception("[AutoLearn] Failed to learn about '%s'", gap.topic)
             await search_engine.close()
             if bus:
-                bus.emit(HookEventEmit(kind="agent-turn-end", payload={"panel_id": "auto_learner"}))
+                # role/task_type는 kanban_api의 AgentTurnEnded 구독자가 사용
+                bus.emit(
+                    HookEventEmit(
+                        kind="agent-turn-end",
+                        payload={
+                            "panel_id": "auto_learner",
+                            "role": "AutoLearner",
+                            "task_type": "Vibe Coding Pipeline",
+                        },
+                    ),
+                )
 
         # Execute async pipeline
         try:

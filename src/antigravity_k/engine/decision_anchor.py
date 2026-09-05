@@ -1,5 +1,5 @@
 """
-Antigravity-K: Decision Anchor System
+Ssak-Ai: Decision Anchor System
 =======================================
 Anthropic 컨텍스트 엔지니어링 핵심 원칙 이식:
 "핵심 결정사항을 컨텍스트 상단에 고정하여 AI 망각 방지"

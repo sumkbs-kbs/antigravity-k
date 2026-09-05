@@ -1,4 +1,4 @@
-"""Antigravity-K: 시맨틱 DOM 파서 (Semantic DOM Engine).
+"""Ssak-Ai: 시맨틱 DOM 파서 (Semantic DOM Engine).
 
 =====================================================
 browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
@@ -353,7 +353,7 @@ class SemanticDOMParser:
     """시맨틱 DOM 파싱 엔진.
 
     browser-use의 Snapshot+Refs 패턴과 SeeAct의 Set-of-Mark 패턴을
-    Antigravity-K 네이티브로 구현합니다.
+    Ssak-Ai 네이티브로 구현합니다.
     """
 
     # 태그/role → ElementRole 매핑
@@ -534,7 +534,7 @@ class SemanticDOMParser:
 
         출력 형식:
         ```
-        Page: "로그인 - Antigravity-K" (https://localhost:5173/login)
+        Page: "로그인 - Ssak-Ai" (https://localhost:5173/login)
         Elements (12 interactable):
         @ref1 [input] "이메일" placeholder="email@..." (152,290,200,32)
         @ref2 [input] "비밀번호" type=password (152,340,200,32)

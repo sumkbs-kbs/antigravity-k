@@ -101,6 +101,37 @@ export const CacheStatsResponseSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 
+// ─── Session Disclosure (세션 한도 고지, freebuff 벤치마킹) ──────────
+
+export const DisclosureLevelSchema = z.enum(['healthy', 'warning', 'exhausted']);
+
+export const LimitDisclosureSchema = z.object({
+  kind: z.string(),
+  label: z.string(),
+  limit: z.number(),
+  used: z.number(),
+  remaining: z.number(),
+  usage_percent: z.number(),
+  level: DisclosureLevelSchema,
+  message: z.string(),
+  reset_at: z.string().optional(),
+  seconds_until_reset: z.number().optional(),
+});
+
+export const SessionDisclosureSchema = z.object({
+  level: DisclosureLevelSchema,
+  reset_date: z.string(),
+  reset_at: z.string().optional(),
+  seconds_until_reset: z.number().optional(),
+  notices: z.array(z.string()),
+  limits: z.array(LimitDisclosureSchema),
+  markdown: z.string(),
+});
+
+export type DisclosureLevel = z.infer<typeof DisclosureLevelSchema>;
+export type LimitDisclosure = z.infer<typeof LimitDisclosureSchema>;
+export type SessionDisclosure = z.infer<typeof SessionDisclosureSchema>;
+
 export const LogLevelInfoSchema = z.object({
   name: z.string(),
   level: z.number(),
@@ -220,3 +251,115 @@ export type DebugModeResponse = z.infer<typeof DebugModeResponseSchema>;
 export type SettingsData = z.infer<typeof SettingsDataSchema>;
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;
 export type SettingsSaveResponse = z.infer<typeof SettingsSaveResponseSchema>;
+
+/* ─── Desktop & Workspace Contract Schemas ─────────────────────── */
+export const ProjectRecordSchema = z.object({
+  id: z.string().default('default'),
+  name: z.string(),
+  path: z.string().default(''),
+  is_active: z.boolean().default(false),
+  last_accessed_at: z.string().optional(),
+  tasks: z.array(z.string()).default([]),
+  preview: z.string().optional(),
+}).passthrough();
+
+export const ProjectListResponseSchema = z.object({
+  ok: z.boolean(),
+  workspace: z.string().default(''),
+  current_project: ProjectRecordSchema.optional(),
+  projects: z.array(ProjectRecordSchema).default([]),
+}).passthrough();
+
+export const WorkspaceContextSchema = z.object({
+  project_name: z.string().default('Ssak-Ai'),
+  workspace_path: z.string().optional(),
+  target: z.string().default('로컬'),
+  branch: z.string().default('main'),
+  projects: z.array(ProjectRecordSchema).default([]),
+}).passthrough();
+
+export const SystemQuotaSchema = z.object({
+  percent_remaining: z.number().min(0).max(100),
+  period_label: z.string(),
+  resets_note: z.string(),
+  tokens_used: z.number().nonnegative(),
+  tokens_budget: z.number().positive(),
+  requests: z.number().nonnegative().optional(),
+}).passthrough();
+
+export const McpServerItemSchema = z.object({
+  name: z.string(),
+  transport: z.string().default('stdio'),
+  status: z.string().default('connected'),
+  command: z.string().optional(),
+}).passthrough();
+
+export const McpServersResponseSchema = z.object({
+  ok: z.boolean(),
+  servers: z.array(McpServerItemSchema).default([]),
+  source: z.string().optional(),
+  error: z.string().optional(),
+}).passthrough();
+
+export const AccessModeResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  mode: z.string(),
+  label: z.string(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+}).passthrough();
+
+export type ProjectRecord = z.infer<typeof ProjectRecordSchema>;
+export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
+export type WorkspaceContext = z.infer<typeof WorkspaceContextSchema>;
+export type SystemQuota = z.infer<typeof SystemQuotaSchema>;
+export type McpServerItem = z.infer<typeof McpServerItemSchema>;
+export type McpServersResponse = z.infer<typeof McpServersResponseSchema>;
+export type AccessModeResponse = z.infer<typeof AccessModeResponseSchema>;
+
+/* ─── Local Model Discovery Schemas ─────────────────────────────── */
+export const LocalModelItemSchema = z.object({
+  id: z.string(),
+  name: z.string().default(''),
+  provider: z.string().default('local'),
+  role: z.string().default('reasoning'),
+  description: z.string().optional(),
+  parameter_count_b: z.number().default(0),
+  is_local: z.boolean().default(true),
+  context_length: z.number().optional(),
+  tier: z.string().optional(),
+  status: z.enum(['running', 'installed', 'cached']).or(z.string()).default('installed'),
+  disk_path: z.string().default(''),
+  disk_size_gb: z.number().default(0),
+  quantization: z.string().default(''),
+  source: z.string().default(''),
+}).passthrough();
+
+export const LocalModelsResponseSchema = z.object({
+  ok: z.boolean(),
+  total: z.number().default(0),
+  recommended_default: z.string().nullable().optional(),
+  models: z.array(LocalModelItemSchema).default([]),
+  message: z.string().optional(),
+}).passthrough();
+
+export type LocalModelItem = z.infer<typeof LocalModelItemSchema>;
+export type LocalModelsResponse = z.infer<typeof LocalModelsResponseSchema>;
+
+// ─── Training Recipe Presets (학습 레시피 프리셋, Phase 24) ────────────
+
+export const RecipeHyperparametersSchema = z.record(z.string(), z.union([z.number(), z.string()]));
+
+export const TrainingRecipeSchema = z.object({
+  name: z.string(),
+  title: z.string(),
+  description: z.string(),
+  source_hint: z.string(),
+  format: z.string(),
+  min_records: z.number(),
+  hyperparameters: RecipeHyperparametersSchema,
+});
+
+export type RecipeHyperparameters = z.infer<typeof RecipeHyperparametersSchema>;
+export type TrainingRecipe = z.infer<typeof TrainingRecipeSchema>;
+export type TrainingRecipesResponse = { ok: true; recipes: TrainingRecipe[] };

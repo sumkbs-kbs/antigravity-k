@@ -198,3 +198,33 @@ class TestToDict:
         d = mgr.to_dict()
         assert "history_count" in d
         assert d["history_count"] >= 1
+
+
+class TestPlanningModeStartedEvent:
+    """switch_to_plan이 Dashboard용 PlanningModeStarted 이벤트를 발행한다."""
+
+    def test_switch_to_plan_publishes_planning_mode_started(self, monkeypatch):
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        mgr = ModeManager()
+        assert mgr.switch_to_plan("프로젝트 분석 계획 수립") is True
+        assert ("PlanningModeStarted", {"goal": "프로젝트 분석 계획 수립"}) in published
+
+    def test_switch_to_plan_publishes_empty_goal_for_default_reason(self, monkeypatch):
+        published: list[tuple[str, dict[str, object]]] = []
+
+        class _FakeBus:
+            def publish(self, event_name: str, **kwargs: object) -> None:
+                published.append((event_name, kwargs))
+
+        monkeypatch.setattr("antigravity_k.engine.event_bus.global_event_bus", _FakeBus())
+
+        mgr = ModeManager()
+        _ = mgr.switch_to_plan()
+        assert ("PlanningModeStarted", {"goal": ""}) in published

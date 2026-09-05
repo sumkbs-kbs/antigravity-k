@@ -93,7 +93,7 @@ const TerminalPanel: React.FC = () => {
             ws.close();
             return;
           }
-          term?.writeln('\x1b[32m[Antigravity-K] Terminal connected.\x1b[0m');
+          term?.writeln('\x1b[32m[Ssak-Ai] Terminal connected.\x1b[0m');
           fitAddon?.fit();
         };
         ws.onmessage = (event: MessageEvent) => {
@@ -101,7 +101,7 @@ const TerminalPanel: React.FC = () => {
         };
         ws.onclose = () => {
           if (disposed) return;
-          term?.writeln('\x1b[31m[Antigravity-K] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
+          term?.writeln('\x1b[31m[Ssak-Ai] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
             connectWebSocket();

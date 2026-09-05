@@ -1,4 +1,4 @@
-"""Antigravity-K: Artifact Engine (Phase 1 Enhanced).
+"""Ssak-Ai: Artifact Engine (Phase 1 Enhanced).
 
 ===========================================================================
 계획 모드(Planning Mode) 시 생성되는 implementation_plan.md, task.md,

@@ -36,9 +36,7 @@ class HardwareAnalystAgent:
         total_bytes = getattr(memory, "total", 0)
         available_bytes = getattr(memory, "available", 0)
         total_ram_gb = round(total_bytes / (1024**3), 2) if isinstance(total_bytes, (int, float)) else 0.0
-        available_ram_gb = (
-            round(available_bytes / (1024**3), 2) if isinstance(available_bytes, (int, float)) else 0.0
-        )
+        available_ram_gb = round(available_bytes / (1024**3), 2) if isinstance(available_bytes, (int, float)) else 0.0
         specs: dict[str, object] = {
             "os": platform.system(),
             "os_release": platform.release(),
@@ -60,7 +58,7 @@ class HardwareAnalystAgent:
 
         sys_specs = self._get_system_specs()
 
-        prompt = f"""You are the Hardware Analyst Agent of Antigravity-K.
+        prompt = f"""You are the Hardware Analyst Agent of Ssak-Ai.
 
 The ScoutAgent found a highly advanced AI model ('{target_model_name}') that requires
 {required_memory_gb}GB of memory to run efficiently.

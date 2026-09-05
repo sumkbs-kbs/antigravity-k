@@ -41,7 +41,7 @@ def deny_patterns() -> list[str]:
     """위험 명령 deny 패턴 목록을 반환합니다.
 
     Sidabari claude_safety.rs의 deny_patterns() 전체 이식 +
-    Antigravity-K 로컬 환경에 맞는 추가 패턴.
+    Ssak-Ai 로컬 환경에 맞는 추가 패턴.
     """
     return [
         # ── 파일 삭제/이동/덮어쓰기 (로컬·원격 양쪽) ──
@@ -259,7 +259,7 @@ def _merge_deny(existing: dict[str, object], new_patterns: list[str]) -> int:
     # 4) 마커 갱신 — installed_patterns에 설치된 패턴 보관
     permissions[RULES_MARKER_KEY] = {
         "version": 2,
-        "note": "Antigravity-K 자동 설치. self-cleanup 마커.",
+        "note": "Ssak-Ai 자동 설치. self-cleanup 마커.",
         "installed_patterns": list(new_patterns),
     }
 

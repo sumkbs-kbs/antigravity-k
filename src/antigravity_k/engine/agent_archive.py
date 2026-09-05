@@ -1,4 +1,4 @@
-"""Antigravity-K: Agent Archive (에이전트 변이체 아카이브).
+"""Ssak-Ai: Agent Archive (에이전트 변이체 아카이브).
 
 =====================================================
 성공한 에이전트 변이체를 저장하고 진화 계보를 추적합니다.
@@ -380,4 +380,4 @@ class AgentArchive:
             logger.exception("[Archive] 저장 실패")
 
 
-"""Antigravity-K Agent Archive — Evolutionary variant storage with lineage tracking."""
+"""Ssak-Ai Agent Archive — Evolutionary variant storage with lineage tracking."""

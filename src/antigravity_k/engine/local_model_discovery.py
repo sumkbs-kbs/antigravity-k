@@ -553,6 +553,24 @@ def _limited_paths(paths: Iterable[Path], limit: int = 200) -> tuple[Path, ...]:
     return tuple(result)
 
 
+# unsloth Dynamic GGUF 네이밍 규약 파서 (벤치마킹: unslothai/unsloth).
+# 예: Qwen3.8-27B-UD-Q4_K_XL.gguf, unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL,
+#     Qwen3.8-27B-Q4_K_M.gguf, model-IQ4_XS.gguf, TQ1_0(ternary), gemma-4-9b-it-q4_k_m.gguf
+# - UD- 접두사: Unsloth Dynamic (레이어별 혼합 정밀도) 양자화
+# - IQ*/TQ* 시리즈: I-quant, ternary quant; Q*는 레거시 K-quant
+# - 표준 GGUF 양자 토큰은 항상 언더스코어 그룹을 포함 (Q4_K_M, Q8_0, IQ4_XS, TQ1_0)
+# - 기존 호환: "4bit" 표기 유지
+_QUANT_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9])((?:UD-)?(?:TQ|IQ|Q)\d(?:_[A-Z0-9]+)+|\d+bit)",
+    re.IGNORECASE,
+)
+
+
 def _quantization(name: str) -> str:
-    match = re.search(r"(Q\d(?:_[A-Z0-9]+)+|\d+bit)", name, re.IGNORECASE)
-    return match.group(1) if match else ""
+    match = _QUANT_TOKEN_RE.search(name)
+    if match:
+        token = match.group(1)
+        if token.casefold().endswith("bit"):
+            return token.casefold()
+        return token.upper()
+    return ""

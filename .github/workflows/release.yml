@@ -45,7 +45,13 @@ jobs:
 
       - name: Install build tooling
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip build "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
+
+      - name: Generate release SBOMs and notices
+        run: |
+          python -m antigravity_k.engine.release_sbom generate \
+            --project-root . \
+            --release-root src/antigravity_k/release
 
       - name: Build wheel + sdist
         run: python -m build
@@ -54,6 +60,13 @@ jobs:
         run: |
           pip install dist/*.whl
           python -c "import antigravity_k; print('import ok')"
+
+      - name: Verify release SBOMs and notices
+        run: |
+          python -m antigravity_k.engine.release_sbom verify \
+            --distribution-root dist \
+            --release-root src/antigravity_k/release \
+            --output dist/release-supply-chain.json
 
       - name: Install provenance verifier
         run: python -m pip install "pydantic>=2.10.0,<3.0" "typer>=0.13.0,<1.0"
@@ -90,7 +103,10 @@ jobs:
       - name: Extract version
         id: meta
         run: |
-          VERSION=$(python -c "from pathlib import Path; print(__import__('tomllib').loads(Path('pyproject.toml').read_text('utf-8'))['project']['version'])")
+          METADATA=$(python -m antigravity_k.engine.release_metadata \
+            --distribution-root dist \
+            --git-ref "$GITHUB_REF")
+          VERSION=$(printf '%s' "$METADATA" | python -c "import json,sys; print(json.load(sys.stdin)['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Detected version: $VERSION"
 
@@ -101,6 +117,7 @@ jobs:
           path: |
             dist/
             .artifacts/release-dist.json
+            dist/release-supply-chain.json
           retention-days: 30
 
   publish-pypi:

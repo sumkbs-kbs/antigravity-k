@@ -154,7 +154,7 @@ class RobotsRateLimitPolicy:
     user_agent: str
     min_interval: float
 
-    def __init__(self, user_agent: str = "Antigravity-K/1.0", min_interval: float = 0.2) -> None:
+    def __init__(self, user_agent: str = "Ssak-Ai/1.0", min_interval: float = 0.2) -> None:
         self.user_agent = user_agent
         self.min_interval = min_interval
         self._robots: dict[str, RobotFileParser | None] = {}

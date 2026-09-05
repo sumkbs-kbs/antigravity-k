@@ -1,6 +1,6 @@
 # Phase 17: Artifacts & Planning Mode System Migration
 ## Objective
-Implement Google Antigravity (Tolaria) Artifacts and Planning Mode capabilities into Antigravity-K to achieve capability parity.
+Implement Google Antigravity (Tolaria) Artifacts and Planning Mode capabilities into Ssak-Ai to achieve capability parity.
 
 ## Proposed Changes
 1. **`prompt_builder.py`**: Inject `<artifacts>` and `<planning_mode>` prompt sections similar to Google's agent. This includes rules for `implementation_plan.md`, `task.md`, and `walkthrough.md`, along with `> [!NOTE]` style GitHub alerts and `render_diffs()`.

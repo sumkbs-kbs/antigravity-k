@@ -108,7 +108,7 @@ const TerminalSession: React.FC<Props> = ({ sessionId }) => {
             ws.close();
             return;
           }
-          term?.writeln('\x1b[32m[Antigravity-K] Terminal connected.\x1b[0m');
+          term?.writeln('\x1b[32m[Ssak-Ai] Terminal connected.\x1b[0m');
           fitAddonRef.current?.fit();
         };
 
@@ -119,10 +119,10 @@ const TerminalSession: React.FC<Props> = ({ sessionId }) => {
         ws.onclose = (event) => {
           if (disposed) return;
           if (event.code === 1008 && event.reason === 'Terminal WebSocket is disabled') {
-            term?.writeln('\x1b[33m[Antigravity-K] Terminal is disabled. Set AGK_ENABLE_TERMINAL_WS=true to enable it.\x1b[0m');
+            term?.writeln('\x1b[33m[Ssak-Ai] Terminal is disabled. Set AGK_ENABLE_TERMINAL_WS=true to enable it.\x1b[0m');
             return;
           }
-          term?.writeln('\x1b[31m[Antigravity-K] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
+          term?.writeln('\x1b[31m[Ssak-Ai] Terminal disconnected. Reconnecting in 3s...\x1b[0m');
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
             connectWebSocket();

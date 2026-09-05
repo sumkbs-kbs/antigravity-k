@@ -1,5 +1,5 @@
 """
-Antigravity-K: Self-Play Curriculum Generator (Level 3 자가 학습 엔진)
+Ssak-Ai: Self-Play Curriculum Generator (Level 3 자가 학습 엔진)
 =====================================================================
 AI가 스스로 새로운 벤치마크(테스트 코드)를 생성하여 자신의 능력을 무한 확장합니다.
 
@@ -209,9 +209,11 @@ class DatasetIngestor:
 
         try:
             if self.model_manager is not None:
-                target = os.environ.get("AGK_DATASET_SCHEMA_MODEL") or self.model_manager.get_target_for_role(
-                    "dataset_ingestor", default_role="reasoning"
-                ) or ""
+                target = (
+                    os.environ.get("AGK_DATASET_SCHEMA_MODEL")
+                    or self.model_manager.get_target_for_role("dataset_ingestor", default_role="reasoning")
+                    or ""
+                )
                 try:
                     content = self.model_manager.generate(
                         prompt,
@@ -362,7 +364,9 @@ class CurriculumGenerator:
                     prompt_requirement=str(data["requirement"]),
                     generated_test_code=str(data["pytest_code"]),
                 )
-                logger.info("[Curriculum] 과제 생성됨: 난이도 %s - %s...", task.difficulty, task.prompt_requirement[:30])
+                logger.info(
+                    "[Curriculum] 과제 생성됨: 난이도 %s - %s...", task.difficulty, task.prompt_requirement[:30]
+                )
                 return task
         except Exception:
             logger.exception("[Curriculum] 과제 생성 실패")
@@ -442,9 +446,11 @@ class CurriculumGenerator:
 
     def _call_llm(self, prompt: str, model: str) -> str:
         if self.model_manager is not None:
-            target = os.environ.get("AGK_CURRICULUM_MODEL") or self.model_manager.get_target_for_role(
-                "curriculum", default_role="reasoning"
-            ) or ""
+            target = (
+                os.environ.get("AGK_CURRICULUM_MODEL")
+                or self.model_manager.get_target_for_role("curriculum", default_role="reasoning")
+                or ""
+            )
             try:
                 content = self.model_manager.generate(
                     prompt,

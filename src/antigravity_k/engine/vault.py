@@ -18,12 +18,14 @@ from filelock import SoftFileLock
 # RAG Imports
 from antigravity_k.engine.chunker import MarkdownChunker
 from antigravity_k.engine.event_bus import global_event_bus
+from antigravity_k.engine.vault_git import VaultCommitError, commit_output, vault_stage_transaction
 from antigravity_k.engine.vector_store import VectorStore
 
 if TYPE_CHECKING:
     from antigravity_k.engine.vault_privacy_contracts import VaultPrivacyMutation, VaultPrivacyResult
 
 logger = logging.getLogger(__name__)
+
 
 class JSONMetadata(dict[str, object]):
     @overload
@@ -58,18 +60,11 @@ class JSONExportRecord(dict[str, object]):
 def _error_text(value: object) -> str:
     return value if isinstance(value, str) else str(value)
 
+
 # YAML frontmatter delimiter: a line that is exactly "---" (optionally with
 # trailing whitespace). Used to split frontmatter from body precisely, instead
 # of the previous naive str.split("---\n", 2) which mis-split horizontal rules.
 _FRONTMATTER_DELIMITER = re.compile(r"^---[ \t]*$", re.MULTILINE)
-
-
-class VaultCommitError(RuntimeError):
-    """Raised when a Git auto-commit fails after acquiring the vault lock.
-
-    Callers (API handlers) should translate this into a 5xx/503 response so the
-    user is not silently told a write succeeded when version control failed.
-    """
 
 
 @final
@@ -184,57 +179,40 @@ class VaultEngine:
                     logger.error("Failed to initialize Git repo: %s", _error_text(cast(object, e.stderr)))
 
     def _auto_commit(self, file_path: str, message: str = "Auto-commit via VaultEngine"):
-        """Stage the file and commit changes to the local Git repository.
-
-        Must be called while holding the vault lock (see ``_acquire_vault_lock``).
-        Treats "nothing to commit" (git exit code 1) as a non-error, since a
-        no-op write is not a failure. Any other git failure raises
-        ``VaultCommitError`` so the caller can surface it instead of silently
-        reporting success.
-
-        Args:
-            file_path (str): Path of the file to stage, relative to the vault.
-            message (str): Commit message.
-
-        Raises:
-            VaultCommitError: If ``git add`` fails or ``git commit`` fails for
-                a reason other than "nothing to commit".
-
-        """
-        try:
-            # Stage the specific file.
-            _ = subprocess.run(
-                ["git", "add", file_path],
-                cwd=self.vault_path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            stderr = _error_text(cast(object, e.stderr))
-            logger.error("Failed to stage %s: %s", file_path, _error_text(stderr))
-            raise VaultCommitError(f"git add failed for {file_path}: {stderr}") from e
-
-        # Commit the changes. ``git commit`` exits 1 when there is nothing to
-        # commit; that is a normal no-op, not a failure.
-        result = subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=self.vault_path,
-            capture_output=True,
-            text=True,
-        )
+        with vault_stage_transaction(self.vault_path, file_path) as commit_env:
+            try:
+                result = subprocess.run(
+                    ["git", "commit", "--only", file_path, "-m", message],
+                    cwd=self.vault_path,
+                    env=commit_env,
+                    capture_output=True,
+                    text=True,
+                )
+            except OSError as e:
+                raise VaultCommitError(f"git commit failed for {file_path}: {e}") from e
         if result.returncode == 0:
             logger.info("Git commit successful: %s", message)
+            if commit_env is not None:
+                try:
+                    _ = subprocess.run(
+                        ["git", "add", file_path],
+                        cwd=self.vault_path,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                except subprocess.CalledProcessError as e:
+                    output = _error_text(cast(object, e.stderr))
+                    raise VaultCommitError(f"git add failed for {file_path}: {output}") from e
             return
-
-        combined = (result.stdout or "") + (result.stderr or "")
-        if "nothing to commit" in combined or "no changes added" in combined:
+        output = commit_output(result)
+        if "nothing to commit" in output or "no changes added" in output:
             logger.debug("Nothing to commit for %s (no-op)", file_path)
             return
-
-        # Any other non-zero status is a real failure the caller must see.
-        logger.error("Git commit failed: %s", combined.strip())
-        raise VaultCommitError(f"git commit failed for {file_path}: {combined.strip()}")
+        logger.error("Git commit failed for %s (exit %d): %s", file_path, result.returncode, output)
+        raise VaultCommitError(
+            f"git commit failed for {file_path} (exit {result.returncode}): {output}",
+        )
 
     def create_snapshot(self, message: str) -> str | None:
         """Create a filesystem checkpoint (snapshot) by committing all current changes.

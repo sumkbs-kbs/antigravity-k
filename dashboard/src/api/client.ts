@@ -1,5 +1,5 @@
 /**
- * Antigravity-K API Client
+ * Ssak-Ai API Client
  * =========================
  * Fetch wrapper with PIN auth, error handling, and SSE streaming support.
  */
@@ -17,8 +17,10 @@ import {
   SetAllLogLevelsResponseSchema,
   SettingsResponseSchema,
   SettingsSaveResponseSchema,
+  SessionDisclosureSchema,
   SystemMetricsSchema,
   LocalModelsResponseSchema,
+  TrainingRecipeSchema,
 } from './clientSchema';
 import type {
   LocalModelItem,
@@ -40,7 +42,12 @@ import type {
   SetAllLogLevelsResponse,
   SettingsData,
   SettingsSaveResponse,
+  SessionDisclosure,
+  DisclosureLevel,
+  LimitDisclosure,
   SystemMetrics,
+  TrainingRecipe,
+  TrainingRecipesResponse,
 } from './clientSchema';
 
 export type {
@@ -55,7 +62,12 @@ export type {
   ModelOperationsStatus,
   ModelProviderCapability,
   ModelQualityCalibrationStatus,
+  SessionDisclosure,
+  DisclosureLevel,
+  LimitDisclosure,
   SystemMetrics,
+  TrainingRecipe,
+  TrainingRecipesResponse,
   LocalModelItem,
   LocalModelsResponse,
   SettingsData,
@@ -300,8 +312,80 @@ export async function fetchCacheStats(): Promise<CacheStatsResponse> {
 }
 
 /**
- * Fetch all antigravity_k.* logger levels.
+ * Fetch the session-limits disclosure shown before a session starts.
+ * (freebuff benchmark: session limits + data-use notice before you start)
  */
+export async function fetchSessionDisclosure(): Promise<SessionDisclosure> {
+  const raw = await requestJson('/api/session/disclosure', '/api/session/disclosure');
+  return SessionDisclosureSchema.parse(raw);
+}
+
+/**
+ * Fetch the training recipe presets with their audited hyperparameter values.
+ * (Phase 24: editable hyperparameter fields in the Studio training UI)
+ */
+export async function fetchTrainingRecipes(): Promise<TrainingRecipesResponse> {
+  const raw = await requestJson('/api/recipes', '/api/recipes');
+  return {
+    ok: true,
+    recipes: (Array.isArray((raw as { recipes?: unknown }).recipes) ? (raw as { recipes: unknown[] }).recipes : []).map(
+      (r) => TrainingRecipeSchema.parse(r),
+    ),
+  };
+}
+
+/**
+ * Start a real backend training job (Phase 59).
+ *
+ * Runs LoRAPipeline.apply_recipe with the edited hyperparameters, then
+ * mlx-lm training, in a background thread; poll the returned job_id for
+ * progress/loss/log tail.
+ */
+export interface TrainingJobStartPayload {
+  recipe: string;
+  base_model: string;
+  source: string;
+  platform: string;
+  hyperparameters: Record<string, number | string>;
+}
+
+export interface TrainingJobView {
+  job_id: string;
+  status: 'running' | 'completed' | 'failed';
+  recipe: string;
+  platform: string;
+  dataset_path: string;
+  config_path: string;
+  records: number;
+  sufficient: boolean;
+  progress: number;
+  loss: number | null;
+  log_tail: string[];
+  error: string;
+  started_at: number;
+  finished_at: number | null;
+}
+
+export async function startTrainingJob(payload: TrainingJobStartPayload): Promise<{ ok: boolean; job_id: string }> {
+  const raw = await requestJson('/api/training-jobs', '/api/training-jobs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  const parsed = raw as { ok?: boolean; job_id?: string };
+  if (!parsed.job_id) throw new Error('training job start failed: no job_id');
+  return { ok: parsed.ok === true, job_id: parsed.job_id };
+}
+
+export async function fetchTrainingJob(jobId: string): Promise<TrainingJobView> {
+  return (await requestJson(`/api/training-jobs/${jobId}`, `/api/training-jobs/${jobId}`)) as TrainingJobView;
+}
+
+export async function cancelTrainingJob(jobId: string): Promise<{ ok: boolean; detail?: string }> {
+  return (await requestJson(`/api/training-jobs/${jobId}/cancel`, `/api/training-jobs/${jobId}/cancel`, {
+    method: 'POST',
+  })) as { ok: boolean; detail?: string };
+}
+
 export async function fetchLogLevels(): Promise<LogLevelListResponse> {
   const raw = await requestJson('/api/system/log-level', '/api/system/log-level');
   return LogLevelListResponseSchema.parse(raw);

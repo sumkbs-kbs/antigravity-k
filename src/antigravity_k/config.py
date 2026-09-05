@@ -1,4 +1,4 @@
-"""Antigravity-K: 전역 설정 (Config).
+"""Ssak-Ai: 전역 설정 (Config).
 
 ===================================
 모든 설정은 환경변수 또는 config.yaml에서 로드됩니다.
@@ -398,7 +398,9 @@ class AppConfig:
         raw_config = _load_yaml_config()
         self._raw: ConfigMap = raw_config
         self.model: ModelConfig = _build_settings(ModelConfig, _section_overrides(raw_config, "model", ModelConfig))
-        self.server: ServerConfig = _build_settings(ServerConfig, _section_overrides(raw_config, "server", ServerConfig))
+        self.server: ServerConfig = _build_settings(
+            ServerConfig, _section_overrides(raw_config, "server", ServerConfig)
+        )
         self.paths: PathConfig = _build_settings(PathConfig, _section_overrides(raw_config, "paths", PathConfig))
         self.security: SecurityConfig = _build_settings(
             SecurityConfig, _section_overrides(raw_config, "security", SecurityConfig)
@@ -407,7 +409,9 @@ class AppConfig:
             WorkflowConfig, _section_overrides(raw_config, "workflow", WorkflowConfig)
         )
         self.i18n: I18nConfig = _build_settings(I18nConfig, _section_overrides(raw_config, "i18n", I18nConfig))
-        self.router: RouterConfig = _build_settings(RouterConfig, _section_overrides(raw_config, "router", RouterConfig))
+        self.router: RouterConfig = _build_settings(
+            RouterConfig, _section_overrides(raw_config, "router", RouterConfig)
+        )
         self.computer_use: ComputerUseConfig = _build_settings(
             ComputerUseConfig, _section_overrides(raw_config, "computer_use", ComputerUseConfig)
         )
@@ -421,7 +425,11 @@ class AppConfig:
             self.paths.vectors_dir,
             self.paths.logs_dir,
         ]:
-            path.mkdir(parents=True, exist_ok=True)
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                fallback_path = Path.home() / ".antigravity-k" / path.name
+                fallback_path.mkdir(parents=True, exist_ok=True)
 
     def validate(self) -> list[str]:
         """시작 시 설정을 검증하고 문제 목록을 반환합니다 (fail-fast, 작업 D).
@@ -470,7 +478,14 @@ class AppConfig:
                 _ = test_file.write_text("test", encoding="utf-8")
                 test_file.unlink()
             except OSError as e:
-                problems.append(f"{label}({path})에 쓰기 권한이 없습니다: {e}")
+                fallback_path = Path.home() / ".antigravity-k" / label.replace("_dir", "")
+                try:
+                    fallback_path.mkdir(parents=True, exist_ok=True)
+                    test_file = fallback_path / ".agk_write_test"
+                    _ = test_file.write_text("test", encoding="utf-8")
+                    test_file.unlink()
+                except OSError:
+                    problems.append(f"{label}({path})에 쓰기 권한이 없습니다: {e}")
 
         # 4. config.yaml 모델 레지스트리 로드 확인
         try:
@@ -504,7 +519,7 @@ class AppConfig:
     def summary(self) -> str:
         """설정 요약을 문자열로 반환합니다."""
         return (
-            f"=== Antigravity-K Config ===\n"
+            f"=== Ssak-Ai Config ===\n"
             f"메인 모델    : {self.model.main_model}\n"
             f"코드 모델    : {self.model.code_model}\n"
             f"임베딩 모델  : {self.model.embedding_model}\n"

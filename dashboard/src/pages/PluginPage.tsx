@@ -102,7 +102,7 @@ const PluginPage: React.FC = () => {
   const plugins = getAllPlugins();
 
   return (
-    <div className="page-container full-height-page">
+    <div className="page-container plugin-page">
       <div className="page-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div className="page-header-hero">

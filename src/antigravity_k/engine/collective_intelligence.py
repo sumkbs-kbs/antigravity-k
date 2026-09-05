@@ -1,4 +1,4 @@
-"""Collective intelligence execution for Antigravity-K.
+"""Collective intelligence execution for Ssak-Ai.
 
 This module turns a model combo into a small council:
 independent proposals, focused criticism, and a final synthesis.
@@ -156,7 +156,7 @@ class CollectiveIntelligenceEngine:
     @staticmethod
     def _proposal_prompt(prompt: str, model_name: str) -> str:
         return (
-            "[Antigravity-K 집단지성 제안 라운드]\n"
+            "[Ssak-Ai 집단지성 제안 라운드]\n"
             f"참여 모델: {model_name}\n\n"
             "역할: 다른 모델의 답변을 보지 않고 독립적으로 최선의 후보 답변을 작성합니다.\n"
             "규칙:\n"
@@ -170,7 +170,7 @@ class CollectiveIntelligenceEngine:
     @staticmethod
     def _critique_prompt(prompt: str, proposal_context: str) -> str:
         return (
-            "[Antigravity-K 집단지성 비판 라운드]\n\n"
+            "[Ssak-Ai 집단지성 비판 라운드]\n\n"
             "역할: 후보 답변들의 오류, 누락, 과장, 실행 위험, 품질 저하 지점을 찾습니다.\n"
             "규칙:\n"
             "- 내부 사고 과정은 출력하지 말고 검증 가능한 지적만 작성하세요.\n"
@@ -188,7 +188,7 @@ class CollectiveIntelligenceEngine:
         critique_context: str,
     ) -> str:
         return (
-            "[Antigravity-K 집단지성 최종 합성]\n\n"
+            "[Ssak-Ai 집단지성 최종 합성]\n\n"
             "역할: 후보 답변과 비판 의견을 비교하여 최종 답변 하나로 합성합니다.\n"
             "필수 규칙:\n"
             "- 내부 사고 과정, 토론 로그 원문, <think>/<thought>를 출력하지 마세요.\n"

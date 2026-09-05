@@ -1,7 +1,7 @@
 """MemoryProvider — 플러그인 기반 에이전트 메모리 시스템.
 
 =====================================================
-Hermes Agent의 memory_manager.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 memory_manager.py 패턴을 Ssak-Ai에 이식.
 
 아키텍처:
 - MemoryProvider (ABC): 메모리 제공자 인터페이스
@@ -854,7 +854,9 @@ class EpisodicMemoryProvider(MemoryProvider):
         return {
             "total_episodes": len(self._episodes),
             "max_episodes": self._max_episodes,
-            "most_accessed": [list(item) for item in sorted(self._access_counts.items(), key=lambda x: x[1], reverse=True)[:5]],
+            "most_accessed": [
+                list(item) for item in sorted(self._access_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            ],
         }
 
 

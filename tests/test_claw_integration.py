@@ -321,7 +321,7 @@ class TestSlashCommands(unittest.TestCase):
     def test_status_command(self):
         """/status 실행."""
         result = self.registry.execute("/status")
-        self.assertIn("Antigravity-K", result)
+        self.assertIn("Ssak-Ai", result)
 
     def test_unknown_command(self):
         """알 수 없는 커맨드는 에러 메시지."""

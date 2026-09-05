@@ -1,5 +1,5 @@
 #!/bin/bash
-# Antigravity-K 실행 스크립트
+# Ssak-Ai 실행 스크립트
 # 사용법: ./run.sh [옵션]
 #   옵션 없음: API 서버 + SearxNG 시작
 #   stop:      서버 종료
@@ -35,7 +35,7 @@ print_err()    { echo -e "${RED}[$(date +%H:%M:%S)] ❌${NC} $1"; }
 case "${1:-start}" in
 
   stop)
-    print_status "Antigravity-K 종료 중..."
+    print_status "Ssak-Ai 종료 중..."
     # API 서버 종료
     PID=$(lsof -ti:$PORT 2>/dev/null || true)
     if [ -n "$PID" ]; then
@@ -53,7 +53,7 @@ case "${1:-start}" in
   status)
     echo ""
     echo "╔══════════════════════════════════════════════╗"
-    echo "║        Antigravity-K 실행 상태               ║"
+    echo "║            Ssak-Ai 실행 상태                 ║"
     echo "╠══════════════════════════════════════════════╣"
 
     # API 서버
@@ -94,7 +94,7 @@ case "${1:-start}" in
     # ─── 시작 ───
     echo ""
     echo "╔══════════════════════════════════════════════╗"
-    echo "║     Antigravity-K 시작 중...                 ║"
+    echo "║            Ssak-Ai 시작 중...                ║"
     echo "╚══════════════════════════════════════════════╝"
     echo ""
 
@@ -171,7 +171,7 @@ EOF' 2>/dev/null
     echo ""
     echo "╔══════════════════════════════════════════════════╗"
     echo "║                                                  ║"
-    echo -e "║  ${GREEN}Antigravity-K 실행 완료${NC}                       ║"
+    echo -e "║  ${GREEN}Ssak-Ai 실행 완료${NC}                             ║"
     echo "║                                                  ║"
     echo "║  🌐 대시보드:  http://127.0.0.1:$PORT               ║"
     echo "║  🔌 API:       http://127.0.0.1:$PORT/v1            ║"

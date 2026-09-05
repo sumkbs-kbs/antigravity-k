@@ -62,7 +62,7 @@ export const examplePlugin: PluginDefinition = {
     name: 'Hello World',
     version: '1.0.0',
     description: 'Plugin system demo with panel, commands, and hooks.',
-    author: 'Antigravity-K',
+    author: 'Ssak-Ai',
     icon: 'W',
   },
   onLoad: () => {

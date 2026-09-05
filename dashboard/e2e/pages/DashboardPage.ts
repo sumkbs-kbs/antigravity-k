@@ -1,5 +1,5 @@
 /**
- * DashboardPage — Base Page Object Model for Antigravity-K Dashboard E2E tests.
+ * DashboardPage — Base Page Object Model for Ssak-Ai Dashboard E2E tests.
  *
  * Provides reusable selectors and actions for common dashboard interactions:
  * - Navigation via sidebar

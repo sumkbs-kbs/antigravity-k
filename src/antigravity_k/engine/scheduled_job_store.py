@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -48,8 +49,17 @@ def _fetchall(
 @final
 class ScheduledJobStore:
     def __init__(self, db_path: str) -> None:
-        self.db_path: str = db_path
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        p = Path(db_path)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            test_file = p.parent / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            self.db_path = str(p)
+        except OSError:
+            fallback_dir = Path.home() / ".antigravity-k"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.db_path = str(fallback_dir / p.name)
         self.initialize()
 
     @contextmanager
@@ -89,7 +99,9 @@ class ScheduledJobStore:
                     "ALTER TABLE scheduled_job_runs ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'not_configured'"
                 )
             if "delivery_error" not in run_columns:
-                _ = connection.execute("ALTER TABLE scheduled_job_runs ADD COLUMN delivery_error TEXT NOT NULL DEFAULT ''")
+                _ = connection.execute(
+                    "ALTER TABLE scheduled_job_runs ADD COLUMN delivery_error TEXT NOT NULL DEFAULT ''"
+                )
             if "idempotency_key" not in run_columns:
                 _ = connection.execute("ALTER TABLE scheduled_job_runs ADD COLUMN idempotency_key TEXT")
             _ = connection.execute(

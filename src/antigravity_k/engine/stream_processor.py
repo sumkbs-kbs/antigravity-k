@@ -1,5 +1,5 @@
 """
-Antigravity-K: 스트림 후처리 엔진 (StreamProcessor)
+Ssak-Ai: 스트림 후처리 엔진 (StreamProcessor)
 =====================================================
 LLM 스트리밍 출력의 실시간 정제를 담당합니다.
 

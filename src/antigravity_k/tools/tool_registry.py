@@ -7,7 +7,7 @@ tiptap-vuetify의 TiptapVuetifyPlugin.install() 패턴에서 영감:
 - 확장(Extension)이 각자의 availableActions를 선언적으로 노출
 - 테마/아이콘이 글로벌 설정으로 일괄 관리
 
-이를 Antigravity-K에 적용:
+이를 Ssak-Ai에 적용:
 - BaseTool 서브클래스를 자동 발견하여 레지스트리에 등록
 - 도구를 카테고리/위험도/렌더위치별로 필터링하여 에이전트에 할당
 - 신규 도구 플러그인은 install()만 구현하면 자동 통합
@@ -35,8 +35,7 @@ JsonObject: TypeAlias = dict[str, JsonValue]
 
 
 class _ToolFactory(Protocol):
-    def __call__(self, **kwargs: object) -> BaseTool:
-        ...
+    def __call__(self, **kwargs: object) -> BaseTool: ...
 
 
 def _as_mapping(value: object) -> Mapping[str, object]:

@@ -1,4 +1,4 @@
-"""Antigravity-K Engine — 동적 모델 교체 아키텍처 + 스마트 라우팅."""
+"""Ssak-Ai Engine — 동적 모델 교체 아키텍처 + 스마트 라우팅."""
 
 from .collective_intelligence import CollectiveEntry, CollectiveIntelligenceEngine
 from .model_manager import ModelManager

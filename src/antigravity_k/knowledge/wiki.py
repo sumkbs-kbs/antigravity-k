@@ -1,4 +1,4 @@
-"""Antigravity-K: LLM Wiki — 세컨드 브레인 (Second Brain).
+"""Ssak-Ai: LLM Wiki — 세컨드 브레인 (Second Brain).
 
 ======================================================
 로컬 LLM의 지식을 확장하는 영속적 지식 관리 시스템.
@@ -31,6 +31,7 @@
 
 import json
 import logging
+import os
 import re
 import sqlite3
 from dataclasses import asdict, dataclass, field
@@ -43,7 +44,7 @@ logger = logging.getLogger("llm_wiki")
 from antigravity_k.config import config
 
 # ─── 데이터 디렉토리 ──────────────────────────────────────────────
-DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data"
+DATA_DIR = config.paths.data_dir
 WIKI_DB_PATH = DATA_DIR / "wiki.db"
 WIKI_DIR = config.paths.wiki_dir
 
@@ -111,9 +112,22 @@ class LLMWiki:
             db_path (Path | None): Path | None db path.
 
         """
-        self.db_path: Path = db_path or WIKI_DB_PATH
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        WIKI_DIR.mkdir(parents=True, exist_ok=True)
+        p = db_path or WIKI_DB_PATH
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            test_file = p.parent / f".agk_write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+            self.db_path = p
+        except OSError:
+            fallback_dir = Path.home() / ".antigravity-k" / "data"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.db_path = fallback_dir / p.name
+
+        try:
+            WIKI_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         self._init_db()
 
     def _init_db(self) -> None:
@@ -326,8 +340,10 @@ class LLMWiki:
         fts_query = self._prepare_fts_query(query)
 
         if category:
-            rows = cast(list[sqlite3.Row], conn.execute(
-                """SELECT e.*, bm25(wiki_fts) as score
+            rows = cast(
+                list[sqlite3.Row],
+                conn.execute(
+                    """SELECT e.*, bm25(wiki_fts) as score
 
                    FROM wiki_fts f
                    JOIN wiki_entries e ON f.rowid = e.id
@@ -335,19 +351,23 @@ class LLMWiki:
                      AND e.category = ?
                    ORDER BY score
                    LIMIT ?""",
-                (fts_query, category, limit),
-            ).fetchall())
+                    (fts_query, category, limit),
+                ).fetchall(),
+            )
         else:
-            rows = cast(list[sqlite3.Row], conn.execute(
-                """SELECT e.*, bm25(wiki_fts) as score
+            rows = cast(
+                list[sqlite3.Row],
+                conn.execute(
+                    """SELECT e.*, bm25(wiki_fts) as score
 
                    FROM wiki_fts f
                    JOIN wiki_entries e ON f.rowid = e.id
                    WHERE wiki_fts MATCH ?
                    ORDER BY score
                    LIMIT ?""",
-                (fts_query, limit),
-            ).fetchall())
+                    (fts_query, limit),
+                ).fetchall(),
+            )
 
         results: list[SearchHit] = []
         for row in rows:
@@ -514,19 +534,28 @@ class LLMWiki:
         total = cast(int, total_row[0]) if total_row is not None else 0
 
         by_category: dict[str, int] = {}
-        for row in cast(list[sqlite3.Row], conn.execute(
-            "SELECT category, COUNT(*) as cnt FROM wiki_entries GROUP BY category",
-        ).fetchall()):
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT category, COUNT(*) as cnt FROM wiki_entries GROUP BY category",
+            ).fetchall(),
+        ):
             by_category[cast(str, row["category"])] = cast(int, row["cnt"])
 
         by_source: dict[str, int] = {}
-        for row in cast(list[sqlite3.Row], conn.execute("SELECT source, COUNT(*) as cnt FROM wiki_entries GROUP BY source").fetchall()):
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute("SELECT source, COUNT(*) as cnt FROM wiki_entries GROUP BY source").fetchall(),
+        ):
             by_source[cast(str, row["source"])] = cast(int, row["cnt"])
 
         recent: list[dict[str, object]] = []
-        for row in cast(list[sqlite3.Row], conn.execute(
-            "SELECT id, title, updated_at FROM wiki_entries ORDER BY updated_at DESC LIMIT 5",
-        ).fetchall()):
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT id, title, updated_at FROM wiki_entries ORDER BY updated_at DESC LIMIT 5",
+            ).fetchall(),
+        ):
             recent.append(
                 {
                     "id": cast(int, row["id"]),
@@ -536,9 +565,12 @@ class LLMWiki:
             )
 
         most_accessed: list[dict[str, object]] = []
-        for row in cast(list[sqlite3.Row], conn.execute(
-            "SELECT id, title, access_count FROM wiki_entries ORDER BY access_count DESC LIMIT 5",
-        ).fetchall()):
+        for row in cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT id, title, access_count FROM wiki_entries ORDER BY access_count DESC LIMIT 5",
+            ).fetchall(),
+        ):
             most_accessed.append(
                 {"id": cast(int, row["id"]), "title": cast(str, row["title"]), "count": cast(int, row["access_count"])},
             )
@@ -570,7 +602,12 @@ class LLMWiki:
 
     def export_all(self) -> list[dict[str, object]]:
         conn = self._connect()
-        rows = [dict(row) for row in cast(list[sqlite3.Row], conn.execute("SELECT * FROM wiki_entries ORDER BY created_at").fetchall())]
+        rows = [
+            dict(row)
+            for row in cast(
+                list[sqlite3.Row], conn.execute("SELECT * FROM wiki_entries ORDER BY created_at").fetchall()
+            )
+        ]
         conn.close()
         return rows
 
@@ -623,10 +660,13 @@ class LLMWiki:
 
         cutoff = (datetime.now(UTC).replace(tzinfo=None) - timedelta(days=max_age_days)).isoformat()
         conn = self._connect()
-        rows = cast(list[sqlite3.Row], conn.execute(
-            "SELECT id, category, title FROM wiki_entries WHERE created_at < ?",
-            (cutoff,),
-        ).fetchall())
+        rows = cast(
+            list[sqlite3.Row],
+            conn.execute(
+                "SELECT id, category, title FROM wiki_entries WHERE created_at < ?",
+                (cutoff,),
+            ).fetchall(),
+        )
         _ = conn.execute("DELETE FROM wiki_entries WHERE created_at < ?", (cutoff,))
         conn.commit()
         conn.close()

@@ -1,6 +1,6 @@
 """MCP capability and safety advisor.
 
-This module keeps MCP adoption inside Antigravity-K evidence-driven: it can
+This module keeps MCP adoption inside Ssak-Ai evidence-driven: it can
 inspect MCP server configuration, map it to the latest protocol capabilities,
 and produce a concrete upgrade plan before any external server is connected.
 """
@@ -43,8 +43,7 @@ from antigravity_k.engine.mcp_capability_parsing import (
 _JSON_VALUE_ADAPTER: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
 
 
-class _ConfigValue(Protocol):
-    ...
+class _ConfigValue(Protocol): ...
 
 
 def _parse_json_value(value: _ConfigValue | None) -> JsonValue | None:
@@ -244,7 +243,7 @@ class MCPCapabilityAdvisor:
             "",
             "## Latest Capability Matrix",
             "",
-            "| Capability | Why it matters | Antigravity-K action | Priority |",
+            "| Capability | Why it matters | Ssak-Ai action | Priority |",
             "| --- | --- | --- | --- |",
         ]
         for capability in report.capabilities:

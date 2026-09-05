@@ -26,7 +26,7 @@ class _WorkspaceLink(TypedDict):
 
 @router.get("/links")
 async def get_workspace_links():
-    """현재 Antigravity-K가 위치한 프로젝트 루트 및.
+    """현재 Ssak-Ai가 위치한 프로젝트 루트 및.
 
     Multiplexer를 통해 생성된 Git Worktree 샌드박스들의 경로를 바탕으로
     로컬 네이티브 IDE(VS Code, JetBrains)용 딥링크를 생성하여 반환합니다.

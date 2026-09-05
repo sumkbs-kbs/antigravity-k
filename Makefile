@@ -1,8 +1,8 @@
-# Antigravity-K Makefile
+# Ssak-Ai Makefile
 # =======================
 # Commercial-grade task runner for development, testing, and deployment
 
-.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine lint format clean build docker-build \
+.PHONY: help install dev test test-e2e smoke-cli verify-clean-machine lint format clean build dmg docker-build \
         docker-run coverage check ci-setup pre-commit install-script \
         security audit audit-egress sbom doctor search-quality search-quality-extended search-live search-live-extended search-load claim-quality quality-contract local-rag-quality local-benchmark local-benchmark-frontier frontier-evidence \
         build-provenance dashboard-build-provenance dashboard-provenance-verify publish-provenance
@@ -32,7 +32,7 @@ venv: ## Create virtual environment
 	@echo "Virtual environment created. Activate with: source $(VENV)/bin/activate"
 
 install-script: ## Run the one-click installation script (dry-run first)
-	@echo "Running Antigravity-K installer in dry-run mode..."
+	@echo "Running Ssak-Ai installer in dry-run mode..."
 	@bash scripts/install.sh --dry-run
 	@echo ""
 	@echo "To run the actual installation:"
@@ -160,6 +160,9 @@ build: ## Build wheel and sdist
 	$(PYTHON) -m pip install build
 	$(PYTHON) -m build
 
+dmg: ## Build macOS .app bundle and distributable .dmg installer
+	@bash scripts/build_mac_dmg.sh
+
 build-provenance: build ## Build Python distributions and verify their provenance manifest
 	@mkdir -p "$(dir $(PYTHON_PROVENANCE))"
 	$(PYTHON) src/antigravity_k/engine/artifact_provenance.py create dist --root . --output "$(PYTHON_PROVENANCE)"
@@ -211,10 +214,10 @@ security: audit sbom ## Run all security checks (dependency audit + SAST + SBOM)
 
 audit: ## Audit dependencies for known CVEs (pip-audit) and run SAST (bandit)
 	@echo "── pip-audit (dependency vulnerabilities) ──"
-	pip-audit --strict --desc || true
+	pip-audit --strict --desc
 	@echo ""
 	@echo "── bandit (SAST, MEDIUM+ severity) ──"
-	bandit -r src/antigravity_k -ll -x src/antigravity_k/engine/secret_scanner.py || true
+	bandit -r src/antigravity_k -ll -x src/antigravity_k/engine/secret_scanner.py
 
 sbom: ## Generate a CycloneDX SBOM from the dependency manifest
 	@command -v cyclonedx-py >/dev/null 2>&1 || pip install cyclonedx-bom

@@ -32,7 +32,7 @@ from antigravity_k.engine.tool_masker import ActiveToolMasker
 
 def run_frontier_tests():
     print("=" * 70)
-    print("🔥 Running Antigravity-K Qwen3.8-27B Frontier Amplification Test Suite")
+    print("🔥 Running Ssak-Ai Qwen3.8-27B Frontier Amplification Test Suite")
     print("=" * 70)
 
     passed_count = 0

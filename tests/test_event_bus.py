@@ -9,15 +9,76 @@ These are foundational modules used across the entire engine:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Never
 
-from antigravity_k.engine.event_bus import EventBus
+from antigravity_k.engine.event_bus import EventBus, bridge_to_hook_event_bus
 from antigravity_k.engine.execution_mode import (
     BUILD_RESTRICTED_TOOLS,
     PLAN_ALLOWED_TOOLS,
     ExecutionMode,
 )
+from antigravity_k.engine.hook_event_bus import HookEventEmit
 from antigravity_k.engine.sampling_config import SAMPLING_PROFILES, SamplingProfile
+
+
+class _RecordingGlobalBus:
+    def __init__(self) -> None:
+        self.published: list[tuple[str, dict[str, object]]] = []
+
+    def publish(self, event_name: str, **kwargs: object) -> None:
+        self.published.append((event_name, kwargs))
+
+
+class _FakeHookBus:
+    _initialized = False
+
+    def __init__(self) -> None:
+        self.callbacks: list[Callable[[object], object]] = []
+
+    def subscribe_all(self, callback: Callable[[object], object]) -> None:
+        self.callbacks.append(callback)
+
+
+class TestHookEventBusBridge:
+    """HookEventBus → EventBus 브릿지: HOOK_KIND_TO_EVENT_NAME 변환."""
+
+    @staticmethod
+    def _setup(monkeypatch) -> tuple[_FakeHookBus, _RecordingGlobalBus, Callable[[object], object]]:
+        from antigravity_k.engine import event_bus as eb
+
+        hook_bus = _FakeHookBus()
+        global_bus = _RecordingGlobalBus()
+        monkeypatch.setattr(eb, "global_event_bus", global_bus)
+        monkeypatch.setattr("antigravity_k.engine.hook_event_bus.get_hook_event_bus", lambda: hook_bus)
+        bridge_to_hook_event_bus()
+        assert hook_bus.callbacks, "브릿지는 hook 버스에 구독해야 한다"
+        return hook_bus, global_bus, hook_bus.callbacks[0]
+
+    def test_bridge_publishes_plain_agent_turn_events(self, monkeypatch):
+        """직접 발행자가 없는 hook kind는 plain 이벤트 이름으로도 발행된다 (kanban 연동)."""
+        _hook_bus, global_bus, on_hook_event = self._setup(monkeypatch)
+        payload = {"panel_id": "auto_learner", "role": "AutoLearner", "task_type": "Vibe Coding Pipeline"}
+
+        on_hook_event(HookEventEmit(kind="agent-turn-start", payload=payload))
+        on_hook_event(HookEventEmit(kind="agent-turn-end", payload=payload))
+
+        names = [name for name, _ in global_bus.published]
+        assert "Hook:agent-turn-start" in names
+        assert "Hook:agent-turn-end" in names
+        assert ("AgentTurnStarted", payload) in global_bus.published
+        assert ("AgentTurnEnded", payload) in global_bus.published
+
+    def test_bridge_does_not_re_publish_directly_published_kinds(self, monkeypatch):
+        """직접 발행자가 있는 kind(tool-exec-start 등)는 이중 발행하지 않는다."""
+        _hook_bus, global_bus, on_hook_event = self._setup(monkeypatch)
+
+        on_hook_event(HookEventEmit(kind="tool-exec-start", payload={"name": "read_file"}))
+
+        names = [name for name, _ in global_bus.published]
+        assert "Hook:tool-exec-start" in names
+        assert "ToolExecutionStarted" not in names
+
 
 # ---------------------------------------------------------------------------
 # EventBus

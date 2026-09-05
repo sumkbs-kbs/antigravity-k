@@ -1,7 +1,7 @@
 """ErrorClassifier — API 에러 분류 및 자동 복구 결정 시스템.
 
 ========================================================
-Hermes Agent의 error_classifier.py 패턴을 Antigravity-K에 이식.
+Hermes Agent의 error_classifier.py 패턴을 Ssak-Ai에 이식.
 
 구조화된 에러 분류 파이프라인:
   1. 프로바이더 특수 패턴 (Anthropic thinking sig, context tier 등)

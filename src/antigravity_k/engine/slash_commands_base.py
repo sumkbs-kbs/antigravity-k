@@ -88,14 +88,14 @@ _DEFAULT_COMMANDS: list[tuple[str, str, str, str, str]] = [
     # Skills / capabilities
     (
         "self",
-        "현재 런타임 기준으로 Antigravity-K가 할 수 있는 일과 한계를 표시합니다.",
+        "현재 런타임 기준으로 Ssak-Ai가 할 수 있는 일과 한계를 표시합니다.",
         "_cmd_self",
         "/self",
         "general",
     ),
     (
         "agentic",
-        "최신 에이전틱 기술 레이더와 Antigravity-K 업그레이드 우선순위를 표시합니다.",
+        "최신 에이전틱 기술 레이더와 Ssak-Ai 업그레이드 우선순위를 표시합니다.",
         "_cmd_agentic",
         "/agentic [objective]",
         "autonomy",
@@ -123,7 +123,7 @@ _DEFAULT_COMMANDS: list[tuple[str, str, str, str, str]] = [
     ),
     (
         "codex",
-        "Codex식 강점과 운영 루프를 Antigravity-K 업그레이드 계약으로 변환합니다.",
+        "Codex식 강점과 운영 루프를 Ssak-Ai 업그레이드 계약으로 변환합니다.",
         "_cmd_codex",
         "/codex [objective]",
         "autonomy",
@@ -267,7 +267,9 @@ class SlashCommandRegistryBase:
             # as "plan", "build" etc., which collided — here we use the
             # skill-name as-is but route through _cmd_lifecycle.
             real_name = cmd_name.replace("-lifecycle", "")
-            lifecycle_handler = cast(Callable[[str, list[str]], str | Iterator[str]], object.__getattribute__(self, "_cmd_lifecycle"))
+            lifecycle_handler = cast(
+                Callable[[str, list[str]], str | Iterator[str]], object.__getattribute__(self, "_cmd_lifecycle")
+            )
             self.register(
                 SlashCommand(
                     name=real_name,

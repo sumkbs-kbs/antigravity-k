@@ -33,7 +33,7 @@ class ProgramBuilderManager:
         if self.calls == 1:
             return (
                 "def greet(name: str) -> str:\n"
-                "    return f'Hello, {name}! Antigravity-K made this.'\n\n"
+                "    return f'Hello, {name}! Ssak-Ai made this.'\n\n"
                 "if __name__ == '__main__':\n"
                 "    print(greet('QA'))\n"
             )
@@ -47,7 +47,7 @@ class ProgramBuilderManager:
         if self.calls == 1:
             content = (
                 "def greet(name: str) -> str:\n"
-                "    return f'Hello, {name}! Antigravity-K made this.'\n\n"
+                "    return f'Hello, {name}! Ssak-Ai made this.'\n\n"
                 "if __name__ == '__main__':\n"
                 "    print(greet('QA'))\n"
             )
@@ -88,9 +88,7 @@ class ProgramBuilderManager:
 @pytest.mark.skip(
     reason="OrchestratorAgent has been significantly refactored (state graph + engine context). This integration test needs comprehensive updates to match the new architecture."
 )
-def test_agent_can_create_and_run_a_simple_program(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_agent_can_create_and_run_a_simple_program(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     app_path = tmp_path / "hello_agent.py"
     manager = ProgramBuilderManager(app_path)
 
@@ -129,6 +127,6 @@ def test_agent_can_create_and_run_a_simple_program(
             _ = stopper()
 
     assert app_path.exists()
-    assert "Antigravity-K made this." in app_path.read_text(encoding="utf-8")
-    assert "Hello, QA! Antigravity-K made this." in output
+    assert "Ssak-Ai made this." in app_path.read_text(encoding="utf-8")
+    assert "Hello, QA! Ssak-Ai made this." in output
     assert "Created and executed the sample program successfully." in output

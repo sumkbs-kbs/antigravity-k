@@ -1,0 +1,212 @@
+Antigravity-K third-party notices
+
+Project license: MIT
+Dependency scope: runtime dependency closure; dev dependencies excluded
+
+Python dependencies (uv.lock):
+- aiofiles 24.1.0 — Apache-2.0
+- annotated-doc 0.0.4 — license metadata unavailable
+- annotated-types 0.7.0 — license metadata unavailable
+- anyio 4.13.0 — license metadata unavailable
+- attrs 26.1.0 — license metadata unavailable
+- certifi 2026.5.20 — MPL-2.0
+- cffi 2.0.0 — license metadata unavailable
+- click 8.4.1 — license metadata unavailable
+- colorama 0.4.6 — license metadata unavailable
+- croniter 6.2.4 — license metadata unavailable
+- cryptography 50.0.1 — license metadata unavailable
+- deprecated 1.3.1 — MIT
+- fastapi 0.136.3 — license metadata unavailable
+- filelock 3.29.0 — license metadata unavailable
+- h11 0.16.0 — MIT
+- httpcore 1.0.9 — license metadata unavailable
+- httpx 0.28.1 — BSD-3-Clause
+- httpx-sse 0.4.3 — MIT
+- idna 3.16 — license metadata unavailable
+- jsonschema 4.26.0 — license metadata unavailable
+- jsonschema-specifications 2025.9.1 — license metadata unavailable
+- limits 5.8.0 — license metadata unavailable
+- markdown-it-py 4.2.0 — license metadata unavailable
+- mcp 1.28.1 — MIT
+- mdit-py-plugins 0.6.1 — license metadata unavailable
+- mdurl 0.1.2 — license metadata unavailable
+- nest-asyncio 1.6.0 — BSD
+- networkx 3.6.1 — license metadata unavailable
+- numpy 2.4.6 — license metadata unavailable
+- packaging 26.2 — license metadata unavailable
+- platformdirs 4.10.0 — license metadata unavailable
+- prometheus-client 0.26.0 — license metadata unavailable
+- psutil 6.1.1 — BSD-3-Clause
+- pycparser 3.0 — license metadata unavailable
+- pydantic 2.13.4 — license metadata unavailable
+- pydantic-core 2.46.4 — license metadata unavailable
+- pydantic-settings 2.14.2 — license metadata unavailable
+- pygments 2.20.0 — license metadata unavailable
+- pyjwt 2.13.0 — license metadata unavailable
+- python-dateutil 2.9.0.post0 — Dual License
+- python-dotenv 1.2.2 — BSD-3-Clause
+- python-multipart 0.0.31 — license metadata unavailable
+- pywin32 311 — license metadata unavailable
+- pyyaml 6.0.3 — MIT
+- rank-bm25 0.2.2 — Apache2.0
+- referencing 0.37.0 — license metadata unavailable
+- rich 15.0.0 — MIT
+- rpds-py 0.30.0 — license metadata unavailable
+- shellingham 1.5.4 — ISC License
+- six 1.17.0 — MIT
+- slowapi 0.1.10 — MIT
+- sse-starlette 3.4.4 — license metadata unavailable
+- starlette 1.3.1 — license metadata unavailable
+- textual 8.2.8 — MIT
+- typer 0.26.2 — license metadata unavailable
+- typing-extensions 4.15.0 — license metadata unavailable
+- typing-inspection 0.4.2 — license metadata unavailable
+- uvicorn 0.48.0 — license metadata unavailable
+- watchfiles 1.2.0 — MIT
+- wrapt 2.3.0 — license metadata unavailable
+
+Dashboard dependencies (dashboard/package-lock.json):
+- @monaco-editor/loader 1.7.0 — MIT
+- @monaco-editor/react 4.7.0 — MIT
+- @tanstack/query-core 5.101.2 — MIT
+- @tanstack/react-query 5.101.2 — MIT
+- @types/debug 4.1.13 — MIT
+- @types/diff 7.0.2 — MIT
+- @types/estree 1.0.9 — MIT
+- @types/estree-jsx 1.0.5 — MIT
+- @types/hast 3.0.5 — MIT
+- @types/mdast 4.0.4 — MIT
+- @types/ms 2.1.0 — MIT
+- @types/unist 3.0.3 — MIT
+- @types/unist 2.0.11 — MIT
+- @ungap/structured-clone 1.3.3 — ISC
+- bail 2.0.2 — MIT
+- ccount 2.0.1 — MIT
+- character-entities 2.0.2 — MIT
+- character-entities-html4 2.1.0 — MIT
+- character-entities-legacy 3.0.0 — MIT
+- character-reference-invalid 2.0.1 — MIT
+- comma-separated-tokens 2.0.3 — MIT
+- cookie 1.1.1 — MIT
+- debug 4.4.3 — MIT
+- decode-named-character-reference 1.3.0 — MIT
+- dequal 2.0.3 — MIT
+- devlop 1.1.0 — MIT
+- diff 9.0.0 — BSD-3-Clause
+- dompurify 3.4.14 — (MPL-2.0 OR Apache-2.0)
+- entities 6.0.1 — BSD-2-Clause
+- escape-string-regexp 5.0.0 — MIT
+- estree-util-is-identifier-name 3.0.0 — MIT
+- extend 3.0.2 — MIT
+- hast-util-from-parse5 8.0.3 — MIT
+- hast-util-is-element 3.0.0 — MIT
+- hast-util-parse-selector 4.0.0 — MIT
+- hast-util-raw 9.1.0 — MIT
+- hast-util-sanitize 5.0.2 — MIT
+- hast-util-to-jsx-runtime 2.3.6 — MIT
+- hast-util-to-parse5 8.0.1 — MIT
+- hast-util-to-text 4.0.2 — MIT
+- hast-util-whitespace 3.0.0 — MIT
+- hastscript 9.0.1 — MIT
+- highlight.js 11.11.1 — BSD-3-Clause
+- html-url-attributes 3.0.1 — MIT
+- html-void-elements 3.0.0 — MIT
+- inline-style-parser 0.2.7 — MIT
+- is-alphabetical 2.0.1 — MIT
+- is-alphanumerical 2.0.1 — MIT
+- is-decimal 2.0.1 — MIT
+- is-hexadecimal 2.0.1 — MIT
+- is-plain-obj 4.1.0 — MIT
+- ky 2.0.2 — MIT
+- longest-streak 3.1.0 — MIT
+- lowlight 3.3.0 — MIT
+- markdown-table 3.0.4 — MIT
+- marked 14.0.0 — MIT
+- mdast-util-find-and-replace 3.0.2 — MIT
+- mdast-util-from-markdown 2.0.3 — MIT
+- mdast-util-gfm 3.1.0 — MIT
+- mdast-util-gfm-autolink-literal 2.0.1 — MIT
+- mdast-util-gfm-footnote 2.1.0 — MIT
+- mdast-util-gfm-strikethrough 2.0.0 — MIT
+- mdast-util-gfm-table 2.0.0 — MIT
+- mdast-util-gfm-task-list-item 2.0.0 — MIT
+- mdast-util-mdx-expression 2.0.1 — MIT
+- mdast-util-mdx-jsx 3.2.0 — MIT
+- mdast-util-mdxjs-esm 2.0.1 — MIT
+- mdast-util-phrasing 4.1.0 — MIT
+- mdast-util-to-hast 13.2.1 — MIT
+- mdast-util-to-markdown 2.1.2 — MIT
+- mdast-util-to-string 4.0.0 — MIT
+- micromark 4.0.2 — MIT
+- micromark-core-commonmark 2.0.3 — MIT
+- micromark-extension-gfm 3.0.0 — MIT
+- micromark-extension-gfm-autolink-literal 2.1.0 — MIT
+- micromark-extension-gfm-footnote 2.1.0 — MIT
+- micromark-extension-gfm-strikethrough 2.1.0 — MIT
+- micromark-extension-gfm-table 2.1.1 — MIT
+- micromark-extension-gfm-tagfilter 2.0.0 — MIT
+- micromark-extension-gfm-task-list-item 2.1.0 — MIT
+- micromark-factory-destination 2.0.1 — MIT
+- micromark-factory-label 2.0.1 — MIT
+- micromark-factory-space 2.0.1 — MIT
+- micromark-factory-title 2.0.1 — MIT
+- micromark-factory-whitespace 2.0.1 — MIT
+- micromark-util-character 2.1.1 — MIT
+- micromark-util-chunked 2.0.1 — MIT
+- micromark-util-classify-character 2.0.1 — MIT
+- micromark-util-combine-extensions 2.0.1 — MIT
+- micromark-util-decode-numeric-character-reference 2.0.2 — MIT
+- micromark-util-decode-string 2.0.1 — MIT
+- micromark-util-encode 2.0.1 — MIT
+- micromark-util-html-tag-name 2.0.1 — MIT
+- micromark-util-normalize-identifier 2.0.1 — MIT
+- micromark-util-resolve-all 2.0.1 — MIT
+- micromark-util-sanitize-uri 2.0.1 — MIT
+- micromark-util-subtokenize 2.1.0 — MIT
+- micromark-util-symbol 2.0.1 — MIT
+- micromark-util-types 2.0.2 — MIT
+- monaco-editor 0.56.0 — MIT
+- ms 2.1.3 — MIT
+- parse-entities 4.0.2 — MIT
+- parse5 7.3.0 — MIT
+- property-information 7.2.0 — MIT
+- react 19.2.7 — MIT
+- react-dom 19.2.7 — MIT
+- react-markdown 9.1.0 — MIT
+- react-router 7.18.3 — MIT
+- react-router-dom 7.18.3 — MIT
+- rehype-highlight 7.0.2 — MIT
+- rehype-raw 7.0.0 — MIT
+- rehype-sanitize 6.0.0 — MIT
+- remark-gfm 4.0.1 — MIT
+- remark-parse 11.0.0 — MIT
+- remark-rehype 11.1.2 — MIT
+- remark-stringify 11.0.0 — MIT
+- scheduler 0.27.0 — MIT
+- set-cookie-parser 2.7.2 — MIT
+- space-separated-tokens 2.0.2 — MIT
+- split.js 1.6.5 — MIT
+- state-local 1.0.7 — MIT
+- stringify-entities 4.0.4 — MIT
+- style-to-js 1.1.21 — MIT
+- style-to-object 1.0.14 — MIT
+- trim-lines 3.0.1 — MIT
+- trough 2.2.0 — MIT
+- unified 11.0.5 — MIT
+- unist-util-find-after 5.0.0 — MIT
+- unist-util-is 6.0.1 — MIT
+- unist-util-position 5.0.0 — MIT
+- unist-util-stringify-position 4.0.0 — MIT
+- unist-util-visit 5.1.0 — MIT
+- unist-util-visit-parents 6.0.2 — MIT
+- vfile 6.0.3 — MIT
+- vfile-location 5.0.3 — MIT
+- vfile-message 4.0.3 — MIT
+- web-namespaces 2.0.1 — MIT
+- xterm 5.3.0 — MIT
+- xterm-addon-fit 0.8.0 — MIT
+- zod 4.4.3 — MIT
+- zustand 5.0.14 — MIT
+- zwitch 2.0.4 — MIT
+
+Missing license or notice metadata is reported explicitly and never synthesized.

@@ -1,4 +1,4 @@
-# Antigravity-K code index
+# Ssak-Ai code index
 /.antigravity/
 
 # Byte-compiled / optimized / DLL files
@@ -163,3 +163,9 @@ C:/
 MagicMock/
 *_output.txt
 test_output.json
+test-results/
+artifacts_*.png
+data/dpo_out/
+data/lora_e2e_out/
+data/lora_harvest/
+data/projects.json

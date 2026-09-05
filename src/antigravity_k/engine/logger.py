@@ -1,4 +1,4 @@
-"""Antigravity-K: 구조화된 JSON 로거 (Structured JSON Logger).
+"""Ssak-Ai: 구조화된 JSON 로거 (Structured JSON Logger).
 
 ======================================================
 에이전트 시스템 전체의 이벤트를 JSON 형태로 포맷팅하여 저장합니다.
