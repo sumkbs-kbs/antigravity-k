@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "task_id": "ARC-01",
+  "description": "Frozen RequestExecutionContext + conversation revision contract for WS/CTX lanes",
+  "wire_example": {
+    "schema_version": 1,
+    "request_id": "req_arc01_fixture_001",
+    "task_id": "task_arc01_fixture_001",
+    "project_id": "proj_arc01_alpha",
+    "conversation_id": "conv_arc01_001",
+    "conversation_revision": 3,
+    "actor_subject": "loopback",
+    "session_id": "sess_arc01_001",
+    "model_id": "qwen3.6:latest",
+    "correlation_id": "corr_arc01_001",
+    "client_hint_path": "/tmp/client-hint-must-be-ignored"
+  },
+  "resolved_example": {
+    "schema_version": 1,
+    "request_id": "req_arc01_fixture_001",
+    "task_id": "task_arc01_fixture_001",
+    "project_id": "proj_arc01_alpha",
+    "canonical_project_root": "/ABS/PLACEHOLDER/proj_arc01_alpha",
+    "conversation_id": "conv_arc01_001",
+    "conversation_revision": 3,
+    "actor_subject": "loopback",
+    "session_id": "sess_arc01_001",
+    "model_id": "qwen3.6:latest",
+    "correlation_id": "corr_arc01_001",
+    "project_name": "ARC-01 Alpha"
+  },
+  "required_wire_fields": [
+    "request_id",
+    "project_id",
+    "conversation_id",
+    "conversation_revision",
+    "actor_subject",
+    "session_id",
+    "model_id"
+  ],
+  "forbidden_authority_fields": [
+    "path",
+    "workspace",
+    "workspace_path",
+    "project_root",
+    "canonical_project_root"
+  ],
+  "error_http_status": {
+    "missing_execution_context": 400,
+    "invalid_execution_context": 400,
+    "invalid_conversation_revision": 400,
+    "project_not_found": 404,
+    "conversation_not_found": 404,
+    "project_root_invalid": 403,
+    "stale_conversation_revision": 409
+  },
+  "stale_conflict_example": {
+    "ok": false,
+    "error": "stale_conversation_revision",
+    "detail": "Conversation revision does not match the authoritative store",
+    "conversation_id": "conv_arc01_001",
+    "expected_revision": 3,
+    "current_revision": 4,
+    "correlation_id": "corr_arc01_001"
+  },
+  "conversation_snapshot_example": {
+    "conversation_id": "conv_arc01_001",
+    "project_id": "proj_arc01_alpha",
+    "revision": 4,
+    "message_count": 12,
+    "summary": null,
+    "retained_message_ids": ["msg_1", "msg_2"]
+  }
+}

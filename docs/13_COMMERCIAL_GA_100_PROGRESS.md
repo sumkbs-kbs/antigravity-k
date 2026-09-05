@@ -18,9 +18,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
 | 완료 | 2 |
-| 진행 중 | 0 |
+| 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | GOV-01 DONE · 다음 ARC-01 |
+| 현재 작업 | ARC-01 REVIEW (owner complete) |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,23 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+
+### 2026-09-06 · ARC-01 RequestExecutionContext 계약 구현 (REVIEW)
+
+- Owner: `arc_01_contract` (독립 APPROVE 아님)
+- Branch / worktree: `codex/arc-01-execution-context` · `/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-arc-01`
+- Base: GOV-01 tip `96edcc3febe955f9491a4d67649ccd2040b6c947` (includes GA-00 + GOV-01)
+- 동결 내용:
+  - immutable `RequestExecutionContext` / wire 타입 (`src/antigravity_k/api/contracts/`)
+  - server `project_id → canonical_project_root` 해석 (`engine/request_execution_context.py` + `ProjectRegistry.get_project`)
+  - conversation revision CAS 프로토콜 + typed HTTP error map (400/403/404/409)
+  - dashboard Zod schema + 공유 fixture byte-identical
+  - ADR-0004 legacy `WORKSPACE_ROOT`/raw-path migration·removal
+  - frozen tests: Python 12 passed, Vitest 4 passed
+- Evidence: `.omo/evidence/commercial-ga-100/ARC-01/` (metadata, red, tests, manual-qa; review 자리는 독립 reviewer용)
+- 상태: `REVIEW` — WS-01/CTX-01 소비 가능 계약 동결. DONE은 독립 review APPROVE 후.
+
 
 ### 2026-09-06 · GOV-01 독립 재검증 APPROVE (r2)
 
@@ -156,11 +173,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| ARC-01 | (미할당) |  | GOV-01 DONE 후 시작 가능 | GOV-01 tip `27844f48…` APPROVE 이후 공용 실행 계약 |
+| ARC-01 | arc_01_contract | codex/arc-01-execution-context | REVIEW — 독립 review 대기 | frozen RequestExecutionContext + ADR-0004 + fixtures; Owner≠Reviewer |
 
 ## 차단 및 결정 대기
 
-`GOV-01`은 tip `27844f48d77ebced90bcfed733b2dcc33aa5e9f3`에서 독립 r2 APPROVE를 받았다. prior REJECT(`67fe3f19…`)의 concurrent-user·data-sensitivity HIGH는 종결됐다. ARC-01을 시작할 수 있다. local-first desktop + self-hosted single-tenant GA target과 SaaS 제외는 유지되며, 본 APPROVE는 public GA/legal/provider 승인이 아니다.
+`ARC-01`은 owner 구현을 마치고 `REVIEW`다. 독립 reviewer(`arc_01_verify` 등, Owner≠Reviewer) APPROVE 전에는 `DONE`으로 올리지 않는다. WS-01/CTX-01은 frozen contract·fixture·ADR-0004를 소비해 병렬 착수할 수 있으나, ARC-01 REJECT 시 contract 재동결이 필요하다. GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
 
 ## 증거 위치
 

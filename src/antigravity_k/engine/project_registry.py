@@ -113,6 +113,24 @@ class ProjectRegistry:
         self._ensure_default_project()
         return [p.to_dict() for p in sorted(self._projects.values(), key=lambda x: x.last_accessed_at, reverse=True)]
 
+    def get_project(self, project_id: str) -> ProjectRecord | None:
+        """Return a registered project by id without activating it."""
+        if not project_id:
+            return None
+        return self._projects.get(project_id)
+
+    def resolve_canonical_root(self, project_id: str) -> str | None:
+        """Return the absolute path for a project id, or None if unknown.
+
+        Does not mutate active project state. Callers that need allowlist /
+        existence checks must use ``resolve_canonical_project_root`` in
+        ``request_execution_context`` (ARC-01).
+        """
+        record = self.get_project(project_id)
+        if record is None:
+            return None
+        return os.path.abspath(record.path)
+
     def get_active_project(self) -> ProjectRecord:
         self._ensure_default_project()
         for p in self._projects.values():

@@ -1,6 +1,6 @@
 ---
 title: Ssak-Ai 상용화 준비도 100% 실행 체크리스트
-status: not-started
+status: active
 baseline_date: 2026-09-05
 baseline_commit: 35104f4fde5da718f2dd3048dfb1b51a225c23d7
 tags: [commercialization, checklist, multi-agent, evidence-ledger]
@@ -25,7 +25,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 |---|---|---|---|---|---|---|---|
 | GA-00 | DONE | ga_00_baseline | ga_00_verify | codex/ga-00-baseline-gate | `7677bc391888ad13aa8413e32634f95912613d49` | `.omo/evidence/commercial-ga-100/GA-00/` | 독립 검증 APPROVE 0.99 |
 | GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
-| ARC-01 | TODO |  |  |  |  |  | GA-00, GOV-01 |
+| ARC-01 | REVIEW | arc_01_contract |  | codex/arc-01-execution-context / Ssak-Ai-arc-01 | (pending commit) | `.omo/evidence/commercial-ga-100/ARC-01/` | GA-00, GOV-01 |
 | WS-01 | TODO |  |  |  |  |  | ARC-01 |
 | WS-02 | TODO |  |  |  |  |  | WS-01 |
 | WS-03 | TODO |  |  |  |  |  | WS-01 |
@@ -96,13 +96,13 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 
 ## ARC-01 · 공용 실행 계약
 
-- [ ] `RequestExecutionContext` 필드와 불변성을 정의했다.
-- [ ] project ID에서 canonical root를 server가 해석한다.
-- [ ] conversation ID/revision protocol을 정의했다.
-- [ ] missing/stale/invalid context의 typed error를 정의했다.
-- [ ] dashboard/backend schema fixture가 동일하다.
-- [ ] legacy 경로의 migration/removal ADR을 작성했다.
-- [ ] WS/CTX lane이 사용할 frozen contract test가 통과한다.
+- [x] `RequestExecutionContext` 필드와 불변성을 정의했다.
+- [x] project ID에서 canonical root를 server가 해석한다.
+- [x] conversation ID/revision protocol을 정의했다.
+- [x] missing/stale/invalid context의 typed error를 정의했다.
+- [x] dashboard/backend schema fixture가 동일하다.
+- [x] legacy 경로의 migration/removal ADR을 작성했다.
+- [x] WS/CTX lane이 사용할 frozen contract test가 통과한다.
 
 ## WS-01 · backend 프로젝트 바인딩
 

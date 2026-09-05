@@ -461,3 +461,78 @@ export const TrainingRecipeSchema = z.object({
 export type RecipeHyperparameters = z.infer<typeof RecipeHyperparametersSchema>;
 export type TrainingRecipe = z.infer<typeof TrainingRecipeSchema>;
 export type TrainingRecipesResponse = { ok: true; recipes: TrainingRecipe[] };
+
+/* ─── ARC-01 RequestExecutionContext (frozen) ───────────────── */
+export const RequestExecutionContextWireSchema = z.object({
+  schema_version: z.number().int().min(1).default(1),
+  request_id: z.string().min(1).max(128),
+  task_id: z.string().min(1).max(128).nullable().optional(),
+  project_id: z.string().min(1).max(128),
+  conversation_id: z.string().min(1).max(128),
+  conversation_revision: z.number().int().min(0),
+  actor_subject: z.string().min(1).max(256),
+  session_id: z.string().min(1).max(256),
+  model_id: z.string().min(1).max(128),
+  correlation_id: z.string().max(128).default(""),
+  client_hint_path: z.string().max(4096).nullable().optional(),
+}).strict();
+
+export const RequestExecutionContextSchema = z.object({
+  schema_version: z.number().int().min(1).default(1),
+  request_id: z.string().min(1).max(128),
+  task_id: z.string().min(1).max(128).nullable().optional(),
+  project_id: z.string().min(1).max(128),
+  canonical_project_root: z.string().min(1).max(4096),
+  conversation_id: z.string().min(1).max(128),
+  conversation_revision: z.number().int().min(0),
+  actor_subject: z.string().min(1).max(256),
+  session_id: z.string().min(1).max(256),
+  model_id: z.string().min(1).max(128),
+  correlation_id: z.string().max(128).default(""),
+  project_name: z.string().max(256).default(""),
+}).strict();
+
+export const ConversationConflictPayloadSchema = z.object({
+  ok: z.literal(false),
+  error: z.literal("stale_conversation_revision"),
+  detail: z.string(),
+  conversation_id: z.string().min(1),
+  expected_revision: z.number().int().min(0),
+  current_revision: z.number().int().min(0),
+  correlation_id: z.string().default(""),
+}).strict();
+
+export const ConversationSnapshotSchema = z.object({
+  conversation_id: z.string().min(1),
+  project_id: z.string().min(1),
+  revision: z.number().int().min(0),
+  message_count: z.number().int().min(0),
+  summary: z.string().nullable().optional(),
+  retained_message_ids: z.array(z.string()).default([]),
+}).strict();
+
+export const ExecutionContextErrorCodeSchema = z.enum([
+  "missing_execution_context",
+  "invalid_execution_context",
+  "invalid_conversation_revision",
+  "project_not_found",
+  "conversation_not_found",
+  "project_root_invalid",
+  "stale_conversation_revision",
+]);
+
+export const EXECUTION_CONTEXT_ERROR_HTTP_STATUS = {
+  missing_execution_context: 400,
+  invalid_execution_context: 400,
+  invalid_conversation_revision: 400,
+  project_not_found: 404,
+  conversation_not_found: 404,
+  project_root_invalid: 403,
+  stale_conversation_revision: 409,
+} as const;
+
+export type RequestExecutionContextWire = z.infer<typeof RequestExecutionContextWireSchema>;
+export type RequestExecutionContext = z.infer<typeof RequestExecutionContextSchema>;
+export type ConversationConflictPayload = z.infer<typeof ConversationConflictPayloadSchema>;
+export type ConversationSnapshot = z.infer<typeof ConversationSnapshotSchema>;
+export type ExecutionContextErrorCode = z.infer<typeof ExecutionContextErrorCodeSchema>;
