@@ -41,7 +41,7 @@ status: 15차 완결 (WS 이벤트 14종 전부 실발행자·프론트 소비 �
 > **11차 완결(2026-09-04)**: §6.1의 마지막 남은 과제(auth-bootstrap E2E 2건, 환경 의존)를
 > 격리 백엔드 스폰 방식으로 해결 — 4/4 전수 통과. 부수 발견으로 `/v1/ws/events` 핸들러의
 > disconnect 미감지로 인한 graceful shutdown ~30초 지연 버그도 수정(SIGTERM→exit 194ms).
-> 선존·환경 의존 실패(a11y `.folder-sub-preview` 대비, 로컬 모델 캡처)는 §6.2에 기록.
+> 선존·환경 의존 실패(로컬 모델 캡처)는 §6.2에 기록. a11y `.folder-sub-preview` 대비는 2026-09-05에 수정.
 
 ---
 
@@ -299,14 +299,21 @@ npx vite preview --port 4178 &
    - 스펙 셀렉터·DashboardPage·제품 DOM은 변경 없음 (F09/F10 계약 유지).
    - 상세 원인/구현/검증/잔여 위험: [세션 11 진행 기록](qa/2026-09-04/session-11-auth-bootstrap-e2e.md)
 
-### 6.2 E2E 현재 상태 (2026-09-04, 11차 완결 기준)
+### 6.2 E2E 현재 상태 (2026-09-05, a11y `.folder-sub-preview` 수정)
 
 - **auth-bootstrap 4/4 통과** (공유 백엔드 불필요 — 자체 서버 스폰).
-- 전체 스위트: **50 passed / 11 failed** (실패 전수 선존·환경 의존):
-  - accessibility 10건: `.folder-sub-preview` color-contrast — 미커밋 `index.css`/`Sidebar.tsx`
-    변경(타 작업자)에 의한 선존 회귀. 본 작업(백엔드 WS만 변경)과 무관.
-  - `capture-real-local-models.spec.ts` 1건: `orpheus-3b` 모델이 실제 실행 중일 때만 통과하는
-    스크린샷 캡처 유틸 스펙 (현재 미실행 → 실패).
+- **accessibility color-contrast (2026-09-05)**: `npx playwright test e2e/tests/accessibility.spec.ts`
+  → **12/12 passed**. 원인은 `.folder-sub-preview`가 `--text-muted` `#666e63`를 어두운
+  사이드바(`#0d0f0d` / `#0d1117`) 위에 써서 WCAG AA 4.5:1을 미달(약 3.6:1)한 것.
+  a11y 오버라이드가 `.folder-sub-preview.muted`만 덮고 기본 클래스는 그대로였다.
+  `--text-muted`를 `#8b949e`로 올리고 기본 `.folder-sub-preview`도 오버라이드에 포함
+  (`#8b949e` on `#0d0f0d` = 6.26:1, on `#0d1117` = 6.15:1, on `#050605` = 6.60:1).
+  같은 스위트에서 같이 뜨던 telemetrics/task/agent-empty 뮤트 텍스트와 inline accent
+  (`#7c6aef` 4.48:1 → `#9d8cff` 6.62:1)도 CSS만으로 맞춤. 라이트 테마는
+  `#5d6470`(white 대비 5.96:1).
+- 전체 스위트(11차 기준, 위 a11y 제외): 나머지 선존·환경 의존 실패는
+  `capture-real-local-models.spec.ts` 1건 — `orpheus-3b` 모델이 실제 실행 중일 때만
+  통과하는 스크린샷 캡처 유틸 스펙 (현재 미실행 → 실패).
 - 실행:
   - 터미널 1) `uv run agk serve --port 8012`
   - 터미널 2) `cd dashboard && NO_PROXY="*" AGK_BACKEND_URL=http://127.0.0.1:8012 npx playwright test`

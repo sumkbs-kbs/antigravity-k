@@ -27,7 +27,7 @@
   /* Text hierarchy */
   --text-primary: #eef0eb;
   --text-secondary: #a6aca1;
-  --text-muted: #666e63;
+  --text-muted: #8b949e; /* WCAG AA on dark sidebar (≥4.5:1 vs #0d0f0d/#050605) */
   --text-dim: #41483e;
 
   /* Accent - Warm Amber / Gold (TERMINAL-7 signature) */
@@ -15945,13 +15945,54 @@ html, body {
   }
 }
 
-/* ─── A11y contrast fixes (WCAG AA on light surfaces) ─────────── */
-/* Muted grays bumped to ≥4.5:1 on white / #fbfbfc backgrounds. */
+/* ─── A11y contrast fixes (WCAG AA) ─────────── */
+/* Dark sidebar/surfaces: #8b949e ≥4.5:1 on #0d0f0d / #0d1117 (was --text-muted #666e63 ~3.6:1).
+   Light surfaces: #5d6470 ≥4.5:1 on white / #fbfbfc. */
 .codex-section-label,
 .usage-reset-note,
+.folder-sub-preview,
 .folder-sub-preview.muted,
-.task-item.more {
+.task-item,
+.task-item.more,
+.telemetrics-link,
+.telemetrics-stat-label,
+.terminal-slash,
+.agent-empty {
   color: #8b949e;
+}
+
+/* Inline Sidebar colors (var(--text-muted) / var(--accent-color)) lose to author style
+   unless overridden here. #9d8cff is 6.62:1 on #131613 (default accent #7c6aef is 4.48). */
+.folder-task-list span,
+.folder-task-list .task-item {
+  color: #8b949e !important;
+}
+
+.folder-task-list button,
+.voice-action-pill,
+.voice-action-pill .sound-wave-icon,
+.voice-action-pill .voice-text {
+  color: #9d8cff !important;
+}
+
+.voice-action-pill:hover {
+  color: #f0f6fc !important;
+}
+
+:root[data-theme="light"] {
+  --text-muted: #5d6470;
+}
+
+:root[data-theme="light"] .folder-sub-preview,
+:root[data-theme="light"] .folder-sub-preview.muted,
+:root[data-theme="light"] .task-item,
+:root[data-theme="light"] .telemetrics-link,
+:root[data-theme="light"] .telemetrics-stat-label,
+:root[data-theme="light"] .terminal-slash,
+:root[data-theme="light"] .agent-empty,
+.unsloth-desktop-sidebar.light-mode .folder-sub-preview,
+.unsloth-desktop-sidebar.light-mode .folder-sub-preview.muted {
+  color: #5d6470;
 }
 
 .avatar-initial-circle {
