@@ -173,3 +173,4 @@ def test_runner_records_invalid_utf8_and_continues(tmp_path: Path) -> None:
     assert [(gate["exit_code"], gate["status"]) for gate in report["gates"]] == [(7, "failed"), (0, "passed")]
     assert report["gates"][0]["stdout"] == "\\xff"
     assert report["summary"]["required_failed"] == 1
+    assert list(tmp_path.glob(".result.json.*.tmp")) == []
