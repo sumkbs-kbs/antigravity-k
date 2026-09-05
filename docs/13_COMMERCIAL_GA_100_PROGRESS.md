@@ -47,6 +47,7 @@ tags: [commercialization, progress, evidence, multi-agent]
   - ADR-0004 legacy `WORKSPACE_ROOT`/raw-path migration·removal
   - frozen tests: Python 12 passed, Vitest 4 passed
 - Evidence: `.omo/evidence/commercial-ga-100/ARC-01/` (metadata, red, tests, manual-qa; review 자리는 독립 reviewer용)
+- Result SHA: `a0c3b1c778ac16db0abfdc57e198fa101842986d`
 - 상태: `REVIEW` — WS-01/CTX-01 소비 가능 계약 동결. DONE은 독립 review APPROVE 후.
 
 

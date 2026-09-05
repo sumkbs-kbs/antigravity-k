@@ -25,7 +25,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 |---|---|---|---|---|---|---|---|
 | GA-00 | DONE | ga_00_baseline | ga_00_verify | codex/ga-00-baseline-gate | `7677bc391888ad13aa8413e32634f95912613d49` | `.omo/evidence/commercial-ga-100/GA-00/` | 독립 검증 APPROVE 0.99 |
 | GOV-01 | DONE | gov_01_scope / gov_01_scope_fix | gov_01_verify | codex/gov-01-product-scope | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | `.omo/evidence/commercial-ga-100/GOV-01/` | r2 APPROVE 0.95; prior REJECT closed |
-| ARC-01 | REVIEW | arc_01_contract |  | codex/arc-01-execution-context / Ssak-Ai-arc-01 | (pending commit) | `.omo/evidence/commercial-ga-100/ARC-01/` | GA-00, GOV-01 |
+| ARC-01 | REVIEW | arc_01_contract |  | codex/arc-01-execution-context / Ssak-Ai-arc-01 | `a0c3b1c778ac16db0abfdc57e198fa101842986d` | `.omo/evidence/commercial-ga-100/ARC-01/` | GA-00, GOV-01 |
 | WS-01 | TODO |  |  |  |  |  | ARC-01 |
 | WS-02 | TODO |  |  |  |  |  | WS-01 |
 | WS-03 | TODO |  |  |  |  |  | WS-01 |
