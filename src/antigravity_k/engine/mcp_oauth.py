@@ -19,7 +19,7 @@ import logging
 import secrets
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -709,17 +709,16 @@ def revoke_authorization(server_name: str) -> dict[str, Any]:
 
 
 def oauth_status_for_configured(
-    configured: list[Mapping[str, object]] | None = None,
+    configured: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, Any]:
     """Build dashboard status for configured MCP servers (HTTP only highlighted)."""
     from antigravity_k.engine.mcp_health_cache import load_configured_mcp_servers
 
-    rows: list[Mapping[str, object]]
+    rows: Sequence[Mapping[str, object]]
     if configured is None:
-        loaded, source = load_configured_mcp_servers()
-        rows = loaded
+        rows, source = load_configured_mcp_servers()
     else:
-        rows = list(configured)
+        rows = configured
         source = "inline"
 
     servers: list[dict[str, Any]] = []
