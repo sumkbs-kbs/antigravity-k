@@ -23,6 +23,23 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
 }
 
+export function generateChatTitle(content: string): string {
+  if (!content) return '새 대화';
+  // Strip code blocks, think blocks, html tags, markdown formatting
+  const cleaned = content
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/^#+\s*/, '')
+    .replace(/^[>\s*-]+/gm, '')
+    .trim();
+
+  const firstLine = cleaned.split('\n').map(l => l.trim()).find(l => l.length > 0) || content.trim();
+  if (firstLine.length <= 28) {
+    return firstLine;
+  }
+  return firstLine.slice(0, 26) + '...';
+}
+
 export interface ChatState {
   // Sessions
   sessions: ChatSession[];
@@ -46,6 +63,7 @@ export interface ChatState {
   createNewSession: () => void;
   switchSession: (id: string) => void;
   deleteSession: (id: string) => void;
+  updateSessionTitle: (id: string, title: string) => void;
   addMessage: (msg: ChatMessage) => void;
   updateLastAssistantMessage: (content: string) => void;
   setStreaming: (val: boolean) => void;
@@ -77,7 +95,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const id = generateId();
     const session: ChatSession = {
       id,
-      title: 'New Chat',
+      title: '새 대화',
       updatedAt: new Date().toISOString(),
       messages: [],
     };
@@ -117,15 +135,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  addMessage: (msg: ChatMessage) => {
-    const { messages, activeSessionId, sessions } = get();
-    const newMessages = [...messages, msg];
+  updateSessionTitle: (id: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const { sessions, activeSessionId, activeSession } = get();
     const updatedSessions = sessions.map(s =>
-      s.id === activeSessionId
-        ? { ...s, messages: newMessages, updatedAt: new Date().toISOString() }
-        : s
+      s.id === id ? { ...s, title: trimmed, updatedAt: new Date().toISOString() } : s
     );
-    set({ messages: newMessages, sessions: updatedSessions });
+    const updatedActive = activeSession && activeSession.id === id
+      ? { ...activeSession, title: trimmed, updatedAt: new Date().toISOString() }
+      : activeSession;
+    set({ sessions: updatedSessions, activeSession: updatedActive });
+    get().saveToStorage();
+  },
+
+  addMessage: (msg: ChatMessage) => {
+    const { messages, activeSessionId, sessions, activeSession } = get();
+    const newMessages = [...messages, msg];
+
+    let derivedTitle: string | undefined;
+    const currentSession = sessions.find(s => s.id === activeSessionId) || activeSession;
+    const isDefaultTitle = !currentSession?.title ||
+      currentSession.title === 'New Chat' ||
+      currentSession.title === '새 작업' ||
+      currentSession.title === '새 채팅' ||
+      currentSession.title === '새 대화' ||
+      currentSession.title === '대화';
+
+    if (msg.role === 'user' && isDefaultTitle && msg.content.trim()) {
+      derivedTitle = generateChatTitle(msg.content);
+    }
+
+    const updatedSessions = sessions.map(s => {
+      if (s.id !== activeSessionId) return s;
+      return {
+        ...s,
+        messages: newMessages,
+        title: derivedTitle || s.title,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    const updatedActive = activeSession && activeSession.id === activeSessionId
+      ? {
+          ...activeSession,
+          messages: newMessages,
+          title: derivedTitle || activeSession.title,
+          updatedAt: new Date().toISOString(),
+        }
+      : activeSession;
+
+    set({ messages: newMessages, sessions: updatedSessions, activeSession: updatedActive });
+    get().saveToStorage();
   },
 
   updateLastAssistantMessage: (content: string) => {

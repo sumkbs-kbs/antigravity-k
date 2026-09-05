@@ -34,20 +34,18 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
     expect(screen.queryByText('5.6 Sol High')).toBeNull();
     expect(screen.getByText(/orchestrator-swarm/i)).toBeInTheDocument();
     expect(screen.getByLabelText('채팅 히스토리')).toBeInTheDocument();
-    expect(screen.getByText('Open IDE')).toBeInTheDocument();
+    expect(screen.getByLabelText('환경 패널 토글')).toBeInTheDocument();
   });
 
-  it('renders Antigravity environment rail with env sections', () => {
+  it('renders Antigravity environment rail with agent monitoring sections', () => {
     renderChatPage();
 
-    expect(screen.getByLabelText('환경 패널')).toBeInTheDocument();
-    expect(screen.getByText('변경 사항')).toBeInTheDocument();
-    expect(screen.getByText('로그')).toBeInTheDocument();
-    expect(screen.getByText('커밋 또는 푸시')).toBeInTheDocument();
-    expect(screen.getByText('풀 리퀘스트 만들기')).toBeInTheDocument();
-    expect(screen.getByText('파일 액티브티')).toBeInTheDocument();
-    // 소스 섹션은 /api/mcp/servers 결과를 반영 (빈 환경에서는 안내 문구)
-    expect(screen.getByText('소스')).toBeInTheDocument();
+    expect(screen.getByLabelText('에이전트 모니터링 패널')).toBeInTheDocument();
+    expect(screen.getByText('에이전트 상태')).toBeInTheDocument();
+    expect(screen.getByText('실시간 활동')).toBeInTheDocument();
+    expect(screen.getByText('토큰 사용량')).toBeInTheDocument();
+    expect(screen.getByText('파일 변경 추적')).toBeInTheDocument();
+    expect(screen.getByText('에러 / 경고')).toBeInTheDocument();
   });
 
   it('renders the docked context bar and breadcrumb when a conversation exists', () => {
@@ -68,8 +66,8 @@ describe('ChatPage agent workspace layout (Unsloth hero)', () => {
     expect(screen.getByText('Continuing Previous Agent Work')).toBeInTheDocument();
     expect(screen.getByText('Ssak-Ai', { selector: '.crumb-project' })).toBeInTheDocument();
     expect(screen.getByText('로컬')).toBeInTheDocument();
-    // Branch appears in both the docked context bar and the 환경 rail
-    expect(screen.getAllByText('codex/m1-task-events').length).toBeGreaterThanOrEqual(2);
+    // Branch now only appears in the docked context bar (moved from 환경 to 코드 tab)
+    expect(screen.getAllByText('codex/m1-task-events').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByTestId('hero-headline')).not.toBeInTheDocument();
   });
 });

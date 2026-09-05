@@ -56,7 +56,7 @@ import { createAccessPinHeaders } from '../../utils/accessPinCredential';
 export const ChatPage: React.FC = () => {
   const {
     messages, isStreaming, selectedModel, isPlanMode, isTddMode,
-    activeSession,
+    activeSession, activeSessionId, updateSessionTitle,
     addMessage, updateLastAssistantMessage, saveToStorage,
     setStreaming, appendToCurrentAssistantContent,
     loadFromStorage, setSelectedModel,
@@ -83,6 +83,8 @@ export const ChatPage: React.FC = () => {
   const [accessMode, setAccessMode] = useState<'full_access' | 'restricted'>('full_access');
 
   const [envPanelOpen, setEnvPanelOpen] = useState<boolean>(true);
+  const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
+  const [titleInput, setTitleInput] = useState<string>('');
   const [envTab, setEnvTab] = useState<EnvPanelTab>('env');
   const [historyVisible, setHistoryVisible] = useState<boolean>(false);
 
@@ -313,6 +315,7 @@ export const ChatPage: React.FC = () => {
 
     firePluginHook('chat:send', { text, model, planMode, tddMode });
     useActivityStore.getState().clear();
+    useActivityStore.getState().setSessionStarted();
     addMessage({ role: 'user', content: text });
     saveToStorage();
     setStreamError(null);
@@ -360,6 +363,12 @@ export const ChatPage: React.FC = () => {
     setStreaming(false);
     stopElapsedTimer();
     abortRef.current = null;
+
+    // Record session end + approximate token usage
+    useActivityStore.getState().setSessionEnded();
+    const approxPromptTokens = Math.ceil(text.length / 4);
+    const approxCompletionTokens = Math.ceil(assistantContent.length / 4);
+    useActivityStore.getState().recordTokenUsage(approxPromptTokens, approxCompletionTokens);
 
     if (errorMessage) {
       setStreamError(errorMessage);
@@ -472,6 +481,7 @@ export const ChatPage: React.FC = () => {
     }
     setStreaming(false);
     stopElapsedTimer();
+    useActivityStore.getState().setSessionEnded();
     addToast('생성이 중단되었습니다.', 'info');
   }, [setStreaming, addToast, stopElapsedTimer]);
 
@@ -560,6 +570,10 @@ export const ChatPage: React.FC = () => {
           ref={textareaRef}
           id="chat-input"
           className="codex-textarea"
+          style={{
+            color: 'var(--text-primary, #f0f6fc)',
+            caretColor: 'var(--accent-color, #e5a93b)',
+          }}
           placeholder="Ask anything, @ to mention, / for actions"
           rows={1}
           value={inputText}
@@ -925,7 +939,44 @@ export const ChatPage: React.FC = () => {
           <div className="agk-breadcrumb">
             <span className="crumb-project">{workspaceContext?.project_name || 'Ssak-Ai'}</span>
             <span className="crumb-sep">/</span>
-            <span className="crumb-title">{sessionTitle}</span>
+            {isEditingTitle ? (
+              <input
+                type="text"
+                className="crumb-title-input"
+                value={titleInput}
+                autoFocus
+                onChange={(e) => setTitleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (titleInput.trim() && activeSessionId) {
+                      updateSessionTitle(activeSessionId, titleInput.trim());
+                      addToast('대화 제목이 변경되었습니다.', 'info');
+                    }
+                    setIsEditingTitle(false);
+                  } else if (e.key === 'Escape') {
+                    setIsEditingTitle(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (titleInput.trim() && activeSessionId) {
+                    updateSessionTitle(activeSessionId, titleInput.trim());
+                  }
+                  setIsEditingTitle(false);
+                }}
+              />
+            ) : (
+              <span
+                className="crumb-title editable"
+                title="클릭하여 대화 제목 수정"
+                onClick={() => {
+                  setIsEditingTitle(true);
+                  setTitleInput(sessionTitle);
+                }}
+              >
+                {sessionTitle}
+                <span className="crumb-edit-icon" aria-hidden="true">✎</span>
+              </span>
+            )}
           </div>
           <div className="agk-topbar-actions">
             <button
@@ -945,15 +996,6 @@ export const ChatPage: React.FC = () => {
               onClick={() => setHistoryVisible(true)}
             >
               🕓
-            </button>
-            <button
-              type="button"
-              className="open-ide-btn"
-              onClick={() => { setEnvPanelOpen(true); setEnvTab('code'); }}
-              title="에디터 열기"
-            >
-              <span className="open-ide-icon">◤</span>
-              Open IDE
             </button>
             <button
               type="button"

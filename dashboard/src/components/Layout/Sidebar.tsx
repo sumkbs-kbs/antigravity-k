@@ -33,7 +33,7 @@ import { ProjectListResponseSchema, type ProjectRecord } from '../../api/clientS
 
 export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
   const { setCommandPaletteVisible, setFolderBrowserVisible, addToast } = useUiStore();
-  const { sessions, activeSessionId, createNewSession, switchSession, deleteSession } = useChatStore();
+  const { sessions, activeSessionId, createNewSession, switchSession, deleteSession, updateSessionTitle } = useChatStore();
   const { setWorkspacePath, refreshTree } = useFileStore();
   const gitStatus = useGitStore(s => s.status);
   const fetchGitStatus = useGitStore(s => s.fetchStatus);
@@ -41,6 +41,8 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editTitleText, setEditTitleText] = useState('');
 
   useEffect(() => {
     fetchGitStatus();
@@ -100,12 +102,49 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
       });
       if (res.ok) {
         addToast(`'${proj.name}' 프로젝트가 목록에서 제외되었습니다.`, 'info');
-        fetchProjects();
+        const updatedRes = await fetch('/api/projects', { headers: createAccessPinHeaders() });
+        if (updatedRes.ok) {
+          const raw = await updatedRes.json();
+          const parsed = ProjectListResponseSchema.safeParse(raw);
+          if (parsed.success && parsed.data.projects.length > 0) {
+            setProjects(parsed.data.projects);
+            const newActive = parsed.data.projects.find(p => p.is_active) || parsed.data.projects[0];
+            if (newActive && proj.is_active) {
+              setWorkspacePath(newActive.path);
+              localStorage.setItem('agk_active_project', newActive.path);
+              refreshTree();
+            }
+          }
+        }
       } else {
         addToast('프로젝트 제거에 실패했습니다.', 'error');
       }
     } catch {
       addToast('프로젝트 제거 중 오류가 발생했습니다.', 'error');
+    }
+  };
+
+  const handleStartRename = (e: React.MouseEvent, s: { id: string; title?: string }) => {
+    e.stopPropagation();
+    setEditingSessionId(s.id);
+    setEditTitleText(s.title || '새 대화');
+  };
+
+  const handleSaveRename = (sessionId: string) => {
+    const trimmed = editTitleText.trim();
+    if (trimmed) {
+      updateSessionTitle(sessionId, trimmed);
+      addToast('대화 제목이 변경되었습니다.', 'info');
+    }
+    setEditingSessionId(null);
+  };
+
+  const handleDeleteSession = (e: React.MouseEvent, s: { id: string; title?: string }) => {
+    e.stopPropagation();
+    const name = s.title || '대화';
+    if (window.confirm(`'${name}' 대화를 삭제하시겠습니까?`)) {
+      deleteSession(s.id);
+      addToast('대화가 삭제되었습니다.', 'info');
     }
   };
 
@@ -121,26 +160,6 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
 
   return (
     <aside className="codex-desktop-sidebar" aria-label="Codex Desktop Navigation">
-      {/* ── Top Window Bar: Traffic Lights & Navigation ────────── */}
-      <div className="codex-window-bar">
-        <div className="traffic-lights">
-          <span className="tl-dot tl-red" />
-          <span className="tl-dot tl-yellow" />
-          <span className="tl-dot tl-green" />
-        </div>
-        <div className="window-nav-icons">
-          <button type="button" className="win-btn" title="사이드바 토글" aria-label="사이드바 토글">
-            ◫
-          </button>
-          <button type="button" className="win-btn" onClick={() => window.history.back()} title="뒤로" aria-label="뒤로">
-            ←
-          </button>
-          <button type="button" className="win-btn" onClick={() => window.history.forward()} title="앞으로" aria-label="앞으로">
-            →
-          </button>
-        </div>
-      </div>
-
       {/* ── Brand Header: Ssak-Ai + Search + Bell ──────────────── */}
       <div className="codex-brand-row">
         <button type="button" className="codex-title-dropdown-btn">
@@ -281,7 +300,7 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
                         )}
                       </span>
                     )}
-                    {!proj.is_active && projects.length > 1 && (
+                    {projects.length > 1 && (
                       <button
                         type="button"
                         className="project-remove-btn"
@@ -338,7 +357,7 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
                           // no active tasks
                         </div>
                       ) : (
-                        sessions.slice(0, 4).map((s) => (
+                        sessions.slice(0, 6).map((s) => (
                           <div
                             key={s.id}
                             className={`task-item ${activeSessionId === s.id ? 'active' : ''}`}
@@ -348,7 +367,7 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
                               alignItems: 'center',
                               justifyContent: 'space-between',
                               gap: '6px',
-                              padding: '2px 6px',
+                              padding: '3px 6px',
                               borderRadius: '2px',
                               background: activeSessionId === s.id ? 'rgba(229, 169, 59, 0.12)' : 'transparent',
                               borderLeft: activeSessionId === s.id ? '2px solid var(--accent-color)' : '2px solid transparent',
@@ -356,10 +375,48 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
                             }}
                             title={s.title || '작업'}
                           >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {activeSessionId === s.id ? '▶ ' : '• '}
-                              {s.title || '새 작업'}
-                            </span>
+                            {editingSessionId === s.id ? (
+                              <input
+                                type="text"
+                                className="session-title-edit-input"
+                                value={editTitleText}
+                                autoFocus
+                                onChange={(e) => setEditTitleText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveRename(s.id);
+                                  else if (e.key === 'Escape') setEditingSessionId(null);
+                                }}
+                                onBlur={() => handleSaveRename(s.id)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                  {activeSessionId === s.id ? '▶ ' : '• '}
+                                  {s.title || '새 대화'}
+                                </span>
+                                <div className="task-item-actions">
+                                  <button
+                                    type="button"
+                                    className="rename-sub-btn"
+                                    title="대화 제목 수정"
+                                    aria-label={`${s.title || '대화'} 제목 수정`}
+                                    onClick={(e) => handleStartRename(e, s)}
+                                  >
+                                    ✎
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="delete-sub-btn"
+                                    title="대화 삭제"
+                                    aria-label={`${s.title || '대화'} 삭제`}
+                                    onClick={(e) => handleDeleteSession(e, s)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         ))
                       )}
@@ -380,24 +437,52 @@ export const Sidebar: React.FC<{ toggleTerminal?: () => void }> = () => {
                 // no recent threads
               </div>
             ) : (
-              sessions.slice(0, 5).map(s => (
+              sessions.slice(0, 8).map(s => (
                 <div
                   key={s.id}
                   className={`recent-link ${activeSessionId === s.id ? 'active' : ''}`}
                   onClick={() => handleSelectSession(s.id)}
                 >
                   <span className="recent-status-dot" aria-hidden="true" style={{ background: activeSessionId === s.id ? 'var(--accent-color)' : 'var(--text-muted)' }} />
-                  <span className="recent-title">{s.title || '대화'}</span>
-                  <button
-                    type="button"
-                    className="delete-sub-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteSession(s.id);
-                    }}
-                  >
-                    ×
-                  </button>
+                  {editingSessionId === s.id ? (
+                    <input
+                      type="text"
+                      className="session-title-edit-input"
+                      value={editTitleText}
+                      autoFocus
+                      onChange={(e) => setEditTitleText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveRename(s.id);
+                        else if (e.key === 'Escape') setEditingSessionId(null);
+                      }}
+                      onBlur={() => handleSaveRename(s.id)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <>
+                      <span className="recent-title">{s.title || '대화'}</span>
+                      <div className="recent-link-actions">
+                        <button
+                          type="button"
+                          className="rename-sub-btn"
+                          title="대화 제목 수정"
+                          aria-label={`${s.title || '대화'} 제목 수정`}
+                          onClick={(e) => handleStartRename(e, s)}
+                        >
+                          ✎
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-sub-btn"
+                          title="대화 삭제"
+                          aria-label={`${s.title || '대화'} 삭제`}
+                          onClick={(e) => handleDeleteSession(e, s)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))
             )}

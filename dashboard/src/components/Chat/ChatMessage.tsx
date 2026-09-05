@@ -10,6 +10,7 @@ import type { ChatMessage as ChatMessageType } from '../../stores/chatStore';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { preprocessContent, sanitizeMarkdown } from '../../utils/formatContent';
@@ -20,19 +21,36 @@ interface Props {
 
 const markdownSanitizeSchema = {
   ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []), 'button'],
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    'button',
+    'details',
+    'summary',
+    'div',
+    'span',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+  ],
   attributes: {
     ...defaultSchema.attributes,
-    '*': [
-      ...(defaultSchema.attributes?.['*'] ?? []),
-      ['className', /^[A-Za-z0-9_-]+$/],
-      'style',
-      'data*',
-    ],
+    details: ['open', 'className', 'style'],
+    summary: ['className', 'style'],
+    div: ['className', 'style', 'data*'],
+    span: ['className', 'style', 'data*'],
     button: [
       ...(defaultSchema.attributes?.button ?? []),
       'type',
       'className',
+      'style',
+      'data*',
+    ],
+    '*': [
+      ...(defaultSchema.attributes?.['*'] ?? []),
+      ['className', /^[A-Za-z0-9_-]+$/],
       'style',
       'data*',
     ],
@@ -166,7 +184,7 @@ const CarouselView: React.FC<{ slides: string[] }> = ({ slides }) => {
       <div className="carousel-slide">
         {title && <h4>{title}</h4>}
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkBreaks]}
           rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
         >
           {body}
@@ -200,17 +218,28 @@ function extractLanguage(className?: string): string {
 const CodeBlock: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => {
   const language = extractLanguage(className);
   const code = extractCodeText(children).replace(/\n$/, '');
+  const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [code]);
 
   return (
     <div className="code-block">
       <div className="code-block-header">
-        <span>{language || 'code'}</span>
-        <button className="code-block-copy-btn" onClick={handleCopy}>
-          📋 복사
+        <div className="code-block-lang">
+          <span className="code-block-lang-icon">⚡</span>
+          <span>{language || 'code'}</span>
+        </div>
+        <button
+          type="button"
+          className={`code-block-copy-btn ${copied ? 'copied' : ''}`}
+          onClick={handleCopy}
+          title="코드 복사"
+        >
+          {copied ? '✓ 복사됨' : '📋 복사'}
         </button>
       </div>
       <pre>
@@ -226,14 +255,24 @@ const InlineCode: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 // ─── Message Action Buttons ─────────────────────────────────────────
 const MessageActions: React.FC<{ content: string }> = ({ content }) => {
+  const [copied, setCopied] = useState(false);
+
   const handleCopyAll = useCallback(() => {
-    navigator.clipboard.writeText(content).catch(() => {});
+    const clean = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    navigator.clipboard.writeText(clean).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [content]);
 
   return (
     <div className="message-actions">
-      <button className="msg-action-btn" onClick={handleCopyAll}>
-        📋 복사
+      <button
+        type="button"
+        className={`msg-action-btn ${copied ? 'copied' : ''}`}
+        onClick={handleCopyAll}
+        title="전체 응답 복사"
+      >
+        {copied ? '✓ 복사 완료' : '📋 복사'}
       </button>
     </div>
   );
@@ -286,49 +325,74 @@ function ChatMessageComponent({ message }: Props) {
     <div className={`message ${role}`}>
       <div className="avatar">{avatar}</div>
       <div
-        className="bubble glass-panel"
+        className={`bubble glass-panel ${role === 'assistant' ? 'antigravity-assistant-bubble' : 'antigravity-user-bubble'}`}
         role={role === 'assistant' ? 'group' : undefined}
         onClick={role === 'assistant' ? handleBubbleClick : undefined}
         onKeyDown={role === 'assistant' ? handleBubbleKeyDown : undefined}
       >
+        {role === 'assistant' && (
+          <div className="antigravity-assistant-header">
+            <div className="assistant-identity-badge">
+              <span className="assistant-spark">✦</span>
+              <span className="assistant-identity-name">Antigravity</span>
+              <span className="assistant-identity-tag">Ssak-Ai</span>
+            </div>
+          </div>
+        )}
         {role === 'user' ? (
-          <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
+          <span className="user-message-text">{content}</span>
         ) : (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
-            components={{
-              code({ className, children }) {
-                const isInline = extractLanguage(className) === '' && !className?.includes('hljs');
-                if (isInline) {
-                  return <InlineCode>{children}</InlineCode>;
-                }
-                const lang = extractLanguage(className);
-                const code = extractCodeText(children).replace(/\n$/, '');
+          <div className="antigravity-markdown-body">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkBreaks]}
+              rehypePlugins={[rehypeHighlight, rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]}
+              components={{
+                table({ children }) {
+                  return (
+                    <div className="agk-table-container">
+                      <table className="agk-markdown-table">{children}</table>
+                    </div>
+                  );
+                },
+                code({ className, children }) {
+                  const isInline = extractLanguage(className) === '' && !className?.includes('hljs');
+                  if (isInline) {
+                    return <InlineCode>{children}</InlineCode>;
+                  }
+                  const lang = extractLanguage(className);
+                  const code = extractCodeText(children).replace(/\n$/, '');
 
-                // Mermaid diagram
-                if (lang === 'mermaid') {
-                  return <MermaidDiagram code={code} />;
-                }
+                  // Mermaid diagram
+                  if (lang === 'mermaid') {
+                    return <MermaidDiagram code={code} />;
+                  }
 
-                // Carousel slides (slides separated by <!-- slide -->)
-                if (lang === 'carousel') {
-                  const slides = code.split(/<!--\s*slide\s*-->/).filter(Boolean).map(s => s.trim());
-                  return <CarouselView slides={slides} />;
-                }
+                  // Carousel slides (slides separated by <!-- slide -->)
+                  if (lang === 'carousel') {
+                    const slides = code.split(/<!--\s*slide\s*-->/).filter(Boolean).map(s => s.trim());
+                    return <CarouselView slides={slides} />;
+                  }
 
-                return <CodeBlock className={className}>{children}</CodeBlock>;
-              },
-              blockquote({ children }) {
-                return <GitHubAlert>{children}</GitHubAlert>;
-              },
-              pre({ children }) {
-                return <>{children}</>;
-              },
-            }}
-          >
-            {displayContent}
-          </ReactMarkdown>
+                  return <CodeBlock className={className}>{children}</CodeBlock>;
+                },
+                blockquote({ children }) {
+                  return <GitHubAlert>{children}</GitHubAlert>;
+                },
+                pre({ children }) {
+                  return <>{children}</>;
+                },
+                a({ href, children }) {
+                  return (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="agk-markdown-link">
+                      {children}
+                    </a>
+                  );
+                },
+              }}
+            >
+              {displayContent}
+            </ReactMarkdown>
+          </div>
         )}
         {role === 'assistant' && content && (
           <MessageActions content={content} />
