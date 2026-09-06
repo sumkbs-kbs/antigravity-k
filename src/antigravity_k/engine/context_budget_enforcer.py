@@ -197,3 +197,413 @@ def _is_pure_tool_call_wrapper(message: Message) -> bool:
         return False
     stripped = _TOOL_CALL_BLOCK_RE.sub("", content)
     return len(stripped.strip()) < len(content) * 0.5
+
+
+# ─── CTX-02: deterministic final serialized prompt fitting ──────────────
+
+from dataclasses import dataclass
+
+from antigravity_k.engine.context_budget import (
+    HardTokenLimit,
+    OversizedPromptComponentError,
+    PromptBudgetExceededError,
+    PromptComponentLedger,
+    build_prompt_component_ledger,
+    prompt_selection_digest,
+)
+from antigravity_k.engine.tokenizer import TokenEstimator as DefaultTokenEstimator
+
+
+@dataclass(frozen=True, slots=True)
+class FinalPromptFit:
+    """Result of the deterministic final-prompt compression pipeline."""
+
+    system: str
+    tools: str
+    skills: str
+    memory: str
+    artifacts: str
+    messages: list[Message]
+    serialized: str
+    ledger: PromptComponentLedger
+    digest: str
+    cache_prefix: str
+    strategy: str
+    compressed: bool
+
+
+# Mutable / low-priority first. Cache-prefix components (tools, system) last.
+_PREFIX_ORDER: Final = ("tools", "system")
+
+
+def serialize_final_prompt(
+    *,
+    system: str,
+    tools: str,
+    skills: str,
+    messages: list[Message],
+    memory: str = "",
+    artifacts: str = "",
+) -> tuple[str, str]:
+    """Build the final serialized prompt and its immutable cache prefix.
+
+    Cache prefix = System + skills + tools (stable bytes for provider caching).
+    Memory/artifacts/messages sit in the mutable suffix (recency region).
+    """
+    prefix = f"System: {system}\n{skills}\n"
+    if tools:
+        prefix += f"\n{tools}\n"
+    prefix += "\n"
+    body_parts: list[str] = []
+    for message in messages:
+        body_parts.append(f"{message.get('role', 'user').capitalize()}: {message.get('content', '')}\n")
+    if artifacts:
+        body_parts.append(artifacts if artifacts.endswith("\n") else f"{artifacts}\n")
+    if memory:
+        body_parts.append(f"<working_context>\n{memory}</working_context>\n")
+    suffix = "".join(body_parts) + "Assistant: "
+    return prefix + suffix, prefix
+
+
+def fit_final_prompt(
+    *,
+    system: str,
+    tools: str,
+    skills: str,
+    messages: list[Message],
+    hard_limit: HardTokenLimit,
+    memory: str = "",
+    artifacts: str = "",
+    estimate_tokens: TokenEstimator | None = None,
+    allow_typed_error: bool = True,
+) -> FinalPromptFit:
+    """Fit the final serialized prompt under ``hard_limit.input_budget``.
+
+    Compression priority: artifacts → memory → skills → messages → tools → system.
+    Prompt-cache prefix bytes stay identical when only the mutable suffix shrinks.
+    An oversized single component is head/tail bounded or raises a typed error.
+    """
+    estimate: TokenEstimator = estimate_tokens or DefaultTokenEstimator.estimate_text
+    fitted = {
+        "system": system,
+        "tools": tools,
+        "skills": skills,
+        "memory": memory,
+        "artifacts": artifacts,
+    }
+    fitted_messages = [dict(message) for message in messages]
+    compressed = False
+    strategy = "passthrough"
+    original_prefix = serialize_final_prompt(
+        system=system,
+        tools=tools,
+        skills=skills,
+        messages=messages,
+        memory=memory,
+        artifacts=artifacts,
+    )[1]
+
+    def _message_blob(msgs: list[Message]) -> str:
+        return "".join(
+            f"{message.get('role', 'user').capitalize()}: {message.get('content', '')}\n" for message in msgs
+        )
+
+    def _ledger(msgs: list[Message]) -> PromptComponentLedger:
+        return build_prompt_component_ledger(
+            system=fitted["system"],
+            tools=fitted["tools"],
+            skills=fitted["skills"],
+            memory=fitted["memory"],
+            artifacts=fitted["artifacts"],
+            serialized_messages=_message_blob(msgs),
+            output_reserve=hard_limit.output_reserve,
+            estimate_tokens=estimate,
+        )
+
+    def _serialize(msgs: list[Message]) -> tuple[str, str]:
+        return serialize_final_prompt(
+            system=fitted["system"],
+            tools=fitted["tools"],
+            skills=fitted["skills"],
+            messages=msgs,
+            memory=fitted["memory"],
+            artifacts=fitted["artifacts"],
+        )
+
+    def _ok(msgs: list[Message]) -> bool:
+        serialized, _prefix = _serialize(msgs)
+        if estimate(serialized) > hard_limit.input_budget:
+            return False
+        ledger = _ledger(msgs)
+        if ledger.input_total > hard_limit.input_budget:
+            return False
+        if hard_limit.declared is not None and ledger.total_with_reserve > hard_limit.effective:
+            return False
+        return True
+
+    def _shrink_text(name: str, need: int) -> None:
+        nonlocal compressed
+        text = fitted[name]
+        if not text or need <= 0:
+            return
+        current = estimate(text)
+        target = max(0, current - need)
+        fitted[name] = "" if target <= 0 else compact_text_to_budget(text, target, estimate)
+        compressed = True
+
+    def _shrink_messages(need: int) -> None:
+        nonlocal compressed, fitted_messages
+        if need <= 0 and _ok(fitted_messages):
+            return
+        serialized, prefix = _serialize(fitted_messages)
+        prefix_tokens = estimate(prefix)
+        wrapper = estimate("Assistant: ")
+        mutable_room = max(1, hard_limit.input_budget - prefix_tokens - wrapper)
+        # Leave room for memory/artifacts that remain in the suffix.
+        mutable_room = max(
+            1,
+            mutable_room - estimate(fitted["memory"]) - estimate(fitted["artifacts"]),
+        )
+        before = fitted_messages
+        fitted_messages = enforce_context_budget(fitted_messages, mutable_room, estimate)
+        compressed = compressed or fitted_messages != before
+
+    if _ok(fitted_messages):
+        serialized, cache_prefix = _serialize(fitted_messages)
+        ledger = _ledger(fitted_messages)
+        digest = prompt_selection_digest(
+            system=fitted["system"],
+            tools=fitted["tools"],
+            skills=fitted["skills"],
+            memory=fitted["memory"],
+            artifacts=fitted["artifacts"],
+            messages=fitted_messages,
+        )
+        return FinalPromptFit(
+            system=fitted["system"],
+            tools=fitted["tools"],
+            skills=fitted["skills"],
+            memory=fitted["memory"],
+            artifacts=fitted["artifacts"],
+            messages=messages if fitted_messages == messages else fitted_messages,
+            serialized=serialized,
+            ledger=ledger,
+            digest=digest,
+            cache_prefix=cache_prefix,
+            strategy=strategy,
+            compressed=False,
+        )
+
+    strategy = "deterministic_priority_v1"
+
+    # 0) If the cache-prefix components alone exceed the budget, bound them first
+    # so we do not annihilate the latest user message trying to free impossible room.
+    prefix_alone = estimate(
+        serialize_final_prompt(
+            system=fitted["system"],
+            tools=fitted["tools"],
+            skills=fitted["skills"],
+            messages=[],
+            memory="",
+            artifacts="",
+        )[0]
+    )
+    if prefix_alone > hard_limit.input_budget:
+        # Bound the largest prefix component; keep a stub for the latest user turn.
+        prefix_components = {
+            "system": fitted["system"],
+            "tools": fitted["tools"],
+            "skills": fitted["skills"],
+        }
+        largest_name = max(prefix_components, key=lambda name: estimate(prefix_components[name]))
+        wrapper_budget = min(48, max(8, hard_limit.input_budget // 16))
+        component_budget = max(1, hard_limit.input_budget - wrapper_budget)
+        fitted[largest_name] = compact_text_to_budget(
+            fitted[largest_name],
+            component_budget,
+            estimate,
+        )
+        # Drop the other non-essential prefix pieces if still over.
+        for name in ("skills", "tools"):
+            if name == largest_name:
+                continue
+            if (
+                estimate(
+                    serialize_final_prompt(
+                        system=fitted["system"],
+                        tools=fitted["tools"],
+                        skills=fitted["skills"],
+                        messages=fitted_messages,
+                        memory="",
+                        artifacts="",
+                    )[0]
+                )
+                > hard_limit.input_budget
+            ):
+                fitted[name] = ""
+        if fitted_messages:
+            room = max(
+                1,
+                hard_limit.input_budget
+                - estimate(
+                    serialize_final_prompt(
+                        system=fitted["system"],
+                        tools=fitted["tools"],
+                        skills=fitted["skills"],
+                        messages=[],
+                        memory="",
+                        artifacts="",
+                    )[0]
+                ),
+            )
+            latest = dict(fitted_messages[-1])
+            latest["content"] = compact_text_to_budget(latest.get("content", ""), room, estimate)
+            fitted_messages = [latest]
+        compressed = True
+
+    # 1) Shrink mutable suffix while keeping cache prefix byte-identical.
+    for _ in range(8):
+        if _ok(fitted_messages):
+            break
+        serialized, _prefix = _serialize(fitted_messages)
+        need = estimate(serialized) - hard_limit.input_budget
+        if need <= 0:
+            break
+        progress = False
+        for component in ("artifacts", "memory", "skills"):
+            before = fitted[component]
+            if not before:
+                continue
+            _shrink_text(component, need)
+            progress = progress or fitted[component] != before
+            if _ok(fitted_messages):
+                break
+            serialized, _prefix = _serialize(fitted_messages)
+            need = estimate(serialized) - hard_limit.input_budget
+        if _ok(fitted_messages):
+            break
+        before_msgs = list(fitted_messages)
+        _shrink_messages(max(1, need))
+        progress = progress or fitted_messages != before_msgs
+        if not progress:
+            break
+
+    # 2) Only if still over: shrink prefix components (skills already tried; tools/system).
+    prefix_preserved = _ok(fitted_messages) or (
+        serialize_final_prompt(
+            system=fitted["system"],
+            tools=fitted["tools"],
+            skills=fitted["skills"],
+            messages=fitted_messages,
+            memory="",
+            artifacts="",
+        )[1]
+        == original_prefix
+        and estimate(
+            serialize_final_prompt(
+                system=fitted["system"],
+                tools=fitted["tools"],
+                skills=fitted["skills"],
+                messages=fitted_messages,
+                memory=fitted["memory"],
+                artifacts=fitted["artifacts"],
+            )[0]
+        )
+        <= hard_limit.input_budget
+    )
+    if not _ok(fitted_messages):
+        for component in _PREFIX_ORDER:
+            if _ok(fitted_messages):
+                break
+            serialized, _prefix = _serialize(fitted_messages)
+            need = estimate(serialized) - hard_limit.input_budget
+            if need <= 0:
+                break
+            _shrink_text(component, need)
+            _shrink_messages(need)
+        prefix_preserved = False
+
+    # 3) Single component larger than the entire budget → bound it.
+    if not _ok(fitted_messages):
+        candidates = {
+            "system": fitted["system"],
+            "tools": fitted["tools"],
+            "skills": fitted["skills"],
+            "memory": fitted["memory"],
+            "artifacts": fitted["artifacts"],
+        }
+        largest_name = max(candidates, key=lambda name: estimate(candidates[name]))
+        alone = estimate(candidates[largest_name])
+        if alone >= hard_limit.input_budget:
+            # Leave a few tokens for wrappers + a tiny user stub when possible.
+            wrapper_budget = min(32, max(4, hard_limit.input_budget // 20))
+            component_budget = max(1, hard_limit.input_budget - wrapper_budget)
+            bounded = compact_text_to_budget(candidates[largest_name], component_budget, estimate)
+            if estimate(bounded) > hard_limit.input_budget and allow_typed_error:
+                raise OversizedPromptComponentError(largest_name, alone, hard_limit.input_budget)
+            for name in candidates:
+                fitted[name] = bounded if name == largest_name else ""
+            # Keep latest user message edges if any room remains.
+            room = max(1, hard_limit.input_budget - estimate(bounded) - 8)
+            if fitted_messages:
+                latest = fitted_messages[-1]
+                latest_content = compact_text_to_budget(latest.get("content", ""), room, estimate)
+                fitted_messages = [{**latest, "content": latest_content}]
+            else:
+                fitted_messages = []
+            compressed = True
+            prefix_preserved = False
+
+    serialized, cache_prefix = _serialize(fitted_messages)
+    if estimate(serialized) > hard_limit.input_budget:
+        # Absolute last resort: bound the full serialization.
+        bounded_serial = compact_text_to_budget(serialized, hard_limit.input_budget, estimate)
+        if estimate(bounded_serial) > hard_limit.input_budget and allow_typed_error:
+            raise PromptBudgetExceededError(
+                f"final prompt input {estimate(serialized)} exceeds budget {hard_limit.input_budget}",
+                ledger=_ledger(fitted_messages),
+                hard_limit=hard_limit,
+            )
+        serialized = bounded_serial
+        cache_prefix = ""
+        compressed = True
+        prefix_preserved = False
+
+    # Restore declared prefix when we never had to touch it.
+    if prefix_preserved and fitted["system"] == system and fitted["tools"] == tools and fitted["skills"] == skills:
+        cache_prefix = original_prefix
+        # Ensure serialized still starts with the original prefix bytes.
+        if not serialized.startswith(original_prefix):
+            # Rebuild from components to guarantee prefix identity.
+            serialized, cache_prefix = _serialize(fitted_messages)
+
+    ledger = _ledger(fitted_messages)
+    if estimate(serialized) > hard_limit.input_budget and allow_typed_error:
+        raise PromptBudgetExceededError(
+            f"final prompt input {estimate(serialized)} exceeds budget {hard_limit.input_budget}",
+            ledger=ledger,
+            hard_limit=hard_limit,
+        )
+
+    digest = prompt_selection_digest(
+        system=fitted["system"],
+        tools=fitted["tools"],
+        skills=fitted["skills"],
+        memory=fitted["memory"],
+        artifacts=fitted["artifacts"],
+        messages=fitted_messages,
+    )
+    return FinalPromptFit(
+        system=fitted["system"],
+        tools=fitted["tools"],
+        skills=fitted["skills"],
+        memory=fitted["memory"],
+        artifacts=fitted["artifacts"],
+        messages=fitted_messages,
+        serialized=serialized,
+        ledger=ledger,
+        digest=digest,
+        cache_prefix=cache_prefix if cache_prefix else original_prefix if prefix_preserved else cache_prefix,
+        strategy=strategy,
+        compressed=compressed,
+    )

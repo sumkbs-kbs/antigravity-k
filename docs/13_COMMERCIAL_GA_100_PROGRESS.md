@@ -18,9 +18,9 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
 | 완료 | 8 |
-| 진행 중 | 0 |
+| 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | CTX-01 DONE — r2 APPROVE; CTX-02 착수 가능 (본 verify turn 미착수) |
+| 현재 작업 | CTX-02 REVIEW — final prompt budget/deterministic compression (`ctx_02_budget`); `ctx_02_verify` 대기 |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,6 +33,23 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+
+
+
+### 2026-09-06 · CTX-02 final prompt budget + deterministic compression (`ctx_02_budget`)
+
+- owner: `ctx_02_budget` (**APPROVE 자체 작성 금지**)
+- baseline tip: `3d6f045a8a8628801c53e5750bf6257f935dd680` (CTX-01 DONE)
+- branch/worktree: `codex/ctx-02-prompt-budget` / `Ssak-Ai-ctx-02`
+- 구현 요약:
+  - `PromptComponentLedger` + `resolve_hard_token_limit` + `prompt_selection_digest` (`context_budget.py`)
+  - `fit_final_prompt` / `serialize_final_prompt` deterministic pipeline (`context_budget_enforcer.py`)
+  - `ContextShaper.shape_for_model(aux_token_overhead=…)` + `_prepare_agent_prompt` aux 선공제
+  - `ToolLoopEngine._enforce_final_prompt_budget` — provider invoke 직전 재검사; typed exceed 시 호출 중단
+  - 5-token message + ~1005-token aux → operator limit 아래로 압축; cache prefix 보존; digest 결정적
+- 검증: `tests/test_final_prompt_budget.py` 8 passed; related budget/shaper 54 passed; tool_loop compress subset green; ruff clean
+- Evidence: `.omo/evidence/commercial-ga-100/CTX-02/` (`red.txt`, `tests.txt`, `adversarial-notes.md`, `manual-qa.md`)
+- 상태: **REVIEW** (DONE 아님). `ctx_02_verify` 독립 review 대기. **가짜 APPROVE 금지.**
 
 
 

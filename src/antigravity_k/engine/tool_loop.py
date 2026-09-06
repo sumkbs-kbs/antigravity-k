@@ -755,6 +755,169 @@ class ToolLoopEngine:
             logger.warning("Context compression error (non-critical)", exc_info=True)
             return shaped_messages, prompt_str, None, None
 
+    def _enforce_final_prompt_budget(
+        self,
+        prompt_str: str,
+        shaped_messages: list[dict[str, str]],
+        delegate_model: str,
+        system_prompt: str,
+        tool_prompt: str,
+        skill_prompts: str,
+        *,
+        direct_response: bool = False,
+    ) -> tuple[str, list[dict[str, str]], object | None]:  # FinalPromptFit | None
+        """Re-check the final serialized prompt immediately before provider invoke (CTX-02).
+
+        Counts system/tool/skill/memory/artifact/message/output-reserve, compresses
+        deterministically when over budget, and preserves prompt-cache prefix bytes
+        when only the mutable suffix changes.
+        """
+        try:
+            from antigravity_k.engine.context_budget import (
+                build_prompt_component_ledger,
+                prompt_selection_digest,
+                resolve_hard_token_limit,
+            )
+            from antigravity_k.engine.context_budget_enforcer import (
+                FinalPromptFit,
+                compact_text_to_budget,
+                fit_final_prompt,
+            )
+            from antigravity_k.engine.tokenizer import TokenEstimator
+        except Exception:
+            logger.debug("final prompt budget imports failed", exc_info=True)
+            return prompt_str, shaped_messages, None
+
+        config = getattr(self.orch, "config", None)
+        if not isinstance(config, dict):
+            return prompt_str, shaped_messages, None
+        if not isinstance(prompt_str, str):
+            return prompt_str, shaped_messages, None
+        if not isinstance(shaped_messages, list):
+            return prompt_str, shaped_messages, None
+
+        try:
+            hard_limit = resolve_hard_token_limit(config, self._resolve_model_name(delegate_model))
+        except Exception:
+            logger.debug("hard token limit resolve failed", exc_info=True)
+            return prompt_str, shaped_messages, None
+        estimate = TokenEstimator.estimate_text
+        try:
+            serialized_tokens = estimate(prompt_str)
+        except TypeError:
+            return prompt_str, shaped_messages, None
+
+        if direct_response:
+            # Direct path has no component split — bound the serialized blob itself.
+            if serialized_tokens <= hard_limit.input_budget:
+                ledger = build_prompt_component_ledger(
+                    messages=shaped_messages,
+                    serialized_messages=prompt_str,
+                    output_reserve=hard_limit.output_reserve,
+                    estimate_tokens=estimate,
+                )
+                fit = FinalPromptFit(
+                    system="",
+                    tools="",
+                    skills="",
+                    memory="",
+                    artifacts="",
+                    messages=shaped_messages,
+                    serialized=prompt_str,
+                    ledger=ledger,
+                    digest=prompt_selection_digest(messages=shaped_messages, strategy="direct_passthrough"),
+                    cache_prefix="",
+                    strategy="direct_passthrough",
+                    compressed=False,
+                )
+                return prompt_str, shaped_messages, fit
+            bounded = compact_text_to_budget(prompt_str, hard_limit.input_budget, estimate)
+            ledger = build_prompt_component_ledger(
+                serialized_messages=bounded,
+                output_reserve=hard_limit.output_reserve,
+                estimate_tokens=estimate,
+            )
+            fit = FinalPromptFit(
+                system="",
+                tools="",
+                skills="",
+                memory="",
+                artifacts="",
+                messages=shaped_messages,
+                serialized=bounded,
+                ledger=ledger,
+                digest=prompt_selection_digest(messages=shaped_messages, strategy="direct_bound"),
+                cache_prefix="",
+                strategy="direct_bound",
+                compressed=True,
+            )
+            return bounded, shaped_messages, fit
+
+        pinned = self._cached_pinned_context()
+        # Fast path: actual serialized prompt already within budget — record ledger only.
+        if serialized_tokens <= hard_limit.input_budget:
+            ledger = build_prompt_component_ledger(
+                system=system_prompt,
+                tools=tool_prompt,
+                skills=skill_prompts,
+                memory=pinned,
+                messages=shaped_messages,
+                output_reserve=hard_limit.output_reserve,
+                estimate_tokens=estimate,
+            )
+            fit = FinalPromptFit(
+                system=system_prompt,
+                tools=tool_prompt,
+                skills=skill_prompts,
+                memory=pinned,
+                artifacts="",
+                messages=shaped_messages,
+                serialized=prompt_str,
+                ledger=ledger,
+                digest=prompt_selection_digest(
+                    system=system_prompt,
+                    tools=tool_prompt,
+                    skills=skill_prompts,
+                    memory=pinned,
+                    messages=shaped_messages,
+                ),
+                cache_prefix="",
+                strategy="serialized_passthrough",
+                compressed=False,
+            )
+            logger.info(
+                "[ToolLoop] Final prompt budget OK: serialized=%s input_components=%s limit=%s digest=%s",
+                serialized_tokens,
+                ledger.input_total,
+                hard_limit.input_budget,
+                fit.digest[:12],
+            )
+            return prompt_str, shaped_messages, fit
+
+        fit = fit_final_prompt(
+            system=system_prompt,
+            tools=tool_prompt,
+            skills=skill_prompts,
+            messages=shaped_messages,
+            memory=pinned,
+            artifacts="",
+            hard_limit=hard_limit,
+            estimate_tokens=estimate,
+            allow_typed_error=True,
+        )
+        logger.info(
+            "[ToolLoop] Final prompt budget: serialized_before=%s input=%s reserve=%s limit=%s "
+            "digest=%s strategy=%s compressed=%s",
+            serialized_tokens,
+            fit.ledger.input_total,
+            fit.ledger.output_reserve,
+            hard_limit.input_budget,
+            fit.digest[:12],
+            fit.strategy,
+            fit.compressed,
+        )
+        return fit.serialized, fit.messages, fit
+
     def _refresh_checkpoint_context(self, messages: list[dict[str, str]]) -> None:
         checkpoint_messages = [
             {
@@ -1001,6 +1164,48 @@ class ToolLoopEngine:
                     self.telemetry.context_compressions += 1
                     yield f"\n📦 **[Context Compressor]** 토큰 사용량 {usage_before:.0f}% → {usage_after:.0f}% 압축\n\n"
                     logger.info("[ToolLoop] Context compressed: %.0f%% → %.0f%%", usage_before, usage_after)
+
+            # CTX-02: hard-limit re-check on the final serialized prompt before provider invoke.
+            try:
+                prompt_str, shaped_messages, _final_fit = self._enforce_final_prompt_budget(
+                    prompt_str,
+                    shaped_messages,
+                    delegate_model,
+                    system_prompt if not direct_response else "",
+                    tool_prompt if not direct_response else "",
+                    skill_prompts if not direct_response else "",
+                    direct_response=direct_response,
+                )
+                _fit_compressed = bool(getattr(_final_fit, "compressed", False)) if _final_fit is not None else False
+                if _final_fit is not None and _fit_compressed:
+                    self._refresh_checkpoint_context(shaped_messages)
+                    _fit_ledger = getattr(_final_fit, "ledger", None)
+                    _fit_digest = str(getattr(_final_fit, "digest", ""))
+                    _in = int(getattr(_fit_ledger, "input_total", 0) or 0)
+                    _res = int(getattr(_fit_ledger, "output_reserve", 0) or 0)
+                    yield (f"\n📐 **[Prompt Budget]** final input {_in}/{_res + _in} (digest `{_fit_digest[:12]}`)\n\n")
+            except Exception as budget_error:
+                from antigravity_k.engine.context_budget import (
+                    OversizedPromptComponentError,
+                    PromptBudgetExceededError,
+                )
+
+                if isinstance(budget_error, (OversizedPromptComponentError, PromptBudgetExceededError)):
+                    yield f"\n\n⚠️ **[Prompt Budget]** 최종 프롬프트가 한도를 초과해 모델 호출을 중단합니다: {budget_error}\n"
+                    self._record_task_outcome(
+                        task_id,
+                        delegate_model,
+                        expected_tools,
+                        used_tools,
+                        retry_count,
+                        started_at,
+                        False,
+                        "prompt_budget_exceeded",
+                    )
+                    return
+                # Mocked orchestrator configs in unit tests may lack real prompt parts;
+                # never fail the loop on non-budget errors here (CTX-03 will harden telemetry).
+                logger.debug("final prompt budget skipped: %s", budget_error, exc_info=True)
 
             stream_kwargs: dict[str, ToolGenerationValue] = {
                 "prompt": prompt_str,

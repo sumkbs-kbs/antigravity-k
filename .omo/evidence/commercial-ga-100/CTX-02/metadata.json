@@ -1,0 +1,21 @@
+{
+  "task_id": "CTX-02",
+  "title": "final prompt budget and deterministic compression pipeline",
+  "owner": "ctx_02_budget",
+  "reviewer": "ctx_02_verify",
+  "status": "REVIEW",
+  "baseline_sha": "3d6f045a8a8628801c53e5750bf6257f935dd680",
+  "branch": "codex/ctx-02-prompt-budget",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ctx-02",
+  "started_at": "2026-09-06T12:00:00+09:00",
+  "environment": {
+    "os": "macOS",
+    "pytest_final_prompt_budget": "8 passed",
+    "pytest_related_budget_shaper": "54 passed",
+    "ruff": "All checks passed"
+  },
+  "notes": "Owner self-check complete. Awaiting ctx_02_verify. No owner APPROVE.",
+  "verdict": null,
+  "result_sha_pending": true,
+  "updated_at": "2026-09-06T12:45:00+09:00"
+}

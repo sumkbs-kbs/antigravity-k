@@ -705,16 +705,24 @@ class OrchestratorAgent:
             prompt += f"\n{tool_prompt}\n"
         prompt += "\n"
 
-        # Context Shaper 적용
+        # Context Shaper 적용 — aux(system/tools/skills/pinned)를 메시지 예산에서 선공제 (CTX-02)
         execution_plan: LongContextExecutionPlan | None = None
         manager = self.manager
         if isinstance(manager, LongContextPlanner):
             execution_plan = manager.long_context_plan(delegate_model)
+        from antigravity_k.engine.tokenizer import TokenEstimator
+
+        _aux_overhead = TokenEstimator.estimate_text(
+            f"System: {system_prompt}\n{skill_prompts}\n"
+            + (f"\n{tool_prompt}\n" if tool_prompt else "")
+            + (f"<working_context>\n{pinned_context}</working_context>\n" if pinned_context else ""),
+        )
         shaped_messages = self.context_shaper.shape_for_model(
             messages,
             self.config,
             delegate_model,
             execution_plan=execution_plan,
+            aux_token_overhead=_aux_overhead,
         )
         shaped_messages = self.context_shaper.clear_old_tool_results(shaped_messages)
 

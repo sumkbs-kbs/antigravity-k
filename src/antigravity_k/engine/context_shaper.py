@@ -169,12 +169,19 @@ class ContextShaper:
         model_name: str,
         force_compact: bool = False,
         execution_plan: LongContextExecutionPlan | None = None,
+        aux_token_overhead: int = 0,
     ) -> list[Message]:
-        """Shape messages against the effective budget of a selected model."""
+        """Shape messages against the effective budget of a selected model.
+
+        ``aux_token_overhead`` reserves room for system/tools/skills/memory/artifacts
+        that are serialized into the final prompt outside the message list (CTX-02).
+        """
         budget = context_budget_for_model(config, model_name)
         token_limit = budget.token_limit
         if execution_plan is not None and execution_plan["context_token_limit"] > 0:
             token_limit = min(token_limit, execution_plan["context_token_limit"])
+        if aux_token_overhead > 0:
+            token_limit = max(1, token_limit - int(aux_token_overhead))
         return self.shape(messages, budget=token_limit, force_compact=force_compact)
 
     def clear_old_tool_results(self, messages: list[Message], keep_last: int = 3) -> list[Message]:
