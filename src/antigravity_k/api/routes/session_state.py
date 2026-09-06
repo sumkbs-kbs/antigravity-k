@@ -6,7 +6,6 @@ WebSocket 인증 헬퍼를 담는 중립 모듈이다. 라우트 모듈 간에�
 """
 
 import logging
-import os
 from typing import TYPE_CHECKING
 
 from fastapi import WebSocket
@@ -56,14 +55,18 @@ def reset_active_session() -> ActiveAgentSession:
 async def close_unauthorized_ws(websocket: WebSocket) -> bool:
     """Close WebSocket if not authorized. Returns True if closed.
 
-    Authenticates the connection using a bearer token or legacy PIN provided
-    via query parameters (``?token=`` or ``?pin=``) since browsers cannot set
-    custom headers on WebSocket handshakes. If the connection carries valid
-    credentials this returns ``False`` (not closed); otherwise it accepts then
-    immediately closes the socket with a 4401 policy code and returns ``True``.
+    SEC-01 단일 정책: 판정은 HTTP 미들웨어와 같은 공유 AuthPolicy로 수행한다.
+    저장 PIN hash가 있으면 loopback 개발 모드도 보호 상태이며, 익명 허용은
+    명시적 dev 설정 + loopback + credential 전무 조건에서만 가능하다.
+
+    Authenticates the connection using a bearer token (``?token=`` query or
+    ``Sec-WebSocket-Protocol`` subprotocol). PIN query 인증은 제거되었다 —
+    PIN은 rate-limited login route로만 제출한다 (SEC-02 표면 축소 정합).
     """
+    from antigravity_k.api.auth_policy import get_shared_auth_policy
     from antigravity_k.api.auth_routes import get_token_service
-    from antigravity_k.engine.auth import extract_token_from_ws, verify_pin
+    from antigravity_k.config import config
+    from antigravity_k.engine.auth import extract_token_from_ws
 
     # Accept first so we can send a close code; Starlette requires accept before close.
     await websocket.accept()
@@ -71,35 +74,27 @@ async def close_unauthorized_ws(websocket: WebSocket) -> bool:
 
     credential = extract_token_from_ws(websocket)
 
-    from antigravity_k.api.startup_security import is_loopback_host
-    from antigravity_k.config import config
+    token_verified = False
+    token_subject: str | None = None
+    if credential and "." in credential:
+        claims = get_token_service().verify_token(credential)
+        if claims is not None:
+            token_verified = True
+            subject = claims.get("sub")
+            token_subject = subject if isinstance(subject, str) and subject else "bearer"
 
-    if (
-        not config.security.access_pin
-        and os.environ.get("AGK_ENV", "development").strip().lower() != "production"
-        and is_loopback_host(config.server.host)
-    ):
+    decision = get_shared_auth_policy().evaluate_credential(
+        token_verified=token_verified,
+        pin=None,  # WS에서 PIN credential을 받지 않는다 (query ?pin= 제거).
+        host=config.server.host,
+    )
+    if decision.level == "open_loopback":
         websocket.state.auth_subject = "loopback"
         return False
+    if token_verified and token_subject is not None:
+        websocket.state.auth_subject = token_subject
+        return False
 
-    # Try bearer token first.
-    if credential:
-        token_service = get_token_service()
-        # Heuristic: tokens contain dots (JWT structure), PINs don't.
-        if "." in credential:
-            claims = token_service.verify_token(credential)
-            if claims is not None:
-                subject = claims.get("sub")
-                websocket.state.auth_subject = subject if isinstance(subject, str) and subject else "bearer"
-                return False
-        # Otherwise treat as a legacy PIN.
-        from antigravity_k.api.auth_routes import get_current_pin_hash
-
-        stored = get_current_pin_hash()
-        if stored and verify_pin(credential, stored):
-            websocket.state.auth_subject = "pin-user"
-            return False
-
-    # No valid credential — deny.
+    # No valid credential — deny (4401, plan 규정 equivalent).
     await websocket.close(code=4401, reason="Unauthorized")
     return True

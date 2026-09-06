@@ -1,0 +1,25 @@
+SEC-01 Red Baseline (tests/test_auth_policy_truth_table.py, 구현 전)
+=====================================================================
+22 failed, 7 passed — 결함 재현:
+
+1. 진리표 import 실패 (auth_policy 모듈 부재) — 13건
+   ImportError: cannot import name 'auth_policy' from 'antigravity_k.api'
+
+2. 핵심 결함 재현 — hash-only loopback에서 익명 허용:
+   test_http_unauthenticated_rejected_401: assert 400 == 401
+     (authenticate_request가 True를 반환해 인증을 통과한 뒤
+      라우트의 "Model is required" 400에 도달 — 즉 무자격 요청이
+      보호 경로에 진입했다)
+   직접 관찰: 저장 hash 존재 + plaintext PIN="" + loopback에서
+     authenticate_request() == True (구버전 open-loopback 분기가
+     저장 credential을 무시)
+
+3. WS 게이트 동일 결함 + ?pin= credential 경로 존재 — 6건
+   test_no_pin_loopback_without_explicit_allow_denies: 익명 허용됨(True)
+   test_extract_token_from_ws_no_longer_accepts_pin_query: 'whatever' 반환
+
+4. /api/auth/status endpoint 부재 — 401/404
+
+결론: startup은 hash를 strong credential으로 인정하지만 HTTP/WS 런타임
+게이트는 plaintext PIN 부재 시 이를 무시하고 익명을 허용하는
+startup-대비-런타임 불일치(SEC-01의 정의 그 자체)가 확인되었다.

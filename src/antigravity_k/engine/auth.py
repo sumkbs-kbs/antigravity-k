@@ -267,23 +267,23 @@ def extract_token_from_ws(websocket: "WebSocket") -> str | None:
 
     Browsers cannot set custom headers on WebSocket handshakes, so we accept
     the token from either a ``token`` query parameter or (preferably) the
-    ``Sec-WebSocket-Protocol`` subprotocol. A ``pin`` query parameter is also
-    accepted for backwards compatibility with legacy PIN auth.
+    ``Sec-WebSocket-Protocol`` subprotocol.
+
+    SEC-01/SEC-02: ``pin`` query parameter 인증은 제거되었다 — PIN은
+    rate-limited login route로만 제출한다. WS에서 PIN credential을 수집하지
+    않는다 (credential 표면 축소 + 로그/audit 누출 방지).
 
     Args:
         websocket: The inbound WebSocket connection.
 
     Returns:
-        The token or PIN string, or None if none was provided.
+        The token string, or None if none was provided.
 
     """
     # Query parameter (primary for browser WS clients).
     token = websocket.query_params.get("token")
     if token:
         return token
-    pin = websocket.query_params.get("pin")
-    if pin:
-        return pin
     # Subprotocol header (set by non-browser clients).
     protocols = websocket.headers.get("sec-websocket-protocol")
     if protocols:

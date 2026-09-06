@@ -1,0 +1,70 @@
+{
+  "task_id": "SEC-01",
+  "title": "단일 인증 정책과 저장 PIN 상태 일치 (fail-closed HTTP/SSE/WS)",
+  "plan_ref": "docs/11_COMMERCIAL_GA_100_PLAN.md §SEC-01",
+  "checklist_ref": "docs/12_COMMERCIAL_GA_100_CHECKLIST.md §SEC-01",
+  "branch": "codex/sec-01-auth-policy",
+  "worktree": "/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-sec-01",
+  "base": "01669c2 (dat-02 병합 + mypy gate 이후 main tip)",
+  "owner": "sec_01_policy",
+  "status": "REVIEW_R1_APPROVE",
+  "acceptance_criteria": {
+    "single_policy_all_surfaces": {
+      "pass": true,
+      "evidence": "startup(validate_startup_security), HTTP(authenticate_request→get_shared_auth_policy), WS(close_unauthorized_ws→동일 policy), status(/api/auth/status→policy.status()) 모두 같은 AuthPolicy 객체 사용. 진리표 29테스트 + 구조 고정 테스트(http/ws 소스에 get_shared_auth_policy 존재) 통과"
+    },
+    "stored_hash_alone_protects": {
+      "pass": true,
+      "evidence": "진리표 hashonly-* 4행 전부 protected. hash_only_server fixture에서 무자격 HTTP/SSE=401, WS=close 4401 확인"
+    },
+    "unauthenticated_fail_closed": {
+      "pass": true,
+      "evidence": "HTTP 401 (test_http_unauthenticated_rejected_401), SSE 401 (test_sse_unauthenticated_rejected_401 — /v1/messages), WS 4401 (test_ws_unauthenticated_closed_4401 — close 프레임 검증)"
+    },
+    "dev_no_pin_explicit_conditions": {
+      "pass": true,
+      "evidence": "AGK_SEC_DEV_NO_PIN_ALLOW 명시 + loopback + credential 전무 3조건. production에서는 env가 있어도 deny (test_production_always_denies_anon). 0.0.0.0 바인드에서 deny (test_non_loopback_host_always_denies_even_with_allow)"
+    },
+    "pin_change_delete_restart_consistency": {
+      "pass": true,
+      "evidence": "policy가 매 평가 시 hash 파일을 재판독 (캐시 없음). test_pin_removal_changes_level_immediately / test_pin_change_reflected_in_status_payload. /api/auth/status가 동일 소스에서 {protected, level, reason, dev_no_pin_allow} 반환"
+    },
+    "truth_table_automated": {
+      "pass": true,
+      "evidence": "tests/test_auth_policy_truth_table.py 29 tests — 9행 입력 진리표 parametrize 전수 + 전송면 3종 + 단일 정책 구조 고정 + startup 통합"
+    }
+  },
+  "changes": [
+    "src/antigravity_k/api/auth_policy.py (신규) — AuthPolicy/AuthDecision/resolve_auth_decision, 공유 싱글톤",
+    "src/antigravity_k/api/auth_routes.py — authenticate_request가 공유 policy로 판정, /api/auth/status 추가, init_auth_state가 policy 재초기화",
+    "src/antigravity_k/api/routes/session_state.py — close_unauthorized_ws가 공유 policy로 판정, ?pin= credential 제거",
+    "src/antigravity_k/engine/auth.py — extract_token_from_ws에서 pin query 수집 제거",
+    "src/antigravity_k/api/server.py — /api/auth/status public allowlist 추가",
+    "tests/conftest.py — 세션 autouse fixture: 명시적 dev-allow env + 자격증명 격리",
+    "tests/test_auth_policy_truth_table.py (신규) — 29 tests",
+    "tests/test_workspace_websocket*.py — ?pin= 인증 채널 → token 채널 이전 (SEC-01/02 표면 축소 정합)",
+    "tests/test_auth.py — pin subject 테스트를 공유 policy 방식으로 갱신"
+  ],
+  "security_notes": [
+    "WS ?pin= credential 제거는 SEC-02(credential 표면 축소)의 선행 정합 — PIN은 rate-limited login route로만 제출된다",
+    "production에서 dev-allow env는 무시된다 (이중 안전장치)",
+    "eval by evaluation: policy는 요청마다 credential 소스를 재판독 — 상태 불일치 창구 없음"
+  ],
+  "validation": {
+    "new_tests": "29 passed (test_auth_policy_truth_table.py)",
+    "adjacent_suites": "71 passed (auth/startup/events/headers/policy)",
+    "workspace_ws": "26 passed (?pin=→token 이전 후)",
+    "full_suite": "5498 passed, 22 failed — 22 failures는 base 01669c2와 byte-identical (사전 존재, SEC-01 회귀 0)",
+    "lint": "ruff check + format All clean",
+    "types": "mypy 5 files no issues"
+  },
+  "review": {
+    "reviewer": "sec_01_verify (Freebuff/Claude 세션, 구현자와 상이)",
+    "date": "2026-09-06",
+    "verdict": "APPROVE",
+    "defects_found": 0,
+    "method": "독립 재현 스크립트 6/6 + 진리표 29건 재실행 + auth/WS 인접 46건 재실행 + ruff/mypy",
+    "review_doc": ".omo/evidence/commercial-ga-100/SEC-01/review.md",
+    "reviewer_script": ".omo/evidence/commercial-ga-100/SEC-01/reviewer-acceptance-check.py"
+  }
+}

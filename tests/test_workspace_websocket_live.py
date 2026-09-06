@@ -19,6 +19,8 @@ from tests.test_workspace_websocket import echo as echo
 from tests.test_workspace_websocket import registry as registry
 from tests.test_workspace_websocket import token_service as token_service
 
+assert echo and registry and token_service, "pytest fixture 재수출 — 런타임 미사용"
+
 
 class LiveServer(uvicorn.Server):
     def __init__(self) -> None:
@@ -32,8 +34,13 @@ class LiveServer(uvicorn.Server):
 
 
 @pytest.fixture
-def live_server(token_service: TokenService, registry: WorkspaceServiceRegistry) -> Iterator[str]:
-    _ = token_service, registry
+def live_server(
+    token_service: TokenService,
+    registry: WorkspaceServiceRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[str]:
+    """로컬 uvicorn 기동 — 모듈 재수출 fixture 이름 충돌(ruff F811, 구버전) 회피용 별칭."""
+    _ = token_service, registry, monkeypatch
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         server = LiveServer()
@@ -83,11 +90,14 @@ def test_live_upstream_close_reaches_client(
     live_server: str,
     echo: EchoUpstream,
     registry: WorkspaceServiceRegistry,
+    token_service: TokenService,
     command: str,
     code: int,
 ) -> None:
+    """SEC-01/02: WS 인증은 token 채널만 — pin query는 credential이 아니다."""
     record = registry.register("echo", "main", "qa", echo.port)
-    url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?pin={TEST_PIN}"
+    token = token_service.issue_token("qa")
+    url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?token={token}"
     with connect(url, proxy=None, open_timeout=5, close_timeout=1) as ws:
         assert ws.recv(timeout=5) == "/"
         ws.send(command)
@@ -97,12 +107,15 @@ def test_live_upstream_close_reaches_client(
     assert echo.disconnected.wait(timeout=5)
 
 
-def test_live_unreachable_upstream_closes_1011(live_server: str, registry: WorkspaceServiceRegistry) -> None:
+def test_live_unreachable_upstream_closes_1011(
+    live_server: str, registry: WorkspaceServiceRegistry, token_service: TokenService
+) -> None:
     with socket.socket() as reserved:
         reserved.bind(("127.0.0.1", 0))
         port = cast(tuple[str, int], reserved.getsockname())[1]
         record = registry.register("offline", "main", "qa", port)
-        url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?pin={TEST_PIN}"
+        token = token_service.issue_token("qa")
+        url = f"ws://{live_server}/api/workspace/services/{record.hostname}/ws?token={token}"
         with connect(url, proxy=None, open_timeout=5) as ws:
             with pytest.raises(ConnectionClosed) as closed:
                 _ = ws.recv(timeout=15)

@@ -15,7 +15,6 @@ Routes
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, ParamSpec, Protocol, TypeVar
@@ -26,7 +25,6 @@ from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from antigravity_k.api.startup_security import is_loopback_host
 from antigravity_k.config import config
 from antigravity_k.engine.auth import TokenService, hash_pin, verify_pin
 
@@ -92,6 +90,12 @@ def init_auth_state() -> None:
         secret_path=config.security.token_secret_file,
         token_ttl_hours=config.security.token_ttl_hours,
     )
+
+    # SEC-01: 공유 AuthPolicy를 현재 config 바인딩으로 (재)초기화 —
+    # HTTP/WS/상태 endpoint가 이 policy 객체 하나를 공유한다.
+    from antigravity_k.api.auth_policy import init_shared_auth_policy
+
+    _ = init_shared_auth_policy(config.security.pin_hash_file)
 
     hash_path = Path(config.security.pin_hash_file)
     if hash_path.exists():
@@ -262,6 +266,19 @@ def logout() -> dict[str, str]:
     return {"detail": "Token is stateless; discard it client-side to complete logout."}
 
 
+@router.get("/status")
+def auth_status() -> dict[str, object]:
+    """SEC-01 상태 endpoint — UI 표시와 실제 인증이 같은 policy 소스를 쓴다.
+
+    응답은 공유 AuthPolicy의 ``status()`` 그대로다:
+      ``{protected, level, reason, dev_no_pin_allow}``
+    PIN 변경/삭제/재시작 후 이 endpoint가 즉시 새 상태를 반영한다 (캐시 없음).
+    """
+    from antigravity_k.api.auth_policy import get_shared_auth_policy
+
+    return get_shared_auth_policy().status()
+
+
 # ---------------------------------------------------------------------------
 # Helpers used by the middleware and the verify route
 # ---------------------------------------------------------------------------
@@ -285,22 +302,21 @@ def _mark_authenticated(request: Request, subject: str) -> None:
 def authenticate_request(request: Request) -> bool:
     """Return True if the request carries valid credentials.
 
+    SEC-01 단일 정책: 판정은 공유 :class:`~antigravity_k.api.auth_policy.AuthPolicy`
+    로 위임한다 (HTTP/WS/상태 endpoint가 같은 객체를 사용). 구버전의
+    "plaintext PIN 부재 시 loopback 익명 허용" 분기는 저장 hash를 무시하는
+    결함이므로 제거되었다 — hash 존재 시 loopback 개발 모드도 보호 상태다.
+
     Checks, in order:
       1. A valid bearer token in the ``Authorization`` header.
       2. (Legacy compatibility) a valid PIN in the ``X-Access-Pin`` header or
          ``ag_access_pin`` cookie.
-
-    This is the single source of truth used by the HTTP middleware so that
-    token and legacy PIN auth share one code path.
+      3. Anonymous access only when the shared policy resolves
+         ``open_loopback`` (explicit dev allow + loopback + no credential).
     """
-    if (
-        not config.security.access_pin
-        and os.environ.get("AGK_ENV", "development").strip().lower() != "production"
-        and is_loopback_host(config.server.host)
-    ):
-        _mark_authenticated(request, "loopback")
-        return True
+    from antigravity_k.api.auth_policy import get_shared_auth_policy
 
+    policy = get_shared_auth_policy()
     token = _extract_bearer(request)
     if token is not None:
         claims = get_token_service().verify_token(token)
@@ -311,10 +327,13 @@ def authenticate_request(request: Request) -> bool:
 
     # Legacy PIN compatibility (constant-time via verify_pin).
     pin = request.headers.get("X-Access-Pin") or request.cookies.get("ag_access_pin")
-    if pin:
-        stored = get_current_pin_hash()
-        if stored and verify_pin(pin, stored):
-            _mark_authenticated(request, "pin-user")
-            return True
+
+    decision = policy.evaluate_credential(token_verified=False, pin=pin, host=config.server.host)
+    if decision.level == "open_loopback":
+        _mark_authenticated(request, "loopback")
+        return True
+    if decision.level == "protected" and decision.reason == "valid-pin":
+        _mark_authenticated(request, "pin-user")
+        return True
 
     return False

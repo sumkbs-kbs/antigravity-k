@@ -145,20 +145,29 @@ def test_extract_bearer_token():
     assert extract_bearer_token("Bearer ") is None
 
 
-def test_authenticate_request_marks_pin_subject(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_authenticate_request_marks_pin_subject(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Legacy X-Access-Pin 헤더 PIN 인증 — 공유 AuthPolicy 경로로 평가된다.
+
+    SEC-01: 정책이 credential 소스를 pin_hash_file에서 직접 읽으므로, 테스트는
+    파일에 실제 hash를 쓰고 공유 policy를 그 파일로 재초기화한다 (모듈 전역
+    verify_pin 패치 방식은 정책이 engine.auth의 상수시간 경로를 공유하므로 불가).
+    """
+    import antigravity_k.api.auth_policy as auth_policy_mod
     import antigravity_k.api.auth_routes as auth_routes
     from antigravity_k.config import config
 
-    request = Request({"type": "http", "headers": [(b"x-access-pin", b"pin")]})
+    hash_file = tmp_path / "auth_hash"
+    hash_file.write_text(hash_pin("pin"), encoding="utf-8")
     monkeypatch.setattr(config.security, "access_pin", "configured")
-    monkeypatch.setattr(auth_routes, "get_current_pin_hash", lambda: "stored")
-    def verify_test_pin(pin: str, stored: str) -> bool:
-        return pin == "pin" and stored == "stored"
+    original_policy = auth_policy_mod._shared_auth_policy
+    auth_policy_mod.init_shared_auth_policy(hash_file)
+    try:
+        request = Request({"type": "http", "headers": [(b"x-access-pin", b"pin")]})
 
-    monkeypatch.setattr(auth_routes, "verify_pin", verify_test_pin)
-
-    assert auth_routes.authenticate_request(request) is True
-    assert cast(str, getattr(request.state, "auth_subject")) == "pin-user"
+        assert auth_routes.authenticate_request(request) is True
+        assert cast(str, getattr(request.state, "auth_subject")) == "pin-user"
+    finally:
+        auth_policy_mod._shared_auth_policy = original_policy
 
 
 # ---------------------------------------------------------------------------
