@@ -444,11 +444,15 @@ async def chat_completions(
     from antigravity_k.engine.session_manager import SessionManager
 
     get_session_manager = cast(
-        "Callable[[], SessionManager]",
-        getattr(api_dependencies, "_get_session_manager"),
+        "Callable[..., SessionManager]",
+        getattr(api_dependencies, "get_session_manager", None) or getattr(api_dependencies, "_get_session_manager"),
     )
     session_manager = get_session_manager()
-    _ = session_manager.start_session(resume=True)
+    # WS-03 F1/F2: bind resume to the request's canonical project root — never cwd.
+    _ = session_manager.start_session(
+        project_path=execution_context.canonical_project_root,
+        resume=True,
+    )
 
     # Auto-restore context for new conversations (UI sends few messages)
     # 작업 2: 임계값 완화 (<= 4) — 더 많은 새 대화에서 이전 기억 복원

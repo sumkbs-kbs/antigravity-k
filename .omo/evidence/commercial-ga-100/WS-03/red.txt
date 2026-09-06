@@ -28,3 +28,11 @@ GREEN (this tip, pending independent review — no self-APPROVE):
 3. Eviction/shutdown stops watchdog, closes RAG vector_store, clears compressor
    caches; delete_project evicts; LRU eviction isolates failures.
 4. A→B→A + restart (evict+recreate) tests keep disk-backed project memory isolated.
+
+---
+REJECT fix (r2 submission) GREEN claims (owner — pending independent re-review):
+1. get_session_manager → ProjectRuntime.session_manager; chat/session start_session(project_path=canonical_root).
+2. get_slash_registry / get_scheduled_job_service project-scoped on ProjectRuntime.
+3. Durable hooks namespaced under project_root/.antigravity (no Path.cwd() wipe).
+4. Factory wires RAGIndexer + per-project VaultEngine under project root.
+5. Adversarial unit tests cover F1–F3/F5–F7 A→B isolation.

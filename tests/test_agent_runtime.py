@@ -664,23 +664,66 @@ def test_slash_natural_language_uses_bound_agent_runtime():
     ]
 
 
-def test_legacy_slash_registry_receives_bound_agent_runtime(monkeypatch: pytest.MonkeyPatch):
+def test_legacy_slash_registry_receives_bound_agent_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """WS-03 F3: slash registry is project-scoped and tracks that project's agent_runtime."""
     from antigravity_k.api import dependencies
+    from antigravity_k.api.contracts.execution_context import RequestExecutionContext
+    from antigravity_k.api.project_binding import (
+        reset_bound_request_execution_context,
+        set_bound_request_execution_context,
+    )
+    from antigravity_k.engine.project_registry import ProjectRegistry
 
-    runtime = object()
-    monkeypatch.setattr(dependencies, "_slash_registry", None)
-    monkeypatch.setattr(dependencies, "get_agent_runtime", lambda: runtime)
-    monkeypatch.setattr(dependencies, "__get_tool_registry", lambda: cast(list[object], []))
-    monkeypatch.setattr(dependencies, "_get_session_manager", lambda: None)
-    monkeypatch.setattr(dependencies, "_get_context_shaper", lambda: None)
-    monkeypatch.setattr(dependencies, "get_model_manager", lambda: None)
-    monkeypatch.setattr(dependencies, "__get_skill_loader", lambda: None)
+    storage = tmp_path / "projects.json"
+    monkeypatch.setattr(
+        "antigravity_k.engine.project_registry._DEFAULT_STORAGE_PATH",
+        storage,
+    )
+    import antigravity_k.engine.project_registry as preg
 
-    from antigravity_k.api.dependencies import get_slash_registry
+    monkeypatch.setattr(preg, "_global_registry", None)
+    from antigravity_k.config import config
 
-    registry = get_slash_registry()
+    monkeypatch.setattr(config.paths, "project_root", tmp_path.resolve())
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
 
-    assert getattr(registry, "_agent_runtime") is runtime
+    dependencies.reset_runtime_dependencies()
+    reset_bound_request_execution_context()
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    registry = ProjectRegistry(storage_path=storage)
+    monkeypatch.setattr(preg, "_global_registry", registry)
+    rec = registry.add_project("proj", str(project))
+
+    set_bound_request_execution_context(
+        RequestExecutionContext(
+            schema_version=1,
+            request_id="req",
+            task_id=None,
+            project_id=rec.id,
+            canonical_project_root=str(project.resolve()),
+            conversation_id="conv",
+            conversation_revision=0,
+            actor_subject="test",
+            session_id="sess",
+            model_id="m1",
+            correlation_id="",
+            project_name="n",
+        )
+    )
+
+    from antigravity_k.api.dependencies import acquire_project_runtime, get_slash_registry
+
+    runtime_handle = acquire_project_runtime()
+    registry_obj = get_slash_registry()
+    assert getattr(registry_obj, "_agent_runtime") is runtime_handle.agent_runtime
+
+    dependencies.reset_runtime_dependencies()
+    reset_bound_request_execution_context()
 
 
 def test_runtime_submits_background_work_through_same_orchestrator_and_model():
@@ -787,7 +830,9 @@ def test_task_api_resume_route_uses_canonical_runtime(monkeypatch: pytest.Monkey
 
     result = task_api.resume_task(
         "task_runtime_001",
-        StarletteRequest({"type": "http", "method": "POST", "path": "/api/tasks/task_runtime_001/resume", "headers": []}),
+        StarletteRequest(
+            {"type": "http", "method": "POST", "path": "/api/tasks/task_runtime_001/resume", "headers": []}
+        ),
     )
 
     assert result.model_dump() == {"status": "resumed", "task_id": "task_runtime_001"}

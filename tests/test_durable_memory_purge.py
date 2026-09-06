@@ -16,11 +16,9 @@ from antigravity_k.knowledge.memory_service import MemoryService
 
 
 class _CallMock(Protocol):
-    def assert_called_once_with(self, *args: object, **kwargs: object) -> None:
-        ...
+    def assert_called_once_with(self, *args: object, **kwargs: object) -> None: ...
 
-    def assert_not_called(self) -> None:
-        ...
+    def assert_not_called(self) -> None: ...
 
 
 def test_memory_service_clear_all_removes_rows_and_embeddings(tmp_path: Path):
@@ -113,39 +111,29 @@ def test_dependency_memory_manager_registers_durable_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from antigravity_k.api import dependencies
-    from antigravity_k.engine.memory_provider import (
-        EpisodicMemoryProvider,
-        GlobalMemoryProvider,
-    )
-    from antigravity_k.engine.session_manager import SessionManager
+    from antigravity_k.engine.project_registry import ProjectRegistry
 
-    session_manager = SessionManager(base_dir=str(tmp_path / "sessions"))
-
-    def episodic_provider_factory(max_episodes: int, persist_dir: str | None) -> EpisodicMemoryProvider:
-        _ = persist_dir
-        return EpisodicMemoryProvider(max_episodes, persist_dir=str(tmp_path / "episodes"))
-
-    monkeypatch.setattr(dependencies, "_memory_manager", None)
-    monkeypatch.setattr(dependencies, "_get_session_manager", lambda: session_manager)
+    storage = tmp_path / "projects.json"
     monkeypatch.setattr(
-        dependencies,
-        "EpisodicMemoryProvider",
-        episodic_provider_factory,
+        "antigravity_k.engine.project_registry._DEFAULT_STORAGE_PATH",
+        storage,
     )
-    monkeypatch.setattr(
-        dependencies,
-        "GlobalMemoryProvider",
-        lambda: GlobalMemoryProvider(memory_dir=str(tmp_path / "global")),
-    )
-    monkeypatch.setattr(dependencies, "_clear_memory_service", lambda: 0)
-    monkeypatch.setattr(dependencies, "_clear_wiki", lambda: 0)
-    monkeypatch.setattr(dependencies, "_clear_gbrain", lambda: 0)
-    monkeypatch.setattr(dependencies, "_clear_project_vector", lambda: 0)
-    monkeypatch.setattr(dependencies, "_clear_search_cache", lambda: 0)
+    import antigravity_k.engine.project_registry as preg
 
+    monkeypatch.setattr(preg, "_global_registry", None)
+    from antigravity_k.config import config
+
+    monkeypatch.setattr(config.paths, "project_root", tmp_path.resolve())
+    monkeypatch.delenv("AGK_ALLOWED_ROOTS", raising=False)
+
+    dependencies.reset_runtime_dependencies()
     project_root = tmp_path / "project"
     project_root.mkdir()
-    manager = dependencies.get_memory_manager(str(project_root))
+    registry = ProjectRegistry(storage_path=storage)
+    monkeypatch.setattr(preg, "_global_registry", registry)
+    rec = registry.add_project("proj", str(project_root))
+
+    manager = dependencies.get_memory_manager(project_id=rec.id, project_root=str(project_root))
 
     assert [provider.name for provider in manager.providers] == [
         "builtin",
@@ -159,6 +147,7 @@ def test_dependency_memory_manager_registers_durable_providers(
         "project_vector",
         "search_cache",
     ]
+    dependencies.reset_runtime_dependencies()
 
 
 @pytest.mark.asyncio

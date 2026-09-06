@@ -36,10 +36,7 @@ from pydantic import (
 from antigravity_k import __version__
 from antigravity_k.api.dependencies import (
     __get_skill_loader,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
-    __get_tool_registry,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
-    _get_context_shaper,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
     _get_session_manager,  # pyright: ignore[reportPrivateUsage] - legacy dependency injection hook
-    get_agent_runtime,
     get_model_manager,
     get_vault_engine,
 )
@@ -229,16 +226,21 @@ def _require_allowed(tool_name: str, args: JSONDict, risk_level: str) -> None:
 
 
 def _get_slash_registry() -> SlashCommandRegistry:
-    from antigravity_k.engine.slash_commands import SlashCommandRegistry
+    from antigravity_k.api.dependencies import get_slash_registry
 
-    return SlashCommandRegistry(
-        tool_registry=__get_tool_registry(),
-        session_manager=_get_session_manager(),
-        context_shaper=_get_context_shaper(),
-        model_manager=get_model_manager(),
-        skill_loader=__get_skill_loader(),
-        agent_runtime=get_agent_runtime(),
-    )
+    return cast("SlashCommandRegistry", get_slash_registry())
+
+
+def _start_bound_session(*, resume: bool = True):
+    """Start/resume session using the bound project's canonical root (WS-03 F2)."""
+    from antigravity_k.api.dependencies import acquire_project_runtime
+    from antigravity_k.api.project_binding import get_bound_request_execution_context
+
+    sm = _get_session_manager()
+    bound = get_bound_request_execution_context()
+    project_path = bound.canonical_project_root if bound is not None else acquire_project_runtime().project_root
+    _ = sm.start_session(project_path=project_path, resume=resume)
+    return sm
 
 
 def _get_memory_manager():
@@ -343,8 +345,7 @@ async def session_info():
 @router.get("/api/session/messages")
 async def session_messages():
     """Session Messages."""
-    sm = _get_session_manager()
-    _ = sm.start_session(resume=True)
+    sm = _start_bound_session(resume=True)
     msgs = sm.get_messages()
     dicts: list[JSONDict] = []
     messages: list[object] = cast(list[object], msgs or [])

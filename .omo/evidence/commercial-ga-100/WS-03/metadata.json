@@ -15,11 +15,16 @@
     "pytest_regression": "46 passed (ws03+ws01+project_memory+engine_context_quality)",
     "ruff": "clean on touched files"
   },
-  "notes": "Independent r1 REJECT: F1/F2 session DI+chat cwd leak; F3 slash freeze; F5 durable/cwd vector; F6 RAG overclaim. See review.md.",
-  "verdict": "REJECT",
-  "result_sha_pending": false,
+  "notes": "Owner fix for r1 REJECT F1–F6/F7 submitted; awaiting ws_03_verify re-review. Prior REJECT preserved in review.md. Do not start WS-04.",
+  "verdict": "PENDING_REREVIEW",
+  "result_sha_pending": true,
   "result_sha": "4a03e3770f31b49697e0ff23c29e55227808822d",
   "ended_at": "2026-09-06T10:25:00+09:00",
   "review_tip": "b3e48344b8fd9ed27d8090ef8f4817285b6a27a2",
-  "reviewed_at": "2026-09-06T10:28:49+09:00"
+  "reviewed_at": "2026-09-06T10:28:49+09:00",
+  "fix_submitted_at": "2026-09-06T10:38+09:00",
+  "owner_tests_ws03": "15 passed",
+  "owner_tests_regression": "51 passed",
+  "prior_result_sha": "4a03e3770f31b49697e0ff23c29e55227808822d",
+  "prior_review_tip": "b3e48344b8fd9ed27d8090ef8f4817285b6a27a2"
 }

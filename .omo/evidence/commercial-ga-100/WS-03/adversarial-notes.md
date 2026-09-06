@@ -9,3 +9,8 @@
 5. MemoryManager.bind_project_root still raises on foreign rebind for a single
    manager — isolation is achieved by separate managers per project_id, not by
    relaxing the bind guard.
+
+6. Session DI: chat must use ProjectRuntime.session_manager + start_session(project_path=canonical_root).
+7. Slash/job registries must be per-project (or rebound every request) — never freeze first runtime.
+8. Durable clear hooks must close over project_root; Path.cwd() vector clear is a cross-project wipe.
+9. Production factory must attach RAGIndexer + project vault; manually injecting indexer in tests is not proof.

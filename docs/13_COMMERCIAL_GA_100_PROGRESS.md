@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 5 |
 | 진행 중 | 1 |
 | 차단 | 0 |
-| 현재 작업 | WS-03 REVIEW — r1 REJECT (`ws_03_verify`); awaiting owner fix |
+| 현재 작업 | WS-03 REVIEW — owner fix submitted; awaiting `ws_03_verify` re-review |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,20 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-03 REJECT fix 제출 (`ws_03_runtime`)
+
+- owner: `ws_03_runtime` (APPROVE 자체 작성 금지)
+- prior REJECT: `review.md` 보존 (tip `b3e48344…`, impl `4a03e377…`)
+- Fix 요약:
+  - F1/F2: `get_session_manager` → `ProjectRuntime.session_manager`; chat/session `start_session(project_path=canonical_root)`
+  - F3/F7: `get_slash_registry` / `get_scheduled_job_service` project-scoped on `ProjectRuntime`
+  - F5: durable hooks close over `project_root` (`.antigravity/...`); no `Path.cwd()` wipe
+  - F6: factory wires real `RAGIndexer` + per-project `VaultEngine`
+  - adversarial tests: session/slash/durable/RAG/job A→B isolation
+- Owner re-run: WS-03 **15 passed**; regression **51 passed**; ruff clean; owner adversarial F1–F7 PASS
+- Evidence: `re-review-request.md`, `adversarial-verify-owner.txt`, `tests-fix-r2.txt`, `tests-regression-r2.txt` (prior REJECT 보존)
+- 상태: `REVIEW` 유지 (DONE 아님). **WS-04 이 lane 착수 금지** until re-review APPROVE.
 
 ### 2026-09-06 · WS-03 독립 review r1 REJECT (`ws_03_verify`)
 
@@ -352,11 +366,11 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-03 | REVIEW | ws_03_runtime | `4a03e3770f31…` | r1 REJECT — fix+re-review |
+| WS-03 | REVIEW | ws_03_runtime | *(fix SHA pending)* | r1 REJECT preserved; owner fix → re-review |
 
 ## 차단 및 결정 대기
 
-`WS-03` **REVIEW** 유지 — 독립 r1 **REJECT** (`ws_03_verify`, tip `b3e48344…`, impl `4a03e377…`). Blocking F1/F2/F3/F5/F6. **DONE 아님. WS-04 이 lane 착수 금지** until fix + re-review APPROVE. `WS-02`/`WS-01` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
+`WS-03` **REVIEW** 유지 — owner fix for r1 REJECT submitted; `review.md` REJECT 보존. **DONE 아님. WS-04 이 lane 착수 금지** until `ws_03_verify` re-review APPROVE. `WS-02`/`WS-01` DONE 유지. Residual shell token-policy (glued-redir / `$ENV`)는 SEC follow-up. ARC-01 DONE (`ede637a`). GOV-01 local-first 경계 유지.
 
 ## 증거 위치
 

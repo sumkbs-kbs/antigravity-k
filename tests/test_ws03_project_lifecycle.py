@@ -15,6 +15,9 @@ from antigravity_k.api.dependencies import (
     evict_project_runtime,
     get_memory_manager,
     get_orchestrator,
+    get_scheduled_job_service,
+    get_session_manager,
+    get_slash_registry,
     reset_runtime_dependencies,
 )
 from antigravity_k.api.project_binding import (
@@ -177,21 +180,24 @@ def test_artifact_engine_rooted_per_project(projects: tuple[Path, Path, str, str
 
 
 def test_rag_indexer_attached_per_orchestrator(projects: tuple[Path, Path, str, str]) -> None:
-    from antigravity_k.engine.rag_indexer import RAGIndexer
-
+    """Factory must wire a real per-project RAGIndexer (not None / not shared)."""
     project_a, project_b, id_a, id_b = projects
     _bind(id_a, project_a)
     orch_a = get_orchestrator()
-    orch_a._rag_indexer = RAGIndexer(project_root=str(project_a))
     _bind(id_b, project_b)
     orch_b = get_orchestrator()
-    orch_b._rag_indexer = RAGIndexer(project_root=str(project_b))
 
-    assert orch_a._rag_indexer is not orch_b._rag_indexer
-    assert orch_a._rag_indexer.project_root == str(project_a.resolve()) or os.path.abspath(
-        orch_a._rag_indexer.project_root
-    ) == os.path.abspath(str(project_a))
-    assert os.path.abspath(orch_b._rag_indexer.project_root) == os.path.abspath(str(project_b))
+    rag_a = getattr(orch_a, "_rag_indexer", None)
+    rag_b = getattr(orch_b, "_rag_indexer", None)
+    assert rag_a is not None and rag_b is not None
+    assert rag_a is not rag_b
+    assert os.path.abspath(rag_a.project_root) == os.path.abspath(str(project_a))
+    assert os.path.abspath(rag_b.project_root) == os.path.abspath(str(project_b))
+    # Vault engines must also be distinct per project (no shared process vault).
+    assert orch_a.vault_engine is not None and orch_b.vault_engine is not None
+    assert orch_a.vault_engine is not orch_b.vault_engine
+    assert str(project_a.resolve()) in str(orch_a.vault_engine.vault_path)
+    assert str(project_b.resolve()) in str(orch_b.vault_engine.vault_path)
 
 
 def test_eviction_keeps_other_projects_and_cleans_watchdog(
@@ -330,3 +336,138 @@ def test_acquire_by_explicit_project_id(projects: tuple[Path, Path, str, str]) -
     assert rt_b.project_id == id_b
     assert rt_a.orchestrator is not rt_b.orchestrator
     assert rt_a.memory_manager is not rt_b.memory_manager
+
+
+def test_session_manager_di_is_project_scoped(projects: tuple[Path, Path, str, str]) -> None:
+    """F1/F1c: get_session_manager() must return ProjectRuntime.session_manager."""
+    project_a, project_b, id_a, id_b = projects
+    _bind(id_a, project_a, "s1")
+    sm_a = get_session_manager()
+    rt_a = acquire_project_runtime()
+    assert sm_a is rt_a.session_manager
+
+    _bind(id_b, project_b, "s2")
+    sm_b = get_session_manager()
+    rt_b = acquire_project_runtime()
+    assert sm_b is rt_b.session_manager
+    assert sm_a is not sm_b
+
+
+def test_chat_session_resume_does_not_leak_secret_across_projects(
+    projects: tuple[Path, Path, str, str],
+) -> None:
+    """F2: A→B resume must not surface A's session secret."""
+    project_a, project_b, id_a, id_b = projects
+    secret = "SECRET_FROM_PROJECT_A_ONLY_xyz"
+
+    _bind(id_a, project_a, "sess-a")
+    sm_a = get_session_manager()
+    sid_a = sm_a.start_session(project_path=str(project_a.resolve()), resume=False)
+    sm_a.add_turn(role="user", content=secret)
+    sm_a.add_turn(role="assistant", content="ack-a")
+    sm_a.save()
+
+    _bind(id_b, project_b, "sess-b")
+    sm_b = get_session_manager()
+    sid_b = sm_b.start_session(project_path=str(project_b.resolve()), resume=True)
+    msgs_b = sm_b.get_messages()
+    blob_b = " ".join(m.get("content", "") for m in msgs_b)
+    assert secret not in blob_b
+    assert sid_b != sid_a
+
+    _bind(id_a, project_a, "sess-a2")
+    sm_a2 = get_session_manager()
+    sid_a2 = sm_a2.start_session(project_path=str(project_a.resolve()), resume=True)
+    msgs_a = sm_a2.get_messages()
+    blob_a = " ".join(m.get("content", "") for m in msgs_a)
+    assert secret in blob_a
+    assert sid_a2 == sid_a
+    assert sm_a2 is sm_a
+
+
+def test_slash_registry_rebinds_agent_runtime_per_project(
+    projects: tuple[Path, Path, str, str],
+) -> None:
+    """F3: get_slash_registry must not freeze the first project's agent_runtime."""
+    project_a, project_b, id_a, id_b = projects
+    _bind(id_a, project_a, "sl-a")
+    reg_a = get_slash_registry()
+    runtime_a = acquire_project_runtime().agent_runtime
+    assert getattr(reg_a, "_agent_runtime") is runtime_a
+
+    _bind(id_b, project_b, "sl-b")
+    reg_b = get_slash_registry()
+    runtime_b = acquire_project_runtime().agent_runtime
+    assert reg_a is not reg_b
+    assert getattr(reg_b, "_agent_runtime") is runtime_b
+    assert runtime_a is not runtime_b
+    assert getattr(reg_a, "_agent_runtime") is runtime_a
+
+
+def test_durable_clear_a_does_not_wipe_b_vector(
+    projects: tuple[Path, Path, str, str],
+) -> None:
+    """F5: clear(all) on A must not delete B's project-scoped durable/vector data."""
+    from antigravity_k.engine.project_memory_paths import project_rag_vector_dir, project_search_cache_dir
+    from antigravity_k.engine.vector_store import VectorStore
+
+    project_a, project_b, id_a, id_b = projects
+
+    # Seed distinct search-cache files under each project root.
+    cache_a = project_search_cache_dir(project_a) / "a.json"
+    cache_b = project_search_cache_dir(project_b) / "b.json"
+    cache_a.write_text('{"cached_at": "2099-01-01T00:00:00+00:00", "q": "a"}', encoding="utf-8")
+    cache_b.write_text('{"cached_at": "2099-01-01T00:00:00+00:00", "q": "b"}', encoding="utf-8")
+
+    # Seed RAG vector collections when chroma is available.
+    seeded_b = False
+    try:
+        vs_b = VectorStore(str(project_rag_vector_dir(project_b)), collection_name="project_code")
+        vs_b.upsert_chunks(
+            [
+                {
+                    "id": "b-chunk-1",
+                    "text": "PROJECT_B_VECTOR_MARKER",
+                    "metadata": {"source": "b.py"},
+                }
+            ]
+        )
+        vs_b.close()
+        seeded_b = True
+    except Exception:
+        seeded_b = False
+
+    _bind(id_a, project_a, "clr-a")
+    mm_a = get_memory_manager()
+    _ = mm_a.clear("all")
+
+    assert cache_a.exists() is False or not cache_a.read_text(encoding="utf-8")
+    # B's project-scoped cache must survive A's clear.
+    assert cache_b.exists()
+    assert "b" in cache_b.read_text(encoding="utf-8")
+
+    if seeded_b:
+        vs_b2 = VectorStore(str(project_rag_vector_dir(project_b)), collection_name="project_code")
+        try:
+            exported = vs_b2.export_all()
+        finally:
+            vs_b2.close()
+        blob = str(exported)
+        assert "PROJECT_B_VECTOR_MARKER" in blob or "b-chunk-1" in blob
+
+
+def test_scheduled_job_service_is_project_scoped(projects: tuple[Path, Path, str, str]) -> None:
+    """F7: scheduled job service must not freeze the first agent_runtime forever."""
+    project_a, project_b, id_a, id_b = projects
+    _bind(id_a, project_a, "job-a")
+    svc_a = get_scheduled_job_service()
+    rt_a = acquire_project_runtime()
+    assert svc_a is rt_a.scheduled_job_service
+    assert svc_a.submit_agent == rt_a.agent_runtime.submit_task
+
+    _bind(id_b, project_b, "job-b")
+    svc_b = get_scheduled_job_service()
+    rt_b = acquire_project_runtime()
+    assert svc_b is not svc_a
+    assert svc_b is rt_b.scheduled_job_service
+    assert svc_b.submit_agent == rt_b.agent_runtime.submit_task

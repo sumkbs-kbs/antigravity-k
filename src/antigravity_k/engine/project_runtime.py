@@ -48,6 +48,9 @@ class ProjectRuntime:
     session_manager: SessionManager
     orchestrator: Any
     agent_runtime: Any | None = None
+    slash_registry: Any | None = None
+    scheduled_job_service: Any | None = None
+    vault_engine: Any | None = None
     created_at: float = field(default_factory=time.monotonic)
     last_used_at: float = field(default_factory=time.monotonic)
     _shutdown: bool = False

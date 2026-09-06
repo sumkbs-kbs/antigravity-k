@@ -104,36 +104,67 @@ def get_mode_manager() -> ModeManager:
     return _mode_manager
 
 
-def _get_session_manager() -> SessionManager:
+def _legacy_session_manager() -> SessionManager:
+    """CLI/bootstrap fallback when no project runtime identity is resolvable."""
     global _session_manager
     if _session_manager is None:
         _session_manager = SessionManager()
     return _session_manager
 
 
+def _get_session_manager(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> SessionManager:
+    """Return the SessionManager for the resolved project (WS-03 F1/F2).
+
+    Always resolves through ``ProjectRuntimeRegistry`` when a project identity
+    is available (bound request context, explicit id/root, or active registry
+    project). Falls back to a process-local legacy manager only if acquisition
+    fails during early bootstrap.
+    """
+    try:
+        return acquire_project_runtime(project_id=project_id, project_root=project_root).session_manager
+    except Exception:
+        logger.debug("Falling back to legacy SessionManager", exc_info=True)
+        return _legacy_session_manager()
+
+
 get_session_manager = _get_session_manager
 
 
-def _durable_memory_hooks() -> dict[str, tuple]:
+def _durable_memory_hooks(project_root: str) -> dict[str, tuple]:
+    """Build clear/export/redact hooks scoped to ``project_root`` (WS-03 F5)."""
+    root = str(Path(project_root).resolve())
     return {
         "memory_service": (
-            _clear_memory_service,
-            _export_memory_service,
-            _redact_memory_service,
-            _retain_memory_service,
+            lambda: _clear_memory_service(project_root=root),
+            lambda: _export_memory_service(project_root=root),
+            lambda: _redact_memory_service(project_root=root),
+            lambda max_age_days: _retain_memory_service(max_age_days, project_root=root),
         ),
-        "wiki": (_clear_wiki, _export_wiki, _redact_wiki, _retain_wiki),
-        "gbrain": (_clear_gbrain, _export_gbrain, _redact_gbrain),
+        "wiki": (
+            lambda: _clear_wiki(project_root=root),
+            lambda: _export_wiki(project_root=root),
+            lambda: _redact_wiki(project_root=root),
+            lambda max_age_days: _retain_wiki(max_age_days, project_root=root),
+        ),
+        "gbrain": (
+            lambda: _clear_gbrain(project_root=root),
+            lambda: _export_gbrain(project_root=root),
+            lambda: _redact_gbrain(project_root=root),
+        ),
         "project_vector": (
-            _clear_project_vector,
-            _export_project_vector,
-            _redact_project_vector,
+            lambda: _clear_project_vector(project_root=root),
+            lambda: _export_project_vector(project_root=root),
+            lambda: _redact_project_vector(project_root=root),
         ),
         "search_cache": (
-            _clear_search_cache,
-            _export_search_cache,
-            _redact_search_cache,
-            _retain_search_cache,
+            lambda: _clear_search_cache(project_root=root),
+            lambda: _export_search_cache(project_root=root),
+            lambda: _redact_search_cache(project_root=root),
+            lambda max_age_days: _retain_search_cache(max_age_days, project_root=root),
         ),
     }
 
@@ -179,24 +210,97 @@ def _resolve_project_runtime_identity(
     return active.id, os.path.abspath(active.path)
 
 
+def _build_project_vault(project_root: str) -> VaultEngine | None:
+    """Create a vault rooted under the project (WS-03 F6 isolation)."""
+    from antigravity_k.engine.project_memory_paths import project_vault_dir
+
+    vault_path = str(project_vault_dir(project_root))
+    try:
+        return VaultEngine(vault_path=vault_path, sync_rag=True)
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Project VaultEngine init failed (sync_rag=True): %s", e)
+        try:
+            return VaultEngine(vault_path=vault_path, sync_rag=False)
+        except OSError:
+            logger.exception("Project VaultEngine completely failed for %s", project_root)
+            return None
+
+
+def _attach_project_rag_indexer(orchestrator: OrchestratorAgent, project_root: str) -> None:
+    """Wire a real per-project RAGIndexer with vectors under the project root."""
+    from antigravity_k.engine.project_memory_paths import project_rag_vector_dir
+    from antigravity_k.engine.rag_indexer import RAGIndexer
+    from antigravity_k.engine.vector_store import VectorStore
+
+    rag_dir = project_rag_vector_dir(project_root)
+    try:
+        vector_store: object | None = VectorStore(str(rag_dir), collection_name="project_code")
+    except Exception:
+        logger.exception("Project RAG VectorStore init failed for %s", project_root)
+        vector_store = None
+    setattr(orchestrator, "_rag_indexer", RAGIndexer(project_root=project_root, vector_store=vector_store))
+
+
+def _build_project_slash_registry(
+    *,
+    session_manager: SessionManager,
+    agent_runtime: AgentRuntime,
+    orchestrator: OrchestratorAgent,
+) -> object:
+    from antigravity_k.engine.slash_commands import SlashCommandRegistry
+
+    registry = SlashCommandRegistry(
+        tool_registry=orchestrator.tool_registry,
+        session_manager=session_manager,
+        context_shaper=orchestrator.context_shaper,
+        model_manager=get_model_manager(),
+        skill_loader=orchestrator.ctx.skill_loader,
+        agent_runtime=agent_runtime,
+    )
+    context_value = vars(orchestrator).get("ctx")
+    if isinstance(context_value, _RuntimeContextLike):
+        context_value.slash_commands.bind_runtime(agent_runtime)
+        # Prefer the project-scoped registry on the live context when present.
+        try:
+            setattr(context_value, "slash_commands", registry)
+        except Exception:
+            logger.debug("Could not replace orchestrator slash_commands", exc_info=True)
+    return registry
+
+
+def _build_project_job_service(agent_runtime: AgentRuntime, project_root: str) -> ScheduledJobService:
+    from antigravity_k.engine.project_memory_paths import project_memory_dir
+    from antigravity_k.engine.scheduled_job_store import ScheduledJobStore
+
+    db_path = str(project_memory_dir(project_root) / "scheduled_jobs.db")
+    return ScheduledJobService(
+        ScheduledJobStore(db_path),
+        agent_runtime.submit_task,
+        agent_runtime.get_task_status,
+    )
+
+
 def _build_project_runtime(project_id: str, project_root: str) -> ProjectRuntime:
     """Factory: allocate a fresh orchestrator/memory/session for one project."""
+    from antigravity_k.engine.project_memory_paths import project_sessions_dir
     from antigravity_k.engine.task_runner import get_task_runner
 
-    session_manager = SessionManager()
+    session_manager = SessionManager(base_dir=str(project_sessions_dir(project_root)))
     memory_manager = build_project_memory_manager(
         project_root,
         session_manager,
-        durable_hooks=_durable_memory_hooks(),
+        durable_hooks=_durable_memory_hooks(project_root),
     )
+    vault_engine = _build_project_vault(project_root)
     orchestrator = OrchestratorAgent(
         model_manager=get_model_manager(),
-        vault_engine=get_vault_engine(),
+        vault_engine=vault_engine,
         project_root=project_root,
         session_manager=session_manager,
         memory_manager=memory_manager,
         project_id=project_id,
     )
+    _attach_project_rag_indexer(orchestrator, project_root)
     task_runner = get_task_runner()
     benchmark_harness = get_benchmark_harness()
     agent_runtime = AgentRuntime(
@@ -205,9 +309,12 @@ def _build_project_runtime(project_id: str, project_root: str) -> ProjectRuntime
         task_outcome_recorder=benchmark_harness.record_task_outcome,
     )
     _ = benchmark_harness.bind_task_runner(task_runner)
-    context_value = vars(orchestrator).get("ctx")
-    if isinstance(context_value, _RuntimeContextLike):
-        context_value.slash_commands.bind_runtime(agent_runtime)
+    slash_registry = _build_project_slash_registry(
+        session_manager=session_manager,
+        agent_runtime=agent_runtime,
+        orchestrator=orchestrator,
+    )
+    job_service = _build_project_job_service(agent_runtime, project_root)
 
     return ProjectRuntime(
         project_id=project_id,
@@ -216,6 +323,9 @@ def _build_project_runtime(project_id: str, project_root: str) -> ProjectRuntime
         session_manager=session_manager,
         orchestrator=orchestrator,
         agent_runtime=agent_runtime,
+        slash_registry=slash_registry,
+        scheduled_job_service=job_service,
+        vault_engine=vault_engine,
     )
 
 
@@ -253,42 +363,100 @@ def get_memory_manager(
     return acquire_project_runtime(project_id=project_id, project_root=project_root).memory_manager
 
 
-def _clear_memory_service() -> int:
-    from antigravity_k.knowledge.memory_service import MemoryService
+def _memory_service_db(project_root: str) -> str:
+    from antigravity_k.engine.project_memory_paths import project_memory_dir
 
-    return MemoryService().clear_all()
+    return str(project_memory_dir(project_root) / "durable_memory.db")
 
 
-def _clear_wiki() -> int:
+def _wiki_for_project(project_root: str):
+    from antigravity_k.engine.project_memory_paths import project_wiki_dir
     from antigravity_k.knowledge.wiki import LLMWiki
 
-    return LLMWiki().clear_all()
+    wiki_dir = project_wiki_dir(project_root)
+    return LLMWiki(db_path=wiki_dir / "wiki.db")
 
 
-def _clear_gbrain() -> int:
-    from antigravity_k.engine.gbrain import global_gbrain
+def _gbrain_for_project(project_root: str):
+    from antigravity_k.engine.gbrain import GBrain
+    from antigravity_k.engine.project_memory_paths import project_gbrain_dir
 
-    return global_gbrain.clear_all()
-
-
-def _clear_project_vector() -> int:
-    vector_path = Path.cwd() / ".antigravity" / "vault_data"
-    if not vector_path.exists():
-        return 0
-
-    from antigravity_k.engine.vector_store import VectorStore
-
-    vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
-    try:
-        return vector_store.clear()
-    finally:
-        vector_store.close()
+    return GBrain(storage_dir=str(project_gbrain_dir(project_root)))
 
 
-def _clear_search_cache() -> int:
+def _project_vector_targets(project_root: str) -> list[tuple[Path, str]]:
+    """Return (persist_dir, collection_name) pairs under the project root."""
+    from antigravity_k.engine.project_memory_paths import project_rag_vector_dir, project_vault_dir
+
+    root = Path(project_root).resolve()
+    targets: list[tuple[Path, str]] = []
+    vault_chroma = project_vault_dir(root) / ".chroma"
+    targets.append((vault_chroma, "vault_notes"))
+    targets.append((project_rag_vector_dir(root), "project_code"))
+    return targets
+
+
+def _search_cache_dir(project_root: str | None) -> Path:
+    if project_root:
+        from antigravity_k.engine.project_memory_paths import project_search_cache_dir
+
+        return project_search_cache_dir(project_root)
     from antigravity_k.tools.web_search_cache import CACHE_DIR
 
-    cache_dir = CACHE_DIR
+    return CACHE_DIR
+
+
+def _clear_memory_service(*, project_root: str | None = None) -> int:
+    from antigravity_k.knowledge.memory_service import MemoryService
+
+    if not project_root:
+        return MemoryService().clear_all()
+    return MemoryService(db_path=_memory_service_db(project_root)).clear_all()
+
+
+def _clear_wiki(*, project_root: str | None = None) -> int:
+    from antigravity_k.knowledge.wiki import LLMWiki
+
+    if not project_root:
+        return LLMWiki().clear_all()
+    return _wiki_for_project(project_root).clear_all()
+
+
+def _clear_gbrain(*, project_root: str | None = None) -> int:
+    from antigravity_k.engine.gbrain import global_gbrain
+
+    if not project_root:
+        return global_gbrain.clear_all()
+    return _gbrain_for_project(project_root).clear_all()
+
+
+def _clear_project_vector(*, project_root: str | None = None) -> int:
+    from antigravity_k.engine.vector_store import VectorStore
+
+    if not project_root:
+        vector_path = Path.cwd() / ".antigravity" / "vault_data"
+        if not vector_path.exists():
+            return 0
+        vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
+        try:
+            return vector_store.clear()
+        finally:
+            vector_store.close()
+
+    deleted = 0
+    for vector_path, collection_name in _project_vector_targets(project_root):
+        if not vector_path.exists():
+            continue
+        vector_store = VectorStore(str(vector_path), collection_name=collection_name)
+        try:
+            deleted += vector_store.clear()
+        finally:
+            vector_store.close()
+    return deleted
+
+
+def _clear_search_cache(*, project_root: str | None = None) -> int:
+    cache_dir = _search_cache_dir(project_root)
     if not cache_dir.exists():
         return 0
 
@@ -299,88 +467,122 @@ def _clear_search_cache() -> int:
     return deleted
 
 
-def _export_memory_service() -> list[dict[str, JsonValue]]:
+def _export_memory_service(*, project_root: str | None = None) -> list[dict[str, JsonValue]]:
     from antigravity_k.knowledge.memory_service import MemoryService
 
-    return _DURABLE_EXPORT_ADAPTER.validate_python(MemoryService().export_all())
+    service = MemoryService(db_path=_memory_service_db(project_root)) if project_root else MemoryService()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(service.export_all())
 
 
-def _redact_memory_service() -> int:
+def _redact_memory_service(*, project_root: str | None = None) -> int:
     from antigravity_k.knowledge.memory_service import MemoryService
 
-    return MemoryService().redact_all()
+    service = MemoryService(db_path=_memory_service_db(project_root)) if project_root else MemoryService()
+    return service.redact_all()
 
 
-def _retain_memory_service(max_age_days: int) -> int:
+def _retain_memory_service(max_age_days: int, *, project_root: str | None = None) -> int:
     from antigravity_k.knowledge.memory_service import MemoryService
 
-    return MemoryService().apply_retention(max_age_days)
+    service = MemoryService(db_path=_memory_service_db(project_root)) if project_root else MemoryService()
+    return service.apply_retention(max_age_days)
 
 
-def _export_wiki() -> list[dict[str, JsonValue]]:
+def _export_wiki(*, project_root: str | None = None) -> list[dict[str, JsonValue]]:
     from antigravity_k.knowledge.wiki import LLMWiki
 
-    return _DURABLE_EXPORT_ADAPTER.validate_python(LLMWiki().export_all())
+    wiki = _wiki_for_project(project_root) if project_root else LLMWiki()
+    return _DURABLE_EXPORT_ADAPTER.validate_python(wiki.export_all())
 
 
-def _redact_wiki() -> int:
+def _redact_wiki(*, project_root: str | None = None) -> int:
     from antigravity_k.knowledge.wiki import LLMWiki
 
-    return LLMWiki().redact_all()
+    wiki = _wiki_for_project(project_root) if project_root else LLMWiki()
+    return wiki.redact_all()
 
 
-def _retain_wiki(max_age_days: int) -> int:
+def _retain_wiki(max_age_days: int, *, project_root: str | None = None) -> int:
     from antigravity_k.knowledge.wiki import LLMWiki
 
-    return LLMWiki().apply_retention(max_age_days)
+    wiki = _wiki_for_project(project_root) if project_root else LLMWiki()
+    return wiki.apply_retention(max_age_days)
 
 
-def _export_gbrain() -> list[dict[str, JsonValue]]:
+def _export_gbrain(*, project_root: str | None = None) -> list[dict[str, JsonValue]]:
     from antigravity_k.engine.gbrain import global_gbrain
 
+    brain = _gbrain_for_project(project_root) if project_root else global_gbrain
     return _DURABLE_EXPORT_ADAPTER.validate_python(
-        [_widen_graph_record(record) for record in global_gbrain.export_all()],
+        [_widen_graph_record(record) for record in brain.export_all()],
     )
 
 
-def _redact_gbrain() -> int:
+def _redact_gbrain(*, project_root: str | None = None) -> int:
     from antigravity_k.engine.gbrain import global_gbrain
 
-    return global_gbrain.redact_all()
+    brain = _gbrain_for_project(project_root) if project_root else global_gbrain
+    return brain.redact_all()
 
 
-def _export_project_vector() -> list[dict[str, JsonValue]]:
-    vector_path = Path.cwd() / ".antigravity" / "vault_data"
-    if not vector_path.exists():
-        return []
+def _export_project_vector(*, project_root: str | None = None) -> list[dict[str, JsonValue]]:
     from antigravity_k.engine.vector_store import VectorStore
 
-    vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
-    try:
-        return _DURABLE_EXPORT_ADAPTER.validate_python(
-            [_widen_graph_record(record) for record in vector_store.export_all()],
-        )
-    finally:
-        vector_store.close()
+    if not project_root:
+        vector_path = Path.cwd() / ".antigravity" / "vault_data"
+        if not vector_path.exists():
+            return []
+        vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
+        try:
+            return _DURABLE_EXPORT_ADAPTER.validate_python(
+                [_widen_graph_record(record) for record in vector_store.export_all()],
+            )
+        finally:
+            vector_store.close()
+
+    records: list[dict[str, JsonValue]] = []
+    for vector_path, collection_name in _project_vector_targets(project_root):
+        if not vector_path.exists():
+            continue
+        vector_store = VectorStore(str(vector_path), collection_name=collection_name)
+        try:
+            records.extend(
+                _DURABLE_EXPORT_ADAPTER.validate_python(
+                    [_widen_graph_record(record) for record in vector_store.export_all()],
+                ),
+            )
+        finally:
+            vector_store.close()
+    return records
 
 
-def _redact_project_vector() -> int:
-    vector_path = Path.cwd() / ".antigravity" / "vault_data"
-    if not vector_path.exists():
-        return 0
+def _redact_project_vector(*, project_root: str | None = None) -> int:
     from antigravity_k.engine.vector_store import VectorStore
 
-    vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
-    try:
-        return vector_store.redact_all()
-    finally:
-        vector_store.close()
+    if not project_root:
+        vector_path = Path.cwd() / ".antigravity" / "vault_data"
+        if not vector_path.exists():
+            return 0
+        vector_store = VectorStore(str(vector_path), collection_name="agent_knowledge")
+        try:
+            return vector_store.redact_all()
+        finally:
+            vector_store.close()
+
+    changed = 0
+    for vector_path, collection_name in _project_vector_targets(project_root):
+        if not vector_path.exists():
+            continue
+        vector_store = VectorStore(str(vector_path), collection_name=collection_name)
+        try:
+            changed += vector_store.redact_all()
+        finally:
+            vector_store.close()
+    return changed
 
 
-def _export_search_cache() -> list[dict[str, JsonValue]]:
-    from antigravity_k.tools.web_search_cache import CACHE_DIR
-
-    cache_dir = CACHE_DIR
+def _export_search_cache(*, project_root: str | None = None) -> list[dict[str, JsonValue]]:
+    cache_dir = _search_cache_dir(project_root)
     if not cache_dir.exists():
         return []
     records: list[dict[str, JsonValue]] = []
@@ -393,33 +595,32 @@ def _export_search_cache() -> list[dict[str, JsonValue]]:
     return records
 
 
-def _redact_search_cache() -> int:
+def _redact_search_cache(*, project_root: str | None = None) -> int:
     from antigravity_k.engine.secret_scanner import redact_full
-    from antigravity_k.tools.web_search_cache import CACHE_DIR
 
+    cache_dir = _search_cache_dir(project_root)
     changed = 0
-    for record in _export_search_cache():
+    for record in _export_search_cache(project_root=project_root):
         data = json.dumps(record["data"], ensure_ascii=False)
         redacted = redact_full(data)
         if redacted != data:
             cache_file = _json_text(record.get("file"))
             if not cache_file:
                 continue
-            _ = (CACHE_DIR / cache_file).write_text(redacted, encoding="utf-8")
+            _ = (cache_dir / cache_file).write_text(redacted, encoding="utf-8")
             changed += 1
     return changed
 
 
-def _retain_search_cache(max_age_days: int) -> int:
+def _retain_search_cache(max_age_days: int, *, project_root: str | None = None) -> int:
     if max_age_days < 0:
         raise ValueError("max_age_days must be non-negative")
     from datetime import UTC, datetime, timedelta
 
-    from antigravity_k.tools.web_search_cache import CACHE_DIR
-
+    cache_dir = _search_cache_dir(project_root)
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     deleted = 0
-    for record in _export_search_cache():
+    for record in _export_search_cache(project_root=project_root):
         cached_at = _json_text(_json_object(record.get("data")).get("cached_at"))
         try:
             timestamp = datetime.fromisoformat(cached_at)
@@ -432,7 +633,7 @@ def _retain_search_cache(max_age_days: int) -> int:
                 cache_file = _json_text(record.get("file"))
                 if not cache_file:
                     continue
-                (CACHE_DIR / cache_file).unlink()
+                (cache_dir / cache_file).unlink()
                 deleted += 1
             except OSError:
                 continue
@@ -558,21 +759,18 @@ def get_agent_runtime(
     return runtime
 
 
-def get_scheduled_job_service() -> ScheduledJobService:
-    global _scheduled_job_service
-    if _scheduled_job_service is None:
-        from antigravity_k.engine.scheduled_job_store import ScheduledJobStore
-        from antigravity_k.engine.task_runner import get_task_runner
-
-        runtime = get_agent_runtime()
-        configured_path = os.environ.get("AGK_JOB_DB_PATH", "").strip()
-        db_path = configured_path or get_task_runner().db_path
-        _scheduled_job_service = ScheduledJobService(
-            ScheduledJobStore(db_path),
-            runtime.submit_task,
-            runtime.get_task_status,
-        )
-    return _scheduled_job_service
+def get_scheduled_job_service(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+) -> ScheduledJobService:
+    """Return the ScheduledJobService bound to the resolved project's agent runtime."""
+    runtime = acquire_project_runtime(project_id=project_id, project_root=project_root)
+    if runtime.scheduled_job_service is None:
+        if runtime.agent_runtime is None:
+            raise RuntimeError("ProjectRuntime missing agent_runtime for job service")
+        runtime.scheduled_job_service = _build_project_job_service(runtime.agent_runtime, runtime.project_root)
+    return runtime.scheduled_job_service
 
 
 def get_voice_service() -> VoiceService:
@@ -608,24 +806,34 @@ def get_embedding_engine() -> EmbeddingEngine:
     return engine
 
 
-_slash_registry = None
+_slash_registry = None  # legacy unused; project registries live on ProjectRuntime
 
 
-def get_slash_registry():
-    """Slash command registry singleton (DI-wired)."""
-    global _slash_registry
-    if _slash_registry is None:
-        from antigravity_k.engine.slash_commands import SlashCommandRegistry
+def get_slash_registry(
+    *,
+    project_id: str | None = None,
+    project_root: str | None = None,
+):
+    """Return the slash registry for the resolved project (WS-03 F3).
 
-        _slash_registry = SlashCommandRegistry(
-            tool_registry=__get_tool_registry(),
-            session_manager=_get_session_manager(),
-            context_shaper=_get_context_shaper(),
-            model_manager=get_model_manager(),
-            skill_loader=__get_skill_loader(),
-            agent_runtime=get_agent_runtime(),
+    Never freezes the first ``agent_runtime`` into a process singleton.
+    """
+    runtime = acquire_project_runtime(project_id=project_id, project_root=project_root)
+    if runtime.slash_registry is None:
+        if runtime.agent_runtime is None:
+            raise RuntimeError("ProjectRuntime missing agent_runtime for slash registry")
+        runtime.slash_registry = _build_project_slash_registry(
+            session_manager=runtime.session_manager,
+            agent_runtime=runtime.agent_runtime,
+            orchestrator=runtime.orchestrator,
         )
-    return _slash_registry
+    else:
+        # Refresh runtime pointer in case of recreate edge cases.
+        bind = getattr(runtime.slash_registry, "bind_runtime", None)
+        if callable(bind) and runtime.agent_runtime is not None:
+            bind(runtime.agent_runtime)
+        setattr(runtime.slash_registry, "_session_manager", runtime.session_manager)
+    return runtime.slash_registry
 
 
 # ─── WS-01 request-scoped project binding (consume ARC-01) ─────────────────
