@@ -47,6 +47,8 @@ tags: [commercialization, progress, evidence, multi-agent]
   - `Sidebar.tsx` / `FolderBrowser.tsx`: store 경유 switch/register
   - tests: projectStore + identity vitest; e2e `ws-04-project-switch.spec.ts`
 - 검증: vitest related **59 passed** (WS-04 core 7); `tsc -b` clean
+- result SHA (impl): `1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920`
+- tip SHA (incl. dashboard_dist): `88ad512da3f7efc6bc71c8c460293df7c7ff8db1`
 - Evidence: `.omo/evidence/commercial-ga-100/WS-04/`
 - 상태: `REVIEW` (DONE 아님). 독립 review 대기.
 

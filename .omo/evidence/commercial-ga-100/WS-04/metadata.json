@@ -17,5 +17,9 @@
   },
   "notes": "Owner REVIEW submit. APPROVE forbidden for owner. Evidence under .omo/evidence/commercial-ga-100/WS-04/",
   "verdict": null,
-  "result_sha_pending": true
+  "result_sha_pending": false,
+  "result_sha": "1ca4ae6d37e98dd4f9a1eb884e69fa83ed64a920",
+  "dashboard_dist_sha": "88ad512da3f7efc6bc71c8c460293df7c7ff8db1",
+  "tip_sha": "88ad512da3f7efc6bc71c8c460293df7c7ff8db1",
+  "ended_at": "2026-09-06T11:05:00+09:00"
 }
