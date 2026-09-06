@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   apiRequest,
   checkHealth,
+  ConversationRevisionConflictError,
   fetchCacheStats,
   fetchLogLevels,
   fetchModelOperations,
@@ -432,6 +433,30 @@ describe('shared API client', () => {
     );
 
     expect(chunks).toEqual(['한글']);
+  });
+
+  it('CTX-01 F2: mid-stream stale conflict SSE surfaces ConversationRevisionConflictError', async () => {
+    fetchMock.mockResolvedValue(streamingResponse([
+      'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+      'data: {"agk_conversation_conflict":{"ok":false,"error":"stale_conversation_revision","detail":"stale","conversation_id":"conv_1","expected_revision":2,"current_revision":5},"ok":false,"error":"stale_conversation_revision","detail":"stale","conversation_id":"conv_1","expected_revision":2,"current_revision":5}\n\n',
+      'data: [DONE]\n\n',
+    ]));
+    const onError = vi.fn();
+    const onDone = vi.fn();
+    const chunks: string[] = [];
+
+    await streamChatCompletion(
+      { model: 'model-a', messages: [], stream: true },
+      { onChunk: (text) => chunks.push(text), onDone, onError },
+    );
+
+    expect(chunks).toEqual(['partial']);
+    expect(onError).toHaveBeenCalledOnce();
+    const err = onError.mock.calls[0][0];
+    expect(err).toBeInstanceOf(ConversationRevisionConflictError);
+    expect(err.payload.current_revision).toBe(5);
+    expect(err.payload.expected_revision).toBe(2);
+    expect(err.payload.error).toBe('stale_conversation_revision');
   });
 
   it('GREEN: stream reports a non-abort transport error once', async () => {

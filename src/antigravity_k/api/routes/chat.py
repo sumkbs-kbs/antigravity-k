@@ -338,12 +338,17 @@ def _persist_assistant_to_conversation_store(
     snapshot: object | None,
     assistant_text: str,
 ) -> object | None:
-    """CAS-append assistant turn after generation; return latest snapshot."""
+    """CAS-append assistant turn after generation; return latest snapshot.
+
+    StaleConversationRevisionError is re-raised so the stream can surface a typed
+    conflict (SSE/409) — never soft-swallow mid-stream compact races (CTX-01 F2).
+    """
     if snapshot is None:
         return None
     text = (assistant_text or "").strip()
     if not text:
         return snapshot
+    from antigravity_k.api.contracts.errors import StaleConversationRevisionError
     from antigravity_k.engine.conversation_store import get_conversation_store
 
     store = get_conversation_store()
@@ -356,9 +361,42 @@ def _persist_assistant_to_conversation_store(
             role="assistant",
             content=text,
         )
+    except StaleConversationRevisionError:
+        raise
     except Exception:
         logger.exception("Failed to persist assistant turn to conversation store")
         return snapshot
+
+
+def _conversation_conflict_sse(exc: object) -> str:
+    """Emit typed stale-revision conflict as an SSE data frame (CTX-01 F2)."""
+    from antigravity_k.api.contracts.errors import StaleConversationRevisionError
+
+    if isinstance(exc, StaleConversationRevisionError):
+        payload = exc.to_dict()
+    else:
+        payload = {
+            "ok": False,
+            "error": "stale_conversation_revision",
+            "detail": str(exc),
+        }
+    raw_expected = payload.get("expected_revision", 0)
+    raw_current = payload.get("current_revision", 0)
+    expected_revision = raw_expected if isinstance(raw_expected, int) else 0
+    current_revision = raw_current if isinstance(raw_current, int) else 0
+    data: JsonMap = {
+        "agk_conversation_conflict": payload,
+        "ok": False,
+        "error": str(payload.get("error") or "stale_conversation_revision"),
+        "detail": str(payload.get("detail") or "Conversation revision conflict"),
+        "conversation_id": str(payload.get("conversation_id") or ""),
+        "expected_revision": expected_revision,
+        "current_revision": current_revision,
+    }
+    corr = payload.get("correlation_id")
+    if isinstance(corr, str) and corr:
+        data["correlation_id"] = corr
+    return "data: " + json.dumps(data) + "\n\n"
 
 
 def _conversation_revision_sse(snapshot: object | None) -> str:
@@ -575,7 +613,9 @@ async def chat_completions(
 
     # Auto-restore context for new conversations (UI sends few messages)
     # 작업 2: 임계값 완화 (<= 4) — 더 많은 새 대화에서 이전 기억 복원
-    if len(messages) <= 4:
+    # CTX-01 F4: when revision protocol is on, store-assembled history is authoritative —
+    # do not re-inflate tokens via session_manager.auto_restore() after compact.
+    if len(messages) <= 4 and not _uses_conversation_revision_protocol(body):
         restored_context = session_manager.auto_restore()
         if restored_context:
             messages.insert(0, cast(ChatMessage, {"role": "system", "content": restored_context}))
@@ -1151,11 +1191,23 @@ async def chat_completions(
                         {"role": "assistant", "content": full_response},
                     ]
                 )
-                _final_snap = _persist_assistant_to_conversation_store(
-                    execution_context,
-                    getattr(request.state, "conversation_snapshot", None),
-                    full_response,
-                )
+                try:
+                    _final_snap = _persist_assistant_to_conversation_store(
+                        execution_context,
+                        getattr(request.state, "conversation_snapshot", None),
+                        full_response,
+                    )
+                except Exception as persist_exc:
+                    from antigravity_k.api.contracts.errors import StaleConversationRevisionError
+
+                    if isinstance(persist_exc, StaleConversationRevisionError):
+                        # Mid-stream compact race: surface typed conflict; do not
+                        # emit success agk_conversation at the pre-assistant revision.
+                        yield _conversation_conflict_sse(persist_exc)
+                        active_session.done = True
+                        yield "data: [DONE]\n\n"
+                        return
+                    raise
                 request.state.conversation_snapshot = _final_snap
                 rev_frame = _conversation_revision_sse(_final_snap)
                 if rev_frame:

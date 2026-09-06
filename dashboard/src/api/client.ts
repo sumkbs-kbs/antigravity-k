@@ -235,6 +235,30 @@ function emitChatFrame(
     return;
   }
 
+  // CTX-01 F2: mid-stream compact race — typed conflict SSE (reuse 409 UX).
+  if (raw && typeof raw === 'object') {
+    const obj = raw as Record<string, unknown>;
+    const conflictPayload = (
+      obj.agk_conversation_conflict
+      && typeof obj.agk_conversation_conflict === 'object'
+    )
+      ? obj.agk_conversation_conflict as Record<string, unknown>
+      : (obj.error === 'stale_conversation_revision' ? obj : null);
+    if (conflictPayload) {
+      throw new ConversationRevisionConflictError({
+        ok: false,
+        error: 'stale_conversation_revision',
+        detail: String(conflictPayload.detail || 'Conversation revision conflict'),
+        conversation_id: String(conflictPayload.conversation_id || ''),
+        expected_revision: Number(conflictPayload.expected_revision ?? 0),
+        current_revision: Number(conflictPayload.current_revision ?? 0),
+        correlation_id: conflictPayload.correlation_id
+          ? String(conflictPayload.correlation_id)
+          : undefined,
+      });
+    }
+  }
+
   if (
     raw
     && typeof raw === 'object'

@@ -273,7 +273,11 @@ class SlashCommandSessionMixin:
     def _cmd_compact(self, _args: list[str]) -> str:
         """수동 컨텍스트 압축 — CTX-01 revision CAS when conversation binding is known."""
         # Prefer authoritative conversation store when project/conversation are bound.
+        # F1/F3: CAS failures must NOT fall through to session_manager success path;
+        # always CAS against client expected revision (ctx.conversation_revision).
+        ctx = None
         try:
+            from antigravity_k.api.contracts.errors import StaleConversationRevisionError
             from antigravity_k.api.project_binding import get_bound_request_execution_context
             from antigravity_k.engine.conversation_store import get_conversation_store
 
@@ -282,17 +286,27 @@ class SlashCommandSessionMixin:
                 store = get_conversation_store()
                 before = store.get(project_id=ctx.project_id, conversation_id=ctx.conversation_id)
                 tokens_before = before.estimate_tokens() if before else 0
-                snap = store.compact(
-                    project_id=ctx.project_id,
-                    conversation_id=ctx.conversation_id,
-                    expected_revision=ctx.conversation_revision if before is None else before.revision,
-                    retain_tail=6,
-                )
+                try:
+                    snap = store.compact(
+                        project_id=ctx.project_id,
+                        conversation_id=ctx.conversation_id,
+                        expected_revision=ctx.conversation_revision,
+                        retain_tail=6,
+                    )
+                except StaleConversationRevisionError as exc:
+                    current = exc.context.get("current_revision", "?")
+                    return (
+                        "❌ 압축 충돌 (stale_conversation_revision)\n"
+                        f"  conversation: `{ctx.conversation_id}`\n"
+                        f"  expected_revision: {ctx.conversation_revision}\n"
+                        f"  current_revision: {current}\n"
+                        "  다른 탭/요청에서 이미 변경됨 — refresh 후 재시도하세요."
+                    )
                 after = store.get(project_id=ctx.project_id, conversation_id=ctx.conversation_id)
                 tokens_after = after.estimate_tokens() if after else 0
                 retained = ", ".join(snap.retained_message_ids[:12]) or "(none)"
                 summary_preview = (snap.summary or "")[:200]
-                # Keep session_manager projection in sync when available.
+                # One-way store → session projection only after successful CAS.
                 if self._session_manager and after is not None:
                     current_session = cast(
                         dict[str, object], getattr(self._session_manager, "_current_session", {}) or {}
@@ -313,8 +327,11 @@ class SlashCommandSessionMixin:
                     f"  summary: {summary_preview}"
                 )
         except Exception as exc:
-            logger.exception("authoritative compact failed; falling back to session shaper")
-            # Fall through to legacy path when store CAS is unavailable.
+            if ctx is not None:
+                # Bound protocol path: never mutate session_manager as a success fallback.
+                logger.exception("authoritative compact failed (no legacy fallback)")
+                return f"❌ 압축 실패 (authoritative store): {exc}"
+            logger.exception("authoritative compact unavailable; using session shaper")
             _ = exc
 
         if not self._context_shaper or not self._session_manager:

@@ -126,7 +126,7 @@ def test_append_compact_fork_flow(client: TestClient) -> None:
     assert cbody["revision"] == rev + 1
     assert cbody.get("summary")
     assert cbody.get("retained_message_ids")
-    assert cbody["tokens_after"] <= cbody["tokens_before"]
+    assert cbody["tokens_after"] < cbody["tokens_before"]
 
     hist = client.get(f"/v1/conversations/conv_api?project_id={pid}")
     assert hist.status_code == 200
