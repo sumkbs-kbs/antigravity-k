@@ -15,6 +15,7 @@
 | Branch / worktree | `codex/ctx-03-compress-observability` / `Ssak-Ai-ctx-03` |
 | Owner | `ctx_03_observability` |
 | Prior impl SHA | `9f5678d890c2bec05a0c1a10b8e8b13d2331b1b0` |
+| Fix SHA (result) | `6066e487f0f4ca7c386c75c4e0e15ca3f35330e3` |
 | Prior REJECT tip | `711be5926f1193153855ba71d05840fa65c5d65b` |
 
 ### What changed
