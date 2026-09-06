@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 2 |
-| 진행 중 | 1 |
+| 완료 | 3 |
+| 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | ARC-01 REVIEW — escape fix submitted; awaiting arc_01_verify r2 |
+| 현재 작업 | ARC-01 DONE (r2 APPROVE); next WS-01 / CTX-01 eligible |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -33,6 +33,16 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 ## 작업 기록
 
+
+### 2026-09-06 · ARC-01 독립 재검증 APPROVE (r2) (`arc_01_verify`)
+
+- Reviewer: `arc_01_verify` (구현 미참여; Owner≠Reviewer)
+- Tip reviewed: `465d1304a52abe77008f710ab2b335271defcfbd` / fix impl `ede637a11fce67ff43eb32be2aacc1a0396b538c`
+- 재실행: Python **16 passed**; Vitest **4 passed**; fixtures byte-identical; reviewer adversarial probe **10 passed**
+- Prior blocking CLOSED: `/etc`, `..` escape, symlink-out → `project_root_invalid`; `configured_allowed_bases` (no registry circularity); legitimate under-base + AGK_ALLOWED_ROOTS still resolve
+- **Verdict: APPROVE** — mark DONE. Prior REJECT preserved in `review.md`
+- Evidence: `.omo/evidence/commercial-ga-100/ARC-01/review-r2.md`
+- 상태: `DONE`. WS-01/CTX-01 착수 허용 (이 contract tip 기준)
 
 ### 2026-09-06 · ARC-01 escape boundary 수정, 재심사 요청 (`arc_01_contract`)
 
@@ -192,16 +202,18 @@ tags: [commercialization, progress, evidence, multi-agent]
 | Task | 판정 | Result SHA | Reviewer | 핵심 증거 | 완료 시각 |
 |---|---|---|---|---|---|
 | GA-00 | APPROVE | `7677bc391888ad13aa8413e32634f95912613d49` | ga_00_verify | 20 gates/8 categories, adversarial confirmed 0.99 | 2026-09-06 |
+| GOV-01 | APPROVE | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | gov_01_verify | r2 APPROVE 0.95; prior REJECT closed | 2026-09-06 |
+| ARC-01 | APPROVE | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | arc_01_verify | r2 escape boundary; 16+4+10 probes; prior REJECT closed | 2026-09-06 |
 
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| ARC-01 | arc_01_contract | codex/arc-01-execution-context | REVIEW — escape fix `ede637a`; awaiting r2 | prior REJECT preserved; re-review-request.md; no WS/CTX until APPROVE |
+| _(none)_ |  |  |  | Next eligible: WS-01 / CTX-01 after ARC-01 DONE |
 
 ## 차단 및 결정 대기
 
-`ARC-01` r1 REJECT(escape)는 `review.md`에 보존된다. Owner가 fix `ede637a`로 escape 거절+frozen tests를 올렸고 상태는 **REVIEW**(재심사 대기). `DONE` 금지. **WS-01/CTX-01 착수하지 말 것** — `arc_01_verify` r2 APPROVE가 선행이다. GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
+`ARC-01` r2 **APPROVE** (`review-r2.md`). r1 REJECT는 `review.md`에 역사 기록으로 보존. 상태 **DONE**. **WS-01/CTX-01 착수 허용** (result SHA `ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
 
 ## 증거 위치
 
