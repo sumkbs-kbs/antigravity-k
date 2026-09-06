@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Protocol, TypedDict, runtime_checkable
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from antigravity_k.api.path_security import PathSecurityError, resolve_allowed_path
@@ -190,9 +190,14 @@ async def get_workspace():
 
 @router.post("/api/fs/workspace")
 async def set_workspace(req: WorkspaceRequest):
-    """Set workspace — 프로젝트 전환 시 PermissionGate와 config를 함께 업데이트.
+    """Update browse/UI workspace pointer (legacy compatibility).
 
-    에이전트가 새 프로젝트 폴더 내에서만 작업하도록 격리합니다.
+    WS-01: This mutates module ``WORKSPACE_ROOT`` for filesystem browse APIs only.
+    It is **not** chat/task/tool execution authority. Execution uses ARC-01
+    ``RequestExecutionContext.canonical_project_root`` resolved from ``project_id``
+    (or an explicit session active-project binding). Orchestrator PermissionGate
+    and ``config.paths.project_root`` are intentionally not mutated here so an
+    active-project switch cannot retarget in-flight request roots.
     """
     try:
         target = str(resolve_allowed_path(req.path))
@@ -211,29 +216,52 @@ async def set_workspace(req: WorkspaceRequest):
             raise HTTPException(status_code=400, detail=f"Invalid directory: {target}")
 
     globals()["WORKSPACE_ROOT"] = target
-
-    # PermissionGate 업데이트 — 에이전트 파일 접근을 새 프로젝트로 제한
-    try:
-        import antigravity_k.api.dependencies as deps
-
-        orchestrator = deps.__dict__.get("_orchestrator")
-        if isinstance(orchestrator, _OrchestratorLike):
-            tool_executor = orchestrator.ctx.tool_executor
-            tool_executor.permission_gate.set_project_root(target)
-            logger.info("PermissionGate project_root 업데이트: %s", target)
-    except Exception:
-        logger.warning("PermissionGate 업데이트 실패 (non-critical)", exc_info=True)
-
-    # config의 project_root 업데이트
-    try:
-        from antigravity_k.config import config
-
-        config.paths.project_root = Path(target)
-    except Exception:
-        logger.warning("config.paths.project_root 업데이트 실패 (non-critical)", exc_info=True)
-
-    logger.info("Workspace 변경: %s", target)
+    logger.info("Workspace browse root 변경 (non-authority): %s", target)
     return {"ok": True, "workspace": WORKSPACE_ROOT}
+
+
+# ─── WS-01 execution context resolve (project binding probe) ─────
+
+
+@router.post("/api/execution-context/resolve")
+async def resolve_execution_context(request: Request):
+    """Resolve and bind RequestExecutionContext for the request (WS-01).
+
+    Clients and integration tests use this to verify project_id → canonical root
+    without starting chat/task side effects. Missing/invalid/deleted projects are
+    rejected with ARC-01 typed errors before any workspace mutation.
+    """
+    from antigravity_k.api.error_handler import correlation_id_var
+    from antigravity_k.api.project_binding import (
+        SESSION_ID_HEADER,
+        get_request_project_root,
+        resolve_project_execution_context,
+    )
+
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+
+    actor = getattr(request.state, "auth_subject", None)
+    actor_subject = actor.strip() if isinstance(actor, str) and actor.strip() else "anonymous"
+    context = resolve_project_execution_context(
+        payload=payload,
+        header_session_id=request.headers.get(SESSION_ID_HEADER),
+        actor_subject=actor_subject,
+        model_id=str(payload.get("model_id") or payload.get("model") or "default"),
+        correlation_id=correlation_id_var.get(""),
+        require_existing_conversation=False,
+        bind=True,
+    )
+    request.state.execution_context = context
+    return {
+        "ok": True,
+        "execution_context": context.model_dump(mode="json"),
+        "bound_project_root": get_request_project_root(),
+    }
 
 
 # ─── 프로젝트 관리 API ──────────────────────────────────────────
@@ -279,21 +307,37 @@ async def create_project(req: CreateProjectRequest):
     registry = get_project_registry()
     project = registry.add_project(name=req.name, path=target, tasks=req.tasks)
 
-    # 워크스페이스 전환 수행
+    # Browse/UI workspace pointer (not execution authority).
     ws_req = WorkspaceRequest(path=target)
     _ = await set_workspace(ws_req)
+
+    from antigravity_k.api.project_binding import DEFAULT_SESSION_ID, bind_session_active_project
+
+    session_binding = bind_session_active_project(DEFAULT_SESSION_ID, project.id)
 
     return {
         "ok": True,
         "project": project.to_dict(),
         "workspace": WORKSPACE_ROOT,
+        "session_active_project": session_binding.to_dict(),
         "message": f"'{project.name}' 프로젝트가 등록되었습니다.",
     }
 
 
 @router.post("/api/projects/switch")
-async def switch_project(req: SwitchProjectRequest):
-    """프로젝트를 전환합니다 — workspace, PermissionGate, config를 모두 업데이트."""
+async def switch_project(req: SwitchProjectRequest, request: Request):
+    """Switch the registry active project and bump session binding revision.
+
+    WS-01: Updates browse ``WORKSPACE_ROOT`` and an explicit session active-project
+    revision. Does not mutate orchestrator PermissionGate / config execution
+    roots — in-flight chat/task contexts keep the root captured at request start.
+    """
+    from antigravity_k.api.project_binding import (
+        DEFAULT_SESSION_ID,
+        SESSION_ID_HEADER,
+        bind_session_active_project,
+        extract_session_id_from_payload,
+    )
     from antigravity_k.engine.project_registry import get_project_registry
 
     registry = get_project_registry()
@@ -308,10 +352,18 @@ async def switch_project(req: SwitchProjectRequest):
     ws_req = WorkspaceRequest(path=project.path)
     _ = await set_workspace(ws_req)
 
+    header_session = request.headers.get(SESSION_ID_HEADER)
+    session_id = extract_session_id_from_payload(
+        {},
+        header_session_id=header_session or DEFAULT_SESSION_ID,
+    )
+    session_binding = bind_session_active_project(session_id, project.id)
+
     return {
         "ok": True,
         "project": project.to_dict(),
         "workspace": WORKSPACE_ROOT,
+        "session_active_project": session_binding.to_dict(),
         "message": f"'{project.name}' 프로젝트로 전환되었습니다.",
     }
 

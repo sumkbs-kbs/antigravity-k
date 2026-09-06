@@ -119,8 +119,20 @@ get_session_manager = _get_session_manager
 
 
 def get_memory_manager(project_root: str | None = None) -> MemoryManager:
+    """Return MemoryManager scoped to the request project when available.
+
+    WS-01: request-scoped ``RequestExecutionContext.canonical_project_root`` is
+    preferred over process cwd. Concurrent requests must not treat a singleton
+    global root mutation as authority — when a request context is bound we bind
+    to that root for this call only; callers that need hard isolation across
+    projects should pass an explicit ``project_root`` (WS-03 deepens cache keys).
+    """
     global _memory_manager
-    root = Path(project_root or os.getcwd()).resolve()
+    from antigravity_k.api.project_binding import get_request_project_root
+
+    request_root = get_request_project_root()
+    chosen = project_root or request_root or os.getcwd()
+    root = Path(chosen).resolve()
     if _memory_manager is None:
         _memory_manager = MemoryManager(project_root=str(root))
         _memory_manager.add_provider(BuiltinMemoryProvider(_get_session_manager()))
@@ -161,6 +173,9 @@ def get_memory_manager(project_root: str | None = None) -> MemoryManager:
                 _retain_search_cache,
             ),
         )
+    # Bind to the chosen root for this resolution. Request contexts supply the
+    # root explicitly so switch of registry active project cannot silently
+    # retarget an in-flight request that already bound a different context.
     _memory_manager.bind_project_root(root)
     return _memory_manager
 
@@ -537,3 +552,23 @@ def get_slash_registry():
             agent_runtime=get_agent_runtime(),
         )
     return _slash_registry
+
+
+# ─── WS-01 request-scoped project binding (consume ARC-01) ─────────────────
+
+
+def get_request_execution_context():
+    """FastAPI-friendly accessor for the bound RequestExecutionContext."""
+    from antigravity_k.api.project_binding import get_bound_request_execution_context
+
+    return get_bound_request_execution_context()
+
+
+def require_request_execution_context():
+    from antigravity_k.api.contracts.errors import MissingExecutionContextError
+    from antigravity_k.api.project_binding import get_bound_request_execution_context
+
+    ctx = get_bound_request_execution_context()
+    if ctx is None:
+        raise MissingExecutionContextError(detail="RequestExecutionContext is not bound for this request")
+    return ctx

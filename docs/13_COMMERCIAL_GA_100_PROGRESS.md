@@ -20,7 +20,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 완료 | 3 |
 | 진행 중 | 0 |
 | 차단 | 0 |
-| 현재 작업 | ARC-01 DONE (r2 APPROVE); next WS-01 / CTX-01 eligible |
+| 현재 작업 | WS-01 REVIEW (독립 검증 대기); CTX-01 eligible |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,23 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-01 backend request-scoped project binding (REVIEW)
+
+- base SHA: `6f89927df07853e16c67082edf3bc19f5b20694e` (ARC-01 APPROVE tip)
+- contract consume SHA: `ede637a11fce67ff43eb32be2aacc1a0396b538c`
+- owner: `ws_01_backend`
+- branch: `codex/ws-01-project-binding`
+- worktree: `/Users/mr.k/program/coding/ssak_comp/Ssak-Ai-ws-01`
+- 구현:
+  - `api/project_binding.py`: session active-project revision store + request-scoped ContextVar DI + runtime capture
+  - chat/task 생성 전 ARC-01 `RequestExecutionContext` 해석; missing/invalid/deleted project는 side effect 전 typed reject
+  - filesystem project switch/create는 browse `WORKSPACE_ROOT`와 session binding만 갱신; orchestrator PermissionGate/config singleton mutation 제거
+  - `POST /api/execution-context/resolve` probe로 route→runtime capture 검증
+- 검증: `tests/test_ws01_project_binding.py` 10 pass; registry/ARC-01 회귀 18 pass
+- Evidence: `.omo/evidence/commercial-ga-100/WS-01/`
+- 상태: `REVIEW` (구현자 APPROVE 자체 작성 금지). 독립 reviewer 할당 대기.
+
 
 
 ### 2026-09-06 · ARC-01 독립 재검증 APPROVE (r2) (`arc_01_verify`)
@@ -209,7 +226,7 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| _(none)_ |  |  |  | Next eligible: WS-01 / CTX-01 after ARC-01 DONE |
+| WS-01 | ws_01_backend | `codex/ws-01-project-binding` | REVIEW | 독립 reviewer가 result SHA 검증; APPROVE 시 DONE |
 
 ## 차단 및 결정 대기
 

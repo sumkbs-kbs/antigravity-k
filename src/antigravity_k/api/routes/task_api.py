@@ -92,7 +92,34 @@ def _require_task(runtime: AgentRuntime, task_id: str, owner_subject: str | None
     status_code=status.HTTP_202_ACCEPTED,
 )
 def submit_background_task(request: TaskSubmitRequest, http_request: Request) -> TaskSubmitResponse:
+    """Submit a background task with immutable project binding (WS-01)."""
+    from antigravity_k.api.error_handler import correlation_id_var
+    from antigravity_k.api.project_binding import (
+        SESSION_ID_HEADER,
+        execution_context_to_task_context,
+        resolve_project_execution_context,
+    )
+
+    payload: dict[str, object] = {
+        "project_id": request.context.get("project_id"),
+        "execution_context": request.context.get("execution_context"),
+        "session_id": request.context.get("session_id"),
+        "conversation_id": request.context.get("conversation_id"),
+        "conversation_revision": request.context.get("conversation_revision", 0),
+        "model": request.model,
+    }
+    execution_context = resolve_project_execution_context(
+        payload=payload,
+        header_session_id=http_request.headers.get(SESSION_ID_HEADER),
+        actor_subject=_auth_subject(http_request),
+        model_id=request.model or "default",
+        correlation_id=correlation_id_var.get(""),
+        require_existing_conversation=False,
+        bind=True,
+    )
+    http_request.state.execution_context = execution_context
     context: dict[str, object] = dict(request.context)
+    context.update(execution_context_to_task_context(execution_context))
     task_id = _runtime().submit_task(
         prompt=request.prompt,
         context=context,
@@ -228,10 +255,7 @@ def list_task_events(
         owner_subject=owner_subject,
     )
     has_more = len(records) > limit
-    events = [
-        TaskEvent.from_record(record)
-        for record in records[:limit]
-    ]
+    events = [TaskEvent.from_record(record) for record in records[:limit]]
     last_sequence = events[-1].sequence if events else after_sequence
     return TaskEventsResponse(
         task_id=task_id,

@@ -261,6 +261,27 @@ def _validate_chat_request_body(body: object) -> JsonMap:
     return body_map
 
 
+def _resolve_chat_execution_context(request: Request, body: JsonMap, target_model: str) -> object:
+    """Resolve ARC-01 RequestExecutionContext before chat side effects (WS-01)."""
+    from antigravity_k.api.error_handler import correlation_id_var
+    from antigravity_k.api.project_binding import (
+        SESSION_ID_HEADER,
+        resolve_project_execution_context,
+    )
+
+    actor = getattr(request.state, "auth_subject", None)
+    actor_subject = actor.strip() if isinstance(actor, str) and actor.strip() else "anonymous"
+    return resolve_project_execution_context(
+        payload=body,
+        header_session_id=request.headers.get(SESSION_ID_HEADER),
+        actor_subject=actor_subject,
+        model_id=target_model or _string_value(body.get("model"), "default"),
+        correlation_id=correlation_id_var.get(""),
+        require_existing_conversation=False,
+        bind=True,
+    )
+
+
 @router.get("/v1/chat/completions/reconnect")
 async def chat_reconnect() -> StreamingResponse:
     import asyncio
@@ -393,6 +414,12 @@ async def chat_completions(
     target_model = _string_value(internal_req.get("model"))
     if not target_model:
         raise HTTPException(status_code=400, detail="Model is required")
+
+    # WS-01: bind immutable project context before any chat side effects.
+    execution_context = _resolve_chat_execution_context(request, body, target_model)
+    request.state.execution_context = execution_context
+    request.state.project_id = execution_context.project_id
+    request.state.canonical_project_root = execution_context.canonical_project_root
 
     messages = _messages_value(internal_req.get("messages", []))
 
