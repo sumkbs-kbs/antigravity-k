@@ -17,10 +17,10 @@ tags: [commercialization, progress, evidence, multi-agent]
 | 기준 점수 | 53/100 |
 | 목표 점수 | 100/100 |
 | 전체 작업 | 33 |
-| 완료 | 3 |
+| 완료 | 4 |
 | 진행 중 | 0 |
-| 차단 | 1 (WS-01 re-review 대기) |
-| 현재 작업 | WS-01 REVIEW (r1 REJECT 보존; F1/F2 fix + re-review-request); CTX/WS-02+ 착수 금지 until APPROVE |
+| 차단 | 0 |
+| 현재 작업 | WS-01 DONE (r2 APPROVE); next: WS-02 / WS-03 / WS-04 / CTX per prerequisites |
 | 실행 방식 | task별 worktree, 순차 구현, 독립 reviewer 검증 |
 
 ## 진행 원칙
@@ -32,6 +32,20 @@ tags: [commercialization, progress, evidence, multi-agent]
 - 진행률은 task 수와 gate 증거로 계산하며 코드 작성량으로 계산하지 않는다.
 
 ## 작업 기록
+
+### 2026-09-06 · WS-01 독립 re-review APPROVE (r2) (`ws_01_verify`)
+
+- tip reviewed: `248e5ad256282f0b09bd1a53734c248243211052`
+- Fix SHA: `11658e046ecb7ce8eec6250401884142bc43fc2d`
+- prior REJECT tip: `588dc2ae9b5e1a6266672b240c650c4250ed9ac4` (`review.md` 보존)
+- reviewer: `ws_01_verify` (Owner≠Reviewer)
+- 판정: `APPROVE`, `AdversarialVerify=confirmed`, confidence 0.96
+- F1 종결: `/v1/chat/completions` tools 경로가 resolve→`request.state` bind 후 passthrough; tools+missing → 400 `missing_execution_context`, generate==0
+- F2 종결: `create_project`가 `X-AGK-Session-Id` 존중
+- 재실행: WS-01 **13 passed**; registry/ARC-01/openai_tool_bridge **43 passed**
+- 독립 adversarial probes: 6/6 PASS (tools missing/empty/project_id/session/create_project/non-tools)
+- Evidence: `.omo/evidence/commercial-ga-100/WS-01/review-r2.md`
+- 상태: `DONE`. **WS-02/WS-03/WS-04/CTX 착수 허용** (각 선행 조건 준수). Secondary note: `/v1/responses`·`/v1/messages` binding은 follow-up (WS-01 DONE gate 외).
 
 ### 2026-09-06 · WS-01 REJECT fix + re-review request (`ws_01_backend`)
 
@@ -250,16 +264,17 @@ tags: [commercialization, progress, evidence, multi-agent]
 | GA-00 | APPROVE | `7677bc391888ad13aa8413e32634f95912613d49` | ga_00_verify | 20 gates/8 categories, adversarial confirmed 0.99 | 2026-09-06 |
 | GOV-01 | APPROVE | `27844f48d77ebced90bcfed733b2dcc33aa5e9f3` | gov_01_verify | r2 APPROVE 0.95; prior REJECT closed | 2026-09-06 |
 | ARC-01 | APPROVE | `ede637a11fce67ff43eb32be2aacc1a0396b538c` | arc_01_verify | r2 escape boundary; 16+4+10 probes; prior REJECT closed | 2026-09-06 |
+| WS-01 | APPROVE | `11658e046ecb7ce8eec6250401884142bc43fc2d` | ws_01_verify | r2 tools bind before generate; 13+43 + 6 probes; prior REJECT closed | 2026-09-06 |
 
 ## 진행 중 작업
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| WS-01 | ws_01_backend | `codex/ws-01-project-binding` | REVIEW (REJECT) | tools chat binding bypass fix + `ws_01_verify` re-review APPROVE |
+| _(none)_ |  |  |  | WS-01 DONE; pick WS-02 / WS-03 / WS-04 / CTX per prerequisites |
 
 ## 차단 및 결정 대기
 
-`WS-01` r1 **REJECT** (`review.md`): `/v1/chat/completions` tools passthrough가 project binding 없이 `generate` side effect. 상태 **REVIEW** (DONE 아님). **WS-02/WS-03/WS-04/CTX 착수 금지** until fix + re-review APPROVE. ARC-01는 DONE (`ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다.
+없음. `WS-01` r2 **APPROVE** (`review-r2.md`); prior REJECT는 `review.md`에 보존. Fix SHA `11658e0`. ARC-01 DONE (`ede637a`). GOV-01 local-first / single-tenant / SaaS 제외 경계는 유지된다. 다음 lane: WS-02 / WS-03 / WS-04 / CTX (각 선행 조건).
 
 ## 증거 위치
 
