@@ -776,7 +776,16 @@ tags: [commercialization, progress, evidence, multi-agent]
 
 | Task | Owner | Branch | 단계 | 다음 종료 조건 |
 |---|---|---|---|---|
-| SEC-02 | sec_02_impl | `codex/sec-02-pin-rate-limit` | 구현 완료 — 독립 리뷰 대기 (base 6d3c515, 리베이스 완료) | 리뷰 r1 승인 + 병합 |
+| (없음 — 다음 병렬 레인 후보: SEC-03, TRN-01, EVO-01) | | | | |
+
+### 2026-09-07 · SEC-02 독립 리뷰 r1 APPROVE + 병합 DONE
+
+- **rebase 복구**: 구현 커밋이 pre-commit 충돌로 유실된 상태였음 — 리뷰어가 복구·커밋(`24c7ae3`)하고 baseline `25c4226`에 리베이스. 충돌 5파일 해소 원칙: SEC-01 fail-closed 정책 유지 + SEC-02 bearer-token-only 계약 적용. 정책 객체의 dead pin leg(`evaluate_credential`의 PBKDF2 경로)도 제거 — "PBKDF2는 rate-limited login/token에서만" 계약 완전 정합. 리베이스 자동병합이 남긴 WS gate 구 call부(pin kwarg)는 `eab18a4`에서 수정.
+- **독립 리뷰** (reviewer `sec_02_verify`, commit `5799d10`): 리뷰어 스크립트 12/12 PASS — (AC-1) 전 src 스캔에서 verify\_pin 호출처가 login/token route뿐 + 헤더/WS PIN → 거부·PBKDF2 0회 (AC-2) burst 5/sustained 20·600s/lockout 300s + key 분리 + record\_success 해제 (AC-3) 3종 이벤트 기록 + credential 스크럽 (AC-4) lockout 공격 200회 유발 CPU 0.3ms vs 동일 시도 통과 시 8,367ms — **4 orders of magnitude 절감**. 인접 스위트 147 passed.
+- **회귀 분석**: base `25c4226` vs branch `eab18a4` 전체 스위트 실패 목록 **byte-identical (21=21)** — 회귀 0건.
+- **병합**: `codex/sec-02-pin-rate-limit` → `codex/m1-task-events` (merge commit `3ec95e2`, `--no-ff`). 머지 후 인접 스위트 147 passed.
+- **최종 상태**: SEC-02 **DONE** (result SHA `eab18a4`, review commit `5799d10`, merge `3ec95e2`). 브랜치는 audit trail로 보존.
+- **현재 진행**: **16/33 DONE** (GA-00, GOV-01, ARC-01, WS-01→04, CTX-01→03, DAT-01→03, SEC-01, SEC-02).
 
 
 ## 차단 및 결정 대기

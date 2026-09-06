@@ -37,7 +37,7 @@ progress: docs/13_COMMERCIAL_GA_100_PROGRESS.md
 | DAT-02 | DONE | dat_02_vault | dat_02_verify (r1 APPROVE) | codex/dat-02-vault-isolation / Ssak-Ai-dat-02 | `0795142` | `.omo/evidence/commercial-ga-100/DAT-02/` | 병합 완료 (ff `8cec36c` → `codex/m1-task-events`) — 2026-09-06. 브랜치는 audit trail로 보존 |
 | DAT-03 | DONE | dat_03_registry | dat_03_verify (r1 APPROVE) | codex/dat-03-registry-atomic / Ssak-Ai-dat-03 | `f61e06f` | `.omo/evidence/commercial-ga-100/DAT-03/` | 병합 완료 (`ba5e1f3`) — 2026-09-06. AC 4건 독립 재현, 결함 0, 회귀 0. 브랜치는 audit trail로 보존 |
 | SEC-01 | DONE | sec_01_policy | sec_01_verify (독립 세션) | codex/sec-01-auth-policy / Ssak-Ai-sec-01 | `89ad09f` | `.omo/evidence/commercial-ga-100/SEC-01/` | 단일 fail-closed AuthPolicy (HTTP/SSE/WS) — r1 APPROVE (독립 재현 6/6), 병합 `f2a03c7`, 회귀 0 |
-| SEC-02 | REVIEW | sec_02_impl | sec_02_verify (할당 대기) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `3173097` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate + audit 구현 완료 — 수용기준 4건 green, 회귀 0건 — 독립 리뷰 대기 (baseline 25c4226 리베이스 완료) |
+| SEC-02 | DONE | sec_02_impl | sec_02_verify (독립 세션) | codex/sec-02-pin-rate-limit / Ssak-Ai-sec-02 | `eab18a4` | `.omo/evidence/commercial-ga-100/SEC-02/` | bearer-token-only 표면 + credential gate(burst 5/sustained 20·600s/lockout 300s) + secret-free audit — r1 APPROVE (독립 재현 12/12), 병합 `3ec95e2`, 회귀 0 (21=21) |
 | SEC-03 | TODO |  |  |  |  |  | SEC-01 |
 | EVO-01 | TODO |  |  |  |  |  | GA-00 |
 | EVO-02 | TODO |  |  |  |  |  | EVO-01 |
